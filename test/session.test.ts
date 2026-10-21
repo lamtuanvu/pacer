@@ -275,7 +275,7 @@ test.skipIf(!canInspectProcesses)("PTY stop kills the separate child group after
 for (const fault of ["callback", "exception", "rejection"] as const) {
   test(`host ${fault} fault disables recording while the child finishes`, async () => {
     const dir=temp();
-    writeFileSync(join(dir,"session.json"),JSON.stringify({cwd:dir,argv:["/bin/sh","-c",'printf first; sleep 1; echo survived > survived; printf last; exit 7']}));
+    writeFileSync(join(dir,"session.json"),JSON.stringify({pacerHome:join(dir,"home"),cwd:dir,argv:["/bin/sh","-c",'printf first; sleep 1; echo survived > survived; printf last; exit 7']}));
     const host=Bun.spawn([process.execPath,new URL("./fixtures/session/fault-runner.ts",import.meta.url).pathname],{env:{...process.env,FAULT_KIND:fault,FAULT_MARKER:join(dir,"fault"),SESSION_DIR:dir},stdout:"ignore",stderr:"ignore"});
     try {
       expect(await host.exited).toBe(7);
@@ -641,7 +641,7 @@ import { writeFileSync } from 'node:fs';
 const output=Recording.prototype.output;
 Recording.prototype.output=async function(data){if(Buffer.from(data).includes(Buffer.from('FAIL'))){writeFileSync(${JSON.stringify(join(dir,'failed'))},'');throw Error('disk failed');}return output.call(this,data);};
 process.exit(await sessionHost(${JSON.stringify(dir)}));`;
-  writeFileSync(join(dir,'session.json'),JSON.stringify({cwd:dir,argv:['/bin/sh','-c','exec </dev/tty; echo READY; sleep 0.3; echo FAIL; read line; echo "$line" > received; sleep 30']}));
+  writeFileSync(join(dir,'session.json'),JSON.stringify({pacerHome:join(dir,'home'),cwd:dir,argv:['/bin/sh','-c','exec </dev/tty; echo READY; sleep 0.3; echo FAIL; read line; echo "$line" > received; sleep 30']}));
   const host=Bun.spawn([process.execPath,'-e',script],{cwd:dir,stdout:'ignore',stderr:'ignore'});
   try{
     const {sessionSocket}=await import('../src/session/service');

@@ -7,7 +7,11 @@ import { computeStatus } from "../engine/status";
 import { renderText } from "../render/text";
 import { show } from "./service";
 import type { Ctx } from "../types";
+import { withWork } from "../update/desktop/admission";
 export async function build(ctx:Ctx,opts:{agent?:string;from?:string;brief?:string;worktree?:string}={}, deps:{open?:typeof openInTerminal}={}) {
+  return withWork(ctx, {kind:"operation", id:"strategy-build", label:"Opening strategy planning session"}, () => buildAdmitted(ctx,opts,deps));
+}
+async function buildAdmitted(ctx:Ctx,opts:{agent?:string;from?:string;brief?:string;worktree?:string}, deps:{open?:typeof openInTerminal}) {
   const strategy=loadStrategy(ctx), agent=opts.agent??strategy.planner.agent;
   if(!(PLANNERS as readonly string[]).includes(agent)) throw new Error("agent must be a configured planner: " + PLANNERS.join(", "));
   if((opts.brief?.length??0)>2000) throw new Error("brief must be at most 2000 characters");

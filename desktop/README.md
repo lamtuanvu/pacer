@@ -1,6 +1,6 @@
 # pacer desktop (U2)
 
-An unsigned macOS and Linux Tauri v2 shell with the pacer CLI bundled as a sidecar. The window
+A macOS and Linux Tauri v2 shell with the pacer CLI bundled: inside the signed macOS app (`Contents/Resources/pacer`, updated over the air), and as a sidecar in Linux packages. The window
 loads the existing web UI from the local service; first-run and recovery screens are
 bundled here. Closing the window keeps the native tray client running. Quit
 from the tray to exit; the Dock icon or Open pacer restores the window.
@@ -91,7 +91,7 @@ its executable modification time or `CFBundleVersion`. It requests a graceful
 Tauri exit and schedules an `open -n <bundle>` helper from the exit event. The helper waits for the old process to exit before launching
 the replacement bundle.
 The main window keeps its visibility and route; the tray reconnects to the
-service and restores its current status. Replacing the app also replaces its bundled CLI.
+service and restores its current status. Replacing or updating the app also replaces its bundled CLI.
 
 ### Linux
 
@@ -144,7 +144,7 @@ Icons are generated from `design/assets/pacer-mark.svg` with `bunx tauri icon`.
 
 ## Local service and authentication
 
-The shell searches the login shell's PATH, then `$HOME/.local/bin`,
+Development launches and Linux installations search the login shell's PATH, then `$HOME/.local/bin`,
 `/opt/homebrew/bin` and `/usr/local/bin` on macOS. Linux searches PATH,
 `$HOME/.local/bin/pacer`, `/usr/local/bin/pacer` and `/usr/bin/pacer`, in that
 order (duplicates removed). Only executable files qualify.
@@ -335,3 +335,58 @@ For screenshots, open `desktop/ui/index.html` or serve `desktop/ui/` statically:
 
 Previews never run commands. The shell CSS embeds the shared design tokens;
 `test/desktop-shell.test.ts` verifies those tokens and the page behavior.
+
+## Complete macOS package staging
+
+A macOS package includes its CLI/service, UI assets and `pacer-update-helper`.
+The desktop uses only `Contents/Resources/pacer` when launched from an app
+bundle. Missing or incompatible bundled metadata is an installation error;
+`PACER_BIN` and PATH are development discovery options only. Linux keeps its
+separate CLI discovery.
+
+`release:prepare` synchronizes the package, Cargo, Cargo lockfile and Tauri
+versions. To stage an unsigned test package, run from the repository root after
+building the native app:
+
+```sh
+bun run release --host
+cargo build --offline --locked --release --manifest-path desktop/src-tauri/Cargo.toml --bin pacer-update-helper
+# Replace VERSION with the package version and ARCH with aarch64 or x86_64.
+cp -R desktop/src-tauri/target/release/bundle/macos/pacer.app dist/release/VERSION/pacer.app
+cp desktop/src-tauri/target/release/pacer-update-helper dist/release/VERSION/pacer-update-helper
+bun scripts/release/desktop.ts dist/release/VERSION ARCH
+```
+
+The last command prints a fresh staging directory containing `pacer.app`.
+It checks the CLI manifest/checksums, all three native executable architectures
+and version smoke tests, and app identity. It adds the resources and release
+metadata before signing. Use this complete copy for validation; the intermediate
+Tauri bundle has no bundled CLI and cannot discover one elsewhere. Staging
+removes the incomplete app's signature envelope. It does not sign, notarize,
+install, or publish the output. The manual macOS workflow archives this complete
+unsigned copy. A distributable OTA artifact requires the separate signed release
+pipeline and both architecture validations.
+
+## Production OTA packaging
+
+For update controls, ownership rules and recovery guidance, see
+[Desktop updates](../docs/desktop-updates.md).
+
+The pinned desktop CLI is Tauri 2.12.3. Production signing and publication live in
+`release.yml`, separately from the unsigned manual desktop workflow. See
+[the signed desktop release contract](../docs/distribution.md#signed-macos-desktop-updates)
+for required credentials, native architecture jobs, immutable assets and atomic
+feed promotion. Publishing stays disabled until explicitly configured after the
+signed native validation matrix is accepted.
+
+A production bundle compiles fixed trust with `ota-production`; its shell and
+helper must report `fixture:false`. The bundled CLI compiles the same Apple Team
+ID through the desktop-only build option. Complete staging builds `Contents/Frameworks/libpacer-native.dylib` for the target
+architecture with Xcode clang and records native transport ABI1. The library is
+signed with the same Team before the CLI, helper and app; library validation
+remains enabled. Complete staging precedes all signing;
+Apple notarization and stapling precede the final updater archive/signature.
+Unsigned development builds and explicit `ota-fixture` builds cannot qualify for
+the production feed. The release-only fixture driver exercises real Tauri artifact
+signatures and local Git promotion using data-only packages; it does not exercise
+native installation or notarization.

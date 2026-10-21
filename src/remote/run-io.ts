@@ -1,4 +1,6 @@
-import { appendFileSync, mkdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { beginWorkSync, attachRunEvidenceSync, finishWorkSync, reconcileAdmissionSync } from "../update/desktop/admission";
+import { createHash } from "node:crypto";
+import { appendFileSync, readFileSync, mkdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { HostCfg } from "../config/hosts";
 import { type RunIO, Unreachable } from "../supervisor/io";
@@ -48,6 +50,7 @@ export class RemoteRunIO implements RunIO {
   }
 
   async start(argv: string[], cwd: string, env: Record<string, string>, stdin: string, options: { session?: "pty" | "pipe"; capBytes?: number } = {}): Promise<{ pid: number } | { error: string }> {
+    let lease: string | undefined, sent = false;
     try {
       for (const key of Object.keys(env)) if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) throw new Error(`invalid environment key ${key}`);
       let execution;
@@ -55,9 +58,16 @@ export class RemoteRunIO implements RunIO {
       const full = this.host.session === "full";
       const mode = options.session ?? execution?.session ?? "pipe";
       const wrapper = mode === "pty" ? ptyWrapper(WRAPPER_SH) : WRAPPER_SH;
+      lease = beginWorkSync(this.ctx, { kind: "session", id: createHash("sha256").update(`${this.host.alias}:${this.remoteDir}`).digest("hex"), label: `Remote session on ${this.host.alias}` });
+      attachRunEvidenceSync(this.ctx, lease, this.localDir, { host: this.host.alias, dir: this.remoteDir });
+      mkdirSync(this.localDir, { recursive: true });
+      writeFileSync(join(this.localDir, "admission.json"), JSON.stringify({ lease, host: this.host.alias, remoteDir: this.remoteDir }), { mode: 0o600 });
+      if (full) sent = true; // Binary staging can also outlive a lost SSH response.
       const binary = full ? await ensureRemoteBinary(this.ctx,this.host,this.runtime) : undefined;
-      const launch = full ? JSON.stringify({argv,cwd,capBytes: options.capBytes ?? (execution?.sessionLogMb ?? 8)*1024*1024})+"\n" : wrapper;
-      const result = await this.run(SCRIPTS.START, [this.remoteDir, cwd, full ? "full" : mode, ...(binary ? [binary] : []), ...Object.entries(env).map(([key, value]) => `${key}=${value}`), "--", ...argv], `${launch}__PACER_STDIN__\n${stdin}`);
+      const launch = full ? JSON.stringify({argv,cwd,completionNonce:lease,capBytes: options.capBytes ?? (execution?.sessionLogMb ?? 8)*1024*1024})+"\n" : wrapper;
+      sent = true;
+      const launchEnv = { ...env, PACER_COMPLETION_NONCE: lease };
+      const result = await this.run(SCRIPTS.START, [this.remoteDir, cwd, full ? "full" : mode, ...(binary ? [binary] : []), ...Object.entries(launchEnv).map(([key, value]) => `${key}=${value}`), "--", ...argv], `${launch}__PACER_STDIN__\n${stdin}`);
       const started = fields(result.stdout);
       if (started.error) return { error: `remote start refused: ${started.error}` };
       const pid = number(started.pid);
@@ -68,7 +78,7 @@ export class RemoteRunIO implements RunIO {
       if (full) writeFileSync(join(this.localDir,"session.remote-full"),this.host.alias,{mode:0o600});
       if (mode === "pty") writeFileSync(join(this.localDir,"session.json"), JSON.stringify({capBytes: options.capBytes ?? (execution?.sessionLogMb ?? 8)*1024*1024}), {mode:0o600});
       return { pid };
-    } catch (e) { return { error: e instanceof Error ? e.message : String(e) }; }
+    } catch (e) { if (lease && !sent) finishWorkSync(this.ctx, lease); return { error: e instanceof Error ? e.message : String(e) }; }
   }
 
   async read(): Promise<RunState> {
@@ -147,6 +157,17 @@ export class RemoteRunIO implements RunIO {
     for (const [file, value] of [["pid", pid], ["started", startedAt], ["exit", pending ? null : exit]] as const) {
       if (value !== null) writeFileSync(join(this.localDir, file), String(value));
       else rmSync(join(this.localDir, file), { force: true });
+    }
+    if (!pending && exit !== null && report.admission_complete) {
+      // A host-bound nonce receipt proves the exact detached launch completed.
+      // Generic exit files, missing PIDs and synthetic STOP exits never do.
+      try {
+        const binding = JSON.parse(readFileSync(join(this.localDir, "admission.json"), "utf8"));
+        if (binding.host === this.host.alias && binding.remoteDir === this.remoteDir && binding.lease === report.admission_complete) {
+          writeFileSync(join(this.localDir, "admission.complete"), binding.lease + "\n", { mode: 0o600 });
+          reconcileAdmissionSync(this.ctx);
+        }
+      } catch { /* Missing/malformed binding remains unresolved. */ }
     }
     const times = [Number(pty ? report.raw : report.out) ? number(pty ? report.rawm : report.outm) : null, Number(report.err) ? number(report.errm) : null].filter((t): t is number => t !== null);
     return {

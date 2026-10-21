@@ -1,4 +1,5 @@
 import { realpathSync } from "node:fs";
+import { isBundledExecutable } from "./desktop/identity";
 import { refreshIntegrations, refreshStrategy } from "../commands/update-refresh";
 import { restartAfterUpdate } from "../service";
 import type { Result } from "../commands/types";
@@ -86,8 +87,9 @@ function installHint(d: UpdateDeps): string | undefined {
   })) {
     return "pacer was installed with Homebrew; update with: brew upgrade pacer";
   }
-  if (/\.app\/Contents\/(MacOS|Resources)\/pacer$/.test(real)) {
-    return "pacer came with the pacer app; update the app instead (download it again from https://github.com/lamtuanvu/pacer/releases/latest)";
+  // The desktop app updates its own bundled CLI with the complete app.
+  if (isBundledExecutable(d.execPath) || /\.app\/Contents\/(MacOS|Resources)\/pacer$/.test(real)) {
+    return "this executable belongs to the desktop app; use Settings → Updates in the desktop to update the complete app";
   }
   return undefined;
 }

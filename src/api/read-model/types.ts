@@ -45,6 +45,7 @@ export interface HostSummary { alias: string; ssh: string; state: "unknown" | "p
 export interface SetupSummary { complete: boolean; ready?: boolean; open: number; items: import("../../setup/checklist").SetupItem[] }
 export interface ServiceInfo { projectStrategyError?: string; version: string; protocol: string; pid: number; startedAt: number; starting?: true; waiting?: import("../../core/path-probe").Waiting; notifier: { client_id: string; kind: import("../../clients/registry").ClientEntry["kind"] } | null }
 export interface ReadModelFields {
+ desktopUpdates?: import("../../update/desktop/types").UpdateStatus[];
  pause: PauseState | null; attention: AttentionItem[]; service: ServiceInfo; planner: PlannerMeter | null; counts: Counts; today: Today;
  machine: {used: number; max: number};
  executors: ExecutorRow[]; accounts: AccountSummary[]; hosts: HostSummary[]; repos: RepoRef[]; setup: SetupSummary;
@@ -59,6 +60,6 @@ export interface Job {
  steps: { name: string; state: "pending" | "running" | "passed" | "failed" | "skipped"; detail?: string }[];
  startedAt: number; endedAt?: number; error?: { code: string; message: string; hint?: string };
 }
-export const ENTITY_EVENT_TYPES = ["planner", "executor", "account", "host", "repo", "counts", "attention", "job", "activity", "notify"] as const;
+export const ENTITY_EVENT_TYPES = ["desktop.update", "planner", "executor", "account", "host", "repo", "counts", "attention", "job", "activity", "notify"] as const;
 
 export type SnapshotV3 = ReadModelFields & Pick<LinkSnapshot, "seq" | "at" | "mode"> & { tasks: ApiTask[]; strategies: NonNullable<LinkSnapshot["strategies"]> };

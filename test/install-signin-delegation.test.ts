@@ -118,7 +118,7 @@ async function browserFetch(page: Page, path: string, params?: Record<string, un
 }
 
 for (const [name, engine] of Object.entries({ chromium, webkit })) {
-  e2e(`${name}: cross-site desktop sign-in and fake delegation reach review`, async () => {
+  e2e(`${name}: cross-site desktop sign-in and fake delegation reach explicit review`, async () => {
     const s = await sandbox();
     let taskId: string | undefined;
     let browser: Awaited<ReturnType<typeof engine.launch>> | undefined;
@@ -165,35 +165,44 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       taskId = task.task_id;
       expect(taskId).toBeTruthy();
       const deadline = Date.now() + 45_000;
-      let completed = false;
+      let completed: { state: string; rev: number; review?: unknown } | undefined;
       while (Date.now() < deadline) {
         const { snapshot } = await browserFetch(page, "/v3/snapshot");
         const row = snapshot.tasks.find((t: { id: string }) => t.id === taskId);
         if (row && ["failed", "limit", "stopped", "partial"].includes(row.state)) throw Error(`Fake delegation settled as ${row.state}: ${JSON.stringify(row)}`);
         if (row?.state === "done") {
           expect(row.review).toBeFalsy();
+          // Completion is task history; only an explicit handoff needs a decision.
           expect(snapshot.attention.some((a: { kind: string; taskId?: string }) => a.kind === "review" && a.taskId === taskId)).toBe(false);
-          completed = true;
+          completed = row;
           break;
         }
         await Bun.sleep(250);
       }
-      expect(completed).toBe(true);
-      expect(readFileSync(join(s.repo, "takeover-change.txt"), "utf8")).toContain("headless change");
-      // Completion is quiet until the planner explicitly asks for a decision.
-      await browserFetch(page, "/v3/ops/task.request_review", { id: taskId, note: "Check the headless change" });
-      // Snapshot reads are stale-while-revalidate; wait for the request to appear.
-      let reviewRequested = false;
-      const reviewDeadline = Date.now() + 10_000;
-      while (Date.now() < reviewDeadline) {
+      expect(completed).toBeDefined();
+      const note = "Check the generated takeover-change.txt before accepting the result.";
+      const { result: handoff } = await browserFetch(page, "/v3/ops/task.request_review", {
+        id: taskId, note, expect_rev: completed!.rev,
+      });
+      expect(handoff.task.state).toBe("done");
+      expect(handoff.task.reviewRequest.note).toBe(note);
+      expect(handoff.task.review).toBeFalsy();
+      // Snapshot projection refreshes asynchronously; retain the original deadline.
+      let reviewed = false;
+      while (Date.now() < deadline) {
         const { snapshot } = await browserFetch(page, "/v3/snapshot");
+        const requested = snapshot.tasks.find((t: { id: string }) => t.id === taskId);
         if (snapshot.attention.some((a: { kind: string; taskId?: string }) => a.kind === "review" && a.taskId === taskId)) {
-          reviewRequested = true;
+          expect(requested.state).toBe("done");
+          expect(requested.reviewRequest.note).toBe(note);
+          expect(requested.review).toBeFalsy();
+          reviewed = true;
           break;
         }
         await Bun.sleep(250);
       }
-      expect(reviewRequested).toBe(true);
+      expect(reviewed).toBe(true);
+      expect(readFileSync(join(s.repo, "takeover-change.txt"), "utf8")).toContain("headless change");
     } finally {
       if (taskId) await s.cli("stop", taskId).catch(error => console.error(`Task cleanup: ${error.message}`));
       try { await browser?.close(); }

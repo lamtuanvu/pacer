@@ -1,3 +1,4 @@
+import { beginWorkSync, finishWorkSync } from "../update/desktop/admission";
 import { publish } from "../link/publish";
 import { redactEndpointError } from "../endpoints/state";
 import { currentVersion } from "../update/version";
@@ -128,6 +129,7 @@ export async function startJob(
   ctx: Ctx, kind: Job["kind"], target: string, steps: string[], run: (step: StepApi) => Promise<void>,
   o: { cancellable?: boolean; onChange?: OnChange; awaitRestart?: boolean } = {},
 ): Promise<Job> {
+  const admission = beginWorkSync(ctx, { kind: "operation", id: randomUUID(), label: kind });
   // Only creation is locked: work must not block a second caller reading its id.
   const { job, created } = await withLock(ctx, "jobs", async () => {
     const existing = listJobs(ctx, { target }).find(j => j.kind === kind && j.state === "running");
@@ -135,8 +137,8 @@ export async function startJob(
     const job: Job = { id: randomUUID(), kind, target, state: "running", steps: steps.map(name => ({ name, state: "pending" })), startedAt: ctx.now, pid: process.pid, cancellable: o.cancellable ?? false };
     save(ctx, job, o.onChange);
     return { job, created: true };
-  });
-  if (!created) return job;
+  }).catch(error => { finishWorkSync(ctx, admission); throw error; });
+  if (!created) { finishWorkSync(ctx, admission); return job; }
   if (o.onChange) observers.set(key(ctx, job.id), o.onChange);
   const controller = new AbortController(); controllers.set(key(ctx, job.id), controller);
   const started = Date.now(), now = () => ctx.now + (Date.now() - started) / 1000;
@@ -170,7 +172,7 @@ export async function startJob(
     await publications.get(resolve(ctx.pacerHome));
     return job;
   };
-  const completion = execute();
+  const completion = execute().finally(() => finishWorkSync(ctx, admission));
   if (daemons.has(resolve(ctx.pacerHome))) {
     // Persisted failures are returned through job.get; prevent unhandled rejection on I/O failure.
     void completion.catch(() => {});

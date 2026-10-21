@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { openInTerminal, type TerminalDeps } from "../src/terminal/open";
 import * as config from "../src/core/config";
 import { fakeCtx, realRun } from "./helpers";
+import { reserveIdle } from "../src/update/desktop/admission";
 
 function deps(overrides: Partial<TerminalDeps> = {}) {
   const calls: string[][] = [];
@@ -66,4 +67,54 @@ test("opening a terminal removes scripts older than one hour", async () => {
   await openInTerminal(ctx, { argv: ["true"], title: "New" }, d.deps);
   expect(existsSync(old)).toBe(false);
   expect(readdirSync(join(ctx.pacerHome, "terminal"))).toHaveLength(1);
+});
+
+test("maintenance refuses a terminal before any launcher is called", async () => {
+  const ctx = fakeCtx(), d = deps();
+  expect((await reserveIdle(ctx, "terminal-maintenance")).reserved).toBe(true);
+  await expect(openInTerminal(ctx, { argv: ["true"], title: "Blocked" }, d.deps)).rejects.toThrow("maintenance");
+  expect(d.calls).toEqual([]);
+  expect(existsSync(join(ctx.pacerHome, "terminal"))).toBe(false);
+});
+
+test("terminal launch stays admitted until the exact command completes", async () => {
+  const ctx = fakeCtx(), d = deps();
+  const result = await openInTerminal(ctx, { argv: ["sh", "-c", "exit 7"], title: "Tracked" }, d.deps);
+  expect(result.command).toBe("sh -c 'exit 7'");
+  expect((await reserveIdle(ctx, "terminal-complete")).reserved).toBe(false);
+  expect((await realRun([d.calls[0]![3]!], 5000)).code).toBe(7);
+  expect((await reserveIdle(ctx, "terminal-complete")).reserved).toBe(true);
+});
+
+test("fallback launches have independent completion receipts", async () => {
+  const ctx = fakeCtx();
+  const d = deps({ platform: "linux", env: { TMUX: "session" }, run: async argv => {
+    d.calls.push(argv);
+    return { code: argv[0] === "tmux" ? 0 : 1, stdout: "", stderr: "" };
+  } });
+  await openInTerminal(ctx, { argv: ["true"], title: "Fallback" }, d.deps);
+  const first = d.calls[0]![2]!;
+  const second = d.calls[1]![2]!;
+  expect(first).not.toBe(second);
+  expect((await realRun([first], 5000)).code).toBe(0);
+  expect((await reserveIdle(ctx, "terminal-fallback")).reserved).toBe(false);
+  expect((await realRun(["/bin/sh", "-c", second], 5000)).code).toBe(0);
+  expect((await reserveIdle(ctx, "terminal-fallback")).reserved).toBe(true);
+});
+
+test("headless command has no pending terminal launch", async () => {
+  const ctx = fakeCtx(), d = deps({ platform: "linux", which: () => null });
+  await openInTerminal(ctx, { argv: ["true"], title: "Headless" }, d.deps);
+  expect((await reserveIdle(ctx, "terminal-headless")).reserved).toBe(true);
+});
+
+test("a terminal script cannot replay a completed launch during maintenance", async () => {
+  const ctx = fakeCtx(), d = deps();
+  const marker = join(ctx.pacerHome, "terminal-starts");
+  await openInTerminal(ctx, { argv: ["sh", "-c", 'printf x >> "$1"', "sh", marker], title: "Once" }, d.deps);
+  const script = d.calls[0]![3]!;
+  expect((await realRun([script], 5000)).code).toBe(0);
+  expect((await reserveIdle(ctx, "terminal-replay")).reserved).toBe(true);
+  expect((await realRun([script], 5000)).code).not.toBe(0);
+  expect(readFileSync(marker, "utf8")).toBe("x");
 });

@@ -1,0 +1,7 @@
+{
+  "mainBinaryName": "pacer",
+  "bundle": {
+    "externalBin": [],
+    "resources": { "PrivacyInfo.xcprivacy": "PrivacyInfo.xcprivacy" }
+  }
+}

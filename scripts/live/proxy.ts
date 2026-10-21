@@ -1,6 +1,7 @@
 import type { ServerWebSocket } from "bun";
 import { readFileSync } from "node:fs";
 import { record, type Session } from "./core";
+import { authorizeFixtureRequest } from "./ota-request";
 
 /** D8 policy source of truth; the procedure table is checked against these rows. */
 export const BLOCKED_OPS: Readonly<Record<string, string>> = {
@@ -23,6 +24,7 @@ export const BLOCKED_OPS: Readonly<Record<string, string>> = {
   "runner.add": "interactiveTerminal opens a real terminal (whole op refused conservatively)",
   "task.attach": "openSession can switch/create Orca terminals or split real tmux (whole op refused conservatively)",
   "host.clean": "hosts.cleanJob removes worktrees on remote hosts (whole op refused conservatively)",
+  "desktop.update.*": "all desktop update operations except status require a verified OTA fixture",
   "plugin.remove": "plugins.remove deletes a plugin folder under the home (whole op refused conservatively)",
   "service.*": "all service operations except service.status can change the real login service",
 };
@@ -32,7 +34,7 @@ export function refusedOp(method: string, pathname: string): string | undefined 
   const match = pathname.match(/^\/v[23]\/ops\/(.*)$/);
   if (!match) return;
   const op = match[1];
-  if (Object.hasOwn(BLOCKED_OPS, op) || (op.startsWith("service.") && op !== "service.status")) return op;
+  if (Object.hasOwn(BLOCKED_OPS, op) || (op.startsWith("service.") && op !== "service.status") || (op.startsWith("desktop.update.") && op !== "desktop.update.status")) return op;
 }
 
 export function upstreamHeaders(input: Headers, publicPort: number, innerPort: number): Headers {
@@ -71,7 +73,7 @@ export function startProxy(session: Session) {
         return Response.json({ pid: process.pid }, { headers: { "x-pacer-live-proxy": "1" } });
       }
       const op = refusedOp(req.method, url.pathname);
-      if (op) {
+      if (op && !await authorizeFixtureRequest(session, req)) {
         const message = `Live validation D8: ${op} changes the real user environment`;
         record(session, { kind: "note", behavior: `D8 blocked ${op}`, surface: "API proxy", verdict: "UNVERIFIED", steps: `${req.method} ${url.pathname}`, text: message });
         return Response.json({ error: { code: "forbidden", message } }, { status: 403 });

@@ -5,7 +5,7 @@ Every tagged release (`vX.Y.Z`, see [CONTRIBUTING](../CONTRIBUTING.md#releasing)
 | Channel | Install | Built from |
 | --- | --- | --- |
 | GitHub Releases | download `pacer-<os>-<arch>` and check it against `SHA256SUMS` | `release.yml` |
-| Desktop app | download `pacer-<version>-<os>-<arch>-unsigned.dmg`, `.AppImage` or `.deb`; see [desktop](../desktop/README.md) | `release.yml` |
+| Desktop app | macOS: download `desktop-pacer-<version>-darwin-<arch>.app.tar.gz` (signed, updates itself); Linux: `pacer-<version>-linux-<arch>-unsigned.AppImage` or `.deb`; see [desktop](../desktop/README.md) | `release.yml` |
 | install.sh | `curl -fsSL https://raw.githubusercontent.com/lamtuanvu/pacer/main/install.sh \| sh` | GitHub Releases |
 | npm | `npm install -g @lamtuanvu/pacer` | `bun run release:npm` |
 | Homebrew | `brew install lamtuanvu/tap/pacer` | `bun run release:homebrew` |
@@ -65,3 +65,118 @@ gh workflow run release.yml -f version=<x.y.z> -f dry_run=true
 The workflow checks the input against `package.json`, builds and smoke-tests all four binaries, writes metadata, and prints asset SHA-256 hashes and release notes. npm packages are generated from workflow artifacts and checked with `npm publish --dry-run` regardless of `NPM_TRUSTED_PUBLISHING`. Homebrew generates and prints its formula and checks it with `ruby -c` without needing the tap token.
 
 Dry runs skip attestations, GitHub release uploads, npm publication and tap pushes. Build artifacts expire after one day. A dispatch with `dry_run=false` is refused; only version tags can publish releases.
+
+## Signed macOS desktop updates
+
+Desktop releases are independent of the CLI's `latest.json`. A stable desktop
+feed is published at
+`https://raw.githubusercontent.com/lamtuanvu/pacer/desktop-updates/stable.json`
+only after **both** native macOS packages pass signature, notarization,
+architecture and embedded metadata validation. A CLI-only release, prerelease,
+failed build or missing architecture leaves the existing desktop feed in place.
+Linux desktop builds remain unsigned manual workflow artifacts.
+
+The release workflow has an opt-in `desktop-release` environment. Keep the
+repository variable `PACER_DESKTOP_RELEASE_ENABLED` unset until the signed native
+validation matrix and baseline manual installation have been accepted. The
+implementation does not configure credentials or enable publishing. With the
+variable set to `true`, stable version tags build natively on `macos-15`
+(Apple Silicon) and `macos-15-intel` (Intel), sign and notarize each complete app,
+then validate the pair on macOS before publishing. Runner availability is
+specified by [GitHub's hosted runner matrix](https://docs.github.com/en/actions/reference/runners/github-hosted-runners);
+a successful local ARM build does not establish Intel coverage.
+
+Release CI requires these explicitly configured inputs:
+
+| Input | Storage | Purpose |
+| --- | --- | --- |
+| `PACER_OTA_PUBLIC_KEY` | Actions variable | Base64 Tauri updater public key, compiled into the native app/helper |
+| `PACER_APPLE_TEAM_ID` | Actions variable | Ten-character Team ID compiled into the app/helper and desktop's bundled CLI |
+| `PACER_APPLE_SIGNING_IDENTITY` | Actions variable | Exact 40-hex Developer ID Application certificate fingerprint |
+| `PACER_APPLE_CERTIFICATE_BASE64`, `PACER_APPLE_CERTIFICATE_PASSWORD` | Protected secrets | Developer ID Application P12 and its password |
+| `PACER_NOTARY_KEY`, `PACER_NOTARY_KEY_ID`, `PACER_NOTARY_ISSUER` | Protected secret for the key; variables for IDs | App Store Connect API key for notarization |
+| `TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Protected secrets | Tauri updater signing key and optional password |
+
+Until pacer has an Apple Developer ID, releases use the interim signer instead of the three Apple rows above ([design](specs/2026-10-20-interim-self-signed-ota-design.md)):
+
+| Input | Storage | Purpose |
+| --- | --- | --- |
+| `PACER_SIGNING_CERT_SHA1` | Actions variable | SHA-1 of the project's self-signed code-signing certificate, compiled into the app, helper and bundled CLI in place of the Team ID |
+| `PACER_SELF_SIGNING_CERTIFICATE_BASE64`, `PACER_SELF_SIGNING_CERTIFICATE_PASSWORD` | Protected secrets (`desktop-release`) | The certificate's P12 and its password, created with `bun scripts/release/self-signing-cert.ts <new-dir>` |
+
+Interim builds are signed without hardened runtime or an Apple timestamp, are not notarized, and are verified per component against the pinned certificate requirement. Users approve the first launch once (System Settings › Privacy & Security › Open Anyway); updates install without prompts. A bridge release that pins both the certificate and a Team ID moves installed apps to Developer ID builds. macOS desktop downloads come only from this signed pipeline; Linux packages keep the bundled sidecar CLI.
+
+These are build/release inputs, never runtime update configuration. Production
+native builds use the `ota-production` Cargo feature and fail closed without
+trust inputs. The bundled CLI is built separately under `dist/desktop-cli` with
+`--desktop-production`, so its compiled Team ID and manifest/checksums cannot
+replace standalone CLI release bytes. Ordinary CLI builds retain their existing
+behavior. Updater key backup and custody must be arranged before the first
+baseline release: losing the private key prevents signing updates for apps that
+pin its public key. Key rotation needs a separately reviewed migration.
+
+The signer creates a private temporary keychain, imports only the release
+certificate, signs the fixed native transport library, CLI and helper before the
+outer app, and restores the
+original keychain search list during cleanup. An `always()` cleanup step can
+resume after cancellation from its private record. No login keychain import or
+unsigned fallback is supported. The Bun CLI receives only `allow-jit`; the Rust
+executables receive no runtime exceptions. After the final signatures, each native CI runner executes the CLI transport
+self-test with its verified library, private socket and kernel peer identity,
+and starts the helper's native runtime with its updater plugin.
+Failure blocks notarization and publication. Real Developer ID execution on both
+architectures remains a release prerequisite. The current package supports
+regular files/directories, three executables and
+`Contents/Frameworks/libpacer-native.dylib`. Xcode clang builds the library from
+the tracked transport source for the package architecture and macOS 11 minimum.
+It has the identifier `dev.pacer.desktop.native-shim` and the same signing Team
+as the CLI. A compatible detached CLI uses only the library beside its own
+executable. Compiled native-enabled CLIs never fall back to runtime C compilation.
+Library validation stays enabled; additional nested code or symlink payloads
+require a reviewed signing/extraction contract.
+
+After Apple accepts the complete signed app, the pipeline staples the ticket,
+checks it with `stapler` and Gatekeeper, and archives exactly `pacer.app` with
+AppleDouble generation disabled. Tauri CLI **2.12.3** signs the final bytes with
+`--app-version`; its globally signed trusted comment binds the intended version.
+The generator validates that binding, the SHA-256, Apple Team ID and identifiers,
+all three thin executable architectures, the thin Mach-O library, and signed `pacer-release.json`
+compatibility metadata, including `nativeTransportAbi:1`. Missing or incompatible
+libraries reject the package before execution. Production metadata has `fixture:false`.
+
+Immutable GitHub release assets are:
+
+- `desktop-pacer-VERSION-darwin-aarch64.app.tar.gz` and `.sig`
+- `desktop-pacer-VERSION-darwin-x86_64.app.tar.gz` and `.sig`
+- `desktop-release-VERSION.json`, with changelog notes and the release commit date
+
+The `desktop-` prefix keeps existing CLI download patterns unchanged. Publication
+creates assets only if absent and downloads them to verify exact bytes before
+promotion. Existing different bytes are a conflict; there is no overwrite or
+clobber path. Retry the promotion job with the **original** artifact set and
+signatures. Rebuilding timestamps or resigning the same version can produce
+conflicting bytes and is not a publishing retry.
+
+The final feed commit is signed off and uses GitHub's
+[`updateRefs` compare-and-swap](https://docs.github.com/en/graphql/reference/git#updaterefs)
+with the observed old commit and `force:false`. A competing promotion cannot be
+silently overwritten. A lost response is accepted only after rereading the exact
+validated feed. Downgrades and changed same-version feeds are refused.
+
+For a credential-free local release-pipeline exercise:
+
+```sh
+bun install --frozen-lockfile
+(cd desktop && bun install --frozen-lockfile)
+bun scripts/release/desktop-feed-fixture.ts --fixture .work/fixtures/desktop-release-new
+```
+
+The output directory must not exist. This explicit fixture driver builds
+**data-only fixture archives**, creates disposable keys, uses the real pinned
+Tauri signer, verifies signatures, publishes only to a local bare Git repository,
+and checks an identical retry. It deletes its private keys. Its report marks
+native app installation, Apple signing/notarization and remote publication as
+`UNVERIFIED`; it cannot authorize the production publisher. Release dry-run
+workflow dispatches run this fixture exercise as well. Native `ota-fixture`
+manager scenarios are a separate live-harness exercise. Production validation
+never substitutes fixture results for signed app evidence.

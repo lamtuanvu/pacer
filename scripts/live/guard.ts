@@ -5,6 +5,7 @@ import { checkout, sandboxEnv, type Session } from "./core";
 /** D3 applies before dispatch, including calls made by the TUI or task runner. */
 export function refusal(args: string[]): string | undefined {
   const [command, action] = args;
+  if (command === "desktop-update" && action !== "status") return "D3: desktop update requires a verified OTA fixture";
   if (["install", "uninstall", "init", "setup", "statusline", "update", "orca"].includes(command)) return `D3: ${command} changes the real user environment`;
   const blocked: Record<string, string[]> = { service: ["install", "uninstall"], plugin: ["uninstall", "remove"], account: ["add", "rm", "login"], host: ["setup"] };
   if (blocked[command]?.includes(action)) return `D3: ${command} ${action} changes the real user environment`;

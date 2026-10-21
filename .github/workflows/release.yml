@@ -103,16 +103,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-latest
-            target: aarch64-apple-darwin
-            platform: darwin-arm64
-            cli_artifact: binaries-macos-latest
-            bundles: dmg
-          - runner: macos-latest
-            target: x86_64-apple-darwin
-            platform: darwin-x64
-            cli_artifact: binaries-macos-latest
-            bundles: dmg
+          # macOS desktop downloads are the signed, auto-updating app from desktop-build.
           - runner: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
             platform: linux-x64
@@ -177,9 +168,6 @@ jobs:
           bundle="desktop/src-tauri/target/$TARGET/release/bundle"
           mkdir -p dist/desktop
           case "$PLATFORM" in
-            darwin-*)
-              cp "$bundle"/dmg/*.dmg "dist/desktop/pacer-$VERSION-$PLATFORM-unsigned.dmg"
-              ;;
             linux-*)
               case ",$BUNDLES," in
                 *,appimage,*) cp "$bundle"/appimage/*.AppImage "dist/desktop/pacer-$VERSION-$PLATFORM-unsigned.AppImage" ;;
@@ -221,13 +209,13 @@ jobs:
         run: bun scripts/release/build.ts --write-only
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          pattern: desktop-*
+          pattern: desktop-linux-*-unsigned
           path: dist/release/${{ env.VERSION }}
           merge-multiple: true
       - name: Add desktop checksums
         run: |
           cd "dist/release/$VERSION"
-          sha256sum pacer-*-unsigned.dmg pacer-*-unsigned.AppImage pacer-*-unsigned.deb >> SHA256SUMS
+          sha256sum pacer-*-unsigned.AppImage pacer-*-unsigned.deb >> SHA256SUMS
       - name: Extract release notes
         run: |
           awk -v heading="## [$VERSION]" '
@@ -391,3 +379,160 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git commit -s -m "pacer $VERSION"
           git_auth push origin HEAD:main
+
+  # Opt-in only after the signed native validation matrix has been accepted.
+  # Existing CLI/npm/Homebrew/plugin jobs never depend on desktop completion.
+  desktop-build:
+    needs: verify
+    if: >-
+      github.event_name == 'push' && vars.PACER_DESKTOP_RELEASE_ENABLED == 'true' &&
+      !contains(needs.verify.outputs.version, '-')
+    environment: desktop-release
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: aarch64
+          - runner: macos-15-intel
+            arch: x86_64
+    env:
+      VERSION: ${{ needs.verify.outputs.version }}
+      ARCH: ${{ matrix.arch }}
+      PACER_OTA_PUBLIC_KEY: ${{ vars.PACER_OTA_PUBLIC_KEY }}
+      PACER_APPLE_TEAM_ID: ${{ vars.PACER_APPLE_TEAM_ID }}
+      # Interim signer until a Developer ID exists (docs/specs/2026-10-20-interim-self-signed-ota-design.md).
+      PACER_SIGNING_CERT_SHA1: ${{ vars.PACER_SIGNING_CERT_SHA1 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.2
+      - name: Verify native runner and production trust
+        run: |
+          set -euo pipefail
+          test -n "$PACER_OTA_PUBLIC_KEY"
+          test -n "$PACER_APPLE_TEAM_ID" || test -n "$PACER_SIGNING_CERT_SHA1"
+          actual=$(uname -m)
+          if test "$actual" = arm64; then actual=aarch64; fi
+          test "$actual" = "$ARCH"
+      - run: bun install --frozen-lockfile
+      - run: bun install --frozen-lockfile
+        working-directory: desktop
+      - name: Fetch pinned Rust dependencies
+        working-directory: desktop/src-tauri
+        run: |
+          rustup show active-toolchain
+          cargo fetch --locked
+      - name: Build production desktop components offline
+        env:
+          CARGO_NET_OFFLINE: 'true'
+        run: |
+          set -euo pipefail
+          bun scripts/release/build.ts --host --desktop-production --out dist/desktop-cli
+          (cd desktop && bunx --no-install tauri build --bundles app --no-sign --features ota-production)
+          cargo build --offline --locked --release --features ota-production --manifest-path desktop/src-tauri/Cargo.toml --bin pacer-update-helper
+          cp -R desktop/src-tauri/target/release/bundle/macos/pacer.app "dist/desktop-cli/$VERSION/pacer.app"
+          cp desktop/src-tauri/target/release/pacer-update-helper "dist/desktop-cli/$VERSION/pacer-update-helper"
+      - name: Sign complete app (Developer ID builds also notarize and staple) and version-sign final artifact
+        env:
+          # The runner context is unavailable in job-level env; both credential steps set it.
+          PACER_SIGNING_CLEANUP_RECORD: ${{ runner.temp }}/pacer-desktop-sign.json
+          PACER_SELF_SIGNING_CERTIFICATE_BASE64: ${{ secrets.PACER_SELF_SIGNING_CERTIFICATE_BASE64 }}
+          PACER_SELF_SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.PACER_SELF_SIGNING_CERTIFICATE_PASSWORD }}
+          PACER_APPLE_SIGNING_IDENTITY: ${{ vars.PACER_APPLE_SIGNING_IDENTITY }}
+          PACER_APPLE_CERTIFICATE_BASE64: ${{ secrets.PACER_APPLE_CERTIFICATE_BASE64 }}
+          PACER_APPLE_CERTIFICATE_PASSWORD: ${{ secrets.PACER_APPLE_CERTIFICATE_PASSWORD }}
+          PACER_NOTARY_KEY: ${{ secrets.PACER_NOTARY_KEY }}
+          PACER_NOTARY_KEY_ID: ${{ vars.PACER_NOTARY_KEY_ID }}
+          PACER_NOTARY_ISSUER: ${{ vars.PACER_NOTARY_ISSUER }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: bun scripts/release/desktop-credentials.ts "dist/desktop-cli/$VERSION" "$ARCH" dist/desktop-assets
+      - name: Clean ephemeral signing credentials
+        if: always()
+        env:
+          PACER_SIGNING_CLEANUP_RECORD: ${{ runner.temp }}/pacer-desktop-sign.json
+        run: bun scripts/release/desktop-credentials.ts --cleanup
+      - uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3.0.0
+        with:
+          subject-path: dist/desktop-assets/*.app.tar.gz
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: desktop-signed-${{ matrix.arch }}
+          path: dist/desktop-assets/*
+          if-no-files-found: error
+          retention-days: 7
+
+  desktop-publish:
+    needs: [verify, desktop-build, publish]
+    if: >-
+      github.event_name == 'push' && vars.PACER_DESKTOP_RELEASE_ENABLED == 'true' &&
+      !contains(needs.verify.outputs.version, '-')
+    environment: desktop-release
+    runs-on: macos-15
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.verify.outputs.version }}
+      PACER_OTA_PUBLIC_KEY: ${{ vars.PACER_OTA_PUBLIC_KEY }}
+      PACER_APPLE_TEAM_ID: ${{ vars.PACER_APPLE_TEAM_ID }}
+      PACER_SIGNING_CERT_SHA1: ${{ vars.PACER_SIGNING_CERT_SHA1 }}
+      PACER_DESKTOP_RELEASE_ENABLED: ${{ vars.PACER_DESKTOP_RELEASE_ENABLED }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: desktop-signed-*
+          path: dist/desktop-assets
+          merge-multiple: true
+      - name: Prepare deterministic desktop metadata
+        run: bun scripts/release/desktop-release.ts prepare dist/desktop-assets "$VERSION"
+      - name: Verify both signed architecture packages before any publication
+        run: bun scripts/release/desktop-release.ts validate dist/desktop-assets "$VERSION" > dist/desktop-feed-preview.json
+      - name: Publish immutable desktop assets and compare-and-swap stable feed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bun scripts/release/desktop-release.ts publish dist/desktop-assets "$VERSION"
+
+  desktop-fixture:
+    needs: verify
+    if: github.event_name == 'workflow_dispatch' && inputs.dry_run
+    runs-on: macos-15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - run: bun install --frozen-lockfile
+        working-directory: desktop
+      - name: Exercise local fixture signing, immutable retry and feed promotion
+        run: bun scripts/release/desktop-feed-fixture.ts --fixture dist/desktop-feed-fixture
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: desktop-feed-fixture-evidence
+          path: |
+            dist/desktop-feed-fixture/report.json
+            dist/desktop-feed-fixture/stable.json
+          if-no-files-found: error
+          retention-days: 7

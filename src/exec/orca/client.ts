@@ -10,7 +10,7 @@ export interface StatusResult {
   runtime?: { state?: string; reachable?: boolean; appVersion?: string };
 }
 export interface RepoRow { id: string; path: string }
-export interface TerminalRow { handle: string; connected?: boolean; writable?: boolean; preview?: string; worktreePath?: string }
+export interface TerminalRow { handle: string; incarnationId?: string; exitCause?: { kind: string }; connected?: boolean; writable?: boolean; preview?: string; worktreePath?: string }
 export interface RunRow { id: string; coordinator_handle?: string; objective?: string }
 export interface WorkerStartResult {
   runId?: string;
@@ -23,6 +23,7 @@ export interface WorkerStartResult {
   effects?: OrcaEffect[];
   recovery?: string;
 }
+export interface WorkerClosureResult { dispatchId?: string; state?: string; processAction?: string; close?: { handle?: string; ptyKilled?: boolean } }
 export interface WorkerRow { state?: string; stage?: string; worktreeId?: string; agentTerminalHandle?: string; lastError?: string | null }
 export interface OrcaMessage { id: string; type: string; from_handle?: string; subject?: string; body?: string; payload?: string | null }
 export interface CheckResult { deliveryId?: string | null; messages: OrcaMessage[]; timedOut?: boolean; acknowledged?: string | null }
@@ -143,8 +144,8 @@ export class OrcaClient {
   workerRead(dispatch: string, limit: number) {
     return this.call<{ terminal?: { tail?: string[] } }>(["orchestration", "worker-read", "--dispatch", dispatch, "--limit", String(limit)]);
   }
-  workerStop(dispatch: string) { return this.call<{ state?: string }>(["orchestration", "worker-stop", "--dispatch", dispatch]); }
-  workerRelease(dispatch: string) { return this.call<{ state?: string }>(["orchestration", "worker-release", "--dispatch", dispatch]); }
+  workerStop(dispatch: string) { return this.call<WorkerClosureResult>(["orchestration", "worker-stop", "--dispatch", dispatch]); }
+  workerRelease(dispatch: string) { return this.call<WorkerClosureResult>(["orchestration", "worker-release", "--dispatch", dispatch]); }
   reply(o: { id: string; body: string; run: string; from: string }) {
     return this.call<Record<string, unknown>>(["orchestration", "reply", "--id", o.id, "--body", o.body, "--run", o.run, "--from", o.from]);
   }

@@ -24,9 +24,17 @@ fn executable(path: &Path) -> bool {
         .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
 }
 
+/// The CLI packaged in this app bundle (`Contents/Resources/pacer`), only when the
+/// complete signed OTA bundle layout validates.
 fn bundled_binary() -> Option<PathBuf> {
-    let path = std::env::current_exe().ok()?.parent()?.join("pacer");
-    executable(&path).then_some(path)
+    let current = std::env::current_exe().ok()?;
+    match pacer_desktop::packaging::packaged_cli(&current) {
+        Ok(path) => path.filter(|path| executable(path)),
+        Err(error) => {
+            desktop_log!("{error}");
+            None
+        }
+    }
 }
 
 fn external_binary(path: &str, home: &Path, bundled: Option<&Path>) -> Option<PathBuf> {
@@ -107,7 +115,10 @@ async fn service_uses_cli(cli: &Cli) -> bool {
         let Ok(home) = required_home(std::env::var_os("HOME").as_deref()) else {
             return false;
         };
-        match manager_output("launchctl", &launchctl_args("print")).await {
+        let Ok(args) = launchctl_args("print") else {
+            return false;
+        };
+        match manager_output("launchctl", &args).await {
             Ok(output) if output.status.success() => loaded_job_matches(
                 &String::from_utf8_lossy(&output.stdout),
                 &cli.binary,
@@ -444,6 +455,172 @@ async fn wait_for_snapshot(app: &AppHandle, session: &Session) -> Result<Value, 
     }
 }
 
+fn retry_native_connection<T>(
+    mut connect: impl FnMut() -> Result<T, pacer_desktop::ota::OtaError>,
+) -> Result<T, pacer_desktop::ota::OtaError> {
+    for attempt in 0..3 {
+        match connect() {
+            Ok(value) => return Ok(value),
+            Err(error) if attempt == 2 => return Err(error),
+            Err(_) => std::thread::sleep(Duration::from_millis(250)),
+        }
+    }
+    unreachable!()
+}
+
+type NativeSupervision = (PathBuf, PathBuf, u16, pacer_desktop::ota::trust::ReleaseTrust);
+
+/// Closes an unpublished native connection if its session future is cancelled.
+/// The blocking handshake owns this guard before handing its result to the runtime.
+struct PendingConnection<T> {
+    value: Option<T>,
+    close: fn(&T),
+}
+impl<T> PendingConnection<T> {
+    fn new(value: T, close: fn(&T)) -> Self {
+        Self { value: Some(value), close }
+    }
+    fn publish(mut self) -> T {
+        self.value.take().unwrap()
+    }
+}
+impl<T> Drop for PendingConnection<T> {
+    fn drop(&mut self) {
+        if let Some(value) = &self.value {
+            (self.close)(value);
+        }
+    }
+}
+impl<T> std::ops::Deref for PendingConnection<T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        self.value.as_ref().unwrap()
+    }
+}
+
+/// One verified native connection attempt (bounded retries), off the async runtime.
+async fn connect_native(
+    handle: AppHandle,
+    user_home: PathBuf,
+    home: PathBuf,
+    port: u16,
+    trust: pacer_desktop::ota::trust::ReleaseTrust,
+    ticket: Option<pacer_desktop::ota::control::LaunchTicket>,
+    adoption: Option<pacer_desktop::ota::control::AdoptionReconnectPlan>,
+) -> Result<
+    Result<PendingConnection<std::sync::Arc<pacer_desktop::ota::control::NativeConnection>>, pacer_desktop::ota::OtaError>,
+    String,
+> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let callback = std::sync::Arc::new(move |kind: &str| {
+            let shell = handle.state::<Shell>();
+            if kind == "maintenance" {
+                shell.maintenance.store(true, Ordering::SeqCst);
+                #[cfg(target_os = "macos")]
+                shell.relaunch.lock().unwrap().take();
+            }
+            if kind == "resume" {
+                shell.maintenance.store(false, Ordering::SeqCst);
+                shell.adoption.lock().unwrap().take();
+            }
+            if kind == "adoption-reconnect" {
+                shell.maintenance.store(true, Ordering::SeqCst);
+                shell.expired.notify_one();
+            }
+            if kind == "shutdown" {
+                handle.exit(0);
+            }
+        });
+        retry_native_connection(|| {
+            // Each attempt rechecks the registration and signed process;
+            // no failed observation becomes authority for the next one.
+            let registered = pacer_desktop::ota::control::inspect_registered_service(
+                &user_home, &home, port, &trust,
+            )?;
+            pacer_desktop::ota::control::NativeConnection::connect_adoption(
+                &registered.endpoint(),
+                &trust,
+                ticket.as_ref(),
+                adoption.as_ref(),
+                callback.clone(),
+            )
+            .map(|native| PendingConnection::new(native, |native| native.close()))
+        })
+    })
+    .await
+    .map_err(|_| "Native service verification failed".to_owned())
+}
+
+/// When should a signed-in ordinary launch try to restore native update authority?
+/// Never during maintenance, an adoption hand-off, or a helper-launched release:
+/// those flows own the connection and end the session instead.
+pub(crate) fn native_reconnect_due(
+    alive: Option<bool>,
+    maintenance: bool,
+    connection_maintenance: bool,
+    reconnect_plan: bool,
+    ticket: bool,
+) -> bool {
+    alive != Some(true) && !maintenance && !connection_maintenance && !reconnect_plan && !ticket
+}
+
+/// Restores native update authority that dropped (or was refused at sign-in) while
+/// the web session stays connected. Backs off to 30 seconds; never ends the session.
+async fn supervise_native(app: &AppHandle, supervision: Option<NativeSupervision>) {
+    let Some((user_home, home, port, trust)) = supervision else {
+        return std::future::pending().await;
+    };
+    let mut delay = Duration::from_secs(2);
+    let mut reported = false;
+    loop {
+        tokio::time::sleep(delay).await;
+        let shell = app.state::<Shell>();
+        let current = shell.native.lock().unwrap().clone();
+        let due = native_reconnect_due(
+            current.as_ref().map(|native| native.alive()),
+            shell.maintenance.load(Ordering::SeqCst),
+            current.as_ref().is_some_and(|native| native.maintenance_active()),
+            current.as_ref().is_some_and(|native| native.reconnect_plan().is_some())
+                || shell.adoption.lock().unwrap().is_some(),
+            shell.navigation.lock().unwrap().ticket().is_some(),
+        );
+        if !due {
+            delay = Duration::from_secs(2);
+            continue;
+        }
+        match connect_native(app.clone(), user_home.clone(), home.clone(), port, trust.clone(), None, None).await {
+            Ok(Ok(native)) => {
+                // An ordinary launch carries no readiness proof; the signed-in page already
+                // completed its own check, so only acknowledge after startup is ready.
+                let ready = shell.startup.lock().unwrap().is_ready();
+                let acknowledged = !ready || {
+                    let native = std::sync::Arc::clone(&native);
+                    tauri::async_runtime::spawn_blocking(move || native.document_ready(None))
+                        .await
+                        .is_ok_and(|result| result.is_ok())
+                };
+                if acknowledged {
+                    if let Some(previous) = shell.native.lock().unwrap().replace(native.publish()) {
+                        previous.close();
+                    }
+                    desktop_log!("pacer lifecycle: native update authority restored");
+                    reported = false;
+                    delay = Duration::from_secs(2);
+                    continue;
+                }
+                // Dropping the unpublished result closes it, including when this
+                // future is cancelled during document_ready above.
+            }
+            Ok(Err(error)) if !reported => {
+                desktop_log!("pacer lifecycle: native update authority unavailable; retrying: {error}");
+                reported = true;
+            }
+            _ => {}
+        }
+        delay = (delay * 2).min(Duration::from_secs(30));
+    }
+}
+
 async fn connected(app: &AppHandle, cli: &Cli, first_run: &mut FirstRun) -> Result<(), String> {
     desktop_log!("pacer lifecycle: requesting desktop sign-in link");
     let web_auth = cli.auth().await?;
@@ -479,15 +656,89 @@ async fn connected(app: &AppHandle, cli: &Cli, first_run: &mut FirstRun) -> Resu
     if logic::local_origin(&web_auth).as_deref() != Some(&session.origin) {
         return Err("stopped".into());
     }
+    // Native update authority for an ordinary launch is re-established if it drops.
+    let mut supervision = None;
+    if let Some(trust) = pacer_desktop::ota::trust::ReleaseTrust::configured() {
+        let user_home = PathBuf::from(std::env::var_os("HOME").ok_or("Native user home missing")?);
+        let home = cli.pacer_home.clone();
+        let port = service_port();
+        let handle = app.clone();
+        let ticket = app
+            .state::<Shell>()
+            .navigation
+            .lock()
+            .unwrap()
+            .ticket()
+            .cloned();
+        let adoption = app.state::<Shell>().adoption.lock().unwrap().clone();
+        let maintenance_launch = ticket.is_some() || adoption.is_some();
+        if !maintenance_launch {
+            supervision = Some((user_home.clone(), home.clone(), port, trust.clone()));
+        }
+        let native = connect_native(
+            handle,
+            user_home.clone(),
+            home.clone(),
+            port,
+            trust.clone(),
+            ticket,
+            adoption,
+        )
+        .await?;
+        match native {
+            Ok(native) => {
+                #[cfg(feature = "ota-fixture")]
+                if let Some(ticket) = app.state::<Shell>().navigation.lock().unwrap().ticket() {
+                    if ticket.desktop_version == env!("CARGO_PKG_VERSION")
+                        && pacer_desktop::ota::fixture_fault::consume(
+                            pacer_desktop::ota::fixture_fault::Point::CandidateStartup,
+                            &ticket.installation_id,
+                            &ticket.transaction_id,
+                        )
+                        .map_err(|_| "Fixture startup fault verification failed")?
+                    {
+                        unsafe {
+                            libc::_exit(86);
+                        }
+                    }
+                }
+                *app.state::<Shell>().native.lock().unwrap() = Some(native.publish());
+            }
+            Err(error) if maintenance_launch => {
+                desktop_log!("pacer lifecycle: native maintenance verification failed: {error}");
+                return Err("Native maintenance verification failed".into());
+            }
+            Err(error) => desktop_log!(
+                "pacer lifecycle: native update authority unavailable for this service: {error}"
+            ),
+        }
+    }
+    #[cfg(feature = "ota-fixture")]
+    {
+        let tray_auth = cli.auth().await?;
+        if !logic::fixture_tray_auth(&tray_auth, &session.origin) {
+            return Err("Isolated tray service origin changed".into());
+        }
+        *app.state::<Shell>().fixture_tray_auth.lock().unwrap() = Some(tray_auth);
+    }
     crate::activate(app, &session.origin, web_auth)?;
     *app.state::<Shell>().session.lock().unwrap() = Some(session.clone());
     crate::update_tray(app, TrayModel::from_snapshot(&snapshot));
     let shell = app.state::<Shell>();
-    tokio::select! {
+    let result = tokio::select! {
         result = listen(app, &session, &client_id, seq) => result,
         result = heartbeat(app, &session, &client_id) => result,
+        _ = supervise_native(app, supervision) => Err("stopped".into()),
         _ = shell.expired.notified() => Err("sessionExpired".into()),
+    };
+    if let Some(native) = shell.native.lock().unwrap().take() {
+        if let Some(plan) = native.reconnect_plan() {
+            *shell.adoption.lock().unwrap() = Some(plan);
+        }
+        native.close();
     }
+    shell.navigation.lock().unwrap().invalidate();
+    result
 }
 async fn monitor_health(client: &Client) -> Result<(), String> {
     loop {
@@ -1031,6 +1282,11 @@ pub async fn run(app: AppHandle) {
             cli.is_some(),
             cfg!(target_os = "macos"),
         );
+        let page = update_copy(
+            &app,
+            page,
+            matches!(probe, logic::HealthProbe::Ready | logic::HealthProbe::Starting),
+        );
         let detail = match (page, &owner) {
             ("permission", _) => logic::diagnosis(page, waiting),
             ("foreign", Some(owner)) => logic::foreign_diagnosis(
@@ -1050,12 +1306,18 @@ pub async fn run(app: AppHandle) {
             logic::RecoveryAction::Install
             | logic::RecoveryAction::Start
             | logic::RecoveryAction::Restart => {
+                if app.state::<Shell>().maintenance.load(Ordering::SeqCst) {
+                    continue;
+                }
                 if !app.path().app_config_dir().is_ok_and(|config| consent_choice(&config).0) {
                     desktop_log!("pacer lifecycle: waiting for setup consent before service changes");
                     continue;
                 }
                 let mut action_job = job;
                 for name in logic::service_steps(action) {
+                    if app.state::<Shell>().maintenance.load(Ordering::SeqCst) {
+                        break;
+                    }
                     if let Err(error) = service_action(cli.as_ref(), name, action_job).await {
                         app.state::<Shell>().startup.lock().unwrap().failed(
                             std::time::Instant::now(),
@@ -1097,7 +1359,11 @@ pub async fn run(app: AppHandle) {
                         if app.state::<Shell>().session.lock().unwrap().is_some() {
                             lifecycle.ready();
                         }
-                        let page = logic::recovery_page(&error);
+                        let page = update_copy(
+                            &app,
+                            logic::recovery_page(&error),
+                            !matches!(error.as_str(), "stopped" | "diagnose"),
+                        );
                         crate::diagnostic_recovery(&app, &logic::diagnosis(page, None));
                     }
                 } else {
@@ -1123,6 +1389,86 @@ pub async fn run(app: AppHandle) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn cancelled_native_connect_closes_its_late_result() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let (release, wait) = std::sync::mpsc::channel();
+        let closed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let observed = closed.clone();
+        let task = runtime.spawn_blocking(move || {
+            wait.recv().unwrap();
+            PendingConnection::new(observed, |closed| closed.store(true, Ordering::SeqCst))
+        });
+        drop(task);
+        release.send(()).unwrap();
+        drop(runtime);
+        assert!(closed.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn cancelled_native_readiness_closes_even_with_a_worker_reference() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let closed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let worker = closed.clone();
+        let (ready, waiting) = std::sync::mpsc::channel();
+        let task = runtime.spawn(async move {
+            let _pending = PendingConnection::new(closed, |closed| {
+                closed.store(true, Ordering::SeqCst)
+            });
+            ready.send(()).unwrap();
+            std::future::pending::<()>().await;
+        });
+        waiting.recv().unwrap();
+        task.abort();
+        assert!(runtime.block_on(task).unwrap_err().is_cancelled());
+        assert!(worker.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn published_native_connection_stays_open_for_the_session() {
+        let closed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let pending = PendingConnection::new(closed.clone(), |closed| {
+            closed.store(true, Ordering::SeqCst)
+        });
+        let native = pending.publish();
+        assert!(!native.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn native_authority_reconnects_only_for_an_ordinary_signed_in_launch() {
+        use super::native_reconnect_due as due;
+        // Dropped or never-established authority on an ordinary launch is restored.
+        assert!(due(Some(false), false, false, false, false));
+        assert!(due(None, false, false, false, false));
+        // A live connection is left alone.
+        assert!(!due(Some(true), false, false, false, false));
+        // Maintenance, adoption hand-offs and helper-launched releases own the connection.
+        assert!(!due(Some(false), true, false, false, false));
+        assert!(!due(Some(false), false, true, false, false));
+        assert!(!due(None, false, false, true, false));
+        assert!(!due(None, false, false, false, true));
+    }
+    #[test]
+    fn native_connection_retries_fresh_verification_and_remains_bounded() {
+        let mut attempts = 0;
+        let result = super::retry_native_connection(|| {
+            attempts += 1;
+            if attempts < 3 {
+                Err(pacer_desktop::ota::OtaError::Unavailable)
+            } else {
+                Ok(7)
+            }
+        });
+        assert_eq!(result.unwrap(), 7);
+        assert_eq!(attempts, 3);
+        attempts = 0;
+        let result: Result<(), _> = super::retry_native_connection(|| {
+            attempts += 1;
+            Err(pacer_desktop::ota::OtaError::Identity)
+        });
+        assert!(result.is_err());
+        assert_eq!(attempts, 3);
+    }
     use super::*;
     use std::io::{Read, Write};
     struct TempDir(PathBuf);
@@ -1553,6 +1899,58 @@ mod tests {
     }
 }
 
+/// This desktop's installation as a native update manifest names it, when it runs from a bundle.
+fn this_installation() -> Option<crate::update_journal::ThisInstallation> {
+    let executable = std::env::current_exe().ok()?.canonicalize().ok()?;
+    let app = executable.parent()?.parent()?.parent()?.to_path_buf();
+    if app.extension().is_none_or(|extension| extension != "app")
+        || executable.strip_prefix(&app).ok()? != Path::new("Contents/MacOS/pacer")
+    {
+        return None;
+    }
+    Some(crate::update_journal::ThisInstallation {
+        home: pacer_home().canonicalize().ok()?,
+        app,
+        port: service_port(),
+    })
+}
+
+/// Replace the generic starting page with bundled update copy. The journal check is
+/// read-only, runs only while the service is not answering, and only selects copy.
+fn update_copy(app: &AppHandle, page: &'static str, answering: bool) -> &'static str {
+    if page != "starting" {
+        return page;
+    }
+    let shell = app.state::<Shell>();
+    let maintenance = shell.maintenance.load(Ordering::SeqCst);
+    let ticket = shell.navigation.lock().unwrap().ticket().cloned();
+    let installation = (ticket.is_some() || !answering)
+        .then(this_installation)
+        .flatten();
+    let restoring = match (&ticket, &installation) {
+        (Some(ticket), Some(installation)) => crate::update_journal::restoration_launch(
+            installation,
+            &ticket.installation_id,
+            &ticket.transaction_id,
+            env!("CARGO_PKG_VERSION"),
+        ),
+        _ => false,
+    };
+    let journal = if answering {
+        None
+    } else {
+        installation
+            .as_ref()
+            .and_then(crate::update_journal::latest)
+            .and_then(|latest| latest.copy(std::time::SystemTime::now()))
+    };
+    let selected = logic::update_page(page, maintenance, restoring, journal);
+    if selected != page && shell.recovery.lock().unwrap().as_str() != selected {
+        desktop_log!("pacer lifecycle: showing bundled update page {selected}");
+    }
+    selected
+}
+
 fn service_port() -> u16 {
     std::env::var("PACER_PORT")
         .ok()
@@ -1602,11 +2000,29 @@ async fn manager_output(program: &str, args: &[String]) -> Result<std::process::
         .map_err(|_| "Unable to run service manager".to_owned())
 }
 #[cfg(target_os = "macos")]
-fn launchctl_args(action: &str) -> Vec<String> {
+fn launchctl_args(action: &str) -> Result<Vec<String>, String> {
     extern "C" {
         fn getuid() -> u32;
     }
-    logic::launchctl_args(unsafe { getuid() }, action)
+    let uid = unsafe { getuid() };
+    #[cfg(feature = "ota-fixture")]
+    {
+        let trust = pacer_desktop::ota::trust::ReleaseTrust::configured()
+            .ok_or("Fixture trust unavailable")?;
+        let policy = trust.fixture_policy().ok_or("Fixture policy unavailable")?;
+        policy
+            .validate_live()
+            .map_err(|_| "Fixture lease unavailable")?;
+        if !same_path(&pacer_home(), &policy.home) || service_port() != policy.port {
+            return Err("Fixture service scope mismatch".into());
+        }
+        return Ok(logic::launchctl_args(uid, action)
+            .into_iter()
+            .map(|arg| arg.replace("com.pacer.serve", &policy.service_label))
+            .collect());
+    }
+    #[cfg(not(feature = "ota-fixture"))]
+    Ok(logic::launchctl_args(uid, action))
 }
 async fn job_state(home: &Path, port: u16) -> (logic::JobState, Option<logic::JobOwner>) {
     use logic::JobState;
@@ -1616,7 +2032,11 @@ async fn job_state(home: &Path, port: u16) -> (logic::JobState, Option<logic::Jo
     };
     #[cfg(target_os = "macos")]
     {
-        match manager_output("launchctl", &launchctl_args("print")).await {
+        let args = match launchctl_args("print") {
+            Ok(args) => args,
+            Err(_) => return (JobState::Unknown, None),
+        };
+        match manager_output("/bin/launchctl", &args).await {
             Ok(output) if output.status.success() => {
                 let text = String::from_utf8_lossy(&output.stdout);
                 if let Some(owner) = owned(&logic::launchd_environment(&text)) {
@@ -1671,6 +2091,13 @@ async fn service_action(
     action: &str,
     job: logic::JobState,
 ) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    if let Some(trust) = pacer_desktop::ota::trust::ReleaseTrust::configured() {
+        let cli = cli.ok_or("No located or bundled pacer CLI")?;
+        let user_home = PathBuf::from(std::env::var_os("HOME").ok_or("Native user home missing")?);
+        return pacer_desktop::ota::control::managed_service_action(&user_home, &cli.pacer_home, service_port(), action, &trust)
+            .await.map_err(|_| "Unable to start this managed service safely; attached services require explicit adoption".into());
+    }
     if action == "install" {
         if job == logic::JobState::Foreign {
             return Err("The pacer service belongs to another pacer folder".into());
@@ -1683,7 +2110,7 @@ async fn service_action(
         return Err("Unable to confirm the pacer service".to_owned());
     }
     #[cfg(target_os = "macos")]
-    let output = manager_output("launchctl", &launchctl_args(action)).await?;
+    let output = manager_output("/bin/launchctl", &launchctl_args(action)?).await?;
     #[cfg(not(target_os = "macos"))]
     let output = {
         let job = if job == logic::JobState::Unknown {

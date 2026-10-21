@@ -1,3 +1,5 @@
+import { beginWorkSync, claimWorkSync, attachRunEvidenceSync, finishWorkSync } from "../update/desktop/admission";
+import { makeCtx } from "../ctx";
 import { readReport, writeReport } from "./reports";
 import { createServer, createConnection } from "node:net";
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
@@ -10,7 +12,7 @@ import { FrameType, WireDecoder, wire } from "./framing";
 import { SecretMasker } from "./masking";
 import { killTree } from "../exec/process";
 import { WRAPPER_SH } from "../supervisor/wrapper";
-export interface SessionLaunch { takeover?:boolean; interactive?:boolean; argv:string[]; cwd:string; capBytes?:number; pacerHome?:string }
+export interface SessionLaunch { completionNonce?:string; takeover?:boolean; interactive?:boolean; argv:string[]; cwd:string; capBytes?:number; pacerHome?:string }
 export function socketPath(dir:string):string {
   const direct=join(dir,"session.sock");
   if(Buffer.byteLength(direct) < 104) return direct;
@@ -46,6 +48,20 @@ export async function pipeSession(path:string):Promise<number> {
 /** Detached host entry point. Configuration is prepared by startRun; no strategy reads here. */
 export async function sessionHost(dir:string):Promise<number> {
   if(dir.startsWith("socket:"))return pipeSession(dir.slice(7));
+  const config = JSON.parse(readFileSync(join(dir,"session.json"),"utf8")) as SessionLaunch;
+  const ctx = makeCtx({ pacerHome: config.pacerHome ?? dirname(dirname(dirname(dir))) });
+  const inherited = process.env.PACER_ADMISSION_DIR === dir ? process.env.PACER_ADMISSION_SESSION : undefined;
+  const lease = inherited ?? beginWorkSync(ctx, { kind: "session", id: createHash("sha256").update(dir).digest("hex"), label: "Executor session" });
+  claimWorkSync(ctx, lease);
+  attachRunEvidenceSync(ctx, lease, dir);
+  // Executor subprocesses must not inherit the private admission capability.
+  delete process.env.PACER_ADMISSION_SESSION; delete process.env.PACER_ADMISSION_DIR; delete process.env.PACER_COMPLETION_NONCE;
+  const result = await sessionHostAdmitted(dir);
+  writeFileSync(join(dir, "admission.complete"), (config.completionNonce ?? lease) + "\n", { mode: 0o600 });
+  finishWorkSync(ctx, lease);
+  return result;
+}
+async function sessionHostAdmitted(dir:string):Promise<number> {
   const launch=JSON.parse(readFileSync(join(dir,"session.json"),"utf8")) as SessionLaunch;
   if(launch.cwd.startsWith("~/"))launch.cwd=join(process.env.HOME ?? "",launch.cwd.slice(2));
   const atomic=(name:string,value:string)=>{writeFileSync(join(dir,`${name}.tmp`),value,{mode:0o600});renameSync(join(dir,`${name}.tmp`),join(dir,name));};

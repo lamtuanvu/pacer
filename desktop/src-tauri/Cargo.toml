@@ -3,9 +3,35 @@ name = "pacer-desktop"
 version = "0.5.0"
 edition = "2021"
 license = "Apache-2.0"
+default-run = "pacer"
+autobins = false
+
+[lib]
+name = "pacer_desktop"
+path = "src/lib.rs"
+
+[[bin]]
+name = "pacer"
+path = "src/main.rs"
+
+[[bin]]
+name = "pacer-update-helper"
+path = "src/bin/pacer-update-helper.rs"
+
+[features]
+ota-production = []
+ota-fixture = []
 
 [build-dependencies]
+sha2 = "0.10"
+base64 = "0.22"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+libc = "0.2"
 tauri-build = { version = "2", features = [] }
+
+[dev-dependencies]
+tauri = { version = "2", features = ["test"] }
 
 [dependencies]
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
@@ -16,13 +42,24 @@ tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 tauri-plugin-window-state = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.10"
+url = "2"
+libc = "0.2"
+base64 = "0.22"
 plist = "1"
+semver = "1"
+flate2 = "1"
+tar = "0.4"
+tempfile = "3"
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls", "cookies"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "time"] }
 futures-util = "0.3"
 tauri-plugin-positioner = { version = "2", features = ["tray-icon"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
+security-framework = "3.7"
+core-foundation = "0.10"
+tauri-plugin-updater = { path = "../vendor/tauri-plugin-updater", version = "=2.14.0", default-features = false, features = ["rustls-tls", "no-elevation"] }
 block2 = "0.6.2"
 objc2 = "0.6.5"
 objc2-foundation = { version = "0.3.2", features = ["NSBundle", "NSError"] }

@@ -106,6 +106,8 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
         { n: model.waiting, label: "waiting", route: "/sessions?filter=waiting" },
         { n: model.done, label: "done today", route: "/sessions?filter=done" },
       ].map(cell => <TextAction key={cell.label} className="tray-count" href={appHref(cell.route)} onClick={navigate(cell.route)}><b className={!cell.n ? "tray-muted" : cell.warn ? "tray-idle" : undefined}>{cell.n}</b><span>{cell.label}</span></TextAction>)}</nav>
+      {/* Update status sits above the fold: it can need action before the task lists. */}
+      {model.update && <TextAction className="tray-waiting" href={appHref(model.update.route)} onClick={navigate(model.update.route)}><StatusGlyph status={model.update}/><span className="tray-grow">{model.update.label}</span><span aria-hidden="true">›</span></TextAction>}
       {model.attention.length ? <section className="tray-section" aria-label="Needs you"><SectionHeading className="tray-attention-heading">Needs you</SectionHeading>
         {model.attention.slice(0, 3).map(item => {
           const action = primaryAction(item.actions);

@@ -111,7 +111,7 @@ export function eventsSince(ctx:Ctx,since:number,protocol:2|3=2):{events:ApiEven
    const a=e.data as import('../link/envelope').AlertData;
    event={...e,seq,type:'notify',data:{key:`${a.key}:${a.at}`,title:a.title,body:a.body,actions:[],url:'/app/#/'}};
   } else event={...e,seq,type:e.type};
-  Object.defineProperty(event,V2_EVENT,{value:e.type==="planner"?null:e});
+  Object.defineProperty(event,V2_EVENT,{value:e.type==="planner"||e.type==="desktop.update"?null:e});
   return event;
  });
  if(protocol===2)return {...batch,events:converted.map(toV2Event).filter(e=>e!==null)};

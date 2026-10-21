@@ -1,0 +1,2 @@
+# Unified patch context lines legitimately contain one space.
+pacer.patch whitespace=-blank-at-eol
