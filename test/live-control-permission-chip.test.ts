@@ -16,5 +16,10 @@ test.skipIf(process.platform!=="darwin")("permission chip follows Settings, flip
  expect(p.every((v:{contained:boolean})=>v.contained)).toBe(true);
  expect(p.slice(0,4).every((v:{overlap:boolean})=>!v.overlap)).toBe(true);
  expect(p[4].compact).toBe(true);expect(p[5].compact).toBe(true);
+ const orphanResult=join(tmpDir(),"orphan-result.json");
+ const launcher=Bun.spawn([output,"launcher",orphanResult],{stdout:"ignore",stderr:"ignore"});
+ expect(await launcher.exited).toBe(0);
+ for(let attempt=0;attempt<100 && !await Bun.file(orphanResult).exists();attempt++) await Bun.sleep(20);
+ expect((await Bun.file(orphanResult).json()).status).toBe("cancelled");
  expect(result.bundles).toEqual(["/Applications/Host.app",null,"/Applications/Ứng dụng.app"]);
 },30000);

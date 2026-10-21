@@ -1,6 +1,24 @@
 import Foundation
+import AppKit
 @main struct LayoutTests {
-    static func main() throws {
+    @MainActor static func main() throws {
+        if CommandLine.arguments.count > 2 {
+            let mode=CommandLine.arguments[1], path=CommandLine.arguments[2]
+            if mode == "launcher" {
+                let child=Process();child.executableURL=URL(fileURLWithPath:CommandLine.arguments[0]);child.arguments=["orphan",path]
+                try child.run()
+                for _ in 0..<100 { if FileManager.default.fileExists(atPath:path+".ready") { return };Thread.sleep(forTimeInterval:0.01) }
+                throw NSError(domain:"launcher",code:1)
+            }
+            if mode == "orphan" {
+                let controller=PermissionChipController(appURL:URL(fileURLWithPath:"/Applications/Finder.app"),targetPID:getpid(),identity:permissionProcessIdentity(getpid())!,timeout:5)
+                try Data().write(to:URL(fileURLWithPath:path+".ready"))
+                for _ in 0..<100 { if getppid() != controller.launcherPID { break };Thread.sleep(forTimeInterval:0.01) }
+                controller.tick()
+                try JSONSerialization.data(withJSONObject:controller.result).write(to:URL(fileURLWithPath:path))
+                return
+            }
+        }
         let size = CGSize(width: 288, height: 140)
         let cases: [(CGRect, CGRect)] = [
             (CGRect(x:200,y:100,width:500,height:600), CGRect(x:0,y:0,width:1440,height:900)),
