@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { resolveRoute, withQuery, type Route } from "../app/src/router";
+import { hrefFor, parentFor, primaryFor, resolveRoute, routes, titleFor, withQuery, type Route } from "../app/src/router";
 
 const q = { repo: null, scope: null };
 const route = (hash: string, setup: boolean | null = true) => resolveRoute(hash, setup) as Route;
@@ -71,4 +71,38 @@ test("new destinations and legacy bookmarks preserve task IDs and repository sco
  expect(resolveRoute("#/review/old-task?repo=acme")).toEqual({redirect:"#/tasks/old-task?repo=acme"});
  expect(resolveRoute("#/review")).toEqual({redirect:"#/needs-you"});
  expect(resolveRoute("#/sessions")).toEqual({redirect:"#/tasks"});
+});
+
+test("canonical route targets generate URLs that round-trip with metadata", () => {
+ const cases = [
+  [routes.overview(), "#/", "Overview", "overview", null],
+  [routes.needsYou(), "#/needs-you", "Needs you", "review", null],
+  [routes.tasks(), "#/tasks", "Tasks", "sessions", null],
+  [routes.task("a b/c"), "#/tasks/a%20b%2Fc", "Task", "sessions", routes.tasks()],
+  [routes.settings("executors"), "#/settings/executors", "Executors", "settings", routes.settings()],
+  [routes.hosts(), "#/settings/hosts", "Remote hosts", "settings", routes.settings()],
+  [routes.host("dev box/a"), "#/settings/hosts/dev%20box%2Fa", "Host", "settings", routes.hosts()],
+  [routes.addExecutor(), "#/settings/add-executor", "Add executor", "settings", routes.settings()],
+  [routes.setup(), "#/setup", "Set up pacer", null, null],
+ ] as const;
+ for (const [target, href, title, primary, parent] of cases) {
+  expect(hrefFor(target)).toBe(href);
+  const resolved = route(href);
+  expect(titleFor(resolved)).toBe(title);
+  expect(primaryFor(resolved)).toBe(primary);
+  expect(parentFor(resolved)).toEqual(parent && {...parent, query:q});
+ }
+});
+
+test("add executor targets preserve the selected host parameter", () => {
+ expect(hrefFor(routes.addExecutor("dev box"),{repo:"acme",scope:null})).toBe("#/settings/add-executor?host=dev+box&repo=acme");
+ expect(route("#/settings/add-executor?host=dev+box&repo=acme")).toEqual({name:"add-executor",host:"dev box",query:{repo:"acme",scope:null}});
+});
+
+test("canonical hrefs inherit work scope and allow explicit overrides", () => {
+ const current = {repo:"acme/api",scope:"repo:acme/api"};
+ expect(hrefFor(routes.task("one"),current)).toBe("#/tasks/one?repo=acme%2Fapi&scope=repo%3Aacme%2Fapi");
+ expect(hrefFor(routes.settings("planner"),current)).toBe("#/settings/planner?repo=acme%2Fapi&scope=repo%3Aacme%2Fapi");
+ expect(hrefFor(routes.overview({repo:null,scope:"all"}),current)).toBe("#/?scope=all");
+ expect(parentFor(route("#/tasks/one?repo=acme&scope=all"))).toEqual(routes.tasks({repo:"acme",scope:"all"}));
 });

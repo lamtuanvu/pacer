@@ -5,21 +5,20 @@ import { createApi } from "./data/api";
 import type { SetupChecklist } from "../../src/setup/checklist";
 import { TaskContext } from "./screens/task-shared";
 import { createStore } from "./data/store";
-import { inheritQuery, resolveRoute, setupCompleteFrom, type Route } from "./router";
+import { inheritQuery, resolveRoute, setupCompleteFrom, titleFor, type Route } from "./router";
 import { attachKeyRegistry } from "./keys/registry";
 import { keys } from "./keys/instance";
 import { ActionContext } from "./data/action-context";
 import { createActionRunner, storeWaiter } from "./data/actions";
 import { useNarrow, activeRepo } from "./shell/narrow";
-import { UpdateNotice } from "./shell/UpdateNotice";
 import { Layout } from "./shell/Layout";
 import { CommandHelp } from "./shell/CommandHelp";
 import { Screen } from "./screens/Screen";
 import { Delegate } from "./screens/Delegate";
 import { followSavedTheme } from "./theme";
+import { NavigationProvider } from "./navigation";
 followSavedTheme();
 const store = createStore();
-const TITLES: Record<Route["name"], string> = { overview: "Overview", setup: "Set up pacer", review: "Needs you", sessions: "Tasks", settings: "Settings", hosts: "Remote hosts", "add-executor": "Add executor", loading: "pacer" };
 const SETTINGS = new Set(["settings", "hosts", "add-executor"]);
 function App() {
   const [state, setState] = useState(store.getState);
@@ -29,6 +28,7 @@ function App() {
   const [hash, setHash] = useState(location.hash);
   const [help, setHelp] = useState(false);
   const [delegate, setDelegate] = useState(false);
+  const [UpdateNotice, setUpdateNotice] = useState<typeof import("./shell/UpdateNotice").UpdateNotice>();
   const lastWork = useRef("#/");
   useEffect(() => {
     const unsubscribe = store.subscribe(() => setState(store.getState()));
@@ -37,6 +37,7 @@ function App() {
     window.addEventListener("hashchange", navigate);
     return () => { unsubscribe(); stop(); window.removeEventListener("hashchange", navigate); };
   }, []);
+  useEffect(() => { void import("./shell/UpdateNotice").then(module => setUpdateNotice(() => module.UpdateNotice)); }, []);
   const [setupRevision, reloadSetup] = useState(0);
   const [runningSetup, setRunningSetup] = useState<{ id: string; executor: string }>();
   const [checklist, setChecklist] = useState<SetupChecklist | "error">();
@@ -85,9 +86,11 @@ function App() {
       refresh: () => reloadSetup(v => v + 1), running: runningSetup,
       setRunning: (id, executor) => setRunningSetup({ id, executor }),
     }}>
-      <Layout route={route} state={{ ...state, sessionEnded: state.sessionEnded || sessionEnded }} title={TITLES[route.name]} onDelegate={() => setDelegate(true)}><Screen route={route} /></Layout>
+      <NavigationProvider route={route}><Layout route={route} state={{ ...state, sessionEnded: state.sessionEnded || sessionEnded }} title={titleFor(route)} onDelegate={() => setDelegate(true)}><Screen route={route} /></Layout></NavigationProvider>
     </SetupContext.Provider>
-    <UpdateNotice narrow={narrow} hidden={delegate || help || sessionEnded || (route.name === "settings" && route.section === "updates")}/>
+    {UpdateNotice && (
+      <UpdateNotice narrow={narrow} hidden={delegate || help || sessionEnded || (route.name === "settings" && route.section === "updates")} />
+    )}
     {delegate && <Delegate close={() => setDelegate(false)} filterRepo={activeRepo(route.query)} />}
     {help && <CommandHelp registry={keys} close={() => setHelp(false)} />}
   </ActionContext.Provider></TaskContext.Provider>;

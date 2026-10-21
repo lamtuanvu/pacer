@@ -27,6 +27,7 @@ import { keys } from "../keys/instance";
 import { activeRepo, NarrowContext, useNarrow } from "../shell/narrow";
 import { withQuery, type RouteQuery } from "../router";
 import { ActionButton } from "./ActionButton";
+import { Page } from "../ds/Page";
 
 import { QuickDelegate } from "./QuickDelegate";
 import { repoChoices, RepoFilter } from "./RepoFilter";
@@ -154,7 +155,7 @@ export interface OverviewProps { snapshot: ClientSnapshot; query: RouteQuery; no
 export function OverviewView({ snapshot, query, now, runner, activity, ops, quickDelegate }: OverviewProps) {
   const narrow = useNarrow(query);
   const scope: Scope = { repo: narrow ? activeRepo(query) : query.repo || null };
-  return <NarrowContext.Provider value={narrow}><div className={`pc-overview${narrow ? " pc-overview--narrow" : ""}`}>
+  return <NarrowContext.Provider value={narrow}><Page width="wide" className={`pc-overview${narrow ? " pc-overview--narrow" : ""}`}>
     <SetupBanner />
     {!narrow && <PlannerStrip snapshot={snapshot} now={now} />}
     <RepoFilter snapshot={snapshot} query={query} narrow={narrow} />
@@ -171,7 +172,7 @@ export function OverviewView({ snapshot, query, now, runner, activity, ops, quic
       </div>
     </div>
     {!narrow && <KeysFooter version={snapshot.service?.version} />}
-  </div></NarrowContext.Provider>;
+  </Page></NarrowContext.Provider>;
 }
 
 export function Overview({ query }: { query: RouteQuery }) {
@@ -206,5 +207,5 @@ export function Overview({ query }: { query: RouteQuery }) {
 export function NeedsYouPage({query}:{query:RouteQuery}) {
  const {state}=useTaskContext(),runner=useActions();
  if(!state.snapshot)return null;
- return <><RepoFilter snapshot={state.snapshot} query={query}/><NeedsYou snapshot={state.snapshot} scope={{repo:query.repo||null}} runner={runner} now={Date.now()/1000} query={query} narrow={false} standalone/></>;
+ return <Page width="wide"><RepoFilter snapshot={state.snapshot} query={query}/><NeedsYou snapshot={state.snapshot} scope={{repo:query.repo||null}} runner={runner} now={Date.now()/1000} query={query} narrow={false} standalone/></Page>;
 }

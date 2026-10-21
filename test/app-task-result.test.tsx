@@ -6,6 +6,9 @@ import { TaskResultView } from "../app/src/screens/TaskResult";
 const task=fixture as unknown as TaskDetail;
 test("completed result keeps verdict optional and transcript collapsed",()=>{
  const html=renderToString(<TaskResultView task={{...task,reviewRequest:undefined}} verdict={<span>Verdict form</span>}/>);
+ expect(html).toContain("pc-page--wide");
+ expect(html).toContain("pc-page-columns");
+ expect(html).toContain("pc-action-panel");
  expect(html).toContain("Outcome not recorded");
  expect(html).toContain("Integration not recorded");
  expect(html).not.toContain("Accept and bring back");
