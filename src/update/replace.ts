@@ -1,4 +1,4 @@
-import { chmodSync, closeSync, copyFileSync, fsyncSync, linkSync, openSync, realpathSync, renameSync, rmSync, writeSync } from "node:fs";
+import { chmodSync, closeSync, constants, lstatSync, copyFileSync, fsyncSync, linkSync, openSync, realpathSync, renameSync, rmSync, writeSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { signStaged } from "./signing";
 import { ReleaseError } from "./errors";
@@ -83,5 +83,87 @@ export async function replaceBinary(target: string, bytes: Uint8Array, version: 
       throw new ReleaseError(`cannot write to ${dir} (${String(code)}). Reinstall pacer into a directory you own (install.sh defaults to ~/.local/bin)`);
     }
     throw new ReleaseError(`could not replace ${real}: ${(e as Error).message}`);
+  }
+}
+
+
+export interface ReplacePairOptions {
+  target: string;
+  bytes: Uint8Array;
+  companions: { target: string; bytes: Uint8Array }[];
+  version: string;
+  smoke?: SmokeFn;
+  sign?: (path: string) => Promise<unknown>;
+  rename?: (from: string, to: string) => void;
+}
+
+/** Stages and validates the entire pair before changing either installed executable. */
+export async function replacePair(o: ReplacePairOptions): Promise<ReplaceResult & { companions: ReplaceResult[] }> {
+  const front = realpathSync(o.target);
+  const rename = o.rename ?? renameSync;
+  const entries = [...o.companions, { target: front, bytes: o.bytes }].map(entry => {
+    const target = join(realpathSync(dirname(entry.target)), basename(entry.target));
+    return {
+      target, bytes: entry.bytes, tmp: `${target}.new`, backup: `${target}.bak`,
+      backupTmp: `${target}.bak.update-${process.pid}`,
+      existed: false, staged: false, backedUp: false, installed: false,
+    };
+  });
+  const paths = new Set<string>();
+  for (const entry of entries) {
+    if (dirname(entry.target) !== dirname(front) || paths.has(entry.target)) throw new ReleaseError("pair targets must be distinct siblings of the running binary");
+    paths.add(entry.target);
+    try {
+      const stat = lstatSync(entry.target);
+      if (!stat.isFile()) throw new ReleaseError(`pair target is not a regular file: ${entry.target}`);
+      entry.existed = true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+  }
+  try {
+    for (const entry of entries) {
+      const fd = openSync(entry.tmp, "wx", 0o755);
+      entry.staged = true;
+      try {
+        let offset = 0;
+        while (offset < entry.bytes.length) offset += writeSync(fd, entry.bytes, offset, entry.bytes.length - offset);
+        fsyncSync(fd);
+      } finally { closeSync(fd); }
+    }
+    for (const entry of entries) {
+      await (o.sign ?? signStaged)(entry.tmp);
+    }
+    for (const entry of entries) {
+      if (!reportsVersion(await (o.smoke ?? runVersion)(entry.tmp), o.version)) throw new ReleaseError(`the downloaded binary ${basename(entry.target)} did not report version ${o.version}; nothing was changed`);
+    }
+    for (const entry of entries) {
+      if (!entry.existed) continue;
+      try { linkSync(entry.target, entry.backupTmp); entry.backedUp = true; }
+      catch { copyFileSync(entry.target, entry.backupTmp, constants.COPYFILE_EXCL); entry.backedUp = true; }
+      rename(entry.backupTmp, entry.backup);
+    }
+    for (const entry of entries) {
+      rename(entry.tmp, entry.target);
+      entry.installed = true;
+      fsyncDir(dirname(entry.target));
+    }
+    return { path: front, backup: `${front}.bak`, companions: entries.slice(0, -1).map(e => ({ path: e.target, backup: e.backup })) };
+  } catch (error) {
+    const rollbackErrors: string[] = [];
+    for (const entry of entries.slice().reverse()) {
+      if (!entry.installed) continue;
+      try {
+        if (entry.existed) renameSync(entry.backup, entry.target);
+        else rmSync(entry.target);
+        fsyncDir(dirname(entry.target));
+      } catch (rollback) { rollbackErrors.push(`${entry.target}: ${(rollback as Error).message}`); }
+    }
+    throw new ReleaseError(`could not replace pair: ${(error as Error).message}${rollbackErrors.length ? `; rollback failed: ${rollbackErrors.join("; ")}` : ""}`);
+  } finally {
+    for (const entry of entries) {
+      if (entry.staged) try { rmSync(entry.tmp, { force: true }); } catch { /* preserve transaction error */ }
+      if (entry.backedUp) try { rmSync(entry.backupTmp, { force: true }); } catch { /* preserve transaction error */ }
+    }
   }
 }

@@ -1,4 +1,5 @@
 import { realpathSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { isBundledExecutable } from "./desktop/identity";
 import { refreshIntegrations, refreshStrategy } from "../commands/update-refresh";
 import { restartAfterUpdate } from "../service";
@@ -7,7 +8,7 @@ import type { Ctx } from "../types";
 import { ReleaseError } from "./errors";
 import { type FetchFn, fetchBytes, fetchText, normalizeBase, releaseFetch } from "./fetch";
 import { type Platform, hostPlatform, latestUrl, parseLatest, parseManifest, parseSha256Sums, releaseUrl, sha256Hex } from "./manifest";
-import { type SmokeFn, replaceBinary, runVersion } from "./replace";
+import { type SmokeFn, replaceBinary, replacePair, runVersion } from "./replace";
 import { compareVersions, currentVersion, isVersion } from "./version";
 
 export const UPDATE_USAGE = "usage: pacer update [--check [--json]] [--to <version>] [--base <url>] [--no-restart] [--no-reinstall]";
@@ -134,17 +135,24 @@ export async function runUpdate(o: UpdateOptions, d: UpdateDeps): Promise<Result
         : `${target} is older than the installed ${d.version}${hint ? "" : `; run pacer update --to ${target} to downgrade`}`);
     }
     const sums = parseSha256Sums(await fetchText(d.fetch, releaseUrl(base, target, "SHA256SUMS")));
-    if (sums.get(asset.file) !== asset.sha256) throw new ReleaseError(`SHA256SUMS and manifest.json disagree about ${asset.file}; refusing to install`);
-    const bytes = await fetchBytes(d.fetch, releaseUrl(base, target, asset.file), asset.size);
+    const downloads: { target: string; bytes: Uint8Array }[] = [];
+    const realTarget = realpathSync(d.execPath);
+    for (const item of [asset, ...(asset.companions ?? [])]) {
+      if (sums.get(item.file) !== item.sha256) throw new ReleaseError(`SHA256SUMS and manifest.json disagree about ${item.file}; refusing to install`);
+      const bytes = await fetchBytes(d.fetch, releaseUrl(base, target, item.file), item.size);
+      const got = sha256Hex(bytes);
+      if (got !== item.sha256 || bytes.length !== item.size) {
+        throw new ReleaseError(`checksum mismatch for ${item.file} (expected ${item.sha256}, got ${got}); nothing was changed`);
+      }
+      downloads.push({ target: item === asset ? realTarget : join(dirname(realTarget), "pacer-core"), bytes });
+    }
     d.progress?.("Download","passed");
     d.progress?.("Verify","running");
-    const got = sha256Hex(bytes);
-    if (got !== asset.sha256 || bytes.length !== asset.size) {
-      throw new ReleaseError(`checksum mismatch for ${asset.file} (expected ${asset.sha256}, got ${got}); nothing was changed`);
-    }
     d.progress?.("Verify","passed");
     d.progress?.("Replace","running");
-    const r = await replaceBinary(d.execPath, bytes, target, d.smoke ?? runVersion);
+    const r = asset.companions?.length
+      ? await replacePair({ target: realTarget, bytes: downloads[0].bytes, companions: downloads.slice(1), version: target, smoke: d.smoke ?? runVersion })
+      : await replaceBinary(d.execPath, downloads[0].bytes, target, d.smoke ?? runVersion);
     d.progress?.("Replace","passed");
     d.progress?.("Refresh integrations","running");
     let refreshNote = "";

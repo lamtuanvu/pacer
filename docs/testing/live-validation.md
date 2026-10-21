@@ -254,3 +254,16 @@ draggable hosting-app chip. The chip follows the selected Settings window withou
 AX access, remains visible across focus changes, and verifies a read of the exact
 owned desktop window before setup succeeds. Missing native or speech evidence is
 reported as UNVERIFIED.
+
+
+## Disposable CLI updater validation
+
+`bun run live up --id bridge-update --seed ui`, then `bun run live updater --id bridge-update`, exercises the compiled CLI updater against fixed loopback releases. This is the approved bridge-plan fixture (the companion is a copy of the compiled binary), not a paired Rust release or desktop OTA test.
+
+The command accepts only an explicit sandbox ID. It refuses unseeded/stopped sessions, noncanonical/symlinked or unowned directories, group/other-writable paths, and an existing fixture directory. It compiles synthetic0.0.1/0.0.2 builds from the checkout into the sandbox and uses new private install, HOME, config and temporary directories for each scenario. It supplies fixed `--no-restart --no-reinstall` flags and accepts no binary paths, release URLs, commands or scenario overrides. Ordinary D3/D8 update refusals remain unchanged.
+
+The six fixed checks cover an existing pair, adding the companion, a legacy manifest, checksum refusal, smoke refusal, and restoring the previous core after a front-door commit failure. The last case uses a controlled script that removes only its own known staged fixture path during its version probe; it induces a real rename failure after core installation. Expected refusals count as PASS only when the exact error, unchanged installed bytes/versions and cleaned staging files are observed. Successful updates require new versions and exact previous-byte backups. This proves the transaction path; it does not certify interruption recovery, real service restart, integration refresh, production signing or distribution.
+
+On macOS the real updater consults read-only code-signing identity metadata. The fixture checks before and after every scenario and refuses when the normal local signing identity exists, so it cannot deliberately use that private key. This is a cooperative test assumption, not protection against a concurrent same-user keychain change. Bun's ad-hoc fixture signatures are not production signing evidence. Compilation uses an isolated environment and does not invoke the local signing helper.
+
+Results are recorded in the session report and `updater/<scenario>/result.json`. Run `live report` then `live down --keep` to retain evidence. There is no general update allow flag or permission to use a real installation as a fixture.

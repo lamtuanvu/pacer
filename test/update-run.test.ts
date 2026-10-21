@@ -440,3 +440,29 @@ test("update.apply refuses a bundled executable before creating a shared update 
   expect(calls).toBe(0);
   expect(listJobs(ctx)).toHaveLength(0);
 });
+
+test("companion downloads are verified before either install and successful pairs refresh once", async () => {
+  const { sha256Hex } = await import("../src/update/manifest");
+  for (const corrupt of [true, false]) {
+    const root = tmpDir(); release(root, "0.2.0");
+    const exec = installed(), core = join(dirname(exec), "pacer-core");
+    const manifestPath = join(root, "0.2.0", "manifest.json");
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    const bytes = new TextEncoder().encode(script("0.2.0"));
+    const companion = { name: "pacer-core", file: "pacer-core-darwin-arm64", sha256: sha256Hex(bytes), size: bytes.length };
+    manifest.assets[0].companions = [companion];
+    writeFileSync(manifestPath, JSON.stringify(manifest));
+    writeFileSync(join(root, "0.2.0", companion.file), corrupt ? "x".repeat(bytes.length) : bytes);
+    const sumsPath = join(root, "0.2.0", "SHA256SUMS");
+    writeFileSync(sumsPath, readFileSync(sumsPath, "utf8") + `${companion.sha256}  ${companion.file}\n`);
+    let refreshed = 0, restarted = 0;
+    const result = await runUpdate({ check: false }, deps(root, exec, { refreshIntegrations: async () => { refreshed++; return []; }, restartService: async () => { restarted++; return true; } }));
+    expect(result.code).toBe(corrupt ? 1 : 0);
+    expect(readFileSync(exec, "utf8")).toBe(script(corrupt ? "0.1.0" : "0.2.0"));
+    expect(existsSync(core)).toBe(!corrupt);
+    if (!corrupt) expect(readFileSync(core, "utf8")).toBe(script("0.2.0"));
+    expect(refreshed).toBe(corrupt ? 0 : 1);
+    expect(restarted).toBe(corrupt ? 0 : 1);
+  }
+
+});
