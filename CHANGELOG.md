@@ -7,6 +7,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 ### Added
 
 - Guided OpenCode endpoint setup: `pacer account add` and Settings › Add executor list providers already signed in to OpenCode, local model servers (Ollama, LM Studio) and catalog providers, recommend a model that can call tools, set the usage type from the models.dev catalog and offer an optional weekly dollar cap. Signed-in providers are stored as `source: opencode` accounts that refer to the provider and never hold its key. `pacer account add opencode <provider> [--model] [--cap-usd] [--name] [--no-test]` does it in one command. Spend is read in dollars from `opencode stats --cost`, and new API ops `executor.setup.candidates`, `executor.setup.models` and `executor.setup.connect` serve the app.
+- Plugin host: `pacer-plugin.json` manifests, `plugin.list/enable/disable/remove/doctor` operations and `pacer plugin …` commands, a stdio JSON-RPC plugin transport with deadlines and crash backoff, the `@pacer/plugin` runtime, a conformance suite and the generated `docs/plugin-protocol.md`. No plugin is bundled yet; behavior is unchanged for a fresh install.
 
 ### Fixed
 

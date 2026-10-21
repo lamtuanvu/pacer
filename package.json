@@ -2,8 +2,12 @@
   "name": "pacer",
   "type": "module",
   "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
   "devDependencies": {
     "@babel/parser": "^8.0.7",
+    "@pacer/plugin": "workspace:*",
     "@types/bun": "^1.4.2",
     "playwright-core": "1.58.2",
     "preact-render-to-string": "^6.8.1",
@@ -23,6 +27,7 @@
     "release:prepare": "bun scripts/release/prepare.ts",
     "release:host": "bun scripts/release/build.ts --host",
     "protocol:doc": "bun scripts/protocol-doc.ts",
+    "plugin:protocol": "bun scripts/plugin-protocol-doc.ts",
     "release:npm": "bun scripts/release/npm.ts",
     "release:homebrew": "bun scripts/release/homebrew.ts",
     "brand:render": "bun scripts/brand/render.ts",
