@@ -2107,6 +2107,31 @@
       },
       "additionalProperties": false
     },
+    "TaskRequestReviewParams": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "note": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "expect_rev": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "id",
+        "note"
+      ],
+      "additionalProperties": false
+    },
     "TaskRestoreParams": {
       "type": "object",
       "properties": {
