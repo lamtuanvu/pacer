@@ -1,4 +1,5 @@
 import { desktopCaptureRoute } from "./desktop-capture";
+import { attachmentRoute } from "./attachment-routes";
 import { resetCaptureBroker } from "../desktop/capture-broker";
 import { configuredNativeServices } from "../update/desktop/native-provider";
 import { bindDesktopUpdateRuntime, createDesktopUpdateRuntime } from "../update/desktop/service";
@@ -132,6 +133,8 @@ export function startServer(
         }
       }
       if (app) return appRoute(req, getCtx());
+      const attachmentResponse = await attachmentRoute(req, getCtx());
+      if (attachmentResponse) return attachmentResponse;
       const captureResponse = await desktopCaptureRoute(req, getCtx());
       if (captureResponse) return captureResponse;
       if (sessionRoute) return upgradeSession(req, server, getCtx(), sessionRoute[1]!);
