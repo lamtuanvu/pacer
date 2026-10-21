@@ -40,6 +40,9 @@ const directOut = (executor: string): AttemptOutcome => ({
 
 function baseRoutes(): Route[] {
   return [
+    [["git", "-C", REPO, "rev-parse", "--verify"], raw("a".repeat(40))],
+    [["git", "-C", REPO, "fetch"], raw("")],
+    [["git", "-C", REPO, "ls-remote"], raw("ref: refs/heads/main\tHEAD\n")],
     [["git", "-C", REPO, "rev-parse"], raw(`${REPO}\nmain\n`)],
     [["git", "-C", REPO, "status"], raw("")],
     [O("status"), ok("status-ready.json")],
@@ -68,7 +71,7 @@ function setup(
   opts: { provider?: string; exec?: Partial<ExecutionCfg>; timeoutS?: number; deps?: Partial<OrcaBackendDeps> } = {},
 ) {
   const h = {} as Holder;
-  const f = fakeRun([...over(h), ...baseRoutes()]);
+  const f = fakeRun([[["git", "-C", REPO, "rev-parse", "--verify"], raw("a".repeat(40))], ...over(h), ...baseRoutes()]);
   const ctx = fakeCtx({ run: f.run });
   const task = createTask(ctx, { brief: { goal: "Fix the bug", repo: REPO, acceptance: "bun test" }, kind: null, requestedExecutor: null, timeoutS: opts.timeoutS ?? 600 });
   h.ctx = ctx;
@@ -100,7 +103,7 @@ test("happy path: new-child worker, worker_done, release, orphan terminal closed
   expect(arg(a, "--model")).toBe("auto");
   expect(arg(a, "--worktree")).toBe("new-child");
   expect(arg(a, "--repo")).toBe("id:40c98aad-c083-4ec9-b82e-a51798a20270");
-  expect(arg(a, "--base-branch")).toBe("main");
+  expect(arg(a, "--base-branch")).toBe("a".repeat(40));
   expect(arg(a, "--name")).toBe(`pacer-${task.id}-cursor`);
   expect(arg(a, "--setup")).toBe("skip");
   expect(arg(a, "--run")).toBe(RUN);
@@ -176,13 +179,16 @@ test("release refused for an active worker falls back to worker-stop", async () 
 test("dirty repo note: uncommitted changes are not in the new worktree", async () => {
   const { ctx, task, backend, cfg } = setup(() => [[["git", "-C", REPO, "status"], raw(" M src/a.ts\n")]]);
   const out = await backend.runAttempt(ctx, cfg, task);
-  expect(out.report).toContain("/work/app has uncommitted changes; the worker's new worktree starts from main without them");
+  expect(out.report).toContain("/work/app has uncommitted changes; the worker's new worktree starts from origin/main without them");
 });
 
 test("a repo subdirectory maps into the worker's worktree", async () => {
   const { f, ctx, task, backend, cfg } = setup(() => [
     [["git", "-C", REPO, "rev-parse"], raw("/work\nmain\n")],
     [["git", "-C", "/work", "status"], raw("")],
+    [["git", "-C", "/work", "fetch"], raw("")],
+    [["git", "-C", "/work", "ls-remote"], raw("ref: refs/heads/main\tHEAD\n")],
+    [["git", "-C", "/work", "rev-parse", "--verify"], raw("a".repeat(40))],
     [O("repo","list"),raw(JSON.stringify({ok:true,result:{repos:[{id:"parent",path:"/work"}]}}))],
   ]);
   const out = await backend.runAttempt(ctx, cfg, task);
@@ -222,18 +228,14 @@ test("falls back to direct for an OpenCode provider with new-child, without call
   expect(f.calls).toHaveLength(0);
 });
 
-test("falls back to direct when the repo is not git, or HEAD is detached without base_branch", async () => {
+test("non-git falls back; detached HEAD uses the default remote tip or explicit base", async () => {
   const a = setup(() => [[["git", "-C", REPO, "rev-parse"], raw("", 128, "fatal: not a git repository")]]);
-  const outA = await a.backend.runAttempt(a.ctx, a.cfg, a.task);
-  expect(outA.backend).toBe("direct");
-  expect(readFileSync(join(a.ctx.pacerHome,"orca","fallback.log"),"utf8")).toContain("is not a git repository");
-  const b = setup(() => [[["git", "-C", REPO, "rev-parse"], raw(`${REPO}\nHEAD\n`)]]);
-  const outB = await b.backend.runAttempt(b.ctx, b.cfg, b.task);
-  expect(readFileSync(join(b.ctx.pacerHome,"orca","fallback.log"),"utf8")).toContain("detached HEAD");
-  const c = setup(() => [[["git", "-C", REPO, "rev-parse"], raw(`${REPO}\nHEAD\n`)]], { exec: { baseBranch: "main", worktree:"new-child" } });
-  const outC = await c.backend.runAttempt(c.ctx, c.cfg, c.task);
-  expect(outC.backend).toBe("orca");
-  expect(arg(startArgs(c.f), "--base-branch")).toBe("main");
+  expect((await a.backend.runAttempt(a.ctx, a.cfg, a.task)).backend).toBe("direct");
+  for (const exec of [{}, { baseBranch: "main", worktree: "new-child" as const }]) {
+    const b = setup(() => [[["git", "-C", REPO, "rev-parse"], raw(`${REPO}\nHEAD\n`)]], { exec });
+    expect((await b.backend.runAttempt(b.ctx, b.cfg, b.task)).backend).toBe("orca");
+    expect(arg(startArgs(b.f), "--base-branch")).toBe("a".repeat(40));
+  }
 });
 
 test("falls back to direct on an invalid execution section or a refused worker-start", async () => {
@@ -531,9 +533,9 @@ test("direct fallback logs its reason at most once per hour without polluting ta
   expect(readFileSync(file,"utf8").trim().split("\n")).toHaveLength(2);
 });
 
-test("child-of-current branches from the current worktree and ignores a global base branch",async()=>{
+test("child-of-current honors the configured base instead of the current feature branch",async()=>{
  const {backend,ctx,cfg,task,f}=setup(()=>[[["git","-C",REPO,"rev-parse"],raw(`${REPO}\nfeature/current\n/projects/main/.git\n`)],[O("repo","list"),raw('{"ok":true,"result":{"repos":[{"id":"main-owner","path":"/projects/main"}]}}')]],{exec:{worktree:"child-of-current",baseBranch:"main"}});
- expect((await backend.runAttempt(ctx,cfg,task)).backend).toBe("orca");const argv=startArgs(f);expect(arg(argv,"--repo")).toBe("id:main-owner");expect(arg(argv,"--base-branch")).toBe("feature/current");expect(f.count(O("repo","add"))).toBe(0);
+ expect((await backend.runAttempt(ctx,cfg,task)).backend).toBe("orca");const argv=startArgs(f);expect(arg(argv,"--repo")).toBe("id:main-owner");expect(arg(argv,"--base-branch")).toBe("a".repeat(40));expect(f.count(O("repo","add"))).toBe(0);
 });
 test("current placement refuses dirty and already occupied worktrees without direct execution",async()=>{
  const dirty=setup(()=>[[["git","-C",REPO,"status"],raw(" M file\n")]],{exec:{worktree:"current"}});
@@ -582,7 +584,7 @@ test("explicit new preserves each strategy base branch rule",async()=>{
  for(const mode of ["child-of-current","new-child","current"] as const){
  const {ctx,task,backend,cfg,f}=setup(()=>[[["git","-C",REPO,"rev-parse"],raw(`${REPO}\nfeature/current\n`)]],{exec:{worktree:mode,baseBranch:"main"}});
  task.placement={requested:"new",reason:"risky"};task.kind="research";
- expect((await backend.runAttempt(ctx,cfg,task)).exec.code).toBe(0);expect(arg(startArgs(f),"--worktree")).toBe("new-child");expect(arg(startArgs(f),"--base-branch")).toBe(mode==="child-of-current"?"feature/current":"main");
+ expect((await backend.runAttempt(ctx,cfg,task)).exec.code).toBe(0);expect(arg(startArgs(f),"--worktree")).toBe("new-child");expect(arg(startArgs(f),"--base-branch")).toBe("a".repeat(40));
  }
 });
 test("a live task isolated elsewhere or a dead runner does not occupy current",async()=>{
@@ -616,4 +618,17 @@ test("Orca's ask command supplies executor task identity",async()=>{
  const {f,ctx,task,backend,cfg}=setup();
  await backend.runAttempt(ctx,cfg,task);
  expect(arg(startArgs(f),"--spec")).toContain(`run PACER_ROLE=executor PACER_TASK_ID=${task.id} pacer ask "<one question>"`);
+});
+
+test("review retries select the original Orca worktree without creating or fetching a new base", async () => {
+  const { ctx, task, backend, cfg, f } = setup();
+  task.retryOf = "t-original";
+  task.worktree = "/work/original";
+  task.placement = { requested: "new" };
+  const out = await backend.runAttempt(ctx, cfg, task);
+  expect(out.exec.code).toBe(0);
+  expect(out.worktree).toBe("/work/original");
+  expect(arg(startArgs(f), "--worktree")).toBe("path:/work/original");
+  expect(startArgs(f)).not.toContain("--base-branch");
+  expect(f.count(["git", "-C", REPO, "fetch"])).toBe(0);
 });

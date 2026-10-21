@@ -65,7 +65,7 @@ test("exhausted, not installed and paid-overflow rules exclude with reasons", ()
   expect(r.excluded).toContainEqual({ id: "codex", account: "codex", reason: "exhausted" });
   expect(r.excluded).toContainEqual({ id: "cursor", account: "cursor", reason: "not installed" });
   const paid = rankExecutors(null, strategy("even", { codex: { allow_paid: true } }), s);
-  expect(paid.ranked.map((e) => e.id)).toContain("codex");
+  expect(paid.excluded).toContainEqual({ id: "codex", account: "codex", reason: "exhausted" });
 });
 
 test("cheapest-first: unmetered, then flat subscriptions, then metered", () => {
@@ -184,7 +184,7 @@ test("priority: installation, configuration and paid-overflow exclusions are pre
   delete statuses.agy;
   s.routing[0].executors.push("missing");
   const r = rankExecutors(null, s, statuses);
-  expect(r.ranked.map((e) => e.id)).toEqual(["codex", "opencode#byteplus", "opencode#local"]);
+  expect(r.ranked.map((e) => e.id)).toEqual(["opencode#byteplus", "opencode#local"]);
   expect(r.excluded).toContainEqual({ id: "cursor", account: "cursor", reason: "not installed" });
   expect(r.excluded).toContainEqual({ id: "agy", account: "agy", reason: "not configured" });
   expect(r.excluded).toContainEqual({ id: "missing", reason: "not configured" });

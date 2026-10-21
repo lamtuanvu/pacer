@@ -47,7 +47,7 @@ async function setup(wait = false) {
       return { files: "PROMPT.txt" };
     },
   };
-  const task = tasks.delegate(ctx, { brief: { goal: "Create and commit PROMPT.txt", repo }, executor: "codex@box", worktree: "new" }, () => undefined);
+  const task = tasks.delegate(ctx, { brief: { goal: "Create and commit PROMPT.txt", repo, base: "main" }, executor: "codex@box", worktree: "new" }, () => undefined);
   return { ctx, task, deps, git, hostHome, checkout, repo, sshLog: join(root, "ssh.log") };
 }
 

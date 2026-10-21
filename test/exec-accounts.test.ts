@@ -69,6 +69,9 @@ test.each([
 ] as const)("default-account Orca %s on %s keeps agent supervision", async (id, worktree, agent) => {
   const {ctx, s} = setup();
   const f = fakeRun([
+    [["git", "-C", "/work/app", "rev-parse", "--verify"], raw("a".repeat(40))],
+    [["git", "-C", "/work/app", "fetch"], raw("")],
+    [["git", "-C", "/work/app", "ls-remote"], raw("ref: refs/heads/main\tHEAD\n")],
     [["git", "-C", "/work/app", "rev-parse"], raw("/work/app\nmain\n")],
     [["git", "-C", "/work/app", "status"], raw("")],
     [["orca", "status"], ok("status-ready.json")],
