@@ -18,7 +18,9 @@ contract. Chromium and WebKit each navigate from `localhost` to the sign-in URL 
 document, Strict/HttpOnly cookie attributes, single-use code redemption, reload,
 and cookie-authenticated API access. Delegation through that browser session runs
 `test/fixtures/bin/fake-agent` in completion mode and must produce a completed task
-in the review queue. The service, browser and any unfinished task are stopped.
+with no automatic review attention. The test then explicitly requests review and
+checks that the task appears in the review queue. The service, browser and any
+unfinished task are stopped.
 
 The disposable fixture intentionally leaves service/planner integration incomplete.
 Before reloading, the browser test waits for the resulting setup route and its
