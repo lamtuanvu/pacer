@@ -56,6 +56,10 @@ export function toV2Event(e: CompatEvent): ApiEventV2 | null {
 export const V3_CURSOR_BASE = 3_000_000_000_000;
 
 export function v2Params(name:string,params:unknown):unknown {
+ if(name==='client.register'&&params&&typeof params==='object'&&!Array.isArray(params)) {
+  const {capture:_,...legacy}=params as Record<string,unknown>;
+  return legacy;
+ }
  if(name!=='task.review'||!params||typeof params!=='object'||Array.isArray(params))return params;
  const p=params as Record<string,unknown>;
  if(p.accepted!==undefined&&typeof p.accepted!=='boolean')throw new CoreError('invalid_input','accepted: expected boolean');
@@ -81,6 +85,7 @@ export async function callV2Op(ctx:Ctx,name:string,params:unknown,deps?:OpDeps):
 /** Keep the existing v2 document/schema check stable until the documentation task. */
 export function v2OpJsonSchemas():ReturnType<typeof opJsonSchemas> {
  const schemas=opJsonSchemas();
+ delete (schemas["client.register"].params as {properties:Record<string,unknown>}).properties.capture;
  for(const op of V3_ONLY_OPS)delete schemas[op];
  schemas['task.list'].description="Recent tasks, newest first. Cursor/filter params return a page; limit alone keeps the legacy array until 3.0.";
  const review=schemas['task.review'].params as {properties:Record<string,unknown>;required:string[]};

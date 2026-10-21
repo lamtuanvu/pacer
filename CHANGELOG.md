@@ -6,6 +6,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Restore v3 desktop capture worker credentials when a desktop opts in during client registration; v2 registration stays unchanged.
+
 - Claude executor checks collect quota telemetry from Claude Code's structured test-task output for the selected account, then verify usage instead of silently skipping it when no status-line cache exists.
 
 ### Added

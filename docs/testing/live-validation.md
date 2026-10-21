@@ -241,8 +241,10 @@ native `desktop` targets through `targets`, `inspect`, `act`, `wait`, `assert`,
 coordinate input additionally carries a recent capture ID. Delivered or uncertain
 actions attempt an automatic evidence capture and are never repeated implicitly.
 
-The ordinary desktop app registers an authenticated capture worker and reports its
-owned main/tray window IDs. Window captures may fall back to an explicitly labelled
+The ordinary desktop app opts in with `capture: true` on v3 `client.register`,
+receives its per-instance `capture_worker` credential, and reports its owned
+main/tray window IDs. Clients that do not opt in, non-desktop clients, and v2
+registrations receive no capture credential. Window captures may fall back to an explicitly labelled
 external capture; content captures never substitute a different surface.
 
 Native macOS input and VoiceOver checks require Accessibility and screen recording

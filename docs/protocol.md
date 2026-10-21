@@ -979,6 +979,9 @@ Params JSON Schema:
     },
     "notifier": {
       "type": "boolean"
+    },
+    "capture": {
+      "type": "boolean"
     }
   },
   "required": [
