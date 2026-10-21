@@ -137,7 +137,7 @@ export function SetupView({ checklist: initial }: { checklist: SetupChecklist; q
               : 'Finished' : id === 'first' ? 'Optional' : visited.includes(id) ? <Button variant="ghost" onClick={() => visit(id)}>Skipped · return</Button> : 'Needs you'}</div>
           </div>
         </li>;
-      })}</ol>{version && <p className="muted pc-setup-version">pacer {version}</p>}</aside>
+      })}</ol>{version && <p className="muted pc-setup-version">Service {version}</p>}</aside>
       <section className="pc-setup-panel" ref={panel} tabIndex={-1} aria-label={headings[step]}>
         <div><p className="pc-setup-eyebrow">Step {step + 1} of 5{current === 'first' ? ' · optional' : ''}</p><h1>{headings[step]}</h1><p className="pc-setup-explanation">{explanations[step]}</p></div>
         {current === 'planner' && <>

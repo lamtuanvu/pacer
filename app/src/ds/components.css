@@ -313,3 +313,9 @@ a.pc-btn{text-decoration:none}
 .pc-prose code{font-family:var(--font-mono);font-size:var(--type-code-size);line-height:var(--type-code-line);white-space:pre;overflow-wrap:normal;word-break:normal}
 .pc-prose p:has(code),.pc-prose li:has(code){overflow-x:auto}
 .pc-prose pre{max-width:100%;overflow:auto;margin:0;padding:var(--space-3);background:var(--surface-card);border:1px solid var(--line);border-radius:var(--radius-md)}
+
+/* Nonmodal update notification: canonical tokens, no entrance motion or focus stealing. */
+.pc-update-notice{position:fixed;inset-inline-end:var(--space-4);bottom:var(--space-4);z-index:var(--layer-overlay);width:min(var(--size-360),calc(100vw - var(--space-4) * 2));box-sizing:border-box;padding:var(--space-4);border:1px solid var(--line);border-radius:var(--radius-lg);background:var(--surface-page);color:var(--ink);box-shadow:var(--shadow-popover);display:grid;gap:var(--space-3);max-height:calc(100dvh - var(--space-4) * 2);overflow:auto}
+.pc-update-notice p{margin:0}
+.pc-update-notice .row-actions{flex-wrap:wrap}
+.pc-update-notice--narrow{bottom:calc(var(--size-56) + var(--space-4) + env(safe-area-inset-bottom));max-height:calc(100dvh - var(--size-56) - var(--space-4) * 2 - env(safe-area-inset-bottom))}

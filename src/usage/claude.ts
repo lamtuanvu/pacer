@@ -1,9 +1,44 @@
 import type { AccountCfg } from "../config/accounts";
-import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { chmodSync, existsSync, mkdirSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { randomUUID } from "node:crypto";
 import { readJson } from "../fsutil";
 import type { Ctx, UsageReading } from "../types";
 import { isObj, parseTs, toNum } from "../util";
+
+/** Capture public quota telemetry emitted by Claude itself, never its credentials. */
+export function captureClaudeStreamUsage(ctx: Ctx, account: AccountCfg, stdout: string): boolean {
+  if (account.kind !== "claude") return false;
+  const windows: Record<string, {used_percentage: number; resets_at: number | null}> = {};
+  for (const line of stdout.split("\n")) {
+    let event: unknown;
+    try { event = JSON.parse(line); } catch { continue; }
+    if (!isObj(event) || event.type !== "rate_limit_event" || !isObj(event.rate_limit_info)) continue;
+    const info = event.rate_limit_info;
+    const unified = isObj(info.unifiedWindows) ? info.unifiedWindows : {};
+    for (const name of ["seven_day", "five_hour"]) {
+      const window = unified[name] ?? (info.rateLimitType === name ? info : undefined);
+      if (!isObj(window)) continue;
+      const used = window.utilization;
+      if (typeof used !== "number" || !Number.isFinite(used) || used < 0 || used > 1) continue;
+      windows[name] = {used_percentage: Math.round(used * 10000) / 100, resets_at: parseTs(window.resetsAt)};
+    }
+  }
+  // Do not replace a complete account snapshot with incomplete telemetry or
+  // make an older, missing window look fresh by borrowing this timestamp.
+  if (!windows.seven_day || !windows.five_hour) return false;
+  const path = claudeCacheFile(ctx, account), dir = dirname(path);
+  mkdirSync(dir, {recursive: true, mode: 0o700});
+  chmodSync(dir, 0o700);
+  const temp = `${path}.${randomUUID()}.tmp`;
+  try {
+    writeFileSync(temp, JSON.stringify({...windows, captured_at: ctx.now, source: "session-log"}), {flag: "wx", mode: 0o600});
+    renameSync(temp, path);
+  } finally {
+    try { unlinkSync(temp); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+  }
+  return true;
+}
 
 export function claudeCacheFile(ctx: Ctx, account?: AccountCfg): string {
   return join(ctx.pacerHome, "cache", account && account.source !== "default"
@@ -30,7 +65,7 @@ export async function readClaude(ctx: Ctx, account?: AccountCfg): Promise<UsageR
   const fh = isObj(data.five_hour) ? data.five_hour : {};
   const capturedAt = parseTs(data.captured_at);
   return {
-    source: "status-line",
+    source: data.source === "session-log" ? "session-log" : "status-line",
     capturedAt,
     stale: false,
     windows: [
