@@ -39,6 +39,8 @@ struct Shell {
     navigation: Mutex<pacer_desktop::ota::control::NavigationState>,
     adoption: Mutex<Option<pacer_desktop::ota::control::AdoptionReconnectPlan>>,
     maintenance: AtomicBool,
+    /// Whether the tray icon currently carries the red attention dot.
+    tray_alert: AtomicBool,
     #[cfg(target_os = "macos")]
     relaunch: Mutex<Option<std::process::Command>>,
     startup: Mutex<logic::Startup>,
@@ -65,6 +67,7 @@ impl Default for Shell {
             navigation: Mutex::new(Default::default()),
             adoption: Mutex::new(None),
             maintenance: AtomicBool::new(false),
+            tray_alert: AtomicBool::new(false),
             #[cfg(target_os = "macos")]
             relaunch: Mutex::new(None),
             startup: Mutex::new(logic::Startup::default()),
@@ -167,10 +170,8 @@ fn session_ready(
     }
     app.state::<Shell>().startup.lock().unwrap().ready();
     desktop_log!("pacer lifecycle: desktop sign-in complete");
-    set_error_dot(&app, false);
-    if let Some(tray) = app.tray_by_id("pacer") {
-        let _ = tray.set_tooltip(Some("pacer"));
-    }
+    // Clear a sign-in dot, but keep an update failure that the current snapshot reports.
+    set_error_dot(&app, app.state::<Shell>().tray_alert.load(Ordering::SeqCst));
     Ok(())
 }
 // Runs in the trusted service document, including script-free error pages. Also
@@ -549,18 +550,23 @@ fn recovery(app: &AppHandle, state: &str) {
         "foreign" => "Another pacer is running",
         "relink" => "pacer's terminal command was removed",
         "protocol" => "Unable to connect to pacer",
+        "installing" => "Installing update",
+        "rollingBack" => "Restoring the previous version",
+        "restored" => "Previous version restored",
+        "recoveryFailed" => "Recovery needs attention",
         _ => "Starting pacer…",
     };
-    set_error_dot(app, state == "stuck");
+    let alert = matches!(state, "stuck" | "recoveryFailed");
+    shell.tray_alert.store(alert, Ordering::SeqCst);
+    set_error_dot(app, alert);
     if changed {
-        if let Some(tray) = app.tray_by_id("pacer") {
-            let _ = tray.set_tooltip(Some(title));
-        }
         update_tray(
             app,
             TrayModel {
                 title: title.into(),
                 paused: false,
+                tooltip: title.into(),
+                alert,
             },
         );
     }
@@ -716,6 +722,10 @@ fn render_tray(app: &AppHandle, model: TrayModel) -> tauri::Result<()> {
         None::<&str>,
     )?)?;
     tray.set_title(Some(&model.title))?;
+    tray.set_tooltip(Some(&model.tooltip))?;
+    if app.state::<Shell>().tray_alert.swap(model.alert, Ordering::SeqCst) != model.alert {
+        set_error_dot(app, model.alert);
+    }
     tray.set_menu(Some(menu))
 }
 fn dispatch_action(app: &AppHandle, action: Value) {
