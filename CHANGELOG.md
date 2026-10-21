@@ -4,6 +4,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-10-21
+
 - Normalize absent compiled desktop signer pins and validate production macOS signing in enabled release dry runs before tagging.
 
 ## [0.6.1] - 2026-10-21
