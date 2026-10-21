@@ -160,7 +160,7 @@ test('settings pages leave their page title to the shell and inline links are un
 test('Executors copy matches routing: a failed check does not skip an executor',()=>{
  const html=render(<SettingsGeneral section="executors" initialData={settings}/>);
  expect(html).not.toContain('skipped until it passes again');
- expect(html).toContain('A failed check marks the executor Failing (Unavailable when it is signed out or not working) and raises attention; routing keeps using a Failing executor. Disable it to skip it.');
+ expect(html).toContain('A failed check marks the executor Failing (Unavailable when it is signed out or not working) and raises attention. Recent task failures means two or more tasks failed in the past 24 hours; a passed check does not clear that history. Routing keeps using executors with either warning. Disable an executor to skip it.');
 });
 
 test('a not-tested endpoint executor reads Not tested, not Ready, in Executors',()=>{
