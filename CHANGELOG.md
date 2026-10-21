@@ -8,8 +8,17 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 - macOS desktop OTA support with complete app/service packages, explicit restart after download, work admission, verified recovery, and shared Settings, tray, TUI and CLI controls. Until pacer has an Apple Developer ID, releases are signed with a pinned project certificate; a later bridge release moves installed apps to Developer ID builds by update. macOS desktop downloads are the signed, auto-updating app; Linux packages are unchanged.
 - Separate `desktop.update.*` operations on protocol v3 and `pacer desktop-update` commands; existing standalone CLI update operations retain their behavior.
+- Explicit human review handoff through `task.request_review`, MCP `task_request_review`, and `pacer task request-review <id> --note <concern>`, with revision guards and no inferred acceptance.
+
 - Guided OpenCode endpoint setup: `pacer account add` and Settings › Add executor list providers already signed in to OpenCode, local model servers (Ollama, LM Studio) and catalog providers, recommend a model that can call tools, set the usage type from the models.dev catalog and offer an optional weekly dollar cap. Signed-in providers are stored as `source: opencode` accounts that refer to the provider and never hold its key. `pacer account add opencode <provider> [--model] [--cap-usd] [--name] [--no-test]` does it in one command. Spend is read in dollars from `opencode stats --cost`, and new API ops `executor.setup.candidates`, `executor.setup.models` and `executor.setup.connect` serve the app.
 - Plugin host: `pacer-plugin.json` manifests, `plugin.list/enable/disable/remove/doctor` operations and `pacer plugin …` commands, a stdio JSON-RPC plugin transport with deadlines and crash backoff, the `@pacer/plugin` runtime, a conformance suite and the generated `docs/plugin-protocol.md`. No plugin is bundled yet; behavior is unchanged for a fresh install.
+
+### Fixed
+
+- Native desktop buttons keep readable backgrounds when switching Light/Dark appearance instead of retaining the previous theme during a stuck background transition.
+- Settings > Updates distinguishes the native desktop app version from the connected service version, provides desktop download/replacement guidance, and labels the service-only update action explicitly. Failed update checks no longer appear as up to date.
+
+- Settings categories open separate pages with icon navigation and a proper gear icon. Forms use consistent compact sizing, bounded widths and aligned spacing; narrow layouts keep category navigation and focused controls visible.
 
 ## [0.5.0] - 2026-10-20
 
@@ -19,6 +28,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - Settings Diagnostics runs doctor checks with repair guidance, distinguishes configured integrations from fixture-tested handlers and unverified Claude invocation, and flags disabled or incomplete Claude hooks.
 
 ### Changed
+
+- Needs you replaces the routine review queue across the app, tray and terminal dashboard. Successful completion without a verdict stays in Tasks; failed checks, incomplete work and explicit human decisions remain actionable. Task results put checks and changes before collapsed transcripts, separate execution from verdicts, and clarify that acceptance does not merge branches. Legacy task links remain supported.
 
 - `pacer dashboard` is redesigned on the shared design system: Home, Review, Sessions, Settings and Setup screens mirror the app, statuses are glyph plus label, colors follow the design tokens for dark and light terminals, destructive actions confirm, and `--plain` and `--once` print screen-reader-friendly or single frames. The dashboard now reads and writes only through the API.
 

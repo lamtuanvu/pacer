@@ -326,6 +326,11 @@ export const OPS: Record<string, OpDef> = { ...sessionOps,
       return { retried, skipped };
     },
   }),
+  "task.request_review": op({
+    description: "Request a human decision on a completed result without accepting it.",
+    params: z.object({ id, note: z.string().trim().min(1).max(2000), expect_rev }),
+    handler: (ctx, p) => ({ task: apiTask(ctx, core.tasks.requestReview(ctx, p.id, p)) }),
+  }),
   "task.review": op({
     description: "Record the planner's verdict on a task.",
     params: z.object({

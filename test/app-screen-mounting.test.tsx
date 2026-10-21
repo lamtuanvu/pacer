@@ -22,19 +22,23 @@ const runner=createActionRunner({call:async<T,>()=>({}) as T,waitFor:async()=>tr
 const html=(hash:string)=>renderToString(<TaskContext.Provider value={{state,api:{call:async()=>({})} as any}}><ActionContext.Provider value={runner}><Screen route={destination(hash)}/></ActionContext.Provider></TaskContext.Provider>);
 test('shell mounts the U3 settings screens and U4 sessions screens',()=>{
  expect(html('#/settings')).toContain('u3-general-sections');
- for(const section of SETTINGS_SECTIONS)expect(html(`#/settings/${section}`)).toContain('Planner &amp; pacing');
+ for(const section of SETTINGS_SECTIONS) {
+  const page=html(`#/settings/${section}`);
+  expect(page).toContain(`id="${section==='planner'?'pacing':section}"`);
+  if(section!=='planner')expect(page).not.toContain('id="pacing"');
+ }
  expect(html('#/settings/hosts')).toContain('Connect and check');
  expect(html('#/settings/hosts/devbox')).toContain('Remote hosts</a>');
  expect(html('#/settings/add-executor')).toContain('Step 1 of 4');
- expect(html('#/sessions')).toContain('Recently ended');
- expect(html('#/sessions/t1')).toContain('Loading session');
+ expect(html('#/sessions')).toContain('Completed');
+ expect(html('#/sessions/t1')).toContain('Loading task');
 });
 test('legacy and unknown routes mount Overview',()=>{
- for(const path of ['/tasks','/tasks/t1','/executors','/executors/add','/accounts','/strategy','/hosts','/missing']) {
+ for(const path of ['/executors','/executors/add','/accounts','/strategy','/hosts','/missing']) {
   expect(destination(`#${path}`).name).toBe('overview');
   expect(html(`#${path}`)).toContain('pc-overview');
  }
- expect(html('#/review/t1')).toContain('pc-review');
+ expect(html('#/review/t1')).toContain('Loading task');
 });
 test('Add executor keeps the host prefill from host detail links',()=>{
  expect(destination('#/settings/add-executor?host=dev%20box')).toMatchObject({name:'add-executor',host:'dev box'});

@@ -1,3 +1,6 @@
+import { counts as snapshotCounts } from "../../../src/view-model/selectors";
+import { DensityContext } from '../ds/Density';
+import { settingsPageTitle } from '../settings-pages';
 import { TextAction } from "../ds/Button";
 import { LoadingState } from "../ds/Patterns";
 import { SectionHeading } from "../ds/SectionHeading";
@@ -25,7 +28,7 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
   const narrow = useNarrow(route.query);
   const context = useContext(TaskContext), Panel = context ? SettingsPanelData : SettingsPanel;
   if (state.sessionEnded) return <main className="session-ended"><Mark /><h1>Session ended.</h1><p>Run <code>pacer open</code>.</p></main>;
-  const counts = state.snapshot?.counts ?? null;
+  const counts = state.snapshot ? snapshotCounts(state.snapshot) : null;
   const loading = route.name === "loading" || !state.snapshot;
   const outdated = !loading && NEEDS_READ_MODEL.has(route.name) && !state.features.readModel;
   return <NarrowContext.Provider value={narrow}><div className={`pc-app${narrow ? " pc-app--narrow" : ""}`}>
@@ -33,10 +36,10 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
     <Rail route={route} counts={counts} narrow={narrow} />
     {SETTINGS.has(route.name) && <Panel route={route} counts={counts} snapshot={state.snapshot} />}
     <div className="pc-work">
-      {route.name !== "setup" && <TopBar narrow={narrow} title={title} planner={state.snapshot?.planner ?? null} mode={state.snapshot?.mode?.mode ?? ""} connected={state.connected} lastUpdate={state.snapshot?.at ?? null} onDelegate={onDelegate} delegatePrimary={route.name !== "review"} />}
+      {route.name !== "setup" && <TopBar narrow={narrow} title={route.name === "settings" ? settingsPageTitle(route.section) : title} planner={state.snapshot?.planner ?? null} mode={state.snapshot?.mode?.mode ?? ""} connected={state.connected} lastUpdate={state.snapshot?.at ?? null} onDelegate={onDelegate} delegatePrimary={route.name !== "review"} />}
       <div aria-live="polite" role="status" className="pc-live-region">{!state.connected && state.snapshot && <div className="connection-bar">pacer isn't responding. Retrying…</div>}</div>
       <main id="main-content" tabIndex={-1} className={`pc-main${["settings","hosts","add-executor","sessions","setup"].includes(route.name)?" pc-main--canvas":""}`}>
-        {loading ? <Skeleton /> : outdated ? <section className="pc-notice"><SectionHeading>Update pacer to use this view</SectionHeading><p>This screen needs a newer pacer service. Run <code>pacer update</code>, then reload this page.</p></section> : children}
+        {loading ? <Skeleton /> : outdated ? <section className="pc-notice"><SectionHeading>Update pacer to use this view</SectionHeading><p>This screen needs a newer pacer service. Run <code>pacer update</code>, then reload this page.</p></section> : <DensityContext.Provider value={SETTINGS.has(route.name) ? "settings" : "normal"}>{children}</DensityContext.Provider>}
       </main>
     </div>
   </div></NarrowContext.Provider>;

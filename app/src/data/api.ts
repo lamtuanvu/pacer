@@ -8,7 +8,7 @@ export function reportSessionEnded(): void {
   void host.__TAURI__?.core?.invoke("session_expired").catch(() => { /* shell may already be navigating to recovery */ });
 }
 /** Ops that are v3-only, or whose /v2 result is frozen to an older shape. */
-const V3_OPS = new Set(["doctor.run", "project.strategy.list", "project.strategy.get", "project.strategy.set", "project.strategy.remove", "setup.check", "service.install", "onboarding.try", "onboarding.skip"]);
+const V3_OPS = new Set(["task.list", "doctor.run", "project.strategy.list", "project.strategy.get", "project.strategy.set", "project.strategy.remove", "setup.check", "service.install", "onboarding.try", "onboarding.skip"]);
 export type BrowserApi = Pick<ApiClient, "hello" | "snapshot" | "call">;
 export function createApi(onSessionEnded: () => void = () => {}): BrowserApi {
   let version: 2 | 3 | undefined;
@@ -49,10 +49,17 @@ export function createApi(onSessionEnded: () => void = () => {}): BrowserApi {
   return {
     hello: async () => { if (!version) return select(); const hello = validateHello(await request<Hello>(`/v${version}/hello`)); return version === 2 ? legacyHello(hello) : hello; },
     snapshot: async () => { if (!version) await select(); return request<Awaited<ReturnType<ApiClient["snapshot"]>>>(`/v${version}/snapshot`); },
-    call: async <T>(op: string, params: unknown = {}) => {
+    call: async <T>(op: string, params: unknown = {}): Promise<T> => {
       if (!version) await select();
       if (version === 2 && op.startsWith("desktop.update.")) throw new ApiError("unknown_op", "Desktop updates require a newer service.");
-      return (await request<{ result: T }>(`/v${version === 3 || V3_OPS.has(op) ? 3 : 2}/ops/${encodeURIComponent(op)}`, params)).result;
+      try {
+        return (await request<{ result: T }>(`/v${version === 3 || V3_OPS.has(op) ? 3 : 2}/ops/${encodeURIComponent(op)}`, params)).result;
+      } catch (error) {
+        if (op !== "task.list" || !(error instanceof ApiError) || error.status !== 404) throw error;
+        // A filtered v2 list is a cursor page; limit alone returns legacy summaries.
+        const filtered = { states: ["queued", "running", "done", "partial", "failed", "limit", "stopped", "needs_input"], ...(params as Record<string, unknown>) };
+        return (await request<{ result: T }>("/v2/ops/task.list", filtered)).result;
+      }
     },
   };
 }
