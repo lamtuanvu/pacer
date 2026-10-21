@@ -31,7 +31,8 @@ export function rowLabel(label: string): string {
 }
 
 export async function performAction(action: Action, api: BrowserApi, ipc: TrayIpc) {
-  if (action.op === "ui.open") await ipc.open(actionRoute(action));
+  if (action.op === "task.answer" && typeof action.params.text !== "string") await ipc.open(`/tasks/${encodeURIComponent(String(action.params.id))}`);
+  else if (action.op === "ui.open") await ipc.open(actionRoute(action));
   else await api.call(action.op, action.params);
 }
 /** Native Tab order is also the arrow-key order, including expanded strategies. */

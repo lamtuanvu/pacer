@@ -102,8 +102,10 @@ fieldset{border:1px solid var(--line);border-radius:var(--radius-sm);display:fle
 .pc-rail__badge--warn{background:var(--warn-bg);color:var(--warn-fg)}
 .pc-rail__badge--info{background:var(--info-bg);color:var(--info-fg)}
 .pc-rail__dot{position:absolute;top:var(--size-8);right:var(--size-8);width:var(--size-7);height:var(--size-7);border-radius:var(--radius-full);background:var(--warn-fill)}
-.pc-panel{flex:0 0 220px;display:flex;flex-direction:column;gap:var(--space-1);padding:var(--space-4) var(--space-3);border-right:1px solid var(--line);background:var(--surface-card)}
-.pc-panel__item{display:flex;align-items:center;justify-content:space-between;min-height:var(--size-32);padding:0 var(--space-2);border-radius:var(--radius-md);color:var(--ink-secondary);text-decoration:none}
+.pc-panel{flex:0 0 var(--size-200);display:flex;flex-direction:column;gap:var(--space-1);padding:var(--space-4) var(--space-3);border-right:1px solid var(--line);background:var(--surface-card)}
+.pc-panel__item{display:flex;align-items:center;gap:var(--space-2);min-height:var(--size-36);padding:0 var(--space-2);border-radius:var(--radius-md);color:var(--ink-secondary);text-decoration:none}
+.pc-panel__item svg{flex:none}
+.pc-panel__item .pc-rail__badge{margin-left:auto}
 .pc-panel__item:hover,.pc-panel__item.on{background:var(--surface-lane);color:var(--ink)}
 .pc-work{flex:1;min-width:0;display:flex;flex-direction:column}
 .pc-topbar{display:flex;align-items:center;gap:var(--space-3);height:var(--size-44);padding:0 var(--space-4);border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--surface-page);z-index:var(--layer-sticky)}
@@ -148,7 +150,6 @@ fieldset{border:1px solid var(--line);border-radius:var(--radius-sm);display:fle
 
 .pc-chip__n{font-size:var(--type-caption-size);opacity:.8}
 
-.pc-attn--bad{background:var(--bad-tint);border-color:var(--bad-line)}
 .pc-attn__title{display:flex;align-items:center;gap:var(--space-2);min-width:0;font-weight:var(--type-body-strong-weight)}
 
 
@@ -327,9 +328,20 @@ fieldset{border:1px solid var(--line);border-radius:var(--radius-sm);display:fle
 .pc-setup-diff{border:1px solid var(--line);border-radius:var(--radius-lg);padding:var(--space-4);background:var(--surface-card)}
 @media(max-width:767px){.pc-setup-layout{grid-template-columns:minmax(0,1fr)}.pc-setup-header{padding:var(--space-4);flex-wrap:wrap}.pc-setup-rail{position:static;border-right:0;border-bottom:1px solid var(--line);padding:var(--space-3)}.pc-setup-rail ol{grid-template-columns:repeat(2,minmax(0,1fr))}.pc-setup-rail li{padding:var(--space-2)}.pc-setup-version{margin:var(--space-3)}.pc-setup-panel{padding:var(--space-5)}.pc-setup-executors li{grid-template-columns:var(--size-20) var(--size-32) minmax(0,1fr)}.pc-setup-executors .pc-pill{grid-column:3}.pc-setup-move{grid-column:3;justify-content:flex-start}}
 .sr-only{position:absolute;width:var(--size-1);height:var(--size-1);padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
-.pc-attn{border:1px solid var(--line);border-radius:var(--radius-md);background:var(--surface-page)}
-.pc-attn--bad{border-color:var(--bad-line);background:var(--bad-tint)}
 .pc-review-files .pc-selectable-row,.pc-review-queue .pc-selectable-row{flex-direction:column;align-items:flex-start;overflow:hidden}
 .pc-cap.pc-list-row{display:grid}.pc-cap.pc-list-row .pc-pill{white-space:normal}
 .pc-panel{position:sticky;top:0;max-height:100vh;overflow:auto;align-self:flex-start}
 .pc-control-with-reason{display:flex;flex-direction:column;align-items:flex-start;gap:var(--space-1)}
+
+/* Task results compose existing sections and DS controls. */
+.pc-task-result { max-width: 100%; }
+.pc-task-result__heading { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
+.pc-task-result__columns { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 1fr); gap: var(--space-6); }
+.pc-task-result__columns > * { min-width: 0; }
+@media (max-width: 900px) { .pc-task-result__columns { grid-template-columns: minmax(0, 1fr); } }
+/* Keep settings navigation visible without occupying the narrow content viewport. */
+.pc-app:not(.pc-app--narrow) .pc-panel{min-height:100vh}
+.pc-app--narrow .pc-panel{position:sticky;top:0;z-index:var(--layer-sticky);max-height:none;background:var(--surface-card)}
+.pc-app--narrow .pc-panel__item{min-height:var(--control-touch)}
+.pc-app--narrow:has(.pc-panel) .pc-topbar{top:calc(var(--control-touch) + var(--space-4) + var(--size-1))}
+html:has(.pc-app--narrow .pc-panel){scroll-padding-top:calc(var(--control-touch) + var(--space-4) + var(--size-1) + var(--size-60) + var(--space-4))}

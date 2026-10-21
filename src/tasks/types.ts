@@ -103,7 +103,10 @@ export interface RunRef {
   lastMessageFile?: string;
 }
 
+export interface ReviewRequest { note: string; at: number }
+
 export interface TaskRecord {
+  reviewRequest?: ReviewRequest;
   settledAt?: number;
   archived?: boolean;
   archivePath?: string;

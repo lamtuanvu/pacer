@@ -3,6 +3,7 @@ import * as projectStrategies from "../core/project-strategies";
 import { pruneTasks, restoreTask } from "../tasks/retention";
 import { parseRunnerId } from "../config/runner-id";
 import { pacerArgv } from "../install/self";
+import * as plugins from "../core/plugins";
 import * as attention from "../core/attention";
 import { taskDetail, retryOptions } from "../core/task-detail";
 import { isAbsolute } from "node:path";
@@ -65,6 +66,7 @@ export interface OpDeps {
 export interface OpDef<P extends z.ZodTypeAny = z.ZodTypeAny> { description: string; params: P; handler: (ctx: Ctx, p: z.infer<P>, deps: OpDeps) => unknown }
 
 const expect_rev = z.number().int().positive().optional();
+const pluginId = z.string().regex(/^[a-z0-9][a-z0-9-]{1,63}$/);
 const id = z.string().min(1).max(128);
 const op = <P extends z.ZodTypeAny>(d: OpDef<P>) => d as unknown as OpDef;
 
@@ -320,6 +322,11 @@ export const OPS: Record<string, OpDef> = { ...sessionOps,
       return { retried, skipped };
     },
   }),
+  "task.request_review": op({
+    description: "Request a human decision on a completed result without accepting it.",
+    params: z.object({ id, note: z.string().trim().min(1).max(2000), expect_rev }),
+    handler: (ctx, p) => ({ task: apiTask(ctx, core.tasks.requestReview(ctx, p.id, p)) }),
+  }),
   "task.review": op({
     description: "Record the planner's verdict on a task.",
     params: z.object({
@@ -370,6 +377,12 @@ export const OPS: Record<string, OpDef> = { ...sessionOps,
     strategy.remove(ctx, p.name);
     return {removed: true};
   })) }),
+  "plugin.list": op({ description: "Discovered plugins with state, capabilities, grants and pid; starts nothing.", params: z.object({}), handler: ctx => plugins.list(ctx) }),
+  "plugin.enable": op({ description: "Enable a plugin. An installed plugin without a matching grant returns needs_grant with its capability set until called with grant: true.", params: z.object({ id: pluginId, grant: z.boolean().optional() }), handler: (ctx, p) => mutation(ctx, "plugins", () => plugins.enable(ctx, p.id, p.grant ?? false)) }),
+  "plugin.disable": op({ description: "Stop a plugin and record it as disabled.", params: z.object({ id: pluginId }), handler: (ctx, p) => mutation(ctx, "plugins", () => plugins.disable(ctx, p.id)) }),
+  "plugin.remove": op({ description: "Disable an installed plugin, delete its folder and forget its grant. Bundled plugins return not_allowed.", params: z.object({ id: pluginId }), handler: (ctx, p) => mutation(ctx, "plugins", () => plugins.remove(ctx, p.id)) }),
+  "plugin.doctor": op({ description: "Start enabled plugins if idle and ping each with a 5 s deadline; report protocol versions, served extension points, restarts and errors.", params: z.object({ id: pluginId.optional() }), handler: (ctx, p) => plugins.doctor(ctx, p.id) }),
+
   "update.check": op({ description: "Check the release version, optionally bypassing the cached update check. `plugin` is always null since the Orca plugin was removed.", params: z.object({force: z.boolean().optional()}), handler: (ctx, p) => mutation(ctx, "update", async () => {
     const check = await checkForUpdate(ctx, {force: p.force});
     return {current: currentVersion(), latest: check?.latest ?? null, available: updateAvailable(check), plugin: null, ...(check?.error ? {error: check.error} : {}), ...(!check ? {disabled: true} : {})};

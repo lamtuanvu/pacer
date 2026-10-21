@@ -25,10 +25,10 @@ function fixture(): Session {
 describe("live guard (D3)", () => {
   for (const args of [
     ["install", "codex"], ["uninstall"], ["init"], ["setup"], ["statusline"], ["update", "--check"],
-    ["service", "install"], ["service", "uninstall"], ["plugin", "uninstall"],
+    ["service", "install"], ["service", "uninstall"], ["plugin", "uninstall"], ["plugin", "remove"],
     ["account", "add"], ["account", "rm"], ["account", "login"], ["host", "setup"], ["orca"], ["orca", "status"], ["open"], ["open", "--browser"],
   ]) test(`refuses ${args.join(" ")}`, () => expect(refusal(args)).toContain("D3"));
-  for (const args of [["status", "--json"], ["service", "status"], ["account", "list"], ["host", "check"], ["plugin", "install"], ["open", "--print", "tasks"], ["delegate", "--wait"], ["wait", "task"], ["_run", "task"], ["dashboard"]]) {
+  for (const args of [["status", "--json"], ["service", "status"], ["account", "list"], ["host", "check"], ["plugin", "install"], ["plugin", "list"], ["plugin", "doctor"], ["open", "--print", "tasks"], ["delegate", "--wait"], ["wait", "task"], ["_run", "task"], ["dashboard"]]) {
     test(`allows ${args.join(" ")}`, () => expect(refusal(args)).toBeUndefined());
   }
   test("executable guard exits 3 without reading a session or dispatching pacer", () => {

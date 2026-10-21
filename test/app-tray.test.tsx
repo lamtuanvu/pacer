@@ -177,7 +177,7 @@ test("ui.open navigates through IPC and never calls the operation API", async ()
   const routes: string[] = [];
   const browser = createTrayIpc({ location: { assign: url => { routes.push(url); } } });
   await performAction({ label: "Review", op: "ui.open", params: { view: "review", id: "task 1" } }, { ...api, call: async () => { throw Error("Must not POST ui.open"); } }, browser);
-  expect(routes).toEqual(["/app/#/review/task%201"]);
+  expect(routes).toEqual(["/app/#/tasks/task%201"]);
   expect(actionRoute({ label: "Open", op: "ui.open", params: { route: "/settings" } })).toBe("/settings");
 });
 
@@ -230,10 +230,10 @@ test("row actions show one short verb and keep the full label as a tooltip", asy
 
 test("tray action destinations use mounted screens and preserve settings sections", () => {
   const route = (params: Record<string, unknown>) => actionRoute({ label: "Open", op: "ui.open", params });
-  expect(route({view:"task",id:"running 1"})).toBe("/sessions/running%201");
-  expect(route({view:"review",id:"done 1"})).toBe("/review/done%201");
+  expect(route({view:"task",id:"running 1"})).toBe("/tasks/running%201");
+  expect(route({view:"review",id:"done 1"})).toBe("/tasks/done%201");
   expect(route({view:"settings",section:"executors"})).toBe("/settings/executors");
-  for (const [view, to] of Object.entries({executors:"/settings/executors",accounts:"/settings/accounts",hosts:"/settings/hosts",strategy:"/settings/strategies",setup:"/",tasks:"/sessions"})) expect(route({view})).toBe(to);
+  for (const [view, to] of Object.entries({executors:"/settings/executors",accounts:"/settings/accounts",hosts:"/settings/hosts",strategy:"/settings/strategies",setup:"/",tasks:"/tasks"})) expect(route({view})).toBe(to);
 });
 
 test("long settings actions shorten to Settings and labels ellipsize instead of overflowing", async () => {
@@ -261,12 +261,12 @@ test("opencode executors use their account's mark and an unavailable account rea
 
 test("Needs-you reasons show the shared status once and preserve distinct evidence", () => {
   const snapshot = fixture();
-  const review = { ...snapshot.attention![2]!, detail: "Waiting for review" };
+  const review = { ...snapshot.attention![2]!, detail: "Review requested" };
   const html = section(draw({ ...snapshot, attention: [review] }), "Needs you");
-  expect(html).toContain("pacer · Waiting for review</span>");
-  expect(html).not.toContain("Waiting for review · Waiting for review");
+  expect(html).toContain("pacer · Review requested</span>");
+  expect(html).not.toContain("Review requested · Review requested");
   expect(section(draw({ ...snapshot, attention: [{ ...review, detail: "Checks passed" }] }), "Needs you"))
-    .toContain("pacer · Waiting for review · Checks passed");
+    .toContain("pacer · Review requested · Checks passed");
 });
 
 test("unknown capacity never reads free or shows a ready glyph; unavailable capacity stays dimmed", () => {

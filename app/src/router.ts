@@ -8,7 +8,7 @@ type RouteBase =
   | { name: "hosts"; alias?: string }
   ;
 export type Route = RouteBase & { query: RouteQuery };
-export const SETTINGS_SECTIONS = ["planner", "accounts", "executors", "routing", "strategies", "updates", "notifications", "appearance", "diagnostics"] as const;
+export const SETTINGS_SECTIONS = ["planner", "accounts", "executors", "machine", "routing", "strategies", "updates", "notifications", "appearance", "diagnostics"] as const;
 
 /** Map service settings sections to Settings; setup item ids open Overview. */
 export function settingsPath(section: unknown): string {
@@ -39,6 +39,11 @@ export function resolveRoute(hash: string, setupComplete: boolean | null = true)
   const settingsArea = route.name === "settings" || route.name === "hosts" || route.name === "add-executor";
   if (!settingsArea && setupComplete === null) return { name: "loading", query };
   if (!settingsArea && route.name !== "setup" && setupComplete === false) return { redirect: withQuery("#/setup", query) };
+  const legacy = /^\/(review|sessions)(?:\/(.*))?$/.exec(path);
+  if (legacy) {
+    const destination = legacy[2] !== undefined ? `/tasks/${legacy[2]}` : legacy[1] === "review" ? "/needs-you" : "/tasks";
+    if (legacy[2] === undefined || (!legacy[2].includes("/") && decode(legacy[2]) !== null)) return {redirect:withQuery(`#${destination}`,query)};
+  }
   return { ...route, ...(route.name === "add-executor" && params.has("host") ? { host: params.get("host")! } : {}), query } as Route;
 }
 function match(path: string): RouteBase {
@@ -47,11 +52,13 @@ function match(path: string): RouteBase {
   if (path === "/settings") return { name: "settings" };
   if (path === "/settings/hosts") return { name: "hosts" };
   if (path === "/settings/add-executor") return { name: "add-executor" };
-  const parts = /^\/(review|sessions)(?:\/([^/]+))?$/.exec(path);
+  if (path === "/needs-you") return {name:"review"};
+  if (path === "/tasks") return {name:"sessions"};
+  const parts = /^\/(review|sessions|tasks)(?:\/([^/]+))?$/.exec(path);
   if (parts) {
     if (parts[2] === undefined) return { name: parts[1] as "review" | "sessions" };
     const id = decode(parts[2]);
-    return id === null ? { name: "overview" } : { name: parts[1] as "review" | "sessions", id };
+    return id === null ? { name: "overview" } : { name: parts[1] === "tasks" ? "sessions" : parts[1] as "review" | "sessions", id };
   }
   const host = /^\/settings\/hosts\/([^/]+)$/.exec(path);
   if (host) { const alias = decode(host[1]!); return alias === null ? { name: "overview" } : { name: "hosts", alias }; }

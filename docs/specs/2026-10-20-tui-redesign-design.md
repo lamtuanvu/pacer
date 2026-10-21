@@ -1,5 +1,7 @@
 # TUI redesign on the shared design system
 
+> Review-queue behavior is superseded by [actionable attention](2026-10-21-actionable-attention-design.md). Historical layout and delivery descriptions below are not the current review contract.
+
 Status: **Proposed — pending maintainer approval.** Requested by @lamtuanvu ("a proper TUI redesign for the entire app following our current design system").
 Governance: constitution 0.4.0 (proposed amendment), rules UI-1–UI-25, ARCH-1/2/8, CT-1–CT-4, CT-7, CT-11, REPO-1–REPO-3, REPO-7, P1, P9.
 Builds on: [design system](2026-10-19-design-system-beautiful-ui-design.md), [UI functionality](2026-10-16-ui-functionality-design.md), [UI implementation](2026-10-16-ui-implementation-design.md), [docs/design-system.md](../design-system.md), [ADR clients-over-local-service](../decisions/2026-10-16-clients-over-local-service.md).
