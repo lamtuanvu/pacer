@@ -15,25 +15,37 @@ registry.register({ keys: "j", label: "select", scope: "overview", run: () => {}
 registry.register({ keys: "k", label: "select", scope: "overview", run: () => {} });
 registry.register({ keys: "s", label: "Stop session", scope: "sessions", run: () => {} });
 
-test("status bar shows known usage from the snapshot and groups current-screen shortcuts", () => {
+test("the whole usage summary opens details and keeps only vendor marks and percentages", () => {
   const html = renderToString(<StatusBar route={route("overview")} snapshot={snapshot} registry={registry} />);
   expect(html).toContain("pc-statusbar");
-  expect(html).toContain("63% used");
-  expect(html).toContain("3% used");
-  expect(html).toContain("0% used");
-  expect(html).not.toContain('title="Claude Code usage"');
+  const usage = html.match(/<button[^>]*aria-label="Usage details[^"]*"[^>]*>(.*?)<\/button>/)?.[1] ?? "";
+  expect(usage).toContain("63%");
+  expect(usage).toContain("3%");
+  expect(usage).toContain("0%");
+  expect(usage).toContain("pc-agent-mark");
+  expect(usage).not.toContain("pc-meter");
+  expect(usage).not.toContain("Historical usage");
+  expect(usage).not.toContain("Planner");
   expect(html).toContain("j k");
   expect(html).toContain("select");
   expect(html).not.toContain("Stop session");
   expect(html).not.toContain("as of");
 });
 
-test("stale planner usage is visibly historical and has no current pace verdict", () => {
+test("stale planner usage retains freshness in the accessible name without cluttering the footer", () => {
   const historical = { ...snapshot, planner: { ...snapshot.planner!, stale: true } };
   const html = renderToString(<StatusBar route={route("overview")} snapshot={historical} registry={registry} />);
-  expect(html).toContain("Historical usage");
   expect(html).toContain("historical usage");
+  expect(html).not.toContain("Historical usage");
   expect(html).not.toContain("behind pace");
+});
+
+test("settings shortcut uses the compact Esc key label", () => {
+  const settings = createKeyRegistry({ controlActive: () => false });
+  settings.register({ keys: "Escape", label: "Close the settings panel", scope: "settings", run: () => {} });
+  const html = renderToString(<StatusBar route={route("settings")} snapshot={snapshot} registry={settings} />);
+  expect(html).toContain('class="pc-kbd">Esc</kbd>');
+  expect(html).not.toContain('class="pc-kbd">Escape</kbd>');
 });
 
 test("usage details list every quota window and distinguish stale and unknown readings", () => {

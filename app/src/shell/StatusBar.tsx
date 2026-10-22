@@ -1,10 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import { ago, clock } from "../../../src/view-model/time";
-import { executorPace } from "../../../src/view-model/capacity";
 import { agentInfo, markAgent } from "../../../src/view-model/agents";
 import { capacity, plannerMeter } from "../../../src/view-model/selectors";
 import type { ClientSnapshot } from "../../../src/view-model/snapshot";
-import { executorLabel, paceStatus } from "../../../src/view-model/words";
+import { executorLabel } from "../../../src/view-model/words";
 import { AgentMark } from "../ds/AgentMark";
 import { Kbd } from "../ds/Kbd";
 import { UsageMeter } from "../ds/UsageMeter";
@@ -75,22 +74,18 @@ export function StatusBar({ route, snapshot, registry }: { route: Route; snapsho
   const planner = snapshot ? plannerMeter(snapshot) : null;
   const visiblePlanner = planner?.usedPct !== null ? planner : null;
   const executors = snapshot ? capacity(snapshot).filter(executor => executor.usedPct !== null && !(visiblePlanner && executor.id === visiblePlanner.runner)) : [];
-  const observedAt = (runner: string, account?: string) => snapshot?.accounts?.find(entry => entry.executors.includes(runner) || entry.name === account)?.capturedAt ?? undefined;
+  const usageNames = [
+    ...(visiblePlanner ? [`${agentInfo(visiblePlanner.agent).name} planner ${Math.round(visiblePlanner.usedPct!)}%${visiblePlanner.stale ? " historical usage" : ""}`] : []),
+    ...executors.map(executor => `${executorLabel(executor.id)} ${Math.round(executor.usedPct!)}%${executor.stale ? " historical usage" : ""}`),
+  ];
   const hints = usageOpen ? [{ keys: "Escape", label: "close usage" }] : screenHints(shortcuts, route);
   return <footer className="pc-statusbar" aria-label="Status bar" onKeyDownCapture={event => { if (usageOpen) dismissUsageOnEscape(event, () => { setUsageOpen(false); usageButton.current?.focus(); }); }}>
-    <div className="pc-statusbar__usage" aria-label="Usage">
-      <Button ref={usageButton} size="sm" className="pc-statusbar__usage-button" aria-label="Usage details" aria-expanded={usageOpen} aria-controls="pc-usage-details" onClick={() => setUsageOpen(open => !open)}>Usage</Button>
-      {visiblePlanner && <span className="pc-statusbar__item" title={`${agentInfo(visiblePlanner.agent).name} planner usage${visiblePlanner.stale ? " · historical" : ""}`}>
-        <AgentMark agent={visiblePlanner.agent} size={16} labelled={false} /><span>Planner</span>
-        <UsageMeter used={visiblePlanner.usedPct} pace={visiblePlanner.pacePct} tone={paceStatus(visiblePlanner.stale ? "unknown" : visiblePlanner.verdict).tone} verdict={visiblePlanner.stale ? "unknown" : visiblePlanner.verdict} size="top" label={`${agentInfo(visiblePlanner.agent).name} planner usage`} stale={visiblePlanner.stale} staleAt={observedAt(visiblePlanner.runner)} text="compact" />
-      </span>}
-      {executors.map(executor => <span className="pc-statusbar__item" key={executor.id} title={`${executorLabel(executor.id)} usage${executor.stale ? " · historical" : ""}`}>
-        <AgentMark agent={markAgent(executor.id, executor.account)} size={16} labelled={false} /><span>{executorLabel(executor.id)}</span>
-        <UsageMeter used={executor.usedPct} pace={executor.pacePct} tone={executorPace(executor, snapshot!).tone} size="top" label={`${executorLabel(executor.id)} usage`} stale={executor.stale} staleAt={observedAt(executor.id, executor.account)} text="compact" />
-      </span>)}
-      {!visiblePlanner && !executors.length && <span className="muted">Usage unavailable</span>}
-    </div>
-    <div className="pc-statusbar__hints" aria-label="Shortcuts">{hints.map(hint => <span className="pc-statusbar__hint" key={`${hint.keys}:${hint.label}`}><Kbd>{hint.keys === "Enter" ? "⏎" : hint.keys}</Kbd> {hint.label}</span>)}</div>
+    <Button ref={usageButton} size="sm" className="pc-statusbar__usage-button" aria-label={`Usage details${usageNames.length ? `: ${usageNames.join(", ")}` : ": unavailable"}`} aria-expanded={usageOpen} aria-controls="pc-usage-details" onClick={() => setUsageOpen(open => !open)}>
+      {visiblePlanner && <span className="pc-statusbar__item" aria-hidden="true"><AgentMark agent={visiblePlanner.agent} size={16} labelled={false} /><span className="pc-num">{Math.round(visiblePlanner.usedPct!)}%</span></span>}
+      {executors.map(executor => <span className="pc-statusbar__item" aria-hidden="true" key={executor.id}><AgentMark agent={markAgent(executor.id, executor.account)} size={16} labelled={false} /><span className="pc-num">{Math.round(executor.usedPct!)}%</span></span>)}
+      {!usageNames.length && <span>Usage</span>}
+    </Button>
+    <div className="pc-statusbar__hints" aria-label="Shortcuts">{hints.map(hint => <span className="pc-statusbar__hint" key={`${hint.keys}:${hint.label}`}><Kbd>{hint.keys === "Enter" ? "⏎" : hint.keys === "Escape" ? "Esc" : hint.keys}</Kbd> {hint.label}</span>)}</div>
     <span className="pc-statusbar__version">pacer {snapshot?.service?.version ?? ""}</span>
     {usageOpen && <div ref={usageRef} className="pc-usage-popover" id="pc-usage-details" role="dialog" aria-label="Usage details"><UsagePopover close={() => { setUsageOpen(false); usageButton.current?.focus(); }} now={snapshot?.at ?? Date.now() / 1000} /></div>}
   </footer>;
