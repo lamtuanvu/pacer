@@ -3,6 +3,7 @@ use std::collections::HashMap;
 
 pub fn main(argv: Vec<String>) -> i32 {
     let args = argv.get(1..).unwrap_or_default();
+    let version = option_env!("PACER_BUILD_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"));
     if std::env::var_os("PACER_WORK_GRANT").is_some() && args.first().is_some_and(|a| a == "status")
     {
         eprintln!("pacer: work grants cannot read global status");
@@ -26,6 +27,52 @@ pub fn main(argv: Vec<String>) -> i32 {
         }
     };
     let env: HashMap<String, String> = std::env::vars().collect();
+    if args.first().is_some_and(|arg| arg == "self-repair") {
+        let base = match args {
+            [_] => env
+                .get("PACER_RELEASE_BASE")
+                .map(String::as_str)
+                .unwrap_or(""),
+            [_, flag, base] if flag == "--base" => base,
+            _ => {
+                eprintln!("usage: pacer self-repair [--base <url>]");
+                return 2;
+            }
+        };
+        return match crate::self_repair::repair(&exe, version, base) {
+            Ok(path) => {
+                println!("pacer-core {version} ready at {}", path.display());
+                0
+            }
+            Err(error) => {
+                eprintln!("pacer: self-repair failed: {error}");
+                1
+            }
+        };
+    }
+    if !env.contains_key("PACER_CORE_ARGV")
+        && env.get("PACER_NO_SELF_REPAIR").is_none_or(|s| s != "1")
+    {
+        let core = exe.with_file_name("pacer-core");
+        if !crate::self_repair::is_current(&core, version, &env) {
+            eprintln!("pacer: installing pacer-core {version}…");
+            let base = env
+                .get("PACER_RELEASE_BASE")
+                .map(String::as_str)
+                .unwrap_or("");
+            if let Err(error) = crate::self_repair::repair(&exe, version, base) {
+                eprintln!("pacer: self-repair failed: {error}");
+                if !core.is_file() {
+                    eprintln!(
+                        "pacer: pacer-core is missing next to {}. Reinstall pacer",
+                        exe.display()
+                    );
+                }
+                return 1;
+            }
+            let _ = crate::self_repair::is_current(&core, version, &env);
+        }
+    }
     match resolve_core(&env, &exe) {
         Ok(core) => {
             let env = child_env(&env, &exe);
