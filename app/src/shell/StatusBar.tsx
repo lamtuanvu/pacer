@@ -76,7 +76,7 @@ export function StatusBar({ route, snapshot, registry }: { route: Route; snapsho
   const visiblePlanner = planner?.usedPct !== null ? planner : null;
   const executors = snapshot ? capacity(snapshot).filter(executor => executor.usedPct !== null && !(visiblePlanner && executor.id === visiblePlanner.runner)) : [];
   const observedAt = (runner: string, account?: string) => snapshot?.accounts?.find(entry => entry.executors.includes(runner) || entry.name === account)?.capturedAt ?? undefined;
-  const hints = screenHints(shortcuts, route);
+  const hints = usageOpen ? [{ keys: "Escape", label: "close usage" }] : screenHints(shortcuts, route);
   return <footer className="pc-statusbar" aria-label="Status bar" onKeyDownCapture={event => { if (usageOpen) dismissUsageOnEscape(event, () => { setUsageOpen(false); usageButton.current?.focus(); }); }}>
     <div className="pc-statusbar__usage" aria-label="Usage">
       <Button ref={usageButton} size="sm" className="pc-statusbar__usage-button" aria-label="Usage details" aria-expanded={usageOpen} aria-controls="pc-usage-details" onClick={() => setUsageOpen(open => !open)}>Usage</Button>
