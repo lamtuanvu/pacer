@@ -47,7 +47,7 @@ command under Sign out; run it in a terminal.
 | Tasks | Browse running tasks, tasks waiting for review and paginated history; delegate, stop, retry or dismiss work. |
 | Task detail | Follow the live log, inspect the diff and untracked files, accept or reject with a note, retry or stop. |
 | Executors | Inspect availability and reasons, reorder and save routing, block or unblock, test endpoints and remove executors. |
-| Add executor | Choose an agent and account; for a model endpoint, enter connection details, discover models and test. Endpoint Ready state requires a passing test. |
+| Add executor | Choose an agent and account; for a model endpoint, enter connection details, discover models and test. Endpoint Ready state requires a passing test. After success, **OK** clears setup and returns to Executors; **Add another executor** resets all choices and starts at agent selection. |
 | Accounts & budgets | Inspect usage windows, resets, freshness, sign-in state and endpoint details; add or remove accounts. |
 | Strategy | Switch strategies, edit pacing, preview the ranking, save a named strategy or remove an inactive non-default strategy. |
 | Hosts | Add, check and remove remote hosts. |
