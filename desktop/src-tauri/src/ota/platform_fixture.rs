@@ -287,7 +287,7 @@ pub(crate) async fn fixture_jobs(
                     &reservation,
                 )?)?;
                 let process = process.as_ref().ok_or(OtaError::Unavailable)?;
-                job.stop_exact(trust, process).await?;
+                fixture_retire_step!(true, job.role, StopExact, job.stop_exact(trust, process).await)?;
             }
         }
     }
@@ -295,12 +295,12 @@ pub(crate) async fn fixture_jobs(
     let mut report = Vec::new();
     for (label, owned, _, _) in jobs {
         if let Some((job, bytes)) = owned {
-            let loaded = job.observe(trust)?;
+            let loaded = fixture_retire_step!(retire, job.role, Observe, job.observe(trust))?;
             if retire {
-                ensure(loaded.is_none())?;
+                fixture_retire_step!(true, job.role, ManagerAbsent, ensure(loaded.is_none()))?;
                 // Observation-only retirement is safe without a core writer: it
                 // proves manager absence and every recorded incarnation exited.
-                job.fixture_ledger(trust, &bytes, "retired", None)?;
+                fixture_retire_step!(true, job.role, Ledger, job.fixture_ledger(trust, &bytes, "retired", None))?;
             }
             let current: serde_json::Value =
                 serde_json::from_slice(&root.read("record.json", 262144)?)
