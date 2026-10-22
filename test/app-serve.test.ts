@@ -11,8 +11,13 @@ test("app serves embedded HTML, JavaScript and CSS with content types and CSP", 
     const response = appRoute(new Request(`http://localhost:4317/app/${path}`), ctx);
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toBe(`${type}; charset=utf-8`);
-    expect(response.headers.get("content-security-policy")).toBe(APP_HEADERS["Content-Security-Policy"]);
-    expect(await response.text()).toBe(file!.text);
+    if (path) {
+      expect(response.headers.get("content-security-policy")).toBe(APP_HEADERS["Content-Security-Policy"]);
+      expect(await response.text()).toBe(file!.text);
+    } else {
+      expect(response.headers.get("content-security-policy")).toContain("style-src 'self' 'nonce-");
+      expect(await response.text()).toContain('name="pacer-style-nonce"');
+    }
     const head = appRoute(new Request(`http://localhost:4317/app/${path}`, { method: "HEAD" }), ctx);
     expect(await head.text()).toBe("");
   }

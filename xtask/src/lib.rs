@@ -2,4 +2,4 @@
 pub mod deps;
 pub mod r#gen;
 pub mod loc;
-pub use r#gen::{generate, targets};
+pub use r#gen::{generate, generate_for, targets};

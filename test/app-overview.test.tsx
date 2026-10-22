@@ -67,6 +67,7 @@ test("a repo scope filters Needs you and Running but never Capacity", () => {
   expect(html).not.toContain("Split the settings page into sections");
   expect(html).toContain("LM Studio is not running");
   expect(html).toContain("+1 in other repos");
+  expect(html).toContain('href="#/overview?repo="');
 });
 
 test("a failed card has the bad tint, the glyph, the service's words and exactly its actions", () => {

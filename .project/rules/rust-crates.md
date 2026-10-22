@@ -36,6 +36,7 @@ Layers from bottom (0) to top. Budgets are the planned size at the end of M3; CR
 | Layer | Crate (folder) | Domain | Planned LOC | Heavy deps allowed |
 |---|---|---|---|---|
 | 0 | `pacer-client-protocol` (`crates/client-protocol`) | Generated client-protocol types | 4,000–7,000 generated | none at runtime (`typify` and `syn` only in `xtask`) |
+| 0 | `pacer-session-protocol` (`crates/session-protocol`) | Generated interactive-session operation types from the client schema; CRATE-3 area split | ≤ 10,000 generated | none at runtime |
 | 0 | `pacer-plugin-protocol` (`crates/plugin-protocol`) | Generated plugin-protocol types | 1,500–2,500 generated | none |
 | 1 | `pacer-foundation` (`crates/foundation`) | Ctx, file rules, lock, `CoreError`, op registry types | 1,000–1,500 | none |
 | 2 | `pacer-store` (`crates/store`) | Task store, activity log, outbox and events | 2,000–2,500 | none |

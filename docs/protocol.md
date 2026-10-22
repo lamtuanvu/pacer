@@ -3064,6 +3064,253 @@ Params JSON Schema:
 }
 ```
 
+### `session.attachment.prepare`
+
+Claim a later attachment and prepare explicit delivery without submitting agent input.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,128}$"
+    },
+    "attachmentId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    }
+  },
+  "required": [
+    "id",
+    "attachmentId"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `session.context`
+
+Private attachment draft and metadata for a conversation.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,128}$"
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `session.create`
+
+Start an idempotent persistent conversation in an explicit workspace.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "request_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,128}$"
+    },
+    "draftId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "request": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200000
+    },
+    "repo": {
+      "type": "string",
+      "minLength": 1
+    },
+    "executor": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,128}$"
+    },
+    "workspace": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "mode": {
+              "type": "string",
+              "const": "new"
+            },
+            "base": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "mode",
+            "base"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "mode": {
+              "type": "string",
+              "const": "current"
+            },
+            "path": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "mode",
+            "path"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "attachments": {
+      "maxItems": 20,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      }
+    }
+  },
+  "required": [
+    "request_id",
+    "draftId",
+    "request",
+    "repo",
+    "executor",
+    "workspace",
+    "attachments"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `session.draft.create`
+
+Create a private attachment draft, expiring after 24 hours if unclaimed.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}
+```
+
+### `session.end`
+
+End a conversation while retaining its workspace and output.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,128}$"
+    },
+    "expect_rev": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "id",
+    "expect_rev"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `session.prepare`
+
+Interactive executor capabilities and explicit workspace choices.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "repo": {
+      "type": "string",
+      "minLength": 1
+    },
+    "executor": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "repo"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `session.resume`
+
+Explicitly resume the native conversation with the same agent and account.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,128}$"
+    },
+    "expect_rev": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "id",
+    "expect_rev"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### `setup.check`
 
 Read the setup checklist and outstanding steps.

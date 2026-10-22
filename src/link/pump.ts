@@ -43,6 +43,8 @@ export function acceptanceState(t: TaskRecord): import("./envelope").AcceptanceS
 export function taskData(t:TaskRecord):TaskData & {title:string} {
   const last=t.attempts.at(-1); return {id:t.id,title:taskTitle(t),state:t.state,goal:clip(t.brief.goal,LIMITS.goal),executor:t.result?.executor??t.executor??last?.executor??null,backend:t.result?.backend??t.backend??null,worktree:t.result?.worktree??t.worktree??null,updatedAt:Math.max(t.createdAt,last?.startedAt??0,last?.endedAt??0,t.attemptStartedAt??0,t.reviewRequest?.at??0),
     ...(t.placement?.mode && t.placement.why!==undefined ? {placement:{mode:t.placement.mode,why:t.placement.why}} : {}),
+    ...(t.interactionMode ? {interactionMode:t.interactionMode} : {}),
+    ...(t.conversation ? {conversation:t.conversation} : {}),
     acceptanceState: acceptanceState(t),
     ...(t.reviewRequest ? {reviewRequest:t.reviewRequest} : {}),
     ...(t.review?{review:t.review}:{}),...(t.resolved?{resolved:t.resolved}:{}),

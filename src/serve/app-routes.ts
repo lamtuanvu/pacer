@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import tokens from "../../app/src/ds/tokens.css" with { type: "text" };
 import { extname } from "node:path";
 import { APP_FILES } from "../app/assets.generated";
@@ -6,7 +6,7 @@ import type { Ctx } from "../types";
 import { createSession, redeemCode, SESSION_SECONDS } from "./app-auth";
 
 export const APP_HEADERS = {
-  "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+  "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
   "X-Content-Type-Options": "nosniff",
   "Referrer-Policy": "no-referrer",
 };
@@ -61,7 +61,10 @@ export function appRoute(req: Request, ctx: Ctx): Response {
     ?? (!extname(path) ? APP_FILES.find(f => f.path === "index.html") : undefined);
   if (!file) return appPage("Not found.", 404);
   if (file.path === "index.html") {
-    return new Response(req.method === "HEAD" ? null : file.text, { headers: { ...APP_HEADERS, "Content-Type": file.type, "Cache-Control": "no-store" } });
+    const nonce = randomBytes(24).toString("base64");
+    const html = file.text.replace("</head>", `<meta name="pacer-style-nonce" content="${nonce}"></head>`);
+    const csp = APP_HEADERS["Content-Security-Policy"].replace("style-src 'self'", `style-src 'self' 'nonce-${nonce}'`);
+    return new Response(req.method === "HEAD" ? null : html, { headers: { ...APP_HEADERS, "Content-Security-Policy": csp, "Content-Type": file.type, "Cache-Control": "no-store" } });
   }
   // Revalidate assets on every load so an updated pacer never runs a cached old app.
   const etag = `"${etagOf(file.text)}"`;

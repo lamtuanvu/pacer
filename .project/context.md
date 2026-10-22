@@ -29,6 +29,7 @@ pacer paces AI coding work across subscription budgets. A planner plans and revi
 | `scripts/` | Release, protocol-doc, e2e, QA, brand and design-system sync scripts |
 | `test/` | Flat `bun:test` suite (`<area>-<topic>.test.ts`), `fixtures/`, `__snapshots__/`; `test/setup.ts` isolates `HOME`/`PACER_HOME` |
 | `crates/foundation` | `pacer-foundation`: ctx, file rules, lock, `CoreError`, op registry types |
+| `crates/session-protocol` | `pacer-session-protocol`: generated interactive-session operation types, split from the client schema under CRATE-3 |
 | `crates/cli` | `pacer-cli`: argv dispatch, core exec, status line, self-repair |
 | `crates/pacer` | `pacer`: the binary, start-up and dispatch only |
 | `crates/plugin-sdk` | `pacer-plugin`: Rust plugin SDK |

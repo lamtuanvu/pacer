@@ -45,7 +45,8 @@ export function tabs(s: ClientSnapshot): ScreenId[] {
   return ["home", "review", "sessions", "settings", ...(s.setup && s.setup.ready === false ? ["setup" as const] : [])];
 }
 /** While setup is incomplete, work screens show Setup, as the app redirects them to #/setup. */
-export function effectiveScreen(s: ClientSnapshot, screen: ScreenId): ScreenId {
+export function effectiveScreen(s: ClientSnapshot, screen: ScreenId, ops?: readonly string[]): ScreenId {
+  if (screen === "sessions" && ops?.includes("session.create")) return screen;
   return s.setup && s.setup.complete === false && ["home", "review", "sessions"].includes(screen) ? "setup" : screen;
 }
 
@@ -55,7 +56,7 @@ export function screenContext(input: FrameInput): ScreenCtx {
   return { s: input.s, now: input.now, theme: input.theme, state: input.state, width, height: Math.max(1, input.height - CHROME), wide: input.width >= WIDE, supports, data: input.data, timeZone: input.timeZone, ...(input.spinner ? { spinner: input.spinner } : {}) };
 }
 export function screenView(input: FrameInput): { ctx: ScreenCtx; view: ScreenView; screen: ScreenId } {
-  const ctx = screenContext(input), screen = effectiveScreen(input.s, input.state.screen);
+  const ctx = screenContext(input), screen = effectiveScreen(input.s, input.state.screen, input.ops);
   const build = { home: homeScreen, review: reviewScreen, sessions: sessionsScreen, settings: settingsScreen, setup: setupScreen }[screen];
   return { ctx, view: build({ ...ctx, state: { ...ctx.state, screen } }), screen };
 }
@@ -158,7 +159,7 @@ function scrolled(theme: TerminalTheme, rows: Line[], scroll: number, room: numb
 type HelpRow = [string, string, string?];
 const HELP: HelpRow[] = [
   ["TABS", "Switch screen"], [",", "Settings"], ["j k / ↑ ↓", "Select"], ["PgUp PgDn", "Page through a list"], ["⏎", "Primary action"], [".", "All actions for the row"],
-  ["d", "Delegate a task", "task.delegate"], ["f", "Repo scope"], ["R / Ctrl-R", "Refresh"], ["?", "Keyboard shortcuts"], ["Esc", "Close or go back"], ["q", "Quit"],
+  ["n", "Start interactive session", "session.create"], ["d", "Delegate a task", "task.delegate"], ["f", "Repo scope"], ["R / Ctrl-R", "Refresh"], ["?", "Keyboard shortcuts"], ["Esc", "Close or go back"], ["q", "Quit"],
 ];
 const SCREEN_HELP: Partial<Record<ScreenId, HelpRow[]>> = {
   home: [["x", "Dismiss", "attention.dismiss"], ["v", "Open in Review"], ["b", "Block or unblock an executor", "runner.block"], ["t m", "Terminal window · tmux pane", "task.attach"], ["s", "Stop", "task.stop"]],
@@ -168,7 +169,7 @@ const SCREEN_HELP: Partial<Record<ScreenId, HelpRow[]>> = {
   setup: [["⏎", "Run the selected step"], ["x", "Skip first delegation", "onboarding.skip"]],
 };
 function helpLines(input: FrameInput): Line[] {
-  const screen = effectiveScreen(input.s, input.state.screen);
+  const screen = effectiveScreen(input.s, input.state.screen, input.ops);
   const offered = (op?: string) => !op || input.ops === undefined || input.ops.includes(op);
   const switchKeys = `1-${tabs(input.s).length} / Tab Shift-Tab`;
   const keysOf = (k: string) => k === "TABS" ? switchKeys : k;

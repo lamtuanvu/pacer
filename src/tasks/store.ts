@@ -167,6 +167,9 @@ export function taskStoreVersion(ctx: Ctx): string {
   return `${generation}:${external}:${local}`;
 }
 
+/** Service-owned extensions share the task transaction for claims and creation. */
+export function taskDatabase(ctx: Ctx): Database { return connection(ctx).db; }
+
 export function newTaskId(nowS: number): string {
   const d = new Date(nowS * 1000);
   const p = (n: number) => String(n).padStart(2, "0");
@@ -179,7 +182,8 @@ export function isTaskId(id: string): boolean {
 }
 
 export function createTask(
-  ctx: Ctx, input: { title?: string; brief: Brief; kind: string | null; requestedExecutor: string | null; timeoutS: number },
+  ctx: Ctx, input: { title?: string; brief: Brief; kind: string | null; requestedExecutor: string | null; timeoutS: number } & Partial<Pick<TaskRecord, "interactionMode" | "conversation" | "sessionDraftId" | "requestId" | "source" | "repo" | "placement" | "baseBranch" | "baseSha">>,
+  onCreate?: (task: TaskRecord, db: Database) => void,
 ): TaskRecord {
   const { db } = connection(ctx);
   for (let i = 0; i < 65; i++) {
@@ -187,6 +191,7 @@ export function createTask(
     const created = db.transaction(() => {
       const result = db.query(`INSERT OR IGNORE INTO tasks (${columns}) VALUES (${placeholders})`).run(...values(task, ctx.now));
       if (!result.changes) return false;
+      onCreate?.(task, db);
       const mtime = writeCompatibilityJson(ctx, task);
       db.query("UPDATE tasks SET json_mtime = ? WHERE id = ?").run(mtime, task.id);
       return true;

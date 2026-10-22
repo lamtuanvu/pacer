@@ -3,7 +3,7 @@ import { settingsPageTitle } from "./settings-pages";
 /** Hash routes for the redesigned shell. Unknown hashes fall back to Overview. */
 export interface RouteQuery { repo: string | null; scope: string | null }
 type RouteBase =
-  | { name: "overview" | "loading" | "setup" }
+  | { name: "start" | "overview" | "loading" | "setup" }
   | { name: "add-executor"; host?: string }
   | { name: "review" | "sessions"; id?: string }
   | { name: "settings"; section?: string }
@@ -11,10 +11,10 @@ type RouteBase =
   ;
 export type Route = RouteBase & { query: RouteQuery };
 export type RouteName = Route["name"];
-export type PrimaryRoute = "overview" | "review" | "sessions" | "settings" | null;
+export type PrimaryRoute = "start" | "overview" | "review" | "sessions" | "settings" | null;
 type TargetQuery = Partial<RouteQuery>;
 export type RouteTarget =
-  | { name: "overview" | "review" | "setup"; query?: TargetQuery }
+  | { name: "start" | "overview" | "review" | "setup"; query?: TargetQuery }
   | { name: "sessions"; id?: string; query?: TargetQuery }
   | { name: "settings"; section?: string; query?: TargetQuery }
   | { name: "hosts"; alias?: string; query?: TargetQuery }
@@ -23,6 +23,7 @@ export const SETTINGS_SECTIONS = ["planner", "accounts", "executors", "machine",
 const EMPTY_QUERY: RouteQuery = { repo: null, scope: null };
 const withTargetQuery = <T extends RouteTarget>(target: T, query?: TargetQuery): T => query ? { ...target, query } : target;
 export const routes = {
+  start: (query?: TargetQuery) => withTargetQuery({ name: "start" } as const, query),
   overview: (query?: TargetQuery) => withTargetQuery({ name: "overview" } as const, query),
   needsYou: (query?: TargetQuery) => withTargetQuery({ name: "review" } as const, query),
   tasks: (query?: TargetQuery) => withTargetQuery({ name: "sessions" } as const, query),
@@ -40,7 +41,8 @@ function mergedQuery(target: RouteTarget, current: RouteQuery = EMPTY_QUERY): Ro
 export function hrefFor(target: RouteTarget, current: RouteQuery = EMPTY_QUERY): string {
   let href: string;
   switch (target.name) {
-    case "overview": href = "#/"; break;
+    case "start": href = "#/"; break;
+    case "overview": href = "#/overview"; break;
     case "review": href = "#/needs-you"; break;
     case "sessions": href = target.id ? `#/tasks/${encodeURIComponent(target.id)}` : "#/tasks"; break;
     case "settings": href = target.section ? `#/settings/${encodeURIComponent(target.section)}` : "#/settings"; break;
@@ -63,12 +65,14 @@ export function parentFor(route: Route): RouteTarget | null {
   return null;
 }
 export function titleFor(route: Route): string {
+  if (route.name === "start") return "Start work";
   if (route.name === "sessions" && route.id) return "Task";
   if (route.name === "hosts" && route.alias) return "Host";
   if (route.name === "settings") return settingsPageTitle(route.section);
   return route.name === "overview" ? "Overview" : route.name === "review" ? "Needs you" : route.name === "sessions" ? "Tasks" : route.name === "hosts" ? "Remote hosts" : route.name === "add-executor" ? "Add executor" : route.name === "setup" ? "Set up pacer" : "pacer";
 }
 export function primaryFor(route: Route): PrimaryRoute {
+  if (route.name === "start") return "start";
   return route.name === "overview" || route.name === "review" || route.name === "sessions" ? route.name : route.name === "settings" || route.name === "hosts" || route.name === "add-executor" ? "settings" : null;
 }
 
@@ -92,15 +96,16 @@ function decode(part: string): string | null { try { return decodeURIComponent(p
 /**
  * setupComplete: true, false, or null while the first setup check is still in flight (screens wait rather than flash Setup).
  */
-export function resolveRoute(hash: string, setupComplete: boolean | null = true): Route | { redirect: string } {
+export function resolveRoute(hash: string, setupComplete: boolean | null = true, interactiveEntry = false): Route | { redirect: string } {
   const raw = hash.replace(/^#/, "") || "/";
   const [path = "/", search = ""] = raw.split("?");
   const params = new URLSearchParams(search);
   const query: RouteQuery = { repo: params.get("repo"), scope: params.get("scope") };
   const route = match(path);
   const settingsArea = route.name === "settings" || route.name === "hosts" || route.name === "add-executor";
-  if (!settingsArea && setupComplete === null) return { name: "loading", query };
-  if (!settingsArea && route.name !== "setup" && setupComplete === false) return { redirect: withQuery("#/setup", query) };
+  const interactiveArea = interactiveEntry && (route.name === "start" || route.name === "sessions");
+  if (!settingsArea && !interactiveArea && setupComplete === null) return { name: "loading", query };
+  if (!settingsArea && !interactiveArea && route.name !== "setup" && setupComplete === false) return { redirect: withQuery("#/setup", query) };
   const legacy = /^\/(review|sessions)(?:\/(.*))?$/.exec(path);
   if (legacy) {
     const destination = legacy[2] !== undefined ? `/tasks/${legacy[2]}` : legacy[1] === "review" ? "/needs-you" : "/tasks";
@@ -110,7 +115,8 @@ export function resolveRoute(hash: string, setupComplete: boolean | null = true)
 }
 function match(path: string): RouteBase {
   if (path === "/setup") return { name: "setup" };
-  if (path === "/") return { name: "overview" };
+  if (path === "/") return { name: "start" };
+  if (path === "/overview") return { name: "overview" };
   if (path === "/settings") return { name: "settings" };
   if (path === "/settings/hosts") return { name: "hosts" };
   if (path === "/settings/add-executor") return { name: "add-executor" };

@@ -28,10 +28,11 @@ export function sessionItem(ctx: ScreenCtx, t: ClientTask): Item {
   const terminal: Act | undefined = live ? { label: "Open in a terminal window", effect: { type: "attach", id: t.id, target: "terminal" } } : undefined;
   const tmux: Act | undefined = live ? { label: "Open in a tmux pane", effect: { type: "attach", id: t.id, target: "tmux" } } : undefined;
   const rev = typeof t.rev === "number" ? { expect_rev: t.rev } : {};
-  const stop = active || t.state === "needs_input" ? opAct(ctx, "Stop", "task.stop", { id: t.id, ...rev }, { danger: true, confirm: { title: "Stop this session and its executor?", body: [displayTitle(t)], yes: "Stop" } }) : undefined;
+  const conversation = t.interactionMode === "conversation";
+  const stop = active || t.state === "needs_input" ? opAct(ctx, conversation ? "End session" : "Stop", conversation && ctx.supports("session.end") ? "session.end" : "task.stop", { id: t.id, ...rev }, { danger: true, confirm: { title: "Stop this session and its executor?", body: [displayTitle(t)], yes: "Stop" } }) : undefined;
   const review: Act | undefined = waitingForReview(t) ? { label: "Review", effect: { type: "navigate", screen: "review", id: t.id } } : undefined;
   const detail = ctx.data.details.get(t.id)?.value;
-  const verdictItem = !active && !t.review && !t.resolved && !t.dismissed && !t.retriedBy ? reviewItem(ctx,{taskId:t.id,kind:waitingForReview(t)?"review":"failed",title:displayTitle(t)} as AttentionItem,t,detail) : undefined;
+  const verdictItem = !conversation && !active && !t.review && !t.resolved && !t.dismissed && !t.retriedBy ? reviewItem(ctx,{taskId:t.id,kind:waitingForReview(t)?"review":"failed",title:displayTitle(t)} as AttentionItem,t,detail) : undefined;
   const dismiss = !active ? opAct(ctx, "Dismiss", "task.dismiss", { ids: [t.id], ...rev }) : undefined;
   return {
     id: `session:${t.id}`, primary: watch ?? review,
@@ -91,7 +92,7 @@ export function sessionsScreen(ctx: ScreenCtx): ScreenView {
 }
 
 function sessionDetail(ctx: ScreenCtx, t: ClientTask, width: number): Row[] {
-  if (!ACTIVE.has(t.state)) return reviewDetail(ctx,{taskId:t.id,title:displayTitle(t),kind:waitingForReview(t)?"review":"failed"} as AttentionItem,ctx.data.details.get(t.id),width);
+  if (!ACTIVE.has(t.state) && t.interactionMode !== "conversation") return reviewDetail(ctx,{taskId:t.id,title:displayTitle(t),kind:waitingForReview(t)?"review":"failed"} as AttentionItem,ctx.data.details.get(t.id),width);
   const { theme, now } = ctx, resource = ctx.data.details.get(t.id), d = resource?.value;
   const dot = ` ${glyph(theme, "·")} `;
   const rows: Row[] = wrap(displayTitle(t), width, 2).map(line => ({ line: [span(line, { bold: true })] }));

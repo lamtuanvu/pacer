@@ -10,6 +10,7 @@ import { withLock } from "../core/lock";
 import type { Ctx } from "../types";
 import { listTasksWhere, readTask, taskArchiveDir, taskSettledAt, tasksDir, updateTask, withTaskLockAsync } from "./store";
 import { TERMINAL_STATES, type TaskRecord } from "./types";
+import { expireDraftAttachments } from "../attachments/store";
 
 async function withRetentionLock<T>(ctx: Ctx, action: () => Promise<T>): Promise<T> {
   try { return await withLock(ctx, "task-retention", action, { timeoutMs: 0, staleMs: 24 * 3600_000 }); }
@@ -173,7 +174,10 @@ export async function restoreTask(ctx: Ctx, id: string): Promise<TaskRecord> {
 }
 
 /** Timer-independent to make single-flight and daily cadence testable. */
-export function retentionScheduler(run: (ctx: Ctx) => Promise<unknown> = pruneTasks) {
+export function retentionScheduler(run: (ctx: Ctx) => Promise<unknown> = async ctx => {
+  await expireDraftAttachments(ctx);
+  return pruneTasks(ctx);
+}) {
   let pending: Promise<void> | undefined, lastRun = -Infinity;
   return {
     tick(ctx: Ctx): Promise<void> {

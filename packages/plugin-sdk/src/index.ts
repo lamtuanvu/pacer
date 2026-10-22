@@ -1,3 +1,5 @@
+export type { AttachmentMetadata, AttachmentRef, AgentVersion, AgentSessionCapabilities, AgentSessionPrepare, AgentSessionLaunch, AgentAttachmentInput, AgentAttachmentDelivery } from "./agent-session";
+
 export interface PluginManifest {
   id: string; version: string; publisher: string; host: string;
   contributes?: Record<string, Record<string, unknown>>;

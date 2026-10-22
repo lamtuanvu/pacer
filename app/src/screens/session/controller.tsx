@@ -17,6 +17,7 @@ import { useQuery, useTaskContext } from "../task-shared";
 import { Session } from "./Session";
 import { takeoverSession, type TakeoverState } from "./takeover";
 import { SessionsList } from "./SessionsList";
+import { Conversation } from "./Conversation";
 import type { SessionData, Action } from './types';
 export function sessionRow(task:ClientTask):SessionData {
  return {id:task.id,title:task.title ?? task.fullTitle,goal:task.goal,state:task.state,reviewRequest:task.reviewRequest,review:task.review,resolved:task.resolved,dismissed:task.dismissed,retriedBy:task.retriedBy,executor:task.executor,agent:markAgent(task.executor??'unknown'),repo:task.repo?.label??'Repository unknown',machine:task.host,
@@ -130,6 +131,7 @@ export function SessionRoute({id, embedded = false}:{id:string; embedded?:boolea
  changes:{data:diff.data?`${diff.data.diff}${diff.data.untracked.length?'\nUntracked files:\n'+diff.data.untracked.join('\n'):''}${diff.data.truncated?'\nDiff truncated.':''}`:undefined,loading:diff.loading,error:message(diff.error)}}:undefined;
  const handler=useRef(()=>{});handler.current=()=>{if(stop)void invoke(stop).catch(error=>setShortcutError(message(error)??'Action failed'));};
  useEffect(()=>keys.register({keys:'s',label:'Stop session',scope:'sessions',run:()=>handler.current()}),[]);
+ if(task.data?.interactionMode==='conversation')return <Conversation key={id} task={task.data} session={session.data} diff={diff.data} onReload={()=>{task.reload();session.reload();}}/>;
  return <>{dialogs.dialog}{shortcutError&&<p role="status">{shortcutError}</p>}<Session embedded={embedded} key={id} onTakeSent={()=>setTakeRequested(false)} onTakeover={()=>void takeOver()} takeoverBusy={takeoverBusy} takeoverStarting={takeoverStarting} takeoverError={takeoverError} takeRequested={takeRequested} data={data} loading={task.loading} error={message(task.error)} onAction={invoke} onAttach={async(_,target)=>{const key=`attach:${id}:${target}`;const outcome=await runner.run(key,{label:'Open viewer',op:'task.attach',params:{id,target}});if(outcome.status==='error'||outcome.status==='handled')throw new Error(outcome.message);return runner.result(key) as {opened:boolean;command?:string};}} onReload={task.reload}/></>;
 }
 const message=(error:unknown)=>error instanceof Error?error.message:error?String(error):undefined;

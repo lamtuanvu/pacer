@@ -123,7 +123,8 @@ export function taskItem(ctx: ScreenCtx, t: ClientTask): Item {
   const watch: Act | undefined = attachable ? { label: "Watch", effect: { type: "attach", id: t.id, target: "here" } } : undefined;
   const terminal: Act | undefined = attachable ? { label: "Open in a terminal window", effect: { type: "attach", id: t.id, target: "terminal" } } : undefined;
   const tmux: Act | undefined = attachable ? { label: "Open in a tmux pane", effect: { type: "attach", id: t.id, target: "tmux" } } : undefined;
-  const stop = opAct(ctx, "Stop", "task.stop", { id: t.id, ...(typeof t.rev === "number" ? { expect_rev: t.rev } : {}) },
+  const conversation = t.interactionMode === "conversation" && ctx.supports("session.end");
+  const stop = opAct(ctx, conversation ? "End session" : "Stop", conversation ? "session.end" : "task.stop", { id: t.id, ...(typeof t.rev === "number" ? { expect_rev: t.rev } : {}) },
     { danger: true, confirm: { title: "Stop this session and its executor?", body: [displayTitle(t)], yes: "Stop" } });
   return {
     id: `task:${t.id}`, primary: watch ?? details,

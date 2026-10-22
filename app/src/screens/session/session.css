@@ -34,5 +34,14 @@
 /* Match shell chrome: desktop top bar, tablet rail, then touch top bar. */
 @media(max-width:767px){.pc-session-main>.pc-tabs{top:var(--size-56)}}
 .pc-app--narrow .pc-session-main>.pc-tabs{top:max(var(--size-60),calc(var(--control-touch) + var(--space-2) * 2 + var(--size-1)))}
+.pc-conversation{width:100%;min-width:0;display:flex;flex-direction:column;gap:var(--space-3);padding:var(--space-4);max-width:calc(var(--size-960) + var(--size-600));margin:auto}
+.pc-conversation-header,.pc-conversation-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-3)}
+.pc-conversation-heading{display:flex;flex-direction:column;gap:var(--space-1);min-width:0;flex:1}
+.pc-conversation-heading>strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pc-conversation-terminal .pc-terminal-pane{height:max(var(--size-360),calc(100vh - var(--size-260)));overflow:auto}
+.pc-conversation-request{white-space:pre-wrap;overflow-wrap:break-word}
+.pc-session-attachments,.pc-conversation-delivery{display:flex;flex-direction:column;align-items:flex-start;gap:var(--space-3)}
+.pc-session-attachments .pc-attachments{width:100%}
+.pc-conversation-delivery{width:100%;padding:var(--space-3);border:1px solid var(--line);border-radius:var(--radius-md);background:var(--surface-card)}
 /* The task frame owns sticky navigation when Session is embedded. */
 .pc-detail-panel .pc-session-main>.pc-tabs{position:static}
