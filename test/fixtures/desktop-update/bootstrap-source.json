@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "uid": 501,
+  "process": {
+    "pid": 10,
+    "bootId": "boot",
+    "birth": "123:456"
+  },
+  "executable": "/tmp/legacy/pacer",
+  "file": {
+    "device": "1",
+    "inode": "2",
+    "size": 100,
+    "modifiedNs": "3",
+    "changedNs": "4",
+    "sha256": "f37bb3f6c2dd804e69c0651bda6fd4846ab92b00623b4dc95d75e89e64bbb340",
+    "cdhash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "registration": {
+    "label": "com.pacer.serve",
+    "home": "/tmp/home",
+    "pacerHome": "/tmp/home/.pacer",
+    "port": 4317,
+    "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  }
+}

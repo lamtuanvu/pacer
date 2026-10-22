@@ -1050,6 +1050,29 @@ pub fn inspect_registered_service(
     port: u16,
     trust: &ReleaseTrust,
 ) -> Result<RegisteredService, OtaError> {
+    let observed = observe_service_registration(user_home, home, port, trust)?;
+    trust.verify_process(&observed.process, CodeRole::Cli)?;
+    trust.verify_static(&observed.executable, CodeRole::Cli)?;
+    Ok(RegisteredService { home: observed.home, port: observed.port, process: observed.process, executable: observed.executable })
+}
+
+/// Read-only native ownership observations. These are not a verified endpoint or OTA authority.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ObservedServiceRegistration {
+    pub home: std::path::PathBuf,
+    pub port: u16,
+    pub process: ProcessIdentity,
+    pub executable: std::path::PathBuf,
+    pub registration: Vec<u8>,
+    pub label: String,
+}
+
+pub(crate) fn observe_service_registration(
+    user_home: &Path,
+    home: &Path,
+    port: u16,
+    trust: &ReleaseTrust,
+) -> Result<ObservedServiceRegistration, OtaError> {
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
     let home = home.canonicalize().map_err(|_| OtaError::Identity)?;
     let user_home = user_home.canonicalize().map_err(|_| OtaError::Identity)?;
@@ -1116,13 +1139,13 @@ pub fn inspect_registered_service(
     {
         return Err(OtaError::Identity);
     }
-    trust.verify_process(&details.identity, CodeRole::Cli)?;
-    trust.verify_static(&executable, CodeRole::Cli)?;
-    Ok(RegisteredService {
+    Ok(ObservedServiceRegistration {
         home,
         port,
         process: details.identity,
         executable,
+        registration: bytes,
+        label: label.to_owned(),
     })
 }
 

@@ -15,6 +15,19 @@ ID signing, notarization, Intel execution and reboot recovery still require rele
 validation. The native adapter does not yet advertise service adoption; its API
 and interface remain capability-gated until native adoption validation passes.
 
+## Connection failures
+
+If the desktop cannot verify its connection to the service, Settings → Updates
+reports **Automatic desktop updates are unavailable**, with the reason when the
+native shell can provide it. Normal service work may continue. A missing desktop
+update status does not mean that a desktop update was checked or installed.
+Manual installation is a separate, labelled fallback option.
+
+CLI-installed services can lack the release identity and native channel required
+by desktop updates. An explicit legacy-service bootstrap is being designed to
+transfer a supported service safely; the connection diagnostic alone does not
+perform that transfer or grant update authority.
+
 ## Updating
 
 Open **Settings → Updates** while the desktop is connected. Pacer checks daily

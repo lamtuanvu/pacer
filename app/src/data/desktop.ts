@@ -27,3 +27,18 @@ export const windowControls = (host: DesktopHost = desktopHost()) => {
   };
 };
 export type WindowControls = ReturnType<typeof windowControls>;
+
+export type DesktopUpdateConnection = {
+  state: "connecting" | "available" | "unavailable" | "unsupported";
+  reason: "service-identity" | "connection" | null;
+};
+/** Read-only native diagnostics; a service snapshot cannot establish shell authority. */
+export async function readDesktopUpdateConnection(host: DesktopHost = desktopHost()): Promise<DesktopUpdateConnection | null> {
+  const invoke = host.__TAURI__?.core?.invoke;
+  if (!invoke) return null;
+  const value = await invoke("desktop_update_connection") as Partial<DesktopUpdateConnection> | null;
+  if (!value || !["connecting", "available", "unavailable", "unsupported"].includes(value.state ?? "") ||
+      (value.reason === undefined || ![null, "service-identity", "connection"].includes(value.reason)) ||
+      (value.state !== "unavailable" && value.reason !== null)) throw Error("Desktop update connection unavailable");
+  return value as DesktopUpdateConnection;
+}

@@ -114,3 +114,18 @@ export function updateNoticeKey(status: UpdateStatus): string {
 export function updateNotice(updates: UpdateStatus[] = [], dismissed: ReadonlySet<string>): UpdateStatus | null {
   return updates.find(status => status.phase === "ready" && !!status.target && status.actions.includes("restart") && !dismissed.has(updateNoticeKey(status))) ?? null;
 }
+
+export function desktopConnectionView(connection: { state: string; reason: string | null } | null) {
+  if (connection?.state === "connecting" || connection?.state === "available") return {
+    label: "Connecting automatic desktop updates",
+    detail: "Waiting for a verified desktop update status. Your service continues running.",
+  };
+  return {
+    label: "Automatic desktop updates are unavailable",
+    detail: connection?.reason === "service-identity"
+      ? "pacer could not verify the connected service for desktop updates. Your service continues running; no update has been installed."
+      : connection?.state === "unsupported"
+        ? "This desktop build does not support automatic updates. Your service continues running."
+        : "pacer could not establish a verified desktop update connection. Your service continues running; no update has been installed.",
+  };
+}

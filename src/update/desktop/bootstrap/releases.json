@@ -1,0 +1,6 @@
+[
+  { "version": "0.6.2", "arch": "aarch64", "sha256": "df81746902afc4c07a538c9688000403a54b0d7ad75126cbca8897091e66eabe", "admissionExclusion": false },
+  { "version": "0.6.2", "arch": "x86_64", "sha256": "d412b332e75a0714f592774b09730e5497bff115f44e3d5edc4796510fcdbc0e", "admissionExclusion": false },
+  { "version": "0.7.1", "arch": "aarch64", "sha256": "f37bb3f6c2dd804e69c0651bda6fd4846ab92b00623b4dc95d75e89e64bbb340", "admissionExclusion": false },
+  { "version": "0.7.1", "arch": "x86_64", "sha256": "4f5d5be10f5c7bbe63f6dd31f6645e05e95940981dcf44d6a0064e3486286abb", "admissionExclusion": false }
+]

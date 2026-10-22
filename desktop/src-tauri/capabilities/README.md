@@ -4,7 +4,8 @@ with local pages excluded:
 
 - `service-<port>`, main window only: `allow-setLaunchAtLogin`, `allow-setTheme`,
   `allow-notifyRoute`, `allow-session-expired`, `allow-session-ready`,
-  `allow-desktop-version` (read-only native app version).
+  `allow-desktop-version` (read-only native app version),
+  `allow-desktop-update-connection` (read-only native OTA connection state and public failure reason).
 - `tray-service-<port>`, tray window only: `allow-tray-resize`, `allow-tray-open`,
   `allow-tray-hide`, `allow-app-quit`, `allow-session-expired`.
 
