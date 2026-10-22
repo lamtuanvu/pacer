@@ -304,28 +304,37 @@ impl Asset {
             .iter()
             .collect();
         let manifest = if parts.len() == 5 {
-            let paths = [
-                parent.join("prepared.json"),
-                parent.join("adoption-prepared.json"),
+            let pairs = [
+                (
+                    parent.join("prepared.json"),
+                    parent.join("journal.json"),
+                    false,
+                ),
+                (
+                    parent.join("adoption-prepared.json"),
+                    parent.join("adoption-journal.json"),
+                    true,
+                ),
             ];
-            let present: Vec<_> = paths.iter().filter(|p| p.exists()).collect();
+            let present: Vec<_> = pairs
+                .iter()
+                .filter(|(manifest, _, _)| manifest.exists())
+                .collect();
             if present.len() != 1 {
                 return Err(denied());
             }
-            let held = HeldFile::open(present[0], 1024 * 1024, false)?;
+            let (manifest_path, journal_path, adoption) = present[0];
+            let held = HeldFile::open(manifest_path, 1024 * 1024, false)?;
             let value: serde_json::Value =
                 serde_json::from_slice(&held.bytes(1024 * 1024)?).map_err(|_| denied())?;
-            let target = if present[0]
-                .file_name()
-                .is_some_and(|n| n == "adoption-prepared.json")
-            {
+            let target = if *adoption {
                 &value["source"]["target"]
             } else {
                 &value["target"]
             };
             let installation = parts[2].to_str().ok_or_else(denied)?;
             let transaction = parts[3].to_str().ok_or_else(denied)?;
-            let journal = HeldFile::open(&parent.join("journal.json"), 1024 * 1024, false)?;
+            let journal = HeldFile::open(journal_path, 1024 * 1024, false)?;
             let journal_value: serde_json::Value =
                 serde_json::from_slice(&journal.bytes(1024 * 1024)?).map_err(|_| denied())?;
             if value["schema"] != 1
