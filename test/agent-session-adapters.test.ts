@@ -1,9 +1,12 @@
 import { expect, test } from "bun:test";
 import { capabilities, prepare, attachment } from "../plugins/agent-session/index";
 
-test("Codex resume separates the session identity from variadic image arguments", () => {
+test("Codex resume restores its identity without replaying the initial image or prompt", () => {
   const launch = prepare({agent: "codex", version: "0.163.0", request: "original", sessionId: "01a15fa2-5a28-7bb0-9b62-6a4434975b55", workspace: "/tmp/repo", runDir: "/tmp/run", permissionPolicy: "native", attachments: [{id: "image", name: "screen.png", mime: "image/png", size: 1, path: "/tmp/run/image"}]});
-  expect(launch.argv.slice(-4)).toEqual(["-i", "/tmp/run/image", "--", "01a15fa2-5a28-7bb0-9b62-6a4434975b55"]);
+  expect(launch.argv.slice(-2)).toEqual(["--", "01a15fa2-5a28-7bb0-9b62-6a4434975b55"]);
+  expect(launch.argv).not.toContain("-i");
+  expect(launch.argv).not.toContain("/tmp/run/image");
+  expect(launch.argv).not.toContain("original");
 });
 
 test("Codex attaches initial images as arguments while preserving ordinary permissions", () => {

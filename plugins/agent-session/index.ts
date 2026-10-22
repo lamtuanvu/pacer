@@ -68,7 +68,7 @@ export function prepare(input: AgentSessionPrepare): AgentSessionLaunch {
     );
   const references: string[] = [],
     images: string[] = [];
-  for (const file of input.attachments) {
+  for (const file of input.sessionId ? [] : input.attachments) {
     const delivery = attachment({
       ...input,
       attachment: file,
