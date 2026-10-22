@@ -36,12 +36,14 @@ fn commands_exec_core_with_arguments_and_environment() {
     let fake = dir.path().join("core.sh");
     fs::write(
         &fake,
-        "#!/bin/sh\nprintf '%s|' \"$@\"; printf 'BIN=%s' \"$PACER_BIN\"\nexit 7\n",
+        "#!/bin/sh\nprintf '%s|' \"$@\"; printf 'BIN=%s;PRELOAD=%s|%s' \"$PACER_BIN\" \"$BUN_OPTIONS\" \"$NODE_OPTIONS\"\nexit 7\n",
     )
     .unwrap();
     fs::set_permissions(&fake, fs::Permissions::from_mode(0o755)).unwrap();
     for bin in [None, Some("/x/pacer")] {
         let mut cmd = pacer();
+        cmd.env("BUN_OPTIONS", "injected-bun-preload")
+            .env("NODE_OPTIONS", "injected-node-preload");
         cmd.env(
             "PACER_CORE_ARGV",
             serde_json::to_string(&[fake.to_str().unwrap(), "prefix"]).unwrap(),
@@ -62,7 +64,7 @@ fn commands_exec_core_with_arguments_and_environment() {
         });
         assert_eq!(
             String::from_utf8(o.stdout).unwrap(),
-            format!("prefix|route|--json|a b|$(literal)|BIN={expected}")
+            format!("prefix|route|--json|a b|$(literal)|BIN={expected};PRELOAD=|")
         );
     }
 }

@@ -16,6 +16,34 @@ use std::{
 };
 
 #[test]
+fn version_probes_do_not_inherit_runtime_preload_options() {
+    let install = Install::new();
+    let marker = install.dir.path().join("preload-ran");
+    fs::write(install.core(), format!("#!/bin/sh\nif [ \"$1\" = --version ]; then\n  if [ -n \"$BUN_OPTIONS$NODE_OPTIONS\" ]; then echo executed > \"$PACER_TEST_PRELOAD_MARKER\"; fi\n  echo 'pacer {}'\nelse echo repaired-route; fi\n", install.version)).unwrap();
+    fs::set_permissions(install.core(), fs::Permissions::from_mode(0o755)).unwrap();
+    let output = Command::new(&install.exe)
+        .arg("route")
+        .env_remove("PACER_CORE_ARGV")
+        .env("PACER_NO_SELF_REPAIR", "0")
+        .env("PACER_HOME", install.dir.path().join("state"))
+        .env("PACER_TEST_PRELOAD_MARKER", &marker)
+        .env("BUN_OPTIONS", "injected-bun-preload")
+        .env("NODE_OPTIONS", "injected-node-preload")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "repaired-route\n");
+    assert!(
+        !marker.exists(),
+        "ambient preload options reached the version probe"
+    );
+}
+
+#[test]
 fn version_probe_bounds_time_and_output() {
     let dir = tempfile::tempdir().unwrap();
     let core = dir.path().join("core");

@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { compileCommand, compileFrontDoor } from "../release/build";
 import { assetFile, companionFile, hostTarget, sha256Hex } from "../../src/update/manifest";
@@ -47,7 +47,16 @@ export async function exercisePairInstall(session: Session): Promise<void> {
   try {
     await run(["/bin/sh", join(checkout, "install.sh")], { PACER_RELEASE_BASE: base, PACER_INSTALL_VERSION: version, PACER_INSTALL_DIR: bin });
     must(hash(front) === hash(join(build, "pacer")) && hash(core) === hash(join(build, "new-core")), "Shell installer did not install the exact verified pair");
-    await run([front, "--help"]);
+    const preload = join(root, "startup-preload.js"), marker = join(root, "startup-preload-ran");
+    writeFileSync(preload, `await Bun.write(${JSON.stringify(marker)}, "preloaded");\n`, { mode: 0o600, flag: "wx" });
+    const preloaded = { BUN_OPTIONS: "--preload ./startup-preload.js" };
+    // Positive control proves the fixed preload is effective on this actual core.
+    await run([core, "--help"], preloaded);
+    must(existsSync(marker), "Startup fixture preload positive control did not run");
+    unlinkSync(marker);
+    await run([front, "--help"], preloaded);
+    must(!existsSync(marker), "Ambient preload reached the core through the Rust front door");
+    record(session, { kind: "note", behavior: "Compiled core startup environment", surface: "Rust CLI/version probe/Bun core", verdict: "PASS", text: "A fixed private preload executed in the direct compiled core positive control, then remained absent when the Rust front door checked and invoked that same core. Private HOME and fixture script only." });
     record(session, { kind: "note", behavior: "Fresh paired shell installation", surface: "install.sh/compiled CLI", verdict: "PASS", text: "Actual installer downloaded, checksum-verified and installed the compiled Rust front door and Bun core into a private prefix; the installed front door executed its sibling core." });
     await run([front, "update", "--to", next, "--base", base, "--no-restart", "--no-reinstall"]);
     must(hash(front) === hash(nextFront) && hash(core) === hash(nextCore), "Self-update did not install the exact next pair");

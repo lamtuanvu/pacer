@@ -10,6 +10,8 @@ pub(super) fn output(program: &Path, args: &[&str], seconds: u64) -> Option<Vec<
     runtime.block_on(async {
         let mut child = Command::new(program)
             .args(args)
+            .env_remove("BUN_OPTIONS")
+            .env_remove("NODE_OPTIONS")
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
