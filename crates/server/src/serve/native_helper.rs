@@ -108,6 +108,12 @@ fn request(bytes: &[u8], home: &Path) -> io::Result<Request> {
 }
 
 #[cfg(test)]
+#[path = "native_helper_receipt_copy_tests.rs"]
+mod receipt_copy_tests;
+#[cfg(test)]
+#[path = "native_helper_receipt_tests.rs"]
+mod receipt_tests;
+#[cfg(test)]
 #[path = "native_helper_tests.rs"]
 mod tests;
 fn cdhash(bytes: &[u8]) -> io::Result<String> {
@@ -511,17 +517,15 @@ impl Broker {
             }
             Ok(_) => { /* Any positive transfer may have delivered command authority. */ }
         }
-        let child = guard.0.take().ok_or_else(denied)?;
-        tokio::spawn(async move {
-            let _permit = permit;
-            reap(child, exit).await;
-        });
-        if sent.ok() != Some(5) {
+        let sent = sent?;
+        if sent != 5 {
             trace
                 .diagnostics
                 .record(Stage::Handoff, Event::HandoffUncertain);
-            return Err(denied());
         }
+        detach_handed_helper(guard, permit, exit)?;
+        trace.mark(Stage::Receipt);
+        finish_handoff_receipt(channel, [input, output, remote], sent).await?;
         trace.diagnostics.record(Stage::Handoff, Event::Handoff);
         Ok(())
     }
@@ -588,6 +592,34 @@ impl Broker {
             }
         }
     }
+}
+// Synchronous and only after a positive send. The child and permit leave the
+// Unhanded guard before any receipt future is constructed or first polled.
+fn detach_handed_helper(
+    mut guard: Unhanded,
+    permit: tokio::sync::OwnedSemaphorePermit,
+    exit: UnixStream,
+) -> io::Result<()> {
+    let child = guard.0.take().ok_or_else(denied)?;
+    tokio::spawn(async move {
+        let _permit = permit;
+        reap(child, exit).await;
+    });
+    Ok(())
+}
+async fn finish_handoff_receipt(
+    channel: &tokio::net::UnixStream,
+    originals: [OwnedFd; 3],
+    sent: usize,
+) -> io::Result<()> {
+    let mut receipt = [0];
+    let received = read_exact(channel, &mut receipt).await;
+    drop(originals);
+    received?;
+    if receipt != *b"R" || sent != 5 {
+        return Err(denied());
+    }
+    Ok(())
 }
 #[cfg(test)]
 async fn read_request(socket: &tokio::net::UnixStream) -> io::Result<Option<Vec<u8>>> {
