@@ -351,3 +351,9 @@ a.pc-btn{text-decoration:none}
 .pc-traffic__btn--close{background:var(--traffic-close)}
 .pc-traffic__btn--min{background:var(--traffic-min)}
 .pc-traffic__btn--zoom{background:var(--traffic-max)}
+
+/* Persistent task identity and sibling views. */
+.pc-page-title{margin:0;font-size:var(--type-headline-size);line-height:var(--type-headline-line);font-weight:var(--type-headline-weight);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.pc-detail-navigation{position:sticky;top:0;z-index:var(--layer-sticky);background:var(--surface-page);display:flex;flex-direction:column;gap:var(--space-3);padding-top:var(--space-2)}
+.pc-detail-navigation .pc-page-header{margin-bottom:var(--space-2)}
+.pc-detail-panel{padding-top:var(--space-6);min-width:0}
