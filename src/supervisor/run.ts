@@ -13,8 +13,9 @@ import { loadStrategy } from "../config/strategy";
 import { validateExecution } from "../config/execution";
 import { fileURLToPath } from "node:url";
 import { pruneSessions } from "../session/retention";
+import type { InteractionMode } from "../tasks/types";
 
-export interface RunSpec { takeover?: boolean; dir: string; argv: string[]; cwd: string; env: Record<string, string | undefined>; stdin?: string; session?: "pty" | "pipe" | "interactive"; sessionLogMb?: number }
+export interface RunSpec { interactionMode?: InteractionMode; takeover?: boolean; dir: string; argv: string[]; cwd: string; env: Record<string, string | undefined>; stdin?: string; session?: "pty" | "pipe" | "interactive"; sessionLogMb?: number }
 export interface RunState { controller?: string | null; interactive?: boolean; report?: SessionReport | null; pid: number | null; startedAt: number | null; exit: number | null; alive: boolean; stdoutBytes: number; stderrBytes: number; lastOutputAt: number | null }
 
 const num = (file: string): number | null => {
@@ -38,12 +39,12 @@ export function startRun(spec: RunSpec): { pid: number } | { error: string } {
     try { execution=validateExecution(loadStrategy(ctx).execution); } catch { /* absent strategy keeps pipe default */ }
     const interactive = spec.session === "interactive";
     const reportToken = interactive ? randomBytes(32).toString("hex") : undefined;
-    if (interactive) writeFileSync(join(spec.dir, "interactive.json"), JSON.stringify({reportToken}), {mode: 0o600});
+    if (interactive) writeFileSync(join(spec.dir, "interactive.json"), JSON.stringify({reportToken, interactionMode: spec.interactionMode}), {mode: 0o600});
     const pty=interactive || (spec.session ?? execution?.session)==="pty";
     let command=["/bin/sh", script, spec.dir, ...spec.argv];
     if(pty) {
       chmodSync(spec.dir,0o700); if(taskRun) chmodSync(dirname(spec.dir),0o700);
-      writeFileSync(join(spec.dir,"session.json"),JSON.stringify({interactive,takeover:spec.takeover,argv:spec.argv,cwd:spec.cwd,pacerHome:ctx.pacerHome,capBytes:(spec.sessionLogMb ?? execution?.sessionLogMb ?? 8)*1024*1024}),{mode:0o600});
+      writeFileSync(join(spec.dir,"session.json"),JSON.stringify({interactive,interactionMode:spec.interactionMode,takeover:spec.takeover,argv:spec.argv,cwd:spec.cwd,pacerHome:ctx.pacerHome,capBytes:(spec.sessionLogMb ?? execution?.sessionLogMb ?? 8)*1024*1024}),{mode:0o600});
       // Bun source runs and compiled binaries both re-enter through the CLI.
       command=/(^|\/)bun(?:\.exe)?$/.test(process.execPath)
         ? [process.execPath,fileURLToPath(new URL("../cli.ts",import.meta.url)),"_session",spec.dir]

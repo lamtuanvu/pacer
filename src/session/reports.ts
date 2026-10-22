@@ -12,12 +12,16 @@ export interface SessionReport { status: ReportStatus; summary: string; at: numb
 export const cleanSummary = (summary: string) => summary.replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, "");
 const statuses = ["done", "failed", "needs-input", "running", "turn-ended"];
 const terminal = (s: string) => s === "done" || s === "failed";
+function isConversation(dir: string): boolean {
+  try { return JSON.parse(readFileSync(join(dir, "interactive.json"), "utf8")).interactionMode === "conversation"; }
+  catch { return false; }
+}
 function parseReport(value: unknown): SessionReport | null {
   const r = value as SessionReport | null;
   return r && statuses.includes(r.status) && typeof r.summary === "string" && r.summary.trim() && r.summary.length <= 16000 && Number.isFinite(r.at) ? {...r, summary: cleanSummary(r.summary)} : null;
 }
 export function readReport(dir: string): SessionReport | null {
-  for (const name of ["report.json", "session-status.json"]) {
+  for (const name of isConversation(dir) ? ["session-status.json"] : ["report.json", "session-status.json"]) {
     try { const r = parseReport(JSON.parse(readFileSync(join(dir, name), "utf8"))); if (r) return r; } catch { /* absent or torn signal */ }
   }
   return null;
@@ -30,10 +34,11 @@ export function writeReport(dir: string, status: string, summary: string, source
 }
 function storeReport(dir: string, status: ReportStatus, summary: string, source?: "agent" | "user"): void {
   const prev = readReport(dir);
-  if (prev && terminal(prev.status)) return;
+  const conversation = isConversation(dir);
+  if (!conversation && prev && terminal(prev.status)) return;
   const value = JSON.stringify({status, summary: cleanSummary(summary).trim(), at: Date.now() / 1000, ...(source ? {source} : {})});
   // Completion has its own file so a concurrent late hook cannot overwrite it.
-  if (terminal(status)) {
+  if (!conversation && terminal(status)) {
     try { writeFileSync(join(dir, "report.json"), value, {mode: 0o600, flag: "wx"}); }
     catch (e) { if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e; }
   } else {
@@ -79,6 +84,11 @@ export function sessionTranscript(agent: string, sessionId: string, env: Record<
 export function agentHook(dir: string, input: unknown): void {
   if (!input || typeof input !== "object") return;
   const h = input as Record<string, unknown>;
+  if (typeof h.session_id === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(h.session_id)) {
+    const temp = join(dir, `agent-session-id.${crypto.randomUUID()}.tmp`);
+    writeFileSync(temp, h.session_id, {mode: 0o600, flag: "wx"});
+    renameSync(temp, join(dir, "agent-session-id"));
+  }
   let text = typeof h.last_assistant_message === "string" ? h.last_assistant_message : "";
   if (!text && typeof h.transcript_path === "string") text = lastAssistantText(h.transcript_path);
   if (text) writeFileSync(join(dir, "transcript-report.md"), text.slice(-16000), {mode: 0o600});

@@ -1,0 +1,16 @@
+[package]
+name = "pacer-session-protocol"
+version = "0.0.0"
+publish = false
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+regress = "0.10"
+uuid = { version = "1", features = ["serde"] }
+
+[lints]
+workspace = true

@@ -1,5 +1,6 @@
 import { beginWorkSync, claimWorkSync, attachRunEvidenceSync, finishWorkSync } from "../update/desktop/admission";
 import { makeCtx } from "../ctx";
+import { nativeTerminalEnv } from "./environment";
 import { readReport, writeReport } from "./reports";
 import { createServer, createConnection } from "node:net";
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
@@ -12,7 +13,8 @@ import { FrameType, WireDecoder, wire } from "./framing";
 import { SecretMasker } from "./masking";
 import { killTree } from "../exec/process";
 import { WRAPPER_SH } from "../supervisor/wrapper";
-export interface SessionLaunch { completionNonce?:string; takeover?:boolean; interactive?:boolean; argv:string[]; cwd:string; capBytes?:number; pacerHome?:string }
+import type { InteractionMode } from "../tasks/types";
+export interface SessionLaunch { interactionMode?:InteractionMode; completionNonce?:string; takeover?:boolean; interactive?:boolean; argv:string[]; cwd:string; capBytes?:number; pacerHome?:string }
 export function socketPath(dir:string):string {
   const direct=join(dir,"session.sock");
   if(Buffer.byteLength(direct) < 104) return direct;
@@ -113,7 +115,7 @@ async function sessionHostAdmitted(dir:string):Promise<number> {
   try {
     if(typeof Bun.Terminal !== "function") throw Error("PTY unavailable");
     proc=Bun.spawn(launch.interactive ? launch.argv : ["/bin/sh","-c",'input="$1"; shift; exec "$@" < "$input"',"pacer-session",existsSync(join(dir,"stdin"))?join(dir,"stdin"):"/dev/null",...launch.argv],{
-      cwd:launch.cwd,env:{...process.env,TERM:"xterm-256color",PWD:launch.cwd},
+      cwd:launch.cwd,env:{...nativeTerminalEnv(process.env),PWD:launch.cwd},
       terminal:{cols:120,rows:40,name:"xterm-256color",data(_term,data){
         try {
           // Count every redraw, even while masking or line normalization buffers output.
@@ -168,7 +170,7 @@ async function sessionHostAdmitted(dir:string):Promise<number> {
   } catch { /* a socket failure must never terminate the attempt */ }
   // Completion is also consumed here so reporting still ends the TUI if its supervisor died.
   let escalation: ReturnType<typeof setTimeout> | undefined;
-  const reports = launch.interactive ? setInterval(() => {
+  const reports = launch.interactive && launch.interactionMode !== "conversation" ? setInterval(() => {
     const report = readReport(dir);
     if (!stopping && (report?.status === "done" || report?.status === "failed")) {
       stop();

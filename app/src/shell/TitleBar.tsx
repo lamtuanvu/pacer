@@ -8,8 +8,9 @@ import { TextAction } from "../ds/Button";
 import { TrafficLights } from "../ds/TrafficLights";
 import { withQuery, type Route } from "../router";
 import { windowControls } from "../data/desktop";
-const ITEMS: { name: "overview" | "review" | "sessions"; label: string; href: string; icon: IconName; count: (c: Counts) => number; words: string; tone: "warn" | "info" }[] = [
-  { name: "overview", label: "Overview", href: "#/", icon: "overview", count: () => 0, words: "need you", tone: "warn" },
+const ITEMS: { name: "start" | "overview" | "review" | "sessions"; label: string; href: string; icon: IconName; count: (c: Counts) => number; words: string; tone: "warn" | "info" }[] = [
+  { name: "start", label: "Start work", href: "#/", icon: "tasks", count: () => 0, words: "running", tone: "info" },
+  { name: "overview", label: "Overview", href: "#/overview", icon: "overview", count: () => 0, words: "need you", tone: "warn" },
   { name: "review", label: "Needs you", href: "#/needs-you", icon: "review", count: c => c.attention, words: "need you", tone: "warn" },
   { name: "sessions", label: "Tasks", href: "#/tasks", icon: "sessions", count: c => c.running, words: "running", tone: "info" },
 ];

@@ -122,6 +122,13 @@ describe("golden frames (NO_COLOR)", () => {
       expect(text).toMatchSnapshot();
     }
   });
+  test("interactive sessions do not require delegated planner setup", () => {
+    const s = snapshot();
+    s.setup = { ready: false, complete: false, items: [], open: 1 } as any;
+    const text = renderDashboard(s, 120, 40, s.at, { theme: PLAIN_THEME, state: { screen: "sessions" }, ops: ["session.create"] });
+    expect(text).toContain("[ Tasks ]");
+    expect(text).not.toContain("[ Setup ]");
+  });
   test("setup without a planner points to pacer init (the app's planner choice is not offered here)", () => {
     const s = snapshot();
     const facts = { version: "0.3.0", planner: null, service: { installed: true, running: true }, link: true, agents: [{ id: "codex", name: "Codex", installed: true, cliInstalled: true }], executors: { ranked: [], excluded: [] } };

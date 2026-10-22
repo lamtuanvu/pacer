@@ -45,7 +45,7 @@ function attentionTitle(item: AttentionItem, snapshot: ClientSnapshot): string {
 export function NeedsYou({ snapshot, scope, runner, now, query, narrow, standalone = false }: { standalone?: boolean; snapshot: ClientSnapshot; scope: Scope; runner: ActionRunner; now: number; query: RouteQuery; narrow: boolean }) {
   const items = needsYou(snapshot, scope), others = otherReposNeedingYou(snapshot, scope);
   const page = useOverviewPage(items, "Needs you", standalone ? Math.max(1, items.length) : 5, scope.repo ?? "");
-  const otherRepos = others > 0 ? <TextAction className="pc-text-action" href={withQuery("#/", { ...query, repo: "" })}>+{others} in other repos</TextAction> : null;
+  const otherRepos = others > 0 ? <TextAction className="pc-text-action" href={withQuery("#/overview", { ...query, repo: "" })}>+{others} in other repos</TextAction> : null;
   const reviewQueue = <TextAction className="pc-text-action" href={withQuery("#/needs-you", { ...query, repo: scope.repo ?? query.repo })}>All attention</TextAction>;
   return <section className={standalone ? "pc-section" : "pc-card-section pc-overview-attention"} aria-labelledby="needs-you"><div className={standalone ? "pc-section__head" : "pc-card-section__head"}><SectionHeading id="needs-you">{standalone ? "Decisions and problems" : "Needs you"}</SectionHeading>{!standalone && items.length > 0 && <span className="pc-count pc-count--warn">{items.length}</span>}<span className="grow" />{standalone ? otherRepos : narrow && otherRepos ? otherRepos : reviewQueue}</div>
     <div className="pc-overview-list">
@@ -196,7 +196,7 @@ export function Overview({ query }: { query: RouteQuery }) {
     const offs = overviewHints.flatMap(hint => hint.keys === "d" ? [] : (hint.keys === "1–4" ? ["1", "2", "3", "4"] : hint.keys.split(" ")).map(key => keys.register({ keys: key, label: hint.label, scope: "overview", run: actions[key] ?? (() => {
       const { snapshot, query } = current.current;
       const repo = snapshot && repoChoices(snapshot, query.repo).chips[Number(key) - 1];
-      if (repo) location.hash = withQuery("#/", { ...query, repo: repo.key });
+      if (repo) location.hash = withQuery("#/overview", { ...query, repo: repo.key });
     }) })));
     return () => offs.forEach(off => off());
   }, [runner, state.features.ops]);
