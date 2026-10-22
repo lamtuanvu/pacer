@@ -259,3 +259,67 @@ async fn handed_helper_retains_root_shared_capacity_across_generation_retirement
     drop(others);
     assert_eq!(root.available_permits(), 4);
 }
+
+#[test]
+fn failure_diagnostic_is_bounded_whitelisted_and_does_not_use_readiness_or_shutdown() {
+    use std::io::Write;
+    let (home, _) = command_asset();
+    let diagnostics = Diagnostics::new(home.path(), 123, 456);
+    for (bytes, event) in [
+        (b"D\x09\x09".as_slice(), "reported"),
+        (b"".as_slice(), "core-diagnostic-unavailable"),
+        (b"D".as_slice(), "core-diagnostic-unavailable"),
+        (b"D\x09".as_slice(), "core-diagnostic-unavailable"),
+        (b"D\x09\x09X".as_slice(), "core-diagnostic-invalid"),
+        (b"D\xff\x09".as_slice(), "core-diagnostic-invalid"),
+        (b"S\x09\x09".as_slice(), "core-diagnostic-invalid"),
+    ] {
+        let (channel, mut peer) = UnixStream::pair().unwrap();
+        if !bytes.is_empty() {
+            peer.write_all(bytes).unwrap();
+        }
+        let start = std::time::Instant::now();
+        receive_failure_diagnostic(&channel, &diagnostics, Stage::Handoff);
+        assert!(start.elapsed() < Duration::from_secs(1));
+        let text = std::fs::read_to_string(home.path().join("logs/native-helper.log")).unwrap();
+        let row: serde_json::Value = serde_json::from_str(text.lines().last().unwrap()).unwrap();
+        assert_eq!(row["event"], event);
+        // The diagnostic parser only observes bytes; it does not close, signal,
+        // reserve, spawn or treat an embedded S as a shutdown request.
+        peer.write_all(b"x").unwrap();
+    }
+}
+#[test]
+fn failure_diagnostic_closes_all_incoming_rights_without_leaks() {
+    if std::env::var_os("PACER_TEST_FAILURE_DIAGNOSTIC_CHILD").is_none() {
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "serve::native_helper::tests::failure_diagnostic_closes_all_incoming_rights_without_leaks"])
+            .env("PACER_TEST_FAILURE_DIAGNOSTIC_CHILD", "1").status().unwrap();
+        assert!(status.success());
+        return;
+    }
+    use nix::sys::socket::{ControlMessage, MsgFlags, UnixAddr, sendmsg};
+    let (home, _) = command_asset();
+    let diagnostics = Diagnostics::new(home.path(), 123, 456);
+    let (reader, _writer) = nix::unistd::pipe().unwrap();
+    let (channel, peer) = UnixStream::pair().unwrap();
+    let before = std::fs::read_dir("/dev/fd").unwrap().count();
+    for count in std::iter::repeat_n(100, 20).chain([254]) {
+        let fds = vec![reader.as_raw_fd(); count];
+        sendmsg::<UnixAddr>(
+            peer.as_raw_fd(),
+            &[std::io::IoSlice::new(b"D\x09\x09")],
+            &[ControlMessage::ScmRights(&fds)],
+            MsgFlags::empty(),
+            None,
+        )
+        .unwrap();
+        receive_failure_diagnostic(&channel, &diagnostics, Stage::Handoff);
+        assert_eq!(std::fs::read_dir("/dev/fd").unwrap().count(), before);
+    }
+    let text = std::fs::read_to_string(home.path().join("logs/native-helper.log")).unwrap();
+    assert!(text.lines().all(
+        |line| serde_json::from_str::<serde_json::Value>(line).unwrap()["event"]
+            == "core-diagnostic-invalid"
+    ));
+}
