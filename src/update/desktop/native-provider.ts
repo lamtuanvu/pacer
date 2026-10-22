@@ -1554,7 +1554,7 @@ export function verifyPairedNativeServiceOwner(
   metadata: string,
 ): NativeProcess {
   const own = ownProcessIdentity(), uid = process.getuid?.();
-  if (!own || uid === undefined || !sameProcess(owner.transport, own)
+  if (!Number.isSafeInteger(port) || port < 1 || port > 65535 || !own || uid === undefined || !sameProcess(owner.transport, own)
     || owner.process.pid !== process.ppid || sameProcess(owner.process, own)) throw denied();
   const front = authority.verifyProcess(owner.process, "cli");
   const core = authority.verifyProcess(own, "cli");
@@ -1564,7 +1564,7 @@ export function verifyPairedNativeServiceOwner(
     || owner.executable !== frontPath || front.executable !== frontPath || core.executable !== corePath
     || realpathSync(owner.appPath) !== owner.appPath || realpathSync(frontPath) !== frontPath
     || realpathSync(corePath) !== corePath || owner.argv[0] !== frontPath || owner.argv[1] !== "serve"
-    || !(owner.argv.length === 2 || owner.argv.length === 4 && owner.argv[2] === "--port" && owner.argv[3] === String(port))) throw denied();
+    || !(owner.argv.length === 2 || owner.argv.length === 4 && owner.argv[2] === "--port" && (owner.argv[3] === String(port) || owner.argv[3] === "0"))) throw denied();
   authority.verifyStatic(owner.appPath, "desktop");
   authority.verifyStatic(frontPath, "cli");
   authority.verifyStatic(corePath, "cli");

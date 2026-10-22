@@ -11,6 +11,7 @@ use std::{
     path::PathBuf,
 };
 
+#[cfg(any(target_os = "macos", test))]
 #[path = "helper_parent.rs"]
 mod parent_proof;
 

@@ -272,3 +272,14 @@ test("verified paired ownership does not admit an unsigned external helper", asy
     expect(bridge.sessions()).toEqual([]);
   } finally { bridge.stop(); client.peer.close(); }
 });
+
+test("paired revalidation retains ephemeral launch intent but requires an actual bound port", () => {
+  const f = fixture(); f.owner.argv = [f.front, "serve", "--port", "0"];
+  expect(verifyPairedNativeServiceOwner(f.authority, f.owner, 7433, f.metadata).process).toEqual(f.own);
+  for (const value of ["00", "+0", "7434"]) {
+    f.owner.argv[3] = value;
+    expect(() => verifyPairedNativeServiceOwner(f.authority, f.owner, 7433, f.metadata)).toThrow();
+  }
+  f.owner.argv[3] = "0";
+  expect(() => verifyPairedNativeServiceOwner(f.authority, f.owner, 0, f.metadata)).toThrow();
+});
