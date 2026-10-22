@@ -60,7 +60,10 @@ import {
   inspectInstallation,
   verifyInstallation,
   BUNDLED_CLI_PATH,
+  BUNDLED_CORE_PATH,
   BUNDLED_HELPER_PATH,
+  BUNDLE_RELEASE_PATH,
+  parseBundleRelease,
 } from "./identity";
 import {
   ownProcessIdentity,
@@ -486,6 +489,8 @@ export class NativeControlBridge implements NativeAuthorityProvider {
   private verifyBundle(app: string): void {
     this.options.authority.verifyStatic(app, "desktop");
     this.options.authority.verifyStatic(join(app, BUNDLED_CLI_PATH), "cli");
+    const metadata = parseBundleRelease(JSON.parse(readFileSync(join(app, BUNDLE_RELEASE_PATH), "utf8")));
+    if (metadata.cliLayout === "paired") this.options.authority.verifyStatic(join(app, BUNDLED_CORE_PATH), "cli");
     this.options.authority.verifyStatic(
       join(app, BUNDLED_HELPER_PATH),
       "helper",
