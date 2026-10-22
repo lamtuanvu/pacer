@@ -1,8 +1,33 @@
 import { closeSync, fstatSync } from "node:fs";
-import { receiveParentListener } from "../../src/update/desktop/native-socket";
+import { LocalNativeServer, receiveParentListener } from "../../src/update/desktop/native-socket";
+import { processIdentity } from "../../src/update/desktop/process-identity";
 
 try {
+  const adoption = process.argv[2] === "adopt";
+  const owner = adoption ? processIdentity(process.ppid) : null;
+  if (adoption) process.stdout.write(JSON.stringify({ phase: "owner", owner }) + "\n");
   const fd = receiveParentListener();
+  if (adoption) {
+    if (!owner) { closeSync(fd); throw Error("Parent identity unavailable"); }
+    let finish!: (pid: number) => void;
+    const completed = new Promise<number>(resolve => { finish = resolve; });
+    const server = new LocalNativeServer(process.argv[3]!, peer => {
+      const pid = new DataView(peer.auditToken.buffer).getUint32(20, true);
+      peer.onFrame = frame => {
+        if (JSON.stringify(frame) !== JSON.stringify({ ping: true })) { peer.close(); return; }
+        void peer.send({ pid }).then(() => finish(pid));
+      };
+    }, { fd, owner });
+    process.stdin.resume();
+    process.stdout.write(JSON.stringify({ phase: "listening" }) + "\n");
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const peerPid = await Promise.race([completed, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(Error("Client timed out")), 3000); })]);
+      server.close();
+      process.stdout.write(JSON.stringify({ accepted: true, peerPid }) + "\n");
+    } finally { clearTimeout(timer); server.close(); process.stdin.pause(); }
+    process.exit(0);
+  }
   let socket: boolean;
   try {
     const stat = fstatSync(fd);
