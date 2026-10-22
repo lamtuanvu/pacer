@@ -280,6 +280,29 @@ native `desktop` targets through `targets`, `inspect`, `act`, `wait`, `assert`,
 coordinate input additionally carries a recent capture ID. Delivered or uncertain
 actions attempt an automatic evidence capture and are never repeated implicitly.
 
+Native desktop control can also bind to the existing Desktop after a completed,
+committed managed OTA `upgrade` fixture. The harness rechecks its compiled lease,
+signed candidate bundle, native transaction/readiness proof, exact jobs and process
+incarnations, guarded service identity and authenticated capture windows. This
+binding stays in memory: it does not populate ordinary desktop ownership fields
+or let generic teardown stop an OTA participant. Native ledger retirement remains
+responsible for that process. Never edit session metadata or launch a second
+Desktop to make control pass.
+
+This enrollment refuses active, failed, restored, adoption and attached
+transactions, missing capture workers, uncertain identity and restarted processes.
+Resolve a new command after a legitimate restart; permissions are still required.
+Initial collection runs lazily under the command's `--timeout-ms` budget, and each
+input rechecks authority. A deadline returns `command_timeout`; a read-only native
+inspector may finish within its existing child timeout afterward, but cannot
+cause late input or restart collection under a diagnostic capture budget. Normal
+`doctor` uses the same command budget. Explicit `--request-accessibility` retains
+the existing 190-second overall ceiling (including the native prompt's 180-second
+limit); it does not bypass permission or ownership checks. Missing evidence stays
+UNVERIFIED. Enrollment does not claim atomic serialization with a concurrent
+update, and native PID/start-identity checks remain required at delivery.
+
+
 The ordinary desktop app opts in with `capture: true` on v3 `client.register`,
 receives its per-instance `capture_worker` credential, and reports its owned
 main/tray window IDs. Clients that do not opt in and v2 registrations receive
