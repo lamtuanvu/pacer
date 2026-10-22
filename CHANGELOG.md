@@ -11,6 +11,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 ### Fixed
 
 - Restore a compact left navigation rail and unify the desktop page header with custom window controls, removing duplicate titlebar rows while preserving touch navigation.
+- Finish executor setup with **OK** to clear the wizard and return to Executors, or **Add another executor** to start fresh at agent selection.
 
 - Task details use the short name and persistent Summary/Session tabs, with quiet back navigation and remembered task-list scroll position.
 
