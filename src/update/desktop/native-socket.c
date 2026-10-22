@@ -180,6 +180,66 @@ static int pacer_receive_single(int channel, unsigned char expected, int nonbloc
 }
 int pacer_receive_listener(int channel) { return pacer_receive_single(channel, 'P', 1); }
 int pacer_receive_helper_channel(int channel) { return pacer_receive_single(channel, 'C', 0); }
+/* Nonmutating role checks. Darwin does not expose SO_ACCEPTCONN through
+ * getsockopt. Root's owned bind/listen plus TS's exact path/provenance check
+ * establish listener authority; this only separates bound and connected FDs. */
+static int pacer_parent_role(int fd, int listener) {
+    extern int getsockname(int, void *, unsigned int *);
+    extern int getpeername(int, void *, unsigned int *);
+    unsigned char address[256] = {0};
+    unsigned int size = sizeof(address);
+    int result;
+    if (pacer_unix_stream(fd) < 0) return -1;
+    if (listener) {
+        if (getsockname(fd, address, &size) < 0 || size <= 3 || size > sizeof(address)
+            || address[1] != 1 || address[2] == 0 || address[size - 1] != 0) return -1;
+        size = sizeof(address);
+        result = getpeername(fd, address, &size);
+        return result < 0 && *__error() == 57 ? 0 : -1; /* ENOTCONN */
+    }
+    return getpeername(fd, address, &size) == 0 && size >= 2
+        && size <= sizeof(address) && address[1] == 1 ? 0 : -1;
+}
+/* Atomic paired startup. The authenticated parent retains its source rights
+ * until a separate acknowledgement after the caller's ownership recheck. */
+int pacer_receive_parent_channels(int channel, int *out) {
+    unsigned char marker = 0;
+    int fds[2], count = 0, i, yes = 1;
+    long now = pacer_millis();
+    if (!out) return -1;
+    out[0] = -1; out[1] = -1;
+    if (now < 0 || pacer_unix_stream(channel) < 0
+        || pacer_receive_rights(channel, &marker, 1, fds, &count, 2,
+            now + 10000, (int *)0) < 0 || marker != 'B' || count != 2) goto fail;
+    for (i = 0; i < 2; i++) {
+        int flags;
+        if (pacer_parent_role(fds[i], i == 0) < 0 || pacer_cloexec(fds[i]) < 0) goto fail;
+        flags = fcntl(fds[i], 3);
+        if (flags < 0 || fcntl(fds[i], 4, i == 0 ? flags | 4 : flags & ~4) < 0
+            || setsockopt(fds[i], 0xffff, 0x1022, &yes, sizeof(yes)) < 0) goto fail;
+    }
+    out[0] = fds[0]; out[1] = fds[1];
+    return 0;
+fail:
+    while (count) close(fds[--count]);
+    return -1;
+}
+int pacer_acknowledge_parent(int channel) {
+    int yes = 1;
+    long now = pacer_millis();
+    if (now < 0 || pacer_unix_stream(channel) < 0
+        || setsockopt(channel, 0xffff, 0x1022, &yes, sizeof(yes)) < 0) return -1;
+    for (;;) {
+        long sent;
+        int error;
+        if (pacer_wait(channel, 4, now + 10000, (int *)0, 0) < 0) return -1;
+        sent = send(channel, "A", 1, 0x80);
+        if (sent == 1) return 0;
+        if (sent == 0) return -1;
+        error = *__error();
+        if (error != 4 && error != 35) return -1;
+    }
+}
 static int pacer_pipe(int fd, int access) {
     struct pacer_stat64 st;
     int flags = fcntl(fd, 3);

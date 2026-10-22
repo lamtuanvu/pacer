@@ -4,15 +4,11 @@ use super::{
 };
 use std::{
     io,
-    os::{
-        fd::{AsRawFd, OwnedFd},
-        unix::net::UnixStream,
-    },
+    os::{fd::OwnedFd, unix::net::UnixStream},
     path::Path,
     sync::Arc,
 };
 use tokio::{
-    io::AsyncReadExt,
     process::{Child, Command},
     sync::Notify,
     task::JoinHandle,
@@ -64,8 +60,8 @@ impl NativeContext {
         self.stop.notified().await;
     }
     pub fn start(&self, command: &mut Command) -> io::Result<(Child, JoinHandle<()>)> {
-        use nix::sys::socket::{ControlMessage, MsgFlags, UnixAddr, sendmsg};
-        use std::{io::IoSlice, process::Stdio};
+        use std::process::Stdio;
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
         let (parent, child_input) = UnixStream::pair()?;
         socket2::SockRef::from(&parent).set_nosigpipe(true)?;
         let input: OwnedFd = child_input.into();
@@ -75,30 +71,9 @@ impl NativeContext {
         let child = command.spawn()?;
         // Only a currently owned, unreaped, signed child gets native admission.
         let generation = self.trust.verify_child(&child, &self.bundle.core)?;
-        let descriptors = [self.listener.listener().as_raw_fd()];
-        let bytes = sendmsg::<UnixAddr>(
-            parent.as_raw_fd(),
-            &[IoSlice::new(b"P")],
-            &[ControlMessage::ScmRights(&descriptors)],
-            MsgFlags::empty(),
-            None,
-        )?;
-        if bytes != 1 {
-            return Err(denied());
-        }
         let (helpers, remote) = UnixStream::pair()?;
         socket2::SockRef::from(&helpers).set_nosigpipe(true)?;
-        let helper_descriptors = [remote.as_raw_fd()];
-        if sendmsg::<UnixAddr>(
-            parent.as_raw_fd(),
-            &[IoSlice::new(b"C")],
-            &[ControlMessage::ScmRights(&helper_descriptors)],
-            MsgFlags::empty(),
-            None,
-        )? != 1
-        {
-            return Err(denied());
-        }
+        super::native_bootstrap::send(&parent, self.listener.listener(), &remote)?;
         let broker = super::native_helper::Broker {
             trust: self.trust.clone(),
             home: self.home.clone(),
@@ -109,40 +84,15 @@ impl NativeContext {
             generation,
             slots: self.helper_slots.clone(),
         };
-        let helpers = tokio::spawn(broker.run(helpers));
-        let control = monitor_with_helpers(parent, self.stop.clone(), Some(helpers))?;
+        let control = super::native_bootstrap::monitor(
+            parent,
+            remote,
+            broker.run(helpers),
+            self.stop.clone(),
+            deadline,
+        )?;
         Ok((child, control))
     }
-}
-#[cfg(test)]
-fn monitor(parent: UnixStream, stop: Arc<Notify>) -> io::Result<JoinHandle<()>> {
-    monitor_with_helpers(parent, stop, None)
-}
-struct Helpers(Option<JoinHandle<()>>);
-impl Drop for Helpers {
-    fn drop(&mut self) {
-        if let Some(task) = &self.0 {
-            task.abort();
-        }
-    }
-}
-fn monitor_with_helpers(
-    parent: UnixStream,
-    stop: Arc<Notify>,
-    helpers: Option<JoinHandle<()>>,
-) -> io::Result<JoinHandle<()>> {
-    let helpers = Helpers(helpers);
-    parent.set_nonblocking(true)?;
-    let mut channel = tokio::net::UnixStream::from_std(parent)?;
-    Ok(tokio::spawn(async move {
-        let _helpers = helpers;
-        let mut request = [0u8; 1];
-        if matches!(channel.read(&mut request).await, Ok(1)) && request == *b"S" {
-            stop.notify_one();
-        }
-        // EOF, malformed requests, or generation retirement drop the channel.
-        // The core's existing stdin EOF watcher then stops that generation.
-    }))
 }
 fn denied() -> io::Error {
     io::Error::other("native paired startup unavailable")
@@ -200,32 +150,6 @@ mod tests {
         for port in ["00", "+0", "4318"] {
             argv[3] = port.into();
             assert!(bootstrap(front, "0.8.0", &argv, 4317).is_err());
-        }
-    }
-    #[tokio::test]
-    async fn control_accepts_only_fixed_shutdown_and_closes_retired_generation() {
-        use std::io::{Read, Write};
-        for request in [Some(b'S'), Some(b'X'), None] {
-            let (parent, mut child) = UnixStream::pair().unwrap();
-            let stop = Arc::new(Notify::new());
-            let task = monitor(parent, stop.clone()).unwrap();
-            if let Some(byte) = request {
-                child.write_all(&[byte]).unwrap();
-            } else {
-                child.shutdown(std::net::Shutdown::Write).unwrap();
-            }
-            tokio::time::timeout(std::time::Duration::from_secs(1), task)
-                .await
-                .unwrap()
-                .unwrap();
-            assert_eq!(
-                tokio::time::timeout(std::time::Duration::from_millis(10), stop.notified())
-                    .await
-                    .is_ok(),
-                request == Some(b'S')
-            );
-            let mut byte = [0];
-            assert_eq!(child.read(&mut byte).unwrap(), 0);
         }
     }
 }
