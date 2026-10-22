@@ -43,6 +43,11 @@ link at `~/.local/bin/pacer`. If needed, an optional checkbox adds
 off by default. Continue to the step-by-step **Setup** to choose your planner,
 connect agents, choose an executor and try a task. The app includes its CLI.
 
+The pending M1 packages will contain two sibling executables: `pacer` (Rust) and
+`pacer-core` (the bundled TypeScript runtime). Keep them together. The standalone
+CLI can repair a missing or mismatched companion from its verified own-version
+release; an incomplete desktop app must be replaced as a complete app.
+
 `pacer uninstall --all` removes everything setup added, including the terminal
 link and the optional PATH block. Move the app to the Trash afterward. See
 [installation](docs/install.md) for Linux AppImage and `.deb` downloads, updates
