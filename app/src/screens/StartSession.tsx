@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "preact/hooks";
 import { Button, ButtonLink } from "../ds/Button";
-import { Disclosure, Field, Select, TextArea, TextInput } from "../ds/Controls";
+import { Disclosure, Field, TextArea, TextInput } from "../ds/Controls";
+import { ChoicePicker } from "../ds/ChoicePicker";
 import {
   AttachmentPicker,
   AttachmentTray,
@@ -50,7 +51,10 @@ export function StartSessionForm(p: FormProps) {
   const blocked =
     p.busy ||
     !p.request.trim() ||
+    !p.repos.some((repo) => repo.key === p.repo) ||
     !selected?.available ||
+    (p.mode === "new" && !p.preparation?.branches.includes(p.base)) ||
+    (p.mode === "current" && !p.preparation?.checkouts.some((tree) => tree.path === p.checkout)) ||
     p.items.some((item) => item.status !== "ready");
   return (
     <form
@@ -107,81 +111,62 @@ export function StartSessionForm(p: FormProps) {
         onRetry={p.onRetry}
       />
       <AttachmentPicker onFiles={p.onFiles} disabled={p.busy} />
-      <div className="form-row">
+      <div className="pc-start-fields">
         <Field label="Repository">
-          <Select
+          <ChoicePicker
             required
             value={p.repo}
-            onChange={(e) => p.onField("repo", e.currentTarget.value)}
-          >
-            <option value="">Choose a repository…</option>
-            {p.repos.map((repo) => (
-              <option value={repo.key} key={repo.key}>
-                {repo.label}
-              </option>
-            ))}
-          </Select>
+            searchable
+            placeholder="Choose a repository…"
+            options={p.repos.map((repo) => ({ value: repo.key, label: repo.label }))}
+            onValueChange={(value) => p.onField("repo", value)}
+          />
         </Field>
         <Field label="Agent and account">
-          <Select
+          <ChoicePicker
             required
             value={p.executor}
-            onChange={(e) => p.onField("executor", e.currentTarget.value)}
-          >
-            <option value="">Choose an executor…</option>
-            {p.preparation?.executors.map((e) => (
-              <option key={e.id} value={e.id} disabled={!e.available}>
-                {agentInfo(e.agent).name} · {e.account}
-                {e.available ? "" : ` · ${e.reason}`}
-              </option>
-            ))}
-          </Select>
+            searchable
+            placeholder="Choose an executor…"
+            options={p.preparation?.executors.map((e) => ({ value: e.id, label: `${agentInfo(e.agent).name} · ${e.account}`, disabled: !e.available, reason: e.reason })) ?? []}
+            onValueChange={(value) => p.onField("executor", value)}
+          />
         </Field>
       </div>
-      <div className="form-row">
+      <div className="pc-start-fields">
         <Field label="Workspace">
-          <Select
+          <ChoicePicker
             value={p.mode}
-            onChange={(e) => p.onField("mode", e.currentTarget.value)}
-          >
-            <option value="new">New worktree</option>
-            <option value="current">Use existing checkout</option>
-          </Select>
+            options={[{ value: "new", label: "New worktree" }, { value: "current", label: "Use existing checkout" }]}
+            onValueChange={(value) => p.onField("mode", value)}
+          />
         </Field>
         {p.mode === "new" ? (
           <Field
             label="Base branch"
             help="Your uncommitted changes stay in the original checkout."
           >
-            <Select
+            <ChoicePicker
               required
               value={p.base}
-              onChange={(e) => p.onField("base", e.currentTarget.value)}
-            >
-              {p.preparation?.branches.map((branch) => (
-                <option key={branch} value={branch}>
-                  {branch}
-                </option>
-              ))}
-            </Select>
+              placeholder="Choose a base branch…"
+              options={p.preparation?.branches.map((branch) => ({ value: branch, label: branch })) ?? []}
+              onValueChange={(value) => p.onField("base", value)}
+            />
           </Field>
         ) : (
           <Field
             label="Existing checkout"
             help="The agent can change the files in this checkout."
           >
-            <Select
+            <ChoicePicker
               required
               value={p.checkout}
-              onChange={(e) => p.onField("checkout", e.currentTarget.value)}
-            >
-              {p.preparation?.checkouts.map((tree) => (
-                <option key={tree.path} value={tree.path}>
-                  {tree.branch} · {tree.path}
-                  {tree.dirty ? " · Uncommitted changes" : ""}
-                </option>
-              ))}
-            </Select>
+              searchable
+              placeholder="Choose a checkout…"
+              options={p.preparation?.checkouts.map((tree) => ({ value: tree.path, label: `${tree.branch} · ${tree.path}${tree.dirty ? " · Uncommitted changes" : ""}` })) ?? []}
+              onValueChange={(value) => p.onField("checkout", value)}
+            />
           </Field>
         )}
       </div>
@@ -205,6 +190,10 @@ export function StartSessionForm(p: FormProps) {
             ? "Finish or remove pending attachments to start."
             : !p.request.trim()
               ? "Enter a request to start."
+              : !p.repos.some((repo) => repo.key === p.repo)
+                ? "Choose a repository."
+                : (p.mode === "new" && !p.preparation?.branches.includes(p.base)) || (p.mode === "current" && !p.preparation?.checkouts.some((tree) => tree.path === p.checkout))
+                  ? "Choose a valid workspace."
               : "Choose a ready interactive executor."}
         </small>
       )}
@@ -245,11 +234,7 @@ export function StartSession() {
       ...previous,
       base: previous.base || data.base,
       checkout: previous.checkout || data.checkouts[0]?.path || "",
-      executor: data.executors.some(
-        (e) => e.id === previous.executor && e.available,
-      )
-        ? previous.executor
-        : (data.executors.find((e) => e.available)?.id ?? ""),
+      executor: previous.executor || (data.executors.find((e) => e.available)?.id ?? ""),
     }));
   }, [preparation.data]);
   if (!supported)

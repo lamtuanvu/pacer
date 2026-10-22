@@ -1,5 +1,6 @@
 import { reconcileExecutor } from "../model/project-strategies";
-import { Field, TextInput, TextArea, Select } from "../ds/Controls";
+import { Field, TextInput, TextArea } from "../ds/Controls";
+import { ChoicePicker } from "../ds/ChoicePicker";
 
 import { useEffect, useMemo, useState } from "preact/hooks";
 import type { RepoRef } from "../../../src/api/read-model/types";
@@ -60,7 +61,7 @@ export function Delegate({ close, filterRepo = null }: { close: () => void; filt
   const action = useAction();
   const field = (key: keyof typeof draft, value: string) => setDraft(previous => ({ ...previous, [key]: value, ...(key === "repo" ? {executor:""} : {}) }));
   const next = routing.data?.ranked[0];
-  const blocked=action.busy || (ops.has("project.strategy.get") && (routing.loading || !!routing.error));
+  const blocked=action.busy || (current && !choices.some(choice => choice.key === draft.repo)) || (ops.has("project.strategy.get") && (routing.loading || !!routing.error));
   const branches = choices.find(r => r.key === draft.repo)?.branches ?? [];
   return <Dialog title="Delegate a task" close={close}><form className="pc-form" onKeyDown={event => handleDelegateKey(event, () => event.currentTarget.requestSubmit(), blocked)} onSubmit={event => {
     event.preventDefault();
@@ -75,17 +76,15 @@ export function Delegate({ close, filterRepo = null }: { close: () => void; filt
     <Field label={<> Done when (command, optional) </>}><TextInput id="delegate-acceptance" className="mono" placeholder="bun test" value={draft.acceptance} onInput={e => field("acceptance", e.currentTarget.value)} /></Field>
     <div className="form-row">
       {current
-        ? <Field label={<> Repository </>}><Select className="pc-select" id="delegate-repo" required value={draft.repo} onChange={e => { field("repo", e.currentTarget.value); field("base", ""); }}><option value="">Choose…</option>{choices.map(r => <option key={r.key} value={r.key}>{r.label}</option>)}</Select><ErrorMessage error={repos.error} /></Field>
+        ? <Field label={<> Repository </>}><ChoicePicker id="delegate-repo" required searchable value={draft.repo} placeholder="Choose a repository…" options={choices.map(r => ({ value: r.key, label: r.label }))} onValueChange={value => { field("repo", value); field("base", ""); }} /><ErrorMessage error={repos.error} /></Field>
         : <Field label={<> Repository </>}><TextInput id="delegate-repo" required className="mono" placeholder="Absolute repository path" value={draft.repo} onInput={e => field("repo", e.currentTarget.value)} /></Field>}
-      {current && <Field label={<> Branch </>}><Select className="pc-select" id="delegate-base" value={draft.base} onChange={e => field("base", e.currentTarget.value)}><option value="">Current branch</option>{branches.map(b => <option key={b} value={b}>{b}</option>)}</Select></Field>}
+      {current && <Field label={<> Branch </>}><ChoicePicker id="delegate-base" value={draft.base} options={[{ value: "", label: "Current branch" }, ...branches.map(b => ({ value: b, label: b }))]} onValueChange={value => field("base", value)} /></Field>}
     </div>
-    <Field label={<> Kind (optional) </>}><Select className="pc-select" id="delegate-kind" value={draft.kind} onChange={e => field("kind", e.currentTarget.value)}>
-      <option value="">Automatic</option>{kinds.map(kind => <option key={kind} value={kind}>{kind}</option>)}
-    </Select></Field>
-    <Field label={<> Executor </>}><Select className="pc-select" id="delegate-executor" value={draft.executor} onChange={e => field("executor", e.currentTarget.value)}>
-      <option value="">Automatic{next ? ` (${executorLabel(next.id, accounts.data ?? [])} next)` : ""}</option>
-      {routing.data?.ranked.map(r => <option key={r.id} value={r.id}>{executorLabel(r.id, accounts.data ?? [])} · {routingStatus(r).label}</option>)}
-    </Select></Field>
+    <Field label={<> Kind (optional) </>}><ChoicePicker id="delegate-kind" value={draft.kind} options={[{ value: "", label: "Automatic" }, ...kinds.map(kind => ({ value: kind, label: kind }))]} onValueChange={value => field("kind", value)} /></Field>
+    <Field label={<> Executor </>}><ChoicePicker id="delegate-executor" searchable value={draft.executor} options={[
+      { value: "", label: `Automatic${next ? ` (${executorLabel(next.id, accounts.data ?? [])} next)` : ""}` },
+      ...(routing.data?.ranked.map(r => ({ value: r.id, label: `${executorLabel(r.id, accounts.data ?? [])} · ${routingStatus(r).label}` })) ?? []),
+    ]} onValueChange={value => field("executor", value)} /></Field>
     <DelegateRoutingPreview routing={routing.data} executor={draft.executor} accounts={accounts.data} loading={routing.loading} repoLabel={choices.find(r=>r.key===draft.repo)?.label} />
     <div aria-live="polite"><ErrorMessage error={validation ?? action.error ?? routing.error} /></div>
     <p className="muted">⌘Enter / Ctrl+Enter to delegate</p>
