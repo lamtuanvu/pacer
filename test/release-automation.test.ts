@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpDir } from "./helpers";
 
@@ -55,11 +55,17 @@ function fixture(version: string, subject: string) {
   git(root, "clone", "--quiet", origin, work);
   writeFileSync(join(work, "package.json"), JSON.stringify({ version }));
   git(work, "add", "package.json"); git(work, "commit", "--quiet", "-m", subject); git(work, "push", "--quiet", "origin", "HEAD");
-  return { origin, work, sha: git(work, "rev-parse", "HEAD") };
+  const sha = git(work, "rev-parse", "HEAD");
+  mkdirSync(join(work, "bin"));
+  writeFileSync(join(work, "pr.json"), JSON.stringify({ state: "MERGED", baseRefName: "main", headRefName: `release/v${version}`, headRefOid: sha, mergeCommit: { oid: sha } }));
+  writeFileSync(join(work, "runs.json"), JSON.stringify([{ headSha: sha, status: "completed", conclusion: "success" }]));
+  writeFileSync(join(work, "bin", "gh"), '#!/bin/sh\ncase "$1 $2" in\n "pr view") cat pr.json ;;\n "run list") cat runs.json ;;\n *) exit 1 ;;\nesac\n');
+  chmodSync(join(work, "bin", "gh"), 0o755);
+  return { origin, work, sha };
 }
 const script = tag.jobs.tag!.steps.find(s => s.name === "Tag the release commit")!.run!;
 const runTag = (work: string, sha: string, subject: string) =>
-  Bun.spawnSync(["bash", "-e", "-c", script], { cwd: work, env: { ...process.env, GH_TOKEN: "test-token", SUBJECT: subject, GITHUB_SHA: sha, GITHUB_STEP_SUMMARY: join(work, "summary") }, stdout: "pipe", stderr: "pipe" });
+  Bun.spawnSync(["bash", "-e", "-c", script], { cwd: work, env: { ...process.env, GH_TOKEN: "test-token", GH_READ_TOKEN: "read-token", SUBJECT: subject, GITHUB_SHA: sha, GITHUB_REPOSITORY: "fixture/repo", PATH: `${join(work, "bin")}:${process.env.PATH}`, GITHUB_STEP_SUMMARY: join(work, "summary") }, stdout: "pipe", stderr: "pipe" });
 
 test("Release tag tags a squash-merged release commit and never moves an existing tag", () => {
   const subject = "chore: release 0.5.0 (#220)";
@@ -80,6 +86,63 @@ test("Release tag ignores a commit that does not release the package.json versio
     const result = runTag(work, sha, subject);
     expect(result.exitCode).toBe(0);
     expect(result.stdout.toString()).toContain("nothing to tag");
+    expect(git(origin, "tag", "--list")).toBe("");
+  }
+});
+
+
+test("Release tag refuses missing, failed, pending and stale dry runs", () => {
+  for (const runs of [[], [{ status: "completed", conclusion: "failure" }], [{ status: "in_progress", conclusion: null }], [{ status: "completed", conclusion: "success", headSha: "0".repeat(40) }], [{ status: "completed", conclusion: "failure" }, { status: "completed", conclusion: "success" }]]) {
+    const subject = "chore: release 0.5.0 (#220)";
+    const { origin, work, sha } = fixture("0.5.0", subject);
+    writeFileSync(join(work, "runs.json"), JSON.stringify(runs.map(run => ({ headSha: sha, ...run }))));
+    const result = runTag(work, sha, subject);
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stdout.toString()).toContain("Latest release dry run");
+    expect(git(origin, "tag", "--list")).toBe("");
+  }
+});
+
+test("Release tag refuses a changed merge tree or unrelated PR", () => {
+  for (const mismatch of ["tree", "merge", "base", "branch"]) {
+    const subject = "chore: release 0.5.0 (#220)";
+    const { origin, work, sha } = fixture("0.5.0", subject);
+    if (mismatch === "tree") {
+      writeFileSync(join(work, "extra"), "untested merge change");
+      git(work, "add", "extra"); git(work, "commit", "-qm", "merge change");
+    }
+    const mergeSha = git(work, "rev-parse", "HEAD");
+    writeFileSync(join(work, "pr.json"), JSON.stringify({ state: "MERGED", baseRefName: mismatch === "base" ? "other" : "main", headRefName: mismatch === "branch" ? "other" : "release/v0.5.0", headRefOid: sha, mergeCommit: { oid: mismatch === "merge" ? "0".repeat(40) : mergeSha } }));
+    expect(runTag(work, mergeSha, subject).exitCode).not.toBe(0);
+    expect(git(origin, "tag", "--list")).toBe("");
+  }
+});
+
+test("Release verify prebuilds Rust fixtures before the test timeout starts", () => {
+  const steps = load("release.yml").jobs.verify!.steps;
+  const build = steps.findIndex(s => s.run === "cargo build --locked -p pacer-fixtures --bin pacer-fixture");
+  expect(build).toBeGreaterThan(-1);
+  expect(build).toBeLessThan(steps.findIndex(s => s.run === "bun run test"));
+});
+
+
+test("Release tag accepts a squash commit with the tested tree", () => {
+  const subject = "chore: release 0.5.0 (#220)";
+  const { origin, work, sha } = fixture("0.5.0", subject);
+  git(work, "commit", "--allow-empty", "-qm", subject + " squash");
+  const mergeSha = git(work, "rev-parse", "HEAD");
+  writeFileSync(join(work, "pr.json"), JSON.stringify({ state: "MERGED", baseRefName: "main", headRefName: "release/v0.5.0", headRefOid: sha, mergeCommit: { oid: mergeSha } }));
+  const result = runTag(work, mergeSha, subject);
+  expect(result.exitCode).toBe(0);
+  expect(git(origin, "rev-parse", "v0.5.0^{commit}")).toBe(mergeSha);
+});
+
+test("Release tag fails closed without a PR number or when GitHub reads fail", () => {
+  for (const apiFailure of [false, true]) {
+    const subject = apiFailure ? "chore: release 0.5.0 (#220)" : "chore: release 0.5.0";
+    const { origin, work, sha } = fixture("0.5.0", subject);
+    if (apiFailure) writeFileSync(join(work, "bin", "gh"), "#!/bin/sh\nexit 1\n");
+    expect(runTag(work, sha, subject).exitCode).not.toBe(0);
     expect(git(origin, "tag", "--list")).toBe("");
   }
 });
