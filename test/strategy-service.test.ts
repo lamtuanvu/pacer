@@ -55,7 +55,7 @@ test("CLI repeated --set parses YAML flow values and --unset",async()=>{
 test("launcher writes the complete brief and uses the terminal opener",async()=>{
  const ctx=await setup();let argv:string[]=[];
  const result=await build(ctx,{agent:"codex",from:"default",brief:'Protect Claude; $(touch /tmp/nope)',worktree:"id:wt"},{open:async(_c,o)=>{argv=o.argv;expect(o.worktree).toBe('id:wt');return {opened:true,target:'terminal',command:'codex prompt'};}});
- expect(argv[0]).toBe('codex');expect(argv[1]).toBe(readFileSync(result.path,'utf8'));
+ expect(argv[0]).toBe('codex');expect(argv.at(-1)).toBe(readFileSync(result.path,'utf8'));
  const text=readFileSync(result.path,"utf8");expect(text).toContain(yaml);expect(text).toContain("Protect Claude; $(touch /tmp/nope)");expect(text).toContain("Codex first, Claude keeps 15%");expect(text).toContain("Current status:");expect(text).toContain("Save only after explicit approval");expect(text).toContain("Never switch");
  const fallback=await build({...ctx,which:()=>null});expect(fallback.opened).toBe(false);expect(fallback.message).toContain(fallback.command);
  for(const agent of ["agy","evil"])await expect(build(ctx,{agent})).rejects.toThrow("configured planner");

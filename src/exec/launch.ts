@@ -12,12 +12,25 @@ import { orcaAccountHome } from "../orca/accounts";
 export async function runnerEnv(ctx: Ctx, runner: RunnerCfg): Promise<Record<string, string>> {
   const account = loadStrategy(ctx).accounts[runner.account];
   if (!account) throw new Error(`account not configured: ${runner.account}`);
+  // Full OpenCode TUI no longer accepts --agent/-m; config works for both CLI generations.
+  let opencodeEnv: Record<string, string> = {};
+  if (runner.agent === "opencode") {
+    let inline: unknown;
+    try { inline = JSON.parse(ctx.env.OPENCODE_CONFIG_CONTENT ?? "{}"); }
+    catch { throw Error("Invalid OPENCODE_CONFIG_CONTENT: expected a JSON object"); }
+    if (!inline || typeof inline !== "object" || Array.isArray(inline)) {
+      throw Error("Invalid OPENCODE_CONFIG_CONTENT: expected a JSON object");
+    }
+    opencodeEnv = {OPENCODE_CONFIG_CONTENT: JSON.stringify({
+      ...inline, default_agent: "build", ...(runner.model ? {model: runner.model} : {}),
+    })};
+  }
   if (account.connection) {
     const key = await readKey(ctx, account.name, account.connection.key);
     if (account.connection.key !== "none" && !key) throw Error(`Key missing for endpoint ${account.name}`);
-    return {OPENCODE_CONFIG: writeOpencodeConfig(ctx), ...(key ? {[endpointKeyEnv(account.name)]: key} : {})};
+    return {...opencodeEnv, OPENCODE_CONFIG: writeOpencodeConfig(ctx), ...(key ? {[endpointKeyEnv(account.name)]: key} : {})};
   }
-  if (account.source === "default" || account.source === "endpoint" || account.source === "opencode") return {};
+  if (account.source === "default" || account.source === "endpoint" || account.source === "opencode") return opencodeEnv;
   if (account.kind !== "claude" && account.kind !== "codex") return {};
   const home = account.source === "orca" ? orcaAccountHome(ctx, account.kind, account.orcaAccount ?? "") : account.home?.replace(/^~(?=\/|$)/, ctx.home);
   if (!home) throw new Error(`account folder not found: ${runner.account}`);
@@ -36,9 +49,14 @@ export async function providerEnv(ctx: Ctx, cfg: ProviderCfg): Promise<Record<st
   return runnerEnv(ctx, runner);
 }
 
+/** CLI dotted overrides split on every dot, including quoted paths; use a TOML table value. */
+function codexTrust(repo: string, root: string): string {
+  return `projects={${[...new Set([repo, root])].map(path => `${JSON.stringify(path)}={trust_level="trusted"}`).join(",")}}`;
+}
+
 export interface Launch { argv: string[]; cwd: string; stdin?: string; lastMessageFile?: string }
 
-export function launchFor(cfg: ProviderCfg, prompt: string, repo: string, taskDir: string, taskId: string, sessionId?: string): Launch {
+export function launchFor(cfg: ProviderCfg, prompt: string, repo: string, taskDir: string, taskId: string, sessionId?: string, trustRoot = repo): Launch {
   const model = cfg.model;
   if (cfg.session === "interactive") {
     if (Buffer.byteLength(prompt, "utf8") > 32 * 1024) {
@@ -49,11 +67,11 @@ export function launchFor(cfg: ProviderCfg, prompt: string, repo: string, taskDi
     }
     const agent = parseRunnerId(cfg.id)?.agent ?? cfg.id;
     const models = model ? [agent === "codex" || agent === "opencode" ? "-m" : "--model", model] : [];
-    const argv = cfg.via === "opencode" ? ["opencode", "--standalone", "--agent", "build", ...models, "--prompt", prompt]
-      : agent === "codex" ? ["codex", "--no-daemon", "-c", `projects.${JSON.stringify(repo)}.trust_level="trusted"`, "-C", repo, "-s", "workspace-write", "--add-dir", taskDir, ...models, "--", prompt]
-      : agent === "claude-code" ? ["claude", "--permission-mode", "acceptEdits", ...models, "--", prompt]
-      : agent === "cursor" ? ["cursor-agent", "--workspace", repo, ...models, "--", prompt]
-      : agent === "agy" ? ["agy", "--sandbox", "--add-dir", repo, ...models, "--", prompt] : null;
+    const argv = cfg.via === "opencode" ? ["opencode", "--standalone", "--auto", "--prompt", prompt]
+      : agent === "codex" ? ["codex", "--no-daemon", "-c", codexTrust(repo, trustRoot), "-C", repo, "--dangerously-bypass-approvals-and-sandbox", "--add-dir", taskDir, ...models, "--", prompt]
+      : agent === "claude-code" ? ["claude", "--dangerously-skip-permissions", ...models, "--", prompt]
+      : agent === "cursor" ? ["cursor-agent", "--force", "--sandbox", "disabled", "--workspace", repo, ...models, "--", prompt]
+      : agent === "agy" ? ["agy", "--dangerously-skip-permissions", "--add-dir", repo, ...models, "--prompt-interactive", prompt] : null;
     if (!argv) throw new Error(`no interactive launcher for provider "${cfg.id}"`);
     return {cwd: repo, argv};
   }
@@ -72,24 +90,24 @@ export function launchFor(cfg: ProviderCfg, prompt: string, repo: string, taskDi
         cwd: repo,
         stdin: prompt,
         lastMessageFile,
-        argv: ["codex", "exec", "-C", repo, "-s", "workspace-write", "--skip-git-repo-check", "-o", lastMessageFile,
+        argv: ["codex", "exec", "-C", repo, "--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check", "-o", lastMessageFile,
           ...(model ? ["-m", model] : []), "-"],
       };
     }
     case "cursor":
       return {
         cwd: repo,
-        argv: ["cursor-agent", "-p", "--output-format", "text", "--force", "--workspace", repo, ...(sessionId ? ["--resume", sessionId] : []), ...(model ? ["--model", model] : []), prompt],
+        argv: ["cursor-agent", "-p", "--output-format", "text", "--force", "--sandbox", "disabled", "--workspace", repo, ...(sessionId ? ["--resume", sessionId] : []), ...(model ? ["--model", model] : []), prompt],
       };
     case "agy":
       return {
         cwd: repo,
-        argv: ["agy", "--sandbox", "--dangerously-skip-permissions", "--add-dir", repo, ...(model ? ["--model", model] : []), "-p", prompt],
+        argv: ["agy", "--dangerously-skip-permissions", "--add-dir", repo, ...(model ? ["--model", model] : []), "-p", prompt],
       };
     case "claude-code":
       return {
         cwd: repo,
-        argv: ["claude", "-p", "--permission-mode", "acceptEdits", "--output-format", "text", ...(sessionId ? ["--session-id", sessionId] : []), ...(model ? ["--model", model] : []), prompt],
+        argv: ["claude", "-p", "--dangerously-skip-permissions", "--output-format", "text", ...(sessionId ? ["--session-id", sessionId] : []), ...(model ? ["--model", model] : []), prompt],
       };
     default:
       throw new Error(`no launcher for provider "${cfg.id}"`);
@@ -108,13 +126,13 @@ export function remoteLaunch(cfg: ProviderCfg, workdir: string, runDir = workdir
 }
 
 /** Resume the agent's conversation in an interactive terminal, without a new prompt. */
-export function resumeLaunchFor(cfg: ProviderCfg, sessionId: string, worktree: string, runDir: string): Launch {
+export function resumeLaunchFor(cfg: ProviderCfg, sessionId: string, worktree: string, runDir: string, trustRoot = worktree): Launch {
   const agent = cfg.via === "opencode" ? "opencode" : parseRunnerId(cfg.id)?.agent ?? cfg.id;
   const models = cfg.model ? [agent === "codex" || agent === "opencode" ? "-m" : "--model", cfg.model] : [];
-  const argv = agent === "codex" ? ["codex", "-c", `projects.${JSON.stringify(worktree)}.trust_level="trusted"`, "-c", "check_for_update_on_startup=false", "resume", "--no-daemon", "-C", worktree, "-s", "workspace-write", "--add-dir", runDir, ...models, sessionId]
-    : agent === "claude-code" ? ["claude", "--permission-mode", "acceptEdits", ...models, "--resume", sessionId]
-    : agent === "cursor" ? ["cursor-agent", "--workspace", worktree, ...models, "--resume", sessionId]
-    : agent === "opencode" ? ["opencode", "--standalone", "--agent", "build", ...models, "--session", sessionId] : null;
+  const argv = agent === "codex" ? ["codex", "-c", codexTrust(worktree, trustRoot), "-c", "check_for_update_on_startup=false", "resume", "--no-daemon", "-C", worktree, "--dangerously-bypass-approvals-and-sandbox", "--add-dir", runDir, ...models, sessionId]
+    : agent === "claude-code" ? ["claude", "--dangerously-skip-permissions", ...models, "--resume", sessionId]
+    : agent === "cursor" ? ["cursor-agent", "--force", "--sandbox", "disabled", "--workspace", worktree, ...models, "--resume", sessionId]
+    : agent === "opencode" ? ["opencode", "--standalone", "--auto", "--session", sessionId] : null;
   if (!argv) throw Error(`no resume launcher for provider "${cfg.id}"`);
   return {cwd: worktree, argv};
 }

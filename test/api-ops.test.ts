@@ -148,7 +148,7 @@ test('update restart is confirmed on boot by the installed version',async()=>{
 });
 test('strategy.build op uses the selected planner and returns terminal result',async()=>{
  const ctx=await ctxWithStrategy();expect(await callOp(ctx,'strategy.build',{agent:'cursor',from:'default',brief:'Help'}, {openTerminal:async(_c,o)=>{
- expect(o.argv[0]).toBe('cursor-agent');expect(o.argv[1]).toContain('Help');return {opened:true,target:'terminal',command:'safe command'};
+ expect(o.argv[0]).toBe('cursor-agent');expect(o.argv.at(-1)).toContain('Help');return {opened:true,target:'terminal',command:'safe command'};
  }})).toEqual({opened:true,target:'terminal',command:'safe command'});
 });
 

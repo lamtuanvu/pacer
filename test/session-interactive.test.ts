@@ -92,6 +92,7 @@ test("pacer report can address a running task explicitly outside the agent envir
 test("Codex hooks use per-invocation config with a run-local script and preserve CODEX_HOME", () => {
   const dir = tmpDir();
   const prepared = prepareInteractive("codex", dir, {argv: ["codex", "PROMPT"], cwd: dir});
+  expect(prepared.argv).toContain("--dangerously-bypass-hook-trust");
   const flags = prepared.argv.filter((_, i, a) => i > 0 && a[i - 1] === "-c");
   expect(flags.some(f => f.startsWith("hooks.PermissionRequest="))).toBe(true);
   expect(flags.some(f => f.startsWith("hooks.Stop="))).toBe(true);

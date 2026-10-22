@@ -14,6 +14,16 @@ export interface Backend {
 
 export const directBackend: Backend = { id: "direct", available: async () => true, runAttempt };
 
+/** Orca worker-start cannot carry a permission policy; only direct launch can enforce bypass. */
+const orcaPermissionFallback: Backend = {
+  ...directBackend,
+  runAttempt: async (ctx, cfg, task, onSpawn) => {
+    const out = await directBackend.runAttempt(ctx, cfg, task, onSpawn);
+    appendFileSync(out.attempt.log, "direct backend: Orca worker-start cannot enforce permission bypass\n");
+    return out;
+  },
+};
+
 /** Managed account folders and connection credentials require direct execution. */
 export async function selectBackend(ctx: Ctx, s: Strategy, extras: Backend[] = EXTRA_BACKENDS, runnerId?: string): Promise<Backend> {
   const runner = runnerId ? resolveRunner(s, runnerId) : undefined;
@@ -32,10 +42,11 @@ export async function selectBackend(ctx: Ctx, s: Strategy, extras: Backend[] = E
     };
   }
   const forced = ctx.env.PACER_BACKEND;
+  if (forced === "orca") return orcaPermissionFallback;
   if (forced) return [...extras, directBackend].find((b) => b.id === forced) ?? directBackend;
   for (const b of extras) {
     try {
-      if (await b.available(ctx, s)) return b;
+      if (await b.available(ctx, s)) return b.id === "orca" ? orcaPermissionFallback : b;
     } catch {
       // an unavailable backend never blocks execution
     }
