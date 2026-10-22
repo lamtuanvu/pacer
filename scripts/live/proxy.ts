@@ -2,6 +2,7 @@ import NodeWebSocket from "ws";
 import type { ServerWebSocket } from "bun";
 import { readFileSync } from "node:fs";
 import { record, type Session } from "./core";
+import { authorizeSeedRepair } from "./repair";
 import { authorizeFixtureRequest } from "./ota-request";
 
 /** D8 policy source of truth; the procedure table is checked against these rows. */
@@ -74,7 +75,7 @@ export function startProxy(session: Session) {
         return Response.json({ pid: process.pid }, { headers: { "x-pacer-live-proxy": "1" } });
       }
       const op = refusedOp(req.method, url.pathname);
-      if (op && !await authorizeFixtureRequest(session, req)) {
+      if (op && !await authorizeSeedRepair(session, req) && !await authorizeFixtureRequest(session, req)) {
         const message = `Live validation D8: ${op} changes the real user environment`;
         record(session, { kind: "note", behavior: `D8 blocked ${op}`, surface: "API proxy", verdict: "UNVERIFIED", steps: `${req.method} ${url.pathname}`, text: message });
         return Response.json({ error: { code: "forbidden", message } }, { status: 403 });

@@ -1,8 +1,9 @@
+import { sha256 } from "../install/fsx";
 import { runDoctor } from "../install/doctor";
 import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { PLANNERS, validateStrategy } from "../config/strategy";
-import { parseRunnerId } from "../config/runner-id";
+import { formatRunnerId, runnerDefaults, parseRunnerId } from "../config/runner-id";
 import { migrateStrategy } from "../config/migrate";
 import { detect, starterStrategy } from "../install/init";
 import { agentPlans, type AgentId } from "../install/detection";
@@ -68,14 +69,18 @@ export function agentPreview(ctx: Ctx, agent: AgentId) {
   const folder=account?accountFolder(ctx,account):null;
   const root=join(ctx.home,agent==="claude-code"?".claude":`.${agent}`);
   const files=folder&&(agent==="codex"||agent==="claude-code")?plan.files.map(p=>p.startsWith(root+"/")?join(folder,p.slice(root.length+1)):p):plan.files;
-  return {agent,files,undo:folder&&typeof target==="object"?`pacer uninstall ${agent}#${target.account}`:plan.undo,...(agent==="claude-code"?{detail:claudeConnectPreview(ctx.home,folder??root)}:{})};
+  const preview = {agent,files,undo:folder&&typeof target==="object"?`pacer uninstall ${agent}#${target.account}`:plan.undo,...(agent==="claude-code"?{detail:claudeConnectPreview(ctx.home,folder??root)}:{})};
+  return {...preview, revision: sha256(JSON.stringify({target, folder, ...preview}))};
 }
 
-export async function agentConnect(ctx: Ctx, agent: AgentId, options: {consent?: boolean} = {}) {
+export async function agentConnect(ctx: Ctx, agent: AgentId, options: {consent?: boolean; preview_revision?: string} = {}) {
   if (options.consent !== true) throw new CoreError("not_allowed", "connecting an agent requires consent", "Review agent.preview, then pass consent: true");
-  agentPreview(ctx, agent);
+  const preview = agentPreview(ctx, agent);
+  if (options.preview_revision !== undefined && options.preview_revision !== preview.revision)
+    throw new CoreError("conflict", "The integration target changed after preview", "Review a fresh repair preview before applying changes.");
+  const target = plannerTarget(ctx, agent);
   try {
-    const r = await installPlanner({ctx, pacerArgv: pacerArgv(ctx.env), mcp: false}, plannerTarget(ctx,agent));
+    const r = await installPlanner({ctx, pacerArgv: pacerArgv(ctx.env), mcp: false}, target);
     return {installed: r.touched};
   } catch (e) { throw toCoreError(e); }
 }
@@ -110,6 +115,17 @@ export function onboardingSkip(ctx:Ctx) {
 
 /** Read diagnostics and run fixed isolated handler fixtures; never repair installations. */
 export async function doctor(ctx: Ctx) {
-  try { return { checkedAt: ctx.now, checks: await runDoctor(ctx) }; }
+  try {
+    const checks = await runDoctor(ctx);
+    let planner: string | undefined;
+    let repairAvailable = false;
+    try {
+      const strategy = loadStrategy(ctx);
+      planner = formatRunnerId({...strategy.planner, host: null}, runnerDefaults(strategy.accounts));
+      const account = strategy.accounts[strategy.planner.account];
+      repairAvailable = !!account && (account.source === "default" || !!accountFolder(ctx, account));
+    } catch { /* The strategy diagnostic reports missing or invalid configuration. */ }
+    return { checkedAt: ctx.now, checks, ...(planner ? {planner, repairAvailable} : {}) };
+  }
   catch (e) { throw toCoreError(e); }
 }

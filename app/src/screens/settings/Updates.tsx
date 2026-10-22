@@ -8,7 +8,8 @@ import { StatusPill } from "../../ds/StatusPill";
 import { useDialogs } from "../../ds/useDialogs";
 import { ErrorMessage, useTaskContext } from "../task-shared";
 import type { ConfigData } from "../../model/strategy";
-import { desktopHost, readDesktopVersion } from "../../data/desktop";
+import { DesktopUpdateConnection } from "./DesktopUpdateConnection";
+import { desktopHost, readDesktopVersion, readDesktopUpdateConnection, type DesktopUpdateConnection as Connection } from "../../data/desktop";
 import { updateModel } from "../../model/settings";
 import { desktopUpdateModel } from "../../../../src/view-model/updates";
 import { Feedback, ResourceState, Section, time, useOperation, useResource } from "./shared";
@@ -124,12 +125,31 @@ function LegacyUpdatesSection({initialData}: {initialData?: UpdateReport}) {
     );
     return () => { active = false; };
   }, [native]);
+  const [connection, setConnection] = useState<Connection | null>({ state: "connecting", reason: null });
+  useEffect(() => {
+    if (!native) return;
+    let active = true, reading = false;
+    const refresh = async () => {
+      if (reading) return;
+      reading = true;
+      try { const value = await readDesktopUpdateConnection(); if (active) setConnection(value); }
+      catch { if (active) setConnection(null); }
+      finally { reading = false; }
+    };
+    void refresh();
+    const timer = setInterval(() => void refresh(), 5000);
+    return () => { active = false; clearInterval(timer); };
+  }, [native]);
   const service = updateModel(query.data, false);
   return <Section id="updates" title="Updates" actions={
     <Button busy={action.busy} onClick={() => void action.run('update.check', {force:true})}>Check now</Button>
   }>
     {dialogs.dialog}
-    {native && <DesktopVersionRow {...desktop} report={query.data}/>}
+    {native && <>
+      <p>Desktop app{desktop.version ? ` ${desktop.version}` : ""}</p>
+      <DesktopUpdateConnection connection={connection}/>
+      <Disclosure summary="Manual desktop update options"><DesktopVersionRow {...desktop} report={query.data}/></Disclosure>
+    </>}
     <ResourceState resource={query}>{query.data && <>
       <p role="status">Service {query.data.current} · {service.label}</p>
       {query.data.error && <p role="status">{query.data.error}</p>}
