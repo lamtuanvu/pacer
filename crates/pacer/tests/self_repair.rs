@@ -16,6 +16,41 @@ use std::{
 };
 
 #[test]
+fn explicit_core_repair_refuses_a_desktop_bundle_without_mutation() {
+    bundled_repair_refusal("self-repair");
+}
+#[test]
+fn automatic_core_repair_refuses_a_desktop_bundle_without_mutation() {
+    bundled_repair_refusal("route");
+}
+fn bundled_repair_refusal(command: &str) {
+    let install = Install::new();
+    let resources = install.dir.path().join("pacer.app/Contents/Resources");
+    fs::create_dir_all(&resources).unwrap();
+    let bundled = resources.join("pacer");
+    fs::copy(&install.exe, &bundled).unwrap();
+    let script = install.script();
+    let feed = Feed::new(&install.version, &script, &hash(&script));
+    let output = Command::new(&bundled)
+        .arg(command)
+        .env_remove("PACER_CORE_ARGV")
+        .env_remove("PACER_BIN")
+        .env("PACER_HOME", install.dir.path().join("state"))
+        .env("PACER_NO_SELF_REPAIR", "0")
+        .env("PACER_RELEASE_BASE", &feed.base)
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("complete desktop app"));
+    assert_eq!(feed.requests.load(Ordering::SeqCst), 0);
+    let files: Vec<_> = fs::read_dir(&resources)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
+    assert_eq!(files, vec![std::ffi::OsString::from("pacer")]);
+}
+
+#[test]
 fn version_probes_do_not_inherit_runtime_preload_options() {
     let install = Install::new();
     let marker = install.dir.path().join("preload-ran");

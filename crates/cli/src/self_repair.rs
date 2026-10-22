@@ -19,6 +19,8 @@ pub enum RepairError {
     Invalid(String),
     #[error("release download failed: {0}")]
     Download(String),
+    #[error("Reinstall the complete desktop app; its signed core cannot be repaired separately")]
+    Bundled,
 }
 
 pub fn core_version(core: &Path) -> Option<String> {
@@ -72,6 +74,9 @@ fn target_ok(core: &Path) -> Result<(), RepairError> {
 }
 
 pub fn repair(exe: &Path, version: &str, base: &str) -> Result<PathBuf, RepairError> {
+    if crate::core_exec::is_bundled_executable(exe) {
+        return Err(RepairError::Bundled);
+    }
     let dir = exe
         .parent()
         .ok_or_else(|| RepairError::Invalid("executable has no parent".into()))?;

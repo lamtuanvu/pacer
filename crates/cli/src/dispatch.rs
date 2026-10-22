@@ -51,6 +51,7 @@ pub fn main(argv: Vec<String>) -> i32 {
         };
     }
     if !env.contains_key("PACER_CORE_ARGV")
+        && !crate::core_exec::is_bundled_executable(&exe)
         && env.get("PACER_NO_SELF_REPAIR").is_none_or(|s| s != "1")
     {
         let core = exe.with_file_name("pacer-core");
