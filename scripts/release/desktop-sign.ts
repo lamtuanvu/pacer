@@ -48,7 +48,14 @@ export async function signStagedDesktop(o: { root: string; stage: string; out: s
     verifyDesktopExecutable(readFileSync(permissionHelper), o.arch);
   }
   if (metadata.schema !== 1 || metadata.version !== o.version || metadata.arch !== o.arch || metadata.bundleId !== "dev.pacer.desktop" || metadata.admissionProtocol !== 1 || metadata.nativeTransportAbi !== 1 || metadata.rollbackCompatible !== true || JSON.stringify(metadata.protocolMajors) !== "[3]") throw Error("Desktop signing metadata mismatch");
-  for (const [binary, role] of [[join(app, "Contents/MacOS/pacer"), "desktop"], [join(resources, "pacer-update-helper"), "update-helper"], [join(resources, "pacer"), "cli"]]) {
+  if (metadata.cliLayout !== undefined && metadata.cliLayout !== "paired") throw Error("Unknown desktop CLI layout");
+  const paired = metadata.cliLayout === "paired", core = join(resources, "pacer-core");
+  if (paired) {
+    const stat = lstatSync(core);
+    if (!stat.isFile() || stat.isSymbolicLink() || (stat.mode & 0o111) === 0) throw Error("Desktop core must be a regular executable");
+    verifyDesktopExecutable(readFileSync(core), o.arch);
+  } else if (existsSync(core)) throw Error("Legacy desktop contains an unverified core");
+  for (const [binary, role] of [[join(app, "Contents/MacOS/pacer"), "desktop"], [join(resources, "pacer-update-helper"), "update-helper"], [join(resources, "pacer"), "cli"], ...(paired ? [[core, "cli"]] : [])]) {
     const identity = JSON.parse(await run([binary, "--pacer-identity"]));
     if (identity.fixture !== false || identity.role !== role || identity.version !== o.version || identity.arch !== o.arch || identity.bundleId !== (role === "cli" ? "dev.pacer.cli" : "dev.pacer.desktop")) throw Error("Production signing requires production component identity");
     const pinned = self
@@ -62,7 +69,8 @@ export async function signStagedDesktop(o: { root: string; stage: string; out: s
   // runtime C compilation is forbidden. Library validation stays enabled.
   writeFileSync(entitlements, '<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>com.apple.security.cs.allow-jit</key><true/></dict></plist>\n', { mode: 0o600 });
   const components: [string, string, string[]][] = [[shim, "dev.pacer.desktop.native-shim", []],
-    [join(resources, "pacer"), "dev.pacer.cli", ["--entitlements", entitlements]],
+    ...(paired ? [[core, "dev.pacer.cli", ["--entitlements", entitlements]] as [string, string, string[]]] : []),
+    [join(resources, "pacer"), "dev.pacer.cli", paired ? [] : ["--entitlements", entitlements]],
     [join(resources, "pacer-update-helper"), "dev.pacer.desktop.update-helper", []],
     ...(existsSync(permissionHelper) ? [[permissionHelper, "dev.pacer.permission-setup", []] as [string, string, string[]]] : []),
     [app, "dev.pacer.desktop", []]];
@@ -76,7 +84,7 @@ export async function signStagedDesktop(o: { root: string; stage: string; out: s
   await run(["/usr/bin/codesign", "--verify", "--deep", "--strict", app]);
   if (self) for (const [path, identifier] of components) await run(["/usr/bin/codesign", "--verify", "--strict", `-R=${signerRequirement(identifier, { appleTeamId: self.bridgeTeamId, signingCertSha1: self.certSha1 })}`, path]);
   // Smoke only native runner executables, after their final signatures.
-  for (const binary of [join(resources, "pacer"), join(resources, "pacer-update-helper"), join(app, "Contents/MacOS/pacer")]) await run([binary, "--version"]);
+  for (const binary of [join(resources, "pacer"), ...(paired ? [core] : []), join(resources, "pacer-update-helper"), join(app, "Contents/MacOS/pacer")]) await run([binary, "--version"]);
   // Exercise the signed native transport under the final hardened signature on each native CI runner.
   const transport = JSON.parse(await run([join(resources, "pacer"), "--pacer-native-transport-test"]));
   if (transport.schema !== 1 || transport.role !== "cli" || transport.version !== o.version || transport.arch !== o.arch || transport.nativeTransportAbi !== 1 || transport.transport !== "unix-audit-token" || transport.verified !== true) throw Error("Signed native transport validation failed");

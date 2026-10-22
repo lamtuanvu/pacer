@@ -13,7 +13,7 @@ export const NATIVE_SHIM_SYMBOLS = {
 export function nativeShimLocation(executable:string):{path:string;app:string|null} {
   if(realpathSync(executable)!==executable)throw denied();
   const resources=dirname(executable),contents=dirname(resources),app=dirname(contents);
-  if(basename(executable)==="pacer"&&basename(resources)==="Resources"&&basename(contents)==="Contents"&&app.endsWith(".app"))return{path:join(contents,"Frameworks/libpacer-native.dylib"),app};
+  if(["pacer","pacer-core"].includes(basename(executable))&&basename(resources)==="Resources"&&basename(contents)==="Contents"&&app.endsWith(".app"))return{path:join(contents,"Frameworks/libpacer-native.dylib"),app};
   return{path:join(resources,"libpacer-native.dylib"),app:null};
 }
 export function loadNativeShim() {

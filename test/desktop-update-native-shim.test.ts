@@ -7,6 +7,8 @@ test("native shim path is fixed to app Frameworks or the detached executable sib
  const root=realpathSync(fakeCtx().home),app=join(root,"pacer.app"),bundled=join(app,"Contents/Resources/pacer"),detached=join(root,"detached/pacer");
  for(const file of [bundled,detached]){mkdirSync(dirname(file),{recursive:true});writeFileSync(file,"test executable");}
  expect(nativeShimLocation(bundled)).toEqual({path:join(app,"Contents/Frameworks/libpacer-native.dylib"),app});
+ const core=join(app,"Contents/Resources/pacer-core");writeFileSync(core,"test core");
+ expect(nativeShimLocation(core)).toEqual({path:join(app,"Contents/Frameworks/libpacer-native.dylib"),app});
  expect(nativeShimLocation(detached)).toEqual({path:join(root,"detached/libpacer-native.dylib"),app:null});
  const alias=join(root,"alias");symlinkSync(detached,alias);expect(()=>nativeShimLocation(alias)).toThrow();
 });
