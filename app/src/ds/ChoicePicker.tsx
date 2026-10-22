@@ -43,6 +43,7 @@ export const ChoicePicker = forwardRef<HTMLButtonElement, ChoicePickerProps>(fun
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(-1);
   const [placement, setPlacement] = useState<'above' | 'below'>('below');
+  const [roomToken, setRoomToken] = useState('360');
   const visible = options.filter(option => !searchable || `${option.label} ${option.description ?? ''}`.toLowerCase().includes(query.toLowerCase()));
   const available = visible.map((option, index) => option.disabled ? -1 : index).filter(index => index >= 0);
   const selected = options.find(option => option.value === value);
@@ -56,6 +57,7 @@ export const ChoicePicker = forwardRef<HTMLButtonElement, ChoicePickerProps>(fun
     if (disabled) return;
     document.dispatchEvent(new CustomEvent('pacer-choice-picker-open', { detail: root.current }));
     setPlacement('below');
+    setRoomToken('360');
     setOpen(true);
     setActive(index ?? options.findIndex(option => option.value === value && !option.disabled));
     requestAnimationFrame(() => (searchable ? search.current : listbox.current)?.focus());
@@ -116,12 +118,18 @@ export const ChoicePicker = forwardRef<HTMLButtonElement, ChoicePickerProps>(fun
       const button = trigger.current;
       const popup = root.current?.querySelector<HTMLElement>('.pc-choice-picker__popover');
       if (!button || !popup) return;
+      const tokens = getComputedStyle(root.current!);
       const bounds = button.getBoundingClientRect();
-      const gap = parseFloat(getComputedStyle(root.current!).getPropertyValue('--space-1')) || 0;
+      const gap = parseFloat(tokens.getPropertyValue('--space-1')) || 0;
       const below = window.innerHeight - bounds.bottom - gap;
       const above = bounds.top - gap;
-      const next = below < popup.getBoundingClientRect().height && above > below ? 'above' : 'below';
+      const contentHeight = (listbox.current?.scrollHeight ?? popup.scrollHeight) + (search.current?.offsetHeight ?? 0) + gap * 4;
+      const desired = Math.min(contentHeight, parseFloat(tokens.getPropertyValue('--size-360')), window.innerHeight / 2);
+      const next = below < desired && above > below ? 'above' : 'below';
       setPlacement(next);
+      const room = next === 'above' ? above : below;
+      const sizes = ['360', '280', '230', '180', '120', '80', '44'];
+      setRoomToken(sizes.find(size => parseFloat(tokens.getPropertyValue(`--size-${size}`)) <= room) ?? '44');
     };
     fit();
     window.addEventListener('resize', fit);
@@ -152,7 +160,7 @@ export const ChoicePicker = forwardRef<HTMLButtonElement, ChoicePickerProps>(fun
       <span className="pc-choice-picker__value">{selected?.label ?? placeholder}</span>
       <span className="pc-choice-picker__chevron" aria-hidden="true" />
     </Button>
-    {open && <span className={classes('pc-choice-picker__popover', placement === 'above' && 'pc-choice-picker__popover--above')}
+    {open && <span data-room={roomToken} className={classes('pc-choice-picker__popover', placement === 'above' && 'pc-choice-picker__popover--above')}
       onKeyDown={onKeyDown as never}>
       {searchable && <input ref={search} className="pc-input pc-choice-picker__search" type="search" role="searchbox"
         aria-label="Search choices" aria-controls={menuId} aria-activedescendant={active >= 0 ? `${menuId}-${active}` : undefined}

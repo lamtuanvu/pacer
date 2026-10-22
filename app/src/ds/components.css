@@ -181,8 +181,14 @@ a.pc-btn{text-decoration:none}
 .pc-choice-picker__chevron{flex:none;width:var(--space-2);height:var(--space-2);border-right:1px solid currentColor;border-bottom:1px solid currentColor;transform:rotate(45deg) translateY(calc(-1 * var(--space-half)))}
 .pc-choice-picker__trigger[aria-invalid=true]{border-color:var(--bad-fg)}
 .pc-choice-picker__trigger:focus-visible{outline:var(--stroke-focus) solid var(--focus);outline-offset:var(--stroke-focus)}
-.pc-choice-picker__popover{position:absolute;top:calc(100% + var(--space-1));left:0;z-index:var(--layer-overlay);display:flex;flex-direction:column;box-sizing:border-box;width:100%;max-width:calc(100vw - var(--space-8));max-height:min(var(--size-360),50dvh);padding:var(--space-1);border:1px solid var(--line);border-radius:var(--radius-md);background:var(--surface-page);color:var(--ink);box-shadow:var(--shadow-popover)}
+.pc-choice-picker__popover{position:absolute;top:calc(100% + var(--space-1));left:0;z-index:var(--layer-overlay);display:flex;flex-direction:column;box-sizing:border-box;width:100%;max-width:calc(100vw - var(--space-8));max-height:min(var(--size-360),50dvh);overflow:hidden;padding:var(--space-1);border:1px solid var(--line);border-radius:var(--radius-md);background:var(--surface-page);color:var(--ink);box-shadow:var(--shadow-popover)}
 .pc-choice-picker__popover--above{top:auto;bottom:calc(100% + var(--space-1))}
+.pc-choice-picker__popover[data-room="280"]{max-height:min(var(--size-280),50dvh)}
+.pc-choice-picker__popover[data-room="230"]{max-height:min(var(--size-230),50dvh)}
+.pc-choice-picker__popover[data-room="180"]{max-height:min(var(--size-180),50dvh)}
+.pc-choice-picker__popover[data-room="120"]{max-height:min(var(--size-120),50dvh)}
+.pc-choice-picker__popover[data-room="80"]{max-height:min(var(--size-80),50dvh)}
+.pc-choice-picker__popover[data-room="44"]{max-height:min(var(--size-44),50dvh)}
 .pc-choice-picker__search{display:block;width:100%;margin-bottom:var(--space-1)}
 .pc-choice-picker__options{display:block;min-height:0;max-height:min(var(--size-360),50dvh);overflow:auto;overscroll-behavior:contain}
 .pc-choice-picker__option{display:flex;flex-direction:column;gap:var(--space-half);min-height:var(--control-compact);padding:var(--space-2);border-radius:var(--radius-sm);cursor:pointer}

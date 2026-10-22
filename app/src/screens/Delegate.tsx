@@ -2,7 +2,7 @@ import { reconcileExecutor } from "../model/project-strategies";
 import { Field, TextInput, TextArea } from "../ds/Controls";
 import { ChoicePicker } from "../ds/ChoicePicker";
 
-import { useEffect, useMemo, useState } from "preact/hooks";
+import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { RepoRef } from "../../../src/api/read-model/types";
 import { executorLabel } from "../../../src/view-model/words";
 import { eligibilityPresentation } from "../../../src/view-model/eligibility";
@@ -45,6 +45,8 @@ export function Delegate({ close, filterRepo = null }: { close: () => void; filt
   const [draft, setDraft, clearDraft] = useDraft("pacer.delegate.v2", blankDelegate, saved => initialDelegateDraft(saved, filterRepo, lastRepoStorage().read().repo));
   const requestId = useMemo(() => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`, []);
   const [validation, setValidation] = useState<unknown>();
+  const [attempted, setAttempted] = useState(false);
+  const repoRef = useRef<HTMLButtonElement>(null);
   const [goal, setGoal] = useState(draft.goal);
   useEffect(() => { const t = setTimeout(() => setGoal(draft.goal.trim()), 300); return () => clearTimeout(t); }, [draft.goal]);
   // useQuery always runs, so an older service (no repo.list) gets a harmless version read instead.
@@ -61,11 +63,13 @@ export function Delegate({ close, filterRepo = null }: { close: () => void; filt
   const action = useAction();
   const field = (key: keyof typeof draft, value: string) => setDraft(previous => ({ ...previous, [key]: value, ...(key === "repo" ? {executor:""} : {}) }));
   const next = routing.data?.ranked[0];
-  const blocked=action.busy || (current && !choices.some(choice => choice.key === draft.repo)) || (ops.has("project.strategy.get") && (routing.loading || !!routing.error));
+  const repoInvalid = current && !choices.some(choice => choice.key === draft.repo);
+  const blocked=action.busy || (ops.has("project.strategy.get") && (routing.loading || !!routing.error));
   const branches = choices.find(r => r.key === draft.repo)?.branches ?? [];
   return <Dialog title="Delegate a task" close={close}><form className="pc-form" onKeyDown={event => handleDelegateKey(event, () => event.currentTarget.requestSubmit(), blocked)} onSubmit={event => {
     event.preventDefault();
     if (blocked) return;
+    if (repoInvalid) { setAttempted(true); repoRef.current?.focus(); return; }
     setValidation(undefined);
     try {
       const params = delegateParams(draft, ops, requestId, choices.map(r => r.key));
@@ -76,7 +80,7 @@ export function Delegate({ close, filterRepo = null }: { close: () => void; filt
     <Field label={<> Done when (command, optional) </>}><TextInput id="delegate-acceptance" className="mono" placeholder="bun test" value={draft.acceptance} onInput={e => field("acceptance", e.currentTarget.value)} /></Field>
     <div className="form-row">
       {current
-        ? <Field label={<> Repository </>}><ChoicePicker id="delegate-repo" required searchable value={draft.repo} placeholder="Choose a repository…" options={choices.map(r => ({ value: r.key, label: r.label }))} onValueChange={value => { field("repo", value); field("base", ""); }} /><ErrorMessage error={repos.error} /></Field>
+        ? <Field label={<> Repository </>} error={attempted && repoInvalid ? "Choose a repository." : undefined}><ChoicePicker ref={repoRef} id="delegate-repo" required searchable value={draft.repo} placeholder="Choose a repository…" options={choices.map(r => ({ value: r.key, label: r.label }))} onValueChange={value => { field("repo", value); field("base", ""); }} /><ErrorMessage error={repos.error} /></Field>
         : <Field label={<> Repository </>}><TextInput id="delegate-repo" required className="mono" placeholder="Absolute repository path" value={draft.repo} onInput={e => field("repo", e.currentTarget.value)} /></Field>}
       {current && <Field label={<> Branch </>}><ChoicePicker id="delegate-base" value={draft.base} options={[{ value: "", label: "Current branch" }, ...branches.map(b => ({ value: b, label: b }))]} onValueChange={value => field("base", value)} /></Field>}
     </div>

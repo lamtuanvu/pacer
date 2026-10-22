@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "preact/hooks";
+import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { Button, ButtonLink } from "../ds/Button";
 import { Disclosure, Field, TextArea, TextInput } from "../ds/Controls";
 import { ChoicePicker } from "../ds/ChoicePicker";
@@ -47,27 +47,40 @@ interface FormProps {
   onSubmit: () => void;
 }
 export function StartSessionForm(p: FormProps) {
+  const [attempted, setAttempted] = useState(false);
+  const repoRef = useRef<HTMLButtonElement>(null);
+  const executorRef = useRef<HTMLButtonElement>(null);
+  const modeRef = useRef<HTMLButtonElement>(null);
+  const baseRef = useRef<HTMLButtonElement>(null);
+  const checkoutRef = useRef<HTMLButtonElement>(null);
   const selected = p.preparation?.executors.find((e) => e.id === p.executor);
+  const repoInvalid = !p.repos.some((repo) => repo.key === p.repo);
+  const executorInvalid = !selected?.available;
+  const modeInvalid = p.mode !== "new" && p.mode !== "current";
+  const baseInvalid = p.mode === "new" && !p.preparation?.branches.includes(p.base);
+  const checkoutInvalid = p.mode === "current" && !p.preparation?.checkouts.some((tree) => tree.path === p.checkout);
+  const pendingItems = p.items.some((item) => item.status !== "ready");
+  const disabledSubmit = p.busy || !p.request.trim() || pendingItems;
   const blocked =
-    p.busy ||
-    !p.request.trim() ||
-    !p.repos.some((repo) => repo.key === p.repo) ||
-    !selected?.available ||
-    (p.mode === "new" && !p.preparation?.branches.includes(p.base)) ||
-    (p.mode === "current" && !p.preparation?.checkouts.some((tree) => tree.path === p.checkout)) ||
-    p.items.some((item) => item.status !== "ready");
+    disabledSubmit || repoInvalid || executorInvalid || modeInvalid || baseInvalid || checkoutInvalid;
   return (
     <form
       className="pc-start-composer"
       onSubmit={(event) => {
         event.preventDefault();
-        if (!blocked) p.onSubmit();
+        if (disabledSubmit) return;
+        if (repoInvalid || executorInvalid || modeInvalid || baseInvalid || checkoutInvalid) {
+          setAttempted(true);
+          (repoInvalid ? repoRef : executorInvalid ? executorRef : modeInvalid ? modeRef : baseInvalid ? baseRef : checkoutRef).current?.focus();
+          return;
+        }
+        p.onSubmit();
       }}
       onKeyDown={(event) =>
         handleDelegateKey(
           event,
           () => event.currentTarget.requestSubmit(),
-          blocked,
+          disabledSubmit,
         )
       }
       onDragOver={(event) => event.preventDefault()}
@@ -112,8 +125,9 @@ export function StartSessionForm(p: FormProps) {
       />
       <AttachmentPicker onFiles={p.onFiles} disabled={p.busy} />
       <div className="pc-start-fields">
-        <Field label="Repository">
+        <Field label="Repository" error={attempted && repoInvalid ? "Choose a repository." : undefined}>
           <ChoicePicker
+            ref={repoRef}
             required
             value={p.repo}
             searchable
@@ -122,8 +136,9 @@ export function StartSessionForm(p: FormProps) {
             onValueChange={(value) => p.onField("repo", value)}
           />
         </Field>
-        <Field label="Agent and account">
+        <Field label="Agent and account" error={attempted && executorInvalid ? "Choose a ready interactive executor." : undefined}>
           <ChoicePicker
+            ref={executorRef}
             required
             value={p.executor}
             searchable
@@ -134,8 +149,9 @@ export function StartSessionForm(p: FormProps) {
         </Field>
       </div>
       <div className="pc-start-fields">
-        <Field label="Workspace">
+        <Field label="Workspace" error={attempted && modeInvalid ? "Choose a workspace." : undefined}>
           <ChoicePicker
+            ref={modeRef}
             value={p.mode}
             options={[{ value: "new", label: "New worktree" }, { value: "current", label: "Use existing checkout" }]}
             onValueChange={(value) => p.onField("mode", value)}
@@ -145,8 +161,10 @@ export function StartSessionForm(p: FormProps) {
           <Field
             label="Base branch"
             help="Your uncommitted changes stay in the original checkout."
+            error={attempted && baseInvalid ? "Choose a valid base branch." : undefined}
           >
             <ChoicePicker
+              ref={baseRef}
               required
               value={p.base}
               placeholder="Choose a base branch…"
@@ -158,8 +176,10 @@ export function StartSessionForm(p: FormProps) {
           <Field
             label="Existing checkout"
             help="The agent can change the files in this checkout."
+            error={attempted && checkoutInvalid ? "Choose an existing checkout." : undefined}
           >
             <ChoicePicker
+              ref={checkoutRef}
               required
               value={p.checkout}
               searchable
@@ -180,7 +200,7 @@ export function StartSessionForm(p: FormProps) {
       <div className="row">
         <span className="muted">⌘Enter / Ctrl+Enter to start</span>
         <span className="grow" />
-        <Button type="submit" variant="primary" disabled={blocked}>
+        <Button type="submit" variant="primary" disabled={disabledSubmit}>
           {p.busy ? "Starting…" : "Start session"}
         </Button>
       </div>

@@ -116,3 +116,52 @@ browserTest('Tab from a dialog picker continues to the next dialog control', asy
     expect(await page.locator('#after-dialog-choice').evaluate(node => document.activeElement === node)).toBe(true);
   } finally { await page.close(); }
 });
+
+browserTest('a long menu at the midpoint fits the available side of a short viewport', async () => {
+  const page = await browser.newPage({ viewport: { width: 375, height: 500 } });
+  try {
+    await page.goto(`${server.url}`);
+    await page.locator('#middle-choice').click();
+    const bounds = await page.locator('.pc-choice-picker__popover').boundingBox();
+    expect(bounds!.y).toBeGreaterThanOrEqual(0);
+    expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(500);
+  } finally { await page.close(); }
+});
+
+browserTest('Start work identifies and focuses each missing required choice', async () => {
+  const page = await browser.newPage();
+  try {
+    await page.goto(`${server.url}`);
+    await page.getByTestId('edge-wrapper').evaluateAll(nodes => nodes.forEach(node => node.remove()));
+    const form = page.locator('#start-validation');
+    await form.getByRole('button', { name: 'Start session' }).click();
+    const repo = form.locator('.pc-start-fields').first().locator('button').first();
+    expect(await repo.getAttribute('aria-invalid')).toBe('true');
+    expect(await repo.evaluate(node => document.activeElement === node)).toBe(true);
+    await repo.click();
+    await form.getByRole('option', { name: 'Project' }).click();
+    await form.getByRole('button', { name: 'Start session' }).click();
+    const executor = form.locator('.pc-start-fields').first().locator('button').nth(1);
+    expect(await executor.getAttribute('aria-invalid')).toBe('true');
+    expect(await executor.evaluate(node => document.activeElement === node)).toBe(true);
+    await executor.click();
+    await form.getByRole('option', { name: /Codex/ }).click();
+    await form.getByRole('button', { name: 'Start session' }).click();
+    expect(await page.getByTestId('start-status').textContent()).toBe('started');
+  } finally { await page.close(); }
+});
+
+browserTest('Delegate identifies and focuses a missing required repository', async () => {
+  const page = await browser.newPage();
+  try {
+    await page.goto(`${server.url}`);
+    await page.getByTestId('edge-wrapper').evaluateAll(nodes => nodes.forEach(node => node.remove()));
+    await page.locator('#open-delegate-fixture').click();
+    const dialog = page.getByRole('dialog', { name: 'Delegate a task' });
+    await dialog.getByRole('textbox', { name: 'Goal' }).fill('Fix tests');
+    await dialog.getByRole('button', { name: 'Delegate', exact: true }).click();
+    const repo = dialog.locator('#delegate-repo');
+    expect(await repo.getAttribute('aria-invalid')).toBe('true');
+    expect(await repo.evaluate(node => document.activeElement === node)).toBe(true);
+  } finally { await page.close(); }
+});
