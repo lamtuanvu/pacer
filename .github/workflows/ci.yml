@@ -266,6 +266,8 @@ jobs:
         run: cargo xtask deps
       - name: Test
         run: cargo test --workspace --locked
+      - name: Test Rust plugin SDK harness feature
+        run: cargo test -p pacer-plugin --features testing --locked
       - name: Plugin conformance through the Rust front door
         run: |
           cargo build -p pacer -p pacer-fixtures --locked
