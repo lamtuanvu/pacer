@@ -45,7 +45,8 @@ test("private JSON alone cannot enable native authority in an ordinary source bu
 
 // Isolated boundary doubles exercise the ordering contract, never enable production
 // unsigned trust. Real positive signed authority still requires the certificate fixture.
-test("signed bootstrap boundary refuses forged ownership before receiving any descriptor", () => {
+// This case reads Darwin LOCAL_PEERTOKEN from a real socket; policy cases above stay portable.
+test.skipIf(process.platform !== "darwin")("signed bootstrap boundary refuses forged ownership before receiving any descriptor", () => {
   const script = String.raw`
 import { mock } from "bun:test";
 import * as fs from "node:fs";

@@ -232,6 +232,9 @@ fn invalid_manifest_identity_and_sizes_never_download_the_core() {
     }
 }
 
+#[path = "support/copied_front.rs"]
+mod copied_front;
+
 struct Install {
     dir: tempfile::TempDir,
     exe: PathBuf,
@@ -242,7 +245,7 @@ impl Install {
         let dir = tempfile::tempdir().unwrap();
         let exe = dir.path().join("pacer");
         fs::copy(env!("CARGO_BIN_EXE_pacer"), &exe).unwrap();
-        let output = Command::new(&exe).arg("--version").output().unwrap();
+        let output = copied_front::copied_front_version(&exe).unwrap();
         let version = String::from_utf8(output.stdout)
             .unwrap()
             .split_whitespace()
