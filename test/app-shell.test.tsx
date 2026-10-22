@@ -89,7 +89,8 @@ test("settings counts are neutral while executor and host status badges use thei
     badges={{ strategies: 6, routing: '1 rule' }} />);
   expect(html).toMatch(/Accounts<span[^>]*class="pc-rail__badge pc-rail__badge--neutral"[^>]*>6</);
   expect(html).toMatch(/Strategies<span[^>]*class="pc-rail__badge pc-rail__badge--neutral"[^>]*>6</);
-  expect(html).toMatch(/pc-rail__badge--bad"[^>]*>1 down</);
+  expect(html).toMatch(/pc-rail__badge--bad"[^>]*>1</);
+  expect(html).toContain("1 need attention; 0 blocked");
   expect(html).toMatch(/pc-rail__badge--warn"[^>]*>1 needs setup</);
   expect(html).toContain('>1 rule</span>');
 });
@@ -101,4 +102,13 @@ test("retired and unknown hashes select Overview in the shell", () => {
     expect(html).toMatch(/aria-current="page"[^>]*aria-label="Overview|aria-label="Overview[^"]*"[^>]*aria-current="page"/);
     expect(html).not.toContain("<aside");
   }
+});
+
+test("detail routes select exactly one primary and at most one settings destination", () => {
+ const task = renderToString(<Rail route={at("#/tasks/t1")} counts={snap.counts!}/>);
+ expect(task.match(/aria-current="page"/g)).toHaveLength(1);
+ expect(task).toMatch(/aria-current="page"[^>]*aria-label="Tasks|aria-label="Tasks[^\"]*"[^>]*aria-current="page"/);
+ const hostRoute = at("#/settings/hosts/devbox");
+ const shell = renderToString(<><Rail route={hostRoute} counts={snap.counts!}/><SettingsPanel route={hostRoute} counts={snap.counts!}/></>);
+ expect(shell.match(/aria-current="page"/g)).toHaveLength(2);
 });

@@ -1,8 +1,8 @@
 import { desktopUpdateOps } from "./ops-desktop-update";
+import { captureBroker } from "../desktop/capture-broker";
 import { desktopOps } from "./ops-desktop";
 import type { DesktopUpdateRuntime } from "../update/desktop/service";
 import { resolvePolicyRepoInput } from "../core/project-policy";
-import { captureBroker } from "../desktop/capture-broker";
 import * as projectStrategies from "../core/project-strategies";
 import { pruneTasks, restoreTask } from "../tasks/retention";
 import { parseRunnerId } from "../config/runner-id";
@@ -30,6 +30,7 @@ import * as accounts from "../core/accounts";
 import * as endpoints from "../core/endpoints";
 import * as opencodeSetup from "../core/opencode-setup";
 import { redactEndpointMessage } from "../endpoints/state";
+import * as executorSettings from "../core/executor-settings";
 import * as runnersConfig from "../core/runners-config";
 import * as routingConfig from "../core/routing-config";
 import { AGENTS } from "../config/accounts";
@@ -193,11 +194,19 @@ export const OPS: Record<string, OpDef> = { ...sessionOps, ...desktopOps,
     core.tasks.requireAskingExecutor(ctx,p.id);
     return core.tasks.ask(ctx,p.id,p.text);
   }}),
-  "client.register": op({ description: "Register a client with an optional notifier lease and desktop capture worker; heartbeat every 30 seconds.", params: z.object({kind: z.enum(clients.CLIENT_KINDS), version: z.string().min(1), notifier: z.boolean().optional(), capture: z.boolean().optional()}), handler: (ctx, p) => {
-    if (p.capture && p.kind !== "desktop") throw new CoreError("not_allowed", "Only desktop clients can register a capture worker");
-    const result = clients.register(ctx, p);
-    return p.capture ? {...result, capture_worker: captureBroker(ctx.pacerHome).register(result.client_id)} : result;
-  } }),
+  "client.register": op({
+    description: "Register a client with an optional notifier lease; heartbeat every 30 seconds. Desktop clients may opt into capture to receive an ephemeral instance credential.",
+    params: z.object({
+      kind: z.enum(clients.CLIENT_KINDS), version: z.string().min(1),
+      notifier: z.boolean().optional(), capture: z.boolean().optional(),
+    }).refine(p => !p.capture || p.kind === "desktop", { path: ["capture"], message: "Only desktop clients can enroll a capture worker" }),
+    handler: (ctx, { capture, ...options }) => {
+      const registration = clients.register(ctx, options);
+      return capture
+        ? { ...registration, capture_worker: captureBroker(ctx.pacerHome).register(registration.client_id) }
+        : registration;
+    },
+  }),
   "client.heartbeat": op({ description: "Renew a client lease, which lapses after 45 seconds without a heartbeat.", params: z.object({client_id: id}), handler: (ctx, p) => clients.heartbeat(ctx, p.client_id) }),
   "client.list": op({ description: "Registered clients with live leases.", params: z.object({}), handler: ctx => clients.list(ctx) }),
   "account.list": op({ description: "Accounts, usage and sign-in commands without account emails.", params: z.object({}), handler: ctx => accounts.list(ctx) }),
@@ -230,6 +239,8 @@ export const OPS: Record<string, OpDef> = { ...sessionOps, ...desktopOps,
     return {id, ...(migrated ? {migrated} : {}), ...(p.test !== false ? {job: await checkRunner(ctx, id, deps.runnerCheck)} : {})};
   }) }),
   "runner.check": op({description: "Check executor CLI, sign-in, usage and a scratch test task.", params: z.object({id}), handler: (ctx, p, deps) => checkRunner(ctx, p.id, deps.runnerCheck)}),
+  "runner.settings.get": op({description:"Read editable executor settings and an opaque revision.",params:z.object({}),handler:ctx=>executorSettings.readExecutorSettings(ctx)}),
+  "runner.settings.save": op({description:"Atomically save executor order, enabled states and parallel limits against the expected revision.",params:z.object({expectedRevision:z.string().min(1),order:z.array(id),runners:z.array(z.object({id,enabled:z.boolean(),maxTasks:z.number().int().min(1).max(16)}))}),handler:(ctx,p)=>mutation(ctx,"runners",()=>executorSettings.saveExecutorSettings(ctx,p))}),
   "runner.set": op({description:"Edit an executor's settings and rank.",params:z.object({id,enabled:z.boolean().optional(),model:z.string().min(1).nullable().optional(),max_tasks:z.number().int().positive().optional(),rank:z.number().int().nonnegative().optional()}),handler:(ctx,p)=>mutation(ctx,"runners",()=>runnersConfig.set(ctx,p.id,p))}),
   "runner.reorder": op({description:"Replace executor priority order.",params:z.object({ids:z.array(id)}),handler:(ctx,p)=>mutation(ctx,"runners",()=>runnersConfig.reorder(ctx,p.ids))}),
   "runner.remove": op({ description: "Remove a runner and its routing and pacing order references.", params: z.object({id:id.refine(value=>!!parseRunnerId(value),"invalid runner id")}), handler: (ctx, p) => mutation(ctx, "runners", () => { const {migrated} = runnersConfig.remove(ctx, p.id); return {removed: true, ...(migrated ? {migrated} : {})}; }) }),
@@ -367,7 +378,7 @@ export const OPS: Record<string, OpDef> = { ...sessionOps, ...desktopOps,
     locked(0);
     return { dismissed, unknown };
   } }),
-  "task.log": op({ description: "Read up to 256 KiB per output stream from byte offsets.", params: z.object({ id, stdout: z.number().int().nonnegative().optional(), stderr: z.number().int().nonnegative().optional() }), handler: (ctx, p) => core.tasks.log(ctx, p.id, p) }),
+  "task.log": op({ description: "Read up to 256 KiB per output stream from byte offsets. Returns an opaque source identity; reset offsets when it changes.", params: z.object({ id, stdout: z.number().int().nonnegative().optional(), stderr: z.number().int().nonnegative().optional() }), handler: (ctx, p) => core.tasks.log(ctx, p.id, p) }),
   "task.diff": op({ description: "Tracked changes against the task's base, plus untracked filenames.", params: z.object({ id, path: z.string().min(1).max(4096).refine(path => !path.includes("\0"), "path must not contain NUL").optional() }), handler: async (ctx, p) => { const {diff:_,...result}=await core.tasks.diff(ctx,p.id,{path:p.path});return result; } }),
   "runner.list": op({ description: "Configured executors and their availability.", params: z.object({}), handler: (ctx) => core.runners.list(ctx) }),
   "runner.block": op({ description: "Block an executor for a duration, with an optional reason.", params: z.object({ id, for: z.string().optional(), reason: z.string().optional() }), handler: (ctx, p) => { core.runners.block(ctx, p.id, p); return { ok: true }; } }),

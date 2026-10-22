@@ -34,3 +34,13 @@ test('add creates a kinds rule before default and retains routing comments',()=>
  expect(loadStrategy(ctx).routing.map(r=>r.kinds)).toEqual([['docs'],['feature'],null]);
  expect(readFileSync(path,'utf8')).toContain('# default comment');
 });
+
+test('second Claude account can reorder without changing the planner',()=>{
+ const ctx=runnerCtx(),path=join(ctx.pacerHome,'strategy.yaml');
+ writeFileSync(path,readFileSync(path,'utf8').replace('  codex: {kind: codex}', `  other: {kind: claude, home: ${ctx.home}/secondary}\n  codex: {kind: codex}`));
+ const added=runners.add(ctx,{agent:'claude-code',account:'other'});
+ expect(added.id).toBe('claude-code#other');
+ runners.reorder(ctx,['claude-code#other','codex']);
+ expect(loadStrategy(ctx).pacing.order).toEqual(['claude-code#other','codex']);
+ expect(loadStrategy(ctx).planner.account).toBe('claude');
+});

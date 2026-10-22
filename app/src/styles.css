@@ -91,8 +91,28 @@ fieldset{border:1px solid var(--line);border-radius:var(--radius-sm);display:fle
  fieldset{min-width:0;margin:0}
 }
 /* Redesigned shell (Phase 1). */
-.pc-app{display:flex;min-height:100vh}
-.pc-rail{flex:0 0 56px;display:flex;flex-direction:column;align-items:center;gap:var(--space-1);padding:var(--space-3) 0;border-right:1px solid var(--line);background:var(--surface-page);position:sticky;top:0;height:100vh}
+.pc-app{display:flex;flex-direction:column;min-height:100vh}
+/* pc-rail is now only used in narrow mode as bottom bar */
+.pc-rail{display:none}
+/* Unified titlebar (desktop only) */
+.pc-titlebar{height:var(--size-56);min-height:var(--size-56);max-height:var(--size-56);display:flex;align-items:center;gap:0;padding:0 var(--space-2);background:var(--surface-page);border-bottom:1px solid var(--line);flex-shrink:0;user-select:none;-webkit-user-select:none;app-region:drag;-webkit-app-region:drag}
+/* Make interactive elements within titlebar clickable (override drag region) */
+.pc-titlebar button,.pc-titlebar a{-webkit-app-region:no-drag;app-region:no-drag}
+.pc-titlebar__traffic{flex-shrink:0;display:flex;align-items:center}
+.pc-titlebar__divider{width:var(--size-1);height:var(--size-24);background:var(--line);margin:0 var(--space-1);opacity:.5}
+.pc-titlebar__nav{display:flex;align-items:center;gap:var(--space-1)}
+.pc-titlebar__nav-divider{width:var(--size-1);height:var(--size-20);background:var(--line);margin:0 var(--space-1);opacity:.5}
+.pc-titlebar__mark{display:flex;padding:var(--space-1)}
+.pc-titlebar__item{position:relative;display:flex;align-items:center;justify-content:center;width:var(--size-40);height:var(--size-40);border-radius:var(--radius-md);color:var(--ink-secondary)}
+.pc-titlebar__item:hover,.pc-titlebar__item.on{background:var(--surface-lane);color:var(--ink)}
+.pc-titlebar__badge{display:inline-flex;align-items:center;justify-content:center;min-width:var(--size-16);height:var(--size-16);padding:0 var(--space-1);border-radius:var(--radius-full);font-size:var(--type-label-size);font-weight:var(--type-body-strong-weight);line-height:var(--type-body-line)}
+.pc-titlebar__item .pc-titlebar__badge{position:absolute;top:var(--size-2);right:0}
+.pc-titlebar__badge--warn{background:var(--warn-bg);color:var(--warn-fg)}
+.pc-titlebar__badge--info{background:var(--info-bg);color:var(--info-fg)}
+.pc-titlebar__dot{position:absolute;top:var(--size-8);right:var(--size-8);width:var(--size-7);height:var(--size-7);border-radius:var(--radius-full);background:var(--warn-fill)}
+.pc-titlebar__grow{flex:1;min-width:0}
+/* pc-body wraps panel + work in a flex row on desktop */
+.pc-body{display:flex;flex:1;min-height:0}
 .pc-rail__mark{display:flex;padding:var(--space-2)}
 .pc-rail__divider{width:var(--size-24);height:var(--size-1);background:var(--line);margin:var(--space-1) 0}
 .pc-rail__item{position:relative;display:flex;align-items:center;justify-content:center;width:var(--size-40);height:var(--size-40);border-radius:var(--radius-md);color:var(--ink-secondary)}
@@ -126,7 +146,7 @@ fieldset{border:1px solid var(--line);border-radius:var(--radius-sm);display:fle
 .pc-live-dot{width:var(--size-7);height:var(--size-7);border-radius:var(--radius-full);background:var(--good-fill)}
 .pc-live-dot--off{background:var(--ink-muted)}
 /* Overview (Phase 1), laid out as the canvas Main board. */
-.pc-overview{display:flex;flex-direction:column;gap:var(--space-4);max-width:calc(var(--size-600) * 2 + var(--size-240));width:100%;margin-inline:auto}
+.pc-overview{display:flex;flex-direction:column;gap:var(--space-4)}
 .pc-overview__cols{display:flex;flex-wrap:wrap;gap:var(--space-4);align-items:flex-start}
 .pc-overview__main{flex:999 1 640px;min-width:0;display:flex;flex-direction:column;gap:var(--space-4)}
 .pc-overview__side{flex:1 1 400px;min-width:0;display:flex;flex-direction:column;gap:var(--space-4)}
@@ -233,7 +253,11 @@ fieldset{border:1px solid var(--line);border-radius:var(--radius-sm);display:fle
 .pc-overview__side>[aria-labelledby=quick-delegate]{grid-column:2;grid-row:2}
 .pc-overview__side>[aria-labelledby=activity]{grid-column:2;grid-row:3}
 @media(max-width:1000px){.pc-overview__cols{display:flex;flex-direction:column;align-items:stretch}}
-.pc-app--narrow{display:flex;flex-direction:column;padding-bottom:calc(var(--space-12) + env(safe-area-inset-bottom));width:100%}
+.pc-app--narrow{display:flex;flex-direction:column;padding-bottom:calc(var(--space-12) + env(safe-area-inset-bottom));width:100%;border-radius:0}
+/* Hide unified titlebar in narrow mode (uses bottom bar instead) */
+.pc-app--narrow .pc-titlebar{display:none}
+/* In narrow mode, body stacks panel + work vertically */
+.pc-app--narrow .pc-body{display:flex;flex-direction:column;flex:1;min-height:0}
 .pc-bottom-bar{position:fixed;bottom:0;left:0;right:0;z-index:var(--layer-overlay);display:flex;justify-content:space-around;align-items:center;min-height:var(--size-56);padding-bottom:env(safe-area-inset-bottom);border-top:1px solid var(--line);background:var(--surface-page)}
 .pc-bottom-bar .pc-rail__item{width:var(--size-44);height:var(--size-44)}
 .pc-app--narrow .pc-work{width:100%;min-width:0;max-width:100%}
@@ -267,7 +291,6 @@ fieldset{border:1px solid var(--line);border-radius:var(--radius-sm);display:fle
 .pc-app--narrow .pc-review-verdict{grid-column:1}
 .pc-app--narrow .pc-review-queue{max-height:var(--size-240);overflow:auto}
 .pc-app--narrow .pc-review-cards{grid-template-columns:minmax(0,1fr)}
-.pc-app--narrow .pc-sessions-list{padding:var(--space-3)}
 .pc-app--narrow .pc-session-aside{max-width:none;flex-basis:100%;border-left:0;border-top:1px solid var(--line)}
 .pc-app--narrow .pc-sessions-rows li{flex-wrap:wrap;gap:var(--space-2)}
 .pc-app--narrow .pc-sessions-goal{flex-basis:70%}
@@ -278,7 +301,6 @@ fieldset{border:1px solid var(--line);border-radius:var(--radius-sm);display:fle
 .pc-review-queue-row{display:flex;align-items:center;gap:var(--space-2)}
 .pc-review-queue-row button{min-width:0}
 
-.pc-setup{max-width:var(--content-max, var(--size-960));margin:0 auto}
 .pc-setup-row{display:grid;grid-template-columns:var(--size-fact-label) minmax(0,1fr);gap:var(--space-3);padding:var(--space-4) 0;border-bottom:1px solid var(--line)}
 .pc-setup-row h3{font-family:inherit;font-size:inherit;line-height:inherit;font-weight:inherit;font-weight:var(--type-body-strong-weight);margin:0}
 .pc-setup-row p{margin:var(--space-2) 0}
@@ -325,7 +347,7 @@ fieldset{border:1px solid var(--line);border-radius:var(--radius-sm);display:fle
 .sr-only{position:absolute;width:var(--size-1);height:var(--size-1);padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 .pc-review-files .pc-selectable-row,.pc-review-queue .pc-selectable-row{flex-direction:column;align-items:flex-start;overflow:hidden}
 .pc-cap.pc-list-row{display:grid}.pc-cap.pc-list-row .pc-pill{white-space:normal}
-.pc-panel{position:sticky;top:0;max-height:100vh;overflow:auto;align-self:flex-start}
+.pc-panel{position:sticky;top:0;max-height:calc(100vh - var(--size-56));overflow:auto;align-self:flex-start}
 .pc-control-with-reason{display:flex;flex-direction:column;align-items:flex-start;gap:var(--space-1)}
 
 /* Overview keeps each paired row aligned without changing shared card styling. */
@@ -339,13 +361,9 @@ fieldset{border:1px solid var(--line);border-radius:var(--radius-sm);display:fle
 @media(max-width:767px){.pc-overview-attention .pc-attn .pc-list-row__leading{min-width:0}}
 
 /* Task results compose existing sections and DS controls. */
-.pc-task-result { max-width: 100%; }
 .pc-task-result__heading { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
-.pc-task-result__columns { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 1fr); gap: var(--space-6); }
-.pc-task-result__columns > * { min-width: 0; }
-@media (max-width: 900px) { .pc-task-result__columns { grid-template-columns: minmax(0, 1fr); } }
 /* Keep settings navigation visible without occupying the narrow content viewport. */
-.pc-app:not(.pc-app--narrow) .pc-panel{min-height:100vh}
+.pc-app:not(.pc-app--narrow) .pc-panel{min-height:calc(100vh - var(--size-56))}
 .pc-app--narrow .pc-panel{position:sticky;top:0;z-index:var(--layer-sticky);max-height:none;background:var(--surface-card)}
 .pc-app--narrow .pc-panel__item{min-height:var(--control-touch)}
 .pc-app--narrow:has(.pc-panel) .pc-topbar{top:calc(var(--control-touch) + var(--space-4) + var(--size-1))}
@@ -356,3 +374,7 @@ html:has(.pc-app--narrow .pc-panel){scroll-padding-top:calc(var(--control-touch)
 .pc-start-recent{display:flex;flex-direction:column;align-items:stretch;gap:var(--space-2)}
 .pc-start-recent>a{justify-content:flex-start;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 @media(max-width:767px){.pc-start{margin:var(--space-4) auto}.pc-start-composer{padding:var(--space-4)}}
+
+/* App-level feedback placement clears the narrow shell navigation. */
+.pc-toasts{position:fixed;inset-inline-end:var(--space-5);bottom:var(--space-5);width:min(var(--size-360),calc(100% - var(--space-8)));display:grid;gap:var(--space-2);z-index:var(--layer-tooltip)}
+body:has(.pc-app--narrow) .pc-toasts{bottom:calc(var(--size-56) + var(--space-5) + env(safe-area-inset-bottom))}

@@ -63,3 +63,10 @@ test("executor shared-cap notes appear only below the configured executor limit"
  expect(rows.find(e=>e.id==='codex')?.limitedBy).toBeUndefined();
  expect(rows.find(e=>e.id==='codex@devbox')?.limitedBy).toBeUndefined();
 });
+
+test('executor table follows saved priority rather than routing declaration order', () => {
+ const {s,st}=capacityFixture();
+ s.pacing.order=['cursor','codex'];
+ const rows=buildExecutors(st,s,[],st.generatedAt).filter(r=>r.rank!=='planner');
+ expect(rows.slice(0,2).map(r=>r.id)).toEqual(['cursor','codex']);
+});

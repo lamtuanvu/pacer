@@ -5,6 +5,7 @@ import { loadStrategy } from "../config/strategy";
 import { launchFor, runnerEnv } from "../exec/launch";
 import { execProcess, executorEnv, type ExecSpec, type ExecResult } from "../exec/process";
 import type { Ctx } from "../types";
+import { captureClaudeStreamUsage } from "../usage/claude";
 import { configProviders, signedInProviders } from "./detect";
 import { redactEndpointError, writeEndpointState, type EndpointState } from "./state";
 
@@ -27,8 +28,17 @@ async function runInTestRepo(ctx: Ctx, runnerId: string, deps: TestTaskDeps, dir
     env = executorEnv(ctx.env, await runnerEnv(ctx, runner));
     const git = await execProcess({argv: ["git", "init", "-q", repo], cwd: repo, env: executorEnv(ctx.env, {}), timeoutMs: 10000});
     if (git.code !== 0) throw Error("could not create test git repo");
-    const launch = launchFor(strategy.providers[runner.id], "Create a file named hello.txt containing exactly: ok", repo, repo, "endpoint-test");
+    const provider = strategy.providers[runner.id];
+    const launch = launchFor(runner.agent === "claude-code" ? {...provider, session: "headless"} : provider,
+      "Create a file named hello.txt containing exactly: ok", repo, repo, "endpoint-test");
+    if (runner.agent === "claude-code") {
+      // Headless sessions do not run status lines. Claude's own stream includes
+      // account-scoped quota telemetry after its first API response.
+      launch.argv[launch.argv.indexOf("--output-format") + 1] = "stream-json";
+      launch.argv.push("--verbose");
+    }
     const result = await (deps.spawn ?? execProcess)({...launch, env, timeoutMs});
+    if (runner.agent === "claude-code") captureClaudeStreamUsage(ctx, strategy.accounts[runner.account], result.stdout);
     if (result.timedOut) throw Error("test task timed out");
     if (result.code !== 0) throw Error(result.stderr.trim() || result.stdout.trim() || `test task exited ${result.code}`);
     const file = join(repo, "hello.txt");

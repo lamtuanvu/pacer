@@ -1,3 +1,5 @@
+import { canLeaveScreen } from "./data/navigation-guard";
+import { NotificationProvider } from "./data/notification-context";
 import { SetupContext } from "./screens/setup/context";
 import { render } from "preact";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
@@ -5,20 +7,20 @@ import { createApi } from "./data/api";
 import type { SetupChecklist } from "../../src/setup/checklist";
 import { TaskContext } from "./screens/task-shared";
 import { createStore } from "./data/store";
-import { inheritQuery, resolveRoute, setupCompleteFrom, type Route } from "./router";
+import { inheritQuery, resolveRoute, setupCompleteFrom, titleFor, type Route } from "./router";
 import { attachKeyRegistry } from "./keys/registry";
 import { keys } from "./keys/instance";
 import { ActionContext } from "./data/action-context";
 import { createActionRunner, storeWaiter } from "./data/actions";
-import { activeRepo } from "./shell/narrow";
+import { useNarrow, activeRepo } from "./shell/narrow";
 import { Layout } from "./shell/Layout";
 import { CommandHelp } from "./shell/CommandHelp";
 import { Screen } from "./screens/Screen";
 import { Delegate } from "./screens/Delegate";
 import { followSavedTheme } from "./theme";
+import { NavigationProvider } from "./navigation";
 followSavedTheme();
 const store = createStore();
-const TITLES: Record<Route["name"], string> = { start: "Start work", overview: "Overview", setup: "Set up pacer", review: "Needs you", sessions: "Sessions", settings: "Settings", hosts: "Remote hosts", "add-executor": "Add executor", loading: "pacer" };
 const SETTINGS = new Set(["settings", "hosts", "add-executor"]);
 function App() {
   const [state, setState] = useState(store.getState);
@@ -28,14 +30,25 @@ function App() {
   const [hash, setHash] = useState(location.hash);
   const [help, setHelp] = useState(false);
   const [delegate, setDelegate] = useState(false);
+  const [UpdateNotice, setUpdateNotice] = useState<typeof import("./shell/UpdateNotice").UpdateNotice>();
   const lastWork = useRef("#/");
   useEffect(() => {
     const unsubscribe = store.subscribe(() => setState(store.getState()));
     const stop = store.start();
-    const navigate = () => setHash(location.hash);
+    let accepted = location.hash, navigating = false;
+    const navigate = async () => {
+      const target = location.hash;
+      if (target === accepted) return;
+      history.replaceState(null, '', accepted);
+      if (navigating) return;
+      navigating = true;
+      try { if (await canLeaveScreen()) { accepted=target; history.replaceState(null,'',target); setHash(target); } }
+      finally { navigating=false; }
+    };
     window.addEventListener("hashchange", navigate);
     return () => { unsubscribe(); stop(); window.removeEventListener("hashchange", navigate); };
   }, []);
+  useEffect(() => { void import("./shell/UpdateNotice").then(module => setUpdateNotice(() => module.UpdateNotice)); }, []);
   const [setupRevision, reloadSetup] = useState(0);
   const [runningSetup, setRunningSetup] = useState<{ id: string; executor: string }>();
   const [checklist, setChecklist] = useState<SetupChecklist | "error">();
@@ -51,6 +64,7 @@ function App() {
   const resolved = resolveRoute(hash, setupComplete, state.features.ops.has("session.create"));
   useEffect(() => { if ("redirect" in resolved) location.replace(resolved.redirect); }, [hash, "redirect" in resolved]);
   const route: Route = "redirect" in resolved ? { name: "loading", query: { repo: null, scope: null } } : resolved;
+  const narrow = useNarrow(route.query);
   if (!SETTINGS.has(route.name) && route.name !== "loading" && route.name !== "setup") lastWork.current = hash || "#/";
   useEffect(() => {
     keys.setScope(route.name);
@@ -83,10 +97,13 @@ function App() {
       refresh: () => reloadSetup(v => v + 1), running: runningSetup,
       setRunning: (id, executor) => setRunningSetup({ id, executor }),
     }}>
-      <Layout route={route} state={{ ...state, sessionEnded: state.sessionEnded || sessionEnded }} title={TITLES[route.name]} onDelegate={() => setDelegate(true)}><Screen route={route} /></Layout>
+      <NavigationProvider route={route}><Layout route={route} state={{ ...state, sessionEnded: state.sessionEnded || sessionEnded }} title={titleFor(route)} onDelegate={() => setDelegate(true)}><Screen route={route} /></Layout></NavigationProvider>
     </SetupContext.Provider>
+    {UpdateNotice && (
+      <UpdateNotice narrow={narrow} hidden={delegate || help || sessionEnded || (route.name === "settings" && route.section === "updates")} />
+    )}
     {delegate && <Delegate close={() => setDelegate(false)} filterRepo={activeRepo(route.query)} />}
     {help && <CommandHelp registry={keys} close={() => setHelp(false)} />}
   </ActionContext.Provider></TaskContext.Provider>;
 }
-render(<App />, document.getElementById("app")!);
+render(<NotificationProvider><App /></NotificationProvider>, document.getElementById("app")!);

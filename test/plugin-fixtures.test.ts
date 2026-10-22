@@ -9,13 +9,14 @@ import { FIXTURES, installFixture } from "../conformance/install";
 const root = mkdtempSync(join(import.meta.dir, "..", "node_modules", ".plugin-fixtures-"));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
+// The first Rust fixture installation builds its executable on a cold checkout.
 test("fixtures install as executable plugin folders named by id", () => {
   mkdirSync(root, { recursive: true });
   for (const name of FIXTURES) installFixture(name, root);
   expect(statSync(join(root, "fx-good", "main.ts")).mode & 0o111).not.toBe(0);
   expect(statSync(join(root, "fx-bad", "pacer-plugin.json")).isFile()).toBe(true);
   expect(statSync(join(root, "fx-mismatch", "plugin.ts")).isFile()).toBe(true);
-});
+}, 120000);
 
 test("the good fixture answers a handshake and a ping over stdio", async () => {
   mkdirSync(root, { recursive: true });

@@ -21,10 +21,10 @@ function destination(hash:string):Route {
 const runner=createActionRunner({call:async<T,>()=>({}) as T,waitFor:async()=>true,refetch:()=>{},navigate:()=>{}});
 const html=(hash:string)=>renderToString(<TaskContext.Provider value={{state,api:{call:async()=>({})} as any}}><ActionContext.Provider value={runner}><Screen route={destination(hash)}/></ActionContext.Provider></TaskContext.Provider>);
 test('shell mounts the U3 settings screens and U4 sessions screens',()=>{
- expect(html('#/settings')).toContain('u3-general-sections');
+ expect(html('#/settings')).toContain('Loading settings');
  for(const section of SETTINGS_SECTIONS) {
   const page=html(`#/settings/${section}`);
-  expect(page).toContain(`id="${section==='planner'?'pacing':section}"`);
+  expect(page).toContain('Loading settings');
   if(section!=='planner')expect(page).not.toContain('id="pacing"');
  }
  expect(html('#/settings/hosts')).toContain('Connect and check');

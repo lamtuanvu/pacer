@@ -22,6 +22,7 @@ function textContent(html: string): string {
 
 const data=fixture as SessionData;
 test('Session board preserves layout, copy, service actions and metadata',()=>{const html=renderToString(<Session data={data}/>);
+ expect(html).toContain('pc-page--wide');expect(html).toContain('aria-label="Breadcrumb"');
  for(const word of [data.goal,'codex#team','pacer/t-0415','this Mac','started 11:49','Testing','Changes','Brief','Watch it elsewhere','Activity','Stop and retry…','pacer attach t-0415'])expect(html).toContain(word);
  expect(html.indexOf('Activity')).toBeLessThan(html.indexOf('Watch it elsewhere'));expect(html).toContain('aria-label="Codex"');expect(html).not.toContain('pc-btn--primary');});
 test('Orca host offers Open in Orca and no terminal control',()=>{const html=renderToString(<Session data={{...data,session:{...data.session!,host:'orca'}}}/>);expect(html).toContain('This session runs in Orca');expect(html).toContain('Open in Orca');expect(html).not.toContain('Take control');});

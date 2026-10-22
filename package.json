@@ -9,11 +9,13 @@
     "@babel/parser": "^8.0.7",
     "@pacer/plugin": "workspace:*",
     "@types/bun": "^1.4.2",
+    "@types/ws": "8.18.2",
     "playwright-core": "1.58.2",
     "preact-render-to-string": "^6.8.1",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "ws": "8.22.0"
   },
-  "version": "0.6.2",
+  "version": "0.7.1",
   "bin": {
     "pacer": "src/cli.ts"
   },
