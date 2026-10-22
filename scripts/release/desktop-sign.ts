@@ -3,7 +3,7 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, writeFileS
 import { join, resolve } from "node:path";
 import { command } from "./desktop-verify";
 import { desktopAssetName, stableVersion, digest, type DesktopArch } from "./desktop-feed";
-import { stageDesktopPackage, verifyNativeLibrary } from "./desktop";
+import { stageDesktopPackage, verifyDesktopExecutable, verifyNativeLibrary } from "./desktop";
 import { signerRequirement } from "../../src/update/desktop/signer-requirement";
 
 interface AppleSigning { signer?: "apple"; teamId: string; identity: string; keychain: string; notaryKey: string; notaryKeyId: string; notaryIssuer: string; signerKey: string; publicKey: string }
@@ -41,6 +41,12 @@ export async function signStagedDesktop(o: { root: string; stage: string; out: s
   if (lstatSync(frameworks).isSymbolicLink() || readdirSync(frameworks).join() !== "libpacer-native.dylib" || !lstatSync(shim).isFile() || lstatSync(shim).isSymbolicLink()) throw Error("Unsupported nested signing payload");
   verifyNativeLibrary(readFileSync(shim), o.arch);
   const metadataPath = join(resources, "pacer-release.json"), metadata = JSON.parse(readFileSync(metadataPath, "utf8"));
+  const permissionHelper = join(app, "Contents/MacOS/pacer-permission-setup");
+  if (existsSync(permissionHelper)) {
+    const stat = lstatSync(permissionHelper);
+    if (!stat.isFile() || stat.isSymbolicLink() || (stat.mode & 0o111) === 0) throw Error("Native permission helper must be a regular executable");
+    verifyDesktopExecutable(readFileSync(permissionHelper), o.arch);
+  }
   if (metadata.schema !== 1 || metadata.version !== o.version || metadata.arch !== o.arch || metadata.bundleId !== "dev.pacer.desktop" || metadata.admissionProtocol !== 1 || metadata.nativeTransportAbi !== 1 || metadata.rollbackCompatible !== true || JSON.stringify(metadata.protocolMajors) !== "[3]") throw Error("Desktop signing metadata mismatch");
   for (const [binary, role] of [[join(app, "Contents/MacOS/pacer"), "desktop"], [join(resources, "pacer-update-helper"), "update-helper"], [join(resources, "pacer"), "cli"]]) {
     const identity = JSON.parse(await run([binary, "--pacer-identity"]));
@@ -55,7 +61,11 @@ export async function signStagedDesktop(o: { root: string; stage: string; out: s
   // Bun JSC requires allow-jit. Native transport uses the signed same-Team dylib;
   // runtime C compilation is forbidden. Library validation stays enabled.
   writeFileSync(entitlements, '<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>com.apple.security.cs.allow-jit</key><true/></dict></plist>\n', { mode: 0o600 });
-  const components = [[shim, "dev.pacer.desktop.native-shim", []], [join(resources, "pacer"), "dev.pacer.cli", ["--entitlements", entitlements]], [join(resources, "pacer-update-helper"), "dev.pacer.desktop.update-helper", []], [app, "dev.pacer.desktop", []]] as const;
+  const components: [string, string, string[]][] = [[shim, "dev.pacer.desktop.native-shim", []],
+    [join(resources, "pacer"), "dev.pacer.cli", ["--entitlements", entitlements]],
+    [join(resources, "pacer-update-helper"), "dev.pacer.desktop.update-helper", []],
+    ...(existsSync(permissionHelper) ? [[permissionHelper, "dev.pacer.permission-setup", []] as [string, string, string[]]] : []),
+    [app, "dev.pacer.desktop", []]];
   for (const [path, identifier, extra] of components) {
     // Library validation refuses a dylib whose self-signed certificate has no Team ID,
     // so interim builds omit hardened runtime (and its JIT entitlement) instead of

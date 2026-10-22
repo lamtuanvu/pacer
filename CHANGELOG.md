@@ -7,6 +7,15 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 ### Added
 
 - Diagnostics groups setup issues by integration and account, with reviewed repair actions, inline progress and errors, automatic rechecks, and collapsed passed checks and technical details. The live harness can validate the fixed Codex repair in its isolated UI fixture.
+### Fixed
+
+- Start work agents with unattended permission settings across headless, interactive, resumed and strategy-planning sessions. Codex worktrees and reporting hooks no longer stop at trust prompts; Antigravity and OpenCode interactive launches use their supported prompt and configuration interfaces. Orca-selected work falls back to direct execution because its worker API cannot enforce permission bypass.
+- Refuse automatic release tags after a missing or failed dry run, or when the merge differs from the tested PR head. Prebuild Rust test fixtures during release verification and update the desktop navigation assertion.
+## [0.7.1] - 2026-10-22
+
+### Fixed
+
+- Allow cold Rust fixture compilation during release verification and check the current desktop titlebar in responsive shell tests. This unblocks publishing the companion-aware bridge updater.
 
 ## [0.7.0] - 2026-10-22
 

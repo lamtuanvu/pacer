@@ -41,7 +41,7 @@ test("runnerEnv sets only non-default Claude and Codex account homes", async () 
   expect(await launch.runnerEnv(ctx, s.runners["codex#work"])).toEqual({CODEX_HOME: home});
   expect(await launch.runnerEnv(ctx, s.runners["claude-code"])).toEqual({});
   expect(await launch.runnerEnv(ctx, s.runners.codex)).toEqual({});
-  expect(await launch.runnerEnv(ctx, s.runners["opencode#local"])).toEqual({});
+  expect(await launch.runnerEnv(ctx, s.runners["opencode#local"])).toEqual({OPENCODE_CONFIG_CONTENT: JSON.stringify({default_agent:"build",model:s.runners["opencode#local"].model})});
 });
 
 test("Orca account home is resolved only when its folder exists", async () => {
