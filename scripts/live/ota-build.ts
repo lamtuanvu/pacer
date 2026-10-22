@@ -5,14 +5,24 @@ import { dirname, join, relative, resolve } from "node:path";
 import { homedir } from "node:os";
 import { checkout } from "./core";
 import { finishOtaBuild, otaFixturePolicy, readOtaRecord, reserveOtaBuild } from "./ota";
-import { compileCommand, writeRelease } from "../release/build";
+import { compileCommand, frontDoorBuildCommand, frontDoorBuildEnvironment, rustTarget, writeRelease } from "../release/build";
 import { stageDesktopPackage, verifyDesktopExecutable } from "../release/desktop";
 import { desktopAssetName, digest, verifyUpdateSignature, type DesktopArch } from "../release/desktop-feed";
 import { inspectDesktopArchive } from "../release/desktop-verify";
-import { assetFile, hostTarget } from "../../src/update/manifest";
+import { assetFile, companionFile, hostTarget } from "../../src/update/manifest";
 import { parsePlistDictionary } from "../../src/service";
 import { parseNativeFixture, type NativeFixture } from "../../src/update/desktop/native-fixture";
 
+export const PUBLISHED_BRIDGE_SOURCE = "9205c94ce0b32efd797e4892e56cdc374de01212";
+const sourceRoots = new Set(["src", "app", "desktop", "plugins", "packages", "scripts", "package.json", "bun.lock", "bunfig.toml", "tsconfig.json", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "crates", "xtask", ".cargo"]);
+function selectedSource(path: string): boolean {
+  const parts = path.split("/");
+  return sourceRoots.has(parts[0]!) && !parts.some((name, index) =>
+    name === ".." || name === "." || !name || name.startsWith(".") && !(index === 0 && name === ".cargo")
+    || ["node_modules", "target", "dist"].includes(name))
+    && !path.startsWith("desktop/src-tauri/binaries/") && path !== "desktop/src-tauri/binaries"
+    && (parts[0] !== ".cargo" || path === ".cargo" || path === ".cargo/config.toml");
+}
 const versions = ["0.2.3", "0.2.4"] as const;
 function fixtureVersion(version: string): void { if (!(versions as readonly string[]).includes(version)) throw Error("Unsupported fixture version"); }
 export function fixtureCompileCommand(root: string, outfile: string, version: string, policy: NativeFixture): string[] {
@@ -31,16 +41,21 @@ export function copyFixtureSource(source: string, destination: string, version: 
   if (!/^\.work\/live\/[a-zA-Z0-9_-]+\/ota\/build\/(?:(baseline|candidate)\/source|diagnostics\/source(?:-[234])?)$/.test(part) || existsSync(destination)) throw Error("Fixture source destination is not a fresh reserved build path");
   for (let parent = dirname(destination); parent !== source; parent = dirname(parent)) if (existsSync(parent) && realpathSync(parent) !== parent) throw Error("Fixture refuses symlinked build parents");
   mkdirSync(dirname(destination), { recursive: true, mode: 0o700 });
-  const excluded = new Set(["node_modules", "target", "dist"]);
-  const roots = new Set(["src", "app", "desktop", "plugins", "packages", "scripts", "package.json", "bun.lock", "bunfig.toml", "tsconfig.json"]);
+
   const filter = (path: string) => {
-    const parts = relative(source, path).split("/");
-    if (!roots.has(parts[0]) || parts.some(name => name.startsWith(".") || excluded.has(name))) return false;
+    if (!selectedSource(relative(source, path))) return false;
     if (lstatSync(path).isSymbolicLink()) throw Error("Fixture source snapshot refuses symlinks");
     return true;
   };
   mkdirSync(destination, { mode: 0o700 });
   for (const name of readdirSync(source)) if (filter(join(source, name))) cpSync(join(source, name), join(destination, name), { recursive: true, dereference: false, filter });
+  rewriteFixtureVersion(destination, version);
+  linkFixtureDependencies(source, destination);
+}
+function linkFixtureDependencies(source: string, destination: string): void {
+  for (const path of ["node_modules", "desktop/node_modules"]) if (existsSync(join(source, path))) symlinkSync(realpathSync(join(source, path)), join(destination, path));
+}
+function rewriteFixtureVersion(destination: string, version: string): void {
   // Fixtures always run at the synthetic baseline/candidate versions; the checkout's own
   // version only has to be one stable version shared by every package identity.
   const current = JSON.parse(readFileSync(join(destination, "package.json"), "utf8")).version;
@@ -66,7 +81,60 @@ export function copyFixtureSource(source: string, destination: string, version: 
     if (count !== 1) throw Error("Fixture native package identity missing");
     writeFileSync(file, next);
   }
-  for (const path of ["node_modules", "desktop/node_modules"]) if (existsSync(join(source, path))) symlinkSync(realpathSync(join(source, path)), join(destination, path));
+}
+/** Fixed published Git tree, never an arbitrary caller-selected ref or worktree. */
+export function assertPublishedBridgeTree(text: string): string[] {
+  const paths: string[] = [];
+  for (const entry of text.split("\0").filter(Boolean)) {
+    const match = /^(\d{6}) (blob|commit) [a-f0-9]{40}\t([^]*)$/.exec(entry);
+    if (!match) throw Error("Malformed published bridge tree");
+    const path = match[3]!;
+    if (path.startsWith("/") || path.split("/").some(name => name === ".." || name === "." || !name)) throw Error("Unsafe published bridge path");
+    if (!selectedSource(path)) continue;
+    if (!["100644", "100755"].includes(match[1]!) || match[2] !== "blob") throw Error("Published bridge source refuses symlinks and submodules");
+    paths.push(path);
+  }
+  return paths;
+}
+async function snapshotPublishedBridge(destination: string, run: (argv: string[], cwd?: string) => Promise<string>): Promise<void> {
+  const expected = join(checkout, ".work/live"), part = relative(expected, destination);
+  if (!/^[a-zA-Z0-9_-]+\/ota\/build\/baseline\/source$/.test(part) || existsSync(destination)) throw Error("Published bridge needs a fresh reserved baseline path");
+  for (let parent = dirname(destination); parent !== checkout; parent = dirname(parent)) {
+    if (existsSync(parent) && realpathSync(parent) !== parent) throw Error("Published bridge refuses redirected parents");
+  }
+  const tree = await run(["git", "ls-tree", "-rz", "--full-tree", PUBLISHED_BRIDGE_SOURCE], checkout);
+  const files = assertPublishedBridgeTree(tree);
+  if (!["package.json", "src/cli.ts", "desktop/src-tauri/Cargo.toml"].every(path => files.includes(path))) throw Error("Published bridge source is incomplete");
+  mkdirSync(dirname(destination), { recursive: true, mode: 0o700 });
+  const archive = join(dirname(destination), "published-bridge-source.tar");
+  if (existsSync(archive)) throw Error("Published bridge archive already exists");
+  // Exact validated file paths avoid including unselected hidden data/sidecars.
+  await run(["git", "archive", "--format=tar", `--output=${archive}`, PUBLISHED_BRIDGE_SOURCE, "--", ...files], checkout);
+  mkdirSync(destination, { mode: 0o700 });
+  await run(["/usr/bin/tar", "-xf", archive, "--no-same-owner", "--no-same-permissions", "-C", destination]);
+  rmSync(archive);
+  rewriteFixtureVersion(destination, "0.2.3");
+  linkFixtureDependencies(checkout, destination);
+}
+/** Explicit certificate lease pins only; ambient build or runtime options never supply trust. */
+export function fixtureFrontDoorBuild(root: string, targetDir: string, version: string, policy: NativeFixture,
+  inherited: Record<string, string | undefined> = process.env): { argv: string[]; env: NodeJS.ProcessEnv } {
+  fixtureVersion(version); parseNativeFixture(JSON.stringify(policy));
+  const target = hostTarget();
+  if (!target || target.os !== "darwin" || version !== "0.2.4" || !policy.signingCertSha1) throw Error("Paired fixture requires the candidate certificate lease");
+  const clean = fixtureBuildEnvironment(inherited.HOME ?? "", inherited.PACER_OTA_PUBLIC_KEY ?? "", policy, inherited);
+  return { argv: frontDoorBuildCommand(target), env: { ...frontDoorBuildEnvironment({ root, target, version, outfile: "", desktopTrust: { signingCertSha1: policy.signingCertSha1 } }, clean), CARGO_TARGET_DIR: targetDir } };
+}
+function stageFixtureSidecars(source: string, release: string, paired: boolean): void {
+  const target = hostTarget();
+  if (!target || target.os !== "darwin") throw Error("Unsupported fixture sidecar target");
+  const directory = join(source, "desktop/src-tauri/binaries");
+  mkdirSync(directory, { recursive: true, mode: 0o700 });
+  for (const [name, file] of [["pacer", assetFile(target)], ...(paired ? [["pacer-core", companionFile(target)]] : [])]) {
+    const from = join(release, file!), to = join(directory, `${name}-${rustTarget(target)}`);
+    if (existsSync(to) || lstatSync(from).isSymbolicLink()) throw Error("Fixture refuses stale or redirected sidecars");
+    copyFileSync(from, to, constants.COPYFILE_EXCL); chmodSync(to, 0o755);
+  }
 }
 export function fixtureFeed(arch: DesktopArch, archive: Buffer, signature: string): string {
   if (!["aarch64", "x86_64"].includes(arch) || signature.length > 8192) throw Error("Invalid host fixture feed");
@@ -89,14 +157,21 @@ export function assertFixtureTransport(value: unknown, version: string, arch: De
 export type FixtureSigner = { sha1: string; keychain: string; password?: string };
 /** Sign nested native code before sealing the app envelope. A refusal stops the sequence. */
 export async function signFixtureBundle(app: string, entitlement: string, run: (argv: string[]) => Promise<string>, signer?: FixtureSigner): Promise<void> {
-  const resources = join(app, "Contents/Resources");
+  const resources = join(app, "Contents/Resources"), core = join(resources, "pacer-core"), permission = join(app, "Contents/MacOS/pacer-permission-setup");
+  const paired = existsSync(core);
+  for (const file of [core, permission]) if (existsSync(file)) {
+    const stat = lstatSync(file);
+    if (!stat.isFile() || stat.isSymbolicLink() || !(stat.mode & 0o111)) throw Error("Fixture nested executable must be regular and executable");
+  }
   const identity = signer ? ["--sign", signer.sha1, "--keychain", signer.keychain, "--timestamp=none"] : ["--sign", "-"];
   // Sleep or a long build can relock the keychain; codesign then reports an internal error.
   if (signer?.password) await run(["/usr/bin/security", "unlock-keychain", "-p", signer.password, signer.keychain]);
   for (const [file, identifier, extra] of [
     [join(app, "Contents/Frameworks/libpacer-native.dylib"), "dev.pacer.desktop.native-shim", []],
-    [join(resources, "pacer"), "dev.pacer.cli", ["--entitlements", entitlement]],
+    ...(paired ? [[core, "dev.pacer.cli", signer ? [] : ["--entitlements", entitlement]] as const] : []),
+    [join(resources, "pacer"), "dev.pacer.cli", signer || paired ? [] : ["--entitlements", entitlement]],
     [join(resources, "pacer-update-helper"), "dev.pacer.desktop.update-helper", []],
+    ...(existsSync(permission) ? [[permission, "dev.pacer.permission-setup", []] as const] : []),
     [app, "dev.pacer.desktop", []],
   ] as const) await run(["/usr/bin/codesign", "--force", ...identity, "--identifier", identifier, ...extra, file]);
   await run(["/usr/bin/codesign", "--verify", "--deep", "--strict", app]);
@@ -121,6 +196,7 @@ async function createFixtureSigner(directory: string, run: (argv: string[], cwd?
 /** This entry point accepts only a harness session ID. All commands, versions and outputs are fixed. */
 export async function buildOtaFixtures(id: string, signerMode: "adhoc" | "cert" = "adhoc"): Promise<void> {
   if (process.platform !== "darwin") throw Error("Native fixtures require macOS");
+  if (signerMode !== "cert") throw Error("Old-bridge to paired native OTA requires --signer cert");
   const target = hostTarget(); if (!target || target.os !== "darwin") throw Error("Unsupported fixture host");
   // macOS Intel (x86_64) is temporarily not built for release (see DESKTOP_ARCHES); fixtures track aarch64.
   const arch: DesktopArch = "aarch64";
@@ -135,8 +211,8 @@ export async function buildOtaFixtures(id: string, signerMode: "adhoc" | "cert" 
   const cli = join(checkout, "desktop/node_modules/@tauri-apps/cli/tauri.js"), key = join(temporary, "fixture.key");
   let environment: Record<string, string | undefined> = { PATH: process.env.PATH, HOME: temporary, CI: "true", COPYFILE_DISABLE: "1" };
   let signer: FixtureSigner | undefined;
-  async function run(argv: string[], cwd = checkout, quiet = false): Promise<string> {
-    const child = Bun.spawn(argv, { cwd, stdin: "ignore", stdout: "pipe", stderr: "pipe", env: environment });
+  async function run(argv: string[], cwd = checkout, quiet = false, buildEnvironment = environment): Promise<string> {
+    const child = Bun.spawn(argv, { cwd, stdin: "ignore", stdout: "pipe", stderr: "pipe", env: buildEnvironment });
     const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
     if (!quiet) process.stderr.write(stderr);
     if (code !== 0) throw Error(`Fixture command failed: ${argv[0]} ${argv[1]} (exit ${code})`);
@@ -162,7 +238,8 @@ export async function buildOtaFixtures(id: string, signerMode: "adhoc" | "cert" 
       cpSync(cache, targetDir, { recursive: true, dereference: false, preserveTimestamps: true, mode: constants.COPYFILE_FICLONE });
     }
     environment = { ...fixtureBuildEnvironment(home, publicKey, policy), CARGO_TARGET_DIR: targetDir };
-    for (const [index, version] of versions.entries()) copyFixtureSource(checkout, join(build, index === 0 ? "baseline" : "candidate", "source"), version);
+    await snapshotPublishedBridge(join(build, "baseline/source"), run);
+    copyFixtureSource(checkout, join(build, "candidate/source"), "0.2.4");
     const snapshotDigest = (root: string) => {
       const hash = createHash("sha256");
       const walk = (path: string): void => {
@@ -175,15 +252,23 @@ export async function buildOtaFixtures(id: string, signerMode: "adhoc" | "cert" 
       };
       walk(root); return hash.digest("hex");
     };
-    writeFileSync(join(session.root, "evidence/source-snapshot.json"), JSON.stringify({ schema: 1, scope: "managed-update-only", at: new Date().toISOString(), versions: versions.map((version, index) => ({ version, sha256: snapshotDigest(join(build, index === 0 ? "baseline" : "candidate", "source")) })) }, null, 2) + "\n", { mode: 0o600, flag: "wx" });
+    writeFileSync(join(session.root, "evidence/source-snapshot.json"), JSON.stringify({ schema: 1, scope: "published-bridge-to-paired", baselineSource: PUBLISHED_BRIDGE_SOURCE, at: new Date().toISOString(), versions: versions.map((version, index) => ({ version, sha256: snapshotDigest(join(build, index === 0 ? "baseline" : "candidate", "source")) })) }, null, 2) + "\n", { mode: 0o600, flag: "wx" });
     process.stderr.write("OTA fixture source snapshots captured for both versions.\n");
     for (const [index, version] of versions.entries()) {
       readOtaRecord(id); // Refuse changed lease before every build stage.
       const directory = join(build, index === 0 ? "baseline" : "candidate"), source = join(directory, "source"), release = join(directory, "release", version);
       mkdirSync(release, { recursive: true, mode: 0o700 });
       await run([process.execPath, "run", "app:build"], source);
-      await run(fixtureCompileCommand(source, join(release, assetFile(target)), version, policy), source);
-      writeRelease(join(directory, "release"), version, [target]);
+      const paired = index === 1;
+      await run(fixtureCompileCommand(source, join(release, paired ? companionFile(target) : assetFile(target)), version, policy), source);
+      if (paired) {
+        const front = fixtureFrontDoorBuild(source, join(directory, "rust-target"), version, policy, environment);
+        await run(front.argv, source, false, front.env);
+        copyFileSync(join(front.env.CARGO_TARGET_DIR!, rustTarget(target), "release/pacer"), join(release, assetFile(target)));
+        chmodSync(join(release, assetFile(target)), 0o755);
+      }
+      writeRelease(join(directory, "release"), version, [target], { paired });
+      stageFixtureSidecars(source, release, paired);
       await run([process.execPath, cli, "build", "--bundles", "app", "--no-sign", "--features", "ota-fixture", "--", "--offline", "--locked"], join(source, "desktop"));
       await run(["cargo", "build", "--offline", "--locked", "--release", "--features", "ota-fixture", "--bin", "pacer-update-helper"], join(source, "desktop/src-tauri"));
       cpSync(join(targetDir, "release/bundle/macos/pacer.app"), join(release, "pacer.app"), { recursive: true });
@@ -193,11 +278,11 @@ export async function buildOtaFixtures(id: string, signerMode: "adhoc" | "cert" 
       const metadataPath = join(resources, "pacer-release.json"), metadata = JSON.parse(readFileSync(metadataPath, "utf8")); metadata.fixture = true; writeFileSync(metadataPath, JSON.stringify(metadata) + "\n");
       const entitlement = join(directory, "cli-entitlements.plist"); writeFileSync(entitlement, '<plist version="1.0"><dict><key>com.apple.security.cs.allow-jit</key><true/></dict></plist>', { mode: 0o600 });
       await signFixtureBundle(app, entitlement, argv => run(argv), signer);
-      for (const binary of [join(resources, "pacer"), join(resources, "pacer-update-helper"), join(app, "Contents/MacOS/pacer")]) {
+      for (const binary of [join(resources, "pacer"), ...(paired ? [join(resources, "pacer-core")] : []), join(resources, "pacer-update-helper"), join(app, "Contents/MacOS/pacer")]) {
         verifyDesktopExecutable(readFileSync(binary), arch);
         const identity = JSON.parse(await run([binary, "--pacer-identity"]));
         if (binary === join(app, "Contents/MacOS/pacer") && identity.fixtureIsolationProtocol !== 1) throw Error("Fixture shell lacks compile-time isolation proof");
-        if (identity.version !== version || identity.arch !== arch || identity.fixture !== true || identity.otaMode !== "fixture" || identity.fixturePolicySha256 !== digest(Buffer.from(JSON.stringify(policy))) || (binary !== join(resources, "pacer") && identity.updaterKeySha256 !== state.nativeFixture!.updaterKeySha256)) throw Error("Fixture compiled identity differs from its lease");
+        if (identity.version !== version || identity.arch !== arch || identity.fixture !== true || identity.otaMode !== "fixture" || identity.fixturePolicySha256 !== digest(Buffer.from(JSON.stringify(policy))) || (![join(resources, "pacer"), join(resources, "pacer-core")].includes(binary) && identity.updaterKeySha256 !== state.nativeFixture!.updaterKeySha256)) throw Error("Fixture compiled identity differs from its lease");
       }
       renameSync(app, state.sources[index].path);
     }
