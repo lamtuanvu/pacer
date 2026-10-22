@@ -119,6 +119,16 @@ function privateDirectory(path: string) {
     throw Error("Native socket directory must be private");
   return stat;
 }
+/** Internal bootstrap only: callers authenticate the fixed parent channel first. */
+export function receiveParentListener(): number {
+  const fd = (shim ??= descriptorShim()).symbols.pacer_receive_listener(0);
+  if (fd < 0) throw Error("Native parent listener unavailable");
+  try {
+    const stat = fstatSync(fd);
+    if (!stat.isSocket() || stat.uid !== process.getuid?.()) throw Error("Native parent listener unavailable");
+    return fd;
+  } catch (error) { closeSync(fd); throw error; }
+}
 function readOwner(path: string) {
   const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   try {
