@@ -401,6 +401,32 @@ fn apply_theme(window: &WebviewWindow, theme: &str) -> Result<(), String> {
 }
 #[allow(non_snake_case)]
 #[tauri::command]
+fn windowMinimize(window: WebviewWindow, app: AppHandle) -> Result<(), String> {
+    authorized(&window, &app)?;
+    window.minimize().map_err(|e| e.to_string())
+}
+#[allow(non_snake_case)]
+#[tauri::command]
+fn windowToggleMaximize(window: WebviewWindow, app: AppHandle) -> Result<(), String> {
+    authorized(&window, &app)?;
+    match window.is_maximized() {
+        Ok(true) => window.unmaximize().map_err(|e| e.to_string()),
+        _ => window.maximize().map_err(|e| e.to_string()),
+    }
+}
+#[allow(non_snake_case)]
+#[tauri::command]
+fn windowClose(window: WebviewWindow, app: AppHandle) -> Result<(), String> {
+    authorized(&window, &app)?;
+    // For main window, we hide instead of closing (matches CloseRequested behavior)
+    if window.label() == "main" {
+        window.hide().map_err(|e| e.to_string())
+    } else {
+        window.close().map_err(|e| e.to_string())
+    }
+}
+#[allow(non_snake_case)]
+#[tauri::command]
 fn notifyRoute(window: WebviewWindow, app: AppHandle, route: String) -> Result<(), String> {
     authorized(&window, &app)?;
     *app.state::<Shell>().route.lock().unwrap() = logic::route(&route).ok_or("Invalid route")?;
@@ -607,6 +633,7 @@ fn create_recovery_tray(app: &AppHandle) -> tauri::Result<()> {
     .title("pacer")
     .inner_size(TRAY_WIDTH, 440.)
     .decorations(false)
+    .transparent(true)
     .always_on_top(true)
     .resizable(false)
     .skip_taskbar(true)
@@ -1058,7 +1085,10 @@ fn main() {
             session_expired,
             session_ready,
             desktop_version,
-            native_validation_setup
+            native_validation_setup,
+            windowMinimize,
+            windowToggleMaximize,
+            windowClose
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
@@ -1080,6 +1110,7 @@ fn main() {
                     .title("pacer")
                     .inner_size(1120., 760.)
                     .min_inner_size(720., 520.)
+                    .decorations(false)
                     .on_page_load(move |window, payload| {
                         if payload.event() != tauri::webview::PageLoadEvent::Finished {
                             window
