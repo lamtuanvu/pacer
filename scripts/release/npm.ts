@@ -6,14 +6,21 @@ import { assetFile, parseManifest, sha256Hex, TARGETS } from "../../src/update/m
 export const NPM_USAGE = "usage: bun run release:npm --release-dir <dir> --out <dir>";
 export function generateNpm(releaseDir: string, out: string, root = resolve(import.meta.dir, "../..")): void {
   const manifest = parseManifest(JSON.parse(readFileSync(join(releaseDir, "manifest.json"), "utf8")));
+  const paired = manifest.assets.some(asset => asset.companions?.length);
+  function verified(asset: { file: string; sha256: string; size: number }): Buffer {
+    const bytes = readFileSync(join(releaseDir, asset.file));
+    if (sha256Hex(bytes) !== asset.sha256) throw new Error(`checksum mismatch for ${asset.file}`);
+    if (bytes.length !== asset.size) throw new Error(`size mismatch for ${asset.file}`);
+    return bytes;
+  }
   const binaries = TARGETS.map((p) => {
     const file = assetFile(p);
     const asset = manifest.assets.find((a) => a.file === file);
     if (!asset) throw new Error(`manifest is missing ${file}; npm requires all four release platforms`);
-    const bytes = readFileSync(join(releaseDir, file));
-    if (sha256Hex(bytes) !== asset.sha256) throw new Error(`checksum mismatch for ${file}`);
-    if (bytes.length !== asset.size) throw new Error(`size mismatch for ${file}`);
-    return { ...p, file, bytes };
+    const bytes = verified(asset);
+    const companion = asset.companions?.find(core => core.name === "pacer-core");
+    if (paired && !companion) throw new Error(`manifest is missing pacer-core for ${file}`);
+    return { ...p, file, bytes, core: companion ? verified(companion) : undefined };
   });
   const source = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
   const optionalDependencies: Record<string, string> = {};
@@ -31,9 +38,13 @@ export function generateNpm(releaseDir: string, out: string, root = resolve(impo
     writePackage(dir, {
       name, version: manifest.version, description: `Platform binary for @lamtuanvu/pacer (${b.os}-${b.arch})`, license: "Apache-2.0",
       repository: { type: "git", url: "git+https://github.com/lamtuanvu/pacer.git", directory: "npm" },
-      os: [b.os], cpu: [b.arch], files: ["bin/pacer"], publishConfig: { access: "public" },
+      os: [b.os], cpu: [b.arch], files: b.core ? ["bin/pacer", "bin/pacer-core"] : ["bin/pacer"], publishConfig: { access: "public" },
     }, `# ${name}\n\nThis is an internal platform package of @lamtuanvu/pacer. Install @lamtuanvu/pacer to use the CLI.\n`);
     const bin = join(dir, "bin/pacer"); writeFileSync(bin, b.bytes); chmodSync(bin, 0o755);
+    if (b.core) {
+      const core = join(dir, "bin/pacer-core");
+      writeFileSync(core, b.core); chmodSync(core, 0o755);
+    }
   }
   const launcher = join(out, "pacer");
   writePackage(launcher, {
