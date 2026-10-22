@@ -8,6 +8,7 @@ struct Request {
     path: PathBuf,
     sha256: String,
     version: String,
+    started_at_ms: u64,
 }
 fn denied() -> io::Error {
     io::Error::other("native helper unavailable")
@@ -34,9 +35,14 @@ fn request(bytes: &[u8], home: &Path) -> io::Result<Request> {
     }
     let value: serde_json::Value = serde_json::from_slice(bytes).map_err(|_| denied())?;
     let object = value.as_object().ok_or_else(denied)?;
-    if object.len() != 4 || value["schema"] != 1 {
+    if object.len() != 5 || value["schema"] != 1 {
         return Err(denied());
     }
+    // Diagnostic only: never an authority, expiry, or deadline input.
+    let started_at_ms = value["startedAtMs"]
+        .as_u64()
+        .filter(|value| *value <= 9_007_199_254_740_991)
+        .ok_or_else(denied)?;
     let path = value["path"].as_str().ok_or_else(denied)?;
     let digest = value["sha256"]
         .as_str()
@@ -94,6 +100,7 @@ fn request(bytes: &[u8], home: &Path) -> io::Result<Request> {
         return Err(denied());
     }
     Ok(Request {
+        started_at_ms,
         path,
         sha256: digest.into(),
         version: version.into(),
@@ -489,9 +496,17 @@ impl Broker {
             &response,
             &[input.as_raw_fd(), output.as_raw_fd(), remote.as_raw_fd()],
         );
-        match sent {
-            Ok(0) | Err(_) => {
+        match &sent {
+            Ok(0) => {
                 trace.diagnostics.record(Stage::Handoff, Event::WriteError);
+                trace.diagnostics.record(Stage::Handoff, Event::WriteZero);
+                return Err(denied());
+            }
+            Err(error) => {
+                trace.diagnostics.record(Stage::Handoff, Event::WriteError);
+                trace
+                    .diagnostics
+                    .record(Stage::Handoff, Event::write_failure(error));
                 return Err(denied());
             }
             Ok(_) => { /* Any positive transfer may have delivered command authority. */ }
@@ -533,7 +548,7 @@ impl Broker {
         };
         loop {
             trace.mark(Stage::ReadFrame);
-            let body = match read_request(&socket).await {
+            let body = match read_request_observed(&socket, Some(&diagnostics)).await {
                 Ok(Some(b)) => b,
                 Ok(None) => return,
                 Err(_) => {
@@ -544,6 +559,7 @@ impl Broker {
             let result = async {
                 trace.mark(Stage::Request);
                 let request = request(&body, &self.home)?;
+                diagnostics.request_started(request.started_at_ms);
                 trace.mark(Stage::Capacity);
                 let permit = slots.clone().try_acquire_owned().map_err(|_| denied())?;
                 tokio::time::timeout(
@@ -556,21 +572,41 @@ impl Broker {
             .await;
             if result.is_err() {
                 trace.failed();
-                if !matches!(socket.try_write(&[b'E', 0, 0, 0, 0]), Ok(5)) {
-                    diagnostics.record(trace.stage, Event::WriteError);
+                match socket.try_write(&[b'E', 0, 0, 0, 0]) {
+                    Ok(5) => {}
+                    Ok(_) => {
+                        diagnostics.record(trace.stage, Event::WriteError);
+                        diagnostics.record(trace.stage, Event::WriteShort);
+                    }
+                    Err(error) => {
+                        diagnostics.record(trace.stage, Event::WriteError);
+                        diagnostics.record(trace.stage, Event::write_failure(&error));
+                    }
                 }
                 return;
             }
         }
     }
 }
+#[cfg(test)]
 async fn read_request(socket: &tokio::net::UnixStream) -> io::Result<Option<Vec<u8>>> {
+    read_request_observed(socket, None).await
+}
+async fn read_request_observed(
+    socket: &tokio::net::UnixStream,
+    diagnostics: Option<&Diagnostics>,
+) -> io::Result<Option<Vec<u8>>> {
     let mut first = [0];
     loop {
         socket.readable().await?;
         match receive(socket, &mut first) {
             Ok(0) => return Ok(None),
-            Ok(_) => break,
+            Ok(_) => {
+                if let Some(diagnostics) = diagnostics {
+                    diagnostics.record(Stage::ReadFirstByte, Event::Enter);
+                }
+                break;
+            }
             Err(e) if e.kind() == io::ErrorKind::WouldBlock => continue,
             Err(e) => return Err(e),
         }
