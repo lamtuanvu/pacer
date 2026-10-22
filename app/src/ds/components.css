@@ -355,12 +355,16 @@ a.pc-btn{text-decoration:none}
 .pc-update-notice--narrow{bottom:calc(var(--size-56) + var(--space-4) + env(safe-area-inset-bottom));max-height:calc(100dvh - var(--size-56) - var(--space-4) * 2 - env(safe-area-inset-bottom))}
 
 /* Custom (undecorated) titlebar window controls: macOS traffic lights. */
-.pc-traffic{display:flex;align-items:center;gap:var(--space-2);width:var(--size-60);flex:none}
-.pc-traffic__btn{width:var(--size-12);height:var(--size-12);border-radius:var(--radius-full);border:0;padding:0;margin:0;opacity:.85;transition:opacity var(--motion-fast) var(--motion-ease)}
-.pc-traffic__btn:hover{opacity:1}
-.pc-traffic__btn--close{background:var(--traffic-close)}
-.pc-traffic__btn--min{background:var(--traffic-min)}
-.pc-traffic__btn--zoom{background:var(--traffic-max)}
+.pc-traffic{display:flex;align-items:center;gap:0;flex:none}
+.pc-traffic__btn{display:flex;align-items:center;justify-content:center;width:var(--size-20);height:var(--control-compact);border-radius:var(--radius-sm);border:0;padding:0;margin:0;background:transparent;cursor:pointer}
+.pc-traffic__btn::before{content:"";width:var(--size-12);height:var(--size-12);border-radius:var(--radius-full);opacity:.85;transition:opacity var(--motion-fast) var(--motion-ease)}
+.pc-traffic__btn:hover::before{opacity:1}
+.pc-traffic__btn:focus-visible{outline:var(--stroke-focus) solid var(--focus);outline-offset:calc(-1 * var(--stroke-focus))}
+.pc-traffic__btn--close::before{background:var(--traffic-close)}
+.pc-traffic__btn--min::before{background:var(--traffic-min)}
+.pc-traffic__btn--zoom::before{background:var(--traffic-max)}
+@media(pointer:coarse){.pc-traffic__btn{width:var(--control-touch);height:var(--control-touch)}}
+@media(prefers-reduced-motion:reduce){.pc-traffic__btn::before{transition:none}}
 
 /* Portalled dialogs also need touch targets without a shell density provider. */
 @media(max-width:560px){.pc-input.pc-control--compact,.pc-select.pc-control--compact{min-height:var(--control-touch);font-size:var(--type-headline-size)}.pc-range.pc-control--compact{min-height:var(--control-touch)}}

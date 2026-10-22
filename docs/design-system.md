@@ -80,7 +80,7 @@ No paid icon package, remote fonts, analytics, email capture, demo application, 
 | Sessions/detail | ListRow, canonical replay target, Tabs, controls, loading/empty states | Controller/resource fetching, session/PTY lifecycle, timeline, terminal/diff rendering and command copy. Unsupported attach targets are omitted; refused takeover retains visible service reason. |
 | Settings/hosts/Add Executor/Diagnostics | Canonical form controls/Field, switch, range, SegmentedControl, ChoiceCard, pc-card, TextRow | Settings grid, semantic tables (including mobile data labels), wizard progress and API-bound operations. Host and executor domain decisions remain local. Diagnostics binds doctor.run to canonical Button, Pill and Disclosure; idle/running/error states are announced, reruns wait for completion, and technical evidence/repair guidance stays collapsed. |
 | Setup/delegate/dialogs | Button/ButtonLink/TextAction, Field/native controls, Dialog and Disclosure | Consent, setup checklist, draft/validation and delegation data. |
-| Shell | Canonical actions/links and DS density, loading status | Rail/topbar/secondary-navigation placement, sticky behavior, landmarks and skip-link route focus. |
+| Shell | Canonical actions/links and DS density, loading status; TrafficLights native controls | Desktop: one 32px top bar with compact Delegate and a sticky 40px icon rail (32px links). Native controls appear only in Tauri; title and empty header space support native dragging. Narrow screens retain the touch header and bottom navigation; coarse pointers retain touch targets. Settings keeps secondary navigation. Landmarks, current-route labels, tooltips, skip-link route focus and keyboard focus remain available. |
 | Tray/desktop webview | Compact density, shared actions, ListRow, ListRowLink, headings, status/identity and loading | 340px host containment, count/executor layout, native IPC, menu state and keyboard order. Escape closes menus before IPC hide; Quit is offered only in desktop. |
 | Terminal wrapper | Canonical screen-reader checkbox and actions | Lazy import, xterm theme adapter, PTY scaling and session control; xterm vendor CSS remains vendor-owned. |
 | TUI | Shared framework-independent status/attention vocabulary | Terminal width/color adapter; it imports no browser components. |
@@ -160,6 +160,15 @@ The Executors table retains its specialized metadata columns. Priority controls 
 ### Update notification
 
 `UpdateNoticeCard({ version, restart, later, busy, narrow, children })` is the canonical nonmodal bottom-right update panel, consumed by the app shell's `UpdateNotice`. Ready, pending and inline error states use existing Button and status semantics. Arrival never steals focus; busy actions retain focus and reject activation. Narrow layouts leave room above the bottom navigation and safe area. The shell owns capability checks, per-installation/version dismissal for the app session, confirmation and the existing revision-checked restart operation. The Updates screen retains the detailed status and controls. This is an original composition of existing primitives; no new upstream code or dependency is used.
+
+### TrafficLights
+
+`TrafficLights({ desktop, onClose, onMinimize, onMaximize })` owns the custom
+undecorated window controls. The shell only mounts it in a native desktop window.
+Each named button remains keyboard-focusable, with a token-based focus ring;
+visual dots sit inside larger hit areas, expanded for coarse pointers.
+Production consumer: `shell/TitleBar` inside `shell/TopBar`. No upstream source
+was copied for this component.
 
 ### Task detail identity and navigation
 

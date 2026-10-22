@@ -686,7 +686,12 @@ fn activate(app: &AppHandle, origin: &str, mut auth: Url) -> Result<(), String> 
                 .permission("allow-session-ready")
                 .permission("allow-desktop-version")
                 .permission("allow-desktop-update-connection")
-                .permission("allow-native-validation-setup"),
+                .permission("allow-native-validation-setup")
+                .permission("allow-windowMinimize")
+                .permission("allow-windowToggleMaximize")
+                .permission("allow-windowClose")
+                .permission("core:window:allow-start-dragging")
+                .permission("core:window:allow-internal-toggle-maximize"),
         )
         .map_err(|e| e.to_string())?;
         app.add_capability(
