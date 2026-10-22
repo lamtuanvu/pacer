@@ -26,6 +26,17 @@ test("worker restart invalidates old credentials and owned windows only", () => 
   rejects("invalid_input", () => broker.request("a", "../../other", "window"));
 });
 
+test("only opted-in desktop clients receive an active capture credential", async () => {
+  const { fakeCtx } = await import("./helpers");
+  const { callOp } = await import("../src/api/ops");
+  const ctx = fakeCtx();
+  expect(await callOp(ctx, "client.register", { kind: "desktop", version: "test" })).not.toHaveProperty("capture_worker");
+  await expect(callOp(ctx, "client.register", { kind: "app", version: "test", capture: true })).rejects.toMatchObject({ code: "invalid_input" });
+  const desktop = await callOp(ctx, "client.register", { kind: "desktop", version: "test", capture: true }) as { client_id: string; capture_worker: string };
+  expect(desktop.capture_worker).toMatch(/^[0-9a-f]{64}$/);
+  expect(await callOp(ctx, "desktop.capture.claim", { client_id: desktop.client_id, worker_token: desktop.capture_worker })).toBeNull();
+});
+
 test("image route retains service authentication and rejects foreign worker", async () => {
   const { startServer } = await import("../src/serve/http");
   const { fakeCtx } = await import("./helpers");

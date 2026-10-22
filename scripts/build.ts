@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { readFileSync, mkdirSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { compileTarget } from "./release/build";
 import { hostTarget } from "../src/update/manifest";
@@ -39,7 +39,22 @@ export async function buildLocal(root: string): Promise<void> {
   if (!target) throw Error(`unsupported build host: ${process.platform}-${process.arch}`);
   const version = localBuildVersion(root);
   mkdirSync(join(root, "dist"), { recursive: true });
-  await compileTarget({ root, target, version, outfile: join(root, "dist", "pacer") });
+  await compileTarget({ root, target, version, outfile: join(root, "dist", "pacer-core") });
+  // The Rust front door execs dist/pacer-core as its sibling. Without cargo or the Cargo
+  // workspace, the core alone is a complete CLI, so it also ships as dist/pacer.
+  const skip = (why: string) => {
+    copyFileSync(join(root, "dist", "pacer-core"), join(root, "dist", "pacer"));
+    console.log(`rust front door skipped: ${why}; dist/pacer is the TypeScript core`);
+  };
+  if (!existsSync(join(root, "Cargo.toml"))) return skip("no Cargo workspace");
+  try {
+    const result = Bun.spawnSync(["cargo", "build", "--release", "-p", "pacer"], { cwd: root, env: { ...process.env, PACER_BUILD_VERSION: version }, stdout: "pipe", stderr: "pipe" });
+    if (result.exitCode !== 0) throw Error(`cargo build failed (exit ${result.exitCode}):\n${result.stderr.toString().trim()}`);
+    copyFileSync(join(root, "target", "release", "pacer"), join(root, "dist", "pacer"));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    skip("cargo is not on PATH");
+  }
 }
 
 if (import.meta.main) await buildLocal(resolve(import.meta.dir, ".."));

@@ -955,7 +955,7 @@ Params JSON Schema:
 
 ### `client.register`
 
-Register a client with an optional notifier lease; heartbeat every 30 seconds.
+Register a client with an optional notifier lease; heartbeat every 30 seconds. Desktop clients may opt into capture to receive an ephemeral instance credential.
 
 Params JSON Schema:
 

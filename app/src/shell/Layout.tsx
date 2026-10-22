@@ -9,6 +9,7 @@ import { Mark } from "../ds/Mark";
 import type { StoreState } from "../data/store";
 import type { Route } from "../router";
 import { Rail } from "./Rail";
+import { TitleBar } from "./TitleBar";
 import { TaskContext } from "../screens/task-shared";
 import { SettingsPanel, SettingsPanelData } from "./SettingsPanel";
 import { NarrowContext, useNarrow } from "./narrow";
@@ -22,7 +23,7 @@ function Skeleton() {
   if (slow) return <LoadingState label="Connecting to pacer…"/>;
   return <div className="pc-skeleton" aria-hidden="true">{[0, 1, 2].map(i => <div key={i} className="pc-skeleton__section"><span /><span /><span /></div>)}</div>;
 }
-/** Rail, optional settings panel, top bar and main. Screens render inside main. */
+/** Unified titlebar + panel + content. On narrow: top bar + bottom rail. */
 export function Layout({ route, state, title, onDelegate = () => {}, children }: { route: Route; state: StoreState; title: string; onDelegate?: () => void; children: ComponentChildren }) {
   const narrow = useNarrow(route.query);
   const context = useContext(TaskContext), Panel = context ? SettingsPanelData : SettingsPanel;
@@ -32,14 +33,18 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
   const outdated = !loading && NEEDS_READ_MODEL.has(route.name) && !state.features.readModel;
   return <NarrowContext.Provider value={narrow}><div className={`pc-app${narrow ? " pc-app--narrow" : ""}`}>
     <TextAction href="#main-content" className="skip-link" onClick={event => { event.preventDefault(); document.getElementById("main-content")?.focus(); }}>Skip to content</TextAction>
-    <Rail route={route} counts={counts} narrow={narrow} />
-    {SETTINGS.has(route.name) && <Panel route={route} counts={counts} snapshot={state.snapshot} />}
-    <div className="pc-work">
-      {route.name !== "setup" && <TopBar narrow={narrow} title={title} planner={state.snapshot?.planner ?? null} mode={state.snapshot?.mode?.mode ?? ""} connected={state.connected} lastUpdate={state.snapshot?.at ?? null} onDelegate={onDelegate} delegatePrimary={route.name !== "review"} />}
-      <div aria-live="polite" role="status" className="pc-live-region">{!state.connected && state.snapshot && <div className="connection-bar">pacer isn't responding. Retrying…</div>}</div>
-      <main id="main-content" tabIndex={-1} className={`pc-main${["settings","hosts","add-executor","sessions","setup"].includes(route.name)?" pc-main--canvas":""}`}>
-        {loading ? <Skeleton /> : outdated ? <section className="pc-notice"><SectionHeading>Update pacer to use this view</SectionHeading><p>This screen needs a newer pacer service. Run <code>pacer update</code>, then reload this page.</p></section> : <DensityContext.Provider value={SETTINGS.has(route.name) ? "settings" : "normal"}>{children}</DensityContext.Provider>}
-      </main>
+    {/* Desktop: unified titlebar; Narrow: bottom rail only */}
+    {!narrow && <TitleBar route={route} counts={counts} />}
+    {narrow && <Rail route={route} counts={counts} narrow={narrow} />}
+    <div className="pc-body">
+      {SETTINGS.has(route.name) && <Panel route={route} counts={counts} snapshot={state.snapshot} />}
+      <div className="pc-work">
+        {route.name !== "setup" && <TopBar narrow={narrow} title={title} planner={state.snapshot?.planner ?? null} mode={state.snapshot?.mode?.mode ?? ""} connected={state.connected} lastUpdate={state.snapshot?.at ?? null} onDelegate={onDelegate} delegatePrimary={route.name !== "review"} />}
+        <div aria-live="polite" role="status" className="pc-live-region">{!state.connected && state.snapshot && <div className="connection-bar">pacer isn't responding. Retrying…</div>}</div>
+        <main id="main-content" tabIndex={-1} className={`pc-main${["settings","hosts","add-executor","sessions","setup"].includes(route.name)?" pc-main--canvas":""}`}>
+          {loading ? <Skeleton /> : outdated ? <section className="pc-notice"><SectionHeading>Update pacer to use this view</SectionHeading><p>This screen needs a newer pacer service. Run <code>pacer update</code>, then reload this page.</p></section> : <DensityContext.Provider value={SETTINGS.has(route.name) ? "settings" : "normal"}>{children}</DensityContext.Provider>}
+        </main>
+      </div>
     </div>
   </div></NarrowContext.Provider>;
 }

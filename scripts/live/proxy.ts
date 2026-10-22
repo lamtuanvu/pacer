@@ -1,3 +1,4 @@
+import NodeWebSocket from "ws";
 import type { ServerWebSocket } from "bun";
 import { readFileSync } from "node:fs";
 import { record, type Session } from "./core";
@@ -58,7 +59,7 @@ function transportHeaders(input: Headers): Headers {
 export const ClientWebSocket = globalThis.WebSocket as unknown as {
   new(url: string, options: Bun.WebSocketOptions): WebSocket;
 };
-interface Bridge { upstream: WebSocket }
+interface Bridge { upstream: NodeWebSocket }
 export function startProxy(session: Session) {
   if (!session.innerPort || session.innerPort === session.port) throw Error("Proxy requires a separate inner port");
   const upstreamOrigin = `http://127.0.0.1:${session.innerPort}`;
@@ -86,26 +87,78 @@ export function startProxy(session: Session) {
           // Let the upstream authenticate the handshake before accepting the client.
           const wsHeaders = new Headers(headers);
           for (const name of ["connection", "upgrade", "sec-websocket-key", "sec-websocket-version", "sec-websocket-extensions", "sec-websocket-protocol"]) wsHeaders.delete(name);
-          const upstream = new ClientWebSocket(target.replace(/^http:/, "ws:"), { headers: Object.fromEntries(wsHeaders) });
+          const upstream = new NodeWebSocket(target.replace(/^http:/, "ws:"), { headers: Object.fromEntries(wsHeaders) });
           upstream.binaryType = "arraybuffer";
           const pending: (string | ArrayBuffer)[] = [];
           let client: ServerWebSocket<Bridge> | undefined;
           let closed = false;
           let pendingBytes = 0;
           upstream.onmessage = event => {
-            if (client) client.send(event.data);
+            // binaryType is fixed to arraybuffer above, so binary messages have this shape.
+            const frame = event.data as string | ArrayBuffer;
+            if (client) client.send(frame);
             else {
-              pendingBytes += typeof event.data === "string" ? Buffer.byteLength(event.data) : event.data.byteLength;
+              pendingBytes += typeof frame === "string" ? Buffer.byteLength(frame) : frame.byteLength;
               if (pendingBytes > 1024 * 1024) upstream.close(1009, "Proxy queue exceeded");
-              else pending.push(event.data);
+              else pending.push(frame);
             }
           };
           upstream.onclose = () => { closed = true; client?.close(); };
-          await new Promise<void>((ok, fail) => {
-            const timer = setTimeout(() => { upstream.close(); fail(Error("WebSocket upstream timeout")); }, 3000);
-            upstream.onopen = () => { clearTimeout(timer); ok(); };
+          const refusal = await new Promise<Response | undefined>((ok, fail) => {
+            const timer = setTimeout(() => { fail(Error("WebSocket upstream timeout")); upstream.terminate(); }, 3000);
+            upstream.onopen = () => { clearTimeout(timer); ok(undefined); };
             upstream.onerror = () => { clearTimeout(timer); client?.close(1011, "Upstream error"); fail(Error("WebSocket upstream rejected")); };
+            // The browser WebSocket API hides HTTP refusals. ws exposes the actual
+            // response so the guarded validation path keeps the service's contract.
+            upstream.once("unexpected-response", (_request, response) => {
+              const chunks: Buffer[] = [];
+              let bytes = 0;
+              const declared = response.headers["content-length"];
+              const length = declared === undefined ? null : Number(declared);
+              // Bun exposes raw chunk framing on rejected upgrades. Fail closed
+              // instead of relaying a corrupted body when framing is ambiguous.
+              if (response.headers["transfer-encoding"] !== undefined || (length !== null && (!Number.isSafeInteger(length) || length < 0 || length > 256 * 1024))) {
+                clearTimeout(timer);
+                fail(Error("WebSocket refusal has an invalid or oversized content length"));
+                response.destroy();
+                upstream.terminate();
+                return;
+              }
+              response.on("data", (data: Buffer) => {
+                const chunk = Buffer.from(data);
+                bytes += chunk.length;
+                if (bytes > 256 * 1024) {
+                  const error = Error("WebSocket refusal exceeds 256 KiB");
+                  clearTimeout(timer);
+                  // Reject before closing: some runtimes emit end during destroy.
+                  fail(error);
+                  response.destroy(error);
+                  upstream.terminate();
+                  return;
+                }
+                chunks.push(chunk);
+              });
+              response.once("error", error => { clearTimeout(timer); fail(error); upstream.terminate(); });
+              response.once("end", () => {
+                clearTimeout(timer);
+                try {
+                  if (length !== null && bytes !== length) throw Error("WebSocket refusal body was truncated");
+                  const headers = new Headers();
+                  for (const [name, value] of Object.entries(response.headers)) {
+                    for (const item of Array.isArray(value) ? value : value === undefined ? [] : [value]) headers.append(name, item);
+                  }
+                  const status = response.statusCode ?? 502;
+                  const body = Buffer.concat(chunks);
+                  ok(new Response(body.length ? body : null, {
+                    status: status >= 200 && status <= 599 ? status : 502,
+                    headers: transportHeaders(headers),
+                  }));
+                } catch (error) { fail(error); }
+                finally { upstream.terminate(); }
+              });
+            });
           });
+          if (refusal) return refusal;
           // open fires after upgrade; stash the early upstream frames until then.
           const data: Bridge = { upstream };
           bridgeOpen.set(data, ws => {

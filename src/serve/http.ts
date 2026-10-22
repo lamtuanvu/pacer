@@ -44,8 +44,8 @@ export function ensureToken(ctx: Ctx): string {
 
 /** Localhost-only, token-protected API for versioned client protocols. */
 export function startServer(
-  getCtx: () => Ctx, opts: { port?: number; listener?: false; sseIntervalMs?: number; tailMs?: number; pumpMs?: number; opDeps?: OpDeps } = {},
-): { port: number; token: string; stop: () => void } {
+  getCtx: () => Ctx, opts: { internal?: { token: string }; port?: number; listener?: false; sseIntervalMs?: number; tailMs?: number; pumpMs?: number; opDeps?: OpDeps } = {},
+): { port: number; token: string; stop: () => Promise<void> } {
   const initialCtx = getCtx();
   resetCaptureBroker(initialCtx.pacerHome);
   const token = ensureToken(initialCtx);
@@ -112,23 +112,38 @@ export function startServer(
       const sessionRoute=pathname.match(/^\/v[23]\/tasks\/([A-Za-z0-9_-]+)\/session$/);
       const hosts = [`127.0.0.1:${publicPort}`, `localhost:${publicPort}`];
       if (!hosts.includes(req.headers.get("host") ?? "")) return new Response("misdirected request\n", { status: 421 });
-      if (req.method === "OPTIONS") return pathname.startsWith("/app/") ? appPage("Method not allowed.", 405) : new Response("method not allowed\n", { status: 405 });
-      const headers = { "X-Pacer": "1" };
-      if (req.method === "GET" && pathname === "/health") return Response.json({ ok: true, pid: process.pid }, { headers });
-      if (pathname === "/app/auth") return appRoute(req, getCtx());
       const app = pathname.startsWith("/app/");
-      const bearer = safeEqual(req.headers.get("authorization") ?? "", `Bearer ${token}`);
-      if (!bearer) {
-        const value = (req.headers.get("cookie") ?? "").split(";").map(c => c.trim()).find(c => c.startsWith("pacer_session="))?.slice("pacer_session=".length);
-        if (!(app || /^\/v[23]\//.test(pathname)) || !value || !checkSession(getCtx(), value)) {
-          return app ? appPage("Session ended. Run `pacer open`.", 401) : new Response("unauthorized\n", { status: 401 });
+      let bearer: boolean;
+      if (opts.internal) {
+        if (!safeEqual(req.headers.get("authorization") ?? "", `Bearer ${opts.internal.token}`)) {
+          return new Response("unauthorized\n", { status: 401 });
         }
-        if (/^\/v[23]\/session\/exchange$/.test(pathname)) return new Response("forbidden\n", { status: 403 });
-        const site = req.headers.get("sec-fetch-site");
-        if ((sessionRoute && !hosts.map(host => `http://${host}`).includes(req.headers.get("origin") ?? "")) || (site !== null && !["same-origin", "none"].includes(site)) ||
-            (!["GET", "HEAD"].includes(req.method) &&
-             (!hosts.map(host => `http://${host}`).includes(req.headers.get("origin") ?? "") || req.headers.get("x-pacer-client") !== "app"))) {
-          return app ? appPage("Forbidden.", 403) : new Response("forbidden\n", { status: 403 });
+        bearer = req.headers.get("x-pacer-auth") !== "cookie";
+        // The front door's heartbeat: an answer proves this event loop is responsive.
+        if (req.method === "GET" && pathname === "/health") return Response.json({ ok: true, pid: process.pid });
+        if (pathname === "/_internal/app-page") {
+          const params = new URL(req.url).searchParams;
+          const status = Number(params.get("status") ?? 200);
+          return appPage(params.get("message") ?? "", Number.isInteger(status) && status >= 200 && status <= 599 ? status : 500);
+        }
+      } else {
+        if (req.method === "OPTIONS") return pathname.startsWith("/app/") ? appPage("Method not allowed.", 405) : new Response("method not allowed\n", { status: 405 });
+        const headers = { "X-Pacer": "1" };
+        if (req.method === "GET" && pathname === "/health") return Response.json({ ok: true, pid: process.pid }, { headers });
+        if (pathname === "/app/auth") return appRoute(req, getCtx());
+        bearer = safeEqual(req.headers.get("authorization") ?? "", `Bearer ${token}`);
+        if (!bearer) {
+          const value = (req.headers.get("cookie") ?? "").split(";").map(c => c.trim()).find(c => c.startsWith("pacer_session="))?.slice("pacer_session=".length);
+          if (!(app || /^\/v[23]\//.test(pathname)) || !value || !checkSession(getCtx(), value)) {
+            return app ? appPage("Session ended. Run `pacer open`.", 401) : new Response("unauthorized\n", { status: 401 });
+          }
+          if (/^\/v[23]\/session\/exchange$/.test(pathname)) return new Response("forbidden\n", { status: 403 });
+          const site = req.headers.get("sec-fetch-site");
+          if ((sessionRoute && !hosts.map(host => `http://${host}`).includes(req.headers.get("origin") ?? "")) || (site !== null && !["same-origin", "none"].includes(site)) ||
+              (!["GET", "HEAD"].includes(req.method) &&
+               (!hosts.map(host => `http://${host}`).includes(req.headers.get("origin") ?? "") || req.headers.get("x-pacer-client") !== "app"))) {
+            return app ? appPage("Forbidden.", 403) : new Response("forbidden\n", { status: 403 });
+          }
         }
       }
       if (app) return appRoute(req, getCtx());
@@ -151,7 +166,8 @@ export function startServer(
   }
   try {
     // Handler tests can explicitly skip the public listener and use the backend.
-    if (opts.listener === false) {
+    // Internal mode sits behind the Rust front door, which owns the public port and answers health itself.
+    if (opts.internal || opts.listener === false) {
       publicPort = server.port!;
     } else {
       listener = startHealthListener(server.port!, publicPort);
@@ -205,5 +221,24 @@ export function startServer(
   const statusTimer=setInterval(refreshStatus,60000);
   const terminalTimer=setInterval(()=>{if(!stopped)void Promise.resolve().then(()=>refreshConsoleTerminals(getCtx())).catch(()=>{});},10000);
   const pumpTimer = pumpMs > 0 ? setInterval(tick, pumpMs) : undefined;
-  return { port: publicPort, token, stop: () => { nativeServices?.native.stop(); desktopUpdates.stop(); unbindDesktopUpdates(); listener?.stop(); readCache.stop(); unregisterJobs(); stopped=true; clearTimeout(retentionStart); clearInterval(retentionTimer); clearInterval(supervisorTimer); clearInterval(pumpTimer); clearInterval(snapshotTimer); clearInterval(statusTimer); clearInterval(terminalTimer); clearTimeout(scheduled); for(const watcher of watchers)watcher.close(); server.stop(true); void shutdownPlugins(initialCtx); } };
+  return { port: publicPort, token, stop: () => {
+    nativeServices?.native.stop();
+    desktopUpdates.stop();
+    unbindDesktopUpdates();
+    listener?.stop();
+    readCache.stop();
+    unregisterJobs();
+    stopped = true;
+    clearTimeout(retentionStart);
+    clearInterval(retentionTimer);
+    clearInterval(supervisorTimer);
+    clearInterval(pumpTimer);
+    clearInterval(snapshotTimer);
+    clearInterval(statusTimer);
+    clearInterval(terminalTimer);
+    clearTimeout(scheduled);
+    for (const watcher of watchers) watcher.close();
+    server.stop(true);
+    return shutdownPlugins(initialCtx);
+  } };
 }

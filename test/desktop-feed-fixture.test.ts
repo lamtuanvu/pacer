@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpDir } from "./helpers";
+import { DESKTOP_ARCHES } from "../scripts/release/desktop-feed";
 import { fixtureFeedDryRun } from "../scripts/release/desktop-feed-fixture";
 // The pinned Tauri signer lives in desktop/node_modules, which the PR test job does not install;
 // the release workflow's dry-run desktop-fixture job installs it and runs this same exercise.
@@ -12,10 +13,10 @@ test.skipIf(!signer)("explicit fixture driver uses real pinned signer and local 
   expect(report.mode).toBe("fixture");
   expect(report.production).toBe("UNVERIFIED");
   expect(report.native).toBe("UNVERIFIED");
-  expect(report.signatures).toBe(2);
+  expect(report.signatures).toBe(DESKTOP_ARCHES.length);
   expect(existsSync(join(root, "private"))).toBe(false);
   const feed = JSON.parse(readFileSync(join(root, "stable.json"), "utf8"));
-  expect(Object.keys(feed.platforms)).toHaveLength(2);
+  expect(Object.keys(feed.platforms).sort()).toEqual(DESKTOP_ARCHES.map(arch => `darwin-${arch}`).sort());
   expect(existsSync(join(root, "local/feed.git"))).toBe(true);
   await expect(fixtureFeedDryRun(root)).rejects.toThrow();
 }, 30000);
