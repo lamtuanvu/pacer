@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { compileCommand, compileFrontDoor } from "../release/build";
 import { assetFile, companionFile, hostTarget, sha256Hex } from "../../src/update/manifest";
 import { checkout, record, type Session } from "./core";
+import { exerciseIntegrationSelection } from "./repair-integrations";
 import { updaterFixtureRoot } from "./updater";
 
 /** Fixed fresh install, paired update and single-binary bridge downgrade; no manager effects. */
@@ -84,6 +85,7 @@ export async function exercisePairInstall(session: Session): Promise<void> {
     must(readdirSync(bin).sort().join(",") === "pacer,pacer-core,pacer-core.bak,pacer.bak", "Unexpected paired staging files remain");
     must(requests.every(path => files.has(path)), "Fixture made unexpected release requests");
     record(session, { kind: "note", behavior: "Rust pair self-update", surface: "compiled CLI", verdict: "PASS", text: "Actual Rust front door invoked its Bun updater, replaced both installed binaries and retained exact paired backups; subsequent execution used the new core. Fixed loopback feed and private HOME; no integration refresh or service-manager changes." });
+    await exerciseIntegrationSelection(session, root, front, core);
     const retainedCore = hash(core), retainedCoreBackup = hash(`${core}.bak`);
     const downgradeRequests = requests.length;
     await run([front, "update", "--to", bridge, "--base", base, "--no-restart", "--no-reinstall"]);
