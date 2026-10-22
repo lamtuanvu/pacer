@@ -32,10 +32,11 @@ test("the whole usage summary opens details and keeps only vendor marks and perc
   expect(html).not.toContain("as of");
 });
 
-test("stale planner usage retains freshness in the accessible name without cluttering the footer", () => {
+test("stale planner usage visibly marks freshness and names it for assistive technology", () => {
   const historical = { ...snapshot, planner: { ...snapshot.planner!, stale: true } };
   const html = renderToString(<StatusBar route={route("overview")} snapshot={historical} registry={registry} />);
   expect(html).toContain("historical usage");
+  expect(html).toContain('title="Stale usage reading" class="pc-statusbar__stale">!</span>');
   expect(html).not.toContain("Historical usage");
   expect(html).not.toContain("behind pace");
 });
