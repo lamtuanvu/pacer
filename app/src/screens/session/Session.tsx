@@ -19,7 +19,7 @@ import type { Resource, SessionData, SessionActions, Action } from './types';
 export type { SessionData, SessionActions, Resource } from './types';
 export type SessionTab = 'terminal' | 'changes' | 'brief';
 export interface SessionProps extends SessionActions {
-  data?: SessionData | null; loading?: boolean; error?: string | null; initialTab?: SessionTab;
+  embedded?: boolean; data?: SessionData | null; loading?: boolean; error?: string | null; initialTab?: SessionTab;
   onReload?: () => void; onTakeover?: () => void; takeoverBusy?: boolean; takeoverStarting?: boolean;
   takeoverError?: string; takeRequested?: boolean; onTakeSent?: () => void;
 }
@@ -52,7 +52,7 @@ function Brief({ data }: { data: SessionData }) {
   </div>;
 }
 
-export function Session({ data, loading, error, initialTab, onAction, onAttach, onReload, onTakeover,
+export function Session({ embedded = false, data, loading, error, initialTab, onAction, onAttach, onReload, onTakeover,
   takeoverBusy, takeoverStarting, takeoverError, takeRequested, onTakeSent }: SessionProps) {
   const [chosenTab, setTab] = useState<SessionTab | undefined>(initialTab);
   const [selected, setSelected] = useState(''), [busy, setBusy] = useState(false);
@@ -110,12 +110,12 @@ export function Session({ data, loading, error, initialTab, onAction, onAttach, 
         control={active && session.capabilities.control} resize={active && session.capabilities.resize} live={active && session.live}
         controller={session.controller} driving={driving} takeRequested={active && takeRequested} onTakeSent={onTakeSent} takeover={takeover}/>}
   </>;
-  return <Page width="full" className="pc-session">
-    <nav aria-label="Breadcrumb" className="pc-session-breadcrumb"><AppLink to={routes.tasks()}>Tasks</AppLink></nav>
+  return <Page width="full" embedded={embedded} className="pc-session">
+    {!embedded && <nav aria-label="Breadcrumb" className="pc-session-breadcrumb"><AppLink to={routes.tasks()}>Tasks</AppLink></nav>}
     {loading && <LoadingState updating label="Updating session…"/>}
-    <header className="pc-session-header">
-      <AgentMark agent={data.agent} size={28}/>
-      <div className="pc-session-heading">
+    {(!embedded || (active && data.stop)) && <header className="pc-session-header">
+      {!embedded && <AgentMark agent={data.agent} size={28}/>}
+      {!embedded && <div className="pc-session-heading">
         <div className="pc-session-identity"><span>{data.executor ?? 'Executor unknown'}</span><span>{data.repo}</span></div>
         <h2 className="pc-session-title" title={data.title ?? data.goal}>{data.title ?? data.goal}</h2>
         <div className="pc-session-meta"><span>{data.machine ?? session?.machine ?? 'Local machine'}</span>
@@ -124,13 +124,14 @@ export function Session({ data, loading, error, initialTab, onAction, onAttach, 
         </div>
         <code className="pc-session-branch pc-code-scroll" tabIndex={0}>{branchCopy(data.branch)}</code>
       </div>
-      <div className="pc-session-header-actions">
-        {!active && taskOutcome(data).label !== status.label && <span className="pc-session-muted">{taskOutcome(data).label}</span>}
-        <StatusPill status={data.state === 'running' && driving ? sessionStatus('driving') : status}/>
-        {waitingForReview && <AppButtonLink variant="primary" size="md" to={routes.task(data.id)}>Review</AppButtonLink>}
+      }<div className="pc-session-header-actions">
+        {!embedded && !active && taskOutcome(data).label !== status.label && <span className="pc-session-muted">{taskOutcome(data).label}</span>}
+        {!embedded && <StatusPill status={data.state === 'running' && driving ? sessionStatus('driving') : status}/>}
+        {!embedded && waitingForReview && <AppButtonLink variant="primary" size="md" to={routes.task(data.id)}>Review</AppButtonLink>}
         {active && data.stop && <Button variant="danger" disabled={busy || !onAction} onClick={() => void run(data.stop!)}>{data.stop.label}</Button>}
       </div>
-    </header>
+    </header>}
+    {embedded && <div className="pc-session-meta"><span>{data.machine ?? session?.machine ?? 'Local machine'}</span><span>{data.started ? `started ${data.started}` : 'Start time unknown'}</span>{data.elapsed && <span>{data.elapsed}</span>}<code className="pc-code-scroll" tabIndex={0}>{branchCopy(data.branch)}</code></div>}
     {driving && <p>{phaseWords('driving')} · keystrokes go to the agent</p>}
     {active && takeoverStarting && <p role="status">Starting interactive session…</p>}
     {active && takeoverError && <p role="alert">{takeoverError} <Button disabled={takeoverBusy} onClick={onTakeover}>Try again</Button></p>}
