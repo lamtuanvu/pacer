@@ -8,33 +8,21 @@ import type {
 } from "@pacer/plugin";
 import { PluginError } from "@pacer/plugin";
 
-// Verified CLI help: codex-cli 0.163.0, Claude Code 2.1.281, OpenCode 2.1.2.
+// Interactive release validation covers Codex 0.163.0. Other installed CLIs
+// remain available to the ordinary delegated runner, but are not offered here.
 export function capabilities({
   agent,
   version,
 }: AgentVersion): AgentSessionCapabilities {
-  const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(version);
-  const supported =
-    !!match &&
-    (agent === "codex"
-      ? Number(match[1]) === 0 &&
-        Number(match[2]) >= 162 &&
-        (Number(match[2]) > 162 || Number(match[3]) >= 1)
-      : agent === "claude-code"
-        ? Number(match[1]) === 2
-        : agent === "opencode"
-          ? Number(match[1]) === 2
-          : agent === "cursor"
-            ? Number(match[1]) >= 1
-            : false);
+  const supported = agent === "codex" && version === "0.163.0";
   return {
     interactive: supported,
-    resume: supported && agent !== "cursor",
-    launchImages: supported && agent === "codex",
+    resume: supported,
+    launchImages: supported,
     liveImages: false,
     files: supported,
     ...(!supported
-      ? { reason: "This agent/version has no verified interactive adapter." }
+      ? { reason: "Interactive sessions are currently validated for Codex 0.163.0 only." }
       : {}),
   };
 }
@@ -79,61 +67,27 @@ export function prepare(input: AgentSessionPrepare): AgentSessionLaunch {
     else throw new PluginError("not_allowed", delivery.reason);
   }
   const prompt = [input.request, ...references].join("\n\n");
-  const models = input.model
-    ? [input.agent === "codex" ? "-m" : "--model", input.model]
-    : [];
+  const models = input.model ? ["-m", input.model] : [];
   const dirs = [
     input.runDir,
     ...(input.attachmentDir && input.attachmentDir !== input.runDir
       ? [input.attachmentDir]
       : []),
   ].flatMap((path) => ["--add-dir", path]);
-  let argv: string[];
-  if (input.agent === "codex")
-    argv = [
-      "codex",
-      ...(input.sessionId ? ["resume"] : []),
-      "--no-daemon",
-      "-C",
-      input.workspace,
-      "-s",
-      "workspace-write",
-      ...dirs,
-      ...models,
-      ...images,
-      "--",
-      input.sessionId ?? prompt,
-    ];
-  else if (input.agent === "claude-code")
-    argv = [
-      "claude",
-      ...dirs,
-      ...models,
-      ...(input.sessionId ? ["--resume", input.sessionId] : ["--", prompt]),
-    ];
-  else if (input.agent === "opencode") {
-    if (input.model)
-      throw new PluginError(
-        "not_allowed",
-        "Interactive OpenCode model overrides are not verified; choose its configured model.",
-      );
-    argv = [
-      "opencode",
-      "--standalone",
-      ...(input.sessionId
-        ? ["--session", input.sessionId]
-        : ["--prompt", prompt]),
-      input.workspace,
-    ];
-  } else
-    argv = [
-      "cursor-agent",
-      "--workspace",
-      input.workspace,
-      ...models,
-      "--",
-      prompt,
-    ];
+  const argv = [
+    "codex",
+    ...(input.sessionId ? ["resume"] : []),
+    "--no-daemon",
+    "-C",
+    input.workspace,
+    "-s",
+    "workspace-write",
+    ...dirs,
+    ...models,
+    ...images,
+    "--",
+    input.sessionId ?? prompt,
+  ];
   return { argv, cwd: input.workspace };
 }
 

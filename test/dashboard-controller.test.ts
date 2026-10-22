@@ -13,6 +13,7 @@ import { withFallback } from "../src/dashboard/data";
 import { PLAIN_THEME } from "../src/dashboard/theme";
 import type { ClientSnapshot } from "../src/view-model/snapshot";
 import { fakeCtx } from "./helpers";
+import { createTask, readTask, updateTask } from "../src/tasks/store";
 
 const ALL_OPS = ["host.check", "host.set", "task.retry", "task.review", "task.get", "task.stop", "task.attach", "task.session", "task.delegate", "attention.dismiss", "task.dismiss",
   "config.get", "config.set", "agent.preview", "account.list", "account.signin", "notifications.get", "notifications.set", "runner.check", "runner.set", "runner.block", "runner.unblock", "runner.reorder", "routing.get", "routing.set"];
@@ -126,6 +127,36 @@ test("stopping a running task always confirms and sends its revision", async () 
   await t.keys("s", "y");
   expect(t.ops()).toEqual([{ op: "task.stop", params: { id: "t-0420", expect_rev: 3 } }]);
 });
+
+for (const screen of ["1", "3"] as const) {
+  test(`ending a conversation from ${screen} refreshes its revision after progress during confirmation`, async () => {
+    const ctx = fakeCtx();
+    const created = createTask(ctx, { brief: { goal: "Talk", repo: ctx.home }, kind: null, requestedExecutor: "codex", timeoutS: 0, interactionMode: "conversation" });
+    const running = updateTask(ctx, created.id, task => {
+      task.state = "running";
+      task.conversation = { activity: "idle", agentSessionId: "native-id" };
+    });
+    const snapshot = structuredClone(fixture) as unknown as ClientSnapshot;
+    const row = snapshot.tasks.find(task => task.id === "t-0420")!;
+    row.id = created.id;
+    row.rev = running.rev;
+    row.interactionMode = "conversation";
+    const t = setup({ snapshot, ops: [...ALL_OPS, "session.end"], respond: (op, params) => {
+      if (op === "task.get") return callOp(ctx, "task.get", { id: String(params.id) });
+      if (op === "session.end") return callOp(ctx, "session.end", { id: String(params.id), expect_rev: Number(params.expect_rev) });
+      return undefined;
+    }});
+    if (screen === "1") t.dash.state = { ...t.dash.state, selected: { home: `task:${created.id}` } };
+    await t.dash.refresh();
+    await t.keys(screen, "s");
+    expect(t.dash.state.overlay).toMatchObject({ kind: "confirm" });
+    const progressed = updateTask(ctx, created.id, task => { task.conversation = { ...task.conversation, activity: "working" }; });
+    expect(progressed.rev).toBeGreaterThan(running.rev);
+    await t.keys("y");
+    expect(t.ops().at(-1)).toEqual({ op: "session.end", params: { id: created.id, expect_rev: progressed.rev } });
+    expect(readTask(ctx, created.id)).toMatchObject({ state: "stopped", conversation: { activity: "ended", endReason: "user" } });
+  });
+}
 
 test("watching attaches builtin sessions here and other viewers through task.attach", async () => {
   const s = structuredClone(fixture) as unknown as ClientSnapshot;

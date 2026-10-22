@@ -73,6 +73,8 @@ Agent launch and attachment behavior belongs behind executor/plugin adapters; li
 3. Home composer and terminal-first working shell using the existing design system and lazy terminal bundle.
 4. Live agent validation and documented capability matrix. Release support is limited to exercised agent/version/platform combinations; unsupported combinations have visible reasons.
 
+Initial validated adapter: Codex CLI 0.163.0 on macOS. The interactive entry point reports other agent/version combinations as unsupported until their native lifecycle is exercised. Ordinary delegated execution retains its separate agent support. Linux interactive use remains unverified and must be validated before claiming platform parity.
+
 These stages form one implementation plan with explicit dependencies. A durable lifecycle/plugin decision requires an ADR before shipping implementation.
 
 ## Validation and governance

@@ -229,7 +229,14 @@ export class Dashboard {
 
   private async call(action: Action) {
     try {
-      const result = await this.deps.client.call<Record<string, unknown> | null>(action.op, action.params);
+      // A conversation's progress can advance its revision while its end/resume
+      // confirmation is open. Fetch the current revision just before the write.
+      let params = action.params;
+      if ((action.op === "session.end" || action.op === "session.resume") && typeof params.id === "string") {
+        const current = await this.deps.client.call<{ rev: number }>("task.get", { id: params.id });
+        params = { ...params, expect_rev: current.rev };
+      }
+      const result = await this.deps.client.call<Record<string, unknown> | null>(action.op, params);
       this.report(successCopy(action, result), "good");
       if (action.op === "task.review") this.afterReview(String(action.params.id));
     } catch (error) {

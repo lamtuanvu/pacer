@@ -6,7 +6,7 @@ The working screen embeds the agent's terminal interface. Its commands, tools, p
 
 Pick or drop files, or paste a screenshot into the composer or terminal. Files stay in private Pacer storage outside Git. Limits are 20 files per batch, 25 MiB each and 100 MiB for the conversation. Unclaimed drafts expire after 24 hours. Later attachments provide an explicit reference to copy and paste into the agent input; Pacer does not submit a partly written prompt or send Enter on your behalf.
 
-Agent capabilities vary. Codex's supported interactive CLI accepts initial images through its native image argument. Other files use labelled readable paths, which do not imply native image input. OpenCode interactive model overrides are currently refused with a reason; its configured default model can be used. Unsupported agents/versions and missing sign-in/readiness explain why they cannot start. Native attachment interpretation and model capabilities remain agent-specific.
+The initial validated interactive adapter is Codex CLI 0.163.0 on macOS. It accepts initial images through its native image argument. Other files use labelled readable paths, which do not imply native image input. Other agent/version combinations show an unsupported reason until their interactive lifecycle has been validated. Ordinary delegated execution keeps its separate agent support. Missing sign-in or account readiness also prevents a session from starting.
 
 End session stops the process while retaining its changes and output. It does not accept or merge the work. Resume conversation is available when the agent supplied a native session identity and its adapter supports resuming; it keeps the same agent/account and worktree.
 
