@@ -26,11 +26,12 @@ test("the canvas layout keeps work and capacity in independent columns", () => {
   expect([...right].sort((a, b) => a - b)).toEqual(right);
 });
 
-test("the planner strip gives the advice, usage and the day's numbers", () => {
+test("the planner strip gives advice and counts while usage stays in the status bar", () => {
   const html = view();
   expect(html).toContain("Planner · Claude");
   expect(html).toContain("14 pts under pace — spend it.");
-  expect(html).toContain("63% used · pace 77%");
+  expect(html).not.toContain("63% used · pace 77%");
+  expect(html).not.toContain('aria-label="Claude Code planner usage"');
   expect(html).toMatch(/>4<\/div><div[^>]*>need you</);
   expect(html).toMatch(/>2<\/div><div[^>]*>running</);
   expect(html).toMatch(/>7<\/div><div[^>]*>done today</);
@@ -49,6 +50,13 @@ test("capacity with no usage reading says so with a glyph and the reason", () =>
   const row = html.slice(at, at + 700);
   expect(row).toContain("?");
   expect(row).toContain("Usage unknown · no limit reported");
+});
+
+test("compact capacity retains executor usage when the status bar is absent", () => {
+  const html = renderToString(<OverviewView snapshot={snap} query={{ repo: null, scope: "repo:sample" }} now={snap.at} runner={runner} activity={activity} ops={new Set()} quickDelegate={null} />);
+  expect(html).toContain("pc-capacity--compact");
+  expect(html).toContain("pc-cap__compact-usage");
+  expect(html).toMatch(/aria-label="[^"]+% used[^"]*"/);
 });
 
 test("repo chips show counts, pressed state and the shared-budget note", () => {

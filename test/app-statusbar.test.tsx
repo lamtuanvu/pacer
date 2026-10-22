@@ -4,7 +4,7 @@ import fixture from "./fixtures/ui/snapshot.json";
 import type { ClientSnapshot } from "../src/view-model/snapshot";
 import type { Route } from "../app/src/router";
 import { createKeyRegistry } from "../app/src/keys/registry";
-import { StatusBar, screenHints } from "../app/src/shell/StatusBar";
+import { StatusBar, UsageDetails, dismissUsageOnEscape, screenHints } from "../app/src/shell/StatusBar";
 
 const snapshot = fixture as unknown as ClientSnapshot;
 const route = (name: Route["name"], id?: string): Route => ({ name, ...(id ? { id } : {}), query: { repo: null, scope: null } }) as Route;
@@ -26,6 +26,47 @@ test("status bar shows known usage from the snapshot and groups current-screen s
   expect(html).toContain("select");
   expect(html).not.toContain("Stop session");
   expect(html).not.toContain("as of");
+});
+
+test("stale planner usage is visibly historical and has no current pace verdict", () => {
+  const historical = { ...snapshot, planner: { ...snapshot.planner!, stale: true } };
+  const html = renderToString(<StatusBar route={route("overview")} snapshot={historical} registry={registry} />);
+  expect(html).toContain("Historical usage");
+  expect(html).toContain("historical usage");
+  expect(html).not.toContain("behind pace");
+});
+
+test("usage details list every quota window and distinguish stale and unknown readings", () => {
+  const html = renderToString(<UsageDetails accounts={[
+    { name: "personal", kind: "claude", usageReading: { windows: [
+      { name: "5h", usedPct: 9, resetsAt: snapshot.at + 3600 },
+      { name: "weekly", usedPct: 47, resetsAt: snapshot.at + 86400 },
+    ], capturedAt: snapshot.at - 120, stale: false, source: "status-line" } },
+    { name: "work", kind: "codex", usageReading: { windows: [{ name: "weekly", usedPct: null, resetsAt: null }], capturedAt: snapshot.at - 86400, stale: true, source: "session-log", error: "Refresh failed" } },
+  ]} now={snapshot.at} />);
+  expect(html).toContain("personal");
+  expect(html).toContain("5h");
+  expect(html).toContain("9%");
+  expect(html).toContain("weekly");
+  expect(html).toContain("47%");
+  expect(html).toContain("resets");
+  expect(html).toContain("Historical usage");
+  expect(html).toContain("Reading failed");
+  expect(html).not.toContain("session-log");
+  expect(html).toContain("Session logs");
+  expect(html).toContain("Usage unknown");
+});
+
+test("usage details do not call a measured window unavailable just because capture time is missing", () => {
+  const html = renderToString(<UsageDetails accounts={[{ name: "team", kind: "codex", usageReading: { windows: [{ name: "weekly", usedPct: 28, resetsAt: null }], capturedAt: null, stale: false } }]} now={snapshot.at} />);
+  expect(html).toContain("Reading time unknown");
+  expect(html).not.toContain("Usage unavailable");
+});
+
+test("Escape closes usage details before a route shortcut receives it", () => {
+  let closed = false, prevented = false, stopped = false;
+  dismissUsageOnEscape({ key: "Escape", preventDefault: () => { prevented = true; }, stopPropagation: () => { stopped = true; } }, () => { closed = true; });
+  expect([closed, prevented, stopped]).toEqual([true, true, true]);
 });
 
 test("shortcut hints follow the route and omit inactive shortcuts", () => {

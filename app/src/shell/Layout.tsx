@@ -32,8 +32,9 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
   const counts = state.snapshot ? snapshotCounts(state.snapshot) : null;
   const loading = route.name === "loading" || !state.snapshot;
   const outdated = !loading && NEEDS_READ_MODEL.has(route.name) && !state.features.readModel;
+  const showStatusBar = !narrow && route.name !== "setup";
   const topBar = <TopBar narrow={narrow} title={title} planner={state.snapshot?.planner ?? null} mode={state.snapshot?.mode?.mode ?? ""} connected={state.connected} lastUpdate={state.snapshot?.at ?? null} onDelegate={onDelegate} delegatePrimary={!["review", "start", "sessions"].includes(route.name)} showActions={route.name !== "setup"} />;
-  return <NarrowContext.Provider value={narrow}><div className={`pc-app${narrow ? " pc-app--narrow" : ""}`}>
+  return <NarrowContext.Provider value={narrow}><div className={`pc-app${narrow ? " pc-app--narrow" : ""}${showStatusBar ? " pc-app--with-status" : ""}`}>
     <TextAction href="#main-content" className="skip-link" onClick={event => { event.preventDefault(); document.getElementById("main-content")?.focus(); }}>Skip to content</TextAction>
     {!narrow && topBar}
     {narrow && <Rail route={route} counts={counts} narrow={narrow} />}
@@ -48,6 +49,6 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
         </main>
       </div>
     </div>
-    {!narrow && route.name !== "setup" && <StatusBar route={route} snapshot={state.snapshot} registry={keys} />}
+    {showStatusBar && <StatusBar route={route} snapshot={state.snapshot} registry={keys} />}
   </div></NarrowContext.Provider>;
 }
