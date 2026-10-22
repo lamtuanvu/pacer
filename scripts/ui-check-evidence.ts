@@ -54,7 +54,7 @@ const versionLine = /^[+-][ \t]*(?:"version": "[0-9A-Za-z.+-]+",?|export const A
 export function versionOnlyUiChange(files: string[], base: string, head: string, root = process.cwd()): boolean {
   const ui = files.filter(path => uiPath.test(path));
   if (!ui.length) return false;
-  const diff = Bun.spawnSync(["git", "diff", "--unified=0", "--no-color", "--no-ext-diff", base, head, "--", ...ui], { cwd: root, stdout: "pipe", stderr: "pipe" });
+  const diff = Bun.spawnSync(["git", "diff", "--unified=0", "--no-color", "--no-ext-diff", `${base}...${head}`, "--", ...ui], { cwd: root, stdout: "pipe", stderr: "pipe" });
   if (diff.exitCode !== 0) return false;
   const changed = diff.stdout.toString().split("\n").filter(line => /^[+-]/.test(line) && !/^(?:\+\+\+|---) /.test(line));
   if (/^Binary files /m.test(diff.stdout.toString())) return false;
@@ -69,7 +69,8 @@ export function checkUiPullRequest(eventPath: string, root = process.cwd()): UiE
   const base = record(pr.base) ? pr.base.sha : undefined;
   const head = record(pr.head) ? pr.head.sha : undefined;
   if (typeof base !== "string" || typeof head !== "string" || !sha.test(base) || !sha.test(head)) return [{ rule: "UI-24", message: "Cannot validate PR evidence: invalid base/head SHA in GitHub event." }];
-  const diff = Bun.spawnSync(["git", "diff", "--name-only", "-z", base, head, "--"], { cwd: root, stdout: "pipe", stderr: "pipe" });
+  // Match the PR diff: changes on the base branch are not changes introduced by the PR.
+  const diff = Bun.spawnSync(["git", "diff", "--name-only", "-z", `${base}...${head}`, "--"], { cwd: root, stdout: "pipe", stderr: "pipe" });
   if (diff.exitCode !== 0) return [{ rule: "UI-24", message: `Cannot inspect changed UI files; fetch the PR base/head history. git diff: ${diff.stderr.toString().trim()}` }];
   const files = diff.stdout.toString().split("\0").filter(Boolean);
   if (versionOnlyUiChange(files, base, head, root)) return [];

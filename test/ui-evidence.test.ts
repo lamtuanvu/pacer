@@ -97,6 +97,38 @@ describe("UI PR evidence manifest", () => {
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
+  test.each(["CLI", "version", "UI"])("checks only PR changes when main advances (%s)", change => {
+    const root = mkdtempSync(join(tmpdir(), "pacer-ui-diverged-"));
+    const git = (...args: string[]) => {
+      const result = Bun.spawnSync(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", "-c", `core.hooksPath=${root}/no-hooks`, ...args], { cwd: root, stdout: "pipe", stderr: "pipe" });
+      if (result.exitCode) throw Error(result.stderr.toString());
+      return result.stdout.toString().trim();
+    };
+    try {
+      git("init", "--quiet");
+      mkdirSync(join(root, "app/src"), { recursive: true });
+      mkdirSync(join(root, "src/app"), { recursive: true });
+      writeFileSync(join(root, "app/src/main.tsx"), "export const title = 'original';\n");
+      writeFileSync(join(root, "src/app/assets.generated.ts"), 'export const APP_VERSION = "0.4.0";\n');
+      git("add", "--all"); git("commit", "-m", "test: shared ancestor");
+      const ancestor = git("rev-parse", "HEAD");
+      writeFileSync(join(root, "app/src/main.tsx"), "export const title = 'new on main';\n");
+      git("add", "--all"); git("commit", "-m", "test: main UI change");
+      const reviewedBase = git("rev-parse", "HEAD");
+      git("checkout", "--detach", ancestor);
+      if (change === "CLI") writeFileSync(join(root, "watch.ts"), "export const watch = true;\n");
+      if (change === "version") writeFileSync(join(root, "src/app/assets.generated.ts"), 'export const APP_VERSION = "0.5.0";\n');
+      if (change === "UI") writeFileSync(join(root, "app/src/main.tsx"), "export const title = 'new in PR';\n");
+      git("add", "--all"); git("commit", "-m", "test: PR change");
+      const reviewedHead = git("rev-parse", "HEAD"), event = join(root, "event.json");
+      writeFileSync(event, JSON.stringify({ pull_request: { base: { sha: reviewedBase }, head: { sha: reviewedHead }, body: "" } }));
+      const violations = checkUiPullRequest(event, root);
+      if (change === "UI") expect(violations.some(v => v.rule === "UI-24")).toBe(true);
+      else expect(violations).toEqual([]);
+      if (change === "version") expect(versionOnlyUiChange(["src/app/assets.generated.ts", "app/src/main.tsx"], reviewedBase, reviewedHead, root)).toBe(true);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
   test("docs-only/test-only/CI-only changes do not require UI manifests", () => {
     expect(checkUiEvidence(["docs/design-system.md", "test/app-ui.test.tsx", ".project/rules/ui.md", ".github/workflows/ci.yml", "app/README.md", "desktop/README.md", "desktop/src-tauri/capabilities/README.md", "desktop/src-tauri/Cargo.lock", "desktop/bun.lock"], "")).toEqual([]);
   });
