@@ -53,6 +53,8 @@ jobs:
       - name: Stage bundled pacer CLI
         run: ./scripts/stage-cli.sh
       - name: Test offline
+        env:
+          PACER_HOSTED_TEST_KEYCHAIN_SEARCH: '1'
         run: cargo test --offline --locked --manifest-path src-tauri/Cargo.toml -- --include-ignored
       - name: Build unsigned app offline
         env:
