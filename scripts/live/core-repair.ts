@@ -100,4 +100,21 @@ export async function exerciseRepair(session: Session): Promise<void> {
       throw error;
     } finally { chmodSync(bin, 0o700); server.stop(true); }
   }
+  // Exercise all client transports against these same compiled bytes. The test
+  // creates only disposable services and a deterministic Unix-socket peer,
+  // underneath this fixture's private TMPDIR; it delegates no executor work.
+  copyFileSync(newCore, join(build, "pacer-core"));
+  const argv = [process.execPath, "test", "test/transport-parity.test.ts"];
+  const child = Bun.spawn(argv, { cwd: checkout, env: {
+    HOME: buildHome, PACER_HOME: join(buildHome, ".pacer"), TMPDIR: buildTmp,
+    PATH: `${join(session.root, "bin")}:/usr/bin:/bin:/usr/sbin:/sbin`, TZ: "Asia/Ho_Chi_Minh",
+    PACER_TEST_FRONT_DOOR: frontBuild, PACER_NO_UPDATE_CHECK: "1",
+  }, stdin: "ignore", stdout: "pipe", stderr: "pipe", timeout: 120000 });
+  const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+  record(session, { kind: "command", argv, code, stdout, stderr });
+  const output = stdout + stderr;
+  const pass = code === 0 && /\b1 pass\b/.test(output) && /\b0 fail\b/.test(output) && !/\b[1-9]\d* skip\b/.test(output);
+  record(session, { kind: "note", behavior: "Compiled client transport parity", surface: "HTTP/stdio/SSE/WebSocket",
+    verdict: pass ? "PASS" : "FAIL", text: "Actual paired Rust/Bun artifacts compared over stdio, bearer/cookie auth, rejection headers, SSE and binary/control WebSocket frames; fixed private services and Unix peer, no executor delegation." });
+  if (!pass) throw Error(`Compiled transport parity failed: ${stderr}`);
 }
