@@ -19,8 +19,11 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
+      actions: read
+      pull-requests: read
     env:
       GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+      GH_READ_TOKEN: ${{ github.token }}
       SUBJECT: ${{ github.event.head_commit.message }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -37,6 +40,24 @@ jobs:
           # Squash merges append "(#123)"; anything else is not a release PR.
           printf '%s\n' "$subject" | grep -Eq "^chore: release ${version//./\\.}( \(#[0-9]+\))?$" \
             || { echo "Head commit '$subject' does not release package.json $version; nothing to tag"; exit 0; }
+          # A manual merge must not bypass a failed or missing dry run.
+          pr_number=$(printf '%s\n' "$subject" | sed -nE 's/.* \(#([0-9]+)\)$/\1/p')
+          test -n "$pr_number" || { echo '::error::Release commit must identify its merged PR'; exit 1; }
+          pr=$(GH_TOKEN="$GH_READ_TOKEN" gh pr view "$pr_number" --repo "$GITHUB_REPOSITORY" --json state,baseRefName,headRefName,headRefOid,mergeCommit)
+          printf '%s' "$pr" | jq -e --arg sha "$GITHUB_SHA" --arg branch "release/v$version" \
+            '.state == "MERGED" and .baseRefName == "main" and .headRefName == $branch and .mergeCommit.oid == $sha' >/dev/null \
+            || { echo '::error::Release PR does not match this merge commit'; exit 1; }
+          head=$(printf '%s' "$pr" | jq -er .headRefOid)
+          # Squash changes the commit SHA; compare the complete tested file tree.
+          git cat-file -e "$head^{commit}" 2>/dev/null || git fetch --no-tags origin "refs/pull/$pr_number/head"
+          git diff --quiet "$head^{tree}" "$GITHUB_SHA^{tree}" \
+            || { echo '::error::Merge tree differs from the tested release PR'; exit 1; }
+          runs=$(GH_TOKEN="$GH_READ_TOKEN" gh run list --repo "$GITHUB_REPOSITORY" --workflow release.yml \
+            --branch "release/v$version" --commit "$head" --event workflow_dispatch --limit 1 \
+            --json headSha,status,conclusion)
+          printf '%s' "$runs" | jq -e --arg head "$head" \
+            'length > 0 and .[0].headSha == $head and .[0].status == "completed" and .[0].conclusion == "success"' >/dev/null \
+            || { echo '::error::Latest release dry run for the PR head must pass before tagging'; exit 1; }
           tag="v$version"
           if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
             echo "::error::$tag already exists; tags are never moved"; exit 1
