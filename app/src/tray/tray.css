@@ -1,7 +1,8 @@
 *{box-sizing:border-box}
-/* Root carries the rounded, clipped surface so transparent corners render as true rounded window shape */
-:root{height:100%;background:var(--surface-page);border-radius:var(--radius-xl);overflow:hidden}
-body{margin:0;width:var(--size-340);max-width:100vw;min-height:100%;background:transparent;color:var(--ink);font-family:var(--font-sans);font-size:var(--type-body-size);line-height:var(--type-body-line);font-variant-numeric:tabular-nums}
+/* Root provides the background canvas */
+:root{height:100%;background:var(--surface-page)}
+/* Body clips all content to rounded shape so transparent corners look like a true rounded window */
+body{margin:0;width:var(--size-340);max-width:100vw;min-height:100%;background:transparent;border-radius:var(--radius-xl);overflow:hidden;color:var(--ink);font-family:var(--font-sans);font-size:var(--type-body-size);line-height:var(--type-body-line);font-variant-numeric:tabular-nums}
 .tray{width:100%;max-height:var(--size-520);overflow-y:auto;position:relative}
 button,a{-webkit-tap-highlight-color:transparent;font-family:inherit;font-size:inherit;line-height:inherit;font-weight:inherit;color:inherit}
 button{cursor:pointer}button:disabled{cursor:default;opacity:.5}
