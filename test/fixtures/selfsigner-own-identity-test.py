@@ -32,6 +32,18 @@ class Probe(unittest.TestCase):
     self.assertEqual(calls[0][1],['/usr/bin/openssl','x509','-in',str(root/'cert.pem'),'-outform','DER','-out',str(root/'cert.der')])
     self.assertEqual(calls[1][1][0],'/usr/bin/clang')
     self.assertFalse(any(token in ['-nodes', '-inkey', 'export', 'add-trusted-cert'] for call in calls for token in call[1]))
+ def test_all_diagnostic_cli_requirements_are_literal_text(self):
+  observed=[]
+  for name in ['selfsigner-order-control.py','selfsigner-trust-control.py']:
+   source=Path(__file__).with_name(name)
+   for node in ast.walk(ast.parse(source.read_text())):
+    if not isinstance(node,ast.Call) or not isinstance(node.func,ast.Name) or node.func.id!='run' or len(node.args)<2 or not isinstance(node.args[1],ast.List):continue
+    if not any(isinstance(item,ast.Constant) and item.value=='-R' for item in node.args[1].elts):continue
+    argv=eval(compile(ast.Expression(body=node.args[1]),'exact-diagnostic-argv','eval'),{'sha1':'A'*40,'str':str,'target':Path('/fixture/target'),'diagnostic':Path('/fixture/diagnostic')})
+    self.assertEqual(argv[0],'/usr/bin/codesign')
+    self.assertEqual(argv[argv.index('-R')+1],'=identifier "dev.pacer.cli" and certificate leaf = H"'+'A'*40+'"')
+    observed.append(argv)
+  self.assertEqual(len(observed),3)
  def test_fixed_commands(self):self.exercise('normal')
  def test_pin(self):self.exercise('pin')
  def test_binding(self):self.exercise('binding')
