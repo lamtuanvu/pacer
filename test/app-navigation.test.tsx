@@ -27,5 +27,5 @@ test("imperative navigation writes or replaces canonical destinations", () => {
  navigation!.navigate(routes.task("next one"));
  expect(location.hash).toBe("#/tasks/next%20one?repo=acme&scope=all");
  navigation!.navigate(routes.overview({repo:null}),{replace:true});
- expect(writes).toEqual(["replace:#/?scope=all"]);
+ expect(writes).toEqual(["replace:#/overview?scope=all"]);
 });

@@ -6,5 +6,4 @@ export function TitleBar() {
   const controls = windowControls();
   if (!controls.desktop) return null;
   return <TrafficLights desktop onClose={() => void controls.close()}
-    onMinimize={() => void controls.minimize()} onMaximize={() => void controls.toggleMaximize()} />;
-}
+    onMinimize={() => void controls.minimize()} onMaximize={() => void controls.toggleMaximize()} />;}

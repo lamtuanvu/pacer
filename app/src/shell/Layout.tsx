@@ -15,7 +15,7 @@ import { NarrowContext, useNarrow } from "./narrow";
 import { TopBar } from "./TopBar";
 
 const SETTINGS = new Set(["settings", "hosts", "add-executor"]);
-const NEEDS_READ_MODEL = new Set(["overview", "review"]);
+const NEEDS_READ_MODEL = new Set(["start", "overview", "review"]);
 function Skeleton() {
   const [slow, setSlow] = useState(false);
   useEffect(() => { const t = setTimeout(() => setSlow(true), 1000); return () => clearTimeout(t); }, []);
@@ -30,7 +30,7 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
   const counts = state.snapshot ? snapshotCounts(state.snapshot) : null;
   const loading = route.name === "loading" || !state.snapshot;
   const outdated = !loading && NEEDS_READ_MODEL.has(route.name) && !state.features.readModel;
-  const topBar = <TopBar narrow={narrow} title={title} planner={state.snapshot?.planner ?? null} mode={state.snapshot?.mode?.mode ?? ""} connected={state.connected} lastUpdate={state.snapshot?.at ?? null} onDelegate={onDelegate} delegatePrimary={route.name !== "review"} showActions={route.name !== "setup"} />;
+  const topBar = <TopBar narrow={narrow} title={title} planner={state.snapshot?.planner ?? null} mode={state.snapshot?.mode?.mode ?? ""} connected={state.connected} lastUpdate={state.snapshot?.at ?? null} onDelegate={onDelegate} delegatePrimary={!["review", "start", "sessions"].includes(route.name)} showActions={route.name !== "setup"} />;
   return <NarrowContext.Provider value={narrow}><div className={`pc-app${narrow ? " pc-app--narrow" : ""}`}>
     <TextAction href="#main-content" className="skip-link" onClick={event => { event.preventDefault(); document.getElementById("main-content")?.focus(); }}>Skip to content</TextAction>
     {!narrow && topBar}

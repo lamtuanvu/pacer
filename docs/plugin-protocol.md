@@ -41,7 +41,8 @@ SDKs: `@pacer/plugin` (TypeScript) and `pacer-plugin` (Rust).
       "propertyNames": {
         "type": "string",
         "enum": [
-          "diagnostic"
+          "diagnostic",
+          "agentSession"
         ]
       },
       "additionalProperties": {
@@ -152,7 +153,7 @@ SDKs: `@pacer/plugin` (TypeScript) and `pacer-plugin` (Rust).
 }
 ```
 
-Extension points: `diagnostic` (every plugin serves `diagnostic`). Capabilities: `tasks.read`, `events.subscribe`, `process.spawn`, `fs.read`, `net.http`, `secrets.resolve`, `config.get`, `entitlement.report`, `log`.
+Extension points: `diagnostic`, `agentSession` (every plugin serves `diagnostic`). Capabilities: `tasks.read`, `events.subscribe`, `process.spawn`, `fs.read`, `net.http`, `secrets.resolve`, `config.get`, `entitlement.report`, `log`.
 
 ## Lifecycle
 
@@ -216,7 +217,8 @@ Params:
           "propertyNames": {
             "type": "string",
             "enum": [
-              "diagnostic"
+              "diagnostic",
+              "agentSession"
             ]
           },
           "additionalProperties": {
@@ -428,6 +430,360 @@ Result:
 ```
 
 ## Extension points (host → plugin)
+
+### `agentSession.capabilities`
+
+Interactive agent capabilities for an installed version.
+
+Deadline: 5000 ms.
+
+Params:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "agent": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    }
+  },
+  "required": [
+    "agent",
+    "version"
+  ],
+  "additionalProperties": false
+}
+```
+
+Result:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "interactive": {
+      "type": "boolean"
+    },
+    "resume": {
+      "type": "boolean"
+    },
+    "launchImages": {
+      "type": "boolean"
+    },
+    "liveImages": {
+      "type": "boolean"
+    },
+    "files": {
+      "type": "boolean"
+    },
+    "reason": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "interactive",
+    "resume",
+    "launchImages",
+    "liveImages",
+    "files"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `agentSession.prepare`
+
+Prepare an interactive argument vector without credentials or spawning.
+
+Deadline: 5000 ms.
+
+Params:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "agent": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "request": {
+      "type": "string",
+      "maxLength": 200000
+    },
+    "workspace": {
+      "type": "string",
+      "minLength": 1
+    },
+    "runDir": {
+      "type": "string",
+      "minLength": 1
+    },
+    "attachmentDir": {
+      "type": "string",
+      "minLength": 1
+    },
+    "attachments": {
+      "maxItems": 20,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "mime": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "mime",
+          "size",
+          "path"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "permissionPolicy": {
+      "type": "string",
+      "const": "native"
+    },
+    "model": {
+      "type": "string"
+    },
+    "sessionId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,128}$"
+    }
+  },
+  "required": [
+    "agent",
+    "version",
+    "request",
+    "workspace",
+    "runDir",
+    "attachments",
+    "permissionPolicy"
+  ],
+  "additionalProperties": false
+}
+```
+
+Result:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "argv": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "cwd": {
+      "type": "string",
+      "minLength": 1
+    },
+    "stdin": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "argv",
+    "cwd"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `agentSession.attachment`
+
+Prepare native attachment arguments or an explicit reference without submitting input.
+
+Deadline: 5000 ms.
+
+Params:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "agent": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "workspace": {
+      "type": "string",
+      "minLength": 1
+    },
+    "attachment": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 255
+        },
+        "mime": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "mime",
+        "size",
+        "path"
+      ],
+      "additionalProperties": false
+    },
+    "phase": {
+      "type": "string",
+      "enum": [
+        "launch",
+        "live"
+      ]
+    }
+  },
+  "required": [
+    "agent",
+    "version",
+    "workspace",
+    "attachment",
+    "phase"
+  ],
+  "additionalProperties": false
+}
+```
+
+Result:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "native"
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "kind",
+        "args"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "reference"
+        },
+        "text": {
+          "type": "string"
+        },
+        "requiresUserSubmit": {
+          "type": "boolean",
+          "const": true
+        }
+      },
+      "required": [
+        "kind",
+        "text",
+        "requiresUserSubmit"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "unsupported"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "reason"
+      ],
+      "additionalProperties": false
+    }
+  ]
+}
+```
 
 ### `diagnostic.ping`
 
