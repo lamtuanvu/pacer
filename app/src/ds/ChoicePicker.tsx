@@ -1,5 +1,5 @@
 import { forwardRef } from 'preact/compat';
-import { useEffect, useId, useRef, useState } from 'preact/hooks';
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { Button } from './Button';
 import { classNames as classes } from './classNames';
 import { useDensity } from './Density';
@@ -42,6 +42,7 @@ export const ChoicePicker = forwardRef<HTMLButtonElement, ChoicePickerProps>(fun
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(-1);
+  const [placement, setPlacement] = useState<'above' | 'below'>('below');
   const visible = options.filter(option => !searchable || `${option.label} ${option.description ?? ''}`.toLowerCase().includes(query.toLowerCase()));
   const available = visible.map((option, index) => option.disabled ? -1 : index).filter(index => index >= 0);
   const selected = options.find(option => option.value === value);
@@ -54,6 +55,7 @@ export const ChoicePicker = forwardRef<HTMLButtonElement, ChoicePickerProps>(fun
   const begin = (index?: number) => {
     if (disabled) return;
     document.dispatchEvent(new CustomEvent('pacer-choice-picker-open', { detail: root.current }));
+    setPlacement('below');
     setOpen(true);
     setActive(index ?? options.findIndex(option => option.value === value && !option.disabled));
     requestAnimationFrame(() => (searchable ? search.current : listbox.current)?.focus());
@@ -78,6 +80,9 @@ export const ChoicePicker = forwardRef<HTMLButtonElement, ChoicePickerProps>(fun
       close(true);
     } else if (event.key === 'Tab' && open) {
       close();
+      // The listbox is programmatically focused but not tabbable. Dialog's
+      // focus cycle needs the trigger as its starting point for this Tab.
+      trigger.current?.focus();
     } else if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
       event.preventDefault();
       if (!open) begin(event.key === 'End' ? available.at(-1) : available[0]);
@@ -105,6 +110,37 @@ export const ChoicePicker = forwardRef<HTMLButtonElement, ChoicePickerProps>(fun
       document.removeEventListener('pacer-choice-picker-open', other);
     };
   }, []);
+  useLayoutEffect(() => {
+    if (!open) return;
+    const fit = () => {
+      const button = trigger.current;
+      const popup = root.current?.querySelector<HTMLElement>('.pc-choice-picker__popover');
+      if (!button || !popup) return;
+      const bounds = button.getBoundingClientRect();
+      const gap = parseFloat(getComputedStyle(root.current!).getPropertyValue('--space-1')) || 0;
+      const below = window.innerHeight - bounds.bottom - gap;
+      const above = bounds.top - gap;
+      const next = below < popup.getBoundingClientRect().height && above > below ? 'above' : 'below';
+      setPlacement(next);
+    };
+    fit();
+    window.addEventListener('resize', fit);
+    window.addEventListener('scroll', fit, true);
+    return () => {
+      window.removeEventListener('resize', fit);
+      window.removeEventListener('scroll', fit, true);
+    };
+  }, [open, visible.length]);
+  useLayoutEffect(() => {
+    if (!open || active < 0) return;
+    const box = listbox.current;
+    const option = box?.children.item(active);
+    if (!box || !option) return;
+    const container = box.getBoundingClientRect();
+    const target = option.getBoundingClientRect();
+    if (target.bottom > container.bottom) box.scrollTop += target.bottom - container.bottom;
+    else if (target.top < container.top) box.scrollTop -= container.top - target.top;
+  }, [open, active, query]);
   return <span ref={root} className={classes('pc-choice-picker', `pc-choice-picker--${density}`, className)}>
     <Button ref={(node: HTMLButtonElement | null) => {
       trigger.current = node;
@@ -116,7 +152,8 @@ export const ChoicePicker = forwardRef<HTMLButtonElement, ChoicePickerProps>(fun
       <span className="pc-choice-picker__value">{selected?.label ?? placeholder}</span>
       <span className="pc-choice-picker__chevron" aria-hidden="true" />
     </Button>
-    {open && <span className="pc-choice-picker__popover" onKeyDown={onKeyDown as never}>
+    {open && <span className={classes('pc-choice-picker__popover', placement === 'above' && 'pc-choice-picker__popover--above')}
+      onKeyDown={onKeyDown as never}>
       {searchable && <input ref={search} className="pc-input pc-choice-picker__search" type="search" role="searchbox"
         aria-label="Search choices" aria-controls={menuId} aria-activedescendant={active >= 0 ? `${menuId}-${active}` : undefined}
         value={query} onInput={event => { setQuery(event.currentTarget.value); setActive(-1); }} />}
@@ -133,6 +170,6 @@ export const ChoicePicker = forwardRef<HTMLButtonElement, ChoicePickerProps>(fun
         {!visible.length && <span className="pc-choice-picker__empty">No matching choices</span>}
       </span>
     </span>}
-    {name && <input type="hidden" name={name} value={selected?.value ?? ''} />}
+    {name && !disabled && <input type="hidden" name={name} value={selected?.value ?? ''} />}
   </span>;
 });

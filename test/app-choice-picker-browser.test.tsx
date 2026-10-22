@@ -86,3 +86,33 @@ browserTest('narrow popup stays onscreen and native dialog contains its menu', a
     expect(await page.locator('#dialog-choice').getAttribute('aria-expanded')).toBe('false');
   } finally { await page.close(); }
 });
+
+browserTest('long list keeps keyboard-active options visible and popup fits near the bottom', async () => {
+  const page = await browser.newPage({ viewport: { width: 375, height: 500 } });
+  try {
+    await page.goto(`${server.url}`);
+    await page.locator('#long-list').click();
+    await page.keyboard.press('End');
+    const visible = await page.getByRole('listbox').evaluate(box => {
+      const active = document.getElementById(box.getAttribute('aria-activedescendant')!);
+      return !!active && active.getBoundingClientRect().bottom <= box.getBoundingClientRect().bottom;
+    });
+    expect(visible).toBe(true);
+    await page.keyboard.press('Escape');
+    await page.locator('#bottom-choice').click();
+    const bounds = await page.locator('.pc-choice-picker__popover').boundingBox();
+    expect(bounds!.y).toBeGreaterThanOrEqual(0);
+    expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(500);
+  } finally { await page.close(); }
+});
+
+browserTest('Tab from a dialog picker continues to the next dialog control', async () => {
+  const page = await browser.newPage();
+  try {
+    await page.goto(`${server.url}`);
+    await page.locator('#open-modal').click();
+    await page.locator('#dialog-choice').click();
+    await page.keyboard.press('Tab');
+    expect(await page.locator('#after-dialog-choice').evaluate(node => document.activeElement === node)).toBe(true);
+  } finally { await page.close(); }
+});

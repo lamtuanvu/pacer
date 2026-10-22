@@ -43,3 +43,10 @@ test("removed selection stays unselected instead of falling through to another o
   expect(html).not.toContain('value="codex"');
   expect(html).not.toContain("Codex · work");
 });
+
+test("disabled named picker does not serialize a hidden value", () => {
+  const html = renderToString(
+    <ChoicePicker value="codex" options={options} name="executor" disabled onValueChange={() => {}} />,
+  );
+  expect(html).not.toContain('name="executor"');
+});
