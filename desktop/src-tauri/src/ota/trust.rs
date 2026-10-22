@@ -648,6 +648,24 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn fixture_signature_authority_is_scoped_to_compiled_live_lease() {
+        fixture_signature_case(None);
+    }
+    // Causal control only: retain the copied-system-binary test and all assertions.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn user_compiled_fixture_signature_authority_control() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("owned.rs");
+        let binary = temp.path().join("owned-fixture");
+        std::fs::write(&source, "fn main() { std::thread::sleep(std::time::Duration::from_secs(5)); }\n").unwrap();
+        let output = std::process::Command::new("rustc")
+            .args(["--edition=2021", "--crate-name", "pacer_owned_trust_fixture"])
+            .arg(&source).arg("-o").arg(&binary).output().unwrap();
+        assert!(output.status.success(), "owned fixture compiler failed: {}", output.status);
+        fixture_signature_case(Some(&binary));
+    }
+    #[cfg(target_os = "macos")]
+    fn fixture_signature_case(binary_source: Option<&Path>) {
         use std::os::unix::fs::PermissionsExt;
         let temp = tempfile::tempdir().unwrap();
         let base = temp
@@ -680,7 +698,7 @@ mod tests {
         )
         .unwrap();
         let binary = root.join("fixture-helper");
-        std::fs::copy("/bin/sleep", &binary).unwrap();
+        std::fs::copy(binary_source.unwrap_or_else(|| Path::new("/bin/sleep")), &binary).unwrap();
         let result = std::process::Command::new("/usr/bin/codesign")
             .args(["--force", "--sign", "-", "--identifier", HELPER_ID])
             .arg(&binary)
