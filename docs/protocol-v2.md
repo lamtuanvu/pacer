@@ -756,6 +756,9 @@ Params JSON Schema:
     },
     "consent": {
       "type": "boolean"
+    },
+    "preview_revision": {
+      "type": "string"
     }
   },
   "required": [

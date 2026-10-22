@@ -29,6 +29,15 @@ Draft-readiness clarification in the same proposed amendment: require current re
 
 ## Exceptions
 
+### VO-TEMP-2026-10 — manual VoiceOver validation paused
+
+Granted by @lamtuanvu on 2026-10-22 through the explicit project-wide instruction to temporarily turn off the VoiceOver requirement because validation was consuming excessive time. Applies to all Pacer UI work, including Diagnostics repair. Expires on **2026-11-22**, or earlier if the maintainer reinstates it.
+
+During this exception, the manual VoiceOver/spoken-output portion of UI-2 is optional and must not block completion, UI-24 report readiness or merge solely because it was not exercised. Agents must not spend time activating or troubleshooting VoiceOver unless explicitly requested. Record the check as **WAIVED (VO-TEMP-2026-10)**, never as a tested PASS; historical UNVERIFIED observations remain accurate. Reports may have an overall PASS when every remaining applicable required check passes, while listing this waiver separately.
+
+All other accessibility requirements remain mandatory: accessible names and semantics, keyboard/focus, contrast, non-color status, polite live regions and reduced motion. Browser/native/live behavior, screenshots, automated checks and independent reviews remain required for their applicable scopes. This is a temporary validation exception under the constitution's exception policy, not a permanent rule amendment or a runtime feature change.
+
+
 | Date | Rule | Scope | Granted by | Expires | Reason |
 |------|------|-------|------------|---------|--------|
 | 2026-10-21 | UI-2 (manual VoiceOver pass) | PR #240 only: redesigned Session details Brief, Output, Changes and retry dialog | @lamtuanvu | When #240 merges | Maintainer explicitly authorized this PR-only exception in the merge conversation. Browser accessibility tree, keyboard navigation, disclosure and modal focus/cancel/busy/error behavior, contrast, reduced motion and light/dark desktop/phone screenshots were checked. VoiceOver remains untested; this exception waives no other check. |

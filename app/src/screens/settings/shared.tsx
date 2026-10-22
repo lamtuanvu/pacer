@@ -55,7 +55,7 @@ export async function performOperation(call:BrowserApi['call'],op:string,params:
  const candidate=(r.job??(r.steps&&r.id?r:undefined)) as Job|string|undefined;
  return {data,path:typeof r.path==='string'?r.path:undefined,undo:typeof r.undo==='string'?r.undo:undefined,message:typeof r.message==='string'?r.message:typeof r.opened==='boolean'?r.opened?'Opened in terminal.':'Run this command in a terminal.':candidate?'Check progress below.':'Saved.',hint:typeof r.hint==='string'?r.hint:r.migrated?settingsMigrationMessage:undefined,command:typeof r.command==='string'?r.command:undefined,...(typeof candidate==='string'?{jobId:candidate}:candidate?{job:candidate,jobId:candidate.id}:{})};
 }
-export function useOperation(onDone?:()=>void) {
+export function useOperation(onDone?:()=>void, options: {notifySuccess?: boolean} = {}) {
  const notifications=useNotifications();
  const runner=useActions();
  const {api,state}=useTaskContext(),[busy,setBusy]=useState(false),[error,setError]=useState<unknown>(),[result,setResult]=useState<OperationResult>();const pending=useRef(false);
@@ -72,7 +72,7 @@ export function useOperation(onDone?:()=>void) {
    const outcome=await runner.run(key,{label:operation,op:operation,params:payload as Record<string,unknown>});
    if(outcome.status==='error'||outcome.status==='handled')throw new Error(outcome.message+('hint' in outcome&&outcome.hint?` · ${outcome.hint}`:''));
    return runner.result(key) as T;
-  },op,params);setResult(r);if(!r.jobId)notifications?.notify({key:`settings:${op}`,tone:"success",title:r.message==="Saved."?"Changes saved":r.message});await done?.(r.data);if(!r.jobId)onDone?.();return r;}
+  },op,params);setResult(r);if(!r.jobId && options.notifySuccess !== false)notifications?.notify({key:`settings:${op}`,tone:"success",title:r.message==="Saved."?"Changes saved":r.message});await done?.(r.data);if(!r.jobId)onDone?.();return r;}
   catch(e){setError(e);}finally{pending.current=false;setBusy(false);}
  }
  return {busy:busy||job?.state==='running',error,result,job,run,clear:()=>{setError(undefined);setResult(undefined);}};

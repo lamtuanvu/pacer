@@ -33,8 +33,9 @@ test("doctor operation is additive and v3-only, with structured results and hone
   const {join} = await import('node:path');
   mkdirSync(ctx.pacerHome,{recursive:true});
   writeFileSync(join(ctx.pacerHome,'strategy.yaml'),'planner: claude-code\nproviders:\n  claude-code: {usage: quota}\nrouting:\n  - default: [claude-code]\n');
-  const result=await callOp(ctx,"doctor.run",{}) as {checkedAt:number;checks:any[]};
+  const result=await callOp(ctx,"doctor.run",{}) as {checkedAt:number;checks:any[];planner?:string};
   expect(result.checkedAt).toBe(ctx.now);
+  expect(result.planner).toBe("claude-code");
   expect(result.checks.find(c=>c.name==="Claude host invocation").evidence).toBe("unverified");
   expect(result.checks.find(c=>c.name==="Claude handler probes").evidence).toBe("tested");
 });
@@ -65,4 +66,75 @@ test('persistent Settings navigation marks Diagnostics current without a second 
   expect(panel).toMatch(/<a(?=[^>]*href="[^"]*settings\/diagnostics")(?=[^>]*aria-current="page")[^>]*>[\s\S]*?Diagnostics<\/a>/);
   expect(local).not.toContain('aria-label="Settings sections"');
   expect(local).toContain('id="diagnostics"');
+});
+
+test('diagnostic groups separate issues, passed and unverified without counting a check twice', async () => {
+  const { diagnosticGroups } = await import('../src/view-model/diagnostics');
+  const result = diagnosticGroups([
+    {name:'Install codex#work',level:'warn',detail:'changed',evidence:'unverified'},
+    {name:'Binary codex',level:'ok',detail:'installed'},
+    {name:'Claude host invocation',level:'info',evidence:'unverified',detail:'unknown'},
+    {name:'Activity',level:'info',detail:'calendar'},
+  ]);
+  expect(result.issues.map(g=>g.title)).toEqual(['Codex (work)']);
+  expect(result.passed).toHaveLength(1);
+  expect(result.unverified).toHaveLength(1);
+  expect(result.information).toHaveLength(1);
+  expect(result.issueCount).toBe(1);
+});
+
+test('results expose grouped attention cards and a single collapsed passed section', () => {
+  const html = renderToString(<DiagnosticResults report={{checkedAt:0,checks:[
+    {name:'Install codex',level:'warn',detail:'missing file',fix:'arbitrary command'},
+    {name:'Skill codex',level:'warn',detail:'changed file'},
+    {name:'Binary codex',level:'ok',detail:'installed'},
+  ]}}/>);
+  expect(html).toContain('2 issues');
+  expect(html).toContain('Needs attention');
+  expect(html).toContain('Technical details');
+  expect(html).toContain('Passed checks');
+  expect(html).not.toContain('Expand for repairs');
+});
+
+test('repairs only target the selected planner integration, never suggested strings or another account', async () => {
+  const { diagnosticRepair } = await import('../src/view-model/diagnostics');
+  expect(diagnosticRepair({name:'Install codex#work',level:'warn',detail:''}, 'codex#work')).toEqual({agent:'codex'});
+  expect(diagnosticRepair({name:'Install codex#other',level:'warn',detail:''}, 'codex#work')).toBeUndefined();
+  expect(diagnosticRepair({name:'Service',level:'warn',detail:'',fix:'pacer install codex'}, 'codex')).toBeUndefined();
+  expect(diagnosticRepair({name:'Claude hook configuration',level:'warn',detail:''}, 'claude-code')).toEqual({agent:'claude-code'});
+  expect(diagnosticRepair({name:'Install codex',level:'ok',detail:''}, 'codex')).toBeUndefined();
+});
+
+test('unverified evidence remains visible on attention cards and contributes to its evidence count', () => {
+ const html=renderToString(<DiagnosticResults report={{checkedAt:0,checks:[{name:'Claude hook configuration',level:'warn',evidence:'unverified',detail:'missing settings'}]}}/>);
+ expect(html).toContain('1 unverified');
+ expect(html).toContain('<p>Unverified</p>');
+});
+
+test('named install checks retain their account and unavailable account folders offer setup instead of repair', async () => {
+ const {runDoctor}=await import('../src/install/doctor');
+ const {mkdirSync,writeFileSync}=await import('node:fs');
+ const {join}=await import('node:path');
+ const ctx=fakeCtx({which:()=>null});
+ mkdirSync(ctx.pacerHome,{recursive:true});
+ writeFileSync(join(ctx.pacerHome,'strategy.yaml'),JSON.stringify({planner:'codex#work',accounts:{work:{kind:'codex',home:join(ctx.home,'work')}},runners:{'codex#work':{}}}));
+ writeFileSync(join(ctx.pacerHome,'install-manifest.json'),JSON.stringify({version:1,planners:{'codex#work':{planner:'codex',account:'work',files:[{path:join(ctx.home,'work/AGENTS.md'),action:'created',undo:[]}],pacerArgv:[],commands:[],notes:[]}}}));
+ const checks=await runDoctor(ctx);
+ expect(checks.find(c=>c.name==='Install codex#work')?.level).toBe('warn');
+ expect(checks.find(c=>c.name==='Install codex#work')?.fix).toBe('pacer install codex#work');
+ const available=await callOp(ctx,'doctor.run',{}) as any;
+ expect(available.repairAvailable).toBe(true);
+ writeFileSync(join(ctx.pacerHome,'strategy.yaml'),JSON.stringify({planner:'claude-code#missing',accounts:{missing:{kind:'claude',orca_account:'not-present'}},runners:{'claude-code#missing':{}}}));
+ const unavailable=await callOp(ctx,'doctor.run',{}) as any;
+ expect(unavailable.repairAvailable).toBe(false);
+ const html=renderToString(<DiagnosticResults report={unavailable} onRepair={()=>{}}/>);
+ expect(html).not.toContain('>Repair<');
+});
+
+test('setup links lead to relevant flows and do not imply planner setup fixes host issues', async () => {
+ const {diagnosticSetupLink}=await import('../src/view-model/diagnostics');
+ expect(diagnosticSetupLink({name:'Usage codex#work',level:'warn',detail:''})?.href).toBe('#/settings/accounts');
+ expect(diagnosticSetupLink({name:'Service',level:'warn',detail:''})?.href).toBe('#/setup');
+ expect(diagnosticSetupLink({name:'macOS code signing',level:'warn',detail:''})).toBeUndefined();
+ expect(diagnosticSetupLink({name:'Orca',level:'warn',detail:''})).toBeUndefined();
 });

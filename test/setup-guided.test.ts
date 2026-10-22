@@ -167,3 +167,19 @@ test("setup steps and their primary action fit a standard terminal",async()=>{
  expect(text.split("\n").at(-1)).toContain("⏎ Install service");
  expect(text).not.toContain("Try a delegation");
 });
+
+test('integration consent is bound to the account in the reviewed preview', async () => {
+ const {agentPreview}=await import('../src/core/setup');
+ const ctx=fakeCtx({which:()=>null});
+ mkdirSync(ctx.pacerHome,{recursive:true});
+ const strategy=(account:string)=>`planner: codex#${account}\naccounts:\n  work: {kind: codex, home: ${join(ctx.home,'work')}}\n  personal: {kind: codex, home: ${join(ctx.home,'personal')}}\nrunners:\n  codex#work: {}\n  codex#personal: {}\n`;
+ writeFileSync(join(ctx.pacerHome,'strategy.yaml'),strategy('work'));
+ const preview=agentPreview(ctx,'codex');
+ expect(preview.revision).toBeString();
+ writeFileSync(join(ctx.pacerHome,'strategy.yaml'),strategy('personal'));
+ await expect(callOp(ctx,'agent.connect',{agent:'codex',consent:true,preview_revision:preview.revision})).rejects.toMatchObject({code:'conflict'});
+ expect(existsSync(join(ctx.home,'personal','AGENTS.md'))).toBe(false);
+ const current=agentPreview(ctx,'codex');
+ await callOp(ctx,'agent.connect',{agent:'codex',consent:true,preview_revision:current.revision});
+ expect(existsSync(join(ctx.home,'personal','AGENTS.md'))).toBe(true);
+});

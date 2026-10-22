@@ -2895,6 +2895,9 @@ impl<'de> ::serde::Deserialize<'de> for ActivityListParamsTaskId {
 ///    },
 ///    "consent": {
 ///      "type": "boolean"
+///    },
+///    "preview_revision": {
+///      "type": "string"
 ///    }
 ///  },
 ///  "additionalProperties": false
@@ -2907,6 +2910,8 @@ pub struct AgentConnectParams {
     pub agent: AgentConnectParamsAgent,
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub consent: ::std::option::Option<bool>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub preview_revision: ::std::option::Option<::std::string::String>,
 }
 ///`AgentConnectParamsAgent`
 ///

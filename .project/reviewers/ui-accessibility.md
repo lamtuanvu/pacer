@@ -12,6 +12,8 @@ Read [constitution.md](../constitution.md), [context.md](../context.md), and [ru
 
 ## Checks
 
+**Active temporary exception:** through 2026-11-22, manual VoiceOver/spoken-output validation is optional and non-blocking under [VO-TEMP-2026-10](../decisions.md#vo-temp-2026-10--manual-voiceover-validation-paused). Do not activate or troubleshoot it unless requested. List it as WAIVED, never tested PASS; it alone does not require an overall UNVERIFIED verdict. Every other accessibility and evidence check below remains required.
+
 - UI-19–25: run `bun run ui:check`, inspect negative fixtures and all authored UI trees; check canonical controls/composites, import direction, token usage, catalog API/states/consumers and pinned upstream license/provenance. Audit narrow exclusions for neighboring bypasses. New variants belong in DS; inspect consumer CSS for primitive overrides even when values are tokens.
 - UI-24: independently open the changed surfaces and required evidence. The PR manifest is metadata, not proof that a reviewer looked at the UI. Report inaccessible browser/native/VoiceOver/live checks separately as UNVERIFIED.
 - UI-1: components come from `app/src/ds/`, and styles use generated tokens. No ad-hoc colors.
