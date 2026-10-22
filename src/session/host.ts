@@ -1,5 +1,6 @@
 import { beginWorkSync, claimWorkSync, attachRunEvidenceSync, finishWorkSync } from "../update/desktop/admission";
 import { makeCtx } from "../ctx";
+import { nativeTerminalEnv } from "./environment";
 import { readReport, writeReport } from "./reports";
 import { createServer, createConnection } from "node:net";
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
@@ -114,7 +115,7 @@ async function sessionHostAdmitted(dir:string):Promise<number> {
   try {
     if(typeof Bun.Terminal !== "function") throw Error("PTY unavailable");
     proc=Bun.spawn(launch.interactive ? launch.argv : ["/bin/sh","-c",'input="$1"; shift; exec "$@" < "$input"',"pacer-session",existsSync(join(dir,"stdin"))?join(dir,"stdin"):"/dev/null",...launch.argv],{
-      cwd:launch.cwd,env:{...process.env,TERM:"xterm-256color",PWD:launch.cwd},
+      cwd:launch.cwd,env:{...nativeTerminalEnv(process.env),PWD:launch.cwd},
       terminal:{cols:120,rows:40,name:"xterm-256color",data(_term,data){
         try {
           // Count every redraw, even while masking or line normalization buffers output.

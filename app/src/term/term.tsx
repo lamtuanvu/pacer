@@ -8,6 +8,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { Button } from "../ds/Button";
 import { SessionClient, type SessionState } from "./client";
 import { filesFromPaste } from "../model/attachments";
+import { terminalDocument } from "./document";
 export interface TerminalViewProps { id:string; url?:string; label?:string; cols?:number; rows?:number; control?:boolean; resize?:boolean; live?:boolean; controller?:string|null; driving?:boolean; takeRequested?:boolean; onTakeSent?:()=>void; takeover?:ComponentChildren; conversation?:boolean; onFiles?:(files:File[])=>void }
 /** Loaded only by import(). The shell may disable its shortcuts when data-session-control is true. */
 export function TerminalView({id,url,label='pacer app',cols=120,rows=40,control=false,resize=true,live=true,controller=null,driving=false,takeRequested=false,onTakeSent,takeover,conversation=false,onFiles}:TerminalViewProps){
@@ -19,7 +20,8 @@ export function TerminalView({id,url,label='pacer app',cols=120,rows=40,control=
  useEffect(()=>{
   if(!mount.current||!pane.current)return;
   setError('');setExitAt('');
-  const term=new Terminal({cols,rows,disableStdin:true,screenReaderMode:reader,fontFamily:getComputedStyle(mount.current).getPropertyValue('--font-mono'),fontSize:parseFloat(getComputedStyle(mount.current).getPropertyValue('--type-code-size')),scrollback:10000,convertEol:false});
+  const nonce=document.querySelector<HTMLMetaElement>('meta[name="pacer-style-nonce"]')?.content??'';
+  const term=new Terminal({documentOverride:terminalDocument(document,nonce),cols,rows,disableStdin:true,screenReaderMode:reader,fontFamily:getComputedStyle(mount.current).getPropertyValue('--font-mono').trim(),fontSize:parseFloat(getComputedStyle(mount.current).getPropertyValue('--type-code-size')),scrollback:10000,convertEol:false});
   terminal.current=term;const fit=new FitAddon();term.loadAddon(fit);term.open(mount.current);
   const applyTheme=()=>{const style=getComputedStyle(mount.current!);const token=(name:string)=>style.getPropertyValue(name).trim();term.options.theme={background:token('--surface-page'),foreground:token('--ink'),cursor:token('--ink'),selectionBackground:token('--line'),black:token('--ink'),red:token('--bad-fg'),green:token('--good-fg'),yellow:token('--warn-fg'),blue:token('--info-fg'),magenta:token('--link'),cyan:token('--info-fg'),white:token('--ink-secondary'),brightBlack:token('--ink-muted'),brightRed:token('--bad-fill'),brightGreen:token('--good-fill'),brightYellow:token('--warn-fill'),brightBlue:token('--link'),brightMagenta:token('--link'),brightCyan:token('--info-fg'),brightWhite:token('--ink')};};
   applyTheme();const observer=new MutationObserver(applyTheme);observer.observe(document.documentElement,{attributes:true,attributeFilter:['data-theme','class']});const media=matchMedia('(prefers-color-scheme: dark)');media.addEventListener('change',applyTheme);

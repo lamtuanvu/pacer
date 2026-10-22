@@ -9,6 +9,7 @@ import { StatusPill } from "../../ds/StatusPill";
 import { SectionHeading } from "../../ds/SectionHeading";
 import { LazyTerminal } from "../../term/LazyTerminal";
 import { useAttachments } from "../../model/attachments";
+import { changeConversation } from "../../model/conversation";
 import { ErrorMessage, useQuery, useTaskContext } from "../task-shared";
 import { SessionAttachments } from "./Attachments";
 
@@ -93,10 +94,11 @@ export function Conversation({
     setBusy(true);
     setError(undefined);
     try {
-      await api.call("session.end", { id: task.id, expect_rev: task.rev });
+      await changeConversation(api, task.id, "end");
       onReload();
     } catch (e) {
       setError(e);
+      onReload();
     } finally {
       setBusy(false);
     }
@@ -105,7 +107,7 @@ export function Conversation({
     setBusy(true);
     setError(undefined);
     try {
-      await api.call("session.resume", { id: task.id, expect_rev: task.rev });
+      await changeConversation(api, task.id, "resume");
       setTake(true);
       onReload();
     } catch (e) {
