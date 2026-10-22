@@ -124,7 +124,7 @@ export function SetupView({ checklist: initial }: { checklist: SetupChecklist; q
     'Summarize a short README in a scratch folder, never in your code. Review the result the way your planner will review real work.',
   ];
   function visit(id: SetupStep) { if (!busy) setCurrent(id); }
-  return <Page width="standard" className="pc-setup">
+  return <Page width="full" className="pc-setup">
     <header className="pc-setup-header"><strong>Set up pacer</strong><span className="muted" role="status">{count} of 5 done{checklist.complete ? ' · pacer is ready' : ''}</span></header>
     <div className="pc-setup-layout">
       <aside className="pc-setup-rail"><ol aria-label="Setup steps">{SETUP_STEPS.map((id, index) => {

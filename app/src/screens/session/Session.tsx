@@ -110,7 +110,7 @@ export function Session({ embedded = false, data, loading, error, initialTab, on
         control={active && session.capabilities.control} resize={active && session.capabilities.resize} live={active && session.live}
         controller={session.controller} driving={driving} takeRequested={active && takeRequested} onTakeSent={onTakeSent} takeover={takeover}/>}
   </>;
-  return <Page width="wide" embedded={embedded} className="pc-session">
+  return <Page width="full" embedded={embedded} className="pc-session">
     {!embedded && <nav aria-label="Breadcrumb" className="pc-session-breadcrumb"><AppLink to={routes.tasks()}>Tasks</AppLink></nav>}
     {loading && <LoadingState updating label="Updating session…"/>}
     {(!embedded || (active && data.stop)) && <header className="pc-session-header">

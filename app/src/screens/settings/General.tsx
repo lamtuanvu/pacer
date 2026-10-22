@@ -50,7 +50,7 @@ export function SettingsGeneral({ section, initialData = {}, query = {repo:null,
     default: content = <GeneralOverview query={query}/>;
   }
   return <DensityContext.Provider value="settings"><SettingsPageContext.Provider value={section === 'planner' ? 'pacing' : section ?? null}>
-    <Page width="standard" className="u3-settings u3-settings-page"><div className="u3-general-sections">{content}</div>
+    <Page width="full" className="u3-settings u3-settings-page"><div className="u3-general-sections">{content}</div>
       {section!=='executors'&&<p className="u3-settings-note">Changes apply on the next routing decision.</p>}
     </Page>
   </SettingsPageContext.Provider></DensityContext.Provider>;
