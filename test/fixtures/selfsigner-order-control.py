@@ -79,6 +79,23 @@ def fingerprint():
     return value
 
 
+def own_identity_probe(sha1):
+    if guard() != root or len(sha1) != 40 or any(c not in '0123456789ABCDEF' for c in sha1):
+        raise RuntimeError('own identity probe binding refused')
+    if root.resolve() != root or root.stat().st_uid != os.getuid() or root.stat().st_mode & 0o077:
+        raise RuntimeError('own identity probe root refused')
+    for name in ['cert.pem', 'test.keychain-db']:
+        info = (root / name).lstat()
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_nlink != 1 or info.st_mode & 0o077:
+            raise RuntimeError('own identity probe file refused')
+    run('own-public-der', ['/usr/bin/openssl', 'x509', '-in', str(root/'cert.pem'), '-outform', 'DER', '-out', str(root/'cert.der')])
+    executable = root / 'own-identity-probe'
+    source = Path(__file__).resolve().with_name('selfsigner-own-identity.c')
+    run('compile-own-identity-probe', ['/usr/bin/clang', '-Wno-deprecated-declarations', str(source), '-framework', 'Security', '-framework', 'CoreFoundation', '-o', str(executable)])
+    result = run('own-identity-public-api', [str(executable), str(root), sha1], False)
+    return result.returncode
+
+
 def cleanup():
     if not root.exists():
         return
@@ -144,6 +161,7 @@ else:
         results['ownedOriginalSha'] = sign('H-owned-original-sha', sha1, False, owned)
         results['ownedKeychainFirstSha'] = sign('I-owned-keychain-first-sha', sha1, True, owned)
         results['platformAfterOwnedSha'] = sign('J-platform-after-owned-sha', sha1, True)
+        results['ownIdentityPublicApi'] = own_identity_probe(sha1)
         write_receipt('comparison.json', results)
         if results['keychainFirstSha'] != 0:
             raise RuntimeError('keychain-first SHA control did not resolve signing failure')
