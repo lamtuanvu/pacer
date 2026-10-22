@@ -12,6 +12,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
+- Diagnostics groups setup issues by integration and account, with reviewed repair actions, inline progress and errors, automatic rechecks, and collapsed passed checks and technical details. The live harness can validate the fixed Codex repair in its isolated UI fixture.
+
 - `pacer watch <task-id> [--timeout <seconds>] [--json]` streams task output and state changes until settled, with newline-delimited JSON events and observation-only timeout/Ctrl-C. Planner guidance now uses watch instead of polling private logs. The additive `task.log.source` marker lets watchers reset offsets when executor rerouting changes logs.
 
 - Agent live-control commands for browser/tray, TUI and native macOS targets, with authenticated owned-window self-capture and explicit native permission setup.

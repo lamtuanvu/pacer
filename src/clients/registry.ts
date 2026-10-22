@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { z } from "zod";
+import { captureBroker } from "../desktop/capture-broker";
 import { CoreError } from "../core/errors";
 import { readJson, writeJsonAtomic } from "../fsutil";
 import type { Ctx } from "../types";
@@ -12,6 +13,7 @@ export interface RegisterOptions {
   kind: typeof CLIENT_KINDS[number];
   version: string;
   notifier?: boolean;
+  capture?: boolean;
 }
 const entrySchema = z.object({
   client_id: z.string().min(1),
@@ -31,13 +33,14 @@ function read(ctx: Ctx): ClientEntry[] {
 const live = (ctx: Ctx, entry: ClientEntry) => ctx.now - entry.heartbeatAt <= LAPSE_S;
 
 const KEEP_S = 86400;
-export function register(ctx: Ctx, options: RegisterOptions): { client_id: string; lease_s: number } {
+export function register(ctx: Ctx, options: RegisterOptions): { client_id: string; lease_s: number; capture_worker?: string } {
+  if (options.capture && options.kind !== "desktop") throw new CoreError("invalid_input", "Only desktop clients can register a capture worker");
   // Lapsed entries are kept a day so a waking client can renew, then dropped.
   const entries = read(ctx).filter(entry => ctx.now - entry.heartbeatAt <= KEEP_S);
   const client_id = randomUUID();
-  entries.push({ ...options, notifier: options.notifier ?? false, client_id, registeredAt: ctx.now, heartbeatAt: ctx.now });
+  entries.push({ kind: options.kind, version: options.version, notifier: options.notifier ?? false, client_id, registeredAt: ctx.now, heartbeatAt: ctx.now });
   writeJsonAtomic(path(ctx), entries);
-  return { client_id, lease_s: LEASE_S };
+  return { client_id, lease_s: LEASE_S, ...(options.capture ? { capture_worker: captureBroker(ctx.pacerHome).register(client_id) } : {}) };
 }
 
 export function heartbeat(ctx: Ctx, id: string): { ok: true } {

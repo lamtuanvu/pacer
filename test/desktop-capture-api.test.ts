@@ -49,6 +49,24 @@ test("image route retains service authentication and rejects foreign worker", as
   } finally { server.stop(); }
 });
 
+test("capture bootstrap is desktop-only and credentials never enter client storage or listings", async () => {
+  const { fakeCtx } = await import("./helpers");
+  const { callOp } = await import("../src/api/ops");
+  const { readFileSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const ctx = fakeCtx();
+  await expect(callOp(ctx, "client.register", { kind: "app", version: "test", capture: true })).rejects.toMatchObject({ code: "invalid_input" });
+  const client = await callOp(ctx, "client.register", { kind: "desktop", version: "test", capture: true }) as { client_id: string; capture_worker: string };
+  expect(client.capture_worker).toMatch(/^[0-9a-f]{64}$/);
+  const listed = JSON.stringify(await callOp(ctx, "client.list", {}));
+  const stored = readFileSync(join(ctx.pacerHome, "state", "clients.json"), "utf8");
+  for (const text of [listed, stored]) {
+    expect(text).not.toContain(client.capture_worker);
+    expect(text).not.toContain("capture_worker");
+    expect(text).not.toContain('"capture"');
+  }
+});
+
 test("non-ASCII worker tokens fail authorization without an internal error", () => {
   const broker = new CaptureBroker(); broker.register("a");
   rejects("not_allowed", () => broker.claim("a", "é".repeat(64)));

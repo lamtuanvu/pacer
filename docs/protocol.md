@@ -768,6 +768,9 @@ Params JSON Schema:
     },
     "consent": {
       "type": "boolean"
+    },
+    "preview_revision": {
+      "type": "string"
     }
   },
   "required": [
@@ -978,6 +981,9 @@ Params JSON Schema:
       "minLength": 1
     },
     "notifier": {
+      "type": "boolean"
+    },
+    "capture": {
       "type": "boolean"
     }
   },
