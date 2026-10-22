@@ -36,11 +36,11 @@ Claude usage requires the status-line integration to have received rate-limit da
 
 ## Execution and review
 
-`execution.backend: auto` (default) uses pacer's own supervisor through the direct backend. Set `execution.backend: orca` to run agents as supervised workers in visible Orca terminals, including agy through Orca's antigravity agent. OpenCode-routed providers require `execution.worktree: current` for Orca model selection; other placement policies fall back to direct execution.
+`execution.backend: auto` (default) uses pacer's own supervisor through the direct backend. Selecting `execution.backend: orca` also uses direct execution so pacer can enforce the permission policy below. Orca remains available for opening terminals and account sign-in.
 
 Each direct attempt records `pid`, live `stdout` and `stderr`, and `exit` under `<pacerHome>/runs/<task-id>/<attempt>/`. New task worktrees live under `<pacerHome>/worktrees/…` on branch `pacer/<task-id>`; current placement uses the selected repository. `pacer clean [--dry-run] [--force] [--json]` removes pacer-owned worktrees and run directories of settled tasks that have been reviewed, dismissed or resolved. Dirty worktrees are kept unless `--force` is given, and branches are always kept.
 
-Orca defaults to a child based on the current branch. A brief or `--worktree` flag can choose `current`, `new` or `auto`, with `--worktree-reason` explaining the choice. Concurrent activity and unsafe placement can prevent in-place execution. Inspect the returned task's placement and reported worktree before review.
+A brief or `--worktree` flag can choose `current`, `new` or `auto`, with `--worktree-reason` explaining the choice. Concurrent activity and unsafe placement can prevent in-place execution. Inspect the returned task's placement and reported worktree before review.
 
 The executor contract asks workers to stay in scope, avoid further delegation, avoid commits/pushes and run acceptance. pacer records reports, logs and any acceptance result; provider-limit detection can retry another ranked executor. Review the changes and run acceptance independently before `pacer review <id> --accept` or `--reject`.
 
@@ -102,3 +102,31 @@ Before a new attempt, Pacer refreshes sources that support a current provider co
 Credits, credit balances and measured paid consumption are separate from the configured `allow_paid` permission. Current exhaustion with `allow_paid: false` remains unavailable even if credits exist. An uncertain fallback is not permission to change `allow_paid`; its paid-spend risk remains unknown when the source cannot establish it. Reactive and unmetered executors use their declared measurement contracts instead of fabricated quota windows.
 
 Successful execution confirms availability only. Authentication/subscription failures constrain availability; a quota failure constrains budget. Timeouts and unrelated task failures do not establish either. Later applicable evidence can clear an older observed failure; explicit user blocks remain effective until removed or expired.
+
+## Permission policy
+
+Every pacer-launched agent uses its CLI's unattended permission mode, including
+interactive sessions, takeover/resume, remote execution and strategy planning:
+
+| Agent | Launch options |
+| --- | --- |
+| Codex | `--dangerously-bypass-approvals-and-sandbox`; interactive/resume also bypass trust for injected hooks |
+| Claude Code | `--dangerously-skip-permissions` |
+| Cursor | `--force --sandbox disabled` |
+| Antigravity | `--dangerously-skip-permissions`, without `--sandbox`; interactive prompts use `--prompt-interactive` |
+| OpenCode | `--auto`, with `--standalone` to keep the process environment private |
+
+Codex interactive and resumed launches pass trusted worktree and original-repository
+paths as an invocation-only TOML table, without editing native config. Pacer
+adds `--dangerously-bypass-hook-trust` when it injects its reporting hooks.
+
+OpenCode model and agent selection are merged into the child's
+`OPENCODE_CONFIG_CONTENT` so full-TUI launches work with both CLI generations.
+Native configuration files are unchanged.
+
+Cursor and OpenCode still enforce explicit deny rules. These launch options do
+not change operating system permissions or managed organization policies.
+
+Orca's worker-start API cannot carry a permission policy, so selecting the Orca
+backend (including `PACER_BACKEND=orca`) uses direct execution instead. The
+attempt log records the fallback. The direct backend owns worktree placement.

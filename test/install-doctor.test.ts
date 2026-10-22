@@ -173,7 +173,7 @@ test("renderDoctor prints exact labels and indented fixes", () => {
 test("doctor checks executor launch flags from cached five-second CLI help",async()=>{
   const ctx=fixture();const calls:string[][]=[];ctx.run=async(argv,ms)=>{
     calls.push(argv);expect(ms).toBe(5000);
-    if(argv[0]==="codex")return {code:0,stdout:"-C -s --skip-git-repo-check -o -m",stderr:""};
+    if(argv[0]==="codex")return {code:0,stdout:"-C --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check -o -m",stderr:""};
     if(argv[0]==="agy")return {code:0,stdout:"-p --sandbox --add-dir --model",stderr:""};
     return {code:0,stdout:"--agent -m --auto --title --workspace --force -p --output-format --model",stderr:""};
   };

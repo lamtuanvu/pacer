@@ -113,7 +113,7 @@ export function prepareInteractive(agent: string, dir: string, launch: Launch): 
   const hooks: Record<string, {matcher?: string; hooks: {type: string; command: string}[]}[]> = Object.fromEntries(["PermissionRequest", "Stop", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure"].map(event => [event, [{hooks: [{type: "command", command}]}]]));
   if (agent === "codex") {
     const overrides = Object.entries(hooks).flatMap(([event]) => ["-c", `hooks.${event}=[{hooks=[{type="command",command=${JSON.stringify(command)}}]}]`]);
-    return {...launch, argv: [launch.argv[0], ...overrides, ...launch.argv.slice(1)]};
+    return {...launch, argv: [launch.argv[0], "--dangerously-bypass-hook-trust", ...overrides, ...launch.argv.slice(1)]};
   }
   hooks.Elicitation = [{hooks: [{type: "command", command}]}];
   hooks.ElicitationResult = [{hooks: [{type: "command", command}]}];

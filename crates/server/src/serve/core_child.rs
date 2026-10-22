@@ -176,8 +176,15 @@ mod tests {
         let first = ready(&core).await;
         assert_eq!(first.0, 12345);
         assert_eq!(first.1.len(), 64);
-        tokio::time::sleep(Duration::from_millis(300)).await;
-        assert!(core.target().await.is_none());
+        // Observe the supervisor clearing the exited generation instead of assuming
+        // the child and its waiter run within a fixed CI scheduling window.
+        timeout(Duration::from_secs(4), async {
+            while core.target().await.is_some() {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .unwrap_or_else(|_| panic!("exited core generation was not cleared"));
         let second = ready(&core).await;
         assert_ne!(first.1, second.1);
         core.shutdown().await;

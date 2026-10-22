@@ -240,7 +240,10 @@ async function startTakeoverRun(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, pr
     const env = executorEnv(ctx.env, await providerEnv(ctx,cfg), task.id);
     const agent = cfg.via === "opencode" ? "opencode" : parseRunnerId(cfg.id)?.agent ?? cfg.id;
     if (agent === "codex") await requireCodexInteractive(ctx,env);
-    const launch = prepareInteractive(agent,dir,resumeLaunchFor(cfg,request.sessionId,run.workdir,dir));
+    // Codex resolves linked-worktree trust against the main repository root.
+    const trust = agent === "codex" ? await gitInfo(ctx.run, run.workdir) : null;
+    const trustRoot = trust && !("error" in trust) ? trust.main : task.brief.repo;
+    const launch = prepareInteractive(agent,dir,resumeLaunchFor(cfg,request.sessionId,run.workdir,dir,trustRoot));
     env.PACER_HOME = ctx.pacerHome; env.PACER_RUN_DIR = dir; env.PACER_TRANSCRIPT_REPORT = join(dir,"transcript-report.md");
     mkdirSync(dir,{recursive:true,mode:0o700});
     writeFileSync(join(dir,"argv"),launch.argv.join(" "),{mode:0o600});
@@ -358,7 +361,7 @@ async function runAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, 
       launch = await prepareAgentSession(ctx, {agent: cfg.via === "opencode" ? "opencode" : agent, version: number, request,
         workspace: workdir, runDir: rdir, ...(task.sessionDraftId ? {attachmentDir: attachmentDirectory(ctx, task.sessionDraftId)} : {}), attachments: resolveAttachments(ctx, task.id), permissionPolicy: "native",
         ...(task.conversation?.agentSessionId ? {sessionId: task.conversation.agentSessionId} : {}), ...(cfg.model ? {model: cfg.model} : {})});
-    } else launch = launchFor(cfg, prompt + instructions, workdir, rdir, task.id, agentSession?.id);
+    } else launch = launchFor(cfg, prompt + instructions, workdir, rdir, task.id, agentSession?.id, "error" in git ? task.brief.repo : git.main);
     if (interactive) {
       const agent = parseRunnerId(cfg.id)?.agent ?? cfg.id;
       if (agent === "codex") await requireCodexInteractive(ctx, env);

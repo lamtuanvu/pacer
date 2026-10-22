@@ -25,6 +25,10 @@ test.skipIf(!existsSync(executable))("real xterm retains monospace geometry and 
     const page = await browser.newPage();
     await page.goto(`http://127.0.0.1:${server.port}/`);
     await page.waitForFunction(() => document.documentElement.dataset.ready === "true");
+    // xterm's write callback acknowledges parsing, not the next DOM paint.
+    // Wait for the actual ANSI cell before inspecting computed renderer styles.
+    await page.waitForFunction(() => [...document.querySelectorAll(".xterm-rows span")]
+      .some(span => span.textContent?.includes("ANSI red") && getComputedStyle(span).color === "rgb(204, 0, 0)"));
     const style = await page.locator(".xterm-rows").evaluate(element => {
       const computed = getComputedStyle(element);
       const colored = [...element.querySelectorAll("span")].map(span => getComputedStyle(span).color);
