@@ -42,6 +42,11 @@ Paired startup sends the listener and helper channel together in one descriptor-
 
 Root also directly parents the original immutable recovery helper. Its private helper-control channel accepts only bounded fixed helper requests, with role, hash, manifest/journal and static/dynamic image verification; it is not an API or environment selector. Root writes the existing bootstrap and invokes fixed `--ota-pipe`; paired mode never falls back to Core spawning an old helper. Evidence must show the old helper's unchanged bytes and actual Root parent, alongside original desktop/helper kernel audit identity.
 
+Root retains the helper's three transferred I/O/control descriptors until Core
+validates them and acknowledges receipt within the existing request deadline.
+Any positive transfer may already have handed over authority: the independent
+helper reaper and capacity permit survive receipt failure, timeout or cancellation.
+
 Handed helpers may hold durable recovery authorization and must survive control EOF, Core restart and Root service retirement. Pre-handoff failures terminate/reap; explicit abort uses SIGTERM to the owned child. The four-helper limit belongs to Root across core generations and is released only when each actual helper exits. Do not infer public update completion from a committed native journal: require fresh outcome/readiness and cleanup proof. Bounded asynchronous channel deadlines do not strictly preempt synchronous filesystem/signature validation.
 
 For `serve --port 0`, original argv retains literal zero while evidence records the actual nonzero bound port. Registration and native listener checks use the actual port and exact recorded launch identity. Do not rewrite evidence argv or bypass public guards.

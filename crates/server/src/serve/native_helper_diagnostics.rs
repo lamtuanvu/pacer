@@ -21,6 +21,7 @@ pub enum Stage {
     Bootstrap,
     Pipes,
     Handoff,
+    Receipt,
 }
 #[derive(Clone, Copy)]
 pub enum Event {
@@ -260,6 +261,7 @@ impl Stage {
             Self::Bootstrap => "bootstrap",
             Self::Pipes => "pipes",
             Self::Handoff => "handoff",
+            Self::Receipt => "receipt",
         }
     }
 }
@@ -326,6 +328,7 @@ fn core_stage(value: u8) -> Option<&'static str> {
         14 => "exit-socket",
         15 => "descriptor-flags",
         16 => "exit-option",
+        17 => "receipt",
         _ => return None,
     })
 }

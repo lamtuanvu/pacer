@@ -304,6 +304,19 @@ int pacer_request_helper(int channel, const unsigned char *json, unsigned int le
     if (pacer_descriptor_flags(fds[2]) < 0 || setsockopt(fds[2], 0xffff, 0x1022, &yes, sizeof(yes)) < 0) {
         pacer_failure(diagnostic, 16, pacer_error_category(*__error())); goto fail;
     }
+    /* Receipt is not helper authorization. Keep the original request deadline
+     * and publish no caller-owned FD until the parent can release its copies. */
+    for (;;) {
+        long sent;
+        int error;
+        if (pacer_wait(channel, 4, deadline, diagnostic, 17) < 0) goto fail;
+        sent = send(channel, "R", 1, 0x80);
+        if (sent == 1) break;
+        if (sent == 0) { pacer_failure(diagnostic, 17, 13); goto fail; }
+        error = *__error();
+        if (error == 4 || error == 35) continue;
+        pacer_failure(diagnostic, 17, pacer_error_category(error)); goto fail;
+    }
     for (i = 0; i < 3; i++) out[i] = fds[i];
     return (int)pid;
 fail:
