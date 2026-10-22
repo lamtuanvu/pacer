@@ -229,7 +229,7 @@ else:
             options = ['--keychain', keychain, '--sign', selector] if keychain_first else ['--sign', selector, '--keychain', keychain]
             result = run(label, ['/usr/bin/codesign', '--force', '--timestamp=none'] + options + ['--identifier', 'dev.pacer.cli', str(target)], False)
             if result.returncode == 0:
-                run(label+'-verify-pin', ['/usr/bin/codesign', '--verify', '--strict', '-R', 'identifier "dev.pacer.cli" and certificate leaf = H"'+sha1+'"', str(target)])
+                run(label+'-verify-pin', ['/usr/bin/codesign', '--verify', '--strict', '-R', '=identifier "dev.pacer.cli" and certificate leaf = H"'+sha1+'"', str(target)])
             return result.returncode
         run('own-identities', ['/usr/bin/security', 'find-identity', '-p', 'codesigning', keychain])
         results = {
@@ -261,7 +261,7 @@ else:
         verbose = run('owned-codesign-verbose-six', ['/usr/bin/codesign', '--verbose=6', '--force', '--timestamp=none', '--keychain', keychain, '--sign', sha1, '--identifier', 'dev.pacer.cli', str(diagnostic)], False)
         results['ownedVerboseSix'] = verbose.returncode
         if verbose.returncode == 0:
-            run('owned-verbose-verify-pin', ['/usr/bin/codesign', '--verify', '--strict', '-R', 'identifier "dev.pacer.cli" and certificate leaf = H"'+sha1+'"', str(diagnostic)])
+            run('owned-verbose-verify-pin', ['/usr/bin/codesign', '--verify', '--strict', '-R', '=identifier "dev.pacer.cli" and certificate leaf = H"'+sha1+'"', str(diagnostic)])
         if os.environ.get('PACER_OWN_CERT_SEARCH_CONTROL') == '1':
             results['searchListControl'] = search_control(sign, sha1, owned)
         write_receipt('comparison.json', results)
