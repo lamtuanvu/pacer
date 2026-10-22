@@ -133,6 +133,7 @@ class FailureTests(unittest.TestCase):
             self.assertEqual(self.request(a.fileno(), b'{}', 2, out), 1234)
             t.join(2)
             self.assertFalse(t.is_alive())
+            self.assertEqual(b.recv(1), b'R')
             b.setblocking(False)
             with self.assertRaises(BlockingIOError):
                 b.recv(4)
