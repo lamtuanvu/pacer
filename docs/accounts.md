@@ -266,6 +266,13 @@ to `pacer statusline` with that account's `CLAUDE_CONFIG_DIR` set. Pacer does no
 run idle background prompts to refresh usage. A reading ages when there are no
 new Claude turns, and an expired window stays unknown until new telemetry arrives.
 
+After a task finishes, pacer refreshes the executed account's available usage
+source before recording `usageAtEnd`. Codex uses its session logs. Metered
+OpenCode accounts query `opencode stats`, and supported quota endpoints query
+their provider CLI. Those commands may still report delayed provider data.
+Cursor and Antigravity only report observed limit hits; pacer does not invent a
+numeric quota percentage for them. Unmetered accounts have no quota to refresh.
+
 ### Sign-in state
 
 `signedIn` is the account's local sign-in on this machine. One check supplies it
