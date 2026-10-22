@@ -34,3 +34,5 @@
 /* Match shell chrome: desktop top bar, tablet rail, then touch top bar. */
 @media(max-width:767px){.pc-session-main>.pc-tabs{top:var(--size-56)}}
 .pc-app--narrow .pc-session-main>.pc-tabs{top:max(var(--size-60),calc(var(--control-touch) + var(--space-2) * 2 + var(--size-1)))}
+/* The task frame owns sticky navigation when Session is embedded. */
+.pc-detail-panel .pc-session-main>.pc-tabs{position:static}
