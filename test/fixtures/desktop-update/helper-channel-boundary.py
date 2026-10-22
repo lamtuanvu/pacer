@@ -107,7 +107,7 @@ _Static_assert(CMSG_LEN(0)==12, "ancillary header ABI");
    def server():
     try:
      size=struct.unpack('>I',b.recv(4,socket.MSG_WAITALL))[0];json.loads(b.recv(size,socket.MSG_WAITALL))
-     self.rights(b,b'H'+struct.pack('>I',os.getpid()),[w,r2,x.fileno()]);os.close(w);os.close(r2);x.close()
+     self.rights(b,b'H'+struct.pack('>I',os.getpid()),[w,r2,x.fileno()]);self.assertEqual(b.recv(1),b'R');os.close(w);os.close(r2);x.close()
      if mode=='abort':self.assertEqual(y.recv(1),b'A');output=b''
      else:
       output=b''
