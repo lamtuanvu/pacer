@@ -154,12 +154,11 @@ test("paired metadata revalidation refuses redirected or oversized files", () =>
   expect(() => verifyPairedNativeServiceOwner(f.authority, f.owner, 7433, f.metadata)).toThrow();
 });
 
-test("paired helper bootstrap names Root while child-parent admission still requires Core", async () => {
+test("paired helpers use the Root spawn capability and reject a Core parent", async () => {
   const f = fixture();
   const { createNativePipeFactory } = await import("../src/update/desktop/native-provider");
   const { inspectInstallation } = await import("../src/update/desktop/identity");
-  const { readdirSync } = await import("node:fs");
-  const { FrameDecoder } = await import("../src/update/desktop/adapter");
+  const { FrameDecoder, encodeFrame } = await import("../src/update/desktop/adapter");
   const helper = join(dirname(f.front), "pacer-update-helper");
   writeFileSync(helper, `#!${process.execPath}
 import { readSync, writeSync } from "node:fs";
@@ -177,17 +176,34 @@ writeSync(1, header); writeSync(1, body);
 `);
   const installation = await inspectInstallation(f.ctx, f.app);
   const session = { installation, service: f.root, alive: () => true };
-  let parent = process.pid;
+  let parent = f.root.pid, launches = 0, spawnedHelper = "";
   const factory = createNativePipeFactory(() => f.ctx, {
     sessions: () => [session], reverify: async () => {},
   } as never, {
     verifyStatic: () => {},
     verifyProcess: (identity: typeof f.own) => {
-      const commands = join(f.ctx.pacerHome, "desktop-updates/native", installation.id, "commands");
-      const directory = readdirSync(commands).at(-1)!;
-      return { process: identity, parentPid: parent, executable: join(commands, directory, "pacer-update-helper") };
+      return { process: identity, parentPid: parent, executable: spawnedHelper };
     },
-  } as never, f.owner);
+  } as never, f.owner, {
+    spawn(request) {
+      launches++;
+      spawnedHelper = request.path;
+      expect(request).toMatchObject({ schema: 1, version: installation.version });
+      expect(request.sha256).toMatch(/^[a-f0-9]{64}$/);
+      const child = Bun.spawn([request.path, "--ota-pipe"], { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+      // This boundary double models Root's already-sent fixed bootstrap. The
+      // factory must preserve it and require the independently verified parent.
+      child.stdin.write(encodeFrame({ schema: 1, kind: "helper-bootstrap", service: f.root, executable: f.front }));
+      return { pid: child.pid, stdout: child.stdout, exited: child.exited,
+        stdin: new WritableStream<Uint8Array>({ write(bytes) { child.stdin.write(bytes); }, close() { child.stdin.end(); } }),
+        abort() { child.kill(); } };
+    },
+  });
+  const unavailable = createNativePipeFactory(() => f.ctx, {
+    sessions: () => [session], reverify: async () => {},
+  } as never, { verifyStatic() {} } as never, f.owner);
+  await expect(unavailable.open(installation.id, new AbortController().signal)).rejects.toThrow();
+  expect(launches).toBe(0);
   const pipe = await factory.open(installation.id, new AbortController().signal);
   try {
     const bytes = new Uint8Array(await new Response(pipe.stdout).arrayBuffer());
@@ -195,7 +211,8 @@ writeSync(1, header); writeSync(1, body);
     expect(bootstrap).toMatchObject({ kind: "helper-bootstrap", service: f.root, executable: f.front });
     expect(await pipe.exited).toBe(0);
   } finally { pipe.abort(); }
-  parent = f.root.pid;
+  expect(launches).toBe(1);
+  parent = process.pid;
   await expect(factory.open(installation.id, new AbortController().signal)).rejects.toThrow();
 });
 
