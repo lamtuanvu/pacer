@@ -4,6 +4,7 @@ use std::path::Path;
 pub enum Stage {
     Channel,
     ReadFrame,
+    ReadFirstByte,
     Request,
     Capacity,
     GenerationBefore,
@@ -28,6 +29,20 @@ pub enum Event {
     Handoff,
     HandoffUncertain,
     WriteError,
+    WriteEpipe,
+    WriteWouldBlock,
+    WriteBadFd,
+    WriteInvalid,
+    WritePermission,
+    WriteAccess,
+    WriteMessageSize,
+    WriteConnectionReset,
+    WriteNoBuffers,
+    WriteNotSocket,
+    WriteInterrupted,
+    WriteOther,
+    WriteZero,
+    WriteShort,
     End,
 }
 use nix::{
@@ -186,24 +201,37 @@ impl Diagnostics {
             core,
         }
     }
-    pub fn record(&self, stage: Stage, event: Event) {
+    fn append_record(&self, value: serde_json::Value) {
         let Some(log) = &self.log else { return };
-        let stamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_millis().min(u64::MAX as u128) as u64)
-            .unwrap_or(0);
-        let value = serde_json::json!({"at_ms":stamp,"root_pid":self.root,"core_pid":self.core,"stage":stage.name(),"event":event.name()});
         if let Ok(mut bytes) = serde_json::to_vec(&value) {
             bytes.push(b'\n');
             let _ = log.append(&bytes);
         }
     }
+    pub fn request_started(&self, started_at_ms: u64) {
+        let stamp = now_ms();
+        let age = i64::try_from(stamp)
+            .unwrap_or(i64::MAX)
+            .saturating_sub(i64::try_from(started_at_ms).unwrap_or(i64::MAX));
+        self.append_record(serde_json::json!({"at_ms":stamp,"root_pid":self.root,"core_pid":self.core,"stage":"request","event":"request-timing","started_at_ms":started_at_ms,"request_age_ms":age.clamp(-86_400_000,86_400_000)}));
+    }
+    pub fn record(&self, stage: Stage, event: Event) {
+        let stamp = now_ms();
+        self.append_record(serde_json::json!({"at_ms":stamp,"root_pid":self.root,"core_pid":self.core,"stage":stage.name(),"event":event.name()}));
+    }
+}
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis().min(u64::MAX as u128) as u64)
+        .unwrap_or(0)
 }
 impl Stage {
     fn name(self) -> &'static str {
         match self {
             Self::Channel => "channel",
             Self::ReadFrame => "read-frame",
+            Self::ReadFirstByte => "read-first-byte",
             Self::Request => "request",
             Self::Capacity => "capacity",
             Self::GenerationBefore => "generation-before",
@@ -224,6 +252,22 @@ impl Stage {
     }
 }
 impl Event {
+    pub fn write_failure(error: &io::Error) -> Self {
+        match error.raw_os_error() {
+            Some(nix::libc::EPIPE) => Self::WriteEpipe,
+            Some(nix::libc::EAGAIN) => Self::WriteWouldBlock,
+            Some(nix::libc::EBADF) => Self::WriteBadFd,
+            Some(nix::libc::EINVAL) => Self::WriteInvalid,
+            Some(nix::libc::EPERM) => Self::WritePermission,
+            Some(nix::libc::EACCES) => Self::WriteAccess,
+            Some(nix::libc::EMSGSIZE) => Self::WriteMessageSize,
+            Some(nix::libc::ECONNRESET) => Self::WriteConnectionReset,
+            Some(nix::libc::ENOBUFS) => Self::WriteNoBuffers,
+            Some(nix::libc::ENOTSOCK) => Self::WriteNotSocket,
+            Some(nix::libc::EINTR) => Self::WriteInterrupted,
+            _ => Self::WriteOther,
+        }
+    }
     fn name(self) -> &'static str {
         match self {
             Self::Enter => "enter",
@@ -231,6 +275,20 @@ impl Event {
             Self::Handoff => "handoff",
             Self::HandoffUncertain => "handoff-uncertain",
             Self::WriteError => "write-error",
+            Self::WriteEpipe => "write-epipe",
+            Self::WriteWouldBlock => "write-would-block",
+            Self::WriteBadFd => "write-bad-fd",
+            Self::WriteInvalid => "write-invalid",
+            Self::WritePermission => "write-permission",
+            Self::WriteAccess => "write-access",
+            Self::WriteMessageSize => "write-message-size",
+            Self::WriteConnectionReset => "write-connection-reset",
+            Self::WriteNoBuffers => "write-no-buffers",
+            Self::WriteNotSocket => "write-not-socket",
+            Self::WriteInterrupted => "write-interrupted",
+            Self::WriteOther => "write-other",
+            Self::WriteZero => "write-zero",
+            Self::WriteShort => "write-short",
             Self::End => "end",
         }
     }
