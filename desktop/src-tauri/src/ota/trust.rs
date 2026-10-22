@@ -249,9 +249,23 @@ impl ReleaseTrust {
             Flags, GuestAttributes, SecCode, SecRequirement,
         };
         let before = super::native::process_details(expected.pid)
-            .map_err(|_| OtaError::Identity)?
-            .ok_or(OtaError::Identity)?;
+            .map_err(|_error| {
+                #[cfg(test)]
+                eprintln!(
+                    "trust-test dynamic before-process-details errno={:?} kind={:?}",
+                    _error.raw_os_error(),
+                    _error.kind()
+                );
+                OtaError::Identity
+            })?
+            .ok_or_else(|| {
+                #[cfg(test)]
+                eprintln!("trust-test dynamic before-process-absent");
+                OtaError::Identity
+            })?;
         if &before.identity != expected || before.uid != unsafe { libc::geteuid() } {
+            #[cfg(test)]
+            eprintln!("trust-test dynamic before-identity-or-uid");
             return Err(OtaError::Identity);
         }
         if self
@@ -259,26 +273,52 @@ impl ReleaseTrust {
             .as_ref()
             .is_some_and(|fixture| !fixture.permits_path(&before.executable))
         {
+            #[cfg(test)]
+            eprintln!("trust-test dynamic fixture-path");
             return Err(OtaError::Identity);
         }
-        let requirement: SecRequirement = self
-            .requirement(role)
-            .parse()
-            .map_err(|_| OtaError::Identity)?;
+        let requirement: SecRequirement = self.requirement(role).parse::<SecRequirement>().map_err(|_error| {
+            #[cfg(test)]
+            eprintln!("trust-test dynamic requirement osstatus={}", _error.code());
+            OtaError::Identity
+        })?;
         let mut attributes = GuestAttributes::new();
         attributes.set_pid(i32::try_from(expected.pid).map_err(|_| OtaError::Identity)?);
         let token = audit_token.map(|bytes| CFData::from_buffer(bytes));
         if let Some(token) = token.as_ref() {
             attributes.set_audit_token(token.as_concrete_TypeRef());
         }
-        let code = SecCode::copy_guest_with_attribues(None, &attributes, Flags::NONE)
-            .map_err(|_| OtaError::Identity)?;
+        let code = SecCode::copy_guest_with_attribues(None, &attributes, Flags::NONE).map_err(
+            |_error| {
+                #[cfg(test)]
+                eprintln!("trust-test dynamic guest-lookup osstatus={}", _error.code());
+                OtaError::Identity
+            },
+        )?;
         code.check_validity(Flags::NONE, &requirement)
-            .map_err(|_| OtaError::Identity)?;
+            .map_err(|_error| {
+                #[cfg(test)]
+                eprintln!("trust-test dynamic validity osstatus={}", _error.code());
+                OtaError::Identity
+            })?;
         let after = super::native::process_details(expected.pid)
-            .map_err(|_| OtaError::Identity)?
-            .ok_or(OtaError::Identity)?;
+            .map_err(|_error| {
+                #[cfg(test)]
+                eprintln!(
+                    "trust-test dynamic after-process-details errno={:?} kind={:?}",
+                    _error.raw_os_error(),
+                    _error.kind()
+                );
+                OtaError::Identity
+            })?
+            .ok_or_else(|| {
+                #[cfg(test)]
+                eprintln!("trust-test dynamic after-process-absent");
+                OtaError::Identity
+            })?;
         if before != after {
+            #[cfg(test)]
+            eprintln!("trust-test dynamic after-details-changed");
             return Err(OtaError::Identity);
         }
         Ok(VerifiedProcess { details: after })
@@ -430,13 +470,44 @@ mod tests {
             Some(signer)
         }
         fn sign(&self, file: &Path, identifier: &str) -> bool {
-            std::process::Command::new("/usr/bin/codesign")
-                .args(["--force", "--timestamp=none", "--sign", &self.sha1, "--keychain"])
+            let result = std::process::Command::new("/usr/bin/codesign")
+                .args([
+                    "--force",
+                    "--timestamp=none",
+                    "--sign",
+                    &self.sha1,
+                    "--keychain",
+                ])
                 .arg(&self.keychain)
                 .args(["--identifier", identifier])
                 .arg(file)
-                .output()
-                .is_ok_and(|o| o.status.success())
+                .output();
+            match result {
+                Ok(output) => {
+                    if !output.status.success() {
+                        let redacted = String::from_utf8_lossy(&output.stderr)
+                            .replace(&*self.dir.path().to_string_lossy(), "<fixture>");
+                        let mut end = redacted.len().min(4096);
+                        while !redacted.is_char_boundary(end) {
+                            end -= 1;
+                        }
+                        let stderr = &redacted[..end];
+                        eprintln!(
+                            "trust-test codesign status={} stderr={stderr:?}",
+                            output.status
+                        );
+                    }
+                    output.status.success()
+                }
+                Err(error) => {
+                    eprintln!(
+                        "trust-test codesign spawn errno={:?} kind={:?}",
+                        error.raw_os_error(),
+                        error.kind()
+                    );
+                    false
+                }
+            }
         }
     }
     #[cfg(target_os = "macos")]
