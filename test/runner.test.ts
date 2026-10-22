@@ -96,6 +96,18 @@ test("first executor in priority order succeeds: done with verification", async 
   expect(r.attempts.length).toBe(1);
 });
 
+test("task completion refreshes readable account usage after a turn", async () => {
+  for (const [executor, expected] of [["codex", ["codex"]], ["cursor", []]] as const) {
+    const ctx = fakeCtx();
+    const t = newTask(ctx, {requestedExecutor: executor});
+    const d = deps({[executor]: outcomeFor(executor, 0)});
+    const opts: unknown[] = [];
+    d.computeStatus = async (_ctx, _strategy, options) => { opts.push(options); return status(); };
+    await runTask(ctx, t.id, d);
+    expect(opts.at(-1)).toMatchObject({refreshAccounts: expected});
+  }
+});
+
 test("limit falls back and marks exhausted", async () => {
   const ctx = fakeCtx({ now: 1000 });
   const t = newTask(ctx);

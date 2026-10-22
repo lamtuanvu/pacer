@@ -39,6 +39,7 @@ import { remoteExclusion } from "../remote/eligibility";
 import { resolveRunner } from "../config/runner-id";
 import { markAuthFailed, attemptAuthError } from "../usage/auth";
 import { markExhausted } from "../usage/reactive";
+import { usageRefreshCapability } from "../usage";
 import { listTasksWhere, readTask, updateTask } from "./store";
 import { resolvePlacement, TERMINAL_STATES, type AttemptUsage, type RoutingNote, type TaskRecord, type TaskResult, type Verification } from "./types";
 
@@ -415,7 +416,8 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
       }
       out.attempt.routing = routing;
       out.attempt.usageAtStart = usageAtStart;
-      out.attempt.usageAtEnd = usage(await safe(() => deps.computeStatus({ ...ctx, now: Date.now() / 1000 }, s), undefined));
+      const refreshAccounts = s.accounts[account] && usageRefreshCapability(s.accounts[account]) !== "unavailable" ? [account] : [];
+      out.attempt.usageAtEnd = usage(await safe(() => deps.computeStatus({ ...ctx, now: Date.now() / 1000 }, s, {refreshAccounts}), undefined));
       attemptedBackend = out.backend ?? attemptedBackend;
       task = updateTask(ctx, id, (t) => {
         t.attempts.push(out.attempt);
