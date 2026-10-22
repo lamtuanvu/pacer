@@ -1,9 +1,9 @@
 #!/bin/sh
-# Build the unsigned Linux AppImage and .deb with the real pacer CLI in both.
+# Build the unsigned Linux AppImage and .deb with the real pacer and pacer-core siblings in both.
 #
 # linuxdeploy (AppImage only) rewrites every ELF in usr/bin with patchelf,
-# which corrupts the Bun-compiled CLI (#217). The AppImage is built around a
-# placeholder and repacked with the real CLI; the .deb takes it directly.
+# which corrupts the Bun-compiled core (#217). The AppImage is built around
+# placeholders for both siblings and repacked with the real pair; the .deb takes it directly.
 #
 #   build-linux-bundles.sh <pacer CLI> [expected version] [rust target triple]
 #
@@ -18,22 +18,36 @@ if [ "$#" -lt 1 ] || [ "$#" -gt 3 ]; then
 fi
 desktop=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cli=$(CDPATH= cd -- "$(dirname -- "$1")" && pwd)/$(basename -- "$1")
+cli_name=$(basename -- "$cli")
+case "$cli_name" in
+  pacer-*) core="$(dirname -- "$cli")/pacer-core-${cli_name#pacer-}" ;;
+  *) core="$(dirname -- "$cli")/pacer-core" ;;
+esac
+for payload in "$cli" "$core"; do
+  [ -f "$payload" ] && [ -x "$payload" ] || { echo "build-linux-bundles: missing executable: $payload" >&2; exit 1; }
+done
 target=${3:-}
-version=${2:-$(HOME=$(mktemp -d) "$cli" --version | sed 's/^pacer //')}
+smoke_home=$(mktemp -d)
+trap 'rm -rf "$smoke_home"' EXIT
+version=${2:-$(HOME="$smoke_home" PACER_HOME="$smoke_home/.pacer" "$cli" --version | sed 's/^pacer //')}
+for payload in "$cli" "$core"; do
+  got=$(HOME="$smoke_home" PACER_HOME="$smoke_home/.pacer" "$payload" --version)
+  [ "$got" = "pacer $version" ] || { echo "build-linux-bundles: $payload reports '$got', expected 'pacer $version'" >&2; exit 1; }
+done
 target_args=${target:+--target $target}
 bundle_dir="$desktop/src-tauri/target/${target:+$target/}release/bundle"
 
 placeholder=$(mktemp)
-trap 'rm -f "$placeholder"' EXIT
+trap 'rm -f "$placeholder"; rm -rf "$smoke_home"' EXIT
 printf '#!/bin/sh\necho "pacer: placeholder CLI; the AppImage build did not repack it" >&2\nexit 1\n' > "$placeholder"
 chmod 0755 "$placeholder"
 
 cd "$desktop"
-TAURI_TARGET_TRIPLE=$target ./scripts/stage-cli.sh "$placeholder" >/dev/null
+TAURI_TARGET_TRIPLE=$target ./scripts/stage-cli.sh "$placeholder" "$placeholder" >/dev/null
 # shellcheck disable=SC2086 # target_args is empty or two words
 bunx --no-install tauri build $target_args --bundles appimage --no-sign
 
-TAURI_TARGET_TRIPLE=$target ./scripts/stage-cli.sh "$cli" >/dev/null
+TAURI_TARGET_TRIPLE=$target ./scripts/stage-cli.sh "$cli" "$core" >/dev/null
 # shellcheck disable=SC2086
 bunx --no-install tauri build $target_args --bundles deb --no-sign
 
