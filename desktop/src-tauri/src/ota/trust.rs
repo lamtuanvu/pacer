@@ -456,10 +456,14 @@ mod tests {
         dir: tempfile::TempDir,
         keychain: std::path::PathBuf,
         sha1: String,
+        openssl: &'static str,
     }
     #[cfg(target_os = "macos")]
     impl SelfSigner {
         fn new() -> Option<Self> {
+            Self::with_openssl("openssl")
+        }
+        fn with_openssl(openssl: &'static str) -> Option<Self> {
             use std::process::Command;
             let ok = |c: &mut Command| c.output().ok().filter(|o| o.status.success());
             let dir = tempfile::tempdir().ok()?;
@@ -469,16 +473,16 @@ mod tests {
                 "[req]\ndistinguished_name=dn\nx509_extensions=ext\nprompt=no\n[dn]\nCN=pacer trust test\n[ext]\nbasicConstraints=critical,CA:false\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=critical,codeSigning\n",
             )
             .ok()?;
-            ok(Command::new("openssl").args(["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "2"]).arg("-keyout").arg(p("key.pem")).arg("-out").arg(p("cert.pem")).arg("-config").arg(p("cs.cnf")))?;
-            ok(Command::new("openssl").args(["pkcs12", "-export", "-legacy", "-passout", "pass:test"]).arg("-inkey").arg(p("key.pem")).arg("-in").arg(p("cert.pem")).arg("-out").arg(p("id.p12")))
-                .or_else(|| ok(Command::new("openssl").args(["pkcs12", "-export", "-passout", "pass:test"]).arg("-inkey").arg(p("key.pem")).arg("-in").arg(p("cert.pem")).arg("-out").arg(p("id.p12"))))?;
+            ok(Command::new(openssl).args(["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "2"]).arg("-keyout").arg(p("key.pem")).arg("-out").arg(p("cert.pem")).arg("-config").arg(p("cs.cnf")))?;
+            ok(Command::new(openssl).args(["pkcs12", "-export", "-legacy", "-passout", "pass:test"]).arg("-inkey").arg(p("key.pem")).arg("-in").arg(p("cert.pem")).arg("-out").arg(p("id.p12")))
+                .or_else(|| ok(Command::new(openssl).args(["pkcs12", "-export", "-passout", "pass:test"]).arg("-inkey").arg(p("key.pem")).arg("-in").arg(p("cert.pem")).arg("-out").arg(p("id.p12"))))?;
             let keychain = p("test.keychain-db");
             ok(Command::new("security").args(["create-keychain", "-p", "test"]).arg(&keychain))?;
-            let mut signer = Self { dir, keychain, sha1: String::new() };
+            let mut signer = Self { dir, keychain, sha1: String::new(), openssl };
             ok(Command::new("security").args(["unlock-keychain", "-p", "test"]).arg(&signer.keychain))?;
             ok(Command::new("security").arg("import").arg(signer.dir.path().join("id.p12")).arg("-k").arg(&signer.keychain).args(["-P", "test", "-T", "/usr/bin/codesign"]))?;
             ok(Command::new("security").args(["set-key-partition-list", "-S", "apple-tool:,apple:", "-s", "-k", "test"]).arg(&signer.keychain))?;
-            let fingerprint = ok(Command::new("openssl").args(["x509", "-noout", "-fingerprint", "-sha1", "-in"]).arg(signer.dir.path().join("cert.pem")))?;
+            let fingerprint = ok(Command::new(openssl).args(["x509", "-noout", "-fingerprint", "-sha1", "-in"]).arg(signer.dir.path().join("cert.pem")))?;
             let text = String::from_utf8(fingerprint.stdout).ok()?;
             signer.sha1 = text.trim().rsplit('=').next()?.replace(':', "");
             Some(signer)
@@ -525,12 +529,12 @@ mod tests {
             );
             self.signing_diagnostic(
                 "fixture-certificate",
-                Command::new("openssl")
+                Command::new(self.openssl)
                     .args(["x509", "-noout", "-fingerprint", "-sha1", "-subject", "-in"])
                     .arg(self.dir.path().join("cert.pem")),
             );
-            self.signing_diagnostic("openssl-path", Command::new("/usr/bin/which").arg("openssl"));
-            self.signing_diagnostic("openssl-version", Command::new("openssl").arg("version"));
+            self.signing_diagnostic("openssl-path", Command::new("/usr/bin/which").arg(self.openssl));
+            self.signing_diagnostic("openssl-version", Command::new(self.openssl).arg("version"));
         }
         fn sign(&self, file: &Path, identifier: &str) -> bool {
             let result = std::process::Command::new("/usr/bin/codesign")
@@ -582,6 +586,20 @@ mod tests {
                 .arg(&self.keychain)
                 .output();
         }
+    }
+    // Diagnostic control: same fixture recipe, only the OpenSSL executable differs.
+    // Keep the original PATH-resolved test below unchanged to retain its failure.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn system_openssl_fixture_signing_control() {
+        let signer = SelfSigner::with_openssl("/usr/bin/openssl")
+            .expect("system OpenSSL fixture creation must succeed");
+        let binary = signer.dir.path().join("system-openssl-control");
+        std::fs::copy("/usr/bin/true", &binary).unwrap();
+        assert!(signer.sign(&binary, CLI_ID));
+        let trust = ReleaseTrust::from_production(&public_key(), None, Some(&signer.sha1))
+            .unwrap();
+        assert!(trust.verify_static(&binary, CodeRole::Cli).is_ok());
     }
     #[cfg(target_os = "macos")]
     #[test]
