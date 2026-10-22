@@ -15,9 +15,9 @@ function proof(): PairedOwnerProof {
 test("paired service owner is the verified direct parent while the core remains the transport", () => {
   const p = proof();
   expect(pairedServiceOwner(p)).toEqual({ process: p.front.process, executable: p.front.executable,
-    argv: p.argv, transport: p.core.process, appPath: "/Applications/pacer.app" });
+    argv: [...p.argv], transport: p.core.process, appPath: "/Applications/pacer.app" });
   p.argv = [...p.argv, "--port", "7433"];
-  expect(pairedServiceOwner(p).argv).toEqual(p.argv);
+  expect(pairedServiceOwner(p).argv).toEqual([...p.argv]);
 });
 
 test("paired owner rejects wrong process relationships, paths and registration arguments", () => {
