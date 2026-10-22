@@ -61,28 +61,28 @@ test("writer creates a private config and replaces stale contents", async () => 
 test("runnerEnv reads keys at launch and repairs missing or stale config", async () => {
   const {ctx, strategy} = setup(); const runner = strategy.runners["opencode#test-api"];
   const env = await runnerEnv(ctx, runner);
-  expect(env).toEqual({OPENCODE_CONFIG: join(ctx.pacerHome, "opencode", "opencode.json"), PACER_KEY_TEST_API: secret});
+  expect(env).toEqual({OPENCODE_CONFIG_CONTENT: JSON.stringify({default_agent:"build",model:runner.model}), OPENCODE_CONFIG: join(ctx.pacerHome, "opencode", "opencode.json"), PACER_KEY_TEST_API: secret});
   ctx.env.ENDPOINT_TEST_KEY = "rotated";
   writeFileSync(env.OPENCODE_CONFIG, "stale");
   expect((await runnerEnv(ctx, runner)).PACER_KEY_TEST_API).toBe("rotated");
   expect(JSON.parse(readFileSync(env.OPENCODE_CONFIG, "utf8")).provider).toHaveProperty("pacer-test-api");
   delete ctx.env.ENDPOINT_TEST_KEY;
   await expect(runnerEnv(ctx, runner)).rejects.toThrow("Key missing");
-  expect(await runnerEnv(ctx, strategy.runners["opencode#local"])).toEqual({});
+  expect(await runnerEnv(ctx, strategy.runners["opencode#local"])).toEqual({OPENCODE_CONFIG_CONTENT: JSON.stringify({default_agent:"build",model:strategy.runners["opencode#local"].model})});
 });
 test("key none launches with config only", async () => {
   const {ctx, strategy} = setup("none");
   const env = await runnerEnv(ctx, strategy.runners["opencode#test-api"]);
-  expect(Object.keys(env)).toEqual(["OPENCODE_CONFIG"]);
+  expect(Object.keys(env).sort()).toEqual(["OPENCODE_CONFIG", "OPENCODE_CONFIG_CONTENT"]);
   expect(existsSync(env.OPENCODE_CONFIG)).toBe(true);
 });
-test("connection endpoints bypass Orca even when forced; external providers keep selection", async () => {
+test("connection endpoints bypass Orca even when forced; external providers also require permission bypass", async () => {
   const {ctx, strategy} = setup(); ctx.env.PACER_BACKEND = "orca";
   let checked = false;
   const orca = {id: "orca", available: async () => {checked = true; return true;}, runAttempt: async () => {throw Error("must not launch");}};
   expect((await selectBackend(ctx, strategy, [orca], "opencode#test-api")).id).toBe("direct");
   expect(checked).toBe(false);
-  expect((await selectBackend(ctx, strategy, [orca], "opencode#local")).id).toBe("orca");
+  expect((await selectBackend(ctx, strategy, [orca], "opencode#local")).id).toBe("direct");
 });
 test("account changes regenerate the config, retaining only current connections", async () => {
   const {accountCmd} = await import("../src/commands/accounts");
@@ -93,4 +93,25 @@ test("account changes regenerate the config, retaining only current connections"
   writeFileSync(join(ctx.pacerHome, "strategy.yaml"), JSON.stringify(raw));
   expect((await accountCmd(["rm", "test-api"], ctx)).code).toBe(0);
   expect(JSON.parse(readFileSync(path, "utf8")).provider).toEqual({});
+});
+
+test("OpenCode model and agent are invocation-scoped config for full TUI compatibility", async () => {
+  const {ctx, strategy} = setup();
+  ctx.env.OPENCODE_CONFIG_CONTENT = JSON.stringify({theme:"custom",provider:{custom:{name:"retained"}}});
+  for (const id of ["opencode#test-api", "opencode#local"]) {
+    const env = await runnerEnv(ctx, strategy.runners[id]);
+    expect(JSON.parse(env.OPENCODE_CONFIG_CONTENT)).toMatchObject({
+      theme:"custom", provider:{custom:{name:"retained"}},default_agent:"build",model:strategy.runners[id].model,
+    });
+  }
+});
+
+test("invalid inline OpenCode config fails without logging its contents", async () => {
+  const {ctx, strategy} = setup();
+  for (const value of [secret, "[]", "null", '"not-an-object"']) {
+    ctx.env.OPENCODE_CONFIG_CONTENT = value;
+    const message = await runnerEnv(ctx, strategy.runners["opencode#local"]).then(() => "unexpected success", error => error.message);
+    expect(message).toBe("Invalid OPENCODE_CONFIG_CONTENT: expected a JSON object");
+    expect(message).not.toContain(secret);
+  }
 });

@@ -44,7 +44,7 @@ export function seedUi(root: string): void {
   const integration = "# Sandbox UI fixture: planner integration present\n";
   write("accounts/team/AGENTS.md", integration);
   json("install-manifest.json", { version: 1, planners: { "codex#team": {
-    planner: "codex", account: "team", installedAt: now, pacerArgv: [], commands: [], notes: [],
+    planner: "codex#team", account: "team", installedAt: now, pacerArgv: [], commands: [], notes: [],
     files: [{ path: join(home, "accounts/team/AGENTS.md"), action: "created", undo: [], afterHash: createHash("sha256").update(integration).digest("hex") }],
   } } });
   write("onboarding/skipped", "UI fixture\n");

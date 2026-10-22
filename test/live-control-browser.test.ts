@@ -14,7 +14,7 @@ const available = existsSync(executable);
   try {
     const targets = await adapter.targets(); expect(targets[0].surface).toBe("web");
     const input = await dispatch({ command: "act", surface: "web", action: { kind: "type", selector: { role: "textbox", name: "Name" }, text: "Tiếng Việt\nquoted" } }, adapter);
-    expect(input.delivery).toBe("delivered");
+    expect(input).toMatchObject({ delivery: "delivered" });
     expect(await page.locator("textarea").inputValue()).toBe("Tiếng Việt\nquoted");
     expect((await dispatch({ command: "act", surface: "web", action: { kind: "click", selector: { name: "Duplicate", role: "button" } } }, adapter)).error?.code).toBe("ambiguous");
     const navigation = await dispatch({ command: "act", surface: "web", action: { kind: "click", selector: { role: "link", name: "Next" } } }, adapter);

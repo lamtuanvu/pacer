@@ -262,12 +262,12 @@ test("available: only with execution.backend orca and a ready runtime", async ()
   await expect(orcaBackend.available(ready, strat({ backend: "x" }))).rejects.toThrow(ExecutionError);
 });
 
-test("registered as the extra backend; selectBackend picks it only when opted in and Orca is ready", async () => {
+test("registered as the extra backend; selectBackend uses direct execution to enforce bypass permissions", async () => {
   expect(EXTRA_BACKENDS.map((b) => b.id)).toEqual(["orca"]);
   const strat = validateStrategy({ planner: "claude-code", providers: { "claude-code": {}, codex: {} }, execution: { backend: "orca" } }, "/x");
   const ready = fakeCtx({ run: fakeRun([[O("status"), ok("status-ready.json")]]).run });
   const down = fakeCtx({ run: fakeRun([[O("status"), raw("", 127)]]).run });
-  expect((await selectBackend(ready, strat)).id).toBe("orca");
+  expect((await selectBackend(ready, strat)).id).toBe("direct");
   expect((await selectBackend(down, strat)).id).toBe("direct");
 });
 

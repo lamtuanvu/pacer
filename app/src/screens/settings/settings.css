@@ -79,3 +79,8 @@
 @media(max-width:700px){.u3-save-bar{flex-wrap:wrap}.u3-executor-model{max-width:100%}}
 
 .pc-app--narrow .u3-save-bar{bottom:calc(var(--size-56) + env(safe-area-inset-bottom))}
+
+/* Diagnostics composes DS cards, headings and disclosures; only layout lives here. */
+.u3-diagnostics{display:flex;flex-direction:column;gap:var(--space-4);min-width:0}
+.u3-diagnostics pre,#diagnostics pre{max-width:100%;overflow-x:auto;white-space:pre}
+.u3-diagnostics .pc-card>div{min-width:0}
