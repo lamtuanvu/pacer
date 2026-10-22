@@ -2,6 +2,10 @@
 
 CT-11 requires live evidence for runtime behavior changes. Use the checkout under review with a sandbox service, then exercise every affected surface. Unit tests support this check; a passing test suite alone does not establish live behavior. Docs-only, test-only and CI-only changes are exempt.
 
+OTA event traces remain in the report's evidence details. They do not assert a
+behavior verdict; the driver's outcome checks provide that verdict. Required
+behavior notes without a verdict still count as UNVERIFIED.
+
 ## Start and inspect a sandbox
 
 From the checkout root:
