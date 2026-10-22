@@ -28,7 +28,7 @@ export function TaskResultView({ task, verdict, changes, question, onChanges }: 
 }) {
   const problem = task.acceptance.state === "failed" || ["partial","failed","limit"].includes(task.state);
   const openReview = !!task.reviewRequest && !task.review && !task.resolved && !task.dismissed && !task.retriedBy;
-  return <Page width="wide">
+  return <Page width="full">
     <header className="pc-page-header"><div className="pc-task-result__heading"><SectionHeading>{task.fullTitle ?? task.title ?? task.goal}</SectionHeading><StatusPill status={taskStatus(task)} /></div><p className="muted">{task.repo.label} · {executorLabel(task.executor)}{task.endedAt ? ` · finished ${clock(task.endedAt, Date.now() / 1000)}` : ""}</p></header>
     <div className="pc-page-columns"><div className="pc-page-columns__main"><div className="pc-stack pc-stack--section">
       <section className="pc-section"><SectionHeading>Result</SectionHeading><p>{resultSummary(task)}</p><p className="muted">{taskOutcome(task).label}</p></section>

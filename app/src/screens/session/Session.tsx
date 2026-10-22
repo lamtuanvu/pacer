@@ -110,7 +110,7 @@ export function Session({ data, loading, error, initialTab, onAction, onAttach, 
         control={active && session.capabilities.control} resize={active && session.capabilities.resize} live={active && session.live}
         controller={session.controller} driving={driving} takeRequested={active && takeRequested} onTakeSent={onTakeSent} takeover={takeover}/>}
   </>;
-  return <Page width="wide" className="pc-session">
+  return <Page width="full" className="pc-session">
     <nav aria-label="Breadcrumb" className="pc-session-breadcrumb"><AppLink to={routes.tasks()}>Tasks</AppLink></nav>
     {loading && <LoadingState updating label="Updating session…"/>}
     <header className="pc-session-header">
