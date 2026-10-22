@@ -142,10 +142,13 @@ export function receiveParentHelperChannel(): number {
 export function requestParentHelper(channel: number, request: {
   schema: 1; path: string; sha256: string; version: string;
 }): { pid: number; stdin: number; stdout: number; control: number } {
-  const bytes = Buffer.from(JSON.stringify(request));
+  // Resolve/verify the shim before stamping: its synchronous initialization is
+  // outside the C request's existing deadline. The stamp grants no authority.
+  const helperShim = shim ??= descriptorShim();
+  const bytes = Buffer.from(JSON.stringify({ ...request, startedAtMs: Date.now() }));
   if (!bytes.length || bytes.length > 8192) throw Error("Native helper request unavailable");
   const descriptors = new Int32Array([-1, -1, -1, -1]);
-  const pid = (shim ??= descriptorShim()).symbols.pacer_request_helper(
+  const pid = helperShim.symbols.pacer_request_helper(
     channel, ptr(bytes), bytes.length, ptr(descriptors),
   );
   if (pid <= 1) throw Error("Native parent helper spawn unavailable");

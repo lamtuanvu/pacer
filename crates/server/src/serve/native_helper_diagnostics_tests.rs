@@ -209,9 +209,55 @@ async fn real_broker_denial_records_failed_stage_and_logging_cannot_grant_author
                     .any(|v| v["stage"] == "request" && v["event"] == "failed")
             );
             assert!(records.iter().any(|v| v["event"] == "end"));
+            assert!(
+                records
+                    .iter()
+                    .any(|v| v["stage"] == "read-first-byte" && v["event"] == "enter")
+            );
             assert!(!records.iter().any(|v| v["stage"] == "spawn"));
         } else {
             assert_eq!(fs::read(&outside).unwrap(), b"untouched");
         }
     }
+}
+
+#[test]
+fn request_timing_and_write_failures_reveal_only_fixed_numeric_or_enum_evidence() {
+    let home = home();
+    let diagnostics = Diagnostics::new(home.path(), 123, 456);
+    diagnostics.request_started(123);
+    for (errno, expected) in [
+        (nix::libc::EPIPE, "write-epipe"),
+        (nix::libc::EAGAIN, "write-would-block"),
+        (nix::libc::EBADF, "write-bad-fd"),
+        (nix::libc::EINVAL, "write-invalid"),
+        (nix::libc::EPERM, "write-permission"),
+        (nix::libc::EACCES, "write-access"),
+        (nix::libc::EMSGSIZE, "write-message-size"),
+        (nix::libc::ECONNRESET, "write-connection-reset"),
+        (nix::libc::ENOBUFS, "write-no-buffers"),
+        (nix::libc::ENOTSOCK, "write-not-socket"),
+        (nix::libc::EINTR, "write-interrupted"),
+        (nix::libc::EIO, "write-other"),
+    ] {
+        let event = Event::write_failure(&io::Error::from_raw_os_error(errno));
+        assert_eq!(event.name(), expected);
+        diagnostics.record(Stage::Handoff, event);
+    }
+    diagnostics.record(
+        Stage::Handoff,
+        Event::write_failure(&io::Error::other(
+            "private path or secret must never be serialized",
+        )),
+    );
+    let bytes = fs::read_to_string(home.path().join("logs/native-helper.log")).unwrap();
+    assert!(!bytes.contains("secret"));
+    let records = bytes
+        .lines()
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(records[0]["started_at_ms"], 123);
+    assert_eq!(records[0]["event"], "request-timing");
+    assert!(records[0]["request_age_ms"].as_i64().unwrap() <= 86_400_000);
+    assert_eq!(records[0].as_object().unwrap().len(), 7);
 }
