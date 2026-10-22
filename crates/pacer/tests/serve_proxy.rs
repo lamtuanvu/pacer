@@ -38,6 +38,13 @@ fn request(server: &Server, path: &str, extra: &[&str]) -> std::process::Output 
 fn core_receives_the_bound_public_port_instead_of_the_ambient_port() {
     let home = tempfile::tempdir().unwrap();
     let observed = home.path().join("child-port");
+    let preload = home.path().join("preload.ts");
+    let marker = home.path().join("preload-ran");
+    fs::write(
+        &preload,
+        "await Bun.write(process.env.PACER_TEST_PRELOAD_MARKER, 'executed');",
+    )
+    .unwrap();
     let bun = std::env::var("PACER_TEST_BUN").unwrap_or_else(|_| "bun".into());
     let script = "await Bun.write(process.env.PACER_TEST_PORT_FILE, process.env.PACER_PORT ?? 'missing'); console.log(JSON.stringify({internal:{port:1}})); process.stdin.resume();";
     let mut child = Command::new(env!("CARGO_BIN_EXE_pacer"))
@@ -45,25 +52,40 @@ fn core_receives_the_bound_public_port_instead_of_the_ambient_port() {
         .env("PACER_HOME", home.path())
         .env("PACER_PORT", "1")
         .env("PACER_TEST_PORT_FILE", &observed)
+        .env("PACER_TEST_PRELOAD_MARKER", &marker)
+        .env("BUN_OPTIONS", format!("--preload {}", preload.display()))
         .env("PACER_SERVE_ANNOUNCE", "1")
-        .env("PACER_CORE_ARGV", serde_json::json!([bun, "--eval", script]).to_string())
+        .env(
+            "PACER_CORE_ARGV",
+            serde_json::json!([bun, "--eval", script]).to_string(),
+        )
         .stdout(Stdio::piped())
         .spawn()
         .unwrap();
     let mut line = String::new();
-    BufReader::new(child.stdout.take().unwrap()).read_line(&mut line).unwrap();
-    let port = serde_json::from_str::<serde_json::Value>(&line).unwrap()["port"].as_u64().unwrap() as u16;
+    BufReader::new(child.stdout.take().unwrap())
+        .read_line(&mut line)
+        .unwrap();
+    let port = serde_json::from_str::<serde_json::Value>(&line).unwrap()["port"]
+        .as_u64()
+        .unwrap() as u16;
     let server = Server { child, port, home };
     let deadline = Instant::now() + Duration::from_secs(5);
     let actual = loop {
-        if let Ok(value) = fs::read_to_string(&observed) {
-            if !value.is_empty() { break value; }
+        if let Ok(value) = fs::read_to_string(&observed)
+            && !value.is_empty()
+        {
+            break value;
         }
-        assert!(Instant::now() < deadline, "core never recorded its public port");
+        assert!(
+            Instant::now() < deadline,
+            "core never recorded its public port"
+        );
         std::thread::sleep(Duration::from_millis(10));
     };
     assert_ne!(server.port, 0);
     assert_eq!(actual, server.port.to_string());
+    assert!(!marker.exists(), "ambient preload ran in the internal core");
 }
 #[test]
 fn forwards_http_sse_limits_and_recovers_core() {
