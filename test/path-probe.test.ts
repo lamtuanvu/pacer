@@ -1,7 +1,7 @@
 import { expect, spyOn, test } from "bun:test";
 import { realpathSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
-import { cachedPath, pathProbeIO, refreshPath, rememberPath, schedulePathRefresh } from "../src/core/path-probe";
+import { cachedPath, pathProbeIO, refreshPath, rememberPath, repoFs, schedulePathRefresh } from "../src/core/path-probe";
 import { repoFor, resolveRepo } from "../src/core/repos";
 import { eventsSince, liveSnapshot } from "../src/api/events";
 import { pumpOnce, taskData } from "../src/link/pump";
@@ -79,13 +79,20 @@ test("hung repo probes and git leave snapshot, replay and pump responsive", asyn
     await Promise.all([pump, snapshot]);
     expect(performance.now() - start).toBeLessThan(1000);
     expect(access).toHaveBeenCalled();
-    // Also prove the underlying git deadline independently of the pump's shorter budget.
-    let gitStarted = false;
-    const run = ctx.run;
-    ctx.run = (...args) => { gitStarted = true; return run(...args); };
+  } finally { access.mockRestore(); realpath.mockRestore(); }
+});
+
+test("the resolution deadline bounds hung git after filesystem checks complete", async () => {
+  let gitStarted = false;
+  const ctx = fakeCtx({ run: () => { gitStarted = true; return hang(); } });
+  const task = createTask(ctx, { brief: { goal: "hung git", repo: tmpDir() }, kind: null, requestedExecutor: null, timeoutS: 60 });
+  const record = updateTask(ctx, task.id, t => { t.state = "partial"; t.worktree = tmpDir(); });
+  // Isolate the git deadline from real filesystem latency under a loaded suite.
+  const access = spyOn(repoFs, "access").mockResolvedValue(undefined);
+  const realpath = spyOn(repoFs, "realpath").mockImplementation(async path => path);
+  try {
     expect(await resolutionReason(ctx, record, 20)).toBeNull();
     expect(gitStarted).toBe(true);
-
   } finally { access.mockRestore(); realpath.mockRestore(); }
 });
 
