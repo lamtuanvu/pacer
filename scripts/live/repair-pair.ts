@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { compileCommand, compileFrontDoor } from "../release/build";
 import { assetFile, companionFile, hostTarget, sha256Hex } from "../../src/update/manifest";
@@ -16,11 +16,11 @@ export async function exercisePairInstall(session: Session): Promise<void> {
   mkdirSync(home, { mode: 0o700 }); mkdirSync(temporary, { mode: 0o700 }); mkdirSync(join(home, ".local"), { mode: 0o700 }); mkdirSync(bin, { mode: 0o700 });
   const env = { HOME: home, PACER_HOME: join(home, ".pacer"), TMPDIR: temporary,
     PATH: `${join(session.root, "bin")}:/usr/bin:/bin:/usr/sbin:/sbin`, LANG: "C", PACER_NO_UPDATE_CHECK: "1" };
-  const run = async (argv: string[], extra: Record<string, string> = {}) => {
+  const run = async (argv: string[], extra: Record<string, string> = {}, expectedCode = 0) => {
     const child = Bun.spawn(argv, { cwd: root, env: { ...env, ...extra }, stdin: "ignore", stdout: "pipe", stderr: "pipe", timeout: 120000 });
     const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
     record(session, { kind: "command", argv, code, stdout, stderr });
-    if (code !== 0) throw Error(`Paired fixture command failed (${code}): ${stderr}`);
+    if (code !== expectedCode) throw Error(`Paired fixture command failed (${code}): ${stderr}`);
     return stdout;
   };
   await run(compileCommand({ root: checkout, target, version: next, outfile: nextCore }));
@@ -58,6 +58,15 @@ export async function exercisePairInstall(session: Session): Promise<void> {
     must(!existsSync(marker), "Ambient preload reached the core through the Rust front door");
     record(session, { kind: "note", behavior: "Compiled core startup environment", surface: "Rust CLI/version probe/Bun core", verdict: "PASS", text: "A fixed private preload executed in the direct compiled core positive control, then remained absent when the Rust front door checked and invoked that same core. Private HOME and fixture script only." });
     record(session, { kind: "note", behavior: "Fresh paired shell installation", surface: "install.sh/compiled CLI", verdict: "PASS", text: "Actual installer downloaded, checksum-verified and installed the compiled Rust front door and Bun core into a private prefix; the installed front door executed its sibling core." });
+    const resources = join(root, "repair-boundary/pacer.app/Contents/Resources");
+    mkdirSync(resources, { recursive: true, mode: 0o700 });
+    const bundled = join(resources, "pacer");
+    copyFileSync(front, bundled); chmodSync(bundled, 0o755);
+    const before = requests.length;
+    await run([bundled, "self-repair", "--base", base], {}, 1);
+    await run([bundled, "route"], { PACER_RELEASE_BASE: base }, 1);
+    must(requests.length === before && readdirSync(resources).join(",") === "pacer", "Desktop bundle core refusal downloaded or mutated resources");
+    record(session, { kind: "note", behavior: "Complete-app core repair boundary", surface: "compiled Rust CLI", verdict: "PASS", text: "Actual front door in a fixed disposable app resource layout refused explicit and automatic partial core repair before downloads, staging, locks or resource changes. This path guard does not certify a signed desktop installation." });
     await run([front, "update", "--to", next, "--base", base, "--no-restart", "--no-reinstall"]);
     must(hash(front) === hash(nextFront) && hash(core) === hash(nextCore), "Self-update did not install the exact next pair");
     must(hash(`${front}.bak`) === hash(join(build, "pacer")) && hash(`${core}.bak`) === hash(join(build, "new-core")), "Self-update lost paired backups");
