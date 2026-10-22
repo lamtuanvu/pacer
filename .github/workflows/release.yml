@@ -500,6 +500,7 @@ jobs:
         run: |
           rustup show active-toolchain
           cargo fetch --locked
+          (cd ../.. && cargo fetch --locked)
       - name: Build production desktop components offline
         env:
           CARGO_NET_OFFLINE: 'true'
