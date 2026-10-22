@@ -136,7 +136,7 @@ else:
             target.chmod(0o700)
             result = run(label+'-sign', ['/usr/bin/codesign', '--force', '--timestamp=none', '--sign', sha1, '--keychain', keychain, '--identifier', 'dev.pacer.cli', str(target)], False)
             if result.returncode == 0:
-                run(label+'-verify-pin', ['/usr/bin/codesign', '--verify', '--strict', '-R', 'identifier "dev.pacer.cli" and certificate leaf = H"'+sha1+'"', str(target)])
+                run(label+'-verify-pin', ['/usr/bin/codesign', '--verify', '--strict', '-R', '=identifier "dev.pacer.cli" and certificate leaf = H"'+sha1+'"', str(target)])
             return result.returncode
         before = sign('A')
         if before == 0:
