@@ -257,6 +257,15 @@ again after the test task; missing quota telemetry fails **Usage readable** with
 guidance to update Claude Code and check the subscription. Interactive sessions
 can also update usage through the installed status line.
 
+Normal headless Claude tasks also capture the structured quota event when the
+task finishes. Pacer installs an account-scoped status line when it creates a managed
+Claude account, and fills in a missing status line for an existing managed
+account the next time it launches that account. An existing custom status line
+is preserved; to capture its quota data, have it pass Claude's status-line JSON
+to `pacer statusline` with that account's `CLAUDE_CONFIG_DIR` set. Pacer does not
+run idle background prompts to refresh usage. A reading ages when there are no
+new Claude turns, and an expired window stays unknown until new telemetry arrives.
+
 ### Sign-in state
 
 `signedIn` is the account's local sign-in on this machine. One check supplies it
