@@ -63,6 +63,8 @@ jobs:
           toolchain: 1.99.0
       - name: Build the Rust fixture plugin
         run: cargo build --locked -p pacer-fixtures --bin pacer-fixture
+      - name: Test Rust plugin SDK harness feature
+        run: cargo test -p pacer-plugin --features testing --locked
       - name: Install Linux test cross-build prerequisites
         if: runner.os == 'Linux'
         run: |
@@ -122,6 +124,25 @@ jobs:
         env:
           TARGETS: ${{ matrix.targets }}
         run: bun scripts/release/build.ts --targets "$TARGETS"
+      - name: Build the Rust fixture plugin for the M1 gate
+        run: cargo build --locked -p pacer-fixtures --bin pacer-fixture
+      # The frozen playwright-core dependency pins the matching Chromium revision.
+      - name: Install locked Chromium for the M1 gate
+        run: |
+          echo "PLAYWRIGHT_BROWSERS_PATH=$RUNNER_TEMP/pacer-playwright" >> "$GITHUB_ENV"
+          PLAYWRIGHT_BROWSERS_PATH="$RUNNER_TEMP/pacer-playwright" bun node_modules/playwright-core/cli.js install --with-deps chromium
+      - name: Full M1 gate against built host release artifacts
+        run: |
+          set -euo pipefail
+          bun run gate:m1 --release-dir "dist/release/$VERSION" 2>&1 | tee "$RUNNER_TEMP/pacer-m1-gate.log"
+      - name: Retain M1 gate evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: m1-gate-${{ matrix.runner }}
+          path: ${{ runner.temp }}/pacer-m1-gate.log
+          retention-days: 7
+          if-no-files-found: warn
       - name: Smoke test native binary
         run: |
           version="$VERSION"
