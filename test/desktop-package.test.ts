@@ -41,6 +41,22 @@ test("staging creates a separate complete app with matching release metadata and
   expect(existsSync(join(f.app, "Contents/Resources/pacer-release.json"))).toBe(false);
 });
 
+test("staging retains only the declared native permission helper and validates its architecture", async () => {
+  for (const wrongArch of [false, true]) {
+    const f = fixture(), helper = join(f.app, "Contents/MacOS/pacer-permission-setup");
+    const bytes = readFileSync(join(f.dir, "pacer-darwin-arm64"));
+    if (wrongArch) bytes.writeUInt32LE(0x01000007, 4);
+    writeFileSync(helper, bytes, { mode: 0o755 });
+    if (wrongArch) {
+      await expect(stageDesktopPackage(f.root, f.dir, "aarch64", { run: f.run })).rejects.toThrow("architecture");
+      expect(f.calls).toEqual([]);
+    } else {
+      const stage = await stageDesktopPackage(f.root, f.dir, "aarch64", { run: f.run });
+      expect(readFileSync(join(stage, "pacer.app/Contents/MacOS/pacer-permission-setup"))).toEqual(bytes);
+    }
+  }
+});
+
 test("staging refuses mismatched architecture before running a binary", async () => {
   const f = fixture();
   const bad = readFileSync(join(f.dir, "pacer-update-helper")); bad.writeUInt32LE(0x01000007, 4);
