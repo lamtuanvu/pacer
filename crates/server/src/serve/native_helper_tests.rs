@@ -8,9 +8,22 @@ fn request_accepts_only_fixed_private_helper_coordinates_and_exact_schema() {
         home.display(),
         "a".repeat(64)
     );
-    let valid =
-        serde_json::json!({"schema":1,"path":path,"sha256":"b".repeat(64),"version":"0.2.3"});
+    let valid = serde_json::json!({"schema":1,"path":path,"sha256":"b".repeat(64),"version":"0.2.3","startedAtMs":123});
     assert!(request(&serde_json::to_vec(&valid).unwrap(), home).is_ok());
+    for stamp in [
+        serde_json::Value::Null,
+        serde_json::json!(-1),
+        serde_json::json!(1.5),
+        serde_json::json!(9007199254740992u64),
+        serde_json::json!("123"),
+    ] {
+        let mut bad = valid.clone();
+        bad["startedAtMs"] = stamp;
+        assert!(request(&serde_json::to_vec(&bad).unwrap(), home).is_err());
+    }
+    let mut missing = valid.clone();
+    missing.as_object_mut().unwrap().remove("startedAtMs");
+    assert!(request(&serde_json::to_vec(&missing).unwrap(), home).is_err());
     for replacement in [
         "/bin/sh",
         "/tmp/helper-home/../bin/pacer-update-helper",
@@ -54,6 +67,7 @@ fn command_asset() -> (tempfile::TempDir, Request) {
     std::fs::write(&path, b"fixed asset").unwrap();
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
     let request = Request {
+        started_at_ms: 0,
         path,
         sha256: hex::encode(Sha256::digest(b"fixed asset")),
         version: "0.2.3".into(),
