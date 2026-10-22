@@ -1,9 +1,9 @@
 #!/usr/bin/env bun
 import { validSignerPins, type SignerPins } from "../../src/update/desktop/signer-requirement";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import {
-  type Manifest, type Platform, type ReleaseAsset, type Target, TARGETS, assetFile, formatSha256Sums,
+  type Manifest, type Platform, type ReleaseAsset, type Target, TARGETS, assetFile, companionFile, formatSha256Sums,
   hostPlatform, hostTarget, parseLatest, sha256Hex,
 } from "../../src/update/manifest";
 import { signLocal } from "../../src/update/signing";
@@ -87,6 +87,32 @@ export async function compileTarget(o: CompileOptions): Promise<void> {
   if (o.target.os === "darwin" && !o.desktopTrust) await signLocal(o.outfile, { smoke: isHost });
 }
 
+/** Core-only entry point retained for desktop fixtures and local builds. */
+export const compileCore = compileTarget;
+
+export function rustTarget(platform: Platform): string {
+  const arch = platform.arch === "arm64" ? "aarch64" : "x86_64";
+  return `${arch}-${platform.os === "darwin" ? "apple-darwin" : "unknown-linux-musl"}`;
+}
+
+export function frontDoorBuildCommand(platform: Platform): string[] {
+  return ["cargo", platform.os === "linux" ? "zigbuild" : "build", "--release", "--locked", "-p", "pacer", "--target", rustTarget(platform)];
+}
+
+export async function compileFrontDoor(o: CompileOptions): Promise<void> {
+  const targetDir = join(o.root, "target");
+  const process = Bun.spawn(frontDoorBuildCommand(o.target), {
+    cwd: o.root,
+    env: { ...Bun.env, PACER_BUILD_VERSION: o.version, CARGO_TARGET_DIR: targetDir },
+    stdout: "pipe", stderr: "pipe",
+  });
+  const [out, err, code] = await Promise.all([new Response(process.stdout).text(), new Response(process.stderr).text(), process.exited]);
+  if (code !== 0) throw new Error(`Rust build failed for ${rustTarget(o.target)} (exit ${code}):\n${(err || out).trim()}`);
+  copyFileSync(join(targetDir, rustTarget(o.target), "release", "pacer"), o.outfile);
+  const host = hostPlatform();
+  if (o.target.os === "darwin") await signLocal(o.outfile, { smoke: host?.os === o.target.os && host.arch === o.target.arch });
+}
+
 function readLatestVersion(path: string): string | null {
   try {
     return parseLatest(JSON.parse(readFileSync(path, "utf8")));
@@ -96,15 +122,21 @@ function readLatestVersion(path: string): string | null {
 }
 
 /** Hash the binaries already in <outRoot>/<version>/ and write SHA256SUMS, manifest.json and <outRoot>/latest.json. */
-export function writeRelease(outRoot: string, version: string, platforms: Platform[]): Manifest {
+export function writeRelease(outRoot: string, version: string, platforms: Platform[], options: { paired?: boolean } = {}): Manifest {
   const dir = join(outRoot, version);
   const assets: ReleaseAsset[] = platforms.map((p) => {
     const file = assetFile(p);
     const bytes = readFileSync(join(dir, file));
-    return { os: p.os, arch: p.arch, file, sha256: sha256Hex(bytes), size: bytes.length };
+    const asset: ReleaseAsset = { os: p.os, arch: p.arch, file, sha256: sha256Hex(bytes), size: bytes.length };
+    if (options.paired) {
+      const coreFile = companionFile(p);
+      const core = readFileSync(join(dir, coreFile));
+      asset.companions = [{ name: "pacer-core", file: coreFile, sha256: sha256Hex(core), size: core.length }];
+    }
+    return asset;
   });
   const manifest: Manifest = { version, assets };
-  writeFileSync(join(dir, "SHA256SUMS"), formatSha256Sums(assets));
+  writeFileSync(join(dir, "SHA256SUMS"), formatSha256Sums(assets.flatMap(asset => [asset, ...(asset.companions ?? [])])));
   writeFileSync(join(dir, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
   const latestPath = join(outRoot, "latest.json");
   const prev = readLatestVersion(latestPath);
@@ -134,9 +166,10 @@ export async function buildRelease(o: BuildOptions): Promise<{ dir: string; mani
   mkdirSync(dir, { recursive: true });
   for (const t of targets) {
     log(`building ${assetFile(t)} (${t.bunTarget})`);
-    await compileTarget({ root: o.root, target: t, version, outfile: join(dir, assetFile(t)), bunExe: o.bunExe, desktopTrust: o.desktopTrust });
+    await compileCore({ root: o.root, target: t, version, outfile: join(dir, companionFile(t)), bunExe: o.bunExe, desktopTrust: o.desktopTrust });
+    await compileFrontDoor({ root: o.root, target: t, version, outfile: join(dir, assetFile(t)) });
   }
-  return { dir, manifest: writeRelease(outRoot, version, targets) };
+  return { dir, manifest: writeRelease(outRoot, version, targets, { paired: true }) };
 }
 
 if (import.meta.main) {
@@ -157,7 +190,7 @@ if (import.meta.main) {
     if (!isVersion(version)) throw new Error(`invalid version "${version}"`);
     const targets = a.targets ?? (a.host && host ? [host] : TARGETS);
     const { dir, manifest } = a.writeOnly
-      ? { dir: join(outRoot, version), manifest: writeRelease(outRoot, version, targets) }
+      ? { dir: join(outRoot, version), manifest: writeRelease(outRoot, version, targets, { paired: true }) }
       : await buildRelease({ root, outRoot, version: a.version, targets, desktopTrust: a.desktopProduction ? { appleTeamId: process.env.PACER_APPLE_TEAM_ID || null, signingCertSha1: process.env.PACER_SIGNING_CERT_SHA1 || null } : undefined, log: line => console.log(line) });
     console.log(`release ${manifest.version}: ${dir}`);
     for (const x of manifest.assets) console.log(`  ${x.file}  ${x.size} bytes  sha256 ${x.sha256}`);
