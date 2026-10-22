@@ -1,6 +1,38 @@
 #![allow(clippy::unwrap_used)]
 use super::*;
 
+#[tokio::test]
+async fn native_trust_is_explicit_and_unrelated_code_never_satisfies_cli_role() {
+    assert!(NativeTrust::from_pins(None, None).unwrap().is_none());
+    let trust = NativeTrust::from_pins(Some("ABCDE12345"), None)
+        .unwrap()
+        .unwrap();
+    assert!(trust.verify_current().is_err());
+    assert!(
+        trust
+            .verify_static(std::path::Path::new("/usr/bin/true"), NativeRole::Cli)
+            .is_err()
+    );
+    assert!(
+        trust
+            .verify_static(std::path::Path::new("/usr/bin/true"), NativeRole::Desktop)
+            .is_err()
+    );
+    let mut child = tokio::process::Command::new("/bin/sleep")
+        .arg("30")
+        .kill_on_drop(true)
+        .spawn()
+        .unwrap();
+    assert!(
+        trust
+            .verify_child(&child, std::path::Path::new("/bin/sleep"))
+            .is_err()
+    );
+    child.kill().await.unwrap();
+    child.wait().await.unwrap();
+    assert!(NativeTrust::from_pins(Some("bad"), None).is_err());
+}
+
 #[test]
 fn process_metadata_binds_the_live_incarnation_and_canonical_executable() {
     let pid = std::process::id();
