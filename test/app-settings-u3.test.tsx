@@ -82,7 +82,7 @@ test('restored executor draft resumes checks and Ready follows a passed job only
  const draw=(stateValue:'running'|'failed'|'passed')=>render(<AddExecutor initialDraft={initialDraft}/>,{...state,jobs:{[job.id]:{...job,state:stateValue}}});
  expect(draw('running')).toContain('Running checks');expect(draw('running')).not.toContain('is ready');
  expect(draw('failed')).toContain('Run checks again');expect(draw('failed')).not.toContain('is ready');
- expect(draw('passed')).toContain(`${executor.id} is ready`);expect(draw('passed')).toContain('Back to settings');
+ expect(draw('passed')).toContain(`${executor.id} is ready`);expect(draw('passed')).toContain('>OK</a>');
 });
 test('new endpoint form includes URL, key source and model limits',()=>{
  // The URL form sits behind the OpenCode provider picker's "Use a URL instead".
@@ -263,15 +263,17 @@ test('paged Updates keeps OTA controls, service identity and navigation status t
  expect(panel.match(/aria-current="page"/g)).toHaveLength(1);
 });
 
-test('completed executor setup offers another account without leaving the wizard', () => {
+test('completed executor setup offers OK and another executor', () => {
  const initialDraft={step:'4',agent:'claude-code',account:'team',createdId:executor.id,jobId:job.id};
  const html=render(<AddExecutor initialDraft={initialDraft}/>,{...state,jobs:{[job.id]:{...job,state:'passed'}}});
- expect(html).toContain('Add another account');
- expect(html).toContain('Back to settings');
+ expect(html).toContain('Add another executor');
+ expect(html).toContain('>OK</a>');
+ expect(html).not.toContain('Cancel');
+ expect(html).not.toContain('check before Ready');
  expect((html.match(/pc-btn--primary/g)||[]).length).toBe(1);
 });
 
-test('adding another account replaces the completed draft with an unlocked account step', async () => {
+test('adding another executor clears all previous choices and returns to agent selection', async () => {
  const {options}=await import('preact');
  const saved=new Map<string,string>();
  const key='pacer.settings.add-executor';
@@ -280,16 +282,41 @@ test('adding another account replaces the completed draft with an unlocked accou
  const oldVNode=options.vnode;
  let startAnother:(()=>void)|undefined;
  Object.defineProperty(globalThis,'sessionStorage',{configurable:true,value:{getItem:(key:string)=>saved.get(key)??null,setItem:(key:string,value:string)=>saved.set(key,value),removeItem:(key:string)=>saved.delete(key)}});
- options.vnode=node=>{oldVNode?.(node);if(node.type==='button'&&(node.props as any).children==='Add another account')startAnother=(node.props as any).onClick;};
+ options.vnode=node=>{oldVNode?.(node);if(node.type==='button'&&(node.props as any).children==='Add another executor')startAnother=(node.props as any).onClick;};
  try {
   render(<AddExecutor/>,{...state,jobs:{[job.id]:{...job,state:'passed'}}});
   expect(startAnother).toBeDefined();
   startAnother!();
   const html=render(<AddExecutor/>);
-  expect(html).toContain('Which account pays for it?');
-  expect(html).toContain('New account');
+  expect(html).toContain('Which agent?');
   expect(html).not.toContain('is ready');
-  expect(JSON.parse(saved.get(key)!)).toEqual({step:'2',agent:'claude-code',host:'devbox',account:'',model:'',rank:'',createdId:'',jobId:''});
+  expect(JSON.parse(saved.get(key)!)).toEqual({step:'1',agent:'codex',host:'',account:'',model:'',rank:'',createdId:'',jobId:''});
+ } finally {
+  options.vnode=oldVNode;
+  if(oldStorage)Object.defineProperty(globalThis,'sessionStorage',oldStorage);else Reflect.deleteProperty(globalThis,'sessionStorage');
+ }
+});
+
+
+test('OK clears completed executor state before returning to the executor list', async () => {
+ const {options}=await import('preact');
+ const key='pacer.settings.add-executor';
+ const saved=new Map([[key,JSON.stringify({step:'4',agent:'claude-code',host:'devbox',account:'team',model:'old',rank:'1',createdId:executor.id,jobId:job.id})]]);
+ const oldStorage=Object.getOwnPropertyDescriptor(globalThis,'sessionStorage');
+ const oldVNode=options.vnode;
+ let finish:(()=>void)|undefined;
+ let href:string|undefined;
+ Object.defineProperty(globalThis,'sessionStorage',{configurable:true,value:{getItem:(key:string)=>saved.get(key)??null,setItem:(key:string,value:string)=>saved.set(key,value),removeItem:(key:string)=>saved.delete(key)}});
+ options.vnode=node=>{oldVNode?.(node);if(node.type==='a'&&(node.props as any).children==='OK'){finish=(node.props as any).onClick;href=(node.props as any).href;}};
+ try {
+  render(<AddExecutor/>,{...state,jobs:{[job.id]:{...job,state:'passed'}}});
+  expect(finish).toBeDefined();
+  expect(href).toBe('#/settings/executors');
+  finish!();
+  expect(saved.has(key)).toBe(false);
+  const html=render(<AddExecutor/>);
+  expect(html).toContain('Which agent?');
+  expect(html).not.toContain('is ready');
  } finally {
   options.vnode=oldVNode;
   if(oldStorage)Object.defineProperty(globalThis,'sessionStorage',oldStorage);else Reflect.deleteProperty(globalThis,'sessionStorage');

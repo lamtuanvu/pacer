@@ -35,7 +35,7 @@ async function runInTestRepo(ctx: Ctx, runnerId: string, deps: TestTaskDeps, dir
       // Headless sessions do not run status lines. Claude's own stream includes
       // account-scoped quota telemetry after its first API response.
       launch.argv[launch.argv.indexOf("--output-format") + 1] = "stream-json";
-      launch.argv.push("--verbose");
+      if (!launch.argv.includes("--verbose")) launch.argv.push("--verbose");
     }
     const result = await (deps.spawn ?? execProcess)({...launch, env, timeoutMs});
     if (runner.agent === "claude-code") captureClaudeStreamUsage(ctx, strategy.accounts[runner.account], result.stdout);

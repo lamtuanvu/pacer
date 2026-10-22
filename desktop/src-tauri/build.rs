@@ -81,6 +81,9 @@ fn main() {
             "native_titlebar_supported",
             "desktop_update_connection",
             "native_validation_setup",
+            "windowMinimize",
+            "windowToggleMaximize",
+            "windowClose",
         ]),
     ))
     .expect("build desktop shell");

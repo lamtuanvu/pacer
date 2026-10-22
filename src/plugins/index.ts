@@ -2,6 +2,7 @@ import { BUNDLED } from "../../plugins/bundled";
 import { pacerArgv } from "../install/self";
 import type { Ctx } from "../types";
 import { PluginRegistry } from "./registry";
+import { fileURLToPath } from "node:url";
 
 const registries = new Map<string, PluginRegistry>();
 
@@ -9,7 +10,11 @@ const registries = new Map<string, PluginRegistry>();
 export function pluginRegistry(ctx: Ctx): PluginRegistry {
   let r = registries.get(ctx.pacerHome);
   if (!r) {
-    r = new PluginRegistry({ bundled: BUNDLED, spawnBundled: (c, id) => ({ argv: [...pacerArgv(c.env), "plugin", "run", id], cwd: c.pacerHome, env: {} }) });
+    r = new PluginRegistry({ bundled: BUNDLED, spawnBundled: (c, id) => {
+      const argv = !c.env.PACER_BIN && /(^|\/)bun(?:\.exe)?$/.test(process.execPath)
+        ? [process.execPath, fileURLToPath(new URL("../cli.ts", import.meta.url))] : pacerArgv(c.env);
+      return {argv: [...argv, "plugin", "run", id], cwd: c.pacerHome, env: {}};
+    } });
     registries.set(ctx.pacerHome, r);
   }
   return r;

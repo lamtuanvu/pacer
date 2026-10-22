@@ -1,8 +1,13 @@
 import { withWork } from "../update/desktop/admission";
+import { conversationActivity } from "../session/conversation";
+import { prepareAgentSession } from "../plugins/agent-session";
+import { resolveAttachments } from "../attachments/claims";
+import { attachmentDirectory } from "../attachments/store";
 import { executorExclusion } from "../executors/availability";
 import { prepareInteractive, requireCodexInteractive, cleanSummary, readReport, transcriptReport, sessionTranscript } from "../session/reports";
-import { mkdirSync, existsSync, readFileSync, writeFileSync, appendFileSync, openSync, readSync, closeSync } from "node:fs";
+import { mkdirSync, existsSync, readFileSync, writeFileSync, appendFileSync, openSync, readSync, closeSync, renameSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 import { loadStrategy, strategyPath, type ProviderCfg } from "../config/strategy";
 import { IDLE_AFTER_S, IDLE_FAIL_S, type ExecutionCfg, validateExecution } from "../config/execution";
 import { publish } from "../link/publish";
@@ -12,6 +17,9 @@ import { tasksDir, listTasksWhere, readTask, updateTask } from "../tasks/store";
 import { resolvePlacement, type Attempt, type RunRef, type TaskRecord } from "../tasks/types";
 import type { Ctx } from "../types";
 import { parseRunnerId } from "../config/runner-id";
+import { resolveRunner } from "../config/runner-id";
+import { claudeResultFromStream, captureClaudeStreamUsageFile } from "../usage/claude";
+import { readAccountUsage } from "../usage";
 import { RemoteRunIO } from "../remote/run-io";
 import { runRemoteAttempt } from "../remote/attempt";
 import { SCRIPTS } from "../remote/scripts";
@@ -56,7 +64,16 @@ export function parseSessionHeader(header: string): string | undefined {
   return /(?:^|\n)\s*session id:\s*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?=\s|$)/i.exec(header)?.[1];
 }
 function discoverSession(ctx: Ctx, task: TaskRecord, run: RunRef) {
-  if (run.host || run.agentSession || (parseRunnerId(run.executor)?.agent ?? run.executor) !== "codex") return;
+  if (run.host || run.agentSession) return;
+  try {
+    const id = readFileSync(join(run.dir, "agent-session-id"), "utf8");
+    if (/^[A-Za-z0-9_-]{1,128}$/.test(id)) {
+      run.agentSession = {id, source: "lookup"};
+      updateTask(ctx, task.id, t => {if (t.run?.dir === run.dir) {t.run.agentSession = run.agentSession; if (t.conversation) t.conversation.agentSessionId = id;}});
+      return;
+    }
+  } catch { /* no identity hook yet */ }
+  if ((parseRunnerId(run.executor)?.agent ?? run.executor) !== "codex") return;
   try {
     const fd = openSync(join(run.dir, existsSync(join(run.dir, "session.json")) && !(existsSync(join(run.dir,"session.host")) && readFileSync(join(run.dir,"session.host"),"utf8").trim() === "none") ? "stdout" : "stderr"), "r");
     let header: string;
@@ -112,7 +129,8 @@ export function progressPoller(ctx: Ctx, task: TaskRecord, run: RunRef) {
     }
     const p = nextProgress({ now, startedAt: run.startedAt, logBytes: s.stdoutBytes + s.stderrBytes, lastOutputAt: Math.max(s.lastOutputAt ?? 0, s.interactive ? s.report?.at ?? 0 : 0, resumedAt) || null, files, commits, prev, host: run.host, changed }, idleAfter);
     const turnEnded = s.interactive && s.report?.status === "turn-ended";
-    const needsInput = s.interactive && (s.report?.status === "needs-input" || (turnEnded && !controlled && now - Math.max(s.report!.at, s.lastOutputAt ?? 0, p.lastChangeAt ?? 0, resumedAt) >= 120));
+    const conversation = run.interactionMode === "conversation";
+    const needsInput = s.interactive && (s.report?.status === "needs-input" || (!conversation && turnEnded && !controlled && now - Math.max(s.report!.at, s.lastOutputAt ?? 0, p.lastChangeAt ?? 0, resumedAt) >= 120));
     if (needsInput) {
       if (!waiting) {
         waitKey = `needs-input-${task.id}-${crypto.randomUUID()}`;
@@ -130,14 +148,21 @@ export function progressPoller(ctx: Ctx, task: TaskRecord, run: RunRef) {
       updateTask(ctx, task.id, t => { t.progress = p; });
       writtenAt = now;
     }
-    if (p.phase === "idle" && !alerted) {
+    if (conversation) {
+      const activity = conversationActivity(s);
+      const current = readTask(ctx, task.id);
+      if (current?.conversation?.activity !== activity) updateTask(ctx, task.id, t => {
+        t.conversation = {...t.conversation, activity, ...(run.agentSession ? {agentSessionId: run.agentSession.id} : {})};
+      });
+    }
+    if (!conversation && p.phase === "idle" && !alerted) {
       alerted = true;
       try {
         await publish(ctx, [{ type: "alert", data: { key: `idle-${task.id}`, level: "warn", title: "Task is idle", body: `${task.brief.goal.slice(0, 120)}: no output or file changes for ${Math.round(idleSeconds(p, run.startedAt, now) / 60)} min`, at: Math.floor(now) } }]);
       } catch { /* alerts are best effort */ }
     }
     prev = p;
-    return !run.takeover && !needsInput && !controlled && !turnEnded && idleSeconds(p, run.startedAt, now) >= idleFail ? "idle" : "continue";
+    return !conversation && !run.takeover && !needsInput && !controlled && !turnEnded && idleSeconds(p, run.startedAt, now) >= idleFail ? "idle" : "continue";
   };
 }
 
@@ -148,8 +173,36 @@ export async function finishRun(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, ru
   const io = host ? new RemoteRunIO(ctx, host, run.remoteDir!, run.dir) : localRunIO(run.dir);
   const end: SuperviseEnd = await supervise({
     io, ...(host ? { pollMs: 5000 } : {}), deadlineMs: ((task.attemptStartedAt ?? run.startedAt) + task.timeoutS) * 1000,
+    interactionMode: run.interactionMode,
     isStopped: () => readTask(ctx, task.id)?.state === "stopped", onPoll,
   });
+  if (!run.host && !run.takeover && cfg.session !== "interactive" && (parseRunnerId(cfg.id)?.agent ?? cfg.id) === "claude-code") {
+    const path = join(run.dir, "stdout");
+    try {
+      const strategy = loadStrategy(ctx);
+      const runner = resolveRunner(strategy, cfg.id);
+      const account = runner && strategy.accounts[runner.account];
+      if (account) {
+        const captured = await captureClaudeStreamUsageFile({...ctx, now: Date.now() / 1000}, account, path);
+        if (captured) {
+          try {
+            await readAccountUsage({...ctx, now: Date.now() / 1000}, account,
+              Object.values(strategy.runners).filter(r => r.account === account.name), true, false, strategy.hosts);
+          } catch { /* The captured cache remains available for the next status refresh. */ }
+        }
+      }
+      const result = claudeResultFromStream(readOutput(run.dir).stdout);
+      if (result !== null) {
+        const temp = `${path}.${randomUUID()}.tmp`;
+        try {
+          writeFileSync(temp, `${result}\n`, {flag: "wx", mode: 0o600});
+          renameSync(temp, path);
+        } finally {
+          try { unlinkSync(temp); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+        }
+      }
+    } catch { /* Keep the original output and task outcome when telemetry is unavailable. */ }
+  }
   const out = readOutput(run.dir);
   const exec: ExecResult = { code: end.code, stdout: out.stdout, stderr: out.stderr, timedOut: end.kind === "timeout" };
   if (end.kind === "idle") exec.stderr += `\npacer: stopped after ${Math.round((loadExec(ctx).idleFailS ?? IDLE_FAIL_S) / 60)} min without output or file changes`;
@@ -169,13 +222,20 @@ export async function finishRun(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, ru
   const interactive = existsSync(join(run.dir, "interactive.json"));
   const signal = interactive ? readReport(run.dir) : null;
   const completed = end.kind === "reported";
+  const conversation = run.interactionMode === "conversation";
   let report = interactive
     ? completed ? signal!.summary : `Interactive session ${end.kind} without an explicit completion report${signal ? `\n\n${signal.summary}` : ""}`
     : tail(exec.stdout.trim() || exec.stderr.trim(), REPORT_CHARS);
   if (interactive) {
     const transcript = transcriptReport(run.dir);
     if (transcript) report += `\n\n${tail(transcript, REPORT_CHARS)}`;
-    if (!run.takeover && end.kind === "exited" && !completed) exec.stderr += "\npacer: interactive agent exited without an explicit completion report";
+    if (!conversation && !run.takeover && end.kind === "exited" && !completed) exec.stderr += "\npacer: interactive agent exited without an explicit completion report";
+  }
+  if (conversation) {
+    report = transcriptReport(run.dir) || signal?.summary || (end.kind === "exited" ? "Agent session ended" : "Session stopped");
+    updateTask(ctx, task.id, t => {
+      t.conversation = {...t.conversation, activity: "ended", endReason: end.kind === "stopped" ? "user" : end.kind === "exited" && end.code === 0 ? "agent_exit" : "failure"};
+    });
   }
   if (!interactive && run.lastMessageFile && existsSync(run.lastMessageFile)) report = tail(readFileSync(run.lastMessageFile, "utf8").trim(), REPORT_CHARS) || report;
   if (run.takeover) {
@@ -241,6 +301,8 @@ export async function runAttempt(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, o
   return withWork(ctx, { kind: "operation", id: task.id, label: "Executor attempt" }, () => runAttemptAdmitted(ctx, cfg, task, onSpawn));
 }
 async function runAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, onSpawn?: (pid: number) => void): Promise<AttemptOutcome> {
+  const conversation = task.interactionMode === "conversation";
+  if (conversation) cfg = {...cfg, session: "interactive"};
   const alias = parseRunnerId(cfg.id)?.host;
   if (alias) return runRemoteAttempt(ctx, cfg, task, loadStrategy(ctx).hosts[alias], onSpawn);
   const dir = tasksDir(ctx);
@@ -252,11 +314,20 @@ async function runAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, 
   let resolved = task.retryOf && task.worktree ? { mode: realpathSafe(task.worktree) === realpathSafe(task.brief.repo) ? "current" as const : "new" as const, why: "reuse original task worktree" } : resolvePlacement(task, ex.worktree, busy, !("error" in git) && git.dirty);
   let note = "", workdir = task.brief.repo, mode: "current" | "new" = resolved.mode;
   if (mode === "new" && "error" in git) {
+    if (conversation) {
+      const reason = `Cannot create an isolated conversation: ${git.error}`;
+      return outcome(cfg, startedAt, {code: 1, stdout: "", stderr: reason, timedOut: false}, log, reason);
+    }
     note = `ran in place: ${git.error}\n\n`; mode = "current"; resolved = { mode: "current", why: resolved.why };
   }
   if (mode === "current" && (busy || (resolved.why === "strategy default" && !("error" in git) && git.dirty))) {
     const reason = busy ? "another pacer task is running in the current worktree; in-place execution refused" : "current worktree has uncommitted changes";
     return outcome(cfg, startedAt, { code: 1, stdout: "", stderr: reason, timedOut: false }, log, reason);
+  }
+  if (mode === "current" && listTasksWhere(ctx, {states: ["queued", "running"]}).some(t =>
+    t.id !== task.id && t.interactionMode === "conversation" && t.placement?.requested === "current" && realpathSafe(t.brief.repo) === realpathSafe(workdir))) {
+    const reason = "Another conversation owns this checkout";
+    return outcome(cfg, startedAt, {code: 1, stdout: "", stderr: reason, timedOut: false}, log, reason);
   }
   if (mode === "new" && !("error" in git)) {
     // Retries and fallback attempts retain all committed and uncommitted work.
@@ -286,7 +357,7 @@ async function runAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, 
     t.placement = { requested: task.placement?.requested ?? "auto", ...task.placement, mode, why: resolved.why };
     t.worktree = workdir;
   });
-  const prompt = mode === "new"
+  const prompt = conversation ? task.brief.goal : mode === "new"
     ? buildPrompt({ ...task.brief, repo: task.retryOf ? `${workdir} (the original task worktree; keep its current branch; do not edit ${task.brief.repo} itself)` : `${workdir} (a new git worktree of ${task.brief.repo} on branch pacer/${task.id}; do not edit ${task.brief.repo} itself)` }, task.id)
     : buildPrompt(task.brief, task.id);
   let launch: ReturnType<typeof launchFor>;
@@ -295,7 +366,7 @@ async function runAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, 
   try {
     env = executorEnv(ctx.env, await providerEnv(ctx, cfg), task.id);
     const interactive = cfg.session === "interactive";
-    const instructions = interactive ? `\n\nInteractive pacer session: completion requires running pacer report --task ${task.id} --outcome done --summary "<result>" (or --outcome failed). Before asking the user, run pacer report --status needs-input --summary "<question>"; when resuming use --status running. Do not infer completion from the terminal. PACER_RUN_DIR identifies this attempt. You may write a longer Markdown result to $PACER_TRANSCRIPT_REPORT.\n` : "";
+    const instructions = interactive && !conversation ? `\n\nInteractive pacer session: completion requires running pacer report --task ${task.id} --outcome done --summary "<result>" (or --outcome failed). Before asking the user, run pacer report --status needs-input --summary "<question>"; when resuming use --status running. Do not infer completion from the terminal. PACER_RUN_DIR identifies this attempt. You may write a longer Markdown result to $PACER_TRANSCRIPT_REPORT.\n` : "";
     const agent = parseRunnerId(cfg.id)?.agent ?? cfg.id;
     if (!interactive && cfg.via !== "opencode") {
       if (agent === "claude-code") agentSession = {id:crypto.randomUUID(),source:"assigned"};
@@ -307,7 +378,21 @@ async function runAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, 
         } catch { /* best effort: launch unchanged */ }
       }
     }
-    launch = launchFor(cfg, prompt + instructions, workdir, rdir, task.id, agentSession?.id, "error" in git ? task.brief.repo : git.main);
+    if (conversation) {
+      const executable = cfg.via === "opencode" ? "opencode" : agent === "claude-code" ? "claude" : agent === "cursor" ? "cursor-agent" : agent;
+      const version = await ctx.run([executable, "--version"], 5000, {env});
+      const number = version.stdout.match(/\b\d+\.\d+\.\d+\b/)?.[0] ?? "unknown";
+      let request = prompt;
+      if (Buffer.byteLength(request) > 32 * 1024) {
+        mkdirSync(rdir, {recursive: true, mode: 0o700});
+        const path = join(rdir, "prompt.md");
+        writeFileSync(path, request, {mode: 0o600});
+        request = `Read the request in ${JSON.stringify(path)} and continue this conversation.`;
+      }
+      launch = await prepareAgentSession(ctx, {agent: cfg.via === "opencode" ? "opencode" : agent, version: number, request,
+        workspace: workdir, runDir: rdir, ...(task.sessionDraftId ? {attachmentDir: attachmentDirectory(ctx, task.sessionDraftId)} : {}), attachments: resolveAttachments(ctx, task.id), permissionPolicy: "native",
+        ...(task.conversation?.agentSessionId ? {sessionId: task.conversation.agentSessionId} : {}), ...(cfg.model ? {model: cfg.model} : {})});
+    } else launch = launchFor(cfg, prompt + instructions, workdir, rdir, task.id, agentSession?.id, "error" in git ? task.brief.repo : git.main);
     if (interactive) {
       const agent = parseRunnerId(cfg.id)?.agent ?? cfg.id;
       if (agent === "codex") await requireCodexInteractive(ctx, env);
@@ -323,9 +408,9 @@ async function runAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, 
   }
   mkdirSync(rdir, { recursive: true });
   writeFileSync(join(rdir, "argv"), launch.argv.join(" "));
-  const run: RunRef = { ...(agentSession ? {agentSession} : {}), dir: rdir, attempt, executor: cfg.id, startedAt, mode, workdir, logFile: log, ...(launch.lastMessageFile ? { lastMessageFile: launch.lastMessageFile } : {}) };
+  const run: RunRef = { interactionMode: task.interactionMode, ...(agentSession ? {agentSession} : {}), dir: rdir, attempt, executor: cfg.id, startedAt, mode, workdir, logFile: log, ...(launch.lastMessageFile ? { lastMessageFile: launch.lastMessageFile } : {}) };
   updateTask(ctx, task.id, t => { t.run = run; });
-  const started = startRun({ dir: rdir, argv: launch.argv, cwd: launch.cwd, stdin: launch.stdin, env, ...(cfg.session === "interactive" ? {session: "interactive" as const} : {}) });
+  const started = startRun({ interactionMode: task.interactionMode, dir: rdir, argv: launch.argv, cwd: launch.cwd, stdin: launch.stdin, env, ...(cfg.session === "interactive" ? {session: "interactive" as const} : {}) });
   if ("error" in started) {
     const exec = { code: 127, stdout: "", stderr: started.error, timedOut: false };
     return outcome(cfg, startedAt, exec, log, note + started.error);

@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
-import { mkdirSync, statSync, utimesSync } from "node:fs";
+import { mkdirSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { claudeCachePaths, readClaude, captureClaudeStreamUsage } from "../src/usage/claude";
+import { claudeCachePaths, readClaude, captureClaudeStreamUsage, captureClaudeStreamUsageFile, claudeResultFromStream } from "../src/usage/claude";
 import { validateStrategy } from "../src/config/strategy";
 import { fakeCtx } from "./helpers";
 
@@ -38,6 +38,26 @@ test("Claude stream quota events populate only the selected account without cred
     rateLimitType: "seven_day", utilization: 0.01,
   }}))).toBe(false);
   expect((await readClaude(ctx, account)).windows.map(w => w.usedPct)).toEqual([94, 0]);
+});
+
+test("completed Claude stream refreshes the named account and keeps the readable result", async () => {
+  const ctx = fakeCtx();
+  const account = validateStrategy({planner: "claude-code", accounts: {
+    main: {kind: "claude"}, work: {kind: "claude", home: "~/.claude-work"},
+  }}, "test").accounts.work;
+  const path = join(ctx.home, "stdout");
+  writeFileSync(path, [
+    JSON.stringify({type: "assistant", message: {content: [{type: "text", text: "intermediate"}]}}),
+    JSON.stringify({type: "rate_limit_event", rate_limit_info: {unifiedWindows: {
+      seven_day: {utilization: 0.57, resetsAt: ctx.now + 86400},
+      five_hour: {utilization: 0.12, resetsAt: ctx.now + 3600},
+    }}}),
+    JSON.stringify({type: "result", result: "Finished the task"}),
+  ].join("\n"));
+  expect(await captureClaudeStreamUsageFile(ctx, account, path)).toBe(true);
+  expect((await readClaude(ctx, account)).windows.map(w => w.usedPct)).toEqual([57, 12]);
+  expect((await readClaude(ctx)).capturedAt).toBeNull();
+  expect(claudeResultFromStream(await Bun.file(path).text())).toBe("Finished the task");
 });
 
 async function put(path: string, data: unknown, mtime: number) {

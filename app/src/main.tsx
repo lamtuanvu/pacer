@@ -69,8 +69,8 @@ function App() {
     return () => { active = false; clearInterval(timer); };
   }, [api, state.invalidations.setup, state.connected, setupRevision]);
   // Unknown until the first setup check answers, so screens wait instead of flashing Setup.
-  const setupComplete = setupCompleteFrom(checklist);
-  const resolved = resolveRoute(hash, setupComplete);
+  const setupComplete = state.features.ops.size ? setupCompleteFrom(checklist) : null;
+  const resolved = resolveRoute(hash, setupComplete, state.features.ops.has("session.create"));
   useEffect(() => { if ("redirect" in resolved) location.replace(resolved.redirect); }, [hash, "redirect" in resolved]);
   const route: Route = "redirect" in resolved ? { name: "loading", query: { repo: null, scope: null } } : resolved;
   const narrow = useNarrow(route.query);
@@ -79,7 +79,7 @@ function App() {
     keys.setScope(route.name);
     const go = (to: string) => () => { location.hash = inheritQuery(to, location.hash); };
     const offs = [
-      keys.register({ keys: "g o", label: "Go to Overview", scope: "global", run: go("#/") }),
+      keys.register({ keys: "g o", label: "Go to Overview", scope: "global", run: go("#/overview") }),
       keys.register({ keys: "g r", label: "Go to Needs you", scope: "global", run: go("#/needs-you") }),
       keys.register({ keys: "g s", label: "Go to Tasks", scope: "global", run: go("#/tasks") }),
       keys.register({ keys: ",", label: "Open Settings", scope: "global", run: go("#/settings") }),

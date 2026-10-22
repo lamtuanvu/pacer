@@ -257,6 +257,22 @@ again after the test task; missing quota telemetry fails **Usage readable** with
 guidance to update Claude Code and check the subscription. Interactive sessions
 can also update usage through the installed status line.
 
+Normal headless Claude tasks also capture the structured quota event when the
+task finishes. Pacer installs an account-scoped status line when it creates a managed
+Claude account, and fills in a missing status line for an existing managed
+account the next time it launches that account. An existing custom status line
+is preserved; to capture its quota data, have it pass Claude's status-line JSON
+to `pacer statusline` with that account's `CLAUDE_CONFIG_DIR` set. Pacer does not
+run idle background prompts to refresh usage. A reading ages when there are no
+new Claude turns, and an expired window stays unknown until new telemetry arrives.
+
+After a task finishes, pacer refreshes the executed account's available usage
+source before recording `usageAtEnd`. Codex uses its session logs. Metered
+OpenCode accounts query `opencode stats`, and supported quota endpoints query
+their provider CLI. Those commands may still report delayed provider data.
+Cursor and Antigravity only report observed limit hits; pacer does not invent a
+numeric quota percentage for them. Unmetered accounts have no quota to refresh.
+
 ### Sign-in state
 
 `signedIn` is the account's local sign-in on this machine. One check supplies it

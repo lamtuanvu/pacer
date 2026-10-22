@@ -56,3 +56,11 @@ test("Delegate is the one primary button, secondary when the screen owns the pri
 test("the top bar shows the current time", () => {
   expect(renderToString(<TopBar {...base} />)).toMatch(/pc-clock[^>]*>\d{2}:\d{2}</);
 });
+
+test("setup leaves the step's page heading and actions to the setup flow", () => {
+  const html = renderToString(<TopBar {...base} title="Setup" showActions={false} />);
+  expect(html).not.toContain("<h1");
+  expect(html).not.toContain("Setup");
+  expect(html).not.toContain(">Delegate<");
+  expect(html).not.toContain("pc-meter");
+});

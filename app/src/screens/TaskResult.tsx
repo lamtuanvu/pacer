@@ -129,6 +129,7 @@ export function TaskRoute({ id, query }: { id: string; query: RouteQuery }) {
     if (task.data && chosenTab === undefined) setTab(["queued", "running"].includes(task.data.state) ? "session" : "summary");
   }, [task.data, chosenTab]);
   if (!task.data) return task.error ? <EmptyState title="Could not load task" description="Try refreshing the page."/> : <LoadingState label="Loading task…"/>;
+  if (task.data.interactionMode === "conversation") return <SessionRoute id={id}/>;
   const tab = chosenTab ?? (["queued", "running"].includes(task.data.state) ? "session" : "summary");
   return <TaskDetailFrame task={task.data} query={query} tab={tab} onTab={setTab}>
     {tab === "session" ? <SessionRoute id={id} embedded/> : <TaskResultLoaded key={id} task={task.data} reload={task.reload}/>}

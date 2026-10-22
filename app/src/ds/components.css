@@ -186,6 +186,7 @@ a.pc-btn{text-decoration:none}
 .pc-input{box-sizing:border-box;min-width:0;max-width:100%;min-height:var(--control-normal);padding:var(--space-2\.5);font-family:var(--font-sans);font-size:var(--type-body-size);line-height:var(--type-body-line);background:var(--surface-page);color:var(--ink);border:1px solid var(--line);border-radius:var(--radius-md)}
 .pc-field>.pc-input,.pc-field>.pc-select{width:100%}
 .pc-input:disabled,.pc-range:disabled{opacity:.5;cursor:not-allowed}
+.pc-input::file-selector-button{font:inherit;font-weight:var(--type-body-strong-weight);color:var(--ink);background:var(--surface-page);border:1px solid var(--line);border-radius:var(--radius-md);padding:var(--space-1) var(--space-2);margin-inline-end:var(--space-2);cursor:pointer}
 .pc-input[aria-invalid=true]{border-color:var(--bad-fg)}
 .pc-textarea{width:100%;min-height:var(--textarea-min);resize:vertical}
 .pc-input:focus-visible,.pc-range:focus-visible{outline:var(--stroke-focus) solid var(--focus);outline-offset:var(--stroke-focus)}
@@ -315,6 +316,13 @@ a.pc-btn{text-decoration:none}
 .pc-prose code{font-family:var(--font-mono);font-size:var(--type-code-size);line-height:var(--type-code-line);white-space:pre;overflow-wrap:normal;word-break:normal}
 .pc-prose p:has(code),.pc-prose li:has(code){overflow-x:auto}
 .pc-prose pre{max-width:100%;overflow:auto;margin:0;padding:var(--space-3);background:var(--surface-card);border:1px solid var(--line);border-radius:var(--radius-md)}
+.pc-attachments{display:flex;flex-direction:column;gap:var(--space-2);padding:0;margin:0;list-style:none}
+.pc-attachments>li{display:flex;align-items:center;gap:var(--space-3);padding:var(--space-3);border:1px solid var(--line);border-radius:var(--radius-md)}
+.pc-attachments img{width:var(--size-44);height:var(--size-44);object-fit:cover;border-radius:var(--radius-sm)}
+.pc-attachment-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pc-attachment-name small{display:block;color:var(--ink-muted);font-size:var(--type-caption-size)}
+.pc-attachment-picker{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-3);color:var(--ink-secondary);font-size:var(--type-caption-size)}
+.pc-attachment-picker .pc-input{width:auto;max-width:100%}
 
 /* Routed pages own one width, gutter and rhythm contract. */
 .pc-page{width:100%;margin-inline:auto;padding:var(--space-6) max(var(--space-8),env(safe-area-inset-right)) var(--space-8) max(var(--space-8),env(safe-area-inset-left));min-width:0}
@@ -347,12 +355,16 @@ a.pc-btn{text-decoration:none}
 .pc-update-notice--narrow{bottom:calc(var(--size-56) + var(--space-4) + env(safe-area-inset-bottom));max-height:calc(100dvh - var(--size-56) - var(--space-4) * 2 - env(safe-area-inset-bottom))}
 
 /* Custom (undecorated) titlebar window controls: macOS traffic lights. */
-.pc-traffic{display:flex;align-items:center;gap:var(--space-2);width:var(--size-60);flex:none}
-.pc-traffic__btn{width:var(--size-12);height:var(--size-12);border-radius:var(--radius-full);border:0;padding:0;margin:0;opacity:.85;transition:opacity var(--motion-fast) var(--motion-ease)}
-.pc-traffic__btn:hover{opacity:1}
-.pc-traffic__btn--close{background:var(--traffic-close)}
-.pc-traffic__btn--min{background:var(--traffic-min)}
-.pc-traffic__btn--zoom{background:var(--traffic-max)}
+.pc-traffic{display:flex;align-items:center;gap:0;flex:none}
+.pc-traffic__btn{display:flex;align-items:center;justify-content:center;width:var(--size-20);height:var(--control-compact);border-radius:var(--radius-sm);border:0;padding:0;margin:0;background:transparent;cursor:pointer}
+.pc-traffic__btn::before{content:"";width:var(--size-12);height:var(--size-12);border-radius:var(--radius-full);opacity:.85;transition:opacity var(--motion-fast) var(--motion-ease)}
+.pc-traffic__btn:hover::before{opacity:1}
+.pc-traffic__btn:focus-visible{outline:var(--stroke-focus) solid var(--focus);outline-offset:calc(-1 * var(--stroke-focus))}
+.pc-traffic__btn--close::before{background:var(--traffic-close)}
+.pc-traffic__btn--min::before{background:var(--traffic-min)}
+.pc-traffic__btn--zoom::before{background:var(--traffic-max)}
+@media(pointer:coarse){.pc-traffic__btn{width:var(--control-touch);height:var(--control-touch)}}
+@media(prefers-reduced-motion:reduce){.pc-traffic__btn::before{transition:none}}
 
 /* Portalled dialogs also need touch targets without a shell density provider. */
 @media(max-width:560px){.pc-input.pc-control--compact,.pc-select.pc-control--compact{min-height:var(--control-touch);font-size:var(--type-headline-size)}.pc-range.pc-control--compact{min-height:var(--control-touch)}}

@@ -103,8 +103,8 @@ test("Release tag refuses missing, failed, pending and stale dry runs", () => {
   }
 });
 
-test("Release tag refuses a changed merge tree or unrelated PR", () => {
-  for (const mismatch of ["tree", "merge", "base", "branch"]) {
+for (const mismatch of ["tree", "merge", "base", "branch"]) {
+  test(`Release tag refuses an untested release: ${mismatch}`, () => {
     const subject = "chore: release 0.5.0 (#220)";
     const { origin, work, sha } = fixture("0.5.0", subject);
     if (mismatch === "tree") {
@@ -115,8 +115,8 @@ test("Release tag refuses a changed merge tree or unrelated PR", () => {
     writeFileSync(join(work, "pr.json"), JSON.stringify({ state: "MERGED", baseRefName: mismatch === "base" ? "other" : "main", headRefName: mismatch === "branch" ? "other" : "release/v0.5.0", headRefOid: sha, mergeCommit: { oid: mismatch === "merge" ? "0".repeat(40) : mergeSha } }));
     expect(runTag(work, mergeSha, subject).exitCode).not.toBe(0);
     expect(git(origin, "tag", "--list")).toBe("");
-  }
-});
+  });
+}
 
 test("Release verify prebuilds Rust fixtures before the test timeout starts", () => {
   const steps = load("release.yml").jobs.verify!.steps;

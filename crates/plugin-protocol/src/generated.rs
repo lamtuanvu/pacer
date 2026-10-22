@@ -29,6 +29,1731 @@ pub mod error {
         }
     }
 }
+///`AgentSessionAttachmentParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "agent",
+///    "attachment",
+///    "phase",
+///    "version",
+///    "workspace"
+///  ],
+///  "properties": {
+///    "agent": {
+///      "type": "string",
+///      "maxLength": 64,
+///      "minLength": 1
+///    },
+///    "attachment": {
+///      "type": "object",
+///      "required": [
+///        "id",
+///        "mime",
+///        "name",
+///        "path",
+///        "size"
+///      ],
+///      "properties": {
+///        "id": {
+///          "type": "string",
+///          "maxLength": 128,
+///          "minLength": 1
+///        },
+///        "mime": {
+///          "type": "string",
+///          "maxLength": 128
+///        },
+///        "name": {
+///          "type": "string",
+///          "maxLength": 255
+///        },
+///        "path": {
+///          "type": "string",
+///          "maxLength": 4096,
+///          "minLength": 1
+///        },
+///        "size": {
+///          "type": "integer",
+///          "maximum": 9007199254740991.0,
+///          "minimum": 0.0
+///        }
+///      },
+///      "additionalProperties": false
+///    },
+///    "phase": {
+///      "type": "string",
+///      "enum": [
+///        "launch",
+///        "live"
+///      ]
+///    },
+///    "version": {
+///      "type": "string",
+///      "maxLength": 128,
+///      "minLength": 1
+///    },
+///    "workspace": {
+///      "type": "string",
+///      "minLength": 1
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct AgentSessionAttachmentParams {
+    pub agent: AgentSessionAttachmentParamsAgent,
+    pub attachment: AgentSessionAttachmentParamsAttachment,
+    pub phase: AgentSessionAttachmentParamsPhase,
+    pub version: AgentSessionAttachmentParamsVersion,
+    pub workspace: AgentSessionAttachmentParamsWorkspace,
+}
+///`AgentSessionAttachmentParamsAgent`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 64,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AgentSessionAttachmentParamsAgent(::std::string::String);
+impl ::std::ops::Deref for AgentSessionAttachmentParamsAgent {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AgentSessionAttachmentParamsAgent> for ::std::string::String {
+    fn from(value: AgentSessionAttachmentParamsAgent) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AgentSessionAttachmentParamsAgent {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 64usize {
+            return Err("longer than 64 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AgentSessionAttachmentParamsAgent {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AgentSessionAttachmentParamsAgent {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`AgentSessionAttachmentParamsAttachment`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "id",
+///    "mime",
+///    "name",
+///    "path",
+///    "size"
+///  ],
+///  "properties": {
+///    "id": {
+///      "type": "string",
+///      "maxLength": 128,
+///      "minLength": 1
+///    },
+///    "mime": {
+///      "type": "string",
+///      "maxLength": 128
+///    },
+///    "name": {
+///      "type": "string",
+///      "maxLength": 255
+///    },
+///    "path": {
+///      "type": "string",
+///      "maxLength": 4096,
+///      "minLength": 1
+///    },
+///    "size": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "minimum": 0.0
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct AgentSessionAttachmentParamsAttachment {
+    pub id: AgentSessionAttachmentParamsAttachmentId,
+    pub mime: AgentSessionAttachmentParamsAttachmentMime,
+    pub name: AgentSessionAttachmentParamsAttachmentName,
+    pub path: AgentSessionAttachmentParamsAttachmentPath,
+    pub size: i64,
+}
+///`AgentSessionAttachmentParamsAttachmentId`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 128,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AgentSessionAttachmentParamsAttachmentId(::std::string::String);
+impl ::std::ops::Deref for AgentSessionAttachmentParamsAttachmentId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AgentSessionAttachmentParamsAttachmentId> for ::std::string::String {
+    fn from(value: AgentSessionAttachmentParamsAttachmentId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AgentSessionAttachmentParamsAttachmentId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 128usize {
+            return Err("longer than 128 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AgentSessionAttachmentParamsAttachmentId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AgentSessionAttachmentParamsAttachmentId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`AgentSessionAttachmentParamsAttachmentMime`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 128
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AgentSessionAttachmentParamsAttachmentMime(::std::string::String);
+impl ::std::ops::Deref for AgentSessionAttachmentParamsAttachmentMime {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AgentSessionAttachmentParamsAttachmentMime> for ::std::string::String {
+    fn from(value: AgentSessionAttachmentParamsAttachmentMime) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AgentSessionAttachmentParamsAttachmentMime {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 128usize {
+            return Err("longer than 128 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AgentSessionAttachmentParamsAttachmentMime {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AgentSessionAttachmentParamsAttachmentMime {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`AgentSessionAttachmentParamsAttachmentName`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 255
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AgentSessionAttachmentParamsAttachmentName(::std::string::String);
+impl ::std::ops::Deref for AgentSessionAttachmentParamsAttachmentName {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AgentSessionAttachmentParamsAttachmentName> for ::std::string::String {
+    fn from(value: AgentSessionAttachmentParamsAttachmentName) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AgentSessionAttachmentParamsAttachmentName {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 255usize {
+            return Err("longer than 255 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AgentSessionAttachmentParamsAttachmentName {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AgentSessionAttachmentParamsAttachmentName {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`AgentSessionAttachmentParamsAttachmentPath`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 4096,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AgentSessionAttachmentParamsAttachmentPath(::std::string::String);
+impl ::std::ops::Deref for AgentSessionAttachmentParamsAttachmentPath {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AgentSessionAttachmentParamsAttachmentPath> for ::std::string::String {
+    fn from(value: AgentSessionAttachmentParamsAttachmentPath) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AgentSessionAttachmentParamsAttachmentPath {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 4096usize {
+            return Err("longer than 4096 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AgentSessionAttachmentParamsAttachmentPath {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AgentSessionAttachmentParamsAttachmentPath {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`AgentSessionAttachmentParamsPhase`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "enum": [
+///    "launch",
+///    "live"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum AgentSessionAttachmentParamsPhase {
+    #[serde(rename = "launch")]
+    Launch,
+    #[serde(rename = "live")]
+    Live,
+}
+impl ::std::convert::From<&Self> for AgentSessionAttachmentParamsPhase {
+    fn from(value: &AgentSessionAttachmentParamsPhase) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for AgentSessionAttachmentParamsPhase {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Launch => f.write_str("launch"),
+            Self::Live => f.write_str("live"),
+        }
+    }
+}
+impl ::std::str::FromStr for AgentSessionAttachmentParamsPhase {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "launch" => Ok(Self::Launch),
+            "live" => Ok(Self::Live),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for AgentSessionAttachmentParamsPhase {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`AgentSessionAttachmentParamsVersion`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 128,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AgentSessionAttachmentParamsVersion(::std::string::String);
+impl ::std::ops::Deref for AgentSessionAttachmentParamsVersion {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AgentSessionAttachmentParamsVersion> for ::std::string::String {
+    fn from(value: AgentSessionAttachmentParamsVersion) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AgentSessionAttachmentParamsVersion {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 128usize {
+            return Err("longer than 128 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AgentSessionAttachmentParamsVersion {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AgentSessionAttachmentParamsVersion {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`AgentSessionAttachmentParamsWorkspace`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AgentSessionAttachmentParamsWorkspace(::std::string::String);
+impl ::std::ops::Deref for AgentSessionAttachmentParamsWorkspace {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AgentSessionAttachmentParamsWorkspace> for ::std::string::String {
+    fn from(value: AgentSessionAttachmentParamsWorkspace) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AgentSessionAttachmentParamsWorkspace {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AgentSessionAttachmentParamsWorkspace {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AgentSessionAttachmentParamsWorkspace {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`AgentSessionAttachmentResult`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "oneOf": [
+///    {
+///      "type": "object",
+///      "required": [
+///        "args",
+///        "kind"
+///      ],
+///      "properties": {
+///        "args": {
+///          "type": "array",
+///          "items": {
+///            "type": "string"
+///          }
+///        },
+///        "kind": {
+///          "type": "string",
+///          "const": "native"
+///        }
+///      },
+///      "additionalProperties": false
+///    },
+///    {
+///      "type": "object",
+///      "required": [
+///        "kind",
+///        "requiresUserSubmit",
+///        "text"
+///      ],
+///      "properties": {
+///        "kind": {
+///          "type": "string",
+///          "const": "reference"
+///        },
+///        "requiresUserSubmit": {
+///          "type": "boolean",
+///          "const": true
+///        },
+///        "text": {
+///          "type": "string"
+///        }
+///      },
+///      "additionalProperties": false
+///    },
+///    {
+///      "type": "object",
+///      "required": [
+///        "kind",
+///        "reason"
+///      ],
+///      "properties": {
+///        "kind": {
+///          "type": "string",
+///          "const": "unsupported"
+///        },
+///        "reason": {
+///          "type": "string"
+///        }
+///      },
+///      "additionalProperties": false
+///    }
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(tag = "kind", deny_unknown_fields)]
+pub enum AgentSessionAttachmentResult {
+    #[serde(rename = "native")]
+    Native {
+        args: ::std::vec::Vec<::std::string::String>,
+    },
+    #[serde(rename = "reference")]
+    Reference {
+        #[serde(rename = "requiresUserSubmit")]
+        requires_user_submit: bool,
+        text: ::std::string::String,
+    },
+    #[serde(rename = "unsupported")]
+    Unsupported { reason: ::std::string::String },
+}
+impl ::std::convert::From<&Self> for AgentSessionAttachmentResult {
+    fn from(value: &AgentSessionAttachmentResult) -> Self {
+        value.clone()
+    }
+}
+///`AgentSessionCapabilitiesParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "agent",
+///    "version"
+///  ],
+///  "properties": {
+///    "agent": {
+///      "type": "string",
+///      "maxLength": 64,
+///      "minLength": 1
+///    },
+///    "version": {
+///      "type": "string",
+///      "maxLength": 128,
+///      "minLength": 1
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct AgentSessionCapabilitiesParams {
+    pub agent: AgentSessionCapabilitiesParamsAgent,
+    pub version: AgentSessionCapabilitiesParamsVersion,
+}
+///`AgentSessionCapabilitiesParamsAgent`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 64,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AgentSessionCapabilitiesParamsAgent(::std::string::String);
+impl ::std::ops::Deref for AgentSessionCapabilitiesParamsAgent {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AgentSessionCapabilitiesParamsAgent> for ::std::string::String {
+    fn from(value: AgentSessionCapabilitiesParamsAgent) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AgentSessionCapabilitiesParamsAgent {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 64usize {
+            return Err("longer than 64 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AgentSessionCapabilitiesParamsAgent {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AgentSessionCapabilitiesParamsAgent {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`AgentSessionCapabilitiesParamsVersion`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 128,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AgentSessionCapabilitiesParamsVersion(::std::string::String);
+impl ::std::ops::Deref for AgentSessionCapabilitiesParamsVersion {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AgentSessionCapabilitiesParamsVersion> for ::std::string::String {
+    fn from(value: AgentSessionCapabilitiesParamsVersion) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AgentSessionCapabilitiesParamsVersion {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 128usize {
+            return Err("longer than 128 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AgentSessionCapabilitiesParamsVersion {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AgentSessionCapabilitiesParamsVersion {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`AgentSessionCapabilitiesResult`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "files",
+///    "interactive",
+///    "launchImages",
+///    "liveImages",
+///    "resume"
+///  ],
+///  "properties": {
+///    "files": {
+///      "type": "boolean"
+///    },
+///    "interactive": {
+///      "type": "boolean"
+///    },
+///    "launchImages": {
+///      "type": "boolean"
+///    },
+///    "liveImages": {
+///      "type": "boolean"
+///    },
+///    "reason": {
+///      "type": "string"
+///    },
+///    "resume": {
+///      "type": "boolean"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct AgentSessionCapabilitiesResult {
+    pub files: bool,
+    pub interactive: bool,
+    #[serde(rename = "launchImages")]
+    pub launch_images: bool,
+    #[serde(rename = "liveImages")]
+    pub live_images: bool,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub reason: ::std::option::Option<::std::string::String>,
+    pub resume: bool,
+}
+///`AgentSessionPrepareParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "agent",
+///    "attachments",
+///    "permissionPolicy",
+///    "request",
+///    "runDir",
+///    "version",
+///    "workspace"
+///  ],
+///  "properties": {
+///    "agent": {
+///      "type": "string",
+///      "maxLength": 64,
+///      "minLength": 1
+///    },
+///    "attachmentDir": {
+///      "type": "string",
+///      "minLength": 1
+///    },
+///    "attachments": {
+///      "type": "array",
+///      "items": {
+///        "type": "object",
+///        "required": [
+///          "id",
+///          "mime",
+///          "name",
+///          "path",
+///          "size"
+///        ],
+///        "properties": {
+///          "id": {
+///            "type": "string",
+///            "maxLength": 128,
+///            "minLength": 1
+///          },
+///          "mime": {
+///            "type": "string",
+///            "maxLength": 128
+///          },
+///          "name": {
+///            "type": "string",
+///            "maxLength": 255
+///          },
+///          "path": {
+///            "type": "string",
+///            "maxLength": 4096,
+///            "minLength": 1
+///          },
+///          "size": {
+///            "type": "integer",
+///            "maximum": 9007199254740991.0,
+///            "minimum": 0.0
+///          }
+///        },
+///        "additionalProperties": false
+///      },
+///      "maxItems": 20
+///    },
+///    "model": {
+///      "type": "string"
+///    },
+///    "permissionPolicy": {
+///      "type": "string",
+///      "const": "native"
+///    },
+///    "request": {
+///      "type": "string",
+///      "maxLength": 200000
+///    },
+///    "runDir": {
+///      "type": "string",
+///      "minLength": 1
+///    },
+///    "sessionId": {
+///      "type": "string",
+///      "pattern": "^[A-Za-z0-9_-]{1,128}$"
+///    },
+///    "version": {
+///      "type": "string",
+///      "maxLength": 128,
+///      "minLength": 1
+///    },
+///    "workspace": {
+///      "type": "string",
+///      "minLength": 1
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct AgentSessionPrepareParams {
+    pub agent: AgentSessionPrepareParamsAgent,
+    #[serde(
+        rename = "attachmentDir",
+        default,
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub attachment_dir: ::std::option::Option<AgentSessionPrepareParamsAttachmentDir>,
+    pub attachments: ::std::vec::Vec<AgentSessionPrepareParamsAttachmentsItem>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub model: ::std::option::Option<::std::string::String>,
+    #[serde(rename = "permissionPolicy")]
+    pub permission_policy: ::std::string::String,
+    pub request: AgentSessionPrepareParamsRequest,
+    #[serde(rename = "runDir")]
+    pub run_dir: AgentSessionPrepareParamsRunDir,
+    #[serde(
+        rename = "sessionId",
+        default,
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub session_id: ::std::option::Option<AgentSessionPrepareParamsSessionId>,
+    pub version: AgentSessionPrepareParamsVersion,
+    pub workspace: AgentSessionPrepareParamsWorkspace,
+}
+///`AgentSessionPrepareParamsAgent`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 64,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AgentSessionPrepareParamsAgent(::std::string::String);
+impl ::std::ops::Deref for AgentSessionPrepareParamsAgent {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AgentSessionPrepareParamsAgent> for ::std::string::String {
+    fn from(value: AgentSessionPrepareParamsAgent) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AgentSessionPrepareParamsAgent {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 64usize {
+            return Err("longer than 64 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AgentSessionPrepareParamsAgent {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AgentSessionPrepareParamsAgent {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`AgentSessionPrepareParamsAttachmentDir`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AgentSessionPrepareParamsAttachmentDir(::std::string::String);
+impl ::std::ops::Deref for AgentSessionPrepareParamsAttachmentDir {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AgentSessionPrepareParamsAttachmentDir> for ::std::string::String {
+    fn from(value: AgentSessionPrepareParamsAttachmentDir) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AgentSessionPrepareParamsAttachmentDir {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AgentSessionPrepareParamsAttachmentDir {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AgentSessionPrepareParamsAttachmentDir {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`AgentSessionPrepareParamsAttachmentsItem`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "id",
+///    "mime",
+///    "name",
+///    "path",
+///    "size"
+///  ],
+///  "properties": {
+///    "id": {
+///      "type": "string",
+///      "maxLength": 128,
+///      "minLength": 1
+///    },
+///    "mime": {
+///      "type": "string",
+///      "maxLength": 128
+///    },
+///    "name": {
+///      "type": "string",
+///      "maxLength": 255
+///    },
+///    "path": {
+///      "type": "string",
+///      "maxLength": 4096,
+///      "minLength": 1
+///    },
+///    "size": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "minimum": 0.0
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct AgentSessionPrepareParamsAttachmentsItem {
+    pub id: AgentSessionPrepareParamsAttachmentsItemId,
+    pub mime: AgentSessionPrepareParamsAttachmentsItemMime,
+    pub name: AgentSessionPrepareParamsAttachmentsItemName,
+    pub path: AgentSessionPrepareParamsAttachmentsItemPath,
+    pub size: i64,
+}
+///`AgentSessionPrepareParamsAttachmentsItemId`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 128,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AgentSessionPrepareParamsAttachmentsItemId(::std::string::String);
+impl ::std::ops::Deref for AgentSessionPrepareParamsAttachmentsItemId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AgentSessionPrepareParamsAttachmentsItemId> for ::std::string::String {
+    fn from(value: AgentSessionPrepareParamsAttachmentsItemId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AgentSessionPrepareParamsAttachmentsItemId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 128usize {
+            return Err("longer than 128 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AgentSessionPrepareParamsAttachmentsItemId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AgentSessionPrepareParamsAttachmentsItemId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`AgentSessionPrepareParamsAttachmentsItemMime`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 128
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AgentSessionPrepareParamsAttachmentsItemMime(::std::string::String);
+impl ::std::ops::Deref for AgentSessionPrepareParamsAttachmentsItemMime {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AgentSessionPrepareParamsAttachmentsItemMime> for ::std::string::String {
+    fn from(value: AgentSessionPrepareParamsAttachmentsItemMime) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AgentSessionPrepareParamsAttachmentsItemMime {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 128usize {
+            return Err("longer than 128 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AgentSessionPrepareParamsAttachmentsItemMime {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AgentSessionPrepareParamsAttachmentsItemMime {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`AgentSessionPrepareParamsAttachmentsItemName`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 255
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AgentSessionPrepareParamsAttachmentsItemName(::std::string::String);
+impl ::std::ops::Deref for AgentSessionPrepareParamsAttachmentsItemName {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AgentSessionPrepareParamsAttachmentsItemName> for ::std::string::String {
+    fn from(value: AgentSessionPrepareParamsAttachmentsItemName) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AgentSessionPrepareParamsAttachmentsItemName {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 255usize {
+            return Err("longer than 255 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AgentSessionPrepareParamsAttachmentsItemName {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AgentSessionPrepareParamsAttachmentsItemName {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`AgentSessionPrepareParamsAttachmentsItemPath`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 4096,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AgentSessionPrepareParamsAttachmentsItemPath(::std::string::String);
+impl ::std::ops::Deref for AgentSessionPrepareParamsAttachmentsItemPath {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AgentSessionPrepareParamsAttachmentsItemPath> for ::std::string::String {
+    fn from(value: AgentSessionPrepareParamsAttachmentsItemPath) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AgentSessionPrepareParamsAttachmentsItemPath {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 4096usize {
+            return Err("longer than 4096 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AgentSessionPrepareParamsAttachmentsItemPath {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AgentSessionPrepareParamsAttachmentsItemPath {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`AgentSessionPrepareParamsRequest`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 200000
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AgentSessionPrepareParamsRequest(::std::string::String);
+impl ::std::ops::Deref for AgentSessionPrepareParamsRequest {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AgentSessionPrepareParamsRequest> for ::std::string::String {
+    fn from(value: AgentSessionPrepareParamsRequest) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AgentSessionPrepareParamsRequest {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 200000usize {
+            return Err("longer than 200000 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AgentSessionPrepareParamsRequest {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AgentSessionPrepareParamsRequest {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`AgentSessionPrepareParamsRunDir`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AgentSessionPrepareParamsRunDir(::std::string::String);
+impl ::std::ops::Deref for AgentSessionPrepareParamsRunDir {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AgentSessionPrepareParamsRunDir> for ::std::string::String {
+    fn from(value: AgentSessionPrepareParamsRunDir) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AgentSessionPrepareParamsRunDir {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AgentSessionPrepareParamsRunDir {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AgentSessionPrepareParamsRunDir {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`AgentSessionPrepareParamsSessionId`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "pattern": "^[A-Za-z0-9_-]{1,128}$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AgentSessionPrepareParamsSessionId(::std::string::String);
+impl ::std::ops::Deref for AgentSessionPrepareParamsSessionId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AgentSessionPrepareParamsSessionId> for ::std::string::String {
+    fn from(value: AgentSessionPrepareParamsSessionId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AgentSessionPrepareParamsSessionId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| ::regress::Regex::new("^[A-Za-z0-9_-]{1,128}$").unwrap());
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^[A-Za-z0-9_-]{1,128}$\"".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AgentSessionPrepareParamsSessionId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AgentSessionPrepareParamsSessionId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`AgentSessionPrepareParamsVersion`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 128,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AgentSessionPrepareParamsVersion(::std::string::String);
+impl ::std::ops::Deref for AgentSessionPrepareParamsVersion {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AgentSessionPrepareParamsVersion> for ::std::string::String {
+    fn from(value: AgentSessionPrepareParamsVersion) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AgentSessionPrepareParamsVersion {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 128usize {
+            return Err("longer than 128 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AgentSessionPrepareParamsVersion {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AgentSessionPrepareParamsVersion {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`AgentSessionPrepareParamsWorkspace`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AgentSessionPrepareParamsWorkspace(::std::string::String);
+impl ::std::ops::Deref for AgentSessionPrepareParamsWorkspace {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AgentSessionPrepareParamsWorkspace> for ::std::string::String {
+    fn from(value: AgentSessionPrepareParamsWorkspace) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AgentSessionPrepareParamsWorkspace {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AgentSessionPrepareParamsWorkspace {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AgentSessionPrepareParamsWorkspace {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`AgentSessionPrepareResult`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "argv",
+///    "cwd"
+///  ],
+///  "properties": {
+///    "argv": {
+///      "type": "array",
+///      "items": {
+///        "type": "string"
+///      },
+///      "minItems": 1
+///    },
+///    "cwd": {
+///      "type": "string",
+///      "minLength": 1
+///    },
+///    "stdin": {
+///      "type": "string"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct AgentSessionPrepareResult {
+    pub argv: ::std::vec::Vec<::std::string::String>,
+    pub cwd: AgentSessionPrepareResultCwd,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub stdin: ::std::option::Option<::std::string::String>,
+}
+///`AgentSessionPrepareResultCwd`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AgentSessionPrepareResultCwd(::std::string::String);
+impl ::std::ops::Deref for AgentSessionPrepareResultCwd {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AgentSessionPrepareResultCwd> for ::std::string::String {
+    fn from(value: AgentSessionPrepareResultCwd) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AgentSessionPrepareResultCwd {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AgentSessionPrepareResultCwd {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AgentSessionPrepareResultCwd {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
 ///`CapabilityConfigGetParams`
 ///
 /// <details><summary>JSON schema</summary>
@@ -498,7 +2223,8 @@ pub struct DiagnosticPingResult {
 ///          "propertyNames": {
 ///            "type": "string",
 ///            "enum": [
-///              "diagnostic"
+///              "diagnostic",
+///              "agentSession"
 ///            ]
 ///          }
 ///        },
@@ -720,7 +2446,8 @@ impl ::std::convert::TryFrom<&str> for HelloParamsGrantsItem {
 ///      "propertyNames": {
 ///        "type": "string",
 ///        "enum": [
-///          "diagnostic"
+///          "diagnostic",
+///          "agentSession"
 ///        ]
 ///      }
 ///    },
@@ -978,7 +2705,8 @@ impl<'de> ::serde::Deserialize<'de> for HelloParamsManifestCapabilitiesItemScope
 ///{
 ///  "type": "string",
 ///  "enum": [
-///    "diagnostic"
+///    "diagnostic",
+///    "agentSession"
 ///  ]
 ///}
 /// ```
@@ -998,6 +2726,8 @@ impl<'de> ::serde::Deserialize<'de> for HelloParamsManifestCapabilitiesItemScope
 pub enum HelloParamsManifestContributesKey {
     #[serde(rename = "diagnostic")]
     Diagnostic,
+    #[serde(rename = "agentSession")]
+    AgentSession,
 }
 impl ::std::convert::From<&Self> for HelloParamsManifestContributesKey {
     fn from(value: &HelloParamsManifestContributesKey) -> Self {
@@ -1008,6 +2738,7 @@ impl ::std::fmt::Display for HelloParamsManifestContributesKey {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
         match *self {
             Self::Diagnostic => f.write_str("diagnostic"),
+            Self::AgentSession => f.write_str("agentSession"),
         }
     }
 }
@@ -1016,6 +2747,7 @@ impl ::std::str::FromStr for HelloParamsManifestContributesKey {
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         match value {
             "diagnostic" => Ok(Self::Diagnostic),
+            "agentSession" => Ok(Self::AgentSession),
             _ => Err("invalid value".into()),
         }
     }
@@ -1572,7 +3304,8 @@ pub struct HelloResult {
 ///      "propertyNames": {
 ///        "type": "string",
 ///        "enum": [
-///          "diagnostic"
+///          "diagnostic",
+///          "agentSession"
 ///        ]
 ///      }
 ///    },
@@ -1830,7 +3563,8 @@ impl<'de> ::serde::Deserialize<'de> for ManifestCapabilitiesItemScopesItem {
 ///{
 ///  "type": "string",
 ///  "enum": [
-///    "diagnostic"
+///    "diagnostic",
+///    "agentSession"
 ///  ]
 ///}
 /// ```
@@ -1850,6 +3584,8 @@ impl<'de> ::serde::Deserialize<'de> for ManifestCapabilitiesItemScopesItem {
 pub enum ManifestContributesKey {
     #[serde(rename = "diagnostic")]
     Diagnostic,
+    #[serde(rename = "agentSession")]
+    AgentSession,
 }
 impl ::std::convert::From<&Self> for ManifestContributesKey {
     fn from(value: &ManifestContributesKey) -> Self {
@@ -1860,6 +3596,7 @@ impl ::std::fmt::Display for ManifestContributesKey {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
         match *self {
             Self::Diagnostic => f.write_str("diagnostic"),
+            Self::AgentSession => f.write_str("agentSession"),
         }
     }
 }
@@ -1868,6 +3605,7 @@ impl ::std::str::FromStr for ManifestContributesKey {
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         match value {
             "diagnostic" => Ok(Self::Diagnostic),
+            "agentSession" => Ok(Self::AgentSession),
             _ => Err("invalid value".into()),
         }
     }
