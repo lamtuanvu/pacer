@@ -2,6 +2,8 @@
 pub mod auth;
 pub mod core_child;
 pub mod heartbeat;
+#[cfg(target_os = "macos")]
+pub mod native_trust;
 pub mod proxy;
 pub mod sessions;
 pub mod ws;
