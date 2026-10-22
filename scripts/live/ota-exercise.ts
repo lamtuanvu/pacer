@@ -9,6 +9,7 @@ import type { UpdateStatus } from "../../src/update/desktop/types";
 import { enumerateNativeProcesses } from "../../src/update/desktop/native-os";
 import { ownProcessIdentity, processIdentity, sameProcess, type ProcessIdentity } from "../../src/update/desktop/process-identity";
 import { healthy, loadSession, record } from "./core";
+import { recordOtaEvent } from "./ota-evidence";
 import { readOtaRecord, resumeOtaStartup, updateOtaDriverRecord, type OtaOptions } from "./ota";
 import { MANAGED_SCENARIOS, newExercise, resumableStartup } from "./ota-exercise-record";
 import { verifyExerciseOutcome, verifyExerciseSurvivors } from "./ota-outcome";
@@ -91,7 +92,7 @@ export async function runManagedExercise(id: string, scenario: string, options: 
     state = updateOtaDriverRecord(id, state, { runtime: { ...state.runtime!, state: "managed" }, exercise: { ...newExercise(scenario, driver, installationId), state: "running" } }, options);
     const initial = await client.snapshot();
     unsubscribe = client.subscribe(initial.seq, event => {
-      if (event.type === "desktop.update") record(session, { kind: "note", behavior: `OTA ${scenario} event`, surface: "API SSE", text: JSON.stringify(event) });
+      recordOtaEvent(session, scenario, event);
     });
     async function status(): Promise<UpdateStatus> { return client.call("desktop.update.status", { installationId }); }
     async function mutate(action: "check" | "download" | "restart" | "configure", extra: Record<string, unknown> = {}): Promise<void> {

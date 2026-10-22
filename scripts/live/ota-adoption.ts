@@ -11,6 +11,7 @@ import { readinessProofSchema } from "../../src/update/desktop/native-record";
 import { readAdoption } from "../../src/update/desktop/adoption-store";
 import { makeCtx } from "../../src/ctx";
 import { healthy, loadSession, record } from "./core";
+import { recordOtaEvent } from "./ota-evidence";
 import { readOtaRecord, updateOtaDriverRecord, type OtaOptions } from "./ota";
 import { ATTACHED_SCENARIOS, newExercise } from "./ota-exercise-record";
 import { incarnationExited, privateFixtureBytes } from "./ota-exercise";
@@ -90,7 +91,7 @@ export async function runAttachedExercise(id: string, scenario: string, options:
     state = updateOtaDriverRecord(id, state, { runtime: { ...state.runtime!, state: "managed" }, exercise: { ...newExercise(scenario, driver, installationId), state: "running" } }, options);
     const initial = await client.snapshot();
     unsubscribe = client.subscribe(initial.seq, event => {
-      if (event.type === "desktop.update") record(session, { kind: "note", behavior: `OTA ${scenario} event`, surface: "API SSE", text: JSON.stringify(event) });
+      recordOtaEvent(session, scenario, event);
     });
     async function mutate(action: "check" | "download" | "restart" | "adopt", extra: Record<string, unknown> = {}): Promise<void> {
       const clearRequest = () => {
