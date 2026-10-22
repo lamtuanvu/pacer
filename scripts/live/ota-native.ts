@@ -1,3 +1,4 @@
+import { readFixtureBundleMetadata } from "./ota-bundle-metadata";
 /** Fixed native fixture diagnostics. No caller-provided executable or manager argument. */
 import { createHash } from "node:crypto";
 import { readFileSync, existsSync, lstatSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
@@ -76,7 +77,7 @@ export async function verifyFixtureBundle(state: OtaRecord, version: string): Pr
   await run(state, ["/usr/bin/codesign", "--verify", "--deep", "--strict", state.currentApp]);
   for (const [role, binary] of [["cli", "Contents/Resources/pacer"], ["helper", "Contents/Resources/pacer-update-helper"], ["desktop", "Contents/MacOS/pacer"]] as const) validateFixtureIdentity(state, JSON.parse(await run(state, [join(state.currentApp, binary), "--pacer-identity"])), role, version);
   if (version === state.nativeFixture.candidateVersion) {
-    const metadata = JSON.parse(readFileSync(join(state.currentApp, "Contents/Resources/pacer-release.json"), "utf8"));
+    const metadata = JSON.parse(readFixtureBundleMetadata(state.currentApp));
     const core = join(state.currentApp, "Contents/Resources/pacer-core"), sourceCore = join(state.sources[1].path, "Contents/Resources/pacer-core");
     const info = lstatSync(core);
     if (!info.isFile() || info.isSymbolicLink() || info.uid !== state.ownerUid || info.nlink !== 1 || (info.mode & 0o111) === 0) throw Error("Candidate core is not an owned executable");
