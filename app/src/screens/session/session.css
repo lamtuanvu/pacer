@@ -43,3 +43,5 @@
 .pc-session-attachments,.pc-conversation-delivery{display:flex;flex-direction:column;align-items:flex-start;gap:var(--space-3)}
 .pc-session-attachments .pc-attachments{width:100%}
 .pc-conversation-delivery{width:100%;padding:var(--space-3);border:1px solid var(--line);border-radius:var(--radius-md);background:var(--surface-card)}
+/* The task frame owns sticky navigation when Session is embedded. */
+.pc-detail-panel .pc-session-main>.pc-tabs{position:static}

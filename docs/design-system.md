@@ -160,3 +160,22 @@ The Executors table retains its specialized metadata columns. Priority controls 
 ### Update notification
 
 `UpdateNoticeCard({ version, restart, later, busy, narrow, children })` is the canonical nonmodal bottom-right update panel, consumed by the app shell's `UpdateNotice`. Ready, pending and inline error states use existing Button and status semantics. Arrival never steals focus; busy actions retain focus and reject activation. Narrow layouts leave room above the bottom navigation and safe area. The shell owns capability checks, per-installation/version dismissal for the app session, confirmation and the existing revision-checked restart operation. The Updates screen retains the detailed status and controls. This is an original composition of existing primitives; no new upstream code or dependency is used.
+
+### Task detail identity and navigation
+
+`PageTitle` renders a sentence-case `h2` using headline tokens, with layout ellipsis
+and a `title` attribute supplied by the consumer for the complete name.
+`PageHeader.heading` accepts this title instead of the default section heading.
+`Page embedded` removes outer page gutters and width constraints when a routed
+view is composed inside another page; it retains the page-body rhythm.
+Production consumers: task Summary and Session in `TaskResult`, and embedded
+`Session`. Standalone session rendering retains its existing header.
+
+Task details compose the canonical quiet `ButtonLink`, `PageHeader`, `StatusPill`
+and `Tabs` in a sticky navigation region. Both tabs retain the short task name,
+metadata and status. The full goal remains available in Brief. Tabs retain their
+roving focus, Left/Right/Home/End navigation and labelled tab panels. Active tasks
+initially select Session; completed tasks initially select Summary. Changing views
+does not change task identity or the scoped Tasks destination. The task list
+remembers its scroll offset for each repository/scope during the app session.
+No upstream component or license provenance changed.
