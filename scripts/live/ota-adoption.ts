@@ -1,3 +1,4 @@
+import { readFixtureBundleMetadata } from "./ota-bundle-metadata";
 /** Fixed live attached-service scenarios. Every update/adoption write crosses the guarded public API. */
 import { constants, closeSync, openSync, realpathSync } from "node:fs";
 import { join } from "node:path";
@@ -200,7 +201,7 @@ export async function runAttachedExercise(id: string, scenario: string, options:
             const response = await fetch(`http://127.0.0.1:${state.innerPort}/health`, { signal: AbortSignal.timeout(1000), redirect: "error" });
             if (!response.ok || response.headers.get("x-pacer") !== "1" || (await response.json()).pid !== proven.service.pid) throw Error("Adoption health differs from proven service");
             const input = { appPath: state.currentApp, ownerUid: state.ownerUid, arch: state.nativeFixture!.arch,
-              branch: proven.branch, service: proven.service, metadata: JSON.parse(privateFixtureBytes(join(state.currentApp, "Contents/Resources/pacer-release.json"), 65536).toString("utf8")) };
+              branch: proven.branch, service: proven.service, metadata: JSON.parse(readFixtureBundleMetadata(state.currentApp)) };
             pairedEvidence = verifyPairedAdoptionProcesses(input, beforeProcesses, enumerateNativeProcesses());
             if (pairedEvidence) {
               verifyPairedFixtureCode(state, pairedEvidence);
