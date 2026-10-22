@@ -1,28 +1,10 @@
 name: Desktop (unsigned macOS and Linux)
 on:
   workflow_dispatch:
-    inputs:
-      own_cert_search_control:
-        description: Reversibly append only the owned fixture keychain on disposable hosted macOS
-        type: boolean
-        default: false
-      own_cert_order_control:
-        description: Compare own-fixture codesign option order and selectors without trust changes
-        type: boolean
-        default: false
-      controls_only:
-        description: Skip normal builds only when a keychain lookup or search-list experiment is selected
-        type: boolean
-        default: false
-      own_cert_trust_control:
-        description: Run reversible own-certificate trust experiment on disposable hosted macOS
-        type: boolean
-        default: false
 permissions:
   contents: read
 jobs:
   build:
-    if: ${{ !(inputs.controls_only == true && (inputs.own_cert_order_control == true || inputs.own_cert_search_control == true)) }}
     runs-on: macos-15
     timeout-minutes: 60
     defaults:
@@ -83,7 +65,6 @@ jobs:
           retention-days: 7
 
   build-linux:
-    if: ${{ !(inputs.controls_only == true && (inputs.own_cert_order_control == true || inputs.own_cert_search_control == true)) }}
     strategy:
       fail-fast: false
       matrix:
@@ -135,57 +116,5 @@ jobs:
           path: |
             desktop/src-tauri/target/release/bundle/appimage/*.AppImage
             desktop/src-tauri/target/release/bundle/deb/*.deb
-          if-no-files-found: error
-          retention-days: 7
-
-  own-cert-trust-control:
-    if: inputs.own_cert_trust_control == true
-    runs-on: macos-15
-    timeout-minutes: 10
-    env:
-      PACER_OWN_CERT_TRUST_CONTROL: '1'
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Test control lifecycle with all subprocesses mocked
-        run: python3 test/fixtures/selfsigner-trust-control-test.py
-      - name: Compare original, own-policy-trusted, and trust-removed signing
-        run: python3 test/fixtures/selfsigner-trust-control.py
-      - name: Confirm exact own trust and keychain cleanup
-        if: always()
-        run: python3 test/fixtures/selfsigner-trust-control.py --cleanup
-      - name: Retain public-only control receipts
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: own-cert-trust-control-receipts
-          path: ${{ runner.temp }}/pacer-own-cert-trust-control/*.json
-          if-no-files-found: error
-          retention-days: 7
-
-  own-cert-order-control:
-    if: inputs.own_cert_order_control == true || inputs.own_cert_search_control == true
-    runs-on: macos-15
-    timeout-minutes: 10
-    env:
-      PACER_OWN_CERT_ORDER_CONTROL: '1'
-      PACER_OWN_CERT_SEARCH_CONTROL: ${{ inputs.own_cert_search_control && '1' || '0' }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Check own-identity integration guards with mocked commands
-        run: python3 test/fixtures/selfsigner-own-identity-test.py
-      - name: Check search-entry lifecycle with all commands mocked
-        run: python3 test/fixtures/selfsigner-search-control-test.py
-      - run: python3 test/fixtures/selfsigner-order-control.py
-      - if: always()
-        run: python3 test/fixtures/selfsigner-order-control.py --cleanup
-      - if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: own-cert-order-control-receipts
-          path: ${{ runner.temp }}/pacer-own-cert-order-control/*.json
           if-no-files-found: error
           retention-days: 7
