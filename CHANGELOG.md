@@ -4,6 +4,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Fixed
+
+- Show native desktop update connection failures in Settings instead of silently presenting manual installation as the normal update path.
+
 ## [0.7.1] - 2026-10-22
 
 ### Fixed
