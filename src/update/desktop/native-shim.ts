@@ -9,6 +9,7 @@ export const NATIVE_SHIM_ABI = 1;
 export const NATIVE_SHIM_SYMBOLS = {
   pacer_descriptor_flags:{args:[FFIType.i32],returns:FFIType.i32},
   pacer_native_transport_abi:{args:[],returns:FFIType.i32},
+  pacer_receive_listener:{args:[FFIType.i32],returns:FFIType.i32},
 } as const;
 export function nativeShimLocation(executable:string):{path:string;app:string|null} {
   if(realpathSync(executable)!==executable)throw denied();
