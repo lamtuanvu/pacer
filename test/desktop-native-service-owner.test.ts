@@ -8,7 +8,7 @@ function proof(): PairedOwnerProof {
     front: { process: root, uid: 501, executable: "/Applications/pacer.app/Contents/Resources/pacer", role: "cli", auditToken: new Uint8Array(32) },
     own: core,
     release: { schema: 1, bundleId: "dev.pacer.desktop", version: "1.2.3", arch: "aarch64", protocolMajors: [3], admissionProtocol: 1, rollbackCompatible: true, nativeTransportAbi: 1, cliLayout: "paired" },
-    argv: ["/Applications/pacer.app/Contents/Resources/pacer", "serve"], version: "1.2.3", arch: "aarch64", uid: 501, port: 7433,
+    argv: ["/Applications/pacer.app/Contents/Resources/pacer", "serve"], version: "1.2.3", frontVersion: "1.2.3", arch: "aarch64", uid: 501, port: 7433,
   };
 }
 
@@ -40,6 +40,7 @@ test("paired owner rejects wrong process relationships, paths and registration a
     p => { p.argv = [p.front.executable, "serve", "--port", "0"]; },
     p => { p.argv = ["/another/pacer", "serve"]; },
     p => { p.port = 0; },
+    p => { p.frontVersion = "1.2.4"; },
   ];
   for (const change of changes) { const p = proof(); change(p); expect(() => pairedServiceOwner(p)).toThrow(); }
 });

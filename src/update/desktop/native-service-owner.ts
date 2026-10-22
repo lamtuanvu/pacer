@@ -12,6 +12,7 @@ export interface PairedOwnerProof {
   release: unknown;
   argv: readonly string[];
   version: string;
+  frontVersion: string;
   arch: "aarch64" | "x86_64";
   uid: number;
   port: number;
@@ -41,7 +42,7 @@ export function pairedServiceOwner(proof: PairedOwnerProof): NativeServiceOwner 
     || basename(contents) !== "Contents" || !appPath.endsWith(".app")
     || front.executable !== join(resources, "pacer")) throw denied();
   const release = parseBundleRelease(proof.release);
-  if (release.cliLayout !== "paired" || release.version !== proof.version || release.arch !== proof.arch
+  if (release.cliLayout !== "paired" || release.version !== proof.version || release.version !== proof.frontVersion || release.arch !== proof.arch
     || !release.protocolMajors.includes(3)) throw denied();
   if (argv[0] !== front.executable || argv[1] !== "serve"
     || !(argv.length === 2 || argv.length === 4 && argv[2] === "--port" && argv[3] === String(port))) throw denied();
