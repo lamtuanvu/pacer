@@ -4,6 +4,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-10-22
+
 ### Fixed
 
 - Refresh each executed account's available usage source after a task completes, so Codex session logs and supported provider commands can update the recorded ending usage without waiting for their normal cache interval.
