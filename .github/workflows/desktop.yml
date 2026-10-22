@@ -1,6 +1,11 @@
 name: Desktop (unsigned macOS and Linux)
 on:
   workflow_dispatch:
+    inputs:
+      own_cert_trust_control:
+        description: Run reversible own-certificate trust experiment on disposable hosted macOS
+        type: boolean
+        default: false
 permissions:
   contents: read
 jobs:
@@ -114,5 +119,31 @@ jobs:
           path: |
             desktop/src-tauri/target/release/bundle/appimage/*.AppImage
             desktop/src-tauri/target/release/bundle/deb/*.deb
+          if-no-files-found: error
+          retention-days: 7
+
+  own-cert-trust-control:
+    if: inputs.own_cert_trust_control == true
+    runs-on: macos-15
+    timeout-minutes: 10
+    env:
+      PACER_OWN_CERT_TRUST_CONTROL: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Test control lifecycle with all subprocesses mocked
+        run: python3 test/fixtures/selfsigner-trust-control-test.py
+      - name: Compare original, own-policy-trusted, and trust-removed signing
+        run: python3 test/fixtures/selfsigner-trust-control.py
+      - name: Confirm exact own trust and keychain cleanup
+        if: always()
+        run: python3 test/fixtures/selfsigner-trust-control.py --cleanup
+      - name: Retain public-only control receipts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: own-cert-trust-control-receipts
+          path: ${{ runner.temp }}/pacer-own-cert-trust-control/*.json
           if-no-files-found: error
           retention-days: 7
