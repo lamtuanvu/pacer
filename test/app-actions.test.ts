@@ -109,3 +109,8 @@ test('takeover row action navigates only after success and preserves conflict re
   expect(await createActionRunner(failed.d).run('takeover',{label:'Take over',op:'task.takeover',params:{id:'t1'}})).toEqual({status:'error',message:'No agent session id'});
   expect(failed.navigated).toEqual([]);
 });
+
+test('integration conflicts preserve the reason and instruction to review a fresh preview', async () => {
+ const {d}=deps({call:async()=>{throw new ApiError('conflict','Integration target changed','Review a fresh preview',409);}});
+ expect(await createActionRunner(d).run('repair',{label:'Repair',op:'agent.connect',params:{agent:'codex',consent:true,preview_revision:'old'}})).toEqual({status:'error',message:'Integration target changed',hint:'Review a fresh preview'});
+});

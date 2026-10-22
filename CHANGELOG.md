@@ -4,6 +4,9 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Added
+
+- Diagnostics groups setup issues by integration and account, with reviewed repair actions, inline progress and errors, automatic rechecks, and collapsed passed checks and technical details. The live harness can validate the fixed Codex repair in its isolated UI fixture.
 ### Fixed
 
 - Start work agents with unattended permission settings across headless, interactive, resumed and strategy-planning sessions. Codex worktrees and reporting hooks no longer stop at trust prompts; Antigravity and OpenCode interactive launches use their supported prompt and configuration interfaces. Orca-selected work falls back to direct execution because its worker API cannot enforce permission bypass.

@@ -67,6 +67,10 @@ export function v2Params(name:string,params:unknown):unknown {
  return {...rest,...(p.verdict===undefined&&typeof accepted==='boolean'?{verdict:accepted?'accept':'reject'}:{})};
 }
 export function toV2OpResult(name:string,result:any):unknown {
+ if(name==='client.register'&&result&&typeof result==='object'){
+  const {capture_worker:_,...rest}=result;
+  return rest;
+ }
  if(name==='setup.check')return legacyCheck(result);
  if(name==='version.get')return {...result,protocol:V2_PROTOCOL};
  if(name==='task.diff')return {...result,diff:result.patch};

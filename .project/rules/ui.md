@@ -15,6 +15,8 @@ Canonical sources: [UI implementation spec](../../docs/specs/2026-10-16-ui-imple
 | UI-6 | Every surface renders from the shared view model and vocabulary (`src/view-model/`) and the golden fixture `test/fixtures/ui/snapshot.json`. | Established | view-model tests | `bun run test` |
 | UI-7 | Add automated accessibility checks (e.g. axe on rendered app pages) to the test suite. | Proposed | No automated a11y tests today | Pending decision |
 
+**Temporary VoiceOver exception (through 2026-11-22):** the manual VoiceOver portion of UI-2 is optional and non-blocking project-wide. Do not activate or troubleshoot VoiceOver unless requested. Report it as WAIVED, not tested PASS. All other accessibility and evidence requirements remain in force. See [VO-TEMP-2026-10](../decisions.md#vo-temp-2026-10--manual-voiceover-validation-paused).
+
 ### Visual craft (UI-8 to UI-18)
 
 These rules apply to `app/**`. They came from a review of every app screen on 2026-10-19 (tracking issue: #134). Each one names a failure that review found.

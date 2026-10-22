@@ -112,14 +112,14 @@ export async function runDoctor(ctx: Ctx, deps: { status?: (ctx: Ctx) => Promise
     detail: usableProfile ? `learned from ${profile.days} days` : "calendar pace" });
 
   try {
-    const records = Object.values(readManifest(ctx).planners);
+    const records = Object.entries(readManifest(ctx).planners);
     if (!records.length) checks.push({ name: "Installs", level: "warn", detail: "no install records" });
-    for (const record of records) {
-      for(const skill of record.files.filter(f=>f.path.endsWith("/skills/pacer/SKILL.md")))checks.push({name:`Skill ${record.planner}`,level:fileIntact(skill)?"ok":"warn",detail:skill.path,...(!fileIntact(skill)?{fix:`pacer install ${record.planner}`}:{})});
+    for (const [target, record] of records) {
+      for(const skill of record.files.filter(f=>f.path.endsWith("/skills/pacer/SKILL.md")))checks.push({name:`Skill ${target}`,level:fileIntact(skill)?"ok":"warn",detail:skill.path,...(!fileIntact(skill)?{fix:`pacer install ${target}`}:{})});
       const broken = record.files.filter(file => !fileIntact(file));
-      checks.push({ name: `Install ${record.planner}`, level: broken.length ? "warn" : "ok",
+      checks.push({ name: `Install ${target}`, level: broken.length ? "warn" : "ok",
         detail: broken.length ? `missing or changed: ${broken.map(file => file.path).join(", ")}` : "installed files intact (configuration only; runtime unverified)",
-        ...(broken.length ? { fix: record.planner === "service" ? "pacer service install" : `pacer install ${record.planner}` } : {}) });
+        ...(broken.length ? { fix: record.planner === "service" ? "pacer service install" : `pacer install ${target}` } : {}) });
     }
   } catch (e) {
     checks.push({ name: "Installs", level: "warn", detail: errorText(e) });
