@@ -20,6 +20,32 @@ fn fixture() -> (tempfile::TempDir, Ctx) {
     (dir, ctx)
 }
 
+#[test]
+fn rejection_content_types_match_the_bun_public_listener() {
+    let (_dir, ctx) = fixture();
+    for (host, status, content_type) in [
+        ("127.0.0.1:4317", 401, Some("text/plain;charset=utf-8")),
+        ("foreign.invalid", 421, None),
+    ] {
+        let req = Request::builder()
+            .uri("/v3/hello")
+            .header("host", host)
+            .body(())
+            .unwrap();
+        let Decision::Reject(response) = auth::classify(&req, 4317, "token", &ctx) else {
+            panic!("request must be rejected");
+        };
+        assert_eq!(response.status(), status);
+        assert_eq!(
+            response
+                .headers()
+                .get("content-type")
+                .map(|v| v.to_str().unwrap()),
+            content_type
+        );
+    }
+}
+
 #[tokio::test]
 async fn committed_auth_goldens() {
     let (_dir, ctx) = fixture();
