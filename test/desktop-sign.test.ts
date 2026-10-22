@@ -91,6 +91,34 @@ test("native permission helper is validated and signed before its containing app
     }
   }
 });
+
+test("paired signing verifies core trust and signs the Bun core before the Rust front door", async () => {
+  for (const badCore of [false, true]) {
+    const f = fixture(), resources = join(f.app, "Contents/Resources"), core = join(resources, "pacer-core");
+    const metadata = JSON.parse(readFileSync(join(resources, "pacer-release.json"), "utf8"));
+    writeFileSync(join(resources, "pacer-release.json"), JSON.stringify({ ...metadata, cliLayout: "paired" }));
+    const bytes = Buffer.alloc(32); bytes.writeUInt32LE(0xfeedfacf, 0); bytes.writeUInt32LE(0x0100000c, 4); bytes.writeUInt32LE(2, 12);
+    writeFileSync(core, bytes, { mode: 0o755 });
+    const run = async (argv: string[]) => {
+      const result = await f.run(argv);
+      if (argv[0] !== core || argv[1] !== "--pacer-identity") return result;
+      const identity = JSON.parse(result);
+      return JSON.stringify({ ...identity, bundleId: "dev.pacer.cli", appleTeamId: badCore ? "WRONG12345" : f.config.teamId });
+    };
+    const sign = () => signStagedDesktop({ root: "/fixture/root", stage: f.stage, out: tmpDir(), version: "1.2.3", arch: "aarch64", config: f.config }, run);
+    if (badCore) {
+      await expect(sign()).rejects.toThrow("compiled trust");
+      expect(f.calls.some(a => a[0] === "/usr/bin/codesign")).toBe(false);
+    } else {
+      await sign();
+      const signs = f.calls.filter(a => a[0] === "/usr/bin/codesign" && a.includes("--sign"));
+      expect(signs.map(a => a.at(-1))).toEqual([join(f.app, "Contents/Frameworks/libpacer-native.dylib"), core, join(resources, "pacer"), join(resources, "pacer-update-helper"), f.app]);
+      expect(signs[1]).toContain("--entitlements");
+      expect(signs[2]).not.toContain("--entitlements");
+      expect(f.calls.some(a => a[0] === core && a[1] === "--version")).toBe(true);
+    }
+  }
+});
 test("notary rejection or fixture-built native binary prevents final archive and artifact signature", async () => {
   for (const reason of ["notary", "fixture"]) {
     const f = fixture();
