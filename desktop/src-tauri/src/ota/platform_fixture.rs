@@ -60,6 +60,19 @@ fn startup_identities(record:&serde_json::Value)->Result<Vec<ProcessIdentity>,Ot
     Ok(identities)
 }
 #[cfg(feature="ota-fixture")]
+fn startup_version(record: &serde_json::Value) -> Result<&'static str, OtaError> {
+    ensure(
+        record["nativeFixture"]["baselineVersion"] == "0.2.3"
+            && record["nativeFixture"]["candidateVersion"] == "0.2.4",
+    )?;
+    match record.get("initialLayout") {
+        None => Ok("0.2.3"),
+        Some(serde_json::Value::String(layout)) if layout == "bridge" => Ok("0.2.3"),
+        Some(serde_json::Value::String(layout)) if layout == "paired" => Ok("0.2.4"),
+        _ => Err(OtaError::Identity),
+    }
+}
+#[cfg(feature="ota-fixture")]
 fn startup_proof(trust:&ReleaseTrust)->Result<(),OtaError>{
     use crate::ota::{control,platform_fs::PrivateDir,recovery_authority};
     let policy=trust.fixture_policy().ok_or(OtaError::Unavailable)?;
@@ -84,7 +97,7 @@ fn startup_proof(trust:&ReleaseTrust)->Result<(),OtaError>{
     ensure(recovery_authority::admission_clear(&policy.home)? || recovery_authority::reservation_held(&policy.home,&reservation)?)?;
     trust.verify_static(&policy.current_app,CodeRole::Desktop)?;
     let metadata:serde_json::Value=serde_json::from_slice(&crate::ota::platform_fs::read_owned_file(&policy.current_app.join("Contents/Resources/pacer-release.json"),65536)?).map_err(|_|OtaError::Invalid)?;
-    ensure(metadata["version"]==record["nativeFixture"]["baselineVersion"] && metadata["fixture"]==true)?;
+    ensure(metadata["version"]==startup_version(&record)? && metadata["fixture"]==true)?;
     Ok(())
 }
 fn diagnostic_digest(path:&Path)->Result<String,OtaError>{
@@ -500,4 +513,39 @@ mod tests {
         record["registrations"][0]["state"] = "unknown".into();
         assert!(registration(&record, "fixed", path, None).is_err());
     }
+    #[cfg(feature = "ota-fixture")]
+    #[test]
+    fn startup_version_is_fixed_to_reserved_layout_without_policy_extension() {
+        let original =
+            serde_json::json!({"nativeFixture":{"baselineVersion":"0.2.3","candidateVersion":"0.2.4"}});
+        assert_eq!(startup_version(&original).unwrap(), "0.2.3");
+        let mut record = original.clone();
+        record["initialLayout"] = "bridge".into();
+        assert_eq!(startup_version(&record).unwrap(), "0.2.3");
+        record["initialLayout"] = "paired".into();
+        assert_eq!(startup_version(&record).unwrap(), "0.2.4");
+        for bad in [
+            serde_json::Value::Null,
+            serde_json::json!("unknown"),
+            serde_json::json!(4),
+        ] {
+            record["initialLayout"] = bad;
+            assert!(startup_version(&record).is_err());
+        }
+        for layout in ["bridge", "paired"] {
+            for field in ["baselineVersion", "candidateVersion"] {
+                for bad in [
+                    serde_json::Value::Null,
+                    serde_json::json!("99.0.0"),
+                    serde_json::json!(4),
+                ] {
+                    let mut changed = original.clone();
+                    changed["initialLayout"] = layout.into();
+                    changed["nativeFixture"][field] = bad;
+                    assert!(startup_version(&changed).is_err());
+                }
+            }
+        }
+    }
+
 }

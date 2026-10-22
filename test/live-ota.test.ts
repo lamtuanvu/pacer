@@ -388,3 +388,43 @@ test("fixed cleanup diagnostic ledger binds files once without launching process
   expect(() => readOtaRecord(f.session.id, f.options)).toThrow("changed");
   expect(f.calls()).toBe(0);
 });
+
+test("paired initial layout fixes current to candidate and external to immutable bridge", async () => {
+  const f = fixture();
+  const state = reserveOtaBuild(f.session.id, "aarch64", "a".repeat(64), f.options, undefined, "paired");
+  expect(state.initialLayout).toBe("paired");
+  for (const [index, source] of state.sources.entries()) {
+    for (const dir of ["MacOS", "Resources", "Frameworks"]) mkdirSync(join(source.path, "Contents", dir), { recursive: true });
+    writeFileSync(join(source.path, "Contents/Info.plist"), "fixture " + index);
+    writeFileSync(join(source.path, "Contents/Resources/pacer"), "cli " + index);
+    writeFileSync(join(source.path, "Contents/Frameworks/libpacer-native.dylib"), "shim " + index);
+  }
+  finishOtaBuild(f.session.id, { archive: Buffer.from("archive"), feed: Buffer.from("feed") }, f.options);
+  const ready = readOtaRecord(f.session.id, f.options);
+  expect(appDigest(ready.currentApp)).toBe(ready.sources[1].sha256!);
+  expect(appDigest(ready.candidateApp)).toBe(ready.sources[1].sha256!);
+  expect(readFileSync(join(ready.root, "external/pacer"), "utf8")).toBe("cli 0");
+  expect(readFileSync(join(ready.root, "external/libpacer-native.dylib"), "utf8")).toBe("shim 0");
+  expect(otaFixturePolicy(ready)).not.toHaveProperty("initialLayout");
+  expect(ready.nativeFixture).not.toHaveProperty("initialLayout");
+  expect(() => reserveOtaBuild(f.session.id, "aarch64", "a".repeat(64), f.options, undefined, "bridge")).toThrow();
+  for (const scenario of ["upgrade", "attached", "startup-failure", "restore-failure"]) await expect(exerciseOta(f.session.id, scenario, f.options)).rejects.toThrow("Paired initial layout is only for adoption");
+  const { runManagedExercise } = await import("../scripts/live/ota-exercise");
+  const { runAttachedExercise } = await import("../scripts/live/ota-adoption");
+  await expect(runManagedExercise(f.session.id, "upgrade", f.options)).rejects.toThrow("Paired initial layout is only for adoption");
+  await expect(runAttachedExercise(f.session.id, "attached", f.options)).rejects.toThrow("Paired initial layout is only for adoption");
+  expect(f.calls()).toBe(0);
+});
+
+test("initial layout defaults to bridge and unknown layout refuses before reserve", () => {
+  const f = fixture();
+  expect(() => reserveOtaBuild(f.session.id, "aarch64", "a".repeat(64), f.options, undefined, "arbitrary" as any)).toThrow();
+  expect(existsSync(join(f.session.root, "ota"))).toBe(false);
+  expect(reserveOtaBuild(f.session.id, "aarch64", "a".repeat(64), f.options).initialLayout).toBe("bridge");
+});
+
+
+test("runtime driver cannot request an initial layout change before any ownership query", async () => {
+  const { updateOtaDriverRecord } = await import("../scripts/live/ota");
+  expect(() => updateOtaDriverRecord("nonexistent", {} as any, { initialLayout: "paired" } as any)).toThrow("Initial layout is immutable");
+});
