@@ -64,3 +64,15 @@ _Static_assert(MSG_TRUNC == 0x10 && MSG_CTRUNC == 0x20, "truncation flags");
   });
   expect(result.exitCode, result.stderr.toString()).toBe(0);
 });
+
+test.skipIf(process.platform !== "darwin")("adopted native listener preserves root and client identities without child socket cleanup", () => {
+  const python = Bun.which("python3");
+  if (!python) throw Error("python3 is required for the macOS descriptor boundary test");
+  for (const mode of ["valid", "birth", "inode", "process", "permissions", "symlink", "path"]) {
+    const result = Bun.spawnSync([python, resolve("test/fixtures/native-listener-adoption.py"), process.execPath,
+      resolve("test/fixtures/native-listener-handoff.ts"), mode], { env: process.env, stdout: "pipe", stderr: "pipe", timeout: 10000 });
+    expect(result.exitCode, result.stderr.toString()).toBe(0);
+    expect(JSON.parse(result.stdout.toString()), mode).toEqual(mode === "valid"
+      ? { accepted: true, originalPeer: true, rootListener: true, preservedSocket: true } : { accepted: false });
+  }
+}, 30000);
