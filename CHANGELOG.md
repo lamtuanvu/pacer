@@ -7,6 +7,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 ### Fixed
 
 - Preserve embedded agent TUI fonts, cell layout and ANSI colors under the app's strict security policy; prevent automation color suppression from flattening native interactive sessions. Session end/resume reads the current revision rather than retaining stale progress state, and resume does not replay the initial prompt or attachments.
+- Align desktop buttons, dropdowns and inputs with the compact Delegate control, tighten task-page spacing, and preserve touch targets, multiline fields and compact tray controls.
+- Show native desktop update connection failures in Settings instead of silently presenting manual installation as the normal update path.
 - Start work agents with unattended permission settings across headless, interactive, resumed and strategy-planning sessions. Codex worktrees and reporting hooks no longer stop at trust prompts; Antigravity and OpenCode interactive launches use their supported prompt and configuration interfaces. Orca-selected work falls back to direct execution because its worker API cannot enforce permission bypass.
 - Refuse automatic release tags after a missing or failed dry run, or when the merge differs from the tested PR head. Prebuild Rust test fixtures during release verification and update the desktop navigation assertion.
 

@@ -607,19 +607,26 @@ async fn supervise_native(app: &AppHandle, supervision: Option<NativeSupervision
                     if let Some(previous) = shell.native.lock().unwrap().replace(native.publish()) {
                         previous.close();
                     }
+                    *shell.native_update_error.lock().unwrap() = None;
                     desktop_log!("pacer lifecycle: native update authority restored");
                     reported = false;
                     delay = Duration::from_secs(2);
                     continue;
                 }
+                *shell.native_update_error.lock().unwrap() = Some(pacer_desktop::ota::OtaError::Unavailable);
                 // Dropping the unpublished result closes it, including when this
                 // future is cancelled during document_ready above.
             }
-            Ok(Err(error)) if !reported => {
-                desktop_log!("pacer lifecycle: native update authority unavailable; retrying: {error}");
-                reported = true;
+            Ok(Err(error)) => {
+                *shell.native_update_error.lock().unwrap() = Some(error);
+                if !reported {
+                    desktop_log!("pacer lifecycle: native update authority unavailable; retrying: {error}");
+                    reported = true;
+                }
             }
-            _ => {}
+            Err(_) => {
+                *shell.native_update_error.lock().unwrap() = Some(pacer_desktop::ota::OtaError::Unavailable);
+            }
         }
         delay = (delay * 2).min(Duration::from_secs(30));
     }
@@ -691,6 +698,7 @@ async fn connected(app: &AppHandle, cli: &Cli, first_run: &mut FirstRun) -> Resu
         .await?;
         match native {
             Ok(native) => {
+                *app.state::<Shell>().native_update_error.lock().unwrap() = None;
                 #[cfg(feature = "ota-fixture")]
                 if let Some(ticket) = app.state::<Shell>().navigation.lock().unwrap().ticket() {
                     if ticket.desktop_version == env!("CARGO_PKG_VERSION")
@@ -712,9 +720,10 @@ async fn connected(app: &AppHandle, cli: &Cli, first_run: &mut FirstRun) -> Resu
                 desktop_log!("pacer lifecycle: native maintenance verification failed: {error}");
                 return Err("Native maintenance verification failed".into());
             }
-            Err(error) => desktop_log!(
-                "pacer lifecycle: native update authority unavailable for this service: {error}"
-            ),
+            Err(error) => {
+                *app.state::<Shell>().native_update_error.lock().unwrap() = Some(error);
+                desktop_log!("pacer lifecycle: native update authority unavailable for this service: {error}");
+            }
         }
     }
     #[cfg(feature = "ota-fixture")]
