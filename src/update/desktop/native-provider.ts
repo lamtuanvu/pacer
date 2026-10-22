@@ -56,6 +56,8 @@ import {
 } from "./native-fixture";
 import { freshHelperCleanup } from "./native-command-cleanup";
 import { LocalNativeServer } from "./native-socket";
+import type { PairedNativeBootstrap } from "./native-paired-bootstrap";
+import type { NativeServiceOwner } from "./native-service-owner";
 import {
   inspectInstallation,
   verifyInstallation,
@@ -270,6 +272,8 @@ export interface NativeBridgeOptions {
   /** Internal system adapter. Never accepted from an API or environment. */
   verifyService: () => Promise<void>;
   shutdown?: () => void;
+  /** Verified private bootstrap only; never constructed from public or ambient claims. */
+  paired?: PairedNativeBootstrap;
 }
 
 export class NativeControlBridge implements NativeAuthorityProvider {
@@ -281,18 +285,26 @@ export class NativeControlBridge implements NativeAuthorityProvider {
     string,
     { connection: Connection; confirmExit: boolean; resolve: () => void; reject: () => void }
   >();
-  private service = ownProcessIdentity();
+  private service: ProcessIdentity;
+  private serviceExecutable: string;
+  private shutdown?: () => void;
   private serviceLaunch: ReturnType<typeof discoverServiceLaunch> = null;
   constructor(
     private getCtx: () => Ctx,
     private options: NativeBridgeOptions,
   ) {
-    if (!this.service) throw denied();
+    const own = ownProcessIdentity(), paired = options.paired;
+    if (!own || paired && (!sameProcess(paired.owner.transport, own)
+      || !sameProcess(paired.listener.owner, paired.owner.process)
+      || paired.owner.process.pid !== process.ppid || sameProcess(paired.owner.process, own))) throw denied();
+    this.service = { ...(paired?.owner.process ?? own) };
+    this.serviceExecutable = paired?.owner.executable ?? realpathSync(process.execPath);
+    this.shutdown = paired?.shutdown ?? options.shutdown;
   }
   listen(): void {
     this.serviceLaunch = discoverServiceLaunch(
       this.getCtx(),
-      realpathSync(process.execPath),
+      this.serviceExecutable,
       currentVersion(),
       this.service!,
     );
@@ -303,6 +315,7 @@ export class NativeControlBridge implements NativeAuthorityProvider {
         process.getuid!(),
       ),
       (peer) => this.accept(peer),
+      this.options.paired?.listener,
     );
   }
   sessions(): readonly VerifiedNativeSession[] {
@@ -412,7 +425,7 @@ export class NativeControlBridge implements NativeAuthorityProvider {
                   hello.adoption,
                   identity.process,
                   this.service!,
-                  realpathSync(process.execPath),
+                  this.serviceExecutable,
                   currentVersion(),
                 );
                 if (installation.id !== verified.selected.installationId)
@@ -517,7 +530,7 @@ export class NativeControlBridge implements NativeAuthorityProvider {
         connection.adoption,
         connection.identity.process,
         this.service!,
-        realpathSync(process.execPath),
+        this.serviceExecutable,
         currentVersion(),
       );
       await verifyInstallation(this.getCtx(), connection.installation!);
@@ -588,7 +601,7 @@ export class NativeControlBridge implements NativeAuthorityProvider {
       desktop: session.desktop,
       service: session.service,
       serviceVersion: currentVersion(),
-      oldServiceExecutable: realpathSync(process.execPath),
+      oldServiceExecutable: this.serviceExecutable,
       newServiceExecutable: join(
         session.installation.appPath,
         BUNDLED_CLI_PATH,
@@ -709,7 +722,7 @@ export class NativeControlBridge implements NativeAuthorityProvider {
       !sameProcess(tx.manifest.oldService, session.service) ||
       tx.record.requestedBy !== session.desktopClientId ||
       tx.record.requesterBootId !== session.bootId ||
-      tx.manifest.oldServiceExecutable !== realpathSync(process.execPath)
+      tx.manifest.oldServiceExecutable !== this.serviceExecutable
     )
       throw denied();
     if (
@@ -861,7 +874,7 @@ export class NativeControlBridge implements NativeAuthorityProvider {
           connection.adoption,
           connection.identity.process,
           this.service!,
-          realpathSync(process.execPath),
+          this.serviceExecutable,
           currentVersion(),
         );
         const expected = {
@@ -979,7 +992,7 @@ export class NativeControlBridge implements NativeAuthorityProvider {
         !hasReservation(this.getCtx(), frame.binding.transactionId) ||
         frame.binding.revision > tx.record.revision ||
         tx.manifest.source.bootId === this.service!.bootId ||
-        realpathSync(process.execPath) !==
+        this.serviceExecutable !==
           tx.manifest.source.oldServiceExecutable ||
         currentVersion() !== tx.manifest.source.serviceVersion
       )
@@ -1007,7 +1020,7 @@ export class NativeControlBridge implements NativeAuthorityProvider {
               desktop: desktop.identity.process,
               nativeSessionId: desktop.sessionId,
               service: this.service,
-              serviceExecutable: realpathSync(process.execPath),
+              serviceExecutable: this.serviceExecutable,
               serviceVersion: currentVersion(),
               protocol: 3,
             }
@@ -1077,7 +1090,7 @@ export class NativeControlBridge implements NativeAuthorityProvider {
         transactionKind: "adoption",
         source: record.authority,
         service: this.service,
-        serviceExecutable: realpathSync(process.execPath),
+        serviceExecutable: this.serviceExecutable,
         serviceVersion: currentVersion(),
         protocol: 3,
         admissionProtocol: 1,
@@ -1148,7 +1161,7 @@ export class NativeControlBridge implements NativeAuthorityProvider {
               : tx.manifest.source.serviceVersion;
         if (
           selected?.action.kind !== "launch-service" ||
-          realpathSync(process.execPath) !== executable ||
+          this.serviceExecutable !== executable ||
           currentVersion() !== version
         ) {
           await connection.peer.send(null);
@@ -1194,7 +1207,7 @@ export class NativeControlBridge implements NativeAuthorityProvider {
       } else if (frame.kind === "adoption-shutdown") {
         if (
           !sameProcess(frame.expected, this.service) ||
-          !this.options.shutdown
+          !this.shutdown
         )
           throw denied();
         if (!sameProcess(this.service, tx.manifest.source.service)) {
@@ -1204,7 +1217,7 @@ export class NativeControlBridge implements NativeAuthorityProvider {
             plan,
             plan.desktop,
             this.service!,
-            realpathSync(process.execPath),
+            this.serviceExecutable,
             currentVersion(),
           );
         }
@@ -1243,7 +1256,7 @@ export class NativeControlBridge implements NativeAuthorityProvider {
         action: frame.kind,
         binding: frame.binding,
       });
-      if (frame.kind === "adoption-shutdown") this.options.shutdown!();
+      if (frame.kind === "adoption-shutdown") this.shutdown!();
       return;
     }
     if (frame.kind === "helper-context") {
@@ -1299,7 +1312,7 @@ export class NativeControlBridge implements NativeAuthorityProvider {
             desktop: tx.manifest.oldDesktop,
             service: this.service,
             serviceVersion: currentVersion(),
-            serviceExecutable: realpathSync(process.execPath),
+            serviceExecutable: this.serviceExecutable,
             protocol: 3,
             admissionProtocol: 1,
             stateCompatible: true,
@@ -1327,7 +1340,7 @@ export class NativeControlBridge implements NativeAuthorityProvider {
         desktop: session.desktop,
         service: this.service,
         serviceVersion: currentVersion(),
-        serviceExecutable: realpathSync(process.execPath),
+        serviceExecutable: this.serviceExecutable,
         protocol: 3,
         admissionProtocol: 1,
         stateCompatible: true,
@@ -1420,7 +1433,7 @@ export class NativeControlBridge implements NativeAuthorityProvider {
       if (
         tx.command.target.ownership !== "managed" ||
         !sameProcess(frame.expected, this.service) ||
-        !this.options.shutdown
+        !this.shutdown
       )
         throw denied();
     } else if (frame.kind === "release-reservation") {
@@ -1458,7 +1471,7 @@ export class NativeControlBridge implements NativeAuthorityProvider {
       action: frame.kind,
       binding: frame.binding,
     });
-    if (frame.kind === "shutdown-service") this.options.shutdown!();
+    if (frame.kind === "shutdown-service") this.shutdown!();
   }
   private async effect(
     connection: Connection,
@@ -1502,13 +1515,95 @@ export class NativeControlBridge implements NativeAuthorityProvider {
   }
 }
 
+/** Read only the fixed sealed metadata file, with bounded non-following IO. */
+function nativeServiceMetadata(app: string): string {
+  const path = join(app, BUNDLE_RELEASE_PATH);
+  const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  try {
+    const before = fstatSync(fd);
+    if (!before.isFile() || before.nlink !== 1 || before.uid !== process.getuid?.()
+      || before.mode & 0o022 || before.size > 65536) throw denied();
+    const buffer = Buffer.alloc(65537);
+    let size = 0;
+    while (size < buffer.length) {
+      const count = readSync(fd, buffer, size, buffer.length - size, null);
+      if (!count) break;
+      size += count;
+    }
+    const after = fstatSync(fd), linked = lstatSync(path);
+    if (size > 65536 || before.dev !== after.dev || before.ino !== after.ino
+      || before.size !== after.size || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs
+      || linked.dev !== after.dev || linked.ino !== after.ino || linked.isSymbolicLink()) throw denied();
+    return buffer.subarray(0, size).toString("utf8");
+  } finally { closeSync(fd); }
+}
+
+/** A paired core requires the authenticated private parent bootstrap. */
+export function assertLegacyNativeServiceLayout(executable: string): void {
+  if (basename(executable) === "pacer-core") throw denied();
+  const resources = dirname(executable), contents = dirname(resources), app = dirname(contents);
+  if (basename(resources) === "Resources" && basename(contents) === "Contents" && app.endsWith(".app")
+    && parseBundleRelease(JSON.parse(nativeServiceMetadata(app))).cliLayout === "paired") throw denied();
+}
+
+/** Internal revalidation of an already authenticated paired bootstrap. */
+export function verifyPairedNativeServiceOwner(
+  authority: Pick<DarwinAuthority, "verifyProcess" | "verifyStatic">,
+  owner: NativeServiceOwner,
+  port: number,
+  metadata: string,
+): NativeProcess {
+  const own = ownProcessIdentity(), uid = process.getuid?.();
+  if (!own || uid === undefined || !sameProcess(owner.transport, own)
+    || owner.process.pid !== process.ppid || sameProcess(owner.process, own)) throw denied();
+  const front = authority.verifyProcess(owner.process, "cli");
+  const core = authority.verifyProcess(own, "cli");
+  const frontPath = join(owner.appPath, BUNDLED_CLI_PATH), corePath = join(owner.appPath, BUNDLED_CORE_PATH);
+  if (!sameProcess(front.process, owner.process) || !sameProcess(core.process, own)
+    || front.uid !== uid || core.uid !== uid || core.parentPid !== front.process.pid
+    || owner.executable !== frontPath || front.executable !== frontPath || core.executable !== corePath
+    || realpathSync(owner.appPath) !== owner.appPath || realpathSync(frontPath) !== frontPath
+    || realpathSync(corePath) !== corePath || owner.argv[0] !== frontPath || owner.argv[1] !== "serve"
+    || !(owner.argv.length === 2 || owner.argv.length === 4 && owner.argv[2] === "--port" && owner.argv[3] === String(port))) throw denied();
+  authority.verifyStatic(owner.appPath, "desktop");
+  authority.verifyStatic(frontPath, "cli");
+  authority.verifyStatic(corePath, "cli");
+  const actual = nativeServiceMetadata(owner.appPath);
+  if (actual !== metadata) throw denied();
+  const release = parseBundleRelease(JSON.parse(actual));
+  const arch = process.arch === "arm64" ? "aarch64" : process.arch === "x64" ? "x86_64" : null;
+  if (!arch || release.cliLayout !== "paired" || release.version !== currentVersion()
+    || release.arch !== arch || !release.protocolMajors.includes(3)) throw denied();
+  return core;
+}
+
+/** launchd owns the logical service, which is the Root in paired mode. */
+export function assertNativeServiceLaunch(
+  owner: Pick<NativeServiceOwner, "process" | "executable" | "argv">,
+  registeredArgv: readonly string[],
+  status: { code: number; stdout: string },
+): void {
+  if (!registeredArgv[0] || realpathSync(registeredArgv[0]) !== owner.executable
+    || !sameNativeValue(owner.argv, registeredArgv) || status.code !== 0
+    || !new RegExp(`\\n\\s*pid = ${owner.process.pid}\\s*\\n`).test(status.stdout)) throw denied();
+}
+
 export function configuredNativeBridge(
   getCtx: () => Ctx,
   port: number,
   shutdown?: () => void,
+  paired?: PairedNativeBootstrap,
 ): NativeControlBridge | null {
   const authority = DarwinAuthority.configured();
-  if (!authority) return null;
+  if (!authority) {
+    if (paired) throw denied();
+    return null;
+  }
+  const service = paired?.owner.process ?? ownProcessIdentity();
+  if (!service) throw denied();
+  const executable = paired?.owner.executable ?? realpathSync(process.execPath);
+  if (!paired) assertLegacyNativeServiceLayout(executable);
+  const metadata = paired ? nativeServiceMetadata(paired.owner.appPath) : null;
   const verifyService = async () => {
     const ctx = getCtx(),
       registration = parseDesktopServiceRegistration(
@@ -1516,62 +1611,46 @@ export function configuredNativeBridge(
         desktopServiceLabel(ctx),
       );
     if (
-      realpathSync(registration.argv[0]!) !== realpathSync(process.execPath) ||
+      realpathSync(registration.argv[0]!) !== executable ||
       realpathSync(registration.home) !== realpathSync(ctx.home) ||
       realpathSync(registration.pacerHome) !== realpathSync(ctx.pacerHome) ||
       registration.port !== port
-    )
-      throw denied();
-    authority.verifyStatic(process.execPath, "cli");
-    authority.verifyProcess(ownProcessIdentity()!, "cli");
+    ) throw denied();
+    const allowed: ProcessIdentity[] = [];
+    if (paired) {
+      const core = verifyPairedNativeServiceOwner(authority, paired.owner, port, metadata!);
+      allowed.push(core.process);
+    } else {
+      authority.verifyStatic(process.execPath, "cli");
+      authority.verifyProcess(service, "cli");
+    }
     const fixture = compiledNativeFixture();
     if (fixture) verifyNativeFixture(fixture);
     const processes = enumerateNativeProcesses().filter(
-      (process) =>
-        !fixture || fixtureProcessInScope(fixture, process.executable),
+      (process) => !fixture || fixtureProcessInScope(fixture, process.executable),
     );
-    const allowed: ProcessIdentity[] = [];
     for (const process of processes) {
       const role = process.executable?.endsWith(".app/Contents/MacOS/pacer")
         ? "desktop"
-        : basename(process.executable ?? "") === "pacer-update-helper"
-          ? "helper"
-          : null;
+        : basename(process.executable ?? "") === "pacer-update-helper" ? "helper" : null;
       if (role) {
         authority.verifyProcess(process.process, role);
         allowed.push(process.process);
       }
     }
-    assertNativeProcessCoverage(
-      processes,
-      ownProcessIdentity()!,
-      enrolledWorkProcesses(ctx),
-      realpathSync(process.execPath),
-      allowed,
-    );
+    assertNativeProcessCoverage(processes, service, enrolledWorkProcesses(ctx), executable, allowed);
     const status = await ctx.run(
-      [
-        "/bin/launchctl",
-        "print",
-        `gui/${process.getuid!()}/${registration.label}`,
-      ],
-      5000,
+      ["/bin/launchctl", "print", `gui/${process.getuid!()}/${registration.label}`], 5000,
     );
-    if (
-      status.code !== 0 ||
-      !new RegExp(`\\n\\s*pid = ${process.pid}\\s*\\n`).test(status.stdout)
-    )
-      throw denied();
-    // Exact registered argv is checked against this process; extra runner/source
-    // arguments cannot masquerade as the compiled supported service baseline.
-    if (!sameNativeValue(nativeServiceArgv(), registration.argv)) throw denied();
+    assertNativeServiceLaunch(
+      { process: service, executable, argv: paired?.owner.argv ?? nativeServiceArgv() },
+      registration.argv,
+      status,
+    );
+    // The launchctl await must not allow a replaced/dead parent incarnation.
+    if (paired) verifyPairedNativeServiceOwner(authority, paired.owner, port, metadata!);
   };
-  return new NativeControlBridge(getCtx, {
-    port,
-    authority,
-    verifyService,
-    shutdown,
-  });
+  return new NativeControlBridge(getCtx, { port, authority, verifyService, shutdown, paired });
 }
 
 /** Conservative known-CLI coverage; arbitrary renamed legacy executables are not identifiable. */
@@ -1686,6 +1765,7 @@ export function createNativePipeFactory(
   getCtx: () => Ctx,
   native: Pick<NativeAuthorityProvider, "sessions" | "reverify">,
   authority: DarwinAuthority,
+  owner?: NativeServiceOwner,
 ): VerifiedPipeFactory {
   return {
     capabilities: new Set(["check", "download", "install", "recover", "adopt", "recover-adoption"]),
@@ -1828,8 +1908,8 @@ export function createNativePipeFactory(
           kind: "helper-bootstrap",
           home: realpathSync(getCtx().pacerHome),
           port: session.installation.port,
-          service: ownProcessIdentity(),
-          executable: realpathSync(process.execPath),
+          service: owner?.process ?? ownProcessIdentity(),
+          executable: owner?.executable ?? realpathSync(process.execPath),
         });
         child.stdin.write(bootstrap);
         await child.stdin.flush();
@@ -1871,13 +1951,14 @@ export function configuredNativeServices(
   getCtx: () => Ctx,
   port: number,
   shutdown: () => void,
+  paired?: PairedNativeBootstrap,
 ) {
-  const native = configuredNativeBridge(getCtx, port, shutdown);
+  const native = configuredNativeBridge(getCtx, port, shutdown, paired);
   if (!native) return null;
   const authority = DarwinAuthority.configured();
   if (!authority) throw denied();
   return {
     native,
-    adapter: createNativePipeFactory(getCtx, native, authority),
+    adapter: createNativePipeFactory(getCtx, native, authority, paired?.owner),
   };
 }

@@ -54,6 +54,7 @@ pub fn child_env(env: &HashMap<String, String>, exe: &Path) -> HashMap<String, S
     let mut child = env.clone();
     child.remove("BUN_OPTIONS");
     child.remove("NODE_OPTIONS");
+    child.remove("PACER_INTERNAL_NATIVE_BOOTSTRAP");
     child
         .entry("PACER_BIN".into())
         .or_insert_with(|| exe.to_string_lossy().into_owned());
@@ -73,4 +74,15 @@ pub fn exec_core(core: &[String], args: &[String], env: &HashMap<String, String>
     };
     eprintln!("pacer: could not start pacer-core: {error}");
     std::process::exit(1)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn child_environment_does_not_forward_parent_native_authority_claims() {
+        let env = HashMap::from([("PACER_INTERNAL_NATIVE_BOOTSTRAP".into(), "untrusted".into())]);
+        let child = child_env(&env, Path::new("/tmp/pacer"));
+        assert!(!child.contains_key("PACER_INTERNAL_NATIVE_BOOTSTRAP"));
+    }
 }

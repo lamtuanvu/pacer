@@ -27,6 +27,7 @@ nix = { version = "0.31", features = ["socket", "uio", "fs", "user", "signal", "
 security-framework = "3.7"
 core-foundation = "0.10"
 libproc = "0.14"
+socket2 = { version = "0.6", features = ["all"] }
 
 [dev-dependencies]
 tempfile = "3"
