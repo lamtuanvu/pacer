@@ -24,6 +24,7 @@ for (const kind of ['claude','codex']) test(`${kind} add creates private home an
   expect(r.code).toBe(0); const a=loadStrategy(ctx).accounts.work;
   expect(a.home).toBe(join(ctx.home, `.${kind}-work`));
   expect(statSync(a.home!).mode & 0o777).toBe(0o700);
+  if (kind === 'claude') expect(JSON.parse(readFileSync(join(a.home!, 'settings.json'), 'utf8')).statusLine.command).toContain('statusline');
   expect(calls).toEqual([{argv:kind==='codex'?['codex','login']:['claude'],env:{[kind==='codex'?'CODEX_HOME':'CLAUDE_CONFIG_DIR']:a.home}}]);
   if(kind==='claude') expect(r.out).toContain('/login');
   expect(readFileSync(join(ctx.pacerHome,'strategy.yaml'),'utf8')).toContain('# keep layout');

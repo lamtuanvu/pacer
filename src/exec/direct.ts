@@ -5,8 +5,9 @@ import { resolveAttachments } from "../attachments/claims";
 import { attachmentDirectory } from "../attachments/store";
 import { executorExclusion } from "../executors/availability";
 import { prepareInteractive, requireCodexInteractive, cleanSummary, readReport, transcriptReport, sessionTranscript } from "../session/reports";
-import { mkdirSync, existsSync, readFileSync, writeFileSync, appendFileSync, openSync, readSync, closeSync } from "node:fs";
+import { mkdirSync, existsSync, readFileSync, writeFileSync, appendFileSync, openSync, readSync, closeSync, renameSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 import { loadStrategy, strategyPath, type ProviderCfg } from "../config/strategy";
 import { IDLE_AFTER_S, IDLE_FAIL_S, type ExecutionCfg, validateExecution } from "../config/execution";
 import { publish } from "../link/publish";
@@ -16,6 +17,9 @@ import { tasksDir, listTasksWhere, readTask, updateTask } from "../tasks/store";
 import { resolvePlacement, type Attempt, type RunRef, type TaskRecord } from "../tasks/types";
 import type { Ctx } from "../types";
 import { parseRunnerId } from "../config/runner-id";
+import { resolveRunner } from "../config/runner-id";
+import { claudeResultFromStream, captureClaudeStreamUsageFile } from "../usage/claude";
+import { readAccountUsage } from "../usage";
 import { RemoteRunIO } from "../remote/run-io";
 import { runRemoteAttempt } from "../remote/attempt";
 import { SCRIPTS } from "../remote/scripts";
@@ -172,6 +176,33 @@ export async function finishRun(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, ru
     interactionMode: run.interactionMode,
     isStopped: () => readTask(ctx, task.id)?.state === "stopped", onPoll,
   });
+  if (!run.host && !run.takeover && cfg.session !== "interactive" && (parseRunnerId(cfg.id)?.agent ?? cfg.id) === "claude-code") {
+    const path = join(run.dir, "stdout");
+    try {
+      const strategy = loadStrategy(ctx);
+      const runner = resolveRunner(strategy, cfg.id);
+      const account = runner && strategy.accounts[runner.account];
+      if (account) {
+        const captured = await captureClaudeStreamUsageFile({...ctx, now: Date.now() / 1000}, account, path);
+        if (captured) {
+          try {
+            await readAccountUsage({...ctx, now: Date.now() / 1000}, account,
+              Object.values(strategy.runners).filter(r => r.account === account.name), true, false, strategy.hosts);
+          } catch { /* The captured cache remains available for the next status refresh. */ }
+        }
+      }
+      const result = claudeResultFromStream(readOutput(run.dir).stdout);
+      if (result !== null) {
+        const temp = `${path}.${randomUUID()}.tmp`;
+        try {
+          writeFileSync(temp, `${result}\n`, {flag: "wx", mode: 0o600});
+          renameSync(temp, path);
+        } finally {
+          try { unlinkSync(temp); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+        }
+      }
+    } catch { /* Keep the original output and task outcome when telemetry is unavailable. */ }
+  }
   const out = readOutput(run.dir);
   const exec: ExecResult = { code: end.code, stdout: out.stdout, stderr: out.stderr, timedOut: end.kind === "timeout" };
   if (end.kind === "idle") exec.stderr += `\npacer: stopped after ${Math.round((loadExec(ctx).idleFailS ?? IDLE_FAIL_S) / 60)} min without output or file changes`;

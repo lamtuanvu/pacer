@@ -31,7 +31,7 @@ test("cursor, agy, claude: prompt as the last argument, cwd = repo", () => {
     cwd: "/repo", argv: ["agy", "--dangerously-skip-permissions", "--add-dir", "/repo", "-p", "P"],
   });
   expect(launchFor(s.providers["claude-code"], "P", "/repo", "/t", ID)).toEqual({
-    cwd: "/repo", argv: ["claude", "-p", "--dangerously-skip-permissions", "--output-format", "text", "--model", "claude-sonnet-5", "P"],
+    cwd: "/repo", argv: ["claude", "-p", "--dangerously-skip-permissions", "--output-format", "stream-json", "--verbose", "--model", "claude-sonnet-5", "P"],
   });
 });
 
@@ -54,7 +54,7 @@ for (const id of ["agy", "cursor", "claude-code", "codex", "byteplus"]) {
       expect(value("--add-dir")).toBe("/repo");
     }
     if (id === "cursor") { expect(value("--workspace")).toBe("/repo"); expect(value("--output-format")).toBe("text"); }
-    if (id === "claude-code") { expect(l.argv).toContain("--dangerously-skip-permissions"); expect(value("--output-format")).toBe("text"); }
+    if (id === "claude-code") { expect(l.argv).toContain("--dangerously-skip-permissions"); expect(value("--output-format")).toBe("stream-json"); }
     if (id === "codex") { expect(value("-C")).toBe("/repo"); expect(l.argv).toContain("--dangerously-bypass-approvals-and-sandbox"); expect(value("-o")).toBe(`/tasks/${ID}.codex-last.md`); expect(l.stdin).toBe("the prompt"); }
     if (id === "byteplus") { expect(value("--agent")).toBe("build"); expect(value("--title")).toBe(`pacer ${ID}`); }
     expect(value(["codex", "byteplus"].includes(id) ? "-m" : "--model")).toBe("chosen-model");

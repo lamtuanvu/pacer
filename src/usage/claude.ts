@@ -40,6 +40,37 @@ export function captureClaudeStreamUsage(ctx: Ctx, account: AccountCfg, stdout: 
   return true;
 }
 
+/** Scan a completed stream without retaining the agent transcript in memory. */
+export async function captureClaudeStreamUsageFile(ctx: Ctx, account: AccountCfg, path: string): Promise<boolean> {
+  const decoder = new TextDecoder();
+  let pending = "", oversized = false;
+  let lastEvent = "";
+  for await (const chunk of Bun.file(path).stream()) {
+    pending += decoder.decode(chunk, {stream: true});
+    let newline: number;
+    while ((newline = pending.indexOf("\n")) !== -1) {
+      const line = pending.slice(0, newline);
+      pending = pending.slice(newline + 1);
+      if (!oversized && line.includes('"rate_limit_event"')) lastEvent = line;
+      oversized = false;
+    }
+    if (pending.length > 1024 * 1024) { pending = ""; oversized = true; }
+  }
+  pending += decoder.decode();
+  if (!oversized && pending.includes('"rate_limit_event"')) lastEvent = pending;
+  return lastEvent ? captureClaudeStreamUsage(ctx, account, lastEvent) : false;
+}
+
+/** Claude's final result is the user-facing text in a structured run. */
+export function claudeResultFromStream(stdout: string): string | null {
+  for (const line of stdout.trimEnd().split("\n").reverse()) {
+    let event: unknown;
+    try { event = JSON.parse(line); } catch { continue; }
+    if (isObj(event) && event.type === "result" && typeof event.result === "string") return event.result;
+  }
+  return null;
+}
+
 export function claudeCacheFile(ctx: Ctx, account?: AccountCfg): string {
   return join(ctx.pacerHome, "cache", account && account.source !== "default"
     ? `claude-rate-limits.${encodeURIComponent(account.name)}.json` : "claude-rate-limits.json");

@@ -6,6 +6,7 @@ import { editStrategy } from "../config/edit";
 import { loadStrategy, strategyPath, type Strategy } from "../config/strategy";
 import { migrateStrategy, type MigrationResult } from "../config/migrate";
 import { accountFolder } from "../install/role";
+import { ensureManagedClaudeStatusLine } from "../install/claude-managed-telemetry";
 import { shq } from "../install/fsx";
 import { readOrcaAccounts } from "../orca/accounts";
 import { accountAuthFailure } from "../usage/auth";
@@ -157,7 +158,12 @@ export async function add(ctx: Ctx, options: AddOptions) {
       try { mkdirSync(folder,{recursive:true,mode:0o700}); chmodSync(folder,0o700); }
       catch(e) {applyEdit(ctx,doc=>doc.removeMappingEntry('accounts',name)); throw e;}
     }
-    return {account: loadStrategy(ctx).accounts[name], folder, diff, ...(migrated ? {migrated} : {})};
+    const account = loadStrategy(ctx).accounts[name];
+    if (folder && account.kind === "claude") {
+      try { ensureManagedClaudeStatusLine(ctx, account); }
+      catch { /* Account creation still succeeds when passive telemetry cannot be configured. */ }
+    }
+    return {account, folder, diff, ...(migrated ? {migrated} : {})};
   } catch (e) {
     const error = toCoreError(e);
     throw new CoreError(error.code, error.message, error.hint ?? "Check the account name, options and configured accounts.");

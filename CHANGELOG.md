@@ -8,6 +8,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Keep Pacer-managed Claude quota readings current after ordinary headless and interactive turns. Managed accounts gain passive status-line capture, headless runs record Claude's structured quota events, and idle accounts do not consume usage for refresh probes.
 - Preserve embedded agent TUI fonts, cell layout and ANSI colors under the app's strict security policy; prevent automation color suppression from flattening native interactive sessions. Session end/resume reads the current revision rather than retaining stale progress state, and resume does not replay the initial prompt or attachments.
 - Restore a compact left navigation rail and unify the desktop page header with custom window controls, removing duplicate titlebar rows while preserving touch navigation.
 - Finish executor setup with **OK** to clear the wizard and return to Executors, or **Add another executor** to start fresh at agent selection.
