@@ -162,6 +162,15 @@ else:
         results['ownedKeychainFirstSha'] = sign('I-owned-keychain-first-sha', sha1, True, owned)
         results['platformAfterOwnedSha'] = sign('J-platform-after-owned-sha', sha1, True)
         results['ownIdentityPublicApi'] = own_identity_probe(sha1)
+        # Capture the actual hosted tool's supported options and one fixed diagnostic attempt.
+        run('hosted-codesign-help', ['/usr/bin/codesign', '--help'], False)
+        diagnostic = root / 'K-owned-verbose'
+        shutil.copyfile(owned, diagnostic)
+        diagnostic.chmod(0o700)
+        verbose = run('owned-codesign-verbose-six', ['/usr/bin/codesign', '--verbose=6', '--force', '--timestamp=none', '--keychain', keychain, '--sign', sha1, '--identifier', 'dev.pacer.cli', str(diagnostic)], False)
+        results['ownedVerboseSix'] = verbose.returncode
+        if verbose.returncode == 0:
+            run('owned-verbose-verify-pin', ['/usr/bin/codesign', '--verify', '--strict', '-R', 'identifier "dev.pacer.cli" and certificate leaf = H"'+sha1+'"', str(diagnostic)])
         write_receipt('comparison.json', results)
         if results['keychainFirstSha'] != 0:
             raise RuntimeError('keychain-first SHA control did not resolve signing failure')
