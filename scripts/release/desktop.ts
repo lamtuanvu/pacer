@@ -77,6 +77,8 @@ export async function stageDesktopPackage(root: string, releaseDir: string, arch
   }
   const shell = join(app, "Contents/MacOS/pacer");
   for (const binary of [cli, helper, shell]) verifyDesktopExecutable(regular(binary), arch);
+  const permissionHelper = join(app, "Contents/MacOS/pacer-permission-setup");
+  if (existsSync(permissionHelper)) verifyDesktopExecutable(regular(permissionHelper), arch);
   const info = parsePlistDictionary(readFileSync(join(app, "Contents/Info.plist"), "utf8"));
   if (info.CFBundleIdentifier !== "dev.pacer.desktop" || info.CFBundleExecutable !== "pacer" || info.CFBundleVersion !== version || info.CFBundleShortVersionString !== version) {
     throw new Error("Desktop bundle identity/version mismatch");
@@ -96,7 +98,8 @@ export async function stageDesktopPackage(root: string, releaseDir: string, arch
     const macos = join(target, "Contents/MacOS");
     rmSync(join(macos, "pacer-update-helper"), { force: true });
     const executables = readdirSync(macos);
-    if (executables.length !== 1 || executables[0] !== "pacer") throw new Error("Unsupported MacOS signing payload");
+    const allowed = ["pacer", ...(existsSync(permissionHelper) ? ["pacer-permission-setup"] : [])];
+    if (executables.length !== allowed.length || executables.some(name => !allowed.includes(name))) throw new Error("Unsupported MacOS signing payload");
     // Existing signatures describe the incomplete input. The returned tree must be signed anew.
     rmSync(join(target, "Contents/_CodeSignature"), { recursive: true, force: true });
     const resources = join(target, "Contents/Resources");
