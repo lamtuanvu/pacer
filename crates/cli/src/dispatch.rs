@@ -88,7 +88,11 @@ pub fn main(argv: Vec<String>) -> i32 {
                     .or_else(|| env.get("PACER_PORT").cloned())
                     .unwrap_or_else(|| "4317".into());
                 match value.parse::<u16>() {
-                    Ok(port) => pacer_server::run_serve_blocking(core, env, port),
+                    Ok(port) => {
+                        let mut service_argv = vec![exe.to_string_lossy().into_owned()];
+                        service_argv.extend_from_slice(args);
+                        pacer_server::run_serve_blocking(core, env, port, version, service_argv)
+                    }
                     Err(_) => {
                         eprintln!("pacer: invalid serve port: {value}");
                         2

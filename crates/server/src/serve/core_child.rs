@@ -16,6 +16,26 @@ pub struct CoreChild {
 }
 impl CoreChild {
     pub fn spawn(core: Vec<String>, env: HashMap<String, String>) -> Self {
+        Self::spawn_inner(
+            core,
+            env,
+            #[cfg(target_os = "macos")]
+            None,
+        )
+    }
+    #[cfg(target_os = "macos")]
+    pub fn spawn_native(
+        core: Vec<String>,
+        env: HashMap<String, String>,
+        native: Arc<super::native_context::NativeContext>,
+    ) -> Self {
+        Self::spawn_inner(core, env, Some(native))
+    }
+    fn spawn_inner(
+        core: Vec<String>,
+        env: HashMap<String, String>,
+        #[cfg(target_os = "macos")] native: Option<Arc<super::native_context::NativeContext>>,
+    ) -> Self {
         let target = Arc::new(RwLock::new(None));
         let (stop, mut stopped) = oneshot::channel();
         let shared = target.clone();
@@ -24,9 +44,20 @@ impl CoreChild {
             loop {
                 let mut healthy_since = None;
                 let token = hex::encode(rand::random::<[u8; 32]>());
-                let result = start(&core, &env, &token);
+                #[cfg(target_os = "macos")]
+                let result = if let Some(native) = &native {
+                    command(&core, &env, &token)
+                        .and_then(|mut command| native.start(&mut command))
+                        .map(|(child, control)| (child, Some(control)))
+                } else {
+                    start(&core, &env, &token).map(|child| (child, None))
+                };
+                #[cfg(not(target_os = "macos"))]
+                let result =
+                    start(&core, &env, &token).map(|child| (child, None::<JoinHandle<()>>));
                 match result {
-                    Ok(mut child) => {
+                    Ok((mut child, control)) => {
+                        let _native_control = ControlGuard(control);
                         // Child::wait closes stdin unless its handle has been taken.
                         // Keep ownership until this generation exits or is terminated.
                         let _ownership = child.stdin.take();
@@ -119,24 +150,37 @@ impl CoreChild {
         }
     }
 }
+struct ControlGuard(Option<JoinHandle<()>>);
+impl Drop for ControlGuard {
+    fn drop(&mut self) {
+        if let Some(task) = &self.0 {
+            task.abort();
+        }
+    }
+}
 fn start(core: &[String], env: &HashMap<String, String>, token: &str) -> io::Result<Child> {
+    command(core, env, token)?.spawn()
+}
+fn command(core: &[String], env: &HashMap<String, String>, token: &str) -> io::Result<Command> {
     let (program, args) = core
         .split_first()
         .ok_or_else(|| io::Error::other("empty core argv"))?;
-    Command::new(program)
+    let mut command = Command::new(program);
+    command
         .args(args)
         .args(["serve", "--internal"])
         .env_clear()
         .envs(env)
         .env_remove("BUN_OPTIONS")
         .env_remove("NODE_OPTIONS")
+        .env_remove("PACER_INTERNAL_NATIVE_BOOTSTRAP")
         .env("PACER_INTERNAL_TOKEN", token)
         .env("PACER_INTERNAL_PARENT_PIPE", "1")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
-        .kill_on_drop(true)
-        .spawn()
+        .kill_on_drop(true);
+    Ok(command)
 }
 async fn terminate(child: &mut Child) {
     if let Some(pid) = child.id() {
@@ -154,6 +198,22 @@ async fn terminate(child: &mut Child) {
 mod tests {
     #![allow(clippy::unwrap_used)]
     use super::*;
+    #[tokio::test]
+    async fn generic_core_cannot_inherit_native_bootstrap_authority() {
+        let child = start(
+            &[
+                "/bin/sh".into(),
+                "-c".into(),
+                "printf '%s' \"$PACER_INTERNAL_NATIVE_BOOTSTRAP\"".into(),
+            ],
+            &HashMap::from([("PACER_INTERNAL_NATIVE_BOOTSTRAP".into(), "untrusted".into())]),
+            "test-token",
+        )
+        .unwrap();
+        let output = child.wait_with_output().await.unwrap();
+        assert!(output.status.success());
+        assert!(output.stdout.is_empty());
+    }
     async fn ready(core: &CoreChild) -> (u16, String) {
         timeout(Duration::from_secs(4), async {
             loop {

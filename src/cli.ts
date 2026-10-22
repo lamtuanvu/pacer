@@ -2,6 +2,7 @@
 import { apiCommand } from "./commands/api";
 import { compiledNativeFixture, compiledNativeFixtureSha256 } from "./update/desktop/native-fixture";
 import { compiledAppleTeamId, compiledSignerPins, compiledSigningCertSha1 } from "./update/desktop/native-os";
+import { consumeNativePairedBootstrap, configuredPairedNativeBootstrap } from "./update/desktop/native-paired-bootstrap";
 import { signerKind } from "./update/desktop/signer-requirement";
 import { currentVersion } from "./update/version";
 import { projectStrategyCmd } from "./commands/project-strategy";
@@ -338,6 +339,13 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
 }
 
 export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result> {
+  let nativeBootstrap;
+  try {
+    nativeBootstrap = consumeNativePairedBootstrap(ctx.env);
+    if (nativeBootstrap && !(argv[0] === "serve" && argv.includes("--internal"))) {
+      return {code:2,out:"",err:"Native bootstrap requires the internal service"};
+    }
+  } catch (error) { return {code:2,out:"",err:explain(error)}; }
   const [cmd = "status", ...rest] = argv;
   if (ctx.env.PACER_WORK_GRANT && !["dispatch", "mcp", "api"].includes(cmd))
     return {code:2,out:"",err:"pacer: work grants only allow scoped dispatch commands"};
@@ -536,7 +544,8 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
           // Only this process may hold the internal credential: task runners and executors inherit the environment.
           delete process.env.PACER_INTERNAL_TOKEN;
           delete ctx.env.PACER_INTERNAL_TOKEN;
-          const s = startServer(() => fresh(ctx), { internal: { token: internalToken! } });
+          const pairedNative = configuredPairedNativeBootstrap(ctx, Number(ctx.env.PACER_PORT ?? DEFAULT_PORT), nativeBootstrap);
+          const s = startServer(() => fresh(ctx), { internal: { token: internalToken! }, ...(pairedNative ? {pairedNative} : {}) });
           process.stdout.write(`${JSON.stringify({ internal: { port: s.port } })}\n`);
           if (ctx.env.PACER_INTERNAL_PARENT_PIPE === "1") {
             // The front door owns the write end. EOF also arrives after SIGKILL,

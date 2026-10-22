@@ -65,6 +65,7 @@ impl NativeListener {
         if !socket.file_type().is_socket()
             || socket.uid() != metadata.uid()
             || socket.mode() & 0o077 != 0
+            || socket.ino() > 9_007_199_254_740_991
         {
             return Err(denied());
         }
