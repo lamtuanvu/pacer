@@ -34,7 +34,10 @@ export type ColorToken =
   | "agent-claude-code"
   | "agent-agy"
   | "agent-byteplus"
-  | "agent-gemini";
+  | "agent-gemini"
+  | "traffic-close"
+  | "traffic-min"
+  | "traffic-max";
 export const colorTokens: Record<ColorToken, { light: string; dark: string }> = {
   "surface-page": { light: "#ffffff", dark: "#09090b" },
   "surface-card": { light: "#fafafa", dark: "#18181b" },
@@ -71,4 +74,7 @@ export const colorTokens: Record<ColorToken, { light: string; dark: string }> = 
   "agent-agy": { light: "#4285F4", dark: "#4285F4" },
   "agent-byteplus": { light: "#3C8CFF", dark: "#3C8CFF" },
   "agent-gemini": { light: "#8E75B2", dark: "#8E75B2" },
+  "traffic-close": { light: "#ff5f56", dark: "#ff5f56" },
+  "traffic-min": { light: "#ffbd2e", dark: "#ffbd2e" },
+  "traffic-max": { light: "#27ca40", dark: "#27ca40" },
 };

@@ -343,3 +343,11 @@ a.pc-btn{text-decoration:none}
 .pc-update-notice p{margin:0}
 .pc-update-notice .row-actions{flex-wrap:wrap}
 .pc-update-notice--narrow{bottom:calc(var(--size-56) + var(--space-4) + env(safe-area-inset-bottom));max-height:calc(100dvh - var(--size-56) - var(--space-4) * 2 - env(safe-area-inset-bottom))}
+
+/* Custom (undecorated) titlebar window controls: macOS traffic lights. */
+.pc-traffic{display:flex;align-items:center;gap:var(--space-2);width:var(--size-60);flex:none}
+.pc-traffic__btn{width:var(--size-12);height:var(--size-12);border-radius:var(--radius-full);border:0;padding:0;margin:0;opacity:.85;transition:opacity var(--motion-fast) var(--motion-ease)}
+.pc-traffic__btn:hover{opacity:1}
+.pc-traffic__btn--close{background:var(--traffic-close)}
+.pc-traffic__btn--min{background:var(--traffic-min)}
+.pc-traffic__btn--zoom{background:var(--traffic-max)}
