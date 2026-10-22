@@ -1379,6 +1379,12 @@ impl NativePlatform {
                 65536,
             )?)
             .map_err(|_| OtaError::Invalid)?;
+        let layout = metadata.get("cliLayout")
+            .map(|value| serde_json::from_value::<crate::packaging::CliLayout>(value.clone()))
+            .transpose().map_err(|_| OtaError::Invalid)?;
+        if matches!(layout, Some(crate::packaging::CliLayout::Paired)) {
+            self.trust.verify_static(&path.join("Contents/Resources/pacer-core"), CodeRole::Cli)?;
+        }
         ensure(
             metadata["schema"] == 1
                 && metadata["version"] == version
