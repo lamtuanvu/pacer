@@ -137,6 +137,18 @@ export function receiveParentHelperChannel(): number {
   if (fd < 0) throw Error("Native parent helper channel unavailable");
   return fd;
 }
+/** Private paired startup only, after authenticating the fixed parent. */
+export function receiveParentChannels(): { listener: number; helper: number } {
+  const descriptors = new Int32Array([-1, -1]);
+  if ((shim ??= descriptorShim()).symbols.pacer_receive_parent_channels(0, ptr(descriptors)) < 0)
+    throw Error("Native parent channels unavailable");
+  return { listener: descriptors[0], helper: descriptors[1] };
+}
+/** Receipt does not acknowledge authority: the caller rechecks ownership first. */
+export function acknowledgeParentChannels(): void {
+  if ((shim ??= descriptorShim()).symbols.pacer_acknowledge_parent(0) < 0)
+    throw Error("Native parent acknowledgement unavailable");
+}
 /** The channel owner closes it exactly once on failure; successful rights transfer
  * ownership to the caller. No process signals or caller-selected argv are used. */
 export function requestParentHelper(channel: number, request: {

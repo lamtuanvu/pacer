@@ -692,7 +692,7 @@ fn receive(socket: &tokio::net::UnixStream, bytes: &mut [u8]) -> io::Result<usiz
 }
 // Shared syscall/rights cleanup; diagnostic drains must not depend on Tokio's
 // cached readiness and must never wait or become another authority operation.
-fn receive_nonblocking(socket: &impl AsRawFd, bytes: &mut [u8]) -> io::Result<usize> {
+pub(super) fn receive_nonblocking(socket: &impl AsRawFd, bytes: &mut [u8]) -> io::Result<usize> {
     use nix::sys::socket::{ControlMessageOwned, MsgFlags, UnixAddr, recvmsg};
     // Darwin may install more rights than an undersized control buffer
     // describes. Legal sends contain at most254; reserve1024 so every

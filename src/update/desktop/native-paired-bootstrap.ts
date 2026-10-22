@@ -10,7 +10,7 @@ import { BUNDLE_RELEASE_PATH, parseBundleRelease } from "./identity";
 import { compiledNativeFixture, verifyNativeFixture } from "./native-fixture";
 import { compiledSignerPins, DarwinAuthority } from "./native-os";
 import { pairedServiceOwner, type NativeServiceOwner } from "./native-service-owner";
-import { receiveParentHelperChannel, receiveParentListener, type ParentNativeListener } from "./native-socket";
+import { acknowledgeParentChannels, receiveParentChannels, type ParentNativeListener } from "./native-socket";
 import { ParentHelperSpawner } from "./native-parent-helper";
 import { ownProcessIdentity, processIdentity, sameProcess } from "./process-identity";
 
@@ -137,9 +137,11 @@ export function configuredPairedNativeBootstrap(
     };
     recheck();
     // Only the fixed authenticated parent channel can supply this descriptor.
-    listener = receiveParentListener();
-    helperChannel = receiveParentHelperChannel();
+    const channels = receiveParentChannels();
+    listener = channels.listener;
+    helperChannel = channels.helper;
     recheck();
+    acknowledgeParentChannels();
     const helpers = new ParentHelperSpawner(helperChannel);
     let sent = false;
     return { owner, helpers, listener: { fd: listener, owner: { ...owner.process } }, shutdown() {

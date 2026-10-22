@@ -43,11 +43,13 @@ test.skipIf(process.platform !== "darwin")("native descriptor wrapper matches th
   const source = `
 #include <sys/socket.h>
 #include <sys/time.h>
+#include <errno.h>
 #include <stddef.h>
 #define recvmsg pacer_abi_recvmsg
 #define setsockopt pacer_abi_setsockopt
 #define getsockopt pacer_abi_getsockopt
 #define getsockname pacer_abi_getsockname
+#define getpeername pacer_abi_getpeername
 #define clock_gettime pacer_abi_clock_gettime
 ${readFileSync(resolve("src/update/desktop/native-socket.c"), "utf8")}
 _Static_assert(sizeof(struct msghdr) == sizeof(struct pacer_msghdr), "message size");
@@ -59,6 +61,7 @@ _Static_assert(offsetof(struct msghdr, msg_control) == offsetof(struct pacer_msg
 _Static_assert(offsetof(struct msghdr, msg_flags) == offsetof(struct pacer_msghdr, flags), "flags offset");
 _Static_assert(CMSG_LEN(sizeof(int)) == 16 && CMSG_SPACE(8 * sizeof(int)) == 44, "rights layout");
 _Static_assert(SOL_SOCKET == 0xffff && SCM_RIGHTS == 1 && SO_TYPE == 0x1008 && SO_RCVTIMEO == 0x1006, "socket options");
+_Static_assert(ENOTCONN == 57, "peer state error");
 _Static_assert(MSG_TRUNC == 0x10 && MSG_CTRUNC == 0x20, "truncation flags");
 `;
   const result = Bun.spawnSync(["/usr/bin/xcrun", "clang", "-x", "c", "-fsyntax-only", "-"], {
