@@ -21,6 +21,31 @@ const doctor = async (h: HostSession, id: string) => (await h.call<{ reports: Re
 const eventually = async (seen: () => boolean, ms = 5000) => { const end = Date.now() + ms; while (!seen() && Date.now() < end) await Bun.sleep(50); return seen(); };
 const codeOf = async (p: Promise<unknown>) => { try { await p; return "no error"; } catch (e) { return e instanceof HostError ? e.code : String(e); } };
 
+/** Reconstruct overlap from every measured entry/exit, not a claimed maximum. */
+export function assertPingReceipts(text: string, reentrant: boolean): void {
+  assert(text.length <= 4096, "ping receipts are bounded");
+  const rows = text.trim().split("\n").map(line => JSON.parse(line));
+  assert(rows.length === 4, "exactly two entries and two exits are recorded");
+  const active = new Set<number>(), entered = new Set<number>(), exited = new Set<number>();
+  let maximum = 0;
+  for (const [index, row] of rows.entries()) {
+    assert(Object.keys(row).sort().join() === "active,phase,ping,seq", "receipt has fixed fields");
+    assert(row.seq === index + 1 && (row.ping === 2 || row.ping === 3), "receipt sequence excludes warmup and is monotonic");
+    if (row.phase === "enter") {
+      assert(!entered.has(row.ping), "each measured request enters once");
+      entered.add(row.ping); active.add(row.ping);
+    } else {
+      assert(row.phase === "exit" && active.has(row.ping) && !exited.has(row.ping), "each successful exit matches one active entry");
+      assert(!reentrant || entered.size === 2, "both reentrant requests entered before either exited");
+      active.delete(row.ping); exited.add(row.ping);
+    }
+    assert(row.active === active.size, "active receipt matches reconstructed event order");
+    maximum = Math.max(maximum, active.size);
+  }
+  assert(active.size === 0 && entered.size === 2 && exited.size === 2, "both measured requests finish");
+  assert(maximum === (reentrant ? 2 : 1), "event order proves the declared queue behavior");
+}
+
 function lifecycleCases(rust: boolean): ConformanceCase[] {
   const names = rust
     ? { good: "rust-good", slow: "rust-slow", crasher: "rust-crasher" } as const
@@ -116,13 +141,18 @@ export const CASES: ConformanceCase[] = [
     assert((await listed(h))["fx-good"]?.state === "idle", "a version with the same capabilities stays enabled");
   } },
   { name: "serialisation: one call at a time unless reentrant", async run(t) {
-    t.install("serial"); t.install("reentrant");
+    t.install("serial", { fixture: { pingProbe: "serial" } });
+    t.install("reentrant", { fixture: { pingProbe: "barrier" } });
     const h = await t.host();
-    for (const id of ["fx-serial", "fx-reentrant"]) { await h.call("plugin.enable", { id, grant: true }); await doctor(h, id); }
-    const time = async (id: string) => { const t0 = Date.now(); await Promise.all([doctor(h, id), doctor(h, id)]); return Date.now() - t0; };
-    const serial = await time("fx-serial"), reentrant = await time("fx-reentrant");
-    assert(serial >= 600, `two pings to a non-reentrant plugin run in order (took ${serial} ms)`);
-    assert(reentrant < 550, `two pings to a reentrant plugin overlap (took ${reentrant} ms)`);
+    for (const id of ["fx-serial", "fx-reentrant"]) {
+      await h.call("plugin.enable", { id, grant: true });
+      const warmup = await doctor(h, id);
+      assert(warmup.ok && warmup.pid !== null, `${id} warmup succeeds`);
+      const reports = await Promise.all([doctor(h, id), doctor(h, id)]);
+      assert(reports.every(report => report.ok && report.pid === warmup.pid), `${id} both measured calls finish on the warmed process (got ${reports.map(report => report.error).join()})`);
+      const receipts = readFileSync(join(t.pluginsDir, id, "ping-receipts.jsonl"), "utf8");
+      assertPingReceipts(receipts, id === "fx-reentrant");
+    }
   } },
   { name: "logs: stderr lands in the plugin log file, never on stdout", async run(t) {
     t.install("good");
