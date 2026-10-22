@@ -16,7 +16,7 @@ export function Screen({route}:{route:Route}) {
  case 'setup': return <LazySetup query={route.query}/>;
  case 'overview': return <Overview query={route.query}/>;
  case 'review': return <NeedsYouPage query={route.query}/>;
- case 'sessions': return route.id?<>{running?.id === route.id && <p role="status">Running on {running.executor}</p>}<TaskRoute key={route.id} id={route.id} query={route.query}/></>:<Sessions key={route.query.repo??"all"} query={route.query}/>;
+ case 'sessions': return route.id?<>{running?.id === route.id && <p role="status">Running on {running.executor}</p>}<TaskRoute key={route.id} id={route.id} query={route.query}/></>:<Sessions key={JSON.stringify(route.query)} query={route.query}/>;
  case 'settings': return <LazySettings key={route.section ?? "general"} section={route.section} query={route.query}/>;
  case 'hosts': return route.alias?<HostDetail key={route.alias} alias={route.alias}/>:<RemoteHosts/>;
  case 'add-executor': return <AddExecutor host={route.host}/>;

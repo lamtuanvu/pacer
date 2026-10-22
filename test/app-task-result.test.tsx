@@ -47,3 +47,32 @@ test("changes show every file and explain an empty patch",async()=>{
  const empty=renderToString(<ResultChanges patch="" untracked={[]} truncated={false}/>);
  expect(empty).toContain('No changes recorded');expect(empty).not.toContain('<pre');
 });
+
+test("result heading prefers the short name and keeps the full brief available", () => {
+ const html = renderToString(<TaskResultView task={{...task, title:"Batch outbox settlement", fullTitle:"A very long instruction", brief:{...task.brief, goal:"A very long instruction"}}}/>);
+ expect(html).toMatch(/<h2[^>]*>Batch outbox settlement<\/h2>/);
+ expect(html).not.toMatch(/<h2[^>]*>A very long instruction<\/h2>/);
+ expect(html).toContain("A very long instruction");
+});
+
+test("both task views retain identity, scoped back navigation and tab-panel associations", async () => {
+ const {TaskDetailFrame} = await import("../app/src/screens/TaskResult");
+ for (const tab of ["summary", "session"]) {
+  const html = renderToString(<TaskDetailFrame task={{...task,title:"Short task name"}} query={{repo:"acme/api",scope:"mine"}} tab={tab} onTab={()=>{}}><p>Selected content</p></TaskDetailFrame>);
+  expect(html).toContain('href="#/tasks?repo=acme%2Fapi&amp;scope=mine"');
+  expect(html).toContain('role="tablist"');
+  expect(html).toContain(`id="task-t-0412-${tab}-tab" role="tab" aria-selected="true"`);
+  expect(html).toContain(`role="tabpanel" id="task-t-0412-${tab}-panel" aria-labelledby="task-t-0412-${tab}-tab"`);
+  expect(html.match(/>Short task name<\/h2>/g)?.length).toBe(1);
+  expect(html).toContain("Selected content");
+ }
+});
+
+test("active task summaries never claim that execution ended", () => {
+ for (const state of ["running", "queued"] as const) {
+  const html = renderToString(<TaskResultView task={{...task,state,summary:null,reviewRequest:undefined}}/>);
+  expect(html).not.toContain("Execution ended");
+  expect(html).not.toContain("Execution finished");
+  expect(html).toContain(state === "running" ? "Execution is in progress" : "Waiting to start");
+ }
+});
