@@ -14,14 +14,14 @@ const view = (repo: string | null = null, s: ClientSnapshot = snap) =>
   renderToString(<OverviewView snapshot={s} query={{ repo, scope: null }} now={snap.at} runner={runner} activity={activity} ops={new Set(["attention.dismiss", "task.stop"])} quickDelegate={<p>quick delegate form</p>} />);
 const order = (html: string, words: string[]) => words.map(w => html.indexOf(w));
 
-test("the canvas layout: planner strip, then work on the left and capacity alongside", () => {
+test("the canvas layout keeps work and capacity in independent columns", () => {
   const html = view();
   const main = html.indexOf("pc-overview__main"), side = html.indexOf("pc-overview__side");
   expect(html.indexOf("pc-planner-strip")).toBeLessThan(main);
-  const at = order(html, [">Needs you<", ">Running<", ">Capacity<", ">Done today<"]);
+  const at = order(html, [">Needs you<", ">Running<", ">Done today<"]);
   expect(at.every(i => i > main && i < side)).toBe(true);
   expect([...at].sort((a, b) => a - b)).toEqual(at);
-  const right = order(html, [">Quick delegate<", ">Activity<"]);
+  const right = order(html, [">Capacity<", ">Quick delegate<", ">Activity<"]);
   expect(right.every(i => i > side)).toBe(true);
   expect([...right].sort((a, b) => a - b)).toEqual(right);
 });
@@ -36,11 +36,11 @@ test("the planner strip gives the advice, usage and the day's numbers", () => {
   expect(html).toMatch(/>7<\/div><div[^>]*>done today</);
 });
 
-test("needs you links to the review queue and the footer lists the main keys", () => {
+test("needs you links to the review queue", () => {
   const html = view();
   expect(html).toContain('href="#/needs-you"');
   expect(html).toContain("All attention");
-  expect(html).toMatch(/pc-keys-footer[\s\S]*j k[\s\S]*⏎[\s\S]*dismiss[\s\S]*pacer/);
+  expect(html).not.toContain("pc-keys-footer");
 });
 
 test("capacity with no usage reading says so with a glyph and the reason", () => {
@@ -164,6 +164,7 @@ test("attention uses service title, inline repo, reason and time with secondary 
   expect(card).toMatch(/Short service title<\/span><code(?=[^>]*class="pc-repo-chip")(?=[^>]*title="acme\/api")[^>]*>acme\/api<\/code>/);
   expect(card).toContain(`${item.detail} · `);
   expect(card).toContain("pc-list-row__actions");
+  expect(card).not.toContain("pc-list-row--outlined");
   expect(card).not.toContain("pc-btn--primary");
   expect(card).not.toContain('>Dismiss<');
   expect(card).toContain(`>${item.actions[0]!.label}<`);

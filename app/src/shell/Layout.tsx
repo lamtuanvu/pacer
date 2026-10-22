@@ -14,6 +14,8 @@ import { TaskContext } from "../screens/task-shared";
 import { SettingsPanel, SettingsPanelData } from "./SettingsPanel";
 import { NarrowContext, useNarrow } from "./narrow";
 import { TopBar } from "./TopBar";
+import { StatusBar } from "./StatusBar";
+import { keys } from "../keys/instance";
 
 const SETTINGS = new Set(["settings", "hosts", "add-executor"]);
 const NEEDS_READ_MODEL = new Set(["overview", "review"]);
@@ -46,5 +48,6 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
         </main>
       </div>
     </div>
+    {!narrow && route.name !== "setup" && <StatusBar route={route} snapshot={state.snapshot} registry={keys} />}
   </div></NarrowContext.Provider>;
 }

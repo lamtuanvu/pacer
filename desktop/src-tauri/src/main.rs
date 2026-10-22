@@ -143,6 +143,16 @@ fn desktop_version(window: WebviewWindow, app: AppHandle) -> Result<String, Stri
     Ok(app.package_info().version.to_string())
 }
 #[tauri::command]
+fn rounded_window_supported(window: WebviewWindow, app: AppHandle) -> Result<bool, String> {
+    authorized(&window, &app)?;
+    Ok(true)
+}
+#[tauri::command]
+fn native_titlebar_supported(window: WebviewWindow, app: AppHandle) -> Result<bool, String> {
+    authorized(&window, &app)?;
+    Ok(cfg!(target_os = "macos"))
+}
+#[tauri::command]
 fn desktop_update_connection(window: WebviewWindow, app: AppHandle) -> Result<Value, String> {
     authorized(&window, &app)?;
     let shell = app.state::<Shell>();
@@ -685,6 +695,8 @@ fn activate(app: &AppHandle, origin: &str, mut auth: Url) -> Result<(), String> 
                 .permission("allow-session-expired")
                 .permission("allow-session-ready")
                 .permission("allow-desktop-version")
+                .permission("allow-rounded-window-supported")
+                .permission("allow-native-titlebar-supported")
                 .permission("allow-desktop-update-connection")
                 .permission("allow-native-validation-setup"),
         )
@@ -1096,6 +1108,8 @@ fn main() {
             session_expired,
             session_ready,
             desktop_version,
+            rounded_window_supported,
+            native_titlebar_supported,
             desktop_update_connection,
             native_validation_setup,
             windowMinimize,
@@ -1115,14 +1129,15 @@ fn main() {
             // completed page loads for source checks; never query the webview there.
             let current = Arc::new(Mutex::new(None::<Url>));
             let loaded = current.clone();
-            let window =
+            let builder =
                 tauri::WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
                     .visible(!std::env::args().any(|arg| arg == "--pacer-relaunch-hidden"))
                     .incognito(cfg!(feature = "ota-fixture"))
                     .title("pacer")
                     .inner_size(1120., 760.)
                     .min_inner_size(720., 520.)
-                    .decorations(false)
+                    .decorations(cfg!(target_os = "macos"))
+                    .transparent(true)
                     .on_page_load(move |window, payload| {
                         if payload.event() != tauri::webview::PageLoadEvent::Finished {
                             window
@@ -1173,8 +1188,12 @@ fn main() {
                             }
                             logic::Navigation::Block => false,
                         }
-                    })
-                    .build()?;
+                    });
+            #[cfg(target_os = "macos")]
+            let builder = builder
+                .title_bar_style(tauri::TitleBarStyle::Overlay)
+                .hidden_title(true);
+            let window = builder.build()?;
             if let Ok(path) = app.path().app_config_dir() {
                 if let Ok(bytes) = std::fs::read(path.join("theme.json")) {
                     if let Ok(theme) = serde_json::from_slice::<String>(&bytes) {

@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { readDesktopVersion } from '../app/src/data/desktop';
+import { readDesktopVersion, readNativeTitlebarSupport, readRoundedWindowSupport } from '../app/src/data/desktop';
 import { desktopUpdateModel } from '../src/view-model/updates';
 
 test('browser has no desktop version; native version comes from the shell', async () => {
@@ -13,6 +13,28 @@ test('browser has no desktop version; native version comes from the shell', asyn
 test('older shells and failed IPC expose unknown, never the service version', async () => {
   await expect(readDesktopVersion({ __TAURI__: { core: { invoke: async () => { throw Error('unknown command'); } } } })).rejects.toThrow();
   await expect(readDesktopVersion({ __TAURI__: { core: { invoke: async () => 5 } } })).rejects.toThrow();
+});
+
+test('rounded corners require an explicit capability from the native shell', async () => {
+  expect(await readRoundedWindowSupport({})).toBe(false);
+  expect(await readRoundedWindowSupport({ __TAURI__: { core: { invoke: async command => {
+    expect(command).toBe('rounded_window_supported');
+    return true;
+  } } } })).toBe(true);
+  expect(await readRoundedWindowSupport({ __TAURI__: { core: { invoke: async () => false } } })).toBe(false);
+  expect(await readRoundedWindowSupport({ __TAURI__: { core: { invoke: async () => 'true' } } })).toBe(false);
+  expect(await readRoundedWindowSupport({ __TAURI__: { core: { invoke: async () => { throw Error('unknown command'); } } } })).toBe(false);
+});
+
+test('native titlebar controls require an explicit macOS shell capability', async () => {
+  expect(await readNativeTitlebarSupport({})).toBe(false);
+  expect(await readNativeTitlebarSupport({ __TAURI__: { core: { invoke: async command => {
+    expect(command).toBe('native_titlebar_supported');
+    return true;
+  } } } })).toBe(true);
+  expect(await readNativeTitlebarSupport({ __TAURI__: { core: { invoke: async () => false } } })).toBe(false);
+  expect(await readNativeTitlebarSupport({ __TAURI__: { core: { invoke: async () => 'true' } } })).toBe(false);
+  expect(await readNativeTitlebarSupport({ __TAURI__: { core: { invoke: async () => { throw Error('unknown command'); } } } })).toBe(false);
 });
 
 test('desktop update is independent of an up-to-date service', () => {

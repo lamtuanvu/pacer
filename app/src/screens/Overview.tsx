@@ -18,7 +18,6 @@ import { attentionStatus, executorLabel, paceStatus, taskStatus, taskOutcome } f
 import { useActions } from "../data/action-context";
 import type { ActionRunner } from "../data/actions";
 import { AgentMark } from "../ds/AgentMark";
-import { Kbd } from "../ds/Kbd";
 import { StatusPill } from "../ds/StatusPill";
 import { StatusGlyph } from "../ds/StatusGlyph";
 import { UsageMeter } from "../ds/UsageMeter";
@@ -49,7 +48,7 @@ export function NeedsYou({ snapshot, scope, runner, now, query, narrow, standalo
   const reviewQueue = <TextAction className="pc-text-action" href={withQuery("#/needs-you", { ...query, repo: scope.repo ?? query.repo })}>All attention</TextAction>;
   return <section className={standalone ? "pc-section" : "pc-card-section pc-overview-attention"} aria-labelledby="needs-you"><div className={standalone ? "pc-section__head" : "pc-card-section__head"}><SectionHeading id="needs-you">{standalone ? "Decisions and problems" : "Needs you"}</SectionHeading>{!standalone && items.length > 0 && <span className="pc-count pc-count--warn">{items.length}</span>}<span className="grow" />{standalone ? otherRepos : narrow && otherRepos ? otherRepos : reviewQueue}</div>
     <div className="pc-overview-list">
-    {page.rows.map(item => { const status = attentionStatus(item, snapshot.tasks); return <ListRow key={item.id} tabIndex={0} data-attention-id={item.id} className="pc-attn" outlined tone={status.tone === "bad" ? "bad" : undefined}
+    {page.rows.map(item => { const status = attentionStatus(item, snapshot.tasks); return <ListRow key={item.id} tabIndex={0} data-attention-id={item.id} className="pc-attn" outlined={standalone} tone={status.tone === "bad" ? "bad" : undefined}
       leading={<><span className={`pc-status--${status.tone}`}><StatusGlyph status={status} />{status.label}</span>{item.executor && <AgentMark agent={markAgent(item.executor)} size={20} labelled={false} />}</>}
       content={<><div className="pc-attn__title"><span className="pc-ellipsis grow" title={attentionTitle(item, snapshot)}>{attentionTitle(item, snapshot)}</span>{item.repo && <code className="pc-repo-chip" title={item.repo.label}>{item.repo.label}</code>}</div><div className="muted">{item.detail} · {clock(item.raisedAt, now)}</div></>}
       actions={item.actions.slice(0, 2).map((action, i) => <ActionButton key={i} runner={runner} id={`${item.id}:${i}`} action={action.op === "task.answer" ? {label:action.label,op:"ui.open",params:{view:"task",id:item.taskId}} : action} confirmDone={gone(item)} />)}
@@ -146,10 +145,6 @@ function PlannerStrip({ snapshot, now }: { snapshot: ClientSnapshot; now: number
     <div className="pc-stats">{stat(c?.attention, "need you", true)}{stat(c?.running, "running")}{stat(snapshot.today?.done, "done today")}{stat(`${c?.ready ?? 0}/${c?.executors ?? 0}`, "executors ready")}</div>
   </section>;
 }
-function KeysFooter({ version }: { version?: string }) {
-  return <footer className="pc-keys-footer muted">{overviewHints.map((hint, i) => <span key={hint.keys}>{i > 0 && " · "}<Kbd>{hint.keys === "Enter" ? "⏎" : hint.keys}</Kbd> {hint.label}</span>)}<span className="grow" /><span>pacer {version ?? "version unknown"}</span></footer>;
-}
-
 export interface OverviewProps { snapshot: ClientSnapshot; query: RouteQuery; now: number; runner: ActionRunner; activity: ActivityEntry[]; ops: ReadonlySet<string>; quickDelegate?: ComponentChildren }
 /** Shared Main / Panel tree; CSS places Capacity alongside work on desktop. */
 export function OverviewView({ snapshot, query, now, runner, activity, ops, quickDelegate }: OverviewProps) {
@@ -163,15 +158,15 @@ export function OverviewView({ snapshot, query, now, runner, activity, ops, quic
       <div className="pc-overview__main">
         <NeedsYou snapshot={snapshot} scope={scope} runner={runner} now={now} query={query} narrow={narrow} />
         <Running snapshot={snapshot} scope={scope} now={now} runner={runner} query={query} />
-        <Capacity snapshot={snapshot} narrow={narrow} query={query} />
+        {narrow && <Capacity snapshot={snapshot} narrow query={query} />}
         <DoneToday snapshot={snapshot} scope={scope} now={now} query={query} />
       </div>
-      <div className="pc-overview__side" hidden={narrow}>
-        {!narrow && <section className="pc-card-section" aria-labelledby="quick-delegate"><div className="pc-card-section__head"><SectionHeading id="quick-delegate">Quick delegate</SectionHeading></div><div className="pc-card-section__body">{quickDelegate}</div></section>}
-        {!narrow && <Activity entries={activity} now={now} />}
-      </div>
+      {!narrow && <div className="pc-overview__side">
+        <Capacity snapshot={snapshot} narrow={narrow} query={query} />
+        <section className="pc-card-section" aria-labelledby="quick-delegate"><div className="pc-card-section__head"><SectionHeading id="quick-delegate">Quick delegate</SectionHeading></div><div className="pc-card-section__body">{quickDelegate}</div></section>
+        <Activity entries={activity} now={now} />
+      </div>}
     </div>
-    {!narrow && <KeysFooter version={snapshot.service?.version} />}
   </Page></NarrowContext.Provider>;
 }
 

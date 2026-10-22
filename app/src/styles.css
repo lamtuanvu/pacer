@@ -1,5 +1,11 @@
 *{box-sizing:border-box}
 body{margin:0;background:var(--surface-page);color:var(--ink);font-family:var(--font-sans);font-size:var(--type-body-size);line-height:var(--type-body-line);font-variant-numeric:tabular-nums}
+html[data-pacer-desktop],html[data-pacer-desktop] body{background:transparent}
+html[data-pacer-desktop] body{height:100vh;overflow:hidden}
+html[data-pacer-desktop] #app{height:100%;overflow:hidden;border-radius:var(--radius-xl);background:var(--surface-page)}
+html[data-pacer-desktop] .pc-app{height:100%;min-height:0}
+html[data-pacer-desktop] .pc-body{overflow:hidden}
+html[data-pacer-desktop] .pc-work{overflow:auto;min-height:0}
 a{color:var(--link)}a:hover{color:var(--ink)}
 a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:var(--stroke-focus) solid var(--focus);outline-offset:var(--stroke-focus)}
 h1{margin:0;font-size:var(--type-display-size);line-height:var(--type-display-line);font-weight:var(--type-display-weight);letter-spacing:var(--type-display-tracking)}
@@ -92,6 +98,7 @@ fieldset{border:1px solid var(--line);border-radius:var(--radius-sm);display:fle
 }
 /* Redesigned shell (Phase 1). */
 .pc-app{display:flex;flex-direction:column;min-height:100vh}
+.pc-app:not(.pc-app--narrow){padding-bottom:var(--size-32)}
 /* pc-rail is now only used in narrow mode as bottom bar */
 .pc-rail{display:none}
 /* Unified titlebar (desktop only) */
@@ -99,6 +106,7 @@ fieldset{border:1px solid var(--line);border-radius:var(--radius-sm);display:fle
 /* Make interactive elements within titlebar clickable (override drag region) */
 .pc-titlebar button,.pc-titlebar a{-webkit-app-region:no-drag;app-region:no-drag}
 .pc-titlebar__traffic{flex-shrink:0;display:flex;align-items:center}
+html[data-pacer-native-titlebar] .pc-traffic__btn{display:none}
 .pc-titlebar__divider{width:var(--size-1);height:var(--size-24);background:var(--line);margin:0 var(--space-1);opacity:.5}
 .pc-titlebar__nav{display:flex;align-items:center;gap:var(--space-1)}
 .pc-titlebar__nav-divider{width:var(--size-1);height:var(--size-20);background:var(--line);margin:0 var(--space-1);opacity:.5}
@@ -192,7 +200,13 @@ fieldset{border:1px solid var(--line);border-radius:var(--radius-sm);display:fle
 
 .pc-quick{display:flex;flex-direction:column;gap:var(--space-2)}
 
-.pc-keys-footer{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1\.5);padding-top:var(--space-2);border-top:1px solid var(--surface-lane)}
+.pc-statusbar{position:fixed;inset-inline:0;bottom:0;z-index:var(--layer-sticky);display:flex;align-items:center;gap:var(--space-3);height:var(--size-32);padding:0 var(--space-3);border-top:1px solid var(--line);background:var(--surface-card);color:var(--ink-secondary);font-size:var(--type-caption-size);line-height:var(--type-caption-line)}
+.pc-statusbar__usage,.pc-statusbar__hints{display:flex;align-items:center;gap:var(--space-3);min-width:0;overflow-x:auto;scrollbar-width:none;white-space:nowrap}
+.pc-statusbar__usage::-webkit-scrollbar,.pc-statusbar__hints::-webkit-scrollbar{display:none}
+.pc-statusbar__usage{max-width:55%;flex:none}
+.pc-statusbar__hints{flex:1}
+.pc-statusbar__item,.pc-statusbar__hint{display:inline-flex;align-items:center;gap:var(--space-1);flex:none}
+.pc-statusbar__version{flex:none;margin-left:auto;white-space:nowrap}
 .pc-clock{font-variant-numeric:tabular-nums}
 .mono{font-family:var(--font-mono)}
 .pc-form{display:flex;flex-direction:column;gap:var(--space-4)}
@@ -241,18 +255,11 @@ fieldset{border:1px solid var(--line);border-radius:var(--radius-sm);display:fle
 .pc-panel .pc-rail__badge--neutral{background:transparent;color:var(--ink-secondary);font-weight:var(--type-body-weight)}
 .pc-rail__badge--bad{background:var(--bad-bg);color:var(--bad-fg)}
 .pc-panel .pc-rail__badge--warn{background:var(--warn-bg);color:var(--warn-fg)}
-/* One Overview tree: desktop columns become the Panel's ordered stack. */
-.pc-overview__cols{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);align-items:stretch}
-.pc-overview__main,.pc-overview__side{display:contents}
-/* display:contents exposes sections as grid/flex children: constrain their intrinsic width. */
+/* Independent desktop columns prevent short cards from inheriting a neighbor's height. */
+.pc-overview__cols{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);align-items:start}
+.pc-overview__main,.pc-overview__side{display:flex;flex-direction:column;gap:var(--space-4);min-width:0}
 .pc-overview__main>section,.pc-overview__side>section{min-width:0;max-width:100%}
-.pc-overview__main>[aria-labelledby=needs-you]{grid-column:1;grid-row:1}
-.pc-overview__main>[aria-labelledby=running]{grid-column:1;grid-row:2}
-.pc-overview__main>[aria-labelledby=capacity]{grid-column:2;grid-row:1}
-.pc-overview__main>[aria-labelledby=done-today]{grid-column:1;grid-row:3}
-.pc-overview__side>[aria-labelledby=quick-delegate]{grid-column:2;grid-row:2}
-.pc-overview__side>[aria-labelledby=activity]{grid-column:2;grid-row:3}
-@media(max-width:1000px){.pc-overview__cols{display:flex;flex-direction:column;align-items:stretch}}
+@media(max-width:1000px){.pc-overview__cols{display:flex;flex-direction:column;align-items:stretch}.pc-overview__main,.pc-overview__side{display:contents}}
 .pc-app--narrow{display:flex;flex-direction:column;padding-bottom:calc(var(--space-12) + env(safe-area-inset-bottom));width:100%;border-radius:0}
 /* Hide unified titlebar in narrow mode (uses bottom bar instead) */
 .pc-app--narrow .pc-titlebar{display:none}
@@ -273,6 +280,7 @@ fieldset{border:1px solid var(--line);border-radius:var(--radius-sm);display:fle
 .pc-app--narrow .pc-panel{width:100%;max-width:100%;align-self:stretch;display:flex;flex-direction:row;flex:none;overflow-x:auto;border-right:0;border-bottom:1px solid var(--line);padding:var(--space-2);gap:var(--space-1)}
 .pc-app--narrow .pc-panel__item{flex:none;min-height:var(--size-44);white-space:nowrap}
 .pc-overview--narrow .pc-overview__cols{display:flex;flex-direction:column;align-items:stretch}
+.pc-overview--narrow .pc-overview__main,.pc-overview--narrow .pc-overview__side{display:contents}
 .pc-overview--narrow .pc-overview__main>section[aria-labelledby]{align-self:stretch}
 .pc-scope-toggle{flex-wrap:nowrap;gap:0}
 .pc-scope-toggle .pc-chip:first-child{border-radius:var(--radius-md) 0 0 var(--radius-md)}
@@ -350,15 +358,14 @@ fieldset{border:1px solid var(--line);border-radius:var(--radius-sm);display:fle
 .pc-panel{position:sticky;top:0;max-height:calc(100vh - var(--size-56));overflow:auto;align-self:flex-start}
 .pc-control-with-reason{display:flex;flex-direction:column;align-items:flex-start;gap:var(--space-1)}
 
-/* Overview keeps each paired row aligned without changing shared card styling. */
+/* Overview cards use the shared row separators and end after their own content. */
 .pc-overview .pc-card-section{display:flex;flex-direction:column}
 .pc-overview .pc-card-section__head{flex-wrap:wrap;min-height:var(--size-44)}
-.pc-overview-list{flex:1;min-width:0}
-.pc-overview .pc-capacity{flex:1}
+.pc-overview-list{min-width:0}
 .pc-overview .pc-card-section__body{flex:1}
 .pc-overview-attention .pc-bulk-review{padding:var(--space-2) var(--space-3)}
-.pc-overview-attention .pc-attn .pc-list-row__leading{min-width:var(--size-176)}
-@media(max-width:767px){.pc-overview-attention .pc-attn .pc-list-row__leading{min-width:0}}
+.pc-overview-attention .pc-attn .pc-list-row__leading{display:grid;grid-template-columns:minmax(0,1fr) var(--size-20);width:var(--size-176)}
+@media(max-width:767px){.pc-overview-attention .pc-attn .pc-list-row__leading{display:inline-flex;width:auto}}
 
 /* Task results compose existing sections and DS controls. */
 .pc-task-result__heading { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
