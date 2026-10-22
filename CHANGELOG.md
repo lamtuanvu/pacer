@@ -4,6 +4,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-22
+
 ### Fixed
 
 - Preserve embedded agent TUI fonts, cell layout and ANSI colors under the app's strict security policy; prevent automation color suppression from flattening native interactive sessions. Session end/resume reads the current revision rather than retaining stale progress state, and resume does not replay the initial prompt or attachments.
