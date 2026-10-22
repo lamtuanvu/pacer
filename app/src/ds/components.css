@@ -1,5 +1,5 @@
 /* pacer components: every value comes from tokens.css */
-.pc-btn{font-family:var(--font-sans);font-size:var(--type-body-size);line-height:var(--type-body-line);display:inline-flex;align-items:center;justify-content:center;gap:var(--space-1\.5);border-radius:var(--radius-md);border:1px solid var(--line);background:var(--surface-page);color:var(--ink);cursor:pointer;white-space:nowrap}
+.pc-btn{box-sizing:border-box;font-family:var(--font-sans);font-size:var(--type-body-size);line-height:var(--type-body-line);display:inline-flex;align-items:center;justify-content:center;gap:var(--space-1\.5);border-radius:var(--radius-md);border:1px solid var(--line);background:var(--surface-page);color:var(--ink);cursor:pointer;white-space:nowrap}
 a.pc-btn{text-decoration:none}
 .pc-btn:hover{background:var(--surface-lane)}
 .pc-btn:focus-visible{outline:var(--stroke-focus) solid var(--focus);outline-offset:var(--stroke-focus)}
@@ -176,7 +176,7 @@ a.pc-btn{text-decoration:none}
 .pc-btn--quiet{border-color:transparent;background:transparent;color:var(--ink-secondary)}
 .pc-btn--quiet:hover,.pc-btn[aria-expanded=true]{background:var(--surface-lane);color:var(--ink)}
 .pc-btn--danger{border-color:var(--bad-line);color:var(--bad-fg)}
-.pc-btn--compact{min-height:var(--control-compact);padding:var(--space-1) var(--space-2);font-size:var(--type-caption-size);line-height:var(--type-caption-line);border-radius:var(--radius-sm)}
+.pc-btn--compact{min-height:var(--control-compact);padding:0 var(--space-3);font-size:var(--type-caption-size);line-height:var(--type-caption-line);border-radius:var(--radius-md)}
 .pc-btn.pc-btn--touch{min-height:var(--control-touch);min-width:var(--control-touch)}
 .pc-icon-button{padding:var(--space-1);aspect-ratio:1;flex:none}
 .pc-field{display:flex;flex-direction:column;gap:var(--space-1\.5);min-width:0;flex:1}
@@ -274,13 +274,15 @@ a.pc-btn{text-decoration:none}
 .pc-list-row--touch>.pc-list-row__actions{margin-left:auto}
 
 /* Density owns every hit target. Screen layouts never shrink a control. */
-.pc-input.pc-control--compact,.pc-select.pc-control--compact,.pc-range.pc-control--compact{min-height:var(--control-compact);padding:var(--space-1) var(--space-2)}
+.pc-input.pc-control--compact,.pc-select.pc-control--compact{min-height:var(--control-compact);padding:var(--space-1) var(--space-3);font-size:var(--type-caption-size);line-height:var(--type-caption-line)}
+.pc-select.pc-control--compact{padding-right:var(--space-8)}
+.pc-range.pc-control--compact{min-height:var(--control-compact);padding:0}
 .pc-input.pc-control--touch,.pc-select.pc-control--touch,.pc-range.pc-control--touch{min-height:var(--control-touch)}
 .pc-textarea.pc-input{min-height:var(--textarea-min)}
 .pc-checkbox:has(.pc-control--touch){min-height:var(--control-touch)}
-@media(max-width:767px){.pc-btn:not(.pc-btn--compact){max-width:100%;white-space:normal;height:auto}}
+@media(max-width:767px){.pc-btn{max-width:100%;white-space:normal;height:auto}}
 
-@media(max-width:560px){.pc-btn:not(.pc-btn--compact){min-height:var(--control-touch);min-width:var(--control-touch)}.pc-range,.pc-checkbox{min-height:var(--control-touch)}}
+@media(max-width:560px){.pc-btn{min-height:var(--control-touch);min-width:var(--control-touch)}.pc-range,.pc-checkbox{min-height:var(--control-touch)}}
 
 /* Shortcuts inside actions share the action foreground and surface. */
 .pc-btn .pc-kbd{background:transparent;border-color:currentColor;color:inherit}
@@ -351,3 +353,15 @@ a.pc-btn{text-decoration:none}
 .pc-traffic__btn--close{background:var(--traffic-close)}
 .pc-traffic__btn--min{background:var(--traffic-min)}
 .pc-traffic__btn--zoom{background:var(--traffic-max)}
+
+/* Portalled dialogs also need touch targets without a shell density provider. */
+@media(max-width:560px){.pc-input.pc-control--compact,.pc-select.pc-control--compact{min-height:var(--control-touch);font-size:var(--type-headline-size)}.pc-range.pc-control--compact{min-height:var(--control-touch)}}
+
+/* An explicit compact surface (desktop tray) stays compact at popover widths. */
+@media(max-width:560px){
+ .pc-density--compact .pc-btn--compact{min-height:var(--control-compact);min-width:0}
+ .pc-density--compact .pc-input.pc-control--compact,.pc-density--compact .pc-select.pc-control--compact{min-height:var(--control-compact);font-size:var(--type-caption-size)}
+ .pc-density--compact .pc-range.pc-control--compact{min-height:var(--control-compact)}
+}
+/* Multiline geometry is independent of single-line density and touch rules. */
+.pc-textarea.pc-input{min-height:var(--textarea-min)}

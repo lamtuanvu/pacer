@@ -1,6 +1,6 @@
 # pacer Constitution
 
-Status: Amendment 0.8.0 (plugin system: P13–P15) proposed; amendment 0.7.0 (Rust crate structure and size rules) proposed; amendment 0.6.0 (automated releases) proposed; established rules remain in force. The maintainer adopts the amendment by merging its PR. Amendment 0.5.0 was adopted on 2026-10-20 by merging #209; amendment 0.4.0 on 2026-10-19 by merging #193. | Version: 0.8.0 | Updated: 2026-10-20
+Status: Amendment 0.9.0 (compact UI density) proposed; amendment 0.8.0 (plugin system: P13–P15) proposed; amendment 0.7.0 (Rust crate structure and size rules) proposed; amendment 0.6.0 (automated releases) proposed; established rules remain in force. The maintainer adopts the amendment by merging its PR. Amendment 0.5.0 was adopted on 2026-10-20 by merging #209; amendment 0.4.0 on 2026-10-19 by merging #193. | Version: 0.9.0 | Updated: 2026-10-22
 Decision authority: the single maintainer, @lamtuanvu ([GOVERNANCE.md](../GOVERNANCE.md), [.github/CODEOWNERS](../.github/CODEOWNERS)). AI reviewers give advice; they do not approve.
 
 ## Purpose and scope
@@ -86,6 +86,12 @@ Other reviewers remain advisory. This amendment changes no remote branch protect
 - Running Prepare release is the maintainer's merge decision for that release PR. Auto-merge still waits for every required check, and only users with write access can dispatch the workflow. This gives no bot approval authority over any other PR.
 - UI-24 does not apply to a PR whose UI-scoped changes are only version strings (`"version": "x.y.z"` and `APP_VERSION`). CI verifies every changed line of every UI-scoped file before exempting it; any other UI change in the same PR needs the full reports.
 - Release writes use the repository secret `RELEASE_TOKEN`, a fine-grained token scoped to this repository (Contents, Pull requests and Workflows: read and write), because GitHub does not run workflows for `GITHUB_TOKEN` pushes. Tags are never moved, and a version whose tag exists is never re-tagged.
+
+**Amendment 0.9.0 — compact UI density (proposed; adopted by maintainer merge):**
+
+- UI-26 makes compact the desktop default for shared controls and recurring rows.
+- The top-bar Delegate is the visual reference; buttons, dropdowns and inputs use shared density tokens. Settings retain shared form density; touch targets and multiline fields retain their useful size.
+- Changes belong in shared DS primitives/tokens and layout spacing, with browser geometry and before/after evidence. Existing accessibility and review requirements remain in force.
 
 ## Workflow choice
 
