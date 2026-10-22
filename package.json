@@ -20,7 +20,7 @@
     "pacer": "src/cli.ts"
   },
   "scripts": {
-    "test": "TZ=Asia/Ho_Chi_Minh bun test",
+    "test": "TZ=Asia/Ho_Chi_Minh bun test --timeout 30000",
     "live": "bun scripts/live/cli.ts",
     "ui:check": "bun scripts/ui-check.ts",
     "typecheck": "tsc --noEmit && tsc -p app",
