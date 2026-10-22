@@ -79,9 +79,11 @@ export async function createDesktopAdapter(session: Session): Promise<SurfaceAda
     let reported: Array<{window_id: string; label: "main" | "tray"; pid: number; client_id: string}> = [];
     if (current.source === "ota") reported = current.windows!;
     else try { reported = await serviceOp(session, "desktop.capture.targets", {}, clock); } catch { /* Older releases use external observation with explicit native IDs. */ }
-    if (current.source === "ota" && current.windows!.some(w => !result.windows.some((n: {window_id: string}) => n.window_id === w.window_id)))
-      throw new ControlError("stale_reference", "registered OTA window is unavailable");
-    return result.windows.filter((window: {window_id: string}) => current.source !== "ota" || current.windows!.some(w => w.window_id === window.window_id)).map((window: {window_id: string; title: string; bounds: {X: number; Y: number; Width: number; Height: number}}): Target => ({
+    const windows = result.windows.filter((window: {window_id: string}) => current.source !== "ota" ||
+      current.windows!.filter(w => w.pid === identity.pid && w.window_id === window.window_id).length === 1);
+    if (current.source === "ota" && windows.length === 0)
+      throw new ControlError("stale_reference", "no registered OTA window is visible");
+    return windows.map((window: {window_id: string; title: string; bounds: {X: number; Y: number; Width: number; Height: number}}): Target => ({
       id: reported.find(entry => entry.pid === identity.pid && entry.window_id === window.window_id)?.label ?? `window-${window.window_id}`,
       client_id: reported.find(entry => entry.pid === identity.pid && entry.window_id === window.window_id)?.client_id,
       native_label: reported.find(entry => entry.pid === identity.pid && entry.window_id === window.window_id)?.label, surface: "desktop", pid: identity.pid, start_identity: identity.start_identity,
