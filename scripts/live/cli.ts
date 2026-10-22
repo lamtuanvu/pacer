@@ -6,6 +6,7 @@ import { cleanupOta, exerciseOta, prepareOta } from "./ota";
 import { buildOtaFixtures } from "./ota-build";
 import { desktop, tui } from "./surfaces";
 import { exerciseUpdater } from "./updater";
+import { exerciseRepair } from "./core-repair";
 
 const usage = `usage: bun run live <command> [--id <id>]
   up [--repo-template <dir>] [--seed ui] [--front-door rust]
@@ -22,6 +23,7 @@ const usage = `usage: bun run live <command> [--id <id>]
                                   ask macOS to show Accessibility approval
   integrations --id <id>          exercise fixed private integration refresh fixtures
   updater --id <id>               exercise fixed disposable CLI updater fixtures (seeded sandbox)
+  repair --id <id>                exercise fixed disposable core self-repair fixtures (seeded sandbox)
   env                             print sandbox export lines
   pacer -- <args...>               run guarded checkout CLI in sandbox repo
   login [--screen <screen>]        print fresh single-use app login URL
@@ -90,6 +92,12 @@ export async function main(argv: string[]): Promise<number> {
   if (command === "integrations") {
     if (!id || options.size !== 1 || positionals.length || separator >= 0 || flags.size) throw Error("usage: live integrations --id <id>");
     await exerciseIntegrations(loadSession(id));
+    return 0;
+  }
+  if (command === "repair") {
+    if (!id || options.size !== 1 || positionals.length || separator >= 0 || flags.size) throw Error("usage: live repair --id <id>");
+    await exerciseRepair(loadSession(id));
+
     return 0;
   }
   if (command === "updater") {
