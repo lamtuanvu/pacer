@@ -79,7 +79,12 @@ function rewriteFixtureVersion(destination: string, version: string): void {
       count++; return header + body.replace(pinned, `version = "${version}"`);
     });
     if (count !== 1) throw Error("Fixture native package identity missing");
-    writeFileSync(file, next);
+    // The real desktop is excluded from its repository's workspace. Nested
+    // snapshots also have an outer checkout ancestor, so make that standalone
+    // boundary explicit rather than letting Cargo adopt the outer workspace.
+    const standalone = name === "Cargo.toml" && !/^\[workspace\]\s*$/m.test(next)
+      ? next.trimEnd() + "\n\n[workspace]\n" : next;
+    writeFileSync(file, standalone);
   }
 }
 /** Fixed published Git tree, never an arbitrary caller-selected ref or worktree. */

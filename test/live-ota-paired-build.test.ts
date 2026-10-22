@@ -31,6 +31,8 @@ test("candidate source includes Rust workspace and excludes stale local sidecars
   build.copyFixtureSource(source, destination, "0.2.4");
   for (const path of ["Cargo.toml", "Cargo.lock", "rust-toolchain.toml", ".cargo/config.toml", "crates/pacer/src/main.rs", "xtask/src/main.rs"]) expect(readFileSync(join(destination, path), "utf8")).toBe("workspace fixture");
   expect(existsSync(join(destination, "desktop/src-tauri/binaries"))).toBe(false);
+  expect(readFileSync(join(destination, "desktop/src-tauri/Cargo.toml"), "utf8")).toContain("[workspace]");
+  expect(readFileSync(join(source, "desktop/src-tauri/Cargo.toml"), "utf8")).not.toContain("[workspace]");
   const bad = join(source, ".work/live/test/ota/build/diagnostics/source");
   symlinkSync(join(source, "Cargo.toml"), join(source, "crates/redirected"));
   expect(() => build.copyFixtureSource(source, bad, "0.2.3")).toThrow("symlinks");
