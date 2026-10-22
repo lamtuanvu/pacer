@@ -4,7 +4,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { dirname, join, relative, resolve } from "node:path";
 import { homedir } from "node:os";
 import { checkout } from "./core";
-import { finishOtaBuild, otaFixturePolicy, readOtaRecord, reserveOtaBuild } from "./ota";
+import { finishOtaBuild, otaFixturePolicy, readOtaRecord, reserveOtaBuild, initialLayoutSchema, type InitialLayout } from "./ota";
 import { compileCommand, frontDoorBuildCommand, frontDoorBuildEnvironment, rustTarget, writeRelease } from "../release/build";
 import { stageDesktopPackage, verifyDesktopExecutable } from "../release/desktop";
 import { desktopAssetName, digest, verifyUpdateSignature, type DesktopArch } from "../release/desktop-feed";
@@ -199,7 +199,8 @@ async function createFixtureSigner(directory: string, run: (argv: string[], cwd?
 }
 
 /** This entry point accepts only a harness session ID. All commands, versions and outputs are fixed. */
-export async function buildOtaFixtures(id: string, signerMode: "adhoc" | "cert" = "adhoc"): Promise<void> {
+export async function buildOtaFixtures(id: string, signerMode: "adhoc" | "cert" = "adhoc", initialLayout: InitialLayout = "bridge"): Promise<void> {
+  initialLayout = initialLayoutSchema.parse(initialLayout);
   if (process.platform !== "darwin") throw Error("Native fixtures require macOS");
   if (signerMode !== "cert") throw Error("Old-bridge to paired native OTA requires --signer cert");
   const target = hostTarget(); if (!target || target.os !== "darwin") throw Error("Unsupported fixture host");
@@ -229,7 +230,7 @@ export async function buildOtaFixtures(id: string, signerMode: "adhoc" | "cert" 
     chmodSync(key, 0o600);
     // The certificate pin is compiled into the lease, so its identity must exist before any build.
     signer = signerMode === "cert" ? await createFixtureSigner(temporary, run) : undefined;
-    const publicKey = readFileSync(key + ".pub", "utf8").trim(), state = reserveOtaBuild(id, arch, digest(Buffer.from(publicKey)), {}, signer?.sha1), policy = otaFixturePolicy(state);
+    const publicKey = readFileSync(key + ".pub", "utf8").trim(), state = reserveOtaBuild(id, arch, digest(Buffer.from(publicKey)), {}, signer?.sha1, initialLayout), policy = otaFixturePolicy(state);
     const build = state.nativeFixture!.buildRoot, home = join(build, "home"), targetDir = join(build, "target"); mkdirSync(home, { mode: 0o700 });
     // An optional local Cargo seed avoids recompiling unchanged dependencies.
     // Each build receives an independent copy; Cargo rechecks source/env inputs,
@@ -257,7 +258,7 @@ export async function buildOtaFixtures(id: string, signerMode: "adhoc" | "cert" 
       };
       walk(root); return hash.digest("hex");
     };
-    writeFileSync(join(session.root, "evidence/source-snapshot.json"), JSON.stringify({ schema: 1, scope: "published-bridge-to-paired", baselineSource: PUBLISHED_BRIDGE_SOURCE, at: new Date().toISOString(), versions: versions.map((version, index) => ({ version, sha256: snapshotDigest(join(build, index === 0 ? "baseline" : "candidate", "source")) })) }, null, 2) + "\n", { mode: 0o600, flag: "wx" });
+    writeFileSync(join(session.root, "evidence/source-snapshot.json"), JSON.stringify({ schema: 1, scope: "published-bridge-to-paired", initialLayout, baselineSource: PUBLISHED_BRIDGE_SOURCE, at: new Date().toISOString(), versions: versions.map((version, index) => ({ version, sha256: snapshotDigest(join(build, index === 0 ? "baseline" : "candidate", "source")) })) }, null, 2) + "\n", { mode: 0o600, flag: "wx" });
     process.stderr.write("OTA fixture source snapshots captured for both versions.\n");
     for (const [index, version] of versions.entries()) {
       readOtaRecord(id); // Refuse changed lease before every build stage.

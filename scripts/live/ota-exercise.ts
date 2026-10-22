@@ -10,7 +10,7 @@ import { enumerateNativeProcesses } from "../../src/update/desktop/native-os";
 import { ownProcessIdentity, processIdentity, sameProcess, type ProcessIdentity } from "../../src/update/desktop/process-identity";
 import { healthy, loadSession, record } from "./core";
 import { recordOtaEvent } from "./ota-evidence";
-import { readOtaRecord, resumeOtaStartup, updateOtaDriverRecord, type OtaOptions } from "./ota";
+import { assertFixtureLayoutScenario, readOtaRecord, resumeOtaStartup, updateOtaDriverRecord, type OtaOptions } from "./ota";
 import { MANAGED_SCENARIOS, newExercise, resumableStartup } from "./ota-exercise-record";
 import { verifyExerciseOutcome, verifyExerciseSurvivors } from "./ota-outcome";
 import { fixtureRequest, retryFixtureRevision } from "./ota-request";
@@ -39,6 +39,7 @@ export async function runManagedExercise(id: string, scenario: string, options: 
   if (!(MANAGED_SCENARIOS as readonly string[]).includes(scenario)) throw Error("UNVERIFIED: this fixed scenario has no native exercise driver");
   const session = loadSession(id, options.base), driver = ownProcessIdentity();
   let state = readOtaRecord(id, options);
+  assertFixtureLayoutScenario(state, scenario);
   const resuming = resumableStartup(state.runtime, state.exercise, incarnationExited);
   if (process.platform !== "darwin" || !driver || !state.nativeFixture || state.phase !== "prepared" || (state.runtime && !resuming) || state.exercise || session.stopped || !session.serviceIdentity || (!resuming && !sameProcess(session.serviceIdentity, processIdentity(session.pid)))) throw Error("UNVERIFIED: fresh native fixture and exact source service ownership required");
   await verifyFixtureBundle(state, state.nativeFixture.baselineVersion);
