@@ -6,11 +6,13 @@ use std::path::PathBuf;
 pub enum NativeRole {
     Cli,
     Desktop,
+    Helper,
 }
 #[derive(Clone)]
 pub struct NativeTrust {
     cli: String,
     desktop: String,
+    helper: String,
 }
 impl NativeTrust {
     pub fn from_pins(team: Option<&str>, certificate: Option<&str>) -> io::Result<Option<Self>> {
@@ -19,7 +21,13 @@ impl NativeTrust {
         };
         let desktop = signer_requirement(team, certificate, "dev.pacer.desktop")?
             .ok_or_else(|| io::Error::other("native signing policy unavailable"))?;
-        Ok(Some(Self { cli, desktop }))
+        let helper = signer_requirement(team, certificate, "dev.pacer.desktop.update-helper")?
+            .ok_or_else(|| io::Error::other("native helper signing policy unavailable"))?;
+        Ok(Some(Self {
+            cli,
+            desktop,
+            helper,
+        }))
     }
     pub fn compiled() -> io::Result<Option<Self>> {
         Self::from_pins(
@@ -34,6 +42,7 @@ impl NativeTrust {
         let source = match role {
             NativeRole::Cli => &self.cli,
             NativeRole::Desktop => &self.desktop,
+            NativeRole::Helper => &self.helper,
         };
         let requirement: SecRequirement = source.parse().map_err(|_| denied())?;
         let url = CFURL::from_path(path, path.is_dir()).ok_or_else(denied)?;
@@ -60,6 +69,71 @@ impl NativeTrust {
             return Err(denied());
         }
         Ok(before)
+    }
+    pub fn verify_helper_image(
+        &self,
+        child: Option<&tokio::process::Child>,
+        path: &std::path::Path,
+        cdhash: &str,
+    ) -> io::Result<()> {
+        use core_foundation::url::CFURL;
+        use security_framework::os::macos::code_signing::{
+            Flags, GuestAttributes, SecCode, SecRequirement, SecStaticCode,
+        };
+        let denied = || io::Error::other("native helper image unavailable");
+        if cdhash.len() != 40 || !cdhash.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err(denied());
+        }
+        let requirement: SecRequirement = format!("({}) and cdhash H\"{}\"", self.helper, cdhash)
+            .parse()
+            .map_err(|_| denied())?;
+        let url = CFURL::from_path(path, false).ok_or_else(denied)?;
+        SecStaticCode::from_path(&url, Flags::NONE)
+            .map_err(|_| denied())?
+            .check_validity(Flags::STRICT_VALIDATE, &requirement)
+            .map_err(|_| denied())?;
+        if let Some(child) = child {
+            let pid = child.id().ok_or_else(denied)?;
+            let before = process_details(pid)?;
+            if before.uid != nix::unistd::getuid().as_raw()
+                || before.parent_pid != std::process::id()
+                || before.executable != path
+            {
+                return Err(denied());
+            }
+            let mut attrs = GuestAttributes::new();
+            attrs.set_pid(i32::try_from(pid).map_err(|_| denied())?);
+            SecCode::copy_guest_with_attribues(None, &attrs, Flags::NONE)
+                .map_err(|_| denied())?
+                .check_validity(Flags::NONE, &requirement)
+                .map_err(|_| denied())?;
+            if before != process_details(pid)? || child.id() != Some(pid) {
+                return Err(denied());
+            }
+        }
+        Ok(())
+    }
+    pub fn verify_generation(&self, expected: &ProcessDetails) -> io::Result<()> {
+        use security_framework::os::macos::code_signing::{
+            Flags, GuestAttributes, SecCode, SecRequirement,
+        };
+        let denied = || io::Error::other("native core generation unavailable");
+        if expected.parent_pid != std::process::id()
+            || expected != &process_details(expected.process.pid)?
+        {
+            return Err(denied());
+        }
+        let mut attrs = GuestAttributes::new();
+        attrs.set_pid(i32::try_from(expected.process.pid).map_err(|_| denied())?);
+        let requirement: SecRequirement = self.cli.parse().map_err(|_| denied())?;
+        SecCode::copy_guest_with_attribues(None, &attrs, Flags::NONE)
+            .map_err(|_| denied())?
+            .check_validity(Flags::NONE, &requirement)
+            .map_err(|_| denied())?;
+        if expected != &process_details(expected.process.pid)? {
+            return Err(denied());
+        }
+        Ok(())
     }
     /// Caller retains this owned, unreaped child throughout verification.
     pub fn verify_child(

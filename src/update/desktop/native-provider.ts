@@ -17,6 +17,7 @@ import {
 } from "./native-adoption";
 /** Private service composition. Public client registration cannot reach this channel. */
 import { createHash, randomBytes, randomUUID } from "node:crypto";
+import type { ParentHelperSpawner } from "./native-parent-helper";
 import {
   closeSync,
   chmodSync,
@@ -1766,6 +1767,7 @@ export function createNativePipeFactory(
   native: Pick<NativeAuthorityProvider, "sessions" | "reverify">,
   authority: DarwinAuthority,
   owner?: NativeServiceOwner,
+  parentHelpers?: Pick<ParentHelperSpawner, "spawn">,
 ): VerifiedPipeFactory {
   return {
     capabilities: new Set(["check", "download", "install", "recover", "adopt", "recover-adoption"]),
@@ -1869,6 +1871,46 @@ export function createNativePipeFactory(
       } finally {
         closeSync(fd);
       }
+      if (owner) {
+        // Immutable bridge helpers require the logical service to be their real
+        // kernel parent. The authenticated Root supplies the fixed bootstrap.
+        if (!parentHelpers || signal.aborted) throw denied();
+        const hashFd = openSync(helper, constants.O_RDONLY | constants.O_NOFOLLOW);
+        let sha256: string;
+        try {
+          const stat = fstatSync(hashFd);
+          if (!stat.isFile() || stat.nlink !== 1 || stat.uid !== process.getuid?.() || stat.mode & 0o077 || stat.size > 128 * 1024 * 1024) throw denied();
+          const hash = createHash("sha256"), buffer = Buffer.alloc(65536);
+          let bytes = 0;
+          for (;;) {
+            const count = readSync(hashFd, buffer, 0, buffer.length, null);
+            if (!count) break;
+            bytes += count;
+            if (bytes > 128 * 1024 * 1024) throw denied();
+            hash.update(buffer.subarray(0, count));
+          }
+          sha256 = hash.digest("hex");
+        } finally { closeSync(hashFd); }
+        const child = parentHelpers.spawn({ schema: 1, path: helper, sha256, version: helperIdentity.version });
+        let accepted = false;
+        const abort = () => { if (!accepted) child.abort(); };
+        signal.addEventListener("abort", abort, { once: true });
+        try {
+          const identity = processIdentity(child.pid);
+          if (!identity) throw denied();
+          const verified = authority.verifyProcess(identity, "helper");
+          if (!sameProcess(verified.process, identity) || verified.executable !== helper || verified.parentPid !== owner.process.pid || signal.aborted) throw denied();
+          if (!recovery) {
+            const cleanup = freshHelperCleanup(helper, identity);
+            void child.exited.then(cleanup, cleanup);
+          }
+          accepted = true;
+          return { identity: helperIdentity, stdin: child.stdin, stdout: child.stdout, exited: child.exited, abort: () => child.abort() };
+        } catch {
+          abort();
+          throw denied();
+        } finally { signal.removeEventListener("abort", abort); }
+      }
       const child = Bun.spawn([helper, "--ota-pipe"], {
         stdin: "pipe",
         stdout: "pipe",
@@ -1908,8 +1950,8 @@ export function createNativePipeFactory(
           kind: "helper-bootstrap",
           home: realpathSync(getCtx().pacerHome),
           port: session.installation.port,
-          service: owner?.process ?? ownProcessIdentity(),
-          executable: owner?.executable ?? realpathSync(process.execPath),
+          service: ownProcessIdentity(),
+          executable: realpathSync(process.execPath),
         });
         child.stdin.write(bootstrap);
         await child.stdin.flush();
@@ -1959,6 +2001,6 @@ export function configuredNativeServices(
   if (!authority) throw denied();
   return {
     native,
-    adapter: createNativePipeFactory(getCtx, native, authority, paired?.owner),
+    adapter: createNativePipeFactory(getCtx, native, authority, paired?.owner, paired?.helpers),
   };
 }

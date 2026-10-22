@@ -47,6 +47,8 @@ test.skipIf(process.platform !== "darwin")("native descriptor wrapper matches th
 #define recvmsg pacer_abi_recvmsg
 #define setsockopt pacer_abi_setsockopt
 #define getsockopt pacer_abi_getsockopt
+#define getsockname pacer_abi_getsockname
+#define clock_gettime pacer_abi_clock_gettime
 ${readFileSync(resolve("src/update/desktop/native-socket.c"), "utf8")}
 _Static_assert(sizeof(struct msghdr) == sizeof(struct pacer_msghdr), "message size");
 _Static_assert(sizeof(struct cmsghdr) == sizeof(struct pacer_cmsghdr), "control size");

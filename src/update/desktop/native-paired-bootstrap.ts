@@ -10,7 +10,8 @@ import { BUNDLE_RELEASE_PATH, parseBundleRelease } from "./identity";
 import { compiledNativeFixture, verifyNativeFixture } from "./native-fixture";
 import { compiledSignerPins, DarwinAuthority } from "./native-os";
 import { pairedServiceOwner, type NativeServiceOwner } from "./native-service-owner";
-import { receiveParentListener, type ParentNativeListener } from "./native-socket";
+import { receiveParentHelperChannel, receiveParentListener, type ParentNativeListener } from "./native-socket";
+import { ParentHelperSpawner } from "./native-parent-helper";
 import { ownProcessIdentity, processIdentity, sameProcess } from "./process-identity";
 
 const KEY = "PACER_INTERNAL_NATIVE_BOOTSTRAP";
@@ -23,6 +24,7 @@ export type NativePairedBootstrapInput = z.infer<typeof schema>;
 export interface PairedNativeBootstrap {
   owner: NativeServiceOwner;
   listener: ParentNativeListener;
+  helpers?: ParentHelperSpawner;
   /** Fixed private-channel request to the owned root generation; never a PID signal. */
   shutdown(): void;
 }
@@ -90,7 +92,7 @@ export function configuredPairedNativeBootstrap(
   bootstrap: NativePairedBootstrapInput | null,
 ): PairedNativeBootstrap | null {
   if (!bootstrap) return null;
-  let listener = -1;
+  let listener = -1, helperChannel = -1;
   try {
     // Revalidate even typed callers; no additional selectors are accepted.
     const input = schema.parse(bootstrap);
@@ -136,15 +138,19 @@ export function configuredPairedNativeBootstrap(
     recheck();
     // Only the fixed authenticated parent channel can supply this descriptor.
     listener = receiveParentListener();
+    helperChannel = receiveParentHelperChannel();
     recheck();
+    const helpers = new ParentHelperSpawner(helperChannel);
     let sent = false;
-    return { owner, listener: { fd: listener, owner: { ...owner.process } }, shutdown() {
+    return { owner, helpers, listener: { fd: listener, owner: { ...owner.process } }, shutdown() {
       if (sent) return;
       if (writeSync(0, Buffer.from("S")) !== 1) throw denied();
       sent = true;
+      helpers.close();
     } };
   } catch {
     if (listener >= 0) closeSync(listener);
+    if (helperChannel >= 0) closeSync(helperChannel);
     throw denied();
   }
 }

@@ -57,7 +57,7 @@ const corePath=join(resources,"pacer-core"), frontPath=join(resources,"pacer");
 for(const path of [corePath,frontPath]) fs.writeFileSync(path,"fixture",{mode:0o700});
 const rawRealpath=fs.realpathSync;
 const realExec=process.execPath, own={pid:process.pid,bootId:"boot",birth:"core"}, parent={pid:process.ppid,bootId:"boot",birth:"front"};
-let phase="", received=0, sent=0, checks=0, lastFd=-1;
+let phase="", received=0, sent=0, checks=0, lastFd=-1, helperFd=-1;
 Object.defineProperty(process,"platform",{value:"darwin"});
 mock.module("node:fs",()=>({...fs,realpathSync:(p)=>p===realExec?corePath:rawRealpath(p),writeSync:(fd,b)=>{if(fd!==0||Buffer.from(b).toString()!=="S")throw Error("bad shutdown");sent++;return 1;}}));
 mock.module("./src/update/desktop/process-identity.ts",()=>({ownProcessIdentity:()=>own,processIdentity:()=>parent,sameProcess:(a,b)=>!!a&&!!b&&a.pid===b.pid&&a.bootId===b.bootId&&a.birth===b.birth}));
@@ -67,7 +67,7 @@ verifyPeer(token,role,expected){checks++;if(phase==="parent-signature")throw Err
 verifyProcess(expected,role){checks++;if(phase==="core-signature"||phase==="post-receive"&&received>0)throw Error("signature");return{process:own,parentPid:phase==="parent-pid"?parent.pid+1:parent.pid,uid:process.getuid(),executable:corePath,name:"pacer-core"};},
 verifyStatic(path,role){checks++;if(phase==="app-seal"&&role==="desktop")throw Error("seal");}
 })}}));
-mock.module("./src/update/desktop/native-socket.ts",()=>({receiveParentListener(){received++;lastFd=fs.openSync(corePath,"r");return lastFd;}}));
+mock.module("./src/update/desktop/native-socket.ts",()=>({receiveParentListener(){received++;lastFd=fs.openSync(corePath,"r");return lastFd;},receiveParentHelperChannel(){helperFd=fs.openSync(corePath,"r");return helperFd;},requestParentHelper(){throw Error("not exercised");}}));
 const {configuredPairedNativeBootstrap}=await import("./src/update/desktop/native-paired-bootstrap.ts");
 const {currentVersion}=await import("./src/update/version.ts");
 const version=currentVersion(), arch=process.arch==="arm64"?"aarch64":"x86_64";
@@ -92,11 +92,15 @@ try {
  if(!refused||received!==1)throw Error("post-receive recheck");
  let closed=false;try{fs.fstatSync(lastFd);}catch{closed=true;}
  if(!closed)throw Error("descriptor leak");
+ closed=false;try{fs.fstatSync(helperFd);}catch{closed=true;}
+ if(!closed)throw Error("helper channel leak");
  phase="";received=0;
  const result=configuredPairedNativeBootstrap(ctx,12345,input);
  if(received!==1||result.owner.process.pid!==parent.pid||result.owner.transport.pid!==own.pid||result.listener.owner.pid!==parent.pid)throw Error("owner result");
  result.shutdown();result.shutdown();
  if(sent!==1)throw Error("shutdown count");
+ closed=false;try{fs.fstatSync(helperFd);}catch{closed=true;}
+ if(!closed)throw Error("shutdown did not retire helper channel");
  fs.closeSync(result.listener.fd);
  process.stdout.write("boundary PASS "+checks);
 } finally {fs.rmSync(root,{recursive:true,force:true});}
