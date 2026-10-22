@@ -118,7 +118,26 @@ fn cdhash(bytes: &[u8]) -> io::Result<String> {
     Ok(values[0].to_ascii_lowercase())
 }
 
+use super::native_helper_diagnostics::{Diagnostics, Event, Stage};
 use super::native_trust::{NativeRole, NativeTrust, ProcessDetails, ProcessIdentity};
+struct Trace<'a> {
+    diagnostics: &'a Diagnostics,
+    stage: Stage,
+}
+impl Trace<'_> {
+    fn mark(&mut self, stage: Stage) {
+        self.stage = stage;
+        self.diagnostics.record(stage, Event::Enter);
+    }
+    fn failed(&self) {
+        self.diagnostics.record(self.stage, Event::Failed);
+    }
+}
+impl Drop for Trace<'_> {
+    fn drop(&mut self) {
+        self.diagnostics.record(self.stage, Event::End);
+    }
+}
 use sha2::{Digest, Sha256};
 use std::{
     fs::{File, Metadata, OpenOptions},
@@ -406,15 +425,24 @@ impl Broker {
         request: Request,
         permit: tokio::sync::OwnedSemaphorePermit,
         channel: &tokio::net::UnixStream,
+        trace: &mut Trace<'_>,
     ) -> io::Result<()> {
+        trace.mark(Stage::GenerationBefore);
         self.trust.verify_generation(&self.generation)?;
+        trace.mark(Stage::Asset);
         let asset = Asset::verify(&request, &self.home)?;
+        trace.mark(Stage::StaticRole);
         self.trust
             .verify_static(&request.path, NativeRole::Helper)?;
+        trace.mark(Stage::ImageMetadata);
         let hash = image_hash(&request.path).await?;
+        trace.mark(Stage::StaticImage);
         self.trust.verify_helper_image(None, &request.path, &hash)?;
+        trace.mark(Stage::AssetBefore);
         asset.recheck()?;
+        trace.mark(Stage::GenerationSpawn);
         self.trust.verify_generation(&self.generation)?;
+        trace.mark(Stage::Spawn);
         let child = Command::new(&request.path)
             .arg("--ota-pipe")
             .env_clear()
@@ -428,10 +456,14 @@ impl Broker {
             .spawn()?;
         let mut guard = Unhanded(Some(child));
         let child = guard.0.as_mut().ok_or_else(denied)?;
+        trace.mark(Stage::DynamicImage);
         self.trust
             .verify_helper_image(Some(child), &request.path, &hash)?;
+        trace.mark(Stage::AssetAfter);
         asset.recheck()?;
+        trace.mark(Stage::GenerationHandoff);
         self.trust.verify_generation(&self.generation)?;
+        trace.mark(Stage::Bootstrap);
         let pid = child.id().ok_or_else(denied)?;
         let value = serde_json::to_vec(
             &serde_json::json!({"schema":1,"kind":"helper-bootstrap","home":self.home,"port":self.port,"service":{"pid":self.root.pid,"bootId":self.root.boot_id,"birth":self.root.birth},"executable":self.front}),
@@ -443,6 +475,7 @@ impl Broker {
         })
         .await
         .map_err(|_| denied())??;
+        trace.mark(Stage::Pipes);
         let input = input.into_owned_fd()?;
         let output = child.stdout.take().ok_or_else(denied)?.into_owned_fd()?;
         let (exit, remote) = UnixStream::pair()?;
@@ -450,6 +483,7 @@ impl Broker {
         let remote: OwnedFd = remote.into();
         let mut response = [b'H', 0, 0, 0, 0];
         response[1..].copy_from_slice(&pid.to_be_bytes());
+        trace.mark(Stage::Handoff);
         let sent = send_rights(
             channel,
             &response,
@@ -457,6 +491,7 @@ impl Broker {
         );
         match sent {
             Ok(0) | Err(_) => {
+                trace.diagnostics.record(Stage::Handoff, Event::WriteError);
                 return Err(denied());
             }
             Ok(_) => { /* Any positive transfer may have delivered command authority. */ }
@@ -467,39 +502,63 @@ impl Broker {
             reap(child, exit).await;
         });
         if sent.ok() != Some(5) {
+            trace
+                .diagnostics
+                .record(Stage::Handoff, Event::HandoffUncertain);
             return Err(denied());
         }
+        trace.diagnostics.record(Stage::Handoff, Event::Handoff);
         Ok(())
     }
     pub async fn run(self, channel: UnixStream) {
+        let diagnostics = Diagnostics::new(&self.home, self.root.pid, self.generation.process.pid);
+        let mut trace = Trace {
+            diagnostics: &diagnostics,
+            stage: Stage::Channel,
+        };
+        trace.mark(Stage::Channel);
         // NativeContext owns this limit across all core generations. Handed
         // reapers retain their permit until the actual helper process exits.
         let slots = self.slots.clone();
         if channel.set_nonblocking(true).is_err() {
+            trace.failed();
             return;
         }
         let socket = match tokio::net::UnixStream::from_std(channel) {
             Ok(s) => s,
-            Err(_) => return,
+            Err(_) => {
+                trace.failed();
+                return;
+            }
         };
         loop {
+            trace.mark(Stage::ReadFrame);
             let body = match read_request(&socket).await {
                 Ok(Some(b)) => b,
-                _ => return,
+                Ok(None) => return,
+                Err(_) => {
+                    trace.failed();
+                    return;
+                }
             };
             let result = async {
+                trace.mark(Stage::Request);
                 let request = request(&body, &self.home)?;
+                trace.mark(Stage::Capacity);
                 let permit = slots.clone().try_acquire_owned().map_err(|_| denied())?;
                 tokio::time::timeout(
                     Duration::from_secs(10),
-                    self.spawn(request, permit, &socket),
+                    self.spawn(request, permit, &socket, &mut trace),
                 )
                 .await
                 .map_err(|_| denied())?
             }
             .await;
             if result.is_err() {
-                let _ = socket.try_write(&[b'E', 0, 0, 0, 0]);
+                trace.failed();
+                if !matches!(socket.try_write(&[b'E', 0, 0, 0, 0]), Ok(5)) {
+                    diagnostics.record(trace.stage, Event::WriteError);
+                }
                 return;
             }
         }

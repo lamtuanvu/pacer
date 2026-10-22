@@ -9,6 +9,8 @@ pub mod native_context;
 #[cfg(target_os = "macos")]
 mod native_helper;
 #[cfg(target_os = "macos")]
+mod native_helper_diagnostics;
+#[cfg(target_os = "macos")]
 pub mod native_listener;
 #[cfg(target_os = "macos")]
 pub mod native_trust;
