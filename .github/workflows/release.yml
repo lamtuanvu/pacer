@@ -89,6 +89,23 @@ jobs:
         with:
           bun-version: 1.4.2
       - run: bun install --frozen-lockfile
+      - name: Install Rust release targets
+        run: |
+          rustup show active-toolchain
+          case "$RUNNER_OS" in
+            macOS) rustup target add aarch64-apple-darwin x86_64-apple-darwin ;;
+            Linux) rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl ;;
+            *) exit 1 ;;
+          esac
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: release-pair-${{ matrix.runner }}
+      - name: Install Linux cross-build tools
+        if: runner.os == 'Linux'
+        run: |
+          python3 -m venv "$RUNNER_TEMP/pacer-cross"
+          "$RUNNER_TEMP/pacer-cross/bin/pip" install --only-binary=:all: cargo-zigbuild==0.24.0 ziglang==0.14.1
+          echo "$RUNNER_TEMP/pacer-cross/bin" >> "$GITHUB_PATH"
       - name: Build runner targets
         env:
           TARGETS: ${{ matrix.targets }}
@@ -99,6 +116,7 @@ jobs:
           case "$(uname -s)" in Darwin) os=darwin ;; Linux) os=linux ;; *) exit 1 ;; esac
           case "$(uname -m)" in arm64|aarch64) arch=arm64 ;; x86_64) arch=x64 ;; *) exit 1 ;; esac
           test "$("./dist/release/$version/pacer-$os-$arch" --version)" = "pacer $version"
+          test "$("./dist/release/$version/pacer-core-$os-$arch" --version)" = "pacer $version"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: binaries-${{ matrix.runner }}
