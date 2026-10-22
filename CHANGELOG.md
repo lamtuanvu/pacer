@@ -4,6 +4,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Fixed
+
+- Start work agents with unattended permission settings across headless, interactive, resumed and strategy-planning sessions. Codex worktrees and reporting hooks no longer stop at trust prompts; Antigravity and OpenCode interactive launches use their supported prompt and configuration interfaces. Orca-selected work falls back to direct execution because its worker API cannot enforce permission bypass.
+
 ## [0.7.0] - 2026-10-22
 
 ### Fixed

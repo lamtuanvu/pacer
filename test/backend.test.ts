@@ -24,13 +24,13 @@ const fake = (id: string, available: () => Promise<boolean>, out: AttemptOutcome
 
 test("selectBackend: first available extra wins, else direct; PACER_BACKEND forces", async () => {
   const ctx = withLoginIndicators(fakeCtx());
-  const orca = fake("orca", async () => true);
-  expect((await selectBackend(ctx, s, [orca])).id).toBe("orca");
-  expect((await selectBackend(ctx, s, [fake("orca", async () => false)])).id).toBe("direct");
+  const extra = fake("extra", async () => true);
+  expect((await selectBackend(ctx, s, [extra])).id).toBe("extra");
+  expect((await selectBackend(ctx, s, [fake("extra", async () => false)])).id).toBe("direct");
   expect((await selectBackend(ctx, s, [])).id).toBe("direct");
-  expect((await selectBackend({ ...ctx, env: { PACER_BACKEND: "direct" } }, s, [orca])).id).toBe("direct");
-  expect((await selectBackend({ ...ctx, env: { PACER_BACKEND: "orca" } }, s, [fake("orca", async () => false)])).id).toBe("orca");
-  expect((await selectBackend({ ...ctx, env: { PACER_BACKEND: "nope" } }, s, [orca])).id).toBe("direct");
+  expect((await selectBackend({ ...ctx, env: { PACER_BACKEND: "direct" } }, s, [extra])).id).toBe("direct");
+  expect((await selectBackend({ ...ctx, env: { PACER_BACKEND: "extra" } }, s, [fake("extra", async () => false)])).id).toBe("extra");
+  expect((await selectBackend({ ...ctx, env: { PACER_BACKEND: "nope" } }, s, [extra])).id).toBe("direct");
 });
 
 test("throwing available falls back to direct", async () => {
@@ -100,10 +100,10 @@ for (const agent of ["claude-code", "codex"]) {
         const ctx = withLoginIndicators(fakeCtx());
         const orca = fake("orca", async () => backend !== "direct");
         const selected = await selectBackend(ctx, strategy, [orca], `${agent}#team`);
-        expect(selected.id).toBe(source === "default" && backend !== "direct" ? "orca" : "direct");
+        expect(selected.id).toBe("direct");
         // An explicit backend override must also preserve the account restriction.
         ctx.env.PACER_BACKEND = "orca";
-        expect((await selectBackend(ctx, strategy, [orca], `${agent}#team`)).id).toBe(source === "default" ? "orca" : "direct");
+        expect((await selectBackend(ctx, strategy, [orca], `${agent}#team`)).id).toBe("direct");
       });
     }
   }
@@ -149,4 +149,20 @@ test("interactive runners use the builtin PTY even when Orca is available or for
   const strategy = validateStrategy({planner: "codex", accounts: {main: {kind: "codex"}}, runners: {codex: {session: "interactive"}}}, "/x");
   const ctx = fakeCtx({env: {PACER_BACKEND: "orca"}});
   expect((await selectBackend(ctx, strategy, [fake("orca", async () => true)], "codex")).id).toBe("direct");
+});
+
+test("Orca permission fallback executes directly and logs why", async () => {
+  const bin = tmpDir(), repo = tmpDir();
+  writeFileSync(join(bin, "codex"), '#!/bin/sh\nprintf "%s\\n" "$@" > launch-args\nprintf "done"\n', {mode: 0o755});
+  const ctx = fakeCtx({env: {PATH: `${bin}:${process.env.PATH}`, PACER_BACKEND: "orca"}});
+  await Bun.write(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders: {claude-code: {}, codex: {}}\n");
+  let launched = false;
+  const backend = await selectBackend(ctx, s, [{id: "orca", available: async () => true, runAttempt: async () => {launched = true; throw Error("Orca launched");}}]);
+  const task = createTask(ctx, {brief: {goal: "g", repo}, kind: null, requestedExecutor: "codex", timeoutS: 10});
+  const result = await backend.runAttempt(ctx, s.providers.codex, task);
+  expect(backend.id).toBe("direct");
+  expect(launched).toBe(false);
+  expect(result.exec.code).toBe(0);
+  expect(readFileSync(join(repo, "launch-args"), "utf8")).toContain("--dangerously-bypass-approvals-and-sandbox");
+  expect(readFileSync(result.attempt.log, "utf8")).toContain("Orca worker-start cannot enforce permission bypass");
 });
