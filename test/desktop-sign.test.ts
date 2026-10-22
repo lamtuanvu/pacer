@@ -69,6 +69,28 @@ test("complete app is marked production before inside-out signing, notarized, st
   expect(f.calls[artifactSign]).toContain("--app-version"); expect(f.calls[artifactSign]).toContain("1.2.3");
   expect(commands.join("\n")).not.toContain("--private-key ");
 });
+
+test("native permission helper is validated and signed before its containing app", async () => {
+  for (const wrongArch of [false, true]) {
+    const f = fixture(), helper = join(f.app, "Contents/MacOS/pacer-permission-setup");
+    mkdirSync(join(f.app, "Contents/MacOS"), { recursive: true });
+    const bytes = Buffer.alloc(32); bytes.writeUInt32LE(0xfeedfacf, 0); bytes.writeUInt32LE(wrongArch ? 0x01000007 : 0x0100000c, 4); bytes.writeUInt32LE(2, 12);
+    writeFileSync(helper, bytes, { mode: 0o755 });
+    const sign = () => signStagedDesktop({ root: "/fixture/root", stage: f.stage, out: tmpDir(), version: "1.2.3", arch: "aarch64", config: f.config }, f.run);
+    if (wrongArch) {
+      await expect(sign()).rejects.toThrow("architecture");
+      expect(f.calls).toEqual([]);
+    } else {
+      await sign();
+      const signs = f.calls.filter(a => a[0] === "/usr/bin/codesign" && a.includes("--sign"));
+      expect(signs.at(-2)?.at(-1)).toBe(helper);
+      expect(signs.at(-2)).toContain("dev.pacer.permission-setup");
+      expect(signs.at(-2)).not.toContain("--entitlements");
+      expect(signs.at(-1)?.at(-1)).toBe(f.app);
+      expect(f.calls.some(a => a[0] === helper && a[1]?.startsWith("--pacer"))).toBe(false);
+    }
+  }
+});
 test("notary rejection or fixture-built native binary prevents final archive and artifact signature", async () => {
   for (const reason of ["notary", "fixture"]) {
     const f = fixture();
