@@ -7,6 +7,7 @@ import { buildOtaFixtures } from "./ota-build";
 import { desktop, tui } from "./surfaces";
 import { exerciseUpdater } from "./updater";
 import { exerciseRepair } from "./core-repair";
+import { CONTROL_COMMANDS, controlMain } from "./control/cli";
 
 const usage = `usage: bun run live <command> [--id <id>]
   up [--repo-template <dir>] [--seed ui] [--front-door rust]
@@ -39,6 +40,7 @@ const usage = `usage: bun run live <command> [--id <id>]
 export async function main(argv: string[]): Promise<number> {
   const [command, ...rest] = argv;
   if (!command || command === "--help" || command === "help") { console.log(usage); return 0; }
+  if (CONTROL_COMMANDS.has(command) || command === "scenario") return controlMain(argv);
   // Only parse harness options before --, so guarded CLI options pass through untouched.
   const separator = rest.indexOf("--");
   const before = separator < 0 ? rest : rest.slice(0, separator);
