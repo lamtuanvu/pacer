@@ -4,6 +4,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Fixed
+
+- Refuse automatic release tags after a missing or failed dry run, or when the merge differs from the tested PR head. Prebuild Rust test fixtures during release verification and update the desktop navigation assertion.
+
 ## [0.7.0] - 2026-10-22
 
 ### Fixed

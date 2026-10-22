@@ -34,7 +34,8 @@ test("shell switches below 560 px and repo scope forces narrow at desktop width"
   for (const [width, hash, narrow] of [[400, "#/", true], [559, "#/", true], [560, "#/", false], [1200, "#/", false], [1200, `#/?scope=repo:${repo}`, true], [1200, "#/?scope=all", false]] as const) {
     const html = atWidth(width, () => shell(hash));
     expect(html.includes('class="pc-bottom-bar"')).toBe(narrow);
-    expect(html.includes('class="pc-rail"')).toBe(!narrow);
+    expect(html.includes('class="pc-rail"')).toBe(false);
+    expect(html.includes('class="pc-titlebar"')).toBe(!narrow);
     expect(html.includes("pc-app--narrow")).toBe(narrow);
     expect(html.includes("pc-btn--touch")).toBe(narrow);
   }
