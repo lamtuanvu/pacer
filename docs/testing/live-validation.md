@@ -83,6 +83,22 @@ The policy source of truth is exported as `BLOCKED_OPS` from `scripts/live/proxy
 
 `setup.init` is **allowed**: `setup.init` in `src/core/setup.ts` creates only `PACER_HOME/strategy.yaml`, or calls `config.set` with `integrations: "skip"`. Detection reads installed tools; it does not install integrations. Endpoint provider config regeneration itself is under `PACER_HOME/opencode`; account edit/adopt remain refused because their key paths can use the real Keychain. `host.add`, account mapping and repo mapping are conservatively refused even though their immediate config edits are sandbox-local: they enable later work on real hosts. Read-only operations and sandbox state changes remain available. Real delegation is still cooperative: use only the disposable repository and do not register outside repos or add remote runners. This filter is not isolation for arbitrary executor code.
 
+### Seeded Diagnostics repair
+
+A `--seed ui` sandbox permits one additional operation: `agent.connect` for the fixed
+`codex#team` fixture, through `/v3` with explicit consent and the current
+`agent.preview` revision. The proxy verifies the recorded live service identity,
+selected account, exact preview paths and sandbox-owned file tree. External paths,
+symlinks, hardlinks, changed accounts, stale revisions, other agents and unseeded
+sessions remain refused. Normal service authentication and Origin checks still apply.
+The Codex installer only edits fixture files; it launches no agent or service manager.
+
+To validate Diagnostics, change the sandbox's `home/accounts/team/AGENTS.md`, run
+checks, review Repair, and apply it. Confirm that the integration check passes after
+the automatic recheck. Inspect `home/install-manifest.json` and the fixture files;
+record both success and refusal/error recovery. This permission does not apply to
+real agent homes or any other D8 operation, and does not authorize executor launches.
+
 ## Select the affected surfaces
 
 Write down each changed behavior and its expected result before exercising it. Include error and recovery paths that the change affects.

@@ -23,7 +23,10 @@ async function buildAdmitted(ctx:Ctx,opts:{agent?:string;from?:string;brief?:str
   }
   const prompt=`# Build a pacer strategy\n\n${opts.brief??"Ask what the user wants the strategy to do."}\n\nBase: ${opts.from??strategy.name}\n${base.summary}\n\n\`\`\`yaml\n${base.yaml}\n\`\`\`\n\nCurrent status:\n${renderText(await computeStatus(ctx,strategy))}\n\nUse the pacer MCP strategy tools. Preview first. Ask clarifying questions. Show the user the current and draft ranking change. Save only after explicit approval, with a reason and who: ${agent}. Never switch strategies.\n`;
   writeFileSync(path,prompt,{mode:0o600,flag:"wx"});
-  const argv=agent==='opencode'?['opencode','run',prompt]:[agent==='claude-code'?'claude':agent==='cursor'?'cursor-agent':'codex',prompt];
+  const argv=agent==='opencode'?['opencode','run','--standalone','--auto',prompt]
+    : agent==='claude-code'?['claude','--dangerously-skip-permissions','--',prompt]
+    : agent==='cursor'?['cursor-agent','--force','--sandbox','disabled','--',prompt]
+    : ['codex','--no-daemon','--dangerously-bypass-approvals-and-sandbox','--',prompt];
   const result=await (deps.open ?? openInTerminal)(ctx,{argv,title:'pacer strategy',worktree:opts.worktree});
   return {...result,path,message:result.opened?'Session opened in a new terminal':`Run: ${result.command}`};
 }

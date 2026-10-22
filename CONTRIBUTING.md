@@ -58,7 +58,7 @@ The workflow then does the rest:
 3. It commits `chore: release <version>` (DCO-signed) on `release/v<version>` and opens the PR. CI runs the full suite; the PR needs no UI evidence manifest because its only UI-scoped changes are version strings, which CI checks.
 4. It runs the release dry run on that branch: every platform builds (including production-signed macOS apps when `PACER_DESKTOP_RELEASE_ENABLED=true`), npm publishes with `--dry-run` and the Homebrew formula is checked, with nothing published.
 5. When the dry run passes, it turns on auto-merge. If the dry run fails, it comments on the PR and stops; fix `main`, close the PR, delete the branch and run it again.
-6. When the PR merges, **Release tag** tags the merge commit `v<version>` and the tag runs `release.yml`, which publishes.
+6. When the PR merges, **Release tag** requires the latest dry run for the merged PR head to pass and its file tree to match the merge commit, then tags the merge commit `v<version>` and the tag runs `release.yml`, which publishes.
 
 Only one release runs at a time, and a version whose tag already exists is never re-tagged.
 
@@ -75,7 +75,7 @@ Renew it before it expires; Prepare release and Release tag fail with a clear er
 
 ### Manual fallback
 
-Without the token, release by hand: `bun run release:prepare <x.y.z>`, a DCO-signed PR titled `chore: release x.y.z`, `gh workflow run release.yml -f version=<x.y.z> -f dry_run=true`, then after merging tag the merge commit with `git tag -a vX.Y.Z -m "pacer X.Y.Z"` and `git push origin vX.Y.Z`. If you merge a `chore: release` PR by hand while the token is set, Release tag still tags it. A dispatch of `release.yml` with `dry_run=false` is rejected; tags are the only release trigger.
+Without the token, release by hand: `bun run release:prepare <x.y.z>`, a DCO-signed PR from `release/v<x.y.z>` titled `chore: release x.y.z`, `gh workflow run release.yml --ref release/v<x.y.z> -f version=<x.y.z> -f dry_run=true`, then after merging tag the merge commit with `git tag -a vX.Y.Z -m "pacer X.Y.Z"` and `git push origin vX.Y.Z`. If you merge a `chore: release` PR by hand while the token is set, Release tag tags it only after these same dry-run and tree checks pass. A dispatch of `release.yml` with `dry_run=false` is rejected; tags are the only release trigger.
 
 The tag must match `v` plus the package version. The release workflow verifies the tag, typechecks and tests, then builds macOS and Linux binaries for arm64 and x64 on their respective runners. Each runner smoke-tests its native binary. The publish job writes SHA256SUMS, manifest.json and latest.json, attests all four binaries, extracts the version's changelog notes, and uploads the seven flat assets to GitHub Releases. Workflow artifacts expire after one day. Stable releases become latest; versions containing `-` are marked prerelease and do not become latest.
 
