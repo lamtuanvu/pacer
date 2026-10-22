@@ -79,7 +79,11 @@ fn bad_core_argv_is_usage_error() {
 }
 #[test]
 fn missing_core_explains_itself() {
-    let o = pacer().arg("route").output().unwrap();
+    let o = pacer()
+        .env("PACER_NO_SELF_REPAIR", "1")
+        .arg("route")
+        .output()
+        .unwrap();
     assert_eq!(o.status.code(), Some(1));
     assert!(
         String::from_utf8(o.stderr)
@@ -285,6 +289,7 @@ fn canonical_executable_sibling_and_pacer_bin_are_used() {
         let o = Command::new(links.join("pacer"))
             .env_remove("PACER_CORE_ARGV")
             .env_remove("PACER_BIN")
+            .env("PACER_NO_SELF_REPAIR", "1")
             .args(&args)
             .output()
             .unwrap();
