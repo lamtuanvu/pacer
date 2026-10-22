@@ -178,7 +178,7 @@ function ReviewController({ snapshot, route }: { snapshot: ClientSnapshot; route
   useEffect(() => {
     history.replaceState(null, "", withQuery(view.selectedId ? `#/review/${encodeURIComponent(view.selectedId)}` : "#/review", route.query));
   }, [view.selectedId, repo]);
-  return <Page width="wide"><RepoFilter snapshot={snapshot} query={route.query} /><BulkReview key={repo ?? "all"} snapshot={snapshot} repo={repo} runner={runner}>{view.selectedId
+  return <Page width="full"><RepoFilter snapshot={snapshot} query={route.query} /><BulkReview key={repo ?? "all"} snapshot={snapshot} repo={repo} runner={runner}>{view.selectedId
     ? <ReviewItem key={view.selectedId} id={view.selectedId} snapshot={snapshot} view={view} dispatch={dispatch} getView={() => current.current} announce={announce} announcement={announcement} />
     : <ReviewView snapshot={snapshot} view={view} now={Date.now() / 1000} announcement={announcement} />}</BulkReview></Page>;
 }
