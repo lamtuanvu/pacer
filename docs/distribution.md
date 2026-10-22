@@ -14,11 +14,27 @@ Artifact attestations require a public repository (or GitHub Enterprise); real r
 
 Verify where a binary came from with `gh attestation verify pacer-<os>-<arch> -R lamtuanvu/pacer`.
 
-`bun run build` embeds the version from `package.json` in `dist/pacer`. Local commits
+`bun run build` embeds the version from `package.json` in `dist/pacer-core` and, when
+Cargo is available, also builds the Rust front door `dist/pacer` (which execs its `pacer-core` sibling for commands it does not handle natively). Local commits
 add build metadata from `git describe`, for example `0.2.3+12.gabc1234` (with
 `.dirty` for uncommitted changes). Clean tagged checkouts and source archives
 without Git use the package version. Update checks ignore build metadata and
 offer only releases newer than that package version.
+
+## Companion-aware bridge updates
+
+The bridge release remains a single Bun executable. Its updater accepts an optional
+`companions` list on each platform asset, currently limited to `pacer-core`. It
+checks every file against both the manifest and `SHA256SUMS`, stages and signs
+each executable, and checks its `--version` before replacing anything. It installs
+`pacer-core` beside the real binary (including through a symlink), then replaces
+`pacer`, retaining existing executables as `.bak`. If replacement fails, installed
+companions are restored; a newly introduced companion is removed.
+
+Manifests without companions retain the single-binary update behavior. Downgrading
+to a single-binary release leaves any old `pacer-core` in place; that binary ignores
+it. This bridge does not add Rust binaries, paired release packaging or self-repair.
+The bridge must ship before releases that depend on companion installation.
 
 ## npm
 

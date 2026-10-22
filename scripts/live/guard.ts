@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { checkout, sandboxEnv, type Session } from "./core";
+import { pacerArgv, sandboxEnv, type Session } from "./core";
 
 /** D3 applies before dispatch, including calls made by the TUI or task runner. */
 export function refusal(args: string[]): string | undefined {
@@ -22,7 +22,7 @@ if (import.meta.main) {
       process.exit(3);
     }
     const session = JSON.parse(readFileSync(sessionFile, "utf8")) as Session;
-    const child = Bun.spawn([process.execPath, join(checkout, "src/cli.ts"), ...args], {
+    const child = Bun.spawn([...pacerArgv(session), ...args], {
       cwd: join(session.root, "repo"), env: sandboxEnv(session), stdin: "inherit", stdout: "inherit", stderr: "inherit",
     });
     // Forward shutdown to the guarded process, including nested task runners.

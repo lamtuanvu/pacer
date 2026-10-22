@@ -28,6 +28,8 @@ All seed files are written under the sandbox's `home/`. In this mode only, `HOME
 
 The service and D8 guard proxy run detached from this checkout on two different free loopback ports, neither 4317. `session.json` records the public `port`, private `innerPort`, service `pid` and `proxyPid`. All clients use the public port (`PACER_PORT`); only the service binds `innerPort` via `--port`. Startup verifies the proxy identity, inner service identity and forwarded `/health`. Inspect `logs/serve.log` and `logs/proxy.log` if startup fails. `bun run live status` lists all sandboxes, including stopped ones retained with `--keep`.
 
+To validate the Rust front door, add `--front-door rust` to `up`. The harness builds `target/debug/pacer` and runs it for the service and for every guarded `pacer` call, with `PACER_CORE_ARGV` pointing at this checkout's `src/cli.ts`. The service is then two processes: the front door (`pid`, bound to `innerPort`) and its `pacer-core serve --internal` child on a private ephemeral port, restarted by the front door if it exits. Both write to `logs/serve.log`; core lines are the core's own output, and front-door lines start with `pacer:` (for example `pacer: core did not announce its listener`). Find the child with `pgrep -P <pid> -f 'serve --internal'`.
+
 For unseeded sandboxes, `HOME` stays unchanged so installed executors keep their authentication and usage readers see actual usage. The harness never reads or copies native tool credentials. `PACER_HOME`, `PACER_PORT`, `PACER_BIN`, `PACER_BACKEND=direct`, `PACER_NO_UPDATE_CHECK=1` and `PACER_ORCA_USER_DATA` select sandbox state. A minimal sandbox strategy initially routes to Codex; edit only the sandbox's `home/strategy.yaml` when testing other installed executors.
 
 **Never run live work against the user's checkout or real `~/.pacer`.** Use the disposable `repo/` for delegations. Never copy the user's pacer strategy, account homes or credentials into evidence. Real executors spend real subscription or paid budget. The harness does not start an executor until you request a delegation.
@@ -44,7 +46,7 @@ The D3 guard exits **3** with a named rule for `install`, `uninstall`, `init`, `
 
 ## D8: service operation guard
 
-Every network client (CLI/API, web/tray, TUI and desktop) uses the public proxy port. Do not call `innerPort` directly. The proxy forwards `/app/` assets, cookies and Set-Cookie, SSE chunks and session WebSocket text/binary frames. It rewrites Host to the inner loopback authority and rewrites Origin only when it matches the public loopback origin; foreign and missing Origins remain unchanged for normal upstream rejection. Authentication and `X-Pacer-Client: app` checks still apply.
+Every network client (CLI/API, web/tray, TUI and desktop) uses the public proxy port. Do not call `innerPort` directly. The proxy forwards `/app/` assets, cookies and Set-Cookie, SSE chunks and session WebSocket text/binary frames. It rewrites Host to the inner loopback authority and rewrites Origin only when it matches the public loopback origin; foreign and missing Origins remain unchanged for normal upstream rejection. Authentication and `X-Pacer-Client: app` checks still apply. Refused WebSocket handshakes preserve upstream HTTP status, headers and bounded response bodies. Oversized, truncated, timed-out or chunk-framed refusals return 502; Bun exposes raw chunk framing on rejected upgrades, so the harness does not relay those bodies.
 
 Refused operations return HTTP **403** with the protocol error shape `{ "error": { "code": "forbidden", "message": "Live validation D8: <op> changes the real user environment" } }`. Every refusal appends a note to `evidence/log.jsonl`, visible in the report as UNVERIFIED. No request bodies, keys or cookies are recorded in those notes.
 
@@ -243,8 +245,9 @@ actions attempt an automatic evidence capture and are never repeated implicitly.
 
 The ordinary desktop app opts in with `capture: true` on v3 `client.register`,
 receives its per-instance `capture_worker` credential, and reports its owned
-main/tray window IDs. Clients that do not opt in, non-desktop clients, and v2
-registrations receive no capture credential. Window captures may fall back to an explicitly labelled
+main/tray window IDs. Clients that do not opt in and v2 registrations receive
+no capture credential; v3 rejects capture opt-in from non-desktop clients.
+Window captures may fall back to an explicitly labelled
 external capture; content captures never substitute a different surface.
 
 Native macOS input and VoiceOver checks require Accessibility and screen recording
@@ -254,3 +257,16 @@ draggable hosting-app chip. The chip follows the selected Settings window withou
 AX access, remains visible across focus changes, and verifies a read of the exact
 owned desktop window before setup succeeds. Missing native or speech evidence is
 reported as UNVERIFIED.
+
+
+## Disposable CLI updater validation
+
+`bun run live up --id bridge-update --seed ui`, then `bun run live updater --id bridge-update`, exercises the compiled CLI updater against fixed loopback releases. This is the approved bridge-plan fixture (the companion is a copy of the compiled binary), not a paired Rust release or desktop OTA test.
+
+The command accepts only an explicit sandbox ID. It refuses unseeded/stopped sessions, noncanonical/symlinked or unowned directories, group/other-writable paths, and an existing fixture directory. It compiles synthetic0.0.1/0.0.2 builds from the checkout into the sandbox and uses new private install, HOME, config and temporary directories for each scenario. It supplies fixed `--no-restart --no-reinstall` flags and accepts no binary paths, release URLs, commands or scenario overrides. Ordinary D3/D8 update refusals remain unchanged.
+
+The six fixed checks cover an existing pair, adding the companion, a legacy manifest, checksum refusal, smoke refusal, and restoring the previous core after a front-door commit failure. The last case uses a controlled script that removes only its own known staged fixture path during its version probe; it induces a real rename failure after core installation. Expected refusals count as PASS only when the exact error, unchanged installed bytes/versions and cleaned staging files are observed. Successful updates require new versions and exact previous-byte backups. This proves the transaction path; it does not certify interruption recovery, real service restart, integration refresh, production signing or distribution.
+
+On macOS the real updater consults read-only code-signing identity metadata. The fixture checks before and after every scenario and refuses when the normal local signing identity exists, so it cannot deliberately use that private key. This is a cooperative test assumption, not protection against a concurrent same-user keychain change. Bun's ad-hoc fixture signatures are not production signing evidence. Compilation uses an isolated environment and does not invoke the local signing helper.
+
+Results are recorded in the session report and `updater/<scenario>/result.json`. Run `live report` then `live down --keep` to retain evidence. There is no general update allow flag or permission to use a real installation as a fixture.

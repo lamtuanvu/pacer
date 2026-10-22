@@ -1,9 +1,9 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "pacer plugin protocol 1.0.0",
+  "version": "1.0.0",
   "$defs": {
     "manifest": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
       "properties": {
         "id": {
@@ -37,7 +37,7 @@
               "type": "string"
             },
             "additionalProperties": {
-              "$ref": "#/$defs/__schema0"
+              "$ref": "#/$defs/manifest___schema0"
             }
           }
         },
@@ -102,43 +102,40 @@
         "reentrant",
         "tier"
       ],
-      "additionalProperties": false,
-      "$defs": {
-        "__schema0": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "number"
-            },
-            {
-              "type": "boolean"
-            },
-            {
-              "type": "null"
-            },
-            {
-              "type": "array",
-              "items": {
-                "$ref": "#/$defs/__schema0"
-              }
-            },
-            {
-              "type": "object",
-              "propertyNames": {
-                "type": "string"
-              },
-              "additionalProperties": {
-                "$ref": "#/$defs/__schema0"
-              }
-            }
-          ]
+      "additionalProperties": false
+    },
+    "manifest___schema0": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/manifest___schema0"
+          }
+        },
+        {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/manifest___schema0"
+          }
         }
-      }
+      ]
     },
     "helloParams": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
       "properties": {
         "protocol": {
@@ -181,7 +178,7 @@
                   "type": "string"
                 },
                 "additionalProperties": {
-                  "$ref": "#/$defs/__schema0"
+                  "$ref": "#/$defs/helloParams___schema0"
                 }
               }
             },
@@ -254,7 +251,7 @@
             "type": "string"
           },
           "additionalProperties": {
-            "$ref": "#/$defs/__schema1"
+            "$ref": "#/$defs/helloParams___schema1"
           }
         },
         "grants": {
@@ -282,74 +279,71 @@
         "config",
         "grants"
       ],
-      "additionalProperties": false,
-      "$defs": {
-        "__schema0": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "number"
-            },
-            {
-              "type": "boolean"
-            },
-            {
-              "type": "null"
-            },
-            {
-              "type": "array",
-              "items": {
-                "$ref": "#/$defs/__schema0"
-              }
-            },
-            {
-              "type": "object",
-              "propertyNames": {
-                "type": "string"
-              },
-              "additionalProperties": {
-                "$ref": "#/$defs/__schema0"
-              }
-            }
-          ]
+      "additionalProperties": false
+    },
+    "helloParams___schema0": {
+      "anyOf": [
+        {
+          "type": "string"
         },
-        "__schema1": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "number"
-            },
-            {
-              "type": "boolean"
-            },
-            {
-              "type": "null"
-            },
-            {
-              "type": "array",
-              "items": {
-                "$ref": "#/$defs/__schema1"
-              }
-            },
-            {
-              "type": "object",
-              "propertyNames": {
-                "type": "string"
-              },
-              "additionalProperties": {
-                "$ref": "#/$defs/__schema1"
-              }
-            }
-          ]
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/helloParams___schema0"
+          }
+        },
+        {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/helloParams___schema0"
+          }
         }
-      }
+      ]
+    },
+    "helloParams___schema1": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/helloParams___schema1"
+          }
+        },
+        {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/helloParams___schema1"
+          }
+        }
+      ]
     },
     "helloResult": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
       "properties": {
         "protocol": {
@@ -377,13 +371,11 @@
       "additionalProperties": false
     },
     "diagnostic.ping.params": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
       "properties": {},
       "additionalProperties": false
     },
     "diagnostic.ping.result": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
       "properties": {
         "ok": {
@@ -402,7 +394,6 @@
       "additionalProperties": false
     },
     "capability.log.params": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
       "properties": {
         "level": {
@@ -426,7 +417,6 @@
       "additionalProperties": false
     },
     "capability.log.result": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
       "properties": {
         "ok": {
@@ -440,13 +430,11 @@
       "additionalProperties": false
     },
     "capability.config.get.params": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
       "properties": {},
       "additionalProperties": false
     },
     "capability.config.get.result": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
       "type": "object",
       "properties": {
         "config": {
@@ -455,47 +443,45 @@
             "type": "string"
           },
           "additionalProperties": {
-            "$ref": "#/$defs/__schema0"
+            "$ref": "#/$defs/capability.config.get.result___schema0"
           }
         }
       },
       "required": [
         "config"
       ],
-      "additionalProperties": false,
-      "$defs": {
-        "__schema0": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "number"
-            },
-            {
-              "type": "boolean"
-            },
-            {
-              "type": "null"
-            },
-            {
-              "type": "array",
-              "items": {
-                "$ref": "#/$defs/__schema0"
-              }
-            },
-            {
-              "type": "object",
-              "propertyNames": {
-                "type": "string"
-              },
-              "additionalProperties": {
-                "$ref": "#/$defs/__schema0"
-              }
-            }
-          ]
+      "additionalProperties": false
+    },
+    "capability.config.get.result___schema0": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/capability.config.get.result___schema0"
+          }
+        },
+        {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/capability.config.get.result___schema0"
+          }
         }
-      }
+      ]
     }
   }
 }

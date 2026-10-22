@@ -1,0 +1,35 @@
+[limits]
+target = 5000
+warn = 8000
+max = 12000
+foundation_max = 2000
+binary_max = 500
+generated_max = 10000
+
+[heavy]
+names = ["wasmtime", "axum", "hyper", "rmcp", "reqwest", "ratatui", "crossterm", "clap", "portable-pty", "vt100", "typify", "syn"]
+
+[crates.pacer-client-protocol]
+layer = 0
+generated = true
+[crates.pacer-plugin-protocol]
+layer = 0
+generated = true
+[crates.pacer-foundation]
+layer = 1
+[crates.pacer-server]
+layer = 8
+heavy = ["axum", "hyper"]
+[crates.pacer-cli]
+layer = 9
+heavy = ["clap"]
+[crates.pacer]
+layer = 10
+binary = true
+[crates.pacer-plugin]
+layer = "sdk"
+[crates.pacer-fixtures]
+layer = "sdk"
+[crates.xtask]
+layer = "tool"
+heavy = ["typify", "syn"]
