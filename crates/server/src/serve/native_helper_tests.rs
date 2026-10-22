@@ -323,3 +323,80 @@ fn failure_diagnostic_closes_all_incoming_rights_without_leaks() {
             == "core-diagnostic-invalid"
     ));
 }
+
+fn adoption_recovery_asset() -> (tempfile::TempDir, Request, PathBuf, Vec<u8>) {
+    use std::os::unix::fs::PermissionsExt;
+    let (root, mut request) = command_asset();
+    let installation = "a".repeat(64);
+    let transaction = "12345678-1234-1234-1234-123456789abc";
+    let directory = root
+        .path()
+        .join("desktop-updates/native")
+        .join(&installation)
+        .join(transaction);
+    std::fs::create_dir(&directory).unwrap();
+    std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let helper = directory.join("pacer-update-helper");
+    std::fs::rename(&request.path, &helper).unwrap();
+    request.path = helper;
+    request.version = "0.2.4".into();
+    let manifest = serde_json::json!({"schema":1,"transactionKind":"adoption","binding":{"installationId":installation,"transactionId":transaction},"source":{"target":{"id":installation,"pacerHome":root.path(),"version":"0.2.4"}},"recoveryJob":{"helper":{"relativePath":"pacer-update-helper","sha256":request.sha256}}});
+    let bytes = serde_json::to_vec(&manifest).unwrap();
+    private_asset_fixture_file(&directory.join("adoption-prepared.json"), &bytes);
+    (root, request, directory, bytes)
+}
+fn private_asset_fixture_file(path: &Path, bytes: &[u8]) {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(path)
+        .unwrap();
+    file.write_all(bytes).unwrap();
+}
+fn asset_fixture_journal(bytes: &[u8]) -> Vec<u8> {
+    serde_json::to_vec(&serde_json::json!({"state":"installing","transactionKind":"adoption","manifestSha256":hex::encode(Sha256::digest(bytes))})).unwrap()
+}
+#[test]
+fn adoption_recovery_asset_accepts_only_matching_adoption_journal() {
+    let (root, request, directory, bytes) = adoption_recovery_asset();
+    private_asset_fixture_file(
+        &directory.join("adoption-journal.json"),
+        &asset_fixture_journal(&bytes),
+    );
+    let asset = Asset::verify(&request, root.path()).unwrap();
+    asset.recheck().unwrap();
+    // An unrelated nonselected journal cannot override the fixed adoption mapping.
+    private_asset_fixture_file(&directory.join("journal.json"), b"{}");
+    assert!(Asset::verify(&request, root.path()).is_ok());
+}
+#[test]
+fn adoption_recovery_asset_refuses_upgrade_journal_as_fallback() {
+    let (root, request, directory, bytes) = adoption_recovery_asset();
+    private_asset_fixture_file(
+        &directory.join("journal.json"),
+        &asset_fixture_journal(&bytes),
+    );
+    assert!(Asset::verify(&request, root.path()).is_err());
+}
+#[test]
+fn adoption_recovery_asset_refuses_mismatched_adoption_journal_digest() {
+    let (root, request, directory, _) = adoption_recovery_asset();
+    private_asset_fixture_file(
+        &directory.join("adoption-journal.json"),
+        &asset_fixture_journal(b"different manifest"),
+    );
+    assert!(Asset::verify(&request, root.path()).is_err());
+}
+#[test]
+fn adoption_recovery_asset_refuses_ambiguous_prepared_manifests() {
+    let (root, request, directory, bytes) = adoption_recovery_asset();
+    private_asset_fixture_file(
+        &directory.join("adoption-journal.json"),
+        &asset_fixture_journal(&bytes),
+    );
+    private_asset_fixture_file(&directory.join("prepared.json"), &bytes);
+    assert!(Asset::verify(&request, root.path()).is_err());
+}
