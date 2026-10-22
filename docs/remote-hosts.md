@@ -99,6 +99,8 @@ unpublished. pacer creates `pacer/<task-id>` in an isolated host worktree under
 `~/.pacer-remote/runs/<task-id>/<attempt>/`.
 
 The detached wrapper records the process, exit code and live output in files.
+Completion waits until the recording mode is known, so a fast exit during native
+session startup does not skip copying the recording back to the local task.
 pacer polls every five seconds and mirrors output locally, so the normal task
 logs and progress views work. Restarting pacer resumes the recorded remote run.
 The agent is instructed to commit on its task branch and leave a clean worktree.
