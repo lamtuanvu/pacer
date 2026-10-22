@@ -8,6 +8,9 @@ test("lazy OTA collection and per-action cancellation cannot deliver late input"
   const root = tmpDir(), script = join(root, "deadline-probe.ts");
   const control = join(import.meta.dir, "../scripts/live/control");
   await Bun.write(script, `
+    // Synthetic observer subprocesses below require the macOS adapter branch.
+    // Keep this child-local; the real Linux capability guard remains unchanged.
+    Object.defineProperty(process, "platform", { value: "darwin" });
     import { mock } from "bun:test";
     import { mkdirSync, writeFileSync } from "node:fs";
     import { join } from "node:path";
