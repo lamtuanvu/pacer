@@ -37,7 +37,8 @@ test("paired owner rejects wrong process relationships, paths and registration a
     p => { p.argv = [p.front.executable, "route"]; },
     p => { p.argv = [p.front.executable, "serve", "--internal"]; },
     p => { p.argv = [p.front.executable, "serve", "--port", "7434"]; },
-    p => { p.argv = [p.front.executable, "serve", "--port", "0"]; },
+    p => { p.argv = [p.front.executable, "serve", "--port", "00"]; },
+    p => { p.argv = [p.front.executable, "serve", "--port", "+0"]; },
     p => { p.argv = ["/another/pacer", "serve"]; },
     p => { p.port = 0; },
     p => { p.frontVersion = "1.2.4"; },
@@ -51,4 +52,9 @@ test("paired owner requires matching sealed release layout, version, architectur
     const p = proof(); p.release = { ...(p.release as object), ...patch };
     expect(() => pairedServiceOwner(p)).toThrow();
   }
+});
+
+test("paired ephemeral launch intent retains literal zero while using the actual listener scope", () => {
+  const p = proof(); p.argv = [p.front.executable, "serve", "--port", "0"];
+  expect(pairedServiceOwner(p).argv).toEqual([...p.argv]);
 });
