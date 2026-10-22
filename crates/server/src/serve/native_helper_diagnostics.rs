@@ -43,6 +43,8 @@ pub enum Event {
     WriteOther,
     WriteZero,
     WriteShort,
+    CoreDiagnosticUnavailable,
+    CoreDiagnosticInvalid,
     End,
 }
 use nix::{
@@ -208,6 +210,16 @@ impl Diagnostics {
             let _ = log.append(&bytes);
         }
     }
+    pub fn core_failure(&self, stage: u8, category: u8) -> bool {
+        let Some(stage) = core_stage(stage) else {
+            return false;
+        };
+        let Some(category) = core_category(category) else {
+            return false;
+        };
+        self.append_record(serde_json::json!({"at_ms":now_ms(),"root_pid":self.root,"core_pid":self.core,"stage":"core-helper-failure","event":"reported","core_stage":stage,"core_category":category}));
+        true
+    }
     pub fn request_started(&self, started_at_ms: u64) {
         let stamp = now_ms();
         let age = i64::try_from(stamp)
@@ -289,9 +301,67 @@ impl Event {
             Self::WriteOther => "write-other",
             Self::WriteZero => "write-zero",
             Self::WriteShort => "write-short",
+            Self::CoreDiagnosticUnavailable => "core-diagnostic-unavailable",
+            Self::CoreDiagnosticInvalid => "core-diagnostic-invalid",
             Self::End => "end",
         }
     }
+}
+// Fixed C diagnostic vocabulary, not request data or authority selectors.
+fn core_stage(value: u8) -> Option<&'static str> {
+    Some(match value {
+        1 => "arguments",
+        2 => "channel",
+        3 => "socket-option",
+        4 => "send-header-wait",
+        5 => "send-header",
+        6 => "send-body-wait",
+        7 => "send-body",
+        8 => "receive-wait",
+        9 => "receive",
+        10 => "ancillary",
+        11 => "reply",
+        12 => "stdin-pipe",
+        13 => "stdout-pipe",
+        14 => "exit-socket",
+        15 => "descriptor-flags",
+        16 => "exit-option",
+        _ => return None,
+    })
+}
+fn core_category(value: u8) -> Option<&'static str> {
+    Some(match value {
+        1 => "invalid",
+        2 => "clock",
+        3 => "deadline",
+        4 => "poll-timeout",
+        5 => "poll-hangup",
+        6 => "poll-invalid",
+        7 => "poll-error",
+        8 => "poll-other-revents",
+        9 => "eof",
+        10 => "truncated",
+        11 => "rights",
+        12 => "cloexec",
+        13 => "send-zero",
+        14 => "epipe",
+        15 => "would-block",
+        16 => "bad-fd",
+        17 => "invalid-argument",
+        18 => "permission",
+        19 => "access",
+        20 => "message-size",
+        21 => "connection-reset",
+        22 => "no-buffers",
+        23 => "not-socket",
+        24 => "interrupted",
+        25 => "other-errno",
+        26 => "no-memory",
+        27 => "io",
+        28 => "in-progress",
+        29 => "already",
+        _ => return None,
+    })
 }
 #[cfg(test)]
 #[path = "native_helper_diagnostics_tests.rs"]

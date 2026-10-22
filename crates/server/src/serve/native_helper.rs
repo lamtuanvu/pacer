@@ -583,6 +583,7 @@ impl Broker {
                         diagnostics.record(trace.stage, Event::write_failure(&error));
                     }
                 }
+                receive_failure_diagnostic(&socket, &diagnostics, trace.stage);
                 return;
             }
         }
@@ -685,34 +686,56 @@ impl Drop for Unhanded {
 }
 
 fn receive(socket: &tokio::net::UnixStream, bytes: &mut [u8]) -> io::Result<usize> {
-    use nix::sys::socket::{ControlMessageOwned, MsgFlags, UnixAddr, recvmsg};
     socket.try_io(tokio::io::Interest::READABLE, || {
-        // Darwin may install more rights than an undersized control buffer
-        // describes. Legal sends contain at most254; reserve1024 so every
-        // installed right remains visible and can be closed on rejection.
-        let mut storage = nix::cmsg_space!([i32; 1024]);
-        let mut vectors = [std::io::IoSliceMut::new(bytes)];
-        let message = recvmsg::<UnixAddr>(
-            socket.as_raw_fd(),
-            &mut vectors,
-            Some(&mut storage),
-            MsgFlags::MSG_DONTWAIT,
-        )
-        .map_err(io::Error::from)?;
-        let mut forbidden = message
-            .flags
-            .intersects(MsgFlags::MSG_CTRUNC | MsgFlags::MSG_TRUNC);
-        for control in message.cmsgs().map_err(io::Error::from)? {
-            forbidden = true;
-            if let ControlMessageOwned::ScmRights(fds) = control {
-                for fd in fds {
-                    let _ = nix::unistd::close(fd);
-                }
+        receive_nonblocking(socket, bytes)
+    })
+}
+// Shared syscall/rights cleanup; diagnostic drains must not depend on Tokio's
+// cached readiness and must never wait or become another authority operation.
+fn receive_nonblocking(socket: &impl AsRawFd, bytes: &mut [u8]) -> io::Result<usize> {
+    use nix::sys::socket::{ControlMessageOwned, MsgFlags, UnixAddr, recvmsg};
+    // Darwin may install more rights than an undersized control buffer
+    // describes. Legal sends contain at most254; reserve1024 so every
+    // installed right remains visible and can be closed on rejection.
+    let mut storage = nix::cmsg_space!([i32; 1024]);
+    let mut vectors = [std::io::IoSliceMut::new(bytes)];
+    let message = recvmsg::<UnixAddr>(
+        socket.as_raw_fd(),
+        &mut vectors,
+        Some(&mut storage),
+        MsgFlags::MSG_DONTWAIT,
+    )
+    .map_err(io::Error::from)?;
+    let mut forbidden = message
+        .flags
+        .intersects(MsgFlags::MSG_CTRUNC | MsgFlags::MSG_TRUNC);
+    for control in message.cmsgs().map_err(io::Error::from)? {
+        forbidden = true;
+        if let ControlMessageOwned::ScmRights(fds) = control {
+            for fd in fds {
+                let _ = nix::unistd::close(fd);
             }
         }
-        if forbidden {
-            return Err(denied());
+    }
+    if forbidden {
+        return Err(denied());
+    }
+    Ok(message.bytes)
+}
+
+fn receive_failure_diagnostic(socket: &impl AsRawFd, diagnostics: &Diagnostics, stage: Stage) {
+    let mut bytes = [0u8; 4];
+    match receive_nonblocking(socket, &mut bytes) {
+        Ok(3) if bytes[0] == b'D' && diagnostics.core_failure(bytes[1], bytes[2]) => {}
+        Ok(0..=2) => diagnostics.record(stage, Event::CoreDiagnosticUnavailable),
+        Err(error)
+            if matches!(
+                error.kind(),
+                io::ErrorKind::WouldBlock | io::ErrorKind::Interrupted
+            ) =>
+        {
+            diagnostics.record(stage, Event::CoreDiagnosticUnavailable)
         }
-        Ok(message.bytes)
-    })
+        _ => diagnostics.record(stage, Event::CoreDiagnosticInvalid),
+    }
 }
