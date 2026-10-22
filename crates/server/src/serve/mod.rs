@@ -78,7 +78,7 @@ async fn shutdown_signal() {
 }
 pub async fn run_serve(
     core: Vec<String>,
-    env: HashMap<String, String>,
+    mut env: HashMap<String, String>,
     port: u16,
 ) -> io::Result<()> {
     let mut ctx = Ctx::from_env();
@@ -87,6 +87,9 @@ pub async fn run_serve(
     ctx.env.clear();
     let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, port)).await?;
     let port = listener.local_addr()?.port();
+    // The internal HTTP listener binds independently. Its desktop integration
+    // still needs the actual public port, including explicit/ephemeral binds.
+    env.insert("PACER_PORT".into(), port.to_string());
     if std::env::var("PACER_SERVE_ANNOUNCE").as_deref() == Ok("1") {
         println!("{}", serde_json::json!({"port":port}));
     }
