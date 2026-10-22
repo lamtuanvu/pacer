@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import platform
 import shutil
+import shlex
 import stat
 import subprocess
 import sys
@@ -96,11 +97,101 @@ def own_identity_probe(sha1):
     return result.returncode
 
 
+def search_command(stage, argv):
+    # Never log argv/stdout/stderr: other keychain paths are private metadata.
+    try:
+        result = subprocess.run(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, timeout=30)
+    except subprocess.TimeoutExpired:
+        records.append({'stage': stage, 'result': 'timeout-unknown'})
+        observed_receipt('search-control.json', records)
+        raise RuntimeError('search-list command timed out: ' + stage) from None
+    except OSError:
+        raise RuntimeError('search-list command unavailable: ' + stage) from None
+    records.append({'stage': stage, 'code': result.returncode})
+    observed_receipt('search-control.json', records)
+    if result.returncode:
+        raise RuntimeError('search-list command refused: ' + stage)
+    return result.stdout
+
+
+def read_search():
+    data = search_command('read-user-search-list', ['/usr/bin/security', 'list-keychains', '-d', 'user'])
+    if len(data) > 65536:
+        raise RuntimeError('search metadata exceeds bound')
+    try:
+        paths = shlex.split(data.decode('utf8', 'strict'))
+    except (ValueError, UnicodeError):
+        raise RuntimeError('search metadata malformed') from None
+    if len(paths) > 128 or any(not p.startswith('/') or '\x00' in p or '\n' in p or '\r' in p for p in paths):
+        raise RuntimeError('search metadata paths refused')
+    return paths
+
+
+def set_search(paths):
+    search_command('set-user-search-list', ['/usr/bin/security', 'list-keychains', '-d', 'user', '-s', *paths])
+
+
+def restore_own_search():
+    state = root / 'search-original.state'
+    if not state.exists() and not state.is_symlink():
+        return
+    if os.environ.get('PACER_OWN_CERT_SEARCH_CONTROL') != '1' or guard() != root:
+        raise RuntimeError('explicit hosted search cleanup required')
+    info = state.lstat()
+    if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_nlink != 1 or info.st_mode & 0o077 or info.st_size > 65536:
+        raise RuntimeError('private search intent refused')
+    metadata = json.loads(state.read_text())
+    own = str(root / 'test.keychain-db')
+    if metadata.get('own') != own or not isinstance(metadata.get('original'), list):
+        raise RuntimeError('search intent binding refused')
+    current = read_search()
+    restored = [p for p in current if p != own]
+    if current != restored:
+        set_search(restored)
+    actual = read_search()
+    if actual != restored or own in actual:
+        raise RuntimeError('own search removal not established')
+    observed_receipt('search-restored.json', {'ownAbsent': True, 'currentOthersPreserved': True,
+                     'originalExact': actual == metadata['original'], 'count': len(actual)})
+    # Removal is proven even if diagnostic receipt storage failed.
+    state.unlink()
+    return actual == metadata['original']
+
+
+def search_control(sign, sha1, owned):
+    if os.environ.get('PACER_OWN_CERT_SEARCH_CONTROL') != '1' or guard() != root:
+        raise RuntimeError('explicit hosted search experiment required')
+    before = sign('L-search-A-original', sha1, False, owned)
+    if before == 0:
+        raise RuntimeError('original signing failure not reproduced; no search mutation')
+    original = read_search()
+    own = str(root / 'test.keychain-db')
+    if own in original:
+        raise RuntimeError('own keychain already in search list; experiment refused')
+    # Private non-uploaded intent precedes any mutation, including an unknown timeout.
+    write_receipt('search-original.state', {'own': own, 'original': original})
+    if read_search() != original:
+        raise RuntimeError('search list changed before append')
+    set_search([*original, own])
+    if read_search() != [*original, own]:
+        raise RuntimeError('own search append not established')
+    during = sign('M-search-B-appended', sha1, False, owned)
+    original_exact = restore_own_search()
+    after = sign('N-search-C-restored', sha1, False, owned)
+    result = {'A': before, 'B': during, 'C': after,
+              'originalExact': original_exact,
+              'reversibleOwnEntryEffect': before != 0 and during == 0 and after != 0 and original_exact}
+    write_receipt('search-comparison.json', result)
+    return result
+
+
 def cleanup():
     if not root.exists():
         return
     if root.resolve() != root or root.stat().st_uid != os.getuid() or root.stat().st_mode & 0o077:
         raise RuntimeError('cleanup ownership refused')
+    restore_own_search()
     keychain = root / 'test.keychain-db'
     if keychain.exists():
         run('delete-own-keychain', ['/usr/bin/security', 'delete-keychain', str(keychain)])
@@ -171,8 +262,13 @@ else:
         results['ownedVerboseSix'] = verbose.returncode
         if verbose.returncode == 0:
             run('owned-verbose-verify-pin', ['/usr/bin/codesign', '--verify', '--strict', '-R', 'identifier "dev.pacer.cli" and certificate leaf = H"'+sha1+'"', str(diagnostic)])
+        if os.environ.get('PACER_OWN_CERT_SEARCH_CONTROL') == '1':
+            results['searchListControl'] = search_control(sign, sha1, owned)
         write_receipt('comparison.json', results)
-        if results['keychainFirstSha'] != 0:
+        if os.environ.get('PACER_OWN_CERT_SEARCH_CONTROL') == '1':
+            if not results['searchListControl']['reversibleOwnEntryEffect']:
+                raise RuntimeError('reversible own search entry effect not established')
+        elif results['keychainFirstSha'] != 0:
             raise RuntimeError('keychain-first SHA control did not resolve signing failure')
     finally:
         cleanup()
