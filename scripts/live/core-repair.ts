@@ -5,6 +5,7 @@ import { assetFile, companionFile, hostTarget, sha256Hex } from "../../src/updat
 import { findIdentity } from "../../src/update/signing";
 import { checkout, healthy, record, type Session } from "./core";
 import { updaterFixtureRoot } from "./updater";
+import { exercisePairInstall } from "./repair-pair";
 
 const OLD = "0.0.1", VERSION = "0.0.2";
 const scenarios = ["missing", "mismatch", "checksum", "smoke", "disabled", "readonly"] as const;
@@ -117,4 +118,7 @@ export async function exerciseRepair(session: Session): Promise<void> {
   record(session, { kind: "note", behavior: "Compiled client transport parity", surface: "HTTP/stdio/SSE/WebSocket",
     verdict: pass ? "PASS" : "FAIL", text: "Actual paired Rust/Bun artifacts compared over stdio, bearer/cookie auth, rejection headers, SSE and binary/control WebSocket frames; fixed private services and Unix peer, no executor delegation." });
   if (!pass) throw Error(`Compiled transport parity failed: ${stderr}`);
+  await noSigningKey();
+  await exercisePairInstall(session);
+  await noSigningKey();
 }

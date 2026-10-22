@@ -59,7 +59,9 @@ export function defaultUpdateDeps(ctx: Ctx): UpdateDeps {
   return {
     env: ctx.env,
     fetch: releaseFetch,
-    execPath: process.execPath,
+    // The Rust front door execs this core. Refresh/update the public executable
+    // it supplied, consistently with service and integration installation.
+    execPath: ctx.env.PACER_BIN || process.execPath,
     standalone: Bun.isStandaloneExecutable,
     version: currentVersion(),
     platform: hostPlatform(),

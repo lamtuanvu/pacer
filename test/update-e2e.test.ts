@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
-import { chmodSync, copyFileSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { buildRelease } from "../scripts/release/build";
-import { type Platform, assetFile, hostTarget } from "../src/update/manifest";
+import { type Platform, assetFile, companionFile, hostTarget } from "../src/update/manifest";
 import { tmpDir } from "./helpers";
 import { validateStrategy } from "../src/config/strategy";
 
@@ -27,6 +27,9 @@ test.skipIf(!HOST)("a compiled pacer updates itself, migrates the strategy with 
   const pacer = join(bin, "pacer");
   copyFileSync(join(releases, "0.1.0", assetFile(target as Platform)), pacer);
   chmodSync(pacer, 0o755);
+  const core = join(bin, "pacer-core");
+  copyFileSync(join(releases, "0.1.0", companionFile(target)), core);
+  chmodSync(core, 0o755);
   await buildRelease({ root: ROOT, outRoot: releases, version: "0.9.0", targets: [target] });
   mkdirSync(join(home, ".pacer"), { recursive: true });
   const original = "planner: claude-code\nproviders:\n  codex: {usage: quota}\n";
@@ -35,6 +38,7 @@ test.skipIf(!HOST)("a compiled pacer updates itself, migrates the strategy with 
 
   expect((await run([pacer, "--version"], env)).out.trim()).toBe("pacer 0.1.0");
   const check = await run([pacer, "update", "--check"], env);
+  expect(check.code, check.err).toBe(0);
   expect(check.out).toContain("update available: 0.1.0 -> 0.9.0");
 
   const up = await run([pacer, "update"], env);
@@ -42,10 +46,13 @@ test.skipIf(!HOST)("a compiled pacer updates itself, migrates the strategy with 
   expect(up.code).toBe(0);
   expect(up.out).toContain("updated pacer 0.1.0 -> 0.9.0");
   expect((await run([pacer, "--version"], env)).out.trim()).toBe("pacer 0.9.0");
+  expect((await run([core, "--version"], env)).out.trim()).toBe("pacer 0.9.0");
   expect((await run([`${pacer}.bak`, "--version"], env)).out.trim()).toBe("pacer 0.1.0");
-  expect(readdirSync(bin).sort()).toEqual(["pacer", "pacer.bak"]);
+  expect((await run([`${core}.bak`, "--version"], env)).out.trim()).toBe("pacer 0.1.0");
+  expect(readdirSync(bin).sort()).toEqual(["pacer", "pacer-core", "pacer-core.bak", "pacer.bak"]);
 
-  expect(readdirSync(join(home, ".pacer")).sort()).toEqual(["strategy.yaml", "strategy.yaml.pre-accounts.bak", "update-check.json"]);
+  expect(readdirSync(join(home, ".pacer")).sort()).toEqual(["run", "strategy.yaml", "strategy.yaml.pre-accounts.bak", "update-check.json"]);
+  expect(statSync(join(home, ".pacer/run/core-version.json")).mode & 0o777).toBe(0o600);
   const strategy = validateStrategy(Bun.YAML.parse(readFileSync(join(home, ".pacer", "strategy.yaml"), "utf8")), "strategy.yaml");
   expect(strategy.legacy).toBe(false);
   expect(strategy.planner).toEqual({ agent: "claude-code", account: "claude-code" });
