@@ -7,11 +7,16 @@ import type { Ctx } from "../types";
 import { readKey } from "../endpoints/keys";
 import { endpointKeyEnv, writeOpencodeConfig } from "../endpoints/opencode-config";
 import { orcaAccountHome } from "../orca/accounts";
+import { ensureManagedClaudeStatusLine } from "../install/claude-managed-telemetry";
 
 /** Resolve account settings and read endpoint credentials only when launching a child. */
 export async function runnerEnv(ctx: Ctx, runner: RunnerCfg): Promise<Record<string, string>> {
   const account = loadStrategy(ctx).accounts[runner.account];
   if (!account) throw new Error(`account not configured: ${runner.account}`);
+  if (account.kind === "claude") {
+    try { ensureManagedClaudeStatusLine(ctx, account); }
+    catch { /* A status-line setup failure must not prevent the executor launch. */ }
+  }
   // Full OpenCode TUI no longer accepts --agent/-m; config works for both CLI generations.
   let opencodeEnv: Record<string, string> = {};
   if (runner.agent === "opencode") {
@@ -107,7 +112,7 @@ export function launchFor(cfg: ProviderCfg, prompt: string, repo: string, taskDi
     case "claude-code":
       return {
         cwd: repo,
-        argv: ["claude", "-p", "--dangerously-skip-permissions", "--output-format", "text", ...(sessionId ? ["--session-id", sessionId] : []), ...(model ? ["--model", model] : []), prompt],
+        argv: ["claude", "-p", "--dangerously-skip-permissions", "--output-format", "stream-json", "--verbose", ...(sessionId ? ["--session-id", sessionId] : []), ...(model ? ["--model", model] : []), prompt],
       };
     default:
       throw new Error(`no launcher for provider "${cfg.id}"`);
@@ -119,7 +124,11 @@ export function remoteLaunch(cfg: ProviderCfg, workdir: string, runDir = workdir
   const agent = parseRunnerId(cfg.id)?.agent;
   if (agent !== "codex" && agent !== "claude-code") throw new Error("remote runners support codex and claude-code");
   const launch = launchFor(cfg, "", workdir, runDir, "remote");
-  if (agent === "claude-code") return { argv: launch.argv.slice(0, -1) };
+  if (agent === "claude-code") {
+    launch.argv[launch.argv.indexOf("--output-format") + 1] = "text";
+    launch.argv.splice(launch.argv.indexOf("--verbose"), 1);
+    return { argv: launch.argv.slice(0, -1) };
+  }
   const lastMessageFile = join(runDir, "last.md");
   launch.argv[launch.argv.indexOf("-o") + 1] = lastMessageFile;
   return { argv: launch.argv, lastMessageFile };

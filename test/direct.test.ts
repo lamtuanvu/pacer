@@ -2,7 +2,9 @@ import { expect, test } from "bun:test";
 import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { validateStrategy } from "../src/config/strategy";
+import { loadStrategy } from "../src/config/strategy";
 import { runAttempt, tail } from "../src/exec/direct";
+import { readClaude } from "../src/usage/claude";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
 import { fakeCtx, gitRepo, realRun, tmpDir } from "./helpers";
 
@@ -56,6 +58,32 @@ test("cursor: report is the stdout tail; limit output marks limitHit", async () 
   const o = await runAttempt(ctx, s.providers.cursor, task);
   expect(o.report).toContain("usage limit");
   expect(o.attempt.limitHit).toBe(true);
+});
+
+test("Claude headless task refreshes its managed account after the turn and keeps readable output", async () => {
+  const stream = [
+    JSON.stringify({type: "rate_limit_event", rate_limit_info: {unifiedWindows: {
+      seven_day: {utilization: 0.57, resetsAt: Date.now() / 1000 + 86400},
+      five_hour: {utilization: 0.12, resetsAt: Date.now() / 1000 + 3600},
+    }}}),
+    JSON.stringify({type: "result", result: "DONE"}),
+  ].join("\n");
+  const {ctx, task} = await setup("claude", `cat <<'STREAM'\n${stream}\nSTREAM`);
+  const home = join(ctx.home, ".claude-work");
+  const {mkdirSync} = await import("node:fs");
+  mkdirSync(home, {recursive: true});
+  mkdirSync(ctx.pacerHome, {recursive: true});
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), JSON.stringify({
+    planner: "claude-code#work", accounts: {work: {kind: "claude", home}},
+    runners: {"claude-code#work": {}}, routing: [{default: ["claude-code#work"]}],
+  }));
+  const strategy = loadStrategy(ctx);
+  const result = await runAttempt(ctx, strategy.providers["claude-code#work"], task);
+  expect(result.exec.code).toBe(0);
+  expect(result.exec.stdout.trim()).toBe("DONE");
+  expect(result.report).toContain("DONE");
+  expect((await readClaude({...ctx, now: Date.now() / 1000}, strategy.accounts.work)).windows.map(w => w.usedPct)).toEqual([57, 12]);
+  expect(readFileSync(join(home, "settings.json"), "utf8")).toContain("statusline");
 });
 
 test("launcher error becomes a failed attempt instead of throwing", async () => {
