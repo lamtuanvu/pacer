@@ -19,6 +19,58 @@ static int owned_regular(const char *path) {
   return lstat(path, &s) == 0 && S_ISREG(s.st_mode) && s.st_uid == getuid() &&
          s.st_nlink == 1 && !(s.st_mode & 077);
 }
+/* Public query equivalent: only the explicit fixture keychain, never ambient
+ * search. */
+static void policy_search(const char *name, SecKeychainRef keychain,
+                          SecCertificateRef expected, SecPolicyRef policy) {
+  CFArrayRef search =
+      CFArrayCreate(NULL, (const void **)&keychain, 1, &kCFTypeArrayCallBacks);
+  CFMutableDictionaryRef query =
+      CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks,
+                                &kCFTypeDictionaryValueCallBacks);
+  if (!search || !query) {
+    stage(name, errSecAllocate, 0);
+    if (search)
+      CFRelease(search);
+    if (query)
+      CFRelease(query);
+    return;
+  }
+  CFDictionarySetValue(query, kSecClass, kSecClassIdentity);
+  CFDictionarySetValue(query, kSecMatchSearchList, search);
+  CFDictionarySetValue(query, kSecMatchTrustedOnly, kCFBooleanFalse);
+  CFDictionarySetValue(query, kSecAttrCanSign, kCFBooleanTrue);
+  CFDictionarySetValue(query, kSecReturnRef, kCFBooleanTrue);
+  CFDictionarySetValue(query, kSecMatchLimit, kSecMatchLimitOne);
+  if (policy)
+    CFDictionarySetValue(query, kSecMatchPolicy, policy);
+  CFTypeRef result = NULL;
+  OSStatus status = SecItemCopyMatching(query, &result);
+  stage(name, status, result != NULL);
+  if (!status && result && CFGetTypeID(result) == SecIdentityGetTypeID()) {
+    SecCertificateRef selected = NULL;
+    OSStatus copied =
+        SecIdentityCopyCertificate((SecIdentityRef)result, &selected);
+    CFDataRef wanted = SecCertificateCopyData(expected);
+    CFDataRef actual = selected ? SecCertificateCopyData(selected) : NULL;
+    int equal = !copied && wanted && actual && CFEqual(wanted, actual);
+    stage(policy ? "policy-search-exact-certificate"
+                 : "plain-search-exact-certificate",
+          equal ? 0 : errSecItemNotFound, equal);
+    if (wanted)
+      CFRelease(wanted);
+    if (actual)
+      CFRelease(actual);
+    if (selected)
+      CFRelease(selected);
+  } else if (!status) {
+    stage("identity-search-unexpected-type", errSecParam, 0);
+  }
+  if (result)
+    CFRelease(result);
+  CFRelease(query);
+  CFRelease(search);
+}
 int main(int argc, char **argv) {
   const char *intent = getenv("PACER_OWN_CERT_ORDER_CONTROL"),
              *actions = getenv("GITHUB_ACTIONS"),
@@ -139,6 +191,15 @@ int main(int argc, char **argv) {
   status = SecIdentityCopyPrivateKey(identity, &private_key);
   stage("copy-private-key-handle-only", status, private_key != NULL);
   success = success && status == 0 && private_key != NULL;
+  policy_search("plain-identity-search", keychain, certificate, NULL);
+  SecPolicyRef policy =
+      SecPolicyCreateWithProperties(kSecPolicyAppleCodeSigning, NULL);
+  stage("create-code-signing-policy", policy ? 0 : errSecParam, policy != NULL);
+  if (policy) {
+    policy_search("code-signing-identity-search", keychain, certificate,
+                  policy);
+    CFRelease(policy);
+  }
   if (private_key)
     CFRelease(private_key);
   CFRelease(identity);
