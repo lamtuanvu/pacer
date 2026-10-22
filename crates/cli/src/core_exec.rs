@@ -34,6 +34,8 @@ pub fn resolve_core(env: &HashMap<String, String>, exe: &Path) -> Result<Vec<Str
 
 pub fn child_env(env: &HashMap<String, String>, exe: &Path) -> HashMap<String, String> {
     let mut child = env.clone();
+    child.remove("BUN_OPTIONS");
+    child.remove("NODE_OPTIONS");
     child
         .entry("PACER_BIN".into())
         .or_insert_with(|| exe.to_string_lossy().into_owned());
@@ -45,6 +47,7 @@ pub fn exec_core(core: &[String], args: &[String], env: &HashMap<String, String>
         Command::new(program)
             .args(prefix)
             .args(args)
+            .env_clear()
             .envs(env)
             .exec()
     } else {
