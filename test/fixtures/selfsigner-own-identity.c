@@ -5,6 +5,7 @@
 #include <Security/Security.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -71,6 +72,90 @@ static void policy_search(const char *name, SecKeychainRef keychain,
   CFRelease(query);
   CFRelease(search);
 }
+
+/* Read-only ambient metadata: never emit paths or inspect other items. */
+static void keychain_scope(SecKeychainRef own) {
+  CFArrayRef list = NULL;
+  OSStatus status = SecKeychainCopySearchList(&list);
+  int member = 0;
+  if (!status && list)
+    member =
+        CFArrayContainsValue(list, CFRangeMake(0, CFArrayGetCount(list)), own);
+  stage("own-keychain-in-search-list", status, member);
+  if (list)
+    CFRelease(list);
+  SecKeychainRef current = NULL;
+  status = SecKeychainCopyDefault(&current);
+  stage("own-keychain-is-default", status,
+        !status && current && CFEqual(current, own));
+  if (current)
+    CFRelease(current);
+}
+/* Controlled in-memory observation, not a signing acceptance criterion.
+ * Disable network before any evaluation; do not install anchors or settings. */
+static void chain_probe(SecKeychainRef own, SecCertificateRef certificate,
+                        SecPolicyRef policy) {
+  SecTrustRef trust = NULL;
+  OSStatus status = SecTrustCreateWithCertificates(certificate, policy, &trust);
+  stage("chain-create-trust", status, trust != NULL);
+  if (status || !trust) {
+    if (trust)
+      CFRelease(trust);
+    return;
+  }
+  status = SecTrustSetNetworkFetchAllowed(trust, false);
+  stage("chain-disable-network", status, status == 0);
+  if (status) {
+    CFRelease(trust);
+    return;
+  }
+  CFArrayRef search =
+      CFArrayCreate(NULL, (const void **)&own, 1, &kCFTypeArrayCallBacks);
+  if (!search) {
+    stage("chain-own-keychain", errSecAllocate, 0);
+    CFRelease(trust);
+    return;
+  }
+  status = SecTrustSetKeychains(trust, search);
+  CFRelease(search);
+  stage("chain-own-keychain", status, status == 0);
+  if (status) {
+    CFRelease(trust);
+    return;
+  }
+  CFErrorRef error = NULL;
+  Boolean valid = SecTrustEvaluateWithError(trust, &error);
+  printf("{\"stage\":\"chain-evaluate-network-off\",\"valid\":%d,\"error_"
+         "code\":%ld}\n",
+         (int)valid, error ? (long)CFErrorGetCode(error) : 0L);
+  if (error)
+    CFRelease(error);
+  CFArrayRef chain = SecTrustCopyCertificateChain(trust);
+  CFIndex count = chain ? CFArrayGetCount(chain) : 0;
+  CFDataRef expected = SecCertificateCopyData(certificate);
+  int first_equal = 0, last_equal = 0;
+  if (count && expected) {
+    CFDataRef first = SecCertificateCopyData(
+        (SecCertificateRef)CFArrayGetValueAtIndex(chain, 0));
+    CFDataRef last = SecCertificateCopyData(
+        (SecCertificateRef)CFArrayGetValueAtIndex(chain, count - 1));
+    first_equal = first && CFEqual(first, expected);
+    last_equal = last && CFEqual(last, expected);
+    if (first)
+      CFRelease(first);
+    if (last)
+      CFRelease(last);
+  }
+  printf("{\"stage\":\"chain-shape\",\"count\":%ld,\"first_own\":%d,\"last_"
+         "own\":%d}\n",
+         (long)count, first_equal, last_equal);
+  if (expected)
+    CFRelease(expected);
+  if (chain)
+    CFRelease(chain);
+  CFRelease(trust);
+}
+
 int main(int argc, char **argv) {
   const char *intent = getenv("PACER_OWN_CERT_ORDER_CONTROL"),
              *actions = getenv("GITHUB_ACTIONS"),
@@ -157,6 +242,7 @@ int main(int argc, char **argv) {
     CFRelease(certificate);
     return 1;
   }
+  keychain_scope(keychain);
   SecIdentityRef identity = NULL;
   status = SecIdentityCreateWithCertificate(keychain, certificate, &identity);
   stage("identity-from-own-certificate", status, identity != NULL);
@@ -198,6 +284,7 @@ int main(int argc, char **argv) {
   if (policy) {
     policy_search("code-signing-identity-search", keychain, certificate,
                   policy);
+    chain_probe(keychain, certificate, policy);
     CFRelease(policy);
   }
   if (private_key)
