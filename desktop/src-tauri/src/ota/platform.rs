@@ -251,6 +251,13 @@ impl OwnedJob {
             }
             self.fixture_ledger(trust, &registration, "retired", None)?;
         }
+        // Bootout completion must use the state after exact exit and retirement,
+        // not a manager snapshot captured immediately after launchctl returned.
+        let after = if change == JobChange::Bootout {
+            self.observe(trust)?
+        } else {
+            after
+        };
         match change {
             JobChange::Bootstrap if after.is_none() => Err(OtaError::Identity),
             JobChange::Bootout if after.is_some() => Err(OtaError::Identity),
