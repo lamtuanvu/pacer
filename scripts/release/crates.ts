@@ -9,6 +9,7 @@ interface Publishing {
   crates: Crate[];
   package: (crate: Crate) => Promise<string>;
   publishedChecksum: (crate: Crate) => Promise<string | null>;
+  dryRun: (crate: Crate) => Promise<void>;
   publish: (crate: Crate) => Promise<void>;
 }
 
@@ -45,6 +46,7 @@ export async function publishPluginCrates(options: Publishing): Promise<void> {
       if (published !== checksum) throw Error(`${crate.name} ${crate.version} is already published with different bytes; bump its version`);
       continue;
     }
+    await options.dryRun(crate);
     await options.publish(crate);
   }
 }
@@ -97,8 +99,11 @@ if (import.meta.main) {
       if (sha256Hex(bytes) !== checksum) throw Error("Published crate archive checksum mismatch");
       return crateContentHash(bytes);
     },
+    dryRun: async crate => {
+      await run(["cargo", "publish", "--locked", "-p", crate.name, "--dry-run"]);
+    },
     publish: async crate => {
-      await run(["cargo", "publish", "--locked", "-p", crate.name, ...(publish ? [] : ["--dry-run"])]);
+      if (publish) await run(["cargo", "publish", "--locked", "-p", crate.name]);
     },
   });
 }
