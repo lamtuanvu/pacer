@@ -12,6 +12,22 @@ pub enum CoreMissing {
     InvalidArgv,
     #[error("pacer-core is missing next to {0}. Reinstall pacer")]
     Missing(String),
+    #[error("Reinstall the complete desktop app to restore its bundled core")]
+    Bundled,
+}
+
+pub fn is_bundled_executable(exe: &Path) -> bool {
+    let resolved = exe.canonicalize().unwrap_or_else(|_| exe.to_path_buf());
+    let parts: Vec<_> = resolved
+        .components()
+        .map(|part| part.as_os_str().to_string_lossy().into_owned())
+        .collect();
+    parts.windows(4).any(|parts| {
+        parts[0].to_ascii_lowercase().ends_with(".app")
+            && parts[1].eq_ignore_ascii_case("Contents")
+            && (parts[2].eq_ignore_ascii_case("Resources")
+                || parts[2].eq_ignore_ascii_case("MacOS"))
+    })
 }
 
 pub fn resolve_core(env: &HashMap<String, String>, exe: &Path) -> Result<Vec<String>, CoreMissing> {
@@ -27,6 +43,8 @@ pub fn resolve_core(env: &HashMap<String, String>, exe: &Path) -> Result<Vec<Str
     let core = exe.with_file_name("pacer-core");
     if core.is_file() {
         Ok(vec![core.to_string_lossy().into_owned()])
+    } else if is_bundled_executable(exe) {
+        Err(CoreMissing::Bundled)
     } else {
         Err(CoreMissing::Missing(exe.display().to_string()))
     }
