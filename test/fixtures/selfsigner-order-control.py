@@ -114,9 +114,9 @@ else:
             run(stage, ['/usr/bin/security'] + args)
         sha1 = fingerprint()
         run('own-keychain-settings', ['/usr/bin/security', 'show-keychain-info', keychain])
-        def sign(label, selector, keychain_first):
+        def sign(label, selector, keychain_first, source='/usr/bin/true'):
             target = root / label
-            shutil.copyfile('/usr/bin/true', target)
+            shutil.copyfile(source, target)
             target.chmod(0o700)
             options = ['--keychain', keychain, '--sign', selector] if keychain_first else ['--sign', selector, '--keychain', keychain]
             result = run(label, ['/usr/bin/codesign', '--force', '--timestamp=none'] + options + ['--identifier', 'dev.pacer.cli', str(target)], False)
@@ -134,6 +134,16 @@ else:
         run('immediate-own-unlock', ['/usr/bin/security', 'unlock-keychain', '-p', 'test', keychain])
         results['afterUnlockOriginalSha'] = sign('F-unlocked-original-sha', sha1, False)
         results['afterUnlockKeychainFirstSha'] = sign('G-unlocked-keychain-first-sha', sha1, True)
+        # Same identity/keychain/selection; contrast platform bytes with user-target code.
+        source = root / 'owned.c'
+        owned = root / 'owned-fixture'
+        source.write_text('int main(void) { return 0; }\n')
+        run('compile-owned-target', ['/usr/bin/clang', '-x', 'c', str(source), '-o', str(owned)])
+        run('target-architecture-metadata', ['/usr/bin/file', '/usr/bin/true', str(owned)])
+        run('target-contrast-own-unlock', ['/usr/bin/security', 'unlock-keychain', '-p', 'test', keychain])
+        results['ownedOriginalSha'] = sign('H-owned-original-sha', sha1, False, owned)
+        results['ownedKeychainFirstSha'] = sign('I-owned-keychain-first-sha', sha1, True, owned)
+        results['platformAfterOwnedSha'] = sign('J-platform-after-owned-sha', sha1, True)
         write_receipt('comparison.json', results)
         if results['keychainFirstSha'] != 0:
             raise RuntimeError('keychain-first SHA control did not resolve signing failure')
