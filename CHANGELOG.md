@@ -4,6 +4,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-22
+
 ### Fixed
 
 - Restore desktop capture-worker enrollment during client registration so native live diagnostics can capture owned windows.
