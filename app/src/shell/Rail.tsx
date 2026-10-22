@@ -13,7 +13,7 @@ const ITEMS: { name: "overview" | "review" | "sessions"; label: string; to: Rout
   { name: "sessions", label: "Tasks", to: routes.tasks(), icon: "sessions", count: c => c.running, words: "running", tone: "info" },
 ];
 const SETTINGS = new Set(["settings", "hosts", "add-executor"]);
-/** 56 px icon rail. Setup readiness comes from the shared service checklist. */
+/** 40 px desktop icon rail; touch-sized bottom navigation on narrow screens. Setup readiness comes from the shared service checklist. */
 export function Rail({ route, counts, narrow = false }: { route: Route; counts: Counts | null; narrow?: boolean }) {
   const { checklist } = useContext(SetupContext);
   const setupOpen = checklist ? !checklist.complete : (counts?.setupOpen ?? 0) > 0;

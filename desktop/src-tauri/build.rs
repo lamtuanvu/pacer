@@ -78,6 +78,9 @@ fn main() {
             "session_ready",
             "desktop_version",
             "native_validation_setup",
+            "windowMinimize",
+            "windowToggleMaximize",
+            "windowClose",
         ]),
     ))
     .expect("build desktop shell");

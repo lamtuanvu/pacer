@@ -1,7 +1,7 @@
 import type { JSX } from "preact";
 
 export interface TrafficLightsProps {
-  /** Show the three controls (window running in Tauri). When false, renders an empty reserved space. */
+  /** Show the three controls (window running in Tauri). When false, renders no controls. */
   desktop: boolean;
   onClose?: () => void;
   onMinimize?: () => void;
@@ -11,7 +11,7 @@ export interface TrafficLightsProps {
 /**
  * macOS-style window controls for a custom (undecorated) titlebar.
  * Renders the three rounded "traffic light" buttons; when `desktop` is false it
- * reserves the same width so the titlebar layout is stable in a regular browser.
+ * renders no controls. The shell omits this component in a regular browser.
  */
 export function TrafficLights({
   desktop,

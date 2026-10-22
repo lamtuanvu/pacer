@@ -4,6 +4,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Fixed
+
+- Restore a compact left navigation rail and unify the desktop page header with custom window controls, removing duplicate titlebar rows while preserving touch navigation.
+
 ## [0.7.1] - 2026-10-22
 
 ### Fixed
