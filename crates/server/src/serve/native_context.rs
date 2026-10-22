@@ -23,7 +23,11 @@ pub struct NativeContext {
     bundle: NativeBundle,
     listener: NativeListener,
     bootstrap: String,
+    home: std::path::PathBuf,
+    user_home: std::path::PathBuf,
+    port: u16,
     stop: Arc<Notify>,
+    helper_slots: Arc<tokio::sync::Semaphore>,
 }
 impl NativeContext {
     pub fn prepare(
@@ -47,7 +51,13 @@ impl NativeContext {
             bundle,
             listener,
             bootstrap,
+            home: home.canonicalize()?,
+            user_home: std::env::var_os("HOME")
+                .map(std::path::PathBuf::from)
+                .ok_or_else(denied)?,
+            port,
             stop: Arc::new(Notify::new()),
+            helper_slots: Arc::new(tokio::sync::Semaphore::new(4)),
         })))
     }
     pub async fn shutdown_requested(&self) {
@@ -64,7 +74,7 @@ impl NativeContext {
             .stdin(Stdio::from(input));
         let child = command.spawn()?;
         // Only a currently owned, unreaped, signed child gets native admission.
-        self.trust.verify_child(&child, &self.bundle.core)?;
+        let generation = self.trust.verify_child(&child, &self.bundle.core)?;
         let descriptors = [self.listener.listener().as_raw_fd()];
         let bytes = sendmsg::<UnixAddr>(
             parent.as_raw_fd(),
@@ -76,14 +86,56 @@ impl NativeContext {
         if bytes != 1 {
             return Err(denied());
         }
-        let control = monitor(parent, self.stop.clone())?;
+        let (helpers, remote) = UnixStream::pair()?;
+        socket2::SockRef::from(&helpers).set_nosigpipe(true)?;
+        let helper_descriptors = [remote.as_raw_fd()];
+        if sendmsg::<UnixAddr>(
+            parent.as_raw_fd(),
+            &[IoSlice::new(b"C")],
+            &[ControlMessage::ScmRights(&helper_descriptors)],
+            MsgFlags::empty(),
+            None,
+        )? != 1
+        {
+            return Err(denied());
+        }
+        let broker = super::native_helper::Broker {
+            trust: self.trust.clone(),
+            home: self.home.clone(),
+            user_home: self.user_home.clone(),
+            port: self.port,
+            root: self.bundle.owner.clone(),
+            front: self.bundle.front.clone(),
+            generation,
+            slots: self.helper_slots.clone(),
+        };
+        let helpers = tokio::spawn(broker.run(helpers));
+        let control = monitor_with_helpers(parent, self.stop.clone(), Some(helpers))?;
         Ok((child, control))
     }
 }
+#[cfg(test)]
 fn monitor(parent: UnixStream, stop: Arc<Notify>) -> io::Result<JoinHandle<()>> {
+    monitor_with_helpers(parent, stop, None)
+}
+struct Helpers(Option<JoinHandle<()>>);
+impl Drop for Helpers {
+    fn drop(&mut self) {
+        if let Some(task) = &self.0 {
+            task.abort();
+        }
+    }
+}
+fn monitor_with_helpers(
+    parent: UnixStream,
+    stop: Arc<Notify>,
+    helpers: Option<JoinHandle<()>>,
+) -> io::Result<JoinHandle<()>> {
+    let helpers = Helpers(helpers);
     parent.set_nonblocking(true)?;
     let mut channel = tokio::net::UnixStream::from_std(parent)?;
     Ok(tokio::spawn(async move {
+        let _helpers = helpers;
         let mut request = [0u8; 1];
         if matches!(channel.read(&mut request).await, Ok(1)) && request == *b"S" {
             stop.notify_one();

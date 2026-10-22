@@ -131,6 +131,26 @@ export function receiveParentListener(): number {
     return fd;
   } catch (error) { closeSync(fd); throw error; }
 }
+/** Private startup only, after authenticating fd0 and receiving the listener. */
+export function receiveParentHelperChannel(): number {
+  const fd = (shim ??= descriptorShim()).symbols.pacer_receive_helper_channel(0);
+  if (fd < 0) throw Error("Native parent helper channel unavailable");
+  return fd;
+}
+/** The channel owner closes it exactly once on failure; successful rights transfer
+ * ownership to the caller. No process signals or caller-selected argv are used. */
+export function requestParentHelper(channel: number, request: {
+  schema: 1; path: string; sha256: string; version: string;
+}): { pid: number; stdin: number; stdout: number; control: number } {
+  const bytes = Buffer.from(JSON.stringify(request));
+  if (!bytes.length || bytes.length > 8192) throw Error("Native helper request unavailable");
+  const descriptors = new Int32Array([-1, -1, -1, -1]);
+  const pid = (shim ??= descriptorShim()).symbols.pacer_request_helper(
+    channel, ptr(bytes), bytes.length, ptr(descriptors),
+  );
+  if (pid <= 1) throw Error("Native parent helper spawn unavailable");
+  return { pid, stdin: descriptors[0], stdout: descriptors[1], control: descriptors[2] };
+}
 function readOwner(path: string) {
   const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   try {
