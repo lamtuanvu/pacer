@@ -77,6 +77,7 @@ fn main() {
             "session_expired",
             "session_ready",
             "desktop_version",
+            "desktop_update_connection",
             "native_validation_setup",
             "windowMinimize",
             "windowToggleMaximize",

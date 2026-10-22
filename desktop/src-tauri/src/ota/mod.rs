@@ -1,5 +1,6 @@
 //! Native update contracts. Serialized records are descriptions, never OS authority.
 pub mod adoption;
+pub mod bootstrap_identity;
 pub mod control;
 #[cfg(any(test, feature = "ota-fixture"))]
 pub mod fixture_fault;

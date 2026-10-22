@@ -1,11 +1,11 @@
 import type { ComponentChildren } from "preact";
-import { useRef, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import type { TaskDetail } from "../../../src/core/task-detail";
 import { executorLabel, taskOutcome, taskStatus } from "../../../src/view-model/words";
 import { clock } from "../../../src/view-model/time";
 import { Button, ButtonLink } from "../ds/Button";
 import { Disclosure, Field, TextArea } from "../ds/Controls";
-import { EmptyState, LoadingState } from "../ds/Patterns";
+import { EmptyState, LoadingState, Tabs } from "../ds/Patterns";
 import { SectionHeading } from "../ds/SectionHeading";
 import { StatusPill } from "../ds/StatusPill";
 import { useActions } from "../data/action-context";
@@ -16,20 +16,22 @@ import { VerdictPanel } from "./review/VerdictPanel";
 import { parseDiff } from "../model/diff";
 import { Diff } from "./review/Diff";
 import type { Verdict } from "./review/model";
-import { Page } from "../ds/Page";
+import { Page, PageHeader, PageTitle } from "../ds/Page";
 
 export function resultSummary(task: TaskDetail): string {
+  if (task.state === "queued") return "Waiting to start. Follow this task in Session.";
+  if (task.state === "running") return "Execution is in progress. Follow output in Session.";
   const text = task.summary?.trim();
   if (text && text.split("\n").length <= 8 && !/I'll start|Let me (?:read|look|check|explore)/i.test(text)) return text;
   return task.state === "done" ? "Execution finished. Inspect the checks and changes below." : task.state === "partial" ? "Execution ended with incomplete work." : "Execution ended. Inspect the result below.";
 }
-export function TaskResultView({ task, verdict, changes, question, onChanges }: {
-  task: TaskDetail; verdict?: ComponentChildren; changes?: ComponentChildren; question?: ComponentChildren; onChanges?: () => void;
+export function TaskResultView({ task, verdict, changes, question, onChanges, embedded = false }: {
+  task: TaskDetail; verdict?: ComponentChildren; changes?: ComponentChildren; question?: ComponentChildren; onChanges?: () => void; embedded?: boolean;
 }) {
   const problem = task.acceptance.state === "failed" || ["partial","failed","limit"].includes(task.state);
   const openReview = !!task.reviewRequest && !task.review && !task.resolved && !task.dismissed && !task.retriedBy;
-  return <Page width="wide">
-    <header className="pc-page-header"><div className="pc-task-result__heading"><SectionHeading>{task.fullTitle ?? task.title ?? task.goal}</SectionHeading><StatusPill status={taskStatus(task)} /></div><p className="muted">{task.repo.label} · {executorLabel(task.executor)}{task.endedAt ? ` · finished ${clock(task.endedAt, Date.now() / 1000)}` : ""}</p></header>
+  return <Page width="full" embedded={embedded}>
+    {!embedded && <TaskHeading task={task}/>}
     <div className="pc-page-columns"><div className="pc-page-columns__main"><div className="pc-stack pc-stack--section">
       <section className="pc-section"><SectionHeading>Result</SectionHeading><p>{resultSummary(task)}</p><p className="muted">{taskOutcome(task).label}</p></section>
       <section className="pc-section"><SectionHeading>Checks &amp; changes</SectionHeading>
@@ -90,7 +92,7 @@ function TaskResultLoaded({ task, reload }: { task: TaskDetail; reload: () => vo
       reload();
     } finally { inFlight.current=false;setPending(false); }
   }
-  const canReview = state.features.ops.has("task.review") && !task.review && !task.resolved && !task.dismissed && !task.retriedBy;
+  const canReview = !["queued", "running"].includes(task.state) && state.features.ops.has("task.review") && !task.review && !task.resolved && !task.dismissed && !task.retriedBy;
   const panel = canReview ? <VerdictPanel recovery={task.acceptance.state === "failed" || ["partial","failed","limit"].includes(task.state)} task={task} note={note} kind={kind} executor={executor} noteFor={noteFor} pending={pending} noteRef={noteRef}
     onNote={setNote} onKind={setKind} onExecutor={setExecutor} onOpenNote={v=>{setNoteFor(v);queueMicrotask(()=>noteRef.current?.focus());}} onCancel={()=>setNoteFor(null)} onSubmit={v=>void submit(v)} /> : undefined;
   const isQuestion = task.state === "needs_input" && task.question && task.question.answer === undefined && !task.retriedBy && !task.dismissed;
@@ -99,12 +101,36 @@ function TaskResultLoaded({ task, reload }: { task: TaskDetail; reload: () => vo
     try { const result=await runner.run(`answer:${task.id}`,{label:"Answer",op:"task.answer",params:{id:task.id,text:answer,expect_rev:task.rev}});setMessage(result.status==="error"||result.status==="handled"?result.message:"Answer sent.");reload(); }
     finally {inFlight.current=false;setPending(false);}
   }}>Send answer</Button></> : undefined;
-  return <><TaskResultView task={task} verdict={panel} question={question} onChanges={()=>void loadChanges()} changes={loadingChanges ? <LoadingState label="Loading changes…"/> : changesError ? <p role="status">{changesError}</p> : changes ? <ResultChanges {...changes}/> : undefined}/><p role="status" aria-live="polite">{message}</p></>;
+  return <><TaskResultView embedded task={task} verdict={panel} question={question} onChanges={()=>void loadChanges()} changes={loadingChanges ? <LoadingState label="Loading changes…"/> : changesError ? <p role="status">{changesError}</p> : changes ? <ResultChanges {...changes}/> : undefined}/><p role="status" aria-live="polite">{message}</p></>;
 }
+export function TaskHeading({ task }: { task: TaskDetail }) {
+  const title = task.title?.trim() || task.fullTitle?.trim() || task.goal;
+  return <PageHeader heading={<PageTitle title={title}>{title}</PageTitle>} status={<StatusPill status={taskStatus(task)}/>} metadata={<>{task.repo.label} · {executorLabel(task.executor)}{task.endedAt ? ` · finished ${clock(task.endedAt, Date.now() / 1000)}` : ""}</>}/>;
+}
+
+export function TaskDetailFrame({ task, query, tab, onTab, children }: {
+  task: TaskDetail; query: RouteQuery; tab: string; onTab: (value: string) => void; children: ComponentChildren;
+}) {
+  const id = `task-${task.id}`;
+  return <Page width="full">
+    <div className="pc-detail-navigation">
+      <nav aria-label="Task navigation"><ButtonLink href={withQuery("#/tasks", query)} variant="quiet" size="sm"><span aria-hidden="true">‹</span> Tasks</ButtonLink></nav>
+      <TaskHeading task={task}/>
+      <Tabs label="Task views" id={id} value={tab} options={[{value:"summary",label:"Summary"},{value:"session",label:"Session"}]} onChange={onTab}/>
+    </div>
+    <div role="tabpanel" id={`${id}-${tab}-panel`} aria-labelledby={`${id}-${tab}-tab`} tabIndex={0} className="pc-detail-panel">{children}</div>
+  </Page>;
+}
+
 export function TaskRoute({ id, query }: { id: string; query: RouteQuery }) {
-  const [showSession, setShowSession] = useState(false);
+  const [chosenTab, setTab] = useState<string>();
   const task = useQuery<TaskDetail>("task.get", {id});
+  useEffect(() => {
+    if (task.data && chosenTab === undefined) setTab(["queued", "running"].includes(task.data.state) ? "session" : "summary");
+  }, [task.data, chosenTab]);
   if (!task.data) return task.error ? <EmptyState title="Could not load task" description="Try refreshing the page."/> : <LoadingState label="Loading task…"/>;
-  if (["queued","running"].includes(task.data.state) || showSession) return <>{showSession && <Button variant="quiet" onClick={()=>setShowSession(false)}>Back to result</Button>}<SessionRoute id={id}/></>;
-  return <><div className="row-actions"><ButtonLink href={withQuery("#/tasks",query)} size="sm">Back to Tasks</ButtonLink><Button variant="quiet" onClick={()=>setShowSession(true)}>Session details</Button></div><TaskResultLoaded key={id} task={task.data} reload={task.reload}/></>;
+  const tab = chosenTab ?? (["queued", "running"].includes(task.data.state) ? "session" : "summary");
+  return <TaskDetailFrame task={task.data} query={query} tab={tab} onTab={setTab}>
+    {tab === "session" ? <SessionRoute id={id} embedded/> : <TaskResultLoaded key={id} task={task.data} reload={task.reload}/>}
+  </TaskDetailFrame>;
 }

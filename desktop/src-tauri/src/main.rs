@@ -47,6 +47,7 @@ struct Shell {
     #[cfg(feature = "ota-fixture")]
     fixture_tray_auth: Mutex<Option<Url>>,
     native: Mutex<Option<Arc<pacer_desktop::ota::control::NativeConnection>>>,
+    native_update_error: Mutex<Option<pacer_desktop::ota::OtaError>>,
     navigation: Mutex<pacer_desktop::ota::control::NavigationState>,
     adoption: Mutex<Option<pacer_desktop::ota::control::AdoptionReconnectPlan>>,
     maintenance: AtomicBool,
@@ -75,6 +76,7 @@ impl Default for Shell {
             #[cfg(feature = "ota-fixture")]
             fixture_tray_auth: Mutex::new(None),
             native: Mutex::new(None),
+            native_update_error: Mutex::new(None),
             navigation: Mutex::new(Default::default()),
             adoption: Mutex::new(None),
             maintenance: AtomicBool::new(false),
@@ -139,6 +141,14 @@ fn session_expired(window: WebviewWindow, app: AppHandle) -> Result<(), String> 
 fn desktop_version(window: WebviewWindow, app: AppHandle) -> Result<String, String> {
     authorized(&window, &app)?;
     Ok(app.package_info().version.to_string())
+}
+#[tauri::command]
+fn desktop_update_connection(window: WebviewWindow, app: AppHandle) -> Result<Value, String> {
+    authorized(&window, &app)?;
+    let shell = app.state::<Shell>();
+    let alive = shell.native.lock().unwrap().as_ref().is_some_and(|native| native.alive());
+    let error = *shell.native_update_error.lock().unwrap();
+    Ok(logic::desktop_update_connection(pacer_desktop::ota::trust::ReleaseTrust::configured().is_some(), alive, error))
 }
 #[tauri::command]
 fn session_ready(
@@ -675,6 +685,7 @@ fn activate(app: &AppHandle, origin: &str, mut auth: Url) -> Result<(), String> 
                 .permission("allow-session-expired")
                 .permission("allow-session-ready")
                 .permission("allow-desktop-version")
+                .permission("allow-desktop-update-connection")
                 .permission("allow-native-validation-setup")
                 .permission("allow-windowMinimize")
                 .permission("allow-windowToggleMaximize")
@@ -1090,6 +1101,7 @@ fn main() {
             session_expired,
             session_ready,
             desktop_version,
+            desktop_update_connection,
             native_validation_setup,
             windowMinimize,
             windowToggleMaximize,

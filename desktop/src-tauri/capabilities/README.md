@@ -4,6 +4,7 @@ with local pages excluded:
 
 - `service-<port>`, main window only: `allow-setLaunchAtLogin`, `allow-setTheme`,
   `allow-notifyRoute`, `allow-session-expired`, `allow-session-ready`,
+  `allow-desktop-update-connection` (read-only native OTA connection state and public failure reason),
   `allow-desktop-version` (read-only native app version), `allow-native-validation-setup`,
   `allow-windowMinimize`, `allow-windowToggleMaximize`, `allow-windowClose`,
   `core:window:allow-start-dragging` and `core:window:allow-internal-toggle-maximize`.

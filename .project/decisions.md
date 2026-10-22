@@ -6,6 +6,7 @@ This log holds dated governance decisions, exceptions and superseded rules. Arch
 
 | Date | Decision | Rules affected | Decided by | Source |
 |------|----------|----------------|------------|--------|
+| 2026-10-22 | Compact UI density: desktop controls and recurring rows use shared primitives and compact tokens; Delegate is the visual reference. Settings, touch targets and multiline fields retain shared density variants. Fix geometry centrally and verify it in the browser. Amendment 0.9.0, adopted by maintainer merge. | UI-26; UI-19–22; constitution 0.9.0 | @lamtuanvu (approved plan in conversation; amendment accepted on merge) | Compact UI request and approved implementation plan, 2026-10-22 |
 | 2026-10-21 | Unified agent live control uses typed harness adapters, shipping desktop self-capture, authenticated service coordination and evidence with explicit native prerequisites. No governance exception is granted. | ARCH-1–3, ARCH-9, ARCH-12–14, API-1–5, SEC-1–5/7–8, CT-11 | @lamtuanvu (design approved in conversation) | [ADR agent live control](../docs/decisions/0002-agent-live-control.md) |
 | 2026-10-21 | Scoped merge-only exception for #229: the maintainer explicitly directed merge after disclosure of the failed native OTA preparation/live matrix and unverified native/VoiceOver coverage. Existing FAIL/UNVERIFIED reviews remain honest; this exception permits merge despite the readiness verdict gate and incomplete current-head review/live evidence after main integration. It expires before the next desktop release: resolve native failures and complete the affected live matrix and native accessibility validation before enabling or shipping desktop OTA. This does not approve a release or claim validation passed. | CT-11, UI-18, UI-24; constitution amendment 0.4.0 before-merge evidence requirement | @lamtuanvu | #229; explicit maintainer instruction “merge it” following the scoped exception request |
 | 2026-10-18 | Governance initialized in `.project/` (constitution 0.1.0). It imports existing agreements from AGENTS.md, CONTRIBUTING.md, GOVERNANCE.md, SECURITY.md, docs/protocol.md, the ADRs and CI workflows as established. New rules are labeled Proposed. All reviewers are advisory. | all | Drafted for the maintainer's review; not yet accepted | Governance initialization |
@@ -28,6 +29,15 @@ Design approved in conversation on 2026-10-19; adopted on 2026-10-19 when the ma
 Draft-readiness clarification in the same proposed amendment: require current report metadata and honest verdicts on drafts, but enforce all-PASS review readiness after leaving draft. Rerun CI on both draft transitions. This lets draft code tests run without misrepresenting incomplete native/manual evidence; no completion criterion or pre-merge requirement is waived.
 
 ## Exceptions
+
+### VO-TEMP-2026-10 — manual VoiceOver validation paused
+
+Granted by @lamtuanvu on 2026-10-22 through the explicit project-wide instruction to temporarily turn off the VoiceOver requirement because validation was consuming excessive time. Applies to all Pacer UI work, including Diagnostics repair. Expires on **2026-11-22**, or earlier if the maintainer reinstates it.
+
+During this exception, the manual VoiceOver/spoken-output portion of UI-2 is optional and must not block completion, UI-24 report readiness or merge solely because it was not exercised. Agents must not spend time activating or troubleshooting VoiceOver unless explicitly requested. Record the check as **WAIVED (VO-TEMP-2026-10)**, never as a tested PASS; historical UNVERIFIED observations remain accurate. Reports may have an overall PASS when every remaining applicable required check passes, while listing this waiver separately.
+
+All other accessibility requirements remain mandatory: accessible names and semantics, keyboard/focus, contrast, non-color status, polite live regions and reduced motion. Browser/native/live behavior, screenshots, automated checks and independent reviews remain required for their applicable scopes. This is a temporary validation exception under the constitution's exception policy, not a permanent rule amendment or a runtime feature change.
+
 
 | Date | Rule | Scope | Granted by | Expires | Reason |
 |------|------|-------|------------|---------|--------|

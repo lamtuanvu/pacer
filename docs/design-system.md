@@ -8,7 +8,9 @@ Author `app/src/ds/tokens.json`; `app/tokens-gen.ts` validates the explicit colo
 
 All themes use one type scale. `space-2.5` supplies the missing 10px inset; control tokens specify compact 28px, normal 44px and touch 48px minima. Semantic foreground/background pairs carry statuses. Brand identity tokens are separate from status colors. The warning and information navigation badges use the tested semantic pairs, and text on tinted surfaces uses `ink-secondary`.
 
-`DensityProvider value="compact"` scopes the tray, including button dimensions, list rows, pills and meters. The normal app uses the default density. `NarrowContext`, owned by DS and reexported by shell for compatibility, selects touch density for narrow/repository-scoped views. Compact rows preserve the same type scale. `ListRow` also accepts an explicit density when a presentation needs it. Screens must not override primitive typography or control dimensions to create another density. Native fields inherit the same density; at narrow viewport widths the DS also supplies touch targets for dialogs mounted outside shell context, while explicit compact tray controls keep their compact size.
+Compact is the desktop default, including dialogs outside the shell. `DensityProvider value="compact"` also scopes the tray, including list rows, pills and meters. Buttons (all variants and button links), text inputs and selects share the 28px compact minimum, caption typography and medium radius; input padding fits that height and selects reserve room for their arrow. The top-bar Delegate is the reference control. Settings forms retain their shared 32px density; small settings actions remain 28px. Explicit `normal` density remains available at 44px for a documented need, rather than becoming a page-local override.
+
+`NarrowContext`, owned by DS and reexported by shell for compatibility, selects 48px touch targets for narrow/repository-scoped views. At viewport widths up to 560px, DS supplies touch targets and readable input typography even for dialogs mounted outside shell context. An explicit compact surface wrapper keeps the desktop tray compact at popover widths. Textareas retain their 96px minimum and vertical resize. `ListRow` also accepts an explicit density. Screens must not override primitive typography or control dimensions to create another density.
 
 ## Catalog and API contracts
 
@@ -31,7 +33,7 @@ All themes use one type scale. `space-2.5` supplies the missing 10px inset; cont
 | `Card` / `pc-card`, `ApprovalCard` | Native section props; ApprovalCard optional title/actions slots | Shared settings card CSS also works on native form/div containers. Review verdict uses ApprovalCard framing while VerdictPanel owns decisions and actions. Do not repeat the same heading in both wrapper and content. |
 | `Pagination` | Controlled `label`, zero-based `page`, `pageSize`, `total`, `onChange` | Overview lists. Uses canonical small Buttons with inherited density. Range is a polite live status; only available Previous/Next actions render. Native Tab/Enter/Space activation. Paging moves focus to the persistent labelled navigation region so disappearing boundary buttons do not lose focus. Empty lists omit navigation. Authored locally; no upstream adaptation. |
 | `LoadingState`, `EmptyState` | Loading label/updating; empty title/description/children | Shell connection, task/session/settings resources, Overview and Review clear states, tray connecting. Loading is a polite status with decorative pixel grid; reduced motion freezes it. Refreshing content remains mounted. Errors remain explicit adjacent alerts with existing retry actions. |
-| `Page`, `PageHeader`, `PageBody`, `PageColumns` | Named `standard`, `wide` or `full` page width; breadcrumb/identity/metadata/status/action slots; main and optional aside | Every routed app screen. Page owns maximum width, centering, responsive/safe-area gutters and page rhythm. PageHeader never invents another `h1`; the shell top bar remains the page title. Columns keep main before aside in DOM order and collapse centrally. Screen CSS must not redefine page width, centering or outer gutters. |
+| `Page`, `PageHeader`, `PageBody`, `PageColumns` | Named `standard`, `wide` or `full` page width; breadcrumb/identity/metadata/status/action slots; main and optional aside | Every routed app screen uses `full` to fill the available workspace. The `standard` and `wide` variants remain available for explicitly constrained compositions. Page owns width, centering, responsive/safe-area gutters and page rhythm. PageHeader never invents another `h1`; the shell top bar remains the page title. Columns keep main before aside in DOM order and collapse centrally. Screen CSS must not redefine page width, centering or outer gutters. |
 | `Stack`, `Cluster`, `Section`, `DisclosurePanel`, `ActionPanel` | Semantic compact/normal/section spacing and contained section/detail/action composition | Shared page composition. These are original local Preact components with no upstream adaptation. Consumers provide content and domain state; DS tokens own spacing, borders and responsive behavior. Specialized tables, diffs, terminal geometry and domain grids remain screen-owned. |
 | `SectionHeading`, `Pill`, `StatusPill`, `StatusGlyph` | Existing heading and semantic descriptor APIs | One section-heading type scale. Status descriptors come from `src/view-model/words.ts`; glyph and text accompany color. Color alone never encodes a result. |
 | `UsageMeter`, `AgentMark`, `Mark`, `Icon`, `Kbd`, `Tooltip` | Existing documented typed props in their modules | Specialized meter geometry, vendor identity, navigation, shortcuts and tooltips remain shared. A Kbd composed inside a button inherits the action foreground on a transparent surface, retaining the action contrast pair in both themes. Usage percentages are data, not ad-hoc style. Agent colors mirror shared identity descriptors in both themes. |
@@ -160,3 +162,22 @@ Each named button remains keyboard-focusable, with a token-based focus ring;
 visual dots sit inside larger hit areas, expanded for coarse pointers.
 Production consumer: `shell/TitleBar` inside `shell/TopBar`. No upstream source
 was copied for this component.
+
+### Task detail identity and navigation
+
+`PageTitle` renders a sentence-case `h2` using headline tokens, with layout ellipsis
+and a `title` attribute supplied by the consumer for the complete name.
+`PageHeader.heading` accepts this title instead of the default section heading.
+`Page embedded` removes outer page gutters and width constraints when a routed
+view is composed inside another page; it retains the page-body rhythm.
+Production consumers: task Summary and Session in `TaskResult`, and embedded
+`Session`. Standalone session rendering retains its existing header.
+
+Task details compose the canonical quiet `ButtonLink`, `PageHeader`, `StatusPill`
+and `Tabs` in a sticky navigation region. Both tabs retain the short task name,
+metadata and status. The full goal remains available in Brief. Tabs retain their
+roving focus, Left/Right/Home/End navigation and labelled tab panels. Active tasks
+initially select Session; completed tasks initially select Summary. Changing views
+does not change task identity or the scoped Tasks destination. The task list
+remembers its scroll offset for each repository/scope during the app session.
+No upstream component or license provenance changed.

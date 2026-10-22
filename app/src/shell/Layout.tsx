@@ -42,7 +42,7 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
         {narrow && route.name !== "setup" && topBar}
         <div aria-live="polite" role="status" className="pc-live-region">{!state.connected && state.snapshot && <div className="connection-bar">pacer isn't responding. Retrying…</div>}</div>
         <main id="main-content" tabIndex={-1} className={`pc-main${["settings","hosts","add-executor","sessions","setup"].includes(route.name)?" pc-main--canvas":""}`}>
-          {loading ? <Skeleton /> : outdated ? <section className="pc-notice"><SectionHeading>Update pacer to use this view</SectionHeading><p>This screen needs a newer pacer service. Run <code>pacer update</code>, then reload this page.</p></section> : <DensityContext.Provider value={SETTINGS.has(route.name) ? "settings" : "normal"}>{children}</DensityContext.Provider>}
+          {loading ? <Skeleton /> : outdated ? <section className="pc-notice"><SectionHeading>Update pacer to use this view</SectionHeading><p>This screen needs a newer pacer service. Run <code>pacer update</code>, then reload this page.</p></section> : <DensityContext.Provider value={SETTINGS.has(route.name) ? "settings" : "compact"}>{children}</DensityContext.Provider>}
         </main>
       </div>
     </div>

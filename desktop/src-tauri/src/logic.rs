@@ -1972,3 +1972,38 @@ pub fn fixture_tray_navigation(url: &Url, origin: &str) -> bool {
     local_origin(url).as_deref() == Some(origin)
         && matches!(url.path(), "/app/auth" | "/app/" | "/app/tray.html")
 }
+
+/// Public connection diagnostics never confer native update authority or expose paths.
+pub fn desktop_update_connection(
+    configured: bool,
+    alive: bool,
+    error: Option<pacer_desktop::ota::OtaError>,
+) -> serde_json::Value {
+    let (state, reason) = if !configured {
+        ("unsupported", None)
+    } else if alive {
+        ("available", None)
+    } else if let Some(error) = error {
+        ("unavailable", Some(if error == pacer_desktop::ota::OtaError::Identity { "service-identity" } else { "connection" }))
+    } else {
+        ("connecting", None)
+    };
+    serde_json::json!({ "state": state, "reason": reason })
+}
+
+#[cfg(test)]
+mod desktop_connection_tests {
+    use super::*;
+    use pacer_desktop::ota::OtaError;
+    #[test]
+    fn connection_failure_is_not_an_up_to_date_or_manual_only_state() {
+        assert_eq!(desktop_update_connection(true, false, Some(OtaError::Identity)), serde_json::json!({"state":"unavailable","reason":"service-identity"}));
+        assert_eq!(desktop_update_connection(true, false, Some(OtaError::Io)), serde_json::json!({"state":"unavailable","reason":"connection"}));
+    }
+    #[test]
+    fn live_authority_and_build_support_are_distinct_from_pending_connection() {
+        assert_eq!(desktop_update_connection(false, false, None)["state"], "unsupported");
+        assert_eq!(desktop_update_connection(true, false, None)["state"], "connecting");
+        assert_eq!(desktop_update_connection(true, true, Some(OtaError::Identity)), serde_json::json!({"state":"available","reason":null}));
+    }
+}

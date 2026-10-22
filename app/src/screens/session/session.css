@@ -1,30 +1,30 @@
 .pc-session,.pc-sessions-list{font-family:var(--font-sans);font-size:var(--type-body-size);line-height:var(--type-body-line);color:var(--ink);min-width:0}
 .pc-session p{margin:0}.pc-session code,.pc-session pre{font-family:var(--font-mono);font-size:var(--type-code-size);line-height:var(--type-code-line);overflow-wrap:normal;word-break:normal}
 .pc-session pre{white-space:pre;overflow:auto;margin:0;max-width:100%}.pc-session-muted{color:var(--ink-secondary);font-size:var(--type-caption-size)}
-.pc-session-breadcrumb{margin-bottom:var(--space-5)}
-.pc-session-header{display:flex;align-items:flex-start;gap:var(--space-3);padding:0 0 var(--space-6)}
+.pc-session-breadcrumb{margin-bottom:var(--space-3)}
+.pc-session-header{display:flex;align-items:flex-start;gap:var(--space-3);padding:0 0 var(--space-4)}
 .pc-session-heading{flex:1;min-width:0}.pc-session-identity{display:flex;flex-wrap:wrap;gap:var(--space-3);color:var(--ink-secondary);font-size:var(--type-caption-size)}
 .pc-session-title{margin:var(--space-2) 0;font-size:var(--type-headline-size);line-height:var(--type-headline-line);font-weight:var(--type-headline-weight);overflow-wrap:anywhere}
 .pc-session-meta{display:flex;flex-wrap:wrap;gap:var(--space-2) var(--space-4);color:var(--ink-secondary);font-size:var(--type-caption-size)}
 .pc-session-branch{display:block;margin-top:var(--space-2);color:var(--ink-secondary)}
 .pc-session-header-actions{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-3)}
-.pc-session-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,var(--size-260));gap:var(--space-8);align-items:start}
-.pc-session-main{min-width:0;display:flex;flex-direction:column;gap:var(--space-6)}
+.pc-session-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,var(--size-260));gap:var(--space-5);align-items:start}
+.pc-session-main{min-width:0;display:flex;flex-direction:column;gap:var(--space-4)}
 .pc-session-panel{min-width:0;min-height:var(--size-320)}
-.pc-session-aside{min-width:0;border-left:1px solid var(--line);padding-left:var(--space-6);display:flex;flex-direction:column;gap:var(--space-6)}
+.pc-session-aside{min-width:0;border-left:1px solid var(--line);padding-left:var(--space-4);display:flex;flex-direction:column;gap:var(--space-4)}
 .pc-session-aside section,.pc-session-brief section,.pc-session-report{display:flex;flex-direction:column;gap:var(--space-3);min-width:0}
-.pc-session-brief{display:flex;flex-direction:column;gap:var(--space-6)}
+.pc-session-brief{display:flex;flex-direction:column;gap:var(--space-4)}
 .pc-session-command,.pc-session-copy{display:flex;align-items:center;gap:var(--space-2);background:var(--surface-card);border:1px solid var(--line);border-radius:var(--radius-md);padding:var(--space-3);min-width:0}
 .pc-session-command code,.pc-session-copy code{flex:1;min-width:0}
-.pc-session-timeline{list-style:none;margin:0;padding:0}.pc-session-timeline li{display:grid;grid-template-columns:minmax(0,1fr);gap:var(--space-1);padding:var(--space-3) 0;border-bottom:1px solid var(--line);font-size:var(--type-caption-size)}
+.pc-session-timeline{list-style:none;margin:0;padding:0}.pc-session-timeline li{display:grid;grid-template-columns:minmax(0,1fr);gap:var(--space-1);padding:var(--space-2) 0;border-bottom:1px solid var(--line);font-size:var(--type-caption-size)}
 .pc-session-timeline li:first-child{padding-top:0}.pc-session-timeline time{color:var(--ink-secondary);font-variant-numeric:tabular-nums}.pc-session-timeline span{overflow-wrap:anywhere}
 .pc-session-empty{padding:var(--space-6);background:var(--surface-card);border:1px solid var(--line);border-radius:var(--radius-lg);min-height:var(--size-320);display:flex;align-items:center;justify-content:center;flex-direction:column;gap:var(--space-3)}
-.pc-session-log{margin-top:var(--space-5)}.pc-session-report{margin-bottom:var(--space-5)}.pc-session-changes{display:flex;flex-direction:column;gap:var(--space-3)}
+.pc-session-log{margin-top:var(--space-3)}.pc-session-report{margin-bottom:var(--space-5)}.pc-session-changes{display:flex;flex-direction:column;gap:var(--space-3)}
 .pc-session-notice:empty{display:none}.pc-session-notice:not(:empty){margin-bottom:var(--space-4)}
 .pc-session-follow-log{height:var(--size-520);overflow:auto}
 .pc-session-run{display:flex;flex-direction:column;align-items:flex-start;gap:var(--space-3);margin-bottom:var(--space-3)}
 @media(max-width:1000px){.pc-session-layout{grid-template-columns:minmax(0,1fr)}.pc-session-aside{border-left:0;border-top:1px solid var(--line);padding:var(--space-6) 0 0}.pc-session-timeline li{grid-template-columns:minmax(0,1fr) minmax(0,2fr);gap:var(--space-3)}}
-@media(max-width:767px){.pc-session-header{flex-wrap:wrap}.pc-session-heading{flex-basis:70%}.pc-session-header-actions{width:100%}.pc-session-layout{gap:var(--space-6)}}
+@media(max-width:767px){.pc-session-header{flex-wrap:wrap}.pc-session-heading{flex-basis:70%}.pc-session-header-actions{width:100%}.pc-session-layout{gap:var(--space-4)}}
 .pc-terminal-view{display:flex;flex-direction:column;gap:var(--space-3);min-width:0}.pc-terminal-frame{border:var(--stroke-focus) solid var(--line);border-radius:var(--radius-lg);overflow:hidden;background:var(--surface-page)}.pc-terminal-frame--control{border-color:var(--warn-fill)}
 .pc-terminal-pane{height:var(--size-520);overflow:hidden;position:relative;padding:0;min-width:0}.pc-terminal-mount{transform-origin:top left}.pc-terminal-mount .xterm{height:100%}.pc-terminal-strip{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2);padding:var(--space-2) var(--space-3);background:var(--surface-card);border-top:1px solid var(--line);font-size:var(--type-caption-size);color:var(--ink-secondary)}.pc-terminal-strip strong{color:var(--ink)}.pc-terminal-strip label{margin-left:auto}
 .pc-sessions-list{display:flex;flex-direction:column;gap:var(--space-5)}.pc-sessions-list .pc-section-heading{margin:0 0 var(--space-3)}.pc-sessions-rows{list-style:none;padding:0;margin:0}.pc-sessions-rows li{display:block}.pc-sessions-goal{flex:1;min-width:0;display:block}.pc-sessions-goal strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pc-sessions-rows a{flex:none;text-decoration:none}
@@ -34,3 +34,5 @@
 /* Match shell chrome: desktop top bar, tablet rail, then touch top bar. */
 @media(max-width:767px){.pc-session-main>.pc-tabs{top:var(--size-56)}}
 .pc-app--narrow .pc-session-main>.pc-tabs{top:max(var(--size-60),calc(var(--control-touch) + var(--space-2) * 2 + var(--size-1)))}
+/* The task frame owns sticky navigation when Session is embedded. */
+.pc-detail-panel .pc-session-main>.pc-tabs{position:static}
