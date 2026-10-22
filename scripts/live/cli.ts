@@ -14,7 +14,7 @@ const usage = `usage: bun run live <command> [--id <id>]
                                   start isolated service and disposable repo; ui seeds sample data
   ota prepare --from-app <path> --to-app <path>
                                   copy disposable OTA bundles (requires --id)
-  ota build [--signer cert]       compile isolated signed native fixtures (requires --id);
+  ota build [--signer cert] [--initial-layout bridge|paired]       compile isolated signed native fixtures (requires --id);
                                   cert signs with a disposable pinned certificate
   ota exercise --scenario <name>  run a fixed native fixture scenario (requires --id)
   ota cleanup                    remove recorded OTA copies (requires --id)
@@ -48,7 +48,7 @@ export async function main(argv: string[]): Promise<number> {
   const options = new Map<string, string>();
   const flags = new Set<string>();
   const positionals: string[] = [];
-  const valueOptions = new Set(["--id", "--front-door", "--from-app", "--to-app", "--scenario", "--seed", "--repo-template", "--screen", "--out", "--app", "--behavior", "--surface", "--verdict", "--steps", "--signer"]);
+  const valueOptions = new Set(["--id", "--front-door", "--from-app", "--to-app", "--scenario", "--seed", "--repo-template", "--screen", "--out", "--app", "--behavior", "--surface", "--verdict", "--steps", "--signer", "--initial-layout"]);
   for (let i = 0; i < before.length; i++) {
     const arg = before[i];
     if (valueOptions.has(arg)) {
@@ -59,7 +59,7 @@ export async function main(argv: string[]): Promise<number> {
     else positionals.push(arg);
   }
   const id = options.get("--id");
-  if (command !== "ota" && ["--from-app", "--to-app", "--scenario", "--signer"].some(key => options.has(key))) throw Error("OTA options require the ota command");
+  if (command !== "ota" && ["--from-app", "--to-app", "--scenario", "--signer", "--initial-layout"].some(key => options.has(key))) throw Error("OTA options require the ota command");
   if (options.has("--seed") && command !== "up") throw Error("--seed is only valid for up");
   if (options.has("--front-door") && command !== "up") throw Error("--front-door is only valid for up");
   if (command === "up") {
@@ -74,7 +74,7 @@ export async function main(argv: string[]): Promise<number> {
   if (command === "ota") {
     if (!id || positionals.length !== 1 || forwarded.length || flags.size) throw Error("usage: live ota build|prepare|exercise|cleanup --id <id>");
     const action = positionals[0];
-    const allowed = action === "prepare" ? ["--id", "--from-app", "--to-app"] : action === "exercise" ? ["--id", "--scenario"] : action === "build" ? ["--id", "--signer"] : ["--id"];
+    const allowed = action === "prepare" ? ["--id", "--from-app", "--to-app"] : action === "exercise" ? ["--id", "--scenario"] : action === "build" ? ["--id", "--signer", "--initial-layout"] : ["--id"];
     if ([...options.keys()].some(key => !allowed.includes(key))) throw Error("Unsupported OTA option");
     if (action === "prepare") {
       if (!options.has("--from-app") || !options.has("--to-app")) throw Error("OTA prepare requires --from-app and --to-app");
@@ -85,7 +85,9 @@ export async function main(argv: string[]): Promise<number> {
     } else if (action === "build") {
       const signer = options.get("--signer") ?? "adhoc";
       if (signer !== "adhoc" && signer !== "cert") throw Error("OTA build --signer must be adhoc or cert");
-      await buildOtaFixtures(id, signer);
+      const layout = options.get("--initial-layout") ?? "bridge";
+      if (layout !== "bridge" && layout !== "paired") throw Error("OTA build --initial-layout must be bridge or paired");
+      await buildOtaFixtures(id, signer, layout);
     }
     else if (action === "cleanup") await cleanupOta(id);
     else throw Error("Unsupported OTA action");
