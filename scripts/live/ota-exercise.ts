@@ -1,3 +1,4 @@
+import { prepareManualCandidate } from "./ota-candidate";
 /** Fixed live managed-update scenarios. Every update write crosses the guarded public API. */
 import { constants, closeSync, fstatSync, openSync, readFileSync, realpathSync, writeSync } from "node:fs";
 import { join } from "node:path";
@@ -116,21 +117,11 @@ export async function runManagedExercise(id: string, scenario: string, options: 
       }
       throw Error(`Fixture outcome not established (${last?.phase ?? "unavailable"})`);
     }
-    const manualCandidate = async () => {
-      await waitStatus(value => value.actions.includes("check"), 60000);
-      await mutate("check");
-      const checked = await waitStatus(value => value.target === "0.2.4" && (value.phase === "ready" || value.actions.includes("download")), 60000);
-      if (checked.phase !== "ready") {
-        await mutate("download");
-        await waitStatus(value => value.phase === "ready", 90000);
-      }
-    };
     for (let attempt = 0; ; attempt++) {
       try {
-        // Exercise default automatic downloads without racing them with a
-        // configuration write and another exclusive native fixture inspection.
-        if (attempt === 0 && (await status()).autoDownload) await waitStatus(value => value.phase === "ready" && value.target === "0.2.4", 120000);
-        else await manualCandidate();
+        // This scenario proves the explicit check/download/restart path from
+        // the immutable bridge. Default automatic behavior is reported separately.
+        await prepareManualCandidate({ mutate, waitStatus });
         break;
       } catch (error) {
         // A check or download can fail before any transaction exists, for example when the
