@@ -99,11 +99,19 @@ export function frontDoorBuildCommand(platform: Platform): string[] {
   return ["cargo", platform.os === "linux" ? "zigbuild" : "build", "--release", "--locked", "-p", "pacer", "--target", rustTarget(platform)];
 }
 
+export function frontDoorBuildEnvironment(o: CompileOptions, inherited: NodeJS.ProcessEnv = Bun.env): NodeJS.ProcessEnv {
+  validateDesktopTrust(o.desktopTrust);
+  if (o.desktopTrust && o.target.os !== "darwin") throw Error("Desktop trust requires a macOS target");
+  return { ...inherited, PACER_BUILD_VERSION: o.version, CARGO_TARGET_DIR: join(o.root, "target"),
+    PACER_BUILD_APPLE_TEAM_ID: o.desktopTrust?.appleTeamId ?? "",
+    PACER_BUILD_SIGNING_CERT_SHA1: o.desktopTrust?.signingCertSha1 ?? "" };
+}
+
 export async function compileFrontDoor(o: CompileOptions): Promise<void> {
   const targetDir = join(o.root, "target");
   const process = Bun.spawn(frontDoorBuildCommand(o.target), {
     cwd: o.root,
-    env: { ...Bun.env, PACER_BUILD_VERSION: o.version, CARGO_TARGET_DIR: targetDir },
+    env: frontDoorBuildEnvironment(o),
     stdout: "pipe", stderr: "pipe",
   });
   const [out, err, code] = await Promise.all([new Response(process.stdout).text(), new Response(process.stderr).text(), process.exited]);

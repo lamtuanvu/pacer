@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { writeRelease } from "../scripts/release/build";
 import { assetFile, companionFile, parseManifest, parseSha256Sums, sha256Hex } from "../src/update/manifest";
 import { tmpDir } from "./helpers";
+import { TARGETS } from "../src/update/manifest";
 
 test("paired release metadata binds both binaries and checksums", () => {
   const out = tmpDir(), version = "0.8.0", platform = { os: "linux", arch: "x64" } as const;
@@ -42,4 +43,14 @@ test("release CI installs cross-build tools and smoke-tests both executables", (
   const smoke = steps.find(step => step.name === "Smoke test native binary")?.run ?? "";
   expect(smoke).toContain("pacer-core-$os-$arch");
   expect(smoke).toContain("pacer-$os-$arch");
+});
+
+test("Rust front door trust pins come only from explicit build options", async () => {
+  const { frontDoorBuildEnvironment } = await import("../scripts/release/build");
+  const options = { root: tmpDir(), target: TARGETS.find(target => target.os === "darwin")!, version: "1.2.3", outfile: "unused" };
+  const inherited = { PACER_BUILD_APPLE_TEAM_ID: "INJECTED01", PACER_BUILD_SIGNING_CERT_SHA1: "A".repeat(40) };
+  expect(frontDoorBuildEnvironment(options, inherited)).toMatchObject({ PACER_BUILD_APPLE_TEAM_ID: "", PACER_BUILD_SIGNING_CERT_SHA1: "" });
+  expect(frontDoorBuildEnvironment({ ...options, desktopTrust: { signingCertSha1: "B".repeat(40) } }, inherited))
+    .toMatchObject({ PACER_BUILD_APPLE_TEAM_ID: "", PACER_BUILD_SIGNING_CERT_SHA1: "B".repeat(40) });
+  expect(() => frontDoorBuildEnvironment({ ...options, desktopTrust: { signingCertSha1: "bad" } })).toThrow();
 });
