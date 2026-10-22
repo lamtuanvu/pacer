@@ -175,7 +175,7 @@ export async function buildRelease(o: BuildOptions): Promise<{ dir: string; mani
   for (const t of targets) {
     log(`building ${assetFile(t)} (${t.bunTarget})`);
     await compileCore({ root: o.root, target: t, version, outfile: join(dir, companionFile(t)), bunExe: o.bunExe, desktopTrust: o.desktopTrust });
-    await compileFrontDoor({ root: o.root, target: t, version, outfile: join(dir, assetFile(t)) });
+    await compileFrontDoor({ root: o.root, target: t, version, outfile: join(dir, assetFile(t)), desktopTrust: o.desktopTrust });
   }
   return { dir, manifest: writeRelease(outRoot, version, targets, { paired: true }) };
 }
