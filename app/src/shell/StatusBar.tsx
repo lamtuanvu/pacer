@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import { ago, clock } from "../../../src/view-model/time";
 import { agentInfo, markAgent } from "../../../src/view-model/agents";
 import { capacity, plannerMeter } from "../../../src/view-model/selectors";
@@ -8,7 +8,7 @@ import { AgentMark } from "../ds/AgentMark";
 import { Kbd } from "../ds/Kbd";
 import { UsageMeter } from "../ds/UsageMeter";
 import { Button } from "../ds/Button";
-import { cycleDialogFocus } from "../ds/Dialog";
+import { PopoverDialog } from "../ds/Dialog";
 import type { Account } from "../model/accounts";
 import { useQuery } from "../screens/task-shared";
 import type { KeyRegistry, Shortcut } from "../keys/registry";
@@ -60,18 +60,14 @@ export function screenHints(shortcuts: Shortcut[], route: Route): StatusHint[] {
 export function StatusBar({ route, snapshot, registry }: { route: Route; snapshot: ClientSnapshot | null; registry: KeyRegistry }) {
   const [shortcuts, setShortcuts] = useState(() => registry.list());
   const [usageOpen, setUsageOpen] = useState(false);
-  const usageRef = useRef<HTMLDialogElement>(null);
   const usageButton = useRef<HTMLButtonElement>(null);
   const [now, setNow] = useState(() => Date.now() / 1000);
   useEffect(() => { const update = () => setShortcuts(registry.list()); const unsubscribe = registry.subscribe(update); update(); return unsubscribe; }, [registry]);
-  useLayoutEffect(() => {
+  useEffect(() => {
     if (!usageOpen) return;
-    const dialog = usageRef.current!;
-    dialog.showModal();
-    dialog.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
     setNow(Date.now() / 1000);
     const timer = window.setInterval(() => setNow(Date.now() / 1000), 30_000);
-    return () => { window.clearInterval(timer); dialog.close(); usageButton.current?.focus(); };
+    return () => window.clearInterval(timer);
   }, [usageOpen]);
   const planner = snapshot ? plannerMeter(snapshot) : null;
   const visiblePlanner = planner?.usedPct !== null ? planner : null;
@@ -89,7 +85,7 @@ export function StatusBar({ route, snapshot, registry }: { route: Route; snapsho
     </Button>
     <div className="pc-statusbar__hints" aria-label="Shortcuts">{hints.map(hint => <span className="pc-statusbar__hint" key={`${hint.keys}:${hint.label}`}><Kbd>{hint.keys === "Enter" ? "⏎" : hint.keys === "Escape" ? "Esc" : hint.keys}</Kbd> {hint.label}</span>)}</div>
     <span className="pc-statusbar__version">pacer {snapshot?.service?.version ?? ""}</span>
-    {usageOpen && <dialog ref={usageRef} className="pc-usage-popover" id="pc-usage-details" aria-label="Usage details" onKeyDown={event => cycleDialogFocus(event.currentTarget, event)} onCancel={event => { event.preventDefault(); setUsageOpen(false); }} onClick={event => { if (event.target === event.currentTarget) setUsageOpen(false); }}><UsagePopover close={() => setUsageOpen(false)} now={now} /></dialog>}
+    {usageOpen && <PopoverDialog id="pc-usage-details" title="Usage details" close={() => setUsageOpen(false)}><UsagePopover close={() => setUsageOpen(false)} now={now} /></PopoverDialog>}
   </footer>;
 }
 
