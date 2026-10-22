@@ -45,7 +45,7 @@ export function pairedServiceOwner(proof: PairedOwnerProof): NativeServiceOwner 
   if (release.cliLayout !== "paired" || release.version !== proof.version || release.version !== proof.frontVersion || release.arch !== proof.arch
     || !release.protocolMajors.includes(3)) throw denied();
   if (argv[0] !== front.executable || argv[1] !== "serve"
-    || !(argv.length === 2 || argv.length === 4 && argv[2] === "--port" && argv[3] === String(port))) throw denied();
+    || !(argv.length === 2 || argv.length === 4 && argv[2] === "--port" && (argv[3] === String(port) || argv[3] === "0"))) throw denied();
   return { process: { ...front.process }, executable: front.executable, argv: [...argv],
     transport: { ...core.process }, appPath };
 }

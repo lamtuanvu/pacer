@@ -1,9 +1,10 @@
 //! NEW helper bootstrap proof for the sealed Rust front/Bun core relationship.
 use super::super::{
     native::ProcessDetails,
-    trust::{CodeRole, ReleaseTrust},
     OtaError,
 };
+#[cfg(target_os = "macos")]
+use super::super::trust::{CodeRole, ReleaseTrust};
 use std::path::{Path, PathBuf};
 
 fn paired_app(

@@ -102,7 +102,9 @@ fn bootstrap(front: &Path, version: &str, argv: &[String], port: u16) -> io::Res
         || argv.first().map(String::as_str) != Some(front)
         || argv.get(1).map(String::as_str) != Some("serve")
         || !(argv.len() == 2
-            || argv.len() == 4 && argv[2] == "--port" && argv[3] == port.to_string())
+            || argv.len() == 4
+                && argv[2] == "--port"
+                && (argv[3] == port.to_string() || argv[3] == "0"))
     {
         return Err(denied());
     }
@@ -129,6 +131,24 @@ mod tests {
         let mut injected = argv;
         injected.push("--internal".into());
         assert!(bootstrap(front, "0.8.0", &injected, 4317).is_err());
+    }
+    #[test]
+    fn ephemeral_launch_intent_preserves_zero_without_claiming_a_zero_listener() {
+        let front = Path::new("/Applications/Pacer.app/Contents/Resources/pacer");
+        let mut argv = vec![
+            front.to_string_lossy().into_owned(),
+            "serve".into(),
+            "--port".into(),
+            "0".into(),
+        ];
+        let value: serde_json::Value =
+            serde_json::from_str(&bootstrap(front, "0.8.0", &argv, 4317).unwrap()).unwrap();
+        assert_eq!(value["argv"][3], "0");
+        assert!(bootstrap(front, "0.8.0", &argv, 0).is_err());
+        for port in ["00", "+0", "4318"] {
+            argv[3] = port.into();
+            assert!(bootstrap(front, "0.8.0", &argv, 4317).is_err());
+        }
     }
     #[tokio::test]
     async fn control_accepts_only_fixed_shutdown_and_closes_retired_generation() {
