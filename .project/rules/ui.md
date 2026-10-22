@@ -59,6 +59,12 @@ UI-19–UI-25 are **Proposed — adopted by the maintainer merging the amendment
 - Reports/artifacts stay in untracked `.work/` locally or attached/linked in the PR. A local path alone is not accessible to PR CI or the maintainer reviewing remotely; publish an accessible review/evidence reference in the PR manifest.
 - Draft reports may state FAIL or UNVERIFIED honestly, while current SHAs, links, summaries and all source checks remain required. All three reports must PASS once ready for review; CI reruns on both draft transitions. Draft CI success does not satisfy completion or before-merge validation.
 
+### Compact density (amendment 0.9.0)
+
+| ID | Rule or convention | Status | Rationale/source | Verification |
+|----|--------------------|--------|------------------|--------------|
+| UI-26 | Compact is the desktop default for buttons, dropdowns/selects, inputs and recurring rows. Use shared DS primitives and density tokens, with the top-bar Delegate as the compact reference. Button variants share geometry; related controls align. Settings use the shared settings density, multiline fields retain useful height, and touch layouts keep larger targets. Reduce oversized padding and empty gaps through shared layout tokens. No page-local size/radius/type overrides. Any larger desktop density needs a documented reason and scope. | Proposed 0.9.0; maintainer requested 2026-10-22, adopted on merge | Maintainer compact-UI request; design-system catalog | Browser geometry regression, UI-18 before/after evidence, keyboard/focus and narrow-layout checks; UI review |
+
 ### Implementer checklist
 
 Before you hand a UI change over, check the screen against this list:
@@ -75,7 +81,8 @@ Before you hand a UI change over, check the screen against this list:
 10. Do times and durations read naturally? (UI-17)
 11. Are before/after screenshots attached? (UI-18)
 12. Are primitives/composites canonical, token checks passing, and catalog/provenance current? (UI-19–23/25)
-13. Do the compliance, independent UI and QA reports contain real checks and accessible evidence, with outstanding surfaces marked UNVERIFIED? (UI-24; CT-11)
+13. Are desktop controls compact and aligned, with larger touch targets and useful multiline fields preserved? (UI-26)
+14. Do the compliance, independent UI and QA reports contain real checks and accessible evidence, with outstanding surfaces marked UNVERIFIED? (UI-24; CT-11)
 
 Relevant reviewers: [ui-accessibility](../reviewers/ui-accessibility.md)
 Exceptions and open decisions: UI-7 remains proposed. UI-19–UI-25 are the 0.4.0 amendment proposal; see [decisions.md](../decisions.md).

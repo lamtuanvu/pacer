@@ -2,7 +2,7 @@ import { createContext, type ComponentChildren } from "preact";
 import { useContext } from "preact/hooks";
 
 export type Density = 'normal' | 'compact' | 'settings' | 'touch';
-export const DensityContext = createContext<Density>('normal');
+export const DensityContext = createContext<Density>('compact');
 /** Responsive shell state is owned here so primitives never import their consumers. */
 export const NarrowContext = createContext(false);
 export function useDensity(): Density {
