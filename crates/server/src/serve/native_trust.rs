@@ -2,6 +2,98 @@
 use std::io;
 use std::path::PathBuf;
 
+#[derive(Clone, Copy)]
+pub enum NativeRole {
+    Cli,
+    Desktop,
+}
+#[derive(Clone)]
+pub struct NativeTrust {
+    cli: String,
+    desktop: String,
+}
+impl NativeTrust {
+    pub fn from_pins(team: Option<&str>, certificate: Option<&str>) -> io::Result<Option<Self>> {
+        let Some(cli) = signer_requirement(team, certificate, "dev.pacer.cli")? else {
+            return Ok(None);
+        };
+        let desktop = signer_requirement(team, certificate, "dev.pacer.desktop")?
+            .ok_or_else(|| io::Error::other("native signing policy unavailable"))?;
+        Ok(Some(Self { cli, desktop }))
+    }
+    pub fn compiled() -> io::Result<Option<Self>> {
+        Self::from_pins(
+            option_env!("PACER_BUILD_APPLE_TEAM_ID"),
+            option_env!("PACER_BUILD_SIGNING_CERT_SHA1"),
+        )
+    }
+    pub fn verify_static(&self, path: &std::path::Path, role: NativeRole) -> io::Result<()> {
+        use core_foundation::url::CFURL;
+        use security_framework::os::macos::code_signing::{Flags, SecRequirement, SecStaticCode};
+        let denied = || io::Error::other("native code identity unavailable");
+        let source = match role {
+            NativeRole::Cli => &self.cli,
+            NativeRole::Desktop => &self.desktop,
+        };
+        let requirement: SecRequirement = source.parse().map_err(|_| denied())?;
+        let url = CFURL::from_path(path, path.is_dir()).ok_or_else(denied)?;
+        let code = SecStaticCode::from_path(&url, Flags::NONE).map_err(|_| denied())?;
+        code.check_validity(
+            Flags::STRICT_VALIDATE | Flags::CHECK_NESTED_CODE | Flags::CHECK_ALL_ARCHITECTURES,
+            &requirement,
+        )
+        .map_err(|_| denied())
+    }
+    pub fn verify_current(&self) -> io::Result<ProcessDetails> {
+        use security_framework::os::macos::code_signing::{Flags, SecCode, SecRequirement};
+        let denied = || io::Error::other("native code identity unavailable");
+        let before = process_details(std::process::id())?;
+        if before.uid != nix::unistd::getuid().as_raw() {
+            return Err(denied());
+        }
+        let requirement: SecRequirement = self.cli.parse().map_err(|_| denied())?;
+        SecCode::for_self(Flags::NONE)
+            .map_err(|_| denied())?
+            .check_validity(Flags::NONE, &requirement)
+            .map_err(|_| denied())?;
+        if before != process_details(std::process::id())? {
+            return Err(denied());
+        }
+        Ok(before)
+    }
+    /// Caller retains this owned, unreaped child throughout verification.
+    pub fn verify_child(
+        &self,
+        child: &tokio::process::Child,
+        core: &std::path::Path,
+    ) -> io::Result<ProcessDetails> {
+        use security_framework::os::macos::code_signing::{
+            Flags, GuestAttributes, SecCode, SecRequirement,
+        };
+        let denied = || io::Error::other("native core identity unavailable");
+        let pid = child.id().ok_or_else(denied)?;
+        let before = process_details(pid)?;
+        if before.uid != nix::unistd::getuid().as_raw()
+            || before.parent_pid != std::process::id()
+            || before.executable != core
+            || core.canonicalize()? != core
+        {
+            return Err(denied());
+        }
+        let requirement: SecRequirement = self.cli.parse().map_err(|_| denied())?;
+        let mut attributes = GuestAttributes::new();
+        attributes.set_pid(i32::try_from(pid).map_err(|_| denied())?);
+        let code = SecCode::copy_guest_with_attribues(None, &attributes, Flags::NONE)
+            .map_err(|_| denied())?;
+        code.check_validity(Flags::NONE, &requirement)
+            .map_err(|_| denied())?;
+        if before != process_details(pid)? || child.id() != Some(pid) {
+            return Err(denied());
+        }
+        Ok(before)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProcessIdentity {
     pub pid: u32,
