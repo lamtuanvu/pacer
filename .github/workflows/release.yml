@@ -180,7 +180,8 @@ jobs:
           TAURI_TARGET_TRIPLE: ${{ matrix.target }}
         run: |
           cli="dist/release/$VERSION/pacer-$PLATFORM"
-          chmod +x "$cli"
+          core="dist/release/$VERSION/pacer-core-$PLATFORM"
+          chmod +x "$cli" "$core"
           desktop/scripts/stage-cli.sh "$cli"
       - name: Fetch locked Rust dependencies
         working-directory: desktop/src-tauri
