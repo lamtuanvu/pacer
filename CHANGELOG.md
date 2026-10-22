@@ -10,6 +10,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Finish executor setup with **OK** to clear the wizard and return to Executors, or **Add another executor** to start fresh at agent selection.
+
 - Task details use the short name and persistent Summary/Session tabs, with quiet back navigation and remembered task-list scroll position.
 
 - Align desktop buttons, dropdowns and inputs with the compact Delegate control, tighten task-page spacing, and preserve touch targets, multiline fields and compact tray controls.
