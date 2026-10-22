@@ -7,6 +7,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 ### Fixed
 
 - Preserve embedded agent TUI fonts, cell layout and ANSI colors under the app's strict security policy; prevent automation color suppression from flattening native interactive sessions. Session end/resume reads the current revision rather than retaining stale progress state, and resume does not replay the initial prompt or attachments.
+- Restore a compact left navigation rail and unify the desktop page header with custom window controls, removing duplicate titlebar rows while preserving touch navigation.
 - Finish executor setup with **OK** to clear the wizard and return to Executors, or **Add another executor** to start fresh at agent selection.
 - Task details use the short name and persistent Summary/Session tabs, with quiet back navigation and remembered task-list scroll position.
 - Align desktop buttons, dropdowns and inputs with the compact Delegate control, tighten task-page spacing, and preserve touch targets, multiline fields and compact tray controls.
