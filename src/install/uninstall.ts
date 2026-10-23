@@ -1,3 +1,6 @@
+import { readInstallFile, writeInstallFile } from "./atomic";
+import { withInstallLock } from "./lock";
+import { recoverInstall } from "./journal";
 import type { PlannerCfg } from "../config/accounts";
 import { removeClaudeMcp } from "./claude";
 import { copyFileSync, existsSync, renameSync, rmSync, writeFileSync } from "node:fs";
@@ -7,6 +10,13 @@ import { applyUndo, readManifest, writeManifest } from "./manifest";
 
 export interface UninstallReport { planner: string; restored: string[]; removed: string[]; reverted: string[]; notes: string[] }
 export async function uninstallPlanner(ctx: Ctx, planner: string | PlannerCfg): Promise<UninstallReport | null> {
+  return withInstallLock(ctx, async () => {
+    recoverInstall(ctx);
+    return uninstallUnlocked(ctx, planner);
+  });
+}
+
+async function uninstallUnlocked(ctx: Ctx, planner: string | PlannerCfg): Promise<UninstallReport | null> {
   const manifest = readManifest(ctx);
   if (typeof planner !== "string") {
     const selected = planner;
@@ -29,10 +39,10 @@ export async function uninstallPlanner(ctx: Ctx, planner: string | PlannerCfg): 
       if (file.action === "created" && intact) {
         rmSync(file.path); report.removed.push(file.path);
       } else if (file.action === "edited" && intact && file.exact && file.backup && existsSync(file.backup)) {
-        copyFileSync(file.backup, file.path); rmSync(file.backup); report.restored.push(file.path);
+        writeInstallFile(file.path, readInstallFile(file.backup)!); rmSync(file.backup); report.restored.push(file.path);
       } else {
         if (text !== null && file.undo.length) {
-          writeFileSync(file.path, applyUndo(text, file.undo, report.notes)); report.reverted.push(file.path);
+          writeInstallFile(file.path, applyUndo(text, file.undo, report.notes)); report.reverted.push(file.path);
         } else report.notes.push(`left ${file.path} unchanged`);
         if (file.backup) report.notes.push(`backup kept at ${file.backup}`);
       }

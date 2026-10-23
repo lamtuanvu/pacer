@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { readInstallFile, writeInstallFile } from "./atomic";
 import { join } from "node:path";
 import type { Ctx } from "../types";
 import { hasBlock, removeBlock, type BlockStyle } from "./blocks";
@@ -13,20 +13,21 @@ export type UndoOp = { kind: "block"; style: BlockStyle; restore?: { text: strin
   | { kind: "json-key"; key: string };
 export interface FileChange {
   path: string; action: "created" | "edited" | "moved";
+  managed?: { schema: 1; hash: string };
   backup?: string; afterHash?: string; exact?: boolean; undo: UndoOp[];
 }
 export interface PlannerRecord {
+  integration?: { schema: 1; fingerprint: string };
   planner: string; account?: string; folder?: string; configEnv?: Record<string, string>; installedAt: number; pacerArgv: string[]; files: FileChange[];
   commands: { undo: string[] }[]; notes: string[];
 }
 export interface Manifest { version: 1; planners: Record<string, PlannerRecord> }
 export function readManifest(ctx: Pick<Ctx, "pacerHome">): Manifest {
-  const text = readText(join(ctx.pacerHome, "install-manifest.json"));
+  const text = readInstallFile(join(ctx.pacerHome, "install-manifest.json"));
   return text === null ? { version: 1, planners: {} } : JSON.parse(text);
 }
 export function writeManifest(ctx: Pick<Ctx, "pacerHome">, manifest: Manifest): void {
-  mkdirSync(ctx.pacerHome, { recursive: true });
-  writeFileSync(join(ctx.pacerHome, "install-manifest.json"), JSON.stringify(manifest, null, 2) + "\n");
+  writeInstallFile(join(ctx.pacerHome, "install-manifest.json"), JSON.stringify(manifest, null, 2) + "\n");
 }
 export function removeTomlTable(text: string, table: string): string {
   const lines = text.split(/(?<=\n)/);
