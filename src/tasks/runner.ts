@@ -1,3 +1,4 @@
+import { ensureRunnerIntegration } from "../core/integrations";
 import { beginWorkSync, claimWorkSync, finishWorkSync } from "../update/desktop/admission";
 import { restrictEligibility } from "../engine/eligibility";
 import { accountEvidenceScope, recordExecutionEvidence } from "../core/evidence";
@@ -314,6 +315,10 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
         updateTask(ctx, id, (t) => { t.childPid = pid; });
         if (stopped(ctx, id) && !resolveRunner(s, pick!)?.host) killTree(pid, "SIGTERM");
       };
+      if (!resuming) {
+        const selectedRunner = resolveRunner(s, pick);
+        if (selectedRunner) await ensureRunnerIntegration(ctx, selectedRunner);
+      }
       const backend = resuming || deps.runAttempt ? null : task.interactionMode === "conversation" ? directBackend : await selectBackend(ctx, s, undefined, pick);
       attemptedBackend = backend?.id ?? "direct";
       const account = resolveRunner(s, pick)?.account ?? pick;
@@ -492,7 +497,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
     const failure = lastBroken ?? (unavailableBroken && (tried.size === 0 || req === unavailableBroken[0]) ? { brokenExecutor: unavailableBroken[0], brokenReason: unavailableBroken[1].reason } : undefined);
     return finish(ctx, id, { status: failure || !excluded.some(e => e.reason === "exhausted" || e.eligibility?.budget === "exhausted") && !lastLimitReport ? "failed" : "limit", executor: failure?.brokenExecutor ?? attemptedExecutor, model: attemptedModel, files: "", report: failure ? `executor not working: ${failure.brokenReason}` : [why, lastLimitReport].filter(Boolean).join("\n\n"), backend: attemptedBackend, ...failure });
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = error instanceof CoreError ? [error.message, error.hint].filter(Boolean).join(". ") : error instanceof Error ? error.message : String(error);
     return finish(ctx, id, { status: "failed", executor: attemptedExecutor, model: attemptedModel, files: "", report: `pacer runner error: ${message}`, backend: attemptedBackend });
   }
 }
