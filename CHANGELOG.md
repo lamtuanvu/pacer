@@ -4,6 +4,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-23
+
 ### Fixed
 
 - Select the ArkCLI quota reader for OpenCode’s `coding-plan` provider during setup and recover existing Ark Coding Plan quota accounts that have no usage source configured.
