@@ -1,6 +1,7 @@
 import { desktopStatus } from "./fixtures/desktop-update/status";
 import { SettingsPanel } from '../app/src/shell/SettingsPanel';
 import { expect, test } from 'bun:test';
+import { canAddRoutingRule } from '../app/src/screens/settings/General';
 import { clock } from "../src/view-model/format";
 import { renderToString } from 'preact-render-to-string';
 import { TaskContext } from '../app/src/screens/task-shared';
@@ -10,6 +11,11 @@ import { settings, host, executor, job } from './fixtures/ui/settings';
 const state = {...initialState(),snapshot:{executors:[executor],accounts:[],hosts:[{...host,executors:[executor.id],repos:1}],planner:{agent:'codex',runner:'codex#team',advice:'Keep planning'},repos:[]} as any};
 const api = {call:async()=>({}),hello:async()=>({}),snapshot:async()=>({})} as any;
 const render = (child:any,s=state) => renderToString(<TaskContext.Provider value={{state:s,api}}>{child}</TaskContext.Provider>);
+test('a routing rule requires a current executor choice', () => {
+ expect(canAddRoutingRule('', ['codex'])).toBe(false);
+ expect(canAddRoutingRule('removed', ['codex'])).toBe(false);
+ expect(canAddRoutingRule('codex', ['codex'])).toBe(true);
+});
 test('Planner uses the actual planner agent without mounting other settings',()=>{
  const html=render(<SettingsGeneral section="planner" initialData={settings}/>);
  expect(html).toContain('aria-label="Codex"');
@@ -87,7 +93,7 @@ test('restored executor draft resumes checks and Ready follows a passed job only
 test('new endpoint form includes URL, key source and model limits',()=>{
  // The URL form sits behind the OpenCode provider picker's "Use a URL instead".
  const html=render(<AddExecutor initialDraft={{step:'2',agent:'opencode'}} initialUrlForm/>);
- for(const text of ['Base URL','API key environment variable','Context limit','Output limit','Quota — a plan with limits','Metered — pay per token','Unmetered — free or local'])expect(html).toContain(text);
+ for(const text of ['Base URL','API key environment variable','Context limit','Output limit','Unmetered — free or local','aria-haspopup="listbox"'])expect(html).toContain(text);
 });
 test('the shipped app.js, which includes the Settings screens, stays within the 60 KB gzip budget (UI-3)',async()=>{
  const {APP_JS_BUDGET,buildApp}=await import('../app/build');

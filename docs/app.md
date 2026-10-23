@@ -197,3 +197,5 @@ service is unavailable and the stored snapshot is over 120 seconds old, it
 prints `pacer not running · pacer serve`.
 
 The **Delegate** dialog starts with the active repository filter, an unfinished draft’s repository, or the last repository successfully used in the dialog. It remembers the last used repository across app restarts. Choose an optional **Kind** to guide routing; the preview updates with the goal, repository and kind and shows the next executor. Submit with **Cmd+Enter** (or **Ctrl+Enter**).
+
+Dropdowns in Start work, Delegate, Settings and retry/review use the same picker. Click or press an arrow key to open it; use arrows, Home/End and Enter to choose, or Escape to close. Longer lists offer a search box. Unavailable choices show a reason and cannot be selected. Start work aligns repository with agent/account and workspace with base branch; it defaults to a new worktree, leaving uncommitted changes in the original checkout. Attach files opens the system file picker, while paste and drop remain available.
