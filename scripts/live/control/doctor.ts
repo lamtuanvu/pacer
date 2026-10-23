@@ -21,7 +21,9 @@ export async function desktopDoctor(session: Session, requestAccessibility = fal
         setup = await context.read(() => nativeCommand({ command: "permission_setup", pid: binding.identity.pid, start_identity: binding.identity.start_identity, timeout_ms: 180000 }, context));
       } finally { await lease.release(); }
     }
-    const permissions = await context.read(() => nativeCommand({ command: "doctor" }, context));
+    const mainWindows = binding.windows?.filter(window => window.label === "main" && window.pid === binding.identity.pid) ?? [];
+    const permissions = await context.read(() => nativeCommand({ command: "doctor", pid: binding.identity.pid, start_identity: binding.identity.start_identity,
+      ...(mainWindows.length === 1 ? { diagnostic_window_id: mainWindows[0]!.window_id } : {}) }, context));
     assertSameControlBinding(binding, await resolve());
     result.diagnostics = { ...permissions, owned_desktop_running: true, platform: process.platform, setup };
     const setupVerified = !requestAccessibility || (setup?.status === "verified" && setup.accessibility === true && setup.target_pid === binding.identity.pid);
