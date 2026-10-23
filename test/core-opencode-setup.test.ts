@@ -103,3 +103,12 @@ test("connectProvider refuses a provider id that is not a plain id before runnin
   }
   expect(ran).toEqual([]);
 });
+
+test("Coding Plan onboarding persists the ArkCLI source without catalog pricing", async () => {
+  const {ctx} = setup(["coding-plan"]);
+  const models = await setupModels(ctx, {provider: "coding-plan", group: "signed_in"}, {catalog: null});
+  expect(models.usage).toEqual({usage: "quota", quota_source: "arkcli", known: true});
+  await addOpencodeAccount(ctx, {provider: "coding-plan", model: "code", test: false}, {catalog: null});
+  expect(readFileSync(join(ctx.pacerHome, "strategy.yaml"), "utf8")).toContain("quota_source: arkcli");
+  expect(loadStrategy(ctx).accounts["coding-plan"]).toMatchObject({usage: "quota", quotaSource: "arkcli", usageSource: "arkcli"});
+});

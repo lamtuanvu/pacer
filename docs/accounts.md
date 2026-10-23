@@ -107,6 +107,11 @@ provider** accounts (see [Legacy endpoint budgets](#legacy-endpoint-budgets));
 to get the provider checks and dollar spend, add the provider again with
 `pacer account add opencode <provider>`.
 
+OpenCode quota accounts for `coding-plan`, `byteplus-coding-plan` and
+`volcengine-coding-plan` use ArkCLI automatically. Existing quota accounts with
+no explicit usage source also select that reader when loaded; no re-add is needed.
+ArkCLI must be installed and signed in to the matching plan account.
+
 ### Endpoints at your own URL
 
 Choose **Enter a URL yourself**, then enter a name, an HTTP(S) base URL, where to keep the key (`keychain`, `file`, `env:VAR` or

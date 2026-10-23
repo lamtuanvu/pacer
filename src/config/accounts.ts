@@ -90,13 +90,20 @@ function parseConnection(value: unknown, at: string, problems: string[]): Endpoi
   return {api: "openai-compatible", base_url: value.base_url as string, key: value.key as KeySource, models};
 }
 
+/** OpenCode provider IDs backed by the Ark Coding Plan quota reader. */
+export function opencodeQuotaSource(provider: unknown): "arkcli" | null {
+  return provider === "coding-plan" || provider === "byteplus-coding-plan" || provider === "volcengine-coding-plan" ? "arkcli" : null;
+}
+
 function accountCfg(name: string, c: Record<string, unknown>): AccountCfg {
   const kind = c.kind as AccountKind;
   const home = typeof c.home === "string" ? c.home : null;
   const orcaAccount = typeof c.orca_account === "string" ? c.orca_account : null;
   const source = orcaAccount ? "orca" : home ? "pacer" : kind === "endpoint" ? (c.source === "opencode" ? "opencode" : "endpoint") : "default";
   const usage = (c.usage ?? (kind === "claude" || kind === "codex" ? "quota" : kind === "endpoint" ? "metered" : "reactive")) as UsageKind;
-  const quotaSource = typeof c.quota_source === "string" ? c.quota_source : null;
+  // Recover older onboarding records without overriding a selected usage source.
+  const quotaSource = typeof c.quota_source === "string" ? c.quota_source
+    : source === "opencode" && usage === "quota" && c.usage_source === undefined ? opencodeQuotaSource(c.provider) : null;
   const usageSource = (c.usage_source ?? (quotaSource === "arkcli" ? "arkcli" : usage === "quota" ? "native" : usage)) as AccountCfg["usageSource"];
   return {
     name, model: c.model === undefined ? null : String(c.model), kind, source, home, orcaAccount, usage, usageSource, quotaSource,

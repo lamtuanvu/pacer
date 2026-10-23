@@ -39,6 +39,7 @@ const freeModel = {id: "m1", name: "M1", toolCall: true, input: ["text"], output
 
 for (const [name, provider, cat, expected] of [
   ["local servers", {id: "ollama", local: true}, undefined, {usage: "unmetered", known: true}],
+  ["BytePlus coding-plan alias", {id: "coding-plan"}, undefined, {usage: "quota", quota_source: "arkcli", known: true}],
   ["coding plan with an ark reader", {id: "volcengine-coding-plan"}, catalog["volcengine-coding-plan"], {usage: "quota", quota_source: "arkcli", known: true}],
   ["coding plan without a reader", {id: "zhipuai-coding-plan"}, {id: "zhipuai-coding-plan", name: "Z", env: [], api: null, models: []} as any, {usage: "quota", known: true}],
   ["pay per token", {id: "openrouter"}, catalog.openrouter, {usage: "metered", known: true}],

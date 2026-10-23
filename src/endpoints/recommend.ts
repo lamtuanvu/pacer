@@ -1,3 +1,4 @@
+import { opencodeQuotaSource } from "../config/accounts";
 import type { CatalogModel, CatalogProvider } from "./catalog";
 
 export interface ModelChoice { id: string; name?: string; context: number; output: number; tools: boolean; costIn: number | null; costOut: number | null }
@@ -29,7 +30,9 @@ export function recommend(models: ModelChoice[], release: Record<string, string 
 /** arkcli reads BytePlus/Volcengine Ark quota; other plans have no reader yet. */
 export function classify(provider: { id: string; local?: boolean }, catalog?: CatalogProvider): UsageClass {
   if (provider.local) return { usage: "unmetered", known: true };
-  if (/-coding-plan$/.test(provider.id)) return { usage: "quota", ...(/^(volcengine|byteplus)/.test(provider.id) ? { quota_source: "arkcli" as const } : {}), known: true };
+  const quotaSource = opencodeQuotaSource(provider.id);
+  if (quotaSource) return { usage: "quota", quota_source: quotaSource, known: true };
+  if (/-coding-plan$/.test(provider.id)) return { usage: "quota", known: true };
   if (!catalog) return { usage: "metered", known: false };
   const priced = catalog.models.filter(m => m.costIn !== null || m.costOut !== null);
   if (!priced.length) return { usage: "metered", known: false };

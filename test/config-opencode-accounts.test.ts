@@ -48,3 +48,23 @@ test("other source values are ignored as before, so existing native and endpoint
   }
   expect(problems(base({work: {kind: "claude", source: "opencode", provider: "openrouter"}}))).toContain("accounts.work: source: opencode requires an endpoint account");
 });
+
+for (const provider of ["coding-plan", "byteplus-coding-plan", "volcengine-coding-plan"]) {
+  test(`existing ${provider} quota accounts select ArkCLI without rewriting config`, () => {
+    const raw = base({plan: {kind: "endpoint", source: "opencode", provider, usage: "quota"}},
+      {"opencode#plan": {model: `${provider}/code`}});
+    const s = validateStrategy(raw, "strategy.yaml");
+    expect(s.accounts.plan).toMatchObject({quotaSource: "arkcli", usageSource: "arkcli"});
+    expect(s.providers["opencode#plan"].quotaSource).toBe("arkcli");
+    expect(raw.accounts).toMatchObject({plan: {provider, usage: "quota"}});
+    expect(JSON.stringify(raw)).not.toContain("quota_source");
+  });
+}
+
+test("ArkCLI inference preserves explicit sources and unrelated providers", () => {
+  for (const extra of [{usage_source: "orca"}, {quota_source: "custom"}, {usage: "metered"}, {provider: "zhipuai-coding-plan"}]) {
+    const s = validateStrategy(base({plan: {kind: "endpoint", source: "opencode", provider: "coding-plan", usage: "quota", ...extra}},
+      {"opencode#plan": {model: `${extra.provider ?? "coding-plan"}/code`}}), "strategy.yaml");
+    expect(s.accounts.plan.quotaSource).not.toBe("arkcli");
+  }
+});
