@@ -6,6 +6,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Select the ArkCLI quota reader for OpenCode’s `coding-plan` provider during setup and recover existing Ark Coding Plan quota accounts that have no usage source configured.
+
 - Use one keyboard-accessible, searchable dropdown style across Start work, delegation, Settings and retry/review, with aligned Start work fields and a styled native attachment trigger. Missing repository/workspace choices now block starting a session.
 
 ## [0.8.1] - 2026-10-22
@@ -13,6 +15,12 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 ### Fixed
 
 - Refresh each executed account's available usage source after a task completes, so Codex session logs and supported provider commands can update the recorded ending usage without waiting for their normal cache interval.
+
+### Changed
+
+- Use macOS native title-bar controls and rounded window corners; keep the compact header fixed while content scrolls.
+- Show usage and screen shortcuts in a persistent desktop status bar, and keep Overview cards sized to their own content.
+- Open account-level quota windows, reset times, and reading freshness from the desktop status bar.
 
 ## [0.8.0] - 2026-10-22
 
