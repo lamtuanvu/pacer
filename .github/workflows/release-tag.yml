@@ -5,6 +5,12 @@ name: Release tag
 on:
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Merged release PR number to validate and finish
+        required: true
+        type: string
 
 permissions: {}
 
@@ -14,26 +20,86 @@ concurrency:
 
 jobs:
   tag:
-    if: "startsWith(github.event.head_commit.message, 'chore: release ')"
+    if: "github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, 'chore: release ')"
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 100
     permissions:
       contents: read
-      actions: read
+      actions: write
       pull-requests: read
     env:
       GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
       GH_READ_TOKEN: ${{ github.token }}
       SUBJECT: ${{ github.event.head_commit.message }}
     steps:
+      - name: Resolve interrupted release
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          PR: ${{ inputs.pr }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          case "$PR" in ''|*[!0-9]*) echo '::error::PR must be a number'; exit 1 ;; esac
+          pr=$(gh pr view "$PR" --repo "$GITHUB_REPOSITORY" --json state,baseRefName,headRefName,headRefOid,mergeCommit,title,isCrossRepository)
+          printf '%s' "$pr" | jq -e '.state == "MERGED" and .baseRefName == "main" and .isCrossRepository == false' >/dev/null
+          branch=$(printf '%s' "$pr" | jq -er .headRefName)
+          version=${branch#release/v}
+          printf '%s\n' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
+          test "$branch" = "release/v$version"
+          printf '%s' "$pr" | jq -e --arg title "chore: release $version" '.title == $title' >/dev/null
+          {
+            echo "RELEASE_COMMIT=$(printf '%s' "$pr" | jq -er .mergeCommit.oid)"
+            echo "RECOVERY_HEAD=$(printf '%s' "$pr" | jq -er .headRefOid)"
+            echo "RECOVERY_BRANCH=$branch"
+            echo "SUBJECT=chore: release $version (#$PR)"
+          } >> "$GITHUB_ENV"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ env.RELEASE_COMMIT || github.sha }}
           fetch-depth: 0
           fetch-tags: true
           persist-credentials: false
+      - name: Validate interrupted release
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ inputs.pr }}
+          RELEASE_PUSH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$RELEASE_PUSH_TOKEN"
+          version=$(jq -r .version package.json)
+          test "$RECOVERY_BRANCH" = "release/v$version"
+          git merge-base --is-ancestor "$RELEASE_COMMIT" origin/main
+          test "$(git log -1 --format=%s)" = "$SUBJECT"
+          git cat-file -e "$RECOVERY_HEAD^{commit}" 2>/dev/null || git fetch --no-tags origin "refs/pull/$PR/head"
+          git diff --quiet "$RECOVERY_HEAD^{tree}" "$RELEASE_COMMIT^{tree}"
+          if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
+            echo '::error::Tag already exists; rerun the failed Release publishing job instead'; exit 1
+          fi
+          remote=$(git ls-remote --heads origin "refs/heads/$RECOVERY_BRANCH")
+          if test -n "$remote"; then
+            test "$(printf '%s' "$remote" | cut -f 1)" = "$RECOVERY_HEAD" \
+              || { echo '::error::Release branch changed after merge'; exit 1; }
+          else
+            # Restore only the reviewed PR head; never overwrite another branch.
+            auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$RELEASE_PUSH_TOKEN" | base64 | tr -d '\n')"
+            git -c "http.extraheader=$auth" push --force-with-lease="refs/heads/$RECOVERY_BRANCH:" origin "$RECOVERY_HEAD:refs/heads/$RECOVERY_BRANCH"
+          fi
+          previous=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow release.yml --limit 1 --json databaseId --jq '.[0].databaseId // 0')
+          gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref "$RECOVERY_BRANCH" -f version="$version" -f dry_run=true
+          run=""
+          for _ in $(seq 1 30); do
+            run=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow release.yml --branch "$RECOVERY_BRANCH" --commit "$RECOVERY_HEAD" --event workflow_dispatch --json databaseId --jq "[.[] | select(.databaseId > $previous)][0].databaseId // empty")
+            test -n "$run" && break
+            sleep 10
+          done
+          test -n "$run" || { echo '::error::Recovery dry run did not start'; exit 1; }
+          gh run watch "$run" --repo "$GITHUB_REPOSITORY" --interval 30 --exit-status
       - name: Tag the release commit
         run: |
           set -eu
+          release_sha=${RELEASE_COMMIT:-$GITHUB_SHA}
           test -n "$GH_TOKEN" || { echo "::error::Add a RELEASE_TOKEN secret (see CONTRIBUTING.md, Releasing)"; exit 1; }
           version=$(jq -r .version package.json)
           subject=$(printf '%s\n' "$SUBJECT" | head -n 1)
@@ -44,27 +110,27 @@ jobs:
           pr_number=$(printf '%s\n' "$subject" | sed -nE 's/.* \(#([0-9]+)\)$/\1/p')
           test -n "$pr_number" || { echo '::error::Release commit must identify its merged PR'; exit 1; }
           pr=$(GH_TOKEN="$GH_READ_TOKEN" gh pr view "$pr_number" --repo "$GITHUB_REPOSITORY" --json state,baseRefName,headRefName,headRefOid,mergeCommit)
-          printf '%s' "$pr" | jq -e --arg sha "$GITHUB_SHA" --arg branch "release/v$version" \
+          printf '%s' "$pr" | jq -e --arg sha "$release_sha" --arg branch "release/v$version" \
             '.state == "MERGED" and .baseRefName == "main" and .headRefName == $branch and .mergeCommit.oid == $sha' >/dev/null \
             || { echo '::error::Release PR does not match this merge commit'; exit 1; }
           head=$(printf '%s' "$pr" | jq -er .headRefOid)
           # Squash changes the commit SHA; compare the complete tested file tree.
           git cat-file -e "$head^{commit}" 2>/dev/null || git fetch --no-tags origin "refs/pull/$pr_number/head"
-          git diff --quiet "$head^{tree}" "$GITHUB_SHA^{tree}" \
+          git diff --quiet "$head^{tree}" "$release_sha^{tree}" \
             || { echo '::error::Merge tree differs from the tested release PR'; exit 1; }
           runs=$(GH_TOKEN="$GH_READ_TOKEN" gh run list --repo "$GITHUB_REPOSITORY" --workflow release.yml \
-            --branch "release/v$version" --commit "$head" --event workflow_dispatch --limit 1 \
+            --branch "release/v$version" --commit "$head" --limit 1 \
             --json headSha,status,conclusion)
           printf '%s' "$runs" | jq -e --arg head "$head" \
             'length > 0 and .[0].headSha == $head and .[0].status == "completed" and .[0].conclusion == "success"' >/dev/null \
-            || { echo '::error::Latest release dry run for the PR head must pass before tagging'; exit 1; }
+            || { echo "::error::Latest release dry run for the PR head must pass before tagging. Run Release tag manually with PR $pr_number to validate and recover this release"; exit 1; }
           tag="v$version"
           if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
             echo "::error::$tag already exists; tags are never moved"; exit 1
           fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git tag -a "$tag" "$GITHUB_SHA" -m "pacer $version"
+          git tag -a "$tag" "$release_sha" -m "pacer $version"
           auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
           git -c "http.extraheader=$auth" push origin "refs/tags/$tag"
-          echo "Tagged $tag at $GITHUB_SHA; release.yml publishes it." >> "$GITHUB_STEP_SUMMARY"
+          echo "Tagged $tag at $release_sha; release.yml publishes it." >> "$GITHUB_STEP_SUMMARY"
