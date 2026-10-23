@@ -3,7 +3,7 @@ import { withInstallLock } from "./lock";
 import { recoverInstall } from "./journal";
 import type { PlannerCfg } from "../config/accounts";
 import { removeClaudeMcp } from "./claude";
-import { copyFileSync, existsSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, renameSync, rmSync } from "node:fs";
 import type { Ctx } from "../types";
 import { readText, sha256, shellCommand } from "./fsx";
 import { applyUndo, readManifest, writeManifest } from "./manifest";

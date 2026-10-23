@@ -2,7 +2,6 @@ import { readInstallFile, writeInstallFile } from "./atomic";
 import { join } from "node:path";
 import type { Ctx } from "../types";
 import { hasBlock, removeBlock, type BlockStyle } from "./blocks";
-import { readText } from "./fsx";
 import { removeHooks, restoreHooks, type HookFormat, type RemovedHook } from "./hookjson";
 import { getMember, isEmptyObject, parseJsonc, removeMember } from "./jsonc";
 
@@ -17,6 +16,7 @@ export interface FileChange {
   backup?: string; afterHash?: string; exact?: boolean; undo: UndoOp[];
 }
 export interface PlannerRecord {
+  mcp?: boolean;
   integration?: { schema: 1; fingerprint: string };
   planner: string; account?: string; folder?: string; configEnv?: Record<string, string>; installedAt: number; pacerArgv: string[]; files: FileChange[];
   commands: { undo: string[] }[]; notes: string[];

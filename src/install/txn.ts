@@ -12,7 +12,7 @@ import { mergeUndo, readManifest, type PlannerRecord, type UndoOp } from "./mani
 export class InstallError extends Error {
   constructor(message: string) { super(message); this.name = "InstallError"; }
 }
-export interface InstallEnv { ctx: Ctx; pacerArgv: string[]; mcp?: boolean; folder?: string; plannerAccount?: string; plannerKey?: string; configEnv?: Record<string, string>; mode?: "connect" | "reconcile" }
+export interface InstallEnv { ctx: Ctx; pacerArgv: string[]; mcp?: boolean; folder?: string; plannerAccount?: string; plannerKey?: string; configEnv?: Record<string, string>; mode?: "connect" | "reconcile"; skillFolder?: string }
 export class Txn {
   readonly record: PlannerRecord;
   readonly touched: string[] = [];
@@ -24,6 +24,7 @@ export class Txn {
       planner, installedAt: env.ctx.now, pacerArgv: [...env.pacerArgv], files: [], commands: [], notes: [],
     };
     this.record.pacerArgv = [...env.pacerArgv];
+    if (env.mcp !== undefined && env.mode !== "reconcile") this.record.mcp = env.mcp;
     if (env.plannerAccount) this.record.account = env.plannerAccount;
     if (env.folder) this.record.folder = env.folder;
     if (env.configEnv) this.record.configEnv = {...env.configEnv};
@@ -90,7 +91,8 @@ export class Txn {
   commit(): void {
     const manifest = readManifest(this.env.ctx);
     this.record.notes = [...this.notes];
-    if (JSON.stringify(manifest.planners[this.record.planner]) === JSON.stringify(this.record)) return;
+    if (JSON.stringify(manifest.planners[this.record.planner]) === JSON.stringify(this.record)
+      && ![...this.pending.values()].some(file => file.before !== file.after)) return;
     manifest.planners[this.record.planner] = this.record;
     commitInstall(this.env.ctx, [...this.pending.values()].filter(file => file.before !== file.after), JSON.stringify(manifest, null, 2) + "\n");
   }
