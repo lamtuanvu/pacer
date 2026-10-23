@@ -53,7 +53,10 @@ test("session composer separates isolated branch from existing checkout and name
     />,
   );
   expect(html).toContain("New worktree");
-  expect(html).toContain("Use existing checkout");
+  expect(html).toContain('class="pc-start-fields"');
+  expect(html).toContain('pc-attachment-picker__trigger');
+  expect(html).toContain('aria-haspopup="listbox"');
+  expect(html).not.toContain('<select');
   expect(html).toContain("Base branch");
   expect(html).toContain("Codex · work");
   expect(html).toContain("Start session");

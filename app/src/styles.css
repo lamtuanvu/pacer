@@ -358,6 +358,9 @@ html:has(.pc-app--narrow .pc-panel){scroll-padding-top:calc(var(--control-touch)
 .pc-start{width:100%;max-width:calc(var(--size-600) + var(--size-240));margin:var(--space-12) auto;display:flex;flex-direction:column;gap:var(--space-6)}
 .pc-start-intro{color:var(--ink-secondary);margin:0}
 .pc-start-composer{display:flex;flex-direction:column;gap:var(--space-4);padding:var(--space-6);border:1px solid var(--line);border-radius:var(--radius-xl);background:var(--surface-card)}
+.pc-start-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start;gap:var(--space-4)}
+.pc-start-fields .pc-field{min-width:0}
+@media(max-width:560px){.pc-start-fields{grid-template-columns:minmax(0,1fr)}}
 .pc-start-recent{display:flex;flex-direction:column;align-items:stretch;gap:var(--space-2)}
 .pc-start-recent>a{justify-content:flex-start;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 @media(max-width:767px){.pc-start{margin:var(--space-4) auto}.pc-start-composer{padding:var(--space-4)}}

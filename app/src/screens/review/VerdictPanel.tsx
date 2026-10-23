@@ -1,4 +1,6 @@
-import { Field, TextArea, Select, Disclosure } from "../../ds/Controls";
+import { Field, TextArea, Disclosure } from "../../ds/Controls";
+import { ChoicePicker } from "../../ds/ChoicePicker";
+import type { ChoiceOption } from "../../ds/ChoicePicker";
 
 import { kindCopy, kindSourceCopy, reasonCopy } from "../../../../src/view-model/copy";
 import { SectionHeading } from "../../ds/SectionHeading";
@@ -31,7 +33,15 @@ export interface VerdictPanelProps {
   noteFor: "reject" | "send_back" | null; pending: boolean;
   onNote: (s: string) => void; onKind: (s: string) => void; onExecutor: (s: string) => void;
   onOpenNote: (v: "reject" | "send_back") => void; onCancel: () => void; onSubmit: (v: Verdict["verdict"]) => void;
-  noteRef?: RefObject<HTMLTextAreaElement>; retryRef?: RefObject<HTMLSelectElement>;
+  noteRef?: RefObject<HTMLTextAreaElement>; retryRef?: RefObject<HTMLButtonElement>;
+}
+export function retryChoiceOptions(options: TaskDetail["retryOptions"]): ChoiceOption[] {
+  return options.map(option => ({
+    value: option.id,
+    label: `${executorLabel(option.id)} · ${reasonCopy(option.reason)}`,
+    disabled: option.state !== "ready",
+    reason: option.state !== "ready" ? reasonCopy(option.reason) : undefined,
+  }));
 }
 export function VerdictPanel({ recovery = false, task, note, kind, executor, noteFor, pending, onNote, onKind, onExecutor, onOpenNote, onCancel, onSubmit, noteRef, retryRef }: VerdictPanelProps) {
   const verdict = noteFor ?? (executor ? "retry" : "accept");
@@ -41,16 +51,14 @@ export function VerdictPanel({ recovery = false, task, note, kind, executor, not
     <p className="muted">Accept records the verdict; you merge the branch.</p>
     <div className="pc-verdict-pair">{(task.executor || task.attempts.at(-1)?.executor) && <Button disabled={pending} onClick={() => onOpenNote("send_back")}>Send back</Button>}
     <Button variant="danger" disabled={pending} onClick={() => onOpenNote("reject")}>Reject result</Button></div>
-    {task.retryOptions.some(option=>option.state === "ready") ? <div className="pc-retry"><SectionHeading as="label" htmlFor="review-retry">Or retry on</SectionHeading><div className="row"><Select className="pc-select" id="review-retry" ref={retryRef} value={executor} disabled={pending} onChange={e => onExecutor(e.currentTarget.value)}>
-        <option value="">Choose an executor</option>
-        {task.retryOptions.map(option => <option key={option.id} value={option.id} disabled={option.state !== "ready"}>{executorLabel(option.id)} · {reasonCopy(option.reason)}</option>)}
-      </Select>
+    {task.retryOptions.some(option=>option.state === "ready") ? <div className="pc-retry"><SectionHeading as="label" htmlFor="review-retry">Or retry on</SectionHeading><div className="row"><ChoicePicker id="review-retry" ref={retryRef} value={executor} disabled={pending} onValueChange={onExecutor}
+        placeholder="Choose an executor" searchable options={retryChoiceOptions(task.retryOptions)} />
     <Button disabled={pending || !executor} onClick={() => onSubmit("retry")}>Retry</Button>{!executor && <span className="muted">Choose an executor to retry.</span>}</div></div> : <p className="muted">No executor is ready to retry.</p>}
-    <Field label={<> Work type </>}><Select className="pc-select" value={kind} disabled={pending} onChange={e => onKind(e.currentTarget.value)}>
-        <option value="">Unspecified</option>
-        {task.kind && !kinds.includes(task.kind) && <option value={task.kind}>{kindCopy(task.kind)}</option>}
-        {kinds.map(k => <option key={k} value={k}>{kindCopy(k)}</option>)}
-      </Select>
+    <Field label={<> Work type </>}><ChoicePicker value={kind} disabled={pending} onValueChange={onKind} options={[
+        { value: "", label: "Unspecified" },
+        ...(task.kind && !kinds.includes(task.kind) ? [{ value: task.kind, label: kindCopy(task.kind) }] : []),
+        ...kinds.map(k => ({ value: k, label: kindCopy(k) })),
+      ]} />
       <span className="muted">{kindSourceCopy(task.routing?.kindSource)}</span>
     </Field>
     <Field label={<> <SectionHeading as="span">Note</SectionHeading> </>}><TextArea ref={noteRef} rows={5} value={note} disabled={pending} onInput={e => onNote(e.currentTarget.value)} onKeyDown={e => {

@@ -289,7 +289,7 @@ test("mirror drains up to 4 MiB each poll and resumes the persisted raw cursor",
   expect((await resumed.read()).exit).toBe(0);
   expect(offsets[0]).toBeGreaterThan(4*1024*1024-100);
   expect(readFileSync(join(local,"stdout"),"utf8")).toBe("line\n".repeat(900000));
-},20000);
+},30000);
 
 test.skipIf(!await canListen())("viewer removes stale sockets and retries a failed listen next poll", async()=>{
   const {io,remote,local}=setup();

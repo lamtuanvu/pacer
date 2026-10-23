@@ -35,7 +35,7 @@ test("groups render in order with usage pills, notes and added providers disable
 
 test("a signed-in provider preselects the recommended model and offers a spend cap and a name", () => {
   const html = render(<OpencodeSetup onCreated={() => {}} onUseUrl={() => {}} initialDetection={detection} initialChoice={openrouter} initialModels={models} />);
-  expect(html).toMatch(/<option[^>]*value="qwen\/qwen3-coder"[^>]*>qwen\/qwen3-coder \(recommended\)/);
+  expect(html).toContain('<span class="pc-choice-picker__value">qwen/qwen3-coder (recommended)</span>');
   expect(html).toContain("262K context · $0.22/$0.95 per M");
   expect(html).toContain("Weekly spend cap in $");
   expect(html).toContain("Leave blank for no cap; spend is always shown.");
@@ -48,7 +48,8 @@ test("a local server needs no cap; unknown usage asks for it", () => {
   const html = render(<OpencodeSetup onCreated={() => {}} onUseUrl={() => {}} initialDetection={detection} initialChoice={local} initialModels={{ ...models, usage: { usage: "unmetered", known: true } }} />);
   expect(html).not.toContain("Weekly spend cap");
   const unknown = render(<OpencodeSetup onCreated={() => {}} onUseUrl={() => {}} initialDetection={detection} initialChoice={openrouter} initialModels={{ ...models, usage: { usage: "metered", known: false } }} />);
-  expect(unknown).toContain("Quota — a plan with limits");
+  expect(unknown).toContain('>Usage</label>');
+  expect(unknown).toContain('<span class="pc-choice-picker__value">Metered — pay per token</span>');
 });
 
 test("a catalog provider shows the OpenCode sign-in command and asks for no key", () => {

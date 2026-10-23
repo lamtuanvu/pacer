@@ -12,7 +12,7 @@ const render = (s=state,initial=view) => renderToString(<TaskContext.Provider va
 test("editor names keyboard reorder controls and distinguishes saved project order", () => {
   const html=render();
   for(const copy of ["Project strategies","Project order","Move Cursor · team · local down","Move Codex · personal · local up","Save project strategy","Use global strategy"]) expect(html).toContain(copy);
-  expect(html).toContain("pc-select"); expect(html).toContain("pc-btn");
+  expect(html).toContain("pc-choice-picker"); expect(html).toContain("pc-btn");
 });
 test("older services hide project settings and disconnected editors explain disabled saving", () => {
   expect(render({...state,features:{readModel:true,ops:new Set()}})).toBe("");

@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { renderToString } from "preact-render-to-string";
 import fixture from "./fixtures/ui/task-get.json";
 import type { TaskDetail } from "../src/core/task-detail";
-import { VerdictPanel, handleNoteKey, verdictCommand } from "../app/src/screens/review/VerdictPanel";
+import { VerdictPanel, handleNoteKey, verdictCommand, retryChoiceOptions } from "../app/src/screens/review/VerdictPanel";
 import { copyWorktreePath, registerReviewKeys, submitVerdict } from "../app/src/screens/Review";
 import { createActionRunner } from "../app/src/data/actions";
 import { ApiError } from "../app/src/data/api";
@@ -15,7 +15,7 @@ test("verdict panel has one primary, disables unavailable retry and explains acc
   expect(html).toContain("Mark accepted");
   expect(html.match(/pc-btn--primary/g)?.length).toBe(1);
   expect(html).toContain("Accept records the verdict; you merge the branch.");
-  expect(html).toMatch(/<option value="other" disabled[^>]*>other · Sign-in needed/);
+  expect(retryChoiceOptions(task.retryOptions)).toContainEqual(expect.objectContaining({ value: "other", disabled: true, reason: "Sign-in needed" }));
   expect(html).toContain("Suggested from the task description");
   expect(html).not.toContain("classifier");
   expect(html).toContain(`pacer review ${task.id} --accept`);
@@ -89,7 +89,7 @@ test("verdict groups secondary actions, labels inline retry and collapses the CL
   const html = renderToString(<VerdictPanel task={task} note="" kind="" executor="" noteFor={null} pending={false} onNote={() => {}} onKind={() => {}} onExecutor={() => {}} onOpenNote={() => {}} onCancel={() => {}} onSubmit={() => {}} />);
   expect(html).toContain('<h2 class="pc-section-heading">Your verdict</h2>');
   expect(html).toMatch(/pc-verdict-pair[^>]*><button[^>]*>Send back<\/button><button[^>]*>Reject result<\/button><\/div>/);
-  expect(html).toMatch(/<label for="review-retry" class="pc-section-heading">Or retry on<\/label><div class="row"><select(?=[^>]*class="pc-select(?: [^"]*)?")(?=[^>]*id="review-retry")/);
+  expect(html).toMatch(/<label for="review-retry" class="pc-section-heading">Or retry on<\/label><div class="row"><span class="pc-choice-picker[^>]*><button id="review-retry" aria-haspopup="listbox"/);
   expect(html).toMatch(/<details class="pc-disclosure"><summary>Use the CLI<\/summary><code[^>]*>pacer review/);
   expect(html).not.toContain('<details open');
 });
