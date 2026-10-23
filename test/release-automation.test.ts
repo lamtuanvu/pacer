@@ -15,7 +15,7 @@ test("Prepare release is a manual, main-only, token-gated button with one releas
   expect(prepare.permissions).toEqual({});
   expect(prepare.concurrency?.group).toBe("release");
   const job = prepare.jobs.prepare!;
-  expect(job.permissions).toEqual({ contents: "read", actions: "write" });
+  expect(job.permissions).toEqual({ contents: "read", "pull-requests": "read", actions: "write" });
   expect(job.env?.GH_TOKEN).toBe("${{ secrets.RELEASE_TOKEN }}");
   // The PAT cannot dispatch workflows without the Actions permission; the job token can.
   expect(job.steps.find(s => s.name === "Dry-run the release on the PR branch")?.env?.GH_TOKEN).toBe("${{ github.token }}");
@@ -273,4 +273,42 @@ test("Recovery tags the original release merge rather than the dispatch main com
   git(work, "checkout", "--quiet", sha);
   expect(runTag(work, later, subject, { RELEASE_COMMIT: sha }).exitCode).toBe(0);
   expect(git(origin, "rev-parse", "v0.5.0^{commit}")).toBe(sha);
+});
+
+test("Prepare resumes an unfinished release before choosing another version", () => {
+  const steps = prepare.jobs.prepare!.steps;
+  const resume = steps.findIndex(s => s.name === "Resume an interrupted release");
+  expect(resume).toBeGreaterThan(-1);
+  expect(resume).toBeLessThan(steps.findIndex(s => s.name === "Pick the version"));
+  for (const name of ["Pick the version", "Refuse a release that is already in flight", "Prepare, commit and open the release PR", "Dry-run the release on the PR branch", "Turn on auto-merge"]) {
+    expect(steps.find(s => s.name === name)!.if).toBe("steps.resume.outputs.resumed != 'true'");
+  }
+});
+
+test("Prepare automatically recovers the unique pending release and propagates failure", () => {
+  const script = prepare.jobs.prepare!.steps.find(s => s.name === "Resume an interrupted release")!.run!;
+  for (const outcome of ["success", "failure", "ambiguous", "tagged"]) {
+    const { work, origin, sha } = recoveryFixture();
+    if (outcome === "tagged") git(work, "tag", "v0.5.0");
+    writeFileSync(join(work, "candidates.json"), JSON.stringify(Array.from({ length: outcome === "ambiguous" ? 2 : 1 }, (_, i) => ({ number: 220 + i, title: "chore: release 0.5.0", isCrossRepository: false, mergeCommit: { oid: sha } }))));
+    writeFileSync(join(work, "bin", "gh"), `#!/bin/sh
+case "$1 $2" in
+ "pr list") cat candidates.json ;;
+ "run list") case "$*" in *--branch*) echo 101 ;; *) echo 100 ;; esac ;;
+ "workflow run") printf '%s' "$*" > dispatch ;;
+ "run watch") exit "\${WATCH_EXIT:-0}" ;;
+ *) exit 1 ;;
+esac
+`);
+    const output = join(work, "output");
+    const result = recoveryStep(work, script, { GITHUB_OUTPUT: output, GITHUB_STEP_SUMMARY: join(work, "summary"), GITHUB_SERVER_URL: "https://example.invalid", WATCH_EXIT: outcome === "failure" ? "1" : "0" });
+    expect(result.exitCode === 0).toBe(outcome === "success" || outcome === "tagged");
+    if (outcome === "success") {
+      expect(readFileSync(output, "utf8")).toContain("resumed=true");
+      expect(readFileSync(join(work, "dispatch"), "utf8")).toContain("-f pr=220");
+      expect(readFileSync(join(work, "summary"), "utf8")).toContain("/actions/runs/101");
+    }
+    if (outcome === "tagged") expect(readFileSync(output, "utf8")).toContain("resumed=false");
+    expect(git(origin, "tag", "--list")).toBe("");
+  }
 });
