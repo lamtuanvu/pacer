@@ -8,13 +8,18 @@ const snap = fixture as unknown as ClientSnapshot;
 const planner = snap.planner!;
 const base = { title: "Overview", planner, mode: "normal", connected: true, lastUpdate: snap.at - 8, now: snap.at, onDelegate: () => {} };
 
-test("planner meter shows compact text and words for screen readers", () => {
+test("planner identity remains in the top bar while usage lives in the status bar", () => {
   const html = renderToString(<TopBar {...base} />);
   expect(html).toContain("<header");
-  expect(html).toContain(">63% used · pace 77%<");
-  expect(html).toContain('aria-valuetext="63% used, pace 77%, behind pace"');
+  expect(html).not.toContain("pc-meter");
   expect(html).toContain('aria-hidden="true"'); // the mark next to the planner name
   expect(html).toContain("Claude");
+});
+
+test("narrow top bar keeps planner usage because it has no desktop status bar", () => {
+  const html = renderToString(<TopBar {...base} narrow />);
+  expect(html).toContain('aria-valuetext="63% used, pace 77%, behind pace"');
+  expect(html).toContain(">63%·77<");
 });
 
 test("mode chip always shows, in words, warn only when not normal, with the hold time", () => {
@@ -33,12 +38,12 @@ test("live dot says when it last updated, and Reconnecting while down", () => {
   expect(down).toContain("pc-live-dot--off");
 });
 
-test("unknown planner shows its name and no meter; stale shows when it was read", () => {
+test("unknown and stale planners still show their name without duplicated usage", () => {
   const unknown = renderToString(<TopBar {...base} planner={{ ...planner, verdict: "unknown", usedPct: null, pacePct: null }} />);
   expect(unknown).not.toContain("pc-meter");
   expect(unknown).toContain("Claude");
   expect(renderToString(<TopBar {...base} planner={null} />)).not.toContain("pc-meter");
-  expect(renderToString(<TopBar {...base} planner={{ ...planner, stale: true }} />)).toContain("as of");
+  expect(renderToString(<TopBar {...base} planner={{ ...planner, stale: true }} />)).not.toContain("pc-meter");
 });
 
 test("Delegate is the one primary button, secondary when the screen owns the primary", () => {

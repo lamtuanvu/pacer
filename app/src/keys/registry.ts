@@ -17,13 +17,17 @@ function isTextTarget(target: unknown): boolean {
 export function createKeyRegistry(opts: { controlActive: () => boolean; blocked?: () => boolean; timeoutMs?: number; now?: () => number }) {
   const timeout = opts.timeoutMs ?? 1000, now = opts.now ?? (() => Date.now());
   const shortcuts: Shortcut[] = [];
+  const listeners = new Set<() => void>();
+  const notify = () => { for (const listener of listeners) listener(); };
   let scope: string | null = null, pending: { keys: string; at: number } | null = null;
   const active = () => shortcuts.filter(s => (s.scope === "global" || s.scope === scope) && (!opts.controlActive() || s.allowInControl));
   return {
     register(shortcut: Shortcut): () => void {
       shortcuts.push(shortcut);
-      return () => { const at = shortcuts.indexOf(shortcut); if (at >= 0) shortcuts.splice(at, 1); };
+      notify();
+      return () => { const at = shortcuts.indexOf(shortcut); if (at >= 0) { shortcuts.splice(at, 1); notify(); } };
     },
+    subscribe(listener: () => void): () => void { listeners.add(listener); return () => { listeners.delete(listener); }; },
     setScope(next: string | null) { scope = next; pending = null; },
     scope: (): string | null => scope,
     list: (): Shortcut[] => [...shortcuts],

@@ -1,5 +1,5 @@
 import type { ComponentChildren } from 'preact';
-import { useEffect, useRef } from 'preact/hooks';
+import { useEffect, useLayoutEffect, useRef } from 'preact/hooks';
 import { SectionHeading } from './SectionHeading';
 import { Button } from './Button';
 
@@ -32,6 +32,27 @@ export function Dialog({ title, close, children }: { title: string; close: () =>
     onKeyDown={event => cycleDialogFocus(event.currentTarget, event)}
     onCancel={event => { event.preventDefault(); close(); }}>
     <div className="pc-dialog__head"><SectionHeading>{title}</SectionHeading><Button onClick={close}>Close</Button></div>
+    {children}
+  </dialog>;
+}
+
+/** Anchored native modal for compact detail panels. The caller owns only the panel content. */
+export function PopoverDialog({ id, title, close, children }: { id: string; title: string; close: () => void; children: ComponentChildren }) {
+  const ref = useRef<HTMLDialogElement>(null);
+  useLayoutEffect(() => {
+    const dialog = ref.current!;
+    const invoking = dialog.ownerDocument.activeElement as HTMLElement | null;
+    dialog.showModal();
+    dialog.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
+    return () => {
+      dialog.close();
+      if (invoking?.isConnected) invoking.focus();
+    };
+  }, []);
+  return <dialog className="pc-dialog-popover" id={id} ref={ref} tabIndex={-1} aria-label={title}
+    onKeyDown={event => cycleDialogFocus(event.currentTarget, event)}
+    onCancel={event => { event.preventDefault(); close(); }}
+    onClick={event => { if (event.target === event.currentTarget) close(); }}>
     {children}
   </dialog>;
 }

@@ -253,14 +253,15 @@
 }
 /* Bundled copy of app/src/ds/tokens.css above; keep in sync with the pacer tokens. */
 * { box-sizing: border-box; }
-body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: var(--space-5); background: var(--surface-page); color: var(--ink); font: var(--type-body-size)/var(--type-body-line) var(--font-sans); }
+body { margin: 0; height: 100vh; min-height: 100vh; overflow: auto; border-radius: var(--radius-xl); display: grid; place-items: center; padding: var(--space-5); background: var(--surface-page); color: var(--ink); font: var(--type-body-size)/var(--type-body-line) var(--font-sans); }
+.window-drag { position: fixed; top: 0; left: 0; right: 0; height: var(--size-32); z-index: var(--layer-sticky); }
 main { width: 100%; max-width: 440px; padding: var(--space-8); text-align: center; }
 h1 { font-size: var(--type-body-size); line-height: var(--type-body-line); font-weight: var(--type-body-strong-weight); }
 h1:empty { display: none; }
 p { color: var(--ink-secondary); overflow-wrap: anywhere; }
 a { color: var(--link); }
 a:focus-visible { outline: 2px solid var(--focus); outline-offset: 4px; }
-#pacer-os-approval { position: fixed; top: var(--space-3); left: var(--space-3); right: var(--space-3); text-align: center; }
+#pacer-os-approval { position: fixed; top: var(--space-3); left: var(--space-3); right: var(--space-3); text-align: center; z-index: var(--layer-overlay); }
 [hidden] { display: none !important; }
 .compact { padding: var(--space-3); }
 .compact main { padding: var(--space-4); }

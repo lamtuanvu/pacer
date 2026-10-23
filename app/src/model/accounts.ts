@@ -5,7 +5,7 @@ export interface Account {
   name: string; kind: string; folder?: string; source?: string; signedIn?: boolean | null; signin_command?: string; runners?: string[];
   state?: string | { state?: string; detail?: string }; detail?: string;
   connection?: { base_url_host?: string; key?: string; models: Model[]; checked_at?: string | number };
-  usageReading?: { windows: { name: string; usedPct: number | null; resetsAt: number | null }[]; capturedAt?: number | null; stale?: boolean; source?: string };
+  usageReading?: { windows: { name: string; usedPct: number | null; resetsAt: number | null }[]; capturedAt?: number | null; stale?: boolean; source?: string; error?: string };
 }
 export interface Limit { account: string; capturedAt?: number | null; stale?: boolean; source?: string | null; usedPct?: number | null; window?: string | null; resetsAt?: number | null; error?: string | null; hint?: string | null }
 export const clock = (seconds: number) => formatClock(seconds, Date.now() / 1000);

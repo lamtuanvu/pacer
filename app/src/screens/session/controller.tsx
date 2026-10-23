@@ -15,6 +15,7 @@ import { keys } from "../../keys/instance";
 import { useActions } from "../../data/action-context";
 import { useQuery, useTaskContext } from "../task-shared";
 import { Session } from "./Session";
+import { onPageScroll, pageScrollY, scrollPageTo } from "../../shell/page-scroll";
 import { takeoverSession, type TakeoverState } from "./takeover";
 import { SessionsList } from "./SessionsList";
 import { Conversation } from "./Conversation";
@@ -40,11 +41,10 @@ export function Sessions({query}:{query:RouteQuery}) {
    const listRoute = ["#/tasks", "#/sessions"].includes(location.hash.split("?")[0]!);
    if (scrollRestored.current && listRoute) {
     const position = taskListPositions.get(scrollKey);
-    if (position) position.scroll = window.scrollY;
+    if (position) position.scroll = pageScrollY();
    }
   };
-  window.addEventListener("scroll", remember, {passive:true});
-  return () => window.removeEventListener("scroll", remember);
+  return onPageScroll(remember);
  }, [scrollKey]);
  const [cursor,setCursor]=useState<string | undefined>(savedPosition.current?.cursor);
  const [history,setHistory]=useState<ApiTask[]>(savedPosition.current?.history ?? []);
@@ -59,7 +59,7 @@ export function Sessions({query}:{query:RouteQuery}) {
  useEffect(() => {
   if (!snapshot || page.loading || scrollRestored.current) return;
   const frame = requestAnimationFrame(() => {
-   window.scrollTo(0, savedScroll.current);
+   scrollPageTo(savedScroll.current);
    scrollRestored.current = true;
   });
   return () => cancelAnimationFrame(frame);

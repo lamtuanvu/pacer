@@ -48,6 +48,7 @@ test("stale meter is dimmed and says when it was read", () => {
   const html = renderToString(<UsageMeter used={50} pace={40} tone="warn" size="top" label="x" stale staleAt={staleAt} now={staleAt + 600} />);
   expect(html).toContain("pc-meter--stale");
   expect(html).toContain(`as of ${clock(staleAt, staleAt + 600)}`);
+  expect(html).toContain("historical usage, as of");
 });
 
 test("fill width is a custom property, not a colour", () => {
