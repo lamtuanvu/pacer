@@ -19,6 +19,14 @@ import { Screen } from "./screens/Screen";
 import { Delegate } from "./screens/Delegate";
 import { followSavedTheme } from "./theme";
 import { NavigationProvider } from "./navigation";
+import { readNativeTitlebarSupport, readRoundedWindowSupport } from "./data/desktop";
+import { resetDesktopPageScroll } from "./shell/page-scroll";
+void readRoundedWindowSupport().then(supported => {
+  if (supported) document.documentElement.dataset.pacerDesktop = "";
+});
+void readNativeTitlebarSupport().then(supported => {
+  if (supported) document.documentElement.dataset.pacerNativeTitlebar = "";
+});
 followSavedTheme();
 const store = createStore();
 const SETTINGS = new Set(["settings", "hosts", "add-executor"]);
@@ -28,6 +36,7 @@ function App() {
   const api = useMemo(() => createApi(() => setSessionEnded(true)), []);
   const actions = useMemo(() => createActionRunner({ call: api.call, waitFor: storeWaiter(store), refetch: () => store.refresh(), navigate: hash => { location.hash = inheritQuery(hash, location.hash); } }), [api]);
   const [hash, setHash] = useState(location.hash);
+  useEffect(() => { resetDesktopPageScroll(); }, [hash]);
   const [help, setHelp] = useState(false);
   const [delegate, setDelegate] = useState(false);
   const [UpdateNotice, setUpdateNotice] = useState<typeof import("./shell/UpdateNotice").UpdateNotice>();

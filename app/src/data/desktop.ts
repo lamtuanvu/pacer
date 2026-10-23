@@ -4,6 +4,20 @@ export interface DesktopHost {
 export function desktopHost(): DesktopHost {
   return globalThis as typeof globalThis & DesktopHost;
 }
+/** Older opaque shells do not expose this command; keep their canvas square. */
+export async function readRoundedWindowSupport(host: DesktopHost = desktopHost()): Promise<boolean> {
+  const invoke = host.__TAURI__?.core?.invoke;
+  if (!invoke) return false;
+  try { return await invoke('rounded_window_supported') === true; }
+  catch { return false; }
+}
+/** Only the macOS main window uses Tauri's native title-bar overlay. */
+export async function readNativeTitlebarSupport(host: DesktopHost = desktopHost()): Promise<boolean> {
+  const invoke = host.__TAURI__?.core?.invoke;
+  if (!invoke) return false;
+  try { return await invoke('native_titlebar_supported') === true; }
+  catch { return false; }
+}
 /** Never substitute the service or web bundle version for the native shell. */
 export async function readDesktopVersion(host: DesktopHost = desktopHost()): Promise<string | null> {
   const invoke = host.__TAURI__?.core?.invoke;
