@@ -18,7 +18,7 @@ export function AttachmentPicker({
 }) {
   return (
     <label className="pc-attachment-picker">
-      Attach files
+      <span className="pc-attachment-picker__trigger">Attach files</span>
       <TextInput
         type="file"
         multiple

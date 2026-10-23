@@ -3,6 +3,7 @@ import { useDensity } from "./Density";
 import { forwardRef } from "preact/compat";
 import { cloneElement, isValidElement, toChildArray, type JSX, type ComponentChildren, type VNode } from "preact";
 import { useId, useLayoutEffect, useRef } from "preact/hooks";
+import { ChoicePicker } from "./ChoicePicker";
 
 type InputProps = JSX.InputHTMLAttributes<HTMLInputElement>;
 
@@ -15,17 +16,12 @@ export const TextArea = forwardRef<HTMLTextAreaElement, JSX.TextareaHTMLAttribut
   const density = useDensity();
   return <textarea {...props} ref={ref} className={classes('pc-input', 'pc-textarea', `pc-control--${density}`, className)} />;
 });
-export const Select = forwardRef<HTMLSelectElement, JSX.SelectHTMLAttributes<HTMLSelectElement>>(function Select({ className, ...props }, ref) {
-  const density = useDensity();
-  return <select {...props} ref={ref} className={classes('pc-select', `pc-control--${density}`, className)} />;
-});
-
 type FieldNode = VNode<{ id?: string; children?: ComponentChildren; 'aria-describedby'?: string; 'aria-invalid'?: boolean }>;
 function findControl(children: ComponentChildren): FieldNode | undefined {
   for (const child of toChildArray(children)) {
     if (!isValidElement(child)) continue;
     const node = child as FieldNode;
-    if ([TextInput, TextArea, Select, Checkbox, Switch, Range].includes(node.type as never)) return node;
+    if ([TextInput, TextArea, ChoicePicker, Checkbox, Switch, Range].includes(node.type as never)) return node;
     const nested = findControl(node.props.children);
     if (nested) return nested;
   }

@@ -76,7 +76,9 @@ test("dialog renders stored defaults, optional kind and submission shortcut", ()
     expect(html).toContain('value="/tmp/fixture/web"');
     expect(html).toContain("Fix routing");
     expect(html).toContain("Kind (optional)");
-    expect(html).toMatch(/<option selected value="tests"/);
+    expect(html).toContain('aria-haspopup="listbox"');
+    expect(html).not.toContain('<select');
+    expect(html).toContain('tests');
     expect(html).toContain('aria-keyshortcuts="Meta+Enter Control+Enter"');
     expect(html).toContain("Checking routing…");
   } finally {
