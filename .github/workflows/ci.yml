@@ -14,6 +14,40 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  release-readiness:
+    name: Release readiness
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Require the latest release dry run for this PR head
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          BRANCH: ${{ github.head_ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+        run: |
+          set -euo pipefail
+          if test "$EVENT" != pull_request; then exit 0; fi
+          case "$BRANCH" in release/v*) ;; *) exit 0 ;; esac
+          test "$HEAD_REPO" = "$REPO" || { echo '::error::Release PR must be in this repository'; exit 1; }
+          for _ in $(seq 1 590); do
+            runs=$(gh run list --repo "$REPO" --workflow release.yml --branch "$BRANCH" --commit "$HEAD" --event pull_request --limit 1 --json status,conclusion,url)
+            status=$(printf '%s' "$runs" | jq -r '.[0].status // "missing"')
+            if test "$status" = completed; then
+              printf '%s' "$runs" | jq -e '.[0].conclusion == "success"' >/dev/null \
+                || { echo "::error::Release validation failed: $(printf '%s' "$runs" | jq -r '.[0].url')"; exit 1; }
+              exit 0
+            fi
+            sleep 10
+          done
+          echo '::error::Timed out waiting for release validation of this PR head'
+          exit 1
+
   ui-evidence:
     name: UI review readiness
     runs-on: ubuntu-latest
@@ -36,7 +70,7 @@ jobs:
 
   test:
     name: Test (${{ matrix.os }})
-    needs: [ui-evidence]
+    needs: [ui-evidence, release-readiness]
     # Run code validation even when manual review evidence is incomplete.
     if: ${{ always() }}
     runs-on: ${{ matrix.os }}
@@ -80,9 +114,11 @@ jobs:
         if: ${{ always() }}
         env:
           UI_EVIDENCE_RESULT: ${{ needs.ui-evidence.result }}
+          RELEASE_READINESS_RESULT: ${{ needs.release-readiness.result }}
         run: |
           echo "UI review readiness: $UI_EVIDENCE_RESULT"
           test "$UI_EVIDENCE_RESULT" = success
+          test "$RELEASE_READINESS_RESULT" = success
 
   e2e:
     name: Install, sign-in and delegation (macOS)
