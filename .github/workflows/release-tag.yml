@@ -1,4 +1,5 @@
 name: Release tag
+run-name: "${{ github.event_name == 'workflow_dispatch' && format('Recover release PR #{0}', inputs.pr) || github.event.head_commit.message }}"
 
 # When a release PR from release-prepare.yml lands, tag its merge commit. The
 # tag is pushed with RELEASE_TOKEN so it starts release.yml, which publishes.
