@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { Icon } from "../ds/icons";
-import { Button, TextAction } from "../ds/Button";
+import { Button, TextAction } from "../ds/Button"; // Button used in popup
 import { Pill } from "../ds/Pill";
 import { Tooltip } from "../ds/Tooltip";
 import { useTaskContext } from "../screens/task-shared";
@@ -243,8 +243,8 @@ export function StrategyQuickAccess({
   return (
     <>
       <Tooltip text={tooltipText}>
-        <Button
-          variant="ghost"
+        <button
+          type="button"
           className="pc-rail__item"
           aria-label={tooltipText}
           aria-haspopup="dialog"
@@ -255,7 +255,7 @@ export function StrategyQuickAccess({
           {hasRepoContext && (
             <span className="pc-rail__dot" aria-hidden="true" />
           )}
-        </Button>
+        </button>
       </Tooltip>
 
       {popupOpen && (
