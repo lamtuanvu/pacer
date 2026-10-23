@@ -22,9 +22,10 @@ concurrency:
 jobs:
   prepare:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
     permissions:
       contents: read
+      pull-requests: read
       actions: write # dispatch and watch the dry run; workflow_dispatch from GITHUB_TOKEN does start runs
     env:
       BUMP: ${{ inputs.bump }}
@@ -48,13 +49,47 @@ jobs:
         with:
           bun-version: 1.4.2
       - run: bun install --frozen-lockfile
+      - name: Resume an interrupted release
+        id: resume
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          current=$(jq -er .version package.json)
+          if git rev-parse -q --verify "refs/tags/v$current" >/dev/null; then
+            echo 'resumed=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          candidates=$(gh pr list --repo "$GITHUB_REPOSITORY" --state merged --base main --head "release/v$current" --json number,title,isCrossRepository,mergeCommit)
+          matches=$(printf '%s' "$candidates" | jq --arg title "chore: release $current" '[.[] | select(.title == $title and .isCrossRepository == false)]')
+          test "$(printf '%s' "$matches" | jq length)" = 1 \
+            || { echo "::error::Version $current has no tag and no unique merged release PR; refusing to guess"; exit 1; }
+          pr=$(printf '%s' "$matches" | jq -er '.[0].number')
+          merge=$(printf '%s' "$matches" | jq -er '.[0].mergeCommit.oid')
+          git merge-base --is-ancestor "$merge" HEAD
+          previous=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow release-tag.yml --limit 1 --json databaseId --jq '.[0].databaseId // 0')
+          gh workflow run release-tag.yml --repo "$GITHUB_REPOSITORY" --ref main -f pr="$pr"
+          run=""
+          for _ in $(seq 1 30); do
+            run=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow release-tag.yml --branch main --event workflow_dispatch --json databaseId,displayTitle --jq "[.[] | select(.databaseId > $previous and .displayTitle == \"Recover release PR #$pr\")][0].databaseId // empty")
+            test -n "$run" && break
+            sleep 10
+          done
+          test -n "$run" || { echo '::error::Recovery did not start'; exit 1; }
+          url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$run"
+          echo "Resuming pacer $current from PR #$pr: $url" >> "$GITHUB_STEP_SUMMARY"
+          gh run watch "$run" --repo "$GITHUB_REPOSITORY" --interval 30 --exit-status
+          echo 'resumed=true' >> "$GITHUB_OUTPUT"
+          echo "Recovered pacer $current. Its tag starts publication. Run Prepare release again after publication to include later changes." >> "$GITHUB_STEP_SUMMARY"
       - name: Pick the version
+        if: steps.resume.outputs.resumed != 'true'
         id: version
         run: |
           version=$(bun scripts/release/next-version.ts "$BUMP")
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "Preparing pacer $version" >> "$GITHUB_STEP_SUMMARY"
       - name: Refuse a release that is already in flight
+        if: steps.resume.outputs.resumed != 'true'
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
@@ -64,6 +99,7 @@ jobs:
           open=$(gh pr list --repo "$GITHUB_REPOSITORY" --state open --search 'in:title "chore: release"' --json number --jq length)
           test "$open" = 0 || { echo "::error::A release PR is already open"; exit 1; }
       - name: Prepare, commit and open the release PR
+        if: steps.resume.outputs.resumed != 'true'
         id: pr
         env:
           VERSION: ${{ steps.version.outputs.version }}
@@ -83,6 +119,7 @@ jobs:
           echo "url=$url" >> "$GITHUB_OUTPUT"
           echo "Release PR: $url" >> "$GITHUB_STEP_SUMMARY"
       - name: Dry-run the release on the PR branch
+        if: steps.resume.outputs.resumed != 'true'
         env:
           VERSION: ${{ steps.version.outputs.version }}
           # The PR event starts Release; the job token watches it.
@@ -101,6 +138,7 @@ jobs:
           echo "Dry run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$run" >> "$GITHUB_STEP_SUMMARY"
           gh run watch "$run" --repo "$GITHUB_REPOSITORY" --interval 30 --exit-status
       - name: Turn on auto-merge
+        if: steps.resume.outputs.resumed != 'true'
         env:
           URL: ${{ steps.pr.outputs.url }}
         run: |
