@@ -4,7 +4,7 @@ import type { Ctx } from "../types";
 import { readInstallFile, writeInstallFile } from "./atomic";
 import { sha256 } from "./fsx";
 
-export interface PendingFile { path: string; before: string | null; after: string | null; mode?: number }
+export interface PendingFile { path: string; before: string | null; after: string | null; mode?: number; beforeMode?: number }
 interface Journal { schema: 1; files: PendingFile[]; manifestHash: string }
 const journalPath = (ctx: Ctx) => join(ctx.pacerHome, "install-transaction.json");
 export function recoverInstall(ctx: Ctx): void {
@@ -21,7 +21,7 @@ export function recoverInstall(ctx: Ctx): void {
   }
   for (const file of [...journal.files].reverse()) {
     if (file.before === null) rmSync(file.path, { force: true });
-    else writeInstallFile(file.path, file.before);
+    else writeInstallFile(file.path, file.before, file.beforeMode);
   }
   rmSync(journalPath(ctx));
 }

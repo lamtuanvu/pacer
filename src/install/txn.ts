@@ -50,7 +50,8 @@ export class Txn {
     change.afterHash = sha256(next);
     change.managed = { schema: 1, hash: sha256(managedContent(next, change.undo)) };
     // Include unchanged assets in the plan so fingerprints and integrity checks cover them.
-    this.pending.set(path, { path, before: this.pending.has(path) ? this.pending.get(path)!.before : old, after: next });
+    this.pending.set(path, { path, before: this.pending.has(path) ? this.pending.get(path)!.before : old, after: next,
+      beforeMode: this.pending.has(path) ? this.pending.get(path)!.beforeMode : old === null ? undefined : lstatSync(path).mode & 0o700 });
     if (next !== old && !this.touched.includes(path)) this.touched.push(path);
     return next !== old;
   }
@@ -63,7 +64,7 @@ export class Txn {
     if (old === null) return;
     const backup = backupPath(path, this.env.ctx.now);
     this.pending.set(backup, { path: backup, before: null, after: old, mode: lstatSync(path).mode & 0o700 });
-    this.pending.set(path, { path, before: old, after: null });
+    this.pending.set(path, { path, before: old, after: null, beforeMode: lstatSync(path).mode & 0o700 });
     this.record.files.push({ path, action: "moved", backup, undo: [] });
     this.touched.push(path);
   }

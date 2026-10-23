@@ -38,3 +38,10 @@ test("atomic refresh preserves executable owner permission for a status-line scr
   writeInstallFile(path, "#!/bin/sh\nexit 1\n");
   expect(Bun.spawnSync([path]).exitCode).toBe(1);
 });
+
+test("recovery preserves executable permission when restoring a moved legacy script", () => {
+  const ctx = fakeCtx(), path = join(ctx.home, "legacy.sh"); mkdirSync(ctx.pacerHome, { recursive: true });
+  writeFileSync(join(ctx.pacerHome, "install-transaction.json"), JSON.stringify({ schema: 1, files: [{ path, before: "#!/bin/sh\nexit 1\n", after: null, beforeMode: 0o700 }], manifestHash: "not committed" }));
+  recoverInstall(ctx);
+  expect(Bun.spawnSync([path]).exitCode).toBe(1);
+});
