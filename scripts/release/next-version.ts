@@ -58,7 +58,7 @@ if (import.meta.main) {
     const root = resolve(import.meta.dir, "..", "..");
     const current = JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version as string;
     const tag = `v${current}`;
-    if (!git(root, ["tag", "--list", tag]).trim()) throw new Error(`the current version ${current} has no ${tag} tag; release it before preparing the next one`);
+    if (!git(root, ["tag", "--list", tag]).trim()) throw new Error(`the current version ${current} has no ${tag} tag; finish that release before preparing the next one: run Actions → Release tag manually with its merged release PR number (see CONTRIBUTING.md, Interrupted releases)`);
     const subjects = git(root, ["log", "--format=%s", `${tag}..HEAD`]).split("\n").filter(Boolean);
     const { version, bump } = nextVersion({ current, subjects, requested, changelog: readFileSync(join(root, "CHANGELOG.md"), "utf8") });
     console.error(`${current} -> ${version} (${bump}; ${subjects.length} commits since ${tag})`);
