@@ -128,7 +128,7 @@ function ReviewLoaded({ id, snapshot, view, dispatch, getView, announce, announc
   const diff = useQuery<ReviewDiff>("task.diff", { id, ...(path ? { path } : {}) });
   const runner = useActions();
   const [note, setNote] = useState(""), [kind, setKind] = useState(detail.kind ?? ""), [executor, setExecutor] = useState("");
-  const noteRef = useRef<HTMLTextAreaElement>(null), retryRef = useRef<HTMLSelectElement>(null);
+  const noteRef = useRef<HTMLTextAreaElement>(null), retryRef = useRef<HTMLButtonElement>(null);
   const inFlight = useRef(false);
   useEffect(() => { if (view.noteFor) noteRef.current?.focus(); }, [view.noteFor]);
   const openNote = (v: "reject" | "send_back") => { if (!view.pending) dispatch({ type: "open-note", for: v }); };

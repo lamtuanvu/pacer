@@ -21,5 +21,5 @@ test("quick delegate asks what should be done, with a repo picker and one button
 });
 
 test("quick delegate starts on the filtered repo", () => {
-  expect(render("github.com/acme/web")).toMatch(/<option value="github.com\/acme\/web" selected/);
+  expect(render("github.com/acme/web")).toContain('pc-choice-picker__value">acme/web');
 });
