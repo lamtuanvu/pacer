@@ -1,6 +1,6 @@
 # pacer Constitution
 
-Status: Amendment 0.10.0 (portable skills and mandatory project review) proposed; amendment 0.9.0 (compact UI density) proposed; amendment 0.8.0 (plugin system: P13–P15) proposed; amendment 0.7.0 (Rust crate structure and size rules) proposed; amendment 0.6.0 (automated releases) proposed; established rules remain in force. The maintainer adopts the amendment by merging its PR. Amendment 0.5.0 was adopted on 2026-10-20 by merging #209; amendment 0.4.0 on 2026-10-19 by merging #193. | Version: 0.10.0 | Updated: 2026-10-24
+Status: Amendment 0.11.0 (affected-area CI selection) proposed; amendment 0.10.0 (portable skills and mandatory project review) proposed; amendment 0.9.0 (compact UI density) proposed; amendment 0.8.0 (plugin system: P13–P15) proposed; amendment 0.7.0 (Rust crate structure and size rules) proposed; amendment 0.6.0 (automated releases) proposed; established rules remain in force. The maintainer adopts the amendment by merging its PR. Amendment 0.5.0 was adopted on 2026-10-20 by merging #209; amendment 0.4.0 on 2026-10-19 by merging #193. | Version: 0.11.0 | Updated: 2026-10-24
 Decision authority: the single maintainer, @lamtuanvu ([GOVERNANCE.md](../GOVERNANCE.md), [.github/CODEOWNERS](../.github/CODEOWNERS)). AI reviewers give advice; they do not approve.
 
 ## Purpose and scope
@@ -114,6 +114,18 @@ and is summarized in the result and PR. Missing review or unmet required behavio
 is incomplete/UNVERIFIED. Specialist selection stays scoped; reviews do not grant
 human approval. Existing UI and live validation gates remain unchanged. No new CI
 check or remote branch protection is introduced by this amendment.
+
+## Amendment 0.11.0 — affected-area CI
+
+Proposed for adoption by maintainer merge; authorized for the current CI task by
+the maintainer on 2026-10-24. The blanket CI list above is scoped by the affected
+areas documented in [CI selection](../docs/testing/ci-selection.md). A shared
+classifier selects Bun, Rust, e2e, UI evidence and CodeQL jobs. Unknown inputs or
+unresolvable diffs select full validation. Required Test check names and their
+UI/release evidence gates remain; failures in change detection fail those gates.
+Full-history secret scanning and complete release validation remain unchanged.
+Scheduled/manual CodeQL remains full; Rust build timings move to affected main
+pushes. No branch protection setting or local CT-11 completion rule is relaxed.
 
 ## Amendment and exception policy
 
