@@ -72,19 +72,18 @@ function rewriteFixtureVersion(destination: string, version: string): void {
     const file = join(destination, "desktop/src-tauri", name), text = readFileSync(file, "utf8");
     const pattern = name === "Cargo.toml" ? /(^\[package\]\s*\n)([^]*?)(?=^\[|$(?![^]))/gm : /(^\[\[package\]\]\s*\n)([^]*?)(?=^\[\[|$(?![^]))/gm;
     let count = 0;
-    const next = text.replace(pattern, (all, header: string, body: string) => {
+    let next = text.replace(pattern, (all, header: string, body: string) => {
       if (!/^name = "pacer-desktop"$/m.test(body)) return all;
       const pinned = new RegExp(`^version = "${escaped}"$`, "m");
       if (!pinned.test(body)) throw Error("Fixture native baseline changed");
       count++; return header + body.replace(pinned, `version = "${version}"`);
     });
     if (count !== 1) throw Error("Fixture native package identity missing");
-    // The real desktop is excluded from its repository's workspace. Nested
-    // snapshots also have an outer checkout ancestor, so make that standalone
-    // boundary explicit rather than letting Cargo adopt the outer workspace.
-    const standalone = name === "Cargo.toml" && !/^\[workspace\]\s*$/m.test(next)
-      ? next.trimEnd() + "\n\n[workspace]\n" : next;
-    writeFileSync(file, standalone);
+    // The copied crate lives beneath the checkout's workspace, but its copied
+    // path is not covered by that workspace's desktop exclusion. Stop Cargo's
+    // ancestor search here without changing the production manifest/workspace.
+    if (name === "Cargo.toml" && !/^\[workspace\]\s*(?:#.*)?$/m.test(next)) next += "\n[workspace]\n";
+    writeFileSync(file, next);
   }
 }
 /** Fixed published Git tree, never an arbitrary caller-selected ref or worktree. */

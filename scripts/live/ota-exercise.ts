@@ -76,6 +76,7 @@ export async function runManagedExercise(id: string, scenario: string, options: 
   let journalTraceFd: number | undefined;
   try {
     let installationId: string | undefined;
+    let lastBaselineObservation = "No native baseline observed";
     const readyDeadline = Date.now() + 60000;
     while (Date.now() < readyDeadline) {
       try {
@@ -83,11 +84,17 @@ export async function runManagedExercise(id: string, scenario: string, options: 
         const installation = fixtureInstallation(state, jobs, state.nativeFixture!.baselineVersion, "managed");
         const snapshot = await client.snapshot();
         const status = (snapshot.snapshot as unknown as SnapshotV3).desktopUpdates?.find(item => item.installationId === installation.id);
+        lastBaselineObservation = status
+          ? `phase=${status.phase}, ownership=${status.ownership}, version=${status.current}, actions=${status.actions.join(",")}`
+          : "Verified native installation is missing from the service snapshot";
         if (status?.ownership === "managed" && status.current === state.nativeFixture!.baselineVersion && status.actions.includes("check")) { installationId = installation.id; break; }
-      } catch { /* Bounded native startup observation; no failed observation authorizes work. */ }
+      } catch (error) {
+        // Retain bounded diagnostic evidence; observation failure grants no work.
+        lastBaselineObservation = error instanceof Error ? error.message.slice(0, 1024) : "Native baseline observation failed";
+      }
       await Bun.sleep(250);
     }
-    if (!installationId) throw Error("Native managed baseline did not become provable");
+    if (!installationId) throw Error(`Native managed baseline did not become provable: ${lastBaselineObservation}`);
     const preserved = ["strategy.yaml", "token"].map(name => ({ name, sha256: createHash("sha256").update(privateFixtureBytes(join(state.pacerHome, name), 1048576)).digest("hex") }));
     state = readOtaRecord(id, options);
     state = updateOtaDriverRecord(id, state, { runtime: { ...state.runtime!, state: "managed" }, exercise: { ...newExercise(scenario, driver, installationId), state: "running" } }, options);

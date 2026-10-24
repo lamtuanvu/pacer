@@ -65,7 +65,16 @@ function reduceReadModel(state: StoreState, snapshot: SnapshotV2, type: EventTyp
       const adoptionRevision = isObj(data.adoption) && Number.isSafeInteger(data.adoption.revision) && Number(data.adoption.revision) >= 0 ? Number(data.adoption.revision) : -1;
       const previousAdoptionRevision = previous?.adoption?.revision ?? -1;
       if (previous && previous.revision > Number(data.revision)) return patch({});
-      if (previous && previous.revision === Number(data.revision) && adoptionRevision <= previousAdoptionRevision) return patch({});
+      // Durable revisions guard mutations; connection safety and notification
+      // delivery can change without a disk write. Newer event sequence numbers
+      // must refresh those controls even when both durable revisions are equal.
+      if (previous && previous.revision === Number(data.revision) && adoptionRevision <= previousAdoptionRevision) {
+        if (adoptionRevision < previousAdoptionRevision || data.phase !== previous.phase) return patch({});
+        // Equal revisions may only refresh volatile safety/delivery fields.
+        // An old phase or candidate must never replace persisted update state.
+        const next = upsert(snapshot.desktopUpdates, { ...previous, actions: data.actions, error: data.error }, "installationId", "end");
+        return next ? patch({ desktopUpdates: next }) : state;
+      }
       // Independently persisted revisions can produce an incomparable response.
       // Refresh the authoritative pair instead of combining stale controls.
       if (previous && adoptionRevision < previousAdoptionRevision) return { ...patch({}), needsSnapshot: true };
