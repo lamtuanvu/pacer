@@ -188,3 +188,41 @@ initially select Session; completed tasks initially select Summary. Changing vie
 does not change task identity or the scoped Tasks destination. The task list
 remembers its scroll offset for each repository/scope during the app session.
 No upstream component or license provenance changed.
+
+### Spacing ownership and rhythm
+
+Layout gaps are the single owner of separation. `Stack` uses `compact` (8px) for
+related rows, `normal` (12px) for content and `section` (24px) between regions.
+The legacy `pc-section` class is DS-owned and uses 8px between its heading,
+status text and related content. Direct children of stacks, page bodies,
+sections, cards, sticky detail navigation, action panels and disclosure bodies have zero block margins.
+`PageHeader` retains a 24px standalone trailing margin; a parent layout gap
+replaces it. Do not layer a child margin over that gap.
+
+`Section` bodies, disclosure bodies and action panels stack content at 12px.
+`DisclosurePanel` summaries have a 36px desktop minimum and a 48px narrow-layout
+minimum, with full-width keyboard targets and unchanged native details semantics.
+Related task disclosures live in one compact stack. Task Result, settings cards,
+Overview quick delegation, session reports and task lists consume this contract.
+Settings sections own a 12px body gap; label descriptions use 4px, and bordered
+sections retain 12px padding after the separator. Session lists use 24px between
+regions and 12px between a region heading and its rows. Prose retains 12px between
+blocks and list indentation; data tables, diff rows, terminal canvases, setup
+choices and composer fields keep their specialized documented geometry.
+
+UI-27 source checks reject consumer CSS spacing overrides of the shared layout
+classes, including token-valued overrides. Browser regressions in
+`test/app-spacing.test.tsx` check actual geometry at 1440px and 375px; run with
+`PACER_TEST_BROWSER` pointing to an installed Chromium executable. They complement
+screenshots and live validation rather than asserting that all visual decisions
+can be enforced by a source checker. No upstream component was introduced.
+
+The macOS browser CI job explicitly runs spacing and compact-density geometry
+checks with its installed Chromium, so these regressions do not silently skip in
+CI. Local full-suite runs still opt in through `PACER_TEST_BROWSER`.
+
+Settings save bars, project cards, executor choices and footers inherit the parent
+gap instead of adding their legacy outer margins. An empty project executor list
+is hidden so it does not insert a second grid gap. The start composer keeps its
+intentional landing-page offset; rail dividers retain extra separation between
+navigation groups. These specialized layouts do not override shared primitives.

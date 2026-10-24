@@ -8,7 +8,7 @@ import { useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
 import { AgentMark } from '../../ds/AgentMark';
 import { Button } from '../../ds/Button';
-import { Page } from '../../ds/Page';
+import { Page, Stack } from '../../ds/Page';
 import { AppButtonLink, AppLink } from '../../navigation';
 import { routes } from '../../router';
 import { StatusPill } from '../../ds/StatusPill';
@@ -93,7 +93,7 @@ export function Session({ embedded = false, data, loading, error, initialTab, on
   </span> : null;
   const retries = data.retryOptions ?? [];
   const retry = retries.find(item => item.id === selected) ?? retries.find(item => item.available);
-  const terminal = <>
+  const terminal = <Stack>
     {data.report && <section className="pc-session-report" aria-label="Executor report">
       <SectionHeading as="h3">Executor report</SectionHeading><Prose text={data.report}/>
     </section>}
@@ -101,7 +101,7 @@ export function Session({ embedded = false, data, loading, error, initialTab, on
       : data.sessionLoading ? <LoadingState label="Loading session…"/>
       : !session ? <EmptyState title="Session unavailable."/>
       : session.host === 'orca' ? <div className="pc-session-empty"><p>This session runs in Orca</p><Button disabled={!canAttach('orca')} onClick={() => void attach('orca')}>Open in Orca</Button></div>
-      : headless ? <div className="pc-session-log">
+      : headless ? <div className="pc-session-log pc-stack pc-stack--normal">
         {active && <div className="pc-session-run"><p>This run is headless — Take over to work in it live</p>{takeover}</div>}
         {data.log ? <ResourceView value={data.log} loading="Loading output…" empty="Waiting for output…">{text =>
           <Disclosure className="pc-disclosure" summary="Technical session output"><pre role="log" tabIndex={0} aria-label="Session output" className="pc-session-follow-log">{text}</pre></Disclosure>
@@ -109,7 +109,7 @@ export function Session({ embedded = false, data, loading, error, initialTab, on
       </div> : <LazyTerminal key={data.id} id={data.id} url={session.attach.ws} cols={session.cols} rows={session.rows}
         control={active && session.capabilities.control} resize={active && session.capabilities.resize} live={active && session.live}
         controller={session.controller} driving={driving} takeRequested={active && takeRequested} onTakeSent={onTakeSent} takeover={takeover}/>}
-  </>;
+  </Stack>;
   return <Page width="full" embedded={embedded} className="pc-session">
     {!embedded && <nav aria-label="Breadcrumb" className="pc-session-breadcrumb"><AppLink to={routes.tasks()}>Tasks</AppLink></nav>}
     {loading && <LoadingState updating label="Updating session…"/>}

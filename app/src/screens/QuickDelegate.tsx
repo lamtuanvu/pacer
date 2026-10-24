@@ -24,7 +24,7 @@ export function QuickDelegate({ filterRepo }: { filterRepo: string | null }) {
   const [error, setError] = useState<unknown>();
   const next = routing.data?.ranked[0];
   const blocked=action.busy || (ops.has("project.strategy.get") && (routing.loading || !!routing.error));
-  return <form className="pc-quick" onSubmit={event => {
+  return <form className="pc-quick pc-stack pc-stack--compact" onSubmit={event => {
     event.preventDefault();
     if (blocked) return;
     setError(undefined);

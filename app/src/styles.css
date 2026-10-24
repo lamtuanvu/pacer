@@ -141,7 +141,6 @@ fieldset{border:1px solid var(--line);border-radius:var(--radius-sm);display:fle
 .pc-planner-strip__advice{font-size:var(--type-headline-size);line-height:var(--type-headline-line);font-weight:var(--type-headline-weight)}
 .pc-stats{display:flex;gap:var(--space-8);flex:1 1 300px;justify-content:flex-end}
 .pc-stat__n{font-size:var(--type-number-lg-size);line-height:var(--type-number-lg-line);font-weight:var(--type-number-lg-weight)}
-.pc-section{display:flex;flex-direction:column;gap:var(--space-2)}
 .pc-section__head,.pc-card-section__head{display:flex;align-items:center;gap:var(--space-2)}
 .pc-count{display:inline-flex;align-items:center;height:var(--size-18);padding:0 var(--space-1\.5);border-radius:var(--radius-full);font-size:var(--type-label-size);font-weight:var(--type-body-strong-weight)}
 .pc-count--warn{background:var(--warn-bg);color:var(--warn-fg)}
