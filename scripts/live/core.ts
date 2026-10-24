@@ -20,8 +20,8 @@ export interface Session {
   serviceIdentity?: ProcessIdentity;
   createdAt: string;
   seed?: "ui";
-  /** "rust": the Rust front door (target/debug/pacer) serves and dispatches, forwarding to the TypeScript core. */
-  frontDoor?: "rust";
+  /** Fixed Rust builds snapshotted per sandbox; test operations require explicit opt-in. */
+  frontDoor?: "rust" | "rust-test-ops";
   stopped?: boolean;
   desktopPid?: number;
   desktopExecutable?: string;
@@ -82,16 +82,29 @@ export function loadSession(id?: string, base = liveRoot): Session {
   return session;
 }
 /** The checkout CLI the sandbox runs: the TypeScript core, or the Rust front door in front of it. */
-export function pacerArgv(session: Pick<Session, "frontDoor">): string[] {
-  return session.frontDoor === "rust" ? [join(checkout, "target/debug/pacer")] : [process.execPath, join(checkout, "src/cli.ts")];
+export function pacerArgv(session: Pick<Session, "frontDoor"> & Partial<Pick<Session, "root">>): string[] {
+  if (session.frontDoor) {
+    if (!session.root) throw Error("Rust front door requires its sandbox root");
+    return [join(session.root, session.frontDoor === "rust-test-ops" ? "bin/pacer-test-ops" : "bin/pacer-rust")];
+  }
+  return [process.execPath, join(checkout, "src/cli.ts")];
 }
 export function validateFrontDoor(frontDoor: string | undefined): void {
-  if (frontDoor !== undefined && frontDoor !== "rust") throw Error(`Unknown front door: ${frontDoor} (expected rust)`);
+  if (frontDoor !== undefined && frontDoor !== "rust" && frontDoor !== "rust-test-ops") throw Error(`Unknown front door: ${frontDoor} (expected rust or rust-test-ops)`);
+}
+/** Fixed per-mode Cargo output prevents opposite-feature build/snapshot races. */
+export function frontDoorBuild(frontDoor: "rust" | "rust-test-ops"): { argv: string[]; executable: string } {
+  validateFrontDoor(frontDoor);
+  const target = join(checkout, ".work/live-build", frontDoor);
+  return {
+    argv: ["cargo", "build", "-q", "--locked", "-p", "pacer", "--target-dir", target, ...(frontDoor === "rust-test-ops" ? ["--features", "test-ops"] : [])],
+    executable: join(target, "debug/pacer"),
+  };
 }
 export function sandboxEnv(session: Session, inherited = process.env): NodeJS.ProcessEnv {
   return {
     ...inherited,
-    ...(session.frontDoor === "rust" ? { PACER_CORE_ARGV: JSON.stringify([process.execPath, join(checkout, "src/cli.ts")]) } : {}),
+    ...(session.frontDoor ? { PACER_CORE_ARGV: JSON.stringify([process.execPath, join(checkout, "src/cli.ts")]) } : {}),
     PATH: `${join(session.root, "bin")}:${inherited.PATH ?? ""}`,
     PACER_BIN: join(session.root, "bin/pacer"),
     PACER_HOME: join(session.root, "home"),
@@ -114,7 +127,7 @@ export function shellQuote(value: string): string {
 }
 export function environmentScript(session: Session): string {
   const env = sandboxEnv(session);
-  return ["PATH", "PACER_BIN", "PACER_HOME", "PACER_PORT", "PACER_BACKEND", "PACER_NO_UPDATE_CHECK", "PACER_ORCA_USER_DATA", ...(session.frontDoor === "rust" ? ["PACER_CORE_ARGV"] : []), ...(session.seed === "ui" ? ["HOME", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME"] : [])]
+  return ["PATH", "PACER_BIN", "PACER_HOME", "PACER_PORT", "PACER_BACKEND", "PACER_NO_UPDATE_CHECK", "PACER_ORCA_USER_DATA", ...(session.frontDoor ? ["PACER_CORE_ARGV"] : []), ...(session.seed === "ui" ? ["HOME", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME"] : [])]
     .map(key => `export ${key}=${shellQuote(env[key]!)}`).join("\n") + "\n";
 }
 async function reservePort(): Promise<number> {
@@ -196,8 +209,8 @@ export function launch(session: Session, argv: string[], logName: string, overri
 export async function up(id = `live-${Date.now()}`, template?: string, base = liveRoot, seed?: string, frontDoor?: string): Promise<Session> {
   validateSeed(seed);
   validateFrontDoor(frontDoor);
-  if (frontDoor === "rust") {
-    const build = Bun.spawnSync(["cargo", "build", "-q", "--locked", "-p", "pacer"], { cwd: checkout, stdout: "pipe", stderr: "pipe" });
+  if (frontDoor === "rust" || frontDoor === "rust-test-ops") {
+    const build = Bun.spawnSync(frontDoorBuild(frontDoor).argv, { cwd: checkout, stdout: "pipe", stderr: "pipe" });
     if (build.exitCode !== 0) throw Error(`cargo build -p pacer failed:\n${build.stderr.toString().trim()}`);
   }
   const root = resolve(base, validId(id));
@@ -206,9 +219,12 @@ export async function up(id = `live-${Date.now()}`, template?: string, base = li
   while (innerPort === port) innerPort = await freePort();
   mkdirSync(base, { recursive: true, mode: 0o700 });
   mkdirSync(root, { mode: 0o700 }); // Refuse existing sessions, including stopped ones.
-  const session: Session = { serviceSource: sourceFingerprint(checkout), id, root, port, innerPort, seed, ...(frontDoor === "rust" ? { frontDoor } : {}), pid: 1, createdAt: new Date().toISOString() };
+  const session: Session = { serviceSource: sourceFingerprint(checkout), id, root, port, innerPort, seed, ...((frontDoor === "rust" || frontDoor === "rust-test-ops") ? { frontDoor } : {}), pid: 1, createdAt: new Date().toISOString() };
   try {
     for (const dir of ["home", "bin", "repo", "logs", "evidence", "orca-profile"]) mkdirSync(join(root, dir), { mode: 0o700 });
+    // Snapshot both modes: later builds must not change a running sandbox's
+    // operation surface when switching between default and test-only features.
+    if (session.frontDoor) cpSync(frontDoorBuild(session.frontDoor).executable, pacerArgv(session)[0]);
     if (template) cpSync(resolve(template), join(root, "repo"), {
       recursive: true,
       filter: (source) => ![".git", ".work", "node_modules"].includes(basename(source)),
