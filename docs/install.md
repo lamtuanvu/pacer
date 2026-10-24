@@ -53,6 +53,29 @@ Diagnostics distinguishes **Configured** settings, **Tested working · fixture**
 
 The selected planner account determines the settings folder inspected. When another planner is selected, installed Claude integrations remain unverified with informational guidance to select the intended Claude account before checking its settings. A service `CLAUDE_CONFIG_DIR` mismatch is reported; the service cannot infer a separately launched Claude session’s environment. Preview a reconnect before repairing configuration, and use the named `claude-code#account` target when repairing a named account. Existing unrelated hooks remain owned by their original installer.
 
+## Integration updates
+
+When the updated service starts, pacer automatically refreshes hooks, policies and
+skills for agents you previously connected, including named accounts. Before
+starting a new local executor, conversation or takeover process, pacer checks the
+selected integration again. Existing sessions keep instructions they already
+loaded; start a new session to use refreshed instructions. Remote agent settings
+are not changed.
+
+Successful refreshes are silent. Pacer preserves unrelated settings and optional
+MCP choices. If you customized a managed file or hook, or a recorded account moved,
+pacer preserves it and reports a conflict in doctor/Diagnostics. The affected new
+launch receives a repair hint; other accounts can continue. Resolve the conflict
+or review and reconnect the intended account, for example `pacer install codex#work`.
+Pacer retries at the next startup or relevant launch. It never connects a new
+agent automatically or signs in on your behalf. Native hook trust prompts may
+still need your approval after a command changes.
+
+`pacer integrations refresh` explicitly runs the same safe reconciliation;
+`--json` returns per-account outcomes and exits nonzero for unresolved conflicts.
+Doctor reports freshness separately from historical installed-file integrity and
+does not repair files while checking them.
+
 ## Setup with pacer init
 
 `pacer init` is the complete setup command. It runs these steps in order:

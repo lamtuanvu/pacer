@@ -1,3 +1,5 @@
+import { recordedAgent } from "../install/reconcile-target";
+import type { IntegrationResult } from "../install/reconcile";
 import { readManifest } from "../install/manifest";
 import type { Ctx } from "../types";
 import { existsSync } from "node:fs";
@@ -13,22 +15,23 @@ export function refreshStrategy(ctx: Ctx): string[] {
 
 /** Run the replacement binary: this process still embeds the previous integration assets. */
 export async function refreshIntegrations(ctx: Ctx, path: string): Promise<string[]> {
-  const planners = readManifest(ctx).planners;
+  if (!Object.keys(readManifest(ctx).planners).some(key => recordedAgent(key))) return refreshStrategy(ctx);
   const lines: string[] = [];
-  for (const planner of ["claude-code", "codex", "cursor", "opencode"]) {
-    if (!Object.hasOwn(planners, planner)) continue;
+  try {
+    const result = await ctx.run([path, "integrations", "refresh", "--json"], 30000);
+    let rows: IntegrationResult[];
     try {
-      const result = await ctx.run([path, "install", planner], 30000);
-      if (result.code !== 0) {
-        const reason = (result.stderr || result.stdout).trim().split(/\r?\n/)[0] || `exit ${result.code}`;
-        lines.push(`WARNING: ${planner}: failed: ${reason}`);
-      } else {
-        const state = result.stdout.includes("already installed, nothing changed") ? "unchanged" : "refreshed";
-        lines.push(`${planner}: ${state}`);
-      }
-    } catch (error) {
-      lines.push(`WARNING: ${planner}: failed: ${(error instanceof Error ? error.message : String(error)).trim().split(/\r?\n/)[0]}`);
+      const value: unknown = JSON.parse(result.stdout);
+      if (!Array.isArray(value) || value.some(row => !row || typeof row.target !== "string" || !["current", "refreshed", "conflict", "failed"].includes(row.state))) throw Error("invalid result");
+      rows = value;
+    } catch { throw Error("replacement integration refresh did not return a valid report"); }
+    for (const row of rows) {
+      const failed = row.state === "failed" || row.state === "conflict";
+      lines.push(`${failed ? "WARNING: " : ""}${row.target}: ${row.state}${row.detail ? `: ${row.detail}` : ""}${row.hint ? `. ${row.hint}` : ""}`);
     }
+    if (result.code !== 0 && !rows.some(row => row.state === "failed" || row.state === "conflict")) lines.push("WARNING: replacement integration refresh failed; run pacer doctor");
+  } catch {
+    lines.push("WARNING: could not refresh integrations with the replacement binary; run pacer doctor");
   }
   return [...lines, ...refreshStrategy(ctx)];
 }

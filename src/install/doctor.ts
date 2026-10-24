@@ -1,3 +1,5 @@
+import { integrationFreshness } from "./reconcile";
+import { recordedAgent } from "./reconcile-target";
 import { claudeHookChecks, claudeHooksApplicable, probeClaudeHandlers } from "./doctor-hooks";
 import { removableVolumeChecks } from "./removable-volume";
 import { executorCliCheck } from "./cli-check";
@@ -115,6 +117,12 @@ export async function runDoctor(ctx: Ctx, deps: { status?: (ctx: Ctx) => Promise
     const records = Object.entries(readManifest(ctx).planners);
     if (!records.length) checks.push({ name: "Installs", level: "warn", detail: "no install records" });
     for (const [target, record] of records) {
+      if (recordedAgent(target)) {
+        const fresh = await integrationFreshness(ctx, target);
+        checks.push({ name: `Integration freshness ${target}`, level: fresh.state === "current" ? "ok" : "warn",
+          detail: fresh.state === "current" ? "managed assets match this runtime" : fresh.state === "refreshed" ? "managed assets need refresh; the next service startup or local launch will reconcile them" : fresh.detail ?? "refresh could not be verified",
+          ...(fresh.hint ? { fix: fresh.hint } : {}), evidence: "configured" });
+      }
       for(const skill of record.files.filter(f=>f.path.endsWith("/skills/pacer/SKILL.md")))checks.push({name:`Skill ${target}`,level:fileIntact(skill)?"ok":"warn",detail:skill.path,...(!fileIntact(skill)?{fix:`pacer install ${target}`}:{})});
       const broken = record.files.filter(file => !fileIntact(file));
       checks.push({ name: `Install ${target}`, level: broken.length ? "warn" : "ok",

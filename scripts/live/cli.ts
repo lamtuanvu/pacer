@@ -1,3 +1,4 @@
+import { exerciseIntegrations } from "./integrations";
 import { copyFileSync, chmodSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { atomicWrite, down, environmentScript, healthy, loadSession, readEvidence, record, renderReport, run, sandboxEnv, sessions, up } from "./core";
@@ -19,6 +20,7 @@ const usage = `usage: bun run live <command> [--id <id>]
                                   inspect and control sandbox UI
   doctor --surface desktop --request-accessibility
                                   ask macOS to show Accessibility approval
+  integrations --id <id>          exercise fixed private integration refresh fixtures
   updater --id <id>               exercise fixed disposable CLI updater fixtures (seeded sandbox)
   env                             print sandbox export lines
   pacer -- <args...>               run guarded checkout CLI in sandbox repo
@@ -83,6 +85,11 @@ export async function main(argv: string[]): Promise<number> {
     }
     else if (action === "cleanup") await cleanupOta(id);
     else throw Error("Unsupported OTA action");
+    return 0;
+  }
+  if (command === "integrations") {
+    if (!id || options.size !== 1 || positionals.length || separator >= 0 || flags.size) throw Error("usage: live integrations --id <id>");
+    await exerciseIntegrations(loadSession(id));
     return 0;
   }
   if (command === "updater") {

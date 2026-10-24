@@ -1,3 +1,4 @@
+import { refreshConnectedIntegrations } from "../core/integrations";
 import { parseRunnerId } from "../config/runner-id";
 import { runGuard } from "../guard/guard";
 import { runDoctor, renderDoctor } from "../install/doctor";
@@ -33,6 +34,18 @@ const badPlanner = (p: string | undefined): Result => error(2,
 
 /** CLI commands added by Plan 3. Only Plan 3 edits this file. */
 export const COMMANDS: Command[] = [
+  {
+    name: "integrations",
+    usage: usage("integrations refresh [--json]", "refresh previously connected agent integrations"),
+    async run(args, ctx) {
+      if (args[0] !== "refresh" || args.slice(1).some(arg => arg !== "--json") || args.length > 2) return error(2, "usage: pacer integrations refresh [--json]");
+      try {
+        const results = await refreshConnectedIntegrations(ctx);
+        return { code: results.some(result => result.state === "conflict" || result.state === "failed") ? 1 : 0,
+          out: args.includes("--json") ? JSON.stringify(results, null, 2) : results.map(result => `${result.target}: ${result.state}${result.detail ? `: ${result.detail}` : ""}${result.hint ? `. ${result.hint}` : ""}`).join("\n"), err: "" };
+      } catch { return error(1, "pacer: integration refresh failed; run pacer doctor for recovery guidance"); }
+    },
+  },
   {
     name: "install",
     usage: usage("install <planner> [--mcp|--no-mcp]", "wire pacer into claude-code, codex, cursor or opencode"),
