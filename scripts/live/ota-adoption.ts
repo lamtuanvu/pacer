@@ -1,3 +1,4 @@
+import { readFixtureBundleMetadata } from "./ota-bundle-metadata";
 /** Fixed live attached-service scenarios. Every update/adoption write crosses the guarded public API. */
 import { constants, closeSync, openSync, realpathSync } from "node:fs";
 import { join } from "node:path";
@@ -11,12 +12,14 @@ import { readinessProofSchema } from "../../src/update/desktop/native-record";
 import { readAdoption } from "../../src/update/desktop/adoption-store";
 import { makeCtx } from "../../src/ctx";
 import { healthy, loadSession, record } from "./core";
-import { readOtaRecord, updateOtaDriverRecord, type OtaOptions } from "./ota";
+import { recordOtaEvent } from "./ota-evidence";
+import { assertFixtureLayoutScenario, initialFixtureVersion, readOtaRecord, updateOtaDriverRecord, type OtaOptions } from "./ota";
 import { ATTACHED_SCENARIOS, newExercise } from "./ota-exercise-record";
 import { incarnationExited, privateFixtureBytes } from "./ota-exercise";
+import { verifyPairedAdoptionProcesses } from "./ota-paired-proof";
 import { verifyAdoptionOutcome, verifyAdoptionSurvivors } from "./ota-outcome";
 import { fixtureRequest, retryFixtureRevision } from "./ota-request";
-import { attachFixtureService, fixtureEnvironment, seedFixtureConsent, fixtureExternalCli, fixtureInstallation, inspectFixtureJobs, verifyFixtureBundle } from "./ota-native";
+import { attachFixtureService, fixtureEnvironment, seedFixtureConsent, fixtureExternalCli, fixtureInstallation, inspectFixtureJobs, verifyFixtureBundle, verifyPairedFixtureCode } from "./ota-native";
 
 const sha256 = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex");
 
@@ -26,9 +29,10 @@ export async function runAttachedExercise(id: string, scenario: string, options:
   if (!(ATTACHED_SCENARIOS as readonly string[]).includes(scenario)) throw Error("UNVERIFIED: this fixed scenario has no attached exercise driver");
   const session = loadSession(id, options.base), driver = ownProcessIdentity();
   let state = readOtaRecord(id, options);
+  assertFixtureLayoutScenario(state, scenario);
   if (process.platform !== "darwin" || !driver || !state.nativeFixture || state.phase !== "prepared" || state.runtime || state.exercise || state.external.length !== 2 || session.stopped || !session.serviceIdentity || !sameProcess(session.serviceIdentity, processIdentity(session.pid))) throw Error("UNVERIFIED: fresh attached fixture and exact source service ownership required");
-  const baseline = state.nativeFixture.baselineVersion, external = fixtureExternalCli(state), bundled = join(state.currentApp, "Contents/Resources/pacer");
-  await verifyFixtureBundle(state, baseline);
+  const baseline = state.nativeFixture.baselineVersion, appVersion = initialFixtureVersion(state), external = fixtureExternalCli(state), bundled = join(state.currentApp, "Contents/Resources/pacer");
+  await verifyFixtureBundle(state, appVersion);
   const before = await inspectFixtureJobs(state);
   if (before.desktops.length || before.jobs.some(job => job.loaded || job.state !== "reserved")) throw Error("Fixture registration is already active or uncertain");
   const source = enumerateNativeProcesses().find(item => sameProcess(item.process, session.serviceIdentity!));
@@ -42,7 +46,7 @@ export async function runAttachedExercise(id: string, scenario: string, options:
 
   // The compiled helper installs the lease's one external registration through the native ledger.
   const attached = await attachFixtureService(readOtaRecord(id, options));
-  const attachedInstallation = fixtureInstallation(state, attached, baseline, "attached");
+  const attachedInstallation = fixtureInstallation(state, attached, appVersion, "attached");
   const externalService = attached.jobs[0].process!, externalRegistration = attached.jobs[0].registrationSha256!;
   // Desktop starts only after the exact attached incarnation serves its own health endpoint.
   const healthDeadline = Date.now() + 30000;
@@ -80,7 +84,7 @@ export async function runAttachedExercise(id: string, scenario: string, options:
       try {
         const snapshot = await client.snapshot();
         const value = (snapshot.snapshot as unknown as SnapshotV3).desktopUpdates?.find(item => item.installationId === installationId);
-        if (value?.ownership === "attached" && value.current === baseline && (scenario === "attached" ? value.actions.length > 0 : value.actions.includes("adopt"))) { ready = true; break; }
+        if (value?.ownership === "attached" && value.current === appVersion && (scenario === "attached" ? value.actions.length > 0 : value.actions.includes("adopt"))) { ready = true; break; }
       } catch { /* Bounded native startup observation; no failed observation authorizes work. */ }
       await Bun.sleep(250);
     }
@@ -90,7 +94,7 @@ export async function runAttachedExercise(id: string, scenario: string, options:
     state = updateOtaDriverRecord(id, state, { runtime: { ...state.runtime!, state: "managed" }, exercise: { ...newExercise(scenario, driver, installationId), state: "running" } }, options);
     const initial = await client.snapshot();
     unsubscribe = client.subscribe(initial.seq, event => {
-      if (event.type === "desktop.update") record(session, { kind: "note", behavior: `OTA ${scenario} event`, surface: "API SSE", text: JSON.stringify(event) });
+      recordOtaEvent(session, scenario, event);
     });
     async function mutate(action: "check" | "download" | "restart" | "adopt", extra: Record<string, unknown> = {}): Promise<void> {
       const clearRequest = () => {
@@ -180,18 +184,33 @@ export async function runAttachedExercise(id: string, scenario: string, options:
       if (!tx || state.exercise?.transactionId !== tx || !state.exercise.faults.every(fault => fault.consumed !== null)) throw Error("Adoption checkpoint evidence is incomplete");
       const directory = join(state.pacerHome, "desktop-updates/native", installationId, tx);
       const prepared = privateFixtureBytes(join(directory, "adoption-prepared.json"), 1048576);
+      let pairedEvidence: ReturnType<typeof verifyPairedAdoptionProcesses> | undefined;
       let verified = false;
       const deadline = Date.now() + 30000;
       while (Date.now() < deadline && !verified) {
         try {
           const journal = JSON.parse(privateFixtureBytes(join(directory, "adoption-journal.json"), 1048576).toString("utf8"));
-          const proven = verifyAdoptionOutcome(scenario, installationId, tx, outcome.adoption?.phase, prepared, journal);
+          const proven = verifyAdoptionOutcome(scenario, installationId, tx, outcome.adoption?.phase, prepared, journal, state.initialLayout);
           if (scenario === "adopt" && outcome.adoption?.resultingInstallationId !== proven.resultingInstallationId) throw Error("Public resulting installation differs from native proof");
           if (!journal.steps.some((step: any) => step.action.kind === "retire-recovery" && step.evidence?.kind === "complete")) { await Bun.sleep(250); continue; }
+          const beforeProcesses = state.initialLayout === "paired" ? enumerateNativeProcesses() : [];
+          await verifyFixtureBundle(readOtaRecord(id, options), appVersion);
           const jobs = await inspectFixtureJobs(readOtaRecord(id, options));
+          if (state.initialLayout === "paired") {
+            // The fixed verifier proved signatures/source hashes before these observations.
+            const response = await fetch(`http://127.0.0.1:${state.innerPort}/health`, { signal: AbortSignal.timeout(1000), redirect: "error" });
+            if (!response.ok || response.headers.get("x-pacer") !== "1" || (await response.json()).pid !== proven.service.pid) throw Error("Adoption health differs from proven service");
+            const input = { appPath: state.currentApp, ownerUid: state.ownerUid, arch: state.nativeFixture!.arch,
+              branch: proven.branch, service: proven.service, metadata: JSON.parse(readFixtureBundleMetadata(state.currentApp)) };
+            pairedEvidence = verifyPairedAdoptionProcesses(input, beforeProcesses, enumerateNativeProcesses());
+            if (pairedEvidence) {
+              verifyPairedFixtureCode(state, pairedEvidence);
+              pairedEvidence = verifyPairedAdoptionProcesses(input, beforeProcesses, enumerateNativeProcesses());
+            }
+          }
           const program = scenario === "adopt" ? bundled : external;
           verifyAdoptionSurvivors(journal, proven, jobs, state.serviceLabel, state.recoveryLabel, program);
-          if (fixtureInstallation(state, jobs, baseline, scenario === "adopt" ? "managed" : "attached").id !== proven.resultingInstallationId) throw Error("Live installation differs from the adoption proof");
+          if (fixtureInstallation(state, jobs, appVersion, scenario === "adopt" ? "managed" : "attached").id !== proven.resultingInstallationId) throw Error("Live installation differs from the adoption proof");
           const row = readOtaRecord(id, options).registrations[0];
           if (row.generations?.length !== 2 || row.generations[0] !== externalRegistration || !row.history?.some(entry => entry.sha256 === externalRegistration && entry.processes.some(p => sameProcess(p, externalService)))) throw Error("Native ledger lacks the cataloged registration switch");
           if (scenario === "adopt-failure" && row.sha256 !== externalRegistration) throw Error("Failed adoption did not restore the original registration");
@@ -199,6 +218,7 @@ export async function runAttachedExercise(id: string, scenario: string, options:
         } catch (error) { if (Date.now() >= deadline) throw error; await Bun.sleep(250); }
       }
       if (!verified) throw Error("Adoption survival after native retirement was not established");
+      if (state.initialLayout === "paired") record(session, { kind: "note", behavior: "OTA paired adoption participants", surface: "native inventory / journal / health", verdict: "PASS", text: JSON.stringify({ initialLayout: state.initialLayout, desktopVersion: appVersion, branch: scenario === "adopt" ? "managed" : "original", serviceVersion: scenario === "adopt" ? appVersion : baseline, codeProof: pairedEvidence ? "fresh-system-Security-framework-fixture-certificate" : "candidate-Root-and-Core-absent", participants: pairedEvidence }) });
     }
     for (const file of preserved) if (sha256(privateFixtureBytes(join(state.pacerHome, file.name), 1048576)) !== file.sha256) throw Error(`Fixture user data changed: ${file.name}`);
     state = readOtaRecord(id, options);

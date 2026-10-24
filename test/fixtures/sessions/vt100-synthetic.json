@@ -1,0 +1,381 @@
+{
+  "schema": 1,
+  "cols": 120,
+  "rows": 40,
+  "provenance": "Deterministic synthetic escape streams; no captured user sessions or executor output.",
+  "streams": [
+    {
+      "id": "prompt",
+      "tags": [
+        "prompt",
+        "carriage-return"
+      ],
+      "data": "$ printf hello\r\nhello\r\n$ ",
+      "chunkSizes": [
+        1,
+        2,
+        3,
+        5,
+        8,
+        13
+      ]
+    },
+    {
+      "id": "progress",
+      "tags": [
+        "carriage-return",
+        "erase-line"
+      ],
+      "data": "progress 1%\rprogress 50%\r\u001b[2Kdone",
+      "chunkSizes": [
+        1,
+        2,
+        3,
+        5,
+        8,
+        13
+      ]
+    },
+    {
+      "id": "cursor-address",
+      "tags": [
+        "cursor"
+      ],
+      "data": "\u001b[10;20Hlocated\u001b[2;4Htop",
+      "chunkSizes": [
+        1,
+        2,
+        3,
+        5,
+        8,
+        13
+      ]
+    },
+    {
+      "id": "cursor-relative",
+      "tags": [
+        "cursor"
+      ],
+      "data": "abcdef\u001b[3DXYZ\u001b[2B\u001b[4Cend",
+      "chunkSizes": [
+        1,
+        2,
+        3,
+        5,
+        8,
+        13
+      ]
+    },
+    {
+      "id": "cursor-save-restore",
+      "tags": [
+        "cursor"
+      ],
+      "data": "before\u001b7\u001b[20;30Htemporary\u001b8after",
+      "chunkSizes": [
+        1,
+        2,
+        3,
+        5,
+        8,
+        13
+      ]
+    },
+    {
+      "id": "erase-display",
+      "tags": [
+        "erase"
+      ],
+      "data": "gone\u001b[2J\u001b[Hnew",
+      "chunkSizes": [
+        1,
+        2,
+        3,
+        5,
+        8,
+        13
+      ]
+    },
+    {
+      "id": "erase-line",
+      "tags": [
+        "erase"
+      ],
+      "data": "123456789\u001b[4G\u001b[K!",
+      "chunkSizes": [
+        1,
+        2,
+        3,
+        5,
+        8,
+        13
+      ]
+    },
+    {
+      "id": "insert-delete",
+      "tags": [
+        "insert",
+        "delete"
+      ],
+      "data": "abcdef\u001b[3G\u001b[2@XY\u001b[2P",
+      "chunkSizes": [
+        1,
+        2,
+        3,
+        5,
+        8,
+        13
+      ]
+    },
+    {
+      "id": "insert-mode",
+      "tags": [
+        "mode",
+        "insert"
+      ],
+      "data": "abcdef\u001b[3G\u001b[4hXY",
+      "chunkSizes": [
+        1,
+        2,
+        3,
+        5,
+        8,
+        13
+      ]
+    },
+    {
+      "id": "ansi-colors",
+      "tags": [
+        "color"
+      ],
+      "data": "\u001b[30mcolor0 \u001b[31mcolor1 \u001b[32mcolor2 \u001b[33mcolor3 \u001b[34mcolor4 \u001b[35mcolor5 \u001b[36mcolor6 \u001b[37mcolor7 \u001b[0m",
+      "chunkSizes": [
+        1,
+        2,
+        3,
+        5,
+        8,
+        13
+      ]
+    },
+    {
+      "id": "palette-colors",
+      "tags": [
+        "color"
+      ],
+      "data": "\u001b[38;5;202mforeground\u001b[48;5;27m background\u001b[0m",
+      "chunkSizes": [
+        1,
+        2,
+        3,
+        5,
+        8,
+        13
+      ]
+    },
+    {
+      "id": "rgb-colors",
+      "tags": [
+        "color"
+      ],
+      "data": "\u001b[38;2;12;120;240mRGB\u001b[48;2;20;30;40m dark\u001b[0m",
+      "chunkSizes": [
+        1,
+        2,
+        3,
+        5,
+        8,
+        13
+      ]
+    },
+    {
+      "id": "attributes",
+      "tags": [
+        "style"
+      ],
+      "data": "\u001b[1;3;4mstyled\u001b[0m \u001b[2;7mreverse dim\u001b[0m \u001b[9mstrike\u001b[0m",
+      "chunkSizes": [
+        1,
+        2,
+        3,
+        5,
+        8,
+        13
+      ]
+    },
+    {
+      "id": "wide-cjk",
+      "tags": [
+        "wide",
+        "unicode"
+      ],
+      "data": "中文 日本語 한국어 世界\r\nwide 界\u001b[2D替",
+      "chunkSizes": [
+        1,
+        2,
+        3,
+        5,
+        8,
+        13
+      ]
+    },
+    {
+      "id": "combining",
+      "tags": [
+        "unicode",
+        "combining"
+      ],
+      "data": "é ä ñ café",
+      "chunkSizes": [
+        1,
+        2,
+        3,
+        5,
+        8,
+        13
+      ]
+    },
+    {
+      "id": "emoji",
+      "tags": [
+        "unicode",
+        "wide"
+      ],
+      "data": "status 😀 🚀 ✓\r\n👩‍💻 developer",
+      "chunkSizes": [
+        1,
+        2,
+        3,
+        5,
+        8,
+        13
+      ]
+    },
+    {
+      "id": "wrap-edge",
+      "tags": [
+        "wrap",
+        "wide"
+      ],
+      "data": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx界\r\nyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy",
+      "chunkSizes": [
+        1,
+        2,
+        3,
+        5,
+        8,
+        13
+      ]
+    },
+    {
+      "id": "scrollback",
+      "tags": [
+        "scrollback"
+      ],
+      "data": "line 00\r\nline 01\r\nline 02\r\nline 03\r\nline 04\r\nline 05\r\nline 06\r\nline 07\r\nline 08\r\nline 09\r\nline 10\r\nline 11\r\nline 12\r\nline 13\r\nline 14\r\nline 15\r\nline 16\r\nline 17\r\nline 18\r\nline 19\r\nline 20\r\nline 21\r\nline 22\r\nline 23\r\nline 24\r\nline 25\r\nline 26\r\nline 27\r\nline 28\r\nline 29\r\nline 30\r\nline 31\r\nline 32\r\nline 33\r\nline 34\r\nline 35\r\nline 36\r\nline 37\r\nline 38\r\nline 39\r\nline 40\r\nline 41\r\nline 42\r\nline 43\r\nline 44\r\nline 45\r\nline 46\r\nline 47\r\nline 48\r\nline 49\r\nline 50\r\nline 51\r\nline 52\r\nline 53\r\nline 54\r\nline 55\r\nline 56\r\nline 57\r\nline 58\r\nline 59\r\nline 60\r\nline 61\r\nline 62\r\nline 63\r\nline 64\r\nend",
+      "chunkSizes": [
+        1,
+        2,
+        3,
+        5,
+        8,
+        13
+      ]
+    },
+    {
+      "id": "scroll-region-origin",
+      "tags": [
+        "scroll-region",
+        "mode"
+      ],
+      "data": "header\u001b[3;20r\u001b[?6h\u001b[Hinside\r\nrow\r\nrow\r\nrow\r\nrow\r\nrow\r\nrow\r\nrow\r\nrow\r\nrow\r\nrow\r\nrow\r\nrow\r\nrow\r\nrow\r\nrow\r\nrow\r\nrow\r\nrow\r\nrow\r\nrow\r\nrow\r\nrow\r\nrow\r\nrow",
+      "chunkSizes": [
+        1,
+        2,
+        3,
+        5,
+        8,
+        13
+      ]
+    },
+    {
+      "id": "alternate-active",
+      "tags": [
+        "alternate",
+        "cursor"
+      ],
+      "data": "primary\u001b[?1049h\u001b[2J\u001b[5;8Halternate\u001b[?25l",
+      "chunkSizes": [
+        1,
+        2,
+        3,
+        5,
+        8,
+        13
+      ]
+    },
+    {
+      "id": "alternate-return",
+      "tags": [
+        "alternate"
+      ],
+      "data": "primary\u001b[?1049hfull screen\u001b[?1049l restored",
+      "chunkSizes": [
+        1,
+        2,
+        3,
+        5,
+        8,
+        13
+      ]
+    },
+    {
+      "id": "input-modes",
+      "tags": [
+        "mode"
+      ],
+      "data": "\u001b[?1h\u001b=\u001b[?2004h\u001b[?1004h\u001b[?1002hmode state",
+      "chunkSizes": [
+        1,
+        2,
+        3,
+        5,
+        8,
+        13
+      ]
+    },
+    {
+      "id": "wrap-disabled",
+      "tags": [
+        "mode",
+        "wrap"
+      ],
+      "data": "\u001b[?7lzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+      "chunkSizes": [
+        1,
+        2,
+        3,
+        5,
+        8,
+        13
+      ]
+    },
+    {
+      "id": "full-screen-redraw",
+      "tags": [
+        "alternate",
+        "color",
+        "cursor"
+      ],
+      "data": "\u001b[?1049h\u001b[?25l\u001b[2J\u001b[H\u001b[7m synthetic monitor \u001b[0m\u001b[5;1HCPU [####    ] 50%\u001b[6;1HMEM [##      ] 25%\u001b[5;6H\u001b[32m######  \u001b[0m\u001b[40;1Hq: quit",
+      "chunkSizes": [
+        1,
+        2,
+        3,
+        5,
+        8,
+        13
+      ]
+    }
+  ]
+}

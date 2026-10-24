@@ -63,6 +63,20 @@ jobs:
           toolchain: 1.99.0
       - name: Build the Rust fixture plugin
         run: cargo build --locked -p pacer-fixtures --bin pacer-fixture
+      - name: Test Rust plugin SDK harness feature
+        run: cargo test -p pacer-plugin --features testing --locked
+      - name: Install Linux test cross-build prerequisites
+        if: runner.os == 'Linux'
+        run: |
+          rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl
+          python3 -m venv "$RUNNER_TEMP/pacer-cross"
+          "$RUNNER_TEMP/pacer-cross/bin/pip" install --only-binary=:all: cargo-zigbuild==0.24.0 ziglang==0.14.1
+          echo "$RUNNER_TEMP/pacer-cross/bin" >> "$GITHUB_PATH"
+      # The frozen playwright-core dependency pins the matching Chromium revision.
+      - name: Install locked Chromium test browser
+        run: |
+          echo "PLAYWRIGHT_BROWSERS_PATH=$RUNNER_TEMP/pacer-playwright" >> "$GITHUB_ENV"
+          PLAYWRIGHT_BROWSERS_PATH="$RUNNER_TEMP/pacer-playwright" bun node_modules/playwright-core/cli.js install --with-deps chromium
       - run: bun run test
 
   build:
@@ -89,16 +103,53 @@ jobs:
         with:
           bun-version: 1.4.2
       - run: bun install --frozen-lockfile
+      - name: Install Rust release targets
+        run: |
+          rustup show active-toolchain
+          case "$RUNNER_OS" in
+            macOS) rustup target add aarch64-apple-darwin x86_64-apple-darwin ;;
+            Linux) rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl ;;
+            *) exit 1 ;;
+          esac
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: release-pair-${{ matrix.runner }}
+      - name: Install Linux cross-build tools
+        if: runner.os == 'Linux'
+        run: |
+          python3 -m venv "$RUNNER_TEMP/pacer-cross"
+          "$RUNNER_TEMP/pacer-cross/bin/pip" install --only-binary=:all: cargo-zigbuild==0.24.0 ziglang==0.14.1
+          echo "$RUNNER_TEMP/pacer-cross/bin" >> "$GITHUB_PATH"
       - name: Build runner targets
         env:
           TARGETS: ${{ matrix.targets }}
         run: bun scripts/release/build.ts --targets "$TARGETS"
+      - name: Build the Rust fixture plugin for the M1 gate
+        run: cargo build --locked -p pacer-fixtures --bin pacer-fixture
+      # The frozen playwright-core dependency pins the matching Chromium revision.
+      - name: Install locked Chromium for the M1 gate
+        run: |
+          echo "PLAYWRIGHT_BROWSERS_PATH=$RUNNER_TEMP/pacer-playwright" >> "$GITHUB_ENV"
+          PLAYWRIGHT_BROWSERS_PATH="$RUNNER_TEMP/pacer-playwright" bun node_modules/playwright-core/cli.js install --with-deps chromium
+      - name: Full M1 gate against built host release artifacts
+        run: |
+          set -euo pipefail
+          bun run gate:m1 --release-dir "dist/release/$VERSION" 2>&1 | tee "$RUNNER_TEMP/pacer-m1-gate.log"
+      - name: Retain M1 gate evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: m1-gate-${{ matrix.runner }}
+          path: ${{ runner.temp }}/pacer-m1-gate.log
+          retention-days: 7
+          if-no-files-found: warn
       - name: Smoke test native binary
         run: |
           version="$VERSION"
           case "$(uname -s)" in Darwin) os=darwin ;; Linux) os=linux ;; *) exit 1 ;; esac
           case "$(uname -m)" in arm64|aarch64) arch=arm64 ;; x86_64) arch=x64 ;; *) exit 1 ;; esac
           test "$("./dist/release/$version/pacer-$os-$arch" --version)" = "pacer $version"
+          test "$("./dist/release/$version/pacer-core-$os-$arch" --version)" = "pacer $version"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: binaries-${{ matrix.runner }}
@@ -162,7 +213,8 @@ jobs:
           TAURI_TARGET_TRIPLE: ${{ matrix.target }}
         run: |
           cli="dist/release/$VERSION/pacer-$PLATFORM"
-          chmod +x "$cli"
+          core="dist/release/$VERSION/pacer-core-$PLATFORM"
+          chmod +x "$cli" "$core"
           desktop/scripts/stage-cli.sh "$cli"
       - name: Fetch locked Rust dependencies
         working-directory: desktop/src-tauri
@@ -469,6 +521,7 @@ jobs:
         run: |
           rustup show active-toolchain
           cargo fetch --locked
+          (cd ../.. && cargo fetch --locked)
       - name: Build production desktop components offline
         env:
           CARGO_NET_OFFLINE: 'true'
@@ -547,6 +600,27 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: bun scripts/release/desktop-release.ts publish dist/desktop-assets "$VERSION"
+
+  crates:
+    needs: [verify, publish]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - run: rustup show active-toolchain
+      - name: Publish protocol then SDK with immutable archive checks
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: bun scripts/release/crates.ts --publish
 
   desktop-fixture:
     needs: verify

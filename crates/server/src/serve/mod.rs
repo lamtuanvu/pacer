@@ -2,6 +2,20 @@
 pub mod auth;
 pub mod core_child;
 pub mod heartbeat;
+#[cfg(target_os = "macos")]
+mod native_bootstrap;
+#[cfg(target_os = "macos")]
+pub mod native_bundle;
+#[cfg(target_os = "macos")]
+pub mod native_context;
+#[cfg(target_os = "macos")]
+mod native_helper;
+#[cfg(target_os = "macos")]
+mod native_helper_diagnostics;
+#[cfg(target_os = "macos")]
+pub mod native_listener;
+#[cfg(target_os = "macos")]
+pub mod native_trust;
 pub mod proxy;
 pub mod sessions;
 pub mod ws;
@@ -78,8 +92,10 @@ async fn shutdown_signal() {
 }
 pub async fn run_serve(
     core: Vec<String>,
-    env: HashMap<String, String>,
+    mut env: HashMap<String, String>,
     port: u16,
+    _version: &str,
+    _argv: Vec<String>,
 ) -> io::Result<()> {
     let mut ctx = Ctx::from_env();
     let token = auth::ensure_token(&ctx)?;
@@ -87,9 +103,23 @@ pub async fn run_serve(
     ctx.env.clear();
     let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, port)).await?;
     let port = listener.local_addr()?.port();
+    // The internal HTTP listener binds independently. Its desktop integration
+    // still needs the actual public port, including explicit/ephemeral binds.
+    env.insert("PACER_PORT".into(), port.to_string());
+    // Runtime environment cannot turn a generic front door into a native owner.
+    env.remove("PACER_INTERNAL_NATIVE_BOOTSTRAP");
+    #[cfg(target_os = "macos")]
+    let native =
+        native_context::NativeContext::prepare(&ctx.pacer_home, port, &core, _version, &_argv)?;
     if std::env::var("PACER_SERVE_ANNOUNCE").as_deref() == Ok("1") {
         println!("{}", serde_json::json!({"port":port}));
     }
+    #[cfg(target_os = "macos")]
+    let core = Arc::new(match &native {
+        Some(native) => core_child::CoreChild::spawn_native(core, env, native.clone()),
+        None => core_child::CoreChild::spawn(core, env),
+    });
+    #[cfg(not(target_os = "macos"))]
     let core = Arc::new(core_child::CoreChild::spawn(core, env));
     let beats = Arc::new(heartbeat::Heartbeat::new());
     let probe = tokio::spawn(heartbeat::run(core.clone(), beats.clone()));
@@ -111,7 +141,16 @@ pub async fn run_serve(
             })
             .await
     });
-    shutdown_signal().await;
+    #[cfg(target_os = "macos")]
+    let native_shutdown = async {
+        match &native {
+            Some(native) => native.shutdown_requested().await,
+            None => std::future::pending::<()>().await,
+        }
+    };
+    #[cfg(not(target_os = "macos"))]
+    let native_shutdown = std::future::pending::<()>();
+    tokio::select! { _ = shutdown_signal() => {}, _ = native_shutdown => {} }
     let _ = stop.send(());
     // Stop long-lived SSE/WebSocket connections as well as accepting new ones.
     server.abort();
@@ -120,11 +159,17 @@ pub async fn run_serve(
     state.core.shutdown().await;
     Ok(())
 }
-pub fn run_serve_blocking(core: Vec<String>, env: HashMap<String, String>, port: u16) -> i32 {
+pub fn run_serve_blocking(
+    core: Vec<String>,
+    env: HashMap<String, String>,
+    port: u16,
+    version: &str,
+    argv: Vec<String>,
+) -> i32 {
     let result = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
-        .and_then(|runtime| runtime.block_on(run_serve(core, env, port)));
+        .and_then(|runtime| runtime.block_on(run_serve(core, env, port, version, argv)));
     match result {
         Ok(()) => 0,
         Err(error) => {

@@ -3,6 +3,10 @@ name = "pacer-plugin"
 version = "0.1.0"
 publish = true
 description = "The Rust plugin SDK for pacer, implementing the @pacer/plugin wire contract."
+readme = "README.md"
+repository.workspace = true
+keywords = ["pacer", "plugin", "sdk", "json-rpc"]
+categories = ["development-tools"]
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
@@ -11,7 +15,7 @@ rust-version.workspace = true
 testing = []
 
 [dependencies]
-pacer-plugin-protocol = { path = "../plugin-protocol" }
+pacer-plugin-protocol = { path = "../plugin-protocol", version = "0.1.0" }
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true

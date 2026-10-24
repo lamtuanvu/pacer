@@ -26,6 +26,7 @@ import {
   ownProcessIdentity,
   processIdentity,
   sameProcess,
+  type ProcessIdentity,
 } from "./process-identity";
 let library: ReturnType<typeof system> | undefined;
 const system = () =>
@@ -38,6 +39,7 @@ const system = () =>
     read: { args: [F.i32, F.ptr, F.u64], returns: F.i64 },
     write: { args: [F.i32, F.ptr, F.u64], returns: F.i64 },
     getsockopt: { args: [F.i32, F.i32, F.i32, F.ptr, F.ptr], returns: F.i32 },
+    getsockname: { args: [F.i32, F.ptr, F.ptr], returns: F.i32 },
     setsockopt: { args: [F.i32, F.i32, F.i32, F.ptr, F.u32], returns: F.i32 },
     __error: { args: [], returns: F.ptr },
   });
@@ -118,6 +120,51 @@ function privateDirectory(path: string) {
   )
     throw Error("Native socket directory must be private");
   return stat;
+}
+/** Internal bootstrap only: callers authenticate the fixed parent channel first. */
+export function receiveParentListener(): number {
+  const fd = (shim ??= descriptorShim()).symbols.pacer_receive_listener(0);
+  if (fd < 0) throw Error("Native parent listener unavailable");
+  try {
+    const stat = fstatSync(fd);
+    if (!stat.isSocket() || stat.uid !== process.getuid?.()) throw Error("Native parent listener unavailable");
+    return fd;
+  } catch (error) { closeSync(fd); throw error; }
+}
+/** Private startup only, after authenticating fd0 and receiving the listener. */
+export function receiveParentHelperChannel(): number {
+  const fd = (shim ??= descriptorShim()).symbols.pacer_receive_helper_channel(0);
+  if (fd < 0) throw Error("Native parent helper channel unavailable");
+  return fd;
+}
+/** Private paired startup only, after authenticating the fixed parent. */
+export function receiveParentChannels(): { listener: number; helper: number } {
+  const descriptors = new Int32Array([-1, -1]);
+  if ((shim ??= descriptorShim()).symbols.pacer_receive_parent_channels(0, ptr(descriptors)) < 0)
+    throw Error("Native parent channels unavailable");
+  return { listener: descriptors[0], helper: descriptors[1] };
+}
+/** Receipt does not acknowledge authority: the caller rechecks ownership first. */
+export function acknowledgeParentChannels(): void {
+  if ((shim ??= descriptorShim()).symbols.pacer_acknowledge_parent(0) < 0)
+    throw Error("Native parent acknowledgement unavailable");
+}
+/** The channel owner closes it exactly once on failure; successful rights transfer
+ * ownership to the caller. No process signals or caller-selected argv are used. */
+export function requestParentHelper(channel: number, request: {
+  schema: 1; path: string; sha256: string; version: string;
+}): { pid: number; stdin: number; stdout: number; control: number } {
+  // Resolve/verify the shim before stamping: its synchronous initialization is
+  // outside the C request's existing deadline. The stamp grants no authority.
+  const helperShim = shim ??= descriptorShim();
+  const bytes = Buffer.from(JSON.stringify({ ...request, startedAtMs: Date.now() }));
+  if (!bytes.length || bytes.length > 8192) throw Error("Native helper request unavailable");
+  const descriptors = new Int32Array([-1, -1, -1, -1]);
+  const pid = helperShim.symbols.pacer_request_helper(
+    channel, ptr(bytes), bytes.length, ptr(descriptors),
+  );
+  if (pid <= 1) throw Error("Native parent helper spawn unavailable");
+  return { pid, stdin: descriptors[0], stdout: descriptors[1], control: descriptors[2] };
 }
 function readOwner(path: string) {
   const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
@@ -243,6 +290,8 @@ export class LocalNativePeer {
     this.resolveClosed();
   }
 }
+/** Private startup descriptor; composition must authenticate its parent first. */
+export type ParentNativeListener = { fd: number; owner: ProcessIdentity };
 export class LocalNativeServer {
   private fd = -1;
   private directoryFd = -1;
@@ -253,7 +302,17 @@ export class LocalNativeServer {
   constructor(
     readonly path: string,
     accept: (peer: LocalNativePeer) => void,
+    inherited?: ParentNativeListener,
   ) {
+    this.fd = inherited?.fd ?? -1;
+    try { this.initialize(accept, inherited); }
+    catch (error) { this.close(); throw error; }
+  }
+  private initialize(
+    accept: (peer: LocalNativePeer) => void,
+    inherited?: ParentNativeListener,
+  ) {
+    const path = this.path;
     if (
       !/^\/private\/tmp\/pacer-native-\d+\/[a-f0-9]{32}\.sock$/.test(path) ||
       Buffer.byteLength(path) >= 104
@@ -263,65 +322,17 @@ export class LocalNativeServer {
       parent = lstatSync("/private/tmp");
     if (!parent.isDirectory() || parent.uid !== 0 || !(parent.mode & 0o1000))
       throw Error("Native runtime root unavailable");
-    try {
-      mkdirSync(dir, { mode: 0o700 });
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    if (!inherited) {
+      try { mkdirSync(dir, { mode: 0o700 }); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error; }
     }
     const identity = privateDirectory(dir);
     this.directoryFd = openSync(dir, constants.O_RDONLY | constants.O_NOFOLLOW);
     try {
       if (fstatSync(this.directoryFd).ino !== identity.ino)
         throw Error("Native runtime directory changed");
-      const own = ownProcessIdentity();
-      if (!own) throw Error("Native process incarnation unavailable");
-      try {
-        const old = lstatSync(path),
-          owner = readOwner(path + ".owner");
-        if (
-          !old.isSocket() ||
-          old.uid !== process.getuid?.() ||
-          old.ino !== owner.inode ||
-          sameProcess(owner.process, processIdentity(owner.process.pid))
-        )
-          throw Error("Native socket already owned");
-        try {
-          process.kill(owner.process.pid, 0);
-          if (!processIdentity(owner.process.pid))
-            throw Error("Native owner is ambiguous");
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
-        }
-        unlinkSync(path);
-        unlinkSync(path + ".owner");
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      }
-      this.fd = os().socket(1, 1, 0);
-      if (this.fd < 0) throw Error("Native socket unavailable");
-      nonblocking(this.fd);
-      const name = Buffer.from(path),
-        address = new Uint8Array(106);
-      address[0] = name.length + 3;
-      address[1] = 1;
-      address.set(name, 2);
-      const oldMask = process.umask(0o077);
-      try {
-        if (
-          os().bind(this.fd, ptr(address), name.length + 3) !== 0 ||
-          os().listen(this.fd, 8) !== 0
-        )
-          throw Error("Native socket bind failed");
-      } finally {
-        process.umask(oldMask);
-      }
-      this.inode = lstatSync(path).ino;
-      writeFileSync(
-        path + ".owner",
-        JSON.stringify({ process: own, inode: this.inode }),
-        { mode: 0o600, flag: "wx" },
-      );
-      this.ownerCreated = true;
+      if (inherited) this.adopt(inherited);
+      else this.bindOwned();
       this.timer = setInterval(() => {
         try {
           if (privateDirectory(dir).ino !== identity.ino) {
@@ -354,6 +365,77 @@ export class LocalNativeServer {
       this.close();
       throw error;
     }
+  }
+  private adopt(inherited: ParentNativeListener): void {
+    const socket = fstatSync(inherited.fd), path = lstatSync(this.path), owner = readOwner(this.path + ".owner");
+    if (!socket.isSocket() || socket.uid !== process.getuid?.() || !path.isSocket()
+      || path.uid !== process.getuid?.() || path.mode & 0o077 || path.ino !== owner.inode
+      || inherited.owner.pid !== process.ppid || !sameProcess(owner.process, inherited.owner)
+      || !sameProcess(inherited.owner, processIdentity(inherited.owner.pid))) {
+      throw Error("Native parent listener ownership unavailable");
+    }
+    const address = new Uint8Array(106), size = new Uint32Array([address.length]);
+    const expected = Buffer.concat([Buffer.from(this.path), Buffer.from([0])]);
+    if (os().getsockname(inherited.fd, ptr(address), ptr(size)) !== 0
+      || size[0] !== expected.length + 2 || address[0] !== size[0] || address[1] !== 1
+      || !Buffer.from(address.subarray(2, size[0])).equals(expected)) {
+      throw Error("Native parent listener path unavailable");
+    }
+    nonblocking(this.fd);
+    // Root retains ownership of the path and owner record. Closing this child
+    // only closes its duplicate descriptor and accepted channels.
+  }
+  private bindOwned(): void {
+    const path = this.path;
+    const own = ownProcessIdentity();
+    if (!own) throw Error("Native process incarnation unavailable");
+    try {
+      const old = lstatSync(path),
+        owner = readOwner(path + ".owner");
+      if (
+        !old.isSocket() ||
+        old.uid !== process.getuid?.() ||
+        old.ino !== owner.inode ||
+        sameProcess(owner.process, processIdentity(owner.process.pid))
+      )
+        throw Error("Native socket already owned");
+      try {
+        process.kill(owner.process.pid, 0);
+        if (!processIdentity(owner.process.pid))
+          throw Error("Native owner is ambiguous");
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+      }
+      unlinkSync(path);
+      unlinkSync(path + ".owner");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    this.fd = os().socket(1, 1, 0);
+    if (this.fd < 0) throw Error("Native socket unavailable");
+    nonblocking(this.fd);
+    const name = Buffer.from(path),
+      address = new Uint8Array(106);
+    address[0] = name.length + 3;
+    address[1] = 1;
+    address.set(name, 2);
+    const oldMask = process.umask(0o077);
+    try {
+      if (
+        os().bind(this.fd, ptr(address), name.length + 3) !== 0 ||
+        os().listen(this.fd, 8) !== 0
+      )
+        throw Error("Native socket bind failed");
+    } finally {
+      process.umask(oldMask);
+    }
+    this.inode = lstatSync(path).ino;
+    writeFileSync(
+      path + ".owner",
+      JSON.stringify({ process: own, inode: this.inode }),
+      { mode: 0o600, flag: "wx" },
+    );
+    this.ownerCreated = true;
   }
   close() {
     clearInterval(this.timer);
