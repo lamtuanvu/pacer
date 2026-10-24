@@ -4,8 +4,14 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Added
+
+- Discoverable v3 CLI operations through `pacer api list`, `describe` and `call`, with filtered metadata, JSON schemas and bounded JSON file/stdin input. The Pacer skill teaches on-demand discovery for product controls.
+- Scriptable authenticated session I/O, attachment upload/list/download/removal, and targeted acknowledged page/native controls for appearance, navigation, windows and tray actions.
+
 ### Fixed
 
+- Honor protocol v3 for in-process clients and retain executor role restrictions when generic CLI calls use a planner-owned service. Explicit service selection never retries refused calls locally.
 - Complete native interactive adapters for Claude Code, Codex and OpenCode: detect CLI capabilities instead of pinning an exact version, retain native conversation identity for resume, honor named accounts and OpenCode models, and report native session activity. Explicit conversations can select the planner account while retaining execution guardrails.
 - Bound the Tasks list to the shared wide page layout and use complete task titles so wide windows no longer spread rows across the screen or retain character-truncated titles. Give long Start work recent titles a visible ellipsis and full-title tooltip.
 
@@ -22,7 +28,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - Retry desktop update coordination and status delivery after transient failures, restore controls only after fresh native verification, and keep verified completed or restored updates terminal when cleanup needs another attempt.
 - Automatically refresh previously connected agent hooks, policies and skills at service startup and before new local agent launches, including named accounts. Preserve customizations with actionable conflicts, and report freshness separately in doctor.
 
-- Select the ArkCLI quota reader for OpenCode's `coding-plan` provider during setup and recover existing Ark Coding Plan quota accounts that have no usage source configured.
+- Select the ArkCLI quota reader for OpenCode’s `coding-plan` provider during setup and recover existing Ark Coding Plan quota accounts that have no usage source configured.
 
 - Use one keyboard-accessible, searchable dropdown style across Start work, delegation, Settings and retry/review, with aligned Start work fields and a styled native attachment trigger. Missing repository/workspace choices now block starting a session.
 
