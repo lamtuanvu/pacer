@@ -8,6 +8,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 - Record private, bounded OTA request-stage diagnostics in live validation evidence, preserving fixture authorization and HTTP behavior.
 
+### Changed
+
+- Run Claude Code, Codex, Ark Coding Plan and metered OpenCode usage readers in the bundled `pacer-usage` plugin, preserving rich readings and host pacing policy. Disabled or failing readers report unavailable usage without a built-in fallback; inspect them with `pacer plugin list` and `pacer plugin doctor`.
+
 ### Fixed
 
 - Let live native controls verify a completed managed OTA fixture without transferring teardown ownership, and keep authority collection and input within the original command deadline.
