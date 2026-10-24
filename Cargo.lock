@@ -595,6 +595,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "pacer-dispatch-protocol"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "pacer-fixtures"
 version = "0.0.0"
 dependencies = [
