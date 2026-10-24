@@ -37,17 +37,17 @@ These rules apply to `app/**`. They came from a review of every app screen on 20
 
 ### Shared foundation enforcement (amendment 0.4.0)
 
-UI-19–UI-25 are **Proposed — adopted by the maintainer merging the amendment PR**. Existing UI-1–UI-18 stay in force. The approved design specifies the implementation; approval of the design does not independently adopt governance.
+UI-19–UI-25 are **Established**, adopted on 2026-10-19 by merging #193 (constitution amendment 0.4.0). Existing UI-1–UI-18 stay in force.
 
 | ID | Rule or convention | Status | Rationale/source | Verification |
 |----|--------------------|--------|------------------|--------------|
-| UI-19 | `app/src/ds/` owns native interactive controls and presentation patterns. Consumers compose canonical Button/LinkButton, Field/controls, Disclosure, Dialog, segmented filters and shared rows/cards; screens bind domain state/actions. No raw button/input/select/textarea/details outside DS. A native anchor must use a literal canonical `pc-inline-link`, `pc-text-action` or `pc-btn` class, or a shared link component. Shared rows never nest interactive targets. | Proposed 0.4.0 | [shared-foundations ADR](../../docs/decisions/2026-10-19-shared-ui-foundations.md) | `ui:check`; DOM and keyboard tests; UI review |
-| UI-20 | DS presentation imports only DS modules, Preact and shared `src/view-model/` descriptors. It never imports consumers, API/store/domain state or core. Shared presentation receives data and callbacks through props; density belongs to DS. TUI/panel consume shared vocabulary, not Preact components. | Proposed 0.4.0 | ADR; ARCH-1/6 | `ui:check`; architecture review |
-| UI-21 | Every authored app visual value uses generated tokens: color, type scale/weight/line height/tracking, spacing, radii, control dimensions, shadows, layers and motion. This includes DS CSS, tray, terminal wrappers, shorthands, inline/DOM styles, custom-property definitions and var fallbacks. Layout-only structure is allowed; it must not redefine primitive appearances. See the exact literal categories below. | Proposed 0.4.0 | UI-1/9; audit #191 | `ui:check` negative fixtures; catalog review |
-| UI-22 | A new or changed shared component updates `docs/design-system.md`: API/variants/density, states, semantics/keyboard use, ownership and production consumers. The catalog records justified retained specialized layouts. Add variants centrally instead of overriding a primitive in a screen. | Proposed 0.4.0 | Single foundation with domain composition | Catalog/diff review; component behavior tests |
-| UI-23 | Copied/adapted upstream components preserve the full license plus per-component source path, pinned revision and material adaptation notes in the catalog. No full demo app, analytics or paid icon dependency. | Proposed 0.4.0 | MIT Beautiful UI adaptation; bundle budgets | License/source map review; app build |
-| UI-24 | UI-affecting PRs include an implementer compliance report and independent UI/accessibility plus QA reports, per constitution 0.4.0. Reports identify base/head, scope, rules, actual checks/evidence and PASS/FAIL/UNVERIFIED verdicts. Required screenshots, keyboard/focus, contrast and CT-11 evidence cannot be replaced by source inspection or a checked checkbox.  A PR whose UI-scoped changes are only version strings (release bumps) needs no reports; CI verifies every changed line (amendment 0.6.0 proposed).| Proposed 0.4.0 | Evidence before merge; human merge authority | PR evidence manifest check; actual reviewer reports and maintainer review |
-| UI-25 | The deterministic checker scans every authored `app/src/` TS/TSX/JS/JSX/CSS subtree, including terminal/tray/new directories. Run `bun run ui:check`; negative fixtures prove meaningful bypasses fail. No file-wide baseline, generated-name heuristic or inline suppression comment. An exception requires the maintainer's recorded scope/symbol/rule/reason/owner/expiry, a narrow checker change and a regression proving neighboring cases still fail. | Proposed 0.4.0 | Existing narrow guards missed terminal/range/font shorthand | CI; negative tests; exception log |
+| UI-19 | `app/src/ds/` owns native interactive controls and presentation patterns. Consumers compose canonical Button/LinkButton, Field/controls, Disclosure, Dialog, segmented filters and shared rows/cards; screens bind domain state/actions. No raw button/input/select/textarea/details outside DS. A native anchor must use a literal canonical `pc-inline-link`, `pc-text-action` or `pc-btn` class, or a shared link component. Shared rows never nest interactive targets. | Established (0.4.0) | [shared-foundations ADR](../../docs/decisions/2026-10-19-shared-ui-foundations.md) | `ui:check`; DOM and keyboard tests; UI review |
+| UI-20 | DS presentation imports only DS modules, Preact and shared `src/view-model/` descriptors. It never imports consumers, API/store/domain state or core. Shared presentation receives data and callbacks through props; density belongs to DS. TUI/panel consume shared vocabulary, not Preact components. | Established (0.4.0) | ADR; ARCH-1/6 | `ui:check`; architecture review |
+| UI-21 | Every authored app visual value uses generated tokens: color, type scale/weight/line height/tracking, spacing, radii, control dimensions, shadows, layers and motion. This includes DS CSS, tray, terminal wrappers, shorthands, inline/DOM styles, custom-property definitions and var fallbacks. Layout-only structure is allowed; it must not redefine primitive appearances. See the exact literal categories below. | Established (0.4.0) | UI-1/9; audit #191 | `ui:check` negative fixtures; catalog review |
+| UI-22 | A new or changed shared component updates `docs/design-system.md`: API/variants/density, states, semantics/keyboard use, ownership and production consumers. The catalog records justified retained specialized layouts. Add variants centrally instead of overriding a primitive in a screen. | Established (0.4.0) | Single foundation with domain composition | Catalog/diff review; component behavior tests |
+| UI-23 | Copied/adapted upstream components preserve the full license plus per-component source path, pinned revision and material adaptation notes in the catalog. No full demo app, analytics or paid icon dependency. | Established (0.4.0) | MIT Beautiful UI adaptation; bundle budgets | License/source map review; app build |
+| UI-24 | UI-affecting PRs include an implementer compliance report and independent UI/accessibility plus QA reports, per constitution 0.4.0. Reports identify base/head, scope, rules, actual checks/evidence and PASS/FAIL/UNVERIFIED verdicts. Required screenshots, keyboard/focus, contrast and CT-11 evidence cannot be replaced by source inspection or a checked checkbox.  A PR whose UI-scoped changes are only version strings (release bumps) needs no reports; CI verifies every changed line (amendment 0.6.0 proposed).| Established (0.4.0) | Evidence before merge; human merge authority | PR evidence manifest check; actual reviewer reports and maintainer review |
+| UI-25 | The deterministic checker scans every authored `app/src/` TS/TSX/JS/JSX/CSS subtree, including terminal/tray/new directories. Run `bun run ui:check`; negative fixtures prove meaningful bypasses fail. No file-wide baseline, generated-name heuristic or inline suppression comment. An exception requires the maintainer's recorded scope/symbol/rule/reason/owner/expiry, a narrow checker change and a regression proving neighboring cases still fail. | Established (0.4.0) | Existing narrow guards missed terminal/range/font shorthand | CI; negative tests; exception log |
 
 #### Literal categories and checker limits
 
@@ -59,11 +59,74 @@ UI-19–UI-25 are **Proposed — adopted by the maintainer merging the amendment
 - Reports/artifacts stay in untracked `.work/` locally or attached/linked in the PR. A local path alone is not accessible to PR CI or the maintainer reviewing remotely; publish an accessible review/evidence reference in the PR manifest.
 - Draft reports may state FAIL or UNVERIFIED honestly, while current SHAs, links, summaries and all source checks remain required. All three reports must PASS once ready for review; CI reruns on both draft transitions. Draft CI success does not satisfy completion or before-merge validation.
 
+### UI review readiness procedure
+
+Amendment 0.13.0 clarifies the agent workflow for existing UI-24 evidence gates.
+Authorized for this task; repository-wide adoption is proposed until maintainer
+merge. Existing evidence requirements and maintainer merge authority remain.
+
+1. **Scope validation early.** Compare against the actual PR target base,
+   including generated assets, view-model/TUI output and native presentation.
+   Plan applicable UI-18 screenshots and CT-11 live coverage. Consult current
+   [exceptions](../decisions.md); a prior PR's exception does not transfer.
+2. **Review the final revision.** Run source checks and applicable validation,
+   produce compliance evidence, and obtain independent
+   [UI/accessibility](../reviewers/ui-accessibility.md) and [QA](../reviewers/qa.md)
+   reports. Record base/head, governance version, scope/rules, actual checks,
+   evidence, findings, exceptions and per-surface verdicts. Fix blockers, rerun
+   affected checks and independently review fixes. Missing evidence is UNVERIFIED.
+3. **Make reports accessible.** Keep working files in `.work/`; include reports
+   in the PR body, publish report comments when authorized, or attach artifacts.
+   Put concrete HTTPS report/comment or `artifact://name/path` references in the
+   [PR manifest](../../.github/pull_request_template.md). Actually open references
+   and evidence: the checker verifies syntax, not availability or report truth.
+4. **Preflight the prepared PR body.** Before creating/updating a PR, write an
+   event file under `.work/` with `pull_request.base.sha`, `head.sha` (full
+   40-character SHAs), `draft` (boolean) and `body` (full prepared PR body).
+   Fetch missing history from the relevant base/head remotes before checking.
+
+   ```sh
+   bun run ui:check
+   bun run ui:ready --event .work/fixtures/ui-pr-event.json --ready
+   # After publishing the body, read current GitHub metadata (requires gh auth):
+   bun run ui:ready --pr <number> --ready
+   ```
+
+   `ui:check` without `GITHUB_EVENT_PATH` checks source only and says evidence was
+   NOT CHECKED. `ui:ready` uses CI's validator and local git history; it does not
+   fetch commits, publish/edit reports or certify visual correctness. An event
+   file is a local snapshot; prefer `--pr` for an existing PR's actual metadata.
+5. **Keep incomplete work draft.** Drafts need current SHAs, actual summaries,
+   concrete references and honest PASS/FAIL/UNVERIFIED reports. Omit `--ready`
+   to preflight that draft contract. A passing draft check is not completion.
+   Use `--ready` and resolve required FAIL/UNVERIFIED behavior before leaving
+   draft; this applies the all-PASS contract while the PR is still draft.
+6. **Refresh and confirm.** After commits, rebases or merges, review intervening
+   changes, rerun affected validation, independently review fixes, and refresh
+   actual reports plus the manifest for the final revision. If the target base
+   advances, reassess the new base/diff before updating its reviewed SHA. Never
+   rewrite SHAs or verdicts solely to silence CI. After publishing body updates,
+   repeat `--pr … --ready` and confirm **UI review readiness** passes for the
+   current head and latest body/draft update, along with other required checks,
+   before reporting completion. An older green run is insufficient. Resolve
+   failures within scope; report genuine blockers as incomplete instead of
+   leaving readiness failures for the maintainer to diagnose. Only the maintainer
+   can grant a scoped, expiring exception.
+
+Non-UI and version-string-only UI diffs retain existing validator exemptions.
+Their metadata PASS means evidence was not required, not that UI was reviewed.
+
 ### Compact density (amendment 0.9.0)
 
 | ID | Rule or convention | Status | Rationale/source | Verification |
 |----|--------------------|--------|------------------|--------------|
 | UI-26 | Compact is the desktop default for buttons, dropdowns/selects, inputs and recurring rows. Use shared DS primitives and density tokens, with the top-bar Delegate as the compact reference. Button variants share geometry; related controls align. Settings use the shared settings density, multiline fields retain useful height, and touch layouts keep larger targets. Reduce oversized padding and empty gaps through shared layout tokens. No page-local size/radius/type overrides. Any larger desktop density needs a documented reason and scope. | Proposed 0.9.0; maintainer requested 2026-10-22, adopted on merge | Maintainer compact-UI request; design-system catalog | Browser geometry regression, UI-18 before/after evidence, keyboard/focus and narrow-layout checks; UI review |
+
+### Spacing ownership (amendment 0.12.0)
+
+| ID | Rule or convention | Status | Rationale/source | Verification |
+|----|--------------------|--------|------------------|--------------|
+| UI-27 | Each space has one owner. Shared layout containers own child separation with gap; their direct children carry no block margins. Use Stack compact (8px) for related rows/disclosures, normal (12px) for content, and section (24px) for separate regions, through existing DS tokens. Section text uses an 8px gap. PageHeader has a standalone trailing margin only when its parent does not already own a gap. DisclosurePanel summaries use 36px minimum height on desktop and 48px on touch layouts. Screens must not override shared stack/page-header/section/disclosure/action-panel margins, padding or gaps, even with tokens; add a DS variant when necessary. Prose, list indentation, bordered section padding, specialized grids and terminal geometry retain their explicitly documented rhythm. | Proposed 0.12.0; adopted only by maintainer merge | App-wide spacing audit requested 2026-10-24; compounded margins and inconsistent disclosure grouping | ui:check rejects consumer CSS spacing overrides; browser geometry regressions exercise actual gaps, text margins, disclosure rows, prose and narrow containment; UI-18 screenshots and CT-11 live evidence |
 
 ### Implementer checklist
 
@@ -82,7 +145,8 @@ Before you hand a UI change over, check the screen against this list:
 11. Are before/after screenshots attached? (UI-18)
 12. Are primitives/composites canonical, token checks passing, and catalog/provenance current? (UI-19–23/25)
 13. Are desktop controls compact and aligned, with larger touch targets and useful multiline fields preserved? (UI-26)
-14. Do the compliance, independent UI and QA reports contain real checks and accessible evidence, with outstanding surfaces marked UNVERIFIED? (UI-24; CT-11)
+14. Does each gap have one owner, without child block margins or consumer overrides of shared layout rhythm? (UI-27)
+15. Do the compliance, independent UI and QA reports contain real checks and accessible evidence, with outstanding surfaces marked UNVERIFIED? (UI-24; CT-11)
 
 Relevant reviewers: [ui-accessibility](../reviewers/ui-accessibility.md)
-Exceptions and open decisions: UI-7 remains proposed. UI-19–UI-25 are the 0.4.0 amendment proposal; see [decisions.md](../decisions.md).
+Exceptions and open decisions: UI-7 remains proposed. UI-19–UI-25 were adopted under amendment 0.4.0; see [decisions.md](../decisions.md).

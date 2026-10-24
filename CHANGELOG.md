@@ -12,6 +12,13 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 ### Fixed
 
 - Honor protocol v3 for in-process clients and retain executor role restrictions when generic CLI calls use a planner-owned service. Explicit service selection never retries refused calls locally.
+- Bound the Tasks list to the shared wide page layout and use complete task titles so wide windows no longer spread rows across the screen or retain character-truncated titles. Give long Start work recent titles a visible ellipsis and full-title tooltip.
+
+- Remove compounded spacing in app sections, cards, settings and embedded page headers; keep task disclosures evenly spaced and compact while preserving touch targets. Add shared spacing ownership checks and browser geometry regressions.
+
+### Changed
+
+- Add a read-only `ui:ready` preflight for PR evidence and make skipped local evidence checks explicit; centralize the agent readiness procedure in the UI rules.
 
 ## [0.9.0] - 2026-10-23
 

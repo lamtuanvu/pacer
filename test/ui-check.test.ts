@@ -231,3 +231,21 @@ describe("UI source policy", () => {
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });
+
+test('shared spacing cannot be overridden in consumer styles, even with tokens', () => {
+ for (const selector of ['.pc-detail-navigation', '.pc-stack', '.pc-stack--section', '.pc-page-body > p', '.custom .pc-page-header', '.pc-disclosure-panel > summary', '.pc-section']) {
+  expect(checkUiSource('app/src/screens/example.css', `${selector}{margin-block:var(--space-3)}`).some(v=>v.rule==='UI-27')).toBe(true);
+ }
+ expect(checkUiSource('app/src/ds/components.css', '.pc-stack{gap:var(--space-3)}')).toEqual([]);
+ expect(checkUiSource('app/src/screens/example.css', '.custom-grid{display:grid;gap:var(--space-3)}')).toEqual([]);
+});
+
+test('spacing ownership follows nested selectors, media blocks and legacy gap aliases', () => {
+ for (const source of [
+  '.pc-stack { & { gap:var(--space-6) } }',
+  '.pc-stack { @media(min-width:900px) { padding:var(--space-3) } }',
+  '.custom { .pc-stack { grid-row-gap:var(--space-6) } }',
+  '.pc-stack { grid-gap:var(--space-6) }',
+ ]) expect(checkUiSource('app/src/example.css', source).some(v=>v.rule==='UI-27')).toBe(true);
+ expect(checkUiSource('app/src/example.css', '.custom { @media(min-width:900px) { gap:var(--space-3) } }')).toEqual([]);
+});
