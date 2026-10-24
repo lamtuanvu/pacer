@@ -273,3 +273,18 @@ test("unchanged cursor commits skip atomic writes while retained dirty state ret
   try { expect(await call(s.authority, "commit", { lease: noOp.lease, dirty: false })).toEqual({ saved: true }); expect(spy).not.toHaveBeenCalled(); }
   finally { spy.mockRestore(); }
 });
+
+test("streamed cursor decoding matches source replacement UTF8 and strict JSON whitespace", async () => {
+  const { CursorStore } = await import("../src/usage/cursors");
+  for (const bom of [false, true]) {
+    const s = setup("cursors"); await mkdir(s.root, { recursive: true }); await mkdir(join(s.ctx.pacerHome, "state"), { recursive: true });
+    const log = join(s.root, "rollout-encoding.jsonl"); await writeFile(log, "{}\n");
+    const cursor = { size: 3, mtime: 1, inode: 2, offset: 3, aggregate: { extra: "MARKER" } };
+    const text = JSON.stringify({ version: 4, files: { [log]: cursor } });
+    const bytes = bom ? Buffer.from("\uFEFF" + text) : Buffer.concat([Buffer.from(text.split("MARKER")[0]), Buffer.from([255]), Buffer.from(text.split("MARKER")[1])]);
+    await writeFile(s.path, bytes);
+    const source = new CursorStore<Record<string, unknown>>(s.path, () => true, 4);
+    const expected = await source.run(s.ctx, async files => ({ version: 4, files: JSON.parse(JSON.stringify(files)) }));
+    expect((await snapshot(s.authority)).value).toEqual(expected);
+  }
+});

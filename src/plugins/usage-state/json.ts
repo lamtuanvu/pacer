@@ -6,7 +6,7 @@ class Reader {
   private buffer = "";
   private position = 0;
   private eof = false;
-  private readonly decoder = new TextDecoder("utf-8", { ignoreBOM: true, fatal: true });
+  private readonly decoder = new TextDecoder("utf-8", { ignoreBOM: true });
   constructor(private file: Awaited<ReturnType<typeof open>>, private check: () => void) {}
   async peek(): Promise<string> {
     while (this.position >= this.buffer.length && !this.eof) {
@@ -20,7 +20,7 @@ class Reader {
     return this.buffer[this.position] ?? "";
   }
   async take(): Promise<string> { const c = await this.peek(); this.position++; return c; }
-  async whitespace() { while (/\s/.test(await this.peek()) && await this.peek() !== "") await this.take(); }
+  async whitespace() { while (/[ \t\r\n]/.test(await this.peek()) && await this.peek() !== "") await this.take(); }
   async expect(c: string) { await this.whitespace(); if (await this.take() !== c) throw new Error("invalid state JSON"); }
   async value(): Promise<unknown> {
     await this.whitespace();
