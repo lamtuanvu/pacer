@@ -1,9 +1,11 @@
-import { expect, test } from "bun:test";
+import { afterEach, expect, test } from "bun:test";
 import { prepareLaunch, launchEvidenceCurrent } from "../src/tasks/eligibility";
 import { computeStatus } from "../src/engine/status";
 import { validateStrategy } from "../src/config/strategy";
-import { fakeCtx } from "./helpers";
+import { fakeCtx, cleanupUsageFixtures } from "./usage-plugin-fixtures";
 import { blockExecutor } from "../src/executors/blocked";
+
+afterEach(cleanupUsageFixtures);
 
 function fixture() {
   let used = 10, failed = false;
