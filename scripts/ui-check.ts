@@ -113,6 +113,35 @@ function cssDeclarations(source: string): Declaration[] {
   return declarations;
 }
 
+/** Retain selector ancestry through native CSS nesting and conditional blocks. */
+function sharedSpacingOverrides(source: string): number[] {
+  const text = source.replace(/\/\*[\s\S]*?\*\//g, match => match.replace(/[^\n]/g, " "));
+  const owned = /\.pc-(?:stack(?:--[\w-]+)?|detail-navigation|page-body|page-header(?:__[\w-]+)?|section|composed-section(?:__[\w-]+)?|disclosure-panel(?:__[\w-]+)?|action-panel)(?![\w-])/;
+  const stack: { start: number; owned: boolean }[] = [];
+  const ranges: { start: number; end: number }[] = [];
+  let boundary = 0, quote = "", parentheses = 0;
+  for (let at = 0; at < text.length; at++) {
+    const char = text[at]!;
+    if (quote) { if (char === quote && text[at - 1] !== "\\") quote = ""; continue; }
+    if (char === '"' || char === "'") { quote = char; continue; }
+    if (char === "(") parentheses++;
+    if (char === ")") parentheses--;
+    if (parentheses) continue;
+    if (char === "{") {
+      stack.push({ start: at + 1, owned: !!stack.at(-1)?.owned || owned.test(decodeCssIdentifier(text.slice(boundary, at))) });
+      boundary = at + 1;
+    } else if (char === "}") {
+      const frame = stack.pop();
+      if (frame?.owned) ranges.push({ start: frame.start, end: at });
+      boundary = at + 1;
+    } else if (char === ";") boundary = at + 1;
+  }
+  return cssDeclarations(text).filter(declaration =>
+    /^(?:margin|padding|(?:grid-)?(?:row-|column-)?gap)(?:-|$)/.test(declaration.property) &&
+    ranges.some(range => declaration.position >= range.start && declaration.position < range.end)
+  ).map(declaration => declaration.position);
+}
+
 interface CssImport { specifier?: string; position: number }
 function cssImports(source: string): CssImport[] {
   const text = source.replace(/\/\*[\s\S]*?\*\//g, match => match.replace(/[^\n]/g, " "));
@@ -160,6 +189,11 @@ export function checkUiSource(inputPath: string, source: string): UiViolation[] 
   };
   if (path.endsWith(".css")) {
     checkCss(source);
+    if (!path.startsWith("app/src/ds/")) {
+      for (const position of sharedSpacingOverrides(source)) {
+        add(position, "UI-27", "Shared layout spacing belongs to DS; compose Stack/Section/DisclosurePanel instead of overriding their margins, padding or gaps.");
+      }
+    }
     if (path.startsWith("app/src/screens/")) {
       const pageRoot = /\.(?:pc-overview|pc-session|pc-sessions-list|u3-settings|pc-setup)\s*\{[^}]*\b(?:max-width|margin(?:-inline)?|padding)\s*:/g;
       for (const match of source.matchAll(pageRoot)) add(match.index ?? 0, "UI-25", "Routed screen roots cannot own maximum width, centering, or outer gutters; use the shared Page contract.");

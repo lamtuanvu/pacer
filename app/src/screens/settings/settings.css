@@ -1,13 +1,16 @@
 .u3-settings{font-family:var(--font-sans);font-size:var(--type-body-size);line-height:var(--type-body-line);color:var(--ink);min-width:0}
-.u3-settings p{margin:var(--space-1) 0 var(--space-3)}
+.u3-settings p{margin:0}
 .u3-settings code,.u3-settings pre{font-family:var(--font-mono);font-size:var(--type-code-size);overflow-wrap:normal;word-break:normal;white-space:pre;max-width:100%;overflow-x:auto}
 .u3-muted,.u3-heading p{color:var(--ink-secondary);font-size:var(--type-caption-size)}
-.u3-section{margin-top:var(--space-5);scroll-margin-top:var(--space-5);border-top:1px solid var(--line);padding-top:var(--space-5)}
+.u3-section{display:flex;flex-direction:column;gap:var(--space-3);margin-top:var(--space-6);scroll-margin-top:var(--space-5);border-top:1px solid var(--line);padding-top:var(--space-3)}
+.u3-section>:where(*){margin-block:0}
+.u3-section>[class]{margin-block:0}
 .u3-heading,.u3-row{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:var(--space-3)}
-.u3-heading{margin-bottom:var(--space-3);align-items:flex-start}.u3-actions{display:flex;gap:var(--space-2);align-items:center;flex-wrap:wrap}
+.u3-heading{align-items:flex-start}.u3-heading>div:first-child{display:flex;flex-direction:column;gap:var(--space-1)}.u3-actions{display:flex;gap:var(--space-2);align-items:center;flex-wrap:wrap}
 .u3-anchor-nav{display:flex;gap:var(--space-3);flex-wrap:wrap;margin:var(--space-4) 0}
 .u3-settings-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:var(--space-4)}
-.u3-setting{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr);gap:var(--space-5);padding:var(--space-3) 0;border-bottom:1px solid var(--line)}
+.u3-setting{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr);gap:var(--space-5);padding:0 0 var(--space-3);border-bottom:1px solid var(--line)}
+.u3-setting>div:first-child{display:flex;flex-direction:column;gap:var(--space-1)}
 .u3-setting:last-child{border-bottom:0}.u3-setting>div{min-width:0}
 .u3-table-wrap{overflow:auto;border:1px solid var(--line);border-radius:var(--radius-md)}
 .u3-settings table{width:100%;border-collapse:collapse;text-align:left}.u3-settings th{font-size:var(--type-caption-size);font-weight:var(--type-label-weight);background:var(--surface-card);color:var(--ink-secondary)}
@@ -21,8 +24,8 @@
 .u3-footer{display:flex;gap:var(--space-3);align-items:center;justify-content:flex-end;flex-wrap:wrap;margin-top:var(--space-5);padding-top:var(--space-4);border-top:1px solid var(--line)}
 @media(max-width:700px){.u3-settings:not(.pc-page){padding:var(--space-4)}.u3-wizard,.u3-settings-grid,.u3-setting{grid-template-columns:minmax(0,1fr);gap:var(--space-3)}.u3-steps{display:flex;flex-wrap:wrap;gap:var(--space-1)}.u3-steps li{padding:var(--space-2)}.u3-settings th,.u3-settings td{padding:var(--space-2)}}
 .u3-checks{list-style:none;padding:0;margin:0}.u3-checks li{padding:var(--space-2) 0;border-bottom:1px solid var(--line)}
-.u3-general-sections .u3-section{margin-top:var(--space-4);padding-top:var(--space-3)}
-.u3-general-sections .u3-setting{grid-template-columns:minmax(var(--size-126),1fr) minmax(0,1.7fr);gap:var(--space-4);align-items:start;padding:var(--space-3) 0;border:0;border-bottom:1px solid var(--line)}
+
+.u3-general-sections .u3-setting{grid-template-columns:minmax(var(--size-126),1fr) minmax(0,1.7fr);gap:var(--space-4);align-items:start;padding:0 0 var(--space-3);border:0;border-bottom:1px solid var(--line)}
 .u3-general-sections .u3-setting:last-of-type{border-bottom:1px solid var(--line)}
 @media(max-width:700px){.u3-general-sections .u3-setting{grid-template-columns:minmax(0,1fr)}}
 .u3-nav-badge{margin-left:var(--space-1\.5);font-size:var(--type-label-size);color:var(--ink-muted)}.u3-steps li>div{font-weight:var(--type-body-weight);margin-top:var(--space-1)}
@@ -35,6 +38,7 @@
 .pc-project-strategies { margin-top: var(--space-4); }
 .pc-project-editor { display: grid; gap: var(--space-3); }
 .pc-project-order { margin: 0; padding-left: var(--space-5); }
+.pc-project-order:empty{display:none}
 .pc-project-row { padding-block: var(--space-3); border-bottom: 1px solid var(--line); }
 .pc-project-label { display: grid; gap: var(--space-1); margin-bottom: var(--space-2); }
 .pc-project-label strong { overflow-x: auto; white-space: nowrap; }
@@ -51,7 +55,7 @@
 .u3-settings-page .u3-setting>div:last-child{max-width:var(--size-520)}
 .u3-settings-page .u3-agent:has(select){max-width:var(--size-360)}
 .u3-settings-page .u3-agent select{flex:1;min-width:0}
-.u3-settings-note{border-top:1px solid var(--line);padding-top:var(--space-3);margin-top:var(--space-6)!important;color:var(--ink-secondary);font-size:var(--type-caption-size)}
+.u3-settings p.u3-settings-note{border-top:1px solid var(--line);padding-top:var(--space-3);margin-top:var(--space-6);color:var(--ink-secondary);font-size:var(--type-caption-size)}
 .u3-settings-links{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--space-2)}
 .u3-settings-link{display:flex;align-items:center;gap:var(--space-2);min-height:var(--size-36);padding:var(--space-2) 0}
 .u3-settings-link svg{flex:none}
