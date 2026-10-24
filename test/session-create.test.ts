@@ -33,12 +33,27 @@ test("resume refuses an ended session while its previous runner is still settlin
 
 test("a failed resume launch preserves native recovery identity and output", async () => {
   const repo = gitRepo();
+  let launchAttempts = 0;
+  const codexProbes: string[][] = [];
   const ctx = withLoginIndicators(
     fakeCtx({
-      run: async (args, timeout, options) =>
-        args[0] === "codex" && args[1] === "--version"
-          ? { code: 0, stdout: "codex-cli 0.163.0", stderr: "" }
-          : realRun(args, timeout, options),
+      run: async (args, timeout, options) => {
+        if (args[0] !== "codex") return realRun(args, timeout, options);
+        codexProbes.push(args.slice(1));
+        if (args[1] === "--version")
+          return { code: 0, stdout: "codex-cli 0.163.0", stderr: "" };
+        if (
+          args.length === 2 && args[1] === "--help" ||
+          args.length === 3 && args[1] === "resume" && args[2] === "--help"
+        ) {
+          return {
+            code: 0,
+            stdout: "--config --cd --sandbox --add-dir --model --image --dangerously-bypass-hook-trust",
+            stderr: "",
+          };
+        }
+        throw Error("Unexpected Codex command in resume fixture");
+      },
     }),
   );
   mkdirSync(ctx.pacerHome, { recursive: true });
@@ -72,11 +87,14 @@ test("a failed resume launch preserves native recovery identity and output", asy
       { id: task.id, expect_rev: stopped.rev },
       {
         spawnRunner: () => {
+          launchAttempts++;
           throw Error("spawn failed");
         },
       },
     ),
   ).rejects.toMatchObject({ code: "not_allowed" });
+  expect(launchAttempts).toBe(1);
+  expect(codexProbes).toEqual([["--version"], ["--help"], ["resume", "--help"]]);
   expect(readTask(ctx, task.id)).toMatchObject({
     state: "failed",
     conversation: { activity: "ended", agentSessionId: "native-id" },
