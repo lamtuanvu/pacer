@@ -1,6 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import pkg from "../package.json";
+import { buildDeterministicBrowser } from "./deterministic-build";
 import { generateTokensCss, generateTokensTs, readTokens } from "./tokens-gen";
 
 /** app.js gzip budget from the UI implementation spec (60 KB, without the terminal chunk). */
@@ -11,9 +12,9 @@ const root = import.meta.dir;
 
 /** Pure with respect to the filesystem: tests compare without rewriting checked-in assets. */
 export async function buildApp(): Promise<AppFile[]> {
-  const result = await Bun.build({ entrypoints: [join(root, "src/app.tsx"), join(root, "src/term/term.tsx"), join(root, "src/screens/setup/Setup.tsx"), join(root, "src/shell/UpdateNotice.tsx"), join(root, "src/screens/StartSession.tsx")], splitting: true, naming: { entry: "[name].js", chunk: "chunk-[hash].js" }, target: "browser", minify: true, sourcemap: "none", tsconfig: join(root, "tsconfig.json") });
+  const result = await buildDeterministicBrowser({ repositoryRoot: join(root, ".."), entrypoints: [join(root, "src/app.tsx"), join(root, "src/term/term.tsx"), join(root, "src/screens/setup/Setup.tsx"), join(root, "src/shell/UpdateNotice.tsx"), join(root, "src/screens/StartSession.tsx")], splitting: true, tsconfig: join(root, "tsconfig.json") });
   if (!result.success) throw new AggregateError(result.logs, "app build failed");
-  const tray = await Bun.build({ entrypoints: [join(root, "src/tray/main.tsx")], target: "browser", minify: true, sourcemap: "none", tsconfig: join(root, "tsconfig.json") });
+  const tray = await buildDeterministicBrowser({ repositoryRoot: join(root, ".."), entrypoints: [join(root, "src/tray/main.tsx")], splitting: false, tsconfig: join(root, "tsconfig.json") });
   if (!tray.success) throw new AggregateError(tray.logs, "tray build failed");
   const css = [generateTokensCss(readTokens(join(root, "src/ds"))), await Bun.file(join(root, "src/ds/components.css")).text(), await Bun.file(join(root, "src/ds/feedback.css")).text(), await Bun.file(join(root, "src/styles.css")).text(), await Bun.file(join(root, "src/screens/session/session.css")).text()].join("\n");
   return [
