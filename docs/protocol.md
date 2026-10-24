@@ -857,6 +857,54 @@ Params JSON Schema:
 }
 ```
 
+### `api.describe`
+
+Describe one operation and its JSON parameter schema; semantic validation also runs when called.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `api.list`
+
+Discover operations by optional name prefix and case-insensitive name/description search; parameter schemas are omitted.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "prefix": {
+      "type": "string",
+      "maxLength": 128
+    },
+    "search": {
+      "type": "string",
+      "maxLength": 256
+    }
+  },
+  "additionalProperties": false
+}
+```
+
 ### `attention.dismiss`
 
 Dismiss a raised attention item.
@@ -910,6 +958,335 @@ Params JSON Schema:
     "id",
     "for"
   ],
+  "additionalProperties": false
+}
+```
+
+### `client.control.claim`
+
+Page worker polls for an action; renews its 60-second lease. Worker credential must remain private.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "client_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "worker_token": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  },
+  "required": [
+    "client_id",
+    "worker_token"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `client.control.complete`
+
+Page worker acknowledges an applied action or a bounded failure code.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "request_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "worker_token": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "result": {
+      "$ref": "#/$defs/__schema0"
+    },
+    "error": {
+      "type": "string",
+      "enum": [
+        "unsupported",
+        "client_failed",
+        "navigation_cancelled"
+      ]
+    }
+  },
+  "required": [
+    "request_id",
+    "worker_token"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "__schema0": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/__schema0"
+          }
+        },
+        {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema0"
+          }
+        }
+      ]
+    }
+  }
+}
+```
+
+### `client.control.enroll`
+
+Enroll a connected app-page control worker; ephemeral credential is used only by that page. Does not grant native update authority.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "kind": {
+      "type": "string",
+      "enum": [
+        "app",
+        "desktop"
+      ]
+    },
+    "window": {
+      "type": "string",
+      "enum": [
+        "main",
+        "tray"
+      ]
+    }
+  },
+  "required": [
+    "kind",
+    "window"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `client.control.request`
+
+Request an allowlisted action on an explicit connected client; navigation requires a main target to preserve its form guard. Poll client.control.result; pending is not success. Native quit may disconnect before acknowledgment, leaving an unknown outcome.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "client_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "action": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "theme.get"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "theme.set"
+            },
+            "value": {
+              "type": "string",
+              "enum": [
+                "system",
+                "light",
+                "dark"
+              ]
+            }
+          },
+          "required": [
+            "type",
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "navigate"
+            },
+            "route": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048,
+              "pattern": "^\\/(?!\\/)[^\\u0000-\\u001f]*$"
+            }
+          },
+          "required": [
+            "type",
+            "route"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "window"
+            },
+            "action": {
+              "type": "string",
+              "enum": [
+                "show",
+                "minimize",
+                "toggle-maximize",
+                "close"
+              ]
+            }
+          },
+          "required": [
+            "type",
+            "action"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "tray"
+            },
+            "action": {
+              "type": "string",
+              "enum": [
+                "show",
+                "hide"
+              ]
+            }
+          },
+          "required": [
+            "type",
+            "action"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "launch-at-login"
+            },
+            "enabled": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "type",
+            "enabled"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "quit"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    }
+  },
+  "required": [
+    "client_id",
+    "action"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `client.control.result`
+
+Read client action status and acknowledgment; timeout is failed, never successful.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "request_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    }
+  },
+  "required": [
+    "request_id"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `client.control.targets`
+
+List connected page targets for appearance, navigation and native window controls. Select an explicit client_id.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
   "additionalProperties": false
 }
 ```
@@ -3347,6 +3724,21 @@ Params JSON Schema:
   "required": [
     "planner"
   ],
+  "additionalProperties": false
+}
+```
+
+### `snapshot.get`
+
+Read the complete current v3 snapshot, counts, attention and activity, with its event sequence.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
   "additionalProperties": false
 }
 ```

@@ -1,3 +1,4 @@
+import { refusedOp } from "./proxy";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { pacerArgv, sandboxEnv, type Session } from "./core";
@@ -5,6 +6,15 @@ import { pacerArgv, sandboxEnv, type Session } from "./core";
 /** D3 applies before dispatch, including calls made by the TUI or task runner. */
 export function refusal(args: string[]): string | undefined {
   const [command, action] = args;
+  if (command === "api" && action === "--stdio") return "D3: stdio can execute local operations; use api call through the guarded service";
+  if (command === "api" && action === "call") {
+    let name: string | undefined;
+    for (let i = 2; i < args.length; i++) {
+      if (["--params", "--params-file"].includes(args[i])) { i++; continue; }
+      if (!args[i].startsWith("-")) { name = args[i]; break; }
+    }
+    if (!name || refusedOp("POST", `/v3/ops/${name}`)) return "D3: generic operation changes the real user environment";
+  }
   if (command === "desktop-update" && action !== "status") return "D3: desktop update requires a verified OTA fixture";
   if (["integrations", "install", "uninstall", "init", "setup", "statusline", "update", "orca"].includes(command)) return `D3: ${command} changes the real user environment`;
   const blocked: Record<string, string[]> = { service: ["install", "uninstall"], plugin: ["uninstall", "remove"], account: ["add", "rm", "login"], host: ["setup"] };

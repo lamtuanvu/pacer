@@ -1,5 +1,7 @@
 # pacer CLI and skill
 
+For full agent control, use [discoverable operations, session/file commands and the surface coverage matrix](agent-control.md).
+
 `pacer init` connects detected agents after asking. To connect an agent later,
 use `pacer install <planner>`; it installs the pacer skill and planner policy/hooks. Supported
 planners are claude-code, codex, cursor and opencode. Skills live at
@@ -20,9 +22,12 @@ Refresh failures warn and do not stop other integrations or fail the update.
 
 Restart a running MCP client after updating pacer. CLI commands always run the current binary.
 
-`pacer api --stdio` runs client protocol v2 as newline-delimited JSON-RPC 2.0
-on stdin/stdout, without a daemon. The `--stdio` flag is required; omitting it
-prints usage and exits 2. `hello` returns the protocol and pacer versions,
+`pacer api list --json`, `describe <op> --json`, and `call <op> --params-file <path|-> --json`
+discover and invoke v3 operations. Use filters to load only relevant descriptions.
+
+`pacer api --stdio` runs client protocol v2 by default (v3 through `hello {protocol:3}`) as newline-delimited JSON-RPC 2.0
+on stdin/stdout, without a daemon. The `--stdio` flag is required for the persistent JSON-RPC transport.
+One-shot discovery and calls use `api list`, `api describe` and `api call` instead. `hello` returns the protocol and pacer versions,
 operation names and event types; `snapshot` returns the current snapshot with
 its sequence number. Every core operation is available by its registry name
 (for example, `task.get` with `params: {"id":"<task-id>"}`).

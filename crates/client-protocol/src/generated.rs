@@ -11839,6 +11839,25 @@ impl<'de> ::serde::Deserialize<'de> for SetupInitParamsPlanner {
             })
     }
 }
+///`SnapshotGetParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct SnapshotGetParams {}
+impl ::std::default::Default for SnapshotGetParams {
+    fn default() -> Self {
+        Self {}
+    }
+}
 ///`StrategyBuildParams`
 ///
 /// <details><summary>JSON schema</summary>

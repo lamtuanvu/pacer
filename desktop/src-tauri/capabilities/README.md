@@ -31,3 +31,9 @@ The lifecycle loop serializes setup actions with service recovery;
 no service installation runs while the bundled first-run consent gate is open.
 An already healthy service can be attached without changing its installation.
 These links add no IPC commands, static capabilities, or remote-origin grants.
+
+Both service-origin page capabilities also allow `client_control`: a typed allowlist
+for main-window visibility/geometry, tray visibility, launch at login and quit.
+It validates the caller label and active origin; it cannot execute scripts or
+arbitrary Tauri commands. Requests target a connected page and report completion
+only after applying an action; process exit may leave the outcome unacknowledged.

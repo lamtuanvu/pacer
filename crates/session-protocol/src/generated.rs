@@ -258,7 +258,8 @@ impl<'de> ::serde::Deserialize<'de> for SessionContextParamsId {
 ///    },
 ///    "executor": {
 ///      "type": "string",
-///      "pattern": "^[A-Za-z0-9_-]{1,128}$"
+///      "maxLength": 256,
+///      "minLength": 1
 ///    },
 ///    "repo": {
 ///      "type": "string",
@@ -337,7 +338,8 @@ pub struct SessionCreateParams {
 /// ```json
 ///{
 ///  "type": "string",
-///  "pattern": "^[A-Za-z0-9_-]{1,128}$"
+///  "maxLength": 256,
+///  "minLength": 1
 ///}
 /// ```
 /// </details>
@@ -358,10 +360,11 @@ impl ::std::convert::From<SessionCreateParamsExecutor> for ::std::string::String
 impl ::std::str::FromStr for SessionCreateParamsExecutor {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
-            ::std::sync::LazyLock::new(|| ::regress::Regex::new("^[A-Za-z0-9_-]{1,128}$").unwrap());
-        if PATTERN.find(value).is_none() {
-            return Err("doesn't match pattern \"^[A-Za-z0-9_-]{1,128}$\"".into());
+        if value.chars().count() > 256usize {
+            return Err("longer than 256 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
         }
         Ok(Self(value.to_string()))
     }

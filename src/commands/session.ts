@@ -1,3 +1,5 @@
+import { assertCallerCanInvoke } from "../api/caller-policy";
+import { sessionIoCommand } from "./session-io";
 import { readFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { connectClient } from "../api/client";
@@ -58,11 +60,13 @@ export const COMMANDS: Command[] = [
   {
     name: "session",
     usage:
-      "session start|end|resume           work interactively with an agent",
+      "session start|end|resume|io        work interactively or stream JSON session I/O",
     run: async (args, ctx) => {
+      if (args[0] === "io") return sessionIoCommand(args.slice(1), ctx);
       let client: Awaited<ReturnType<typeof connectClient>> | undefined;
       try {
         const parsed = parseSessionArgs(args);
+        if (parsed.command !== "end") assertCallerCanInvoke(ctx, parsed.command === "start" ? "session.create" : "session.resume", {});
         client = await connectClient(ctx, { protocol: 3 });
         if (client.kind !== "http")
           throw Error("Start pacer serve before using interactive sessions.");

@@ -837,6 +837,11 @@ function AppearanceSection() {
     if (theme === "system") delete document.documentElement.dataset.theme;
     else document.documentElement.dataset.theme = theme;
   }, [theme]);
+  useEffect(() => {
+    const sync = () => { try { setTheme(localStorage.getItem(THEME_KEY) ?? "system"); } catch { /* device storage unavailable */ } };
+    window.addEventListener("storage", sync);
+    return () => window.removeEventListener("storage", sync);
+  }, []);
   return (
     <Section id="appearance" title="Appearance" detail="Stored on this device.">
       <Segment
