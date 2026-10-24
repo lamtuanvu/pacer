@@ -105,6 +105,24 @@ function lifecycleCases(rust: boolean): ConformanceCase[] {
 }
 
 export const CASES: ConformanceCase[] = [
+  {
+ name: 'bundled usage discovery refuses an installed canonical-id shadow',
+ async run(t) {
+  t.install('shadow');
+  const h = await t.host();
+  const listed = await h.call<{plugins:{id:string;bundled:boolean;version:string;state:string;contributes:string[];pid:number|null}[]}>('plugin.list');
+  const matches=listed.plugins.filter(p=>p.id==='pacer-usage');
+  assert(matches.length===1,'one canonical usage id is public');
+  const entry=matches[0]!;
+  assert(entry.bundled && entry.version!=='9.9.9' && entry.state!=='refused','installed shadow cannot replace or refuse the bundle');
+  assert(entry.contributes.includes('usage') && entry.pid===null,'usage is discovered without starting the lazy child');
+  assert(!listed.plugins.some(p=>p.id.includes('pacer-usage@')),'no synthetic installed alias');
+  const {reports}=await h.call<{reports:{id:string;ok:boolean;served:string[]}[]}>('plugin.doctor',{id:'pacer-usage'});
+  assert(reports.length===1 && reports[0]!.ok && reports[0]!.served.includes('usage'),'the actual bundled usage child remains healthy');
+  const log=readFileSync(join(t.home,'.pacer','logs','plugins','pacer-usage.log'),'utf8');
+  assert(log.includes('[refused] installed folder shadows the bundled plugin pacer-usage'),'canonical installed folder refusal is logged');
+ }
+},
   { name: "discovery and listing", async run(t) {
     for (const f of ["good", "old-protocol", "bad-manifest", "mismatch"] as const) t.install(f);
     const h = await t.host(), by = await listed(h);
