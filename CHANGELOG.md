@@ -8,6 +8,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 - Remove compounded spacing in app sections, cards, settings and embedded page headers; keep task disclosures evenly spaced and compact while preserving touch targets. Add shared spacing ownership checks and browser geometry regressions.
 
+### Changed
+
+- Add a read-only `ui:ready` preflight for PR evidence and make skipped local evidence checks explicit; centralize the agent readiness procedure in the UI rules.
+
 ## [0.9.0] - 2026-10-23
 
 ### Fixed
