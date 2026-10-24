@@ -4,6 +4,7 @@ import { z } from "zod";
 import { ApiError } from "../../src/api/client-types";
 import { sameProcess, type ProcessIdentity } from "../../src/update/desktop/process-identity";
 import { FIXTURE_UPDATE_OPS, type OtaExercise, type OtaRuntime } from "./ota-exercise-record";
+import { emitOtaRequestTrace, type OtaTraceSink, type OtaTraceStage } from "./ota-request-trace";
 const base = z.object({ installationId: z.string().regex(/^[a-f0-9]{64}$/), requestId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/), expectRevision: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER) }).strict();
 /** A confirmed CAS rejection did not mutate state. Lost/uncertain responses never retry. */
 export async function retryFixtureRevision(attempt: () => Promise<void>, rejected: () => void, restartSession?: () => Promise<void>, awaitAdoptionOffer?: () => Promise<void>): Promise<void> {
@@ -41,23 +42,55 @@ export function permitsFixtureRequest(state: { exercise: OtaExercise | null; run
 }
 
 /** Proxy gate: a recorded request is necessary, and native ownership is re-proven. */
-export async function authorizeFixtureRequest(session: import("./core").Session, request: Request): Promise<boolean> {
+export async function authorizeFixtureRequest(session: import("./core").Session, request: Request, trace?: OtaTraceSink): Promise<boolean> {
+  let stage: OtaTraceStage = "initial-policy";
+  const emit = (outcome: "start" | "pass" | "refused" | "error") => emitOtaRequestTrace(trace, { stage, outcome });
   try {
     const url = new URL(request.url);
-    if (request.method !== "POST" || !FIXTURE_UPDATE_OPS.some(op => url.pathname === `/v3/ops/${op}`) || url.search) return false;
-    const reader = request.clone().body?.getReader(); if (!reader) return false;
-    const chunks: Uint8Array[] = []; let size = 0;
+    if (request.method !== "POST" || !FIXTURE_UPDATE_OPS.some(op => url.pathname === `/v3/ops/${op}`) || url.search) {
+      emit("refused");
+      return false;
+    }
+    stage = "body";
+    emit("start");
+    const reader = request.clone().body?.getReader();
+    if (!reader) { emit("refused"); return false; }
+    const chunks: Uint8Array[] = [];
+    let size = 0;
     try {
-      while (true) { const part = await reader.read(); if (part.done) break; size += part.value.length; if (size > 4096) return false; chunks.push(part.value); }
+      while (true) {
+        const part = await reader.read();
+        if (part.done) break;
+        size += part.value.length;
+        if (size > 4096) { emit("refused"); return false; }
+        chunks.push(part.value);
+      }
     } finally { await reader.cancel(); }
     const params = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    emit("pass");
+    stage = "initial-policy";
+    emit("start");
     const { dirname } = await import("node:path"), { readOtaRecord } = await import("./ota"), { processIdentity } = await import("../../src/update/desktop/process-identity");
     const options = { base: dirname(session.root) }, state = readOtaRecord(session.id, options);
-    if (state.phase !== "prepared" || !state.nativeFixture || !permitsFixtureRequest(state, request.method, url.pathname, params, state.runtime ? processIdentity(state.runtime.driver.pid) : null)) return false;
+    if (state.phase !== "prepared" || !state.nativeFixture || !permitsFixtureRequest(state, request.method, url.pathname, params, state.runtime ? processIdentity(state.runtime.driver.pid) : null)) {
+      emit("refused");
+      return false;
+    }
+    emit("pass");
+    stage = "native-ownership";
+    emit("start");
     const { inspectFixtureJobs, fixtureInstallation } = await import("./ota-native");
     const installation = fixtureInstallation(state, await inspectFixtureJobs(state), state.nativeFixture.baselineVersion);
-    if (installation.id !== state.exercise?.installationId) return false;
+    if (installation.id !== state.exercise?.installationId) { emit("refused"); return false; }
+    emit("pass");
+    stage = "final-policy";
+    emit("start");
     const latest = readOtaRecord(session.id, options);
-    return permitsFixtureRequest(latest, request.method, url.pathname, params, latest.runtime ? processIdentity(latest.runtime.driver.pid) : null);
-  } catch { return false; }
+    const permitted = permitsFixtureRequest(latest, request.method, url.pathname, params, latest.runtime ? processIdentity(latest.runtime.driver.pid) : null);
+    emit(permitted ? "pass" : "refused");
+    return permitted;
+  } catch {
+    emit("error");
+    return false;
+  }
 }

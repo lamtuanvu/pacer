@@ -66,3 +66,33 @@ test("proxy fixture gate refuses missing leases and unsupported writes before na
     expect(await authorizeFixtureRequest(session, new Request(`http://127.0.0.1:49900/v3/ops/${op}`, { method: "POST", body: JSON.stringify(fixture().params) }))).toBe(false);
   }
 });
+
+test("authorization traces body and policy refusals and isolates throwing sinks", async () => {
+  const { authorizeFixtureRequest } = await import("../scripts/live/ota-request");
+  const session = { id: "absent", root: "/missing-fixture", pid: 42, port: 49900, createdAt: "now" };
+  const cases = [
+    [undefined, [["body", "start"], ["body", "refused"]]],
+    ["{secret-invalid", [["body", "start"], ["body", "error"]]],
+    ["x".repeat(4097), [["body", "start"], ["body", "refused"]]],
+    ["{}", [["body", "start"], ["body", "pass"], ["initial-policy", "start"], ["initial-policy", "error"]]],
+  ] as const;
+  for (const [body, expected] of cases) {
+    const request = () => new Request("http://127.0.0.1:49900/v3/ops/desktop.update.check", { method: "POST", body });
+    const events: { stage: string; outcome: string }[] = [];
+    expect(await authorizeFixtureRequest(session, request(), event => { events.push(event); })).toBe(false);
+    expect(events.map(event => [event.stage, event.outcome])).toEqual(expected.map(pair => [...pair]));
+    expect(await authorizeFixtureRequest(session, request(), () => { throw Error("secret sink failure"); })).toBe(false);
+    expect(await authorizeFixtureRequest(session, request(), async () => { throw Error("secret async sink failure"); })).toBe(false);
+    expect(await authorizeFixtureRequest(session, request())).toBe(false);
+  }
+});
+
+test("unsupported request route reports only fixed policy refusal", async () => {
+  const { authorizeFixtureRequest } = await import("../scripts/live/ota-request");
+  const session = { id: "absent", root: "/missing-fixture", pid: 42, port: 49900, createdAt: "now" };
+  for (const suffix of ["service.install", "desktop.update.check?secret=query"]) {
+    const events: unknown[] = [];
+    expect(await authorizeFixtureRequest(session, new Request(`http://127.0.0.1:49900/v3/ops/${suffix}`, { method: "POST", body: "{}" }), event => { events.push(event); })).toBe(false);
+    expect(events).toEqual([{ stage: "initial-policy", outcome: "refused" }]);
+  }
+});
