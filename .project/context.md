@@ -60,6 +60,8 @@ requires independent scoped review, fixes and final-content re-review. The revie
 index selects specialist criteria; it does not waive the general review gate.
 Recommendations and merge approval remain distinct from required evidence.
 
+CI job selection: [docs/testing/ci-selection.md](../docs/testing/ci-selection.md), amendment 0.11.0 (pending maintainer merge). Local validation rules remain applicable.
+
 ## Commands
 
 These come from the configuration listed in Source. None were run while this index was written.
