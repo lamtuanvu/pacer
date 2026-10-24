@@ -20,4 +20,4 @@ Canonical sources: `tsconfig.json`, `app/tsconfig.json`, `package.json`, `bunfig
 | CT-10 | Retired (0.5.0). Was: the real-Orca plugin e2e runs before plugin releases. The Orca plugin is removed. | Retired (0.5.0) | ADR retire-orca-plugin | — |
 
 Relevant reviewers: [qa](../reviewers/qa.md)
-Exceptions and open decisions: CT-7 (density) and CT-9. CT-11 states the done criterion. The proposed constitution 0.4.0 amendment makes required UI/QA evidence, including applicable CT-11 reports, a pre-merge requirement for UI-affecting changes; other reviewer gates remain OD-6.
+Exceptions and open decisions: CT-7 (density) and CT-9. CT-11 states the done criterion. Adopted constitution amendment 0.4.0 makes required UI/QA evidence, including applicable CT-11 reports, a pre-merge requirement for UI-affecting changes; other reviewer gates remain OD-6.

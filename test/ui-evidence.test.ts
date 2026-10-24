@@ -191,6 +191,10 @@ describe("UI PR evidence manifest", () => {
         expect(result.stderr.toString()).toContain("invalid base/head SHA");
       }
       expect(run(["--evidence-only"], "").exitCode).toBe(1);
+      const local = run([], "");
+      expect(local.exitCode).toBe(0);
+      expect(local.stdout.toString()).toContain("UI PR evidence: NOT CHECKED");
+      expect(local.stdout.toString()).toContain("ui:ready");
       expect(run(["--source-onyl"]).exitCode).not.toBe(0);
     } finally { rmSync(directory, { recursive: true, force: true }); }
   });

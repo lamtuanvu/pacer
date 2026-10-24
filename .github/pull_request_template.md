@@ -16,6 +16,8 @@ Summarize independent project review (REPO-10): reviewed revision and any workin
 
 ## UI evidence
 
+Follow the canonical [UI review readiness procedure](../.project/rules/ui.md#ui-review-readiness-procedure), including local preflight and confirmation of current-revision CI.
+
 For UI-affecting changes, attach accessible implementer compliance, independent UI/accessibility and independent QA reports. Each report names reviewed base/head, governance version, scope/rule IDs, actual checks/evidence, findings with severity/remedy and PASS/FAIL/UNVERIFIED surfaces. Include UI-18 before/after screenshots (1440 light/dark, 375 when layout changes, tray 340 when affected), keyboard/focus, contrast/reduced-motion and applicable CT-11 evidence. Update the component catalog/provenance when shared APIs change.
 
 CI requires the following JSON manifest for UI changes. Replace the SHA and report placeholders after review; update the PR body when new commits require review. Drafts may honestly report FAIL or UNVERIFIED, but still require current SHAs, actual summaries and concrete HTTPS report/comment URLs or `artifact://artifact-name/report-path` references. All three verdicts must be PASS when ready for review; CI reruns on draft transitions. Passing draft CI is not completion or merge approval. A checkbox or local `.work/` path alone is insufficient. Metadata validation does not prove the reports: the maintainer inspects actual evidence and retains merge/exception authority. Non-UI PRs may remove this section.

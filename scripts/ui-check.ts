@@ -406,5 +406,6 @@ if (import.meta.main) {
   const evidenceViolations = !sourceOnly && eventPath ? checkUiPullRequest(eventPath) : [];
   for (const violation of evidenceViolations) console.error(`[${violation.rule}] ${violation.message}`);
   if (!sourceOnly && eventPath) console.log(`UI PR evidence check: ${evidenceViolations.length} violation(s). Metadata requires human review of the linked reports.`);
+  if (!sourceOnly && !eventPath) console.log("UI PR evidence: NOT CHECKED. Run bun run ui:ready --pr <number> --ready; see .project/rules/ui.md#ui-review-readiness-procedure.");
   process.exitCode = violations.length || evidenceViolations.length ? 1 : 0;
 }

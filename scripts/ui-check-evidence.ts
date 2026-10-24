@@ -64,6 +64,11 @@ export function versionOnlyUiChange(files: string[], base: string, head: string,
 /** Read GitHub's event file; validate SHAs before passing them as argv, never shell text. */
 export function checkUiPullRequest(eventPath: string, root = process.cwd()): UiEvidenceViolation[] {
   const event: unknown = JSON.parse(readFileSync(eventPath, "utf8"));
+  return checkUiPullRequestEvent(event, root);
+}
+
+/** Shared by CI's event-file entry point and the read-only local preflight. */
+export function checkUiPullRequestEvent(event: unknown, root = process.cwd()): UiEvidenceViolation[] {
   if (!record(event) || !record(event.pull_request)) return [];
   const pr = event.pull_request;
   const base = record(pr.base) ? pr.base.sha : undefined;

@@ -4,7 +4,7 @@ Role: Keep the web, tray, TUI and desktop surfaces consistent, accessible and wi
 Human owner/approver: @lamtuanvu
 Applies when: `app/**`, `src/dashboard/**`, `src/render/**`, `src/view-model/**` or `desktop/**` changes.
 Excludes: CLI `--json` output and brand artwork in `design/`.
-Review requirement: Required report for UI-affecting changes under proposed amendment 0.4.0 (adopted by maintainer merge); findings are not merge approvals.
+Review requirement: Required report for UI-affecting changes under amendment 0.4.0 (adopted by merging #193); findings are not merge approvals.
 
 ## Context
 
@@ -32,6 +32,6 @@ Report:
 - Findings, each with its rule ID or source, location, impact, severity and remedy.
 - Any check you could not verify.
 
-Distinguish established violations, amendment-proposed rules and advisory recommendations. After adoption of amendment 0.4.0, this report is mandatory evidence for UI-affecting changes, not permission to merge. Missing required evidence is UNVERIFIED and required FAIL/UNVERIFIED work remains outstanding. The maintainer alone grants recorded exceptions and merge approval.
+Distinguish established violations, amendment-proposed rules and advisory recommendations. Under adopted amendment 0.4.0, this report is mandatory evidence for UI-affecting changes, not permission to merge. Missing required evidence is UNVERIFIED and required FAIL/UNVERIFIED work remains outstanding. The maintainer alone grants recorded exceptions and merge approval.
 
 Analyze and report without editing source or changing policy. Return findings to the caller or to the requested path under `.work/reviews/`. Approval belongs to the maintainer.

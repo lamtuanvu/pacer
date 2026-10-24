@@ -39,6 +39,10 @@ exceptions, and PASS/FAIL/UNVERIFIED verdict. Missing evidence is never PASS.
 
 ## Resolve and verify
 
+For UI-affecting work, follow the canonical
+[UI review readiness procedure](../../../.project/rules/ui.md#ui-review-readiness-procedure)
+before PR handoff, draft transitions or completion claims.
+
 The implementer fixes confirmed blocking findings, reruns affected checks and
 applicable CT-11 live validation, and obtains independent review of the fixes.
 A disputed finding needs evidence and reviewer reassessment; do not silently drop

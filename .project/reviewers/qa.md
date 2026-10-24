@@ -4,7 +4,7 @@ Role: Confirm that behavior changes are covered by tests that would fail without
 Human owner/approver: @lamtuanvu
 Applies when: any behavior change in `src/`, `app/`, `scripts/` or `desktop/`.
 Excludes: docs-only changes and pure renames already covered by typecheck.
-Review requirement: Required report for UI-affecting changes under proposed amendment 0.4.0 (adopted by maintainer merge); findings are not merge approvals. CI (`ci.yml`) is the enforced check.
+Review requirement: Required report for UI-affecting changes under amendment 0.4.0 (adopted by merging #193); findings are not merge approvals. CI (`ci.yml`) is the enforced check.
 
 ## Context
 
@@ -30,6 +30,6 @@ Report:
 - Findings, each with its rule ID or source, location, impact, severity and remedy.
 - Any check you could not verify.
 
-Distinguish established violations, amendment-proposed rules and advisory recommendations. After adoption of amendment 0.4.0, this report is mandatory evidence for UI-affecting changes, not permission to merge. Missing required evidence is UNVERIFIED and required FAIL/UNVERIFIED work remains outstanding. The maintainer alone grants recorded exceptions and merge approval.
+Distinguish established violations, amendment-proposed rules and advisory recommendations. Under adopted amendment 0.4.0, this report is mandatory evidence for UI-affecting changes, not permission to merge. Missing required evidence is UNVERIFIED and required FAIL/UNVERIFIED work remains outstanding. The maintainer alone grants recorded exceptions and merge approval.
 
 Analyze and report without editing source or changing policy. Return findings to the caller or to the requested path under `.work/reviews/`. Approval belongs to the maintainer.
