@@ -1,30 +1,15 @@
+import { readPluginUsage } from "../plugins/usage-broker";
 import { accountEvidenceScope } from "../evidence/scope";
 import { statusTimer } from "./trace";
 import type { AccountCfg, RunnerCfg } from "../config/accounts";
 import type { ProviderCfg } from "../config/strategy";
 import type { Ctx, UsageReading } from "../types";
-import { readByteplus } from "./byteplus";
-import { readClaude } from "./claude";
-import { readCodex } from "./codex";
-import { readMetered } from "./metered";
 import { limitWindow } from "./reactive";
 import { recordAuthReading } from "./auth";
 import { cachedRemoteUsage } from "../remote/usage";
 
 async function base(ctx: Ctx, cfg: ProviderCfg, account?: AccountCfg, refresh = false): Promise<UsageReading> {
-  switch (cfg.usage) {
-    case "quota":
-      if (cfg.id === "claude-code") return readClaude(ctx, account);
-      if (cfg.id === "codex") return readCodex(ctx, account);
-      if (cfg.quotaSource === "arkcli") return readByteplus(ctx, refresh);
-      return { windows: [], capturedAt: null, stale: false, error: `no quota source for ${cfg.id}` };
-    case "metered":
-      return readMetered(ctx, cfg, refresh);
-    case "reactive":
-      return { windows: [{ name: "limit", usedPct: 0, resetsAt: null, lengthS: 0, paced: false }], capturedAt: ctx.now, stale: false, source: "reactive" };
-    case "unmetered":
-      return { windows: [], capturedAt: ctx.now, stale: false, source: "unmetered" };
-  }
+  return readPluginUsage(ctx, cfg, account, refresh);
 }
 
 const sources = new Map<string, {at:number; value?:UsageReading; pending?:Promise<UsageReading>}>();

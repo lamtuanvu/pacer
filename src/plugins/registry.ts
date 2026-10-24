@@ -52,6 +52,7 @@ export class PluginRegistry {
   private setState(ctx: Ctx, e: Entry, state: PluginState, error: string | null = null): void {
     if (e.state === state && e.error === error) return;
     e.state = state; e.error = error;
+    if (ctx.readOnly) return; // Passive usage must not create durable plugin event storage.
     this.published = this.published.then(() => publish(ctx, [{ type: "entity", data: { kind: "plugin", id: e.id, value: { id: e.id, state, error } } }])).catch(() => {});
     if (state === "failing") appendActivity(ctx, { kind: "plugin_state", level: "warn", text: `Plugin ${e.id} is failing · ${error ?? "unknown error"}` });
   }
@@ -144,11 +145,11 @@ export class PluginRegistry {
       const manifest = e.manifest!;
       const proc = new PluginProcess(this.spec(ctx, e), {
         spawn: this.deps.spawn,
-        onRequest: (m, p, metadata) => {
+        onRequest: (m, p, metadata, deliver) => {
           const parsed = callMetadata.safeParse(metadata);
           const token = parsed.success ? parsed.data?.capabilityCall : undefined;
           const authority = token && e.process === proc ? e.authorities.get(token) : undefined;
-          return answerCapability(authority?.ctx ?? ctx, { id: e.id, manifest }, m, p, authority);
+          return answerCapability(authority?.ctx ?? ctx, { id: e.id, manifest }, m, p, authority, deliver);
         },
         onStderr: line => appendPluginLog(ctx, e.id, "stderr", line),
         onExit: info => this.onExit(ctx, e, proc, info),
@@ -156,12 +157,13 @@ export class PluginRegistry {
       e.process = proc;
       const grants = e.bundled ? manifest.capabilities.map(c => c.name) : (pluginsConfig(ctx).installed[e.id]?.capabilities ?? []);
       try {
-        const raw = await proc.request(HELLO_METHOD, { protocol: PLUGIN_PROTOCOL_VERSION, pacer: currentVersion(), manifest, config: pluginsConfig(ctx).config[e.id] ?? {}, grants }, Math.min(HELLO_DEADLINE_MS, Math.max(1, deadlineAt - Date.now())), { signal });
+        const raw = await proc.request(HELLO_METHOD, { protocol: PLUGIN_PROTOCOL_VERSION, features: ["chunkedResults"], pacer: currentVersion(), manifest, config: pluginsConfig(ctx).config[e.id] ?? {}, grants }, Math.min(HELLO_DEADLINE_MS, Math.max(1, deadlineAt - Date.now())), { signal });
         const hello = helloResult.safeParse(raw);
         if (!hello.success) throw new CoreError("plugin_refused", `handshake reply is malformed: ${hello.error.issues[0]?.message ?? "unknown"}`);
         const major = Number(hello.data.protocol.split(".")[0]);
         if (major !== PLUGIN_PROTOCOL_MAJOR) throw new CoreError("plugin_refused", `plugin speaks protocol ${hello.data.protocol}; this pacer serves ${PLUGIN_PROTOCOL_VERSION}`);
         if (hello.data.id !== manifest.id || hello.data.version !== manifest.version) throw new CoreError("plugin_refused", `handshake identity ${hello.data.id}@${hello.data.version} does not match the manifest ${manifest.id}@${manifest.version}`);
+        proc.setFeatures(major === 1 && Number(hello.data.protocol.split(".")[1]) >= 1 ? hello.data.features ?? [] : []);
         e.pluginProtocol = hello.data.protocol;
         e.served = ["diagnostic", ...hello.data.contributes.filter(p => p !== "diagnostic" && Object.hasOwn(manifest.contributes, p))];
         this.setState(ctx, e, "ready");
@@ -235,7 +237,7 @@ export class PluginRegistry {
             authority.assertActive();
           }
           const result = await proc.request<T>(method, input, deadlineAt === Infinity ? 0 : Math.max(1, deadlineAt - Date.now()),
-            { signal, metadata: authority ? { capabilityCall: authority.token } : undefined, onProgress: options.onProgress });
+            { signal: authority?.signal ?? signal, authority, metadata: authority ? { capabilityCall: authority.token } : undefined, onProgress: options.onProgress });
           if (method === "usage.read") {
             const output = def.result.safeParse(result);
             if (!output.success) throw new CoreError("plugin_refused", "usage reader returned an invalid reading");

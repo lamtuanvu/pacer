@@ -10,6 +10,8 @@ The host sends `plugin.hello` first and refuses a plugin whose reply has a diffe
 
 Protocol 1.1 adds optional top-level `_meta: { capabilityCall }` correlation on host extension requests and their capability calls. Legacy peers may omit metadata; uncorrelated calls never gain new account-scoped authority. Tokens are bounded opaque call identifiers and expire with their owning request.
 
+Peers explicitly negotiate `chunkedResults` in hello features. For a large usage result, the plugin sends sequential `$/resultChunk` requests containing the original numeric request id, contiguous byte offset and at most 256 KiB of base64 JSON bytes, with the original call metadata. It waits for each `{ bytes }` acknowledgement, then replies to the original request with `{ _chunkedResult: { bytes } }`. The host resolves only after exact-length complete JSON assembly under the original authority/deadline. Legacy peers keep ordinary replies; chunks never renew authority.
+
 SDKs: `@pacer/plugin` (TypeScript) and `pacer-plugin` (Rust).
 
 ## Manifest
@@ -449,6 +451,91 @@ Result:
     "id",
     "version",
     "contributes"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `$/resultChunk`
+
+Negotiated plugin → host result transfer for an active usage request; not an independent capability.
+
+Params:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "request": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "offset": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "base64": {
+      "type": "string",
+      "maxLength": 349528,
+      "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+    }
+  },
+  "required": [
+    "request",
+    "offset",
+    "base64"
+  ],
+  "additionalProperties": false
+}
+```
+
+Result:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "bytes": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "bytes"
+  ],
+  "additionalProperties": false
+}
+```
+
+Large-result completion envelope:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "_chunkedResult": {
+      "type": "object",
+      "properties": {
+        "bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "bytes"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "_chunkedResult"
   ],
   "additionalProperties": false
 }
@@ -1470,7 +1557,7 @@ Answered only when the manifest declares the capability and, for installed plugi
 
 ### `capability.fs.read`
 
-Read an authorized regular telemetry file, at most 4 MiB; large encoded replies use pinned ranged metadata.
+Read an authorized regular telemetry file; large encoded replies use pinned ranged metadata.
 
 Params:
 

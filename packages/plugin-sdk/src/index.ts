@@ -6,7 +6,7 @@ export interface PluginManifest {
   capabilities?: { name: string; scopes?: string[] }[];
   entry?: string; reentrant?: boolean; tier?: "free" | "commercial";
 }
-export interface Hello { protocol: string; pacer: string; manifest: PluginManifest; config: Record<string, unknown>; grants: string[] }
+export interface Hello { features?: string[]; protocol: string; pacer: string; manifest: PluginManifest; config: Record<string, unknown>; grants: string[] }
 export interface HostClient {
   call<T = unknown>(method: string, params?: unknown): Promise<T>;
   log(level: "debug" | "info" | "warn" | "error", message: string): Promise<void>;
@@ -96,14 +96,35 @@ export async function serve(o: ServeOptions): Promise<void> {
       if (id === undefined || id === null) return;
       if (r.method === HELLO) {
         hello = r.params as Hello; startedAt = now();
-        send({ id, result: { protocol: PROTOCOL, id: o.manifest.id, version: o.manifest.version, contributes: o.contributes ?? Object.keys(o.manifest.contributes ?? {}) } });
+        const features = hello.protocol.startsWith("1.") && Number(hello.protocol.split(".")[1]) >= 1 && Array.isArray(hello.features)
+          && hello.features.includes("chunkedResults") ? ["chunkedResults"] : [];
+        send({ id, result: { protocol: PROTOCOL, id: o.manifest.id, version: o.manifest.version, contributes: o.contributes ?? Object.keys(o.manifest.contributes ?? {}), ...(features.length ? { features } : {}) } });
         return;
       }
       if (!hello) { send({ id, error: { code: -32000, message: "plugin.hello must come first", data: { code: "plugin_refused" } } }); return; }
       const handler = o.handlers?.[r.method] ?? builtin[r.method];
       if (!handler) { send({ id, error: { code: -32601, message: `unknown method ${r.method}`, data: { code: "unknown_op" } } }); return; }
       const controller = new AbortController(); inflight.set(id, controller);
-      try { send({ id, result: await handler(r.params ?? {}, hostFor(r._meta, controller.signal), controller.signal) }); }
+      try {
+        const host = hostFor(r._meta, controller.signal);
+        const result = await handler(r.params ?? {}, host, controller.signal);
+        const scoped = r.method === "usage.read" || !!(r._meta && typeof r._meta === "object"
+          && typeof (r._meta as Json).capabilityCall === "string");
+        if (scoped && controller.signal.aborted) throw new PluginError("plugin_unavailable", "owning plugin call ended");
+        const chunked = r.method === "usage.read" && typeof id === "number" && hello.protocol.startsWith("1.")
+          && Number(hello.protocol.split(".")[1]) >= 1 && Array.isArray(hello.features) && hello.features.includes("chunkedResults");
+        const bytes = chunked ? Buffer.from(JSON.stringify(result)) : undefined;
+        if (bytes && bytes.length > 768 * 1024) {
+          for (let offset = 0; offset < bytes.length; offset += 262144) {
+            if (controller.signal.aborted) throw new PluginError("plugin_unavailable", "owning plugin call ended");
+            const part = bytes.subarray(offset, offset + 262144);
+            const ack = await host.call<{ bytes: number }>("$/resultChunk", { request: id, offset, base64: part.toString("base64") });
+            if (ack.bytes !== offset + part.length) throw new PluginError("plugin_refused", "incomplete result chunk acknowledgement");
+          }
+          if (controller.signal.aborted) throw new PluginError("plugin_unavailable", "owning plugin call ended");
+          send({ id, result: { _chunkedResult: { bytes: bytes.length } } });
+        } else send({ id, result });
+      }
       catch (e) { send({ id, error: errorBody(e) }); }
       finally { inflight.delete(id); controller.abort(); }
       return;

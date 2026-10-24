@@ -80,3 +80,21 @@ test("a plugin cannot suppress provider cleanup uncertainty into successful usag
     ] } })).rejects.toThrow("cleanup unverified");
   } finally { await registry.shutdown(); }
 });
+
+test("a caught capability method timeout cancels the parent call and waits for its owned child", async () => {
+  const child = Bun.spawn([process.execPath, join(import.meta.dir, "fixtures/sp02-rpc/capability-budget.ts")], { stdout: "pipe", stderr: "pipe" });
+  const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+  expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });
+  const result = JSON.parse(stdout);
+  expect(result.code).toBe("plugin_timeout"); expect(result.elapsed).toBeLessThan(1000); expect(result.alive).toBe(false);
+});
+
+
+test("a shorter capability deadline includes reply serialization and cannot be caught into success", async () => {
+  const child = Bun.spawn([process.execPath, join(import.meta.dir, "fixtures/sp02-rpc/method-serialization.ts")], { stdout: "pipe", stderr: "pipe" });
+  const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+  expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });
+  const result = JSON.parse(stdout);
+  expect(result.delayed).toBe(true);
+  expect(result.output).toMatchObject({ accepted: false, code: "plugin_timeout" });
+});

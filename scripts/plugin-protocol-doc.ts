@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import { bundleDefs } from "./schema-bundle";
-import { CANCEL_METHOD, CAPABILITIES, CAPABILITY_METHODS, EXTENSION_METHODS, EXTENSION_POINTS, HELLO_METHOD, PLUGIN_PROTOCOL_VERSION, PLUGIN_STATES, helloParams, helloResult, manifestSchema, callMetadata } from "../src/plugins/protocol";
+import { CANCEL_METHOD, CAPABILITIES, CAPABILITY_METHODS, EXTENSION_METHODS, EXTENSION_POINTS, HELLO_METHOD, PLUGIN_PROTOCOL_VERSION, PLUGIN_STATES, helloParams, helloResult, manifestSchema, callMetadata, RESULT_CHUNK_METHOD, resultChunkParams, resultChunkAck, chunkedResult } from "../src/plugins/protocol";
 
 const json = (s: z.ZodTypeAny) => JSON.stringify(z.toJSONSchema(s), null, 2);
 const section = (name: string, description: string, params: z.ZodTypeAny, result: z.ZodTypeAny, deadline?: number) => [
@@ -18,6 +18,7 @@ export function renderPluginProtocolDoc(): string {
     "A plugin is a subprocess the host starts lazily. Both sides speak newline-delimited JSON-RPC 2.0 on the plugin's stdin and stdout (one object per line, 1 MiB cap). stderr is captured to `$PACER_HOME/logs/plugins/<id>.log`. Both sides send requests, so each side matches replies by id. Additive changes do not bump the version; removals bump the major, and the host serves the previous major for one pacer minor release.", "",
     `The host sends \`${HELLO_METHOD}\` first and refuses a plugin whose reply has a different protocol major, or an id or version that differs from its manifest. Every call carries a deadline owned by the host; on expiry it sends the notification \`${CANCEL_METHOD}\` with \`{ id }\`, fails the call with \`plugin_timeout\` and drops any later reply.`, "",
     "Protocol 1.1 adds optional top-level `_meta: { capabilityCall }` correlation on host extension requests and their capability calls. Legacy peers may omit metadata; uncorrelated calls never gain new account-scoped authority. Tokens are bounded opaque call identifiers and expire with their owning request.", "",
+    "Peers explicitly negotiate `chunkedResults` in hello features. For a large usage result, the plugin sends sequential `$/resultChunk` requests containing the original numeric request id, contiguous byte offset and at most 256 KiB of base64 JSON bytes, with the original call metadata. It waits for each `{ bytes }` acknowledgement, then replies to the original request with `{ _chunkedResult: { bytes } }`. The host resolves only after exact-length complete JSON assembly under the original authority/deadline. Legacy peers keep ordinary replies; chunks never renew authority.", "",
     "SDKs: `@pacer/plugin` (TypeScript) and `pacer-plugin` (Rust).", "",
     "## Manifest", "",
     "`pacer-plugin.json` in the plugin folder. Installed plugins live under `$PACER_HOME/plugins/<id>/`; the folder name must equal `id`.", "",
@@ -35,6 +36,8 @@ export function renderPluginProtocolDoc(): string {
     "Plugin replies use JSON-RPC errors `{ code: -32000, message, data: { code, hint? } }`; a `data.code` the host knows is passed through, anything else becomes `plugin_unavailable`.", "",
     "## Handshake", "",
     ...section(HELLO_METHOD, "Host → plugin, first message.", helloParams, helloResult, 10000),
+    ...section(RESULT_CHUNK_METHOD, "Negotiated plugin → host result transfer for an active usage request; not an independent capability.", resultChunkParams, resultChunkAck),
+    "Large-result completion envelope:", "", "```json", json(chunkedResult), "```", "",
     "## Extension points (host → plugin)", "",
     ...Object.entries(EXTENSION_METHODS).flatMap(([name, d]) => section(name, d.description, d.params, d.result, d.deadlineMs)),
     "## Capabilities (plugin → host)", "",
@@ -44,7 +47,7 @@ export function renderPluginProtocolDoc(): string {
 }
 
 export function pluginProtocolSchema(): unknown {
-  const defs: Record<string, unknown> = { callMetadata: z.toJSONSchema(callMetadata.unwrap()), manifest: z.toJSONSchema(manifestSchema), helloParams: z.toJSONSchema(helloParams), helloResult: z.toJSONSchema(helloResult) };
+  const defs: Record<string, unknown> = { resultChunkParams: z.toJSONSchema(resultChunkParams), resultChunkAck: z.toJSONSchema(resultChunkAck), chunkedResult: z.toJSONSchema(chunkedResult), callMetadata: z.toJSONSchema(callMetadata.unwrap()), manifest: z.toJSONSchema(manifestSchema), helloParams: z.toJSONSchema(helloParams), helloResult: z.toJSONSchema(helloResult) };
   for (const [name, d] of [...Object.entries(EXTENSION_METHODS), ...Object.entries(CAPABILITY_METHODS)]) { defs[`${name}.params`] = z.toJSONSchema(d.params); defs[`${name}.result`] = z.toJSONSchema(d.result); }
   return { $schema: "https://json-schema.org/draft/2020-12/schema", title: `pacer plugin protocol ${PLUGIN_PROTOCOL_VERSION}`, version: PLUGIN_PROTOCOL_VERSION, $defs: bundleDefs(defs) };
 }

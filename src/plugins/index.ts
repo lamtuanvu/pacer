@@ -13,7 +13,7 @@ export function pluginRegistry(ctx: Ctx): PluginRegistry {
     r = new PluginRegistry({ bundled: BUNDLED, spawnBundled: (c, id) => {
       const argv = !c.env.PACER_BIN && /(^|\/)bun(?:\.exe)?$/.test(process.execPath)
         ? [process.execPath, fileURLToPath(new URL("../cli.ts", import.meta.url))] : pacerArgv(c.env);
-      return {argv: [...argv, "plugin", "run", id], cwd: c.pacerHome, env: {}};
+      return {argv: [...argv, "plugin", "run", id], cwd: c.home, env: {}};
     } });
     registries.set(ctx.pacerHome, r);
   }

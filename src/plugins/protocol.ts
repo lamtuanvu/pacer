@@ -33,6 +33,14 @@ export type PluginManifest = z.infer<typeof manifestSchema>;
 export const HELLO_METHOD = "plugin.hello";
 export const CANCEL_METHOD = "$/cancel";
 
+/** Negotiated transport, never a grant: each chunk belongs to an existing usage request. */
+export const RESULT_CHUNK_METHOD = "$/resultChunk";
+export const RESULT_CHUNK_FEATURE = "chunkedResults";
+export const resultChunkParams = z.object({ request: z.number().int().positive().safe(), offset: z.number().int().nonnegative().safe(),
+  base64: z.string().max(349528).regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/) }).strict();
+export const resultChunkAck = z.object({ bytes: z.number().int().nonnegative().safe() }).strict();
+export const chunkedResult = z.object({ _chunkedResult: z.object({ bytes: z.number().int().nonnegative().safe() }).strict() }).strict();
+
 export const helloParams = z.object({
   protocol: z.string(), pacer: z.string(), manifest: manifestSchema, features: z.array(z.string().min(1).max(64)).max(16).optional(),
   config: z.record(z.string(), z.json()), grants: z.array(z.enum(CAPABILITIES)),

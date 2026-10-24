@@ -18,7 +18,7 @@ export function appendPluginLog(ctx: Pick<Ctx, "pacerHome">, id: string, tag: st
 }
 
 /** Answer a plugin's capability call. Undeclared or unimplemented capabilities are refused without side effects. */
-export async function answerCapability(ctx: Ctx, plugin: { id: string; manifest: PluginManifest }, method: string, params: unknown, authority?: CallAuthority): Promise<unknown> {
+export async function answerCapability(ctx: Ctx, plugin: { id: string; manifest: PluginManifest }, method: string, params: unknown, authority?: CallAuthority, deliver?: (result: unknown) => void): Promise<unknown> {
   const name = capabilityOf(method), def = CAPABILITY_METHODS[method];
   if (!name) throw new CoreError("unknown_op", `unknown host method ${method}`);
   if (!plugin.manifest.capabilities.some(c => c.name === name)) throw new CoreError("capability_denied", `plugin ${plugin.id} did not declare ${name}`);
@@ -29,11 +29,26 @@ export async function answerCapability(ctx: Ctx, plugin: { id: string; manifest:
   }
   const parsed = def.params.safeParse(params ?? {});
   if (!parsed.success) throw new CoreError("invalid_input", parsed.error.issues.map(i => `${i.path.join(".") || "params"}: ${i.message}`).join("; "));
+  const scoped = (action: () => Promise<unknown>) => authority!.exclusive(async () => {
+    const deadline = def.deadlineMs === 0 ? authority!.deadlineMs : Math.min(authority!.deadlineMs, Date.now() + def.deadlineMs);
+    const failure = new CoreError("plugin_timeout", `${method} passed its capability deadline`);
+    const expire = () => { void authority!.revoke(failure).catch(() => {}); };
+    const timer = setTimeout(expire, Math.max(0, deadline - Date.now()));
+    try {
+      const result = await action();
+      if (Date.now() >= deadline) { expire(); throw failure; }
+      if (deliver) deliver(result);
+      return result;
+    } catch (error) {
+      if (authority!.signal.reason === failure) throw failure;
+      throw error;
+    } finally { clearTimeout(timer); }
+  });
   const scopes = plugin.manifest.capabilities.find(capability => capability.name === name)?.scopes ?? [];
-  if (authority && name === "fs.read") return authority.exclusive(() => answerFilesystem(authority, scopes, method, parsed.data as Record<string, unknown>));
-  if (authority && name === "process.spawn") return authority.exclusive(() => method === "capability.process.outputChunk"
+  if (authority && name === "fs.read") return scoped(() => answerFilesystem(authority, scopes, method, parsed.data as Record<string, unknown>));
+  if (authority && name === "process.spawn") return scoped(() => method === "capability.process.outputChunk"
     ? readSpawnOutput(authority, parsed.data as Record<string, unknown>) : answerSpawn(authority, scopes, parsed.data as Record<string, unknown>));
-  if (authority && name === "usage.state") return authority.exclusive(() => answerUsageState(authority,
+  if (authority && name === "usage.state") return scoped(() => answerUsageState(authority,
     method.slice("capability.usage.state.".length) as Parameters<typeof answerUsageState>[1], parsed.data as Record<string, unknown>));
   switch (name) {
     case "log": { const p = parsed.data as { level: string; message: string }; appendPluginLog(ctx, plugin.id, p.level, p.message); return { ok: true }; }

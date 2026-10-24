@@ -13,7 +13,7 @@ const method = (description: string, params: z.ZodTypeAny, result: z.ZodTypeAny,
 
 /** Wire limits bound chunks, not total compatibility state or rich-result size. */
 export const SCOPED_CAPABILITY_METHODS: Record<string, MethodDef> = {
-  "capability.fs.read": method("Read an authorized regular telemetry file, at most 4 MiB; large encoded replies use pinned ranged metadata.", z.object({ path }).strict(),
+  "capability.fs.read": method("Read an authorized regular telemetry file; large encoded replies use pinned ranged metadata.", z.object({ path }).strict(),
     z.union([z.object({ text: z.string(), mtime: z.number() }), missing, z.object({ ranged: fileInfo })])),
   "capability.fs.list": method("Exhaustively scan authorized telemetry paths and return the newest bounded metadata set; complete reports whether every match fits.",
     z.object({ dir: path, glob: z.string().min(1).max(4096), limit: z.number().int().positive().max(1000).optional() }).strict(),

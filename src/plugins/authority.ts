@@ -41,7 +41,7 @@ export class CallAuthority {
   assertActive(): void {
     if (this.signal.aborted || Date.now() >= this.deadlineMs) {
       void this.revoke().catch(() => {});
-      throw new CoreError("capability_denied", "owning plugin call expired");
+      throw this.signal.reason instanceof CoreError ? this.signal.reason : new CoreError("capability_denied", "owning plugin call expired");
     }
   }
   assertGranted(name: string): void {
@@ -67,13 +67,13 @@ export class CallAuthority {
       return result;
     } finally { this.operation = false; detach(); resolve(); }
   }
-  revoke(): Promise<void> {
+  revoke(reason?: CoreError): Promise<void> {
     if (this.settled) return this.settled;
     let resolve!: () => void, reject!: (reason: unknown) => void;
     this.settled = new Promise<void>((done, fail) => { resolve = done; reject = fail; });
     clearTimeout(this.timer); this.detach();
     // Publish the settlement promise before abort: observers may reenter revoke().
-    this.controller.abort();
+    this.controller.abort(reason ?? new CoreError("capability_denied", "owning plugin call expired"));
     const cleanup = [...this.cleanup]; this.cleanup.clear();
     void Promise.allSettled(cleanup.map(async finish => { await finish(); })).then(results => {
       const failed = results.find(result => result.status === "rejected");

@@ -24,7 +24,7 @@ test("handshake, built-in ping, handler errors and unknown methods", async () =>
   await waitFor(() => out.length >= 5);
   ch.close(); await done;
   const byId = (id: number) => out.find(o => o.id === id)!;
-  expect(byId(1)).toMatchObject({ result: { protocol: "1.0.0", id: "fx", version: "1.0.0", contributes: ["diagnostic"] } });
+  expect(byId(1)).toMatchObject({ result: { protocol: "1.1.0", id: "fx", version: "1.0.0", contributes: ["diagnostic"] } });
   expect(byId(3)).toMatchObject({ result: { ok: true } });
   expect(byId(4)).toMatchObject({ error: { code: -32000, message: "no account", data: { code: "invalid_input" } } });
   expect(byId(5)).toMatchObject({ error: { code: -32601 } });

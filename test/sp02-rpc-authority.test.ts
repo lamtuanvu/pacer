@@ -74,3 +74,24 @@ test("host RPC deadline zero is explicit no timer and caller abort ends pending 
     await expect(waiting).rejects.toMatchObject({ code: "plugin_unavailable" });
   } finally { await peer.terminate(); }
 });
+
+
+test("capability reply serialization cannot send data after its owning authority expires", async () => {
+  const { PluginProcess } = await import("../src/plugins/process");
+  const { createCallAuthority } = await import("../src/plugins/authority");
+  const { fakeCtx } = await import("./helpers");
+  const { join } = await import("node:path");
+  const { existsSync } = await import("node:fs");
+  const ctx = fakeCtx(), marker = join(ctx.home, "capability-reply-received");
+  let encoded = false;
+  const peer = new PluginProcess({ argv: [process.execPath, join(import.meta.dir, "fixtures/sp02-rpc/peer.ts")], cwd: ctx.home, env: {} }, {
+    onRequest: async () => ({ toJSON: () => { encoded = true; const end = Date.now() + 250; while (Date.now() < end) {} return { observed: true }; } }),
+    onStderr: () => {}, onExit: () => {},
+  });
+  const authority = createCallAuthority(ctx, { reads: [], commands: [], stores: [] }, { deadlineMs: Date.now() + 200 });
+  try {
+    await expect(peer.request("fixture.capability", { marker }, 2000, { authority, signal: authority.signal, metadata: { capabilityCall: authority.token } })).rejects.toBeDefined();
+    await Bun.sleep(30);
+    expect(encoded).toBe(true); expect(existsSync(marker)).toBe(false);
+  } finally { await authority.revoke(); await peer.terminate(); }
+});

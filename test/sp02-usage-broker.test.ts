@@ -58,3 +58,48 @@ test("actual bundled provider cache uses only the pinned synthetic executable an
     expect(await readPluginUsage(ctx, provider)).toEqual(first);
   } finally { await shutdownPlugins(ctx); }
 });
+
+test("public usage dispatch reports a disabled contribution without falling back to a built-in reader", async () => {
+  const { readUsage } = await import("../src/usage");
+  const ctx = fakeCtx({ now: 100 }); mkdirSync(join(ctx.pacerHome, "cache"), { recursive: true });
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders:\n  claude-code: {}\nplugins:\n  disabled: [pacer-usage]\n");
+  writeFileSync(join(ctx.pacerHome, "cache", "claude-rate-limits.json"), JSON.stringify({ captured_at: 90, seven_day: { used_percentage: 25 } }));
+  try { expect((await readUsage(ctx, cfg("quota", "claude-code"))).error).toContain("no enabled plugin reads claude-code usage"); }
+  finally { await shutdownPlugins(ctx); }
+});
+
+test("readOnly passive telemetry does not require or create a pacer home directory", async () => {
+  const ctx = { ...fakeCtx({ now: 100 }), readOnly: true };
+  const dir = join(ctx.home, ".claude", "state", "budget"); mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "claude.json"), JSON.stringify({ captured_at: 90, seven_day: { used_percentage: 25 } }));
+  try {
+    expect((await readPluginUsage(ctx, cfg("quota", "claude-code"))).windows[0]?.usedPct).toBe(25);
+    const { existsSync } = await import("node:fs"); expect(existsSync(ctx.pacerHome)).toBe(false);
+  } finally { await shutdownPlugins(ctx); }
+});
+
+test("public Codex dispatch preserves >4MiB current-account state and a >1MiB rich result", async () => {
+  const { statSync } = await import("node:fs"), { readUsage } = await import("../src/usage");
+  const ctx = fakeCtx({ now: 1000 });
+  const sessions = join(ctx.home, ".codex", "sessions"), state = join(ctx.pacerHome, "state");
+  mkdirSync(sessions, { recursive: true }); mkdirSync(state, { recursive: true });
+  const path = join(sessions, "rollout-large-state.jsonl"); writeFileSync(path, "{}\n");
+  const info = statSync(path);
+  const rateLimits = (balance: number) => ({ primary: { used_percent: 25, window_minutes: 10080, resets_at: 2000 },
+    credits: { has_credits: true, balance: String(balance) }, retainedProviderField: "x".repeat(600) });
+  const observation = { rateLimits: rateLimits(12.5), observedAt: 900,
+    alternatives: Array.from({ length: 5000 }, (_, i) => ({ rateLimits: rateLimits(i), observedAt: 900 })) };
+  const aggregate = { found: observation, last: observation, position: 0 };
+  const snapshot = JSON.stringify({ version: 4, files: { [path]: { size: info.size, mtime: info.mtimeMs, inode: info.ino, offset: info.size, aggregate } } });
+  expect(Buffer.byteLength(snapshot)).toBeGreaterThan(4 * 1024 * 1024);
+  writeFileSync(join(state, "codex-cursors.json"), snapshot);
+  try {
+    const reading = await readUsage(ctx, cfg("quota", "codex"));
+    expect(reading.error).toBeUndefined();
+    expect(Buffer.byteLength(JSON.stringify(reading))).toBeGreaterThan(1024 * 1024);
+    expect(reading.alternatives).toHaveLength(5000);
+    expect(reading.spending?.creditBalance).toBe(12.5);
+    expect(reading.alternatives?.[4999]?.spending?.creditBalance).toBe(4999);
+    expect(reading.capturedAt).toBe(900);
+  } finally { await shutdownPlugins(ctx); }
+});

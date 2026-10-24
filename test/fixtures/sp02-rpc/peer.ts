@@ -1,6 +1,8 @@
+import { writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 let serial = 0;
 const pending = new Map<string, number>();
+const markers = new Map<string, string>();
 const send = (message: object) => console.log(JSON.stringify({ jsonrpc: "2.0", ...message }));
 for await (const line of createInterface({ input: process.stdin })) {
   const message = JSON.parse(line);
@@ -21,6 +23,7 @@ for await (const line of createInterface({ input: process.stdin })) {
     send({ id: message.id, error: { code: -32000, message: "fixture error", data: { code: message.params.code } } });
   } else if (message.method === "fixture.capability") {
     pending.set(`plugin-${message.id}`, message.id);
+    if (message.params.marker) markers.set(`plugin-${message.id}`, message.params.marker);
     send({ id: `plugin-${message.id}`, method: "capability.fs.read", params: { path: "/fixture" }, _meta: message._meta });
   } else if (message.method === "fixture.delay") {
     setTimeout(() => send({ id: message.id, result: { ok: true } }), 25);
@@ -30,6 +33,8 @@ for await (const line of createInterface({ input: process.stdin })) {
     send({ method: "$/progress", params: { id: message.id, event: { value: 99 } } });
   } else if (!message.method && pending.has(message.id)) {
     const id = pending.get(message.id); pending.delete(message.id);
+    const marker = markers.get(message.id); markers.delete(message.id);
+    if (marker && message.result) writeFileSync(marker, "received");
     send({ id, result: message.id.startsWith("suppressed-") ? { windows: [], capturedAt: 100, stale: false, suppressed: true } : message.result });
   }
 }

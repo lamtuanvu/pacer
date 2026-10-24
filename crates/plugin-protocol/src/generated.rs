@@ -4749,6 +4749,68 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityUsageStateStageChunkParamsLeas
 pub struct CapabilityUsageStateStageChunkResult {
     pub bytes: i64,
 }
+///`ChunkedResult`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "_chunkedResult"
+///  ],
+///  "properties": {
+///    "_chunkedResult": {
+///      "type": "object",
+///      "required": [
+///        "bytes"
+///      ],
+///      "properties": {
+///        "bytes": {
+///          "type": "integer",
+///          "maximum": 9007199254740991.0,
+///          "minimum": 0.0
+///        }
+///      },
+///      "additionalProperties": false
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct ChunkedResult {
+    #[serde(rename = "_chunkedResult")]
+    pub chunked_result: ChunkedResultChunkedResult,
+}
+///`ChunkedResultChunkedResult`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "bytes"
+///  ],
+///  "properties": {
+///    "bytes": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "minimum": 0.0
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct ChunkedResultChunkedResult {
+    pub bytes: i64,
+}
 ///`DiagnosticPingParams`
 ///
 /// <details><summary>JSON schema</summary>
@@ -6854,6 +6916,138 @@ impl ::std::convert::From<PacerPluginProtocol110> for ::serde_json::Value {
 impl ::std::convert::From<::serde_json::Value> for PacerPluginProtocol110 {
     fn from(value: ::serde_json::Value) -> Self {
         Self(value)
+    }
+}
+///`ResultChunkAck`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "bytes"
+///  ],
+///  "properties": {
+///    "bytes": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "minimum": 0.0
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct ResultChunkAck {
+    pub bytes: i64,
+}
+///`ResultChunkParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "base64",
+///    "offset",
+///    "request"
+///  ],
+///  "properties": {
+///    "base64": {
+///      "type": "string",
+///      "maxLength": 349528,
+///      "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+///    },
+///    "offset": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "minimum": 0.0
+///    },
+///    "request": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "exclusiveMinimum": 0.0
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct ResultChunkParams {
+    pub base64: ResultChunkParamsBase64,
+    pub offset: i64,
+    pub request: ::std::num::NonZeroU64,
+}
+///`ResultChunkParamsBase64`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 349528,
+///  "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct ResultChunkParamsBase64(::std::string::String);
+impl ::std::ops::Deref for ResultChunkParamsBase64 {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<ResultChunkParamsBase64> for ::std::string::String {
+    fn from(value: ResultChunkParamsBase64) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for ResultChunkParamsBase64 {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 349528usize {
+            return Err("longer than 349528 characters".into());
+        }
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| {
+                ::regress::Regex::new(
+                    "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+                )
+                .unwrap()
+            });
+        if PATTERN.find(value).is_none() {
+            return Err(
+                "doesn't match pattern \"^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$\""
+                    .into(),
+            );
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for ResultChunkParamsBase64 {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for ResultChunkParamsBase64 {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
     }
 }
 ///`UsageReadParams`
