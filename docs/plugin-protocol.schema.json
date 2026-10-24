@@ -74,7 +74,8 @@
                   "secrets.resolve",
                   "config.get",
                   "entitlement.report",
-                  "log"
+                  "log",
+                  "usage.state"
                 ]
               },
               "scopes": {
@@ -217,7 +218,8 @@
                       "secrets.resolve",
                       "config.get",
                       "entitlement.report",
-                      "log"
+                      "log",
+                      "usage.state"
                     ]
                   },
                   "scopes": {
@@ -263,6 +265,15 @@
           ],
           "additionalProperties": false
         },
+        "features": {
+          "maxItems": 16,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
         "config": {
           "type": "object",
           "propertyNames": {
@@ -285,7 +296,8 @@
               "secrets.resolve",
               "config.get",
               "entitlement.report",
-              "log"
+              "log",
+              "usage.state"
             ]
           }
         }
@@ -364,6 +376,15 @@
     "helloResult": {
       "type": "object",
       "properties": {
+        "features": {
+          "maxItems": 16,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
         "protocol": {
           "type": "string"
         },
@@ -465,6 +486,26 @@
             "string",
             "null"
           ]
+        },
+        "resources": {
+          "type": "object",
+          "properties": {
+            "claudeFiles": {
+              "maxItems": 2,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096
+              }
+            },
+            "codexSessions": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            }
+          },
+          "additionalProperties": false
         },
         "now": {
           "type": "number"
@@ -1273,6 +1314,665 @@
       "required": [
         "ok",
         "uptimeS"
+      ],
+      "additionalProperties": false
+    },
+    "capability.fs.read.params": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "additionalProperties": false
+    },
+    "capability.fs.read.result": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string"
+            },
+            "mtime": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "text",
+            "mtime"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "missing": {
+              "type": "boolean",
+              "const": true
+            }
+          },
+          "required": [
+            "missing"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "ranged": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                },
+                "size": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "mtimeMs": {
+                  "type": "number"
+                },
+                "inode": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "device": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "path",
+                "size",
+                "mtimeMs",
+                "inode",
+                "device"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "ranged"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "capability.fs.list.params": {
+      "type": "object",
+      "properties": {
+        "dir": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "glob": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "limit": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 1000
+        }
+      },
+      "required": [
+        "dir",
+        "glob"
+      ],
+      "additionalProperties": false
+    },
+    "capability.fs.list.result": {
+      "type": "object",
+      "properties": {
+        "files": {
+          "maxItems": 1000,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096
+              },
+              "size": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "mtimeMs": {
+                "type": "number"
+              },
+              "inode": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "device": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "path",
+              "size",
+              "mtimeMs",
+              "inode",
+              "device"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "complete": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "files",
+        "complete"
+      ],
+      "additionalProperties": false
+    },
+    "capability.fs.stat.params": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "additionalProperties": false
+    },
+    "capability.fs.stat.result": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "info": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                },
+                "size": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "mtimeMs": {
+                  "type": "number"
+                },
+                "inode": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "device": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "path",
+                "size",
+                "mtimeMs",
+                "inode",
+                "device"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "info"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "missing": {
+              "type": "boolean",
+              "const": true
+            }
+          },
+          "required": [
+            "missing"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "capability.fs.readRange.params": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "length": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 262144
+        },
+        "expected": {
+          "type": "object",
+          "properties": {
+            "size": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "mtimeMs": {
+              "type": "number"
+            },
+            "inode": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "device": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "size",
+            "mtimeMs",
+            "inode",
+            "device"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "path",
+        "offset",
+        "length",
+        "expected"
+      ],
+      "additionalProperties": false
+    },
+    "capability.fs.readRange.result": {
+      "type": "object",
+      "properties": {
+        "base64": {
+          "type": "string",
+          "maxLength": 349528,
+          "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+        },
+        "info": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "size": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "mtimeMs": {
+              "type": "number"
+            },
+            "inode": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "device": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "path",
+            "size",
+            "mtimeMs",
+            "inode",
+            "device"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "base64",
+        "info"
+      ],
+      "additionalProperties": false
+    },
+    "capability.process.spawn.params": {
+      "type": "object",
+      "properties": {
+        "argv": {
+          "minItems": 1,
+          "maxItems": 32,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 4096
+          }
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 600000
+        }
+      },
+      "required": [
+        "argv",
+        "timeoutMs"
+      ],
+      "additionalProperties": false
+    },
+    "capability.process.spawn.result": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "code": {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            },
+            "stdout": {
+              "type": "string"
+            },
+            "stderr": {
+              "type": "string"
+            },
+            "timedOut": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "code",
+            "stdout",
+            "stderr",
+            "timedOut"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "code": {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            },
+            "output": {
+              "type": "object",
+              "properties": {
+                "stdout": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                },
+                "stderr": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                }
+              },
+              "required": [
+                "stdout",
+                "stderr"
+              ],
+              "additionalProperties": false
+            },
+            "timedOut": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "code",
+            "output",
+            "timedOut"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "capability.process.outputChunk.params": {
+      "type": "object",
+      "properties": {
+        "handle": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "length": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 262144
+        }
+      },
+      "required": [
+        "handle",
+        "offset",
+        "length"
+      ],
+      "additionalProperties": false
+    },
+    "capability.process.outputChunk.result": {
+      "type": "object",
+      "properties": {
+        "base64": {
+          "type": "string",
+          "maxLength": 349528,
+          "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+        }
+      },
+      "required": [
+        "base64"
+      ],
+      "additionalProperties": false
+    },
+    "capability.usage.state.begin.params": {
+      "type": "object",
+      "properties": {
+        "store": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      },
+      "required": [
+        "store"
+      ],
+      "additionalProperties": false
+    },
+    "capability.usage.state.begin.result": {
+      "type": "object",
+      "properties": {
+        "lease": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "version": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "lease",
+        "bytes"
+      ],
+      "additionalProperties": false
+    },
+    "capability.usage.state.readChunk.params": {
+      "type": "object",
+      "properties": {
+        "lease": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "length": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 262144
+        }
+      },
+      "required": [
+        "lease",
+        "offset",
+        "length"
+      ],
+      "additionalProperties": false
+    },
+    "capability.usage.state.readChunk.result": {
+      "type": "object",
+      "properties": {
+        "base64": {
+          "type": "string",
+          "maxLength": 349528,
+          "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+        }
+      },
+      "required": [
+        "base64"
+      ],
+      "additionalProperties": false
+    },
+    "capability.usage.state.stageChunk.params": {
+      "type": "object",
+      "properties": {
+        "lease": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "base64": {
+          "type": "string",
+          "maxLength": 349528,
+          "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+        }
+      },
+      "required": [
+        "lease",
+        "offset",
+        "base64"
+      ],
+      "additionalProperties": false
+    },
+    "capability.usage.state.stageChunk.result": {
+      "type": "object",
+      "properties": {
+        "bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "bytes"
+      ],
+      "additionalProperties": false
+    },
+    "capability.usage.state.commit.params": {
+      "type": "object",
+      "properties": {
+        "lease": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      },
+      "required": [
+        "lease"
+      ],
+      "additionalProperties": false
+    },
+    "capability.usage.state.commit.result": {
+      "type": "object",
+      "properties": {
+        "saved": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "saved"
+      ],
+      "additionalProperties": false
+    },
+    "capability.usage.state.release.params": {
+      "type": "object",
+      "properties": {
+        "lease": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      },
+      "required": [
+        "lease"
+      ],
+      "additionalProperties": false
+    },
+    "capability.usage.state.release.result": {
+      "type": "object",
+      "properties": {
+        "ok": {
+          "type": "boolean",
+          "const": true
+        }
+      },
+      "required": [
+        "ok"
       ],
       "additionalProperties": false
     },

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { SCOPED_CAPABILITY_METHODS, SCOPED_METHOD_CAPABILITY } from "./capability-protocol";
 import { usageReadParams, usageReading } from "./usage-protocol";
 export { usageReadParams, usageReading, usageAccount, usageWindow, callMetadata, type UsageReadParams } from "./usage-protocol";
 import { isVersion } from "../update/version";
@@ -10,7 +11,7 @@ export const PLUGIN_PROTOCOL_MAJOR = 1;
 export const EXTENSION_POINTS = ["diagnostic", "agentSession", "usage"] as const;
 export type ExtensionPoint = (typeof EXTENSION_POINTS)[number];
 
-export const CAPABILITIES = ["tasks.read", "events.subscribe", "process.spawn", "fs.read", "net.http", "secrets.resolve", "config.get", "entitlement.report", "log"] as const;
+export const CAPABILITIES = ["tasks.read", "events.subscribe", "process.spawn", "fs.read", "net.http", "secrets.resolve", "config.get", "entitlement.report", "log", "usage.state"] as const;
 export type Capability = (typeof CAPABILITIES)[number];
 
 export const PLUGIN_ID = /^[a-z0-9][a-z0-9-]{1,63}$/;
@@ -33,10 +34,10 @@ export const HELLO_METHOD = "plugin.hello";
 export const CANCEL_METHOD = "$/cancel";
 
 export const helloParams = z.object({
-  protocol: z.string(), pacer: z.string(), manifest: manifestSchema,
+  protocol: z.string(), pacer: z.string(), manifest: manifestSchema, features: z.array(z.string().min(1).max(64)).max(16).optional(),
   config: z.record(z.string(), z.json()), grants: z.array(z.enum(CAPABILITIES)),
 });
-export const helloResult = z.object({ protocol: z.string(), id: z.string(), version: z.string(), contributes: z.array(z.string()) });
+export const helloResult = z.object({ features: z.array(z.string().min(1).max(64)).max(16).optional(), protocol: z.string(), id: z.string(), version: z.string(), contributes: z.array(z.string()) });
 export type HelloResult = z.infer<typeof helloResult>;
 
 export interface MethodDef<P extends z.ZodTypeAny = z.ZodTypeAny, R extends z.ZodTypeAny = z.ZodTypeAny> { description: string; params: P; result: R; deadlineMs: number }
@@ -61,11 +62,15 @@ export const EXTENSION_METHODS: Record<string, MethodDef> = {
 
 /** Plugin → host. Keys are `capability.<name>`; answered only when the manifest declares the capability. */
 export const CAPABILITY_METHODS: Record<string, MethodDef> = {
+  ...SCOPED_CAPABILITY_METHODS,
   "capability.log": method({ description: "Append a line to the plugin's log file under PACER_HOME/logs/plugins.", params: z.object({ level: z.enum(["debug", "info", "warn", "error"]), message: z.string().max(4096) }), result: z.object({ ok: z.literal(true) }), deadlineMs: 1000 }),
   "capability.config.get": method({ description: "The plugin's own config slice (plugins.config.<id> in the strategy file).", params: z.object({}), result: z.object({ config: z.record(z.string(), z.json()) }), deadlineMs: 1000 }),
 };
 
+export const METHOD_CAPABILITY: Readonly<Record<string, Capability>> = SCOPED_METHOD_CAPABILITY;
+
 export function capabilityOf(method: string): Capability | null {
+  if (Object.hasOwn(METHOD_CAPABILITY, method)) return METHOD_CAPABILITY[method]!;
   if (!method.startsWith("capability.")) return null;
   const name = method.slice("capability.".length);
   return (CAPABILITIES as readonly string[]).includes(name) ? (name as Capability) : null;

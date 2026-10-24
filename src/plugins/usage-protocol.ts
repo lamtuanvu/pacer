@@ -25,6 +25,7 @@ export const usageAccount = z.object({ name: z.string(), kind: z.enum(["claude",
   source: z.enum(["default", "pacer", "orca", "endpoint", "opencode"]) });
 export const usageReadParams = z.object({ provider: z.string().min(1), account: usageAccount.nullable(), accountHome: z.string().nullable(),
   model: z.string().nullable(), weeklyTokens: z.number().nullable(), weeklyUsd: z.number().nullable(), quotaSource: z.string().nullable(),
+  resources: z.object({ claudeFiles: z.array(z.string().min(1).max(4096)).max(2).optional(), codexSessions: z.string().min(1).max(4096).optional() }).optional(),
   now: z.number(), readOnly: z.boolean(), refresh: z.boolean() });
 export type UsageReadParams = z.infer<typeof usageReadParams>;
 

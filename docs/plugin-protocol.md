@@ -75,7 +75,8 @@ SDKs: `@pacer/plugin` (TypeScript) and `pacer-plugin` (Rust).
               "secrets.resolve",
               "config.get",
               "entitlement.report",
-              "log"
+              "log",
+              "usage.state"
             ]
           },
           "scopes": {
@@ -156,7 +157,7 @@ SDKs: `@pacer/plugin` (TypeScript) and `pacer-plugin` (Rust).
 }
 ```
 
-Extension points: `diagnostic`, `agentSession`, `usage` (every plugin serves `diagnostic`). Capabilities: `tasks.read`, `events.subscribe`, `process.spawn`, `fs.read`, `net.http`, `secrets.resolve`, `config.get`, `entitlement.report`, `log`.
+Extension points: `diagnostic`, `agentSession`, `usage` (every plugin serves `diagnostic`). Capabilities: `tasks.read`, `events.subscribe`, `process.spawn`, `fs.read`, `net.http`, `secrets.resolve`, `config.get`, `entitlement.report`, `log`, `usage.state`.
 
 ## Lifecycle
 
@@ -252,7 +253,8 @@ Params:
                   "secrets.resolve",
                   "config.get",
                   "entitlement.report",
-                  "log"
+                  "log",
+                  "usage.state"
                 ]
               },
               "scopes": {
@@ -298,6 +300,15 @@ Params:
       ],
       "additionalProperties": false
     },
+    "features": {
+      "maxItems": 16,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64
+      }
+    },
     "config": {
       "type": "object",
       "propertyNames": {
@@ -320,7 +331,8 @@ Params:
           "secrets.resolve",
           "config.get",
           "entitlement.report",
-          "log"
+          "log",
+          "usage.state"
         ]
       }
     }
@@ -407,6 +419,15 @@ Result:
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "properties": {
+    "features": {
+      "maxItems": 16,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64
+      }
+    },
     "protocol": {
       "type": "string"
     },
@@ -522,6 +543,26 @@ Params:
         "string",
         "null"
       ]
+    },
+    "resources": {
+      "type": "object",
+      "properties": {
+        "claudeFiles": {
+          "maxItems": 2,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          }
+        },
+        "codexSessions": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        }
+      },
+      "additionalProperties": false
     },
     "now": {
       "type": "number"
@@ -1416,6 +1457,841 @@ Result:
 ## Capabilities (plugin → host)
 
 Answered only when the manifest declares the capability and, for installed plugins, the grant covers it.
+
+### `capability.fs.read`
+
+Read an authorized regular telemetry file, at most 4 MiB; large encoded replies use pinned ranged metadata.
+
+Params:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    }
+  },
+  "required": [
+    "path"
+  ],
+  "additionalProperties": false
+}
+```
+
+Result:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "mtime": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "text",
+        "mtime"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "missing": {
+          "type": "boolean",
+          "const": true
+        }
+      },
+      "required": [
+        "missing"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "ranged": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "size": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "mtimeMs": {
+              "type": "number"
+            },
+            "inode": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "device": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "path",
+            "size",
+            "mtimeMs",
+            "inode",
+            "device"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "ranged"
+      ],
+      "additionalProperties": false
+    }
+  ]
+}
+```
+
+### `capability.fs.list`
+
+Exhaustively scan authorized telemetry paths and return the newest bounded metadata set; complete reports whether every match fits.
+
+Params:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "dir": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "glob": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "limit": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 1000
+    }
+  },
+  "required": [
+    "dir",
+    "glob"
+  ],
+  "additionalProperties": false
+}
+```
+
+Result:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "files": {
+      "maxItems": 1000,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "mtimeMs": {
+            "type": "number"
+          },
+          "inode": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "device": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "path",
+          "size",
+          "mtimeMs",
+          "inode",
+          "device"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "complete": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "files",
+    "complete"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `capability.fs.stat`
+
+Read metadata for an authorized regular file or exact sessions root directory.
+
+Params:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    }
+  },
+  "required": [
+    "path"
+  ],
+  "additionalProperties": false
+}
+```
+
+Result:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "type": "object",
+      "properties": {
+        "info": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "size": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "mtimeMs": {
+              "type": "number"
+            },
+            "inode": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "device": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "path",
+            "size",
+            "mtimeMs",
+            "inode",
+            "device"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "info"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "missing": {
+          "type": "boolean",
+          "const": true
+        }
+      },
+      "required": [
+        "missing"
+      ],
+      "additionalProperties": false
+    }
+  ]
+}
+```
+
+### `capability.fs.readRange`
+
+Read a pinned byte range, at most 256 KiB; changed identity fails without partial bytes.
+
+Params:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "offset": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "length": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 262144
+    },
+    "expected": {
+      "type": "object",
+      "properties": {
+        "size": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "mtimeMs": {
+          "type": "number"
+        },
+        "inode": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "device": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "size",
+        "mtimeMs",
+        "inode",
+        "device"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "path",
+    "offset",
+    "length",
+    "expected"
+  ],
+  "additionalProperties": false
+}
+```
+
+Result:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "base64": {
+      "type": "string",
+      "maxLength": 349528,
+      "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+    },
+    "info": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "mtimeMs": {
+          "type": "number"
+        },
+        "inode": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "device": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "path",
+        "size",
+        "mtimeMs",
+        "inode",
+        "device"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "base64",
+    "info"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `capability.process.spawn`
+
+Run only a host-issued pinned read-only provider command; environment/cwd remain host-owned.
+
+Params:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "argv": {
+      "minItems": 1,
+      "maxItems": 32,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 4096
+      }
+    },
+    "timeoutMs": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 600000
+    }
+  },
+  "required": [
+    "argv",
+    "timeoutMs"
+  ],
+  "additionalProperties": false
+}
+```
+
+Result:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "stdout": {
+          "type": "string"
+        },
+        "stderr": {
+          "type": "string"
+        },
+        "timedOut": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "code",
+        "stdout",
+        "stderr",
+        "timedOut"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "output": {
+          "type": "object",
+          "properties": {
+            "stdout": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "stderr": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            }
+          },
+          "required": [
+            "stdout",
+            "stderr"
+          ],
+          "additionalProperties": false
+        },
+        "timedOut": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "code",
+        "output",
+        "timedOut"
+      ],
+      "additionalProperties": false
+    }
+  ]
+}
+```
+
+### `capability.process.outputChunk`
+
+Read a bounded chunk from this call's captured provider output.
+
+Params:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "handle": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "offset": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "length": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 262144
+    }
+  },
+  "required": [
+    "handle",
+    "offset",
+    "length"
+  ],
+  "additionalProperties": false
+}
+```
+
+Result:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "base64": {
+      "type": "string",
+      "maxLength": 349528,
+      "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+    }
+  },
+  "required": [
+    "base64"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `capability.usage.state.begin`
+
+Lease an opaque host-fixed provider cache or account-projected cursor store.
+
+Params:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "store": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    }
+  },
+  "required": [
+    "store"
+  ],
+  "additionalProperties": false
+}
+```
+
+Result:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "lease": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "bytes": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "version": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "lease",
+    "bytes"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `capability.usage.state.readChunk`
+
+Read at most 256 KiB from this call's projected state snapshot.
+
+Params:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "lease": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "offset": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "length": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 262144
+    }
+  },
+  "required": [
+    "lease",
+    "offset",
+    "length"
+  ],
+  "additionalProperties": false
+}
+```
+
+Result:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "base64": {
+      "type": "string",
+      "maxLength": 349528,
+      "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+    }
+  },
+  "required": [
+    "base64"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `capability.usage.state.stageChunk`
+
+Stage a contiguous bounded chunk in this call's host-owned private state transfer.
+
+Params:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "lease": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "offset": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "base64": {
+      "type": "string",
+      "maxLength": 349528,
+      "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+    }
+  },
+  "required": [
+    "lease",
+    "offset",
+    "base64"
+  ],
+  "additionalProperties": false
+}
+```
+
+Result:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "bytes": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "bytes"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `capability.usage.state.commit`
+
+Commit the complete projected JSON state under admitted call ownership; cursor persistence failure retains dirty state.
+
+Params:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "lease": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    }
+  },
+  "required": [
+    "lease"
+  ],
+  "additionalProperties": false
+}
+```
+
+Result:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "saved": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "saved"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `capability.usage.state.release`
+
+Release a state lease and its private transfer files.
+
+Params:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "lease": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    }
+  },
+  "required": [
+    "lease"
+  ],
+  "additionalProperties": false
+}
+```
+
+Result:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "ok": {
+      "type": "boolean",
+      "const": true
+    }
+  },
+  "required": [
+    "ok"
+  ],
+  "additionalProperties": false
+}
+```
 
 ### `capability.log`
 

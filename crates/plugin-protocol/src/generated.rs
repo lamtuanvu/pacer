@@ -1969,6 +1969,1273 @@ impl
         Self::Variant5(value)
     }
 }
+///`CapabilityFsListParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "dir",
+///    "glob"
+///  ],
+///  "properties": {
+///    "dir": {
+///      "type": "string",
+///      "maxLength": 4096,
+///      "minLength": 1
+///    },
+///    "glob": {
+///      "type": "string",
+///      "maxLength": 4096,
+///      "minLength": 1
+///    },
+///    "limit": {
+///      "type": "integer",
+///      "maximum": 1000.0,
+///      "exclusiveMinimum": 0.0
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct CapabilityFsListParams {
+    pub dir: CapabilityFsListParamsDir,
+    pub glob: CapabilityFsListParamsGlob,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub limit: ::std::option::Option<::std::num::NonZeroU64>,
+}
+///`CapabilityFsListParamsDir`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 4096,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct CapabilityFsListParamsDir(::std::string::String);
+impl ::std::ops::Deref for CapabilityFsListParamsDir {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<CapabilityFsListParamsDir> for ::std::string::String {
+    fn from(value: CapabilityFsListParamsDir) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for CapabilityFsListParamsDir {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 4096usize {
+            return Err("longer than 4096 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for CapabilityFsListParamsDir {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for CapabilityFsListParamsDir {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`CapabilityFsListParamsGlob`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 4096,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct CapabilityFsListParamsGlob(::std::string::String);
+impl ::std::ops::Deref for CapabilityFsListParamsGlob {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<CapabilityFsListParamsGlob> for ::std::string::String {
+    fn from(value: CapabilityFsListParamsGlob) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for CapabilityFsListParamsGlob {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 4096usize {
+            return Err("longer than 4096 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for CapabilityFsListParamsGlob {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for CapabilityFsListParamsGlob {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`CapabilityFsListResult`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "complete",
+///    "files"
+///  ],
+///  "properties": {
+///    "complete": {
+///      "type": "boolean"
+///    },
+///    "files": {
+///      "type": "array",
+///      "items": {
+///        "type": "object",
+///        "required": [
+///          "device",
+///          "inode",
+///          "mtimeMs",
+///          "path",
+///          "size"
+///        ],
+///        "properties": {
+///          "device": {
+///            "type": "integer",
+///            "maximum": 9007199254740991.0,
+///            "minimum": 0.0
+///          },
+///          "inode": {
+///            "type": "integer",
+///            "maximum": 9007199254740991.0,
+///            "minimum": 0.0
+///          },
+///          "mtimeMs": {
+///            "type": "number"
+///          },
+///          "path": {
+///            "type": "string",
+///            "maxLength": 4096,
+///            "minLength": 1
+///          },
+///          "size": {
+///            "type": "integer",
+///            "maximum": 9007199254740991.0,
+///            "minimum": 0.0
+///          }
+///        },
+///        "additionalProperties": false
+///      },
+///      "maxItems": 1000
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct CapabilityFsListResult {
+    pub complete: bool,
+    pub files: ::std::vec::Vec<CapabilityFsListResultFilesItem>,
+}
+///`CapabilityFsListResultFilesItem`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "device",
+///    "inode",
+///    "mtimeMs",
+///    "path",
+///    "size"
+///  ],
+///  "properties": {
+///    "device": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "minimum": 0.0
+///    },
+///    "inode": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "minimum": 0.0
+///    },
+///    "mtimeMs": {
+///      "type": "number"
+///    },
+///    "path": {
+///      "type": "string",
+///      "maxLength": 4096,
+///      "minLength": 1
+///    },
+///    "size": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "minimum": 0.0
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct CapabilityFsListResultFilesItem {
+    pub device: i64,
+    pub inode: i64,
+    #[serde(rename = "mtimeMs")]
+    pub mtime_ms: f64,
+    pub path: CapabilityFsListResultFilesItemPath,
+    pub size: i64,
+}
+///`CapabilityFsListResultFilesItemPath`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 4096,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct CapabilityFsListResultFilesItemPath(::std::string::String);
+impl ::std::ops::Deref for CapabilityFsListResultFilesItemPath {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<CapabilityFsListResultFilesItemPath> for ::std::string::String {
+    fn from(value: CapabilityFsListResultFilesItemPath) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for CapabilityFsListResultFilesItemPath {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 4096usize {
+            return Err("longer than 4096 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for CapabilityFsListResultFilesItemPath {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for CapabilityFsListResultFilesItemPath {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`CapabilityFsReadParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "path"
+///  ],
+///  "properties": {
+///    "path": {
+///      "type": "string",
+///      "maxLength": 4096,
+///      "minLength": 1
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct CapabilityFsReadParams {
+    pub path: CapabilityFsReadParamsPath,
+}
+///`CapabilityFsReadParamsPath`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 4096,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct CapabilityFsReadParamsPath(::std::string::String);
+impl ::std::ops::Deref for CapabilityFsReadParamsPath {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<CapabilityFsReadParamsPath> for ::std::string::String {
+    fn from(value: CapabilityFsReadParamsPath) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for CapabilityFsReadParamsPath {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 4096usize {
+            return Err("longer than 4096 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for CapabilityFsReadParamsPath {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for CapabilityFsReadParamsPath {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`CapabilityFsReadRangeParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "expected",
+///    "length",
+///    "offset",
+///    "path"
+///  ],
+///  "properties": {
+///    "expected": {
+///      "type": "object",
+///      "required": [
+///        "device",
+///        "inode",
+///        "mtimeMs",
+///        "size"
+///      ],
+///      "properties": {
+///        "device": {
+///          "type": "integer",
+///          "maximum": 9007199254740991.0,
+///          "minimum": 0.0
+///        },
+///        "inode": {
+///          "type": "integer",
+///          "maximum": 9007199254740991.0,
+///          "minimum": 0.0
+///        },
+///        "mtimeMs": {
+///          "type": "number"
+///        },
+///        "size": {
+///          "type": "integer",
+///          "maximum": 9007199254740991.0,
+///          "minimum": 0.0
+///        }
+///      },
+///      "additionalProperties": false
+///    },
+///    "length": {
+///      "type": "integer",
+///      "maximum": 262144.0,
+///      "minimum": 0.0
+///    },
+///    "offset": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "minimum": 0.0
+///    },
+///    "path": {
+///      "type": "string",
+///      "maxLength": 4096,
+///      "minLength": 1
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct CapabilityFsReadRangeParams {
+    pub expected: CapabilityFsReadRangeParamsExpected,
+    pub length: i64,
+    pub offset: i64,
+    pub path: CapabilityFsReadRangeParamsPath,
+}
+///`CapabilityFsReadRangeParamsExpected`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "device",
+///    "inode",
+///    "mtimeMs",
+///    "size"
+///  ],
+///  "properties": {
+///    "device": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "minimum": 0.0
+///    },
+///    "inode": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "minimum": 0.0
+///    },
+///    "mtimeMs": {
+///      "type": "number"
+///    },
+///    "size": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "minimum": 0.0
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct CapabilityFsReadRangeParamsExpected {
+    pub device: i64,
+    pub inode: i64,
+    #[serde(rename = "mtimeMs")]
+    pub mtime_ms: f64,
+    pub size: i64,
+}
+///`CapabilityFsReadRangeParamsPath`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 4096,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct CapabilityFsReadRangeParamsPath(::std::string::String);
+impl ::std::ops::Deref for CapabilityFsReadRangeParamsPath {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<CapabilityFsReadRangeParamsPath> for ::std::string::String {
+    fn from(value: CapabilityFsReadRangeParamsPath) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for CapabilityFsReadRangeParamsPath {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 4096usize {
+            return Err("longer than 4096 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for CapabilityFsReadRangeParamsPath {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for CapabilityFsReadRangeParamsPath {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`CapabilityFsReadRangeResult`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "base64",
+///    "info"
+///  ],
+///  "properties": {
+///    "base64": {
+///      "type": "string",
+///      "maxLength": 349528,
+///      "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+///    },
+///    "info": {
+///      "type": "object",
+///      "required": [
+///        "device",
+///        "inode",
+///        "mtimeMs",
+///        "path",
+///        "size"
+///      ],
+///      "properties": {
+///        "device": {
+///          "type": "integer",
+///          "maximum": 9007199254740991.0,
+///          "minimum": 0.0
+///        },
+///        "inode": {
+///          "type": "integer",
+///          "maximum": 9007199254740991.0,
+///          "minimum": 0.0
+///        },
+///        "mtimeMs": {
+///          "type": "number"
+///        },
+///        "path": {
+///          "type": "string",
+///          "maxLength": 4096,
+///          "minLength": 1
+///        },
+///        "size": {
+///          "type": "integer",
+///          "maximum": 9007199254740991.0,
+///          "minimum": 0.0
+///        }
+///      },
+///      "additionalProperties": false
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct CapabilityFsReadRangeResult {
+    pub base64: CapabilityFsReadRangeResultBase64,
+    pub info: CapabilityFsReadRangeResultInfo,
+}
+///`CapabilityFsReadRangeResultBase64`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 349528,
+///  "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct CapabilityFsReadRangeResultBase64(::std::string::String);
+impl ::std::ops::Deref for CapabilityFsReadRangeResultBase64 {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<CapabilityFsReadRangeResultBase64> for ::std::string::String {
+    fn from(value: CapabilityFsReadRangeResultBase64) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for CapabilityFsReadRangeResultBase64 {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 349528usize {
+            return Err("longer than 349528 characters".into());
+        }
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| {
+                ::regress::Regex::new(
+                    "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+                )
+                .unwrap()
+            });
+        if PATTERN.find(value).is_none() {
+            return Err(
+                "doesn't match pattern \"^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$\""
+                    .into(),
+            );
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for CapabilityFsReadRangeResultBase64 {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for CapabilityFsReadRangeResultBase64 {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`CapabilityFsReadRangeResultInfo`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "device",
+///    "inode",
+///    "mtimeMs",
+///    "path",
+///    "size"
+///  ],
+///  "properties": {
+///    "device": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "minimum": 0.0
+///    },
+///    "inode": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "minimum": 0.0
+///    },
+///    "mtimeMs": {
+///      "type": "number"
+///    },
+///    "path": {
+///      "type": "string",
+///      "maxLength": 4096,
+///      "minLength": 1
+///    },
+///    "size": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "minimum": 0.0
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct CapabilityFsReadRangeResultInfo {
+    pub device: i64,
+    pub inode: i64,
+    #[serde(rename = "mtimeMs")]
+    pub mtime_ms: f64,
+    pub path: CapabilityFsReadRangeResultInfoPath,
+    pub size: i64,
+}
+///`CapabilityFsReadRangeResultInfoPath`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 4096,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct CapabilityFsReadRangeResultInfoPath(::std::string::String);
+impl ::std::ops::Deref for CapabilityFsReadRangeResultInfoPath {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<CapabilityFsReadRangeResultInfoPath> for ::std::string::String {
+    fn from(value: CapabilityFsReadRangeResultInfoPath) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for CapabilityFsReadRangeResultInfoPath {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 4096usize {
+            return Err("longer than 4096 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for CapabilityFsReadRangeResultInfoPath {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for CapabilityFsReadRangeResultInfoPath {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`CapabilityFsReadResult`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "anyOf": [
+///    {
+///      "type": "object",
+///      "required": [
+///        "mtime",
+///        "text"
+///      ],
+///      "properties": {
+///        "mtime": {
+///          "type": "number"
+///        },
+///        "text": {
+///          "type": "string"
+///        }
+///      },
+///      "additionalProperties": false
+///    },
+///    {
+///      "type": "object",
+///      "required": [
+///        "missing"
+///      ],
+///      "properties": {
+///        "missing": {
+///          "type": "boolean",
+///          "const": true
+///        }
+///      },
+///      "additionalProperties": false
+///    },
+///    {
+///      "type": "object",
+///      "required": [
+///        "ranged"
+///      ],
+///      "properties": {
+///        "ranged": {
+///          "type": "object",
+///          "required": [
+///            "device",
+///            "inode",
+///            "mtimeMs",
+///            "path",
+///            "size"
+///          ],
+///          "properties": {
+///            "device": {
+///              "type": "integer",
+///              "maximum": 9007199254740991.0,
+///              "minimum": 0.0
+///            },
+///            "inode": {
+///              "type": "integer",
+///              "maximum": 9007199254740991.0,
+///              "minimum": 0.0
+///            },
+///            "mtimeMs": {
+///              "type": "number"
+///            },
+///            "path": {
+///              "type": "string",
+///              "maxLength": 4096,
+///              "minLength": 1
+///            },
+///            "size": {
+///              "type": "integer",
+///              "maximum": 9007199254740991.0,
+///              "minimum": 0.0
+///            }
+///          },
+///          "additionalProperties": false
+///        }
+///      },
+///      "additionalProperties": false
+///    }
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(untagged, deny_unknown_fields)]
+pub enum CapabilityFsReadResult {
+    Variant0 {
+        mtime: f64,
+        text: ::std::string::String,
+    },
+    Variant1 {
+        missing: bool,
+    },
+    Variant2 {
+        ranged: CapabilityFsReadResultVariant2Ranged,
+    },
+}
+impl ::std::convert::From<&Self> for CapabilityFsReadResult {
+    fn from(value: &CapabilityFsReadResult) -> Self {
+        value.clone()
+    }
+}
+///`CapabilityFsReadResultVariant2Ranged`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "device",
+///    "inode",
+///    "mtimeMs",
+///    "path",
+///    "size"
+///  ],
+///  "properties": {
+///    "device": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "minimum": 0.0
+///    },
+///    "inode": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "minimum": 0.0
+///    },
+///    "mtimeMs": {
+///      "type": "number"
+///    },
+///    "path": {
+///      "type": "string",
+///      "maxLength": 4096,
+///      "minLength": 1
+///    },
+///    "size": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "minimum": 0.0
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct CapabilityFsReadResultVariant2Ranged {
+    pub device: i64,
+    pub inode: i64,
+    #[serde(rename = "mtimeMs")]
+    pub mtime_ms: f64,
+    pub path: CapabilityFsReadResultVariant2RangedPath,
+    pub size: i64,
+}
+///`CapabilityFsReadResultVariant2RangedPath`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 4096,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct CapabilityFsReadResultVariant2RangedPath(::std::string::String);
+impl ::std::ops::Deref for CapabilityFsReadResultVariant2RangedPath {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<CapabilityFsReadResultVariant2RangedPath> for ::std::string::String {
+    fn from(value: CapabilityFsReadResultVariant2RangedPath) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for CapabilityFsReadResultVariant2RangedPath {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 4096usize {
+            return Err("longer than 4096 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for CapabilityFsReadResultVariant2RangedPath {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for CapabilityFsReadResultVariant2RangedPath {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`CapabilityFsStatParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "path"
+///  ],
+///  "properties": {
+///    "path": {
+///      "type": "string",
+///      "maxLength": 4096,
+///      "minLength": 1
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct CapabilityFsStatParams {
+    pub path: CapabilityFsStatParamsPath,
+}
+///`CapabilityFsStatParamsPath`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 4096,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct CapabilityFsStatParamsPath(::std::string::String);
+impl ::std::ops::Deref for CapabilityFsStatParamsPath {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<CapabilityFsStatParamsPath> for ::std::string::String {
+    fn from(value: CapabilityFsStatParamsPath) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for CapabilityFsStatParamsPath {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 4096usize {
+            return Err("longer than 4096 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for CapabilityFsStatParamsPath {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for CapabilityFsStatParamsPath {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`CapabilityFsStatResult`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "anyOf": [
+///    {
+///      "type": "object",
+///      "required": [
+///        "info"
+///      ],
+///      "properties": {
+///        "info": {
+///          "type": "object",
+///          "required": [
+///            "device",
+///            "inode",
+///            "mtimeMs",
+///            "path",
+///            "size"
+///          ],
+///          "properties": {
+///            "device": {
+///              "type": "integer",
+///              "maximum": 9007199254740991.0,
+///              "minimum": 0.0
+///            },
+///            "inode": {
+///              "type": "integer",
+///              "maximum": 9007199254740991.0,
+///              "minimum": 0.0
+///            },
+///            "mtimeMs": {
+///              "type": "number"
+///            },
+///            "path": {
+///              "type": "string",
+///              "maxLength": 4096,
+///              "minLength": 1
+///            },
+///            "size": {
+///              "type": "integer",
+///              "maximum": 9007199254740991.0,
+///              "minimum": 0.0
+///            }
+///          },
+///          "additionalProperties": false
+///        }
+///      },
+///      "additionalProperties": false
+///    },
+///    {
+///      "type": "object",
+///      "required": [
+///        "missing"
+///      ],
+///      "properties": {
+///        "missing": {
+///          "type": "boolean",
+///          "const": true
+///        }
+///      },
+///      "additionalProperties": false
+///    }
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub enum CapabilityFsStatResult {
+    #[serde(rename = "info")]
+    Info {
+        device: i64,
+        inode: i64,
+        #[serde(rename = "mtimeMs")]
+        mtime_ms: f64,
+        path: CapabilityFsStatResultInfoPath,
+        size: i64,
+    },
+    #[serde(rename = "missing")]
+    Missing(bool),
+}
+impl ::std::convert::From<&Self> for CapabilityFsStatResult {
+    fn from(value: &CapabilityFsStatResult) -> Self {
+        value.clone()
+    }
+}
+impl ::std::convert::From<bool> for CapabilityFsStatResult {
+    fn from(value: bool) -> Self {
+        Self::Missing(value)
+    }
+}
+///`CapabilityFsStatResultInfoPath`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 4096,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct CapabilityFsStatResultInfoPath(::std::string::String);
+impl ::std::ops::Deref for CapabilityFsStatResultInfoPath {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<CapabilityFsStatResultInfoPath> for ::std::string::String {
+    fn from(value: CapabilityFsStatResultInfoPath) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for CapabilityFsStatResultInfoPath {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 4096usize {
+            return Err("longer than 4096 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for CapabilityFsStatResultInfoPath {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for CapabilityFsStatResultInfoPath {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
 ///`CapabilityLogParams`
 ///
 /// <details><summary>JSON schema</summary>
@@ -2153,6 +3420,1298 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityLogParamsMessage {
 pub struct CapabilityLogResult {
     pub ok: bool,
 }
+///`CapabilityProcessOutputChunkParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "handle",
+///    "length",
+///    "offset"
+///  ],
+///  "properties": {
+///    "handle": {
+///      "type": "string",
+///      "maxLength": 256,
+///      "minLength": 1
+///    },
+///    "length": {
+///      "type": "integer",
+///      "maximum": 262144.0,
+///      "minimum": 0.0
+///    },
+///    "offset": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "minimum": 0.0
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct CapabilityProcessOutputChunkParams {
+    pub handle: CapabilityProcessOutputChunkParamsHandle,
+    pub length: i64,
+    pub offset: i64,
+}
+///`CapabilityProcessOutputChunkParamsHandle`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 256,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct CapabilityProcessOutputChunkParamsHandle(::std::string::String);
+impl ::std::ops::Deref for CapabilityProcessOutputChunkParamsHandle {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<CapabilityProcessOutputChunkParamsHandle> for ::std::string::String {
+    fn from(value: CapabilityProcessOutputChunkParamsHandle) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for CapabilityProcessOutputChunkParamsHandle {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 256usize {
+            return Err("longer than 256 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for CapabilityProcessOutputChunkParamsHandle {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for CapabilityProcessOutputChunkParamsHandle {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`CapabilityProcessOutputChunkResult`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "base64"
+///  ],
+///  "properties": {
+///    "base64": {
+///      "type": "string",
+///      "maxLength": 349528,
+///      "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct CapabilityProcessOutputChunkResult {
+    pub base64: CapabilityProcessOutputChunkResultBase64,
+}
+///`CapabilityProcessOutputChunkResultBase64`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 349528,
+///  "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct CapabilityProcessOutputChunkResultBase64(::std::string::String);
+impl ::std::ops::Deref for CapabilityProcessOutputChunkResultBase64 {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<CapabilityProcessOutputChunkResultBase64> for ::std::string::String {
+    fn from(value: CapabilityProcessOutputChunkResultBase64) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for CapabilityProcessOutputChunkResultBase64 {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 349528usize {
+            return Err("longer than 349528 characters".into());
+        }
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| {
+                ::regress::Regex::new(
+                    "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+                )
+                .unwrap()
+            });
+        if PATTERN.find(value).is_none() {
+            return Err(
+                "doesn't match pattern \"^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$\""
+                    .into(),
+            );
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for CapabilityProcessOutputChunkResultBase64 {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for CapabilityProcessOutputChunkResultBase64 {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`CapabilityProcessSpawnParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "argv",
+///    "timeoutMs"
+///  ],
+///  "properties": {
+///    "argv": {
+///      "type": "array",
+///      "items": {
+///        "type": "string",
+///        "maxLength": 4096
+///      },
+///      "maxItems": 32,
+///      "minItems": 1
+///    },
+///    "timeoutMs": {
+///      "type": "integer",
+///      "maximum": 600000.0,
+///      "exclusiveMinimum": 0.0
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct CapabilityProcessSpawnParams {
+    pub argv: ::std::vec::Vec<CapabilityProcessSpawnParamsArgvItem>,
+    #[serde(rename = "timeoutMs")]
+    pub timeout_ms: ::std::num::NonZeroU64,
+}
+///`CapabilityProcessSpawnParamsArgvItem`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 4096
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct CapabilityProcessSpawnParamsArgvItem(::std::string::String);
+impl ::std::ops::Deref for CapabilityProcessSpawnParamsArgvItem {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<CapabilityProcessSpawnParamsArgvItem> for ::std::string::String {
+    fn from(value: CapabilityProcessSpawnParamsArgvItem) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for CapabilityProcessSpawnParamsArgvItem {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 4096usize {
+            return Err("longer than 4096 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for CapabilityProcessSpawnParamsArgvItem {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for CapabilityProcessSpawnParamsArgvItem {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`CapabilityProcessSpawnResult`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "anyOf": [
+///    {
+///      "type": "object",
+///      "required": [
+///        "code",
+///        "stderr",
+///        "stdout",
+///        "timedOut"
+///      ],
+///      "properties": {
+///        "code": {
+///          "type": "integer",
+///          "maximum": 9007199254740991.0,
+///          "minimum": -9007199254740991.0
+///        },
+///        "stderr": {
+///          "type": "string"
+///        },
+///        "stdout": {
+///          "type": "string"
+///        },
+///        "timedOut": {
+///          "type": "boolean"
+///        }
+///      },
+///      "additionalProperties": false
+///    },
+///    {
+///      "type": "object",
+///      "required": [
+///        "code",
+///        "output",
+///        "timedOut"
+///      ],
+///      "properties": {
+///        "code": {
+///          "type": "integer",
+///          "maximum": 9007199254740991.0,
+///          "minimum": -9007199254740991.0
+///        },
+///        "output": {
+///          "type": "object",
+///          "required": [
+///            "stderr",
+///            "stdout"
+///          ],
+///          "properties": {
+///            "stderr": {
+///              "type": "string",
+///              "maxLength": 256,
+///              "minLength": 1
+///            },
+///            "stdout": {
+///              "type": "string",
+///              "maxLength": 256,
+///              "minLength": 1
+///            }
+///          },
+///          "additionalProperties": false
+///        },
+///        "timedOut": {
+///          "type": "boolean"
+///        }
+///      },
+///      "additionalProperties": false
+///    }
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(untagged, deny_unknown_fields)]
+pub enum CapabilityProcessSpawnResult {
+    Variant0 {
+        code: i64,
+        stderr: ::std::string::String,
+        stdout: ::std::string::String,
+        #[serde(rename = "timedOut")]
+        timed_out: bool,
+    },
+    Variant1 {
+        code: i64,
+        output: CapabilityProcessSpawnResultVariant1Output,
+        #[serde(rename = "timedOut")]
+        timed_out: bool,
+    },
+}
+impl ::std::convert::From<&Self> for CapabilityProcessSpawnResult {
+    fn from(value: &CapabilityProcessSpawnResult) -> Self {
+        value.clone()
+    }
+}
+///`CapabilityProcessSpawnResultVariant1Output`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "stderr",
+///    "stdout"
+///  ],
+///  "properties": {
+///    "stderr": {
+///      "type": "string",
+///      "maxLength": 256,
+///      "minLength": 1
+///    },
+///    "stdout": {
+///      "type": "string",
+///      "maxLength": 256,
+///      "minLength": 1
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct CapabilityProcessSpawnResultVariant1Output {
+    pub stderr: CapabilityProcessSpawnResultVariant1OutputStderr,
+    pub stdout: CapabilityProcessSpawnResultVariant1OutputStdout,
+}
+///`CapabilityProcessSpawnResultVariant1OutputStderr`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 256,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct CapabilityProcessSpawnResultVariant1OutputStderr(::std::string::String);
+impl ::std::ops::Deref for CapabilityProcessSpawnResultVariant1OutputStderr {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<CapabilityProcessSpawnResultVariant1OutputStderr>
+    for ::std::string::String
+{
+    fn from(value: CapabilityProcessSpawnResultVariant1OutputStderr) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for CapabilityProcessSpawnResultVariant1OutputStderr {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 256usize {
+            return Err("longer than 256 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for CapabilityProcessSpawnResultVariant1OutputStderr {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for CapabilityProcessSpawnResultVariant1OutputStderr {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`CapabilityProcessSpawnResultVariant1OutputStdout`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 256,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct CapabilityProcessSpawnResultVariant1OutputStdout(::std::string::String);
+impl ::std::ops::Deref for CapabilityProcessSpawnResultVariant1OutputStdout {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<CapabilityProcessSpawnResultVariant1OutputStdout>
+    for ::std::string::String
+{
+    fn from(value: CapabilityProcessSpawnResultVariant1OutputStdout) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for CapabilityProcessSpawnResultVariant1OutputStdout {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 256usize {
+            return Err("longer than 256 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for CapabilityProcessSpawnResultVariant1OutputStdout {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for CapabilityProcessSpawnResultVariant1OutputStdout {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`CapabilityUsageStateBeginParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "store"
+///  ],
+///  "properties": {
+///    "store": {
+///      "type": "string",
+///      "maxLength": 256,
+///      "minLength": 1
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct CapabilityUsageStateBeginParams {
+    pub store: CapabilityUsageStateBeginParamsStore,
+}
+///`CapabilityUsageStateBeginParamsStore`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 256,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct CapabilityUsageStateBeginParamsStore(::std::string::String);
+impl ::std::ops::Deref for CapabilityUsageStateBeginParamsStore {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<CapabilityUsageStateBeginParamsStore> for ::std::string::String {
+    fn from(value: CapabilityUsageStateBeginParamsStore) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for CapabilityUsageStateBeginParamsStore {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 256usize {
+            return Err("longer than 256 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for CapabilityUsageStateBeginParamsStore {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for CapabilityUsageStateBeginParamsStore {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`CapabilityUsageStateBeginResult`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "bytes",
+///    "lease"
+///  ],
+///  "properties": {
+///    "bytes": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "minimum": 0.0
+///    },
+///    "lease": {
+///      "type": "string",
+///      "maxLength": 256,
+///      "minLength": 1
+///    },
+///    "version": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "exclusiveMinimum": 0.0
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct CapabilityUsageStateBeginResult {
+    pub bytes: i64,
+    pub lease: CapabilityUsageStateBeginResultLease,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub version: ::std::option::Option<::std::num::NonZeroU64>,
+}
+///`CapabilityUsageStateBeginResultLease`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 256,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct CapabilityUsageStateBeginResultLease(::std::string::String);
+impl ::std::ops::Deref for CapabilityUsageStateBeginResultLease {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<CapabilityUsageStateBeginResultLease> for ::std::string::String {
+    fn from(value: CapabilityUsageStateBeginResultLease) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for CapabilityUsageStateBeginResultLease {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 256usize {
+            return Err("longer than 256 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for CapabilityUsageStateBeginResultLease {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for CapabilityUsageStateBeginResultLease {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`CapabilityUsageStateCommitParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "lease"
+///  ],
+///  "properties": {
+///    "lease": {
+///      "type": "string",
+///      "maxLength": 256,
+///      "minLength": 1
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct CapabilityUsageStateCommitParams {
+    pub lease: CapabilityUsageStateCommitParamsLease,
+}
+///`CapabilityUsageStateCommitParamsLease`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 256,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct CapabilityUsageStateCommitParamsLease(::std::string::String);
+impl ::std::ops::Deref for CapabilityUsageStateCommitParamsLease {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<CapabilityUsageStateCommitParamsLease> for ::std::string::String {
+    fn from(value: CapabilityUsageStateCommitParamsLease) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for CapabilityUsageStateCommitParamsLease {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 256usize {
+            return Err("longer than 256 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for CapabilityUsageStateCommitParamsLease {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for CapabilityUsageStateCommitParamsLease {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`CapabilityUsageStateCommitResult`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "saved"
+///  ],
+///  "properties": {
+///    "saved": {
+///      "type": "boolean"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct CapabilityUsageStateCommitResult {
+    pub saved: bool,
+}
+///`CapabilityUsageStateReadChunkParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "lease",
+///    "length",
+///    "offset"
+///  ],
+///  "properties": {
+///    "lease": {
+///      "type": "string",
+///      "maxLength": 256,
+///      "minLength": 1
+///    },
+///    "length": {
+///      "type": "integer",
+///      "maximum": 262144.0,
+///      "minimum": 0.0
+///    },
+///    "offset": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "minimum": 0.0
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct CapabilityUsageStateReadChunkParams {
+    pub lease: CapabilityUsageStateReadChunkParamsLease,
+    pub length: i64,
+    pub offset: i64,
+}
+///`CapabilityUsageStateReadChunkParamsLease`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 256,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct CapabilityUsageStateReadChunkParamsLease(::std::string::String);
+impl ::std::ops::Deref for CapabilityUsageStateReadChunkParamsLease {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<CapabilityUsageStateReadChunkParamsLease> for ::std::string::String {
+    fn from(value: CapabilityUsageStateReadChunkParamsLease) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for CapabilityUsageStateReadChunkParamsLease {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 256usize {
+            return Err("longer than 256 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for CapabilityUsageStateReadChunkParamsLease {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for CapabilityUsageStateReadChunkParamsLease {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`CapabilityUsageStateReadChunkResult`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "base64"
+///  ],
+///  "properties": {
+///    "base64": {
+///      "type": "string",
+///      "maxLength": 349528,
+///      "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct CapabilityUsageStateReadChunkResult {
+    pub base64: CapabilityUsageStateReadChunkResultBase64,
+}
+///`CapabilityUsageStateReadChunkResultBase64`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 349528,
+///  "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct CapabilityUsageStateReadChunkResultBase64(::std::string::String);
+impl ::std::ops::Deref for CapabilityUsageStateReadChunkResultBase64 {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<CapabilityUsageStateReadChunkResultBase64> for ::std::string::String {
+    fn from(value: CapabilityUsageStateReadChunkResultBase64) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for CapabilityUsageStateReadChunkResultBase64 {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 349528usize {
+            return Err("longer than 349528 characters".into());
+        }
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| {
+                ::regress::Regex::new(
+                    "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+                )
+                .unwrap()
+            });
+        if PATTERN.find(value).is_none() {
+            return Err(
+                "doesn't match pattern \"^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$\""
+                    .into(),
+            );
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for CapabilityUsageStateReadChunkResultBase64 {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for CapabilityUsageStateReadChunkResultBase64 {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`CapabilityUsageStateReleaseParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "lease"
+///  ],
+///  "properties": {
+///    "lease": {
+///      "type": "string",
+///      "maxLength": 256,
+///      "minLength": 1
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct CapabilityUsageStateReleaseParams {
+    pub lease: CapabilityUsageStateReleaseParamsLease,
+}
+///`CapabilityUsageStateReleaseParamsLease`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 256,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct CapabilityUsageStateReleaseParamsLease(::std::string::String);
+impl ::std::ops::Deref for CapabilityUsageStateReleaseParamsLease {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<CapabilityUsageStateReleaseParamsLease> for ::std::string::String {
+    fn from(value: CapabilityUsageStateReleaseParamsLease) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for CapabilityUsageStateReleaseParamsLease {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 256usize {
+            return Err("longer than 256 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for CapabilityUsageStateReleaseParamsLease {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for CapabilityUsageStateReleaseParamsLease {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`CapabilityUsageStateReleaseResult`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "ok"
+///  ],
+///  "properties": {
+///    "ok": {
+///      "type": "boolean",
+///      "const": true
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct CapabilityUsageStateReleaseResult {
+    pub ok: bool,
+}
+///`CapabilityUsageStateStageChunkParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "base64",
+///    "lease",
+///    "offset"
+///  ],
+///  "properties": {
+///    "base64": {
+///      "type": "string",
+///      "maxLength": 349528,
+///      "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+///    },
+///    "lease": {
+///      "type": "string",
+///      "maxLength": 256,
+///      "minLength": 1
+///    },
+///    "offset": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "minimum": 0.0
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct CapabilityUsageStateStageChunkParams {
+    pub base64: CapabilityUsageStateStageChunkParamsBase64,
+    pub lease: CapabilityUsageStateStageChunkParamsLease,
+    pub offset: i64,
+}
+///`CapabilityUsageStateStageChunkParamsBase64`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 349528,
+///  "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct CapabilityUsageStateStageChunkParamsBase64(::std::string::String);
+impl ::std::ops::Deref for CapabilityUsageStateStageChunkParamsBase64 {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<CapabilityUsageStateStageChunkParamsBase64> for ::std::string::String {
+    fn from(value: CapabilityUsageStateStageChunkParamsBase64) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for CapabilityUsageStateStageChunkParamsBase64 {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 349528usize {
+            return Err("longer than 349528 characters".into());
+        }
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| {
+                ::regress::Regex::new(
+                    "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+                )
+                .unwrap()
+            });
+        if PATTERN.find(value).is_none() {
+            return Err(
+                "doesn't match pattern \"^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$\""
+                    .into(),
+            );
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for CapabilityUsageStateStageChunkParamsBase64 {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for CapabilityUsageStateStageChunkParamsBase64 {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`CapabilityUsageStateStageChunkParamsLease`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 256,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct CapabilityUsageStateStageChunkParamsLease(::std::string::String);
+impl ::std::ops::Deref for CapabilityUsageStateStageChunkParamsLease {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<CapabilityUsageStateStageChunkParamsLease> for ::std::string::String {
+    fn from(value: CapabilityUsageStateStageChunkParamsLease) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for CapabilityUsageStateStageChunkParamsLease {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 256usize {
+            return Err("longer than 256 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for CapabilityUsageStateStageChunkParamsLease {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for CapabilityUsageStateStageChunkParamsLease {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`CapabilityUsageStateStageChunkResult`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "bytes"
+///  ],
+///  "properties": {
+///    "bytes": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "minimum": 0.0
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct CapabilityUsageStateStageChunkResult {
+    pub bytes: i64,
+}
 ///`DiagnosticPingParams`
 ///
 /// <details><summary>JSON schema</summary>
@@ -2228,6 +4787,15 @@ pub struct DiagnosticPingResult {
 ///        "type": "string"
 ///      }
 ///    },
+///    "features": {
+///      "type": "array",
+///      "items": {
+///        "type": "string",
+///        "maxLength": 64,
+///        "minLength": 1
+///      },
+///      "maxItems": 16
+///    },
 ///    "grants": {
 ///      "type": "array",
 ///      "items": {
@@ -2241,7 +4809,8 @@ pub struct DiagnosticPingResult {
 ///          "secrets.resolve",
 ///          "config.get",
 ///          "entitlement.report",
-///          "log"
+///          "log",
+///          "usage.state"
 ///        ]
 ///      }
 ///    },
@@ -2278,7 +4847,8 @@ pub struct DiagnosticPingResult {
 ///                  "secrets.resolve",
 ///                  "config.get",
 ///                  "entitlement.report",
-///                  "log"
+///                  "log",
+///                  "usage.state"
 ///                ]
 ///              },
 ///              "scopes": {
@@ -2363,10 +4933,68 @@ pub struct DiagnosticPingResult {
 #[serde(deny_unknown_fields)]
 pub struct HelloParams {
     pub config: ::std::collections::HashMap<::std::string::String, HelloParamsSchema1>,
+    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
+    pub features: ::std::vec::Vec<HelloParamsFeaturesItem>,
     pub grants: ::std::vec::Vec<HelloParamsGrantsItem>,
     pub manifest: HelloParamsManifest,
     pub pacer: ::std::string::String,
     pub protocol: ::std::string::String,
+}
+///`HelloParamsFeaturesItem`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 64,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct HelloParamsFeaturesItem(::std::string::String);
+impl ::std::ops::Deref for HelloParamsFeaturesItem {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<HelloParamsFeaturesItem> for ::std::string::String {
+    fn from(value: HelloParamsFeaturesItem) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for HelloParamsFeaturesItem {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 64usize {
+            return Err("longer than 64 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for HelloParamsFeaturesItem {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for HelloParamsFeaturesItem {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
 }
 ///`HelloParamsGrantsItem`
 ///
@@ -2384,7 +5012,8 @@ pub struct HelloParams {
 ///    "secrets.resolve",
 ///    "config.get",
 ///    "entitlement.report",
-///    "log"
+///    "log",
+///    "usage.state"
 ///  ]
 ///}
 /// ```
@@ -2420,6 +5049,8 @@ pub enum HelloParamsGrantsItem {
     EntitlementReport,
     #[serde(rename = "log")]
     Log,
+    #[serde(rename = "usage.state")]
+    UsageState,
 }
 impl ::std::convert::From<&Self> for HelloParamsGrantsItem {
     fn from(value: &HelloParamsGrantsItem) -> Self {
@@ -2438,6 +5069,7 @@ impl ::std::fmt::Display for HelloParamsGrantsItem {
             Self::ConfigGet => f.write_str("config.get"),
             Self::EntitlementReport => f.write_str("entitlement.report"),
             Self::Log => f.write_str("log"),
+            Self::UsageState => f.write_str("usage.state"),
         }
     }
 }
@@ -2454,6 +5086,7 @@ impl ::std::str::FromStr for HelloParamsGrantsItem {
             "config.get" => Ok(Self::ConfigGet),
             "entitlement.report" => Ok(Self::EntitlementReport),
             "log" => Ok(Self::Log),
+            "usage.state" => Ok(Self::UsageState),
             _ => Err("invalid value".into()),
         }
     }
@@ -2502,7 +5135,8 @@ impl ::std::convert::TryFrom<&str> for HelloParamsGrantsItem {
 ///              "secrets.resolve",
 ///              "config.get",
 ///              "entitlement.report",
-///              "log"
+///              "log",
+///              "usage.state"
 ///            ]
 ///          },
 ///          "scopes": {
@@ -2613,7 +5247,8 @@ pub struct HelloParamsManifest {
 ///        "secrets.resolve",
 ///        "config.get",
 ///        "entitlement.report",
-///        "log"
+///        "log",
+///        "usage.state"
 ///      ]
 ///    },
 ///    "scopes": {
@@ -2651,7 +5286,8 @@ pub struct HelloParamsManifestCapabilitiesItem {
 ///    "secrets.resolve",
 ///    "config.get",
 ///    "entitlement.report",
-///    "log"
+///    "log",
+///    "usage.state"
 ///  ]
 ///}
 /// ```
@@ -2687,6 +5323,8 @@ pub enum HelloParamsManifestCapabilitiesItemName {
     EntitlementReport,
     #[serde(rename = "log")]
     Log,
+    #[serde(rename = "usage.state")]
+    UsageState,
 }
 impl ::std::convert::From<&Self> for HelloParamsManifestCapabilitiesItemName {
     fn from(value: &HelloParamsManifestCapabilitiesItemName) -> Self {
@@ -2705,6 +5343,7 @@ impl ::std::fmt::Display for HelloParamsManifestCapabilitiesItemName {
             Self::ConfigGet => f.write_str("config.get"),
             Self::EntitlementReport => f.write_str("entitlement.report"),
             Self::Log => f.write_str("log"),
+            Self::UsageState => f.write_str("usage.state"),
         }
     }
 }
@@ -2721,6 +5360,7 @@ impl ::std::str::FromStr for HelloParamsManifestCapabilitiesItemName {
             "config.get" => Ok(Self::ConfigGet),
             "entitlement.report" => Ok(Self::EntitlementReport),
             "log" => Ok(Self::Log),
+            "usage.state" => Ok(Self::UsageState),
             _ => Err("invalid value".into()),
         }
     }
@@ -3306,6 +5946,15 @@ impl ::std::convert::From<::std::collections::HashMap<::std::string::String, Hel
 ///        "type": "string"
 ///      }
 ///    },
+///    "features": {
+///      "type": "array",
+///      "items": {
+///        "type": "string",
+///        "maxLength": 64,
+///        "minLength": 1
+///      },
+///      "maxItems": 16
+///    },
 ///    "id": {
 ///      "type": "string"
 ///    },
@@ -3324,9 +5973,67 @@ impl ::std::convert::From<::std::collections::HashMap<::std::string::String, Hel
 #[serde(deny_unknown_fields)]
 pub struct HelloResult {
     pub contributes: ::std::vec::Vec<::std::string::String>,
+    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
+    pub features: ::std::vec::Vec<HelloResultFeaturesItem>,
     pub id: ::std::string::String,
     pub protocol: ::std::string::String,
     pub version: ::std::string::String,
+}
+///`HelloResultFeaturesItem`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 64,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct HelloResultFeaturesItem(::std::string::String);
+impl ::std::ops::Deref for HelloResultFeaturesItem {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<HelloResultFeaturesItem> for ::std::string::String {
+    fn from(value: HelloResultFeaturesItem) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for HelloResultFeaturesItem {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 64usize {
+            return Err("longer than 64 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for HelloResultFeaturesItem {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for HelloResultFeaturesItem {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
 }
 ///`Manifest`
 ///
@@ -3366,7 +6073,8 @@ pub struct HelloResult {
 ///              "secrets.resolve",
 ///              "config.get",
 ///              "entitlement.report",
-///              "log"
+///              "log",
+///              "usage.state"
 ///            ]
 ///          },
 ///          "scopes": {
@@ -3477,7 +6185,8 @@ pub struct Manifest {
 ///        "secrets.resolve",
 ///        "config.get",
 ///        "entitlement.report",
-///        "log"
+///        "log",
+///        "usage.state"
 ///      ]
 ///    },
 ///    "scopes": {
@@ -3515,7 +6224,8 @@ pub struct ManifestCapabilitiesItem {
 ///    "secrets.resolve",
 ///    "config.get",
 ///    "entitlement.report",
-///    "log"
+///    "log",
+///    "usage.state"
 ///  ]
 ///}
 /// ```
@@ -3551,6 +6261,8 @@ pub enum ManifestCapabilitiesItemName {
     EntitlementReport,
     #[serde(rename = "log")]
     Log,
+    #[serde(rename = "usage.state")]
+    UsageState,
 }
 impl ::std::convert::From<&Self> for ManifestCapabilitiesItemName {
     fn from(value: &ManifestCapabilitiesItemName) -> Self {
@@ -3569,6 +6281,7 @@ impl ::std::fmt::Display for ManifestCapabilitiesItemName {
             Self::ConfigGet => f.write_str("config.get"),
             Self::EntitlementReport => f.write_str("entitlement.report"),
             Self::Log => f.write_str("log"),
+            Self::UsageState => f.write_str("usage.state"),
         }
     }
 }
@@ -3585,6 +6298,7 @@ impl ::std::str::FromStr for ManifestCapabilitiesItemName {
             "config.get" => Ok(Self::ConfigGet),
             "entitlement.report" => Ok(Self::EntitlementReport),
             "log" => Ok(Self::Log),
+            "usage.state" => Ok(Self::UsageState),
             _ => Err("invalid value".into()),
         }
     }
@@ -4197,6 +6911,26 @@ impl ::std::convert::From<::serde_json::Value> for PacerPluginProtocol110 {
 ///    "refresh": {
 ///      "type": "boolean"
 ///    },
+///    "resources": {
+///      "type": "object",
+///      "properties": {
+///        "claudeFiles": {
+///          "type": "array",
+///          "items": {
+///            "type": "string",
+///            "maxLength": 4096,
+///            "minLength": 1
+///          },
+///          "maxItems": 2
+///        },
+///        "codexSessions": {
+///          "type": "string",
+///          "maxLength": 4096,
+///          "minLength": 1
+///        }
+///      },
+///      "additionalProperties": false
+///    },
 ///    "weeklyTokens": {
 ///      "type": [
 ///        "number",
@@ -4228,6 +6962,8 @@ pub struct UsageReadParams {
     #[serde(rename = "readOnly")]
     pub read_only: bool,
     pub refresh: bool,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub resources: ::std::option::Option<UsageReadParamsResources>,
     #[serde(rename = "weeklyTokens")]
     pub weekly_tokens: ::std::option::Option<f64>,
     #[serde(rename = "weeklyUsd")]
@@ -4474,6 +7210,169 @@ impl ::std::convert::TryFrom<&str> for UsageReadParamsProvider {
     }
 }
 impl<'de> ::serde::Deserialize<'de> for UsageReadParamsProvider {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`UsageReadParamsResources`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "properties": {
+///    "claudeFiles": {
+///      "type": "array",
+///      "items": {
+///        "type": "string",
+///        "maxLength": 4096,
+///        "minLength": 1
+///      },
+///      "maxItems": 2
+///    },
+///    "codexSessions": {
+///      "type": "string",
+///      "maxLength": 4096,
+///      "minLength": 1
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct UsageReadParamsResources {
+    #[serde(
+        rename = "claudeFiles",
+        default,
+        skip_serializing_if = "::std::vec::Vec::is_empty"
+    )]
+    pub claude_files: ::std::vec::Vec<UsageReadParamsResourcesClaudeFilesItem>,
+    #[serde(
+        rename = "codexSessions",
+        default,
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub codex_sessions: ::std::option::Option<UsageReadParamsResourcesCodexSessions>,
+}
+impl ::std::default::Default for UsageReadParamsResources {
+    fn default() -> Self {
+        Self {
+            claude_files: Default::default(),
+            codex_sessions: Default::default(),
+        }
+    }
+}
+///`UsageReadParamsResourcesClaudeFilesItem`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 4096,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct UsageReadParamsResourcesClaudeFilesItem(::std::string::String);
+impl ::std::ops::Deref for UsageReadParamsResourcesClaudeFilesItem {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<UsageReadParamsResourcesClaudeFilesItem> for ::std::string::String {
+    fn from(value: UsageReadParamsResourcesClaudeFilesItem) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for UsageReadParamsResourcesClaudeFilesItem {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 4096usize {
+            return Err("longer than 4096 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for UsageReadParamsResourcesClaudeFilesItem {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for UsageReadParamsResourcesClaudeFilesItem {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`UsageReadParamsResourcesCodexSessions`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 4096,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct UsageReadParamsResourcesCodexSessions(::std::string::String);
+impl ::std::ops::Deref for UsageReadParamsResourcesCodexSessions {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<UsageReadParamsResourcesCodexSessions> for ::std::string::String {
+    fn from(value: UsageReadParamsResourcesCodexSessions) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for UsageReadParamsResourcesCodexSessions {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 4096usize {
+            return Err("longer than 4096 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for UsageReadParamsResourcesCodexSessions {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for UsageReadParamsResourcesCodexSessions {
     fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
     where
         D: ::serde::Deserializer<'de>,
