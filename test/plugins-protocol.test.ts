@@ -41,7 +41,7 @@ test("manifest files report JSON and schema problems by text", () => {
 });
 
 test("method tables name the diagnostic ping and the two phase-1 capabilities", () => {
-  expect(Object.keys(EXTENSION_METHODS).sort()).toEqual(["agentSession.attachment", "agentSession.capabilities", "agentSession.prepare", "diagnostic.ping"]);
+  expect(Object.keys(EXTENSION_METHODS).sort()).toEqual(["agentSession.attachment", "agentSession.capabilities", "agentSession.identity", "agentSession.prepare", "diagnostic.ping"]);
   expect(EXTENSION_METHODS["diagnostic.ping"].deadlineMs).toBe(5000);
   expect(Object.keys(CAPABILITY_METHODS).sort()).toEqual(["capability.config.get", "capability.log"]);
   expect(capabilityOf("capability.config.get")).toBe("config.get");

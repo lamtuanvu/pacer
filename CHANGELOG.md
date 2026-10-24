@@ -6,6 +6,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Complete native interactive adapters for Claude Code, Codex and OpenCode: detect CLI capabilities instead of pinning an exact version, retain native conversation identity for resume, honor named accounts and OpenCode models, and report native session activity. Explicit conversations can select the planner account while retaining execution guardrails.
+
 - Remove compounded spacing in app sections, cards, settings and embedded page headers; keep task disclosures evenly spaced and compact while preserving touch targets. Add shared spacing ownership checks and browser geometry regressions.
 
 ## [0.9.0] - 2026-10-23
