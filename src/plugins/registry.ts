@@ -29,6 +29,7 @@ const CRASH_WINDOW_S = 60, CRASH_LIMIT = 3, MAX_BACKOFF_MS = 30_000, HELLO_DEADL
 export class PluginRegistry {
   private published: Promise<unknown> = Promise.resolve();
   private readonly entries = new Map<string, Entry>();
+  private readonly refusedShadows = new Set<string>();
   private readonly sleep: (ms: number) => Promise<void>;
   constructor(private readonly deps: RegistryDeps) { this.sleep = deps.sleep ?? (ms => Bun.sleep(ms)); }
 
@@ -65,9 +66,18 @@ export class PluginRegistry {
     }
     const root = join(ctx.pacerHome, "plugins");
     const folders = existsSync(root) ? readdirSync(root).filter(f => statSync(join(root, f)).isDirectory()) : [];
+    for (const id of this.refusedShadows) if (!folders.includes(id)) this.refusedShadows.delete(id);
     for (const folder of folders) {
       const dir = join(root, folder);
-      if (this.deps.bundled.some(b => b.manifest.id === folder)) { apply(this.entry(folder, null, false, dir), `shadows the bundled plugin ${folder}`, null); continue; }
+      if (this.deps.bundled.some(b => b.manifest.id === folder)) {
+        // One canonical public id belongs to the bundle. Refuse the installed
+        // folder without mutating or terminating that bundle's live entry.
+        if (!this.refusedShadows.has(folder)) {
+          appendPluginLog(ctx, folder, "refused", `installed folder shadows the bundled plugin ${folder}`);
+          this.refusedShadows.add(folder);
+        }
+        continue;
+      }
       const read = readManifestFile(join(dir, "pacer-plugin.json"));
       if (!read.ok) { apply(this.entry(folder, null, false, dir), read.error, null); continue; }
       const m = read.manifest;
