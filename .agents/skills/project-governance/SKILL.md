@@ -21,6 +21,9 @@ review as human merge approval. Amend governance through the constitution's
 amendment process. Keep project policy in `.project/`, not duplicated in skills.
 
 For change review, read [project-review](../project-review/SKILL.md).
+For UI-affecting work, follow the canonical
+[UI review readiness procedure](../../../.project/rules/ui.md#ui-review-readiness-procedure)
+when planning validation and preparing or updating a PR.
 Use `.work/` for plans, reports and scratch evidence as directed by `AGENTS.md`.
 These instructions require no global installation, Claude command or particular
 agent tool. An agent without skill discovery must read these files by path.
