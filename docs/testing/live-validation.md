@@ -360,3 +360,32 @@ Run `bun run live up --id core-repair --seed ui`, then `bun run live repair --id
 
 The command accepts only a sandbox ID and uses the updater fixture's canonical ownership and evidence checks. Each case gets a private install directory, HOME and temporary directory. It accepts no binary, command, URL or scenario override, and grants no authority to ordinary guarded commands. On macOS it refuses a real local signing identity before and after each scenario. It also compares those compiled artifacts' stdio, HTTP authentication/rejection headers, SSE and WebSocket frames using disposable services and a deterministic Unix-socket peer under the fixture's private temporary directory. Finally, the actual shell installer installs a fixed0.0.2 pair into a private prefix, and that installed front door updates both files to0.0.3 with fixed `--no-restart --no-reinstall`, preserving exact backups. The installed pair also downgrades through its updater to a fixed single-binary bridge. The bridge replaces the front door and ignores the stale `pacer-core`; that companion and its backup remain byte-identical, while `pacer.bak` retains the previous Rust front door. A fixed private preload positive control also checks that ambient runtime options cannot alter the core through the front door's version probe or command invocation. The same private fixture checks setup-help forwarding, generates and invokes a Codex hook with the Rust `PACER_BIN`, and captures the fixed service installer registrations before deliberately refusing activation and verifying rollback. Those captures do not claim a loaded manager service or successful onboarding. No executor work is delegated. This validates core repair, transport forwarding, shell installation, startup environment and CLI paired replacement; it does not certify published channel delivery, production signing, service restart or desktop OTA. Results remain under `repair/<scenario>/result.json` and the live evidence report. Run `live report` and `live down --keep` afterwards.
 
+### Private OTA request diagnostics
+
+The guard proxy appends best-effort HTTP diagnostics for the six fixed fixture
+update operations to `evidence/ota-request-trace.jsonl` in its own session. Each
+request gets a fresh random diagnostic correlation ID, operation, fixed stage
+and outcome, elapsed milliseconds, and HTTP status when available. Request IDs,
+nonces, tokens, bodies, paths and arbitrary error text are excluded. Non-update
+traffic does not produce these events. There is no diagnostics endpoint or flag.
+
+Stages cover `body` collection and JSON parsing, `initial-policy` recorded-request
+checks, `native-ownership` inspection, `final-policy` recheck, `forward` dispatch
+or D8 refusal, and `upstream` response headers or transport error. `start` without
+a terminal outcome locates the last observed boundary; it does not establish why
+execution stopped. An upstream `response` records header arrival, not completion
+of a streamed body, transaction admission, native restart, readiness or cleanup.
+Wrong-method requests to those same fixed paths can reach the upstream under the
+existing proxy policy; their forwarding traces do not establish authorization.
+
+The file is private (0600), and its session/evidence directories must be canonical,
+owned and private (0700). Symlinked, multiply linked, nonregular and incorrectly
+permissioned files are refused. A non-waiting private append lock bounds the file
+to 1 MiB; full files, lock contention, stale locks and any observer/write failure
+silently omit diagnostics without changing authorization or HTTP behavior. The
+writer rechecks directory and opened-file identities before writing; like the
+harness's other private files, it assumes no hostile concurrent same-user edits.
+Missing or capped traces remain inconclusive. Do not reset requests, leases or
+native resources to obtain a new trace. Synthetic loopback forwarding/refusal
+checks validate these diagnostics only; native update/tray/retirement acceptance
+remains UNVERIFIED until independently exercised.
