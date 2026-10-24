@@ -401,7 +401,7 @@ body:has(.pc-app--narrow) .pc-toasts{bottom:calc(var(--size-56) + var(--space-5)
 
 /* Strategy Quick Access Popup */
 .pc-strategy-popup-backdrop{position:fixed;inset:0;background:var(--backdrop);display:flex;align-items:center;justify-content:center;z-index:var(--layer-overlay)}
-.pc-strategy-popup{background:var(--surface-page);border:1px solid var(--line);border-radius:var(--radius-lg);box-shadow:var(--shadow-lg);width:min(var(--size-360),calc(100vw - var(--space-10)));max-height:min(calc(100vh - var(--space-20)),var(--size-520));display:flex;flex-direction:column}
+.pc-strategy-popup{background:var(--surface-page);border:1px solid var(--line);border-radius:var(--radius-lg);box-shadow:var(--shadow-lg);width:min(var(--size-360),calc(100vw - var(--space-8)));max-height:min(calc(100vh - var(--space-12)),var(--size-520));display:flex;flex-direction:column}
 .pc-strategy-popup__header{display:flex;align-items:center;justify-content:space-between;gap:var(--space-3);padding:var(--space-3) var(--space-4);border-bottom:1px solid var(--line)}
 .pc-strategy-popup__header .pc-section-heading{margin:0}
 .pc-strategy-popup__summary{padding:var(--space-3) var(--space-4);border-bottom:1px solid var(--line)}

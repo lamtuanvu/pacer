@@ -243,8 +243,8 @@ export function StrategyQuickAccess({
   return (
     <>
       <Tooltip text={tooltipText}>
-        <button
-          type="button"
+        <Button
+          variant="quiet"
           className="pc-rail__item"
           aria-label={tooltipText}
           aria-haspopup="dialog"
@@ -255,7 +255,7 @@ export function StrategyQuickAccess({
           {hasRepoContext && (
             <span className="pc-rail__dot" aria-hidden="true" />
           )}
-        </button>
+        </Button>
       </Tooltip>
 
       {popupOpen && (
