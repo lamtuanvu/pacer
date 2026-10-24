@@ -6,6 +6,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Bound the Tasks list to the shared wide page layout and use complete task titles so wide windows no longer spread rows across the screen or retain character-truncated titles. Give long Start work recent titles a visible ellipsis and full-title tooltip.
+
 - Remove compounded spacing in app sections, cards, settings and embedded page headers; keep task disclosures evenly spaced and compact while preserving touch targets. Add shared spacing ownership checks and browser geometry regressions.
 
 ### Changed

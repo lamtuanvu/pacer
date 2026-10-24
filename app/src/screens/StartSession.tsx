@@ -356,7 +356,9 @@ export function StartSession() {
                 variant="quiet"
                 href={`#/tasks/${encodeURIComponent(task.id)}`}
               >
-                {task.fullTitle ?? task.title ?? task.goal}
+                <span className="pc-ellipsis" title={task.fullTitle ?? task.title ?? task.goal}>
+                  {task.fullTitle ?? task.title ?? task.goal}
+                </span>
               </ButtonLink>
             ))}
           </div>

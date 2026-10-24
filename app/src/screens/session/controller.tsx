@@ -21,7 +21,7 @@ import { SessionsList } from "./SessionsList";
 import { Conversation } from "./Conversation";
 import type { SessionData, Action } from './types';
 export function sessionRow(task:ClientTask):SessionData {
- return {id:task.id,title:task.title ?? task.fullTitle,goal:task.goal,state:task.state,reviewRequest:task.reviewRequest,review:task.review,resolved:task.resolved,dismissed:task.dismissed,retriedBy:task.retriedBy,executor:task.executor,agent:markAgent(task.executor??'unknown'),repo:task.repo?.label??'Repository unknown',machine:task.host,
+ return {id:task.id,title:task.fullTitle ?? task.title,goal:task.goal,state:task.state,reviewRequest:task.reviewRequest,review:task.review,resolved:task.resolved,dismissed:task.dismissed,retriedBy:task.retriedBy,executor:task.executor,agent:markAgent(task.executor??'unknown'),repo:task.repo?.label??'Repository unknown',machine:task.host,
  phase:task.progress?.phase,elapsed:sessionTime(task,Date.now()/1000),
  changesSummary:task.progress?`${task.progress.files} files · ${task.progress.commits} commits`:undefined};
 }
