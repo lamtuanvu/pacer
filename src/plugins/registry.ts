@@ -8,7 +8,7 @@ import type { Ctx } from "../types";
 import { type PluginGrant, pluginsConfig, setPluginDisabled, setPluginGrant } from "./config";
 import { answerCapability, appendPluginLog } from "./host";
 import { hostRangeAccepts, readManifestFile } from "./manifest";
-import { CallAdmission } from "./admission";
+import { CallAdmission, SerialCalls } from "./admission";
 import { CallAuthority, createCallAuthority, type CallResources } from "./authority";
 import { callMetadata } from "./protocol";
 import { PluginProcess, type SpawnSpec } from "./process";
@@ -24,7 +24,7 @@ export interface DoctorReport { id: string; ok: boolean; state: PluginState; ser
 interface Entry {
   id: string; manifest: PluginManifest | null; bundled: boolean; dir: string | null;
   state: PluginState; error: string | null; served: string[]; pluginProtocol: string | null;
-  process?: PluginProcess; starting?: Promise<PluginProcess>; queue: Promise<unknown>;
+  process?: PluginProcess; starting?: Promise<PluginProcess>; queue: SerialCalls;
   authorities: Map<string, CallAuthority>;
   crashes: number[]; nextStartAt: number; stopping: boolean;
 }
@@ -41,7 +41,7 @@ export class PluginRegistry {
 
   private entry(id: string, manifest: PluginManifest | null, bundled: boolean, dir: string | null): Entry {
     let e = this.entries.get(id);
-    if (!e) { e = { id, manifest, bundled, dir, state: "idle", error: null, served: [], pluginProtocol: null, queue: Promise.resolve(), authorities: new Map(), crashes: [], nextStartAt: 0, stopping: false }; this.entries.set(id, e); }
+    if (!e) { e = { id, manifest, bundled, dir, state: "idle", error: null, served: [], pluginProtocol: null, queue: new SerialCalls(), authorities: new Map(), crashes: [], nextStartAt: 0, stopping: false }; this.entries.set(id, e); }
     e.manifest = manifest; e.bundled = bundled; e.dir = dir;
     return e;
   }
@@ -229,9 +229,7 @@ export class PluginRegistry {
         }
       };
       if (e.manifest?.reentrant) return run();
-      const result = e.queue.then(run, run);
-      e.queue = result.catch(() => undefined);
-      return result;
+      return e.queue.run(signal, run);
     }, options.signal);
   }
 

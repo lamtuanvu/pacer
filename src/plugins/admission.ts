@@ -45,3 +45,33 @@ export class CallAdmission {
     });
   }
 }
+
+/** A canceled waiter is removed immediately; only running work owns cleanup. */
+export class SerialCalls {
+  private active = false;
+  private readonly queued: { start(): void; cancel(): void }[] = [];
+  run<T>(signal: AbortSignal, action: () => Promise<T>): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      let started = false;
+      const detach = () => signal.removeEventListener("abort", job.cancel);
+      const job = {
+        cancel: () => {
+          if (started) return; // The running action owns its cancellation/cleanup.
+          const index = this.queued.indexOf(job);
+          if (index >= 0) this.queued.splice(index, 1);
+          detach(); reject(new CoreError("plugin_unavailable", "owning plugin call ended before execution"));
+        },
+        start: () => {
+          if (signal.aborted) { job.cancel(); this.next(); return; }
+          started = true; detach(); this.active = true;
+          void Promise.resolve().then(action).then(resolve, reject).finally(() => this.next());
+        },
+      };
+      signal.addEventListener("abort", job.cancel, { once: true });
+      if (signal.aborted) job.cancel();
+      else if (this.active) this.queued.push(job);
+      else job.start();
+    });
+  }
+  private next(): void { this.active = false; this.queued.shift()?.start(); }
+}

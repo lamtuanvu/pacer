@@ -52,3 +52,19 @@ test("work finishing after its absolute clock cannot win over a delayed timer ca
   });
   await expect(pending).rejects.toMatchObject({ code: "plugin_timeout" });
 });
+
+test("serial queue removes repeated canceled waiters instead of retaining promise tombstones", async () => {
+  const { SerialCalls } = await import("../src/plugins/admission");
+  const queue = new SerialCalls(), live = new AbortController();
+  let release!: () => void, ran = 0;
+  const first = queue.run(live.signal, () => new Promise<void>(resolve => { release = resolve; }));
+  await Promise.resolve();
+  for (let i = 0; i < 64; i++) {
+    const controller = new AbortController();
+    const waiting = queue.run(controller.signal, async () => { ran++; });
+    controller.abort(); await expect(waiting).rejects.toThrow("before execution");
+  }
+  expect((queue as any).queued).toHaveLength(0);
+  release(); await first;
+  expect(ran).toBe(0);
+});

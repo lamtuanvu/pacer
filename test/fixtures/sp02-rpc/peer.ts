@@ -6,6 +6,8 @@ for await (const line of createInterface({ input: process.stdin })) {
   const message = JSON.parse(line);
   if (message.method === "plugin.hello") {
     send({ id: message.id, result: { protocol: "1.1.0", id: message.params.manifest.id, version: message.params.manifest.version, contributes: ["diagnostic", "usage"] } });
+  } else if (message.method === "diagnostic.ping") {
+    if (!message.params.hang) send({ id: message.id, result: { ok: true, uptimeS: 0 } });
   } else if (message.method === "usage.read") {
     const current = ++serial;
     const finish = () => send({ id: message.id, result: { windows: [], capturedAt: message.params.now, stale: false, serial: current, owned: message._meta?.capabilityCall ?? null } });

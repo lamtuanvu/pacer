@@ -48,3 +48,18 @@ test("stopping a plugin still terminates its process after owned cleanup fails",
   expect(terminated).toBe(true);
   expect(entry.process).toBeUndefined();
 });
+
+
+test("finite calls leave a nonreentrant queue while an infinite diagnostic still hangs", async () => {
+  const registry = make(), ctx = fakeCtx(), controller = new AbortController();
+  const hanging = registry.call(ctx, manifest.id, "diagnostic.ping", { hang: true }, { deadlineMs: 0, signal: controller.signal });
+  const ended = hanging.catch(() => undefined);
+  try {
+    await Bun.sleep(50);
+    const queued = registry.call(ctx, manifest.id, "usage.read", params("fixture"), { deadlineMs: 10 });
+    const outcome = await Promise.race([queued.then(() => "unexpected success", e => e.code), Bun.sleep(100).then(() => "still waiting")]);
+    expect(outcome).toBe("plugin_timeout");
+    controller.abort(); await ended;
+    expect((await registry.call<any>(ctx, manifest.id, "usage.read", params("fixture"))).serial).toBe(1);
+  } finally { controller.abort(); await ended; await registry.shutdown(); }
+});
