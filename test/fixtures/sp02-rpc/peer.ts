@@ -10,6 +10,11 @@ for await (const line of createInterface({ input: process.stdin })) {
     if (!message.params.hang) send({ id: message.id, result: { ok: true, uptimeS: 0 } });
   } else if (message.method === "usage.read") {
     const current = ++serial;
+    if (message.params.provider === "suppress-spawn") {
+      pending.set(`suppressed-${message.id}`, message.id);
+      send({ id: `suppressed-${message.id}`, method: "capability.process.spawn", params: { argv: ["opencode", "stats", "--models", "--cost", "--json", "--days", "7"], timeoutMs: 2000 }, _meta: message._meta });
+      continue;
+    }
     const finish = () => send({ id: message.id, result: { windows: [], capturedAt: message.params.now, stale: false, serial: current, owned: message._meta?.capabilityCall ?? null } });
     if (message.params.provider === "slow") setTimeout(finish, 30); else finish();
   } else if (message.method === "fixture.error") {
@@ -25,6 +30,6 @@ for await (const line of createInterface({ input: process.stdin })) {
     send({ method: "$/progress", params: { id: message.id, event: { value: 99 } } });
   } else if (!message.method && pending.has(message.id)) {
     const id = pending.get(message.id); pending.delete(message.id);
-    send({ id, result: message.result });
+    send({ id, result: message.id.startsWith("suppressed-") ? { windows: [], capturedAt: 100, stale: false, suppressed: true } : message.result });
   }
 }

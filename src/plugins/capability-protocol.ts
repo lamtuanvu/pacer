@@ -20,7 +20,7 @@ export const SCOPED_CAPABILITY_METHODS: Record<string, MethodDef> = {
     z.object({ files: z.array(fileInfo).max(1000), complete: z.boolean() })),
   "capability.fs.stat": method("Read metadata for an authorized regular file or exact sessions root directory.", z.object({ path }).strict(), z.union([z.object({ info: fileInfo }), missing])),
   "capability.fs.readRange": method("Read a pinned byte range, at most 256 KiB; changed identity fails without partial bytes.",
-    z.object({ path, offset: bytes, length: chunk, expected: identity }).strict(), z.object({ base64, info: fileInfo })),
+    z.object({ path, offset: bytes, length: chunk, expected: identity }).strict(), z.union([z.object({ base64, info: fileInfo }), missing])),
   "capability.process.spawn": method("Run only a host-issued pinned read-only provider command; environment/cwd remain host-owned.",
     z.object({ argv: z.array(z.string().max(4096)).min(1).max(32), timeoutMs: z.number().int().positive().max(600000) }).strict(),
     z.union([z.object({ code: z.number().int(), stdout: z.string(), stderr: z.string(), timedOut: z.boolean() }),

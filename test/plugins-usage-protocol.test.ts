@@ -26,7 +26,7 @@ test("usage result validation retains recursive rich evidence and unknown fields
 });
 
 test("usage input projects account identity and budget clocks without forwarding credentials", () => {
-  const safe = { provider: "codex", account: { name: "work", kind: "codex", source: "pacer" }, accountHome: "/fixture/accounts/work",
+  const safe = { provider: "codex", usage: "quota", account: { name: "work", kind: "codex", source: "pacer" }, accountHome: "/fixture/accounts/work",
     model: "public/code", weeklyTokens: 1000, weeklyUsd: 40, quotaSource: null, now: 100, readOnly: true, refresh: false };
   const schema = protocol.EXTENSION_METHODS["usage.read"]?.params;
   expect(schema).toBeDefined();

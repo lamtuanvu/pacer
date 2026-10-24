@@ -473,6 +473,15 @@ Params:
       "type": "string",
       "minLength": 1
     },
+    "usage": {
+      "type": "string",
+      "enum": [
+        "quota",
+        "metered",
+        "reactive",
+        "unmetered"
+      ]
+    },
     "account": {
       "anyOf": [
         {
@@ -576,6 +585,7 @@ Params:
   },
   "required": [
     "provider",
+    "usage",
     "account",
     "accountHome",
     "model",
@@ -1824,55 +1834,72 @@ Result:
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "type": "object",
-  "properties": {
-    "base64": {
-      "type": "string",
-      "maxLength": 349528,
-      "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
-    },
-    "info": {
+  "anyOf": [
+    {
       "type": "object",
       "properties": {
-        "path": {
+        "base64": {
           "type": "string",
-          "minLength": 1,
-          "maxLength": 4096
+          "maxLength": 349528,
+          "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
         },
-        "size": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 9007199254740991
-        },
-        "mtimeMs": {
-          "type": "number"
-        },
-        "inode": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 9007199254740991
-        },
-        "device": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 9007199254740991
+        "info": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "size": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "mtimeMs": {
+              "type": "number"
+            },
+            "inode": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "device": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "path",
+            "size",
+            "mtimeMs",
+            "inode",
+            "device"
+          ],
+          "additionalProperties": false
         }
       },
       "required": [
-        "path",
-        "size",
-        "mtimeMs",
-        "inode",
-        "device"
+        "base64",
+        "info"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "missing": {
+          "type": "boolean",
+          "const": true
+        }
+      },
+      "required": [
+        "missing"
       ],
       "additionalProperties": false
     }
-  },
-  "required": [
-    "base64",
-    "info"
-  ],
-  "additionalProperties": false
+  ]
 }
 ```
 

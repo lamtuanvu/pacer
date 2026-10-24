@@ -124,3 +124,6 @@ export async function serve(o: ServeOptions): Promise<void> {
     await Promise.all(tasks);
   }
 }
+
+export { createUsageReaderIO } from "./usage";
+export type { UsageReading, UsageWindow, ReaderIO, ReaderContext, FileInfo, Cursor, Cached } from "./usage";

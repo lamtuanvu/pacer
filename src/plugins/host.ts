@@ -1,5 +1,8 @@
 // src/plugins/host.ts
 import { CallAuthority } from "./authority";
+import { answerUsageState } from "./usage-state";
+import { answerFilesystem } from "./capability-fs";
+import { answerSpawn, readSpawnOutput } from "./capability-spawn";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { CoreError } from "../core/errors";
@@ -26,6 +29,12 @@ export async function answerCapability(ctx: Ctx, plugin: { id: string; manifest:
   }
   const parsed = def.params.safeParse(params ?? {});
   if (!parsed.success) throw new CoreError("invalid_input", parsed.error.issues.map(i => `${i.path.join(".") || "params"}: ${i.message}`).join("; "));
+  const scopes = plugin.manifest.capabilities.find(capability => capability.name === name)?.scopes ?? [];
+  if (authority && name === "fs.read") return authority.exclusive(() => answerFilesystem(authority, scopes, method, parsed.data as Record<string, unknown>));
+  if (authority && name === "process.spawn") return authority.exclusive(() => method === "capability.process.outputChunk"
+    ? readSpawnOutput(authority, parsed.data as Record<string, unknown>) : answerSpawn(authority, scopes, parsed.data as Record<string, unknown>));
+  if (authority && name === "usage.state") return authority.exclusive(() => answerUsageState(authority,
+    method.slice("capability.usage.state.".length) as Parameters<typeof answerUsageState>[1], parsed.data as Record<string, unknown>));
   switch (name) {
     case "log": { const p = parsed.data as { level: string; message: string }; appendPluginLog(ctx, plugin.id, p.level, p.message); return { ok: true }; }
     case "config.get": return { config: pluginsConfig(ctx).config[plugin.id] ?? {} };

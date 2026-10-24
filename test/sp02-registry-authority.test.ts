@@ -1,9 +1,10 @@
 import { expect, test } from "bun:test";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { PluginRegistry } from "../src/plugins/registry";
 import { fakeCtx } from "./helpers";
 const manifest = { id: "usage-fixture", version: "1.0.0", publisher: "test", host: "^1", contributes: { usage: {} }, capabilities: [], reentrant: false, tier: "free" as const };
-const params = (provider: string) => ({ provider, account: null, accountHome: null, model: null, weeklyTokens: null, weeklyUsd: null,
+const params = (provider: string) => ({ provider, usage: "quota", account: null, accountHome: null, model: null, weeklyTokens: null, weeklyUsd: null,
   quotaSource: null, now: 100, readOnly: true, refresh: false });
 const make = () => new PluginRegistry({ bundled: [{ manifest, main: async () => ({ handlers: {} }) }],
   spawnBundled: ctx => ({ argv: [process.execPath, join(import.meta.dir, "fixtures/sp02-rpc/peer.ts")], cwd: ctx.home, env: {} }) });
@@ -62,4 +63,20 @@ test("finite calls leave a nonreentrant queue while an infinite diagnostic still
     controller.abort(); await ended;
     expect((await registry.call<any>(ctx, manifest.id, "usage.read", params("fixture"))).serial).toBe(1);
   } finally { controller.abort(); await ended; await registry.shutdown(); }
+});
+
+
+test("a plugin cannot suppress provider cleanup uncertainty into successful usage", async () => {
+  const ctx = fakeCtx();
+  const executable = join(ctx.home, "owned-provider");
+  writeFileSync(executable, `#!${process.execPath}\nconst {spawn}=require("node:child_process"); spawn(process.execPath,["-e","setTimeout(()=>{},700)"],{stdio:["ignore",1,2]}); process.exit(0);\n`, { mode: 0o700 });
+  ctx.which = () => executable;
+  const scoped = { ...manifest, capabilities: [{ name: "process.spawn" as const, scopes: ["opencode"] }] };
+  const registry = new PluginRegistry({ bundled: [{ manifest: scoped, main: async () => ({ handlers: {} }) }],
+    spawnBundled: c => ({ argv: [process.execPath, join(import.meta.dir, "fixtures/sp02-rpc/peer.ts")], cwd: c.home, env: {} }) });
+  try {
+    await expect(registry.call(ctx, manifest.id, "usage.read", params("suppress-spawn"), { resources: { reads: [], stores: [], commands: [
+      { argv: ["opencode", "stats", "--models", "--cost", "--json", "--days", "7"], timeoutMs: 2000 },
+    ] } })).rejects.toThrow("cleanup unverified");
+  } finally { await registry.shutdown(); }
 });

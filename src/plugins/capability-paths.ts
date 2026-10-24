@@ -50,15 +50,20 @@ export function absolutePath(value: unknown): string {
 }
 function scopePatterns(authority: CallAuthority, scopes: readonly string[]): string[] {
   const values: Record<string, string | null> = { HOME: authority.ctx.home, PACER_HOME: authority.ctx.pacerHome, ACCOUNT_HOME: authority.accountHome };
-  return scopes.map(scope => {
+  return scopes.flatMap(scope => {
+    let unavailable = false;
     const expanded = scope.replace(/\$\{([A-Z_]+)\}|\$([A-Z_]+)/g, (_match, braced, bare) => {
-      const value = values[braced ?? bare];
+      const key = braced ?? bare;
+      if (!Object.hasOwn(values, key)) return denied("unknown scope variable");
+      const value = values[key];
+      if (value === null) { unavailable = true; return ""; }
       if (!value || !isAbsolute(value)) return denied("scope variable is unavailable");
       return value;
     });
+    if (unavailable) return [];
     if (!isAbsolute(expanded) || expanded.includes("$") || expanded.includes("\0")
       || expanded.split(/[\\/]/).some(part => part === "." || part === "..")) return denied("invalid declared read scope");
-    return expanded;
+    return [expanded];
   });
 }
 export function declaredPath(authority: CallAuthority, scopes: readonly string[], path: string, directory = false): boolean {

@@ -8,6 +8,9 @@ import type { Ctx } from "../types";
 import { type PluginGrant, pluginsConfig, setPluginDisabled, setPluginGrant } from "./config";
 import { answerCapability, appendPluginLog } from "./host";
 import { hostRangeAccepts, readManifestFile } from "./manifest";
+import { prepareStateAuthority } from "./usage-state";
+import { prepareFilesystemAuthority } from "./capability-fs";
+import { prepareSpawnAuthority } from "./capability-spawn";
 import { CallAdmission, SerialCalls } from "./admission";
 import { CallAuthority, createCallAuthority, type CallResources } from "./authority";
 import { callMetadata } from "./protocol";
@@ -107,7 +110,16 @@ export class PluginRegistry {
     }));
   }
 
-  private find(ctx: Ctx, id: string): Entry {
+  /** Deterministic enabled contribution selection; canonical bundles precede installed providers. */
+  find(ctx: Ctx, point: keyof PluginManifest["contributes"], predicate: (contribution: Record<string, unknown>) => boolean): string | null {
+    this.refresh(ctx);
+    const candidates = [...this.entries.values()].filter(entry => ENABLED.has(entry.state) && entry.manifest
+      && Object.hasOwn(entry.manifest.contributes, point));
+    candidates.sort((a, b) => Number(b.bundled) - Number(a.bundled) || a.id.localeCompare(b.id));
+    return candidates.find(entry => predicate(entry.manifest!.contributes[point] ?? {}))?.id ?? null;
+  }
+
+  private findEntry(ctx: Ctx, id: string): Entry {
     if (!this.entries.size) this.refresh(ctx);
     const e = this.entries.get(id);
     if (!e) { this.refresh(ctx); const again = this.entries.get(id); if (!again) throw new CoreError("unknown_plugin", `unknown plugin ${id}`); return again; }
@@ -191,7 +203,7 @@ export class PluginRegistry {
 
   async call<T>(ctx: Ctx, id: string, method: string, params: unknown, options: PluginCallOptions = {}): Promise<T> {
     const startedAt = Date.now();
-    const e = this.find(ctx, id);
+    const e = this.findEntry(ctx, id);
     if (!ENABLED.has(e.state)) throw new CoreError("plugin_unavailable", `plugin ${id} is ${e.state}${e.error ? `: ${e.error}` : ""}`);
     const def = EXTENSION_METHODS[method];
     if (!def) throw new CoreError("unknown_op", `unknown plugin method ${method}`);
@@ -216,6 +228,12 @@ export class PluginRegistry {
           { deadlineMs: deadlineAt, signal, grants, accountHome: options.accountHome }) : undefined;
         if (authority) e.authorities.set(authority.token, authority);
         try {
+          if (authority) {
+            await prepareFilesystemAuthority(authority);
+            await prepareStateAuthority(authority);
+            prepareSpawnAuthority(authority);
+            authority.assertActive();
+          }
           const result = await proc.request<T>(method, input, deadlineAt === Infinity ? 0 : Math.max(1, deadlineAt - Date.now()),
             { signal, metadata: authority ? { capabilityCall: authority.token } : undefined, onProgress: options.onProgress });
           if (method === "usage.read") {
@@ -235,7 +253,7 @@ export class PluginRegistry {
 
   async enable(ctx: Ctx, id: string, grant: boolean): Promise<{ id: string; state: PluginState; needs?: string[] }> {
     this.refresh(ctx);
-    const e = this.find(ctx, id);
+    const e = this.findEntry(ctx, id);
     if (e.state === "refused") throw new CoreError("plugin_refused", `plugin ${id} cannot be enabled: ${e.error}`);
     const m = e.manifest!;
     const needs = m.capabilities.map(c => c.name);
@@ -251,7 +269,7 @@ export class PluginRegistry {
   }
 
   async disable(ctx: Ctx, id: string): Promise<{ id: string; state: PluginState }> {
-    const e = this.find(ctx, id);
+    const e = this.findEntry(ctx, id);
     if (e.state === "refused") throw new CoreError("plugin_refused", `plugin ${id} is refused: ${e.error}`);
     await setPluginDisabled(ctx, id, true);
     await this.stop(e);
@@ -260,7 +278,7 @@ export class PluginRegistry {
   }
 
   async remove(ctx: Ctx, id: string): Promise<{ id: string; removed: true }> {
-    const e = this.find(ctx, id);
+    const e = this.findEntry(ctx, id);
     if (e.bundled) throw new CoreError("not_allowed", `plugin ${id} is bundled with pacer and cannot be removed`, "Use plugin.disable instead.");
     await this.stop(e);
     rmSync(e.dir!, { recursive: true, force: true });
@@ -272,7 +290,7 @@ export class PluginRegistry {
 
   async doctor(ctx: Ctx, id?: string): Promise<DoctorReport[]> {
     this.refresh(ctx);
-    const targets = id ? [this.find(ctx, id)] : [...this.entries.values()].sort((a, b) => a.id.localeCompare(b.id));
+    const targets = id ? [this.findEntry(ctx, id)] : [...this.entries.values()].sort((a, b) => a.id.localeCompare(b.id));
     return Promise.all(targets.map(async (e): Promise<DoctorReport> => {
       const base = { id: e.id, served: e.served, protocol: { host: PLUGIN_PROTOCOL_VERSION, plugin: e.pluginProtocol }, needs: e.manifest?.host ?? null };
       if (!ENABLED.has(e.state)) return { ...base, ok: false, state: e.state, pid: null, restarts: e.crashes.length, error: e.error };

@@ -2558,65 +2558,92 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityFsReadRangeParamsPath {
 ///
 /// ```json
 ///{
-///  "type": "object",
-///  "required": [
-///    "base64",
-///    "info"
-///  ],
-///  "properties": {
-///    "base64": {
-///      "type": "string",
-///      "maxLength": 349528,
-///      "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
-///    },
-///    "info": {
+///  "anyOf": [
+///    {
 ///      "type": "object",
 ///      "required": [
-///        "device",
-///        "inode",
-///        "mtimeMs",
-///        "path",
-///        "size"
+///        "base64",
+///        "info"
 ///      ],
 ///      "properties": {
-///        "device": {
-///          "type": "integer",
-///          "maximum": 9007199254740991.0,
-///          "minimum": 0.0
-///        },
-///        "inode": {
-///          "type": "integer",
-///          "maximum": 9007199254740991.0,
-///          "minimum": 0.0
-///        },
-///        "mtimeMs": {
-///          "type": "number"
-///        },
-///        "path": {
+///        "base64": {
 ///          "type": "string",
-///          "maxLength": 4096,
-///          "minLength": 1
+///          "maxLength": 349528,
+///          "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
 ///        },
-///        "size": {
-///          "type": "integer",
-///          "maximum": 9007199254740991.0,
-///          "minimum": 0.0
+///        "info": {
+///          "type": "object",
+///          "required": [
+///            "device",
+///            "inode",
+///            "mtimeMs",
+///            "path",
+///            "size"
+///          ],
+///          "properties": {
+///            "device": {
+///              "type": "integer",
+///              "maximum": 9007199254740991.0,
+///              "minimum": 0.0
+///            },
+///            "inode": {
+///              "type": "integer",
+///              "maximum": 9007199254740991.0,
+///              "minimum": 0.0
+///            },
+///            "mtimeMs": {
+///              "type": "number"
+///            },
+///            "path": {
+///              "type": "string",
+///              "maxLength": 4096,
+///              "minLength": 1
+///            },
+///            "size": {
+///              "type": "integer",
+///              "maximum": 9007199254740991.0,
+///              "minimum": 0.0
+///            }
+///          },
+///          "additionalProperties": false
+///        }
+///      },
+///      "additionalProperties": false
+///    },
+///    {
+///      "type": "object",
+///      "required": [
+///        "missing"
+///      ],
+///      "properties": {
+///        "missing": {
+///          "type": "boolean",
+///          "const": true
 ///        }
 ///      },
 ///      "additionalProperties": false
 ///    }
-///  },
-///  "additionalProperties": false
+///  ]
 ///}
 /// ```
 /// </details>
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
-#[serde(deny_unknown_fields)]
-pub struct CapabilityFsReadRangeResult {
-    pub base64: CapabilityFsReadRangeResultBase64,
-    pub info: CapabilityFsReadRangeResultInfo,
+#[serde(untagged, deny_unknown_fields)]
+pub enum CapabilityFsReadRangeResult {
+    Variant0 {
+        base64: CapabilityFsReadRangeResultVariant0Base64,
+        info: CapabilityFsReadRangeResultVariant0Info,
+    },
+    Variant1 {
+        missing: bool,
+    },
 }
-///`CapabilityFsReadRangeResultBase64`
+impl ::std::convert::From<&Self> for CapabilityFsReadRangeResult {
+    fn from(value: &CapabilityFsReadRangeResult) -> Self {
+        value.clone()
+    }
+}
+///`CapabilityFsReadRangeResultVariant0Base64`
 ///
 /// <details><summary>JSON schema</summary>
 ///
@@ -2630,19 +2657,19 @@ pub struct CapabilityFsReadRangeResult {
 /// </details>
 #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[serde(transparent)]
-pub struct CapabilityFsReadRangeResultBase64(::std::string::String);
-impl ::std::ops::Deref for CapabilityFsReadRangeResultBase64 {
+pub struct CapabilityFsReadRangeResultVariant0Base64(::std::string::String);
+impl ::std::ops::Deref for CapabilityFsReadRangeResultVariant0Base64 {
     type Target = ::std::string::String;
     fn deref(&self) -> &::std::string::String {
         &self.0
     }
 }
-impl ::std::convert::From<CapabilityFsReadRangeResultBase64> for ::std::string::String {
-    fn from(value: CapabilityFsReadRangeResultBase64) -> Self {
+impl ::std::convert::From<CapabilityFsReadRangeResultVariant0Base64> for ::std::string::String {
+    fn from(value: CapabilityFsReadRangeResultVariant0Base64) -> Self {
         value.0
     }
 }
-impl ::std::str::FromStr for CapabilityFsReadRangeResultBase64 {
+impl ::std::str::FromStr for CapabilityFsReadRangeResultVariant0Base64 {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         if value.chars().count() > 349528usize {
@@ -2664,13 +2691,13 @@ impl ::std::str::FromStr for CapabilityFsReadRangeResultBase64 {
         Ok(Self(value.to_string()))
     }
 }
-impl ::std::convert::TryFrom<&str> for CapabilityFsReadRangeResultBase64 {
+impl ::std::convert::TryFrom<&str> for CapabilityFsReadRangeResultVariant0Base64 {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
-impl<'de> ::serde::Deserialize<'de> for CapabilityFsReadRangeResultBase64 {
+impl<'de> ::serde::Deserialize<'de> for CapabilityFsReadRangeResultVariant0Base64 {
     fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
     where
         D: ::serde::Deserializer<'de>,
@@ -2682,7 +2709,7 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityFsReadRangeResultBase64 {
             })
     }
 }
-///`CapabilityFsReadRangeResultInfo`
+///`CapabilityFsReadRangeResultVariant0Info`
 ///
 /// <details><summary>JSON schema</summary>
 ///
@@ -2727,15 +2754,15 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityFsReadRangeResultBase64 {
 /// </details>
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
-pub struct CapabilityFsReadRangeResultInfo {
+pub struct CapabilityFsReadRangeResultVariant0Info {
     pub device: i64,
     pub inode: i64,
     #[serde(rename = "mtimeMs")]
     pub mtime_ms: f64,
-    pub path: CapabilityFsReadRangeResultInfoPath,
+    pub path: CapabilityFsReadRangeResultVariant0InfoPath,
     pub size: i64,
 }
-///`CapabilityFsReadRangeResultInfoPath`
+///`CapabilityFsReadRangeResultVariant0InfoPath`
 ///
 /// <details><summary>JSON schema</summary>
 ///
@@ -2749,19 +2776,19 @@ pub struct CapabilityFsReadRangeResultInfo {
 /// </details>
 #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[serde(transparent)]
-pub struct CapabilityFsReadRangeResultInfoPath(::std::string::String);
-impl ::std::ops::Deref for CapabilityFsReadRangeResultInfoPath {
+pub struct CapabilityFsReadRangeResultVariant0InfoPath(::std::string::String);
+impl ::std::ops::Deref for CapabilityFsReadRangeResultVariant0InfoPath {
     type Target = ::std::string::String;
     fn deref(&self) -> &::std::string::String {
         &self.0
     }
 }
-impl ::std::convert::From<CapabilityFsReadRangeResultInfoPath> for ::std::string::String {
-    fn from(value: CapabilityFsReadRangeResultInfoPath) -> Self {
+impl ::std::convert::From<CapabilityFsReadRangeResultVariant0InfoPath> for ::std::string::String {
+    fn from(value: CapabilityFsReadRangeResultVariant0InfoPath) -> Self {
         value.0
     }
 }
-impl ::std::str::FromStr for CapabilityFsReadRangeResultInfoPath {
+impl ::std::str::FromStr for CapabilityFsReadRangeResultVariant0InfoPath {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         if value.chars().count() > 4096usize {
@@ -2773,13 +2800,13 @@ impl ::std::str::FromStr for CapabilityFsReadRangeResultInfoPath {
         Ok(Self(value.to_string()))
     }
 }
-impl ::std::convert::TryFrom<&str> for CapabilityFsReadRangeResultInfoPath {
+impl ::std::convert::TryFrom<&str> for CapabilityFsReadRangeResultVariant0InfoPath {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
 }
-impl<'de> ::serde::Deserialize<'de> for CapabilityFsReadRangeResultInfoPath {
+impl<'de> ::serde::Deserialize<'de> for CapabilityFsReadRangeResultVariant0InfoPath {
     fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
     where
         D: ::serde::Deserializer<'de>,
@@ -6845,6 +6872,7 @@ impl ::std::convert::From<::serde_json::Value> for PacerPluginProtocol110 {
 ///    "quotaSource",
 ///    "readOnly",
 ///    "refresh",
+///    "usage",
 ///    "weeklyTokens",
 ///    "weeklyUsd"
 ///  ],
@@ -6941,6 +6969,15 @@ impl ::std::convert::From<::serde_json::Value> for PacerPluginProtocol110 {
 ///      },
 ///      "additionalProperties": false
 ///    },
+///    "usage": {
+///      "type": "string",
+///      "enum": [
+///        "quota",
+///        "metered",
+///        "reactive",
+///        "unmetered"
+///      ]
+///    },
 ///    "weeklyTokens": {
 ///      "type": [
 ///        "number",
@@ -6974,6 +7011,7 @@ pub struct UsageReadParams {
     pub refresh: bool,
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub resources: ::std::option::Option<UsageReadParamsResources>,
+    pub usage: UsageReadParamsUsage,
     #[serde(rename = "weeklyTokens")]
     pub weekly_tokens: ::std::option::Option<f64>,
     #[serde(rename = "weeklyUsd")]
@@ -7392,6 +7430,77 @@ impl<'de> ::serde::Deserialize<'de> for UsageReadParamsResourcesCodexSessions {
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
+    }
+}
+///`UsageReadParamsUsage`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "enum": [
+///    "quota",
+///    "metered",
+///    "reactive",
+///    "unmetered"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum UsageReadParamsUsage {
+    #[serde(rename = "quota")]
+    Quota,
+    #[serde(rename = "metered")]
+    Metered,
+    #[serde(rename = "reactive")]
+    Reactive,
+    #[serde(rename = "unmetered")]
+    Unmetered,
+}
+impl ::std::convert::From<&Self> for UsageReadParamsUsage {
+    fn from(value: &UsageReadParamsUsage) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for UsageReadParamsUsage {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Quota => f.write_str("quota"),
+            Self::Metered => f.write_str("metered"),
+            Self::Reactive => f.write_str("reactive"),
+            Self::Unmetered => f.write_str("unmetered"),
+        }
+    }
+}
+impl ::std::str::FromStr for UsageReadParamsUsage {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "quota" => Ok(Self::Quota),
+            "metered" => Ok(Self::Metered),
+            "reactive" => Ok(Self::Reactive),
+            "unmetered" => Ok(Self::Unmetered),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for UsageReadParamsUsage {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
     }
 }
 ///`UsageReadResult`

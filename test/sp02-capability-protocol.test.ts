@@ -22,7 +22,7 @@ test("provider commands reject plugin-selected environment cwd and stdin", () =>
 });
 
 test("host-derived reader paths survive only explicit resources projection", () => {
-  const params = { provider: "claude-code", account: null, accountHome: null, model: null, weeklyTokens: null, weeklyUsd: null,
+  const params = { provider: "claude-code", usage: "quota" as const, account: null, accountHome: null, model: null, weeklyTokens: null, weeklyUsd: null,
     quotaSource: null, now: 1, refresh: false, readOnly: false,
     resources: { claudeFiles: ["/fixture/cache/claude.json"], codexSessions: "/fixture/sessions", credentials: "/fixture/secret" } };
   expect(usageReadParams.parse(params)).toEqual({ ...params, resources: { claudeFiles: ["/fixture/cache/claude.json"], codexSessions: "/fixture/sessions" } });
