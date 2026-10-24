@@ -13,8 +13,8 @@ test("shared Rust error golden matches every TypeScript API code and projection"
   for (const row of golden) {
     const error = new CoreError(row.code as CoreErrorCode, "contract message", row.hint ?? undefined, row.data ?? undefined);
     expect(httpStatus(row.code as ApiErrorCode)).toBe(row.status);
-    expect({ error: toApiError(error) }).toEqual(row.body);
-    expect(rpcError(error)).toEqual(row.rpc);
+    expect<unknown>({ error: toApiError(error) }).toEqual(row.body);
+    expect<unknown>(rpcError(error)).toEqual(row.rpc);
   }
   // Ordinary failures are internal at the API boundary, not invalid_input.
   expect(toApiError(new Error("broken"))).toEqual({ code: "internal", message: "broken" });
