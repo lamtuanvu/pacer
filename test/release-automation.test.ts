@@ -15,7 +15,7 @@ test("Prepare release is a manual, main-only, token-gated button with one releas
   expect(prepare.permissions).toEqual({});
   expect(prepare.concurrency?.group).toBe("release");
   const job = prepare.jobs.prepare!;
-  expect(job.permissions).toEqual({ contents: "read", actions: "write" });
+  expect(job.permissions).toEqual({ contents: "read", "pull-requests": "read", actions: "write" });
   expect(job.env?.GH_TOKEN).toBe("${{ secrets.RELEASE_TOKEN }}");
   // The PAT cannot dispatch workflows without the Actions permission; the job token can.
   expect(job.steps.find(s => s.name === "Dry-run the release on the PR branch")?.env?.GH_TOKEN).toBe("${{ github.token }}");
@@ -29,17 +29,18 @@ test("Prepare release is a manual, main-only, token-gated button with one releas
   expect(script).toContain('bun scripts/release/next-version.ts "$BUMP"');
   expect(script).toContain('bun run release:prepare "$VERSION"');
   expect(script).toContain('git commit -s -m "chore: release $VERSION"');
-  expect(script).toContain("-f dry_run=true");
+  expect(script).toContain('--commit "$head" --event pull_request');
+  expect(script).not.toContain("gh workflow run release.yml");
   expect(script).toContain("gh run watch \"$run\" --repo \"$GITHUB_REPOSITORY\" --interval 30 --exit-status");
-  expect(script).toContain('gh pr merge "$URL" --auto --squash');
+  expect(script).toContain('gh pr merge "$URL" --auto --squash --match-head-commit "$head"');
   expect(job.steps.find(s => s.name === "Report a failed dry run on the PR")?.if).toBe("failure() && steps.pr.outputs.url != ''");
 });
 
 test("Release tag only reacts to release commits on main and pushes with the release token", () => {
-  expect(tag.on).toEqual({ push: { branches: ["main"] } });
+  expect(tag.on.push).toEqual({ branches: ["main"] });
   expect(tag.permissions).toEqual({});
   const job = tag.jobs.tag!;
-  expect(job.if).toBe("startsWith(github.event.head_commit.message, 'chore: release ')");
+  expect(job.if).toBe("github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, 'chore: release ')");
   expect(job.env?.GH_TOKEN).toBe("${{ secrets.RELEASE_TOKEN }}");
 });
 
@@ -64,8 +65,8 @@ function fixture(version: string, subject: string) {
   return { origin, work, sha };
 }
 const script = tag.jobs.tag!.steps.find(s => s.name === "Tag the release commit")!.run!;
-const runTag = (work: string, sha: string, subject: string) =>
-  Bun.spawnSync(["bash", "-e", "-c", script], { cwd: work, env: { ...process.env, GH_TOKEN: "test-token", GH_READ_TOKEN: "read-token", SUBJECT: subject, GITHUB_SHA: sha, GITHUB_REPOSITORY: "fixture/repo", PATH: `${join(work, "bin")}:${process.env.PATH}`, GITHUB_STEP_SUMMARY: join(work, "summary") }, stdout: "pipe", stderr: "pipe" });
+const runTag = (work: string, sha: string, subject: string, extra: Record<string, string> = {}) =>
+  Bun.spawnSync(["bash", "-e", "-c", script], { cwd: work, env: { ...process.env, GH_TOKEN: "test-token", GH_READ_TOKEN: "read-token", SUBJECT: subject, GITHUB_SHA: sha, GITHUB_REPOSITORY: "fixture/repo", PATH: `${join(work, "bin")}:${process.env.PATH}`, GITHUB_STEP_SUMMARY: join(work, "summary"), ...extra }, stdout: "pipe", stderr: "pipe" });
 
 test("Release tag tags a squash-merged release commit and never moves an existing tag", () => {
   const subject = "chore: release 0.5.0 (#220)";
@@ -143,6 +144,171 @@ test("Release tag fails closed without a PR number or when GitHub reads fail", (
     const { origin, work, sha } = fixture("0.5.0", subject);
     if (apiFailure) writeFileSync(join(work, "bin", "gh"), "#!/bin/sh\nexit 1\n");
     expect(runTag(work, sha, subject).exitCode).not.toBe(0);
+    expect(git(origin, "tag", "--list")).toBe("");
+  }
+});
+
+test("Every release PR head gets a dry run with exact-head checkout", () => {
+  const release = load("release.yml");
+  expect(release.on.pull_request).toEqual({ branches: ["main"], types: ["opened", "synchronize", "reopened", "ready_for_review"] });
+  expect((release as any).env.DRY_RUN).toContain("github.event_name == 'pull_request'");
+  expect(release.jobs.verify!.if).toContain("github.event.pull_request.head.repo.full_name == github.repository");
+  for (const job of Object.values(release.jobs)) {
+    for (const step of job.steps.filter(s => s.uses?.startsWith("actions/checkout@"))) {
+      expect(step.with?.ref).toBe("${{ github.event.pull_request.head.sha || github.sha }}");
+    }
+  }
+});
+
+test("Required test jobs wait for release readiness", () => {
+  const ci = load("ci.yml");
+  expect((ci.jobs.test as any).needs).toContain("release-readiness");
+  expect(ci.jobs.test!.steps.some(s => s.run?.includes('test "$RELEASE_READINESS_RESULT" = success'))).toBe(true);
+  expect(ci.jobs["release-readiness"]!.permissions).toEqual({ contents: "read", actions: "read" });
+});
+
+test("Release tag recovery selects a merged PR and validates it before tagging", () => {
+  expect(tag.on.workflow_dispatch.inputs.pr.required).toBe(true);
+  const steps = tag.jobs.tag!.steps;
+  const resolve = steps.findIndex(s => s.name === "Resolve interrupted release");
+  const validate = steps.findIndex(s => s.name === "Validate interrupted release");
+  expect(resolve).toBeGreaterThan(-1);
+  expect(validate).toBeGreaterThan(resolve);
+  expect(steps.findIndex(s => s.name === "Tag the release commit")).toBeGreaterThan(validate);
+  expect(steps[resolve]!.run).toContain('.state == "MERGED"');
+  expect(steps[validate]!.run).toContain("--exit-status");
+});
+
+const resolveRecovery = tag.jobs.tag!.steps.find(s => s.name === "Resolve interrupted release")!.run!;
+const validateRecovery = tag.jobs.tag!.steps.find(s => s.name === "Validate interrupted release")!.run!;
+function recoveryFixture() {
+  const f = fixture("0.5.0", "chore: release 0.5.0 (#220)");
+  git(f.work, "branch", "-M", "main");
+  git(f.work, "push", "--quiet", "origin", "main");
+  const pr = JSON.parse(readFileSync(join(f.work, "pr.json"), "utf8"));
+  writeFileSync(join(f.work, "pr.json"), JSON.stringify({ ...pr, title: "chore: release 0.5.0", isCrossRepository: false }));
+  writeFileSync(join(f.work, "bin", "gh"), `#!/bin/sh
+case "$1 $2" in
+  "pr view") cat pr.json ;;
+  "run list") case "$*" in *--branch*) echo 101 ;; *) echo 100 ;; esac ;;
+  "workflow run") touch dispatched ;;
+  "run watch") exit "\${WATCH_EXIT:-0}" ;;
+  *) exit 1 ;;
+esac
+`);
+  return f;
+}
+function recoveryStep(work: string, script: string, extra: Record<string, string> = {}) {
+  return Bun.spawnSync(["bash", "-e", "-c", script], {
+    cwd: work,
+    env: { ...process.env, PR: "220", GITHUB_REPOSITORY: "fixture/repo", GITHUB_ENV: join(work, "env"),
+      PATH: `${join(work, "bin")}:${process.env.PATH}`, GH_TOKEN: "fixture", RELEASE_PUSH_TOKEN: "fixture", ...extra },
+    stdout: "pipe", stderr: "pipe",
+  });
+}
+function recoveryEnv(work: string) {
+  return Object.fromEntries(readFileSync(join(work, "env"), "utf8").trim().split("\n").map(line => {
+    const at = line.indexOf("=");
+    return [line.slice(0, at), line.slice(at + 1)];
+  }));
+}
+
+test("Recovery restores a deleted branch only at the reviewed head and validates it", () => {
+  const { work, origin, sha } = recoveryFixture();
+  expect(recoveryStep(work, resolveRecovery).exitCode).toBe(0);
+  const result = recoveryStep(work, validateRecovery, recoveryEnv(work));
+  expect(result.stderr.toString()).not.toContain("error");
+  expect(result.exitCode).toBe(0);
+  expect(git(origin, "rev-parse", "refs/heads/release/v0.5.0")).toBe(sha);
+  expect(git(origin, "tag", "--list")).toBe(""); // Validation alone cannot publish.
+});
+
+test("Recovery refuses a release branch changed after merge without overwriting it", () => {
+  const { work, origin } = recoveryFixture();
+  expect(recoveryStep(work, resolveRecovery).exitCode).toBe(0);
+  git(work, "commit", "--allow-empty", "-qm", "unreviewed branch change");
+  const changed = git(work, "rev-parse", "HEAD");
+  git(work, "push", "--quiet", "origin", "HEAD:refs/heads/release/v0.5.0");
+  git(work, "checkout", "--quiet", recoveryEnv(work).RELEASE_COMMIT!);
+  const result = recoveryStep(work, validateRecovery, recoveryEnv(work));
+  expect(result.exitCode).not.toBe(0);
+  expect(result.stdout.toString()).toContain("Release branch changed after merge");
+  expect(git(origin, "rev-parse", "refs/heads/release/v0.5.0")).toBe(changed);
+});
+
+test("Recovery stops when fresh validation fails and leaves tags absent", () => {
+  const { work, origin } = recoveryFixture();
+  expect(recoveryStep(work, resolveRecovery).exitCode).toBe(0);
+  const result = recoveryStep(work, validateRecovery, { ...recoveryEnv(work), WATCH_EXIT: "1" });
+  expect(result.exitCode).not.toBe(0);
+  expect(git(origin, "tag", "--list")).toBe("");
+});
+
+test("Recovery refuses open, cross-repository and incorrectly named PRs", () => {
+  for (const change of [{ state: "OPEN" }, { isCrossRepository: true }, { title: "feat: something else" }, { headRefName: "feature/v0.5.0" }]) {
+    const { work, origin } = recoveryFixture();
+    const pr = JSON.parse(readFileSync(join(work, "pr.json"), "utf8"));
+    writeFileSync(join(work, "pr.json"), JSON.stringify({ ...pr, ...change }));
+    expect(recoveryStep(work, resolveRecovery).exitCode).not.toBe(0);
+    expect(git(origin, "tag", "--list")).toBe("");
+  }
+});
+
+const readiness = load("ci.yml").jobs["release-readiness"]!.steps[0]!.run!;
+test("Release readiness fails on failed validation and succeeds only for a completed successful run", () => {
+  for (const conclusion of ["success", "failure", "cancelled", "skipped"]) {
+    const { work } = fixture("0.5.0", "release fixture");
+    writeFileSync(join(work, "runs.json"), JSON.stringify([{ status: "completed", conclusion, url: "https://example.invalid/run" }]));
+    const result = recoveryStep(work, readiness, { EVENT: "pull_request", REPO: "fixture/repo", HEAD_REPO: "fixture/repo", BRANCH: "release/v0.5.0", HEAD: "fixture-head" });
+    expect(result.exitCode === 0).toBe(conclusion === "success");
+  }
+});
+
+
+test("Recovery tags the original release merge rather than the dispatch main commit", () => {
+  const subject = "chore: release 0.5.0 (#220)";
+  const { origin, work, sha } = fixture("0.5.0", subject);
+  git(work, "commit", "--allow-empty", "-qm", "later main commit");
+  const later = git(work, "rev-parse", "HEAD");
+  git(work, "checkout", "--quiet", sha);
+  expect(runTag(work, later, subject, { RELEASE_COMMIT: sha }).exitCode).toBe(0);
+  expect(git(origin, "rev-parse", "v0.5.0^{commit}")).toBe(sha);
+});
+
+test("Prepare resumes an unfinished release before choosing another version", () => {
+  const steps = prepare.jobs.prepare!.steps;
+  const resume = steps.findIndex(s => s.name === "Resume an interrupted release");
+  expect(resume).toBeGreaterThan(-1);
+  expect(resume).toBeLessThan(steps.findIndex(s => s.name === "Pick the version"));
+  for (const name of ["Pick the version", "Refuse a release that is already in flight", "Prepare, commit and open the release PR", "Dry-run the release on the PR branch", "Turn on auto-merge"]) {
+    expect(steps.find(s => s.name === name)!.if).toBe("steps.resume.outputs.resumed != 'true'");
+  }
+});
+
+test("Prepare automatically recovers the unique pending release and propagates failure", () => {
+  const script = prepare.jobs.prepare!.steps.find(s => s.name === "Resume an interrupted release")!.run!;
+  for (const outcome of ["success", "failure", "ambiguous", "tagged"]) {
+    const { work, origin, sha } = recoveryFixture();
+    if (outcome === "tagged") git(work, "tag", "v0.5.0");
+    writeFileSync(join(work, "candidates.json"), JSON.stringify(Array.from({ length: outcome === "ambiguous" ? 2 : 1 }, (_, i) => ({ number: 220 + i, title: "chore: release 0.5.0", isCrossRepository: false, mergeCommit: { oid: sha } }))));
+    writeFileSync(join(work, "bin", "gh"), `#!/bin/sh
+case "$1 $2" in
+ "pr list") cat candidates.json ;;
+ "run list") case "$*" in *--branch*) echo 101 ;; *) echo 100 ;; esac ;;
+ "workflow run") printf '%s' "$*" > dispatch ;;
+ "run watch") exit "\${WATCH_EXIT:-0}" ;;
+ *) exit 1 ;;
+esac
+`);
+    const output = join(work, "output");
+    const result = recoveryStep(work, script, { GITHUB_OUTPUT: output, GITHUB_STEP_SUMMARY: join(work, "summary"), GITHUB_SERVER_URL: "https://example.invalid", WATCH_EXIT: outcome === "failure" ? "1" : "0" });
+    expect(result.exitCode === 0).toBe(outcome === "success" || outcome === "tagged");
+    if (outcome === "success") {
+      expect(readFileSync(output, "utf8")).toContain("resumed=true");
+      expect(readFileSync(join(work, "dispatch"), "utf8")).toContain("-f pr=220");
+      expect(readFileSync(join(work, "summary"), "utf8")).toContain("/actions/runs/101");
+    }
+    if (outcome === "tagged") expect(readFileSync(output, "utf8")).toContain("resumed=false");
     expect(git(origin, "tag", "--list")).toBe("");
   }
 });

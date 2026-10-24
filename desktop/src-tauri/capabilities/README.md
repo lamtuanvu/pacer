@@ -6,6 +6,8 @@ with local pages excluded:
   `allow-notifyRoute`, `allow-session-expired`, `allow-session-ready`,
   `allow-desktop-update-connection` (read-only native OTA connection state and public failure reason),
   `allow-desktop-version` (read-only native app version), `allow-native-validation-setup`,
+  `allow-rounded-window-supported` (read-only transparent-window capability),
+  `allow-native-titlebar-supported` (read-only macOS title-bar overlay capability),
   `allow-windowMinimize`, `allow-windowToggleMaximize`, `allow-windowClose`,
   `core:window:allow-start-dragging` and `core:window:allow-internal-toggle-maximize`.
   Window commands are restricted to the main window on the active service origin.

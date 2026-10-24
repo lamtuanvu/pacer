@@ -6,73 +6,53 @@ import { writeManifest } from "../src/install/manifest";
 import { pluginDir } from "../src/plugin/install";
 import { fakeCtx, installLegacyPlugin } from "./helpers";
 
-test("refresh runs the new binary for recorded planners without MCP flags and continues after failures", async () => {
+test("refresh runs replacement reconciliation once for default and named records and reports each outcome", async () => {
   const calls: string[][] = [];
   const ctx = fakeCtx({ run: async argv => {
     calls.push(argv);
-    expect(readFileSync(argv[0]!, "utf8")).toBe("new binary");
-    if (argv[2] === "codex") return { code: 1, stdout: "", stderr: "bad config\nmore" };
-    if (argv[2] === "cursor") throw Error("timed out");
-    return { code: 0, stdout: argv[2] === "opencode" ? "already installed, nothing changed\nUndo with: pacer uninstall opencode" : "edited skill", stderr: "" };
+    expect(readFileSync(argv[0], "utf8")).toBe("new binary");
+    return { code: 1, stdout: JSON.stringify([{ target: "codex#work", state: "refreshed" }, { target: "claude-code", state: "conflict", detail: "customized skill", hint: "reconnect" }]), stderr: "" };
   } });
   const path = join(ctx.home, "new-pacer"); writeFileSync(path, "new binary");
-  writeManifest(ctx, { version: 1, planners: Object.fromEntries(["claude-code", "codex", "cursor", "opencode", "orca-plugin", "service"].map(planner => [planner, { planner, installedAt: 0, pacerArgv: ["old"], files: [], commands: [], notes: [] }])) });
-  expect(await refreshIntegrations(ctx, path)).toEqual([
-    "claude-code: refreshed", "WARNING: codex: failed: bad config", "WARNING: cursor: failed: timed out", "opencode: unchanged",
-  ]);
-  expect(calls).toEqual(["claude-code", "codex", "cursor", "opencode"].map(planner => [path, "install", planner]));
+  writeManifest(ctx, { version: 1, planners: Object.fromEntries(["codex#work", "claude-code", "service"].map(planner => [planner, { planner, installedAt: 0, pacerArgv: ["old"], files: [], commands: [], notes: [] }])) });
+  expect(await refreshIntegrations(ctx, path)).toEqual(["codex#work: refreshed", "WARNING: claude-code: conflict: customized skill. reconnect"]);
+  expect(calls).toEqual([[path, "integrations", "refresh", "--json"]]);
 });
 
-test("refresh with no installed planners does nothing", async () => {
+test("refresh with no recorded integrations does nothing", async () => {
   const ctx = fakeCtx({ run: async () => { throw Error("must not run"); } });
   expect(await refreshIntegrations(ctx, "/new/pacer")).toEqual([]);
 });
 
-test("refresh preserves enabled and disabled MCP choices for every planner", async () => {
+test("refresh preserves optional MCP choices without executing agent CLIs", async () => {
   const { installPlanner } = await import("../src/install");
-  const { snapshot, PACER } = await import("./install-helpers");
+  const { PACER } = await import("./install-helpers");
+  const { findCommand } = await import("../src/commands");
   for (const mcp of [true, false]) {
-    let claudeRegistered = false;
-    const calls: string[][] = [];
-    const ctx = fakeCtx({ which: () => "claude", run: async argv => {
-      calls.push(argv);
-      if (argv[0] === "claude") {
-        const code = argv[2] === "get" && !claudeRegistered ? 1 : 0;
-        if (argv[2] === "add") claudeRegistered = true;
-        if (argv[2] === "remove") claudeRegistered = false;
-        return { code, stdout: "", stderr: "" };
-      }
-      // Emulate the new binary's install dispatch without passing an MCP flag.
-      const { renderInstall } = await import("../src/install");
-      const report = await installPlanner({ ctx, pacerArgv: [argv[0]!] }, argv[2] as "codex");
-      return { code: 0, stdout: renderInstall(report), stderr: "" };
-    } });
-    for (const planner of ["claude-code", "codex", "cursor", "opencode"] as const) await installPlanner({ ctx, pacerArgv: PACER, mcp }, planner);
-    const before = snapshot(ctx.home);
-    // An old embedded skill should be overwritten by the refreshed binary.
-    writeFileSync(join(ctx.home, ".claude/skills/pacer/SKILL.md"), "old skill");
-    calls.length = 0;
-    await refreshIntegrations(ctx, PACER[0]!);
-    expect(snapshot(ctx.home)).toEqual(before);
-    expect(claudeRegistered).toBe(mcp);
-    expect(calls).toEqual(["claude-code", "codex", "cursor", "opencode"].map(planner => [...PACER, "install", planner]));
+    const ctx = fakeCtx({ which: () => null, env: { PACER_BIN: PACER[0] } });
+    for (const planner of ["codex", "cursor", "opencode"] as const) await installPlanner({ ctx, pacerArgv: PACER, mcp }, planner);
+    const config = join(ctx.home, ".codex/config.toml");
+    const before = existsSync(config) ? readFileSync(config, "utf8") : null;
+    ctx.run = async argv => {
+      expect(argv).toEqual([...PACER, "integrations", "refresh", "--json"]);
+      const result = await findCommand("integrations")!.run(argv.slice(2), ctx);
+      return { code: result.code, stdout: result.out, stderr: result.err };
+    };
+    expect(await refreshIntegrations(ctx, PACER[0])).toEqual(["codex: refreshed", "cursor: refreshed", "opencode: refreshed"]);
+    expect(existsSync(config) ? readFileSync(config, "utf8") : null).toBe(before);
   }
 });
 
-
-test("refresh leaves an earlier Orca plugin install untouched", async () => {
-  const ctx = fakeCtx({ run: async () => { throw Error("must not run"); } });
-  const root = await installLegacyPlugin(ctx);
-  const before = readFileSync(join(root, "worker.mjs"), "utf8");
-  expect(await refreshIntegrations(ctx, "/new/pacer")).toEqual([]);
-  expect(readFileSync(join(root, "worker.mjs"), "utf8")).toBe(before);
+test("replacement failure is reported without falling back to unsafe reinstall", async () => {
+  const ctx = fakeCtx({ run: async () => { throw Error("timed out"); } });
+  writeManifest(ctx, { version: 1, planners: { codex: { planner: "codex", installedAt: 0, pacerArgv: [], files: [], commands: [], notes: [] } } });
+  expect((await refreshIntegrations(ctx, "/new/pacer"))[0]).toContain("WARNING");
 });
 
-test("refresh never installs an unrecorded plugin", async () => {
-  const calls: string[][] = [];
-  const ctx = fakeCtx({ run: async argv => { calls.push(argv); return { code: 0, stdout: "edited skill", stderr: "" }; } });
-  writeManifest(ctx, { version: 1, planners: { codex: { planner: "codex", installedAt: 0, pacerArgv: ["old"], files: [], commands: [], notes: [] } } });
-  expect(await refreshIntegrations(ctx, "/new/pacer")).toEqual(["codex: refreshed"]);
-  expect(calls).toEqual([["/new/pacer", "install", "codex"]]);
+test("refresh leaves retired plugin installs untouched and never creates an unrecorded plugin", async () => {
+  const ctx = fakeCtx({ run: async () => { throw Error("must not run"); } });
   expect(existsSync(pluginDir(ctx))).toBe(false);
+  const root = await installLegacyPlugin(ctx), before = readFileSync(join(root, "worker.mjs"), "utf8");
+  expect(await refreshIntegrations(ctx, "/new/pacer")).toEqual([]);
+  expect(readFileSync(join(root, "worker.mjs"), "utf8")).toBe(before);
 });

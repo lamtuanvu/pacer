@@ -9,7 +9,7 @@ import type { Txn } from "./txn";
 
 export function installCursor(tx: Txn): void {
   const { ctx, pacerArgv: argv } = tx.env;
-  const dir = join(ctx.home, ".cursor");
+  const dir = tx.env.folder ?? join(ctx.home, ".cursor");
   const server = { command: argv[0], args: [...argv.slice(1), "mcp"] };
   const undo: UndoOp = { kind: "json-member", path: ["mcpServers", "pacer"] };
   if(tx.env.mcp===false && readText(join(dir, "mcp.json"))!==null)tx.edit(join(dir, "mcp.json"),old=>removeMember(old!,["mcpServers","pacer"]),[]);

@@ -33,7 +33,7 @@ export function installCodex(tx: Txn): void {
     return upsertBlock(text, codexMcpBlock(argv), "hash");
   }, [{ kind: "block", style: "hash" }, { kind: "toml-table", table: "mcp_servers.pacer" }]);
 
-  installSkill(tx,join(tx.env.folder || tx.env.ctx.env.CODEX_HOME || dir));
+  installSkill(tx, tx.env.skillFolder ?? join(tx.env.folder || tx.env.ctx.env.CODEX_HOME || dir));
   tx.edit(join(dir, "AGENTS.md"), old => upsertBlock(old ?? "", policyText("codex"), "md"),
     [{ kind: "block", style: "md" }]);
 

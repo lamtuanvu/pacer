@@ -118,6 +118,7 @@ export async function uninstallAll(args: string[], ctx: Ctx, deps: UninstallAllD
     out: json ? JSON.stringify({ plan, results, ...(blockedByTasks.length ? { blocked_by_tasks: blockedByTasks } : {}), ...(warning ? { warning } : {}) }, null, 2) : [printed ? "" : renderPlan(),
       ...results.map(step => `${step.status}: ${step.kind} ${step.target}${step.details.length ? `\n  ${step.details.join("\n  ")}` : ""}`)].filter(Boolean).join("\n") });
   try {
+    safeHome(ctx);
     const manifest = readManifest(ctx);
     for (const [key, record] of Object.entries(manifest.planners)) {
       if (key === "service" || key === PLUGIN_RECORD) continue;

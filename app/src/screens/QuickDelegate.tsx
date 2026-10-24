@@ -1,5 +1,6 @@
 import { DelegateRoutingPreview } from "./Delegate";
-import { Field, TextInput, Select } from "../ds/Controls";
+import { Field, TextInput } from "../ds/Controls";
+import { ChoicePicker } from "../ds/ChoicePicker";
 
 import { useEffect, useMemo, useState } from "preact/hooks";
 import { repos as snapshotRepos } from "../../../src/view-model/selectors";
@@ -23,7 +24,7 @@ export function QuickDelegate({ filterRepo }: { filterRepo: string | null }) {
   const action = useAction();
   const [error, setError] = useState<unknown>();
   const next = routing.data?.ranked[0];
-  const blocked=action.busy || (ops.has("project.strategy.get") && (routing.loading || !!routing.error));
+  const blocked=action.busy || !repos.some(candidate => candidate.key === repo) || (ops.has("project.strategy.get") && (routing.loading || !!routing.error));
   return <form className="pc-quick pc-stack pc-stack--compact" onSubmit={event => {
     event.preventDefault();
     if (blocked) return;
@@ -35,7 +36,7 @@ export function QuickDelegate({ filterRepo }: { filterRepo: string | null }) {
   }}>
     <Field label={<> What should be done? </>}><TextInput id="qd-goal" type="text" placeholder="e.g. Add a regression test for the cache key" value={goal} onInput={e => setGoal(e.currentTarget.value)} /></Field>
     <div className="row">
-      <Select className="pc-select" id="qd-repo" aria-label="Repository" value={repo} onChange={e => setRepo(e.currentTarget.value)}>{repos.map(r => <option key={r.key} value={r.key} selected={r.key === repo}>{r.label}</option>)}</Select>
+      <ChoicePicker id="qd-repo" aria-label="Repository" searchable value={repo} options={repos.map(r => ({ value: r.key, label: r.label }))} onValueChange={setRepo} />
       <span className="grow" />
       <Button type="submit" size="sm" disabled={blocked || !goal.trim()}>{action.busy ? "Delegating…" : "Delegate"}</Button>
     </div>
