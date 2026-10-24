@@ -41,7 +41,7 @@ export const sessionOps: Record<string, OpDef> = {
       draftId: z.string().uuid(),
       request: z.string().min(1).max(200000),
       repo: z.string().min(1),
-      executor: id,
+      executor: z.string().min(1).max(256),
       workspace: z.discriminatedUnion("mode", [
         z.object({ mode: z.literal("new"), base: z.string().min(1) }),
         z.object({ mode: z.literal("current"), path: z.string().min(1) }),

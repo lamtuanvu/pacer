@@ -1,49 +1,66 @@
 import { expect, test } from "bun:test";
 import { capabilities, prepare, attachment } from "../plugins/agent-session/index";
 
-test("Codex resume restores its identity without replaying the initial image or prompt", () => {
-  const launch = prepare({agent: "codex", version: "0.163.0", request: "original", sessionId: "01a15fa2-5a28-7bb0-9b62-6a4434975b55", workspace: "/tmp/repo", runDir: "/tmp/run", permissionPolicy: "native", attachments: [{id: "image", name: "screen.png", mime: "image/png", size: 1, path: "/tmp/run/image"}]});
-  expect(launch.argv.slice(-2)).toEqual(["--", "01a15fa2-5a28-7bb0-9b62-6a4434975b55"]);
-  expect(launch.argv).not.toContain("-i");
-  expect(launch.argv).not.toContain("/tmp/run/image");
-  expect(launch.argv).not.toContain("original");
-});
+const base = {request: '--dangerous $(echo hi)\n日本語', workspace: "/tmp/repo", runDir: "/tmp/run", attachments: [], permissionPolicy: "native" as const};
+const image = {id: "image", name: "screen.png", mime: "image/png", size: 1, path: "/tmp/files/image with spaces"};
+const identity = "01a15fa2-5a28-7bb0-9b62-6a4434975b55";
 
-test("Codex attaches initial images as arguments while preserving ordinary permissions", () => {
-  const image = {id: "a", name: "image.png", mime: "image/png", size: 12, path: "/tmp/session/image with spaces.png"};
-  const launch = prepare({agent: "codex", version: "0.163.0", request: "--dangerous $(echo hi)", workspace: "/tmp/repo",
-    runDir: "/tmp/session", attachments: [image], permissionPolicy: "native"});
-  expect(launch.argv).toEqual(["codex", "--no-daemon", "-C", "/tmp/repo", "-s", "workspace-write", "--add-dir", "/tmp/session",
-    "-i", "/tmp/session/image with spaces.png", "--", "--dangerous $(echo hi)"]);
+for (const [agent, version] of [["codex", "0.164.0"], ["codex", "0.165.1"], ["claude-code", "2.1.281"], ["opencode", "2.1.2"]]) {
+  test(`${agent} ${version} offers implemented capabilities without an exact version lock`, () => {
+    expect(capabilities({agent, version})).toMatchObject({interactive: true, resume: true, files: true, liveImages: false, launchImages: agent === "codex"});
+  });
+  test(`${agent} resume uses only the stored identity, without prompt or attachments`, () => {
+    const launch = prepare({...base, agent, version, sessionId: identity, attachments: [image]});
+    expect(launch.argv).toContain(identity);
+    expect(launch.argv).not.toContain(base.request);
+    expect(launch.argv).not.toContain(image.path);
+    expect(launch.argv).not.toContain("--prompt");
+    expect(launch.argv).not.toContain("--session-id");
+  });
+}
+test("Codex delivers initial images natively with ordinary permissions and literal arguments", () => {
+  const launch = prepare({...base, agent: "codex", version: "0.164.0", attachments: [image], model: "chosen"});
+  expect(launch.argv).toEqual(["codex", "--no-daemon", "-C", "/tmp/repo", "-s", "workspace-write", "--add-dir", "/tmp/run", "-m", "chosen", "-i", image.path, "--", base.request]);
 });
-
-test("unknown or unsupported agents report a reason before launch", () => {
-  expect(capabilities({agent: "unknown", version: "1.0.0"})).toMatchObject({interactive: false, reason: expect.any(String)});
-  expect(capabilities({agent: "codex", version: "0.100.0"})).toMatchObject({interactive: false});
-  expect(capabilities({agent: "codex", version: "0.163.0"})).toMatchObject({interactive: true, resume: true, launchImages: true});
-  for (const [agent, version] of [["codex", "0.163.1"], ["claude-code", "2.1.281"], ["opencode", "2.1.2"], ["cursor", "2026.01.28-fd13201"]]) {
-    expect(capabilities({agent, version})).toMatchObject({interactive: false, reason: expect.any(String)});
-  }
-  expect(() => prepare({agent: "unknown", version: "1.0.0", request: "hello", workspace: "/tmp/r", runDir: "/tmp/s", attachments: [], permissionPolicy: "native"})).toThrow();
+test("Claude starts with an assigned native UUID and explicitly referenced files", () => {
+  const launch = prepare({...base, agent: "claude-code", version: "2.1.281", newSessionId: identity, model: "sonnet", attachmentDir: "/tmp/files", attachments: [image]});
+  expect(launch.argv.slice(0, 9)).toEqual(["claude", "--add-dir", "/tmp/run", "--add-dir", "/tmp/files", "--model", "sonnet", "--session-id", identity]);
+  expect(launch.argv.at(-2)).toBe("--");
+  expect(launch.argv.at(-1)).toContain(base.request);
+  expect(launch.argv.at(-1)).toContain(JSON.stringify(image.path));
+  expect(launch.argv).not.toContain("--dangerously-skip-permissions");
 });
-
-test("later file attachment is an explicit reference without input submission", () => {
-  const result = attachment({agent: "codex", version: "0.163.0", workspace: "/tmp/repo", phase: "live",
-    attachment: {id: "a", name: "report.txt", mime: "text/plain", size: 20, path: "/tmp/session/a"}});
-  expect(result).toEqual({kind: "reference", text: 'Use the attached file "report.txt" at "/tmp/session/a".', requiresUserSubmit: true});
-  expect("args" in result).toBe(false);
+test("OpenCode uses a private server and explicit identity without unsupported TUI model flags", () => {
+  const launch = prepare({...base, agent: "opencode", version: "2.1.2", newSessionId: "ses_native", model: "provider/model", attachments: [image]});
+  expect(launch.argv.slice(0, 5)).toEqual(["opencode", "--standalone", "--session", "ses_native", "--prompt"]);
+  expect(launch.argv.at(-1)).toContain(JSON.stringify(image.path));
+  expect(launch.argv).not.toContain("-m");
+  expect(launch.argv).not.toContain("--auto");
+  expect(launch.cwd).toBe(base.workspace);
 });
-
-test("unvalidated agents cannot launch interactive conversations", () => {
-  const base = {request: "hello", workspace: "/tmp/repo", runDir: "/tmp/session", attachments: [], permissionPolicy: "native" as const, model: "chosen"};
-  expect(() => prepare({...base, agent: "claude-code", version: "2.1.281"})).toThrow("Codex 0.163.0 only");
-  expect(() => prepare({...base, model: undefined, agent: "opencode", version: "2.1.2"})).toThrow("Codex 0.163.0 only");
-  expect(() => prepare({...base, agent: "cursor", version: "2026.01.28-fd13201"})).toThrow("Codex 0.163.0 only");
+test("unsupported agents report their actual agent name", () => {
+  expect(capabilities({agent: "cursor", version: "1.0.0"})).toMatchObject({interactive: false, reason: expect.stringContaining("cursor")});
+  expect(() => prepare({...base, agent: "cursor", version: "1.0.0"})).toThrow("cursor");
 });
+test("interface probes reject missing required mechanisms rather than the version number", () => {
+  expect(capabilities({agent: "claude-code", version: "unknown", help: "--session-id --resume --add-dir --model --settings"})).toMatchObject({interactive: true});
+  expect(capabilities({agent: "claude-code", version: "2.1.281", help: "--session-id --add-dir --model --settings"})).toMatchObject({interactive: false, reason: expect.stringContaining("--resume")});
+  expect(capabilities({agent: "codex", version: "0.164.0", help: ""})).toMatchObject({interactive: false});
+});
+test("optional no-daemon is omitted when not advertised", () => {
+  const help = "--config --cd --sandbox --add-dir --model --image --dangerously-bypass-hook-trust";
+  const launch = prepare({...base, agent: "codex", version: "0.200.0", help, resumeHelp: help});
+  expect(launch.argv).not.toContain("--no-daemon");
+});
+for (const agent of ["codex", "claude-code", "opencode"]) {
+  test(`${agent} later attachment is an explicit reference without input submission`, () => {
+    expect(attachment({agent, version: "1.0.0", workspace: base.workspace, phase: "live", attachment: image})).toEqual({kind: "reference", text: `Use the attached file "screen.png" at ${JSON.stringify(image.path)}.`, requiresUserSubmit: true});
+  });
+}
 
-test("adapter paths and request remain arguments rather than executable shell text", () => {
-  const request = '日本語\n`touch evil`';
-  const launch = prepare({agent: "codex", version: "0.163.0", request, workspace: "/tmp/r", runDir: "/tmp/s", attachments: [], permissionPolicy: "native"});
-  expect(launch.argv.at(-1)).toBe(request);
-  expect(launch.cwd).toBe("/tmp/r");
+test("identity mechanisms belong to the adapter and never select the latest session", async () => {
+  const {identity} = await import('../plugins/agent-session');
+  expect(identity({agent:'claude-code',version:'2.1.281',taskId:'task'})).toMatchObject({kind:'assigned',id:expect.stringMatching(/^[a-f0-9-]{36}$/)});
+  expect(identity({agent:'opencode',version:'2.1.2',taskId:'task'})).toEqual({kind:'command',argv:['opencode','api','--standalone','session.create','--data','{"title":"pacer task","agent":"build"}'],idPath:['data','id']});
+  expect(identity({agent:'opencode',version:'2.1.2',taskId:'task',sessionId:'ses_exact'})).toMatchObject({kind:'command',argv:['opencode','api','--standalone','session.get','--param','sessionID=ses_exact'],idPath:['data','id']});
 });

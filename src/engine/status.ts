@@ -67,7 +67,7 @@ export function binaryFor(cfg: ProviderCfg): string {
 export { displayName } from "../render/accounts";
 
 export async function computeStatus(
-  ctx: Ctx, s: Strategy, opts: { cacheOnly?: boolean; profile?: ActivityProfile | null; readings?: Map<string, UsageReading>; refreshAccounts?: readonly string[] } = {},
+  ctx: Ctx, s: Strategy, opts: { includePlannerSignIn?: boolean; cacheOnly?: boolean; profile?: ActivityProfile | null; readings?: Map<string, UsageReading>; refreshAccounts?: readonly string[] } = {},
 ): Promise<Status & { accounts: AccountStatus[] }> {
   const trace = statusTimer(ctx);
   const warnings = Object.values(s.accounts).filter(a => a.usageSource === "orca")
@@ -104,7 +104,7 @@ export async function computeStatus(
       ? evidenceFact(f.scope, f.source, f.observedAt, f.validUntil, f.reason, f.value, budgetPolicy) : f);
     const auth = authObservation(ctx, scope);
     if (auth) incoming.availability.push(evidenceFact(auth.scope, "execution", auth.at, auth.at + 7200, "authentication_failed", "unavailable"));
-    for (const runner of runners.filter(r => r.host === null && !(r.agent === s.planner.agent && r.account === s.planner.account))) {
+    for (const runner of runners.filter(r => r.host === null && (opts.includePlannerSignIn || !(r.agent === s.planner.agent && r.account === s.planner.account)))) {
       const runnerScope = { ...scope, runner: runner.name, model: runner.model ?? "default", host: "local" };
       const signIn = accountSignIn(ctx, account, runnerScope);
       // A newer local login repairs only matching authentication facts, never quota or remote evidence.
@@ -157,7 +157,7 @@ export async function computeStatus(
     const live = windows.filter(w => !w.stale), binding = bindingWindow(live) ?? bindingWindow(windows);
     const verdict: Verdict = unlimited && !windows.length ? "OK" : live.length ? binding?.verdict ?? "UNKNOWN" : "UNKNOWN";
     // Remote and endpoint runners have separate authentication; local login files do not describe them.
-    const signIn = !(runner.agent === s.planner.agent && runner.account === s.planner.account) && runner.host === null && account.kind !== "endpoint" ? accountSignIn(ctx, account, runnerScope) : null;
+    const signIn = (opts.includePlannerSignIn || !(runner.agent === s.planner.agent && runner.account === s.planner.account)) && runner.host === null && account.kind !== "endpoint" ? accountSignIn(ctx, account, runnerScope) : null;
     const provider: ProviderStatus = {
       id: runner.name, account: account.name, usage, windows, binding, verdict,
       ...(!s.legacy ? {agent: runner.agent} : {}),

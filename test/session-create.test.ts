@@ -196,3 +196,17 @@ test("existing checkout is reserved at creation, including queued sessions", asy
     ),
   ).rejects.toMatchObject({ code: "conflict" });
 });
+
+test("conversation API accepts a configured named executor identity", async () => {
+  const repo=gitRepo();
+  const ctx=fakeCtx({run:async(argv,timeout,options)=>argv[0]==="opencode"
+    ? {code:0,stdout:argv[1]==="--version"?"2.1.2":"--standalone --session --prompt",stderr:""}
+    :realRun(argv,timeout,options)});
+  mkdirSync(ctx.pacerHome,{recursive:true});
+  writeFileSync(join(ctx.pacerHome,"strategy.yaml"),"planner: claude-code\nproviders:\n  local: {via: opencode, model: ollama/test, usage: unmetered}\n");
+  const result = await callOp(ctx,"session.create",{
+    request_id:"named-runner",draftId:createDraft(ctx).id,request:"Explain",repo,
+    executor:"opencode#local",workspace:{mode:"current",path:repo},attachments:[],
+  },{spawnRunner:()=>process.pid}) as {task_id:string};
+  expect(readTask(ctx,result.task_id)?.requestedExecutor).toBe("opencode#local");
+});

@@ -1,7 +1,10 @@
+import { materializeAgentReporting } from "../session/agent-reporting";
 import { ensureProviderIntegration } from "../core/integrations";
 import { withWork } from "../update/desktop/admission";
+import { probeAgentSession } from "../session/agent-probe";
+import { conversationIdentity } from "../session/native-identity";
 import { conversationActivity } from "../session/conversation";
-import { prepareAgentSession } from "../plugins/agent-session";
+import { prepareAgentSession, agentSessionCapabilities } from "../plugins/agent-session";
 import { resolveAttachments } from "../attachments/claims";
 import { attachmentDirectory } from "../attachments/store";
 import { executorExclusion } from "../executors/availability";
@@ -381,9 +384,13 @@ async function runAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, 
       }
     }
     if (conversation) {
-      const executable = cfg.via === "opencode" ? "opencode" : agent === "claude-code" ? "claude" : agent === "cursor" ? "cursor-agent" : agent;
-      const version = await ctx.run([executable, "--version"], 5000, {env});
-      const number = version.stdout.match(/\b\d+\.\d+\.\d+\b/)?.[0] ?? "unknown";
+      const sessionAgent = cfg.via === "opencode" ? "opencode" : agent;
+      const probe = await probeAgentSession(ctx, sessionAgent, env);
+      if (probe.reason) throw Error(probe.reason);
+      const capabilities = await agentSessionCapabilities(ctx, probe);
+      if (!capabilities.interactive) throw Error(capabilities.reason ?? "Interactive sessions are unavailable");
+      agentSession = await conversationIdentity(ctx, {...probe, model: cfg.model ?? undefined, sessionId: task.conversation?.agentSessionId,
+        taskId: task.id, workspace: workdir, env});
       let request = prompt;
       if (Buffer.byteLength(request) > 32 * 1024) {
         mkdirSync(rdir, {recursive: true, mode: 0o700});
@@ -391,13 +398,14 @@ async function runAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, 
         writeFileSync(path, request, {mode: 0o600});
         request = `Read the request in ${JSON.stringify(path)} and continue this conversation.`;
       }
-      launch = await prepareAgentSession(ctx, {agent: cfg.via === "opencode" ? "opencode" : agent, version: number, request,
+      launch = await prepareAgentSession(ctx, {...probe, request,
         workspace: workdir, runDir: rdir, ...(task.sessionDraftId ? {attachmentDir: attachmentDirectory(ctx, task.sessionDraftId)} : {}), attachments: resolveAttachments(ctx, task.id), permissionPolicy: "native",
-        ...(task.conversation?.agentSessionId ? {sessionId: task.conversation.agentSessionId} : {}), ...(cfg.model ? {model: cfg.model} : {})});
+        ...(task.conversation?.agentSessionId ? {sessionId: task.conversation.agentSessionId} : agentSession ? {newSessionId: agentSession.id} : {}), ...(cfg.model ? {model: cfg.model} : {})});
+      materializeAgentReporting(rdir, launch, env);
     } else launch = launchFor(cfg, prompt + instructions, workdir, rdir, task.id, agentSession?.id, "error" in git ? task.brief.repo : git.main);
     if (interactive) {
       const agent = parseRunnerId(cfg.id)?.agent ?? cfg.id;
-      if (agent === "codex") await requireCodexInteractive(ctx, env);
+      if (agent === "codex" && !conversation) await requireCodexInteractive(ctx, env);
       launch = prepareInteractive(agent, rdir, launch);
       env.PACER_HOME = ctx.pacerHome;
       env.PACER_RUN_DIR = rdir;
@@ -411,7 +419,10 @@ async function runAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, 
   mkdirSync(rdir, { recursive: true });
   writeFileSync(join(rdir, "argv"), launch.argv.join(" "));
   const run: RunRef = { interactionMode: task.interactionMode, ...(agentSession ? {agentSession} : {}), dir: rdir, attempt, executor: cfg.id, startedAt, mode, workdir, logFile: log, ...(launch.lastMessageFile ? { lastMessageFile: launch.lastMessageFile } : {}) };
-  updateTask(ctx, task.id, t => { t.run = run; });
+  updateTask(ctx, task.id, t => {
+    t.run = run;
+    if (conversation && agentSession) t.conversation = {...t.conversation, activity: "starting", agentSessionId: agentSession.id};
+  });
   const started = startRun({ interactionMode: task.interactionMode, dir: rdir, argv: launch.argv, cwd: launch.cwd, stdin: launch.stdin, env, ...(cfg.session === "interactive" ? {session: "interactive" as const} : {}) });
   if ("error" in started) {
     const exec = { code: 127, stdout: "", stderr: started.error, timedOut: false };

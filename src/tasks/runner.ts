@@ -180,7 +180,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
         selection = snapshot.selection;
         if (!tried.has(task.requestedExecutor ?? "")) requireProjectExecutor(selection, task.requestedExecutor);
         const now = Date.now() / 1000;
-        const st = await deps.computeStatus({ ...ctx, now }, s);
+        const st = await deps.computeStatus({ ...ctx, now }, s, {includePlannerSignIn: task.interactionMode === "conversation"});
         startStatus = st;
         const blocked = readBlocked({ ...ctx, now });
         const broken = readBroken({ ...ctx, now });
@@ -190,7 +190,10 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
           if (reason === "Blocked by you") p.blockedReason = reason;
           if (reason === "exhausted") { p.verdict = "EXHAUSTED"; p.eligibility = restrictEligibility(p.eligibility, "budget_exhausted"); }
         }
-        const ranking = rankExecutors(kind, s, byId, selection && { executors: selection.executors, order: "configured" });
+        const conversationSelection = task.interactionMode === "conversation" && task.requestedExecutor
+          ? {executors: selection?.executors ?? [task.requestedExecutor], order: "configured" as const} : undefined;
+        const ranking = rankExecutors(kind, s, byId, conversationSelection ?? (selection && {executors: selection.executors, order: "configured"}),
+          {includePlanner: task.interactionMode === "conversation"});
         // Resolve placement only for a remote candidate; local routing remains
         // unchanged and the backend still owns worktree creation and safety.
         if (ranking.ranked.some(e => resolveRunner(s, e.id)?.host)) {
@@ -341,7 +344,10 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
           i--; continue;
         }
         const prepared = await prepareLaunch(launchCtx, currentStrategy, pick, deps.computeStatus, startStatus);
-        const refreshedRanking = rankExecutors(kind, currentStrategy, Object.fromEntries(prepared.status.providers.map(p => [p.id, p])), selection && { executors: selection.executors, order: "configured" });
+        const refreshedSelection = selection ? {executors: selection.executors, order: "configured" as const}
+          : task.interactionMode === "conversation" && task.requestedExecutor ? {executors: [task.requestedExecutor], order: "configured" as const} : undefined;
+        const refreshedRanking = rankExecutors(kind, currentStrategy, Object.fromEntries(prepared.status.providers.map(p => [p.id, p])), refreshedSelection,
+          {includePlanner: task.interactionMode === "conversation"});
         const candidate = refreshedRanking.ranked.find(e => e.id === pick);
         if (!candidate || prepared.decision.state === "ineligible") {
           const refusal = refreshedRanking.excluded.find(e => e.id === pick && /Blocked by you|exhausted/.test(e.reason));

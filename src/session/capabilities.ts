@@ -1,3 +1,6 @@
+import { probeAgentSession } from "./agent-probe";
+import { executorEnv } from "../exec/process";
+import { providerEnv } from "../exec/launch";
 import { route } from "../core/routing";
 import { resolvePolicyRepoInput } from "../core/project-policy";
 import { loadStrategy } from "../config/strategy";
@@ -30,7 +33,7 @@ export async function prepareSession(
 ): Promise<SessionPreparation> {
   const repo = await resolvePolicyRepoInput(ctx, input.repo),
     strategy = loadStrategy(ctx);
-  const routing = await route(ctx, null, strategy, { repo: repo.key });
+  const routing = await route(ctx, null, strategy, { repo: repo.key, conversation: true });
   const executors: SessionExecutor[] = [];
   for (const cfg of Object.values(strategy.providers)) {
     const runner = resolveRunner(strategy, cfg.id),
@@ -38,32 +41,28 @@ export async function prepareSession(
         cfg.via === "opencode"
           ? "opencode"
           : (parseRunnerId(cfg.id)?.agent ?? cfg.id);
-    const executable =
-      agent === "claude-code"
-        ? "claude"
-        : agent === "cursor"
-          ? "cursor-agent"
-          : agent;
     const remote = !!runner?.host;
-    const output = remote
-      ? null
-      : await ctx.run([executable, "--version"], 5000);
-    const version = output?.stdout.match(/\b\d+\.\d+\.\d+\b/)?.[0] ?? "unknown";
-    const capabilities = await agentSessionCapabilities(ctx, {
-      agent,
-      version,
-    });
+    let probe: Awaited<ReturnType<typeof probeAgentSession>> = {agent, version: "unknown"};
+    if (!remote) {
+      try {
+        const env = executorEnv(ctx.env, await providerEnv(ctx, cfg, {probe: true}));
+        probe = await probeAgentSession(ctx, agent, env);
+      } catch {
+        probe.reason = `The account environment for ${cfg.id} is unavailable. Check its account configuration.`;
+      }
+    }
+    const version = probe.version;
+    const capabilities = probe.reason
+      ? {interactive: false, resume: false, launchImages: false, liveImages: false, files: false, reason: probe.reason}
+      : await agentSessionCapabilities(ctx, probe);
     const ranked = routing.ranked.some((r) => r.id === cfg.id);
     const reason = remote
       ? "Interactive remote sessions are not supported."
       : !capabilities.interactive
         ? capabilities.reason
-        : agent === "opencode" && cfg.model
-          ? "Interactive OpenCode model overrides are not verified."
-          : !ranked
-            ? (routing.excluded.find((r) => r.id === cfg.id)?.reason ??
-              "Executor is not eligible.")
-            : undefined;
+        : !ranked
+          ? (routing.excluded.find((r) => r.id === cfg.id)?.reason ?? "Executor is not eligible.")
+          : undefined;
     executors.push({
       id: cfg.id,
       agent,

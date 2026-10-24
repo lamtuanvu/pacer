@@ -3,7 +3,7 @@ import { EXTENSION_METHODS } from "./protocol";
 import type { Ctx } from "../types";
 import { CoreError } from "../core/errors";
 import type {
-  AgentVersion,
+  AgentIdentityInput, AgentIdentityPlan, AgentVersion,
   AgentSessionCapabilities,
   AgentSessionPrepare,
   AgentSessionLaunch,
@@ -36,3 +36,6 @@ export const prepareAgentSession = (ctx: Ctx, input: AgentSessionPrepare) =>
   call<AgentSessionLaunch>(ctx, "agentSession.prepare", input);
 export const prepareAgentAttachment = (ctx: Ctx, input: AgentAttachmentInput) =>
   call<AgentAttachmentDelivery>(ctx, "agentSession.attachment", input);
+
+export const planAgentIdentity = (ctx: Ctx, input: AgentIdentityInput) =>
+  call<AgentIdentityPlan>(ctx, "agentSession.identity", input);

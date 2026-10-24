@@ -79,7 +79,7 @@ function reason(st: ProviderStatus): string {
 export interface CandidateSelection { executors: readonly string[]; order: "configured" }
 
 export function rankExecutors(
-  kind: string | null, s: Strategy, statuses: Record<string, ProviderStatus>, selection?: CandidateSelection,
+  kind: string | null, s: Strategy, statuses: Record<string, ProviderStatus>, selection?: CandidateSelection, options: {includePlanner?: boolean} = {},
 ): { ranked: RankedExecutor[]; excluded: Excluded[]; uncertain?: RankedExecutor[]; reason?: string } {
   statuses = Object.fromEntries(Object.entries(statuses).map(([id, status]) => [resolveRunner(s, id)?.id ?? id, status]));
   const ranked: (RankedExecutor & { unknown: boolean; order: number })[] = [];
@@ -91,7 +91,7 @@ export function rankExecutors(
     const accountField = runner ? { account: runner.account } : {};
     const exclude = (reason: string) => excluded.push({ id, ...accountField, reason,
       eligibility: restrictEligibility(st?.eligibility, reason === "planner" ? "planner" : "unavailable") });
-    if (runner?.agent === s.planner.agent && runner.account === s.planner.account) return exclude("planner");
+    if (!options.includePlanner && runner?.agent === s.planner.agent && runner.account === s.planner.account) return exclude("planner");
     if (runner?.enabled === false) return exclude("disabled");
     if (!st || !runner || !account) return exclude("not configured");
     if (st.unavailableReason) return exclude(st.unavailableReason);
@@ -115,7 +115,7 @@ export function rankExecutors(
       ranked: ranked.map(({ unknown, order, ...executor }, index) => ({ ...executor, score: ranked.length - index })),
       uncertain: ranked.filter(e => e.unknown).map(({ unknown, order, ...executor }) => executor),
       excluded,
-      ...(!selection.executors.some(id => s.runners[id] && !(s.runners[id].agent === s.planner.agent && s.runners[id].account === s.planner.account)) ? { reason: "no executor configured" } : {}),
+      ...(!selection.executors.some(id => s.runners[id] && (options.includePlanner || !(s.runners[id].agent === s.planner.agent && s.runners[id].account === s.planner.account))) ? { reason: "no executor configured" } : {}),
     };
   }
   if (s.pacing.policy === "priority") {
