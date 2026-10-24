@@ -1,8 +1,22 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "pacer plugin protocol 1.0.0",
-  "version": "1.0.0",
+  "title": "pacer plugin protocol 1.1.0",
+  "version": "1.1.0",
   "$defs": {
+    "callMetadata": {
+      "type": "object",
+      "properties": {
+        "capabilityCall": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      },
+      "required": [
+        "capabilityCall"
+      ],
+      "additionalProperties": {}
+    },
     "manifest": {
       "type": "object",
       "properties": {
@@ -29,7 +43,8 @@
             "type": "string",
             "enum": [
               "diagnostic",
-              "agentSession"
+              "agentSession",
+              "usage"
             ]
           },
           "additionalProperties": {
@@ -171,7 +186,8 @@
                 "type": "string",
                 "enum": [
                   "diagnostic",
-                  "agentSession"
+                  "agentSession",
+                  "usage"
                 ]
               },
               "additionalProperties": {
@@ -371,6 +387,571 @@
         "contributes"
       ],
       "additionalProperties": false
+    },
+    "usage.read.params": {
+      "type": "object",
+      "properties": {
+        "provider": {
+          "type": "string",
+          "minLength": 1
+        },
+        "account": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "claude",
+                    "codex",
+                    "cursor",
+                    "agy",
+                    "endpoint"
+                  ]
+                },
+                "source": {
+                  "type": "string",
+                  "enum": [
+                    "default",
+                    "pacer",
+                    "orca",
+                    "endpoint",
+                    "opencode"
+                  ]
+                }
+              },
+              "required": [
+                "name",
+                "kind",
+                "source"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "accountHome": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "model": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "weeklyTokens": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "weeklyUsd": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "quotaSource": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "now": {
+          "type": "number"
+        },
+        "readOnly": {
+          "type": "boolean"
+        },
+        "refresh": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "provider",
+        "account",
+        "accountHome",
+        "model",
+        "weeklyTokens",
+        "weeklyUsd",
+        "quotaSource",
+        "now",
+        "readOnly",
+        "refresh"
+      ],
+      "additionalProperties": false
+    },
+    "usage.read.result": {
+      "type": "object",
+      "properties": {
+        "windows": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "usedPct": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "resetsAt": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "lengthS": {
+                "type": "number"
+              },
+              "paced": {
+                "type": "boolean"
+              },
+              "stale": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "name",
+              "usedPct",
+              "resetsAt",
+              "lengthS",
+              "paced"
+            ],
+            "additionalProperties": {}
+          }
+        },
+        "capturedAt": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "stale": {
+          "type": "boolean"
+        },
+        "alternatives": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/usage.read.result"
+          }
+        },
+        "evidence": {
+          "type": "object",
+          "properties": {
+            "availability": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "scope": {
+                    "type": "object",
+                    "properties": {
+                      "account": {
+                        "type": "string"
+                      },
+                      "identity": {
+                        "type": "string"
+                      },
+                      "runner": {
+                        "type": "string"
+                      },
+                      "model": {
+                        "type": "string"
+                      },
+                      "host": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "account",
+                      "identity"
+                    ],
+                    "additionalProperties": {}
+                  },
+                  "source": {
+                    "type": "string",
+                    "enum": [
+                      "status-line",
+                      "session-log",
+                      "provider-cli",
+                      "metered",
+                      "reactive",
+                      "unmetered",
+                      "execution",
+                      "configuration"
+                    ]
+                  },
+                  "observedAt": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "validUntil": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string"
+                  },
+                  "budgetPolicy": {
+                    "type": "string"
+                  },
+                  "value": {
+                    "type": "string",
+                    "enum": [
+                      "ready",
+                      "unavailable",
+                      "unknown"
+                    ]
+                  }
+                },
+                "required": [
+                  "id",
+                  "scope",
+                  "source",
+                  "observedAt",
+                  "validUntil",
+                  "reason",
+                  "value"
+                ],
+                "additionalProperties": {}
+              }
+            },
+            "budget": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "scope": {
+                    "type": "object",
+                    "properties": {
+                      "account": {
+                        "type": "string"
+                      },
+                      "identity": {
+                        "type": "string"
+                      },
+                      "runner": {
+                        "type": "string"
+                      },
+                      "model": {
+                        "type": "string"
+                      },
+                      "host": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "account",
+                      "identity"
+                    ],
+                    "additionalProperties": {}
+                  },
+                  "source": {
+                    "type": "string",
+                    "enum": [
+                      "status-line",
+                      "session-log",
+                      "provider-cli",
+                      "metered",
+                      "reactive",
+                      "unmetered",
+                      "execution",
+                      "configuration"
+                    ]
+                  },
+                  "observedAt": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "validUntil": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string"
+                  },
+                  "budgetPolicy": {
+                    "type": "string"
+                  },
+                  "value": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "usedPct": {
+                        "type": [
+                          "number",
+                          "null"
+                        ]
+                      },
+                      "resetsAt": {
+                        "type": [
+                          "number",
+                          "null"
+                        ]
+                      },
+                      "lengthS": {
+                        "type": "number"
+                      },
+                      "paced": {
+                        "type": "boolean"
+                      },
+                      "stale": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "name",
+                      "usedPct",
+                      "resetsAt",
+                      "lengthS",
+                      "paced"
+                    ],
+                    "additionalProperties": {}
+                  }
+                },
+                "required": [
+                  "id",
+                  "scope",
+                  "source",
+                  "observedAt",
+                  "validUntil",
+                  "reason",
+                  "value"
+                ],
+                "additionalProperties": {}
+              }
+            },
+            "spending": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "scope": {
+                    "type": "object",
+                    "properties": {
+                      "account": {
+                        "type": "string"
+                      },
+                      "identity": {
+                        "type": "string"
+                      },
+                      "runner": {
+                        "type": "string"
+                      },
+                      "model": {
+                        "type": "string"
+                      },
+                      "host": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "account",
+                      "identity"
+                    ],
+                    "additionalProperties": {}
+                  },
+                  "source": {
+                    "type": "string",
+                    "enum": [
+                      "status-line",
+                      "session-log",
+                      "provider-cli",
+                      "metered",
+                      "reactive",
+                      "unmetered",
+                      "execution",
+                      "configuration"
+                    ]
+                  },
+                  "observedAt": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "validUntil": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string"
+                  },
+                  "budgetPolicy": {
+                    "type": "string"
+                  },
+                  "value": {
+                    "type": "object",
+                    "properties": {
+                      "creditsAvailable": {
+                        "type": [
+                          "boolean",
+                          "null"
+                        ]
+                      },
+                      "creditBalance": {
+                        "type": [
+                          "number",
+                          "null"
+                        ]
+                      },
+                      "paidConsumption": {
+                        "type": "string",
+                        "enum": [
+                          "observed",
+                          "not_observed",
+                          "unknown"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "creditsAvailable",
+                      "creditBalance",
+                      "paidConsumption"
+                    ],
+                    "additionalProperties": {}
+                  }
+                },
+                "required": [
+                  "id",
+                  "scope",
+                  "source",
+                  "observedAt",
+                  "validUntil",
+                  "reason",
+                  "value"
+                ],
+                "additionalProperties": {}
+              }
+            }
+          },
+          "required": [
+            "availability",
+            "budget",
+            "spending"
+          ],
+          "additionalProperties": {}
+        },
+        "availability": {
+          "type": "object",
+          "properties": {
+            "state": {
+              "type": "string",
+              "enum": [
+                "ready",
+                "unavailable",
+                "unknown"
+              ]
+            },
+            "reason": {
+              "type": "string"
+            },
+            "validUntil": {
+              "type": [
+                "number",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "state",
+            "reason",
+            "validUntil"
+          ],
+          "additionalProperties": {}
+        },
+        "spending": {
+          "type": "object",
+          "properties": {
+            "creditsAvailable": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "creditBalance": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "paidConsumption": {
+              "type": "string",
+              "enum": [
+                "observed",
+                "not_observed",
+                "unknown"
+              ]
+            }
+          },
+          "required": [
+            "creditsAvailable",
+            "creditBalance",
+            "paidConsumption"
+          ],
+          "additionalProperties": {}
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "status-line",
+            "session-log",
+            "provider-cli",
+            "metered",
+            "reactive",
+            "unmetered"
+          ]
+        },
+        "remoteHost": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        },
+        "spendUsd": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "windows",
+        "capturedAt",
+        "stale"
+      ],
+      "additionalProperties": {}
     },
     "agentSession.capabilities.params": {
       "type": "object",

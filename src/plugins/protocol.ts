@@ -1,11 +1,13 @@
 import { z } from "zod";
+import { usageReadParams, usageReading } from "./usage-protocol";
+export { usageReadParams, usageReading, usageAccount, usageWindow, callMetadata, type UsageReadParams } from "./usage-protocol";
 import { isVersion } from "../update/version";
 
 /** Plugin protocol version; independent of the client protocol (P4 applies to both). */
-export const PLUGIN_PROTOCOL_VERSION = "1.0.0";
+export const PLUGIN_PROTOCOL_VERSION = "1.1.0";
 export const PLUGIN_PROTOCOL_MAJOR = 1;
 
-export const EXTENSION_POINTS = ["diagnostic", "agentSession"] as const;
+export const EXTENSION_POINTS = ["diagnostic", "agentSession", "usage"] as const;
 export type ExtensionPoint = (typeof EXTENSION_POINTS)[number];
 
 export const CAPABILITIES = ["tasks.read", "events.subscribe", "process.spawn", "fs.read", "net.http", "secrets.resolve", "config.get", "entitlement.report", "log"] as const;
@@ -50,6 +52,7 @@ export const agentAttachmentResult = z.discriminatedUnion("kind", [z.object({kin
 
 /** Host → plugin. Keys are `<extensionPoint>.<method>`; every plugin serves `diagnostic`. */
 export const EXTENSION_METHODS: Record<string, MethodDef> = {
+  "usage.read": method({ description: "Read a provider usage observation with host-derived account authority; cache clocks and rich evidence are preserved.", params: usageReadParams, result: usageReading, deadlineMs: 10000 }),
   "agentSession.capabilities": method({description: "Interactive agent capabilities for an installed version.", params: agentVersion, result: agentCapabilitiesResult, deadlineMs: 5000}),
   "agentSession.prepare": method({description: "Prepare an interactive argument vector without credentials or spawning.", params: agentPrepareParams, result: agentLaunchResult, deadlineMs: 5000}),
   "agentSession.attachment": method({description: "Prepare native attachment arguments or an explicit reference without submitting input.", params: agentAttachmentParams, result: agentAttachmentResult, deadlineMs: 5000}),

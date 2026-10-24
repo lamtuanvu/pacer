@@ -1,6 +1,6 @@
 {
   "name": "@pacer/plugin",
-  "version": "0.0.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "pacer plugin runtime: serve extension points over stdio JSON-RPC and call host capabilities.",
