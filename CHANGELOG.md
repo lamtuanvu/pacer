@@ -12,6 +12,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Retry desktop update coordination and status delivery after transient failures, restore controls only after fresh native verification, and keep verified completed or restored updates terminal when cleanup needs another attempt.
 - Automatically refresh previously connected agent hooks, policies and skills at service startup and before new local agent launches, including named accounts. Preserve customizations with actionable conflicts, and report freshness separately in doctor.
 
 - Select the ArkCLI quota reader for OpenCode's `coding-plan` provider during setup and recover existing Ark Coding Plan quota accounts that have no usage source configured.
