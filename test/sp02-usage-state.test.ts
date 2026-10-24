@@ -288,3 +288,23 @@ test("streamed cursor decoding matches source replacement UTF8 and strict JSON w
     expect((await snapshot(s.authority)).value).toEqual(expected);
   }
 });
+
+test("streamed duplicate files keys follow JSON.parse last-value semantics", async () => {
+  const { CursorStore } = await import("../src/usage/cursors");
+  for (const raw of [
+    '{"version":4,"files":null,"files":{}}', '{"version":4,"files":17,"files":{}}',
+    '{"version":4,"files":[],"files":{}}', '{"version":4,"files":{},"files":null}',
+    '{"version":4,"files":{},"files":[]}', '{"version":4,"files":{},"files":17}',
+  ]) {
+    const s = setup("cursors"); await mkdir(s.root, { recursive: true }); await mkdir(join(s.ctx.pacerHome, "state"), { recursive: true });
+    const log = join(s.root, "rollout-duplicate.jsonl"); await writeFile(log, "{}\n");
+    const cursor = { size: 3, mtime: 1, inode: 2, offset: 3, aggregate: { marker: "retained" } };
+    const object = JSON.stringify({ [log]: cursor });
+    // Nonempty final objects make an eager rejection visibly different from JSON.parse.
+    const text = raw.replace('"files":{}}', '"files":' + object + '}');
+    await writeFile(s.path, text);
+    const source = new CursorStore(s.path, () => true, 4);
+    const expected = await source.run(s.ctx, async files => ({ version: 4, files: JSON.parse(JSON.stringify(files)) }));
+    expect((await snapshot(s.authority)).value).toEqual(expected);
+  }
+});

@@ -55,7 +55,14 @@ export async function readCursorFile(path: string, check: () => void): Promise<{
     const reader = new Reader(file, check);
     let version: unknown; let files: Record<string, unknown> = Object.create(null);
     await reader.object(async (key, r) => {
-      if (key === "files") { files = Object.create(null); await r.object(async (path, entry) => { files[path] = await entry.value(); }); }
+      if (key === "files") {
+        // JSON.parse uses the final duplicate property, even if earlier values
+        // have a different shape. Validate only the selected final map.
+        files = Object.create(null);
+        await r.whitespace();
+        if (await r.peek() === "{") await r.object(async (path, entry) => { files[path] = await entry.value(); });
+        else await r.value();
+      }
       else if (key === "version") version = await r.value();
       else await r.value();
     });
