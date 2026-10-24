@@ -70,6 +70,28 @@ test("fixture sources at any one stable release version become the synthetic bas
   const mixed = make("0.4.0");
   expect(() => copyFixtureSource(mixed.source, mixed.destination, "0.2.3")).toThrow("Fixture native baseline changed");
 });
+test.skipIf(!Bun.which("cargo"))("copied native fixture stays independent of the enclosing Cargo workspace", () => {
+  const source = realpathSync(tmpDir());
+  const destination = join(source, ".work/live/test/ota/build/baseline/source");
+  mkdirSync(join(source, "desktop/src-tauri/src"), { recursive: true });
+  writeFileSync(join(source, "Cargo.toml"), '[workspace]\nmembers = []\nexclude = ["desktop/src-tauri"]\n');
+  writeFileSync(join(source, "package.json"), JSON.stringify({ version: "0.2.3" }));
+  writeFileSync(join(source, "desktop/src-tauri/tauri.conf.json"), JSON.stringify({ version: "0.2.3" }));
+  const manifest = '[package]\nname = "pacer-desktop"\nversion = "0.2.3"\nedition = "2021"\n';
+  writeFileSync(join(source, "desktop/src-tauri/Cargo.toml"), manifest);
+  writeFileSync(join(source, "desktop/src-tauri/Cargo.lock"), '[[package]]\nname = "pacer-desktop"\nversion = "0.2.3"\n');
+  writeFileSync(join(source, "desktop/src-tauri/src/lib.rs"), "pub fn fixture() {}\n");
+  copyFixtureSource(source, destination, "0.2.4");
+  const nativeRoot = join(destination, "desktop/src-tauri");
+  const result = Bun.spawnSync(["cargo", "metadata", "--offline", "--no-deps", "--format-version", "1"], {
+    cwd: nativeRoot, stdout: "pipe", stderr: "pipe",
+  });
+  expect({ code: result.exitCode, error: result.stderr.toString() }).toEqual({ code: 0, error: "" });
+  const metadata = JSON.parse(result.stdout.toString());
+  expect(metadata.workspace_root).toBe(nativeRoot);
+  expect(metadata.packages[0].version).toBe("0.2.4");
+  expect(readFileSync(join(source, "desktop/src-tauri/Cargo.toml"), "utf8")).toBe(manifest);
+});
 test("host fixture feed preserves production URL and does not fabricate another architecture", () => {
   const feed = JSON.parse(fixtureFeed("aarch64", Buffer.from("archive"), "signature"));
   expect(Object.keys(feed.platforms)).toEqual(["darwin-aarch64"]);
