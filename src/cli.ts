@@ -620,7 +620,10 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
 
 if (import.meta.main) {
   const r = await main(process.argv.slice(2));
-  if (r.out) process.stdout.write(r.out.endsWith("\n") ? r.out : `${r.out}\n`);
-  if (r.err) process.stderr.write(r.err.endsWith("\n") ? r.err : `${r.err}\n`);
+  const writes = await Promise.allSettled([
+    ...(r.out ? [Bun.write(Bun.stdout, r.out.endsWith("\n") ? r.out : `${r.out}\n`)] : []),
+    ...(r.err ? [Bun.write(Bun.stderr, r.err.endsWith("\n") ? r.err : `${r.err}\n`)] : []),
+  ]);
+  if (writes.some(result => result.status === "rejected")) process.exit(1);
   if (!r.keepAlive) process.exit(r.code);
 }
