@@ -1,3 +1,4 @@
+import { refreshConnectedIntegrations } from "../core/integrations";
 import { desktopCaptureRoute } from "./desktop-capture";
 import { attachmentRoute } from "./attachment-routes";
 import { resetCaptureBroker } from "../desktop/capture-broker";
@@ -52,6 +53,12 @@ export function startServer(
   const token = ensureToken(initialCtx);
   reconcileAdmissionSync(initialCtx);
   recoverJobs(initialCtx);
+  // Serving diagnostics must not wait on account configuration writes. New local
+  // launches serialize with this job through the shared installation lock.
+  void Promise.resolve().then(() => refreshConnectedIntegrations(initialCtx)).then(results => {
+    for (const result of results) if (result.state === "conflict" || result.state === "failed")
+      console.error(`pacer: integration ${result.target}: ${result.detail}. ${result.hint}`);
+  }).catch(() => console.error("pacer: integration refresh failed; run pacer doctor for recovery guidance"));
   const nativeServices = opts.opDeps?.desktopUpdates ? null : configuredNativeServices(getCtx,opts.port??Number(initialCtx.env.PACER_PORT??DEFAULT_PORT),()=>{
     stop();setImmediate(()=>process.exit(0));
   });

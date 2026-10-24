@@ -8,6 +8,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Automatically refresh previously connected agent hooks, policies and skills at service startup and before new local agent launches, including named accounts. Preserve customizations with actionable conflicts, and report freshness separately in doctor.
+
 - Select the ArkCLI quota reader for OpenCode’s `coding-plan` provider during setup and recover existing Ark Coding Plan quota accounts that have no usage source configured.
 
 - Use one keyboard-accessible, searchable dropdown style across Start work, delegation, Settings and retry/review, with aligned Start work fields and a styled native attachment trigger. Missing repository/workspace choices now block starting a session.

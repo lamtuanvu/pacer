@@ -1,3 +1,4 @@
+import { ensureProviderIntegration } from "../core/integrations";
 import { withWork } from "../update/desktop/admission";
 import { conversationActivity } from "../session/conversation";
 import { prepareAgentSession } from "../plugins/agent-session";
@@ -268,6 +269,7 @@ async function startTakeoverRun(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, pr
     const request = JSON.parse(readFileSync(join(previous.dir, "takeover.json"), "utf8")) as {sessionId:string;at:number;by?:string};
     if (typeof request.sessionId !== "string" || !request.sessionId) throw Error("Take over request has no session id");
     run.agentSession = {id:request.sessionId, source:readTask(ctx,task.id)?.run?.agentSession?.source ?? "lookup"};
+    await ensureProviderIntegration(ctx, cfg.id);
     const env = executorEnv(ctx.env, await providerEnv(ctx,cfg), task.id);
     const agent = cfg.via === "opencode" ? "opencode" : parseRunnerId(cfg.id)?.agent ?? cfg.id;
     if (agent === "codex") await requireCodexInteractive(ctx,env);

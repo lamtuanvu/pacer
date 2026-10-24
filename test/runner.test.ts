@@ -500,3 +500,30 @@ test("attempt completion saves review changes before its checkout is removed", a
   expect(saved.patch).toContain("+saved by runner");
   expect(saved.files).toContainEqual({ path: "change.txt", status: "added", added: 1, removed: 0, binary: false });
 });
+
+test("connected integration conflict blocks the selected backend before executor spawn", async () => {
+  const { installPlanner } = await import("../src/install");
+  const ctx = fakeCtx({ env: { PACER_BIN: "/opt/pacer/bin/pacer" } });
+  await installPlanner({ ctx, pacerArgv: ["/opt/pacer/bin/pacer"] }, "codex");
+  writeFileSync(join(ctx.home, ".codex/skills/pacer/SKILL.md"), "user customization");
+  const task = newTask(ctx, { requestedExecutor: "codex" }), d = deps({ codex: outcomeFor("codex", 0) });
+  const result = await runTask(ctx, task.id, d);
+  expect(d.calls).toEqual([]);
+  expect(result.state).toBe("failed");
+  expect(result.result?.report).toContain("pacer install codex");
+});
+
+test("connected integration is refreshed before a conversation reaches its backend", async () => {
+  const { installPlanner } = await import("../src/install");
+  const { readFileSync } = await import("node:fs");
+  const ctx = fakeCtx({ env: { PACER_BIN: "/opt/pacer/bin/pacer" } });
+  await installPlanner({ ctx, pacerArgv: ["/opt/pacer/bin/pacer"] }, "codex");
+  const path = join(ctx.home, ".codex/skills/pacer/SKILL.md"); rmSync(path);
+  const task = newTask(ctx, { requestedExecutor: "codex" }); updateTask(ctx, task.id, t => { t.interactionMode = "conversation"; });
+  const d = deps({ codex: outcomeFor("codex", 0) });
+  d.runAttempt = async () => {
+    expect(readFileSync(path, "utf8")).toContain("PACER_ROLE=executor");
+    return outcomeFor("codex", 0);
+  };
+  expect((await runTask(ctx, task.id, d)).state).toBe("done");
+});

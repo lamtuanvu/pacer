@@ -21,6 +21,17 @@ add build metadata from `git describe`, for example `0.2.3+12.gabc1234` (with
 without Git use the package version. Update checks ignore build metadata and
 offer only releases newer than that package version.
 
+## Integration refresh after upgrades
+
+The updated service automatically reconciles previously connected agent hooks,
+policies and skills when it starts, regardless of the installation channel.
+If an upgrade leaves the old service running, its integration assets remain in use
+until the updated service is adopted. The CLI updater also invokes the replacement
+binary's `integrations refresh --json` command so it uses the new bundled assets.
+`--no-reinstall` skips that immediate updater call; later service startup and local
+launch readiness checks still apply. See [integration updates](install.md#integration-updates)
+for customization conflicts, named accounts and existing-session behavior.
+
 ## Companion-aware bridge updates
 
 The bridge release remains a single Bun executable. Its updater accepts an optional

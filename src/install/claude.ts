@@ -73,11 +73,11 @@ export function editStatuslineScript(text: string, command: string): string | nu
 }
 
 type ClaudeCommands = { session: string; guard: string; statusline: string };
-export function editClaudeSettings(old: string | null, cmds: ClaudeCommands, home: string): {
+export function editClaudeSettings(old: string | null, cmds: ClaudeCommands, home: string, automatic = false): {
   text: string; undo: UndoOp[]; scriptPath: string | null; needsPipe: boolean;
 } {
   const original = !old?.trim() ? {} : parseJsonc(old);
-  const { doc, removed } = removeHooks(original, "claude", command => typeof command === "string" && command.includes("/.claude/scripts/budget/"));
+  const { doc, removed } = removeHooks(original, "claude", command => !automatic && typeof command === "string" && command.includes("/.claude/scripts/budget/"));
   const next = upsertHooks(doc, "claude", [
     { event: "SessionStart", command: cmds.session, timeout: 15, statusMessage: "Checking subscription budgets" },
     { event: "PreToolUse", matcher: "Agent|Task", command: cmds.guard, timeout: 15 },
@@ -133,29 +133,29 @@ export async function installClaude(tx: Txn): Promise<void> {
     await tx.run(add, remove, { successNote: `registered MCP server pacer (${shellCommand(add)})` });
   } else if(tx.env.mcp===true)tx.notes.push(`claude CLI not found: register the MCP server yourself with \`claude mcp add -s user pacer -- ${command} mcp\``);
   // ~/.claude.json is rewritten by running Claude sessions; let the claude CLI remove the entry.
-  if(tx.env.mcp===false){
+  if(tx.env.mcp===false && tx.env.mode !== "reconcile"){
     if(claude) await removeClaudeMcp(ctx, [claude, "mcp", "remove", "-s", "user", "pacer"], tx.notes, tx.env.configEnv);
     else tx.notes.push("claude CLI not found: remove the MCP server yourself with `claude mcp remove -s user pacer`");
   }
-  for (const path of claudeLegacyFiles(ctx.home, tx.env.folder)) if (existsSync(path)) tx.moveAside(path);
+  for (const path of tx.env.mode === "reconcile" ? [] : claudeLegacyFiles(ctx.home, tx.env.folder)) if (existsSync(path)) tx.moveAside(path);
   const root = tx.env.folder ?? join(ctx.home, ".claude");
   installSkill(tx,root);
   tx.edit(join(root, "rules/pacer.md"), () => policyText("claude-code"), []);
   const settingsPath = join(root, "settings.json");
   let settings: ReturnType<typeof editClaudeSettings>;
   try {
-    settings = editClaudeSettings(readText(settingsPath), {
+    settings = editClaudeSettings(tx.read(settingsPath), {
       session: `${command} status --hook claude-code`,
       guard: `${command} guard --planner claude-code`,
       statusline: `${command} statusline`,
-    }, ctx.home);
+    }, ctx.home, tx.env.mode === "reconcile");
   } catch (error) {
     throw new InstallError(`cannot update ${settingsPath}: ${error instanceof Error ? error.message : String(error)}`);
   }
   tx.edit(settingsPath, () => settings.text, settings.undo);
   let needsPipe = settings.needsPipe;
-  if (settings.scriptPath) {
-    const old = readText(settings.scriptPath);
+  if (settings.scriptPath && (tx.env.mode !== "reconcile" || tx.record.files.some(file => file.path === settings.scriptPath))) {
+    const old = tx.read(settings.scriptPath);
     const next = old === null ? null : editStatuslineScript(old, command);
     if (next === null) needsPipe = true;
     else tx.edit(settings.scriptPath, () => next, [statuslineUndo(old!)]);

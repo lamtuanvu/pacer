@@ -286,3 +286,23 @@ The six fixed checks cover an existing pair, adding the companion, a legacy mani
 On macOS the real updater consults read-only code-signing identity metadata. The fixture checks before and after every scenario and refuses when the normal local signing identity exists, so it cannot deliberately use that private key. This is a cooperative test assumption, not protection against a concurrent same-user keychain change. Bun's ad-hoc fixture signatures are not production signing evidence. Compilation uses an isolated environment and does not invoke the local signing helper.
 
 Results are recorded in the session report and `updater/<scenario>/result.json`. Run `live report` then `live down --keep` to retain evidence. There is no general update allow flag or permission to use a real installation as a fixture.
+
+## Disposable integration refresh fixtures
+
+`bun run live up --id integration-refresh`, then
+`bun run live integrations --id integration-refresh`, exercises the checkout CLI
+and real service startup against default and named account folders inside a
+private fixture. The command accepts only an explicit active unseeded sandbox ID;
+paths, commands and environment overrides are refused. It uses private HOME,
+PACER_HOME and agent configuration directories and never reads or copies native
+credentials, invokes a service manager or signs an agent in. Existing fixture
+directories are preserved rather than reused.
+
+Fixed checks cover old-but-intact assets at startup, health availability, named
+account targeting, repeat startup without manifest writes, unrelated settings,
+customized-file conflicts and retry after conflict resolution. Evidence is added
+to the session report. This file-only fixture does not certify real executor
+consumption, native hook invocation, remote hosts or native trust approval; record
+separate evidence for applicable launch paths. Ordinary guarded
+`integrations refresh` calls are refused under D3. Finish with `live report` and
+`live down --keep`.
