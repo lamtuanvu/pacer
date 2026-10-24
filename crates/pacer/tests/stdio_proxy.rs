@@ -150,11 +150,129 @@ fn forwards_hello_ops_and_events_unchanged() {
         lines.sort_by_key(|line| line["id"].to_string());
         lines
     };
-    assert_eq!(parse(&actual.stdout), parse(&expected.stdout));
+    let mut expected_rows = parse(&expected.stdout);
+    if cfg!(feature = "test-ops") {
+        for row in &mut expected_rows {
+            if let Some(ops) = row
+                .pointer_mut("/result/ops")
+                .and_then(serde_json::Value::as_array_mut)
+            {
+                ops.push(serde_json::json!("test.echo"));
+                ops.sort_by_key(|v| v.as_str().unwrap().to_owned());
+            }
+            if let Some(hint) = row.pointer_mut("/error/data/hint")
+                && let Some(names) = hint
+                    .as_str()
+                    .and_then(|hint| hint.strip_prefix("operations: "))
+            {
+                let mut names: Vec<_> = names.split(", ").map(str::to_owned).collect();
+                names.push("test.echo".into());
+                names.sort();
+                *hint = serde_json::json!(format!("operations: {}", names.join(", ")));
+            }
+        }
+    }
+    assert_eq!(parse(&actual.stdout), expected_rows);
     assert_eq!(parse(&actual.stdout).len(), 6);
     assert!(
         parse(&actual.stdout)
             .iter()
             .any(|line| line["method"] == "event")
     );
+}
+
+#[test]
+fn native_echo_requires_explicit_feature_and_successful_v3_hello() {
+    let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let cli = repo.join("src/cli.ts").to_string_lossy().into_owned();
+    for (protocol, forward) in [(3, ""), (3, "test.echo"), (3, "*"), (2, ""), (4, "")] {
+        let home = tempfile::tempdir().unwrap();
+        let payload = serde_json::json!({"text":"x".repeat(300 * 1024)});
+        let mut input = serde_json::to_vec(&serde_json::json!({"jsonrpc":"2.0","id":1,"method":"hello","params":{"protocol":protocol}})).unwrap();
+        input.push(b'\n');
+        input.extend(
+            serde_json::to_vec(
+                &serde_json::json!({"jsonrpc":"2.0","id":2,"method":"test.echo","params":payload}),
+            )
+            .unwrap(),
+        );
+        // Valid final frames do not require a trailing newline.
+        let mut command = proxy(&["bun".into(), cli.clone()], home.path());
+        command.env("PACER_FORWARD_OPS", forward);
+        let output = exchange(command, input);
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let rows: Vec<serde_json::Value> = output
+            .stdout
+            .split(|b| *b == b'\n')
+            .filter(|line| !line.is_empty())
+            .map(|line| serde_json::from_slice(line).unwrap())
+            .collect();
+        let response = rows.iter().find(|r| r["id"] == 2).unwrap();
+        if cfg!(feature = "test-ops") && protocol == 3 && forward.is_empty() {
+            assert_eq!(response["result"], payload);
+        } else {
+            assert_eq!(response["error"]["data"]["code"], "unknown_op");
+        }
+        assert_eq!(
+            String::from_utf8_lossy(&output.stderr)
+                .matches("PACER_FORWARD_OPS=")
+                .count(),
+            usize::from(!forward.is_empty())
+        );
+    }
+}
+
+#[test]
+fn advertised_native_and_forwarded_names_equal_unknown_operation_hint() {
+    let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let cli = repo.join("src/cli.ts").to_string_lossy().into_owned();
+    let input = b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"hello\",\"params\":{\"protocol\":3}}\n{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"not.an.op\"}\n".to_vec();
+    let home = tempfile::tempdir().unwrap();
+    let mut direct = Command::new("bun");
+    direct
+        .args([&cli, "api", "--stdio"])
+        .env("PACER_HOME", home.path());
+    let baseline = exchange(direct, input.clone());
+    let actual = exchange(proxy(&["bun".into(), cli], home.path()), input);
+    let parse = |bytes: &[u8]| -> Vec<serde_json::Value> {
+        bytes
+            .split(|b| *b == b'\n')
+            .filter(|line| !line.is_empty())
+            .map(|line| serde_json::from_slice(line).unwrap())
+            .collect()
+    };
+    let base = parse(&baseline.stdout);
+    let rows = parse(&actual.stdout);
+    let mut expected: std::collections::BTreeSet<String> =
+        base.iter().find(|r| r["id"] == 1).unwrap()["result"]["ops"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap().to_owned())
+            .collect();
+    if cfg!(feature = "test-ops") {
+        expected.insert("test.echo".into());
+    }
+    let hello: std::collections::BTreeSet<String> =
+        rows.iter().find(|r| r["id"] == 1).unwrap()["result"]["ops"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap().to_owned())
+            .collect();
+    assert_eq!(hello, expected);
+    let hint = rows.iter().find(|r| r["id"] == 2).unwrap()["error"]["data"]["hint"]
+        .as_str()
+        .unwrap();
+    let hints: std::collections::BTreeSet<String> = hint
+        .strip_prefix("operations: ")
+        .unwrap()
+        .split(", ")
+        .map(str::to_owned)
+        .collect();
+    assert_eq!(hello, hints);
 }

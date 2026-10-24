@@ -6,6 +6,10 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
+[features]
+default = []
+test-ops = ["pacer-server/test-ops"]
+
 [dependencies]
 serde_json.workspace = true
 thiserror.workspace = true
