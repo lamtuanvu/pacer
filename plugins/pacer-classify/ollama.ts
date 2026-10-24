@@ -1,5 +1,5 @@
 import { isLocalUrl, joinUrl, postJson } from "./http";
-import type { Answer, Classifier, Question } from "./types";
+import type { Answer, Classifier, ClassifierHost, Question } from "./http";
 
 function answerField(q: Question): "choice" | "score" | "answer" {
   return q.type === "yesno" ? "answer" : q.type;
@@ -52,22 +52,25 @@ export function parseLocalAnswer(q: Question, content: string): Pick<Answer, "va
   return { value: value as Answer["value"], confidence };
 }
 
-export function ollamaClassifier(options: {
+export interface OllamaOptions {
   baseUrl: string;
   model: string;
-  timeoutMs: number;
   maxTokens: number;
-  apiKey?: string;
+  keyRef: string | null;
   nowMs?: () => number;
-}): Classifier {
+}
+
+export function ollamaClassifier(options: OllamaOptions, host: ClassifierHost): Classifier {
   const nowMs = options.nowMs ?? Date.now;
   return {
     id: "ollama",
     external: !isLocalUrl(options.baseUrl),
-    async ask(state, q) {
+    async ask(state, q, timeoutMs) {
+      // Missing optional local credentials historically issue an anonymous request.
+      const keyRef = options.keyRef && await host.secrets.present(options.keyRef) ? options.keyRef : undefined;
       const started = nowMs();
       const raw = await postJson<{ choices?: { message?: { content?: unknown } }[] }>(
-        joinUrl(options.baseUrl, "/chat/completions"),
+        host, joinUrl(options.baseUrl, "/chat/completions"),
         {
           model: options.model,
           temperature: 0,
@@ -76,7 +79,7 @@ export function ollamaClassifier(options: {
           messages: [{ role: "user", content: promptFor(q, state) }],
           response_format: { type: "json_schema", json_schema: { name: q.id, schema: schemaFor(q) } },
         },
-        { timeoutMs: options.timeoutMs, headers: options.apiKey ? { Authorization: `Bearer ${options.apiKey}` } : undefined },
+        { timeoutMs, keyRef },
       );
       const content = raw?.choices?.[0]?.message?.content;
       if (typeof content !== "string") throw new Error("Missing chat completion message content");

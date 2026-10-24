@@ -1,3 +1,9 @@
+import { BUNDLED } from "../../plugins/bundled";
+import { loadStrategy, MissingStrategyError } from "../config/strategy";
+import { validateClassifier, type ClassifierConfig } from "../config/classifier";
+import { classifierPluginConfig, classifierSnapshot } from "./classifier-config";
+import type { AdapterId } from "../classify/types";
+import { prepareHttpAuthority } from "./http-authority";
 import { spawn as nodeSpawn } from "node:child_process";
 import { existsSync, readdirSync, rmSync, statSync } from "node:fs";
 import { isAbsolute, join, normalize } from "node:path";
@@ -19,10 +25,12 @@ import { EXTENSION_METHODS, HELLO_METHOD, PLUGIN_ID, PLUGIN_PROTOCOL_MAJOR, PLUG
 import type { BundledPlugin } from "./types";
 import { currentVersion } from "../update/version";
 
-export interface PluginCallOptions { resources?: CallResources; accountHome?: string | null; deadlineMs?: number; signal?: AbortSignal; onProgress?: (event: unknown) => void }
+export interface PluginCallOptions { classifierConfig?: ClassifierConfig; resources?: CallResources; accountHome?: string | null; deadlineMs?: number; signal?: AbortSignal; onProgress?: (event: unknown) => void }
 export interface RegistryDeps { bundled: BundledPlugin[]; spawnBundled: (ctx: Ctx, id: string) => SpawnSpec; spawn?: typeof nodeSpawn; sleep?: (ms: number) => Promise<void> }
 export interface PluginInfo { id: string; version: string; publisher: string; tier: "free" | "commercial"; bundled: boolean; enabled: boolean; state: PluginState; contributes: string[]; capabilities: { name: string; scopes?: string[] }[]; grant: PluginGrant | null; error: string | null; pid: number | null }
 export interface DoctorReport { id: string; ok: boolean; state: PluginState; served: string[]; protocol: { host: string; plugin: string | null }; pid: number | null; restarts: number; error: string | null; needs: string | null }
+
+interface ClassifierGeneration { fingerprint: string; manifest: PluginManifest; config: Record<string, unknown> }
 
 interface Entry {
   id: string; manifest: PluginManifest | null; bundled: boolean; dir: string | null;
@@ -30,6 +38,15 @@ interface Entry {
   process?: PluginProcess; starting?: Promise<PluginProcess>; queue: SerialCalls;
   authorities: Map<string, CallAuthority>;
   crashes: number[]; nextStartAt: number; stopping: boolean;
+  generation?: ClassifierGeneration; processGeneration?: ClassifierGeneration;
+  generationTail?: Promise<void>; generationFailure?: unknown; retiringGeneration?: boolean;
+}
+function freezeSnapshot<T>(value: T): T {
+  if (value !== null && typeof value === "object") {
+    for (const child of Object.values(value)) freezeSnapshot(child);
+    Object.freeze(value);
+  }
+  return value;
 }
 const ENABLED: ReadonlySet<PluginState> = new Set(["idle", "starting", "ready"]);
 const CRASH_WINDOW_S = 60, CRASH_LIMIT = 3, MAX_BACKOFF_MS = 30_000, HELLO_DEADLINE_MS = 10_000;
@@ -47,6 +64,61 @@ export class PluginRegistry {
     if (!e) { e = { id, manifest, bundled, dir, state: "idle", error: null, served: [], pluginProtocol: null, queue: new SerialCalls(), authorities: new Map(), crashes: [], nextStartAt: 0, stopping: false }; this.entries.set(id, e); }
     e.manifest = manifest; e.bundled = bundled; e.dir = dir;
     return e;
+  }
+
+  private canonicalClassifier(e: Entry): boolean {
+    const reference = BUNDLED.find(plugin => plugin.manifest.id === "pacer-classify");
+    return e.bundled && e.id === "pacer-classify" && reference !== undefined && this.deps.bundled.includes(reference);
+  }
+
+  private classifierConfig(ctx: Ctx): ClassifierConfig {
+    try {
+      const strategy = loadStrategy(ctx);
+      return validateClassifier(strategy.classifier, strategy.providers);
+    } catch (error) {
+      if (error instanceof MissingStrategyError) return validateClassifier(undefined, {});
+      throw error;
+    }
+  }
+
+  private classifierGeneration(cfg: ClassifierConfig): ClassifierGeneration {
+    const reference = BUNDLED.find(plugin => plugin.manifest.id === "pacer-classify")!;
+    const config = structuredClone(classifierPluginConfig(cfg));
+    const scopes = [...new Set(["ollama", "jev"].flatMap(adapter => [...classifierSnapshot(cfg, adapter as AdapterId).hosts]))];
+    const manifest = structuredClone(reference.manifest) as PluginManifest;
+    manifest.capabilities = manifest.capabilities.map(capability => capability.name === "net.http"
+      ? { ...capability, scopes } : capability);
+    return freezeSnapshot({ fingerprint: JSON.stringify({ config, scopes }), manifest, config });
+  }
+
+  private generationTask<T>(e: Entry, action: () => Promise<T>): Promise<T> {
+    const operation = (e.generationTail ?? Promise.resolve()).then(action);
+    e.generationTail = operation.then(() => undefined, () => undefined);
+    return operation;
+  }
+
+  private updateGeneration(ctx: Ctx, e: Entry, generation: ClassifierGeneration): void {
+    e.manifest = generation.manifest;
+    if (e.generation?.fingerprint === generation.fingerprint) return;
+    e.generation = generation;
+    // Serialize retirement behind an in-flight hello; no replacement may start
+    // until all old authorities have completed their mandatory revoke cleanup.
+    void this.generationTask(e, async () => {
+      if (e.processGeneration && e.processGeneration.fingerprint !== e.generation?.fingerprint) {
+        try { await this.stopProcess(e); }
+        catch (error) { e.generationFailure = error; this.setState(ctx, e, "failing", "classifier generation cleanup failed"); }
+      }
+    });
+  }
+
+  private startGeneration(ctx: Ctx, e: Entry, generation: ClassifierGeneration, deadline: number, signal: AbortSignal): Promise<PluginProcess> {
+    return this.generationTask(e, async () => {
+      if (e.generationFailure) throw e.generationFailure;
+      if (!ENABLED.has(e.state)) throw new CoreError("plugin_unavailable", "classifier is not enabled");
+      if (e.generation?.fingerprint !== generation.fingerprint) throw new CoreError("plugin_unavailable", "classifier configuration generation changed before admission");
+      if (e.processGeneration && e.processGeneration.fingerprint !== generation.fingerprint) await this.stopProcess(e);
+      return this.start(ctx, e, deadline, signal, generation);
+    });
   }
 
   private setState(ctx: Ctx, e: Entry, state: PluginState, error: string | null = null): void {
@@ -72,6 +144,7 @@ export class PluginRegistry {
     };
     for (const b of this.deps.bundled) {
       const e = this.entry(b.manifest.id, b.manifest, true, null);
+      if (this.canonicalClassifier(e)) this.updateGeneration(ctx, e, this.classifierGeneration(this.classifierConfig(ctx)));
       apply(e, hostRangeAccepts(b.manifest.host, PLUGIN_PROTOCOL_VERSION) ? null : `needs host ${b.manifest.host}; this pacer serves ${PLUGIN_PROTOCOL_VERSION}`, null);
     }
     const root = join(ctx.pacerHome, "plugins");
@@ -133,7 +206,7 @@ export class PluginRegistry {
     return { argv: [join(e.dir!, e.manifest!.entry!)], cwd: e.dir!, env };
   }
 
-  private async start(ctx: Ctx, e: Entry, deadlineAt = Infinity, signal?: AbortSignal): Promise<PluginProcess> {
+  private async start(ctx: Ctx, e: Entry, deadlineAt = Infinity, signal?: AbortSignal, generation?: ClassifierGeneration): Promise<PluginProcess> {
     if (e.starting) return e.starting;
     if (e.process?.alive) return e.process;
     e.starting = (async () => {
@@ -142,28 +215,29 @@ export class PluginRegistry {
       if (wait > 0) await this.sleep(wait);
       if (signal?.aborted || Date.now() >= deadlineAt) throw new CoreError("plugin_timeout", "plugin call expired before startup");
       this.setState(ctx, e, "starting");
-      const manifest = e.manifest!;
+      const manifest = generation?.manifest ?? structuredClone(e.manifest!);
+      const config = generation?.config ?? pluginsConfig(ctx).config[e.id] ?? {};
       const proc = new PluginProcess(this.spec(ctx, e), {
         spawn: this.deps.spawn,
-        onRequest: (m, p, metadata, deliver) => {
+        onRequest: (m, p, metadata, deliver, transport) => {
           const parsed = callMetadata.safeParse(metadata);
           const token = parsed.success ? parsed.data?.capabilityCall : undefined;
           const authority = token && e.process === proc ? e.authorities.get(token) : undefined;
-          return answerCapability(authority?.ctx ?? ctx, { id: e.id, manifest }, m, p, authority, deliver);
+          return answerCapability(authority?.ctx ?? ctx, { id: e.id, manifest, ...(generation ? { config } : {}) }, m, p, authority, deliver, transport);
         },
         onStderr: line => appendPluginLog(ctx, e.id, "stderr", line),
         onExit: info => this.onExit(ctx, e, proc, info),
       });
-      e.process = proc;
+      e.process = proc; e.processGeneration = generation;
       const grants = e.bundled ? manifest.capabilities.map(c => c.name) : (pluginsConfig(ctx).installed[e.id]?.capabilities ?? []);
       try {
-        const raw = await proc.request(HELLO_METHOD, { protocol: PLUGIN_PROTOCOL_VERSION, features: ["chunkedResults"], pacer: currentVersion(), manifest, config: pluginsConfig(ctx).config[e.id] ?? {}, grants }, Math.min(HELLO_DEADLINE_MS, Math.max(1, deadlineAt - Date.now())), { signal });
+        const raw = await proc.request(HELLO_METHOD, { protocol: PLUGIN_PROTOCOL_VERSION, features: ["chunkedResults", "httpBodyChunks"], pacer: currentVersion(), manifest, config, grants }, Math.min(HELLO_DEADLINE_MS, Math.max(1, deadlineAt - Date.now())), { signal });
         const hello = helloResult.safeParse(raw);
         if (!hello.success) throw new CoreError("plugin_refused", `handshake reply is malformed: ${hello.error.issues[0]?.message ?? "unknown"}`);
         const major = Number(hello.data.protocol.split(".")[0]);
         if (major !== PLUGIN_PROTOCOL_MAJOR) throw new CoreError("plugin_refused", `plugin speaks protocol ${hello.data.protocol}; this pacer serves ${PLUGIN_PROTOCOL_VERSION}`);
         if (hello.data.id !== manifest.id || hello.data.version !== manifest.version) throw new CoreError("plugin_refused", `handshake identity ${hello.data.id}@${hello.data.version} does not match the manifest ${manifest.id}@${manifest.version}`);
-        proc.setFeatures(major === 1 && Number(hello.data.protocol.split(".")[1]) >= 1 ? hello.data.features ?? [] : []);
+        proc.setFeatures(major === 1 && Number(hello.data.protocol.split(".")[1]) >= 1 ? (hello.data.features ?? []).filter(feature => feature === "chunkedResults" || (feature === "httpBodyChunks" && Number(hello.data.protocol.split(".")[1]) >= 2)) : []);
         e.pluginProtocol = hello.data.protocol;
         e.served = ["diagnostic", ...hello.data.contributes.filter(p => p !== "diagnostic" && Object.hasOwn(manifest.contributes, p))];
         this.setState(ctx, e, "ready");
@@ -193,6 +267,12 @@ export class PluginRegistry {
   }
 
   private async stop(e: Entry): Promise<void> {
+    if (this.canonicalClassifier(e)) return this.generationTask(e, () => this.stopProcess(e));
+    return this.stopProcess(e);
+  }
+
+  private async stopProcess(e: Entry): Promise<void> {
+    if (this.canonicalClassifier(e)) e.retiringGeneration = true;
     const cleanup = await Promise.allSettled([...e.authorities.values()].map(authority => authority.revoke()));
     const proc = e.process; e.starting = undefined;
     if (proc) {
@@ -200,33 +280,52 @@ export class PluginRegistry {
       try { await proc.terminate(); } finally { e.stopping = false; e.process = undefined; }
     }
     const failed = cleanup.find(result => result.status === "rejected");
-    if (failed?.status === "rejected") throw failed.reason;
+    if (failed?.status === "rejected") {
+      if (this.canonicalClassifier(e)) e.generationFailure = failed.reason;
+      throw failed.reason;
+    }
+    e.retiringGeneration = false;
   }
 
   async call<T>(ctx: Ctx, id: string, method: string, params: unknown, options: PluginCallOptions = {}): Promise<T> {
     const startedAt = Date.now();
     const e = this.findEntry(ctx, id);
+    const classifier = this.canonicalClassifier(e) ? structuredClone(options.classifierConfig ?? this.classifierConfig(ctx)) : undefined;
+    const generation = classifier ? this.classifierGeneration(classifier) : undefined;
+    if (generation) this.updateGeneration(ctx, e, generation);
     if (!ENABLED.has(e.state)) throw new CoreError("plugin_unavailable", `plugin ${id} is ${e.state}${e.error ? `: ${e.error}` : ""}`);
     const def = EXTENSION_METHODS[method];
     if (!def) throw new CoreError("unknown_op", `unknown plugin method ${method}`);
     const requested = options.deadlineMs ?? def.deadlineMs;
     if (!Number.isFinite(requested) || requested < 0) throw new CoreError("invalid_input", "plugin deadline must be non-negative");
     const duration = method === "usage.read" ? requested === 0 ? def.deadlineMs : Math.min(requested, def.deadlineMs) : requested;
-    if (options.resources && duration === 0) throw new CoreError("invalid_input", "scoped capabilities require a finite deadline");
+    if ((options.resources || (classifier && method === "classifier.ask")) && duration === 0) throw new CoreError("invalid_input", "scoped capabilities require a finite deadline");
     const deadlineAt = duration === 0 ? Infinity : startedAt + duration;
-    const parsed = method === "usage.read" ? def.params.safeParse(params) : null;
-    if (parsed && !parsed.success) throw new CoreError("invalid_input", "invalid usage reader params");
-    const input = parsed?.success ? parsed.data : params;
+    const parsed = method === "usage.read" || (classifier && method === "classifier.ask") ? def.params.safeParse(params) : null;
+    if (parsed && !parsed.success) throw new CoreError("invalid_input", method === "usage.read" ? "invalid usage reader params" : "invalid classifier params");
+    let input = parsed?.success ? parsed.data : params;
+    let resources = options.resources;
+    if (classifier && method === "classifier.ask") {
+      const value = input as Record<string, unknown>;
+      const selected = classifierSnapshot(classifier, value.adapter as AdapterId);
+      input = { ...value, config: selected.config };
+      const base = { ...(resources ?? { reads: [], commands: [], stores: [] }) };
+      delete base.secretAliases;
+      resources = { ...base, http: { hosts: [...selected.hosts] },
+        ...(selected.secretAliases ? { secretAliases: { ...selected.secretAliases } } : {}) };
+    }
     return this.admission.run(deadlineAt, async signal => {
       const run = async () => {
         if (signal.aborted || Date.now() >= deadlineAt) throw new CoreError("plugin_timeout", "plugin call expired before execution");
-        const proc = await this.start(ctx, e, deadlineAt, signal);
+        const proc = generation ? await this.startGeneration(ctx, e, generation, deadlineAt, signal) : await this.start(ctx, e, deadlineAt, signal);
+        if (generation && (e.retiringGeneration || e.generation?.fingerprint !== generation.fingerprint || e.process !== proc)) throw new CoreError("plugin_unavailable", "classifier configuration generation changed before request");
+        const manifest = generation?.manifest ?? e.manifest!;
         const point = method.split(".")[0]!;
         if (!e.served.includes(point)) throw new CoreError("plugin_unavailable", `plugin ${id} does not serve ${point}`);
         if (signal.aborted || Date.now() >= deadlineAt) throw new CoreError("plugin_timeout", "plugin call expired before request");
-        const needsAuthority = method === "usage.read" || options.resources !== undefined;
-        const grants = e.bundled ? e.manifest!.capabilities.map(capability => capability.name) : pluginsConfig(ctx).installed[id]?.capabilities ?? [];
-        const authority = needsAuthority ? createCallAuthority(ctx, options.resources ?? { reads: [], commands: [], stores: [] },
+        const needsAuthority = method === "usage.read" || resources !== undefined;
+        const grants = e.bundled ? manifest.capabilities.map(capability => capability.name) : pluginsConfig(ctx).installed[id]?.capabilities ?? [];
+        const authority = needsAuthority ? createCallAuthority(ctx, resources ?? { reads: [], commands: [], stores: [] },
           { deadlineMs: deadlineAt, signal, grants, accountHome: options.accountHome }) : undefined;
         if (authority) e.authorities.set(authority.token, authority);
         try {
@@ -234,6 +333,10 @@ export class PluginRegistry {
             await prepareFilesystemAuthority(authority);
             await prepareStateAuthority(authority);
             prepareSpawnAuthority(authority);
+            prepareHttpAuthority(authority, {
+              declaredScopes: manifest.capabilities.find(capability => capability.name === "net.http")?.scopes ?? [],
+              explicitWildcardGrant: !e.bundled && grants.includes("net.http"),
+            });
             authority.assertActive();
           }
           const result = await proc.request<T>(method, input, deadlineAt === Infinity ? 0 : Math.max(1, deadlineAt - Date.now()),

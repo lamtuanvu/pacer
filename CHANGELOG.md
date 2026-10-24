@@ -10,6 +10,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Changed
 
+- Run rules, Ollama and Jev classifiers through the bundled `pacer-classify` plugin. The host retains decision policy and resolves HTTP authorization by reference; disabled classifiers have no built-in implementation fallback.
+
 - Run Claude Code, Codex, Ark Coding Plan and metered OpenCode usage readers in the bundled `pacer-usage` plugin, preserving rich readings and host pacing policy. Disabled or failing readers report unavailable usage without a built-in fallback; inspect them with `pacer plugin list` and `pacer plugin doctor`.
 
 ### Fixed

@@ -1,6 +1,11 @@
-import { KINDS } from "../config/strategy";
-import { parseState } from "./state";
-import type { Answer, Classifier } from "./types";
+import type { Answer, Classifier } from "./http";
+
+// Source-compatible task kinds; the plugin cannot import the host strategy layer.
+const KINDS = [
+  "boilerplate", "tests", "docs", "rename", "migration", "feature", "debug",
+  "refactor", "performance", "unfamiliar-code", "research",
+] as const;
+const parseState = (state: string): Record<string, unknown> => JSON.parse(state);
 
 const KEYWORDS: [string, RegExp][] = [
   ["tests", /\b(tests?|testing)\b/i],

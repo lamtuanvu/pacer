@@ -1,8 +1,13 @@
+import { scheduleDeadline } from "../deadline";
 import { randomUUID } from "node:crypto";
 import { CoreError } from "../core/errors";
 import type { Ctx } from "../types";
 
 export interface CallResources {
+  /** Host-issued secret-reference aliases; names only, never credential values. */
+  secretAliases?: Record<string, string>;
+  /** Exact hostnames derived only from validated host configuration/grants. */
+  http?: { hosts: string[] };
   reads: { path: string; kind: "file" | "codex-logs" }[];
   commands: { argv: string[]; timeoutMs: number }[];
   stores: { id: string; path: string; kind: "cache" | "cursors"; version?: number; root?: string }[];
@@ -16,7 +21,7 @@ export class CallAuthority {
   private readonly grants: ReadonlySet<string>;
   private readonly controller = new AbortController();
   private readonly cleanup = new Set<() => void | Promise<void>>();
-  private readonly timer: ReturnType<typeof setTimeout>;
+  private readonly cancelDeadline: () => void;
   private settled?: Promise<void>;
   private operation = false;
   private readonly detach: () => void;
@@ -29,12 +34,13 @@ export class CallAuthority {
       for (const value of list) Object.freeze(value);
       Object.freeze(list);
     }
+    if (this.resources.http) { Object.freeze(this.resources.http.hosts); Object.freeze(this.resources.http); }
+    if (this.resources.secretAliases) Object.freeze(this.resources.secretAliases);
     Object.freeze(this.resources);
     const cancel = () => { void this.revoke().catch(() => {}); };
     parent?.addEventListener("abort", cancel, { once: true });
     this.detach = () => parent?.removeEventListener("abort", cancel);
-    this.timer = setTimeout(cancel, Math.max(0, deadlineMs - Date.now()));
-    this.timer.unref?.();
+    this.cancelDeadline = scheduleDeadline(deadlineMs, cancel, true);
     if (parent?.aborted) void this.revoke().catch(() => {});
   }
   get signal(): AbortSignal { return this.controller.signal; }
@@ -71,7 +77,7 @@ export class CallAuthority {
     if (this.settled) return this.settled;
     let resolve!: () => void, reject!: (reason: unknown) => void;
     this.settled = new Promise<void>((done, fail) => { resolve = done; reject = fail; });
-    clearTimeout(this.timer); this.detach();
+    this.cancelDeadline(); this.detach();
     // Publish the settlement promise before abort: observers may reenter revoke().
     this.controller.abort(reason ?? new CoreError("capability_denied", "owning plugin call expired"));
     const cleanup = [...this.cleanup]; this.cleanup.clear();

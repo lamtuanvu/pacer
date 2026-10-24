@@ -1,20 +1,26 @@
+import { scheduleDeadline } from "../deadline";
 import { spawn as nodeSpawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { rpcError } from "../api/protocol";
 import { CoreError, type CoreErrorCode } from "../core/errors";
-import { readLines } from "./lines";
+import { MAX_LINE_BYTES, readLines } from "./lines";
 import { CANCEL_METHOD, CAPABILITY_METHODS, RESULT_CHUNK_METHOD, RESULT_CHUNK_FEATURE, resultChunkParams, chunkedResult, callMetadata } from "./protocol";
 import type { CallAuthority } from "./authority";
 import type { ResultStaging } from "./result-staging";
 
 export interface SpawnSpec { argv: string[]; cwd: string; env: Record<string, string | undefined> }
+export interface CapabilityTransport {
+  readonly features: readonly string[];
+  requestFits(params: unknown): boolean;
+  resultFits(result: unknown): boolean;
+}
 export interface ProcessHooks {
-  onRequest: (method: string, params: unknown, metadata?: unknown, deliver?: (result: unknown) => void) => Promise<unknown>;
+  onRequest: (method: string, params: unknown, metadata?: unknown, deliver?: (result: unknown) => void, transport?: CapabilityTransport) => Promise<unknown>;
   onStderr: (line: string) => void;
   onExit: (info: { code: number | null; signal: string | null }) => void;
   spawn?: typeof nodeSpawn;
 }
 export interface RequestOptions { authority?: CallAuthority; metadata?: unknown; signal?: AbortSignal; onProgress?: (event: unknown) => void }
-type Pending = { authority?: CallAuthority; metadata?: unknown; transferStarted?: boolean; staging?: ResultStaging; dispose: () => void; onProgress?: (event: unknown) => void; method: string; resolve: (v: unknown) => void; reject: (e: CoreError) => void; timer?: ReturnType<typeof setTimeout> };
+type Pending = { authority?: CallAuthority; metadata?: unknown; transferStarted?: boolean; staging?: ResultStaging; dispose: () => void; onProgress?: (event: unknown) => void; method: string; resolve: (v: unknown) => void; reject: (e: CoreError) => void; cancelDeadline?: () => void };
 const KNOWN: ReadonlySet<string> = new Set<CoreErrorCode>(["unknown_op", "unknown_task", "invalid_input", "unknown_executor", "conflict", "not_allowed", "plugin_timeout", "plugin_unavailable", "plugin_refused", "capability_denied", "unknown_plugin", "not_found", "too_large"]);
 
 /** One plugin child: JSON-RPC both ways on stdio, stderr to a hook, deadlines owned here. */
@@ -23,6 +29,7 @@ export class PluginProcess {
   private readonly pending = new Map<number, Pending>();
   private nextId = 1;
   private chunkedResults = false;
+  private features: readonly string[] = Object.freeze([]);
   private over = false;
   readonly pid: number | undefined;
   readonly exited: Promise<void>;
@@ -46,7 +53,10 @@ export class PluginProcess {
     readLines(child.stderr, line => hooks.onStderr(line), m => hooks.onStderr(m), () => this.over);
   }
 
-  setFeatures(features: readonly string[]): void { this.chunkedResults = features.includes(RESULT_CHUNK_FEATURE); }
+  setFeatures(features: readonly string[]): void {
+    this.features = Object.freeze([...features]);
+    this.chunkedResults = this.features.includes(RESULT_CHUNK_FEATURE);
+  }
 
   get alive(): boolean { return !this.over && this.child !== undefined; }
 
@@ -54,7 +64,7 @@ export class PluginProcess {
     if (this.over) return;
     this.over = true; this.child = undefined;
     const text = reason ?? `plugin exited${info.code !== null ? ` with code ${info.code}` : info.signal ? ` on ${info.signal}` : ""}`;
-    for (const p of this.pending.values()) { clearTimeout(p.timer); p.dispose(); p.reject(new CoreError("plugin_unavailable", `${p.method}: ${text}`)); }
+    for (const p of this.pending.values()) { p.cancelDeadline?.(); p.dispose(); p.reject(new CoreError("plugin_unavailable", `${p.method}: ${text}`)); }
     this.pending.clear();
     this.hooks.onExit(info);
   }
@@ -79,6 +89,7 @@ export class PluginProcess {
     guard();
     const line = `${JSON.stringify({ jsonrpc: "2.0", id, result })}\n`;
     guard();
+    if (Buffer.byteLength(line, "utf8") > MAX_LINE_BYTES) throw new CoreError("too_large", "capability reply exceeds its transport envelope");
     if (!this.child) throw new CoreError("plugin_unavailable", "plugin closed before capability delivery");
     this.child.stdin.write(line);
   }
@@ -117,7 +128,16 @@ export class PluginProcess {
         if (delivered) throw new CoreError("plugin_refused", "duplicate capability delivery");
         this.sendReply(id, result, owner, deadline, method); delivered = true;
       };
-      void this.hooks.onRequest(method, m.params ?? {}, m._meta, deliver)
+      const fits = (message: Record<string, unknown>): boolean => {
+        try { return Buffer.byteLength(`${JSON.stringify(message)}\n`, "utf8") <= MAX_LINE_BYTES; }
+        catch { return false; }
+      };
+      const transport: CapabilityTransport = Object.freeze({
+        features: this.features,
+        requestFits: (params: unknown) => fits({ ...m, params }),
+        resultFits: (result: unknown) => fits({ jsonrpc: "2.0", id, result }),
+      });
+      void this.hooks.onRequest(method, m.params ?? {}, m._meta, deliver, transport)
         .then(result => { if (!delivered) deliver(result); })
         .catch(error => { if (!delivered) this.send({ id, error: rpcError(error) }); });
       return;
@@ -142,16 +162,16 @@ export class PluginProcess {
       const id = m.id;
       void p.authority.exclusive(() => p.staging!.finish(parsed.data._chunkedResult.bytes)).then(value => {
         if (this.pending.get(id) !== p) return;
-        this.pending.delete(id); clearTimeout(p.timer); p.dispose(); p.resolve(value);
+        this.pending.delete(id); p.cancelDeadline?.(); p.dispose(); p.resolve(value);
       }, error => this.rejectPending(id, p, error instanceof CoreError ? error : new CoreError("plugin_refused", "chunked result assembly failed")));
       return;
     }
-    this.pending.delete(m.id); clearTimeout(p.timer); p.dispose(); p.resolve(result);
+    this.pending.delete(m.id); p.cancelDeadline?.(); p.dispose(); p.resolve(result);
   }
 
   private rejectPending(id: number, pending: Pending, error: CoreError): void {
     if (this.pending.get(id) !== pending) return;
-    this.pending.delete(id); clearTimeout(pending.timer); pending.dispose(); pending.reject(error);
+    this.pending.delete(id); pending.cancelDeadline?.(); pending.dispose(); pending.reject(error);
   }
 
   private async stageResult(params: unknown, metadata: unknown, deliver: (result: { bytes: number }, owner: CallAuthority) => void): Promise<void> {
@@ -198,7 +218,7 @@ export class PluginProcess {
     return new Promise<T>((resolve, reject) => {
       const cancel = (code: "plugin_timeout" | "plugin_unavailable", message: string) => {
         const pending = this.pending.get(id); if (!pending) return;
-        this.pending.delete(id); clearTimeout(pending.timer); pending.dispose();
+        this.pending.delete(id); pending.cancelDeadline?.(); pending.dispose();
         this.send({ method: CANCEL_METHOD, params: { id } });
         reject(new CoreError(code, message));
       };
@@ -208,8 +228,8 @@ export class PluginProcess {
           reason instanceof CoreError && reason.code === "plugin_timeout" ? reason.message : "owning plugin call ended");
       };
       const dispose = () => options.signal?.removeEventListener("abort", abort);
-      const timer = deadlineMs === 0 ? undefined : setTimeout(() => cancel("plugin_timeout", `${method} passed its ${deadlineMs} ms deadline`), deadlineMs);
-      this.pending.set(id, { method, authority: options.authority, metadata: options.metadata, resolve: value => resolve(value as T), reject, timer, dispose, onProgress: options.onProgress });
+      const cancelDeadline = deadlineMs === 0 ? undefined : scheduleDeadline(Date.now() + deadlineMs, () => cancel("plugin_timeout", `${method} passed its ${deadlineMs} ms deadline`));
+      this.pending.set(id, { method, authority: options.authority, metadata: options.metadata, resolve: value => resolve(value as T), reject, cancelDeadline, dispose, onProgress: options.onProgress });
       options.signal?.addEventListener("abort", abort, { once: true });
       this.send({ id, method, params, ...(options.metadata ? { _meta: options.metadata } : {}) });
     });

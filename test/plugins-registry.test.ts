@@ -77,7 +77,7 @@ test("enable needs a grant once, then starts lazily, answers declared capabiliti
   expect(await r.enable(ctx, "fx-good", true)).toEqual({ id: "fx-good", state: "idle" });
   expect(r.list(ctx).find(p => p.id === "fx-good")).toMatchObject({ enabled: true, grant: { version: "1.0.0", capabilities: ["log", "config.get"] }, pid: null });
   const [report] = await r.doctor(live(ctx), "fx-good");
-  expect(report).toMatchObject({ id: "fx-good", ok: true, state: "ready", served: ["diagnostic"], protocol: { host: "1.1.0", plugin: "1.1.0" }, restarts: 0 });
+  expect(report).toMatchObject({ id: "fx-good", ok: true, state: "ready", served: ["diagnostic"], protocol: { host: "1.2.0", plugin: "1.2.0" }, restarts: 0 });
   expect(report.pid).toBeGreaterThan(0);
   const end = Date.now() + 2000; while (!readFileSync(pluginLogPath(ctx, "fx-good"), "utf8").includes("ping 1") && Date.now() < end) await Bun.sleep(10);
   expect(readFileSync(pluginLogPath(ctx, "fx-good"), "utf8")).toContain("[stderr] fixture fx-good: ping 1");

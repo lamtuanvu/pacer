@@ -1,3 +1,4 @@
+import { scheduleDeadline } from "../deadline";
 import { CoreError } from "../core/errors";
 
 interface Job { start: () => void; cancel: (reason: CoreError) => void }
@@ -12,7 +13,7 @@ export class CallAdmission {
     return new Promise<T>((resolve, reject) => {
       const controller = new AbortController();
       let started = false, over = false, reason: CoreError | undefined;
-      const finish = () => { over = true; clearTimeout(timer); parent?.removeEventListener("abort", abort); };
+      const finish = () => { over = true; cancelDeadline(); parent?.removeEventListener("abort", abort); };
       const job: Job = {
         cancel: failure => {
           if (over || reason) return;
@@ -39,8 +40,7 @@ export class CallAdmission {
         },
       };
       const abort = () => job.cancel(new CoreError("plugin_unavailable", "owning plugin call ended"));
-      const timer = deadlineAt === Infinity ? undefined : setTimeout(() => job.cancel(new CoreError("plugin_timeout", "plugin call passed its absolute deadline")), Math.max(0, deadlineAt - Date.now()));
-      timer?.unref?.(); parent?.addEventListener("abort", abort, { once: true });
+      const cancelDeadline = scheduleDeadline(deadlineAt, () => job.cancel(new CoreError("plugin_timeout", "plugin call passed its absolute deadline")), true); parent?.addEventListener("abort", abort, { once: true });
       if (this.active < 8) job.start(); else this.queued.push(job);
     });
   }

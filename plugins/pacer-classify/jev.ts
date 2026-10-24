@@ -1,5 +1,5 @@
 import { HttpError, joinUrl, postJson } from "./http";
-import type { Answer, Classifier, Question } from "./types";
+import type { Answer, Classifier, ClassifierHost, Question } from "./http";
 
 export function jevRequest(state: string, q: Question, model: string) {
   const criteria = q.type === "choice" ? q.criteria : q.type === "score"
@@ -44,30 +44,32 @@ export function mapJevAnswer(q: Question, raw: unknown): Answer {
   return { value: p >= 0.5, probabilities: { yes: p, no: 1 - p }, confidence: confidence(Math.max(p, 1 - p)), latencyMs: 0 };
 }
 
-export function jevClassifier(options: {
+export interface JevOptions {
   baseUrl: string;
   model: string;
-  apiKey: () => string | null;
-  keyName: string;
-  timeoutMs: number;
+  keyRef: string;
   usdPerMtokIn: number | null;
   usdPerMtokOut: number | null;
   nowMs?: () => number;
-}): Classifier {
+}
+
+export function jevClassifier(options: JevOptions, host: ClassifierHost): Classifier {
   const nowMs = options.nowMs ?? Date.now;
   return {
     id: "jev",
     external: true,
-    async ask(state, q) {
-      const key = options.apiKey();
-      if (!key) throw new Error(`Missing Jev API key: ${options.keyName}`);
+    async ask(state, q, timeoutMs) {
+      if (!await host.secrets.present(options.keyRef)) {
+        const keyName = options.keyRef.slice(options.keyRef.indexOf(":") + 1);
+        throw new Error(`Missing Jev API key: ${keyName}`);
+      }
       try {
         const start = nowMs();
-        const response = record(await postJson(joinUrl(options.baseUrl, "/v1/systemone"), jevRequest(state, q, options.model), {
-          headers: { Authorization: `Bearer ${key}` }, timeoutMs: options.timeoutMs,
+        const response = record(await postJson(host, joinUrl(options.baseUrl, "/v1/systemone"), jevRequest(state, q, options.model), {
+          keyRef: options.keyRef, timeoutMs,
         }));
         const answers = record(response.answers);
-        if (!Object.hasOwn(answers, q.id)) throw new Error(`Missing Jev answer for ${q.id}`);
+        if (!Object.hasOwn(answers, q.id)) throw new Error("Missing Jev answer");
         const answer = mapJevAnswer(q, answers[q.id]);
         answer.latencyMs = nowMs() - start;
         if (options.usdPerMtokIn != null && options.usdPerMtokOut != null && response.usage != null) {
@@ -82,11 +84,8 @@ export function jevClassifier(options: {
         }
         return answer;
       } catch (error) {
-        const message = error instanceof HttpError ? `Jev HTTP ${error.status}`
-          : error instanceof Error ? error.message : String(error);
-        if (error instanceof HttpError || message.includes(key)) {
-          throw new Error(message.split(key).join("[REDACTED]"));
-        }
+        // The plugin has only a reference, never the key value to redact.
+        if (error instanceof HttpError) throw new Error(`Jev HTTP ${error.status}`);
         throw error;
       }
     },

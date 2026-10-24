@@ -1,3 +1,4 @@
+import { createHttp, type Request as HttpRequest, type Response as HttpResponse } from "./http";
 export type { AttachmentMetadata, AttachmentRef, AgentVersion, AgentSessionCapabilities, AgentSessionPrepare, AgentSessionLaunch, AgentAttachmentInput, AgentAttachmentDelivery } from "./agent-session";
 
 export interface PluginManifest {
@@ -8,6 +9,8 @@ export interface PluginManifest {
 }
 export interface Hello { features?: string[]; protocol: string; pacer: string; manifest: PluginManifest; config: Record<string, unknown>; grants: string[] }
 export interface HostClient {
+  http(request:HttpRequest):Promise<HttpResponse>;
+  secrets: { present(ref:string):Promise<boolean> };
   call<T = unknown>(method: string, params?: unknown): Promise<T>;
   log(level: "debug" | "info" | "warn" | "error", message: string): Promise<void>;
   config(): Promise<Record<string, unknown>>;
@@ -28,7 +31,7 @@ export class PluginError extends Error {
   constructor(public readonly code: string, message: string, public readonly hint?: string) { super(message); this.name = "PluginError"; }
 }
 
-export const PROTOCOL = "1.1.0";
+export const PROTOCOL = "1.2.0";
 const HELLO = "plugin.hello", CANCEL = "$/cancel";
 type Json = Record<string, unknown>;
 
@@ -56,12 +59,16 @@ export async function serve(o: ServeOptions): Promise<void> {
   const tasks = new Set<Promise<void>>();
   let nextId = 1, startedAt: number | null = null, hello: Hello | null = null;
 
+  let negotiatedFeatures = new Set<string>();
+
   function hostFor(metadata?: unknown, signal?: AbortSignal): HostClient {
     const meta = metadata && typeof metadata === "object" && !Array.isArray(metadata)
       && typeof (metadata as Json).capabilityCall === "string" ? metadata : undefined;
-    const call = <T>(method: string, params: unknown = {}): Promise<T> => {
-      if (signal?.aborted) return Promise.reject(new PluginError("plugin_unavailable", "owning plugin call ended"));
+    const call = <T>(method: string, params: unknown = {}, cleanup = false): Promise<T> => {
+      if (!cleanup && signal?.aborted) return Promise.reject(new PluginError("plugin_unavailable", "owning plugin call ended"));
       const id = `p${nextId++}`;
+      const envelope = { jsonrpc: "2.0", id, method, params, ...(meta ? { _meta: meta } : {}) };
+      if (Buffer.byteLength(JSON.stringify(envelope)+"\n") > 1048576) return Promise.reject(new PluginError("invalid_input", "HTTP complete frame exceeds limit"));
       return new Promise<T>((resolve, reject) => {
         const cancel = () => {
           const waiting = pending.get(id); if (!waiting) return;
@@ -70,12 +77,16 @@ export async function serve(o: ServeOptions): Promise<void> {
         };
         const dispose = () => signal?.removeEventListener("abort", cancel);
         pending.set(id, { resolve: value => resolve(value as T), reject, dispose });
-        signal?.addEventListener("abort", cancel, { once: true });
+        if (!cleanup) signal?.addEventListener("abort", cancel, { once: true });
         send({ id, method, params, ...(meta ? { _meta: meta } : {}) });
       });
     };
     return {
       call,
+      http: createHttp({call, cleanupCall:(method,params)=>call(method,params,true), signal,
+        negotiated:()=>negotiatedFeatures.has("httpBodyChunks"),
+        fits:(method,params)=>Buffer.byteLength(JSON.stringify({jsonrpc:"2.0",id:`p${nextId}`,method,params,...(meta?{_meta:meta}:{})})+"\n")<=1048576}),
+      secrets: { async present(ref) { return (await call<{present:boolean}>("capability.secrets.resolve",{ref})).present; } },
       async log(level, message) { await call("capability.log", { level, message }); },
       async config() { return (await call<{ config: Record<string, unknown> }>("capability.config.get", {})).config; },
     };
@@ -99,8 +110,12 @@ export async function serve(o: ServeOptions): Promise<void> {
       if (id === undefined || id === null) return;
       if (r.method === HELLO) {
         hello = r.params as Hello; startedAt = now();
-        const features = hello.protocol.startsWith("1.") && Number(hello.protocol.split(".")[1]) >= 1 && Array.isArray(hello.features)
-          && hello.features.includes("chunkedResults") ? ["chunkedResults"] : [];
+        const [major, minor] = hello.protocol.split(".").map(Number);
+        const offered = Array.isArray(hello.features) ? hello.features : [];
+        const features = major === 1 && Number.isInteger(minor)
+          ? offered.filter(feature => feature === "chunkedResults" && minor >= 1
+            || feature === "httpBodyChunks" && minor >= 2) : [];
+        negotiatedFeatures = new Set(features);
         send({ id, result: { protocol: PROTOCOL, id: o.manifest.id, version: o.manifest.version, contributes: o.contributes ?? Object.keys(o.manifest.contributes ?? {}), ...(features.length ? { features } : {}) } });
         return;
       }

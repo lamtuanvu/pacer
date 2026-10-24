@@ -102,6 +102,12 @@ Kinds: `boilerplate`, `tests`, `docs`, `rename`, `migration`, `feature`, `debug`
 
 Classification defaults to deterministic `rules`. Optional adapters are `ollama` (an OpenAI-compatible chat endpoint, default `http://127.0.0.1:1234/v1`) and `jev`. Decisions are `task_kind`, `difficulty`, `guard` and `result_check`; each can set `use` and `min_confidence` (default 0.6). Errors, timeouts and low confidence fall back to rules. Keep defaults unless you intend to configure and evaluate an adapter.
 
+The three adapters run in the bundled `pacer-classify` plugin. The host keeps decision policy, shadowing and decision logs. Inspect its state with `pacer plugin list` or `pacer plugin doctor pacer-classify`. Disabling the plugin makes its adapters unavailable, including the rules adapter used for policy fallback; the host has no built-in classifier implementation.
+
+Network requests use the selected adapter's captured destination and secret reference. The host resolves the key immediately before an authorized request; keys are not sent to the plugin. Changes to the effective adapter configuration retire the previous plugin generation before new calls use the replacement. Host-issued aliases preserve configured key names that cannot be represented directly by the plugin reference grammar; the alias map stays in the owning host call.
+
+`classifier.timeout_ms` remains a positive finite call budget, including startup and queue time. Each network request additionally follows the plugin HTTP contract: its timeout must be a positive integer no greater than 120,000 ms. Fractional or larger network timeouts are rejected before network access, without rounding or clamping; normal decision-policy fallback then applies. This is a network-adapter limit introduced by the plugin boundary, not a restriction on pure rules classification or configuration parsing.
+
 ```yaml
 classifier:
   default: rules

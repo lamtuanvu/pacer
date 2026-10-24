@@ -7,6 +7,42 @@ methods. A handler receives `(params, host, signal)`. Use the handler's `host`
 inside that call; do not retain it for background work after cancellation or return.
 See the [wire protocol](../../docs/plugin-protocol.md) for canonical method schemas.
 
+## HTTP and secret references
+
+Declare `net.http` with destination host scopes and, when needed, `secrets.resolve`.
+Use the handler's client; it carries the owning call's captured grants and deadline:
+
+```ts
+const response = await host.http({
+  url: "https://api.example.com/classify",
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ state }),
+  timeoutMs: 3000,
+  authorization: { secretRef: "secrets:CLASSIFIER_KEY" },
+});
+if (response.status !== 200) throw new Error(`Classifier HTTP ${response.status}`);
+const answer = JSON.parse(response.body);
+```
+
+`host.secrets.present(ref)` returns a boolean. The host resolves authorization
+references and injects the key; the plugin never receives its value. HTTP redirects are refused. If an injected key appears
+in response headers or body, the host refuses the entire response.
+
+Request and response bodies are strings, each limited to 4 MiB of UTF8 bytes.
+With mutually negotiated `httpBodyChunks`, the SDK transfers large encoded
+bodies through owner-bound handles using chunks of at most 256 KiB of decoded
+bytes. The existing 1 MiB cap applies to each complete encoded JSON-RPC envelope,
+including metadata. A peer without that feature
+refuses an oversized body rather than truncating it.
+
+Concurrent `host.http` calls within one handler run as complete transactions in
+sequence, including release and failure cleanup. Queue time consumes the original
+owning deadline. HTTP timeouts must be positive integers at most 120,000 ms;
+unsupported values are rejected without clamping. Cancellation also rejects
+queued work before it emits capability requests. Raw `host.call` operations do
+not gain that transaction queue and may return a conflict for occupied resources.
+
 ## Writing a usage reader
 
 A manifest declares `contributes.usage.providers` and the capabilities it needs.

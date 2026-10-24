@@ -2,13 +2,17 @@ import { z } from "zod";
 import { SCOPED_CAPABILITY_METHODS, SCOPED_METHOD_CAPABILITY } from "./capability-protocol";
 import { usageReadParams, usageReading } from "./usage-protocol";
 export { usageReadParams, usageReading, usageAccount, usageWindow, callMetadata, type UsageReadParams } from "./usage-protocol";
+import { CLASSIFIER_METHODS } from "./classifier-protocol";
+import { HTTP_CAPABILITY_METHODS, HTTP_METHOD_CAPABILITY } from "./http-protocol";
+export { questionSchema, answerSchema, classifierAdapterConfig, classifierAskParams, type ClassifierQuestion, type ClassifierAnswer, type ClassifierAskParams } from "./classifier-protocol";
+export { HTTP_BODY_CHUNK_FEATURE, HTTP_BODY_MAX_BYTES, HTTP_BODY_CHUNK_BYTES, httpRequest, httpResponse, httpBodyReference, secretReference, type HttpWireRequest, type HttpWireResponse } from "./http-protocol";
 import { isVersion } from "../update/version";
 
 /** Plugin protocol version; independent of the client protocol (P4 applies to both). */
-export const PLUGIN_PROTOCOL_VERSION = "1.1.0";
+export const PLUGIN_PROTOCOL_VERSION = "1.2.0";
 export const PLUGIN_PROTOCOL_MAJOR = 1;
 
-export const EXTENSION_POINTS = ["diagnostic", "agentSession", "usage"] as const;
+export const EXTENSION_POINTS = ["diagnostic", "agentSession", "usage", "classifier"] as const;
 export type ExtensionPoint = (typeof EXTENSION_POINTS)[number];
 
 export const CAPABILITIES = ["tasks.read", "events.subscribe", "process.spawn", "fs.read", "net.http", "secrets.resolve", "config.get", "entitlement.report", "log", "usage.state"] as const;
@@ -61,6 +65,7 @@ export const agentAttachmentResult = z.discriminatedUnion("kind", [z.object({kin
 
 /** Host → plugin. Keys are `<extensionPoint>.<method>`; every plugin serves `diagnostic`. */
 export const EXTENSION_METHODS: Record<string, MethodDef> = {
+  ...CLASSIFIER_METHODS,
   "usage.read": method({ description: "Read a provider usage observation with host-derived account authority; cache clocks and rich evidence are preserved.", params: usageReadParams, result: usageReading, deadlineMs: 10000 }),
   "agentSession.capabilities": method({description: "Interactive agent capabilities for an installed version.", params: agentVersion, result: agentCapabilitiesResult, deadlineMs: 5000}),
   "agentSession.prepare": method({description: "Prepare an interactive argument vector without credentials or spawning.", params: agentPrepareParams, result: agentLaunchResult, deadlineMs: 5000}),
@@ -71,11 +76,12 @@ export const EXTENSION_METHODS: Record<string, MethodDef> = {
 /** Plugin → host. Keys are `capability.<name>`; answered only when the manifest declares the capability. */
 export const CAPABILITY_METHODS: Record<string, MethodDef> = {
   ...SCOPED_CAPABILITY_METHODS,
+  ...HTTP_CAPABILITY_METHODS,
   "capability.log": method({ description: "Append a line to the plugin's log file under PACER_HOME/logs/plugins.", params: z.object({ level: z.enum(["debug", "info", "warn", "error"]), message: z.string().max(4096) }), result: z.object({ ok: z.literal(true) }), deadlineMs: 1000 }),
   "capability.config.get": method({ description: "The plugin's own config slice (plugins.config.<id> in the strategy file).", params: z.object({}), result: z.object({ config: z.record(z.string(), z.json()) }), deadlineMs: 1000 }),
 };
 
-export const METHOD_CAPABILITY: Readonly<Record<string, Capability>> = SCOPED_METHOD_CAPABILITY;
+export const METHOD_CAPABILITY: Readonly<Record<string, Capability>> = { ...SCOPED_METHOD_CAPABILITY, ...HTTP_METHOD_CAPABILITY };
 
 export function capabilityOf(method: string): Capability | null {
   if (Object.hasOwn(METHOD_CAPABILITY, method)) return METHOD_CAPABILITY[method]!;

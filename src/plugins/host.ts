@@ -1,3 +1,6 @@
+import { answerHttp } from "./capability-http";
+import { secretPresence } from "./http-authority";
+import type { CapabilityTransport } from "./process";
 // src/plugins/host.ts
 import { CallAuthority } from "./authority";
 import { answerUsageState } from "./usage-state";
@@ -18,12 +21,12 @@ export function appendPluginLog(ctx: Pick<Ctx, "pacerHome">, id: string, tag: st
 }
 
 /** Answer a plugin's capability call. Undeclared or unimplemented capabilities are refused without side effects. */
-export async function answerCapability(ctx: Ctx, plugin: { id: string; manifest: PluginManifest }, method: string, params: unknown, authority?: CallAuthority, deliver?: (result: unknown) => void): Promise<unknown> {
+export async function answerCapability(ctx: Ctx, plugin: { id: string; manifest: PluginManifest; config?: Record<string, unknown> }, method: string, params: unknown, authority?: CallAuthority, deliver?: (result: unknown) => void, transport?: CapabilityTransport): Promise<unknown> {
   const name = capabilityOf(method), def = CAPABILITY_METHODS[method];
   if (!name) throw new CoreError("unknown_op", `unknown host method ${method}`);
   if (!plugin.manifest.capabilities.some(c => c.name === name)) throw new CoreError("capability_denied", `plugin ${plugin.id} did not declare ${name}`);
   if (!def) throw new CoreError("capability_denied", `${name} is not available in this pacer yet`);
-  if (["fs.read", "process.spawn", "usage.state"].includes(name)) {
+  if (["fs.read", "process.spawn", "usage.state", "net.http", "secrets.resolve"].includes(name)) {
     if (!(authority instanceof CallAuthority)) throw new CoreError("capability_denied", "scoped capability requires an active owning call");
     authority.assertGranted(name);
   }
@@ -50,9 +53,14 @@ export async function answerCapability(ctx: Ctx, plugin: { id: string; manifest:
     ? readSpawnOutput(authority, parsed.data as Record<string, unknown>) : answerSpawn(authority, scopes, parsed.data as Record<string, unknown>));
   if (authority && name === "usage.state") return scoped(() => answerUsageState(authority,
     method.slice("capability.usage.state.".length) as Parameters<typeof answerUsageState>[1], parsed.data as Record<string, unknown>));
+  if (authority && name === "secrets.resolve") return scoped(() => secretPresence(authority, (parsed.data as { ref: string }).ref));
+  if (authority && name === "net.http") {
+    if (!transport) throw new CoreError("capability_denied", "HTTP requires a captured transport envelope");
+    return scoped(() => answerHttp(authority, method, params ?? {}, transport));
+  }
   switch (name) {
     case "log": { const p = parsed.data as { level: string; message: string }; appendPluginLog(ctx, plugin.id, p.level, p.message); return { ok: true }; }
-    case "config.get": return { config: pluginsConfig(ctx).config[plugin.id] ?? {} };
+    case "config.get": return { config: plugin.config ?? pluginsConfig(ctx).config[plugin.id] ?? {} };
     default: throw new CoreError("capability_denied", `${name} is not available in this pacer yet`);
   }
 }

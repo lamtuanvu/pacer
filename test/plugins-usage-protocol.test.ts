@@ -37,7 +37,7 @@ test("usage input projects account identity and budget clocks without forwarding
 });
 
 test("future usage protocol keeps old diagnostic and agentSession contracts compatible", () => {
-  expect(protocol.PLUGIN_PROTOCOL_VERSION).toBe("1.1.0");
+  expect(protocol.PLUGIN_PROTOCOL_VERSION).toBe("1.2.0");
   expect(hostRangeAccepts("^1", protocol.PLUGIN_PROTOCOL_VERSION)).toBe(true);
   expect(protocol.manifestSchema.safeParse({ id: "old-plugin", publisher: "public", version: "1.0.0", host: "^1", contributes: { diagnostic: {}, agentSession: {} }, capabilities: [{ name: "log" }] }).success).toBe(true);
   expect(protocol.helloResult.safeParse({ protocol: "1.0.0", id: "old-plugin", version: "1.0.0", contributes: ["diagnostic", "agentSession"] }).success).toBe(true);
