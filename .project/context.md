@@ -95,7 +95,7 @@ There is no lint or format command; `.editorconfig` is the only style config.
 | API & protocol compatibility | `src/api/**`, `src/serve/**`, `src/mcp/**`, `docs/protocol*.md`, any client reading the API | [rules/api-protocol.md](rules/api-protocol.md) | Established |
 | Security & secrets | `src/serve/**`, `src/endpoints/**`, `src/remote/**`, `src/exec/**`, `src/supervisor/**`, `src/session/**`, `src/install/**`, `src/update/**`, `desktop/**`, CI workflows | [rules/security.md](rules/security.md) | Established |
 | TypeScript & testing | `src/**`, `app/**`, `test/**`, `scripts/**` | [rules/code-and-testing.md](rules/code-and-testing.md) | Established, plus proposals |
-| UI & accessibility | `app/**`, `src/dashboard/**`, `src/render/**`, `desktop/**` | [rules/ui.md](rules/ui.md) (visual craft UI-8–18; shared foundation/evidence UI-19–25; compact density UI-26) | Established (spec), plus proposals |
+| UI & accessibility | `app/**`, `src/dashboard/**`, `src/render/**`, `desktop/**` | [rules/ui.md](rules/ui.md) (visual craft UI-8–18; shared foundation/evidence UI-19–25; compact density UI-26; spacing ownership UI-27) | Established (spec), plus proposals |
 | Release & distribution | `package.json` version, `CHANGELOG.md`, `scripts/release*`, `.github/workflows/release.yml`, `npm/**`, `desktop/` versions | [rules/release.md](rules/release.md) | Established |
 | Repository hygiene & docs | all tracked files, commits, PRs, `docs/**` | [rules/repository.md](rules/repository.md) | Established, plus proposals |
 | Rust crate structure & size | `Cargo.toml`, `crates/**`, `plugins-rs/**`, `xtask/**` | [rules/rust-crates.md](rules/rust-crates.md) (CRATE-1 to CRATE-11) | Established |

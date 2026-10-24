@@ -61,7 +61,7 @@ UI-19–UI-25 are **Established**, adopted on 2026-10-19 by merging #193 (consti
 
 ### UI review readiness procedure
 
-Amendment 0.12.0 clarifies the agent workflow for existing UI-24 evidence gates.
+Amendment 0.13.0 clarifies the agent workflow for existing UI-24 evidence gates.
 Authorized for this task; repository-wide adoption is proposed until maintainer
 merge. Existing evidence requirements and maintainer merge authority remain.
 
@@ -122,6 +122,12 @@ Their metadata PASS means evidence was not required, not that UI was reviewed.
 |----|--------------------|--------|------------------|--------------|
 | UI-26 | Compact is the desktop default for buttons, dropdowns/selects, inputs and recurring rows. Use shared DS primitives and density tokens, with the top-bar Delegate as the compact reference. Button variants share geometry; related controls align. Settings use the shared settings density, multiline fields retain useful height, and touch layouts keep larger targets. Reduce oversized padding and empty gaps through shared layout tokens. No page-local size/radius/type overrides. Any larger desktop density needs a documented reason and scope. | Proposed 0.9.0; maintainer requested 2026-10-22, adopted on merge | Maintainer compact-UI request; design-system catalog | Browser geometry regression, UI-18 before/after evidence, keyboard/focus and narrow-layout checks; UI review |
 
+### Spacing ownership (amendment 0.12.0)
+
+| ID | Rule or convention | Status | Rationale/source | Verification |
+|----|--------------------|--------|------------------|--------------|
+| UI-27 | Each space has one owner. Shared layout containers own child separation with gap; their direct children carry no block margins. Use Stack compact (8px) for related rows/disclosures, normal (12px) for content, and section (24px) for separate regions, through existing DS tokens. Section text uses an 8px gap. PageHeader has a standalone trailing margin only when its parent does not already own a gap. DisclosurePanel summaries use 36px minimum height on desktop and 48px on touch layouts. Screens must not override shared stack/page-header/section/disclosure/action-panel margins, padding or gaps, even with tokens; add a DS variant when necessary. Prose, list indentation, bordered section padding, specialized grids and terminal geometry retain their explicitly documented rhythm. | Proposed 0.12.0; adopted only by maintainer merge | App-wide spacing audit requested 2026-10-24; compounded margins and inconsistent disclosure grouping | ui:check rejects consumer CSS spacing overrides; browser geometry regressions exercise actual gaps, text margins, disclosure rows, prose and narrow containment; UI-18 screenshots and CT-11 live evidence |
+
 ### Implementer checklist
 
 Before you hand a UI change over, check the screen against this list:
@@ -139,7 +145,8 @@ Before you hand a UI change over, check the screen against this list:
 11. Are before/after screenshots attached? (UI-18)
 12. Are primitives/composites canonical, token checks passing, and catalog/provenance current? (UI-19–23/25)
 13. Are desktop controls compact and aligned, with larger touch targets and useful multiline fields preserved? (UI-26)
-14. Do the compliance, independent UI and QA reports contain real checks and accessible evidence, with outstanding surfaces marked UNVERIFIED? (UI-24; CT-11)
+14. Does each gap have one owner, without child block margins or consumer overrides of shared layout rhythm? (UI-27)
+15. Do the compliance, independent UI and QA reports contain real checks and accessible evidence, with outstanding surfaces marked UNVERIFIED? (UI-24; CT-11)
 
 Relevant reviewers: [ui-accessibility](../reviewers/ui-accessibility.md)
 Exceptions and open decisions: UI-7 remains proposed. UI-19–UI-25 were adopted under amendment 0.4.0; see [decisions.md](../decisions.md).

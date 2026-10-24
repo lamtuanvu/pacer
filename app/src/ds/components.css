@@ -362,10 +362,10 @@ a.pc-btn{text-decoration:none}
 .pc-page-columns{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,1fr);gap:var(--space-8);align-items:start;min-width:0}
 .pc-page-columns__main,.pc-page-columns__aside{min-width:0}.pc-page-columns__aside{display:flex;flex-direction:column;gap:var(--space-6)}
 .pc-composed-section{display:flex;flex-direction:column;gap:var(--space-3);min-width:0}.pc-composed-section__header{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--space-3)}
-.pc-composed-section__description{margin-top:var(--space-1);color:var(--ink-secondary)}.pc-composed-section__body{min-width:0}
-.pc-disclosure-panel{border:1px solid var(--line);border-radius:var(--radius-lg);overflow:hidden}.pc-disclosure-panel>summary{width:100%;padding:var(--space-3);background:var(--surface-card)}
-.pc-disclosure-panel__body{padding:var(--space-3);border-top:1px solid var(--line);min-width:0}.pc-disclosure-panel:not([open]) .pc-disclosure-panel__body{display:none}
-.pc-action-panel{border:1px solid var(--line);border-radius:var(--radius-lg);padding:var(--space-4);min-width:0}
+.pc-composed-section__description{margin-top:var(--space-1);color:var(--ink-secondary)}.pc-composed-section__body{display:flex;flex-direction:column;gap:var(--space-3);min-width:0}
+.pc-disclosure-panel{border:1px solid var(--line);border-radius:var(--radius-lg);overflow:hidden}.pc-disclosure-panel>summary{box-sizing:border-box;width:100%;min-height:var(--size-36);padding:var(--space-1) var(--space-3);background:var(--surface-card)}
+.pc-disclosure-panel__body{display:flex;flex-direction:column;gap:var(--space-3);padding:var(--space-3);border-top:1px solid var(--line);min-width:0}.pc-disclosure-panel:not([open]) .pc-disclosure-panel__body{display:none}
+.pc-action-panel{display:flex;flex-direction:column;gap:var(--space-3);border:1px solid var(--line);border-radius:var(--radius-lg);padding:var(--space-4);min-width:0}
 @media(max-width:900px){.pc-page-columns{grid-template-columns:minmax(0,1fr)}}
 @media(max-width:767px){.pc-page{padding:var(--space-4) max(var(--space-4),env(safe-area-inset-right)) var(--space-6) max(var(--space-4),env(safe-area-inset-left))}.pc-page-header__row{flex-wrap:wrap}.pc-page-header__actions{width:100%}}
 
@@ -404,3 +404,10 @@ a.pc-btn{text-decoration:none}
 .pc-detail-navigation{position:sticky;top:0;z-index:var(--layer-sticky);background:var(--surface-page);display:flex;flex-direction:column;gap:var(--space-3);padding-top:var(--space-2)}
 .pc-detail-navigation .pc-page-header{margin-bottom:var(--space-2)}
 .pc-detail-panel{padding-top:var(--space-6);min-width:0}
+
+/* One owner per space: layout gaps separate children; text has no outer margin. */
+.pc-section{display:flex;flex-direction:column;gap:var(--space-2);min-width:0}
+:is(.pc-page-body,.pc-stack,.pc-section,.pc-composed-section__body,.pc-disclosure-panel__body,.pc-action-panel,.pc-card,.pc-detail-navigation)>:where(*){margin-block:0}
+/* Classed/text children outrank legacy screen margins loaded later. */
+:is(.pc-page-body,.pc-stack,.pc-section,.pc-composed-section__body,.pc-disclosure-panel__body,.pc-action-panel,.pc-card,.pc-detail-navigation)>:is([class],p,pre,ul,ol,dl){margin-block:0}
+@media(max-width:767px){.pc-disclosure-panel>summary{min-height:var(--control-touch)}}

@@ -4,6 +4,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Fixed
+
+- Remove compounded spacing in app sections, cards, settings and embedded page headers; keep task disclosures evenly spaced and compact while preserving touch targets. Add shared spacing ownership checks and browser geometry regressions.
+
 ### Changed
 
 - Add a read-only `ui:ready` preflight for PR evidence and make skipped local evidence checks explicit; centralize the agent readiness procedure in the UI rules.
@@ -15,7 +19,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - Retry desktop update coordination and status delivery after transient failures, restore controls only after fresh native verification, and keep verified completed or restored updates terminal when cleanup needs another attempt.
 - Automatically refresh previously connected agent hooks, policies and skills at service startup and before new local agent launches, including named accounts. Preserve customizations with actionable conflicts, and report freshness separately in doctor.
 
-- Select the ArkCLI quota reader for OpenCode’s `coding-plan` provider during setup and recover existing Ark Coding Plan quota accounts that have no usage source configured.
+- Select the ArkCLI quota reader for OpenCode's `coding-plan` provider during setup and recover existing Ark Coding Plan quota accounts that have no usage source configured.
 
 - Use one keyboard-accessible, searchable dropdown style across Start work, delegation, Settings and retry/review, with aligned Start work fields and a styled native attachment trigger. Missing repository/workspace choices now block starting a session.
 
