@@ -15,3 +15,20 @@ fn client_protocol_keeps_session_types_in_their_own_generated_crate() {
     assert!(sessions.contains("pub struct SessionCreateParams"));
     assert!(!sessions.contains("pub struct TaskDelegateParams"));
 }
+
+#[test]
+fn client_controls_have_their_own_generated_area_without_expanding_the_core_crate() {
+    let schema = Path::new(env!("CARGO_MANIFEST_DIR")).join("../docs/protocol.schema.json");
+    let core = xtask::generate(&schema).unwrap();
+    assert!(!core.contains("pub struct ClientControlRequestParams"));
+    assert!(!core.contains("pub struct ApiDescribeParams"));
+    let output = schema
+        .parent()
+        .unwrap()
+        .join("../crates/client-control-protocol/src/generated.rs");
+    let controls = xtask::generate_for(&schema, &output).unwrap();
+    assert!(controls.contains("pub struct ClientControlRequestParams"));
+    assert!(controls.contains("pub struct ApiDescribeParams"));
+    assert!(!controls.contains("pub struct TaskDelegateParams"));
+    assert!(!controls.contains("pub struct SessionCreateParams"));
+}

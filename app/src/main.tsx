@@ -1,3 +1,4 @@
+import { startClientControl } from "./data/control";
 import { canLeaveScreen } from "./data/navigation-guard";
 import { NotificationProvider } from "./data/notification-context";
 import { SetupContext } from "./screens/setup/context";
@@ -54,8 +55,15 @@ function App() {
       try { if (await canLeaveScreen()) { accepted=target; history.replaceState(null,'',target); setHash(target); } }
       finally { navigating=false; }
     };
+    const stopControl = startClientControl(api, 'main', async route => {
+      if (!await canLeaveScreen()) return false;
+      accepted = `#${route}`;
+      history.replaceState(null, '', accepted);
+      setHash(accepted);
+      return true;
+    });
     window.addEventListener("hashchange", navigate);
-    return () => { unsubscribe(); stop(); window.removeEventListener("hashchange", navigate); };
+    return () => { stopControl(); unsubscribe(); stop(); window.removeEventListener("hashchange", navigate); };
   }, []);
   useEffect(() => { void import("./shell/UpdateNotice").then(module => setUpdateNotice(() => module.UpdateNotice)); }, []);
   const [setupRevision, reloadSetup] = useState(0);

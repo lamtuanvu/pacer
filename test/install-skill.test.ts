@@ -61,3 +61,8 @@ test("Codex respects its custom skills directory and rolls back skills when late
  await installPlanner({ctx,pacerArgv:PACER},"codex");expect(existsSync(skill)).toBe(true);await uninstallPlanner(ctx,"codex");expect(existsSync(skill)).toBe(false);
  const hooks=join(ctx.home,".codex/hooks.json");writeFileSync(hooks,"broken");await expect(installPlanner({ctx,pacerArgv:PACER},"codex")).rejects.toThrow();expect(existsSync(skill)).toBe(false);
 });
+
+test('skill teaches filtered operation discovery instead of embedding the full catalog', () => {
+  for (const text of ['pacer api list', '--prefix', 'pacer api describe', 'pacer api call', '--params-file -', 'session io', 'attachment', 'client.control', 'expect_rev', 'consent', 'strategy.preview']) expect(PACER_SKILL).toContain(text);
+  expect(PACER_SKILL).not.toContain('account.adopt');
+});

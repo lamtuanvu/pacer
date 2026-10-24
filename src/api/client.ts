@@ -5,17 +5,20 @@ import type { Status } from "../engine/status";
 import { DEFAULT_PORT } from "../serve/constants";
 import type { LinkSnapshot } from "../link/envelope";
 import type { Ctx } from "../types";
-import { eventsSince, liveV2Snapshot } from "./events";
-import { type OpDeps } from "./ops";
-import { toApiError, type ApiEvent } from "./protocol";
+import { eventsSince, liveSnapshot, liveV2Snapshot } from "./events";
+import { callOp, type OpDeps } from "./ops";
+import { helloBody, toApiError, type ApiEvent } from "./protocol";
 import { ApiError, type ApiClient, type Hello } from "./client-types";
 import { HttpClient } from "./http-client";
 export { ApiError, type ApiClient, type ApiErrorCode, type Hello } from "./client-types";
 export { HttpClient } from "./http-client";
 export { StdioClient } from "./stdio-client";
 
-export async function connectClient(ctx: Ctx, o: { timeoutMs?: number; opDeps?: OpDeps; protocol?: 2 | 3 } = {}): Promise<ApiClient> {
-  const fallback = () => new InProcessClient(() => ctx, { opDeps: o.opDeps });
+export async function connectClient(ctx: Ctx, o: { timeoutMs?: number; opDeps?: OpDeps; protocol?: 2 | 3; allowFallback?: boolean } = {}): Promise<ApiClient> {
+  const fallback = () => {
+    if (o.allowFallback === false) throw new ApiError("not_allowed", "The selected service is unavailable", "Start pacer serve on the selected PACER_PORT; local fallback is disabled.");
+    return new InProcessClient(() => ctx, { opDeps: o.opDeps, protocol: o.protocol });
+  };
   if (ctx.env.PACER_API === "inprocess") return fallback();
   try {
     const token = readFileSync(join(ctx.pacerHome, "token"), "utf8").trim();
@@ -38,20 +41,26 @@ export class InProcessClient implements ApiClient {
 
   constructor(
     private readonly getCtx: () => Ctx,
-    private readonly o: { opDeps?: OpDeps; pollMs?: number; status?: (c: Ctx) => Promise<Status> } = {},
+    private readonly o: { opDeps?: OpDeps; pollMs?: number; protocol?: 2 | 3; status?: (c: Ctx) => Promise<Status> } = {},
   ) {}
 
   private liveCtx(): Ctx { return { ...this.getCtx(), now: Date.now() / 1000 }; }
 
-  async hello(): Promise<Hello> { return v2Hello(); }
+  async hello(): Promise<Hello> { return this.o.protocol === 3 ? helloBody() : v2Hello(); }
 
   snapshot(): Promise<{ protocol: string; seq: number; snapshot: LinkSnapshot }> {
-    return liveV2Snapshot(this.liveCtx(), { status: this.o.status });
+    return (this.o.protocol === 3 ? liveSnapshot : liveV2Snapshot)(this.liveCtx(), { status: this.o.status }) as unknown as ReturnType<ApiClient["snapshot"]>;
   }
 
   async call<T = unknown>(op: string, params?: unknown): Promise<T> {
-    try { return await callV2Op(this.liveCtx(), op, params, this.o.opDeps) as T; }
+    try {
+      if (this.o.protocol === 3 && (op === "task.takeover" || /^(client\.control\.|desktop\.|session\.)/.test(op))) {
+        throw new ApiError("not_allowed", "This operation requires a running service", "Start pacer serve; use an explicit PACER_PORT to select its authenticated connection.");
+      }
+      return await (this.o.protocol === 3 ? callOp : callV2Op)(this.liveCtx(), op, params, this.o.opDeps) as T;
+    }
     catch (e) {
+      if (e instanceof ApiError) throw e;
       const error = toApiError(e);
       throw new ApiError(error.code, error.message, error.hint);
     }
@@ -60,7 +69,7 @@ export class InProcessClient implements ApiClient {
   subscribe(since: number, onEvent: (e: ApiEvent) => void): () => void {
     let last = since;
     const timer = setInterval(() => {
-      const batch = eventsSince(this.liveCtx(), last);
+      const batch = eventsSince(this.liveCtx(), last, this.o.protocol ?? 2);
       last = batch.last;
       for (const event of batch.events) {
         if (!this.timers.has(timer)) break;

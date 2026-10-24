@@ -2,6 +2,7 @@
 macro_rules! desktop_log {
     ($($arg:tt)*) => { crate::logging::write(format_args!($($arg)*)) };
 }
+mod client_control;
 mod actions;
 mod approvals;
 mod capture;
@@ -691,6 +692,7 @@ fn activate(app: &AppHandle, origin: &str, mut auth: Url) -> Result<(), String> 
                 .remote(format!("{origin}/*"))
                 .permission("allow-setLaunchAtLogin")
                 .permission("allow-setTheme")
+                .permission("allow-client-control")
                 .permission("allow-notifyRoute")
                 .permission("allow-session-expired")
                 .permission("allow-session-ready")
@@ -715,6 +717,7 @@ fn activate(app: &AppHandle, origin: &str, mut auth: Url) -> Result<(), String> 
             .window("tray")
             .remote(format!("{origin}/*"))
             .permission("allow-tray-resize")
+            .permission("allow-client-control")
             .permission("allow-tray-open")
             .permission("allow-tray-hide")
             .permission("allow-app-quit")
@@ -1103,6 +1106,7 @@ fn main() {
     let app = app
         .manage(shell)
         .invoke_handler(tauri::generate_handler![
+            client_control::client_control,
             setLaunchAtLogin,
             setTheme,
             notifyRoute,

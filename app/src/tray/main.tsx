@@ -1,3 +1,4 @@
+import { startClientControl } from "../data/control";
 import { render } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import { createStore } from "../data/store";
@@ -16,7 +17,8 @@ function TrayApp() {
   useEffect(() => {
     const unsubscribe = store.subscribe(() => setState(store.getState()));
     const stop = store.start();
-    return () => { unsubscribe(); stop(); };
+    const stopControl = startClientControl(api, 'tray', async () => false);
+    return () => { stopControl(); unsubscribe(); stop(); };
   }, []);
   return <Tray snapshot={state.snapshot} activity={state.activity} connected={state.connected} sessionEnded={state.sessionEnded || sessionEnded} api={api} ipc={ipc} />;
 }
