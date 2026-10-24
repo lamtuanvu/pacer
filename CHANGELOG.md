@@ -4,6 +4,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Added
+
+- Preview account/model dispatch through CLI, API and MCP using configurable strategy ladders, model metadata and cached observation adapters. Recommendation engines are replaceable; existing execution routing remains unchanged.
+
 ### Fixed
 
 - Remove compounded spacing in app sections, cards, settings and embedded page headers; keep task disclosures evenly spaced and compact while preserving touch targets. Add shared spacing ownership checks and browser geometry regressions.

@@ -22,3 +22,10 @@ test("invalid, duplicated, timed out and mutated proposals never select a runner
   expect((await runDecision(request(), engine(async input => { input.candidates.splice(0); return {}; }))).validation).toBe("invalid");
   expect((await runDecision(request(), engine(async () => ({state: "abstain", reason: "unknown", skipped: []})))).validation).toBe("valid");
 });
+test("absolute deadlines reject stale requests and late engine output", async () => {
+  const r = request(); r.now = 100; r.deadline = 101;
+  expect((await runDecision(r, ladderEngine, () => 102)).validation).toBe("timeout");
+  let now = 100;
+  const engine = {id: "late", version: "1", async decide() {now = 102; return {state: "abstain", reason: "late", skipped: []};}};
+  expect((await runDecision(r, engine, () => now)).validation).toBe("timeout");
+});

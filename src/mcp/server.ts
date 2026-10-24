@@ -1,3 +1,5 @@
+import { connectClient } from "../api/client";
+import { previewInputSchema } from "../dispatch/types";
 import { isAbsolute } from "node:path";
 import { resolveRepoInput } from "../core/repos";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -31,6 +33,21 @@ export function createMcpServer(getCtx: () => Ctx, opts: { spawnRunner?: SpawnRu
   }, async () => {
     const ctx = getCtx();
     return json({ ...(await core.routing.status(ctx)) });
+  });
+
+  server.registerTool("dispatch_preview", {
+    description: "Preview model/account selection with reasons and uncertainty. Uses cached observations; launches nothing and changes no strategy.",
+    inputSchema: previewInputSchema.shape,
+  }, async input => {
+    try {
+      const ctx = getCtx();
+      const client = await connectClient(ctx, {protocol: 3});
+      try {
+        const result = client.kind === "inprocess" ? await core.dispatch.previewDispatch(ctx, input) : await client.call<Record<string, unknown>>("dispatch.preview", input);
+        return json({ ...result });
+      } finally { client.close(); }
+    }
+    catch (error) { return { ...json({ error: error instanceof Error ? error.message : "Preview failed" }), isError: true }; }
   });
 
   server.registerTool("route", {

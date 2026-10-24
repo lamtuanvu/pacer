@@ -41,6 +41,7 @@ export function statusObservationAdapter(status: Status): ObservationAdapter {
   return {
     id: "status-cache", methods: ["health", "usage"],
     async observe(ctx, scope, method) {
+      if (scope.binding !== undefined) return []; // Status cache describes the shared runner/account, not a particular model.
       const provider = status.providers.find(p => p.id === scope.runner);
       const account = status.accounts?.find(a => a.name === scope.account);
       const observedAt = account?.capturedAt ?? status.generatedAt;

@@ -1595,6 +1595,105 @@ Params JSON Schema:
 }
 ```
 
+### `dispatch.preview`
+
+Preview account/model dispatch using cached observations and the replaceable decision engine. Does not reserve capacity or launch work.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "repo": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "goal": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 8000
+    },
+    "kind": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "requirements": {
+      "default": {},
+      "type": "object",
+      "properties": {
+        "minTier": {
+          "type": "string",
+          "enum": [
+            "small",
+            "medium",
+            "frontier"
+          ]
+        },
+        "tools": {
+          "type": "boolean"
+        },
+        "context": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "additionalProperties": false
+    },
+    "preferences": {
+      "default": {
+        "models": [],
+        "strengths": []
+      },
+      "type": "object",
+      "properties": {
+        "models": {
+          "default": [],
+          "maxItems": 256,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        },
+        "strengths": {
+          "default": [],
+          "maxItems": 64,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        }
+      },
+      "required": [
+        "models",
+        "strengths"
+      ],
+      "additionalProperties": false
+    },
+    "model": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    }
+  },
+  "required": [
+    "repo",
+    "goal",
+    "requirements",
+    "preferences"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### `doctor.run`
 
 Run setup, service, account and integration diagnostics with fixed isolated Claude handler probes. Configuration and tested handlers do not prove host invocation. No repairs are performed.

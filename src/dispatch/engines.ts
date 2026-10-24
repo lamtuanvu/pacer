@@ -27,7 +27,7 @@ function freeze(value: object): void {
 }
 
 /** A proposal is never an admission or launch. Malformed engine output is retained only as a fixed validation outcome. */
-export async function runDecision(input: DecisionRequest, engine: DecisionEngine): Promise<DispatchPreview> {
+export async function runDecision(input: DecisionRequest, engine: DecisionEngine, now: () => number = () => Date.now() / 1000): Promise<DispatchPreview> {
   if (Buffer.byteLength(JSON.stringify(input)) > 256 * 1024) throw new CoreError("too_large", "Decision input exceeds 256 KiB");
   const parsed = decisionRequestSchema.safeParse(input);
   if (!parsed.success) throw new CoreError("invalid_input", "Invalid decision request");
@@ -41,13 +41,14 @@ export async function runDecision(input: DecisionRequest, engine: DecisionEngine
   };
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const duration = Math.min(request.config.timeoutMs, (request.deadline - request.now) * 1000);
+  const duration = Math.min(request.config.timeoutMs, (request.deadline - now()) * 1000);
   if (duration <= 0) return { ...result, validation: "timeout" };
   try {
     const output = await Promise.race([
       Promise.resolve().then(() => engine.decide(request, controller.signal)),
       new Promise<never>((_, reject) => { timer = setTimeout(() => { controller.abort(); reject(Error("timeout")); }, duration); }),
     ]);
+    if (now() >= request.deadline) return { ...result, validation: "timeout" };
     if (Buffer.byteLength(JSON.stringify(output) ?? "") > 256 * 1024) return result;
     const proposal = proposalSchema.safeParse(output);
     if (!proposal.success) return result;

@@ -1,3 +1,5 @@
+import { ACCOUNT_KIND, AGENTS, allowedPair, type AgentId } from "./agent-id";
+export { allowedPair } from "./agent-id";
 import { modelDeclarationSchema } from "../dispatch/types";
 import type { z } from "zod";
 import { formatRunnerId, parseRunnerId, runnerDefaults } from "./runner-id";
@@ -20,8 +22,7 @@ export function parseDuration(v: unknown): number | null {
   return Number(m[1]) * { s: 1, m: 60, h: 3600, d: 86400 }[m[2] as "s" | "m" | "h" | "d"];
 }
 
-export const AGENTS = ["claude-code", "codex", "cursor", "agy", "opencode"] as const;
-export type AgentId = (typeof AGENTS)[number];
+export { AGENTS, type AgentId } from "./agent-id";
 export type AccountKind = "claude" | "codex" | "cursor" | "agy" | "endpoint";
 export type KeySource = "keychain" | "file" | `env:${string}` | "none";
 export interface EndpointModel { id: string; name?: string; context: number; output: number; tools: boolean }
@@ -56,12 +57,8 @@ export interface AccountsModel {
   planner: PlannerCfg;
   runnerAliases: Record<string, string>;
 }
-const ACCOUNT_KIND: Record<AgentId, AccountKind> = {
-  "claude-code": "claude", codex: "codex", cursor: "cursor", agy: "agy", opencode: "endpoint",
-};
-export function allowedPair(agent: AgentId, kind: AccountKind): boolean {
-  return Object.hasOwn(ACCOUNT_KIND, agent) && ACCOUNT_KIND[agent] === kind;
-}
+
+
 
 function parseConnection(value: unknown, at: string, problems: string[]): EndpointConnection | undefined {
   const start = problems.length;
