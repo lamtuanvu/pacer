@@ -1,8 +1,8 @@
 import { afterEach, expect, test } from "bun:test";
 import { mkdir, readFile, writeFile, stat, readdir } from "node:fs/promises";
-import { join } from "node:path";
+import { join, dirname, basename } from "node:path";
 import { createCallAuthority, type CallAuthority } from "../src/plugins/authority";
-import { answerUsageState } from "../src/plugins/usage-state";
+import { answerUsageState, prepareStateAuthority } from "../src/plugins/usage-state";
 import { fakeCtx } from "./helpers";
 const authorities: CallAuthority[] = [];
 afterEach(async () => { await Promise.all(authorities.splice(0).map(a => a.revoke())); });
@@ -17,6 +17,7 @@ async function call(a: CallAuthority, op: "begin" | "readChunk" | "stageChunk" |
   return await answerUsageState(a, op, op === "commit" ? { dirty: true, ...p } : p) as Record<string, any>;
 }
 async function snapshot(a: CallAuthority) {
+  await prepareStateAuthority(a);
   const begin = await call(a, "begin", { store: "fixture" });
   const buffers = [];
   for (let offset = 0; offset < begin.bytes; offset += 262144) {
@@ -180,9 +181,9 @@ test("cold process reads compatible cursor state without changing unknown aggreg
     aggregate: { last: { rateLimits: { primary: { used_percent: 12 }, unknown: ["é", "quote\"", null] }, observedAt: 123, alternatives: [] } } } } };
   await writeFile(s.path, JSON.stringify(value));
   const script = `import {createCallAuthority} from ${JSON.stringify(new URL("../src/plugins/authority.ts", import.meta.url).pathname)};
-    import {answerUsageState} from ${JSON.stringify(new URL("../src/plugins/usage-state/index.ts", import.meta.url).pathname)};
+    import {answerUsageState,prepareStateAuthority} from ${JSON.stringify(new URL("../src/plugins/usage-state/index.ts", import.meta.url).pathname)};
     const ctx=${JSON.stringify(s.ctx)}; const a=createCallAuthority(ctx,{reads:[],commands:[],stores:[${JSON.stringify(s.authority.resources.stores[0])}]},{deadlineMs:Date.now()+10000,grants:['usage.state']});
-    try { const b=await answerUsageState(a,'begin',{store:'fixture'}); const r=await answerUsageState(a,'readChunk',{lease:b.lease,offset:0,length:b.bytes}); console.log(Buffer.from(r.base64,'base64').toString()); } finally {await a.revoke();}`;
+    try { await prepareStateAuthority(a); const b=await answerUsageState(a,'begin',{store:'fixture'}); const r=await answerUsageState(a,'readChunk',{lease:b.lease,offset:0,length:b.bytes}); console.log(Buffer.from(r.base64,'base64').toString()); } finally {await a.revoke();}`;
   const child = Bun.spawn([process.execPath, "-e", script], { env: { ...process.env, HOME: s.ctx.home, PACER_HOME: s.ctx.pacerHome }, stdout: "pipe", stderr: "pipe" });
   const [code, out, error] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
   expect({ code, error }).toEqual({ code: 0, error: "" }); expect(JSON.parse(out)).toEqual(value);
@@ -200,13 +201,14 @@ test("revocation waits for an admitted atomic replacement before releasing globa
   let admit!: () => void; const admitted = new Promise<void>(resolve => { admit = resolve; });
   let finish!: () => void; const gate = new Promise<void>(resolve => { finish = resolve; });
   const rename = fs.rename;
+  const destination = join(await fs.realpath(dirname(s.path)), basename(s.path));
   const spy = spyOn(fs, "rename").mockImplementation(async (from, to) => {
-    if (to === s.path) { admit(); await gate; }
+    if (to === destination) { admit(); await gate; }
     return rename(from, to);
   });
   try {
     const committing = call(s.authority, "commit", { lease: first.lease });
-    await admitted;
+    await Promise.race([admitted, Bun.sleep(5000).then(() => { throw new Error("owned atomic rename was not reached"); })]);
     let cleaned = false; const revoke = s.authority.revoke().then(() => { cleaned = true; });
     const b = setup("cursors", s.ctx); let entered = false; const successor = snapshot(b.authority).then(result => { entered = true; return result; });
     await Bun.sleep(10); expect(cleaned).toBe(false); expect(entered).toBe(false);
@@ -307,4 +309,71 @@ test("streamed duplicate files keys follow JSON.parse last-value semantics", asy
     const expected = await source.run(s.ctx, async files => ({ version: 4, files: JSON.parse(JSON.stringify(files)) }));
     expect((await snapshot(s.authority)).value).toEqual(expected);
   }
+});
+
+test("issuance-pinned state authority refuses home rename and symlink rebinding before first RPC", async () => {
+  const { rename, symlink } = await import("node:fs/promises");
+  const s = setup(); await mkdir(join(s.ctx.pacerHome, "cache"), { recursive: true });
+  await writeFile(s.path, '{"capturedAt":1,"value":"owned"}');
+  await prepareStateAuthority(s.authority);
+  const outside = join(s.ctx.home, "outside-state"); await mkdir(join(outside, "cache"), { recursive: true });
+  const sentinel = '{"capturedAt":2,"value":"outside-must-not-read"}'; await writeFile(join(outside, "cache", "provider.json"), sentinel);
+  await rename(s.ctx.pacerHome, s.ctx.pacerHome + ".original"); await symlink(outside, s.ctx.pacerHome);
+  const outcome = await snapshot(s.authority).then(value => ({ value, error: undefined }), error => ({ value: undefined, error }));
+  expect(outcome.error).toMatchObject({ code: "capability_denied" });
+  expect(await readFile(join(outside, "cache", "provider.json"), "utf8")).toBe(sentinel);
+});
+
+test("state issuance supports configured home aliases and refuses unprepared or rebound parent identities", async () => {
+  const { symlink, rename } = await import("node:fs/promises");
+  const s = setup();
+  await expect(call(s.authority, "begin", { store: "fixture" })).rejects.toMatchObject({ code: "capability_denied" });
+  const target = join(s.ctx.home, "configured-home"); await mkdir(join(target, "cache"), { recursive: true });
+  await symlink(target, s.ctx.pacerHome);
+  await writeFile(join(target, "cache", "provider.json"), '{"capturedAt":1,"value":"configured"}');
+  await prepareStateAuthority(s.authority);
+  const first = await snapshot(s.authority); expect(first.value).toEqual({ capturedAt: 1, value: "configured" });
+  await call(s.authority, "release", { lease: first.lease });
+  await rename(join(target, "cache"), join(target, "cache.old")); await mkdir(join(target, "cache"));
+  await expect(snapshot(s.authority)).rejects.toMatchObject({ code: "capability_denied" });
+});
+test("empty-store issuance needs no home access and concurrent begin still allows only one lease", async () => {
+  const s = setup(); await mkdir(s.ctx.pacerHome, { recursive: true });
+  const empty = createCallAuthority({ ...s.ctx, pacerHome: "/does-not-exist/no-home" }, { reads: [], commands: [], stores: [] }, { deadlineMs: Date.now() + 30000, grants: ["usage.state"] }); authorities.push(empty);
+  await prepareStateAuthority(empty);
+  await expect(call(empty, "begin", { store: "fixture" })).rejects.toMatchObject({ code: "capability_denied" });
+  await prepareStateAuthority(s.authority);
+  const results = await Promise.allSettled([call(s.authority, "begin", { store: "fixture" }), call(s.authority, "begin", { store: "fixture" })]);
+  expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
+  expect(results.filter(result => result.status === "rejected")).toHaveLength(1);
+});
+
+test("revoked cleanup never deletes an outside replacement of its staging directory", async () => {
+  const { symlink, rename } = await import("node:fs/promises");
+  const s = setup(); await mkdir(join(s.ctx.pacerHome, "cache"), { recursive: true }); await prepareStateAuthority(s.authority);
+  await snapshot(s.authority);
+  const temp = (await readdir(join(s.ctx.pacerHome, "cache"))).find(name => name.startsWith(".pacer-usage-state-"))!;
+  const outside = join(s.ctx.home, "outside-cleanup"); await mkdir(join(outside, "cache", temp), { recursive: true });
+  const sentinel = join(outside, "cache", temp, "unowned"); await writeFile(sentinel, "preserve");
+  await rename(s.ctx.pacerHome, s.ctx.pacerHome + ".original"); await symlink(outside, s.ctx.pacerHome);
+  const error = await s.authority.revoke().then(() => undefined, error => error);
+  expect(await Bun.file(sentinel).exists()).toBe(true);
+  expect(error).toMatchObject({ code: "capability_denied" });
+  // Revocation failure remains observable; prevent afterEach rethrowing the same known result.
+  authorities.splice(authorities.indexOf(s.authority), 1);
+});
+
+test("suppressed normal release cleanup errors remain visible to authority revocation", async () => {
+  const { spyOn } = await import("bun:test"); const fs = await import("node:fs/promises");
+  const s = setup(); const first = await snapshot(s.authority);
+  const actual = fs.rm;
+  const spy = spyOn(fs, "rm").mockImplementation(async (...args) => {
+    if (String(args[0]).includes(".pacer-usage-state-")) throw new Error("synthetic owned staging cleanup failure");
+    return actual(...args);
+  });
+  try { await call(s.authority, "release", { lease: first.lease }).catch(() => {}); }
+  finally { spy.mockRestore(); }
+  const error = await s.authority.revoke().then(() => undefined, error => error);
+  authorities.splice(authorities.indexOf(s.authority), 1);
+  expect(error?.message).toBe("synthetic owned staging cleanup failure");
 });

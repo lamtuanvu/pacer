@@ -32,10 +32,10 @@ export async function* cursorParts(files: Record<string, unknown>, version: numb
   }
   yield "}}";
 }
-export async function replaceCursor(path: string, files: Record<string, unknown>, version: number, check: () => void) {
+export async function replaceCursor(path: string, files: Record<string, unknown>, version: number, check: () => void, validate: () => Promise<void>) {
   const parent = dirname(path); await mkdir(parent, { recursive: true, mode: 0o700 }); await chmod(parent, 0o700);
   const temp = join(parent, `.${randomUUID()}.tmp`);
-  try { await writeParts(temp, cursorParts(files, version), check); check(); await rename(temp, path); }
+  try { await writeParts(temp, cursorParts(files, version), check); await validate(); check(); await rename(temp, path); }
   finally { await rm(temp, { force: true }); }
 }
 export async function allowedCursorPath(root: string, path: string) {

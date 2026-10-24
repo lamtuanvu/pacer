@@ -1,17 +1,20 @@
 import { randomUUID } from "node:crypto";
-import { open, readFile, rename, rm, stat } from "node:fs/promises";
+import { open, readFile, rename, rm, stat, lstat } from "node:fs/promises";
 import { join } from "node:path";
 import { CoreError } from "../../core/errors";
 import type { CallAuthority } from "../authority";
 import { readCursorFile } from "./json";
 import { CHUNK, readStateFile, guardStorePath, allowedCursorPath, cursorParts, privateDirectory, replaceCursor, reserve, within, writeParts } from "./storage";
 
+import { issuedStatePath, validateStateAuthority, validateStateCleanup } from "./issuance";
+export { prepareStateAuthority } from "./issuance";
+
 type Operation = "begin" | "readChunk" | "stageChunk" | "commit" | "release";
 type Store = CallAuthority["resources"]["stores"][number];
 interface CursorState { files: Record<string, unknown>; dirty: boolean }
 interface Lease {
-  id: string; authority: CallAuthority; store: Store; directory: string; bytes: number; staged: number;
-  pending: Promise<unknown>; unlock: () => void; detach: () => void; closed: boolean; busy: boolean; closing?: Promise<void>;
+  id: string; authority: CallAuthority; store: Store; home: string; directory: string; bytes: number; staged: number;
+  pending: Promise<unknown>; unlock: () => void; detach: () => void; closed: boolean; busy: boolean; closing?: Promise<void>; directoryIdentity?: { device: number; inode: number }; disposable: boolean;
 }
 const leases = new Map<string, Lease>();
 const owners = new WeakMap<CallAuthority, Lease>();
@@ -46,9 +49,18 @@ async function acquire(authority: CallAuthority, path: string): Promise<() => vo
 }
 async function close(lease: Lease) {
   if (lease.closing) return lease.closing;
-  lease.closed = true; leases.delete(lease.id); owners.delete(lease.authority); lease.detach();
+  lease.closed = true; leases.delete(lease.id);
   lease.closing = (async () => {
-    try { if (lease.directory) await rm(lease.directory, { recursive: true, force: true }); }
+    try {
+      if (lease.directory) {
+        if (!lease.disposable) await validateStateCleanup(lease.authority);
+        const directory = await lstat(lease.directory);
+        if (!lease.directoryIdentity || directory.isSymbolicLink() || !directory.isDirectory()
+          || directory.dev !== lease.directoryIdentity.device || directory.ino !== lease.directoryIdentity.inode) denied("usage staging directory identity changed before cleanup");
+        await rm(lease.directory, { recursive: true, force: true });
+      }
+      owners.delete(lease.authority); lease.detach();
+    }
     finally { lease.unlock(); }
   })();
   return lease.closing;
@@ -61,33 +73,49 @@ async function loadCursors(lease: Lease): Promise<CursorState> {
     const loaded = await readCursorFile(lease.store.path, () => lease.authority.assertActive());
     if (loaded.version === lease.store.version) for (const [path, cursor] of Object.entries(loaded.files)) if (validCursor(cursor)) files[path] = cursor;
   } catch (error) { lease.authority.assertActive(); /* Missing/corrupt compatibility cache is rebuilt. */ }
+  await validateStateAuthority(lease.authority);
   const state = { files, dirty: false }; cursorStates.set(lease.store.path, state); return state;
 }
 async function begin(authority: CallAuthority, params: Record<string, unknown>) {
   if (owners.has(authority)) denied("owning call already has a usage state lease");
-  const store = authority.resources.stores.find(store => store.id === params.store);
-  if (!store) denied("usage state store is not authorized");
+  await validateStateAuthority(authority);
+  if (owners.has(authority)) denied("owning call already has a usage state lease");
+  const descriptor = authority.resources.stores.find(store => store.id === params.store);
+  if (!descriptor) denied("usage state store is not authorized");
+  const issued = issuedStatePath(authority, descriptor.path);
+  const store = { ...descriptor, path: issued.path };
   if (store.kind === "cursors" && (!store.root || store.version !== 4)) denied("cursor store descriptor is incomplete");
-  const lease: Lease = { id: randomUUID(), authority, store, directory: "", bytes: 0, staged: 0,
-    pending: Promise.resolve(), unlock: () => {}, detach: () => {}, closed: false, busy: false };
+  const lease: Lease = { id: randomUUID(), authority, store, home: issued.home, directory: "", bytes: 0, staged: 0,
+    pending: Promise.resolve(), unlock: () => {}, detach: () => {}, closed: false, busy: false, disposable: !!authority.ctx.readOnly };
   owners.set(authority, lease); leases.set(lease.id, lease);
   try {
-    lease.detach = authority.onRevoke(async () => { await lease.pending.catch(() => {}); await close(lease); });
+    lease.detach = authority.onRevoke(async () => {
+      if (lease.closing) return lease.closing;
+      await lease.pending.catch(() => {});
+      return close(lease);
+    });
     const initialize = async () => {
       if (store.kind === "cursors") lease.unlock = await acquire(authority, store.path);
       authority.assertActive();
-      await guardStorePath(authority.ctx.pacerHome, store.path);
-      lease.directory = await privateDirectory(store.path, !!authority.ctx.readOnly);
+      await validateStateAuthority(authority);
+      await guardStorePath(lease.home, store.path);
+      lease.directory = await privateDirectory(store.path, lease.disposable);
+      const directory = await lstat(lease.directory);
+      lease.directoryIdentity = { device: directory.dev, inode: directory.ino };
+      await validateStateAuthority(authority);
       authority.assertActive();
       const snapshot = join(lease.directory, "snapshot");
       if (store.kind === "cursors") {
         const state = await loadCursors(lease);
+        await validateStateAuthority(authority);
         await writeParts(snapshot, cursorParts(state.files, 4, store.root), () => authority.assertActive());
       } else {
         let value: unknown = null;
         try { value = JSON.parse(await readStateFile(store.path)); } catch { /* Same missing/corrupt cache behavior as readJson. */ }
+        await validateStateAuthority(authority);
         await writeParts(snapshot, (async function* () { yield JSON.stringify(value); })(), () => authority.assertActive());
       }
+      await validateStateAuthority(authority);
       lease.bytes = (await stat(snapshot)).size;
       return { lease: lease.id, bytes: lease.bytes, ...(store.kind === "cursors" ? { version: 4, dirty: cursorStates.get(store.path)!.dirty } : {}) };
     };
@@ -103,7 +131,8 @@ async function commit(lease: Lease, dirty: boolean) {
     if (!object(value) || typeof value.capturedAt !== "number" || !Number.isFinite(value.capturedAt) || !Object.hasOwn(value, "value")) invalid("invalid provider cache shape");
     authority.assertActive();
     if (authority.ctx.readOnly) return { saved: false };
-    await guardStorePath(authority.ctx.pacerHome, store.path);
+    await validateStateAuthority(authority);
+    await guardStorePath(lease.home, store.path);
     authority.assertActive();
     // The active check admits this atomic replacement. Revocation waits for settlement.
     await rename(staged, store.path); return { saved: true };
@@ -126,8 +155,9 @@ async function commit(lease: Lease, dirty: boolean) {
   if (authority.ctx.readOnly) return { saved: false };
   if (!state.dirty) return { saved: true };
   try {
-    await guardStorePath(authority.ctx.pacerHome, store.path);
-    await replaceCursor(store.path, state.files, 4, () => authority.assertActive()); state.dirty = false;
+    await validateStateAuthority(authority);
+    await guardStorePath(lease.home, store.path);
+    await replaceCursor(store.path, state.files, 4, () => authority.assertActive(), () => validateStateAuthority(authority)); state.dirty = false;
     return { saved: true };
   } catch (error) {
     authority.assertActive();
@@ -143,6 +173,7 @@ export async function answerUsageState(authority: CallAuthority, operation: Oper
   if (lease.busy) denied("only one usage state operation may be outstanding");
   lease.busy = true;
   const task = lease.pending.then(async () => {
+    await validateStateAuthority(authority);
     authority.assertActive();
     if (lease.closed) denied("unknown usage state lease");
     if (operation === "release") { await close(lease); return { ok: true }; }
@@ -165,7 +196,8 @@ export async function answerUsageState(authority: CallAuthority, operation: Oper
       if (typeof params.base64 !== "string" || params.base64.length > Math.ceil(CHUNK / 3) * 4) invalid("invalid state chunk encoding");
       const bytes = Buffer.from(params.base64, "base64");
       if (bytes.length > CHUNK || bytes.toString("base64") !== params.base64 || !bytes.length || offset !== lease.staged) invalid("invalid or noncontiguous state chunk");
-      await reserve(lease.directory, bytes.length); authority.assertActive();
+      await reserve(lease.directory, bytes.length);
+      await validateStateAuthority(authority); authority.assertActive();
       const file = await open(join(lease.directory, "staged"), lease.staged ? "a" : "wx", 0o600);
       try { await file.writeFile(bytes); lease.staged += bytes.length; return { bytes: lease.staged }; } finally { await file.close(); }
     }
