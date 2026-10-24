@@ -609,6 +609,7 @@ export function canAddRoutingRule(executor: string, available: readonly string[]
 }
 function RoutingSection({ initialData }: { initialData?: RoutingRules }) {
   const query = useResource("routing.get", {}, initialData),
+    strategiesQuery = useResource<StrategyRow[]>("strategy.list", {}),
     action = useOperation(query.reload);
   const [adding, setAdding] = useState(false),
     [kind, setKind] = useState("tests"),
@@ -619,12 +620,27 @@ function RoutingSection({ initialData }: { initialData?: RoutingRules }) {
         i === index ? { ...r, ...patch } : r,
       ),
     });
+
+  // Show active strategy in detail
+  const activeStrategy = strategiesQuery.data?.find((s) => s.active);
+  const strategyLabel = activeStrategy
+    ? `Global routing rules from strategy: ${activeStrategy.name}${activeStrategy.summary ? ` · ${activeStrategy.summary}` : ""}`
+    : "Which executors a kind of task may use, in order. First match wins.";
+
   return (
     <Section
       id="routing"
       title="Routing"
-      detail="Which executors a kind of task may use, in order. First match wins."
-      actions={<Button onClick={() => setAdding((v) => !v)}>Add rule</Button>}
+      detail={strategyLabel}
+      actions={
+        <>
+          {activeStrategy && (
+            <TextAction href="#/settings/strategies">View strategies</TextAction>
+          )}
+          {activeStrategy && " "}
+          <Button onClick={() => setAdding((v) => !v)}>Add rule</Button>
+        </>
+      }
     >
       <ResourceState resource={query}>
         {query.data?.rules.length === 0 ? (
@@ -722,7 +738,10 @@ function StrategiesSection({ initialData }: { initialData?: StrategyRow[] }) {
       title="Strategies"
       detail="Saved routing and pacing settings. Switch anytime."
       actions={
-        <Button onClick={() => setBuilding((v) => !v)}>New from a brief</Button>
+        <>
+          <TextAction href="#/settings/routing">Edit routing rules</TextAction>{" "}
+          <Button onClick={() => setBuilding((v) => !v)}>New from a brief</Button>
+        </>
       }
     >
       <ResourceState resource={query} empty="No strategies yet.">

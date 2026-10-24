@@ -6,6 +6,7 @@ import { Mark } from "../ds/Mark";
 import { Tooltip } from "../ds/Tooltip";
 import { Icon, type IconName } from "../ds/icons";
 import { primaryFor, routes, type Route, type RouteTarget } from "../router";
+import { StrategyQuickAccess } from "./StrategyQuickAccess";
 
 const ITEMS: { name: "start" | "overview" | "review" | "sessions"; label: string; to: RouteTarget; icon: IconName; count: (c: Counts) => number; words: string; tone: "warn" | "info" }[] = [
   { name: "start", label: "Start work", to: routes.start(), icon: "tasks", count: () => 0, words: "running", tone: "info" },
@@ -33,6 +34,7 @@ export function Rail({ route, counts, narrow = false }: { route: Route; counts: 
     })}
     {!narrow && <span className="grow" />}
     {showSetup && <Tooltip text={setupOpen ? "Setup · needs you" : "Setup"}><AppLink className={`pc-rail__item${route.name === "setup" ? " on" : ""}`} to={routes.setup()} query={route.query} aria-label={setupOpen ? "Setup · needs you" : "Setup"} aria-current={route.name === "setup" ? "page" : undefined}><Icon name="tasks" />{setupOpen && <span className="pc-rail__dot" aria-hidden="true" />}</AppLink></Tooltip>}
+    <StrategyQuickAccess route={route} query={route.query} />
     <Tooltip text="Settings">
       <AppLink className={`pc-rail__item${SETTINGS.has(route.name) ? " on" : ""}`} to={routes.settings()} query={route.query} aria-label="Settings" aria-current={SETTINGS.has(route.name) ? "page" : undefined}>
         <Icon name="settings" />
