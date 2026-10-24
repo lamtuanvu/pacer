@@ -3147,7 +3147,8 @@ Params JSON Schema:
     },
     "executor": {
       "type": "string",
-      "pattern": "^[A-Za-z0-9_-]{1,128}$"
+      "minLength": 1,
+      "maxLength": 256
     },
     "workspace": {
       "oneOf": [

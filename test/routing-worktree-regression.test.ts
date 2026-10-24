@@ -14,7 +14,7 @@ import { runTask } from "../src/tasks/runner";
 import { defaultHooks } from "../src/classify/hooks";
 import type { Status } from "../src/engine/status";
 import { runAttempt } from "../src/exec/direct";
-import { fakeCtx, gitRepo, realRun, tmpDir } from "./helpers";
+import { fakeCtx, gitRepo, realRun, tmpDir, withLoginIndicators } from "./helpers";
 
 const strategy = validateStrategy({ planner: "claude-code", providers: { "claude-code": {}, codex: {}, cursor: {} }, routing: [{ default: ["codex", "cursor"] }] }, "/x");
 function executorCtx() {
@@ -216,4 +216,19 @@ for (const mark of ["block", "exhausted"] as const) test(`queue drain cannot res
   });
   expect(spawned).toEqual([]);
   expect(readTask(ctx, task.id)?.state).toBe("queued");
+});
+
+test("explicit conversation runs on its planner account even when delegation routes elsewhere", async () => {
+  const ctx=withLoginIndicators(fakeCtx({run:realRun,env:{PATH:process.env.PATH}})), repo=gitRepo();
+  const task=createTask(ctx,{brief:{goal:"Talk",repo},kind:null,requestedExecutor:"claude-code",timeoutS:60,interactionMode:"conversation"});
+  const launched:string[]=[];
+  const result=await runTask(ctx,task.id,{
+    loadStrategy:()=>strategy,
+    computeStatus:async()=>({providers:Object.keys(strategy.providers).map(id=>({id,usage:"reactive",windows:[],binding:null,verdict:"OK",installed:true,stale:false}))} as unknown as Status),
+    hooks:defaultHooks,
+    runAttempt:async(_c,cfg)=>{launched.push(cfg.id);return {exec:{code:0,stdout:"",stderr:"",timedOut:false},report:"Turn ended",attempt:{executor:cfg.id,model:null,startedAt:1,endedAt:2,exitCode:0,timedOut:false,limitHit:false,log:""}};},
+    verifyRepo:async()=>({files:""}),
+  });
+  expect(launched).toEqual(["claude-code"]);
+  expect(result.state).not.toBe("queued");
 });

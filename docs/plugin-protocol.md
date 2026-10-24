@@ -431,6 +431,134 @@ Result:
 
 ## Extension points (host → plugin)
 
+### `agentSession.identity`
+
+Plan native conversation identity allocation or explicit recovery without spawning.
+
+Deadline: 5000 ms.
+
+Params:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "agent": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "help": {
+      "type": "string",
+      "maxLength": 100000
+    },
+    "resumeHelp": {
+      "type": "string",
+      "maxLength": 100000
+    },
+    "apiHelp": {
+      "type": "string",
+      "maxLength": 100000
+    },
+    "taskId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "sessionId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,128}$"
+    },
+    "model": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "agent",
+    "version",
+    "taskId"
+  ],
+  "additionalProperties": false
+}
+```
+
+Result:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "none"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "assigned"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,128}$"
+        }
+      },
+      "required": [
+        "kind",
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "command"
+        },
+        "argv": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "idPath": {
+          "minItems": 1,
+          "maxItems": 8,
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "kind",
+        "argv",
+        "idPath"
+      ],
+      "additionalProperties": false
+    }
+  ]
+}
+```
+
 ### `agentSession.capabilities`
 
 Interactive agent capabilities for an installed version.
@@ -453,6 +581,18 @@ Params:
       "type": "string",
       "minLength": 1,
       "maxLength": 128
+    },
+    "help": {
+      "type": "string",
+      "maxLength": 100000
+    },
+    "resumeHelp": {
+      "type": "string",
+      "maxLength": 100000
+    },
+    "apiHelp": {
+      "type": "string",
+      "maxLength": 100000
     }
   },
   "required": [
@@ -523,6 +663,18 @@ Params:
       "minLength": 1,
       "maxLength": 128
     },
+    "help": {
+      "type": "string",
+      "maxLength": 100000
+    },
+    "resumeHelp": {
+      "type": "string",
+      "maxLength": 100000
+    },
+    "apiHelp": {
+      "type": "string",
+      "maxLength": 100000
+    },
     "request": {
       "type": "string",
       "maxLength": 200000
@@ -589,6 +741,10 @@ Params:
     "sessionId": {
       "type": "string",
       "pattern": "^[A-Za-z0-9_-]{1,128}$"
+    },
+    "newSessionId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,128}$"
     }
   },
   "required": [
@@ -624,6 +780,33 @@ Result:
     },
     "stdin": {
       "type": "string"
+    },
+    "reporting": {
+      "type": "object",
+      "properties": {
+        "source": {
+          "type": "string",
+          "maxLength": 100000
+        },
+        "configEnv": {
+          "type": "string",
+          "enum": [
+            "OPENCODE_CONFIG_CONTENT"
+          ]
+        },
+        "configKey": {
+          "type": "string",
+          "enum": [
+            "plugins"
+          ]
+        }
+      },
+      "required": [
+        "source",
+        "configEnv",
+        "configKey"
+      ],
+      "additionalProperties": false
     }
   },
   "required": [
@@ -656,6 +839,18 @@ Params:
       "type": "string",
       "minLength": 1,
       "maxLength": 128
+    },
+    "help": {
+      "type": "string",
+      "maxLength": 100000
+    },
+    "resumeHelp": {
+      "type": "string",
+      "maxLength": 100000
+    },
+    "apiHelp": {
+      "type": "string",
+      "maxLength": 100000
     },
     "workspace": {
       "type": "string",
