@@ -91,6 +91,8 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
   const known = new Map<string, Installation>(), watched = new Map<string, string>(), active = new Map<string, Active>();
   const waitingSessions = new Map<string, string>(), nextCheck = new Map<string, number>(), failures = new Map<string, number>();
   const jobs = new Set<Promise<void>>(), initialized = new Set<string>();
+  const coordinationErrors = new Set<string>(), deliveryErrors = new Set<string>();
+  const pendingPublications = new Map<string, UpdateStatus>();
   const recoveryAttempts = new Map<string, { transactionId: string; count: number; retryAt: number | null }>();
   let publications = Promise.resolve(), started = false, stopped = false, ticking = false;
   let unsubscribe: (() => void) | undefined, cancelTimer: (() => void) | undefined;
@@ -104,17 +106,31 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
   };
   const installation = (id: string) => { assertIdentifier(id); const value = known.get(id)??readAdoption(ctx(),id)?.authority.target; if (!value) throw unavailable(); return value; };
   const operational = () => { if (!started || stopped || runtimeError) throw unavailable(); };
-  const requireSession = (id: string) => { operational(); installation(id); if (!initialized.has(id)) throw unavailable(); const session = liveSession(id); if (!session) throw unavailable(); return session; };
+  const requireSession = (id: string) => { operational(); installation(id); if (!initialized.has(id) || coordinationErrors.has(id)) throw unavailable(); const session = liveSession(id); if (!session) throw unavailable(); return session; };
   const verified = async (id: string) => { const session = requireSession(id); try { await native.reverify(session); } catch { throw unavailable(); } if (stopped || !isCurrent(session)) throw unavailable(); return session; };
   const emit = (id: string) => {
     const status = runtime.status(id);
+    // Delivery is independent of transaction safety. Retry the latest snapshot,
+    // without publishing an obsolete delivery warning after the outbox recovers.
+    if (status.error?.code === "notification_failed") status.error = null;
+    pendingPublications.set(id, status);
     publications = publications.then(async () => {
+      if (pendingPublications.get(id) !== status) return;
       if (deps.publish) await deps.publish(status);
       else { const report = await publish(ctx(), [{ type: "entity", data: { kind: "desktop.update", id, value: status } }]); if (report.errors.length) throw new Error("publication unavailable"); }
-    }).catch(() => { runtimeError = true; });
+      deliveryErrors.delete(id);
+      if (pendingPublications.get(id) === status) pendingPublications.delete(id);
+    }).catch(() => { deliveryErrors.add(id); });
   };
   const persist = (next: UpdateRecord) => { const saved = writeUpdate(ctx(), next, next.revision); emit(saved.installationId); return saved; };
-  const track = (promise: Promise<void>) => { const job = promise.catch(() => { runtimeError = true; }).finally(() => jobs.delete(job)); jobs.add(job); };
+  const failed = (id: string) => {
+    coordinationErrors.add(id);
+    initialized.delete(id);
+    try { emit(id); }
+    catch { /* Unreadable state is reported by status; the timer retries reconciliation. */ }
+  };
+  const track = (id: string, promise: Promise<void>) => { const job = promise.catch(() => { failed(id); }).finally(() => jobs.delete(job)); jobs.add(job); };
+  const tickSoon = () => { void runtime.tick().catch(() => { runtimeError = true; }); };
   const replay = (current: UpdateRecord, request: UpdateRequest, action: UpdateAction, params: Record<string,string|boolean> = {}) => {
     const receipt = replayRequest(current, request, action, params);
     if (receipt && receipt.transactionId !== current.transactionId) throw conflict();
@@ -151,9 +167,9 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
         watched.set(session.installation.id, session.sessionId);
         void session.closed.then(() => {
           if (!stopped && watched.get(session.installation.id) === session.sessionId) {
-            try { revokeWaiting(session.installation.id); } catch { runtimeError = true; }
+            try { revokeWaiting(session.installation.id); } catch { failed(session.installation.id); }
           }
-        }, () => { runtimeError = true; });
+        }, () => { if (!stopped) failed(session.installation.id); });
       }
     }
   };
@@ -221,7 +237,7 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
       const input: AdapterRequest = command === "check"
         ? { command, installationId: request.installationId, revision: value.revision, transactionId: null }
         : { command, installationId: request.installationId, revision: value.revision, transactionId: null, candidate: value.candidate! };
-      track(network(request.installationId, operation, input));
+      track(request.installationId, network(request.installationId, operation, input));
     }
     return runtime.status(request.installationId);
   };
@@ -268,7 +284,10 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
       recoveryAttempts.delete(id);
     } catch (error) {
       const value = record(id);
-      if (value.transactionId !== transactionId) { runtimeError = true; return; }
+      if (value.transactionId !== transactionId) throw error;
+      // A verified terminal outcome stays terminal if reservation cleanup fails.
+      // Reconciliation retries release; it must not reinstall or undo the proof.
+      if (value.phase === "complete" || value.phase === "restored") throw error;
       // Only a fresh install can prove no authorization was sent. A failed
       // recovery connection says nothing about the original durable handoff.
       if (!recovery && error instanceof AdapterError && error.handoff === "none") {
@@ -306,7 +325,7 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
     }
     try { persist({ ...value, phase: "reserved", blockers: [] }); }
     catch (error) { await release(id, tx); throw error; }
-    track(install(id, session));
+    track(id, install(id, session));
   };
   // Discovery may happen after launchd starts the service. Reconcile each recorded
   // installation once before it becomes eligible for public mutation or scheduling.
@@ -327,11 +346,13 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
       persist({ ...value, phase: "error", error: { code: "interrupted", message: "Desktop update network operation was interrupted" } });
     } else if (["reserved", "installing", "verifying", "rolling-back", "recovery-failed"].includes(value.phase)) {
       if (!deps.adapter?.capabilities.has("recover") || !native.verifyOutcome) throw unavailable();
-      track(install(id, session, true));
+      track(id, install(id, session, true));
     } else if (value.transactionId && (value.phase === "ready" && !value.requestId || value.phase === "error" && value.error?.code === "pre_handoff" || value.phase === "complete" || value.phase === "restored")) {
       await release(id, value.transactionId);
     }
     initialized.add(id);
+    coordinationErrors.delete(id);
+    emit(id);
     return true;
   };
   const adoption=createAdoptionRuntime(ctx,{native,adapter:deps.adapter,admission:gate,bootId:clock.bootId,changed:value=>{if(known.has(value.installationId))emit(value.installationId);},completed:(_oldId,value)=>{known.set(value.id,structuredClone(value));}});
@@ -346,7 +367,14 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
       const source = currentAdoption ?? adopted?.authority;
       if(source) status.adoption={phase:adopted?.phase??"available",revision:adopted?.revision??value.revision,previousInstallationId:id,resultingInstallationId:adopted?.resultingInstallationId??null,currentServiceExecutable:source.oldServiceExecutable,replacementServiceExecutable:source.newServiceExecutable,serviceLabel:source.target.serviceLabel,port:source.target.port,blockers:adopted?.blockers??[],error:adopted?.error??null};
       if(adopted&&adoptionPending(adopted))return{...status,actions:adopted.phase==="waiting"?["adoptCancel"]:[]};
-      if (runtimeError) return { ...status, actions: [], error: { code: "coordination_failed", message: "Desktop update coordination requires reconnect or recovery" } };
+      if (runtimeError || coordinationErrors.has(id)) return { ...status, actions: [], error: {
+        code: "coordination_failed", message: "Desktop update paused. Rechecking the connection and saved update state.",
+        hint: "Pacer will retry automatically. If this persists, quit and reopen Pacer; keep update recovery files in place.",
+      } };
+      if (deliveryErrors.has(id) && !status.error) status.error = {
+        code: "notification_failed", message: "Update status notifications are delayed. Retrying automatically.",
+        hint: "Update controls are still available.",
+      };
       if (!initialized.has(id)) return { ...status, actions: [] };
       if (!liveSession(id)) return { ...status, actions: value.phase === "waiting" ? ["cancel"] : [] };
       return { ...status, actions: status.actions.filter(action => (action !== "adopt" || !!currentAdoption) && (action !== "check" || !!deps.adapter?.capabilities.has("check")) && (action !== "download" || !!deps.adapter?.capabilities.has("download")) && (action !== "restart" || !!native.authorizeInstall && !!native.verifyOutcome && !!deps.adapter?.capabilities.has("install"))) };
@@ -400,9 +428,9 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
         await adoption.start();
         observe();
         for (const id of known.keys()) await reconcile(id);
-        unsubscribe = native.subscribe(() => { void runtime.tick().catch(() => { runtimeError = true; }); });
-        cancelTimer = schedule(() => { void runtime.tick().catch(() => { runtimeError = true; }); }, 0);
+        unsubscribe = native.subscribe(tickSoon);
       } catch { runtimeError = true; throw unavailable(); }
+      finally { if (!stopped) cancelTimer = schedule(tickSoon, 0); }
     },
     stop() {
       if (stopped) return;
@@ -410,29 +438,45 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
       stopped = true; adoption.stop(); cancelTimer?.(); unsubscribe?.();
     },
     async tick() {
-      if (!started || stopped || ticking || runtimeError) return;
+      if (!started || stopped || ticking) return;
       ticking = true; cancelTimer?.();
       try {
-        observe();
-        await adoption.tick();
-        for (const id of known.keys()) {
-          const adopted=readAdoption(ctx(),id);if(adopted&&adoptionPending(adopted))continue;
-          const retry = recoveryAttempts.get(id), pending = record(id);
-          if (!active.has(id) && retry?.retryAt != null && clock.monotonicMs() >= retry.retryAt && retry.transactionId === pending.transactionId && pending.phase === "recovery-failed" && pending.error?.code === "handoff_uncertain") {
-            initialized.delete(id);
-            retry.retryAt = null;
-          }
-          if (await reconcile(id)) continue;
-          const value = record(id);
-          if (value.phase === "waiting") { await advanceWaiting(id); continue; }
-          if (active.has(id) || pendingPhase(value) || !liveSession(id) || !checksEnabled(ctx())) continue;
-          if (!nextCheck.has(id)) nextCheck.set(id, checkDue(value.checkedAt, clock.nowS()) ? clock.monotonicMs() : clock.monotonicMs() + Math.max(0, 86400 - (clock.nowS() - value.checkedAt!)) * 1000 + jitter());
-          if (clock.monotonicMs() >= nextCheck.get(id)!) {
-            try { await runtime.check({ installationId: id, requestId: randomUUID(), expectRevision: value.revision }); }
-            catch (error) { if (!superseded(error)) throw error; }
-          }
+        // A prior coordinator failure invalidates cached initialization, not the
+        // recovery loop. Invalidate active jobs too, but defer their reconciliation
+        // until they finish so their durable phase cannot be reset underneath them.
+        if (runtimeError) for (const id of known.keys()) {
+          initialized.delete(id);
+          coordinationErrors.add(id);
         }
-      } finally { ticking = false; if (!stopped) cancelTimer = schedule(() => { void runtime.tick().catch(() => { runtimeError = true; }); }, 1000); }
+        observe();
+        if (!unsubscribe) unsubscribe = native.subscribe(tickSoon);
+        await adoption.start();
+        await adoption.tick();
+        runtimeError = false;
+        for (const id of known.keys()) {
+          if (active.has(id)) continue;
+          try {
+            const adopted = readAdoption(ctx(), id);
+            if (adopted && adoptionPending(adopted)) continue;
+            const retry = recoveryAttempts.get(id), pending = record(id);
+            if (retry?.retryAt != null && clock.monotonicMs() >= retry.retryAt && retry.transactionId === pending.transactionId && pending.phase === "recovery-failed" && pending.error?.code === "handoff_uncertain") {
+              initialized.delete(id);
+              retry.retryAt = null;
+            }
+            if (await reconcile(id)) continue;
+            const value = record(id);
+            if (value.phase === "waiting") { await advanceWaiting(id); continue; }
+            if (active.has(id) || pendingPhase(value) || !liveSession(id) || !checksEnabled(ctx())) continue;
+            if (!nextCheck.has(id)) nextCheck.set(id, checkDue(value.checkedAt, clock.nowS()) ? clock.monotonicMs() : clock.monotonicMs() + Math.max(0, 86400 - (clock.nowS() - value.checkedAt!)) * 1000 + jitter());
+            if (clock.monotonicMs() >= nextCheck.get(id)!) {
+              try { await runtime.check({ installationId: id, requestId: randomUUID(), expectRevision: value.revision }); }
+              catch (error) { if (!superseded(error)) throw error; }
+            }
+          } catch { failed(id); }
+        }
+        for (const id of pendingPublications.keys()) emit(id);
+      } catch { runtimeError = true; }
+      finally { ticking = false; if (!stopped) cancelTimer = schedule(tickSoon, 1000); }
     },
     async settled() { await adoption.settled(); while (jobs.size) await Promise.all([...jobs]); await publications; },
   };

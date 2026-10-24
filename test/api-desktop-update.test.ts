@@ -12,14 +12,14 @@ import { createDesktopUpdateRuntime, bindDesktopUpdateRuntime, type NativeAuthor
 import { FrameDecoder, encodeFrame, parseAdapterCommand, type VerifiedPipeFactory, type AdapterCommand } from "../src/update/desktop/adapter";
 import { requestRestart } from "../src/update/desktop/policy";
 import { readUpdate, writeUpdate } from "../src/update/desktop/store";
-import type { Candidate, Installation } from "../src/update/desktop/types";
+import type { Candidate, Installation, UpdateStatus } from "../src/update/desktop/types";
 import { fakeCtx } from "./helpers";
 
 const candidate: Candidate = { version: "1.1.0", arch: "aarch64", sha256: "a".repeat(64), signature: "private-signature", url: "https://example.invalid/private-archive", protocolMajors: [3], rollbackCompatible: true, notes: "New release" };
 const cleanups: (() => void)[] = [];
 afterEach(() => { for (const fn of cleanups.splice(0)) fn(); });
 function deferred<T>() { let resolve!: (v:T) => void; const promise = new Promise<T>(r=>{resolve=r;}); return {promise,resolve}; }
-function fixture(options: { autoDownload?:boolean; ownership?: "managed"|"attached"; hold?: Promise<void>; afterAuthorized?: Promise<void>; authorize?: Promise<boolean>; late?: boolean; lostAck?: boolean; reservation?: Promise<void>; outcome?: "committed"|"restored"|"recovery-failed"; attempted?: boolean } = {}) {
+function fixture(options: { autoDownload?:boolean; ownership?: "managed"|"attached"; hold?: Promise<void>; afterAuthorized?: Promise<void>; authorize?: Promise<boolean>; late?: boolean; lostAck?: boolean; reservation?: Promise<void>; outcome?: "committed"|"restored"|"recovery-failed"; attempted?: boolean; publish?: (status: UpdateStatus) => Promise<void>; release?: () => Promise<void> } = {}) {
   const ctx = fakeCtx(); mkdirSync(ctx.pacerHome);
   const installation: Installation = { id: "desktop", appPath: "/tmp/private-desktop.app", bundleId:"dev.pacer.desktop", ownerUid:process.getuid?.()??0, arch:"aarch64", pacerHome:ctx.pacerHome, port:7433, serviceLabel:"com.pacer.serve", ownership:options.ownership??"managed", version:"1.0.0" };
   const closed=deferred<void>(); let visible=!options.late; let alive=true, boot="boot-1", now=100;
@@ -49,8 +49,8 @@ function fixture(options: { autoDownload?:boolean; ownership?: "managed"|"attach
     }})};
   }};
   const runtime=createDesktopUpdateRuntime(()=>ctx,{native,adapter:factory,clock:{nowS:()=>now,monotonicMs:()=>now*1000,bootId:()=>boot},random:()=>0,
-    schedule:(callback,delay)=>{scheduled.push({callback,delay});return()=>{};},publish:async status=>{publications.push(status);},
-    admission:{reserveIdle:async()=>{calls.push("reserve");reserveEntered.resolve();await options.reservation;return{reserved:true,blockers:[]};},releaseReservation:async()=>{calls.push("release");},reconcileAdmission:async()=>{}},
+    schedule:(callback,delay)=>{scheduled.push({callback,delay});return()=>{};},publish:async status=>{await options.publish?.(status);publications.push(status);},
+    admission:{reserveIdle:async()=>{calls.push("reserve");reserveEntered.resolve();await options.reservation;return{reserved:true,blockers:[]};},releaseReservation:async()=>{calls.push("release");await options.release?.();},reconcileAdmission:async()=>{}},
   });
   if(options.autoDownload===false){const record=readUpdate(ctx,installation.id);writeUpdate(ctx,{...record,autoDownload:false},record.revision);}
   const unbind=bindDesktopUpdateRuntime(ctx,runtime);cleanups.push(runtime.stop); cleanups.push(unbind);
@@ -79,6 +79,147 @@ test("late native discovery retries failed verification without enabling mutatio
   await f.runtime.check(f.request("verified"));
   await f.runtime.settled();
   expect(f.commands).toHaveLength(1);
+});
+
+test("notification outages retain update controls and retry the latest status without repeating work", async () => {
+  let offline = true;
+  const f = fixture({ autoDownload: false, publish: async () => { if (offline) throw Error("private outbox failure"); } });
+  await f.runtime.start();
+  await f.runtime.check(f.request("check-during-outage"));
+  await f.runtime.settled();
+  expect(f.runtime.status("desktop").actions).toContain("download");
+  expect(f.runtime.status("desktop").error?.code).not.toBe("coordination_failed");
+  await f.runtime.download(f.request("download-during-outage"));
+  await f.runtime.settled();
+  expect(f.runtime.status("desktop").phase).toBe("ready");
+  offline = false;
+  await f.runtime.tick();
+  await f.runtime.settled();
+  expect(f.publications.at(-1)).toMatchObject({ phase: "ready", actions: expect.arrayContaining(["restart"]) });
+  expect(f.commands.map(c => c.command)).toEqual(["check", "download"]);
+  expect(JSON.stringify(f.runtime.status("desktop"))).not.toContain("private outbox failure");
+});
+
+test("scheduled coordination failure recovers with fresh proof and fresh restart consent", async () => {
+  const f = fixture();
+  await f.ready();
+  await f.runtime.restart({ ...f.request("restart"), version: candidate.version, clientId: "native-desktop" });
+  const reverify = f.native.reverify;
+  f.native.reverify = async () => { throw Error("private native observation failure"); };
+  f.scheduled.at(-1)!.callback();
+  await Bun.sleep(0);
+  expect(f.runtime.status("desktop")).toMatchObject({ error: { code: "coordination_failed" } });
+  expect(f.runtime.status("desktop").error?.hint).toContain("automatically");
+  await expect(f.runtime.check(f.request("unsafe-check"))).rejects.toMatchObject({ code: "not_allowed" });
+  await f.runtime.tick();
+  expect(f.runtime.status("desktop").actions).toEqual([]);
+  f.native.reverify = reverify;
+  await f.runtime.tick();
+  await f.runtime.settled();
+  expect(f.runtime.status("desktop")).toMatchObject({ phase: "ready", error: null });
+  expect(f.publications.at(-1)).toMatchObject({ actions: expect.arrayContaining(["restart"]) });
+  expect(f.commands.map(c => c.command)).toEqual(["check", "download"]);
+  await f.runtime.restart({ ...f.request("fresh-restart"), version: candidate.version, clientId: "native-desktop" });
+  await f.runtime.tick();
+  await f.runtime.settled();
+  expect(f.runtime.status("desktop").phase).toBe("complete");
+  expect(f.commands.filter(c => c.command === "install")).toHaveLength(1);
+});
+
+test("failed terminal reservation release retries cleanup without reinstalling", async () => {
+  let blocked = true;
+  const f = fixture({ release: async () => { if (blocked) throw Error("temporary admission failure"); } });
+  await f.ready();
+  await f.runtime.restart({ ...f.request("restart"), version: candidate.version, clientId: "native-desktop" });
+  await f.runtime.tick();
+  await f.runtime.settled();
+  const transactionId = readUpdate(f.ctx, "desktop").transactionId;
+  expect(f.runtime.status("desktop").error?.code).toBe("coordination_failed");
+  blocked = false;
+  await f.runtime.tick();
+  await f.runtime.settled();
+  expect(f.runtime.status("desktop")).toMatchObject({ phase: "complete", error: null, transactionId });
+  expect(f.runtime.status("desktop").actions).toContain("check");
+  expect(f.calls.filter(c => c === "release")).toHaveLength(2);
+  expect(f.commands.filter(c => c.command === "install")).toHaveLength(1);
+  expect(f.commands.filter(c => c.command === "recover")).toHaveLength(0);
+});
+
+test("a failed installation does not revoke another installation's controls", async () => {
+  const f = fixture();
+  const other: VerifiedNativeSession = { ...f.session, sessionId: "other-session", desktopClientId: "other-client",
+    installation: { ...f.session.installation, id: "other-desktop", appPath: "/tmp/other-desktop.app" } };
+  f.native.sessions = () => [f.session, other];
+  await f.ready();
+  await f.runtime.restart({ ...f.request("restart"), version: candidate.version, clientId: "native-desktop" });
+  const reverify = f.native.reverify;
+  f.native.reverify = async session => { if (session.installation.id === "desktop") throw Error("temporary observation failure"); };
+  await f.runtime.tick();
+  await f.runtime.settled();
+  expect(f.runtime.status("desktop").actions).toEqual([]);
+  expect(f.runtime.status("other-desktop").actions).toContain("check");
+  await f.runtime.check({ installationId: "other-desktop", requestId: "other-check", expectRevision: f.runtime.status("other-desktop").revision });
+  await f.runtime.settled();
+  expect(f.runtime.status("other-desktop").phase).toBe("ready");
+  f.native.reverify = reverify;
+});
+
+test("global observation recovery keeps the failure visible until fresh native verification succeeds", async () => {
+  const f = fixture();
+  await f.ready();
+  const sessions = f.native.sessions, reverify = f.native.reverify;
+  f.native.sessions = () => { throw Error("private native registry failure"); };
+  f.scheduled.at(-1)!.callback();
+  await Bun.sleep(0);
+  f.native.sessions = sessions;
+  f.native.reverify = async () => { throw Error("native connection not yet verified"); };
+  await f.runtime.tick();
+  expect(f.runtime.status("desktop")).toMatchObject({ actions: [], error: { code: "coordination_failed" } });
+  f.native.reverify = reverify;
+  await f.runtime.tick();
+  await f.runtime.settled();
+  expect(f.runtime.status("desktop")).toMatchObject({ phase: "ready", error: null });
+  expect(f.runtime.status("desktop").actions).toContain("restart");
+  expect(f.commands.map(c => c.command)).toEqual(["check", "download"]);
+});
+
+test("failed startup retains a scheduled recovery path", async () => {
+  let blocked = true;
+  const f = fixture({ release: async () => { if (blocked) throw Error("temporary startup cleanup failure"); } });
+  f.seedPending("waiting");
+  await expect(f.runtime.start()).rejects.toMatchObject({ code: "not_allowed" });
+  expect(f.scheduled.length).toBeGreaterThan(0);
+  expect(f.runtime.status("desktop").actions).toEqual([]);
+  blocked = false;
+  f.scheduled.at(-1)!.callback();
+  await Bun.sleep(0);
+  await f.runtime.settled();
+  expect(f.runtime.status("desktop")).toMatchObject({ phase: "ready", error: null });
+  expect(f.runtime.status("desktop").actions).toContain("restart");
+  expect(f.calls).toEqual(["release", "release"]);
+  expect(f.commands).toEqual([]);
+});
+
+test("global failures invalidate native proof even while a network job is still running", async () => {
+  const held = deferred<void>(), f = fixture({ hold: held.promise, autoDownload: false });
+  await f.runtime.start();
+  await f.runtime.check(f.request("held-check"));
+  const sessions = f.native.sessions, reverify = f.native.reverify;
+  f.native.sessions = () => { throw Error("observation unavailable"); };
+  await f.runtime.tick();
+  f.native.sessions = sessions;
+  let proofs = 0;
+  f.native.reverify = async () => { proofs++; throw Error("not verified"); };
+  await f.runtime.tick();
+  held.resolve();
+  await f.runtime.settled();
+  await f.runtime.tick();
+  expect(proofs).toBeGreaterThan(0);
+  expect(f.runtime.status("desktop").actions).toEqual([]);
+  f.native.reverify = reverify;
+  await f.runtime.tick();
+  expect(f.runtime.status("desktop").actions).toContain("download");
+  expect(f.commands.map(c => c.command)).toEqual(["check"]);
 });
 
 test("new operations are v3 only; public desktop registration never establishes native authority", async()=>{

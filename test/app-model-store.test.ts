@@ -217,3 +217,19 @@ test('desktop adoption events advance independently without regressing either re
  apply(7,old);expect(state.snapshot?.desktopUpdates?.[0]?.adoption?.revision).toBe(3);
  apply(8,{...old,revision:8});expect(state.snapshot?.desktopUpdates?.[0]?.adoption?.revision).toBe(3);expect(state.needsSnapshot).toBe(true);
 });
+
+test("desktop connection recovery updates controls at the same durable revision", async () => {
+  const { desktopStatus } = await import("./fixtures/desktop-update/status");
+  const ready = desktopStatus({ revision: 7, phase: "ready", actions: ["restart", "check"] });
+  let state: StoreState = { ...reduceStore(initialState(), { type: "snapshot", snapshot: { ...snapshot, desktopUpdates: [ready] } }),
+    features: { readModel: true, ops: new Set<string>() } };
+  const paused = { ...ready, actions: [], error: { code: "coordination_failed", message: "Rechecking update" } };
+  state = reduceStore(state, { type: "event", event: { type: "desktop.update", seq: 6, at: 6, data: paused } });
+  expect(state.snapshot?.desktopUpdates?.[0]?.actions).toEqual([]);
+  expect(state.snapshot?.desktopUpdates?.[0]?.error?.code).toBe("coordination_failed");
+  state = reduceStore(state, { type: "event", event: { type: "desktop.update", seq: 7, at: 7, data: ready } });
+  expect(state.snapshot?.desktopUpdates?.[0]?.actions).toContain("restart");
+  expect(state.snapshot?.desktopUpdates?.[0]?.error).toBeNull();
+  const stale = reduceStore(state, { type: "event", event: { type: "desktop.update", seq: 6, at: 6, data: paused } });
+  expect(stale).toBe(state);
+});

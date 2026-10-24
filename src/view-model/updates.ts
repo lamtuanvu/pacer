@@ -40,6 +40,11 @@ export function desktopUpdateView(update: UpdateStatus): DesktopUpdateView {
     };
     [label, tone, glyph, detail] = states[adoption.phase] ?? ["Service status unavailable", "neutral", "?", "Refresh the service status."];
   }
+  if (update.error?.code === "coordination_failed") {
+    [label, tone, glyph, detail] = ["Rechecking update", "warn", "…", update.error.message];
+  } else if (update.error?.code === "notification_failed") {
+    [label, tone, glyph, detail] = ["Update status delayed", "warn", "…", update.error.message];
+  }
   const action = (["adoptCancel", "cancel", "restart", "download", "adopt", "check"] as DesktopAction[]).find(action => update.actions.includes(action)) ?? null;
   return { label, tone, glyph, detail, action, primary: action ? labels[action] : null, cancellable: update.actions.includes("cancel") || update.actions.includes("adoptCancel") };
 }
