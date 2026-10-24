@@ -2,6 +2,26 @@ import { expect, test } from "bun:test";
 import { desktopUpdateView, desktopUpdateAction, updateIntent, desktopUpdateIndicator } from "../src/view-model/updates";
 import { desktopStatus } from "./fixtures/desktop-update/status";
 
+test("coordination retries describe the pause instead of promising a ready update", () => {
+  const view = desktopUpdateView(desktopStatus({ phase: "ready", actions: [], error: {
+    code: "coordination_failed", message: "Desktop update paused. Rechecking the connection and saved update state.",
+  } }));
+  expect(view.label).toBe("Rechecking update");
+  expect(view.detail).toContain("Rechecking the connection");
+  expect(view.tone).toBe("warn");
+  expect(view.primary).toBeNull();
+});
+
+test("notification retries explain the delay while preserving authorized controls", () => {
+  const view = desktopUpdateView(desktopStatus({ phase: "ready", actions: ["restart", "check"], error: {
+    code: "notification_failed", message: "Update status notifications are delayed. Retrying automatically.",
+  } }));
+  expect(view.label).toBe("Update status delayed");
+  expect(view.detail).toContain("Retrying automatically");
+  expect(view.primary).toBe("Restart to update");
+  expect(view.tone).toBe("warn");
+});
+
 test("desktop view uses authoritative actions for ready, waiting and unavailable states", () => {
   const ready = desktopStatus({ phase: "ready", target: "0.2.4", actions: ["restart"] });
   expect(desktopUpdateView(ready).primary).toBe("Restart to update");
