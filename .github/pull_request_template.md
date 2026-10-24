@@ -10,6 +10,10 @@ Link the issue, or explain why none is needed.
 
 List commands actually run and results, including manual checks. For runtime changes, link/summarize the CT-11 live report with a verdict for every changed behavior and affected surface. Required FAIL or UNVERIFIED behavior remains outstanding.
 
+## Project review
+
+Summarize independent project review (REPO-10): reviewed revision and any working-tree fingerprint, governance version, applicable rules/reviewers, actual checks, findings and resolutions, final verdict and evidence references. Confirm fixes and subsequent changes were re-reviewed. Keep `.work/` untracked; include report summaries or accessible evidence in the PR. Required FAIL/UNVERIFIED checks remain outstanding.
+
 ## UI evidence
 
 For UI-affecting changes, attach accessible implementer compliance, independent UI/accessibility and independent QA reports. Each report names reviewed base/head, governance version, scope/rule IDs, actual checks/evidence, findings with severity/remedy and PASS/FAIL/UNVERIFIED surfaces. Include UI-18 before/after screenshots (1440 light/dark, 375 when layout changes, tray 340 when affected), keyboard/focus, contrast/reduced-motion and applicable CT-11 evidence. Update the component catalog/provenance when shared APIs change.
