@@ -35,11 +35,14 @@ type Json = Record<string, unknown>;
 /** Newline-delimited text from a byte stream, for stdin. */
 export async function* stdinLines(stream: AsyncIterable<Buffer | string> = process.stdin): AsyncGenerator<string> {
   let rest = "";
+  const decoder = new TextDecoder("utf-8", { ignoreBOM: true });
   for await (const chunk of stream) {
-    rest += typeof chunk === "string" ? chunk : chunk.toString("utf8");
+    // Preserve scalar boundaries across byte chunks and the old raw BOM semantics.
+    rest += typeof chunk === "string" ? decoder.decode() + chunk : decoder.decode(chunk, { stream: true });
     let i: number;
     while ((i = rest.indexOf("\n")) !== -1) { yield rest.slice(0, i); rest = rest.slice(i + 1); }
   }
+  rest += decoder.decode();
   if (rest) yield rest;
 }
 
@@ -147,4 +150,5 @@ export async function serve(o: ServeOptions): Promise<void> {
 }
 
 export { createUsageReaderIO } from "./usage";
-export type { UsageReading, UsageWindow, ReaderIO, ReaderContext, FileInfo, Cursor, Cached } from "./usage";
+export type { UsageKind, UsageSource, UsageWindow, UsageReading, RunResult, EvidenceScope, Evidence, SpendingSignals, AccountEvidence,
+  FileInfo, Cursor, Cached, ReaderIO, ReaderContext, MeteredConfig } from "./usage";
