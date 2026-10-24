@@ -48,22 +48,35 @@ export async function serve(o: ServeOptions): Promise<void> {
   const write = o.write ?? ((line: string) => { process.stdout.write(line); });
   const now = o.now ?? (() => Date.now() / 1000);
   const send = (m: Json) => write(`${JSON.stringify({ jsonrpc: "2.0", ...m })}\n`);
-  const pending = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
+  const pending = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void; dispose: () => void }>();
   const inflight = new Map<string | number, AbortController>();
   const tasks = new Set<Promise<void>>();
   let nextId = 1, startedAt: number | null = null, hello: Hello | null = null;
 
-  const host: HostClient = {
-    call<T>(method: string, params: unknown = {}) {
+  function hostFor(metadata?: unknown, signal?: AbortSignal): HostClient {
+    const meta = metadata && typeof metadata === "object" && !Array.isArray(metadata)
+      && typeof (metadata as Json).capabilityCall === "string" ? metadata : undefined;
+    const call = <T>(method: string, params: unknown = {}): Promise<T> => {
+      if (signal?.aborted) return Promise.reject(new PluginError("plugin_unavailable", "owning plugin call ended"));
       const id = `p${nextId++}`;
       return new Promise<T>((resolve, reject) => {
-        pending.set(id, { resolve: v => resolve(v as T), reject });
-        send({ id, method, params });
+        const cancel = () => {
+          const waiting = pending.get(id); if (!waiting) return;
+          pending.delete(id); waiting.dispose();
+          reject(new PluginError("plugin_unavailable", "owning plugin call ended"));
+        };
+        const dispose = () => signal?.removeEventListener("abort", cancel);
+        pending.set(id, { resolve: value => resolve(value as T), reject, dispose });
+        signal?.addEventListener("abort", cancel, { once: true });
+        send({ id, method, params, ...(meta ? { _meta: meta } : {}) });
       });
-    },
-    async log(level, message) { await host.call("capability.log", { level, message }); },
-    async config() { return (await host.call<{ config: Record<string, unknown> }>("capability.config.get", {})).config; },
-  };
+    };
+    return {
+      call,
+      async log(level, message) { await call("capability.log", { level, message }); },
+      async config() { return (await call<{ config: Record<string, unknown> }>("capability.config.get", {})).config; },
+    };
+  }
   const builtin: Record<string, Handler> = {
     "diagnostic.ping": () => ({ ok: true, uptimeS: startedAt === null ? 0 : Math.max(0, now() - startedAt) }),
   };
@@ -90,14 +103,14 @@ export async function serve(o: ServeOptions): Promise<void> {
       const handler = o.handlers?.[r.method] ?? builtin[r.method];
       if (!handler) { send({ id, error: { code: -32601, message: `unknown method ${r.method}`, data: { code: "unknown_op" } } }); return; }
       const controller = new AbortController(); inflight.set(id, controller);
-      try { send({ id, result: await handler(r.params ?? {}, host, controller.signal) }); }
+      try { send({ id, result: await handler(r.params ?? {}, hostFor(r._meta, controller.signal), controller.signal) }); }
       catch (e) { send({ id, error: errorBody(e) }); }
-      finally { inflight.delete(id); }
+      finally { inflight.delete(id); controller.abort(); }
       return;
     }
     if (typeof r.id !== "string") return;
     const p = pending.get(r.id); if (!p) return;
-    pending.delete(r.id);
+    pending.delete(r.id); p.dispose();
     if (r.error) { const err = r.error as { message?: string; data?: { code?: string; hint?: string } }; p.reject(new PluginError(err.data?.code ?? "internal", err.message ?? "host error", err.data?.hint)); }
     else p.resolve(r.result);
   };
@@ -105,7 +118,7 @@ export async function serve(o: ServeOptions): Promise<void> {
   try {
     for await (const line of o.input ?? stdinLines()) { const t = handle(line); tasks.add(t); void t.finally(() => tasks.delete(t)); }
   } finally {
-    for (const p of pending.values()) p.reject(new PluginError("plugin_unavailable", "host closed the connection"));
+    for (const p of pending.values()) { p.dispose(); p.reject(new PluginError("plugin_unavailable", "host closed the connection")); }
     pending.clear();
     for (const c of inflight.values()) c.abort();
     await Promise.all(tasks);

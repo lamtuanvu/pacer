@@ -2086,6 +2086,9 @@ Result:
       "type": "integer",
       "exclusiveMinimum": 0,
       "maximum": 9007199254740991
+    },
+    "dirty": {
+      "type": "boolean"
     }
   },
   "required": [
@@ -2223,6 +2226,9 @@ Params:
       "type": "string",
       "minLength": 1,
       "maxLength": 256
+    },
+    "dirty": {
+      "type": "boolean"
     }
   },
   "required": [

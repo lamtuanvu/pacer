@@ -60,3 +60,11 @@ test("canonical schema includes additive correlation metadata", async () => {
   expect(schema.$defs["callMetadata"]).toBeDefined();
   expect(schema.$defs["callMetadata"].properties.capabilityCall.maxLength).toBe(256);
 });
+
+test("cursor state carries dirty retry metadata without changing cache envelopes", () => {
+  const begin = protocol.CAPABILITY_METHODS["capability.usage.state.begin"];
+  const commit = protocol.CAPABILITY_METHODS["capability.usage.state.commit"];
+  expect(begin.result.parse({ lease: "lease", bytes: 0, version: 4, dirty: true })).toHaveProperty("dirty", true);
+  expect(commit.params.parse({ lease: "lease", dirty: false })).toHaveProperty("dirty", false);
+  expect(commit.params.parse({ lease: "lease" })).toEqual({ lease: "lease" });
+});

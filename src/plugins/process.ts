@@ -6,13 +6,14 @@ import { CANCEL_METHOD } from "./protocol";
 
 export interface SpawnSpec { argv: string[]; cwd: string; env: Record<string, string | undefined> }
 export interface ProcessHooks {
-  onRequest: (method: string, params: unknown) => Promise<unknown>;
+  onRequest: (method: string, params: unknown, metadata?: unknown) => Promise<unknown>;
   onStderr: (line: string) => void;
   onExit: (info: { code: number | null; signal: string | null }) => void;
   spawn?: typeof nodeSpawn;
 }
-type Pending = { method: string; resolve: (v: unknown) => void; reject: (e: CoreError) => void; timer: ReturnType<typeof setTimeout> };
-const KNOWN: ReadonlySet<string> = new Set<CoreErrorCode>(["unknown_op", "unknown_task", "invalid_input", "unknown_executor", "conflict", "not_allowed", "plugin_timeout", "plugin_unavailable", "plugin_refused", "capability_denied", "unknown_plugin"]);
+export interface RequestOptions { metadata?: unknown; signal?: AbortSignal; onProgress?: (event: unknown) => void }
+type Pending = { dispose: () => void; onProgress?: (event: unknown) => void; method: string; resolve: (v: unknown) => void; reject: (e: CoreError) => void; timer?: ReturnType<typeof setTimeout> };
+const KNOWN: ReadonlySet<string> = new Set<CoreErrorCode>(["unknown_op", "unknown_task", "invalid_input", "unknown_executor", "conflict", "not_allowed", "plugin_timeout", "plugin_unavailable", "plugin_refused", "capability_denied", "unknown_plugin", "not_found", "too_large"]);
 
 /** One plugin child: JSON-RPC both ways on stdio, stderr to a hook, deadlines owned here. */
 export class PluginProcess {
@@ -48,7 +49,7 @@ export class PluginProcess {
     if (this.over) return;
     this.over = true; this.child = undefined;
     const text = reason ?? `plugin exited${info.code !== null ? ` with code ${info.code}` : info.signal ? ` on ${info.signal}` : ""}`;
-    for (const p of this.pending.values()) { clearTimeout(p.timer); p.reject(new CoreError("plugin_unavailable", `${p.method}: ${text}`)); }
+    for (const p of this.pending.values()) { clearTimeout(p.timer); p.dispose(); p.reject(new CoreError("plugin_unavailable", `${p.method}: ${text}`)); }
     this.pending.clear();
     this.hooks.onExit(info);
   }
@@ -65,16 +66,24 @@ export class PluginProcess {
     catch { this.hooks.onStderr("ignored a malformed JSON line on stdout"); return; }
     if (m.jsonrpc !== "2.0") return;
     if (typeof m.method === "string") {
+      if (m.method === "$/progress") {
+        const params = m.params as { id?: unknown; event?: unknown } | undefined;
+        const pending = typeof params?.id === "number" ? this.pending.get(params.id) : undefined;
+        if (pending?.onProgress) {
+          try { pending.onProgress(params?.event); } catch { this.hooks.onStderr("progress callback failed"); }
+        }
+        return;
+      }
       if (m.id === undefined || m.id === null) return;
       const id = m.id;
-      void this.hooks.onRequest(m.method, m.params ?? {})
+      void this.hooks.onRequest(m.method, m.params ?? {}, m._meta)
         .then(result => this.send({ id, result }), e => this.send({ id, error: rpcError(e) }));
       return;
     }
     if (typeof m.id !== "number") return;
     const p = this.pending.get(m.id);
     if (!p) return;
-    this.pending.delete(m.id); clearTimeout(p.timer);
+    this.pending.delete(m.id); clearTimeout(p.timer); p.dispose();
     if (m.error) {
       const err = m.error as { message?: string; data?: { code?: string; hint?: string } };
       const code = err.data?.code && KNOWN.has(err.data.code) ? (err.data.code as CoreErrorCode) : "plugin_unavailable";
@@ -82,17 +91,24 @@ export class PluginProcess {
     } else p.resolve(m.result);
   }
 
-  request<T>(method: string, params: unknown, deadlineMs: number): Promise<T> {
+  request<T>(method: string, params: unknown, deadlineMs: number, options: RequestOptions = {}): Promise<T> {
     if (!this.alive) return Promise.reject(new CoreError("plugin_unavailable", `${method}: plugin is not running`));
+    if (!Number.isFinite(deadlineMs) || deadlineMs < 0) return Promise.reject(new CoreError("invalid_input", "request deadline must be non-negative"));
+    if (options.signal?.aborted) return Promise.reject(new CoreError("plugin_unavailable", "owning plugin call ended"));
     const id = this.nextId++;
     return new Promise<T>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(id);
+      const cancel = (code: "plugin_timeout" | "plugin_unavailable", message: string) => {
+        const pending = this.pending.get(id); if (!pending) return;
+        this.pending.delete(id); clearTimeout(pending.timer); pending.dispose();
         this.send({ method: CANCEL_METHOD, params: { id } });
-        reject(new CoreError("plugin_timeout", `${method} passed its ${deadlineMs} ms deadline`));
-      }, deadlineMs);
-      this.pending.set(id, { method, resolve: v => resolve(v as T), reject, timer });
-      this.send({ id, method, params });
+        reject(new CoreError(code, message));
+      };
+      const abort = () => cancel("plugin_unavailable", "owning plugin call ended");
+      const dispose = () => options.signal?.removeEventListener("abort", abort);
+      const timer = deadlineMs === 0 ? undefined : setTimeout(() => cancel("plugin_timeout", `${method} passed its ${deadlineMs} ms deadline`), deadlineMs);
+      this.pending.set(id, { method, resolve: value => resolve(value as T), reject, timer, dispose, onProgress: options.onProgress });
+      options.signal?.addEventListener("abort", abort, { once: true });
+      this.send({ id, method, params, ...(options.metadata ? { _meta: options.metadata } : {}) });
     });
   }
 

@@ -1,4 +1,5 @@
 // src/plugins/host.ts
+import { CallAuthority } from "./authority";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { CoreError } from "../core/errors";
@@ -14,11 +15,15 @@ export function appendPluginLog(ctx: Pick<Ctx, "pacerHome">, id: string, tag: st
 }
 
 /** Answer a plugin's capability call. Undeclared or unimplemented capabilities are refused without side effects. */
-export async function answerCapability(ctx: Ctx, plugin: { id: string; manifest: PluginManifest }, method: string, params: unknown): Promise<unknown> {
+export async function answerCapability(ctx: Ctx, plugin: { id: string; manifest: PluginManifest }, method: string, params: unknown, authority?: CallAuthority): Promise<unknown> {
   const name = capabilityOf(method), def = CAPABILITY_METHODS[method];
   if (!name) throw new CoreError("unknown_op", `unknown host method ${method}`);
   if (!plugin.manifest.capabilities.some(c => c.name === name)) throw new CoreError("capability_denied", `plugin ${plugin.id} did not declare ${name}`);
   if (!def) throw new CoreError("capability_denied", `${name} is not available in this pacer yet`);
+  if (["fs.read", "process.spawn", "usage.state"].includes(name)) {
+    if (!(authority instanceof CallAuthority)) throw new CoreError("capability_denied", "scoped capability requires an active owning call");
+    authority.assertGranted(name);
+  }
   const parsed = def.params.safeParse(params ?? {});
   if (!parsed.success) throw new CoreError("invalid_input", parsed.error.issues.map(i => `${i.path.join(".") || "params"}: ${i.message}`).join("; "));
   switch (name) {

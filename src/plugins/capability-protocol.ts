@@ -28,13 +28,13 @@ export const SCOPED_CAPABILITY_METHODS: Record<string, MethodDef> = {
   "capability.process.outputChunk": method("Read a bounded chunk from this call's captured provider output.",
     z.object({ handle, offset: bytes, length: chunk }).strict(), z.object({ base64 })),
   "capability.usage.state.begin": method("Lease an opaque host-fixed provider cache or account-projected cursor store.",
-    z.object({ store: handle }).strict(), z.object({ lease: handle, bytes, version: z.number().int().positive().optional() })),
+    z.object({ store: handle }).strict(), z.object({ lease: handle, bytes, version: z.number().int().positive().optional(), dirty: z.boolean().optional() })),
   "capability.usage.state.readChunk": method("Read at most 256 KiB from this call's projected state snapshot.",
     lease.extend({ offset: bytes, length: chunk }).strict(), z.object({ base64 })),
   "capability.usage.state.stageChunk": method("Stage a contiguous bounded chunk in this call's host-owned private state transfer.",
     lease.extend({ offset: bytes, base64 }).strict(), z.object({ bytes })),
   "capability.usage.state.commit": method("Commit the complete projected JSON state under admitted call ownership; cursor persistence failure retains dirty state.",
-    lease, z.object({ saved: z.boolean() })),
+    lease.extend({ dirty: z.boolean().optional() }).strict(), z.object({ saved: z.boolean() })),
   "capability.usage.state.release": method("Release a state lease and its private transfer files.", lease, z.object({ ok: z.literal(true) })),
 };
 export const SCOPED_METHOD_CAPABILITY: Record<string, "fs.read" | "process.spawn" | "usage.state"> = Object.fromEntries(

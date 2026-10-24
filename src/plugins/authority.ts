@@ -18,6 +18,7 @@ export class CallAuthority {
   private readonly cleanup = new Set<() => void | Promise<void>>();
   private readonly timer: ReturnType<typeof setTimeout>;
   private settled?: Promise<void>;
+  private operation = false;
   private readonly detach: () => void;
 
   constructor(readonly ctx: Ctx, resources: CallResources, readonly deadlineMs: number, parent?: AbortSignal, grants: readonly string[] = [], readonly accountHome: string | null = null) {
@@ -51,6 +52,20 @@ export class CallAuthority {
     this.assertActive();
     this.cleanup.add(cleanup);
     return () => { this.cleanup.delete(cleanup); };
+  }
+  async exclusive<T>(action: () => Promise<T>): Promise<T> {
+    this.assertActive();
+    if (this.operation) throw new CoreError("conflict", "one capability operation is already active for this call");
+    let resolve!: () => void;
+    const finished = new Promise<void>(done => { resolve = done; });
+    const detach = this.onRevoke(() => finished);
+    this.operation = true;
+    try {
+      this.assertActive();
+      const result = await action();
+      this.assertActive();
+      return result;
+    } finally { this.operation = false; detach(); resolve(); }
   }
   revoke(): Promise<void> {
     if (this.settled) return this.settled;

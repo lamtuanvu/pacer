@@ -4044,6 +4044,9 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityUsageStateBeginParamsStore {
 ///      "maximum": 9007199254740991.0,
 ///      "minimum": 0.0
 ///    },
+///    "dirty": {
+///      "type": "boolean"
+///    },
 ///    "lease": {
 ///      "type": "string",
 ///      "maxLength": 256,
@@ -4063,6 +4066,8 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityUsageStateBeginParamsStore {
 #[serde(deny_unknown_fields)]
 pub struct CapabilityUsageStateBeginResult {
     pub bytes: i64,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub dirty: ::std::option::Option<bool>,
     pub lease: CapabilityUsageStateBeginResultLease,
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub version: ::std::option::Option<::std::num::NonZeroU64>,
@@ -4134,6 +4139,9 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityUsageStateBeginResultLease {
 ///    "lease"
 ///  ],
 ///  "properties": {
+///    "dirty": {
+///      "type": "boolean"
+///    },
 ///    "lease": {
 ///      "type": "string",
 ///      "maxLength": 256,
@@ -4147,6 +4155,8 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityUsageStateBeginResultLease {
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct CapabilityUsageStateCommitParams {
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub dirty: ::std::option::Option<bool>,
     pub lease: CapabilityUsageStateCommitParamsLease,
 }
 ///`CapabilityUsageStateCommitParamsLease`

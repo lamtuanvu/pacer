@@ -8,11 +8,15 @@ import type { Ctx } from "../types";
 import { type PluginGrant, pluginsConfig, setPluginDisabled, setPluginGrant } from "./config";
 import { answerCapability, appendPluginLog } from "./host";
 import { hostRangeAccepts, readManifestFile } from "./manifest";
+import { CallAdmission } from "./admission";
+import { CallAuthority, createCallAuthority, type CallResources } from "./authority";
+import { callMetadata } from "./protocol";
 import { PluginProcess, type SpawnSpec } from "./process";
 import { EXTENSION_METHODS, HELLO_METHOD, PLUGIN_ID, PLUGIN_PROTOCOL_MAJOR, PLUGIN_PROTOCOL_VERSION, type PluginManifest, type PluginState, helloResult } from "./protocol";
 import type { BundledPlugin } from "./types";
 import { currentVersion } from "../update/version";
 
+export interface PluginCallOptions { resources?: CallResources; accountHome?: string | null; deadlineMs?: number; signal?: AbortSignal; onProgress?: (event: unknown) => void }
 export interface RegistryDeps { bundled: BundledPlugin[]; spawnBundled: (ctx: Ctx, id: string) => SpawnSpec; spawn?: typeof nodeSpawn; sleep?: (ms: number) => Promise<void> }
 export interface PluginInfo { id: string; version: string; publisher: string; tier: "free" | "commercial"; bundled: boolean; enabled: boolean; state: PluginState; contributes: string[]; capabilities: { name: string; scopes?: string[] }[]; grant: PluginGrant | null; error: string | null; pid: number | null }
 export interface DoctorReport { id: string; ok: boolean; state: PluginState; served: string[]; protocol: { host: string; plugin: string | null }; pid: number | null; restarts: number; error: string | null; needs: string | null }
@@ -21,6 +25,7 @@ interface Entry {
   id: string; manifest: PluginManifest | null; bundled: boolean; dir: string | null;
   state: PluginState; error: string | null; served: string[]; pluginProtocol: string | null;
   process?: PluginProcess; starting?: Promise<PluginProcess>; queue: Promise<unknown>;
+  authorities: Map<string, CallAuthority>;
   crashes: number[]; nextStartAt: number; stopping: boolean;
 }
 const ENABLED: ReadonlySet<PluginState> = new Set(["idle", "starting", "ready"]);
@@ -29,13 +34,14 @@ const CRASH_WINDOW_S = 60, CRASH_LIMIT = 3, MAX_BACKOFF_MS = 30_000, HELLO_DEADL
 export class PluginRegistry {
   private published: Promise<unknown> = Promise.resolve();
   private readonly entries = new Map<string, Entry>();
+  private readonly admission = new CallAdmission();
   private readonly refusedShadows = new Set<string>();
   private readonly sleep: (ms: number) => Promise<void>;
   constructor(private readonly deps: RegistryDeps) { this.sleep = deps.sleep ?? (ms => Bun.sleep(ms)); }
 
   private entry(id: string, manifest: PluginManifest | null, bundled: boolean, dir: string | null): Entry {
     let e = this.entries.get(id);
-    if (!e) { e = { id, manifest, bundled, dir, state: "idle", error: null, served: [], pluginProtocol: null, queue: Promise.resolve(), crashes: [], nextStartAt: 0, stopping: false }; this.entries.set(id, e); }
+    if (!e) { e = { id, manifest, bundled, dir, state: "idle", error: null, served: [], pluginProtocol: null, queue: Promise.resolve(), authorities: new Map(), crashes: [], nextStartAt: 0, stopping: false }; this.entries.set(id, e); }
     e.manifest = manifest; e.bundled = bundled; e.dir = dir;
     return e;
   }
@@ -114,24 +120,31 @@ export class PluginRegistry {
     return { argv: [join(e.dir!, e.manifest!.entry!)], cwd: e.dir!, env };
   }
 
-  private async start(ctx: Ctx, e: Entry): Promise<PluginProcess> {
+  private async start(ctx: Ctx, e: Entry, deadlineAt = Infinity, signal?: AbortSignal): Promise<PluginProcess> {
     if (e.starting) return e.starting;
     if (e.process?.alive) return e.process;
     e.starting = (async () => {
       const wait = e.nextStartAt - Date.now();
+      if (signal?.aborted || Date.now() >= deadlineAt || Date.now() + wait >= deadlineAt) throw new CoreError("plugin_timeout", "plugin call expired before startup");
       if (wait > 0) await this.sleep(wait);
+      if (signal?.aborted || Date.now() >= deadlineAt) throw new CoreError("plugin_timeout", "plugin call expired before startup");
       this.setState(ctx, e, "starting");
       const manifest = e.manifest!;
       const proc = new PluginProcess(this.spec(ctx, e), {
         spawn: this.deps.spawn,
-        onRequest: (m, p) => answerCapability(ctx, { id: e.id, manifest }, m, p),
+        onRequest: (m, p, metadata) => {
+          const parsed = callMetadata.safeParse(metadata);
+          const token = parsed.success ? parsed.data?.capabilityCall : undefined;
+          const authority = token && e.process === proc ? e.authorities.get(token) : undefined;
+          return answerCapability(authority?.ctx ?? ctx, { id: e.id, manifest }, m, p, authority);
+        },
         onStderr: line => appendPluginLog(ctx, e.id, "stderr", line),
         onExit: info => this.onExit(ctx, e, proc, info),
       });
       e.process = proc;
       const grants = e.bundled ? manifest.capabilities.map(c => c.name) : (pluginsConfig(ctx).installed[e.id]?.capabilities ?? []);
       try {
-        const raw = await proc.request(HELLO_METHOD, { protocol: PLUGIN_PROTOCOL_VERSION, pacer: currentVersion(), manifest, config: pluginsConfig(ctx).config[e.id] ?? {}, grants }, HELLO_DEADLINE_MS);
+        const raw = await proc.request(HELLO_METHOD, { protocol: PLUGIN_PROTOCOL_VERSION, pacer: currentVersion(), manifest, config: pluginsConfig(ctx).config[e.id] ?? {}, grants }, Math.min(HELLO_DEADLINE_MS, Math.max(1, deadlineAt - Date.now())), { signal });
         const hello = helloResult.safeParse(raw);
         if (!hello.success) throw new CoreError("plugin_refused", `handshake reply is malformed: ${hello.error.issues[0]?.message ?? "unknown"}`);
         const major = Number(hello.data.protocol.split(".")[0]);
@@ -151,6 +164,7 @@ export class PluginRegistry {
   }
 
   private onExit(ctx: Ctx, e: Entry, proc: PluginProcess, info: { code: number | null; signal: string | null }): void {
+    if (e.process === proc) for (const authority of e.authorities.values()) void authority.revoke().catch(() => appendPluginLog(ctx, e.id, "cleanup", "owned capability cleanup failed"));
     if (e.process === proc) e.process = undefined;
     if (e.stopping || e.state === "starting") return; // handled by start() or stop()
     this.recordCrash(ctx, e, `exited${info.code !== null ? ` with code ${info.code}` : info.signal ? ` on ${info.signal}` : ""}`);
@@ -165,27 +179,60 @@ export class PluginRegistry {
   }
 
   private async stop(e: Entry): Promise<void> {
+    const cleanup = await Promise.allSettled([...e.authorities.values()].map(authority => authority.revoke()));
     const proc = e.process; e.starting = undefined;
-    if (!proc) return;
-    e.stopping = true;
-    try { await proc.terminate(); } finally { e.stopping = false; e.process = undefined; }
+    if (proc) {
+      e.stopping = true;
+      try { await proc.terminate(); } finally { e.stopping = false; e.process = undefined; }
+    }
+    const failed = cleanup.find(result => result.status === "rejected");
+    if (failed?.status === "rejected") throw failed.reason;
   }
 
-  async call<T>(ctx: Ctx, id: string, method: string, params: unknown): Promise<T> {
+  async call<T>(ctx: Ctx, id: string, method: string, params: unknown, options: PluginCallOptions = {}): Promise<T> {
+    const startedAt = Date.now();
     const e = this.find(ctx, id);
     if (!ENABLED.has(e.state)) throw new CoreError("plugin_unavailable", `plugin ${id} is ${e.state}${e.error ? `: ${e.error}` : ""}`);
     const def = EXTENSION_METHODS[method];
     if (!def) throw new CoreError("unknown_op", `unknown plugin method ${method}`);
-    const run = async () => {
-      const proc = await this.start(ctx, e);
-      const point = method.split(".")[0]!;
-      if (!e.served.includes(point)) throw new CoreError("plugin_unavailable", `plugin ${id} does not serve ${point}`);
-      return proc.request<T>(method, params, def.deadlineMs);
-    };
-    if (e.manifest?.reentrant) return run();
-    const result = e.queue.then(run, run);
-    e.queue = result.catch(() => undefined);
-    return result;
+    const requested = options.deadlineMs ?? def.deadlineMs;
+    if (!Number.isFinite(requested) || requested < 0) throw new CoreError("invalid_input", "plugin deadline must be non-negative");
+    const duration = method === "usage.read" ? requested === 0 ? def.deadlineMs : Math.min(requested, def.deadlineMs) : requested;
+    if (options.resources && duration === 0) throw new CoreError("invalid_input", "scoped capabilities require a finite deadline");
+    const deadlineAt = duration === 0 ? Infinity : startedAt + duration;
+    const parsed = method === "usage.read" ? def.params.safeParse(params) : null;
+    if (parsed && !parsed.success) throw new CoreError("invalid_input", "invalid usage reader params");
+    const input = parsed?.success ? parsed.data : params;
+    return this.admission.run(deadlineAt, async signal => {
+      const run = async () => {
+        if (signal.aborted || Date.now() >= deadlineAt) throw new CoreError("plugin_timeout", "plugin call expired before execution");
+        const proc = await this.start(ctx, e, deadlineAt, signal);
+        const point = method.split(".")[0]!;
+        if (!e.served.includes(point)) throw new CoreError("plugin_unavailable", `plugin ${id} does not serve ${point}`);
+        if (signal.aborted || Date.now() >= deadlineAt) throw new CoreError("plugin_timeout", "plugin call expired before request");
+        const needsAuthority = method === "usage.read" || options.resources !== undefined;
+        const grants = e.bundled ? e.manifest!.capabilities.map(capability => capability.name) : pluginsConfig(ctx).installed[id]?.capabilities ?? [];
+        const authority = needsAuthority ? createCallAuthority(ctx, options.resources ?? { reads: [], commands: [], stores: [] },
+          { deadlineMs: deadlineAt, signal, grants, accountHome: options.accountHome }) : undefined;
+        if (authority) e.authorities.set(authority.token, authority);
+        try {
+          const result = await proc.request<T>(method, input, deadlineAt === Infinity ? 0 : Math.max(1, deadlineAt - Date.now()),
+            { signal, metadata: authority ? { capabilityCall: authority.token } : undefined, onProgress: options.onProgress });
+          if (method === "usage.read") {
+            const output = def.result.safeParse(result);
+            if (!output.success) throw new CoreError("plugin_refused", "usage reader returned an invalid reading");
+            return output.data as T;
+          }
+          return result;
+        } finally {
+          if (authority) { try { await authority.revoke(); } finally { e.authorities.delete(authority.token); } }
+        }
+      };
+      if (e.manifest?.reentrant) return run();
+      const result = e.queue.then(run, run);
+      e.queue = result.catch(() => undefined);
+      return result;
+    }, options.signal);
   }
 
   async enable(ctx: Ctx, id: string, grant: boolean): Promise<{ id: string; state: PluginState; needs?: string[] }> {
