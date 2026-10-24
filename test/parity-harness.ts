@@ -34,14 +34,11 @@ class Session {
   }
   async request(step: Step, timeoutMs: number): Promise<Reply> {
     const id = ++this.nextId;
-    await this.child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id, method: step.op, params: step.params ?? {} }) + "\n");
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    try {
-      return await Promise.race([
-        this.reply(id),
-        new Promise<never>((_, reject) => { timer = setTimeout(() => reject(Error(`${step.op} timed out`)), timeoutMs); }),
-      ]);
-    } finally { clearTimeout(timer); }
+    return within(timeoutMs, `${step.op} timed out`, async () => {
+      await this.child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id, method: step.op, params: step.params ?? {} }) + "\n");
+      await this.child.stdin.flush();
+      return this.reply(id);
+    });
   }
   private async reply(id: number): Promise<Reply> {
     while (!this.buffer.includes("\n")) {
@@ -59,13 +56,9 @@ class Session {
     return value;
   }
   async finish(timeoutMs: number) {
-    await this.child.stdin.end();
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    try {
-      const code = await Promise.race([
-        this.child.exited,
-        new Promise<never>((_, reject) => { timer = setTimeout(() => reject(Error("stdio shutdown timed out")), timeoutMs); }),
-      ]);
+    await within(timeoutMs, "stdio shutdown timed out", async () => {
+      await this.child.stdin.end();
+      const code = await this.child.exited;
       if (code !== 0) throw Error(`stdio exited with status ${code}`);
       while (true) {
         const chunk = await this.reader.read();
@@ -74,13 +67,32 @@ class Session {
         if (this.buffer.length > 1024 * 1024) throw Error("stdio response exceeds limit");
       }
       if (this.buffer.trim()) throw Error("unexpected trailing stdio output");
-    } finally { clearTimeout(timer); }
+    });
   }
   async close() {
     if (this.child.exitCode === null) this.child.kill("SIGKILL");
-    await this.child.exited;
-    await this.reader.cancel();
+    await within(1000, "stdio cleanup timed out", async () => {
+      await this.reader.cancel();
+      await this.child.exited;
+    });
   }
+}
+
+async function within<T>(timeoutMs: number, message: string, action: () => Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      Promise.resolve().then(action),
+      new Promise<never>((_, reject) => { timer = setTimeout(() => reject(Error(message)), timeoutMs); }),
+    ]);
+  } finally { clearTimeout(timer); }
+}
+
+function validateFixture(path: string): void {
+  const stat = lstatSync(path);
+  if (stat.isSymbolicLink()) throw Error("fixture symlinks are not supported: copied homes must be independent");
+  if (stat.isDirectory()) for (const name of readdirSync(path)) validateFixture(join(path, name));
+  else if (!stat.isFile()) throw Error("unsupported fixture entry");
 }
 
 function tree(root: string, relative = ""): Record<string, unknown> {
@@ -102,6 +114,8 @@ function compare(kind: string, reference: unknown, candidate: unknown) {
 }
 export async function parity(options: ParityOptions): Promise<void> {
   if (options.native?.length) throw Error(`native execution evidence unavailable for ${options.native.join(", ")}; migration parity is UNVERIFIED`);
+  if (options.timeoutMs !== undefined && (!Number.isFinite(options.timeoutMs) || options.timeoutMs <= 0)) throw Error("timeoutMs must be positive and finite");
+  validateFixture(options.fixture);
   const temporary = mkdtempSync(join(tmpdir(), "pacer-parity-"));
   const homes = [join(temporary, "ts"), join(temporary, "rs")];
   const sessions: Session[] = [];
@@ -112,6 +126,10 @@ export async function parity(options: ParityOptions): Promise<void> {
     for (const step of [{ op: "hello", params: { protocol: 3 } }, ...options.steps]) {
       const replies = await Promise.all(sessions.map(session => session.request(step, options.timeoutMs ?? 5000)));
       for (const reply of replies) {
+        if (step.op === "hello" && (Object.hasOwn(reply, "error") || !reply.result ||
+            typeof reply.result !== "object" || (reply.result as { protocol?: unknown }).protocol !== "3.0.0")) {
+          throw Error("hello: expected protocol 3.0.0 success");
+        }
         if (step.expect === "ok" && Object.hasOwn(reply, "error")) throw Error(`${step.op}: expected success`);
         if (step.expect === "error" && !Object.hasOwn(reply, "error")) throw Error(`${step.op}: expected error`);
       }
@@ -120,7 +138,7 @@ export async function parity(options: ParityOptions): Promise<void> {
     await Promise.all(sessions.map(session => session.finish(options.timeoutMs ?? 5000)));
     compare("filesystem", tree(homes[0]!), tree(homes[1]!));
   } finally {
-    for (const session of sessions) await session.close();
-    rmSync(temporary, { recursive: true, force: true });
+    try { await Promise.all(sessions.map(session => session.close())); }
+    finally { rmSync(temporary, { recursive: true, force: true }); }
   }
 }

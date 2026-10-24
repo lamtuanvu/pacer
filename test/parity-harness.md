@@ -1,12 +1,15 @@
 # Migration parity driver preparation
 
 `parity-harness.ts` runs explicit reference and candidate argument vectors,
-negotiates v3, sends sequential correlated JSON-RPC requests, checks optional
+requires a successful protocol 3.0.0 hello, sends sequential correlated JSON-RPC requests, checks optional
 success/error expectations, drains both processes at EOF, and compares their
 complete copied fixture homes (including permissions, empty directories and
-symlinks). Each child gets an isolated HOME/PACER_HOME and a minimal environment;
+symlinks created by the peers). Fixture symlinks are refused recursively before
+either child starts, so copied homes cannot refer back to shared fixture state. Each child gets an isolated HOME/PACER_HOME and a minimal environment;
 provider credentials and host socket settings are not inherited. Temporary homes
-are removed on success and failure.
+are removed on success and failure. Request deadlines include stdin write/flush
+and reply reads; shutdown deadlines include stdin EOF, exit and stdout drain.
+Cleanup is bounded separately even when a descendant retains stdout.
 
 JSON object ordering is immaterial; arrays and JSONL line ordering remain
 significant. Other files are compared byte for byte. Responses and JSON state
