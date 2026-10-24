@@ -1,9 +1,12 @@
+import { afterEach as afterUsageFixture } from "bun:test";
+import { fakeCtx, cleanupUsageFixtures } from "./usage-plugin-fixtures";
+afterUsageFixture(cleanupUsageFixtures);
 import { expect, test } from "bun:test";
 import { readByteplus as originalByteplus } from "../src/usage/byteplus";
 import { readMetered as originalMetered } from "../src/usage/metered";
 import { readClaude as originalClaude, claudeCachePaths } from "../src/usage/claude";
 import { cachedFetch } from "../src/usage/cache";
-import { fakeCtx } from "./helpers";
+
 import { writeFile, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import * as byteplus from "../plugins/pacer-usage/byteplus";

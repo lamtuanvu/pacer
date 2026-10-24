@@ -1,8 +1,11 @@
+import { afterEach as afterUsageFixture } from "bun:test";
+import { fakeCtx, cleanupUsageFixtures, lastRateLimits } from "./usage-plugin-fixtures";
+afterUsageFixture(cleanupUsageFixtures);
 import { expect, test } from "bun:test";
 import { mkdirSync, utimesSync } from "node:fs";
 import { join } from "node:path";
-import { lastRateLimits, readCodex } from "../src/usage/codex";
-import { fakeCtx, tmpDir } from "./helpers";
+import { readCodex } from "../src/usage/codex";
+import { tmpDir } from "./helpers";
 
 const line = (primary: unknown, secondary: unknown = null, at = "2026-10-10T12:01:35.254Z") =>
   JSON.stringify({

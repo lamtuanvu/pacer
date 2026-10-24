@@ -1,3 +1,6 @@
+import { afterEach as afterUsageFixture } from "bun:test";
+import { fakeCtx, cleanupUsageFixtures } from "./usage-plugin-fixtures";
+afterUsageFixture(cleanupUsageFixtures);
 import { expect, test } from "bun:test";
 import { appendFile, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -5,7 +8,7 @@ import { readCodex } from "../src/usage/codex";
 import { readMetered } from "../src/usage/metered";
 import type { ProviderCfg } from "../src/config/strategy";
 import type { Ctx, UsageReading } from "../src/types";
-import { fakeCtx } from "./helpers";
+
 
 const at = 1791633600;
 const event = (used: number, balance: string) => JSON.stringify({ timestamp: new Date(at * 1000).toISOString(),
@@ -53,12 +56,13 @@ const metered = (stale = false, error?: string): UsageReading => ({ source: "met
 
 async function restartedMetered(ctx: Ctx, now: number, refresh: boolean) {
   const script = `import { readMetered } from ${JSON.stringify(new URL("../src/usage/metered.ts", import.meta.url).pathname)};
+    const {fakeCtx,cleanupUsageFixtures}=await import(${JSON.stringify(new URL("./usage-plugin-fixtures.ts", import.meta.url).pathname)});
     const calls = [];
-    const ctx = { home: process.env.HOME, pacerHome: process.env.PACER_HOME, now: ${now}, env: {},
-      readOnly: true, which: () => null, run: async argv => {
+    const ctx = fakeCtx({ home: process.env.HOME, pacerHome: process.env.PACER_HOME, now: ${now}, env: {},
+      readOnly: true, run: async argv => {
         calls.push(argv); return {code: 1, stdout: "", stderr: "synthetic offline"};
-      } };
-    console.log(JSON.stringify({reading: await readMetered(ctx, ${JSON.stringify(cfg)}, ${refresh}), calls}));`;
+      } });
+    try { console.log(JSON.stringify({reading: await readMetered(ctx, ${JSON.stringify(cfg)}, ${refresh}), calls})); } finally {await cleanupUsageFixtures();}`;
   const child = Bun.spawn([process.execPath, "-e", script], {
     env: { ...process.env, HOME: ctx.home, PACER_HOME: ctx.pacerHome }, stdout: "pipe", stderr: "pipe",
   });
