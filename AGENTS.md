@@ -25,9 +25,11 @@ Sign off every commit (`git commit -s`); the DCO check rejects PRs with unsigned
 
 ## Project context
 
-Before working, read `.project/constitution.md` and `.project/context.md`.
+Before working, read `.agents/skills/project-governance/SKILL.md`, `.project/constitution.md` and `.project/context.md`. Repository-local skills are tracked and require no global installation. If your agent does not discover `.agents/skills/`, read the referenced files directly; Claude adapters under `.claude/skills/` point to the same instructions.
 From the context index, load the scoped rules (`.project/rules/`) and reviewer definitions (`.project/reviewers/`) that match the areas your task touches. Pass these references and the applicable rule IDs to any workflow you select and to any reviewer you delegate to. Keep the project's established constraints in effect through planning, implementation and review. Surface conflicts and unresolved decisions (`.project/decisions.md`). Change a rule only through the amendment process in the constitution.
 
 ## Definition of done
 
 A task that changes runtime behavior is done only after it passes live validation with the harness (`bun run live`). Follow [docs/testing/live-validation.md](docs/testing/live-validation.md) and include the evidence report's summary in the result (rule CT-11). Report surfaces you could not exercise as UNVERIFIED.
+
+Before delivering changed code as complete, follow [.agents/skills/project-review/SKILL.md](.agents/skills/project-review/SKILL.md): obtain independent project review, fix confirmed blocking findings, rerun affected validation, and independently review the fixes against the final revision (REPO-10). Store reports under `.work/reviews/` and summarize the evidence in the result and PR. Documentation and skill changes also require a proportionate repository-rule review. Missing independent review or unresolved required checks mean UNVERIFIED/incomplete, not done.

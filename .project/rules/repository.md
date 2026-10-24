@@ -17,5 +17,39 @@ Canonical sources: [AGENTS.md](../../AGENTS.md), [CONTRIBUTING.md](../../CONTRIB
 | REPO-8 | ADR file naming: AGENTS.md says `NNNN-<title>.md`, but every existing ADR uses `YYYY-MM-DD-<title>.md`. Proposal: make the date form canonical and update AGENTS.md. | Proposed | Conflict between AGENTS.md and docs/decisions/ | Pending decision |
 | REPO-9 | When a later decision retires part of an ADR, mark that part superseded and fix its broken links (e.g. the 2026-10-12 ADR's `../plans/...` links). Do not leave historical text that reads as current. | Proposed | Stale and broken content observed | Pending decision |
 
-Relevant reviewers: none. Repository checks are covered by CI and maintainer review.
+## REPO-10 — independent review before delivery
+
+Amendment 0.10.0: approved for this task by the maintainer's setup instruction;
+proposed repository-wide policy until adopted by maintainer merge.
+
+Before delivering changed code as complete, obtain independent project review
+using `.agents/skills/project-review/SKILL.md` against all applicable established
+rules. Documentation, skill and governance changes require proportionate review
+of repository rules and policy consistency; unrelated specialists are unnecessary.
+Use the context index to select specialist criteria. Review recommendations remain
+advisory; performing review and satisfying established requirements are mandatory.
+
+Blocking findings are confirmed violations of applicable established rules and
+confirmed Critical/Important defects (security/data loss, broken required behavior,
+or material correctness/regression risks). Proposed-rule suggestions and optional
+style preferences do not block by severity label alone. Record evidence-backed
+reassessment of disputed findings and explicitly deferred nonblocking suggestions.
+
+The implementer fixes blockers, reruns affected checks and applicable live validation,
+and obtains independent review of the fixes and any subsequent changes. Reports
+must identify the final reviewed revision (including working-tree content when
+uncommitted), reviewer independence, governance version, scope/rule IDs, actual
+checks/evidence, findings/resolutions, exceptions and PASS/FAIL/UNVERIFIED verdicts.
+Store them in `.work/reviews/`; summarize results in the delivery and PR, making
+required evidence accessible to the maintainer without committing `.work/`.
+
+Missing independent review, unresolved blockers or required unverified behavior
+prevent a completion claim. If tooling or authorization prevents review, report
+UNVERIFIED and the remaining work. Self-review is not independent review. Only the
+maintainer grants scoped, expiring exceptions under the constitution. Existing UI
+evidence and CT-11 requirements remain in force. This is an agent completion gate;
+it does not add automated CI enforcement or grant bots merge approval.
+
+Relevant reviewers: applicable definitions from the context index, plus independent
+repository-rule review for every changed work product.
 Exceptions and open decisions: REPO-8 and REPO-9.
