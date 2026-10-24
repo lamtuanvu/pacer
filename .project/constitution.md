@@ -1,6 +1,6 @@
 # pacer Constitution
 
-Status: Amendment 0.11.0 (affected-area CI selection) proposed; amendment 0.10.0 (portable skills and mandatory project review) proposed; amendment 0.9.0 (compact UI density) proposed; amendment 0.8.0 (plugin system: P13–P15) proposed; amendment 0.7.0 (Rust crate structure and size rules) proposed; amendment 0.6.0 (automated releases) proposed; established rules remain in force. The maintainer adopts the amendment by merging its PR. Amendment 0.5.0 was adopted on 2026-10-20 by merging #209; amendment 0.4.0 on 2026-10-19 by merging #193. | Version: 0.11.0 | Updated: 2026-10-24
+Status: Amendment 0.12.0 (spacing ownership) proposed; amendment 0.11.0 (affected-area CI selection) proposed; amendment 0.10.0 (portable skills and mandatory project review) proposed; amendment 0.9.0 (compact UI density) proposed; amendment 0.8.0 (plugin system: P13–P15) proposed; amendment 0.7.0 (Rust crate structure and size rules) proposed; amendment 0.6.0 (automated releases) proposed; established rules remain in force. The maintainer adopts the amendment by merging its PR. Amendment 0.5.0 was adopted on 2026-10-20 by merging #209; amendment 0.4.0 on 2026-10-19 by merging #193. | Version: 0.12.0 | Updated: 2026-10-24
 Decision authority: the single maintainer, @lamtuanvu ([GOVERNANCE.md](../GOVERNANCE.md), [.github/CODEOWNERS](../.github/CODEOWNERS)). AI reviewers give advice; they do not approve.
 
 ## Purpose and scope
@@ -92,6 +92,13 @@ Other reviewers remain advisory. This amendment changes no remote branch protect
 - UI-26 makes compact the desktop default for shared controls and recurring rows.
 - The top-bar Delegate is the visual reference; buttons, dropdowns and inputs use shared density tokens. Settings retain shared form density; touch targets and multiline fields retain their useful size.
 - Changes belong in shared DS primitives/tokens and layout spacing, with browser geometry and before/after evidence. Existing accessibility and review requirements remain in force.
+
+**Amendment 0.12.0 — spacing ownership (proposed; adopted only by maintainer merge):**
+
+- UI-27 assigns child spacing to shared layout gaps, eliminating compounded browser/child margins and inconsistent grouping of related rows.
+- The existing 8px/12px/24px token scale expresses related/content/section spacing; DS owns disclosure geometry and responsive targets.
+- Consumer CSS may not override shared layout spacing. Source checks and browser geometry regressions complement the existing UI-18, UI-24 and CT-11 evidence requirements.
+- This amendment adds a rule; it grants no validation exception and changes no API or architecture boundary.
 
 ## Workflow choice
 
