@@ -6,7 +6,8 @@ import { installOpencodeFiles } from "./opencode";
 import { managedContent } from "./managed-content";
 import { readManifest, type PlannerRecord } from "./manifest";
 import { planInstall, type Txn } from "./txn";
-import { sha256 } from "./fsx";
+import { sha256, shellCommand } from "./fsx";
+import { getMember } from "./jsonc";
 import { withInstallLock } from "./lock";
 import { recoverInstall } from "./journal";
 import { recordedAgent, resolveRecordedTarget } from "./reconcile-target";
@@ -27,7 +28,12 @@ async function plan(ctx: Ctx, key: string, prior: PlannerRecord): Promise<{ tx: 
     if (!old) throw Error(`unrecorded integration file would be replaced: ${path}`);
     const intact = sha256(file.before) === old.afterHash;
     const managed = old.managed && sha256(managedContent(file.before, old.undo)) === old.managed.hash;
-    if (!intact && !managed && !(old.undo.length === 0 && file.before === file.after)) throw Error(`managed integration content changed: ${path}`);
+    const ownsClaudeStatusLine = key.startsWith("claude-code") && old.undo.some(op => op.kind === "json-key" && op.key === "statusLine");
+    const legacyStatusLineIntact = !ownsClaudeStatusLine ||
+      getMember(file.before, ["statusLine", "command"]) === `${shellCommand(prior.pacerArgv)} statusline`;
+    const legacyUnchanged = !old.managed && old.undo.length > 0 && file.after !== null
+      && legacyStatusLineIntact && managedContent(file.before, old.undo) === managedContent(file.after, old.undo);
+    if (!intact && !managed && !legacyUnchanged && !(old.undo.length === 0 && file.before === file.after)) throw Error(`managed integration content changed: ${path}`);
   }
   const fingerprint = sha256(JSON.stringify({
     schema: 1, key, folder: env.folder, configEnv: env.configEnv, argv: env.pacerArgv,
