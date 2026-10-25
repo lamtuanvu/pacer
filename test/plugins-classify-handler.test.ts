@@ -1,7 +1,8 @@
+import { unavailableFilesystem } from "./fixtures/unavailable-filesystem";
 import {expect,test} from 'bun:test';
 import {handlers} from '../plugins/pacer-classify/index';
 import type {HostClient} from '@pacer/plugin';
-const host:HostClient={http:async()=>{throw Error('unexpected HTTP')},secrets:{present:async()=>false},call:async()=>{throw Error('unexpected capability')},log:async()=>{},config:async()=>({})};
+const host:HostClient={ fs: unavailableFilesystem,http:async()=>{throw Error('unexpected HTTP')},secrets:{present:async()=>false},call:async()=>{throw Error('unexpected capability')},log:async()=>{},config:async()=>({})};
 const ask={adapter:'rules',config:{},state:'{"goal":"add tests"}',question:{type:'choice',id:'task_kind',instructions:'classify',criteria:{tests:'tests',default:'other'}},timeoutMs:0.5};
 const invoke=(p:unknown)=>handlers['classifier.ask']!(p,host,new AbortController().signal);
 test('rules dispatch preserves full reading and positive fractional/huge timeout domain',async()=>{for(const timeoutMs of [0.5,120001,9e15])expect(await invoke({...ask,timeoutMs})).toMatchObject({value:'tests',confidence:0.7,latencyMs:0,costUsd:0});});

@@ -1,6 +1,6 @@
 import { scheduleDeadline } from "../deadline";
 import { spawn as nodeSpawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { rpcError } from "../api/protocol";
+import { pluginRpcError as rpcError } from "./errors";
 import { CoreError, type CoreErrorCode } from "../core/errors";
 import { MAX_LINE_BYTES, readLines } from "./lines";
 import { CANCEL_METHOD, CAPABILITY_METHODS, RESULT_CHUNK_METHOD, RESULT_CHUNK_FEATURE, resultChunkParams, chunkedResult, callMetadata } from "./protocol";

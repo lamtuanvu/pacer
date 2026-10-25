@@ -1,3 +1,5 @@
+import {endpointTestFromSpawn} from './fixtures/endpoint-test-fixtures';
+import {discoveryFromFetch} from "./endpoint-discovery-fixtures";
 import {expect, spyOn, test} from "bun:test";
 import {existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync} from "node:fs";
 import {join} from "node:path";
@@ -36,7 +38,7 @@ for (const transport of ["http", "memory"]) test(`endpoint v2 operations never r
   const endpoint = transport === 'http' ? Bun.serve({hostname: '127.0.0.1', port: 0, fetch: discover}) : {url: new URL('http://endpoint.invalid/'), stop(_force: boolean) {}};
   const logs: string[] = [];
   const spies = ['log', 'warn', 'error', 'info', 'debug'].map(method => spyOn(console, method as 'log').mockImplementation((...args: unknown[]) => {logs.push(args.join(' '));}));
-  const opDeps: OpDeps = {endpoint: {fetch: transport === "memory" ? async (url, init) => discover(new Request(url, init)) : undefined, spawn: async spec => {
+  const opDeps: OpDeps = {endpoint: {discover: transport === "memory" ? discoveryFromFetch(async (url, init) => discover(new Request(url, init))) : undefined, endpointTest: endpointTestFromSpawn(async spec => {
     launches.push(spec);
     expect(spec.cwd.startsWith(join(ctx.pacerHome, 'endpoints/test-'))).toBe(true);
     expect(existsSync(join(spec.cwd, '.git'))).toBe(true);
@@ -45,7 +47,7 @@ for (const transport of ["http", "memory"]) test(`endpoint v2 operations never r
     if (failTest) return {code: 1, stdout: '', stderr: `Authorization: Bearer ${secret}`, timedOut: false};
     writeFileSync(join(spec.cwd, 'hello.txt'), 'ok');
     return {code: 0, stdout: '', stderr: '', timedOut: false};
-  }}};
+  })}};
   const server = transport === "http" ? startServer(() => ctx, {port: 0, pumpMs: 0, opDeps}) : {port: 0, token: "test-token", stop() {}};
   async function op(name: string, params: unknown, status = 200) {
     const request = new Request(`http://127.0.0.1:${server.port}/v2/ops/${name}`, {method: 'POST', headers: {authorization: `Bearer ${server.token}`, 'content-type': 'application/json'}, body: JSON.stringify(params)});
@@ -94,8 +96,8 @@ test("endpoint registry validates inputs, reuses stored keys and publishes only 
   const {callOp} = await import('../src/api/ops');
   const ctx = configured(); let tested = 0;
   const deps = {endpoint: {
-    spawn: async (spec: ExecSpec) => {tested++; expect(spec.env.PACER_KEY_WORK).toBe(secret); writeFileSync(join(spec.cwd, 'hello.txt'), 'ok'); return {code: 0, stdout: '', stderr: '', timedOut: false};},
-    fetch: async (_url: string, init?: RequestInit) => {expect((init!.headers as Record<string, string>).Authorization).toBe(`Bearer ${secret}`); return Response.json({data: [{id: 'model-a'}]});},
+    endpointTest: endpointTestFromSpawn(async (spec: ExecSpec) => {tested++; expect(spec.env.PACER_KEY_WORK).toBe(secret); writeFileSync(join(spec.cwd, 'hello.txt'), 'ok'); return {code: 0, stdout: '', stderr: '', timedOut: false};}),
+    discover: discoveryFromFetch(async (_url: string, init?: RequestInit) => {expect((init!.headers as Record<string, string>).Authorization).toBe(`Bearer ${secret}`); return Response.json({data: [{id: 'model-a'}]});}),
   }};
   const call = async (name: string, params: unknown) => {
     const result = await callOp(ctx, name, params, deps); assertSafe(JSON.stringify(result)); return result;
@@ -125,6 +127,7 @@ test("endpoint registry validates inputs, reuses stored keys and publishes only 
 test.skipIf(!Bun.which('opencode'))("real OpenCode creates hello.txt through the generated provider and sends its stored key", async () => {
   const {addEndpoint} = await import('../src/core/endpoints');
   const ctx = configured();
+  ctx.which = name => Bun.which(name);
   // Keep OpenCode's config, cache, auth, logs and data under the isolated HOME.
   ctx.env = {...ctx.env, XDG_CONFIG_HOME: join(ctx.home, '.config'), XDG_DATA_HOME: join(ctx.home, '.local/share'), XDG_CACHE_HOME: join(ctx.home, '.cache'), XDG_STATE_HOME: join(ctx.home, '.local/state'), OPENCODE_DISABLE_MODELS_FETCH: 'true'};
   let authorized = 0, toolRequested = false;

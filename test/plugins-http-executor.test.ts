@@ -20,3 +20,13 @@ test('response metadata serialization retains deadline through body admission',a
 test('header-name reflection and erroredstreams use safe errors',async()=>{const a=setup(()=>new Response('safe',{headers:{'private-fixture-key':'value'}}));expect(await code(run(a,{authorization:{secretRef:'env:FIXTURE_KEY'}}))).toBe('capability_denied');const b=setup(()=>new Response(new ReadableStream({start(c){c.enqueue(Buffer.from('prefix'));setTimeout(()=>{void b.server.stop(true)},5)}})));try{await run(b);throw Error('expected error')}catch(e){expect((e as any).code).toBe('plugin_unavailable');expect(String(e)).not.toContain('private-fixture-key');expect(String(e)).not.toContain('/private/owned-error');}});
 test('parentdeadline remains absolute and denies successor network admission',async()=>{const f=setup(async()=>{await Bun.sleep(100);return new Response('late')},Date.now()+30);expect(['plugin_timeout','capability_denied']).toContain(await code(run(f,{timeoutMs:1000})));await f.authority.revoke();expect(f.authority.signal.aborted).toBe(true);expect(['plugin_timeout','capability_denied']).toContain(await code(authorizeHttpUrl(f.authority,f.url)));});
 test('unrelated cancellation failure namedAbortError is not dischargeable by requestabort',async()=>{const f=setup(()=>new Response('unused'));const controls={...fits,responseMetadataFits:()=>{const until=Date.now()+35;while(Date.now()<until){}return true;},fetch:async()=>new Response(new ReadableStream({cancel(){const error=Error('unrelated private cancellation failure');error.name='AbortError';throw error;}}))}as any;expect(await code(run(f,{timeoutMs:10},controls))).toBe('plugin_timeout');expect(await code(f.authority.revoke())).toBe('plugin_unavailable');});
+
+test('credential reflection refusal has a fixed typed reason and no credential data', async () => {
+  for (const handler of [() => new Response('private-fixture-key'), () => new Response('safe', {headers:{'x-echo':'private-fixture-key'}})]) {
+    const f=setup(handler);
+    let failure: unknown;
+    try { await run(f,{authorization:{secretRef:'env:FIXTURE_KEY'}}); } catch(error) {failure=error;}
+    expect(failure).toMatchObject({code:'capability_denied',data:{reason:'credential_reflection'}});
+    expect(JSON.stringify(failure)).not.toContain('private-fixture-key');
+  }
+});

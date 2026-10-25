@@ -17,7 +17,7 @@ pacer paces AI coding work across subscription budgets. A planner plans and revi
 | `src/usage/` | Usage broker: cache, aggregation, auth/exhausted marks and remote merge; quota and metered readers live in `plugins/pacer-usage/` |
 | `src/attention/`, `src/activity/`, `src/notify/`, `src/jobs/` | Attention, activity log (JSONL, mode 0600), notifications (host policy/ledger, notifier plugin delivery), jobs |
 | `src/exec/`, `src/supervisor/`, `src/remote/`, `src/session/` | Execution backends (direct, Orca), supervised runs and worktrees, SSH remote hosts, PTY live sessions |
-| `src/endpoints/`, `src/install/`, `src/mcp/`, `src/update/` | OpenAI-compatible endpoint executors and their keys, planner hook installers, MCP server, self-update |
+| `src/endpoints/`, `src/install/`, `src/mcp/`, `src/update/` | Endpoint account/key/state adapters (vendor behavior lives in `plugins/pacer-endpoints/`), planner hook installers, MCP server, self-update |
 | `src/dashboard/`, `src/render/`, `src/view-model/` | TUI, status line and tables, shared view vocabulary |
 | `src/plugins/` | Plugin host: protocol schemas, manifest, registry and lifecycle, stdio subprocess transport, capability broker, `pacer plugin run` |
 | `plugins/` | Bundled reference plugins (`plugins/bundled.ts`), compiled into the binary |

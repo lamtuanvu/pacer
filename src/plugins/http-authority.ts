@@ -2,6 +2,7 @@
 import { CallAuthority, type CallResources } from "./authority";
 import { CoreError } from "../core/errors";
 import { secret } from "../classify/secrets";
+import { resolveBoundCredential } from "./credential-bindings";
 
 // Matches the reviewed canonical StageA secretReference schema exactly.
 const REFERENCE = /^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$/;
@@ -144,12 +145,14 @@ export function authorizedHttpUrl(
     );
   return admitted.url;
 }
-function resolveReference(
+async function resolveReference(
   authority: CallAuthority,
   input: unknown,
-): string | null {
+): Promise<string | null> {
   if (typeof input !== "string" || !REFERENCE.test(input))
     throw new CoreError("invalid_input", "invalid secret reference");
+  const bound = await resolveBoundCredential(authority, input);
+  if (bound.bound) return bound.value;
   const colon = input.indexOf(":"),
     kind = input.slice(0, colon),
     refName = input.slice(colon + 1);
@@ -182,7 +185,7 @@ export async function secretPresence(
   ref: unknown,
 ): Promise<{ present: boolean }> {
   active(authority, "secrets.resolve");
-  const value = resolveReference(authority, ref);
+  const value = await resolveReference(authority, ref);
   active(authority, "secrets.resolve");
   return { present: value !== null };
 }
@@ -193,7 +196,7 @@ export async function resolveHttpSecret(
   ref: unknown,
 ): Promise<string | null> {
   authorizedHttpUrl(authority, target);
-  const value = resolveReference(authority, ref);
+  const value = await resolveReference(authority, ref);
   active(authority, "net.http");
   return value;
 }

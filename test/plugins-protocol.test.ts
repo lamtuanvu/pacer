@@ -41,7 +41,7 @@ test("manifest files report JSON and schema problems by text", () => {
 });
 
 test("method tables include notifier delivery and preserve core capabilities", () => {
-  expect(Object.keys(EXTENSION_METHODS).sort()).toEqual(["agentSession.attachment", "agentSession.capabilities", "agentSession.prepare", "classifier.adapters", "classifier.ask", "diagnostic.ping", "notifier.deliver", "usage.read"]);
+  expect(Object.keys(EXTENSION_METHODS).sort()).toEqual(["agentSession.attachment", "agentSession.capabilities", "agentSession.prepare", "classifier.adapters", "classifier.ask", "diagnostic.ping", "endpoint.launchEnv", "endpoint.models", "endpoint.test", "notifier.deliver", "usage.read"]);
   expect(EXTENSION_METHODS["diagnostic.ping"].deadlineMs).toBe(5000);
   expect(Object.keys(CAPABILITY_METHODS)).toContain("capability.config.get");
   expect(Object.keys(CAPABILITY_METHODS)).toContain("capability.log");

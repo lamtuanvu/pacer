@@ -1,3 +1,4 @@
+import { unavailableFilesystem } from "./fixtures/unavailable-filesystem";
 import { afterEach, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -51,7 +52,7 @@ ${options.hold ? "setTimeout(() => process.exit(0), 2000);" : "process.exit(0);"
   if (options.scopes) manifest.capabilities.find(capability => capability.name === "process.spawn")!.scopes = options.scopes;
   const plugin = { id: manifest.id, manifest, config: { platform } };
   const call = <T>(method: string, params: unknown = {}) => answerCapability(ctx, plugin, method, params, owner) as Promise<T>;
-  const host: HostClient = {
+  const host: HostClient = { fs: unavailableFilesystem,
     call,
     config: async () => (await call<{ config: Record<string, unknown> }>("capability.config.get")).config,
     log: async (level, message) => { await call("capability.log", { level, message }); },

@@ -1,3 +1,4 @@
+import { unavailableFilesystem } from "./fixtures/unavailable-filesystem";
 import { expect, test, spyOn } from 'bun:test';
 import { PluginError } from '@pacer/plugin';
 import type { HostClient } from '@pacer/plugin';
@@ -7,7 +8,7 @@ interface Spawn { code: number; stdout?: string; stderr?: string; timedOut?: boo
 function fixture(platform: unknown = 'darwin', spawn: (params: any) => Promise<Spawn> = async () => ({ code: 0, stdout: '', stderr: '', timedOut: false })) {
   const calls: { method: string; params: unknown }[] = [], logs: unknown[] = [];
   const controller = new AbortController();
-  const host: HostClient = {
+  const host: HostClient = { fs: unavailableFilesystem,
     async call<T>(method: string, params: unknown) { calls.push({ method, params }); return await spawn(params) as T; },
     async config() { return { platform, which: { osascript: '/untrusted/override' }, binary: '/untrusted/override' }; },
     async log(level, message) { logs.push({ level, message }); },

@@ -1,3 +1,4 @@
+import { createFileSystem } from "./fs";
 import { createHttp, type Request as HttpRequest, type Response as HttpResponse } from "./http";
 export type { AttachmentMetadata, AttachmentRef, AgentVersion, AgentSessionCapabilities, AgentSessionPrepare, AgentSessionLaunch, AgentAttachmentInput, AgentAttachmentDelivery } from "./agent-session";
 
@@ -9,6 +10,7 @@ export interface PluginManifest {
 }
 export interface Hello { features?: string[]; protocol: string; pacer: string; manifest: PluginManifest; config: Record<string, unknown>; grants: string[] }
 export interface HostClient {
+  fs: ReturnType<typeof createFileSystem>;
   http(request:HttpRequest):Promise<HttpResponse>;
   secrets: { present(ref:string):Promise<boolean> };
   call<T = unknown>(method: string, params?: unknown): Promise<T>;
@@ -26,12 +28,21 @@ export interface ServeOptions {
   now?: () => number;
 }
 
+type ErrorReason = "credential_reflection";
+const errorReason = (code: unknown, reason: unknown): ErrorReason | undefined =>
+  code === "capability_denied" && reason === "credential_reflection" ? reason : undefined;
+
 /** An error with a code the host can map (invalid_input, not_allowed, …). */
 export class PluginError extends Error {
-  constructor(public readonly code: string, message: string, public readonly hint?: string) { super(message); this.name = "PluginError"; }
+  readonly reason?: ErrorReason;
+  constructor(public readonly code: string, message: string, public readonly hint?: string, reason?: ErrorReason) {
+    super(message);
+    this.name = "PluginError";
+    this.reason = errorReason(code, reason);
+  }
 }
 
-export const PROTOCOL = "1.3.0";
+export const PROTOCOL = "1.4.0";
 const HELLO = "plugin.hello", CANCEL = "$/cancel";
 type Json = Record<string, unknown>;
 
@@ -83,6 +94,9 @@ export async function serve(o: ServeOptions): Promise<void> {
     };
     return {
       call,
+      fs: createFileSystem({call,cleanupCall:(method,params)=>call(method,params,true),signal,
+        negotiated:()=>negotiatedFeatures.has("fileWriteChunks"),
+        fits:(method,params)=>Buffer.byteLength(JSON.stringify({jsonrpc:"2.0",id:`p${nextId}`,method,params,...(meta?{_meta:meta}:{})})+"\n")<=1048576}),
       http: createHttp({call, cleanupCall:(method,params)=>call(method,params,true), signal,
         negotiated:()=>negotiatedFeatures.has("httpBodyChunks"),
         fits:(method,params)=>Buffer.byteLength(JSON.stringify({jsonrpc:"2.0",id:`p${nextId}`,method,params,...(meta?{_meta:meta}:{})})+"\n")<=1048576}),
@@ -95,7 +109,11 @@ export async function serve(o: ServeOptions): Promise<void> {
     "diagnostic.ping": () => ({ ok: true, uptimeS: startedAt === null ? 0 : Math.max(0, now() - startedAt) }),
   };
   const errorBody = (e: unknown) => e instanceof PluginError
-    ? { code: -32000, message: e.message, data: { code: e.code, ...(e.hint ? { hint: e.hint } : {}) } }
+    ? { code: -32000, message: e.message, data: {
+      code: e.code,
+      ...(e.hint ? { hint: e.hint } : {}),
+      ...(errorReason(e.code, e.reason) ? { reason: e.reason } : {}),
+    } }
     : { code: -32000, message: e instanceof Error ? e.message : String(e), data: { code: "internal" } };
 
   const handle = async (line: string) => {
@@ -114,7 +132,8 @@ export async function serve(o: ServeOptions): Promise<void> {
         const offered = Array.isArray(hello.features) ? hello.features : [];
         const features = major === 1 && Number.isInteger(minor)
           ? offered.filter(feature => feature === "chunkedResults" && minor >= 1
-            || feature === "httpBodyChunks" && minor >= 2) : [];
+            || feature === "httpBodyChunks" && minor >= 2
+            || feature === "fileWriteChunks" && minor >= 4) : [];
         negotiatedFeatures = new Set(features);
         send({ id, result: { protocol: PROTOCOL, id: o.manifest.id, version: o.manifest.version, contributes: o.contributes ?? Object.keys(o.manifest.contributes ?? {}), ...(features.length ? { features } : {}) } });
         return;
@@ -150,8 +169,13 @@ export async function serve(o: ServeOptions): Promise<void> {
     if (typeof r.id !== "string") return;
     const p = pending.get(r.id); if (!p) return;
     pending.delete(r.id); p.dispose();
-    if (r.error) { const err = r.error as { message?: string; data?: { code?: string; hint?: string } }; p.reject(new PluginError(err.data?.code ?? "internal", err.message ?? "host error", err.data?.hint)); }
-    else p.resolve(r.result);
+    if (r.error) {
+      const err = r.error as { message?: string; data?: { code?: string; hint?: string; reason?: unknown } };
+      p.reject(new PluginError(
+        err.data?.code ?? "internal", err.message ?? "host error", err.data?.hint,
+        errorReason(err.data?.code, err.data?.reason),
+      ));
+    } else p.resolve(r.result);
   };
 
   try {

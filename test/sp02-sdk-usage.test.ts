@@ -1,10 +1,11 @@
+import { unavailableFilesystem } from "./fixtures/unavailable-filesystem";
 import { expect, test } from "bun:test";
 import type { HostClient } from "../packages/plugin-sdk/src";
 
 function stateHost(snapshot: unknown, dirty = false) {
   let staged = Buffer.alloc(0), committed: unknown, marker: unknown, released = false, consumed = false;
   const calls: string[] = [];
-  const host: HostClient = { http: async () => { throw Error("unexpected HTTP request in usage state fixture"); }, secrets: { present: async () => { throw Error("unexpected secret lookup in usage state fixture"); } }, log: async () => {}, config: async () => ({}), call: async <T>(method: string, params: any): Promise<T> => {
+  const host: HostClient = { fs: unavailableFilesystem, http: async () => { throw Error("unexpected HTTP request in usage state fixture"); }, secrets: { present: async () => { throw Error("unexpected secret lookup in usage state fixture"); } }, log: async () => {}, config: async () => ({}), call: async <T>(method: string, params: any): Promise<T> => {
     calls.push(method);
     if (consumed && method.endsWith(".release")) throw Error("lease already consumed by commit");
     const bytes = Buffer.from(JSON.stringify(snapshot));

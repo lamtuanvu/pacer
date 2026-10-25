@@ -10,6 +10,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Changed
 
+- Run OpenAI-compatible model discovery, managed OpenCode configuration and fixed endpoint tests through the bundled `pacer-endpoints` plugin. Keys remain host-owned; protocol 1.4 adds bounded file writes and exact process contexts with bound credential references. Account edits await configuration rendering, and disabled endpoint plugins have no built-in fallback.
+
 - OS notification delivery moves to the bundled `pacer-notify` plugin behind exact per-message spawn authority; the host retains levels, client preference and delivery ledger. Plugin protocol 1.3 adds `notifier.deliver`.
 
 - Run rules, Ollama and Jev classifiers through the bundled `pacer-classify` plugin. The host retains decision policy and resolves HTTP authorization by reference; disabled classifiers have no built-in implementation fallback.

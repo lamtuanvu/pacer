@@ -150,3 +150,30 @@ The host resolves and pins the executable and grants only that message's exact
 argument vector. Plugins cannot choose an executable path, shell script, working
 directory or environment. Disabling `pacer-notify` removes its delivery path;
 there is no built-in OS fallback.
+
+### Endpoint configuration and tests
+
+The bundled `pacer-endpoints` plugin handles OpenAI-compatible model discovery,
+OpenCode configuration rendering and the fixed endpoint test. The host keeps
+account edits, key storage and endpoint state. Discovery inputs carry credential
+references; returned launch settings separate plain `env` from `secretEnv`.
+Rendering with a null selected account updates all managed providers without
+requesting a credential, including an empty provider set after the last removal.
+
+Protocol 1.4 adds `host.fs.write(path, text, 0o600)`, `mkdir(path)` and
+`remove(path, recursive?)`. Declare `fs.write` scopes. Each operation also needs
+an exact resource issued by the host for the current call; a manifest scope alone
+is insufficient. Writes preserve unchanged contents and use private modes.
+The SDK negotiates `fileWriteChunks` for requests that exceed one wire frame,
+with a 4 MiB UTF-8 file limit and bounded chunks. Without the chunk feature, the SDK only attempts fitting inline writes; the
+host must still implement and authorize `fs.write`. Oversized writes fail before
+a file operation.
+
+A host-issued process command may include an exact working directory and
+an environment whose values are strings or `{ secretRef }`. Contextual commands
+receive only that captured environment. Secret injection requires
+`secrets.resolve`, an owner-bound reference and matching command authority.
+Injected credential reflection is refused before stdout/stderr is returned.
+Legacy commands without an issued context retain their existing environment
+behavior. Bun's reserved `__proto__` environment entry is unsupported; endpoint
+credential variable names use the `PACER_KEY_` prefix.

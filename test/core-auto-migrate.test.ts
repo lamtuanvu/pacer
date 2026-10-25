@@ -113,12 +113,12 @@ test("a concurrent change during migration preserves the changed file and origin
   } finally { spy.mockRestore(); }
 });
 
-test("a concurrent change inside the edit returns conflict without a partial write", () => {
+test("a concurrent change inside the edit returns conflict without a partial write", async () => {
   const {ctx, path} = fixture(), prepared = ensureAccounts(ctx);
   const changed = readFileSync(path, "utf8") + "# changed during edit\n";
-  expect(() => prepared.edit(doc => {
+  await expect(prepared.edit(doc => {
     doc.setIn(["runners", "codex", "max_tasks"], 3);
     writeFileSync(path, changed);
-  })).toThrow(expect.objectContaining({code: "conflict"}));
+  })).rejects.toThrow(expect.objectContaining({code: "conflict"}));
   expect(readFileSync(path, "utf8")).toBe(changed);
 });

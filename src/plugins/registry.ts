@@ -1,3 +1,5 @@
+import { endpointHttpScopes } from "./endpoint-authority";
+import { prepareCredentialBindings, type CredentialBinding } from "./credential-bindings";
 import { BUNDLED } from "../../plugins/bundled";
 import { loadStrategy, MissingStrategyError } from "../config/strategy";
 import { validateClassifier, type ClassifierConfig } from "../config/classifier";
@@ -15,6 +17,7 @@ import { type PluginGrant, pluginsConfig, setPluginDisabled, setPluginGrant } fr
 import { answerCapability, appendPluginLog } from "./host";
 import { hostRangeAccepts, readManifestFile } from "./manifest";
 import { prepareStateAuthority } from "./usage-state";
+import { prepareWriteAuthority } from "./capability-write";
 import { prepareFilesystemAuthority } from "./capability-fs";
 import { prepareSpawnAuthority } from "./capability-spawn";
 import { CallAdmission, SerialCalls } from "./admission";
@@ -25,7 +28,7 @@ import { EXTENSION_METHODS, HELLO_METHOD, PLUGIN_ID, PLUGIN_PROTOCOL_MAJOR, PLUG
 import type { BundledPlugin } from "./types";
 import { currentVersion } from "../update/version";
 
-export interface PluginCallOptions { classifierConfig?: ClassifierConfig; resources?: CallResources; accountHome?: string | null; deadlineMs?: number; signal?: AbortSignal; onProgress?: (event: unknown) => void }
+export interface PluginCallOptions { credentialBindings?: readonly CredentialBinding[]; classifierConfig?: ClassifierConfig; resources?: CallResources; accountHome?: string | null; deadlineMs?: number; signal?: AbortSignal; onProgress?: (event: unknown) => void }
 export interface RegistryDeps { bundled: BundledPlugin[]; spawnBundled: (ctx: Ctx, id: string) => SpawnSpec; spawn?: typeof nodeSpawn; sleep?: (ms: number) => Promise<void> }
 export interface PluginInfo { id: string; version: string; publisher: string; tier: "free" | "commercial"; bundled: boolean; enabled: boolean; state: PluginState; contributes: string[]; capabilities: { name: string; scopes?: string[] }[]; grant: PluginGrant | null; error: string | null; pid: number | null }
 export interface DoctorReport { id: string; ok: boolean; state: PluginState; served: string[]; protocol: { host: string; plugin: string | null }; pid: number | null; restarts: number; error: string | null; needs: string | null }
@@ -69,6 +72,11 @@ export class PluginRegistry {
   private canonicalClassifier(e: Entry): boolean {
     const reference = BUNDLED.find(plugin => plugin.manifest.id === "pacer-classify");
     return e.bundled && e.id === "pacer-classify" && reference !== undefined && this.deps.bundled.includes(reference);
+  }
+
+  private canonicalEndpoint(e: Entry): boolean {
+    const reference = BUNDLED.find(plugin => plugin.manifest.id === "pacer-endpoints");
+    return e.bundled && e.id === "pacer-endpoints" && reference !== undefined && this.deps.bundled.includes(reference);
   }
 
   private classifierConfig(ctx: Ctx): ClassifierConfig {
@@ -241,13 +249,13 @@ export class PluginRegistry {
       e.process = proc; e.processGeneration = generation;
       const grants = e.bundled ? manifest.capabilities.map(c => c.name) : (pluginsConfig(ctx).installed[e.id]?.capabilities ?? []);
       try {
-        const raw = await proc.request(HELLO_METHOD, { protocol: PLUGIN_PROTOCOL_VERSION, features: ["chunkedResults", "httpBodyChunks"], pacer: currentVersion(), manifest, config, grants }, Math.min(HELLO_DEADLINE_MS, Math.max(1, deadlineAt - Date.now())), { signal });
+        const raw = await proc.request(HELLO_METHOD, { protocol: PLUGIN_PROTOCOL_VERSION, features: ["chunkedResults", "httpBodyChunks", "fileWriteChunks"], pacer: currentVersion(), manifest, config, grants }, Math.min(HELLO_DEADLINE_MS, Math.max(1, deadlineAt - Date.now())), { signal });
         const hello = helloResult.safeParse(raw);
         if (!hello.success) throw new CoreError("plugin_refused", `handshake reply is malformed: ${hello.error.issues[0]?.message ?? "unknown"}`);
         const major = Number(hello.data.protocol.split(".")[0]);
         if (major !== PLUGIN_PROTOCOL_MAJOR) throw new CoreError("plugin_refused", `plugin speaks protocol ${hello.data.protocol}; this pacer serves ${PLUGIN_PROTOCOL_VERSION}`);
         if (hello.data.id !== manifest.id || hello.data.version !== manifest.version) throw new CoreError("plugin_refused", `handshake identity ${hello.data.id}@${hello.data.version} does not match the manifest ${manifest.id}@${manifest.version}`);
-        proc.setFeatures(major === 1 && Number(hello.data.protocol.split(".")[1]) >= 1 ? (hello.data.features ?? []).filter(feature => feature === "chunkedResults" || (feature === "httpBodyChunks" && Number(hello.data.protocol.split(".")[1]) >= 2)) : []);
+        proc.setFeatures(major === 1 && Number(hello.data.protocol.split(".")[1]) >= 1 ? (hello.data.features ?? []).filter(feature => feature === "chunkedResults" || (feature === "httpBodyChunks" && Number(hello.data.protocol.split(".")[1]) >= 2) || (feature === "fileWriteChunks" && Number(hello.data.protocol.split(".")[1]) >= 4)) : []);
         e.pluginProtocol = hello.data.protocol;
         e.served = ["diagnostic", ...hello.data.contributes.filter(p => p !== "diagnostic" && Object.hasOwn(manifest.contributes, p))];
         this.setState(ctx, e, "ready");
@@ -299,6 +307,7 @@ export class PluginRegistry {
 
   async call<T>(ctx: Ctx, id: string, method: string, params: unknown, options: PluginCallOptions = {}): Promise<T> {
     const startedAt = Date.now();
+    const credentialBindings = options.credentialBindings?.map(({ ref, resolve }) => ({ ref, resolve }));
     const e = this.findEntry(ctx, id);
     const classifier = this.canonicalClassifier(e) ? structuredClone(options.classifierConfig ?? this.classifierConfig(ctx)) : undefined;
     const generation = classifier ? this.classifierGeneration(classifier) : undefined;
@@ -309,7 +318,7 @@ export class PluginRegistry {
     const requested = options.deadlineMs ?? def.deadlineMs;
     if (!Number.isFinite(requested) || requested < 0) throw new CoreError("invalid_input", "plugin deadline must be non-negative");
     const duration = method === "usage.read" ? requested === 0 ? def.deadlineMs : Math.min(requested, def.deadlineMs) : requested;
-    if ((options.resources || (classifier && method === "classifier.ask")) && duration === 0) throw new CoreError("invalid_input", "scoped capabilities require a finite deadline");
+    if ((options.resources || credentialBindings !== undefined || (classifier && method === "classifier.ask")) && duration === 0) throw new CoreError("invalid_input", "scoped capabilities require a finite deadline");
     const deadlineAt = duration === 0 ? Infinity : startedAt + duration;
     const parsed = method === "usage.read" || (classifier && method === "classifier.ask") ? def.params.safeParse(params) : null;
     if (parsed && !parsed.success) throw new CoreError("invalid_input", method === "usage.read" ? "invalid usage reader params" : "invalid classifier params");
@@ -333,18 +342,20 @@ export class PluginRegistry {
         const point = method.split(".")[0]!;
         if (!e.served.includes(point)) throw new CoreError("plugin_unavailable", `plugin ${id} does not serve ${point}`);
         if (signal.aborted || Date.now() >= deadlineAt) throw new CoreError("plugin_timeout", "plugin call expired before request");
-        const needsAuthority = method === "usage.read" || resources !== undefined;
+        const needsAuthority = method === "usage.read" || resources !== undefined || credentialBindings !== undefined;
         const grants = e.bundled ? manifest.capabilities.map(capability => capability.name) : pluginsConfig(ctx).installed[id]?.capabilities ?? [];
         const authority = needsAuthority ? createCallAuthority(ctx, resources ?? { reads: [], commands: [], stores: [] },
           { deadlineMs: deadlineAt, signal, grants, accountHome: options.accountHome }) : undefined;
         if (authority) e.authorities.set(authority.token, authority);
         try {
           if (authority) {
+            if (credentialBindings !== undefined) prepareCredentialBindings(authority, credentialBindings);
             await prepareFilesystemAuthority(authority);
+            if (authority.resources.writes?.length) await prepareWriteAuthority(authority);
             await prepareStateAuthority(authority);
             prepareSpawnAuthority(authority);
             prepareHttpAuthority(authority, {
-              declaredScopes: manifest.capabilities.find(capability => capability.name === "net.http")?.scopes ?? [],
+              declaredScopes: endpointHttpScopes(this.canonicalEndpoint(e), method, manifest.capabilities.find(capability => capability.name === "net.http")?.scopes ?? [], authority.resources),
               explicitWildcardGrant: !e.bundled && grants.includes("net.http"),
             });
             authority.assertActive();

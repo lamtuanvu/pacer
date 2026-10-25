@@ -168,7 +168,7 @@ test("full sessions are a per-host opt-in and invalid modes are rejected", async
 
 test("host check persists glibc and reports Linux hosts below the binary floor", async()=>{
   const {ctx,repo}=await fixture();
-  hosts.set(ctx,"box",{session:"full"});
+  await hosts.set(ctx,"box",{session:"full"});
   const run=ctx.run;
   let glibc="2.16";
   ctx.run=async(argv,ms,o)=>{
@@ -185,7 +185,7 @@ test("host check persists glibc and reports Linux hosts below the binary floor",
 });
 
 test("Linux glibc diagnostics work through the host-check job step registry",async()=>{
-  const {ctx,repo}=await fixture();hosts.set(ctx,"box",{session:"full"});const run=ctx.run;
+  const {ctx,repo}=await fixture();await hosts.set(ctx,"box",{session:"full"});const run=ctx.run;
   ctx.run=async(argv,ms,o)=>{
     const r=await run(argv,ms,o);
     return argv.at(-1)?.includes("command -v codex") ? {...r,stdout:r.stdout+"os=Linux\narch=x86_64\nglibc=2.17\n"} : r;
@@ -197,7 +197,7 @@ test("Linux glibc diagnostics work through the host-check job step registry",asy
 
 test("full-session hosts do not require the script/tail recording tools",async()=>{
   const {ctx,repo}=await fixture();
-  hosts.set(ctx,"box",{session:"full"});
+  await hosts.set(ctx,"box",{session:"full"});
   const run=ctx.run;
   ctx.run=async(argv,ms,o)=>{
     const r=await run(argv,ms,o);

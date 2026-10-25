@@ -8,8 +8,15 @@ export interface CallResources {
   secretAliases?: Record<string, string>;
   /** Exact hostnames derived only from validated host configuration/grants. */
   http?: { hosts: string[] };
+  writes?: { path: string; root?: string; kind: "file" | "directory"; operations: ("write" | "mkdir" | "remove")[] }[];
   reads: { path: string; kind: "file" | "codex-logs" }[];
-  commands: { argv: string[]; timeoutMs: number }[];
+  commands: {
+    argv: string[];
+    timeoutMs: number;
+    cwd?: string;
+    env?: Record<string, string>;
+    secretEnv?: Record<string, string>;
+  }[];
   stores: { id: string; path: string; kind: "cache" | "cursors"; version?: number; root?: string }[];
 }
 export interface AuthorityOptions { deadlineMs: number; signal?: AbortSignal; grants?: readonly string[]; accountHome?: string | null }
@@ -29,10 +36,18 @@ export class CallAuthority {
   constructor(readonly ctx: Ctx, resources: CallResources, readonly deadlineMs: number, parent?: AbortSignal, grants: readonly string[] = [], readonly accountHome: string | null = null) {
     this.grants = new Set(grants);
     this.resources = structuredClone(resources);
-    for (const value of this.resources.commands) Object.freeze(value.argv);
+    for (const value of this.resources.commands) {
+      Object.freeze(value.argv);
+      if (value.env) Object.freeze(value.env);
+      if (value.secretEnv) Object.freeze(value.secretEnv);
+    }
     for (const list of [this.resources.reads, this.resources.commands, this.resources.stores]) {
       for (const value of list) Object.freeze(value);
       Object.freeze(list);
+    }
+    if (this.resources.writes) {
+      for (const resource of this.resources.writes) { Object.freeze(resource.operations); Object.freeze(resource); }
+      Object.freeze(this.resources.writes);
     }
     if (this.resources.http) { Object.freeze(this.resources.http.hosts); Object.freeze(this.resources.http); }
     if (this.resources.secretAliases) Object.freeze(this.resources.secretAliases);

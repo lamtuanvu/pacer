@@ -13,12 +13,13 @@ test("bounded FS/state chunks share their explicitly declared capability", () =>
   expect(CAPABILITY_METHODS["capability.fs.list"].params.safeParse({ dir: "/fixture", glob: "**/rollout-*.jsonl", limit: 1001 }).success).toBe(false);
 });
 
-test("provider commands reject plugin-selected environment cwd and stdin", () => {
+test("spawn wire accepts context for host admission but rejects stdin and malformed references", () => {
   const schema = CAPABILITY_METHODS["capability.process.spawn"]?.params;
   expect(schema).toBeDefined();
   const safe = { argv: ["arkcli", "usage", "plan", "--product", "coding-plan"], timeoutMs: 8000 };
   expect(schema.safeParse(safe).success).toBe(true);
-  for (const change of [{ env: { FIXTURE_SECRET: "no" } }, { cwd: "/elsewhere" }, { stdin: "no" }]) expect(schema.safeParse({ ...safe, ...change }).success).toBe(false);
+  for (const change of [{ env: { PLAIN: "value" } }, { cwd: "/fixture/owned" }, { env: { KEY: {secretRef: "endpoint:owned"} } }]) expect(schema.safeParse({ ...safe, ...change }).success).toBe(true);
+  for (const change of [{ stdin: "no" }, { env: { KEY: {secretRef: "raw-value"} } }, { env: { KEY: {secretRef: "endpoint:owned", extra:true} } }]) expect(schema.safeParse({ ...safe, ...change }).success).toBe(false);
 });
 
 test("host-derived reader paths survive only explicit resources projection", () => {

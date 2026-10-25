@@ -2,6 +2,10 @@ import { z } from "zod";
 import { SCOPED_CAPABILITY_METHODS, SCOPED_METHOD_CAPABILITY } from "./capability-protocol";
 import { usageReadParams, usageReading } from "./usage-protocol";
 export { usageReadParams, usageReading, usageAccount, usageWindow, callMetadata, type UsageReadParams } from "./usage-protocol";
+import { ENDPOINT_METHODS } from "./endpoint-protocol";
+import { FS_WRITE_METHODS, FS_WRITE_METHOD_CAPABILITY } from "./write-protocol";
+export { endpointAccount, endpointState, discoveredModel, discoveryResult } from "./endpoint-protocol";
+export { FILE_WRITE_CHUNK_FEATURE, FILE_WRITE_MAX_BYTES, FILE_WRITE_CHUNK_BYTES } from "./write-protocol";
 import { NOTIFIER_METHODS } from "./notifier-protocol";
 export { notificationMessage, notificationResult } from "./notifier-protocol";
 import { CLASSIFIER_METHODS } from "./classifier-protocol";
@@ -11,13 +15,13 @@ export { HTTP_BODY_CHUNK_FEATURE, HTTP_BODY_MAX_BYTES, HTTP_BODY_CHUNK_BYTES, ht
 import { isVersion } from "../update/version";
 
 /** Plugin protocol version; independent of the client protocol (P4 applies to both). */
-export const PLUGIN_PROTOCOL_VERSION = "1.3.0";
+export const PLUGIN_PROTOCOL_VERSION = "1.4.0";
 export const PLUGIN_PROTOCOL_MAJOR = 1;
 
-export const EXTENSION_POINTS = ["diagnostic", "agentSession", "usage", "classifier", "notifier"] as const;
+export const EXTENSION_POINTS = ["diagnostic", "agentSession", "usage", "classifier", "notifier", "endpoint"] as const;
 export type ExtensionPoint = (typeof EXTENSION_POINTS)[number];
 
-export const CAPABILITIES = ["tasks.read", "events.subscribe", "process.spawn", "fs.read", "net.http", "secrets.resolve", "config.get", "entitlement.report", "log", "usage.state"] as const;
+export const CAPABILITIES = ["tasks.read", "events.subscribe", "process.spawn", "fs.read", "fs.write", "net.http", "secrets.resolve", "config.get", "entitlement.report", "log", "usage.state"] as const;
 export type Capability = (typeof CAPABILITIES)[number];
 
 export const PLUGIN_ID = /^[a-z0-9][a-z0-9-]{1,63}$/;
@@ -69,6 +73,7 @@ export const agentAttachmentResult = z.discriminatedUnion("kind", [z.object({kin
 export const EXTENSION_METHODS: Record<string, MethodDef> = {
   ...CLASSIFIER_METHODS,
   ...NOTIFIER_METHODS,
+  ...ENDPOINT_METHODS,
   "usage.read": method({ description: "Read a provider usage observation with host-derived account authority; cache clocks and rich evidence are preserved.", params: usageReadParams, result: usageReading, deadlineMs: 10000 }),
   "agentSession.capabilities": method({description: "Interactive agent capabilities for an installed version.", params: agentVersion, result: agentCapabilitiesResult, deadlineMs: 5000}),
   "agentSession.prepare": method({description: "Prepare an interactive argument vector without credentials or spawning.", params: agentPrepareParams, result: agentLaunchResult, deadlineMs: 5000}),
@@ -79,12 +84,13 @@ export const EXTENSION_METHODS: Record<string, MethodDef> = {
 /** Plugin → host. Keys are `capability.<name>`; answered only when the manifest declares the capability. */
 export const CAPABILITY_METHODS: Record<string, MethodDef> = {
   ...SCOPED_CAPABILITY_METHODS,
+  ...FS_WRITE_METHODS,
   ...HTTP_CAPABILITY_METHODS,
   "capability.log": method({ description: "Append a line to the plugin's log file under PACER_HOME/logs/plugins.", params: z.object({ level: z.enum(["debug", "info", "warn", "error"]), message: z.string().max(4096) }), result: z.object({ ok: z.literal(true) }), deadlineMs: 1000 }),
   "capability.config.get": method({ description: "The plugin's own config slice (plugins.config.<id> in the strategy file).", params: z.object({}), result: z.object({ config: z.record(z.string(), z.json()) }), deadlineMs: 1000 }),
 };
 
-export const METHOD_CAPABILITY: Readonly<Record<string, Capability>> = { ...SCOPED_METHOD_CAPABILITY, ...HTTP_METHOD_CAPABILITY };
+export const METHOD_CAPABILITY: Readonly<Record<string, Capability>> = { ...SCOPED_METHOD_CAPABILITY, ...FS_WRITE_METHOD_CAPABILITY, ...HTTP_METHOD_CAPABILITY };
 
 export function capabilityOf(method: string): Capability | null {
   if (Object.hasOwn(METHOD_CAPABILITY, method)) return METHOD_CAPABILITY[method]!;

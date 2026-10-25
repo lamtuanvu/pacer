@@ -1,3 +1,5 @@
+import {endpointTestFromSpawn} from './fixtures/endpoint-test-fixtures';
+import {endpointDiscoveryDeps, discoveryFromFetch} from "./endpoint-discovery-fixtures";
 import {expect, test} from "bun:test";
 import {existsSync, mkdirSync, readFileSync, writeFileSync} from "node:fs";
 import {join} from "node:path";
@@ -24,7 +26,7 @@ function script(answers: string[], overrides: AccountDeps = {}) {
   const questions: string[] = [], printed: string[] = [];
   const deps: AccountDeps = {prompt: async q => {questions.push(q); if (!answers.length) throw Error(`unexpected prompt: ${q}`); return answers.shift()!;},
     promptSecret: async () => secret, print: line => {printed.push(line);},
-    spawn: async spec => {writeFileSync(join(spec.cwd,"hello.txt"), "ok"); return {code:0,stdout:"",stderr:"",timedOut:false};}, ...overrides};
+    endpointTest: endpointTestFromSpawn(async spec => {writeFileSync(join(spec.cwd,"hello.txt"), "ok"); return {code:0,stdout:"",stderr:"",timedOut:false};}), ...overrides, ...(overrides.fetch ? endpointDiscoveryDeps(overrides.fetch) : {})};
   return {deps, questions, printed};
 }
 function noLeaks(ctx: ReturnType<typeof setup>, result: {out:string;err:string}, printed: string[] = []) {
@@ -83,7 +85,7 @@ for (const transport of ['injected','server']) test(`missing models supports man
   }finally{api?.stop(true);}
 });
 test("failed endpoint test persists Not working and routing excludes it",async()=>{
-  const ctx=setup();const s=script([], {readStdin:async()=>secret,spawn:async()=>({code:1,stdout:"",stderr:`Authorization: Bearer ${secret}`,timedOut:false})});
+  const ctx=setup();const s=script([], {readStdin:async()=>secret,endpointTest: endpointTestFromSpawn(async()=>({code:1,stdout:"",stderr:`Authorization: Bearer ${secret}`,timedOut:false}))});
   const result=await accountCmd(["add","endpoint","work","--base-url","http://localhost/v1","--key","file","--models","m","--usage","unmetered"],ctx,s.deps);
   expect(result.code).toBe(0);expect(result.out).toContain("Not working");expect(result.out).toContain("pacer account test work");
   const status=await computeStatus(ctx,loadStrategy(ctx));
@@ -113,7 +115,7 @@ test("refresh changes selected models and adopt projects only external provider 
   const ctx=setup();
   // Existing external endpoint, using a fixture under the isolated HOME.
   const {applyEdit}=await import('../src/core/accounts');
-  applyEdit(ctx,doc=>doc.addMappingEntry('accounts','external',{kind:'endpoint',usage:'unmetered',model:'vendor/old'}));
+  await applyEdit(ctx,doc=>doc.addMappingEntry('accounts','external',{kind:'endpoint',usage:'unmetered',model:'vendor/old'}));
   expect((await runnerCmd(['add','opencode#external'],ctx)).code).toBe(0);
   mkdirSync(join(ctx.home,'.config/opencode'),{recursive:true});
   const config=join(ctx.home,'.config/opencode/opencode.json');
@@ -178,10 +180,10 @@ test("shared core operations return safe account data and use stored credentials
     models:[{id:'m',context:100,output:50,tools:true}],usage:'unmetered',test:false},s.deps);
   expect(added.state).toBe('not_tested');expect(added.account.connection?.key).toBe('present');
   expect(JSON.stringify(added)).not.toContain(secret);
-  const discovery=await core.listModels(ctx,{name:'work'},{fetch:async(_url,init)=>{
+  const discovery=await core.listModels(ctx,{name:'work'},{discover:discoveryFromFetch(async(_url,init)=>{
     expect((init!.headers as Record<string,string>).Authorization).toBe(`Bearer ${secret}`);
     return Response.json({data:[{id:'fresh'}]});
-  }});
+  })});
   expect(discovery.listed).toBe(true);expect(JSON.stringify(discovery)).not.toContain(secret);
   const edited=await core.editEndpoint(ctx,{name:'work',models:[{id:'fresh',context:100,output:50,tools:true}]});
   expect(edited.runner.model).toBe('pacer-work/fresh');expect(JSON.stringify(edited)).not.toContain(secret);
@@ -196,7 +198,7 @@ test("editing usage preserves a selected account model and its runner",async()=>
   const ctx=setup(),core=await import('../src/core/endpoints');
   await core.addEndpoint(ctx,{name:'work',base_url:'http://localhost/v1',key_source:'none',models:['a','b'].map(id=>({id,context:100,output:50,tools:true})),usage:'unmetered',test:false});
   const {applyEdit}=await import('../src/core/accounts');
-  applyEdit(ctx,doc=>{doc.setIn(['accounts','work','model'],'b');doc.removeMappingEntry('runners','opencode#work');});
+  await applyEdit(ctx,doc=>{doc.setIn(['accounts','work','model'],'b');doc.removeMappingEntry('runners','opencode#work');});
   expect(loadStrategy(ctx).runners['opencode#work'].model).toBe('pacer-work/b');
   await core.editEndpoint(ctx,{name:'work',usage:'metered',weekly_tokens:1000000});
   expect(loadStrategy(ctx).runners['opencode#work'].model).toBe('pacer-work/b');
@@ -208,16 +210,16 @@ test("connection accounts reject usage outside quota, metered and unmetered",asy
 });
 test("exhausted scripted endpoint input cancels without saving",async()=>{
   const ctx=setup(),answers=['endpoint','work'];
-  const result=await accountCmd(['add'],ctx,{prompt:async()=>answers.shift()!,print:()=>{},fetch:noDetectionFetch(async()=>{throw Error('no network in tests');})});
+  const result=await accountCmd(['add'],ctx,{prompt:async()=>answers.shift()!,print:()=>{},...endpointDiscoveryDeps(noDetectionFetch(async()=>{throw Error('no network in tests');}))});
   expect(result.code).not.toBe(0);expect(result.err).toContain('cancelled');
   expect(loadStrategy(ctx).accounts.work).toBeUndefined();noLeaks(ctx,result);
 });
 test.skipIf(!Bun.which('python3'))("real terminal key entry does not echo the secret",async()=>{
   const ctx=setup();
-  const childCode=`import {accountCmd} from ${JSON.stringify(join(import.meta.dir,'../src/commands/accounts.ts'))};
+  const childCode=`import {endpointDiscoveryDeps} from ${JSON.stringify(join(import.meta.dir,'endpoint-discovery-fixtures.ts'))};import {accountCmd} from ${JSON.stringify(join(import.meta.dir,'../src/commands/accounts.ts'))};
 let stored='';const ctx={home:process.env.HOME,pacerHome:process.env.PACER_HOME,now:1,env:{HOME:process.env.HOME},which:()=>null,
 run:async(argv,t,o)=>{if(argv[1]==='-i') stored=Buffer.from(o.stdin.match(/-X ([0-9a-f]+)/)[1],'hex').toString();return {code:0,stdout:argv.includes('-w')?stored:'',stderr:''};}};
-const result=await accountCmd(['add'],ctx,{fetch:async(url)=>/models\\.dev|127\\.0\\.0\\.1:(11434|1234)/.test(String(url))?Promise.reject(new Error('blocked in tests')):Response.json({data:[{id:'m',context_length:100,max_output_tokens:50}]})});console.log(JSON.stringify(result));`;
+const result=await accountCmd(['add'],ctx,{...endpointDiscoveryDeps(async(url)=>/models\\.dev|127\\.0\\.0\\.1:(11434|1234)/.test(String(url))?Promise.reject(new Error('blocked in tests')):Response.json({data:[{id:'m',context_length:100,max_output_tokens:50}]}))});await (await import(${JSON.stringify(join(import.meta.dir,'../src/plugins/index.ts'))})).shutdownPlugins(ctx);console.log(JSON.stringify(result));`;
   const python=`import os,pty,select,subprocess,sys,time
 master,slave=pty.openpty()
 proc=subprocess.Popen(['bun','-e',sys.argv[1]],stdin=slave,stdout=slave,stderr=slave,close_fds=True)

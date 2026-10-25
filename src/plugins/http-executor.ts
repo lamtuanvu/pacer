@@ -194,6 +194,8 @@ export async function executeHttp(
       throw new CoreError(
         "capability_denied",
         "HTTP response exposed an injected credential",
+        undefined,
+        { reason: "credential_reflection" },
       );
     let metadataFits: boolean;
     try {
@@ -232,6 +234,8 @@ export async function executeHttp(
       throw new CoreError(
         "capability_denied",
         "HTTP response exposed an injected credential",
+        undefined,
+        { reason: "credential_reflection" },
       );
     guard();
     result = { status: response.status, headers: responseHeaders, body };
