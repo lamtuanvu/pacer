@@ -144,13 +144,7 @@ impl ::std::convert::From<AgentSessionAttachmentParamsAgent> for ::std::string::
 impl ::std::str::FromStr for AgentSessionAttachmentParamsAgent {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 64usize {
-            return Err("longer than 64 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_10(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for AgentSessionAttachmentParamsAgent {
@@ -164,11 +158,7 @@ impl<'de> ::serde::Deserialize<'de> for AgentSessionAttachmentParamsAgent {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`AgentSessionAttachmentParamsAttachment`
@@ -252,13 +242,7 @@ impl ::std::convert::From<AgentSessionAttachmentParamsAttachmentId> for ::std::s
 impl ::std::str::FromStr for AgentSessionAttachmentParamsAttachmentId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 128usize {
-            return Err("longer than 128 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_2(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for AgentSessionAttachmentParamsAttachmentId {
@@ -272,11 +256,7 @@ impl<'de> ::serde::Deserialize<'de> for AgentSessionAttachmentParamsAttachmentId
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`AgentSessionAttachmentParamsAttachmentMime`
@@ -307,10 +287,7 @@ impl ::std::convert::From<AgentSessionAttachmentParamsAttachmentMime> for ::std:
 impl ::std::str::FromStr for AgentSessionAttachmentParamsAttachmentMime {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 128usize {
-            return Err("longer than 128 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_1(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for AgentSessionAttachmentParamsAttachmentMime {
@@ -324,11 +301,7 @@ impl<'de> ::serde::Deserialize<'de> for AgentSessionAttachmentParamsAttachmentMi
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`AgentSessionAttachmentParamsAttachmentName`
@@ -359,10 +332,7 @@ impl ::std::convert::From<AgentSessionAttachmentParamsAttachmentName> for ::std:
 impl ::std::str::FromStr for AgentSessionAttachmentParamsAttachmentName {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 255usize {
-            return Err("longer than 255 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_3(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for AgentSessionAttachmentParamsAttachmentName {
@@ -376,11 +346,7 @@ impl<'de> ::serde::Deserialize<'de> for AgentSessionAttachmentParamsAttachmentNa
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`AgentSessionAttachmentParamsAttachmentPath`
@@ -412,13 +378,7 @@ impl ::std::convert::From<AgentSessionAttachmentParamsAttachmentPath> for ::std:
 impl ::std::str::FromStr for AgentSessionAttachmentParamsAttachmentPath {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 4096usize {
-            return Err("longer than 4096 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_9(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for AgentSessionAttachmentParamsAttachmentPath {
@@ -432,11 +392,7 @@ impl<'de> ::serde::Deserialize<'de> for AgentSessionAttachmentParamsAttachmentPa
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`AgentSessionAttachmentParamsPhase`
@@ -529,13 +485,7 @@ impl ::std::convert::From<AgentSessionAttachmentParamsVersion> for ::std::string
 impl ::std::str::FromStr for AgentSessionAttachmentParamsVersion {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 128usize {
-            return Err("longer than 128 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_2(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for AgentSessionAttachmentParamsVersion {
@@ -549,11 +499,7 @@ impl<'de> ::serde::Deserialize<'de> for AgentSessionAttachmentParamsVersion {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`AgentSessionAttachmentParamsWorkspace`
@@ -584,10 +530,7 @@ impl ::std::convert::From<AgentSessionAttachmentParamsWorkspace> for ::std::stri
 impl ::std::str::FromStr for AgentSessionAttachmentParamsWorkspace {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_0(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for AgentSessionAttachmentParamsWorkspace {
@@ -601,11 +544,7 @@ impl<'de> ::serde::Deserialize<'de> for AgentSessionAttachmentParamsWorkspace {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`AgentSessionAttachmentResult`
@@ -761,13 +700,7 @@ impl ::std::convert::From<AgentSessionCapabilitiesParamsAgent> for ::std::string
 impl ::std::str::FromStr for AgentSessionCapabilitiesParamsAgent {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 64usize {
-            return Err("longer than 64 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_10(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for AgentSessionCapabilitiesParamsAgent {
@@ -781,11 +714,7 @@ impl<'de> ::serde::Deserialize<'de> for AgentSessionCapabilitiesParamsAgent {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`AgentSessionCapabilitiesParamsVersion`
@@ -817,13 +746,7 @@ impl ::std::convert::From<AgentSessionCapabilitiesParamsVersion> for ::std::stri
 impl ::std::str::FromStr for AgentSessionCapabilitiesParamsVersion {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 128usize {
-            return Err("longer than 128 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_2(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for AgentSessionCapabilitiesParamsVersion {
@@ -837,11 +760,7 @@ impl<'de> ::serde::Deserialize<'de> for AgentSessionCapabilitiesParamsVersion {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`AgentSessionCapabilitiesResult`
@@ -1050,13 +969,7 @@ impl ::std::convert::From<AgentSessionPrepareParamsAgent> for ::std::string::Str
 impl ::std::str::FromStr for AgentSessionPrepareParamsAgent {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 64usize {
-            return Err("longer than 64 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_10(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for AgentSessionPrepareParamsAgent {
@@ -1070,11 +983,7 @@ impl<'de> ::serde::Deserialize<'de> for AgentSessionPrepareParamsAgent {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`AgentSessionPrepareParamsAttachmentDir`
@@ -1105,10 +1014,7 @@ impl ::std::convert::From<AgentSessionPrepareParamsAttachmentDir> for ::std::str
 impl ::std::str::FromStr for AgentSessionPrepareParamsAttachmentDir {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_0(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for AgentSessionPrepareParamsAttachmentDir {
@@ -1122,11 +1028,7 @@ impl<'de> ::serde::Deserialize<'de> for AgentSessionPrepareParamsAttachmentDir {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`AgentSessionPrepareParamsAttachmentsItem`
@@ -1210,13 +1112,7 @@ impl ::std::convert::From<AgentSessionPrepareParamsAttachmentsItemId> for ::std:
 impl ::std::str::FromStr for AgentSessionPrepareParamsAttachmentsItemId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 128usize {
-            return Err("longer than 128 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_2(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for AgentSessionPrepareParamsAttachmentsItemId {
@@ -1230,11 +1126,7 @@ impl<'de> ::serde::Deserialize<'de> for AgentSessionPrepareParamsAttachmentsItem
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`AgentSessionPrepareParamsAttachmentsItemMime`
@@ -1265,10 +1157,7 @@ impl ::std::convert::From<AgentSessionPrepareParamsAttachmentsItemMime> for ::st
 impl ::std::str::FromStr for AgentSessionPrepareParamsAttachmentsItemMime {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 128usize {
-            return Err("longer than 128 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_1(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for AgentSessionPrepareParamsAttachmentsItemMime {
@@ -1282,11 +1171,7 @@ impl<'de> ::serde::Deserialize<'de> for AgentSessionPrepareParamsAttachmentsItem
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`AgentSessionPrepareParamsAttachmentsItemName`
@@ -1317,10 +1202,7 @@ impl ::std::convert::From<AgentSessionPrepareParamsAttachmentsItemName> for ::st
 impl ::std::str::FromStr for AgentSessionPrepareParamsAttachmentsItemName {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 255usize {
-            return Err("longer than 255 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_3(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for AgentSessionPrepareParamsAttachmentsItemName {
@@ -1334,11 +1216,7 @@ impl<'de> ::serde::Deserialize<'de> for AgentSessionPrepareParamsAttachmentsItem
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`AgentSessionPrepareParamsAttachmentsItemPath`
@@ -1370,13 +1248,7 @@ impl ::std::convert::From<AgentSessionPrepareParamsAttachmentsItemPath> for ::st
 impl ::std::str::FromStr for AgentSessionPrepareParamsAttachmentsItemPath {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 4096usize {
-            return Err("longer than 4096 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_9(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for AgentSessionPrepareParamsAttachmentsItemPath {
@@ -1390,11 +1262,7 @@ impl<'de> ::serde::Deserialize<'de> for AgentSessionPrepareParamsAttachmentsItem
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`AgentSessionPrepareParamsRequest`
@@ -1442,11 +1310,7 @@ impl<'de> ::serde::Deserialize<'de> for AgentSessionPrepareParamsRequest {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`AgentSessionPrepareParamsRunDir`
@@ -1477,10 +1341,7 @@ impl ::std::convert::From<AgentSessionPrepareParamsRunDir> for ::std::string::St
 impl ::std::str::FromStr for AgentSessionPrepareParamsRunDir {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_0(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for AgentSessionPrepareParamsRunDir {
@@ -1494,11 +1355,7 @@ impl<'de> ::serde::Deserialize<'de> for AgentSessionPrepareParamsRunDir {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`AgentSessionPrepareParamsSessionId`
@@ -1548,11 +1405,7 @@ impl<'de> ::serde::Deserialize<'de> for AgentSessionPrepareParamsSessionId {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`AgentSessionPrepareParamsVersion`
@@ -1584,13 +1437,7 @@ impl ::std::convert::From<AgentSessionPrepareParamsVersion> for ::std::string::S
 impl ::std::str::FromStr for AgentSessionPrepareParamsVersion {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 128usize {
-            return Err("longer than 128 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_2(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for AgentSessionPrepareParamsVersion {
@@ -1604,11 +1451,7 @@ impl<'de> ::serde::Deserialize<'de> for AgentSessionPrepareParamsVersion {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`AgentSessionPrepareParamsWorkspace`
@@ -1639,10 +1482,7 @@ impl ::std::convert::From<AgentSessionPrepareParamsWorkspace> for ::std::string:
 impl ::std::str::FromStr for AgentSessionPrepareParamsWorkspace {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_0(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for AgentSessionPrepareParamsWorkspace {
@@ -1656,11 +1496,7 @@ impl<'de> ::serde::Deserialize<'de> for AgentSessionPrepareParamsWorkspace {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`AgentSessionPrepareResult`
@@ -1730,10 +1566,7 @@ impl ::std::convert::From<AgentSessionPrepareResultCwd> for ::std::string::Strin
 impl ::std::str::FromStr for AgentSessionPrepareResultCwd {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_0(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for AgentSessionPrepareResultCwd {
@@ -1747,11 +1580,7 @@ impl<'de> ::serde::Deserialize<'de> for AgentSessionPrepareResultCwd {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`CallMetadata`
@@ -1811,13 +1640,7 @@ impl ::std::convert::From<CallMetadataCapabilityCall> for ::std::string::String 
 impl ::std::str::FromStr for CallMetadataCapabilityCall {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 256usize {
-            return Err("longer than 256 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_5(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CallMetadataCapabilityCall {
@@ -1831,11 +1654,7 @@ impl<'de> ::serde::Deserialize<'de> for CallMetadataCapabilityCall {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`CapabilityConfigGetParams`
@@ -2037,13 +1856,7 @@ impl ::std::convert::From<CapabilityFsBeginWriteParamsPath> for ::std::string::S
 impl ::std::str::FromStr for CapabilityFsBeginWriteParamsPath {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 4096usize {
-            return Err("longer than 4096 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_9(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityFsBeginWriteParamsPath {
@@ -2057,11 +1870,7 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityFsBeginWriteParamsPath {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`CapabilityFsBeginWriteResult`
@@ -2119,13 +1928,7 @@ impl ::std::convert::From<CapabilityFsBeginWriteResultHandle> for ::std::string:
 impl ::std::str::FromStr for CapabilityFsBeginWriteResultHandle {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 256usize {
-            return Err("longer than 256 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_5(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityFsBeginWriteResultHandle {
@@ -2139,11 +1942,7 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityFsBeginWriteResultHandle {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`CapabilityFsCommitWriteParams`
@@ -2201,13 +2000,7 @@ impl ::std::convert::From<CapabilityFsCommitWriteParamsHandle> for ::std::string
 impl ::std::str::FromStr for CapabilityFsCommitWriteParamsHandle {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 256usize {
-            return Err("longer than 256 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_5(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityFsCommitWriteParamsHandle {
@@ -2221,11 +2014,7 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityFsCommitWriteParamsHandle {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`CapabilityFsCommitWriteResult`
@@ -2322,13 +2111,7 @@ impl ::std::convert::From<CapabilityFsListParamsDir> for ::std::string::String {
 impl ::std::str::FromStr for CapabilityFsListParamsDir {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 4096usize {
-            return Err("longer than 4096 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_9(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityFsListParamsDir {
@@ -2342,11 +2125,7 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityFsListParamsDir {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`CapabilityFsListParamsGlob`
@@ -2378,13 +2157,7 @@ impl ::std::convert::From<CapabilityFsListParamsGlob> for ::std::string::String 
 impl ::std::str::FromStr for CapabilityFsListParamsGlob {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 4096usize {
-            return Err("longer than 4096 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_9(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityFsListParamsGlob {
@@ -2398,11 +2171,7 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityFsListParamsGlob {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`CapabilityFsListResult`
@@ -2565,13 +2334,7 @@ impl ::std::convert::From<CapabilityFsListResultFilesItemPath> for ::std::string
 impl ::std::str::FromStr for CapabilityFsListResultFilesItemPath {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 4096usize {
-            return Err("longer than 4096 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_9(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityFsListResultFilesItemPath {
@@ -2585,11 +2348,7 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityFsListResultFilesItemPath {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`CapabilityFsMkdirParams`
@@ -2647,13 +2406,7 @@ impl ::std::convert::From<CapabilityFsMkdirParamsPath> for ::std::string::String
 impl ::std::str::FromStr for CapabilityFsMkdirParamsPath {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 4096usize {
-            return Err("longer than 4096 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_9(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityFsMkdirParamsPath {
@@ -2667,11 +2420,7 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityFsMkdirParamsPath {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`CapabilityFsMkdirResult`
@@ -2754,13 +2503,7 @@ impl ::std::convert::From<CapabilityFsReadParamsPath> for ::std::string::String 
 impl ::std::str::FromStr for CapabilityFsReadParamsPath {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 4096usize {
-            return Err("longer than 4096 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_9(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityFsReadParamsPath {
@@ -2774,11 +2517,7 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityFsReadParamsPath {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`CapabilityFsReadRangeParams`
@@ -2940,13 +2679,7 @@ impl ::std::convert::From<CapabilityFsReadRangeParamsPath> for ::std::string::St
 impl ::std::str::FromStr for CapabilityFsReadRangeParamsPath {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 4096usize {
-            return Err("longer than 4096 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_9(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityFsReadRangeParamsPath {
@@ -2960,11 +2693,7 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityFsReadRangeParamsPath {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`CapabilityFsReadRangeResult`
@@ -3092,23 +2821,7 @@ impl ::std::convert::From<CapabilityFsReadRangeResultVariant0Base64> for ::std::
 impl ::std::str::FromStr for CapabilityFsReadRangeResultVariant0Base64 {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 349528usize {
-            return Err("longer than 349528 characters".into());
-        }
-        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
-            ::std::sync::LazyLock::new(|| {
-                ::regress::Regex::new(
-                    "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
-                )
-                .unwrap()
-            });
-        if PATTERN.find(value).is_none() {
-            return Err(
-                "doesn't match pattern \"^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$\""
-                    .into(),
-            );
-        }
-        Ok(Self(value.to_string()))
+        validate_string_7(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityFsReadRangeResultVariant0Base64 {
@@ -3122,11 +2835,7 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityFsReadRangeResultVariant0Base6
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`CapabilityFsReadRangeResultVariant0Info`
@@ -3218,13 +2927,7 @@ impl ::std::convert::From<CapabilityFsReadRangeResultVariant0InfoPath> for ::std
 impl ::std::str::FromStr for CapabilityFsReadRangeResultVariant0InfoPath {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 4096usize {
-            return Err("longer than 4096 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_9(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityFsReadRangeResultVariant0InfoPath {
@@ -3238,11 +2941,7 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityFsReadRangeResultVariant0InfoP
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`CapabilityFsReadResult`
@@ -3450,13 +3149,7 @@ impl ::std::convert::From<CapabilityFsReadResultVariant2RangedPath> for ::std::s
 impl ::std::str::FromStr for CapabilityFsReadResultVariant2RangedPath {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 4096usize {
-            return Err("longer than 4096 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_9(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityFsReadResultVariant2RangedPath {
@@ -3470,11 +3163,7 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityFsReadResultVariant2RangedPath
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`CapabilityFsReleaseWriteParams`
@@ -3532,13 +3221,7 @@ impl ::std::convert::From<CapabilityFsReleaseWriteParamsHandle> for ::std::strin
 impl ::std::str::FromStr for CapabilityFsReleaseWriteParamsHandle {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 256usize {
-            return Err("longer than 256 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_5(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityFsReleaseWriteParamsHandle {
@@ -3552,11 +3235,7 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityFsReleaseWriteParamsHandle {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`CapabilityFsReleaseWriteResult`
@@ -3644,13 +3323,7 @@ impl ::std::convert::From<CapabilityFsRemoveParamsPath> for ::std::string::Strin
 impl ::std::str::FromStr for CapabilityFsRemoveParamsPath {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 4096usize {
-            return Err("longer than 4096 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_9(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityFsRemoveParamsPath {
@@ -3664,11 +3337,7 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityFsRemoveParamsPath {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`CapabilityFsRemoveResult`
@@ -3751,13 +3420,7 @@ impl ::std::convert::From<CapabilityFsStatParamsPath> for ::std::string::String 
 impl ::std::str::FromStr for CapabilityFsStatParamsPath {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 4096usize {
-            return Err("longer than 4096 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_9(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityFsStatParamsPath {
@@ -3771,11 +3434,7 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityFsStatParamsPath {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`CapabilityFsStatResult`
@@ -3908,13 +3567,7 @@ impl ::std::convert::From<CapabilityFsStatResultInfoPath> for ::std::string::Str
 impl ::std::str::FromStr for CapabilityFsStatResultInfoPath {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 4096usize {
-            return Err("longer than 4096 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_9(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityFsStatResultInfoPath {
@@ -3928,11 +3581,7 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityFsStatResultInfoPath {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`CapabilityFsWriteChunkParams`
@@ -4040,11 +3689,7 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityFsWriteChunkParamsBase64 {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`CapabilityFsWriteChunkParamsHandle`
@@ -4076,13 +3721,7 @@ impl ::std::convert::From<CapabilityFsWriteChunkParamsHandle> for ::std::string:
 impl ::std::str::FromStr for CapabilityFsWriteChunkParamsHandle {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 256usize {
-            return Err("longer than 256 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_5(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityFsWriteChunkParamsHandle {
@@ -4096,11 +3735,7 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityFsWriteChunkParamsHandle {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`CapabilityFsWriteChunkResult`
@@ -4195,13 +3830,7 @@ impl ::std::convert::From<CapabilityFsWriteParamsPath> for ::std::string::String
 impl ::std::str::FromStr for CapabilityFsWriteParamsPath {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 4096usize {
-            return Err("longer than 4096 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_9(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityFsWriteParamsPath {
@@ -4215,11 +3844,7 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityFsWriteParamsPath {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`CapabilityFsWriteResult`
@@ -4382,10 +4007,7 @@ impl ::std::convert::From<CapabilityLogParamsMessage> for ::std::string::String 
 impl ::std::str::FromStr for CapabilityLogParamsMessage {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 4096usize {
-            return Err("longer than 4096 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_8(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityLogParamsMessage {
@@ -4399,11 +4021,7 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityLogParamsMessage {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`CapabilityLogResult`
@@ -4512,13 +4130,7 @@ impl ::std::convert::From<CapabilityNetHttpBodyBeginResultHandle> for ::std::str
 impl ::std::str::FromStr for CapabilityNetHttpBodyBeginResultHandle {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 256usize {
-            return Err("longer than 256 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_5(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityNetHttpBodyBeginResultHandle {
@@ -4532,11 +4144,7 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityNetHttpBodyBeginResultHandle {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`CapabilityNetHttpBodyReadChunkParams`
@@ -4608,13 +4216,7 @@ impl ::std::convert::From<CapabilityNetHttpBodyReadChunkParamsHandle> for ::std:
 impl ::std::str::FromStr for CapabilityNetHttpBodyReadChunkParamsHandle {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 256usize {
-            return Err("longer than 256 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_5(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityNetHttpBodyReadChunkParamsHandle {
@@ -4628,11 +4230,7 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityNetHttpBodyReadChunkParamsHand
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`CapabilityNetHttpBodyReadChunkResult`
@@ -4690,24 +4288,7 @@ impl ::std::convert::From<CapabilityNetHttpBodyReadChunkResultBase64> for ::std:
 impl ::std::str::FromStr for CapabilityNetHttpBodyReadChunkResultBase64 {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 349528usize {
-            return Err("longer than 349528 characters".into());
-        }
-        static PATTERN: ::std::sync::LazyLock<::regress::Regex> = ::std::sync::LazyLock::new(
-            || {
-                ::regress::Regex::new(
-                    "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/][AQgw]==|[A-Za-z0-9+/]{2}[AEIMQUYcgkosw048]=)?$",
-                )
-                .unwrap()
-            },
-        );
-        if PATTERN.find(value).is_none() {
-            return Err(
-                "doesn't match pattern \"^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/][AQgw]==|[A-Za-z0-9+/]{2}[AEIMQUYcgkosw048]=)?$\""
-                    .into(),
-            );
-        }
-        Ok(Self(value.to_string()))
+        validate_string_6(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityNetHttpBodyReadChunkResultBase64 {
@@ -4721,11 +4302,7 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityNetHttpBodyReadChunkResultBase
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`CapabilityNetHttpBodyReleaseParams`
@@ -4783,13 +4360,7 @@ impl ::std::convert::From<CapabilityNetHttpBodyReleaseParamsHandle> for ::std::s
 impl ::std::str::FromStr for CapabilityNetHttpBodyReleaseParamsHandle {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 256usize {
-            return Err("longer than 256 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_5(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityNetHttpBodyReleaseParamsHandle {
@@ -4803,11 +4374,7 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityNetHttpBodyReleaseParamsHandle
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`CapabilityNetHttpBodyReleaseResult`
@@ -4904,24 +4471,7 @@ impl ::std::convert::From<CapabilityNetHttpBodyStageChunkParamsBase64> for ::std
 impl ::std::str::FromStr for CapabilityNetHttpBodyStageChunkParamsBase64 {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 349528usize {
-            return Err("longer than 349528 characters".into());
-        }
-        static PATTERN: ::std::sync::LazyLock<::regress::Regex> = ::std::sync::LazyLock::new(
-            || {
-                ::regress::Regex::new(
-                    "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/][AQgw]==|[A-Za-z0-9+/]{2}[AEIMQUYcgkosw048]=)?$",
-                )
-                .unwrap()
-            },
-        );
-        if PATTERN.find(value).is_none() {
-            return Err(
-                "doesn't match pattern \"^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/][AQgw]==|[A-Za-z0-9+/]{2}[AEIMQUYcgkosw048]=)?$\""
-                    .into(),
-            );
-        }
-        Ok(Self(value.to_string()))
+        validate_string_6(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityNetHttpBodyStageChunkParamsBase64 {
@@ -4935,11 +4485,7 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityNetHttpBodyStageChunkParamsBas
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`CapabilityNetHttpBodyStageChunkParamsHandle`
@@ -4971,13 +4517,7 @@ impl ::std::convert::From<CapabilityNetHttpBodyStageChunkParamsHandle> for ::std
 impl ::std::str::FromStr for CapabilityNetHttpBodyStageChunkParamsHandle {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 256usize {
-            return Err("longer than 256 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_5(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityNetHttpBodyStageChunkParamsHandle {
@@ -4991,11 +4531,7 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityNetHttpBodyStageChunkParamsHan
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`CapabilityNetHttpBodyStageChunkResult`
@@ -5185,18 +4721,7 @@ impl ::std::convert::From<CapabilityNetHttpParamsAuthorizationSecretRef> for ::s
 impl ::std::str::FromStr for CapabilityNetHttpParamsAuthorizationSecretRef {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
-            ::std::sync::LazyLock::new(|| {
-                ::regress::Regex::new("^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$")
-                    .unwrap()
-            });
-        if PATTERN.find(value).is_none() {
-            return Err(
-                "doesn't match pattern \"^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$\""
-                    .into(),
-            );
-        }
-        Ok(Self(value.to_string()))
+        validate_string_12(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityNetHttpParamsAuthorizationSecretRef {
@@ -5210,11 +4735,7 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityNetHttpParamsAuthorizationSecr
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`CapabilityNetHttpParamsBody`
@@ -5287,13 +4808,7 @@ impl ::std::convert::From<CapabilityNetHttpParamsBodyVariant1Handle> for ::std::
 impl ::std::str::FromStr for CapabilityNetHttpParamsBodyVariant1Handle {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 256usize {
-            return Err("longer than 256 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_5(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityNetHttpParamsBodyVariant1Handle {
@@ -5307,11 +4822,7 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityNetHttpParamsBodyVariant1Handl
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`CapabilityNetHttpParamsMethod`
@@ -5526,13 +5037,7 @@ impl ::std::convert::From<CapabilityNetHttpResultBodyVariant1Handle> for ::std::
 impl ::std::str::FromStr for CapabilityNetHttpResultBodyVariant1Handle {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 256usize {
-            return Err("longer than 256 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_5(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityNetHttpResultBodyVariant1Handle {
@@ -5546,11 +5051,7 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityNetHttpResultBodyVariant1Handl
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`CapabilityPlannerReadPriorRangeParams`
@@ -5622,13 +5123,7 @@ impl ::std::convert::From<CapabilityPlannerReadPriorRangeParamsHandle> for ::std
 impl ::std::str::FromStr for CapabilityPlannerReadPriorRangeParamsHandle {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 256usize {
-            return Err("longer than 256 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_5(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityPlannerReadPriorRangeParamsHandle {
@@ -5642,11 +5137,7 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityPlannerReadPriorRangeParamsHan
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`CapabilityPlannerReadPriorRangeResult`
@@ -5719,11 +5210,7 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityPlannerReadPriorRangeResultBas
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`CapabilityPlannerRunParams`
@@ -5803,10 +5290,7 @@ impl ::std::convert::From<CapabilityPlannerRunParamsArgvItem> for ::std::string:
 impl ::std::str::FromStr for CapabilityPlannerRunParamsArgvItem {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 4096usize {
-            return Err("longer than 4096 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_8(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityPlannerRunParamsArgvItem {
@@ -5820,11 +5304,7 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityPlannerRunParamsArgvItem {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`CapabilityPlannerRunParamsUndoItem`
@@ -5855,10 +5335,7 @@ impl ::std::convert::From<CapabilityPlannerRunParamsUndoItem> for ::std::string:
 impl ::std::str::FromStr for CapabilityPlannerRunParamsUndoItem {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 4096usize {
-            return Err("longer than 4096 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_8(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityPlannerRunParamsUndoItem {
@@ -5872,11 +5349,7 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityPlannerRunParamsUndoItem {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`CapabilityPlannerRunResult`
@@ -6071,13 +5544,7 @@ impl ::std::convert::From<CapabilityProcessOutputChunkParamsHandle> for ::std::s
 impl ::std::str::FromStr for CapabilityProcessOutputChunkParamsHandle {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 256usize {
-            return Err("longer than 256 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_5(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityProcessOutputChunkParamsHandle {
@@ -6091,11 +5558,7 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityProcessOutputChunkParamsHandle
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`CapabilityProcessOutputChunkResult`
@@ -6153,23 +5616,7 @@ impl ::std::convert::From<CapabilityProcessOutputChunkResultBase64> for ::std::s
 impl ::std::str::FromStr for CapabilityProcessOutputChunkResultBase64 {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 349528usize {
-            return Err("longer than 349528 characters".into());
-        }
-        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
-            ::std::sync::LazyLock::new(|| {
-                ::regress::Regex::new(
-                    "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
-                )
-                .unwrap()
-            });
-        if PATTERN.find(value).is_none() {
-            return Err(
-                "doesn't match pattern \"^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$\""
-                    .into(),
-            );
-        }
-        Ok(Self(value.to_string()))
+        validate_string_7(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityProcessOutputChunkResultBase64 {
@@ -6183,11 +5630,7 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityProcessOutputChunkResultBase64
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`CapabilityProcessSpawnParams`
@@ -6298,10 +5741,7 @@ impl ::std::convert::From<CapabilityProcessSpawnParamsArgvItem> for ::std::strin
 impl ::std::str::FromStr for CapabilityProcessSpawnParamsArgvItem {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 4096usize {
-            return Err("longer than 4096 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_8(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityProcessSpawnParamsArgvItem {
@@ -6315,11 +5755,7 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityProcessSpawnParamsArgvItem {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`CapabilityProcessSpawnParamsCwd`
@@ -6351,13 +5787,7 @@ impl ::std::convert::From<CapabilityProcessSpawnParamsCwd> for ::std::string::St
 impl ::std::str::FromStr for CapabilityProcessSpawnParamsCwd {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 4096usize {
-            return Err("longer than 4096 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_9(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityProcessSpawnParamsCwd {
@@ -6371,11 +5801,7 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityProcessSpawnParamsCwd {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`CapabilityProcessSpawnParamsEnvKey`
@@ -6427,11 +5853,7 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityProcessSpawnParamsEnvKey {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`CapabilityProcessSpawnParamsEnvValue`
@@ -6505,18 +5927,7 @@ impl ::std::convert::From<CapabilityProcessSpawnParamsEnvValueVariant1SecretRef>
 impl ::std::str::FromStr for CapabilityProcessSpawnParamsEnvValueVariant1SecretRef {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
-            ::std::sync::LazyLock::new(|| {
-                ::regress::Regex::new("^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$")
-                    .unwrap()
-            });
-        if PATTERN.find(value).is_none() {
-            return Err(
-                "doesn't match pattern \"^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$\""
-                    .into(),
-            );
-        }
-        Ok(Self(value.to_string()))
+        validate_string_12(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityProcessSpawnParamsEnvValueVariant1SecretRef {
@@ -6530,11 +5941,7 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityProcessSpawnParamsEnvValueVari
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`CapabilityProcessSpawnResult`
@@ -6699,13 +6106,7 @@ impl ::std::convert::From<CapabilityProcessSpawnResultVariant1OutputStderr>
 impl ::std::str::FromStr for CapabilityProcessSpawnResultVariant1OutputStderr {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 256usize {
-            return Err("longer than 256 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_5(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityProcessSpawnResultVariant1OutputStderr {
@@ -6719,11 +6120,7 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityProcessSpawnResultVariant1Outp
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`CapabilityProcessSpawnResultVariant1OutputStdout`
@@ -6757,13 +6154,7 @@ impl ::std::convert::From<CapabilityProcessSpawnResultVariant1OutputStdout>
 impl ::std::str::FromStr for CapabilityProcessSpawnResultVariant1OutputStdout {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 256usize {
-            return Err("longer than 256 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_5(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityProcessSpawnResultVariant1OutputStdout {
@@ -6777,11 +6168,7 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityProcessSpawnResultVariant1Outp
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`CapabilitySecretsResolveParams`
@@ -6838,18 +6225,7 @@ impl ::std::convert::From<CapabilitySecretsResolveParamsRef> for ::std::string::
 impl ::std::str::FromStr for CapabilitySecretsResolveParamsRef {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
-            ::std::sync::LazyLock::new(|| {
-                ::regress::Regex::new("^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$")
-                    .unwrap()
-            });
-        if PATTERN.find(value).is_none() {
-            return Err(
-                "doesn't match pattern \"^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$\""
-                    .into(),
-            );
-        }
-        Ok(Self(value.to_string()))
+        validate_string_12(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilitySecretsResolveParamsRef {
@@ -6863,11 +6239,7 @@ impl<'de> ::serde::Deserialize<'de> for CapabilitySecretsResolveParamsRef {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`CapabilitySecretsResolveResult`
@@ -6949,13 +6321,7 @@ impl ::std::convert::From<CapabilityUsageStateBeginParamsStore> for ::std::strin
 impl ::std::str::FromStr for CapabilityUsageStateBeginParamsStore {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 256usize {
-            return Err("longer than 256 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_5(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityUsageStateBeginParamsStore {
@@ -6969,11 +6335,7 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityUsageStateBeginParamsStore {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`CapabilityUsageStateBeginResult`
@@ -7050,13 +6412,7 @@ impl ::std::convert::From<CapabilityUsageStateBeginResultLease> for ::std::strin
 impl ::std::str::FromStr for CapabilityUsageStateBeginResultLease {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 256usize {
-            return Err("longer than 256 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_5(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityUsageStateBeginResultLease {
@@ -7070,11 +6426,7 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityUsageStateBeginResultLease {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`CapabilityUsageStateCommitParams`
@@ -7137,13 +6489,7 @@ impl ::std::convert::From<CapabilityUsageStateCommitParamsLease> for ::std::stri
 impl ::std::str::FromStr for CapabilityUsageStateCommitParamsLease {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 256usize {
-            return Err("longer than 256 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_5(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityUsageStateCommitParamsLease {
@@ -7157,11 +6503,7 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityUsageStateCommitParamsLease {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`CapabilityUsageStateCommitResult`
@@ -7257,13 +6599,7 @@ impl ::std::convert::From<CapabilityUsageStateReadChunkParamsLease> for ::std::s
 impl ::std::str::FromStr for CapabilityUsageStateReadChunkParamsLease {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 256usize {
-            return Err("longer than 256 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_5(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityUsageStateReadChunkParamsLease {
@@ -7277,11 +6613,7 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityUsageStateReadChunkParamsLease
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`CapabilityUsageStateReadChunkResult`
@@ -7339,23 +6671,7 @@ impl ::std::convert::From<CapabilityUsageStateReadChunkResultBase64> for ::std::
 impl ::std::str::FromStr for CapabilityUsageStateReadChunkResultBase64 {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 349528usize {
-            return Err("longer than 349528 characters".into());
-        }
-        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
-            ::std::sync::LazyLock::new(|| {
-                ::regress::Regex::new(
-                    "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
-                )
-                .unwrap()
-            });
-        if PATTERN.find(value).is_none() {
-            return Err(
-                "doesn't match pattern \"^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$\""
-                    .into(),
-            );
-        }
-        Ok(Self(value.to_string()))
+        validate_string_7(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityUsageStateReadChunkResultBase64 {
@@ -7369,11 +6685,7 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityUsageStateReadChunkResultBase6
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`CapabilityUsageStateReleaseParams`
@@ -7431,13 +6743,7 @@ impl ::std::convert::From<CapabilityUsageStateReleaseParamsLease> for ::std::str
 impl ::std::str::FromStr for CapabilityUsageStateReleaseParamsLease {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 256usize {
-            return Err("longer than 256 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_5(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityUsageStateReleaseParamsLease {
@@ -7451,11 +6757,7 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityUsageStateReleaseParamsLease {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`CapabilityUsageStateReleaseResult`
@@ -7552,23 +6854,7 @@ impl ::std::convert::From<CapabilityUsageStateStageChunkParamsBase64> for ::std:
 impl ::std::str::FromStr for CapabilityUsageStateStageChunkParamsBase64 {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 349528usize {
-            return Err("longer than 349528 characters".into());
-        }
-        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
-            ::std::sync::LazyLock::new(|| {
-                ::regress::Regex::new(
-                    "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
-                )
-                .unwrap()
-            });
-        if PATTERN.find(value).is_none() {
-            return Err(
-                "doesn't match pattern \"^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$\""
-                    .into(),
-            );
-        }
-        Ok(Self(value.to_string()))
+        validate_string_7(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityUsageStateStageChunkParamsBase64 {
@@ -7582,11 +6868,7 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityUsageStateStageChunkParamsBase
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`CapabilityUsageStateStageChunkParamsLease`
@@ -7618,13 +6900,7 @@ impl ::std::convert::From<CapabilityUsageStateStageChunkParamsLease> for ::std::
 impl ::std::str::FromStr for CapabilityUsageStateStageChunkParamsLease {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 256usize {
-            return Err("longer than 256 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_5(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityUsageStateStageChunkParamsLease {
@@ -7638,11 +6914,7 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityUsageStateStageChunkParamsLeas
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`CapabilityUsageStateStageChunkResult`
@@ -8204,11 +7476,7 @@ impl<'de> ::serde::Deserialize<'de> for ClassifierAskParamsState {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`ClassifierAskResult`
@@ -8652,18 +7920,7 @@ impl ::std::convert::From<EndpointLaunchEnvParamsAccountKeyRef> for ::std::strin
 impl ::std::str::FromStr for EndpointLaunchEnvParamsAccountKeyRef {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
-            ::std::sync::LazyLock::new(|| {
-                ::regress::Regex::new("^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$")
-                    .unwrap()
-            });
-        if PATTERN.find(value).is_none() {
-            return Err(
-                "doesn't match pattern \"^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$\""
-                    .into(),
-            );
-        }
-        Ok(Self(value.to_string()))
+        validate_string_12(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for EndpointLaunchEnvParamsAccountKeyRef {
@@ -8677,11 +7934,7 @@ impl<'de> ::serde::Deserialize<'de> for EndpointLaunchEnvParamsAccountKeyRef {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`EndpointLaunchEnvParamsAccountModelsItem`
@@ -8760,10 +8013,7 @@ impl ::std::convert::From<EndpointLaunchEnvParamsAccountName> for ::std::string:
 impl ::std::str::FromStr for EndpointLaunchEnvParamsAccountName {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_0(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for EndpointLaunchEnvParamsAccountName {
@@ -8777,11 +8027,7 @@ impl<'de> ::serde::Deserialize<'de> for EndpointLaunchEnvParamsAccountName {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`EndpointLaunchEnvParamsAccountsItem`
@@ -8894,18 +8140,7 @@ impl ::std::convert::From<EndpointLaunchEnvParamsAccountsItemKeyRef> for ::std::
 impl ::std::str::FromStr for EndpointLaunchEnvParamsAccountsItemKeyRef {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
-            ::std::sync::LazyLock::new(|| {
-                ::regress::Regex::new("^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$")
-                    .unwrap()
-            });
-        if PATTERN.find(value).is_none() {
-            return Err(
-                "doesn't match pattern \"^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$\""
-                    .into(),
-            );
-        }
-        Ok(Self(value.to_string()))
+        validate_string_12(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for EndpointLaunchEnvParamsAccountsItemKeyRef {
@@ -8919,11 +8154,7 @@ impl<'de> ::serde::Deserialize<'de> for EndpointLaunchEnvParamsAccountsItemKeyRe
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`EndpointLaunchEnvParamsAccountsItemModelsItem`
@@ -9002,10 +8233,7 @@ impl ::std::convert::From<EndpointLaunchEnvParamsAccountsItemName> for ::std::st
 impl ::std::str::FromStr for EndpointLaunchEnvParamsAccountsItemName {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_0(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for EndpointLaunchEnvParamsAccountsItemName {
@@ -9019,11 +8247,7 @@ impl<'de> ::serde::Deserialize<'de> for EndpointLaunchEnvParamsAccountsItemName 
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`EndpointLaunchEnvParamsPacerHome`
@@ -9054,10 +8278,7 @@ impl ::std::convert::From<EndpointLaunchEnvParamsPacerHome> for ::std::string::S
 impl ::std::str::FromStr for EndpointLaunchEnvParamsPacerHome {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_0(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for EndpointLaunchEnvParamsPacerHome {
@@ -9071,11 +8292,7 @@ impl<'de> ::serde::Deserialize<'de> for EndpointLaunchEnvParamsPacerHome {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`EndpointLaunchEnvResult`
@@ -9150,18 +8367,7 @@ impl ::std::convert::From<EndpointLaunchEnvResultSecretEnvValue> for ::std::stri
 impl ::std::str::FromStr for EndpointLaunchEnvResultSecretEnvValue {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
-            ::std::sync::LazyLock::new(|| {
-                ::regress::Regex::new("^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$")
-                    .unwrap()
-            });
-        if PATTERN.find(value).is_none() {
-            return Err(
-                "doesn't match pattern \"^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$\""
-                    .into(),
-            );
-        }
-        Ok(Self(value.to_string()))
+        validate_string_12(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for EndpointLaunchEnvResultSecretEnvValue {
@@ -9175,11 +8381,7 @@ impl<'de> ::serde::Deserialize<'de> for EndpointLaunchEnvResultSecretEnvValue {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`EndpointModelsParams`
@@ -9261,18 +8463,7 @@ impl ::std::convert::From<EndpointModelsParamsKeyRef> for ::std::string::String 
 impl ::std::str::FromStr for EndpointModelsParamsKeyRef {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
-            ::std::sync::LazyLock::new(|| {
-                ::regress::Regex::new("^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$")
-                    .unwrap()
-            });
-        if PATTERN.find(value).is_none() {
-            return Err(
-                "doesn't match pattern \"^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$\""
-                    .into(),
-            );
-        }
-        Ok(Self(value.to_string()))
+        validate_string_12(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for EndpointModelsParamsKeyRef {
@@ -9286,11 +8477,7 @@ impl<'de> ::serde::Deserialize<'de> for EndpointModelsParamsKeyRef {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`EndpointModelsResult`
@@ -9760,18 +8947,7 @@ impl ::std::convert::From<EndpointTestParamsAccountKeyRef> for ::std::string::St
 impl ::std::str::FromStr for EndpointTestParamsAccountKeyRef {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
-            ::std::sync::LazyLock::new(|| {
-                ::regress::Regex::new("^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$")
-                    .unwrap()
-            });
-        if PATTERN.find(value).is_none() {
-            return Err(
-                "doesn't match pattern \"^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$\""
-                    .into(),
-            );
-        }
-        Ok(Self(value.to_string()))
+        validate_string_12(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for EndpointTestParamsAccountKeyRef {
@@ -9785,11 +8961,7 @@ impl<'de> ::serde::Deserialize<'de> for EndpointTestParamsAccountKeyRef {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`EndpointTestParamsAccountModelsItem`
@@ -9868,10 +9040,7 @@ impl ::std::convert::From<EndpointTestParamsAccountName> for ::std::string::Stri
 impl ::std::str::FromStr for EndpointTestParamsAccountName {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_0(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for EndpointTestParamsAccountName {
@@ -9885,11 +9054,7 @@ impl<'de> ::serde::Deserialize<'de> for EndpointTestParamsAccountName {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`EndpointTestParamsAccountsItem`
@@ -10002,18 +9167,7 @@ impl ::std::convert::From<EndpointTestParamsAccountsItemKeyRef> for ::std::strin
 impl ::std::str::FromStr for EndpointTestParamsAccountsItemKeyRef {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
-            ::std::sync::LazyLock::new(|| {
-                ::regress::Regex::new("^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$")
-                    .unwrap()
-            });
-        if PATTERN.find(value).is_none() {
-            return Err(
-                "doesn't match pattern \"^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$\""
-                    .into(),
-            );
-        }
-        Ok(Self(value.to_string()))
+        validate_string_12(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for EndpointTestParamsAccountsItemKeyRef {
@@ -10027,11 +9181,7 @@ impl<'de> ::serde::Deserialize<'de> for EndpointTestParamsAccountsItemKeyRef {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`EndpointTestParamsAccountsItemModelsItem`
@@ -10110,10 +9260,7 @@ impl ::std::convert::From<EndpointTestParamsAccountsItemName> for ::std::string:
 impl ::std::str::FromStr for EndpointTestParamsAccountsItemName {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_0(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for EndpointTestParamsAccountsItemName {
@@ -10127,11 +9274,7 @@ impl<'de> ::serde::Deserialize<'de> for EndpointTestParamsAccountsItemName {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`EndpointTestParamsConfigRef`
@@ -10162,18 +9305,7 @@ impl ::std::convert::From<EndpointTestParamsConfigRef> for ::std::string::String
 impl ::std::str::FromStr for EndpointTestParamsConfigRef {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
-            ::std::sync::LazyLock::new(|| {
-                ::regress::Regex::new("^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$")
-                    .unwrap()
-            });
-        if PATTERN.find(value).is_none() {
-            return Err(
-                "doesn't match pattern \"^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$\""
-                    .into(),
-            );
-        }
-        Ok(Self(value.to_string()))
+        validate_string_12(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for EndpointTestParamsConfigRef {
@@ -10187,11 +9319,7 @@ impl<'de> ::serde::Deserialize<'de> for EndpointTestParamsConfigRef {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`EndpointTestParamsPacerHome`
@@ -10222,10 +9350,7 @@ impl ::std::convert::From<EndpointTestParamsPacerHome> for ::std::string::String
 impl ::std::str::FromStr for EndpointTestParamsPacerHome {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_0(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for EndpointTestParamsPacerHome {
@@ -10239,11 +9364,7 @@ impl<'de> ::serde::Deserialize<'de> for EndpointTestParamsPacerHome {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`EndpointTestParamsRepository`
@@ -10274,10 +9395,7 @@ impl ::std::convert::From<EndpointTestParamsRepository> for ::std::string::Strin
 impl ::std::str::FromStr for EndpointTestParamsRepository {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_0(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for EndpointTestParamsRepository {
@@ -10291,11 +9409,7 @@ impl<'de> ::serde::Deserialize<'de> for EndpointTestParamsRepository {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`EndpointTestParamsRunner`
@@ -10650,13 +9764,7 @@ impl ::std::convert::From<HelloParamsFeaturesItem> for ::std::string::String {
 impl ::std::str::FromStr for HelloParamsFeaturesItem {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 64usize {
-            return Err("longer than 64 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_10(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for HelloParamsFeaturesItem {
@@ -10670,11 +9778,7 @@ impl<'de> ::serde::Deserialize<'de> for HelloParamsFeaturesItem {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`HelloParamsGrantsItem`
@@ -11096,10 +10200,7 @@ impl ::std::convert::From<HelloParamsManifestCapabilitiesItemScopesItem> for ::s
 impl ::std::str::FromStr for HelloParamsManifestCapabilitiesItemScopesItem {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_0(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for HelloParamsManifestCapabilitiesItemScopesItem {
@@ -11113,11 +10214,7 @@ impl<'de> ::serde::Deserialize<'de> for HelloParamsManifestCapabilitiesItemScope
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`HelloParamsManifestContributesKey`
@@ -11234,10 +10331,7 @@ impl ::std::convert::From<HelloParamsManifestEntry> for ::std::string::String {
 impl ::std::str::FromStr for HelloParamsManifestEntry {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_0(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for HelloParamsManifestEntry {
@@ -11251,11 +10345,7 @@ impl<'de> ::serde::Deserialize<'de> for HelloParamsManifestEntry {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`HelloParamsManifestHost`
@@ -11286,14 +10376,7 @@ impl ::std::convert::From<HelloParamsManifestHost> for ::std::string::String {
 impl ::std::str::FromStr for HelloParamsManifestHost {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
-            ::std::sync::LazyLock::new(|| {
-                ::regress::Regex::new("^(\\^|~|>=)?\\d+(\\.\\d+){0,2}$|^\\*$").unwrap()
-            });
-        if PATTERN.find(value).is_none() {
-            return Err("doesn't match pattern \"^(\\^|~|>=)?\\d+(\\.\\d+){0,2}$|^\\*$\"".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_11(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for HelloParamsManifestHost {
@@ -11307,11 +10390,7 @@ impl<'de> ::serde::Deserialize<'de> for HelloParamsManifestHost {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`HelloParamsManifestId`
@@ -11342,14 +10421,7 @@ impl ::std::convert::From<HelloParamsManifestId> for ::std::string::String {
 impl ::std::str::FromStr for HelloParamsManifestId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
-            ::std::sync::LazyLock::new(|| {
-                ::regress::Regex::new("^[a-z0-9][a-z0-9-]{1,63}$").unwrap()
-            });
-        if PATTERN.find(value).is_none() {
-            return Err("doesn't match pattern \"^[a-z0-9][a-z0-9-]{1,63}$\"".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_13(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for HelloParamsManifestId {
@@ -11363,11 +10435,7 @@ impl<'de> ::serde::Deserialize<'de> for HelloParamsManifestId {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`HelloParamsManifestPublisher`
@@ -11399,13 +10467,7 @@ impl ::std::convert::From<HelloParamsManifestPublisher> for ::std::string::Strin
 impl ::std::str::FromStr for HelloParamsManifestPublisher {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 128usize {
-            return Err("longer than 128 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_2(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for HelloParamsManifestPublisher {
@@ -11419,11 +10481,7 @@ impl<'de> ::serde::Deserialize<'de> for HelloParamsManifestPublisher {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`HelloParamsManifestTier`
@@ -11725,13 +10783,7 @@ impl ::std::convert::From<HelloResultFeaturesItem> for ::std::string::String {
 impl ::std::str::FromStr for HelloResultFeaturesItem {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 64usize {
-            return Err("longer than 64 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_10(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for HelloResultFeaturesItem {
@@ -11745,11 +10797,7 @@ impl<'de> ::serde::Deserialize<'de> for HelloResultFeaturesItem {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`Manifest`
@@ -12065,10 +11113,7 @@ impl ::std::convert::From<ManifestCapabilitiesItemScopesItem> for ::std::string:
 impl ::std::str::FromStr for ManifestCapabilitiesItemScopesItem {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_0(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for ManifestCapabilitiesItemScopesItem {
@@ -12082,11 +11127,7 @@ impl<'de> ::serde::Deserialize<'de> for ManifestCapabilitiesItemScopesItem {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`ManifestContributesKey`
@@ -12203,10 +11244,7 @@ impl ::std::convert::From<ManifestEntry> for ::std::string::String {
 impl ::std::str::FromStr for ManifestEntry {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_0(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for ManifestEntry {
@@ -12220,11 +11258,7 @@ impl<'de> ::serde::Deserialize<'de> for ManifestEntry {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`ManifestHost`
@@ -12255,14 +11289,7 @@ impl ::std::convert::From<ManifestHost> for ::std::string::String {
 impl ::std::str::FromStr for ManifestHost {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
-            ::std::sync::LazyLock::new(|| {
-                ::regress::Regex::new("^(\\^|~|>=)?\\d+(\\.\\d+){0,2}$|^\\*$").unwrap()
-            });
-        if PATTERN.find(value).is_none() {
-            return Err("doesn't match pattern \"^(\\^|~|>=)?\\d+(\\.\\d+){0,2}$|^\\*$\"".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_11(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for ManifestHost {
@@ -12276,11 +11303,7 @@ impl<'de> ::serde::Deserialize<'de> for ManifestHost {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`ManifestId`
@@ -12311,14 +11334,7 @@ impl ::std::convert::From<ManifestId> for ::std::string::String {
 impl ::std::str::FromStr for ManifestId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
-            ::std::sync::LazyLock::new(|| {
-                ::regress::Regex::new("^[a-z0-9][a-z0-9-]{1,63}$").unwrap()
-            });
-        if PATTERN.find(value).is_none() {
-            return Err("doesn't match pattern \"^[a-z0-9][a-z0-9-]{1,63}$\"".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_13(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for ManifestId {
@@ -12332,11 +11348,7 @@ impl<'de> ::serde::Deserialize<'de> for ManifestId {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`ManifestPublisher`
@@ -12368,13 +11380,7 @@ impl ::std::convert::From<ManifestPublisher> for ::std::string::String {
 impl ::std::str::FromStr for ManifestPublisher {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 128usize {
-            return Err("longer than 128 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_2(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for ManifestPublisher {
@@ -12388,11 +11394,7 @@ impl<'de> ::serde::Deserialize<'de> for ManifestPublisher {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`ManifestSchema0`
@@ -12623,11 +11625,7 @@ impl<'de> ::serde::Deserialize<'de> for NotifierDeliverParamsBody {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`NotifierDeliverParamsTitle`
@@ -12658,10 +11656,7 @@ impl ::std::convert::From<NotifierDeliverParamsTitle> for ::std::string::String 
 impl ::std::str::FromStr for NotifierDeliverParamsTitle {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 256usize {
-            return Err("longer than 256 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_4(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for NotifierDeliverParamsTitle {
@@ -12675,11 +11670,7 @@ impl<'de> ::serde::Deserialize<'de> for NotifierDeliverParamsTitle {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`NotifierDeliverResult`
@@ -12815,11 +11806,7 @@ impl<'de> ::serde::Deserialize<'de> for PlannerCheckParamsAgent {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`PlannerCheckParamsSchema0`
@@ -13010,13 +11997,7 @@ impl ::std::convert::From<PlannerCheckResultFilesItemPath> for ::std::string::St
 impl ::std::str::FromStr for PlannerCheckResultFilesItemPath {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 4096usize {
-            return Err("longer than 4096 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_9(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerCheckResultFilesItemPath {
@@ -13030,11 +12011,7 @@ impl<'de> ::serde::Deserialize<'de> for PlannerCheckResultFilesItemPath {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`PlannerDetectParams`
@@ -13284,13 +12261,7 @@ impl ::std::convert::From<PlannerDetectParamsBinaryName> for ::std::string::Stri
 impl ::std::str::FromStr for PlannerDetectParamsBinaryName {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 64usize {
-            return Err("longer than 64 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_10(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerDetectParamsBinaryName {
@@ -13304,11 +12275,7 @@ impl<'de> ::serde::Deserialize<'de> for PlannerDetectParamsBinaryName {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`PlannerDetectParamsBinaryPath`
@@ -13340,13 +12307,7 @@ impl ::std::convert::From<PlannerDetectParamsBinaryPath> for ::std::string::Stri
 impl ::std::str::FromStr for PlannerDetectParamsBinaryPath {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 4096usize {
-            return Err("longer than 4096 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_9(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerDetectParamsBinaryPath {
@@ -13360,11 +12321,7 @@ impl<'de> ::serde::Deserialize<'de> for PlannerDetectParamsBinaryPath {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`PlannerDetectParamsProbe`
@@ -13450,10 +12407,7 @@ impl ::std::convert::From<PlannerDetectParamsProbeArgvItem> for ::std::string::S
 impl ::std::str::FromStr for PlannerDetectParamsProbeArgvItem {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 4096usize {
-            return Err("longer than 4096 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_8(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerDetectParamsProbeArgvItem {
@@ -13467,11 +12421,7 @@ impl<'de> ::serde::Deserialize<'de> for PlannerDetectParamsProbeArgvItem {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`PlannerDetectParamsProbeCwd`
@@ -13503,13 +12453,7 @@ impl ::std::convert::From<PlannerDetectParamsProbeCwd> for ::std::string::String
 impl ::std::str::FromStr for PlannerDetectParamsProbeCwd {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 4096usize {
-            return Err("longer than 4096 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_9(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerDetectParamsProbeCwd {
@@ -13523,11 +12467,7 @@ impl<'de> ::serde::Deserialize<'de> for PlannerDetectParamsProbeCwd {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`PlannerDetectResult`
@@ -13785,13 +12725,7 @@ impl ::std::convert::From<PlannerInstallParamsAgent> for ::std::string::String {
 impl ::std::str::FromStr for PlannerInstallParamsAgent {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 64usize {
-            return Err("longer than 64 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_10(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerInstallParamsAgent {
@@ -13805,11 +12739,7 @@ impl<'de> ::serde::Deserialize<'de> for PlannerInstallParamsAgent {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`PlannerInstallParamsBinary`
@@ -13841,13 +12771,7 @@ impl ::std::convert::From<PlannerInstallParamsBinary> for ::std::string::String 
 impl ::std::str::FromStr for PlannerInstallParamsBinary {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 4096usize {
-            return Err("longer than 4096 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_9(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerInstallParamsBinary {
@@ -13861,11 +12785,7 @@ impl<'de> ::serde::Deserialize<'de> for PlannerInstallParamsBinary {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`PlannerInstallParamsEnv`
@@ -13998,13 +12918,7 @@ impl ::std::convert::From<PlannerInstallParamsEnvFolder> for ::std::string::Stri
 impl ::std::str::FromStr for PlannerInstallParamsEnvFolder {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 4096usize {
-            return Err("longer than 4096 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_9(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerInstallParamsEnvFolder {
@@ -14018,11 +12932,7 @@ impl<'de> ::serde::Deserialize<'de> for PlannerInstallParamsEnvFolder {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`PlannerInstallParamsEnvMode`
@@ -14114,10 +13024,7 @@ impl ::std::convert::From<PlannerInstallParamsEnvPacerArgvItem> for ::std::strin
 impl ::std::str::FromStr for PlannerInstallParamsEnvPacerArgvItem {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 4096usize {
-            return Err("longer than 4096 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_8(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerInstallParamsEnvPacerArgvItem {
@@ -14131,11 +13038,7 @@ impl<'de> ::serde::Deserialize<'de> for PlannerInstallParamsEnvPacerArgvItem {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`PlannerInstallParamsEnvPlannerAccount`
@@ -14166,10 +13069,7 @@ impl ::std::convert::From<PlannerInstallParamsEnvPlannerAccount> for ::std::stri
 impl ::std::str::FromStr for PlannerInstallParamsEnvPlannerAccount {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 256usize {
-            return Err("longer than 256 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_4(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerInstallParamsEnvPlannerAccount {
@@ -14183,11 +13083,7 @@ impl<'de> ::serde::Deserialize<'de> for PlannerInstallParamsEnvPlannerAccount {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`PlannerInstallParamsEnvPlannerKey`
@@ -14219,13 +13115,7 @@ impl ::std::convert::From<PlannerInstallParamsEnvPlannerKey> for ::std::string::
 impl ::std::str::FromStr for PlannerInstallParamsEnvPlannerKey {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 256usize {
-            return Err("longer than 256 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_5(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerInstallParamsEnvPlannerKey {
@@ -14239,11 +13129,7 @@ impl<'de> ::serde::Deserialize<'de> for PlannerInstallParamsEnvPlannerKey {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`PlannerInstallParamsEnvSkillFolder`
@@ -14275,13 +13161,7 @@ impl ::std::convert::From<PlannerInstallParamsEnvSkillFolder> for ::std::string:
 impl ::std::str::FromStr for PlannerInstallParamsEnvSkillFolder {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 4096usize {
-            return Err("longer than 4096 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_9(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerInstallParamsEnvSkillFolder {
@@ -14295,11 +13175,7 @@ impl<'de> ::serde::Deserialize<'de> for PlannerInstallParamsEnvSkillFolder {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`PlannerInstallParamsHome`
@@ -14331,13 +13207,7 @@ impl ::std::convert::From<PlannerInstallParamsHome> for ::std::string::String {
 impl ::std::str::FromStr for PlannerInstallParamsHome {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 4096usize {
-            return Err("longer than 4096 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_9(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerInstallParamsHome {
@@ -14351,11 +13221,7 @@ impl<'de> ::serde::Deserialize<'de> for PlannerInstallParamsHome {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`PlannerInstallParamsPacerHome`
@@ -14387,13 +13253,7 @@ impl ::std::convert::From<PlannerInstallParamsPacerHome> for ::std::string::Stri
 impl ::std::str::FromStr for PlannerInstallParamsPacerHome {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 4096usize {
-            return Err("longer than 4096 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_9(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerInstallParamsPacerHome {
@@ -14407,11 +13267,7 @@ impl<'de> ::serde::Deserialize<'de> for PlannerInstallParamsPacerHome {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`PlannerInstallParamsPriorRange`
@@ -14476,13 +13332,7 @@ impl ::std::convert::From<PlannerInstallParamsPriorRangeHandle> for ::std::strin
 impl ::std::str::FromStr for PlannerInstallParamsPriorRangeHandle {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 256usize {
-            return Err("longer than 256 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_5(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerInstallParamsPriorRangeHandle {
@@ -14496,11 +13346,7 @@ impl<'de> ::serde::Deserialize<'de> for PlannerInstallParamsPriorRangeHandle {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`PlannerInstallParamsSchema0`
@@ -14821,13 +13667,7 @@ impl ::std::convert::From<PlannerInstallResultFilesItemPath> for ::std::string::
 impl ::std::str::FromStr for PlannerInstallResultFilesItemPath {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 4096usize {
-            return Err("longer than 4096 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_9(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerInstallResultFilesItemPath {
@@ -14841,11 +13681,7 @@ impl<'de> ::serde::Deserialize<'de> for PlannerInstallResultFilesItemPath {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`PlannerInstallResultSchema0`
@@ -14958,13 +13794,7 @@ impl ::std::convert::From<PlannerInstallResultTouchedItem> for ::std::string::St
 impl ::std::str::FromStr for PlannerInstallResultTouchedItem {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 4096usize {
-            return Err("longer than 4096 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_9(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerInstallResultTouchedItem {
@@ -14978,11 +13808,7 @@ impl<'de> ::serde::Deserialize<'de> for PlannerInstallResultTouchedItem {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`PlannerInstallResultUninstallReport`
@@ -15078,13 +13904,7 @@ impl ::std::convert::From<PlannerInstallResultUninstallReportPlanner> for ::std:
 impl ::std::str::FromStr for PlannerInstallResultUninstallReportPlanner {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 256usize {
-            return Err("longer than 256 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_5(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerInstallResultUninstallReportPlanner {
@@ -15098,11 +13918,7 @@ impl<'de> ::serde::Deserialize<'de> for PlannerInstallResultUninstallReportPlann
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`PlannerInstallResultUninstallReportRemovedItem`
@@ -15136,13 +13952,7 @@ impl ::std::convert::From<PlannerInstallResultUninstallReportRemovedItem>
 impl ::std::str::FromStr for PlannerInstallResultUninstallReportRemovedItem {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 4096usize {
-            return Err("longer than 4096 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_9(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerInstallResultUninstallReportRemovedItem {
@@ -15156,11 +13966,7 @@ impl<'de> ::serde::Deserialize<'de> for PlannerInstallResultUninstallReportRemov
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`PlannerInstallResultUninstallReportRestoredItem`
@@ -15194,13 +14000,7 @@ impl ::std::convert::From<PlannerInstallResultUninstallReportRestoredItem>
 impl ::std::str::FromStr for PlannerInstallResultUninstallReportRestoredItem {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 4096usize {
-            return Err("longer than 4096 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_9(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerInstallResultUninstallReportRestoredItem {
@@ -15214,11 +14014,7 @@ impl<'de> ::serde::Deserialize<'de> for PlannerInstallResultUninstallReportResto
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`PlannerInstallResultUninstallReportRevertedItem`
@@ -15252,13 +14048,7 @@ impl ::std::convert::From<PlannerInstallResultUninstallReportRevertedItem>
 impl ::std::str::FromStr for PlannerInstallResultUninstallReportRevertedItem {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 4096usize {
-            return Err("longer than 4096 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_9(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerInstallResultUninstallReportRevertedItem {
@@ -15272,11 +14062,7 @@ impl<'de> ::serde::Deserialize<'de> for PlannerInstallResultUninstallReportRever
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`PlannerPlanParams`
@@ -15457,13 +14243,7 @@ impl ::std::convert::From<PlannerPlanParamsAgent> for ::std::string::String {
 impl ::std::str::FromStr for PlannerPlanParamsAgent {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 64usize {
-            return Err("longer than 64 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_10(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerPlanParamsAgent {
@@ -15477,11 +14257,7 @@ impl<'de> ::serde::Deserialize<'de> for PlannerPlanParamsAgent {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`PlannerPlanParamsBinary`
@@ -15513,13 +14289,7 @@ impl ::std::convert::From<PlannerPlanParamsBinary> for ::std::string::String {
 impl ::std::str::FromStr for PlannerPlanParamsBinary {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 4096usize {
-            return Err("longer than 4096 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_9(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerPlanParamsBinary {
@@ -15533,11 +14303,7 @@ impl<'de> ::serde::Deserialize<'de> for PlannerPlanParamsBinary {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`PlannerPlanParamsEnv`
@@ -15670,13 +14436,7 @@ impl ::std::convert::From<PlannerPlanParamsEnvFolder> for ::std::string::String 
 impl ::std::str::FromStr for PlannerPlanParamsEnvFolder {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 4096usize {
-            return Err("longer than 4096 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_9(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerPlanParamsEnvFolder {
@@ -15690,11 +14450,7 @@ impl<'de> ::serde::Deserialize<'de> for PlannerPlanParamsEnvFolder {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`PlannerPlanParamsEnvMode`
@@ -15786,10 +14542,7 @@ impl ::std::convert::From<PlannerPlanParamsEnvPacerArgvItem> for ::std::string::
 impl ::std::str::FromStr for PlannerPlanParamsEnvPacerArgvItem {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 4096usize {
-            return Err("longer than 4096 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_8(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerPlanParamsEnvPacerArgvItem {
@@ -15803,11 +14556,7 @@ impl<'de> ::serde::Deserialize<'de> for PlannerPlanParamsEnvPacerArgvItem {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`PlannerPlanParamsEnvPlannerAccount`
@@ -15838,10 +14587,7 @@ impl ::std::convert::From<PlannerPlanParamsEnvPlannerAccount> for ::std::string:
 impl ::std::str::FromStr for PlannerPlanParamsEnvPlannerAccount {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 256usize {
-            return Err("longer than 256 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_4(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerPlanParamsEnvPlannerAccount {
@@ -15855,11 +14601,7 @@ impl<'de> ::serde::Deserialize<'de> for PlannerPlanParamsEnvPlannerAccount {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`PlannerPlanParamsEnvPlannerKey`
@@ -15891,13 +14633,7 @@ impl ::std::convert::From<PlannerPlanParamsEnvPlannerKey> for ::std::string::Str
 impl ::std::str::FromStr for PlannerPlanParamsEnvPlannerKey {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 256usize {
-            return Err("longer than 256 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_5(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerPlanParamsEnvPlannerKey {
@@ -15911,11 +14647,7 @@ impl<'de> ::serde::Deserialize<'de> for PlannerPlanParamsEnvPlannerKey {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`PlannerPlanParamsEnvSkillFolder`
@@ -15947,13 +14679,7 @@ impl ::std::convert::From<PlannerPlanParamsEnvSkillFolder> for ::std::string::St
 impl ::std::str::FromStr for PlannerPlanParamsEnvSkillFolder {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 4096usize {
-            return Err("longer than 4096 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_9(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerPlanParamsEnvSkillFolder {
@@ -15967,11 +14693,7 @@ impl<'de> ::serde::Deserialize<'de> for PlannerPlanParamsEnvSkillFolder {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`PlannerPlanParamsHome`
@@ -16003,13 +14725,7 @@ impl ::std::convert::From<PlannerPlanParamsHome> for ::std::string::String {
 impl ::std::str::FromStr for PlannerPlanParamsHome {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 4096usize {
-            return Err("longer than 4096 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_9(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerPlanParamsHome {
@@ -16023,11 +14739,7 @@ impl<'de> ::serde::Deserialize<'de> for PlannerPlanParamsHome {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`PlannerPlanParamsPacerHome`
@@ -16059,13 +14771,7 @@ impl ::std::convert::From<PlannerPlanParamsPacerHome> for ::std::string::String 
 impl ::std::str::FromStr for PlannerPlanParamsPacerHome {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 4096usize {
-            return Err("longer than 4096 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_9(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerPlanParamsPacerHome {
@@ -16079,11 +14785,7 @@ impl<'de> ::serde::Deserialize<'de> for PlannerPlanParamsPacerHome {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`PlannerPlanParamsPriorRange`
@@ -16148,13 +14850,7 @@ impl ::std::convert::From<PlannerPlanParamsPriorRangeHandle> for ::std::string::
 impl ::std::str::FromStr for PlannerPlanParamsPriorRangeHandle {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 256usize {
-            return Err("longer than 256 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_5(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerPlanParamsPriorRangeHandle {
@@ -16168,11 +14864,7 @@ impl<'de> ::serde::Deserialize<'de> for PlannerPlanParamsPriorRangeHandle {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`PlannerPlanParamsSchema0`
@@ -16507,13 +15199,7 @@ impl ::std::convert::From<PlannerPreviewParamsAgent> for ::std::string::String {
 impl ::std::str::FromStr for PlannerPreviewParamsAgent {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 64usize {
-            return Err("longer than 64 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_10(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerPreviewParamsAgent {
@@ -16527,11 +15213,7 @@ impl<'de> ::serde::Deserialize<'de> for PlannerPreviewParamsAgent {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`PlannerPreviewParamsBinary`
@@ -16563,13 +15245,7 @@ impl ::std::convert::From<PlannerPreviewParamsBinary> for ::std::string::String 
 impl ::std::str::FromStr for PlannerPreviewParamsBinary {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 4096usize {
-            return Err("longer than 4096 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_9(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerPreviewParamsBinary {
@@ -16583,11 +15259,7 @@ impl<'de> ::serde::Deserialize<'de> for PlannerPreviewParamsBinary {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`PlannerPreviewParamsEnv`
@@ -16720,13 +15392,7 @@ impl ::std::convert::From<PlannerPreviewParamsEnvFolder> for ::std::string::Stri
 impl ::std::str::FromStr for PlannerPreviewParamsEnvFolder {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 4096usize {
-            return Err("longer than 4096 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_9(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerPreviewParamsEnvFolder {
@@ -16740,11 +15406,7 @@ impl<'de> ::serde::Deserialize<'de> for PlannerPreviewParamsEnvFolder {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`PlannerPreviewParamsEnvMode`
@@ -16836,10 +15498,7 @@ impl ::std::convert::From<PlannerPreviewParamsEnvPacerArgvItem> for ::std::strin
 impl ::std::str::FromStr for PlannerPreviewParamsEnvPacerArgvItem {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 4096usize {
-            return Err("longer than 4096 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_8(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerPreviewParamsEnvPacerArgvItem {
@@ -16853,11 +15512,7 @@ impl<'de> ::serde::Deserialize<'de> for PlannerPreviewParamsEnvPacerArgvItem {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`PlannerPreviewParamsEnvPlannerAccount`
@@ -16888,10 +15543,7 @@ impl ::std::convert::From<PlannerPreviewParamsEnvPlannerAccount> for ::std::stri
 impl ::std::str::FromStr for PlannerPreviewParamsEnvPlannerAccount {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 256usize {
-            return Err("longer than 256 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_4(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerPreviewParamsEnvPlannerAccount {
@@ -16905,11 +15557,7 @@ impl<'de> ::serde::Deserialize<'de> for PlannerPreviewParamsEnvPlannerAccount {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`PlannerPreviewParamsEnvPlannerKey`
@@ -16941,13 +15589,7 @@ impl ::std::convert::From<PlannerPreviewParamsEnvPlannerKey> for ::std::string::
 impl ::std::str::FromStr for PlannerPreviewParamsEnvPlannerKey {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 256usize {
-            return Err("longer than 256 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_5(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerPreviewParamsEnvPlannerKey {
@@ -16961,11 +15603,7 @@ impl<'de> ::serde::Deserialize<'de> for PlannerPreviewParamsEnvPlannerKey {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`PlannerPreviewParamsEnvSkillFolder`
@@ -16997,13 +15635,7 @@ impl ::std::convert::From<PlannerPreviewParamsEnvSkillFolder> for ::std::string:
 impl ::std::str::FromStr for PlannerPreviewParamsEnvSkillFolder {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 4096usize {
-            return Err("longer than 4096 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_9(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerPreviewParamsEnvSkillFolder {
@@ -17017,11 +15649,7 @@ impl<'de> ::serde::Deserialize<'de> for PlannerPreviewParamsEnvSkillFolder {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`PlannerPreviewParamsHome`
@@ -17053,13 +15681,7 @@ impl ::std::convert::From<PlannerPreviewParamsHome> for ::std::string::String {
 impl ::std::str::FromStr for PlannerPreviewParamsHome {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 4096usize {
-            return Err("longer than 4096 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_9(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerPreviewParamsHome {
@@ -17073,11 +15695,7 @@ impl<'de> ::serde::Deserialize<'de> for PlannerPreviewParamsHome {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`PlannerPreviewParamsPacerHome`
@@ -17109,13 +15727,7 @@ impl ::std::convert::From<PlannerPreviewParamsPacerHome> for ::std::string::Stri
 impl ::std::str::FromStr for PlannerPreviewParamsPacerHome {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 4096usize {
-            return Err("longer than 4096 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_9(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerPreviewParamsPacerHome {
@@ -17129,11 +15741,7 @@ impl<'de> ::serde::Deserialize<'de> for PlannerPreviewParamsPacerHome {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`PlannerPreviewParamsPriorRange`
@@ -17198,13 +15806,7 @@ impl ::std::convert::From<PlannerPreviewParamsPriorRangeHandle> for ::std::strin
 impl ::std::str::FromStr for PlannerPreviewParamsPriorRangeHandle {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 256usize {
-            return Err("longer than 256 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_5(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerPreviewParamsPriorRangeHandle {
@@ -17218,11 +15820,7 @@ impl<'de> ::serde::Deserialize<'de> for PlannerPreviewParamsPriorRangeHandle {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`PlannerPreviewParamsSchema0`
@@ -17374,13 +15972,7 @@ impl ::std::convert::From<PlannerPreviewResultFilesItem> for ::std::string::Stri
 impl ::std::str::FromStr for PlannerPreviewResultFilesItem {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 4096usize {
-            return Err("longer than 4096 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_9(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerPreviewResultFilesItem {
@@ -17394,11 +15986,7 @@ impl<'de> ::serde::Deserialize<'de> for PlannerPreviewResultFilesItem {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`PlannerUninstallParams`
@@ -17579,13 +16167,7 @@ impl ::std::convert::From<PlannerUninstallParamsAgent> for ::std::string::String
 impl ::std::str::FromStr for PlannerUninstallParamsAgent {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 64usize {
-            return Err("longer than 64 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_10(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerUninstallParamsAgent {
@@ -17599,11 +16181,7 @@ impl<'de> ::serde::Deserialize<'de> for PlannerUninstallParamsAgent {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`PlannerUninstallParamsBinary`
@@ -17635,13 +16213,7 @@ impl ::std::convert::From<PlannerUninstallParamsBinary> for ::std::string::Strin
 impl ::std::str::FromStr for PlannerUninstallParamsBinary {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 4096usize {
-            return Err("longer than 4096 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_9(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerUninstallParamsBinary {
@@ -17655,11 +16227,7 @@ impl<'de> ::serde::Deserialize<'de> for PlannerUninstallParamsBinary {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`PlannerUninstallParamsEnv`
@@ -17792,13 +16360,7 @@ impl ::std::convert::From<PlannerUninstallParamsEnvFolder> for ::std::string::St
 impl ::std::str::FromStr for PlannerUninstallParamsEnvFolder {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 4096usize {
-            return Err("longer than 4096 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_9(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerUninstallParamsEnvFolder {
@@ -17812,11 +16374,7 @@ impl<'de> ::serde::Deserialize<'de> for PlannerUninstallParamsEnvFolder {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`PlannerUninstallParamsEnvMode`
@@ -17908,10 +16466,7 @@ impl ::std::convert::From<PlannerUninstallParamsEnvPacerArgvItem> for ::std::str
 impl ::std::str::FromStr for PlannerUninstallParamsEnvPacerArgvItem {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 4096usize {
-            return Err("longer than 4096 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_8(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerUninstallParamsEnvPacerArgvItem {
@@ -17925,11 +16480,7 @@ impl<'de> ::serde::Deserialize<'de> for PlannerUninstallParamsEnvPacerArgvItem {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`PlannerUninstallParamsEnvPlannerAccount`
@@ -17960,10 +16511,7 @@ impl ::std::convert::From<PlannerUninstallParamsEnvPlannerAccount> for ::std::st
 impl ::std::str::FromStr for PlannerUninstallParamsEnvPlannerAccount {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 256usize {
-            return Err("longer than 256 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_4(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerUninstallParamsEnvPlannerAccount {
@@ -17977,11 +16525,7 @@ impl<'de> ::serde::Deserialize<'de> for PlannerUninstallParamsEnvPlannerAccount 
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`PlannerUninstallParamsEnvPlannerKey`
@@ -18013,13 +16557,7 @@ impl ::std::convert::From<PlannerUninstallParamsEnvPlannerKey> for ::std::string
 impl ::std::str::FromStr for PlannerUninstallParamsEnvPlannerKey {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 256usize {
-            return Err("longer than 256 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_5(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerUninstallParamsEnvPlannerKey {
@@ -18033,11 +16571,7 @@ impl<'de> ::serde::Deserialize<'de> for PlannerUninstallParamsEnvPlannerKey {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`PlannerUninstallParamsEnvSkillFolder`
@@ -18069,13 +16603,7 @@ impl ::std::convert::From<PlannerUninstallParamsEnvSkillFolder> for ::std::strin
 impl ::std::str::FromStr for PlannerUninstallParamsEnvSkillFolder {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 4096usize {
-            return Err("longer than 4096 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_9(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerUninstallParamsEnvSkillFolder {
@@ -18089,11 +16617,7 @@ impl<'de> ::serde::Deserialize<'de> for PlannerUninstallParamsEnvSkillFolder {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`PlannerUninstallParamsHome`
@@ -18125,13 +16649,7 @@ impl ::std::convert::From<PlannerUninstallParamsHome> for ::std::string::String 
 impl ::std::str::FromStr for PlannerUninstallParamsHome {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 4096usize {
-            return Err("longer than 4096 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_9(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerUninstallParamsHome {
@@ -18145,11 +16663,7 @@ impl<'de> ::serde::Deserialize<'de> for PlannerUninstallParamsHome {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`PlannerUninstallParamsPacerHome`
@@ -18181,13 +16695,7 @@ impl ::std::convert::From<PlannerUninstallParamsPacerHome> for ::std::string::St
 impl ::std::str::FromStr for PlannerUninstallParamsPacerHome {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 4096usize {
-            return Err("longer than 4096 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_9(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerUninstallParamsPacerHome {
@@ -18201,11 +16709,7 @@ impl<'de> ::serde::Deserialize<'de> for PlannerUninstallParamsPacerHome {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`PlannerUninstallParamsPriorRange`
@@ -18270,13 +16774,7 @@ impl ::std::convert::From<PlannerUninstallParamsPriorRangeHandle> for ::std::str
 impl ::std::str::FromStr for PlannerUninstallParamsPriorRangeHandle {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 256usize {
-            return Err("longer than 256 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_5(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerUninstallParamsPriorRangeHandle {
@@ -18290,11 +16788,7 @@ impl<'de> ::serde::Deserialize<'de> for PlannerUninstallParamsPriorRangeHandle {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`PlannerUninstallParamsSchema0`
@@ -18615,13 +17109,7 @@ impl ::std::convert::From<PlannerUninstallResultFilesItemPath> for ::std::string
 impl ::std::str::FromStr for PlannerUninstallResultFilesItemPath {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 4096usize {
-            return Err("longer than 4096 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_9(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerUninstallResultFilesItemPath {
@@ -18635,11 +17123,7 @@ impl<'de> ::serde::Deserialize<'de> for PlannerUninstallResultFilesItemPath {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`PlannerUninstallResultSchema0`
@@ -18752,13 +17236,7 @@ impl ::std::convert::From<PlannerUninstallResultTouchedItem> for ::std::string::
 impl ::std::str::FromStr for PlannerUninstallResultTouchedItem {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 4096usize {
-            return Err("longer than 4096 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_9(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerUninstallResultTouchedItem {
@@ -18772,11 +17250,7 @@ impl<'de> ::serde::Deserialize<'de> for PlannerUninstallResultTouchedItem {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`PlannerUninstallResultUninstallReport`
@@ -18872,13 +17346,7 @@ impl ::std::convert::From<PlannerUninstallResultUninstallReportPlanner> for ::st
 impl ::std::str::FromStr for PlannerUninstallResultUninstallReportPlanner {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 256usize {
-            return Err("longer than 256 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_5(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerUninstallResultUninstallReportPlanner {
@@ -18892,11 +17360,7 @@ impl<'de> ::serde::Deserialize<'de> for PlannerUninstallResultUninstallReportPla
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`PlannerUninstallResultUninstallReportRemovedItem`
@@ -18930,13 +17394,7 @@ impl ::std::convert::From<PlannerUninstallResultUninstallReportRemovedItem>
 impl ::std::str::FromStr for PlannerUninstallResultUninstallReportRemovedItem {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 4096usize {
-            return Err("longer than 4096 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_9(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerUninstallResultUninstallReportRemovedItem {
@@ -18950,11 +17408,7 @@ impl<'de> ::serde::Deserialize<'de> for PlannerUninstallResultUninstallReportRem
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`PlannerUninstallResultUninstallReportRestoredItem`
@@ -18988,13 +17442,7 @@ impl ::std::convert::From<PlannerUninstallResultUninstallReportRestoredItem>
 impl ::std::str::FromStr for PlannerUninstallResultUninstallReportRestoredItem {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 4096usize {
-            return Err("longer than 4096 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_9(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerUninstallResultUninstallReportRestoredItem {
@@ -19008,11 +17456,7 @@ impl<'de> ::serde::Deserialize<'de> for PlannerUninstallResultUninstallReportRes
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`PlannerUninstallResultUninstallReportRevertedItem`
@@ -19046,13 +17490,7 @@ impl ::std::convert::From<PlannerUninstallResultUninstallReportRevertedItem>
 impl ::std::str::FromStr for PlannerUninstallResultUninstallReportRevertedItem {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 4096usize {
-            return Err("longer than 4096 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_9(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerUninstallResultUninstallReportRevertedItem {
@@ -19066,11 +17504,7 @@ impl<'de> ::serde::Deserialize<'de> for PlannerUninstallResultUninstallReportRev
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`ResultChunkAck`
@@ -19168,23 +17602,7 @@ impl ::std::convert::From<ResultChunkParamsBase64> for ::std::string::String {
 impl ::std::str::FromStr for ResultChunkParamsBase64 {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 349528usize {
-            return Err("longer than 349528 characters".into());
-        }
-        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
-            ::std::sync::LazyLock::new(|| {
-                ::regress::Regex::new(
-                    "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
-                )
-                .unwrap()
-            });
-        if PATTERN.find(value).is_none() {
-            return Err(
-                "doesn't match pattern \"^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$\""
-                    .into(),
-            );
-        }
-        Ok(Self(value.to_string()))
+        validate_string_7(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for ResultChunkParamsBase64 {
@@ -19198,11 +17616,7 @@ impl<'de> ::serde::Deserialize<'de> for ResultChunkParamsBase64 {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`UsageReadParams`
@@ -19594,10 +18008,7 @@ impl ::std::convert::From<UsageReadParamsProvider> for ::std::string::String {
 impl ::std::str::FromStr for UsageReadParamsProvider {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_0(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for UsageReadParamsProvider {
@@ -19611,11 +18022,7 @@ impl<'de> ::serde::Deserialize<'de> for UsageReadParamsProvider {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`UsageReadParamsResources`
@@ -19698,13 +18105,7 @@ impl ::std::convert::From<UsageReadParamsResourcesClaudeFilesItem> for ::std::st
 impl ::std::str::FromStr for UsageReadParamsResourcesClaudeFilesItem {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 4096usize {
-            return Err("longer than 4096 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_9(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for UsageReadParamsResourcesClaudeFilesItem {
@@ -19718,11 +18119,7 @@ impl<'de> ::serde::Deserialize<'de> for UsageReadParamsResourcesClaudeFilesItem 
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`UsageReadParamsResourcesCodexSessions`
@@ -19754,13 +18151,7 @@ impl ::std::convert::From<UsageReadParamsResourcesCodexSessions> for ::std::stri
 impl ::std::str::FromStr for UsageReadParamsResourcesCodexSessions {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 4096usize {
-            return Err("longer than 4096 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_9(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for UsageReadParamsResourcesCodexSessions {
@@ -19774,11 +18165,7 @@ impl<'de> ::serde::Deserialize<'de> for UsageReadParamsResourcesCodexSessions {
     where
         D: ::serde::Deserializer<'de>,
     {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
+        deserialize_validated_string(deserializer)
     }
 }
 ///`UsageReadParamsUsage`
@@ -22079,4 +20466,185 @@ pub struct UsageReadResultWindowsItem {
     pub used_pct: ::std::option::Option<f64>,
     #[serde(flatten)]
     pub extra: ::serde_json::Map<::std::string::String, ::serde_json::Value>,
+}
+fn validate_string_0<T>(
+    value: &str,
+    construct: impl FnOnce(::std::string::String) -> T,
+) -> ::std::result::Result<T, self::error::ConversionError> {
+    if value.chars().count() < 1usize {
+        return Err("shorter than 1 characters".into());
+    }
+    Ok(construct(value.to_string()))
+}
+fn validate_string_1<T>(
+    value: &str,
+    construct: impl FnOnce(::std::string::String) -> T,
+) -> ::std::result::Result<T, self::error::ConversionError> {
+    if value.chars().count() > 128usize {
+        return Err("longer than 128 characters".into());
+    }
+    Ok(construct(value.to_string()))
+}
+fn validate_string_2<T>(
+    value: &str,
+    construct: impl FnOnce(::std::string::String) -> T,
+) -> ::std::result::Result<T, self::error::ConversionError> {
+    if value.chars().count() > 128usize {
+        return Err("longer than 128 characters".into());
+    }
+    if value.chars().count() < 1usize {
+        return Err("shorter than 1 characters".into());
+    }
+    Ok(construct(value.to_string()))
+}
+fn validate_string_3<T>(
+    value: &str,
+    construct: impl FnOnce(::std::string::String) -> T,
+) -> ::std::result::Result<T, self::error::ConversionError> {
+    if value.chars().count() > 255usize {
+        return Err("longer than 255 characters".into());
+    }
+    Ok(construct(value.to_string()))
+}
+fn validate_string_4<T>(
+    value: &str,
+    construct: impl FnOnce(::std::string::String) -> T,
+) -> ::std::result::Result<T, self::error::ConversionError> {
+    if value.chars().count() > 256usize {
+        return Err("longer than 256 characters".into());
+    }
+    Ok(construct(value.to_string()))
+}
+fn validate_string_5<T>(
+    value: &str,
+    construct: impl FnOnce(::std::string::String) -> T,
+) -> ::std::result::Result<T, self::error::ConversionError> {
+    if value.chars().count() > 256usize {
+        return Err("longer than 256 characters".into());
+    }
+    if value.chars().count() < 1usize {
+        return Err("shorter than 1 characters".into());
+    }
+    Ok(construct(value.to_string()))
+}
+fn validate_string_6<T>(
+    value: &str,
+    construct: impl FnOnce(::std::string::String) -> T,
+) -> ::std::result::Result<T, self::error::ConversionError> {
+    if value.chars().count() > 349528usize {
+        return Err("longer than 349528 characters".into());
+    }
+    static PATTERN: ::std::sync::LazyLock<::regress::Regex> = ::std::sync::LazyLock::new(|| {
+        ::regress::Regex::new(
+            "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/][AQgw]==|[A-Za-z0-9+/]{2}[AEIMQUYcgkosw048]=)?$",
+        )
+        .unwrap()
+    });
+    if PATTERN.find(value).is_none() {
+        return Err(
+            "doesn't match pattern \"^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/][AQgw]==|[A-Za-z0-9+/]{2}[AEIMQUYcgkosw048]=)?$\""
+                .into(),
+        );
+    }
+    Ok(construct(value.to_string()))
+}
+fn validate_string_7<T>(
+    value: &str,
+    construct: impl FnOnce(::std::string::String) -> T,
+) -> ::std::result::Result<T, self::error::ConversionError> {
+    if value.chars().count() > 349528usize {
+        return Err("longer than 349528 characters".into());
+    }
+    static PATTERN: ::std::sync::LazyLock<::regress::Regex> = ::std::sync::LazyLock::new(|| {
+        ::regress::Regex::new("^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$")
+            .unwrap()
+    });
+    if PATTERN.find(value).is_none() {
+        return Err(
+            "doesn't match pattern \"^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$\""
+                .into(),
+        );
+    }
+    Ok(construct(value.to_string()))
+}
+fn validate_string_8<T>(
+    value: &str,
+    construct: impl FnOnce(::std::string::String) -> T,
+) -> ::std::result::Result<T, self::error::ConversionError> {
+    if value.chars().count() > 4096usize {
+        return Err("longer than 4096 characters".into());
+    }
+    Ok(construct(value.to_string()))
+}
+fn validate_string_9<T>(
+    value: &str,
+    construct: impl FnOnce(::std::string::String) -> T,
+) -> ::std::result::Result<T, self::error::ConversionError> {
+    if value.chars().count() > 4096usize {
+        return Err("longer than 4096 characters".into());
+    }
+    if value.chars().count() < 1usize {
+        return Err("shorter than 1 characters".into());
+    }
+    Ok(construct(value.to_string()))
+}
+fn validate_string_10<T>(
+    value: &str,
+    construct: impl FnOnce(::std::string::String) -> T,
+) -> ::std::result::Result<T, self::error::ConversionError> {
+    if value.chars().count() > 64usize {
+        return Err("longer than 64 characters".into());
+    }
+    if value.chars().count() < 1usize {
+        return Err("shorter than 1 characters".into());
+    }
+    Ok(construct(value.to_string()))
+}
+fn validate_string_11<T>(
+    value: &str,
+    construct: impl FnOnce(::std::string::String) -> T,
+) -> ::std::result::Result<T, self::error::ConversionError> {
+    static PATTERN: ::std::sync::LazyLock<::regress::Regex> = ::std::sync::LazyLock::new(|| {
+        ::regress::Regex::new("^(\\^|~|>=)?\\d+(\\.\\d+){0,2}$|^\\*$").unwrap()
+    });
+    if PATTERN.find(value).is_none() {
+        return Err("doesn't match pattern \"^(\\^|~|>=)?\\d+(\\.\\d+){0,2}$|^\\*$\"".into());
+    }
+    Ok(construct(value.to_string()))
+}
+fn validate_string_12<T>(
+    value: &str,
+    construct: impl FnOnce(::std::string::String) -> T,
+) -> ::std::result::Result<T, self::error::ConversionError> {
+    static PATTERN: ::std::sync::LazyLock<::regress::Regex> = ::std::sync::LazyLock::new(|| {
+        ::regress::Regex::new("^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$").unwrap()
+    });
+    if PATTERN.find(value).is_none() {
+        return Err(
+            "doesn't match pattern \"^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$\"".into(),
+        );
+    }
+    Ok(construct(value.to_string()))
+}
+fn validate_string_13<T>(
+    value: &str,
+    construct: impl FnOnce(::std::string::String) -> T,
+) -> ::std::result::Result<T, self::error::ConversionError> {
+    static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+        ::std::sync::LazyLock::new(|| ::regress::Regex::new("^[a-z0-9][a-z0-9-]{1,63}$").unwrap());
+    if PATTERN.find(value).is_none() {
+        return Err("doesn't match pattern \"^[a-z0-9][a-z0-9-]{1,63}$\"".into());
+    }
+    Ok(construct(value.to_string()))
+}
+fn deserialize_validated_string<'de, D, T>(deserializer: D) -> ::std::result::Result<T, D::Error>
+where
+    D: ::serde::Deserializer<'de>,
+    T: ::std::str::FromStr<Err = self::error::ConversionError>,
+{
+    <::std::string::String as ::serde::Deserialize<'de>>::deserialize(deserializer)?
+        .parse()
+        .map_err(|e: self::error::ConversionError| {
+            <D::Error as ::serde::de::Error>::custom(e.to_string())
+        })
 }

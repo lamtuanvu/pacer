@@ -1,5 +1,7 @@
 //! Deterministic Rust protocol generation from the checked-in schema bundles.
 use quote::ToTokens;
+#[path = "gen_validators.rs"]
+mod validators;
 use std::{
     fs,
     io::Write,
@@ -69,6 +71,10 @@ fn generate_area(schema_path: &Path, sessions: bool) -> Result<String, String> {
         .filter(|v| !v.is_empty())
         .ok_or("schema has no protocol version")?
         .to_owned();
+    let plugin = value
+        .get("title")
+        .and_then(|v| v.as_str())
+        .is_some_and(|title| title.starts_with("pacer plugin protocol "));
     let schema: schemars::schema::RootSchema =
         serde_json::from_value(value).map_err(|e| e.to_string())?;
     let mut space =
@@ -76,6 +82,9 @@ fn generate_area(schema_path: &Path, sessions: bool) -> Result<String, String> {
     space.add_root_schema(schema).map_err(|e| e.to_string())?;
     let mut file: syn::File = syn::parse2(space.to_stream()).map_err(|e| e.to_string())?;
     file.items.retain(|item| !redundant_impl(item));
+    if plugin {
+        validators::share_string_validators(&mut file)?;
+    }
     rustfmt(&format!(
         "{HEADER}#![allow(clippy::all, clippy::unwrap_used, clippy::expect_used, missing_docs)]\n\npub const VERSION: &str = {version:?};\n\n{}",
         prettyplease::unparse(&file)
