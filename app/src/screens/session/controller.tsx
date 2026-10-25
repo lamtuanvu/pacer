@@ -28,9 +28,16 @@ export function sessionRow(task:ClientTask):SessionData {
 }
 interface TaskListPosition { scroll: number; cursor?: string; history: ApiTask[] }
 const taskListPositions = new Map<string, TaskListPosition>();
+type TaskDiff = {patch:string;untracked:string[];truncated:boolean};
+export function sessionChangeText(diff:TaskDiff):string {
+ return `${diff.patch}${diff.untracked.length?'\nUntracked files:\n'+diff.untracked.join('\n'):''}${diff.truncated?'\nDiff truncated.':''}`;
+}
+export function conversationChanges(diff:TaskDiff):{diff:string;untracked:string[]} {
+ return {diff:diff.patch,untracked:diff.untracked};
+}
 
 export function Sessions({query}:{query:RouteQuery}) {
- const {state}=useTaskContext(),snapshot=state.snapshot,runner=useActions();
+ const {state}=useTaskContext(),snapshot=state.snapshot;
  const scrollKey = JSON.stringify(query);
  const savedPosition = useRef(taskListPositions.get(scrollKey));
  const savedScroll = useRef(savedPosition.current?.scroll ?? 0);
@@ -68,7 +75,7 @@ export function Sessions({query}:{query:RouteQuery}) {
  const recent=[...new Map([...history,...(snapshot?.tasks.filter(t=>!query.repo||t.repo?.key===query.repo)??[])].map(t=>[t.id,t])).values()]
   .filter(t=>!['running','queued'].includes(t.state)).sort((a,b)=>b.updatedAt-a.updatedAt);
  const resource=(data:SessionData[]|undefined)=>({data,loading:!snapshot});
- return <Page width="full" className="pc-page-body">{snapshot&&<RepoFilter snapshot={snapshot} query={query}/>}<SessionsList runner={runner} running={resource(snapshot?running(snapshot,{repo:query.repo||null}).map(sessionRow):undefined)} recent={{data:recent.map(sessionRow),loading:page.loading&&!history.length,error:page.error?'Could not load task history.':undefined}} query={withQuery('',query)}/>
+ return <Page width="full" className="pc-page-body">{snapshot&&<RepoFilter snapshot={snapshot} query={query}/>}<SessionsList running={resource(snapshot?running(snapshot,{repo:query.repo||null}).map(sessionRow):undefined)} recent={{data:recent.map(sessionRow),loading:page.loading&&!history.length,error:page.error?'Could not load task history.':undefined}} query={withQuery('',query)}/>
  {(page.data?.next||page.error)&&<Cluster>
   {page.data?.next&&<Button busy={page.loading} onClick={()=>setCursor(page.data!.next!)}>Load older tasks</Button>}
   {page.error&&<Button onClick={page.reload}>Try again</Button>}
@@ -83,13 +90,13 @@ export function sessionDetail(task:TaskDetail):SessionData {
  ] as const).filter((item):item is readonly [typeof item[0],string]=>!!item[1]).map(([label,text])=>({label,text})),report:task.summary,
  brief:{data:Object.entries(task.brief).filter(([,v])=>v!=null&&v!=='').map(([k,v])=>`${k}: ${typeof v==='string'?v:JSON.stringify(v)}`).join('\n\n')},doneWhen:{data:task.acceptance.cmd},timeline:{data:timelineCopy(task.timeline).map(e=>({...e,at:clock(e.at,Date.now()/1000)}))}};
 }
-export function SessionRoute({id, embedded = false}:{id:string; embedded?:boolean}) {
+export function SessionRoute({id, embedded = false, view}:{id:string; embedded?:boolean; view?:'terminal'|'changes'|'brief'}) {
  const {state,api}=useTaskContext(),runner=useActions();
  const dialogs=useDialogs();
  const [shortcutError,setShortcutError]=useState('');
  const [takeoverBusy,setTakeoverBusy]=useState(false),[takeoverStarting,setTakeoverStarting]=useState(false),[takeoverError,setTakeoverError]=useState(''),[takeRequested,setTakeRequested]=useState(false);
  const takeoverState=useRef<TakeoverState>(),takeoverAbort=useRef<AbortController>();
- const task=useQuery<TaskDetail>('task.get',{id}),session=useQuery<SessionInfo>('task.session',{id}),diff=useQuery<{diff:string;untracked:string[];truncated:boolean}>('task.diff',{id});
+ const task=useQuery<TaskDetail>('task.get',{id}),session=useQuery<SessionInfo>('task.session',{id}),diff=useQuery<TaskDiff>('task.diff',{id});
  const takeOver=async(initial?:TakeoverState)=>{
   if(takeoverAbort.current)return;
   const abort=new AbortController();takeoverAbort.current=abort;
@@ -131,10 +138,10 @@ export function SessionRoute({id, embedded = false}:{id:string; embedded?:boolea
  const stop=active?(actions.find(a=>a.op==='task.stop')??(task.data?{label:'Stop',op:'task.stop',params:{id,expect_rev:task.data.rev},style:'danger' as const,confirm:'Stop this session and its executor?'}:undefined)):undefined;
  const data=task.data?{...sessionDetail(task.data),session:session.data,sessionLoading:session.loading,sessionError:message(session.error),stop,
  retryOptions:task.data.retryOptions.map(option=>({id:option.id,agent:markAgent(option.id),label:option.id,available:option.state==='ready',reason:reasonCopy(option.reason),action:actions.find(a=>a.op==='task.retry'&&a.params.executor===option.id)??{label:active?'Stop and retry':'Retry',op:'task.retry',params:{id,executor:option.id,expect_rev:task.data!.rev},confirm:active?`Stop and retry on ${option.id}?`:undefined}})),
- changes:{data:diff.data?`${diff.data.diff}${diff.data.untracked.length?'\nUntracked files:\n'+diff.data.untracked.join('\n'):''}${diff.data.truncated?'\nDiff truncated.':''}`:undefined,loading:diff.loading,error:message(diff.error)}}:undefined;
+ changes:{data:diff.data?sessionChangeText(diff.data):undefined,loading:diff.loading,error:message(diff.error)}}:undefined;
  const handler=useRef(()=>{});handler.current=()=>{if(stop)void invoke(stop).catch(error=>setShortcutError(message(error)??'Action failed'));};
  useEffect(()=>keys.register({keys:'s',label:'Stop session',scope:'sessions',run:()=>handler.current()}),[]);
- if(task.data?.interactionMode==='conversation')return <Conversation key={id} task={task.data} session={session.data} diff={diff.data} onReload={()=>{task.reload();session.reload();}}/>;
- return <>{dialogs.dialog}{shortcutError&&<p role="status">{shortcutError}</p>}<Session embedded={embedded} key={id} onTakeSent={()=>setTakeRequested(false)} onTakeover={()=>void takeOver()} takeoverBusy={takeoverBusy} takeoverStarting={takeoverStarting} takeoverError={takeoverError} takeRequested={takeRequested} data={data} loading={task.loading} error={message(task.error)} onAction={invoke} onAttach={async(_,target)=>{const key=`attach:${id}:${target}`;const outcome=await runner.run(key,{label:'Open viewer',op:'task.attach',params:{id,target}});if(outcome.status==='error'||outcome.status==='handled')throw new Error(outcome.message);return runner.result(key) as {opened:boolean;command?:string};}} onReload={task.reload}/></>;
+ if(task.data?.interactionMode==='conversation' && (!view || view==='terminal'))return <Conversation key={id} task={task.data} session={session.data} diff={diff.data?conversationChanges(diff.data):undefined} onReload={()=>{task.reload();session.reload();}}/>;
+ return <>{dialogs.dialog}{shortcutError&&<p role="status">{shortcutError}</p>}<Session embedded={embedded} view={view} key={id} onTakeSent={()=>setTakeRequested(false)} onTakeover={()=>void takeOver()} takeoverBusy={takeoverBusy} takeoverStarting={takeoverStarting} takeoverError={takeoverError} takeRequested={takeRequested} data={data} loading={task.loading} error={message(task.error)} onAction={invoke} onAttach={async(_,target)=>{const key=`attach:${id}:${target}`;const outcome=await runner.run(key,{label:'Open viewer',op:'task.attach',params:{id,target}});if(outcome.status==='error'||outcome.status==='handled')throw new Error(outcome.message);return runner.result(key) as {opened:boolean;command?:string};}} onReload={task.reload}/></>;
 }
 const message=(error:unknown)=>error instanceof Error?error.message:error?String(error):undefined;

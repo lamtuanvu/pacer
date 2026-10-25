@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 import { renderToString } from 'preact-render-to-string';
 import { Session, type SessionData } from '../app/src/screens/session/Session';
 import { SessionsList } from '../app/src/screens/session/SessionsList';
+import { conversationChanges, sessionChangeText } from '../app/src/screens/session/controller';
 import fixture from './fixtures/ui/session.json';
 
 // Extract text for assertions without decoding entities into < or >.
@@ -27,15 +28,25 @@ test('Session board preserves layout, copy, service actions and metadata',()=>{c
  expect(html.indexOf('Activity')).toBeLessThan(html.indexOf('Watch it elsewhere'));expect(html).toContain('aria-label="Codex"');expect(html).not.toContain('pc-btn--primary');});
 test('Orca host offers Open in Orca and no terminal control',()=>{const html=renderToString(<Session data={{...data,session:{...data.session!,host:'orca'}}}/>);expect(html).toContain('This session runs in Orca');expect(html).toContain('Open in Orca');expect(html).not.toContain('Take control');});
 test('none host renders escaped plain log; tabs render their resources',()=>{expect(renderToString(<Session data={{...data,session:{...data.session!,host:'none'},log:{data:'<script>bad</script>'}}}/>)).toContain('&lt;script>');expect(renderToString(<Session data={data} initialTab="brief"/>)).toContain('Split the store;');expect(renderToString(<Session data={data} initialTab="changes"/>)).toContain('diff --git');});
+test('task Changes uses the v3 patch field and embedded views do not point to hidden tabs',()=>{
+ const changes=sessionChangeText({patch:'diff --git a/example b/example',untracked:['new.txt'],truncated:false});
+ expect(changes).toContain('diff --git a/example b/example');expect(changes).toContain('new.txt');expect(changes).not.toContain('undefined');
+ expect(conversationChanges({patch:'diff --git a/example b/example',untracked:['new.txt'],truncated:false})).toEqual({diff:'diff --git a/example b/example',untracked:['new.txt']});
+ const html=renderToString(<Session embedded view="changes" data={{...data,changes:{data:changes}}}/>);
+ expect(html).toContain('diff --git a/example b/example');expect(html).not.toContain('aria-labelledby="session-t-0415-changes-tab"');expect(html).not.toContain('Watch it elsewhere');
+});
 test('loading, errors and empty resources are explicit',()=>{expect(renderToString(<Session loading/>)).toContain('Loading session');expect(renderToString(<Session error="Offline"/>)).toContain('Offline');expect(renderToString(<Session/>)).toContain('Session not found');const html=renderToString(<Session data={{...data,timeline:{error:'Timeline unavailable'},doneWhen:{},brief:{loading:true}}} initialTab="brief"/>);expect(html).toContain('Timeline unavailable');expect(html).toContain('No done-when command');expect(html).toContain('Loading brief');});
-test('Sessions list opens running tasks for control and shows recently ended results',()=>{const html=renderToString(<SessionsList running={{data:[data]}} recent={{data:[{...data,id:'t-ended',state:'done'}]}}/>);expect(html).toContain('Running');expect(html).toContain('Completed');expect(html).toContain('aria-label="Open session ');expect(html).toContain('View result');expect(html).toContain('#/tasks/t-ended');expect(renderToString(<SessionsList running={{loading:true}} recent={{error:'Unavailable'}}/>)).toContain('Unavailable');expect(renderToString(<SessionsList/>)).toContain('No running sessions');});
+test('Sessions list opens tasks with one row target',()=>{const html=renderToString(<SessionsList running={{data:[data]}} recent={{data:[{...data,id:'t-ended',state:'done'}]}}/>);expect(html).toContain('Running');expect(html).toContain('Completed');expect(html).toContain('href="#/tasks/t-0415"');expect(html).not.toContain('View result');expect(html).toContain('#/tasks/t-ended');expect(renderToString(<SessionsList running={{loading:true}} recent={{error:'Unavailable'}}/>)).toContain('Unavailable');expect(renderToString(<SessionsList/>)).toContain('No running sessions');});
 
 test('read-only terminal exposes size, accessible status and screen reader toggle; control capability gates take',async()=>{
- const { TerminalView }=await import('../app/src/term/term');
+ const { TerminalView, TerminalControls }=await import('../app/src/term/term');
  const html=renderToString(<TerminalView id="t-0415" cols={120} rows={36} control={false}/>);
  expect(html).toContain('Nothing you type reaches the agent.');expect(html).toContain('120×36');expect(html).toContain('Screen reader');expect(html).not.toContain('Take control');
- expect(renderToString(<TerminalView id="t-0415" control/>)).toContain('Take control');
+ expect(renderToString(<TerminalView id="t-0415" control/>)).not.toContain('Take control');
  expect(renderToString(<TerminalView id="t-0415" control live={false}/>)).not.toContain('Take control');
+ const state={status:'connecting' as const,you:false,controller:null,cols:120,rows:36,viewers:1};
+ expect(renderToString(<TerminalControls control live state={state} onControl={()=>{}}/>)).not.toContain('Take control');
+ expect(renderToString(<TerminalControls control live state={{...state,status:'live'}} onControl={()=>{}}/>)).toContain('Take control');
 });
 
 test('unavailable attach targets, retry states and resource empties use service words',()=>{
@@ -164,14 +175,12 @@ test('running headless takeover occupies its own area outside the explanatory se
  expect(html).toContain('Stop and retry…');
 });
 
-test('ended row Replay link covers its row and preserves route query and accessible title', async () => {
+test('ended row link covers its row and preserves route query and accessible title', async () => {
  const html=renderToString(<SessionsList recent={{data:[{...data,id:'ended task',state:'done',title:'Finished task'}]}} query="repo=project"/>);
- expect(html).toContain('pc-row-destination');
- expect(html).toContain('aria-label="View result Finished task"');
+ expect(html).toContain('pc-task-list-row');
+ expect(html).toContain('title="Finished task"');
  expect(html).toContain('href="#/tasks/ended%20task?repo=project"');
- expect(html).toContain('>View result</a>');
- const css=await Bun.file(new URL('../app/src/ds/components.css',import.meta.url)).text();
- expect(css).toMatch(/\.pc-row-destination::after\s*\{[^}]*position:absolute;inset:0/);
+ expect(html).not.toContain('View result');
 });
 
 test('session adapters preserve review outcome and suppression fields', async () => {

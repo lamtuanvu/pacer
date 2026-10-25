@@ -2,6 +2,13 @@ import {expect, test} from 'bun:test';
 import {chromium} from 'playwright-core';
 import {renderToString} from 'preact-render-to-string';
 import {SessionsList} from '../app/src/screens/session/SessionsList';
+import {TaskNavigator} from '../app/src/screens/session/TaskNavigator';
+import {TaskDetailFrame} from '../app/src/screens/TaskResult';
+import {Session} from '../app/src/screens/session/Session';
+import type {TaskDetail} from '../src/core/task-detail';
+import type {SessionData} from '../app/src/screens/session/types';
+import detailFixture from './fixtures/ui/task-get.json';
+import sessionFixture from './fixtures/ui/session.json';
 import {NarrowContext} from '../app/src/ds/Density';
 import {Page} from '../app/src/ds/Page';
 import {sessionRow} from '../app/src/screens/session/controller';
@@ -15,12 +22,25 @@ import type {ClientTask} from '../src/view-model/snapshot';
 
 const task = {id:'ended',title:'Implement ticket SFOS-488…',fullTitle:'Implement ticket SFOS-488 (ZDD-A3) in the infrastructure repository',goal:'Implement ticket',state:'done',executor:'codex',backend:null,worktree:null,updatedAt:Math.floor(Date.now()/1000),repo:{label:'terastor/storfabricos-infra'}} as ClientTask;
 
-test('Tasks retains the complete display title in text, tooltip and destination name',()=>{
+test('Tasks rows open the task directly without repeated control actions',()=>{
  const html=renderToString(<SessionsList recent={{data:[sessionRow(task)]}}/>);
  expect(html).toContain(`>${task.fullTitle}</strong>`);
  expect(html).toContain(`title="${task.fullTitle}"`);
- expect(html).toContain(`aria-label="View result ${task.fullTitle}"`);
+ expect(html).toContain(`href="#/tasks/ended"`);
+ expect(html).not.toContain('Take over');
+ expect(html).not.toContain('View result');
  expect(sessionRow({...task,fullTitle:undefined}).title).toBe(task.title);
+});
+
+test('Task navigator identifies the selected task and preserves the repo filter',()=>{
+ const selected=sessionRow({...task,id:'running-task',state:'running',fullTitle:'Run a long task'});
+ const html=renderToString(<TaskNavigator selectedId={selected.id} selectedTask={selected}
+  running={[selected]} recent={[sessionRow(task)]} query='?repo=lamtuanvu%2Fpacer'/>);
+ expect(html).toContain('aria-label="Task navigator"');
+ expect(html).toContain('aria-current="page"');
+ expect(html).toContain('href="#/tasks/running-task?repo=lamtuanvu%2Fpacer"');
+ expect(html).toContain('href="#/tasks/ended?repo=lamtuanvu%2Fpacer"');
+ expect(html).not.toContain('All tasks');
 });
 
 const browserPath=process.env.PACER_TEST_BROWSER;
@@ -46,7 +66,7 @@ test.skipIf(!browserPath)('Tasks route follows Overview full-width gutters and c
   }
  }finally{await browser.close();}
 });
-test.skipIf(!browserPath)('Tasks bounds wide rows and keeps titles, metadata and actions inside narrow viewports',async()=>{
+test.skipIf(!browserPath)('Tasks bounds whole-row links and metadata inside narrow viewports',async()=>{
  const longTitle='Implement ticket SFOS-488 (ZDD-A3) across the deployment controller, rollback checks, migration report, and all affected infrastructure integration tests';
  const longRepo='terastor/storfabricos-infrastructure-deployment-controller-and-validation';
  const runningTask=sessionRow({...task,id:'running-long',state:'running',fullTitle:longTitle,repo:{...task.repo!,label:longRepo}});
@@ -62,30 +82,13 @@ test.skipIf(!browserPath)('Tasks bounds wide rows and keeps titles, metadata and
    const geometry=await page.locator('.pc-sessions-list').evaluate(n=>({width:n.getBoundingClientRect().width,overflow:document.documentElement.scrollWidth>innerWidth}));
    if(width>560)expect(geometry.width).toBeGreaterThan(width-150);
    expect(geometry.overflow).toBe(false);
-   const boxes=await page.locator('.pc-list-row__content,.pc-list-row__meta,.pc-list-row__actions').evaluateAll(nodes=>nodes.map(n=>({left:n.getBoundingClientRect().left,right:n.getBoundingClientRect().right,width:n.getBoundingClientRect().width})));
+   const boxes=await page.locator('.pc-task-list-row,.pc-list-row__content,.pc-list-row__meta').evaluateAll(nodes=>nodes.map(n=>({left:n.getBoundingClientRect().left,right:n.getBoundingClientRect().right,width:n.getBoundingClientRect().width})));
    for(const box of boxes){expect(box.left).toBeGreaterThanOrEqual(0);expect(box.right).toBeLessThanOrEqual(width);expect(box.width).toBeGreaterThan(0);}
    expect(await page.locator('.pc-sessions-rows .pc-list-row__content strong').first().getAttribute('title')).toBe(longTitle);
    if(width<1990)expect(await page.locator('.pc-sessions-rows .pc-list-row__content strong').first().evaluate(n=>n.scrollWidth>n.clientWidth)).toBe(true);
    expect(await page.locator('.pc-sessions-repo').first().getAttribute('title')).toBe(longRepo);
-   if(width>560){
-    const columns=await page.locator('.pc-sessions-rows .pc-list-row').evaluateAll(rows=>rows.map(row=>({
-     meta:row.querySelector('.pc-list-row__meta')!.getBoundingClientRect().left,
-     actions:row.querySelector('.pc-list-row__actions')!.getBoundingClientRect().left,
-     rowHeight:row.getBoundingClientRect().height,
-     contentTop:row.querySelector('.pc-list-row__content')!.getBoundingClientRect().top,
-     metaTop:row.querySelector('.pc-list-row__meta')!.getBoundingClientRect().top,
-     actionsTop:row.querySelector('.pc-list-row__actions')!.getBoundingClientRect().top,
-    })));
-    for(const column of columns.slice(1)){
-     expect(Math.abs(columns[0]!.meta-column.meta)).toBeLessThan(1);
-     expect(Math.abs(columns[0]!.actions-column.actions)).toBeLessThan(1);
-    }
-    for(const column of columns){
-     expect(column.rowHeight).toBeLessThan(70);
-     expect(Math.abs(column.contentTop-column.metaTop)).toBeLessThan(20);
-     expect(Math.abs(column.contentTop-column.actionsTop)).toBeLessThan(20);
-    }
-   }
+   expect(await page.locator('.pc-task-list-row').count()).toBe(3);
+   expect(await page.locator('.pc-list-row__actions').count()).toBe(0);
   }
  }finally{await browser.close();}
 });
@@ -119,6 +122,31 @@ test.skipIf(!browserPath)('Start work truncates long recent titles with an ellip
    if(width>560)expect(await page.locator('.pc-start').evaluate(n=>n.getBoundingClientRect().width)).toBeGreaterThan(width-150);
    const rail=await page.locator(width<560?'.pc-bottom-bar':'.pc-rail').evaluate(n=>n.getBoundingClientRect().left);
    expect(rail).toBeGreaterThanOrEqual(0);
+  }
+ }finally{await browser.close();}
+});
+
+test.skipIf(!browserPath)('opened task gives the live session the main pane and retains Tasks navigation',async()=>{
+ const css=(await Promise.all(['app/src/ds/tokens.css','app/src/ds/components.css','app/src/styles.css','app/src/screens/session/session.css'].map(f=>Bun.file(f).text()))).join('\n');
+ const browser=await chromium.launch({executablePath:browserPath!,headless:true});
+ try{
+  const page=await browser.newPage();
+  for(const width of [1440,375])for(const theme of ['light','dark']){
+   await page.setViewportSize({width,height:900});
+   const fixture=(await import('./fixtures/ui/snapshot.json')).default;
+   const state={...initialState(),connected:true,features:{readModel:true,ops:new Set<string>()},snapshot:fixture};
+   const runningTask={...detailFixture,id:sessionFixture.id,title:sessionFixture.goal,goal:sessionFixture.goal,state:'running',endedAt:undefined,repo:{...detailFixture.repo,label:sessionFixture.repo}} as unknown as TaskDetail;
+   const runningSession={...sessionFixture,phase:undefined,stop:undefined} as SessionData;
+   const content=<TaskDetailFrame task={runningTask} query={{repo:null,scope:null}} tab="session" onTab={()=>{}} navigator={<TaskNavigator selectedId={runningTask.id} selectedTask={runningSession} running={[runningSession]} recent={[]}/> }><Session embedded view="terminal" data={runningSession}/></TaskDetailFrame>;
+   const html=renderToString(<TaskContext.Provider value={{state:state as unknown as StoreState,api:{} as BrowserApi}}><Layout route={{name:'sessions',id:'t-0412',query:{repo:null,scope:null}}} state={state as unknown as StoreState} title="Task">{content}</Layout></TaskContext.Provider>);
+   await page.setContent(`<html data-theme="${theme}"><style>${css}</style>${html}</html>`);
+   if(process.env.PACER_LAYOUT_EVIDENCE)await page.screenshot({path:`${process.env.PACER_LAYOUT_EVIDENCE}/task-detail-${width}-${theme}.png`});
+   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+   const nav=page.locator('.pc-task-nav');
+   expect(await nav.isVisible()).toBe(width>767);
+   const frame=await page.locator('.pc-session-layout').boundingBox();
+   expect(frame).not.toBeNull();
+   expect(frame!.width).toBeGreaterThan(width>767?width*0.65:width*0.8);
   }
  }finally{await browser.close();}
 });

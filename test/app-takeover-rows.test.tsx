@@ -9,14 +9,14 @@ import fixture from './fixtures/ui/session.json';
 import type {ClientSnapshot} from '../src/view-model/snapshot';
 import type {SessionData} from '../app/src/screens/session/types';
 
-test('both running lists dispatch takeover and navigate through the row button',async()=>{
- for(const overview of [true,false]){
+test('Overview takeover remains available while Tasks uses direct row navigation',async()=>{
+ for(const overview of [true]){
   const calls:unknown[]=[],routes:string[]=[],clicks:(()=>void)[]=[];
   const runner=createActionRunner({call:async<T,>(op:string,params:unknown)=>{calls.push([op,params]);return {state:'driving'} as T;},navigate:hash=>routes.push(hash),refetch:()=>{},waitFor:async()=>true});
   const previous=options.vnode;
   options.vnode=node=>{previous?.(node);if(node.type==='button'&&(node.props as any).children==='Take over')clicks.push((node.props as any).onClick);};
   let html:string;
-  try{html=renderToString(overview?<OverviewView snapshot={snapshot as unknown as ClientSnapshot} query={{repo:null,scope:null}} now={snapshot.at} runner={runner} activity={[]} ops={new Set()}/>:<SessionsList running={{data:[fixture as SessionData,{...fixture,id:'queued',state:'queued'} as SessionData]}} recent={{data:[{...fixture,id:'ended',state:'done'} as SessionData]}} runner={runner}/>);}
+  try{html=renderToString(<OverviewView snapshot={snapshot as unknown as ClientSnapshot} query={{repo:null,scope:null}} now={snapshot.at} runner={runner} activity={[]} ops={new Set()}/>);}
   finally{options.vnode=previous;}
   expect(clicks).toHaveLength(overview?snapshot.tasks.filter(t=>t.state==='running').length:1);
   expect(html!).toContain('pc-btn--secondary');
@@ -24,4 +24,7 @@ test('both running lists dispatch takeover and navigate through the row button',
   expect(calls).toEqual([['task.takeover',{id:overview?snapshot.tasks.find(t=>t.state==='running')!.id:'t-0415'}]]);
   expect(routes).toEqual([overview?`#/tasks/${snapshot.tasks.find(t=>t.state==='running')!.id}?takeover=driving`:'#/tasks/t-0415?takeover=driving']);
  }
+ const list=renderToString(<SessionsList running={{data:[fixture as SessionData]}}/>);
+ expect(list).toContain('href="#/tasks/t-0415"');
+ expect(list).not.toContain('Take over');
 });

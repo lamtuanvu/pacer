@@ -1,22 +1,24 @@
 import type { ComponentChildren } from "preact";
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useRef, useState } from "preact/hooks";
 import type { TaskDetail } from "../../../src/core/task-detail";
+import type { ApiTask } from "../../../src/api/read-model/types";
 import { executorLabel, taskOutcome, taskStatus } from "../../../src/view-model/words";
+import { running } from "../../../src/view-model/selectors";
 import { clock } from "../../../src/view-model/time";
-import { Button, ButtonLink } from "../ds/Button";
+import { Button, TextAction } from "../ds/Button";
 import { Disclosure, Field, TextArea } from "../ds/Controls";
 import { EmptyState, LoadingState, Tabs } from "../ds/Patterns";
 import { SectionHeading } from "../ds/SectionHeading";
-import { StatusPill } from "../ds/StatusPill";
 import { useActions } from "../data/action-context";
 import { withQuery, type RouteQuery } from "../router";
-import { SessionRoute } from "./session/controller";
+import { SessionRoute, sessionDetail, sessionRow } from "./session/controller";
+import { TaskNavigator } from "./session/TaskNavigator";
 import { useQuery, useTaskContext } from "./task-shared";
 import { VerdictPanel } from "./review/VerdictPanel";
 import { parseDiff } from "../model/diff";
 import { Diff } from "./review/Diff";
 import type { Verdict } from "./review/model";
-import { Page, PageHeader, PageTitle, Stack } from "../ds/Page";
+import { Page, PageTitle, Stack } from "../ds/Page";
 
 export function resultSummary(task: TaskDetail): string {
   if (task.state === "queued") return "Waiting to start. Follow this task in Session.";
@@ -107,33 +109,36 @@ function TaskResultLoaded({ task, reload }: { task: TaskDetail; reload: () => vo
 }
 export function TaskHeading({ task }: { task: TaskDetail }) {
   const title = task.title?.trim() || task.fullTitle?.trim() || task.goal;
-  return <PageHeader heading={<PageTitle title={title}>{title}</PageTitle>} status={<StatusPill status={taskStatus(task)}/>} metadata={<>{task.repo.label} · {executorLabel(task.executor)}{task.endedAt ? ` · finished ${clock(task.endedAt, Date.now() / 1000)}` : ""}</>}/>;
+  const status = taskStatus(task);
+  return <header className="pc-task-workspace__head"><div className="pc-task-workspace__identity"><PageTitle title={title}>{title}</PageTitle><div className="pc-task-workspace__meta"><span title={task.repo.label}>{task.repo.label}</span><span aria-hidden="true">·</span>{executorLabel(task.executor)}{task.endedAt && <><span aria-hidden="true">·</span>finished {clock(task.endedAt, Date.now() / 1000)}</>}</div></div><span className={`pc-task-workspace__status pc-task-workspace__status--${status.tone}`}>{status.label}</span></header>;
 }
 
-export function TaskDetailFrame({ task, query, tab, onTab, children }: {
-  task: TaskDetail; query: RouteQuery; tab: string; onTab: (value: string) => void; children: ComponentChildren;
+export function TaskDetailFrame({ task, query, tab, onTab, children, navigator }: {
+  task: TaskDetail; query: RouteQuery; tab: string; onTab: (value: string) => void; children: ComponentChildren; navigator?: ComponentChildren;
 }) {
   const id = `task-${task.id}`;
-  return <Page width="full">
-    <div className="pc-detail-navigation">
-      <nav aria-label="Task navigation"><ButtonLink href={withQuery("#/tasks", query)} variant="quiet" size="sm"><span aria-hidden="true">‹</span> Tasks</ButtonLink></nav>
+  return <div className="pc-task-workspace">{navigator}<div className="pc-task-workspace__main">
+    <div className="pc-task-workspace__navigation">
+      <nav aria-label="Task navigation" className="pc-task-workspace__breadcrumb"><TextAction href={withQuery("#/tasks", query)}>Tasks</TextAction><span aria-hidden="true">/</span><span>Task</span></nav>
       <TaskHeading task={task}/>
-      <Tabs label="Task views" id={id} value={tab} options={[{value:"summary",label:"Summary"},{value:"session",label:"Session"}]} onChange={onTab}/>
+      <div className="pc-task-workspace__tabs"><Tabs label="Task views" id={id} value={tab} options={[{value:"session",label:"Session"},{value:"changes",label:"Changes"},{value:"brief",label:"Brief"},{value:"result",label:"Result"}]} onChange={onTab}/></div>
     </div>
-    <div role="tabpanel" id={`${id}-${tab}-panel`} aria-labelledby={`${id}-${tab}-tab`} tabIndex={0} className="pc-detail-panel">{children}</div>
-  </Page>;
+    <div role="tabpanel" id={`${id}-${tab}-panel`} aria-labelledby={`${id}-${tab}-tab`} tabIndex={0} className="pc-task-workspace__panel">{children}</div>
+  </div></div>;
 }
 
 export function TaskRoute({ id, query }: { id: string; query: RouteQuery }) {
-  const [chosenTab, setTab] = useState<string>();
+  const [selection, setSelection] = useState<{id:string;tab:string}>();
+  const { state } = useTaskContext();
   const task = useQuery<TaskDetail>("task.get", {id});
-  useEffect(() => {
-    if (task.data && chosenTab === undefined) setTab(["queued", "running"].includes(task.data.state) ? "session" : "summary");
-  }, [task.data, chosenTab]);
+  const history = useQuery<{tasks:ApiTask[]}>("task.list",{all:true,limit:20,...(query.repo?{repo:query.repo}:{})});
   if (!task.data) return task.error ? <EmptyState title="Could not load task" description="Try refreshing the page."/> : <LoadingState label="Loading task…"/>;
-  if (task.data.interactionMode === "conversation") return <SessionRoute id={id}/>;
-  const tab = chosenTab ?? (["queued", "running"].includes(task.data.state) ? "session" : "summary");
-  return <TaskDetailFrame task={task.data} query={query} tab={tab} onTab={setTab}>
-    {tab === "session" ? <SessionRoute id={id} embedded/> : <TaskResultLoaded key={id} task={task.data} reload={task.reload}/>}
+  const rows=[...new Map([...(history.data?.tasks??[]),...(state.snapshot?.tasks??[])].map(item=>[item.id,item])).values()].filter(item=>!query.repo||item.repo?.key===query.repo);
+  const currentRunning=state.snapshot?running(state.snapshot,{repo:query.repo||null}).map(sessionRow):[];
+  const recent=rows.filter(item=>!['running','queued'].includes(item.state)).sort((a,b)=>b.updatedAt-a.updatedAt).map(sessionRow);
+  const navigator=<TaskNavigator selectedId={id} selectedTask={sessionDetail(task.data)} running={currentRunning} recent={recent} query={withQuery('',query)}/>;
+  const tab = selection?.id === id ? selection.tab : (["queued", "running"].includes(task.data.state) ? "session" : "result");
+  return <TaskDetailFrame task={task.data} query={query} tab={tab} onTab={value=>setSelection({id,tab:value})} navigator={navigator}>
+    {tab === "result" ? <TaskResultLoaded key={id} task={task.data} reload={task.reload}/> : <SessionRoute id={id} embedded view={tab === "changes" ? "changes" : tab === "brief" ? "brief" : "terminal"}/>}
   </TaskDetailFrame>;
 }
