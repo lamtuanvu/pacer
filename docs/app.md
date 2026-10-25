@@ -56,6 +56,10 @@ command under Sign out; run it in a terminal.
 Headless runs in the Session view show “This run is headless — Take over to work
 in it live” with a prominent **Take over** button. Watch-elsewhere options and the
 attach command appear only for live or recorded terminal sessions.
+Opening a running task in the app takes control of its live Pacer terminal when
+no other viewer holds control. If another viewer is driving, the app opens in
+watching mode and offers **Take control** with a confirmation. Releasing control
+keeps the current view read-only until you take control again.
 
 Account sign-in still happens in a terminal: the app shows the command to copy
 and refreshes the sign-in state. Setup explains the login service inline; **Install service** confirms that consent. Connecting an agent, or changing the planner with integrations, shows

@@ -6,7 +6,7 @@ import {SessionClient,type SessionSocket} from '../app/src/term/client';
 test('starting takeover polls at 500 ms until ready, then requests control',async()=>{
  const events:string[]=[];let polls=0;
  const socket:SessionSocket={readyState:1,binaryType:'arraybuffer',onopen:null,onclose:null,onerror:null,onmessage:null,send:data=>{if(typeof data==='string'&&JSON.parse(data).type==='take')events.push('take');},close:()=>{}};
- const client=new SessionClient({url:'ws://test',label:'app',cols:120,rows:36,control:true,socket:()=>socket});
+ const client=new SessionClient({url:'ws://test',label:'app',cols:120,rows:36,control:true,autoControl:false,socket:()=>socket});
  client.connect();socket.onopen?.();socket.onmessage?.({data:JSON.stringify({type:'snapshot',outputOffset:0,cols:120,rows:36,scrollbackAnsi:'',screenAnsi:'',controller:null,viewers:1})});
  await takeoverSession({id:'t1',call:async<T>(op:string,params:unknown)=>{
   expect(params).toEqual({id:'t1'});events.push(op);
