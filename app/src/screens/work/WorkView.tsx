@@ -1,4 +1,4 @@
-import {useEffect,useState} from "preact/hooks";
+import {useEffect,useRef,useState} from "preact/hooks";
 import {Button} from "../../ds/Button";
 import {Disclosure,Field,TextArea} from "../../ds/Controls";
 import {EmptyState,LoadingState,TextRow} from "../../ds/Patterns";
@@ -17,6 +17,8 @@ export const workActionRequestId=(taskId:string,rev:number,kind:"retry"|"answer"
 const eventLabel=(kind:string)=>({"work.created":"Work created","task.changed":"Task updated","dispatch.reserved":"Executor selected","work.reviewed":"Review recorded","dependencies.changed":"Dependencies changed"} as Record<string,string>)[kind]??kind.replaceAll("."," ").replaceAll("_"," ");
 function WorkNode({node,nodes,onChanged}:{node:Node;nodes:Node[];onChanged:()=>void}){
  const action=useAction(),[expanded,setExpanded]=useState(false),[response,setResponse]=useState("");
+ const detailsRef=useRef<HTMLButtonElement>(null);
+ useEffect(()=>{if(action.message&&document.activeElement===document.body)detailsRef.current?.focus();},[action.message,node.review?.accepted,node.state]);
  const children=nodes.filter(n=>n.parentId===node.taskId);
  const settled=["done","partial","failed","limit","stopped","needs_input"].includes(node.state);
  const canStop=["queued","running","needs_input"].includes(node.state);
@@ -29,7 +31,7 @@ function WorkNode({node,nodes,onChanged}:{node:Node;nodes:Node[];onChanged:()=>v
   <strong>{node.state==="archived"?node.title:<TaskLink id={node.taskId}>{node.title}</TaskLink>}</strong>
   <p className="muted">{taskStatus(node).label}{node.review?node.review.accepted?" · Accepted":" · Rejected":""}{node.executor?` · ${executorLabel(node.executor)}`:""}{node.model?` · requested ${node.model}`:" · requested model unknown"}{node.actualModel?` · observed ${node.actualModel}`:""}</p>
   {node.dependencies.length>0&&<p className="muted">Depends on {node.dependencies.map((id,i)=><span key={id}>{i>0?", ":""}<TaskLink id={id}>{id}</TaskLink></span>)}</p>}
- </div><div className="pc-list-row__actions"><Button size="sm" variant="quiet" aria-expanded={expanded} onClick={()=>setExpanded(v=>!v)}>{expanded?"Hide details":"Details"}</Button></div></div>
+ </div><div className="pc-list-row__actions"><Button ref={detailsRef} size="sm" variant="quiet" aria-expanded={expanded} onClick={()=>setExpanded(v=>!v)}>{expanded?"Hide details":"Details"}</Button></div></div>
  {expanded&&<div className="pc-work-node__detail"><TextRow label="Task" value={<code>{node.taskId}</code>}/><TextRow label="Attempts" value={node.attempts.length}/>
   {node.decisions.length?<Disclosure summary={`Dispatch history (${node.decisions.length})`}><ol role="list">{node.decisions.map(decision=>{const selected=decision.proposal?.choices?.find(c=>c.id===decision.selectedCandidateId)??decision.proposal?.choices?.[0],attempt=node.attempts[decision.attempt-1];return <li key={decision.attempt}><strong>Attempt {decision.attempt}</strong> · {decision.engine.id}@{decision.engine.version} · {decision.validation}{decision.proposal.step?` · ${decision.proposal.step}`:""}<p>{selected?.reason??"No candidate selected"}</p><p className="muted">Requested model: {attempt?.model??"unknown"} · Observed model: {attempt?.actualModel??"unknown"}</p>{decision.fallback&&<p>Fallback from {decision.fallback.from}: {decision.fallback.reason}</p>}{decision.uncertainty.length>0&&<ul role="list">{decision.uncertainty.map((u,i)=><li key={i}>{u}</li>)}</ul>}</li>;})}</ol></Disclosure>:<p className="muted">Dispatch decision pending.</p>}
   {canReview&&<div className="pc-list-row__actions">{childrenReady?<Button size="sm" busy={action.busy} onClick={()=>void action.run("dispatch.review",{id:node.taskId,accepted:true,expect_rev:node.rev},onChanged)}>Accept</Button>:<p className="muted">Review required child work before accepting.</p>}<Button size="sm" busy={action.busy} onClick={()=>void action.run("dispatch.review",{id:node.taskId,accepted:false,note:"Needs follow-up",expect_rev:node.rev},onChanged)}>Reject</Button></div>}
