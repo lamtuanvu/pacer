@@ -23,18 +23,16 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 - Remove compounded spacing in app sections, cards, settings and embedded page headers; keep task disclosures evenly spaced and compact while preserving touch targets. Add shared spacing ownership checks and browser geometry regressions.
 
-### Changed
-
-- Open tasks in a split workspace with a task navigator and a larger session pane. Keep task details compact, make each list row one navigation target, and use the main Tasks route for returning to the list.
-- Add a read-only `ui:ready` preflight for PR evidence and make skipped local evidence checks explicit; centralize the agent readiness procedure in the UI rules.
-
-### Fixed
-
 - Let live native controls verify a completed managed OTA fixture without transferring teardown ownership, and keep authority collection and input within the original command deadline.
 
 - Restore the documented live UI control commands and retain OTA event traces as context without counting them as unverified behavior checks.
 - Wait for the remote session's recording-mode handoff before reporting a fast exit, preserving native recordings and pipe-fallback output.
 - Keep paired desktop helper channels alive through authenticated startup by acknowledging descriptor receipt before Root releases its duplicate. Transfer both startup descriptors together to avoid coalesced messages losing their ownership framing. Retain helper I/O and control descriptors until Core confirms receipt.
+
+### Changed
+
+- Open tasks in a split workspace with a task navigator and a larger session pane. Keep task details compact, make each list row one navigation target, and use the main Tasks route for returning to the list.
+- Add a read-only `ui:ready` preflight for PR evidence and make skipped local evidence checks explicit; centralize the agent readiness procedure in the UI rules.
 
 ## [0.9.0] - 2026-10-23
 
