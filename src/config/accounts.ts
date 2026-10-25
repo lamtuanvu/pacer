@@ -1,3 +1,7 @@
+import { ACCOUNT_KIND, AGENTS, allowedPair, type AgentId } from "./agent-id";
+export { allowedPair } from "./agent-id";
+import { modelDeclarationSchema } from "../dispatch/types";
+import type { z } from "zod";
 import { formatRunnerId, parseRunnerId, runnerDefaults } from "./runner-id";
 import type { HostCfg } from "./hosts";
 import type { UsageKind } from "../types";
@@ -18,8 +22,7 @@ export function parseDuration(v: unknown): number | null {
   return Number(m[1]) * { s: 1, m: 60, h: 3600, d: 86400 }[m[2] as "s" | "m" | "h" | "d"];
 }
 
-export const AGENTS = ["claude-code", "codex", "cursor", "agy", "opencode"] as const;
-export type AgentId = (typeof AGENTS)[number];
+export { AGENTS, type AgentId } from "./agent-id";
 export type AccountKind = "claude" | "codex" | "cursor" | "agy" | "endpoint";
 export type KeySource = "keychain" | "file" | `env:${string}` | "none";
 export interface EndpointModel { id: string; name?: string; context: number; output: number; tools: boolean }
@@ -46,7 +49,7 @@ export interface AccountCfg {
   cooldownS: number;
   allowPaid: boolean;
 }
-export interface RunnerCfg { session?: "headless" | "interactive"; enabled?: boolean; maxTasks?: number; test?: boolean; id: string; host: string | null; name: string; agent: AgentId; account: string; model: string | null }
+export interface RunnerCfg { models?: z.infer<typeof modelDeclarationSchema>[]; session?: "headless" | "interactive"; enabled?: boolean; maxTasks?: number; test?: boolean; id: string; host: string | null; name: string; agent: AgentId; account: string; model: string | null }
 export interface PlannerCfg { agent: AgentId; account: string }
 export interface AccountsModel {
   accounts: Record<string, AccountCfg>;
@@ -54,12 +57,8 @@ export interface AccountsModel {
   planner: PlannerCfg;
   runnerAliases: Record<string, string>;
 }
-const ACCOUNT_KIND: Record<AgentId, AccountKind> = {
-  "claude-code": "claude", codex: "codex", cursor: "cursor", agy: "agy", opencode: "endpoint",
-};
-export function allowedPair(agent: AgentId, kind: AccountKind): boolean {
-  return Object.hasOwn(ACCOUNT_KIND, agent) && ACCOUNT_KIND[agent] === kind;
-}
+
+
 
 function parseConnection(value: unknown, at: string, problems: string[]): EndpointConnection | undefined {
   const start = problems.length;
@@ -238,7 +237,15 @@ export function parseAccounts(raw: Record<string, unknown>, problems: string[], 
     if (c.enabled !== undefined && typeof c.enabled !== "boolean") problems.push(`${at}: enabled must be a boolean`);
     if (c.max_tasks !== undefined && (typeof c.max_tasks !== "number" || !Number.isInteger(c.max_tasks) || c.max_tasks < 1 || c.max_tasks > 16)) problems.push(`runners.${reference}.max_tasks must be 1..16`);
     if (c.test !== undefined && typeof c.test !== "boolean") problems.push(`${at}: test must be a boolean`);
-    const runner: RunnerCfg = {...(c.session !== undefined ? {session: c.session as RunnerCfg["session"]} : {}), ...(typeof c.enabled === "boolean" ? {enabled:c.enabled}:{}), ...(typeof c.max_tasks === "number" ? {maxTasks:c.max_tasks}:{}), ...(typeof c.test === "boolean" ? {test:c.test}:{}), id, name: id, host: parsed.host, agent: parsed.agent, account, model};
+    let models: RunnerCfg["models"];
+    if (c.models !== undefined) {
+      const parsedModels = modelDeclarationSchema.array().min(1).max(256).safeParse(c.models);
+      if (!parsedModels.success) problems.push(`${at}: invalid models declaration`);
+      else if (new Set(parsedModels.data.map(m => m.id)).size !== parsedModels.data.length) problems.push(`${at}: duplicate models`);
+      else models = parsedModels.data;
+      if (cfg.connection && models?.some(m => !cfg.connection!.models.some(x => m.id === `pacer-${account}/${x.id}`))) problems.push(`${at}: models must be selected from connection.models`);
+    }
+    const runner: RunnerCfg = {...(c.session !== undefined ? {session: c.session as RunnerCfg["session"]} : {}), ...(typeof c.enabled === "boolean" ? {enabled:c.enabled}:{}), ...(typeof c.max_tasks === "number" ? {maxTasks:c.max_tasks}:{}), ...(typeof c.test === "boolean" ? {test:c.test}:{}), id, name: id, host: parsed.host, agent: parsed.agent, account, model, ...(models ? {models} : {})};
     if (!runners[id] || Object.keys(c).length) runners[id] = runner;
     runnerAliases[reference] = id;
     return runners[id];

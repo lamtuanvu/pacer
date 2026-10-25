@@ -164,6 +164,7 @@ export interface ReviewOptions {
   kind?: string;
   note?: string;
   expect_state?: TaskState;
+  expectRev?: number;
 }
 type RetryDeps = { delegate?: (ctx: Ctx, input: DelegateInput) => TaskRecord };
 
@@ -188,6 +189,9 @@ export async function review(
   };
   const record = (verdict: ReviewVerdict, executor: string | undefined) => withTaskLock(ctx, id, () => {
     try {
+      const current=readTask(ctx,id);
+      if(!current)throw unknown(id);
+      checkRev(ctx,current,v.expectRev);
       taskReview(ctx, id, verdict === "accept", v.kind, v.note);
       const reviewed = readTask(ctx, id)!, goal = taskTitle(reviewed);
       taskActivity(ctx, reviewed, "verdict", verdict === "accept" ? `Accepted “${goal}”` : verdict === "send_back" ? `Sent “${goal}” back to ${executorName(executor)}` : `Rejected “${goal}”`);

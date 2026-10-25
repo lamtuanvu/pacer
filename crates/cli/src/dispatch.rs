@@ -3,6 +3,11 @@ use std::collections::HashMap;
 
 pub fn main(argv: Vec<String>) -> i32 {
     let args = argv.get(1..).unwrap_or_default();
+    if std::env::var_os("PACER_WORK_GRANT").is_some() && args.first().is_some_and(|a| a == "status")
+    {
+        eprintln!("pacer: work grants cannot read global status");
+        return 2;
+    }
     if args.len() == 1 && matches!(args[0].as_str(), "--version" | "version") {
         println!(
             "pacer {}",

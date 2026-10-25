@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { chmodSync, existsSync, readFileSync, statSync } from "node:fs";
+import { chmodSync, existsSync, readFileSync, rmSync, statSync, symlinkSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { defaultRun } from "../src/ctx";
 import { SCRIPTS } from "../src/remote/scripts";
@@ -16,7 +16,7 @@ test("sshArgv is fixed: options, alias, bash -lc and quoted args", () => {
   for (const option of ["ConnectTimeout=10", "ServerAliveInterval=15", "ServerAliveCountMax=2", "ControlMaster=auto", "ControlPersist=60"]) {
     expect(argv).toContain(option);
   }
-  expect(argv).toContain(`ControlPath=${join(ctx.pacerHome, "ssh", "cm-%C")}`);
+  expect(argv).toContain(`ControlPath=${join(controlDir(ctx), "cm-%C")}`);
   const i = argv.indexOf("--");
   expect(argv[i + 1]).toBe("box-ssh");
   expect(argv[i + 2]).toMatch(/^bash -lc '.*' pacer 'it'\\''s'$/s);
@@ -45,8 +45,29 @@ test("PROBE reports tools from the host's login shell", async () => {
 
 test("controlDir creates a private SSH socket directory", () => {
   const ctx = fakeCtx();
-  expect(controlDir(ctx)).toBe(join(ctx.pacerHome, "ssh"));
   expect(statSync(controlDir(ctx)).mode & 0o777).toBe(0o700);
+});
+
+test("long pacer homes still produce a usable private SSH control path", () => {
+  if (process.platform === "win32") return;
+  const ctx = fakeCtx();
+  ctx.pacerHome = join(ctx.pacerHome, "nested".repeat(20));
+  const argv = sshArgv(ctx, host, SCRIPTS.PROBE, []);
+  const controlPath = argv.find(arg => arg.startsWith("ControlPath="))?.slice("ControlPath=".length);
+  expect(controlPath).toBeDefined();
+  expect(Buffer.byteLength(controlPath!.replace("%C", "f".repeat(40)))).toBeLessThan(104);
+  expect(statSync(controlDir(ctx)).mode & 0o777).toBe(0o700);
+});
+
+test("short SSH socket directory refuses a pre-existing symlink", () => {
+  if (process.platform === "win32") return;
+  const ctx = fakeCtx();
+  ctx.pacerHome = join(ctx.pacerHome, "nested".repeat(20));
+  const dir = controlDir(ctx);
+  rmSync(dir, { recursive: true });
+  symlinkSync(tmpDir(), dir);
+  try { expect(() => controlDir(ctx)).toThrow("not private and owned"); }
+  finally { unlinkSync(dir); }
 });
 
 test("defaultRun carries stdin and env to a real process", async () => {

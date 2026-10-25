@@ -1,3 +1,4 @@
+import { registerWork, workOptionsSchema, type WorkOptions } from "../dispatch/work";
 import { beginWorkSync, describeWorkSync, finishWorkSync, validatePendingWorkSync, markLaunchStartedSync } from "../update/desktop/admission";
 import { requirePolicyIdentity } from "../core/project-policy";
 import { readProjectStrategies } from "../config/project-strategies";
@@ -22,7 +23,7 @@ import { killTree } from "../exec/process";
 import { RemoteRunIO } from "../remote/run-io";
 import { readRunLiveness } from "../supervisor/run";
 import type { Ctx } from "../types";
-import { createTask, listTasksWhere, readTask, updateTask, withTaskLock } from "./store";
+import { taskDatabase, createTask, listTasksWhere, readTask, updateTask, withTaskLock } from "./store";
 import { type Brief, TERMINAL_STATES, type TaskRecord, type WorktreeRequest } from "./types";
 
 export const EXECUTOR_DELEGATE_ERROR = "PACER_ROLE=executor: pacer executors cannot delegate onward; complete the assigned task directly.";
@@ -33,6 +34,7 @@ export function validBase(base: string): boolean {
   return spawnSync("git", ["check-ref-format", "--branch", base], { stdio: "ignore" }).status === 0;
 }
 export const delegateSchema = {
+  dispatch: z.unknown().optional(),
   title: z.string().trim().min(1).max(60).describe("Short task title (trimmed, 1–60 characters), stored separately from the full goal. Omitted titles are derived from the first goal clause with paths, URLs and backticked code removed and word-boundary truncation with an ellipsis. Snapshot tasks, task events, task.get, task.list, attention titles and activity text expose this title; older tasks derive it on read.").optional(),
   request_id: z.string().min(1).max(128).optional(),
   base: z.string().min(1).max(4096).refine(validBase, "base must be a branch name or a 7–40 hex SHA").optional(),
@@ -49,7 +51,7 @@ export function parseDelegateBrief(raw: unknown, defaultRepo: string): DelegateI
   if(!parsed.success)throw new DelegateError(parsed.error.issues.map(i=>i.path[0]==="worktree"?"worktree must be one of current, new, auto":i.path[0]==="worktree_reason"?"worktree_reason must be a string of at most 200 characters":`${i.path.join(".")}: ${i.message}`).join("; "));
   const a=parsed.data;
   return { brief: { goal:a.goal, repo:a.repo, scope:a.scope, acceptance:a.acceptance, constraints:a.constraints, context:a.context, base:a.base, worktreeBase:a.worktree_base },
-    title:a.title, requestId:a.request_id, source:a.source,
+    dispatch:a.dispatch?workOptionsSchema.parse(a.dispatch):undefined, title:a.title, requestId:a.request_id, source:a.source,
     kind:a.kind, executor:a.executor, timeoutMin:a.timeout_min, worktree:a.worktree, worktree_reason:a.worktree_reason };
 }
 export function summarizeTask(t: TaskRecord): Record<string, unknown> {
@@ -79,7 +81,7 @@ export class DelegateError extends Error {
   }
 }
 
-export interface DelegateInput { /** Internal pre-admitted launch, never parsed from API input. */ admissionLease?: string; title?: string; requestId?: string; source?: TaskRecord["source"]; repoRef?: RepoRef; client?: string; repoValidated?: boolean; reuseWorktree?: string; baseBranch?: string; baseSha?: string; brief: Brief; kind?: string | null; executor?: string | null; timeoutMin?: number; retryOf?: string; force?: boolean; worktree?: WorktreeRequest; worktree_reason?: string }
+export interface DelegateInput { dispatch?: WorkOptions; workParent?: string; workGrant?: string; workRequest?: {scope:string;key:string;fingerprint:string}; /** Internal pre-admitted launch, never parsed from API input. */ admissionLease?: string; title?: string; requestId?: string; source?: TaskRecord["source"]; repoRef?: RepoRef; client?: string; repoValidated?: boolean; reuseWorktree?: string; baseBranch?: string; baseSha?: string; brief: Brief; kind?: string | null; executor?: string | null; timeoutMin?: number; retryOf?: string; force?: boolean; worktree?: WorktreeRequest; worktree_reason?: string }
 export type SpawnRunner = (ctx: Ctx, taskId: string) => number | undefined;
 
 /** How to re-invoke this pacer: `bun src/cli.ts` in development, the compiled binary otherwise. */
@@ -128,7 +130,7 @@ export function validateInput(s: Strategy, input: DelegateInput): string[] {
   const runner = input.executor ? resolveRunner(s, input.executor) : null;
   if (input.executor && !runner) {
     p.push(`unknown executor "${input.executor}" (configured: ${Object.keys(s.providers).join(", ")})`);
-  } else if (input.executor && runner?.agent === s.planner.agent && runner.account === s.planner.account) {
+  } else if (input.executor && runner?.agent === s.planner.agent && runner.account === s.planner.account && !input.dispatch?.allowDelegation) {
     p.push(`"${input.executor}" is the planner; pick an executor`);
   }
   if (input.timeoutMin !== undefined && !(input.timeoutMin >= 1 && input.timeoutMin <= 240)) {
@@ -165,7 +167,7 @@ export function delegate(
     kind: input.kind ?? null,
     requestedExecutor: input.executor ?? null,
     timeoutS: Math.round((input.timeoutMin ?? DEFAULT_TIMEOUT_MIN) * 60),
-  });
+  }, created => {if(input.dispatch || s.dispatch)registerWork(ctx,created.id,input.dispatch??{},input.workParent,input.workGrant);if(input.workRequest){const db=taskDatabase(ctx);db.query("INSERT INTO work_requests(scope,key,fingerprint,task_id) VALUES(?,?,?,?)").run(input.workRequest.scope,input.workRequest.key,input.workRequest.fingerprint,created.id);}});
   updateTask(ctx,task.id,t=>{t.source=input.source ?? "planner"; if(input.requestId)t.requestId=input.requestId; t.placement={requested:input.worktree??"auto",...(input.worktree_reason!==undefined?{reason:input.worktree_reason}:{})};});
   if(input.repoRef || input.client)updateTask(ctx,task.id,t=>{if(input.repoRef)t.repo=input.repoRef;if(input.client)t.client=input.client;});
   if(input.force)updateTask(ctx,task.id,t=>{t.force=true;});

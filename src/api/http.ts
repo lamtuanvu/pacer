@@ -44,6 +44,8 @@ export async function handleV2(req: Request, deps: { getCtx: () => Ctx; opDeps?:
   const pathname=version===3?url.pathname.replace(/^\/v3\//,"/v2/"):url.pathname;
   const tailMs = deps.tailMs ?? 1_000;
   try {
+    if (deps.getCtx().env.PACER_WORK_GRANT && (version !== 3 || req.method !== "POST" || !pathname.startsWith("/v2/ops/")))
+      return errorResponse({ code: "not_allowed", message: "Work grants only allow scoped protocol 3 operations" }, 403);
     if (pathname === "/v2/session/exchange") {
       if (req.method !== "POST") return errorResponse({ code: "invalid_input", message: "method not allowed" }, 405);
       return new Response(null, { status: 204, headers: { "Set-Cookie": sessionCookie(deps.getCtx()), "Cache-Control": "no-store" } });
@@ -68,7 +70,7 @@ export async function handleV2(req: Request, deps: { getCtx: () => Ctx; opDeps?:
       catch { return errorResponse({ code: "invalid_input", message: "body is not JSON" }); }
       const label=req.headers.get("X-Pacer-Client")??"";
       const client=/^[a-z][a-z0-9:-]{0,31}\/[0-9A-Za-z.+-]{1,32}$/.test(label)?label:undefined;
-      const result = pathname === "/v2/ops/routing.status" && deps.status && (params === null || (typeof params === "object" && !Array.isArray(params)))
+      const result = pathname === "/v2/ops/routing.status" && !deps.getCtx().env.PACER_WORK_GRANT && deps.status && (params === null || (typeof params === "object" && !Array.isArray(params)))
         ? await deps.status()
         : await (version===3?callOp:callV2Op)(deps.getCtx(), pathname.slice("/v2/ops/".length), params, {...deps.opDeps,client});
       return Response.json({ result });

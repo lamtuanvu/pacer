@@ -1,3 +1,6 @@
+import { connectClient } from "../api/client";
+import {callOp} from "../api/ops";
+import { previewInputSchema } from "../dispatch/types";
 import { isAbsolute } from "node:path";
 import { resolveRepoInput } from "../core/repos";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -23,6 +26,25 @@ export { summarizeTask } from "../tasks/api";
 
 export function createMcpServer(getCtx: () => Ctx, opts: { spawnRunner?: SpawnRunner } = {}): McpServer {
   const server = new McpServer({ name: "pacer", version: pkg.version });
+  if (getCtx().env.PACER_WORK_GRANT) {
+    const scoped = async (op: string, params: Record<string, unknown>) => {
+      try {
+        const client = await connectClient(getCtx(), {protocol: 3});
+        try { return json(await client.call<Record<string, unknown>>(op, params)); }
+        finally { client.close(); }
+      } catch (error) { return {...json({error:error instanceof Error?error.message:"Scoped request failed"}),isError:true}; }
+    };
+    server.registerTool("delegate", {description:"Delegate a scoped child. requestId makes retries safe.",inputSchema:{goal:z.string().min(1),requestId:z.string().min(1),title:z.string().optional(),kind:z.string().optional(),acceptance:z.string().optional(),context:z.string().optional(),constraints:z.string().optional(),executor:z.string().optional()}}, async input=>scoped("dispatch.child",input));
+    server.registerTool("task_status", {description:"Read a task in your own work subtree.",inputSchema:{task_id:z.string()}},async({task_id})=>scoped("task.get",{id:task_id}));
+    server.registerTool("task_wait", {description:"Wait for a task in your own work subtree.",inputSchema:{task_id:z.string(),timeout_s:z.number().int().min(1).max(3000).optional()}},async({task_id,timeout_s})=>scoped("dispatch.wait",{id:task_id,timeout_s}));
+    server.registerTool("task_review", {description:"Review a child task at the revision shown by work_tree; you cannot review yourself.",inputSchema:{task_id:z.string(),accepted:z.boolean(),expect_rev:z.number().int().positive(),note:z.string().optional()}},async({task_id,accepted,note,expect_rev})=>scoped("dispatch.review",{id:task_id,accepted,note,expect_rev}));
+    server.registerTool("work_retry", {description:"Retry a settled child in the same work item. Use a stable requestId; you cannot retry yourself.",inputSchema:{task_id:z.string(),expect_rev:z.number().int().positive(),requestId:z.string().min(1),feedback:z.string().max(2000).optional()}},async({task_id,...input})=>scoped("dispatch.retry",{id:task_id,...input}));
+    server.registerTool("work_answer", {description:"Answer a question from a child in the same work item. Use a stable requestId.",inputSchema:{task_id:z.string(),expect_rev:z.number().int().positive(),requestId:z.string().min(1),text:z.string().min(1).max(2000)}},async({task_id,...input})=>scoped("dispatch.answer",{id:task_id,...input}));
+    server.registerTool("work_tree", {description:"Read your own work subtree and decisions.",inputSchema:{task_id:z.string()}},async({task_id})=>scoped("dispatch.tree",{id:task_id}));
+    server.registerTool("work_events", {description:"Read your own work events after a cursor.",inputSchema:{task_id:z.string(),after:z.number().int().nonnegative().optional()}},async({task_id,after})=>scoped("dispatch.events",{id:task_id,after}));
+    server.registerTool("task_stop", {description:"Stop a task in your own work subtree.",inputSchema:{task_id:z.string(),expect_rev:z.number().int().positive().optional()}},async({task_id,expect_rev})=>scoped("dispatch.stop",{id:task_id,expect_rev}));
+    return server;
+  }
   const spawnFn = opts.spawnRunner ?? spawnRunner;
 
   server.registerTool("budget_status", {
@@ -32,6 +54,23 @@ export function createMcpServer(getCtx: () => Ctx, opts: { spawnRunner?: SpawnRu
     const ctx = getCtx();
     return json({ ...(await core.routing.status(ctx)) });
   });
+
+  server.registerTool("dispatch_preview", {
+    description: "Preview model/account selection with reasons and uncertainty. Uses cached observations; launches nothing and changes no strategy.",
+    inputSchema: previewInputSchema.shape,
+  }, async input => {
+    try {
+      const ctx = getCtx();
+      const client = await connectClient(ctx, {protocol: 3});
+      try {
+        const result = client.kind === "inprocess" ? await core.dispatch.previewDispatch(ctx, input) : await client.call<Record<string, unknown>>("dispatch.preview", input);
+        return json({ ...result });
+      } finally { client.close(); }
+    }
+    catch (error) { return { ...json({ error: error instanceof Error ? error.message : "Preview failed" }), isError: true }; }
+  });
+  server.registerTool("work_retry", {description:"Retry settled managed work in the same task and worktree with revision protection.",inputSchema:{task_id:z.string(),expect_rev:z.number().int().positive(),requestId:z.string().min(1),feedback:z.string().max(2000).optional()}},async({task_id,...input})=>json(await callOp(getCtx(),"dispatch.retry",{id:task_id,...input},{spawnRunner:spawnFn}) as Record<string,unknown>));
+  server.registerTool("work_answer", {description:"Answer a managed work question and resume the same task.",inputSchema:{task_id:z.string(),expect_rev:z.number().int().positive(),requestId:z.string().min(1),text:z.string().min(1).max(2000)}},async({task_id,...input})=>json(await callOp(getCtx(),"dispatch.answer",{id:task_id,...input},{spawnRunner:spawnFn}) as Record<string,unknown>));
 
   server.registerTool("route", {
     description: "Which executors pacer would use for a task kind, in order, with reasons and exclusions. Runs nothing.",
@@ -66,12 +105,12 @@ export function createMcpServer(getCtx: () => Ctx, opts: { spawnRunner?: SpawnRu
   server.registerTool("task_answer", {
     description: "Answer an executor question and retry the task on the same executor. Only needs_input tasks can be answered.",
     inputSchema: {task_id:z.string(), text:z.string().min(1).max(2000), expect_rev:z.number().int().positive().optional()},
-  }, async ({task_id,text,expect_rev}) => json(await core.tasks.answer(getCtx(),task_id,text,{expectRev:expect_rev},{delegate:(c,input)=>core.tasks.delegate(c,input,spawnFn)})));
+  }, async ({task_id,text,expect_rev}) => json(await callOp(getCtx(),"task.answer",{id:task_id,text,expect_rev},{spawnRunner:spawnFn}) as Record<string,unknown>));
 
   server.registerTool("task_stop", {
     description: "Stop a delegated task and kill its executor.",
     inputSchema: { task_id: z.string() },
-  }, async ({ task_id }) => json(summarizeTask(core.tasks.stop(getCtx(), task_id))));
+  }, async ({ task_id }) => json(await callOp(getCtx(),"task.stop",{id:task_id}) as Record<string,unknown>));
 
   server.registerTool("report_limit", {
     description: "Tell pacer an executor hit its plan limit (seen outside pacer). It is skipped until `until` (unix seconds) or its cooldown.",
@@ -89,11 +128,11 @@ export function createMcpServer(getCtx: () => Ctx, opts: { spawnRunner?: SpawnRu
 
   server.registerTool("task_review", {
     description: "Record your verdict on a delegated task's result after reviewing it (ground truth for pacer's routing benchmark).",
-    inputSchema: { task_id: z.string(), verdict: z.enum(["accept", "reject", "send_back", "retry"]), executor: z.string().optional(), kind: z.enum(KINDS).optional(), note: z.string().optional() },
-  }, async ({ task_id, verdict, executor, kind, note }) => {
+    inputSchema: { task_id: z.string(), verdict: z.enum(["accept", "reject", "send_back", "retry"]), executor: z.string().optional(), kind: z.enum(KINDS).optional(), note: z.string().optional(), expect_rev:z.number().int().positive().optional() },
+  }, async ({ task_id, verdict, executor, kind, note, expect_rev }) => {
     const ctx = getCtx();
     if ((verdict === "send_back" || verdict === "retry") && isExecutorSession(ctx)) throw new Error(EXECUTOR_DELEGATE_ERROR);
-    return json(await core.tasks.review(ctx, task_id, { verdict, executor, kind, note }, { delegate: (c, input) => core.tasks.delegate(c, input, spawnFn) }));
+    return json(await callOp(ctx,"task.review",{id:task_id,verdict,executor,kind,note,expect_rev},{spawnRunner:spawnFn}) as Record<string,unknown>);
   });
 
   server.registerTool("guard_feedback", {

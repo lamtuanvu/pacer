@@ -1348,6 +1348,764 @@
       ],
       "additionalProperties": false
     },
+    "DispatchAnalyticsParams": {
+      "type": "object",
+      "properties": {
+        "repo": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      },
+      "additionalProperties": false
+    },
+    "DispatchAnswerParams": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "expect_rev": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        }
+      },
+      "required": [
+        "id",
+        "expect_rev",
+        "requestId",
+        "text"
+      ],
+      "additionalProperties": false
+    },
+    "DispatchChildParams": {
+      "type": "object",
+      "properties": {
+        "goal": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 20000
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "kind": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "acceptance": {
+          "type": "string",
+          "maxLength": 20000
+        },
+        "context": {
+          "type": "string",
+          "maxLength": 20000
+        },
+        "constraints": {
+          "type": "string",
+          "maxLength": 20000
+        },
+        "executor": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "options": {
+          "type": "object",
+          "properties": {
+            "requirements": {
+              "default": {},
+              "type": "object",
+              "properties": {
+                "minTier": {
+                  "type": "string",
+                  "enum": [
+                    "small",
+                    "medium",
+                    "frontier"
+                  ]
+                },
+                "tools": {
+                  "type": "boolean"
+                },
+                "context": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "additionalProperties": false
+            },
+            "preferences": {
+              "default": {
+                "models": [],
+                "strengths": []
+              },
+              "type": "object",
+              "properties": {
+                "models": {
+                  "default": [],
+                  "maxItems": 256,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  }
+                },
+                "strengths": {
+                  "default": [],
+                  "maxItems": 64,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  }
+                }
+              },
+              "required": [
+                "models",
+                "strengths"
+              ],
+              "additionalProperties": false
+            },
+            "model": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "kind": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "difficulty": {
+              "default": "standard",
+              "type": "string",
+              "enum": [
+                "simple",
+                "standard",
+                "complex"
+              ]
+            },
+            "allowDelegation": {
+              "default": false,
+              "type": "boolean"
+            },
+            "maxDepth": {
+              "default": 3,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10
+            },
+            "maxDescendants": {
+              "default": 20,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            },
+            "maxConcurrent": {
+              "default": 4,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 64
+            },
+            "maxAttempts": {
+              "default": 3,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 20
+            },
+            "priority": {
+              "default": 0,
+              "type": "integer",
+              "minimum": -100,
+              "maximum": 100
+            },
+            "expiresAt": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "estimatePct": {
+              "default": 0,
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "goal",
+        "requestId"
+      ],
+      "additionalProperties": false
+    },
+    "DispatchDependenciesParams": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "dependencies": {
+          "maxItems": 100,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "expect_rev": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "id",
+        "dependencies",
+        "expect_rev"
+      ],
+      "additionalProperties": false
+    },
+    "DispatchDependenciesWaiveParams": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "dependency": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "expect_rev": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "id",
+        "dependency",
+        "reason",
+        "expect_rev"
+      ],
+      "additionalProperties": false
+    },
+    "DispatchEventsParams": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "after": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "DispatchLearningResetParams": {
+      "type": "object",
+      "properties": {
+        "repo": {
+          "type": "string",
+          "minLength": 1
+        },
+        "excluded": {
+          "default": false,
+          "type": "boolean"
+        },
+        "expect_rev": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "repo",
+        "excluded",
+        "expect_rev"
+      ],
+      "additionalProperties": false
+    },
+    "DispatchListParams": {
+      "type": "object",
+      "properties": {
+        "relation": {
+          "type": "string",
+          "enum": [
+            "roots",
+            "children",
+            "all"
+          ]
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "queued",
+            "running",
+            "done",
+            "partial",
+            "failed",
+            "limit",
+            "stopped",
+            "needs_input"
+          ]
+        },
+        "repo": {
+          "type": "string",
+          "minLength": 1
+        },
+        "before": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      },
+      "additionalProperties": false
+    },
+    "DispatchModelsParams": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "DispatchPreviewParams": {
+      "type": "object",
+      "properties": {
+        "repo": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "goal": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8000
+        },
+        "kind": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "requirements": {
+          "default": {},
+          "type": "object",
+          "properties": {
+            "minTier": {
+              "type": "string",
+              "enum": [
+                "small",
+                "medium",
+                "frontier"
+              ]
+            },
+            "tools": {
+              "type": "boolean"
+            },
+            "context": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "additionalProperties": false
+        },
+        "preferences": {
+          "default": {
+            "models": [],
+            "strengths": []
+          },
+          "type": "object",
+          "properties": {
+            "models": {
+              "default": [],
+              "maxItems": 256,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              }
+            },
+            "strengths": {
+              "default": [],
+              "maxItems": 64,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              }
+            }
+          },
+          "required": [
+            "models",
+            "strengths"
+          ],
+          "additionalProperties": false
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      },
+      "required": [
+        "repo",
+        "goal",
+        "requirements",
+        "preferences"
+      ],
+      "additionalProperties": false
+    },
+    "DispatchRefreshParams": {
+      "type": "object",
+      "properties": {
+        "runner": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "force": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "DispatchRetryParams": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "expect_rev": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "feedback": {
+          "type": "string",
+          "maxLength": 2000
+        }
+      },
+      "required": [
+        "id",
+        "expect_rev",
+        "requestId"
+      ],
+      "additionalProperties": false
+    },
+    "DispatchReviewParams": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "accepted": {
+          "type": "boolean"
+        },
+        "note": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "expect_rev": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "id",
+        "accepted",
+        "expect_rev"
+      ],
+      "additionalProperties": false
+    },
+    "DispatchStopParams": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "expect_rev": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "DispatchSubmitParams": {
+      "type": "object",
+      "properties": {
+        "goal": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 20000
+        },
+        "repo": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "kind": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "acceptance": {
+          "type": "string",
+          "maxLength": 20000
+        },
+        "context": {
+          "type": "string",
+          "maxLength": 20000
+        },
+        "constraints": {
+          "type": "string",
+          "maxLength": 20000
+        },
+        "executor": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "options": {
+          "type": "object",
+          "properties": {
+            "requirements": {
+              "default": {},
+              "type": "object",
+              "properties": {
+                "minTier": {
+                  "type": "string",
+                  "enum": [
+                    "small",
+                    "medium",
+                    "frontier"
+                  ]
+                },
+                "tools": {
+                  "type": "boolean"
+                },
+                "context": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "additionalProperties": false
+            },
+            "preferences": {
+              "default": {
+                "models": [],
+                "strengths": []
+              },
+              "type": "object",
+              "properties": {
+                "models": {
+                  "default": [],
+                  "maxItems": 256,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  }
+                },
+                "strengths": {
+                  "default": [],
+                  "maxItems": 64,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  }
+                }
+              },
+              "required": [
+                "models",
+                "strengths"
+              ],
+              "additionalProperties": false
+            },
+            "model": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "kind": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "difficulty": {
+              "default": "standard",
+              "type": "string",
+              "enum": [
+                "simple",
+                "standard",
+                "complex"
+              ]
+            },
+            "allowDelegation": {
+              "default": false,
+              "type": "boolean"
+            },
+            "maxDepth": {
+              "default": 3,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10
+            },
+            "maxDescendants": {
+              "default": 20,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            },
+            "maxConcurrent": {
+              "default": 4,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 64
+            },
+            "maxAttempts": {
+              "default": 3,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 20
+            },
+            "priority": {
+              "default": 0,
+              "type": "integer",
+              "minimum": -100,
+              "maximum": 100
+            },
+            "expiresAt": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "estimatePct": {
+              "default": 0,
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "goal",
+        "repo"
+      ],
+      "additionalProperties": false
+    },
+    "DispatchTreeParams": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "DispatchWaitParams": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "timeout_s": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3000
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    },
     "DoctorRunParams": {
       "type": "object",
       "properties": {},
@@ -2764,6 +3522,7 @@
     "TaskDelegateParams": {
       "type": "object",
       "properties": {
+        "dispatch": {},
         "title": {
           "type": "string",
           "minLength": 1,

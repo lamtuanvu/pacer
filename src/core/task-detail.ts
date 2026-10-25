@@ -1,4 +1,5 @@
 import { requirePolicyIdentity } from "./project-policy";
+import { getWork } from "../dispatch/work";
 import { remoteExclusion } from "../remote/eligibility";
 import { projectSnapshot } from "./project-policy";
 import { repoFor, registeredRepo } from "./repos";
@@ -27,6 +28,7 @@ export interface Cost {
 }
 export interface RetryOption { id: string; state: ExecutorRow["state"]; reason: string }
 export interface TaskDetail extends ApiTask {
+  work?: {rootId:string;parentId:string|null;depth:number};
   brief: Brief;
   attempts: (Attempt & { log: string })[];
   routing: RoutingNote | null;
@@ -139,12 +141,13 @@ async function gitSummary(ctx: Ctx, task: TaskRecord): Promise<GitSummary> {
 }
 
 export async function taskDetail(ctx: Ctx, id: string): Promise<TaskDetail> {
-  const task = get(ctx, id), last = task.attempts.at(-1);
+  const task = get(ctx, id), last = task.attempts.at(-1), work=getWork(ctx,id);
   let policyError: string | undefined;
   const [changes, retryOptions] = await Promise.all([gitSummary(ctx, task), optionsFor(ctx, task, true).catch(error => { policyError = error instanceof Error ? error.message : String(error); return []; })]);
   const acceptance = task.result?.acceptance, terminal = TERMINAL_STATES.includes(task.state);
   const cmd = acceptance?.cmd ?? task.brief.acceptance ?? null;
   return {
+    ...(work ? {work:{rootId:work.rootId,parentId:work.parentId,depth:work.depth}} : {}),
     ...(policyError ? { policyError } : {}),
     ...apiTask(ctx, task), brief: task.brief, attempts: task.attempts,
     routing: task.pendingAttempt?.routing ?? last?.routing ?? null, cost: costFor(ctx, task),

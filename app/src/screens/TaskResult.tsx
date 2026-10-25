@@ -19,6 +19,7 @@ import { parseDiff } from "../model/diff";
 import { Diff } from "./review/Diff";
 import type { Verdict } from "./review/model";
 import { Page, PageTitle, Stack } from "../ds/Page";
+import { LazyWork } from "./work/LazyWork";
 
 export function resultSummary(task: TaskDetail): string {
   if (task.state === "queued") return "Waiting to start. Follow this task in Session.";
@@ -121,7 +122,7 @@ export function TaskDetailFrame({ task, query, tab, onTab, children, navigator }
     <div className="pc-task-workspace__navigation">
       <nav aria-label="Task navigation" className="pc-task-workspace__breadcrumb"><TextAction href={withQuery("#/tasks", query)}>Tasks</TextAction><span aria-hidden="true">/</span><span>Task</span></nav>
       <TaskHeading task={task}/>
-      <div className="pc-task-workspace__tabs"><Tabs label="Task views" id={id} value={tab} options={[{value:"session",label:"Session"},{value:"changes",label:"Changes"},{value:"brief",label:"Brief"},{value:"result",label:"Result"}]} onChange={onTab}/></div>
+      <div className="pc-task-workspace__tabs"><Tabs label="Task views" id={id} value={tab} options={[{value:"session",label:"Session"},{value:"changes",label:"Changes"},{value:"brief",label:"Brief"},{value:"result",label:"Result"},...(task.work?[{value:"work",label:"Work"}]:[])]} onChange={onTab}/></div>
     </div>
     <div role="tabpanel" id={`${id}-${tab}-panel`} aria-labelledby={`${id}-${tab}-tab`} tabIndex={0} className="pc-task-workspace__panel">{children}</div>
   </div></div>;
@@ -139,6 +140,6 @@ export function TaskRoute({ id, query }: { id: string; query: RouteQuery }) {
   const navigator=<TaskNavigator selectedId={id} selectedTask={sessionDetail(task.data)} running={currentRunning} recent={recent} query={withQuery('',query)}/>;
   const tab = selection?.id === id ? selection.tab : (["queued", "running"].includes(task.data.state) ? "session" : "result");
   return <TaskDetailFrame task={task.data} query={query} tab={tab} onTab={value=>setSelection({id,tab:value})} navigator={navigator}>
-    {tab === "result" ? <TaskResultLoaded key={id} task={task.data} reload={task.reload}/> : <SessionRoute id={id} embedded view={tab === "changes" ? "changes" : tab === "brief" ? "brief" : "terminal"}/>}
+    {tab === "work" ? <LazyWork id={id}/> : tab === "result" ? <TaskResultLoaded key={id} task={task.data} reload={task.reload}/> : <SessionRoute id={id} embedded view={tab === "changes" ? "changes" : tab === "brief" ? "brief" : "terminal"}/>}
   </TaskDetailFrame>;
 }

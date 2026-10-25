@@ -12,7 +12,7 @@ HTTP binds to `127.0.0.1` only, and every request must carry `Host: 127.0.0.1:<p
 
 Additive fields do not bump the protocol version. Clients must ignore unknown fields and event types. Removing or renaming fields requires a major version bump; the previous major is served for one pacer minor release.
 
-Operation inputs are validated. No operation runs free text in a shell. `task.delegate`, `task.retry` and `task.answer` refuse calls when the API process itself is an executor session.
+Operation inputs are validated. No operation runs free text in a shell. `task.delegate`, `task.retry` and `task.answer` refuse calls when the API process itself is an executor session. Under proposed API-5 amendment 0.13.0, an executor can request `dispatch.child` with a service-issued task/attempt grant. That grant authorizes only scoped work operations and descendant reads; it never authorizes global operations or self-review. Executor sessions without a valid grant remain unable to delegate.
 
 ## Errors
 

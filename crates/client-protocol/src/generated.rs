@@ -13513,6 +13513,7 @@ impl ::std::convert::TryFrom<&str> for TaskAttachParamsTarget {
 ///    "context": {
 ///      "type": "string"
 ///    },
+///    "dispatch": {},
 ///    "executor": {
 ///      "type": "string"
 ///    },
@@ -13602,6 +13603,8 @@ pub struct TaskDelegateParams {
     pub constraints: ::std::option::Option<::std::string::String>,
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub context: ::std::option::Option<::std::string::String>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub dispatch: ::std::option::Option<::serde_json::Value>,
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub executor: ::std::option::Option<::std::string::String>,
     pub goal: TaskDelegateParamsGoal,

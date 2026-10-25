@@ -15,6 +15,7 @@ use subtle::ConstantTimeEq;
 pub enum AuthKind {
     Bearer,
     Cookie,
+    Task,
 }
 
 pub enum Decision {
@@ -130,6 +131,25 @@ pub fn classify<B>(req: &Request<B>, port: u16, token: &str, ctx: &Ctx) -> Decis
         return Decision::Forward {
             auth: AuthKind::Bearer,
         };
+    }
+    // Only the core can validate a task grant. The front door limits its transport
+    // before forwarding it with the internal generation credential.
+    let bearer = header("authorization")
+        .unwrap_or("")
+        .strip_prefix("Bearer ")
+        .unwrap_or("");
+    if bearer.len() == 68
+        && bearer.starts_with("pwg_")
+        && bearer[4..]
+            .bytes()
+            .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+    {
+        if req.method() == "POST" && path.starts_with("/v3/ops/") {
+            return Decision::Forward {
+                auth: AuthKind::Task,
+            };
+        }
+        return reject(StatusCode::FORBIDDEN, "forbidden\n", None);
     }
     let api = path.starts_with("/v2/") || path.starts_with("/v3/");
     let cookie = header("cookie")

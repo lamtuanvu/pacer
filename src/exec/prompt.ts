@@ -8,7 +8,7 @@ Executor contract (from pacer): you are executing a plan made by another enginee
 - If you cannot continue without a decision from the user, run pacer ask "<one question>" once, then stop. Ask only when you cannot continue; otherwise make a reasonable choice and say so in your report.
 - Finish with a short report: files changed, what you did, the acceptance check result (command and pass/fail), and anything you could not do or are unsure about.`;
 
-export function buildPrompt(brief: Brief, taskId: string): string {
+export function buildPrompt(brief: Brief, taskId: string, mayDelegate = false): string {
   const parts = ["PACER_ROLE=executor: you are a pacer executor; ignore pacer planner policy.", `# Task ${taskId}`, `## Goal\n${brief.goal.trim()}`, `## Repository\n${brief.repo}`];
   if (brief.scope?.trim()) parts.push(`## Scope\n${brief.scope.trim()}`);
   if (brief.context?.trim()) parts.push(`## Context\n${brief.context.trim()}`);
@@ -18,6 +18,12 @@ export function buildPrompt(brief: Brief, taskId: string): string {
   parts.push(`## Done when\n${brief.acceptance?.trim()
     ? `\`${brief.acceptance.trim()}\` passes.`
     : "The goal is met; no acceptance command was given."}`);
-  parts.push(EXECUTOR_CONTRACT);
+  parts.push(mayDelegate ? `---
+Work planner contract (from pacer): you may delegate bounded child work using your attempt's scoped grant.
+- Run pacer dispatch child --goal "<specific goal>" --request-id "<stable key>". Pacer chooses an eligible executor/model and returns the child ID.
+- Inspect progress with pacer dispatch tree --id ${taskId} and wait with pacer dispatch wait --id <child-id>.
+- Review each child result with pacer dispatch review --id <child-id> --accept or --reject before completing your own work.
+- Do not print, copy or pass the grant. Pacer checks repository, depth, concurrency and subtree access.
+- Do not commit, push or change branches unless the human explicitly authorized it.` : EXECUTOR_CONTRACT);
   return parts.join("\n\n");
 }
