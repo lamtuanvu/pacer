@@ -61,7 +61,7 @@ export function TerminalView({id,url,label='pacer app',cols=120,rows=40,control=
  </section>;
 }
 export function TerminalControls({control,live,driving,conversation=false,state,takeover,onControl,onReconnect}:{control:boolean;live:boolean;driving?:boolean;conversation?:boolean;state:SessionState;takeover?:ComponentChildren;onControl:()=>void;onReconnect?:()=>void}){
- return <div className="pc-session-row">{control&&live&&state.status!=='exited'&&<Button aria-pressed={state.you} disabled={state.status!=='live'} onClick={onControl}>{state.you?(driving?'Hand back':'Release control'):'Take control'}</Button>}
+ return <div className="pc-session-row">{control&&live&&state.status==='live'&&<Button aria-pressed={state.you} onClick={onControl}>{state.you?(driving?'Hand back':'Release control'):'Take control'}</Button>}
   {takeover}{state.status==='error'&&<Button onClick={onReconnect}>Reconnect</Button>}
   <span className="pc-session-muted">{conversation?'Closing this window leaves your conversation running.':driving?'Ends this session and sends the task to review':state.you?'Other viewers stay read-only while you hold control.':'Only for agents running interactively. pacer pauses its idle timer while you type.'}</span></div>;
 }
