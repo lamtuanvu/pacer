@@ -1,3 +1,8 @@
+import { authorizeWorkOperation, submitWork, delegateChild, scopedWorkTree, scopedWorkEvents, reviewWork, retryWork, answerWork, stopWork, waitWork } from "../core/work";
+import { listWork, setWorkDependencies, waiveWorkDependency, workOptionsSchema } from "../dispatch/work";
+import { listDispatchModels, refreshObservations } from "../dispatch/refresh";
+import { dispatchAnalytics, resetLearning, recordWorkReview } from "../dispatch/learning";
+import { getWork } from "../dispatch/work";
 import { previewInputSchema } from "../dispatch/types";
 import { desktopUpdateOps } from "./ops-desktop-update";
 import { captureBroker } from "../desktop/capture-broker";
@@ -308,17 +313,21 @@ export const OPS: Record<string, OpDef> = { ...sessionOps, ...desktopOps,
     },
   }),
   "task.wait": op({ description: "Block until the task settles or timeout_s passes.", params: z.object({ id, timeout_s: z.number().int().min(1).max(3000).optional() }), handler: async (ctx, p) => summarizeTask(await core.tasks.wait(ctx, p.id, p.timeout_s ?? 600)) }),
-  "task.stop": op({ description: "Stop a task and its executor.", params: z.object({ id, expect_rev }), handler: (ctx, p) => taskMutation(ctx, p.id, p.expect_rev, () => summarizeTask(core.tasks.stop(ctx, p.id))) }),
+  "task.stop": op({ description: "Stop a task and its executor.", params: z.object({ id, expect_rev }), handler: (ctx, p) => taskMutation(ctx, p.id, p.expect_rev, () => summarizeTask(getWork(ctx,p.id)?stopWork(ctx,p.id,p.expect_rev):core.tasks.stop(ctx, p.id))) }),
   "task.answer": op({
     description: "Answer an executor question and retry on the same executor. Conflicts unless awaiting input.",
     params: z.object({ id, text: z.string().min(1).max(2000), expect_rev }),
-    handler: (ctx,p,deps) => core.tasks.answer(ctx,p.id,p.text,{expectRev:p.expect_rev},{delegate:(c,input)=>core.tasks.delegate(c,input,deps.spawnRunner ?? spawnRunner)}),
+    handler: (ctx,p,deps) => {
+      if(getWork(ctx,p.id))throw new CoreError("not_allowed","Use dispatch.answer with a requestId and revision for managed work");
+      return core.tasks.answer(ctx,p.id,p.text,{expectRev:p.expect_rev},{delegate:(c,input)=>core.tasks.delegate(c,input,deps.spawnRunner ?? spawnRunner)});
+    },
   }),
   "task.retry": op({
     description: "Re-delegate a task's stored brief (one active retry per task).",
     params: z.object({ id, expect_rev, executor: z.string().min(1).max(128).optional(), from_panel: z.boolean().optional() }),
     handler: async (ctx, p, deps) => {
       if (isExecutorSession(ctx)) throw new CoreError("not_allowed", EXECUTOR_DELEGATE_ERROR);
+      if(getWork(ctx,p.id))throw new CoreError("not_allowed","Use dispatch.retry with a requestId and revision for managed work");
       const r = await core.tasks.retry(ctx, p.id, { executor: p.executor, fromPanel: p.from_panel, expectRev: p.expect_rev }, { delegate: (c, input) => core.tasks.delegate(c, input, deps.spawnRunner ?? spawnRunner) });
       return { retry: summarizeTask(r.retry), of: summarizeTask(r.of) };
     },
@@ -332,6 +341,7 @@ export const OPS: Record<string, OpDef> = { ...sessionOps, ...desktopOps,
       const skipped: { id: string; reason: string }[] = [];
       for (const id of [...new Set<string>(p.ids)]) {
         try {
+          if(getWork(ctx,id))throw new CoreError("not_allowed","Use dispatch.submit for a new work root; task.retry does not preserve delegation policy");
           const r = await core.tasks.retry(ctx, id, { executor: p.executor, fromPanel: p.from_panel }, {
             delegate: (c, input) => core.tasks.delegate(c, input, deps.spawnRunner ?? spawnRunner),
           });
@@ -361,7 +371,11 @@ export const OPS: Record<string, OpDef> = { ...sessionOps, ...desktopOps,
       .refine(p => p.verdict !== "retry" || !!p.executor?.trim(), "retry requires an executor"),
     handler: (ctx, p, deps) => {
       if ((p.verdict === "send_back" || p.verdict === "retry") && isExecutorSession(ctx)) throw new CoreError("not_allowed", EXECUTOR_DELEGATE_ERROR);
-      return taskMutation(ctx, p.id, p.expect_rev, () => core.tasks.review(ctx, p.id, p, { delegate: (c, input) => core.tasks.delegate(c, input, deps.spawnRunner ?? spawnRunner) }));
+      if(getWork(ctx,p.id)){
+        if(p.verdict!=="accept"&&p.verdict!=="reject")throw new CoreError("not_allowed","Use dispatch.review for work results");
+        return taskMutation(ctx,p.id,p.expect_rev,()=>reviewWork(ctx,p.id,p.verdict==="accept",p.note,p.expect_rev));
+      }
+      return taskMutation(ctx, p.id, p.expect_rev, async () => {const result=await core.tasks.review(ctx, p.id, p, { delegate: (c, input) => core.tasks.delegate(c, input, deps.spawnRunner ?? spawnRunner) });if(getWork(ctx,p.id))recordWorkReview(ctx,p.id,"human");return result;});
     },
   }),
   "attention.dismiss": op({ description: "Dismiss a raised attention item.", params: z.object({id:z.string().min(1).max(256)}), handler: (ctx,p) => attention.dismiss(ctx,p.id) }),
@@ -388,6 +402,22 @@ export const OPS: Record<string, OpDef> = { ...sessionOps, ...desktopOps,
   "limits.report": op({ description: "Mark a provider's account exhausted until unix seconds or its cooldown.", params: z.object({ provider: id, until: z.number().optional() }), handler: (ctx, p) => core.limits.report(ctx, p.provider, p.until) }),
   "routing.status": op({ description: "Current budget and routing status.", params: z.object({}), handler: (ctx) => core.routing.status(ctx) }),
   "dispatch.preview": op({ description: "Preview account/model dispatch using cached observations and the replaceable decision engine. Does not reserve capacity or launch work.", params: previewInputSchema, handler: (ctx, p) => core.dispatch.previewDispatch(ctx, p) }),
+  "dispatch.submit": op({ description: "Submit a root work item to the dispatcher.", params: z.object({goal:z.string().min(1).max(20000),repo:z.string().min(1).max(4096),title:z.string().max(500).optional(),kind:id.optional(),acceptance:z.string().max(20000).optional(),context:z.string().max(20000).optional(),constraints:z.string().max(20000).optional(),executor:id.optional(),requestId:id.optional(),options:workOptionsSchema.partial().optional()}),handler:async(ctx,p,deps)=>summarizeTask(await submitWork(ctx,p,deps.spawnRunner??spawnRunner)) }),
+  "dispatch.child": op({ description: "Delegate a scoped child work item using the current attempt's grant and an idempotency key.", params: z.object({goal:z.string().min(1).max(20000),title:z.string().max(500).optional(),kind:id.optional(),acceptance:z.string().max(20000).optional(),context:z.string().max(20000).optional(),constraints:z.string().max(20000).optional(),executor:id.optional(),requestId:id,options:workOptionsSchema.partial().optional()}),handler:async(ctx,p,deps)=>summarizeTask(await delegateChild(ctx,p,deps.spawnRunner??spawnRunner)) }),
+  "dispatch.tree": op({ description: "Scoped nested work tree, selected decisions, dependencies and aggregate execution time.", params:z.object({id}),handler:(ctx,p)=>scopedWorkTree(ctx,p.id) }),
+  "dispatch.list": op({ description: "Page through work roots or children, optionally filtered by repository and state.", params:z.object({relation:z.enum(["roots","children","all"]).optional(),state:z.enum(["queued","running","done","partial","failed","limit","stopped","needs_input"]).optional(),repo:z.string().min(1).optional(),before:id.optional(),limit:z.number().int().min(1).max(100).optional()}),handler:(ctx,p)=>listWork(ctx,p) }),
+  "dispatch.events": op({ description: "Scoped work timeline after a monotonic cursor.", params:z.object({id,after:z.number().int().nonnegative().optional()}),handler:(ctx,p)=>scopedWorkEvents(ctx,p.id,p.after??0) }),
+  "dispatch.wait": op({ description: "Wait for a work item to settle.", params:z.object({id,timeout_s:z.number().int().min(1).max(3000).optional()}),handler:async(ctx,p)=>summarizeTask(await waitWork(ctx,p.id,p.timeout_s??600)) }),
+  "dispatch.review": op({ description: "Review a child work item after its required children are accepted.", params:z.object({id,accepted:z.boolean(),note:z.string().max(2000).optional(),expect_rev:z.number().int().positive()}),handler:(ctx,p)=>reviewWork(ctx,p.id,p.accepted,p.note,p.expect_rev) }),
+  "dispatch.retry": op({ description: "Retry a settled managed work item in the same lineage and worktree with a new attempt.", params:z.object({id,expect_rev:z.number().int().positive(),requestId:id,feedback:z.string().max(2000).optional()}),handler:async(ctx,p,deps)=>summarizeTask(await retryWork(ctx,p.id,{expectRev:p.expect_rev,requestId:p.requestId,feedback:p.feedback},deps.spawnRunner??spawnRunner)) }),
+  "dispatch.answer": op({ description: "Answer a managed executor question and resume the same work item.", params:z.object({id,expect_rev:z.number().int().positive(),requestId:id,text:z.string().min(1).max(2000)}),handler:async(ctx,p,deps)=>summarizeTask(await answerWork(ctx,p.id,{expectRev:p.expect_rev,requestId:p.requestId,text:p.text},deps.spawnRunner??spawnRunner)) }),
+  "dispatch.stop": op({ description: "Stop a work subtree at the expected revision.", params:z.object({id,expect_rev}),handler:(ctx,p)=>summarizeTask(stopWork(ctx,p.id,p.expect_rev)) }),
+  "dispatch.dependencies": op({ description: "Set same-root dependencies with a revision check.", params:z.object({id,dependencies:z.array(id).max(100),expect_rev:z.number().int().positive()}),handler:(ctx,p)=>{setWorkDependencies(ctx,p.id,p.dependencies,p.expect_rev);return scopedWorkTree(ctx,p.id);} }),
+  "dispatch.dependencies.waive": op({ description: "Waive a dependency with an audit reason and revision check.", params:z.object({id,dependency:id,reason:z.string().trim().min(1).max(2000),expect_rev:z.number().int().positive()}),handler:(ctx,p)=>{waiveWorkDependency(ctx,p.id,p.dependency,p.reason,p.expect_rev);return scopedWorkTree(ctx,p.id);} }),
+  "dispatch.models": op({description:"Declared model inventory and observed suggestions with authorization status.",params:z.object({}),handler:ctx=>listDispatchModels(ctx)}),
+  "dispatch.refresh": op({description:"Refresh scoped model/capability/usage/health observations with backoff.",params:z.object({runner:id.optional(),force:z.boolean().optional()}),handler:(ctx,p)=>refreshObservations(ctx,p)}),
+  "dispatch.analytics": op({description:"Comparable reviewed outcomes, sample sizes and uncertainty; missing usage stays unknown.",params:z.object({repo:z.string().optional(),kind:id.optional()}),handler:(ctx,p)=>dispatchAnalytics(ctx,p)}),
+  "dispatch.learning.reset": op({description:"Reset derived learning for a repository without deleting work history, and optionally exclude it.",params:z.object({repo:z.string().min(1),excluded:z.boolean().default(false),expect_rev:z.number().nonnegative()}),handler:(ctx,p)=>{const revision=resetLearning(ctx,p.repo,p.excluded,p.expect_rev);return{reset:true,excluded:p.excluded,revision};}}),
   "routing.route": op({ description: "Rank confirmed eligible executors before labelled uncertain fallbacks for an optional task kind.", params: z.object({ kind: z.enum(KINDS).optional(), goal:z.string().min(1).optional(), repo:z.string().min(1).optional() }), handler: (ctx, p) => core.routing.route(ctx, p.kind ?? null, undefined, {goal:p.goal,repo:p.repo}) }),
   "strategy.build": op({description:"Open a strategy planning session.",params:z.object({agent:agent.optional(),from:id.optional(),brief:z.string().max(2000).optional(),worktree:z.string().min(1).max(4096).optional()}),handler:(ctx,p,deps)=>strategyAction(async()=>{const result=await buildStrategy(ctx,p,{open:deps.openTerminal});await publish(ctx,[{type:"alert",data:{key:"strategy-build",level:result.opened?"info":"error",title:result.opened?"Strategy session opened":"Strategy session failed",body:result.opened?"":result.message,at:ctx.now}}]);return {opened:result.opened,target:result.target,command:result.command};})}),
   "strategy.list": op({ description: "Available strategies and the active strategy.", params: z.object({}), handler: (ctx) => { try { return strategy.list(ctx); } catch (e) { throw toCoreError(e); } } }),
@@ -423,6 +453,7 @@ export function opJsonSchemas(): Record<string, { description: string; params: u
 }
 
 export async function callOp(ctx: Ctx, name: string, params: unknown, deps: OpDeps = {}): Promise<unknown> {
+  authorizeWorkOperation(ctx,name,params);
   if (!Object.hasOwn(OPS, name)) throw new CoreError("unknown_op", `unknown operation "${name}"`, `operations: ${opNames().join(", ")}`);
   if(name==="task.review"&&params&&typeof params==="object"&&Object.hasOwn(params,"accepted"))throw new CoreError("invalid_input","task.review requires verdict; accepted was removed in protocol 3");
   const def = OPS[name];

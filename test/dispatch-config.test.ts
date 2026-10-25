@@ -8,6 +8,9 @@ test("dispatch configuration is opt-in and rejects unsupported options", () => {
   expect(() => parseDispatchConfig({ engine: "remote" })).toThrow();
   expect(() => parseDispatchConfig({ engine: "ladder", hidden: true })).toThrow();
   expect(parseDispatchConfig({})!.steps[0].capacity).toBe("comfortable");
+  const changed=parseDispatchConfig({})!;
+  changed.steps[0]!.capacity="unknown";
+  expect(parseDispatchConfig({})!.steps[0]!.capacity).toBe("comfortable");
 });
 
 test("runner model declarations preserve defaults and reject duplicates", () => {

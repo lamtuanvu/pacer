@@ -8,6 +8,8 @@ export interface Resource<T> { value?: T; error?: { message: string; hint?: stri
 
 /** `task.get` fields the TUI reads; every field is optional so older services still render. */
 export interface TaskDetail {
+  work?: {rootId:string;parentId:string|null;depth:number};
+  workTree?: {nodes:{taskId:string;depth:number;title:string;state:string;model:string|null;actualModel:string|null;dependencies:string[];review:{accepted:boolean}|null;retryEligibility?:{allowed:boolean;reason?:string};attempts:{model?:string|null;actualModel?:string|null}[];decisions:{attempt:number;engine:{id:string};fallback?:{reason:string};selectedCandidateId?:string;proposal?:{state:string;choices?:{id:string;reason:string}[]}}[]}[];totals:{tasks:number;running:number;queued:number;executionSeconds:number;dependencyWaitSeconds:number|null;childWaitSeconds:number|null;capacityWaitSeconds:number|null;usagePools:{account:string;observedDeltaPct:number|null;unknownAttempts:number}[]}};
   id: string; rev?: number; state: string; goal?: string; title?: string; fullTitle?: string;
   executor?: string | null; repo?: { key: string; label: string } | null; branch?: string | null; base?: string | null;
   machine?: string | null; startedAt?: number | null; endedAt?: number | null; worktree?: string | null; kind?: string | null;
@@ -19,6 +21,7 @@ export interface TaskDetail {
   retryOptions?: { id: string; state: string; reason?: string }[];
   timeline?: { at: number; text: string }[];
   reviewRequest?: {note:string;at:number};
+  question?: {text:string;answer?:string};
   review?: { accepted: boolean } | null; resolved?: string | null; dismissed?: boolean; retriedBy?: string | null;
   progress?: { phase?: string; files?: number; commits?: number; lastOutputAt?: number | null } | null;
 }

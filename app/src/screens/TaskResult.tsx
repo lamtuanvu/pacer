@@ -17,6 +17,7 @@ import { parseDiff } from "../model/diff";
 import { Diff } from "./review/Diff";
 import type { Verdict } from "./review/model";
 import { Page, PageHeader, PageTitle, Stack } from "../ds/Page";
+import { LazyWork } from "./work/LazyWork";
 
 export function resultSummary(task: TaskDetail): string {
   if (task.state === "queued") return "Waiting to start. Follow this task in Session.";
@@ -97,7 +98,7 @@ function TaskResultLoaded({ task, reload }: { task: TaskDetail; reload: () => vo
   const canReview = !["queued", "running"].includes(task.state) && state.features.ops.has("task.review") && !task.review && !task.resolved && !task.dismissed && !task.retriedBy;
   const panel = canReview ? <VerdictPanel recovery={task.acceptance.state === "failed" || ["partial","failed","limit"].includes(task.state)} task={task} note={note} kind={kind} executor={executor} noteFor={noteFor} pending={pending} noteRef={noteRef}
     onNote={setNote} onKind={setKind} onExecutor={setExecutor} onOpenNote={v=>{setNoteFor(v);queueMicrotask(()=>noteRef.current?.focus());}} onCancel={()=>setNoteFor(null)} onSubmit={v=>void submit(v)} /> : undefined;
-  const isQuestion = task.state === "needs_input" && task.question && task.question.answer === undefined && !task.retriedBy && !task.dismissed;
+  const isQuestion = !task.work&&task.state === "needs_input" && task.question && task.question.answer === undefined && !task.retriedBy && !task.dismissed;
   const question = isQuestion ? <><p>{task.question!.text}</p><Field label="Your answer"><TextArea value={answer} rows={4} onInput={e=>setAnswer(e.currentTarget.value)} /></Field><Button variant="primary" busy={pending} disabled={!answer.trim()} onClick={async()=>{
     if(inFlight.current)return;inFlight.current=true;setPending(true);
     try { const result=await runner.run(`answer:${task.id}`,{label:"Answer",op:"task.answer",params:{id:task.id,text:answer,expect_rev:task.rev}});setMessage(result.status==="error"||result.status==="handled"?result.message:"Answer sent.");reload(); }
@@ -118,7 +119,7 @@ export function TaskDetailFrame({ task, query, tab, onTab, children }: {
     <div className="pc-detail-navigation">
       <nav aria-label="Task navigation"><ButtonLink href={withQuery("#/tasks", query)} variant="quiet" size="sm"><span aria-hidden="true">‹</span> Tasks</ButtonLink></nav>
       <TaskHeading task={task}/>
-      <Tabs label="Task views" id={id} value={tab} options={[{value:"summary",label:"Summary"},{value:"session",label:"Session"}]} onChange={onTab}/>
+      <Tabs label="Task views" id={id} value={tab} options={[{value:"summary",label:"Summary"},{value:"session",label:"Session"},...(task.work?[{value:"work",label:"Work"}]:[])]} onChange={onTab}/>
     </div>
     <div role="tabpanel" id={`${id}-${tab}-panel`} aria-labelledby={`${id}-${tab}-tab`} tabIndex={0} className="pc-detail-panel">{children}</div>
   </Page>;
@@ -134,6 +135,6 @@ export function TaskRoute({ id, query }: { id: string; query: RouteQuery }) {
   if (task.data.interactionMode === "conversation") return <SessionRoute id={id}/>;
   const tab = chosenTab ?? (["queued", "running"].includes(task.data.state) ? "session" : "summary");
   return <TaskDetailFrame task={task.data} query={query} tab={tab} onTab={setTab}>
-    {tab === "session" ? <SessionRoute id={id} embedded/> : <TaskResultLoaded key={id} task={task.data} reload={task.reload}/>}
+    {tab === "session" ? <SessionRoute id={id} embedded/> : tab === "work" ? <LazyWork id={id}/> : <TaskResultLoaded key={id} task={task.data} reload={task.reload}/>}
   </TaskDetailFrame>;
 }

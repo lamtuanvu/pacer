@@ -1,6 +1,6 @@
 # pacer Constitution
 
-Status: Amendment 0.12.0 (spacing ownership) proposed; amendment 0.11.0 (affected-area CI selection) proposed; amendment 0.10.0 (portable skills and mandatory project review) proposed; amendment 0.9.0 (compact UI density) proposed; amendment 0.8.0 (plugin system: P13–P15) proposed; amendment 0.7.0 (Rust crate structure and size rules) proposed; amendment 0.6.0 (automated releases) proposed; established rules remain in force. The maintainer adopts the amendment by merging its PR. Amendment 0.5.0 was adopted on 2026-10-20 by merging #209; amendment 0.4.0 on 2026-10-19 by merging #193. | Version: 0.12.0 | Updated: 2026-10-24
+Status: Amendment 0.13.0 (scoped work delegation) proposed; amendment 0.12.0 (spacing ownership) proposed; amendment 0.11.0 (affected-area CI selection) proposed; amendment 0.10.0 (portable skills and mandatory project review) proposed; amendment 0.9.0 (compact UI density) proposed; amendment 0.8.0 (plugin system: P13–P15) proposed; amendment 0.7.0 (Rust crate structure and size rules) proposed; amendment 0.6.0 (automated releases) proposed; established rules remain in force. The maintainer adopts the amendment by merging its PR. Amendment 0.5.0 was adopted on 2026-10-20 by merging #209; amendment 0.4.0 on 2026-10-19 by merging #193. | Version: 0.13.0 | Updated: 2026-10-25
 Decision authority: the single maintainer, @lamtuanvu ([GOVERNANCE.md](../GOVERNANCE.md), [.github/CODEOWNERS](../.github/CODEOWNERS)). AI reviewers give advice; they do not approve.
 
 ## Purpose and scope
@@ -133,6 +133,10 @@ UI/release evidence gates remain; failures in change detection fail those gates.
 Full-history secret scanning and complete release validation remain unchanged.
 Scheduled/manual CodeQL remains full; Rust build timings move to affected main
 pushes. No branch protection setting or local CT-11 completion rule is relaxed.
+
+## Amendment 0.13.0 — scoped work delegation
+
+Proposed for adoption by maintainer merge; implementation for the current dispatcher task was explicitly authorized on 2026-10-25. API-5 permits an executor to create and manage child work only through a service-issued grant bound to its running task and attempt. The service derives parent identity and enforces subtree, repository, capability, depth, concurrency and lifetime constraints. A grant never authorizes global operations, self-review or free-form shell execution. Executor sessions without a valid grant remain unable to delegate. This amendment changes no other authentication or protocol compatibility rule.
 
 ## Amendment and exception policy
 

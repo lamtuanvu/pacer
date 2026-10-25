@@ -1,19 +1,30 @@
-# Dispatch preview
+# Intelligent work dispatch
 
-Pacer can preview an executor/account/model choice using a configurable strategy ladder. This is an experimental read-only foundation: existing `route` and `delegate` behavior is unchanged, and executors still cannot delegate child tasks.
+Pacer can choose an executor and a concrete model for each work attempt, then record why it made that choice. An executor with a scoped work grant can delegate a child task back to Pacer. Pacer owns the child policy, workspace, admission, review, and history. Existing `task.delegate` calls remain available; `dispatch.submit` explicitly creates a managed work root.
+
+## Start and inspect work
 
 ```sh
-pacer dispatch preview --repo . --goal 'Investigate a rendering bug' --kind debug --json
-pacer dispatch preview --repo . --goal 'Review architecture' --min-tier medium --tools
+pacer dispatch preview --repo . --goal 'Investigate a rendering bug' --json
+pacer dispatch submit --repo . --goal 'Fix the rendering bug' --allow-delegation --request-id bug-42 --json
+pacer dispatch tree --id TASK_ID --json
+pacer dispatch list --relation roots --state running --json
+pacer dispatch events --id TASK_ID --after 0 --json
+pacer dispatch wait --id TASK_ID --timeout 15 --json
+pacer dispatch review --id TASK_ID --accept
+pacer dispatch retry --id TASK_ID --request-id retry-1 --expect-rev REV --feedback 'Address the failed check'
+pacer dispatch answer --id TASK_ID --request-id answer-1 --expect-rev REV --text 'Use the blue variant'
 ```
 
-The authenticated service operation is `dispatch.preview`; MCP exposes `dispatch_preview` with the same input. Inputs are `repo`, `goal`, optional `kind`, `model`, `requirements` (`minTier`, `tools`, `context`) and `preferences` (`models`, `strengths`). Unknown task kinds are allowed and only match a step explicitly declaring that kind or a generic step. Omitted kinds are not inferred. Goal text is validated but excluded from decision snapshots; the current engine uses explicit structured requirements.
+`dispatch.preview` is read only. It uses cached observations and makes no reservation. `dispatch.submit` creates a root, and the runner evaluates eligibility again immediately before launch. The response, work tree, and timeline distinguish declared, requested, and observed model identity. An executor-default model stays unresolved until supported execution evidence identifies it.
 
-Preview reads existing cached usage observations. It does not refresh providers, launch work, reserve capacity, enable nested delegation or activate a strategy. Status/normal usage readers populate their existing caches separately. Missing or stale facts stay unknown, so a first preview may recommend queueing. Provider refresh, live admission and child delegation are later delivery slices.
+An executor may run `pacer dispatch child --goal '...' --request-id UNIQUE_ID` only while its attempt has a valid grant. The grant is short lived, bound to the attempt, and scoped to its descendants. Child work uses a separate worktree based on the parent worktree's current commit. The parent can use `dispatch wait`, `review`, `tree`, and `events` for its subtree. A parent cannot accept its own result through a grant. A parent can be accepted only after required children have been accepted. Stopping work stops its active descendants. Existing API and MCP task review/stop actions use the same work rules.
 
-## Configure models and the ladder
+`dispatch.dependencies --id TASK_ID --depends-on CHILD_ID --expect-rev REV` sets same-root dependencies. A rejected dependency can be waived by the work owner with `dispatch waive --id TASK_ID --dependency CHILD_ID --reason '...' --expect-rev REV`. Both operations leave timeline evidence. `dispatch.review` uses the displayed revision; a competing change returns a conflict. The CLI fetches the latest revision when it is omitted. Direct API callers must supply `expect_rev`.
 
-Existing fixed-model runners remain singleton choices. A runner without a model exposes one unresolved executor-default choice; it has unknown tier/capabilities until evidence establishes them. Use an accounts-form strategy to declare multiple model choices on a runner:
+`dispatch.retry` and `dispatch.answer` requeue the same managed task and keep its root, parent, policy, worktree, dependencies and prior attempts. Use one stable `request-id` for each intended retry; replaying it does not launch a second attempt. An answer adds the question and answer to the brief and normally keeps the asking executor. Earlier independent reviews remain in attempt history. Managed work defaults to at most three cumulative attempts per task (`maxAttempts` is configurable); accepted, archived, expired or active work cannot be retried. A child may retry its own child through a valid grant, but cannot retry itself.
+
+## Configure the choice ladder
 
 ```yaml
 planner: claude-code
@@ -43,25 +54,27 @@ dispatch:
       require: {minTier: medium, tools: true}
       capacity: comfortable
       rank: [task-fit, spare-capacity]
-    - id: capable-headroom
+    - id: another-capable-model-with-headroom
       capacity: comfortable
       rank: [task-fit, spare-capacity]
     - id: usable-fallback
       capacity: usable
       rank: [task-fit, spare-capacity]
   onNoMatch: queue
+  learning: {enabled: false, minSamples: 20, maxAgeDays: 90}
+  discovery: {enabled: false, runners: [], models: []}
 ```
 
-Model IDs above are illustrative; configure exact IDs supported by your executor/account. Model declarations authorize preview choices only: they do not change the runner's existing execution `model`. Do not assume legacy delegation will execute the preview winner. Endpoint model declarations must belong to the endpoint's configured connection model list. Tier and strengths are your declarations, not a quality certification or automatic classification. Discovery cannot expand the allowlist.
+Steps are evaluated in order; the first step with qualifying choices wins. Requirements remain mandatory at every step. Within a step, factors are compared in the listed order, then by stable candidate ID. Available factors are `task-fit`, `spare-capacity`, `burn-before-reset`, `cheapest-first`, and `preference`. Unknown prices or quota readings are not treated as zero or as unlimited capacity. `comfortable` requires fresh health and enough measured headroom; `usable` needs positive headroom. A step with `capacity: unknown` explicitly permits uncertain capacity but still honors hard exhaustion and requirements. A pin to one exact model never silently changes to another.
 
-Pacer applies existing routing/project permissions, planner exclusion, availability and concurrency checks before evaluating steps. All task requirements remain mandatory through fallbacks. It walks steps in order and ranks candidates in the first qualifying step. Step model preferences precede task model preferences; each `rank` list then applies lexicographically, with stable candidate identity breaking ties. `task-fit` counts matching configured strength tags. No learned ranking is enabled.
+Tier and strength tags are user declarations. Pacer does not infer a tier from a model name. An observed model list is a suggestion by default. To allow specific newly observed IDs, set `discovery.enabled: true` and list both permitted runners and exact model IDs. These models enter with unknown tier and strengths until explicitly declared, so discovery cannot satisfy a minimum-tier requirement by claiming one.
 
-Ranking factors: `task-fit`, `spare-capacity`, `burn-before-reset`, `cheapest-first`, `preference`. Missing cost/burn information stays unknown and follows comparable known values. The current cached-status adapter supplies no monetary prices, so cheapest-first may tie. Burn uses remaining headroom per hour before reset. Shared account quota pools are reused by every model, not added together.
+`dispatch.models` shows declared/allowed and advertised choices. `dispatch.refresh` asks observation adapters for bounded model, capability, usage, health, and actual-model readings; the service periodically refreshes them with backoff. Unsupported readings remain unknown. Adapter responses are normalized before the decision engine sees them. An enabled plugin may provide `observation.observe`; a configured `engine: plugin:PLUGIN_ID` may provide `decision.decide`. `engineFallback: ladder` enables an explicit local fallback; the default is to queue if the configured engine fails or times out. Plugins recommend or observe; Pacer still authorizes and launches work.
 
-`comfortable` requires fresh health and measured headroom of at least 20 percentage points after reserve in every quota window by default. `usable` requires positive measured headroom after reserve. Unmetered accounts still require health; missing readings are not unmetered. `unknown` explicitly allows uncertain capacity, while hard observed exhaustion and task requirements still exclude candidates. Reset/expiry observations cannot count as fresh. Adapter errors are fixed structured states rather than raw provider responses.
+Learning is opt in. Accepted/rejected reviews are grouped by task kind, difficulty, runner settings, and observed actual model. Only independently reviewed attempts with a known actual identity and matching immutable settings can affect a candidate after at least 20 comparable reviews within `maxAgeDays`. Unknown identity and missing usage remain unknown. `dispatch.analytics` reports counts, outcomes, confidence interval, duration, and available usage readings. `dispatch learning-reset --repo .` resets derived evidence for a repository; add `--exclude` to keep that repository out of learning. History and task results remain intact. This is an advisory ranking signal, not proof of model quality.
 
-## Read the result
+## History and limits
 
-JSON includes the engine/version, immutable decision request snapshot and hash, proposal and hash, matched/skipped steps, ranked choices/factors, exclusions and uncertainty. Requested model bindings and observed actual model identity are separate. A valid recommendation is not admission: capacity can change after preview. `queue`/`fail` are recommendations in this release, not actual task-state changes.
+`dispatch.list` pages work roots, child work, or all work by status; the app shows these filters in Tasks. `dispatch.tree` returns the bounded work subtree, per-attempt decisions, requested and observed models, reviews, dependencies, and measured/unknown totals. Queued time across attempts, execution time, dependency wait, capacity wait and parent time waiting for children are shown separately. Open wait intervals are provisional. Account usage is grouped by account, quota window and reset epoch; overlapping parent and child observation intervals are merged before reporting observed percentage movement. It is a shared-account reading, not usage attributed solely to this work. Missing or stale readings remain unknown. `dispatch.events` returns at most 500 ordered events and a monotonic `next` cursor plus `hasMore`; keep requesting while `hasMore` is true, even when a scoped page contains no visible events. The app's Work panel and TUI use the same service data. Work event and decision rows are retained with the local service state; task archival can leave an `Archived work` lineage placeholder. There is no automatic work-history pruning in this version.
 
-Pacer's control layer owns authorization, eligibility and future reservations/launches. Decision engines only recommend existing candidate IDs. The local ladder uses a replaceable typed interface; another conforming engine can be injected by service integration, but arbitrary remote/plugin engines are not configurable in this release. Invalid or timed-out engine output cannot select a runner. Observation adapters use serializable scoped envelopes suitable for a later plugin binding; existing plugin-owned readers retain their ownership.
+Root delegation limits default to depth 3, 20 descendants, and four concurrent tasks. Children inherit hard requirements and can narrow those limits; they cannot broaden an ancestor's permissions. A child request is rejected when it cannot make progress because its parent and other running work occupy the eligible slots. Remote executors do not yet carry scoped child grants, so delegated planners run locally. Model-list and exact-model evidence varies by provider; unknown facts are shown explicitly.

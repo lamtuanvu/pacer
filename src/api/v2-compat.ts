@@ -19,6 +19,8 @@ export type CompatEvent = ApiEventV3 & { [V2_EVENT]?: ApiEventV2 | null };
 /** Operations added after 2.8.0. 2.x is frozen, so they exist only in v3. */
 export const V3_ONLY_OPS = new Set(['dispatch.preview','runner.settings.get','runner.settings.save','desktop.capture.register','desktop.capture.targets','desktop.capture.request','desktop.capture.claim','desktop.capture.complete','desktop.capture.result','desktop.update.adopt','desktop.update.adoptCancel','desktop.update.status','desktop.update.check','desktop.update.download','desktop.update.restart','desktop.update.cancel','desktop.update.configure','task.takeover','service.install','onboarding.skip','onboarding.try','doctor.run','project.strategy.list','project.strategy.get','project.strategy.set','project.strategy.remove','task.prune','task.restore','plugin.list','plugin.enable','plugin.disable','plugin.remove','plugin.doctor']);
 
+for (const op of ['dispatch.submit','dispatch.child','dispatch.tree','dispatch.list','dispatch.events','dispatch.wait','dispatch.review','dispatch.retry','dispatch.answer','dispatch.stop','dispatch.dependencies','dispatch.dependencies.waive','dispatch.models','dispatch.refresh','dispatch.analytics','dispatch.learning.reset']) V3_ONLY_OPS.add(op);
+
 export function v2Hello() {
  const {previous:_,...hello}=helloBody();
  return {...hello,protocol:V2_PROTOCOL,ops:hello.ops.filter(op=>!V3_ONLY_OPS.has(op)),events:[...V2_EVENT_TYPES]};
@@ -58,6 +60,9 @@ export function toV2Event(e: CompatEvent): ApiEventV2 | null {
 export const V3_CURSOR_BASE = 3_000_000_000_000;
 
 export function v2Params(name:string,params:unknown):unknown {
+ if(name==='task.delegate'&&params&&typeof params==='object'&&!Array.isArray(params)){
+  const {dispatch:_,...legacy}=params as Record<string,unknown>;return legacy;
+ }
  if(name==='client.register'&&params&&typeof params==='object'&&!Array.isArray(params)){
   const {capture:_,...legacy}=params as Record<string,unknown>;
   return legacy;
@@ -79,7 +84,7 @@ export function toV2OpResult(name:string,result:any):unknown {
  // `fullTitle` and `derived` are 3.x additions; 2.x responses stay byte-identical.
  const legacyTask=(task:any)=>{if(!task||typeof task!=='object')return task;const {fullTitle:_,...rest}=task;return rest;};
  if(name==='task.list'){const list=result?.[LEGACY_TASK_LIST]??result;if(Array.isArray(list))return list.map(legacyTask);return list&&Array.isArray(list.tasks)?{...list,tasks:list.tasks.map(legacyTask)}:list;}
- if(name==='task.get'&&result&&typeof result==='object'){const {derived:_,...rest}=legacyTask(result);return rest;}
+ if(name==='task.get'&&result&&typeof result==='object'){const {derived:_,work:__,...rest}=legacyTask(result);return rest;}
  if(name==='task.review'&&result&&typeof result==='object'&&!Array.isArray(result))return 'task' in result?{...result,task:legacyTask(result.task)}:legacyTask(result);
  return result;
 }
@@ -92,6 +97,7 @@ export async function callV2Op(ctx:Ctx,name:string,params:unknown,deps?:OpDeps):
 /** Keep the existing v2 document/schema check stable until the documentation task. */
 export function v2OpJsonSchemas():ReturnType<typeof opJsonSchemas> {
  const schemas=opJsonSchemas();
+ delete (schemas['task.delegate'].params as {properties:Record<string,unknown>}).properties.dispatch;
  delete (schemas['client.register'].params as {properties:Record<string,unknown>}).properties.capture;
  for(const op of V3_ONLY_OPS)delete schemas[op];
  schemas['task.list'].description="Recent tasks, newest first. Cursor/filter params return a page; limit alone keeps the legacy array until 3.0.";

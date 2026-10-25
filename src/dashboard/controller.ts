@@ -135,10 +135,10 @@ export class Dashboard {
     if (this.supports("task.get")) for (const id of view.needs ?? []) {
       const task = this.snapshot.tasks.find(t => t.id === id), stamp = `${task?.rev ?? ""}:${task?.updatedAt ?? ""}:${task?.state ?? ""}`;
       const current = this.data.details.get(id);
-      if (current && (current.loading || current.stamp === stamp)) continue;
+      if (current && (current.loading || current.stamp === stamp && (!current.value?.work || current.value.state!=="running"))) continue;
       this.data.details.set(id, { ...current, loading: true, stamp });
       this.track(this.deps.client.call<TaskDetail>("task.get", { id })
-        .then(value => { this.data.details.set(id, { value, stamp }); })
+        .then(async value => { if(value.work&&this.supports("dispatch.tree")){try{value.workTree=await this.deps.client.call<NonNullable<TaskDetail["workTree"]>>("dispatch.tree",{id});}catch{}}this.data.details.set(id, { value, stamp }); })
         .catch(error => { this.data.details.set(id, { ...this.data.details.get(id), loading: false, stamp, error: errorOf(error) }); }));
     }
     if (screen === "settings") for (const key of view.settingsNeeds ?? []) {

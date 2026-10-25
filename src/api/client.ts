@@ -15,6 +15,10 @@ export { HttpClient } from "./http-client";
 export { StdioClient } from "./stdio-client";
 
 export async function connectClient(ctx: Ctx, o: { timeoutMs?: number; opDeps?: OpDeps; protocol?: 2 | 3 } = {}): Promise<ApiClient> {
+  if(ctx.env.PACER_WORK_GRANT){
+    return new HttpClient(`http://127.0.0.1:${ctx.env.PACER_PORT??DEFAULT_PORT}`,ctx.env.PACER_WORK_GRANT,{protocol:3});
+  }
+  if(ctx.env.PACER_ROLE==="executor") throw new ApiError("not_allowed","Executor client requires a scoped work grant");
   const fallback = () => new InProcessClient(() => ctx, { opDeps: o.opDeps });
   if (ctx.env.PACER_API === "inprocess") return fallback();
   try {

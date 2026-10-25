@@ -3,6 +3,7 @@ import { CoreError } from "../core/errors";
 import type { Ctx } from "../types";
 import { liveSnapshot, liveV2Snapshot, eventsSince } from "./events";
 import { callOp, type OpDeps } from "./ops";
+import { connectClient } from "./client";
 import { helloBody, rpcError } from "./protocol";
 
 /** Concurrent, line-delimited JSON-RPC; EOF stops events and drains requests. */
@@ -52,8 +53,12 @@ export async function runStdio(
           result = protocol===3?helloBody():v2Hello();
           break;
         }
-        case "snapshot": result = await (protocol===3?liveSnapshot:liveV2Snapshot)(getCtx()); break;
+        case "snapshot": {
+          if (getCtx().env.PACER_WORK_GRANT) throw new CoreError("not_allowed", "Work grants cannot read a global snapshot");
+          result = await (protocol===3?liveSnapshot:liveV2Snapshot)(getCtx()); break;
+        }
         case "subscribe": {
+          if (getCtx().env.PACER_WORK_GRANT) throw new CoreError("not_allowed", "Work grants cannot subscribe to global events");
           const params = r.params ?? {};
           if (typeof params !== "object" || Array.isArray(params)) throw new CoreError("invalid_input", "subscribe params must be an object");
           const since = (params as Record<string, unknown>).since ?? 0;
@@ -64,7 +69,13 @@ export async function runStdio(
           timer = setInterval(poll, o.pollMs ?? 500);
           break;
         }
-        default: result = await (protocol===3?callOp:callV2Op)(getCtx(), r.method, r.params ?? {}, o.opDeps);
+        default: {
+          if (getCtx().env.PACER_WORK_GRANT) {
+            if (protocol !== 3) throw new CoreError("not_allowed", "Work grants require protocol 3");
+            const client = await connectClient(getCtx(), { protocol: 3 });
+            try { result = await client.call(r.method, r.params ?? {}); } finally { client.close(); }
+          } else result = await (protocol===3?callOp:callV2Op)(getCtx(), r.method, r.params ?? {}, o.opDeps);
+        }
       }
       if (hasId) send({ jsonrpc: "2.0", id: r.id, result });
     } catch (e) {

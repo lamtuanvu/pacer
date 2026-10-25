@@ -17,7 +17,10 @@ export const requirementsSchema = z.object({
 export const preferencesSchema = z.object({ models: z.array(name).max(256).default([]), strengths: z.array(name).max(64).default([]) }).strict();
 const rankSchema = z.enum(["task-fit", "spare-capacity", "burn-before-reset", "cheapest-first", "preference"]);
 export const dispatchConfigSchema = z.object({
-  engine: z.literal("ladder").default("ladder"), timeoutMs: z.number().int().min(1).max(10000).default(1000),
+  engine: z.string().regex(/^(?:ladder|plugin:[a-z0-9][a-z0-9-]{1,63})$/).default("ladder"),
+  engineFallback: z.enum(["queue","ladder"]).default("queue"), timeoutMs: z.number().int().min(1).max(10000).default(1000),
+  learning: z.object({enabled:z.boolean().default(false),minSamples:z.number().int().min(20).max(1000).default(20),maxAgeDays:z.number().int().min(1).max(365).default(90)}).strict().default({enabled:false,minSamples:20,maxAgeDays:90}),
+  discovery: z.object({enabled:z.boolean().default(false),runners:z.array(name).max(128).default([]),models:z.array(name).max(512).default([])}).strict().default({enabled:false,runners:[],models:[]}),
   reservePct: z.number().min(0).max(100).default(0), comfortablePct: z.number().min(0).max(100).default(20),
   steps: z.array(z.object({
     id: name, match: z.object({ kind: name.optional() }).strict().default({}),
@@ -25,12 +28,12 @@ export const dispatchConfigSchema = z.object({
     candidates: z.object({ models: z.array(name).max(256).optional(), executors: z.array(name).max(256).optional() }).strict().default({}),
     capacity: z.enum(["comfortable", "usable", "unknown"]).default("comfortable"),
     rank: z.array(rankSchema).min(1).max(5).default(["task-fit", "spare-capacity"]),
-  }).strict()).min(1).max(64).default([
-    { id: "capable-with-headroom", match: {}, require: {}, prefer: { models: [], strengths: [] }, candidates: {}, capacity: "comfortable", rank: ["task-fit", "spare-capacity"] },
-    { id: "usable-fallback", match: {}, require: {}, prefer: { models: [], strengths: [] }, candidates: {}, capacity: "usable", rank: ["task-fit", "spare-capacity"] },
+  }).strict()).min(1).max(64).default(() => [
+    { id: "capable-with-headroom", match: {}, require: {}, prefer: { models: [], strengths: [] }, candidates: {}, capacity: "comfortable" as const, rank: ["task-fit", "spare-capacity"] as z.infer<typeof rankSchema>[] },
+    { id: "usable-fallback", match: {}, require: {}, prefer: { models: [], strengths: [] }, candidates: {}, capacity: "usable" as const, rank: ["task-fit", "spare-capacity"] as z.infer<typeof rankSchema>[] },
   ]),
   onNoMatch: z.enum(["queue", "fail"]).default("queue"),
-}).strict().refine(c => new Set(c.steps.map(s => s.id)).size === c.steps.length, "duplicate step IDs").transform(value => structuredClone(value));
+}).strict().refine(c => new Set(c.steps.map(s => s.id)).size === c.steps.length, "duplicate step IDs");
 
 export const observationScopeSchema = z.object({ runner: name, account: name, binding: modelBindingSchema.optional() }).strict();
 export const observationMethodSchema = z.enum(["models", "capabilities", "usage", "health", "actual-model"]);
@@ -54,6 +57,7 @@ export const modelRecordSchema = z.object({
 export const candidateSchema = modelRecordSchema.extend({
   id: name.max(1024), poolIds: z.array(name), headroom: z.number().nullable(),
   burn: z.number().nullable(), cost: z.number().nullable(), capacityKnown: z.boolean(),
+  learnedFit: z.object({successRate:z.number().min(0).max(1),sampleCount:z.number().int().nonnegative(),uncertainty:z.number().min(0).max(1)}).strict().optional(),
 });
 export const previewInputSchema = z.object({
   repo: z.string().min(1).max(4096), goal: z.string().min(1).max(8000), kind: name.optional(),
@@ -61,7 +65,7 @@ export const previewInputSchema = z.object({
 }).strict();
 export const decisionRequestSchema = z.object({
   schemaVersion: z.literal(1), requestId: name, now: z.number().finite(), deadline: z.number().finite(),
-  task: z.object({ kind: name.nullable(), requirements: requirementsSchema, preferences: preferencesSchema, model: name.optional(), provenance: z.literal("request") }).strict(),
+  task: z.object({ kind: name.nullable(), difficulty:z.enum(["simple","standard","complex"]).optional(), requirements: requirementsSchema, preferences: preferencesSchema, model: name.optional(), provenance: z.literal("request") }).strict(),
   candidates: z.array(candidateSchema).max(512), observations: z.array(observationSchema).max(2048),
   observationRevision: name, strategyHash: name, config: dispatchConfigSchema,
 }).strict();
@@ -92,4 +96,5 @@ export interface DispatchPreview {
   recommendedAction: "select" | "queue" | "fail";
   excluded: { id: string; reason: string }[];
   uncertainty: string[];
+  fallback?: {from:string;reason:"invalid"|"timeout"};
 }

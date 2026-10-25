@@ -10,6 +10,7 @@ import { box, cols, flex, glyph, heading, span, statusSpans, wrap, type Line, li
 import type { Act, Item } from "../state";
 import { blank, defined, empty, GAP, MARK, time, wrapLines, serviceAct } from "./common";
 import type { Resource, Row, ScreenCtx, ScreenView, TaskDetail } from "./types";
+import {workRows} from "./work";
 
 export const KINDS = ["boilerplate", "tests", "docs", "rename", "migration", "feature", "debug", "refactor", "performance", "unfamiliar-code", "research"];
 
@@ -39,19 +40,26 @@ export function reviewItem(ctx: ScreenCtx, a: AttentionItem, task?: ClientTask, 
     label, danger: verdictName === "reject",
     effect: { type: "prompt", prompt: { title, label: "Note for the executor and your planner", required: "Add a note first.", submit: value => verdict(verdictName === "reject" ? "Rejected" : "Sent back", verdictName, { note: value }) } },
   });
-  const sendBack = note("Send back", "send_back", "Send back with a note");
+  const sendBack = detail&&!detail.work?note("Send back", "send_back", "Send back with a note"):undefined;
   const reject = note("Reject", "reject", "Reject with a note");
   const options = (detail?.retryOptions ?? []).filter(o => o.state === "ready");
-  const retry: Act | undefined = options.length ? {
+  const retry: Act | undefined = detail&&!detail.work&&options.length ? {
     label: "Retry on another executor",
     effect: { type: "choose", title: "Retry on", options: options.map(o => ({ label: `${executorLabel(o.id)} · ${reasonCopy(o.reason)}`, effect: verdict("Retry requested", "retry", { executor: o.id }) })) },
   } : undefined;
+  const managedEligible=detail?.workTree?.nodes.find(node=>node.taskId===id)?.retryEligibility?.allowed===true;
+  const managedRetry:Act|undefined=detail?.work&&managedEligible&&typeof rev==="number"&&ctx.supports("dispatch.retry")?{
+    label:"Retry work",effect:{type:"action",action:{label:"Retry queued",op:"dispatch.retry",params:{id,expect_rev:rev,requestId:`tui-${id}-${rev}`}}}
+  }:undefined;
+  const managedAnswer:Act|undefined=detail?.work&&managedEligible&&typeof rev==="number"&&detail.state==="needs_input"&&detail.question?.text&&!detail.question.answer&&ctx.supports("dispatch.answer")?{
+    label:"Answer work question",effect:{type:"prompt",prompt:{title:detail.question.text,label:"Your answer",required:"Add an answer first.",submit:value=>({type:"action",action:{label:"Answer recorded",op:"dispatch.answer",params:{id,expect_rev:rev,requestId:`tui-answer-${id}-${rev}`,text:value}}})}}
+  }:undefined;
   const path: Act | undefined = detail?.worktree ? { label: "Show worktree path", effect: { type: "local", label: `Worktree: ${detail.worktree}`, run: () => {} } } : undefined;
   return {
     id: `review:${id}`, actions: defined([
       a.kind !== "review" && (task ?? detail)?.state === "done" && task?.acceptanceState !== "failed" && detail?.acceptance?.state !== "failed" ? {...accept,label:"Mark accepted (optional verdict)"} : undefined,
-      sendBack, reject, retry, path]),
-    keys: { ...(acceptAllowed ? {a:accept} : {}), s: sendBack, r: reject, ...(retry ? { t: retry } : {}), ...(path ? { o: path } : {}) },
+      sendBack, reject, retry, managedAnswer, managedRetry, path]),
+    keys: { ...(acceptAllowed ? {a:accept} : {}), ...(sendBack?{s:sendBack}:{}), r: reject, ...(retry ? { t: retry } : {}), ...(managedAnswer?{a:managedAnswer}:{}), ...(managedRetry?{t:managedRetry}:{}), ...(path ? { o: path } : {}) },
   };
 }
 
@@ -134,6 +142,7 @@ export function reviewDetail(ctx: ScreenCtx, a: AttentionItem, resource: Resourc
   const why: Line[] = [...wrapLines([], reasonCopy(d.routing?.why), width - 4, {}), ...(d.routing?.skipped ?? []).slice(0, 3).flatMap(x => wrapLines([], `Skipped ${executorLabel(x.executor)}: ${reasonCopy(x.reason)}`, width - 4, { fg: "secondary" }))];
   if (d.cost?.executor) why.push(...wrapLines([], `Cost: ${costCopy(d.cost.executor ?? null)}`, width - 4, { fg: "secondary" }));
   rows.push(...box(theme, `Why ${executorLabel(executor)}`, why, width).map(line => ({ line })));
+  if(d.work)rows.push(blank(),...workRows(ctx,d,width));
 
   // Changes
   rows.push(blank());
@@ -156,10 +165,11 @@ export function reviewDetail(ctx: ScreenCtx, a: AttentionItem, resource: Resourc
   rows.push(blank());
   const can = a.kind === "review" && ctx.supports("task.review") && !d.review && !d.resolved && !d.dismissed && !d.retriedBy;
   // Each verdict key stays whole; groups move to the next line when the box is narrow.
-  const groups: Line[] = can
-    ? [[span("a", { bold: true }), span(" Mark accepted", { fg: "ink", bold: true })], [span("s", { bold: true }), span(" Send back", { fg: "secondary" })], [span("r", { bold: true }), span(" Reject", { fg: "bad" })],
-      ...((d.retryOptions ?? []).some(o => o.state === "ready") ? [[span("t", { bold: true }), span(" Retry on another executor", { fg: "secondary" })]] : [])]
-    : [];
+  const available:Partial<Record<"a"|"s"|"r"|"t",Act>>=can?reviewItem(ctx,a,task,d).keys:{};
+  const groups: Line[] = (["a","s","r","t"] as const).flatMap(key=>{
+    const action=available[key];
+    return action?[[span(key,{bold:true}),span(` ${action.label}`,{fg:key==="r"?"bad":key==="a"?"ink":"secondary",bold:key==="a"})]]:[];
+  });
   const keyLines: Line[] = [];
   for (const group of groups) {
     const last = keyLines.at(-1);

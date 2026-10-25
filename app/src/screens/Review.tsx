@@ -56,7 +56,7 @@ function reviewError(error: unknown): { removed: boolean; message?: string } {
 export function ReviewView({ snapshot, view, task, now, filePath, diff, loading, updating, error, onSelect, onFile, onOpen, verdictPanel, announcement }: ReviewProps) {
   const status = task && taskStatus(task), acceptance = task?.acceptance;
   const failure = reviewError(error);
-  return <><div className="pc-review-hints muted">j k next · a accept · r reject · t retry elsewhere</div><div className="pc-review">
+  return <><div className="pc-review-hints muted">j k next · a accept · r reject{!task?.work&&" · t retry elsewhere"}</div><div className="pc-review">
     {!view.queue.length ? <EmptyState title="Review queue is clear" description={<>Accepted today {snapshot.today?.accepted ?? 0} · rejected {snapshot.today?.rejected ?? 0}</>} /> : <>
       <Queue items={view.queue} selected={view.selectedId} onSelect={onSelect} snapshot={snapshot} now={now} />
       <article className="pc-review-item" aria-busy={loading}>{updating && <span className="muted pc-query-updating" role="status">Updating…</span>}{failure.message && <p className="muted" role="status">{failure.message}</p>}
@@ -131,9 +131,9 @@ function ReviewLoaded({ id, snapshot, view, dispatch, getView, announce, announc
   const noteRef = useRef<HTMLTextAreaElement>(null), retryRef = useRef<HTMLButtonElement>(null);
   const inFlight = useRef(false);
   useEffect(() => { if (view.noteFor) noteRef.current?.focus(); }, [view.noteFor]);
-  const openNote = (v: "reject" | "send_back") => { if (!view.pending) dispatch({ type: "open-note", for: v }); };
+  const openNote = (v: "reject" | "send_back") => { if (!view.pending&&!(detail.work&&v==="send_back")) dispatch({ type: "open-note", for: v }); };
   const submit = async (verdict: Verdict["verdict"]) => {
-    if (view.pending || inFlight.current) return;
+    if (view.pending || inFlight.current || (detail.work&&(verdict==="retry"||verdict==="send_back"))) return;
     inFlight.current = true;
     try { await submitVerdict(detail, { verdict, note, kind, ...(verdict === "retry" ? { executor } : {}) }, runner, dispatch, announce, getView); }
     finally { inFlight.current = false; }

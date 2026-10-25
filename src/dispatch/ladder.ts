@@ -27,12 +27,12 @@ export function evaluateLadder(request: DecisionRequest, config: DispatchConfig)
       const strengths = step.prefer.strengths.length ? step.prefer.strengths : request.task.preferences.strengths;
       const fit = strengths.filter(s => c.strengths.includes(s)).length;
       const factors = [preference(c, step.prefer), preference(c, request.task.preferences), ...step.rank.flatMap(rank => {
-        if (rank === "task-fit") return [fit];
+        if (rank === "task-fit") return [fit,c.learnedFit?c.learnedFit.successRate-c.learnedFit.uncertainty-0.5:0];
         if (rank === "preference") return [preference(c, step.prefer), preference(c, request.task.preferences)];
         const value = rank === "spare-capacity" ? c.headroom : rank === "burn-before-reset" ? c.burn : c.cost;
         return value === null ? [0, 0] : [1, rank === "cheapest-first" ? -value : value];
       })];
-      return { id: c.id, factors, reason: `Step ${step.id}; ${c.headroom === null ? "capacity unknown" : `${c.headroom}% measured headroom`}; configured task-fit ${fit}` };
+      return { id: c.id, factors, reason: `Step ${step.id}; ${c.headroom === null ? "capacity unknown" : `${c.headroom}% measured headroom`}; configured task-fit ${fit}${c.learnedFit?`; learned fit ${Math.round(c.learnedFit.successRate*100)}% from ${c.learnedFit.sampleCount} comparable reviews (±${Math.round(c.learnedFit.uncertainty*100)}%)`:""}` };
     });
     choices.sort((a, b) => {
       for (let i = 0; i < a.factors.length; i++) if (a.factors[i] !== b.factors[i]) return b.factors[i] - a.factors[i];

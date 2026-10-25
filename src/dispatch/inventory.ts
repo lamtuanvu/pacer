@@ -15,6 +15,19 @@ export function buildModelInventory(strategy: Strategy, observations: readonly O
         ...(model.context !== undefined || technical ? { context: model.context ?? technical!.context } : {}) };
     });
   });
+  const opt=strategy.dispatch?.discovery;
+  if(opt?.enabled){
+    for(const observation of observations){
+      if(observation.method!=="models"||observation.state!=="known"||observation.observedAt>now||observation.expiresAt<=now)continue;
+      if(!opt.runners.includes(observation.scope.runner))continue;
+      const runner=strategy.runners[observation.scope.runner];
+      if(!runner||runner.account!==observation.scope.account)continue;
+      for(const offered of observation.value?.models??[]){
+        if(!opt.models.includes(offered.id)||inventory.some(m=>m.runner===runner.id&&m.binding.kind==="exact"&&m.binding.id===offered.id))continue;
+        inventory.push({runner:runner.id,account:runner.account,executor:runner.agent,binding:{kind:"exact",id:offered.id},actualModel:null,tier:"unknown",strengths:[],provenance:"observed"});
+      }
+    }
+  }
   return inventory.map(model => {
     const evidence = observations.filter(o => o.scope.runner === model.runner && o.scope.account === model.account && o.scope.binding !== undefined
       && JSON.stringify(o.scope.binding) === JSON.stringify(model.binding) && o.state === "known" && o.observedAt <= now && o.expiresAt > now).sort((a,b) => a.observedAt - b.observedAt);

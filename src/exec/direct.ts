@@ -312,8 +312,16 @@ async function runAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, 
   const startedAt = Date.now() / 1000, log = join(dir, `${task.id}.${cfg.id}.log`), ex = loadExec(ctx);
   const git = await gitInfo(ctx.run, task.brief.repo).catch(() => ({ error: "git unavailable" }));
   const top = realpathSafe("error" in git ? task.brief.repo : git.top);
+  if (task.worktree && existsSync(task.worktree) && !("error" in git)) {
+    const original = await ctx.run(["git", "-C", git.top, "rev-parse", "--path-format=absolute", "--git-common-dir"], 10_000);
+    const candidate = await ctx.run(["git", "-C", task.worktree, "rev-parse", "--path-format=absolute", "--git-common-dir"], 10_000);
+    if (original.code !== 0 || candidate.code !== 0 || realpathSafe(original.stdout.trim()) !== realpathSafe(candidate.stdout.trim())) {
+      const reason = "task worktree no longer belongs to its repository; restore it before retrying";
+      return outcome(cfg, startedAt, { code: 1, stdout: "", stderr: reason, timedOut: false }, log, reason);
+    }
+  }
   const busy = listTasksWhere(ctx, { states: ["running"] }).some(t => { const path = realpathSafe(t.worktree ?? t.result?.worktree ?? t.brief.repo); return t.id !== task.id && t.state === "running" && !!t.runnerPid && pidAlive(t.runnerPid) && t.placement?.mode === "current" && (path === top || path.startsWith(top + "/")); });
-  let resolved = task.retryOf && task.worktree ? { mode: realpathSafe(task.worktree) === realpathSafe(task.brief.repo) ? "current" as const : "new" as const, why: "reuse original task worktree" } : resolvePlacement(task, ex.worktree, busy, !("error" in git) && git.dirty);
+  let resolved = task.worktree ? { mode: realpathSafe(task.worktree) === realpathSafe(task.brief.repo) ? "current" as const : "new" as const, why: "reuse task worktree" } : resolvePlacement(task, ex.worktree, busy, !("error" in git) && git.dirty);
   let note = "", workdir = task.brief.repo, mode: "current" | "new" = resolved.mode;
   if (mode === "new" && "error" in git) {
     if (conversation) {
@@ -334,7 +342,7 @@ async function runAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, 
   if (mode === "new" && !("error" in git)) {
     // Retries and fallback attempts retain all committed and uncommitted work.
     const path = taskWorktreePath(ctx, git.top, task.id);
-    if (task.retryOf && task.worktree && !existsSync(task.worktree)) {
+    if (task.worktree && !existsSync(task.worktree)) {
       const reason = "original task worktree is unavailable; restore it before retrying";
       return outcome(cfg, startedAt, { code: 1, stdout: "", stderr: reason, timedOut: false }, log, reason);
     }
@@ -360,8 +368,8 @@ async function runAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, 
     t.worktree = workdir;
   });
   const prompt = conversation ? task.brief.goal : mode === "new"
-    ? buildPrompt({ ...task.brief, repo: task.retryOf ? `${workdir} (the original task worktree; keep its current branch; do not edit ${task.brief.repo} itself)` : `${workdir} (a new git worktree of ${task.brief.repo} on branch pacer/${task.id}; do not edit ${task.brief.repo} itself)` }, task.id)
-    : buildPrompt(task.brief, task.id);
+    ? buildPrompt({ ...task.brief, repo: task.worktree ? `${workdir} (the task worktree; keep its current branch; do not edit ${task.brief.repo} itself)` : `${workdir} (a new git worktree of ${task.brief.repo} on branch pacer/${task.id}; do not edit ${task.brief.repo} itself)` }, task.id, !!ctx.env.PACER_WORK_GRANT)
+    : buildPrompt(task.brief, task.id, !!ctx.env.PACER_WORK_GRANT);
   let launch: ReturnType<typeof launchFor>;
   let env: Record<string, string | undefined>;
   let agentSession: RunRef["agentSession"];

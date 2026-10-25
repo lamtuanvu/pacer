@@ -47,7 +47,7 @@ test("claude-code --no-mcp removes MCP through the claude CLI and never edits ~/
 });
 test("skill is short, describes CLI fields and executor/worktree rules",()=>{
  expect(PACER_SKILL.split("\n").length).toBeLessThan(80);expect(PACER_SKILL).toStartWith("---\nname: pacer\ndescription:");
- for(const s of ['budget','pace','worktree_reason','timeout_min','brief-file -','pacer wait','pacer review','pacer stop','report-limit','must not delegate','uncommitted','parallel'])expect(PACER_SKILL).toContain(s);
+  for(const s of ['budget','pace','worktree_reason','timeout_min','brief-file -','pacer wait','pacer review','pacer stop','report-limit','PACER_WORK_GRANT','pacer dispatch child','uncommitted','parallel'])expect(PACER_SKILL).toContain(s);
 });
 test("install CLI accepts MCP options, defaults to skill, and rejects conflicting flags",async()=>{
  const ctx=fakeCtx({env:{PACER_BIN:PACER[0]}});

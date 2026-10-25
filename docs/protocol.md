@@ -12,7 +12,7 @@ HTTP binds to `127.0.0.1` only, and every request must carry `Host: 127.0.0.1:<p
 
 Additive fields do not bump the protocol version. Clients must ignore unknown fields and event types. Removing or renaming fields requires a major version bump; the previous major is served for one pacer minor release.
 
-Operation inputs are validated. No operation runs free text in a shell. `task.delegate`, `task.retry` and `task.answer` refuse calls when the API process itself is an executor session.
+Operation inputs are validated. No operation runs free text in a shell. `task.delegate`, `task.retry` and `task.answer` refuse calls when the API process itself is an executor session. Under proposed API-5 amendment 0.13.0, an executor can request `dispatch.child` with a service-issued task/attempt grant. That grant authorizes only scoped work operations and descendant reads; it never authorizes global operations or self-review. Executor sessions without a valid grant remain unable to delegate.
 
 ## Desktop updates
 
@@ -1595,6 +1595,464 @@ Params JSON Schema:
 }
 ```
 
+### `dispatch.analytics`
+
+Comparable reviewed outcomes, sample sizes and uncertainty; missing usage stays unknown.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "repo": {
+      "type": "string"
+    },
+    "kind": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    }
+  },
+  "additionalProperties": false
+}
+```
+
+### `dispatch.answer`
+
+Answer a managed executor question and resume the same work item.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "expect_rev": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "requestId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000
+    }
+  },
+  "required": [
+    "id",
+    "expect_rev",
+    "requestId",
+    "text"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `dispatch.child`
+
+Delegate a scoped child work item using the current attempt's grant and an idempotency key.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "goal": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 20000
+    },
+    "title": {
+      "type": "string",
+      "maxLength": 500
+    },
+    "kind": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "acceptance": {
+      "type": "string",
+      "maxLength": 20000
+    },
+    "context": {
+      "type": "string",
+      "maxLength": 20000
+    },
+    "constraints": {
+      "type": "string",
+      "maxLength": 20000
+    },
+    "executor": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "requestId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "options": {
+      "type": "object",
+      "properties": {
+        "requirements": {
+          "default": {},
+          "type": "object",
+          "properties": {
+            "minTier": {
+              "type": "string",
+              "enum": [
+                "small",
+                "medium",
+                "frontier"
+              ]
+            },
+            "tools": {
+              "type": "boolean"
+            },
+            "context": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "additionalProperties": false
+        },
+        "preferences": {
+          "default": {
+            "models": [],
+            "strengths": []
+          },
+          "type": "object",
+          "properties": {
+            "models": {
+              "default": [],
+              "maxItems": 256,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              }
+            },
+            "strengths": {
+              "default": [],
+              "maxItems": 64,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              }
+            }
+          },
+          "required": [
+            "models",
+            "strengths"
+          ],
+          "additionalProperties": false
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "kind": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "difficulty": {
+          "default": "standard",
+          "type": "string",
+          "enum": [
+            "simple",
+            "standard",
+            "complex"
+          ]
+        },
+        "allowDelegation": {
+          "default": false,
+          "type": "boolean"
+        },
+        "maxDepth": {
+          "default": 3,
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10
+        },
+        "maxDescendants": {
+          "default": 20,
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000
+        },
+        "maxConcurrent": {
+          "default": 4,
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64
+        },
+        "maxAttempts": {
+          "default": 3,
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20
+        },
+        "priority": {
+          "default": 0,
+          "type": "integer",
+          "minimum": -100,
+          "maximum": 100
+        },
+        "expiresAt": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "estimatePct": {
+          "default": 0,
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "goal",
+    "requestId"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `dispatch.dependencies`
+
+Set same-root dependencies with a revision check.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "dependencies": {
+      "maxItems": 100,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128
+      }
+    },
+    "expect_rev": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "id",
+    "dependencies",
+    "expect_rev"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `dispatch.dependencies.waive`
+
+Waive a dependency with an audit reason and revision check.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "dependency": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000
+    },
+    "expect_rev": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "id",
+    "dependency",
+    "reason",
+    "expect_rev"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `dispatch.events`
+
+Scoped work timeline after a monotonic cursor.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "after": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `dispatch.learning.reset`
+
+Reset derived learning for a repository without deleting work history, and optionally exclude it.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "repo": {
+      "type": "string",
+      "minLength": 1
+    },
+    "excluded": {
+      "default": false,
+      "type": "boolean"
+    },
+    "expect_rev": {
+      "type": "number",
+      "minimum": 0
+    }
+  },
+  "required": [
+    "repo",
+    "excluded",
+    "expect_rev"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `dispatch.list`
+
+Page through work roots or children, optionally filtered by repository and state.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "relation": {
+      "type": "string",
+      "enum": [
+        "roots",
+        "children",
+        "all"
+      ]
+    },
+    "state": {
+      "type": "string",
+      "enum": [
+        "queued",
+        "running",
+        "done",
+        "partial",
+        "failed",
+        "limit",
+        "stopped",
+        "needs_input"
+      ]
+    },
+    "repo": {
+      "type": "string",
+      "minLength": 1
+    },
+    "before": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100
+    }
+  },
+  "additionalProperties": false
+}
+```
+
+### `dispatch.models`
+
+Declared model inventory and observed suggestions with authorization status.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}
+```
+
 ### `dispatch.preview`
 
 Preview account/model dispatch using cached observations and the replaceable decision engine. Does not reserve capacity or launch work.
@@ -1689,6 +2147,377 @@ Params JSON Schema:
     "goal",
     "requirements",
     "preferences"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `dispatch.refresh`
+
+Refresh scoped model/capability/usage/health observations with backoff.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "runner": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "force": {
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": false
+}
+```
+
+### `dispatch.retry`
+
+Retry a settled managed work item in the same lineage and worktree with a new attempt.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "expect_rev": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "requestId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "feedback": {
+      "type": "string",
+      "maxLength": 2000
+    }
+  },
+  "required": [
+    "id",
+    "expect_rev",
+    "requestId"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `dispatch.review`
+
+Review a child work item after its required children are accepted.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "accepted": {
+      "type": "boolean"
+    },
+    "note": {
+      "type": "string",
+      "maxLength": 2000
+    },
+    "expect_rev": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "id",
+    "accepted",
+    "expect_rev"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `dispatch.stop`
+
+Stop a work subtree at the expected revision.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "expect_rev": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `dispatch.submit`
+
+Submit a root work item to the dispatcher.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "goal": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 20000
+    },
+    "repo": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "title": {
+      "type": "string",
+      "maxLength": 500
+    },
+    "kind": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "acceptance": {
+      "type": "string",
+      "maxLength": 20000
+    },
+    "context": {
+      "type": "string",
+      "maxLength": 20000
+    },
+    "constraints": {
+      "type": "string",
+      "maxLength": 20000
+    },
+    "executor": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "requestId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "options": {
+      "type": "object",
+      "properties": {
+        "requirements": {
+          "default": {},
+          "type": "object",
+          "properties": {
+            "minTier": {
+              "type": "string",
+              "enum": [
+                "small",
+                "medium",
+                "frontier"
+              ]
+            },
+            "tools": {
+              "type": "boolean"
+            },
+            "context": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "additionalProperties": false
+        },
+        "preferences": {
+          "default": {
+            "models": [],
+            "strengths": []
+          },
+          "type": "object",
+          "properties": {
+            "models": {
+              "default": [],
+              "maxItems": 256,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              }
+            },
+            "strengths": {
+              "default": [],
+              "maxItems": 64,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              }
+            }
+          },
+          "required": [
+            "models",
+            "strengths"
+          ],
+          "additionalProperties": false
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "kind": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "difficulty": {
+          "default": "standard",
+          "type": "string",
+          "enum": [
+            "simple",
+            "standard",
+            "complex"
+          ]
+        },
+        "allowDelegation": {
+          "default": false,
+          "type": "boolean"
+        },
+        "maxDepth": {
+          "default": 3,
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10
+        },
+        "maxDescendants": {
+          "default": 20,
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000
+        },
+        "maxConcurrent": {
+          "default": 4,
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64
+        },
+        "maxAttempts": {
+          "default": 3,
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20
+        },
+        "priority": {
+          "default": 0,
+          "type": "integer",
+          "minimum": -100,
+          "maximum": 100
+        },
+        "expiresAt": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "estimatePct": {
+          "default": 0,
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "goal",
+    "repo"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `dispatch.tree`
+
+Scoped nested work tree, selected decisions, dependencies and aggregate execution time.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `dispatch.wait`
+
+Wait for a work item to settle.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "timeout_s": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 3000
+    }
+  },
+  "required": [
+    "id"
   ],
   "additionalProperties": false
 }
@@ -3866,6 +4695,7 @@ Params JSON Schema:
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "properties": {
+    "dispatch": {},
     "title": {
       "type": "string",
       "minLength": 1,
