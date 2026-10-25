@@ -22,5 +22,6 @@ test("integration fixtures require canonical unseeded active sandbox ownership",
 });
 test("ordinary guard refuses integration writes and fixture accepts no overrides", async () => {
   expect(refusal(["integrations", "refresh"])).toContain("D3");
+  for (const args of [["uninstall", "codex#work"], ["uninstall", "--all", "--yes", "--json"]]) expect(refusal(args)).toContain("D3");
   for (const args of [["integrations"], ["integrations", "--id", "missing", "--app", "/outside"], ["integrations", "--id", "missing", "--", "install"], ["integrations", "--id", "missing", "arbitrary"]]) await expect(main(args)).rejects.toThrow();
 });
