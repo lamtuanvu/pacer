@@ -20,7 +20,7 @@ import type { Resource, SessionData, SessionActions, Action } from './types';
 export type { SessionData, SessionActions, Resource } from './types';
 export type SessionTab = 'terminal' | 'changes' | 'brief';
 export interface SessionProps extends SessionActions {
-  embedded?: boolean; data?: SessionData | null; loading?: boolean; error?: string | null; initialTab?: SessionTab;
+  embedded?: boolean; data?: SessionData | null; loading?: boolean; error?: string | null; initialTab?: SessionTab; view?:SessionTab;
   onReload?: () => void; onTakeover?: () => void; takeoverBusy?: boolean; takeoverStarting?: boolean;
   takeoverError?: string; takeRequested?: boolean; onTakeSent?: () => void;
 }
@@ -53,7 +53,7 @@ function Brief({ data }: { data: SessionData }) {
   </div>;
 }
 
-export function Session({ embedded = false, data, loading, error, initialTab, onAction, onAttach, onReload, onTakeover,
+export function Session({ embedded = false, data, loading, error, initialTab, view, onAction, onAttach, onReload, onTakeover,
   takeoverBusy, takeoverStarting, takeoverError, takeRequested, onTakeSent }: SessionProps) {
   const [chosenTab, setTab] = useState<SessionTab | undefined>(initialTab);
   const [selected, setSelected] = useState(''), [busy, setBusy] = useState(false);
@@ -82,7 +82,7 @@ export function Session({ embedded = false, data, loading, error, initialTab, on
   const session = data.session, status = taskStatus(data);
   const canAttach = (target: 'orca' | 'terminal') => !!session?.targets.includes(target) && !!(onAttach || onAction) && !busy;
   const active = ['running', 'queued', 'needs_input'].includes(data.state);
-  const tab = chosenTab ?? (active ? 'terminal' : 'brief');
+  const tab = view ?? chosenTab ?? (active ? 'terminal' : 'brief');
   const waitingForReview = !!data.reviewRequest && ['done', 'partial'].includes(data.state) && !data.review && !data.resolved && !data.dismissed && !data.retriedBy;
   const driving = active && (!!session?.driving || data.phase === 'driving');
   const headless = session?.host === 'none';
@@ -132,17 +132,16 @@ export function Session({ embedded = false, data, loading, error, initialTab, on
         {active && data.stop && <Button variant="danger" disabled={busy || !onAction} onClick={() => void run(data.stop!)}>{data.stop.label}</Button>}
       </div>
     </header>}
-    {embedded && <div className="pc-session-meta"><span>{data.machine ?? session?.machine ?? 'Local machine'}</span><span>{data.started ? `started ${data.started}` : 'Start time unknown'}</span>{data.elapsed && <span>{data.elapsed}</span>}<code className="pc-code-scroll" tabIndex={0}>{branchCopy(data.branch)}</code></div>}
     {driving && <p>{phaseWords('driving')} · keystrokes go to the agent</p>}
     {active && takeoverStarting && <p role="status">Starting interactive session…</p>}
     {active && takeoverError && <p role="alert">{takeoverError} <Button disabled={takeoverBusy} onClick={onTakeover}>Try again</Button></p>}
     {actionError && !retryOpen && <p role="alert">{actionError}</p>}
     <div className="pc-session-notice" role="status" aria-live="polite">{notice}</div>
     <div className="pc-session-layout"><div className="pc-session-main">
-      <Tabs label="Session views" id={`session-${data.id}`} value={tab} options={[
+      {!view&&<Tabs label="Session views" id={`session-${data.id}`} value={tab} options={[
         { value: 'brief', label: 'Brief' }, { value: 'terminal', label: 'Output' }, { value: 'changes', label: 'Changes' },
-      ]} onChange={value => setTab(value as SessionTab)}/>
-      <div role="tabpanel" id={`session-${data.id}-${tab}-panel`} aria-labelledby={`session-${data.id}-${tab}-tab`} tabIndex={0} className="pc-session-panel">
+      ]} onChange={value => setTab(value as SessionTab)}/>}
+      <div role={view?undefined:'tabpanel'} id={`session-${data.id}-${tab}-panel`} aria-labelledby={view?undefined:`session-${data.id}-${tab}-tab`} tabIndex={view?undefined:0} className="pc-session-panel">
         {tab === 'terminal' ? <>{terminal}{session?.host === 'orca' && takeover}</>
           : tab === 'changes' ? <div className="pc-session-changes">
             {data.changesSummary && <p className="pc-session-muted">{data.changesSummary}</p>}
@@ -158,7 +157,7 @@ export function Session({ embedded = false, data, loading, error, initialTab, on
           </Disclosure>}
         </>}</ResourceView>
       </section>
-      {session && session.host !== 'none' && <section><SectionHeading as="h3">Watch it elsewhere</SectionHeading>
+      {!embedded && session && session.host !== 'none' && <section><SectionHeading as="h3">Watch it elsewhere</SectionHeading>
         {session.targets.includes('orca') && <Button disabled={!canAttach('orca')} onClick={() => void attach('orca')}>Open in Orca terminal</Button>}
         {session.targets.includes('terminal') && <Button disabled={!canAttach('terminal')} onClick={() => void attach('terminal')}>Open in my terminal</Button>}
         <div className="pc-session-copy"><code className="pc-code-scroll" tabIndex={0}>{session.attach.cli}</code>
