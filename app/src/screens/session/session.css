@@ -41,6 +41,7 @@
 .pc-conversation-heading>strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pc-conversation-terminal .pc-terminal-pane{height:max(var(--size-360),calc(100vh - var(--size-260)));overflow:auto}
 .pc-conversation-request{white-space:pre-wrap;overflow-wrap:break-word}
+.pc-conversation-detail{display:block;max-width:100%;overflow-x:auto;font-family:var(--font-mono);white-space:pre;overflow-wrap:normal;word-break:normal}
 .pc-session-attachments,.pc-conversation-delivery{display:flex;flex-direction:column;align-items:flex-start;gap:var(--space-3)}
 .pc-session-attachments .pc-attachments{width:100%}
 .pc-conversation-delivery{width:100%;padding:var(--space-3);border:1px solid var(--line);border-radius:var(--radius-md);background:var(--surface-card)}
