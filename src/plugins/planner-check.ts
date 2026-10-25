@@ -40,7 +40,14 @@ export async function plannerCheck(
     binaries: [],
     cwd: ctx.home,
     roots: [folder],
-    files: plannerSelectedSources(ctx, agent, folder),
+    files: [
+      ...plannerSelectedSources(ctx, agent, folder),
+      // Legacy default Codex records may keep only their skill in CODEX_HOME.
+      // Admit the exact recorded asset, never that root or its siblings.
+      ...record.files
+        .filter((file) => file.path.endsWith("/skills/pacer/SKILL.md"))
+        .map((file) => file.path),
+    ],
   });
   try {
     const paths = record.files.flatMap((file) => [

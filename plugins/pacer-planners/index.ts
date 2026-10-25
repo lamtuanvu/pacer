@@ -5,7 +5,6 @@ import {
   preparePlannerUninstallFiles,
   createPlannerIO,
   readPlannerPrior,
-  shellCommand,
   sha256,
   piecesPresent,
 } from "@pacer/plugin/install";
@@ -167,24 +166,24 @@ export const handlers: Record<string, Handler> = {
         undo[1] === "mcp" &&
         undo[2] === "remove"
       ) {
-        await removeClaudeMcp(
+        const removed = await removeClaudeMcp(
           {
             runRaw: (argv) => io.run({ argv, timeoutMs: 30000 }),
             notes: plan.notes,
           },
           undo,
         );
+        if (!removed)
+          throw new Error(
+            "recorded command undo failed; install record retained. Restore the agent CLI and retry uninstall",
+          );
         continue;
       }
-      try {
-        const result = await io.run({ argv: [...undo], timeoutMs: 30000 });
-        if (result.code !== 0)
-          plan.notes.push(
-            `\`${shellCommand(undo)}\` failed (exit ${result.code}): ${(result.stderr || result.stdout).split(/\r?\n/)[0]}`,
-          );
-      } catch (error) {
-        plan.notes.push(`\`${shellCommand(undo)}\` failed: ${String(error)}`);
-      }
+      const result = await io.run({ argv: [...undo], timeoutMs: 30000 });
+      if (result.code !== 0)
+        throw new Error(
+          "recorded command undo failed; install record retained. Restore the agent CLI and retry uninstall",
+        );
     }
     plan.uninstallReport.notes = [...plan.notes];
     return plan;

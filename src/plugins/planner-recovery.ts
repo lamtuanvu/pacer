@@ -1,3 +1,4 @@
+import { recoverLegacyPluginJournal } from "../install/legacy-plugin-undo";
 import { join } from "node:path";
 import { readInstallFile } from "../install/atomic";
 import { loadStrategy, MissingStrategyError } from "../config/strategy";
@@ -19,6 +20,7 @@ export async function recoverPlannerInstall(
 ): Promise<void> {
   const text = readInstallFile(join(ctx.pacerHome, "install-transaction.json"));
   if (text === null) return;
+  if (await recoverLegacyPluginJournal(ctx)) return;
   const journal = parseInstallJournal(text),
     roots = [
       ...trustedRoots,

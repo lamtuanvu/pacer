@@ -8,4 +8,4 @@ export {sha256,backupPath,shellCommand} from './install/helpers';
 export {PreparedPlannerBuilder,preparePlannerInstall,type PreparedPlannerIO,type PreparedPlannerPlan,type PlannerCommandIntent,type PlannerCommandResult} from "./install/prepared";
 export {createPlannerIO,readPlannerPrior} from "./install/transport";
 export type {PlanEnv,PlanIO,PendingFile} from "./install/plan";
-export {preparePlannerUninstallFiles,type PreparedPlannerUninstall,type UninstallReport} from "./install/uninstall";
+export {preparePlannerUninstallFiles,type PreparedPlannerUninstall,type UninstallReport,type UninstallPreparationFailure} from "./install/uninstall";

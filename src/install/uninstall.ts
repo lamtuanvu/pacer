@@ -1,3 +1,5 @@
+import { PLUGIN_RECORD } from "../link/paths";
+import { uninstallLegacyPluginRecord } from "./legacy-plugin-undo";
 import { withInstallLock } from "./lock";
 import { recoverPlannerInstall } from "../plugins/planner-recovery";
 import { join } from "node:path";
@@ -17,6 +19,7 @@ export async function uninstallPlanner(
   ctx: Ctx,
   selection: string | PlannerCfg,
 ): Promise<UninstallReport | null> {
+  if (selection === PLUGIN_RECORD) return await uninstallLegacyPluginRecord(ctx);
   await withInstallLock(ctx, () => recoverPlannerInstall(ctx));
   const manifest = readManifest(ctx);
   const planner =
@@ -72,9 +75,7 @@ export async function uninstallPlanner(
       prepareMissing: async (prior, read) => {
         const plan = await preparePlannerUninstallFiles({ read }, prior);
         if (prior.commands.length)
-          plan.notes.push(
-            "planner plugin unavailable; recorded command undo could not be executed",
-          );
+          throw new Error("recorded command undo is pending; planner plugin unavailable. Restore the planner plugin or retry pacer uninstall --all --yes; the install record was retained");
         plan.uninstallReport.notes = [...plan.notes];
         return plan;
       },

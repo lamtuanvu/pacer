@@ -1,3 +1,4 @@
+import { withVersionFixtures } from "./planner-detect-fixtures";
 import { expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -5,9 +6,9 @@ import { setupCmd, type SetupDeps } from "../src/commands/setup";
 import { validateStrategy } from "../src/config/strategy";
 import { readManifest } from "../src/install/manifest";
 import { main } from "../src/cli";
-import { fakeCtx } from "./helpers";
+import { fakeCtx } from "./install-plugin-fixtures";
 function fixture(bins = ["claude", "codex", "cursor-agent", "opencode"]) {
- const ctx = fakeCtx({ which: bin => bins.includes(bin) ? `/fixture/${bin}` : null, env: { PACER_BIN: "/fixture/pacer" } });
+ const ctx = withVersionFixtures(fakeCtx({ which: bin => bins.includes(bin) ? `/fixture/${bin}` : null, env: { PACER_BIN: "/fixture/pacer" } }));
  let installed = false, installs = 0, questions: string[] = [], previews: string[] = [];
  const deps: SetupDeps = { tty: false, stdoutTTY: false, print: () => {}, question: async q => { questions.push(q); return ""; }, confirm: async p => { previews.push(p); return false; },
   onboardingClient: async () => { throw new Error("No service in the setup unit fixture"); },

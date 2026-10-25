@@ -119,8 +119,9 @@ export async function plannerJournalIO(
   return {
     io,
     close: () => owner.revoke(),
-    preflight: () => {
-      for (const file of files) {
+    readImage: read,
+    preflight: (pending = files) => {
+      for (const file of pending) {
         const image = read(file.path);
         if (
           (image?.text ?? null) !== file.before ||

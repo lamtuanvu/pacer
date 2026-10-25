@@ -12,10 +12,20 @@ export interface UninstallReport {
 export interface PreparedPlannerUninstall extends PreparedPlannerPlan {
   uninstallReport: UninstallReport;
 }
-/** Generic manifest-v1 file undo. Command/provider behavior belongs to a plugin. */
+export interface UninstallPreparationFailure {
+  path: string;
+  reason: "missing_backup" | "occupied_destination" | "read_error";
+}
+/** Generic manifest-v1 file undo. Command/provider behavior belongs to a plugin.
+ * onIncomplete reports local preparation failures independently of human notes;
+ * it is never serialized into a candidate or used as filesystem authority.
+ */
 export async function preparePlannerUninstallFiles(
   io: PlanIO,
   prior: PlannerRecord,
+  options: {
+    onIncomplete?: (failure: UninstallPreparationFailure) => void;
+  } = {},
 ): Promise<PreparedPlannerUninstall> {
   const record = structuredClone(prior),
     report: UninstallReport = {
@@ -47,10 +57,15 @@ export async function preparePlannerUninstallFiles(
             },
           );
           report.restored.push(file.path);
-        } else
+        } else {
+          options.onIncomplete?.({
+            path: file.path,
+            reason: backup ? "occupied_destination" : "missing_backup",
+          });
           report.notes.push(
             `cannot restore ${file.path}; backup kept at ${file.backup}`,
           );
+        }
         continue;
       }
       const text = image?.text ?? null,
@@ -88,6 +103,7 @@ export async function preparePlannerUninstallFiles(
           );
           report.restored.push(file.path);
         } else {
+          options.onIncomplete?.({ path: file.path, reason: "missing_backup" });
           if (text !== null && file.undo.length) {
             files.push({
               path: file.path,
@@ -112,6 +128,7 @@ export async function preparePlannerUninstallFiles(
         if (file.backup) report.notes.push(`backup kept at ${file.backup}`);
       }
     } catch (error) {
+      options.onIncomplete?.({ path: file.path, reason: "read_error" });
       report.notes.push(
         `cannot revert ${file.path}: ${error instanceof Error ? error.message : String(error)}${file.backup ? `; backup kept at ${file.backup}` : ""}`,
       );

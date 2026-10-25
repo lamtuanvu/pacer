@@ -16,7 +16,7 @@ async function installViaPlugin(env: InstallEnv, agent: string) {
       ? opencodeDir(env.ctx)
       : join(env.ctx.home, agent === "claude-code" ? ".claude" : `.${agent}`));
   const skillFolder =
-    env.skillFolder ?? (agent === "codex" ? env.ctx.env.CODEX_HOME : undefined);
+    env.skillFolder ?? (agent === "codex" ? env.folder ?? env.ctx.env.CODEX_HOME : undefined);
   const selected = { ...env, folder, ...(skillFolder ? { skillFolder } : {}) };
   const id = pluginRegistry(env.ctx).find(
     env.ctx,

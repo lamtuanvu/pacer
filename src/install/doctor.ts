@@ -1,3 +1,4 @@
+import { plannerCheck } from "../plugins/planner-check";
 import { integrationFreshness } from "./reconcile";
 import { recordedAgent } from "./reconcile-target";
 import { claudeHookChecks, claudeHooksApplicable, probeClaudeHandlers } from "./doctor-hooks";
@@ -122,6 +123,12 @@ export async function runDoctor(ctx: Ctx, deps: { status?: (ctx: Ctx) => Promise
         checks.push({ name: `Integration freshness ${target}`, level: fresh.state === "current" ? "ok" : "warn",
           detail: fresh.state === "current" ? "managed assets match this runtime" : fresh.state === "refreshed" ? "managed assets need refresh; the next service startup or local launch will reconcile them" : fresh.detail ?? "refresh could not be verified",
           ...(fresh.hint ? { fix: fresh.hint } : {}), evidence: "configured" });
+      }
+      if (recordedAgent(target)) {
+        try {
+          const result=await plannerCheck(ctx,target,record,record.folder);
+          checks.push({name:`Planner check ${target}`,level:result.intact?"ok":"warn",detail:result.intact?"planner reports files intact":"planner reports missing or changed files",evidence:"configured"});
+        } catch(error) {checks.push({name:`Planner check ${target}`,level:"warn",detail:errorText(error),evidence:"unverified"});}
       }
       for(const skill of record.files.filter(f=>f.path.endsWith("/skills/pacer/SKILL.md")))checks.push({name:`Skill ${target}`,level:fileIntact(skill)?"ok":"warn",detail:skill.path,...(!fileIntact(skill)?{fix:`pacer install ${target}`}:{})});
       const broken = record.files.filter(file => !fileIntact(file));

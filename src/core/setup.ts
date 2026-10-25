@@ -68,7 +68,7 @@ export async function agentPreview(ctx: Ctx, agent: AgentId) {
   const folder=account?accountFolder(ctx,account):null;
   const root=join(ctx.home,agent==="claude-code"?".claude":`.${agent}`);
 
-  const desired=await plannerPreview(ctx,agent,folder??(agent==="opencode"?join(ctx.env.XDG_CONFIG_HOME??join(ctx.home,".config"),"opencode"):root),folder&&typeof target==="object"?`${agent}#${target.account}`:agent,agent==="codex"?ctx.env.CODEX_HOME:undefined);
+  const desired=await plannerPreview(ctx,agent,folder??(agent==="opencode"?join(ctx.env.XDG_CONFIG_HOME??join(ctx.home,".config"),"opencode"):root),folder&&typeof target==="object"?`${agent}#${target.account}`:agent,agent==="codex"?folder??ctx.env.CODEX_HOME:undefined);
   const preview={agent,...desired};
   return {...preview, revision: sha256(JSON.stringify({target, folder, ...preview}))};
 }

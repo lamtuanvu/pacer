@@ -13,7 +13,8 @@ import { taskStop } from "../src/tasks/api";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
 import { readAuthFailures } from "../src/usage/auth";
 import { readMarks } from "../src/usage/reactive";
-import { fakeCtx, gitRepo, realRun, tmpDir } from "./helpers";
+import { fakeCtx } from "./install-plugin-fixtures";
+import { gitRepo, realRun, tmpDir } from "./helpers";
 
 const strategy = validateStrategy({
   planner: "claude-code",

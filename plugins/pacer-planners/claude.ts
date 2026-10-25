@@ -273,7 +273,7 @@ export async function installClaude(tx: PlannerBuilder): Promise<void> {
 export async function removeClaudeMcp(
   tx: Pick<PlannerBuilder, "runRaw" | "notes">,
   argv: string[],
-): Promise<void> {
+): Promise<boolean> {
   let registered = false;
   try {
     registered =
@@ -288,10 +288,12 @@ export async function removeClaudeMcp(
       );
     else if (result.code === 0 && registered)
       tx.notes.push(`removed MCP server pacer (${shellCommand(argv)})`);
+    return result.code === 0;
   } catch (error) {
     tx.notes.push(
       `\`${shellCommand(argv)}\` failed: ${error instanceof Error ? error.message : String(error)}`,
     );
+    return false;
   }
 }
 
