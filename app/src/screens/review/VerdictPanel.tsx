@@ -49,9 +49,9 @@ export function VerdictPanel({ recovery = false, task, note, kind, executor, not
     <SectionHeading>{recovery ? "Continue work" : "Your verdict"}</SectionHeading>
     {!recovery && <Button variant="primary" disabled={pending} onClick={() => onSubmit("accept")}>Mark accepted</Button>}
     <p className="muted">Accept records the verdict; you merge the branch.</p>
-    <div className="pc-verdict-pair">{(task.executor || task.attempts.at(-1)?.executor) && <Button disabled={pending} onClick={() => onOpenNote("send_back")}>Send back</Button>}
+    <div className="pc-verdict-pair">{!task.work&&(task.executor || task.attempts.at(-1)?.executor) && <Button disabled={pending} onClick={() => onOpenNote("send_back")}>Send back</Button>}
     <Button variant="danger" disabled={pending} onClick={() => onOpenNote("reject")}>Reject result</Button></div>
-    {task.retryOptions.some(option=>option.state === "ready") ? <div className="pc-retry"><SectionHeading as="label" htmlFor="review-retry">Or retry on</SectionHeading><div className="row"><ChoicePicker id="review-retry" ref={retryRef} value={executor} disabled={pending} onValueChange={onExecutor}
+    {task.work?<p className="muted">Open the Work tab to retry this work in its existing tree.</p>:task.retryOptions.some(option=>option.state === "ready") ? <div className="pc-retry"><SectionHeading as="label" htmlFor="review-retry">Or retry on</SectionHeading><div className="row"><ChoicePicker id="review-retry" ref={retryRef} value={executor} disabled={pending} onValueChange={onExecutor}
         placeholder="Choose an executor" searchable options={retryChoiceOptions(task.retryOptions)} />
     <Button disabled={pending || !executor} onClick={() => onSubmit("retry")}>Retry</Button>{!executor && <span className="muted">Choose an executor to retry.</span>}</div></div> : <p className="muted">No executor is ready to retry.</p>}
     <Field label={<> Work type </>}><ChoicePicker value={kind} disabled={pending} onValueChange={onKind} options={[

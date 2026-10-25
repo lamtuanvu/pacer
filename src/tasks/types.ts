@@ -45,6 +45,11 @@ export interface AttemptUsage {
   usedPct: number | null;
   window: string | null;
   at: number;
+  poolId?: string | null;
+  resetEpoch?: number | null;
+  capturedAt?: number | null;
+  observationId?: string | null;
+  stale?: boolean;
 }
 
 export interface Attempt {
@@ -53,6 +58,8 @@ export interface Attempt {
   usageAtEnd?: AttemptUsage;
   executor: string;
   model: string | null;
+  actualModel?: string | null;
+  dispatchSettingsHash?: string;
   startedAt: number;
   endedAt: number;
   exitCode: number;
@@ -152,7 +159,7 @@ export interface TaskRecord {
   timeoutS: number;
   brief: Brief;
   state: TaskState;
-  queue?: { reason: "no_slot" | "paused" | "host_down" | "waiting_retry"; detail?: string; since: number; position: number; limit?: "executor" | "machine" | "host"; capacity?: {used: number; max: number} };
+  queue?: { nextAt?: number; reason: "no_slot" | "paused" | "host_down" | "waiting_retry"; detail?: string; since: number; position: number; limit?: "executor" | "machine" | "host"; capacity?: {used: number; max: number} };
   runnerPid?: number;
   executor?: string;
   backend?: string;

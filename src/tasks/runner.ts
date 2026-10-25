@@ -1,3 +1,7 @@
+import { getWork, pendingChildren, issueWorkGrant, revokeWorkGrants } from "../dispatch/work";
+import { resolveTaskDispatch, reserveDispatch, releaseDispatch, selectedDispatchModel } from "../dispatch/runtime";
+import {dispatchSettingsHash} from "../dispatch/learning";
+import type { Candidate, DispatchPreview } from "../dispatch/types";
 import { ensureRunnerIntegration } from "../core/integrations";
 import { beginWorkSync, claimWorkSync, finishWorkSync } from "../update/desktop/admission";
 import { restrictEligibility } from "../engine/eligibility";
@@ -45,6 +49,14 @@ import { listTasksWhere, readTask, updateTask } from "./store";
 import { resolvePlacement, TERMINAL_STATES, type AttemptUsage, type RoutingNote, type TaskRecord, type TaskResult, type Verification } from "./types";
 
 export const MAX_ATTEMPTS = 3;
+/** Only a structured executor identity is evidence of the model actually used. */
+export function observedAttemptModel(runner:string,stdout:string):string|null {
+  if(!runner.startsWith("claude-code"))return null;
+  for(const line of stdout.split("\n").slice(0,64)){
+    try{const event=JSON.parse(line) as Record<string,unknown>;if(event.type==="system"&&event.subtype==="init"&&typeof event.model==="string"&&event.model.length<=256)return event.model;}catch{}
+  }
+  return null;
+}
 const safe = <T>(f: () => Promise<T>, fb: T) => Promise.resolve().then(f).catch(() => fb);
 
 export interface RunnerDeps {
@@ -63,6 +75,7 @@ const DEFAULTS: RunnerDeps = {
 };
 
 function finish(ctx: Ctx, id: string, result: TaskResult): TaskRecord {
+  if (getWork(ctx,id) && result.status === "done" && pendingChildren(ctx,id).length) result = {...result,status:"needs_input",report:result.report+"\nRequired child work needs review before this task can complete."};
   const finished = updateTask(ctx, id, (t) => {
     if(t.placement?.mode && !t.run?.host) {
       const p=t.placement;
@@ -106,6 +119,10 @@ export async function runTask(ctx: Ctx, id: string, deps: RunnerDeps = DEFAULTS)
     return await runTaskOnce(ctx, id, deps);
   } finally {
     finishWorkSync(ctx, lease);
+    const current=readTask(ctx,id);
+    if (getWork(ctx,id) && (current?.runnerPid===process.pid || TERMINAL_STATES.includes(current?.state??"queued"))) {
+      releaseDispatch(ctx,id); revokeWorkGrants(ctx,id);
+    }
     if (TERMINAL_STATES.includes(readTask(ctx, id)?.state ?? "queued")) {
       await drainQueue({...ctx, now: ctx.now + (Date.now() - startedAt)/1000}, deps.spawnRunner, {
         loadStrategy: deps.loadStrategy, computeStatus: deps.computeStatus, hooks: deps.hooks,
@@ -149,6 +166,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
     const hooks = deps.hooks ?? activeHooks;
     const kind = await safe(() => hooks.taskKind(ctx, task), task.kind);
     const tried = new Set<string>();
+    const triedCandidates = new Set<string>();
     let excluded: Excluded[] = [];
     const remoteSkipped = new Map<string, string>();
     let lastLimitReport: string | undefined;
@@ -156,7 +174,14 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
     let policyChanges = 0;
     let lastBroken: { brokenExecutor: string; brokenReason: string } | undefined;
 
-    for (let i = 0; i < MAX_ATTEMPTS; i++) {
+    const managedWork = getWork(ctx, id);
+    const attemptBudget = managedWork
+      ? Math.max(0, (managedWork.options.maxAttempts ?? MAX_ATTEMPTS) - task.attempts.length)
+      : MAX_ATTEMPTS;
+    if (managedWork && attemptBudget === 0) {
+      return finish(ctx, id, { status: "limit", executor: task.attempts.at(-1)?.executor ?? null, model: task.attempts.at(-1)?.model ?? null, files: "", report: "Managed work attempt limit reached", backend: attemptedBackend });
+    }
+    for (let i = 0; i < attemptBudget; i++) {
       const resuming = i === 0 && task.run && task.run.attempt > task.attempts.length ? task.run : null;
       let selection: ProjectSelection | undefined;
       let policySnapshot: ReturnType<typeof projectSnapshot> | undefined;
@@ -165,6 +190,9 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
       let pickReason: string | undefined;
       let startStatus: Status | undefined;
       let applicableIds: string[] = [];
+      let decision: DispatchPreview | undefined;
+      let dispatchCandidates: Candidate[] = [];
+      const work = getWork(ctx,id);
       let byId: Record<string, Status["providers"][number]> = {};
       if (resuming) {
         pick = resuming.executor;
@@ -193,7 +221,16 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
         const conversationSelection = task.interactionMode === "conversation" && task.requestedExecutor
           ? {executors: selection?.executors ?? [task.requestedExecutor], order: "configured" as const} : undefined;
         const ranking = rankExecutors(kind, s, byId, conversationSelection ?? (selection && {executors: selection.executors, order: "configured"}),
-          {includePlanner: task.interactionMode === "conversation"});
+          {includePlanner: !!work?.options.allowDelegation || task.interactionMode === "conversation"});
+        if (work) {
+          decision = await resolveTaskDispatch({...ctx,now},task,s,st,triedCandidates);
+          if (decision.proposal?.state === "ranked") {
+            const ids = decision.proposal.choices.map(c=>c.id);
+            dispatchCandidates = ids.flatMap(candidateId=>{const c=decision!.request.candidates.find(c=>c.id===candidateId);return c?[c]:[];});
+            const seen = new Set<string>();
+            ranking.ranked = dispatchCandidates.flatMap((c,index)=>{if(seen.has(c.runner))return [];seen.add(c.runner);return [{id:c.runner,account:c.account,score:dispatchCandidates.length-index,verdict:byId[c.runner]?.verdict??"UNKNOWN",reason:`dispatch ${decision!.engine.id}: ${decision!.proposal!.state === "ranked" ? decision!.proposal!.step : "selected"}`}];});
+          } else ranking.ranked=[];
+        }
         // Resolve placement only for a remote candidate; local routing remains
         // unchanged and the backend still owns worktree creation and safety.
         if (ranking.ranked.some(e => resolveRunner(s, e.id)?.host)) {
@@ -252,8 +289,20 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
           }
           const refusal = req && !tried.has(req) && excluded.find(e => e.id === req && /Blocked by you|exhausted/.test(e.reason));
           if (refusal) throw new Error(`requested executor "${req}" is unavailable (${refusal.reason})`);
-          pick = requested && ids.includes(req!) ? req! : ids.find(e => !tried.has(e));
+          pick = requested && ids.includes(req!) ? req! : ids.find(e => work ? dispatchCandidates.some(c=>c.runner===e&&!triedCandidates.has(c.id)) : !tried.has(e));
           pickReason = ranking.ranked.find(e => e.id === pick)?.reason;
+          if (work && pick && decision) {
+            const c = dispatchCandidates.find(c=>c.runner===pick);
+            if (!c || !reserveDispatch({...ctx,now},id,c,decision)) pick=undefined;
+          }
+          if (work && !pick && !paused) {
+            const expired=work.options.expiresAt!==undefined&&work.options.expiresAt<=now;
+            task=updateTask(ctx,id,t=>{
+              if(expired||decision?.recommendedAction==="fail"){t.state="failed";t.result={status:"failed",executor:null,model:null,files:"",report:expired?"Work expired in queue":"No dispatch candidate satisfies policy",backend:"direct"};delete t.queue;}
+              else {t.state="queued";t.queue={reason:"waiting_retry",detail:"Waiting for dispatch capacity or dependencies",since:initial.queue?.since??now,position:1,nextAt:now+30};}
+              delete t.runnerPid;delete t.executor;delete t.attemptStartedAt;
+            });return;
+          }
           if (paused || (req && !tried.has(req) && full.has(req)) || (!pick && [...full].some(e => !tried.has(e)))) {
             task = updateTask(ctx, id, t => {
               const waiting = listTasksWhere(ctx, { states: ["queued"] }).filter(x => x.id !== id && x.queue && x.createdAt <= t.createdAt);
@@ -304,7 +353,8 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
         }
       }
 
-      const cfg = s.providers[pick];
+      const selectedModel = work ? selectedDispatchModel(ctx,id) : undefined;
+      const cfg = selectedModel === undefined ? s.providers[pick] : {...s.providers[pick],model:selectedModel};
       attemptedExecutor = pick;
       if (resuming && !cfg) {
         return finish(ctx, id, { status: "failed", executor: pick, model: null, files: "", report: `cannot resume: executor ${pick} is no longer configured`, backend: "direct" });
@@ -322,12 +372,15 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
         const selectedRunner = resolveRunner(s, pick);
         if (selectedRunner) await ensureRunnerIntegration(ctx, selectedRunner);
       }
-      const backend = resuming || deps.runAttempt ? null : task.interactionMode === "conversation" ? directBackend : await selectBackend(ctx, s, undefined, pick);
+      const backend = resuming || deps.runAttempt ? null : task.interactionMode === "conversation" || work?.options.allowDelegation ? directBackend : await selectBackend(ctx, s, undefined, pick);
       attemptedBackend = backend?.id ?? "direct";
       const account = resolveRunner(s, pick)?.account ?? pick;
       const usage = (st: Status | undefined): AttemptUsage => {
         const reading = st?.accounts?.find(a => a.name === account);
-        return { account, usedPct: reading?.usedPct ?? null, window: reading?.window ?? null, at: Date.now() / 1000 };
+        const window=reading?.window??null,resetEpoch=reading?.resetsAt??null,capturedAt=reading?.capturedAt??null;
+        const observationId=capturedAt!==null&&window!==null&&resetEpoch!==null?createHash("sha256").update(JSON.stringify([account,window,resetEpoch,capturedAt,reading?.usedPct??null])).digest("hex"):null;
+        return { account, usedPct: reading?.usedPct ?? null, window, at: Date.now() / 1000,
+          poolId:window!==null?`${account}:${window}`:null,resetEpoch,capturedAt,observationId,stale:reading?.stale??true };
       };
       const usageAtStart = resuming ? task.pendingAttempt?.usageAtStart : usage(startStatus);
       if (resuming) routing = task.pendingAttempt?.routing;
@@ -347,7 +400,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
         const refreshedSelection = selection ? {executors: selection.executors, order: "configured" as const}
           : task.interactionMode === "conversation" && task.requestedExecutor ? {executors: [task.requestedExecutor], order: "configured" as const} : undefined;
         const refreshedRanking = rankExecutors(kind, currentStrategy, Object.fromEntries(prepared.status.providers.map(p => [p.id, p])), refreshedSelection,
-          {includePlanner: task.interactionMode === "conversation"});
+          {includePlanner: !!work?.options.allowDelegation || task.interactionMode === "conversation"});
         const candidate = refreshedRanking.ranked.find(e => e.id === pick);
         if (!candidate || prepared.decision.state === "ineligible") {
           const refusal = refreshedRanking.excluded.find(e => e.id === pick && /Blocked by you|exhausted/.test(e.reason));
@@ -363,6 +416,13 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
           if (policySnapshot && projectRevision(readProjectStrategies(ctx), policySnapshot.repoKey) !== policySnapshot.rev) return false;
           const latest = deps.loadStrategy(ctx);
           if (JSON.stringify(latest) !== JSON.stringify(currentStrategy)) return false;
+          if(work){
+            const fresh=await resolveTaskDispatch(launchCtx,task,currentStrategy,prepared.status,triedCandidates);
+            const original=dispatchCandidates.find(c=>c.runner===pick);
+            const selected=fresh.request.candidates.find(c=>c.id===original?.id&&fresh.proposal?.state==="ranked"&&fresh.proposal.choices.some(choice=>choice.id===c.id));
+            const stillEligible=!!selected;
+            if(!selected||!stillEligible||!reserveDispatch(launchCtx,id,selected,fresh))return false;
+          }
           return launchEvidenceCurrent({ ...ctx, now: Date.now() / 1000 }, prepared)
             && !executorExclusion({ ...ctx, now: Date.now() / 1000 }, currentStrategy, pick!);
         }));
@@ -376,10 +436,14 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
         task = updateTask(ctx, id, t => { t.pendingAttempt = { routing, usageAtStart }; });
       }
       tried.add(pick);
+      const selectedCandidate = dispatchCandidates.find(c=>c.runner===pick);
+      if(selectedCandidate)triedCandidates.add(selectedCandidate.id);
+      let executionCtx=ctx;
+      if(work?.options.allowDelegation){const token=issueWorkGrant({...ctx,now:Date.now()/1000},id,task.attempts.length+1);executionCtx={...ctx,env:{...ctx.env,PACER_WORK_GRANT:token}};}
 
       let out: AttemptOutcome;
       try {
-        out = resuming ? await resumeAttempt(ctx, cfg, task) : await (deps.runAttempt ?? backend!.runAttempt)(ctx, cfg, task, onSpawn);
+        out = resuming ? await resumeAttempt(executionCtx, cfg, task) : await (deps.runAttempt ?? backend!.runAttempt)(executionCtx, cfg, task, onSpawn);
       } catch (error) {
         if (!/ENOENT|EACCES|command not found/.test(String(error))) throw error;
         const code = /EACCES/.test(String(error)) ? 126 : 127;
@@ -394,6 +458,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
         out.report = `${note}\n\n${out.report}`;
         if (existsSync(out.attempt.log)) appendFileSync(out.attempt.log, `\n--- routing\n${note}\n`);
       }
+      out.attempt.actualModel=observedAttemptModel(pick,out.exec.stdout);
       const executedRunner = resolveRunner(s, pick);
       const authAccount = executedRunner?.account;
       const outcomeScope = authAccount && s.accounts[authAccount] ? { ...accountEvidenceScope(s.accounts[authAccount], s.hosts), runner: pick, model: out.attempt.model ?? cfg.model ?? "default", host: executedRunner?.host ?? "local" } : undefined;
@@ -425,6 +490,8 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
         const reason = brokenReason(out.exec, duration, unchanged);
         if (reason) out.attempt.brokenReason = reason;
       }
+      if(work){releaseDispatch(ctx,id);revokeWorkGrants(ctx,id);}
+      if(work)out.attempt.dispatchSettingsHash=dispatchSettingsHash(s,pick);
       out.attempt.routing = routing;
       out.attempt.usageAtStart = usageAtStart;
       const refreshAccounts = s.accounts[account] && usageRefreshCapability(s.accounts[account]) !== "unavailable" ? [account] : [];

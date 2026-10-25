@@ -101,6 +101,7 @@ pub async fn run_stdio(core: Vec<String>, env: HashMap<String, String>) -> i32 {
 }
 
 async fn proxy(core: Vec<String>, env: HashMap<String, String>) -> io::Result<i32> {
+    let scoped_work = env.contains_key("PACER_WORK_GRANT");
     let (program, prefix) = core
         .split_first()
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "empty core argv"))?;
@@ -128,7 +129,7 @@ async fn proxy(core: Vec<String>, env: HashMap<String, String>) -> io::Result<i3
         input,
         &out,
         &ctx,
-        NATIVE_OPS,
+        if scoped_work { &[] } else { NATIVE_OPS },
         call_native,
     );
     let outgoing = forward_output(BufReader::new(output), &out);

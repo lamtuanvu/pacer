@@ -90,7 +90,9 @@ pub async fn run_serve(
     if std::env::var("PACER_SERVE_ANNOUNCE").as_deref() == Ok("1") {
         println!("{}", serde_json::json!({"port":port}));
     }
-    let core = Arc::new(core_child::CoreChild::spawn(core, env));
+    let mut core_env = env;
+    core_env.insert("PACER_PORT".into(), port.to_string());
+    let core = Arc::new(core_child::CoreChild::spawn(core, core_env));
     let beats = Arc::new(heartbeat::Heartbeat::new());
     let probe = tokio::spawn(heartbeat::run(core.clone(), beats.clone()));
     let state = Arc::new(Listener {

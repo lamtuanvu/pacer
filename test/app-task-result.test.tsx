@@ -71,6 +71,15 @@ test("task workspace keeps route navigation and four task views", async () => {
  }
 });
 
+test("dispatched task adds Work to the split workspace views", async () => {
+ const {TaskDetailFrame} = await import("../app/src/screens/TaskResult");
+ const dispatched={...task,work:{} as TaskDetail["work"]};
+ const html=renderToString(<TaskDetailFrame task={dispatched} query={{}} tab="work" onTab={()=>{}}><p>Dispatch history</p></TaskDetailFrame>);
+ expect(html).toContain('id="task-t-0412-work-tab" role="tab" aria-selected="true"');
+ expect(html).toContain('role="tabpanel" id="task-t-0412-work-panel" aria-labelledby="task-t-0412-work-tab"');
+ expect(html).toContain('Dispatch history');
+});
+
 test("active task summaries never claim that execution ended", () => {
  for (const state of ["running", "queued"] as const) {
   const html = renderToString(<TaskResultView task={{...task,state,summary:null,reviewRequest:undefined}}/>);

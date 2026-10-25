@@ -6,6 +6,9 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
+- Managed work dispatch through CLI, API and MCP: any supported executor can request a child task, and Pacer selects an eligible executor, account and model using configurable strategy steps, capability tiers, live capacity and usage evidence. Decisions, reservations, lineage, dependencies, scoped grants and independent reviews are recorded for inspection.
+- Replaceable decision engines and observation adapters, with bounded provider refresh and reviewed-outcome learning. The Tasks UI and TUI show dispatched work, its tree, timeline, model evidence and review actions. Ordinary interactive sessions and legacy delegation retain their existing routes.
+- Managed work can retry or answer in the same task and worktree with revision checks, stable request IDs, cumulative attempt limits and prior review evidence. Work views distinguish execution, dependency, capacity and child waiting, and group shared account usage without counting overlapping parent and child readings twice.
 - Discoverable v3 CLI operations through `pacer api list`, `describe` and `call`, with filtered metadata, JSON schemas and bounded JSON file/stdin input. The Pacer skill teaches on-demand discovery for product controls.
 - Scriptable authenticated session I/O, attachment upload/list/download/removal, and targeted acknowledged page/native controls for appearance, navigation, windows and tray actions.
 

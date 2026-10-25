@@ -10,6 +10,7 @@ import { cols, flex, glyph, heading, span, statusSpans, wrap } from "../frame";
 import type { Act, Item } from "../state";
 import { blank, defined, empty, MARK, opAct, time, wrapAfter } from "./common";
 import { errorRows, reviewDetail, reviewItem } from "./review";
+import {workRows} from "./work";
 import type { Row, ScreenCtx, ScreenView } from "./types";
 
 const ACTIVE = new Set(["running", "queued"]);
@@ -113,6 +114,7 @@ function sessionDetail(ctx: ScreenCtx, t: ClientTask, width: number): Row[] {
   rows.push(acceptance?.cmd ? { line: [span(acceptance.cmd)] } : empty("No done-when command."));
   if (acceptance?.cmd) rows.push(...wrapAfter([], "pacer runs it after the executor exits, records the checks with the result.", width, { fg: "muted" }));
 
+  if(d?.work)rows.push(blank(),...workRows(ctx,d,width));
   rows.push(blank(), { line: heading(theme, "Timeline") });
   if (resource?.error && !d) rows.push(...errorRows(ctx, resource.error));
   else if (!d) rows.push({ line: [span(ctx.spinner ? `${ctx.spinner} Loading session…` : "Loading session…", { fg: "muted" })] });

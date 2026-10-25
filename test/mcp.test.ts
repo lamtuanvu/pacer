@@ -32,7 +32,7 @@ async function connect() {
 test("lists planner and strategy tools", async () => {
   const { client } = await connect();
   expect((await client.listTools()).tools.map((t) => t.name).sort()).toEqual([
-    "budget_status", "delegate", "guard_feedback", "report_limit", "route", "task_answer", "task_review", "task_request_review", "task_status", "task_stop", "task_wait",
+    "budget_status", "dispatch_preview", "delegate", "guard_feedback", "report_limit", "route", "task_answer", "task_review", "task_request_review", "task_status", "task_stop", "task_wait", "work_answer", "work_retry",
     "strategy_list", "strategy_preview", "strategy_save", "strategy_show", "strategy_use",
   ].sort());
 });

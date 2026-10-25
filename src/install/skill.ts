@@ -9,7 +9,8 @@ description: Control Pacer through discoverable CLI operations, inspect subscrip
 # pacer
 
 Use the pacer CLI as the primary interface; MCP is an optional adapter.
-Executors (PACER_ROLE=executor) must complete their assigned task directly and must not delegate.
+Executors (PACER_ROLE=executor) may delegate only when Pacer gives them a scoped PACER_WORK_GRANT for the current work attempt. Use \`pacer dispatch child --goal "..." --request-id "stable-key"\` and review each child. Without that grant, complete the assigned task directly.
+For a failed or incomplete child, use \`pacer dispatch retry --id CHILD_ID --request-id stable-retry --expect-rev REV\`. For a child question, use \`pacer dispatch answer --id CHILD_ID --request-id stable-answer --expect-rev REV --text "..."\`. Reuse the same request ID if the response is lost. Inspect the current revision in \`pacer dispatch tree --id CHILD_ID --json\`; a grant cannot retry or answer its own task.
 
 1. Run \`pacer status --json\` and read the planner mode and budget.
 2. Run \`pacer route <kind> --json\` to choose an available executor.

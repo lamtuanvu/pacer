@@ -1,3 +1,4 @@
+import { getWork, pendingDependencies } from "../dispatch/work";
 import { beginWorkSync, finishWorkSync, finishUnlaunchedWorkSync } from "../update/desktop/admission";
 import { executorExclusion } from "../executors/availability";
 import { PROJECT_STRATEGIES_LOCK, projectRevision, readProjectStrategies } from "../config/project-strategies";
@@ -42,13 +43,20 @@ export async function drainQueue(ctx: Ctx, spawn: SpawnRunner = spawnRunner, dep
     }
     return await withLock(ctx, "drain", async () => {
     const waiting = listTasksWhere(ctx, { states: ["queued"] }).filter(t => t.queue && launches.has(t.id))
-      .sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id));
+      .sort((a, b) => (getWork(ctx,b.id)?.options.priority??0)-(getWork(ctx,a.id)?.options.priority??0) || a.createdAt - b.createdAt || a.id.localeCompare(b.id));
     if (!waiting.length) return [];
     const spawned: string[] = [], hooks = deps.hooks ?? activeHooks;
     let st: Status | undefined;
     let policyChanges = 0;
     for (let index = 0; index < waiting.length; index++) {
       const task = waiting[index], s = deps.loadStrategy(ctx);
+      const work=getWork(ctx,task.id);
+      if(work?.options.expiresAt!==undefined&&work.options.expiresAt<=Date.now()/1000){
+        updateTask(ctx,task.id,t=>{t.state="failed";delete t.queue;t.result={status:"failed",executor:null,model:null,files:"",report:"Work dispatch deadline expired",backend:"direct"};});
+        continue;
+      }
+      if(task.queue?.nextAt && task.queue.nextAt>Date.now()/1000)continue;
+      if(work&&pendingDependencies(ctx,task.id).length)continue;
       let snapshot: ReturnType<typeof projectSnapshot>;
       let repo: import("../api/read-model/types").RepoRef;
       try {
@@ -83,7 +91,7 @@ export async function drainQueue(ctx: Ctx, spawn: SpawnRunner = spawnRunner, dep
         ...(broken[p.id] ? {brokenReason: broken[p.id].reason} : {}),
       }]));
       const kind = await Promise.resolve().then(() => hooks.taskKind(ctx, task)).catch(() => task.kind);
-      const ranking = rankExecutors(kind, s, statuses, selection && { executors: selection.executors, order: "configured" });
+      const ranking = rankExecutors(kind, s, statuses, selection && { executors: selection.executors, order: "configured" }, {includePlanner:getWork(ctx,task.id)?.options.allowDelegation});
       let candidates = ranking.ranked.map(e => e.id);
       if (req) candidates = candidates.filter(id => id === req);
       else {

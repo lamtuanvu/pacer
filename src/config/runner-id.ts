@@ -1,4 +1,5 @@
-import { AGENTS, allowedPair, type AccountCfg, type AgentId, type RunnerCfg } from "./accounts";
+import { AGENTS, allowedPair, type AgentId } from "./agent-id";
+import type { AccountCfg, RunnerCfg } from "./accounts";
 import type { Strategy } from "./strategy";
 export interface RunnerId { agent: AgentId; account: string | null; host: string | null }
 export type RunnerDefaults = Partial<Record<AgentId, string>>;

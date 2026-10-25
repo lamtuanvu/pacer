@@ -1,4 +1,6 @@
 import { refreshConnectedIntegrations } from "../core/integrations";
+import { authorizeWorkGrant } from "../dispatch/work";
+import { refreshObservations } from "../dispatch/refresh";
 import { desktopCaptureRoute } from "./desktop-capture";
 import { attachmentRoute } from "./attachment-routes";
 import { resetCaptureBroker } from "../desktop/capture-broker";
@@ -122,11 +124,19 @@ export function startServer(
       if (!hosts.includes(req.headers.get("host") ?? "")) return new Response("misdirected request\n", { status: 421 });
       const app = pathname.startsWith("/app/");
       let bearer: boolean;
+      let workGrant: string | undefined;
       if (opts.internal) {
         if (!safeEqual(req.headers.get("authorization") ?? "", `Bearer ${opts.internal.token}`)) {
           return new Response("unauthorized\n", { status: 401 });
         }
-        bearer = req.headers.get("x-pacer-auth") !== "cookie";
+        const authKind = req.headers.get("x-pacer-auth") ?? "bearer";
+        if (authKind !== "bearer" && authKind !== "cookie" && authKind !== "task") return new Response("forbidden\n", { status: 403 });
+        bearer = authKind === "bearer";
+        if (authKind === "task") {
+          const forwarded = req.headers.get("x-pacer-work-grant") ?? "";
+          workGrant = forwarded.startsWith("Bearer ") ? forwarded.slice(7) : undefined;
+          if (!workGrant || req.method !== "POST" || !pathname.startsWith("/v3/ops/")) return new Response("forbidden\n", { status: 403 });
+        }
         // The front door's heartbeat: an answer proves this event loop is responsive.
         if (req.method === "GET" && pathname === "/health") return Response.json({ ok: true, pid: process.pid });
         if (pathname === "/_internal/app-page") {
@@ -140,7 +150,12 @@ export function startServer(
         if (req.method === "GET" && pathname === "/health") return Response.json({ ok: true, pid: process.pid }, { headers });
         if (pathname === "/app/auth") return appRoute(req, getCtx());
         bearer = safeEqual(req.headers.get("authorization") ?? "", `Bearer ${token}`);
-        if (!bearer) {
+        const candidate = (req.headers.get("authorization") ?? "").replace(/^Bearer /, "");
+        if (!bearer && /^pwg_[0-9a-f]{64}$/.test(candidate)) {
+          if (req.method !== "POST" || !pathname.startsWith("/v3/ops/")) return new Response("forbidden\n", { status: 403 });
+          workGrant = candidate;
+        }
+        if (!bearer && !workGrant) {
           const value = (req.headers.get("cookie") ?? "").split(";").map(c => c.trim()).find(c => c.startsWith("pacer_session="))?.slice("pacer_session=".length);
           if (!(app || /^\/v[23]\//.test(pathname)) || !value || !checkSession(getCtx(), value)) {
             return app ? appPage("Session ended. Run `pacer open`.", 401) : new Response("unauthorized\n", { status: 401 });
@@ -154,6 +169,11 @@ export function startServer(
           }
         }
       }
+      const requestCtx = workGrant ? () => ({...getCtx(),env:{...getCtx().env,PACER_WORK_GRANT:workGrant,PACER_ROLE:"executor"}}) : getCtx;
+      if (workGrant) {
+        try { authorizeWorkGrant(requestCtx(), workGrant); }
+        catch { return new Response("forbidden\n", { status: 403 }); }
+      }
       if (app) return appRoute(req, getCtx());
       const attachmentResponse = await attachmentRoute(req, getCtx());
       if (attachmentResponse) return attachmentResponse;
@@ -161,7 +181,7 @@ export function startServer(
       if (captureResponse) return captureResponse;
       if (sessionRoute) return upgradeSession(req, server, getCtx(), sessionRoute[1]!);
       if (/^\/v[23]\//.test(pathname)) {
-        const response=await handleV2(req, { getCtx, opDeps: {...opts.opDeps, snapshotProbe:false, terminalPresetsOnly: !bearer}, tailMs, status, snapshot: () => readCache.get() });
+        const response=await handleV2(req, { getCtx: requestCtx, opDeps: {...opts.opDeps, snapshotProbe:false, terminalPresetsOnly: !bearer}, tailMs, status, snapshot: () => readCache.get() });
         response.headers.set("X-Pacer","1");
         return response;
       }
@@ -229,6 +249,7 @@ export function startServer(
   const supervisorTimer = setInterval(supervise, 5000);
   const snapshotTimer=setInterval(refreshSnapshot,2000);
   const statusTimer=setInterval(refreshStatus,60000);
+  const observationTimer=pumpMs>0?setInterval(()=>{if(!stopped)void refreshObservations(getCtx()).catch(()=>{});},60000):undefined;
   const terminalTimer=setInterval(()=>{if(!stopped)void Promise.resolve().then(()=>refreshConsoleTerminals(getCtx())).catch(()=>{});},10000);
   const pumpTimer = pumpMs > 0 ? setInterval(tick, pumpMs) : undefined;
   return { port: publicPort, token, stop: () => {
@@ -245,6 +266,7 @@ export function startServer(
     clearInterval(pumpTimer);
     clearInterval(snapshotTimer);
     clearInterval(statusTimer);
+    clearInterval(observationTimer);
     clearInterval(terminalTimer);
     clearTimeout(scheduled);
     for (const watcher of watchers) watcher.close();

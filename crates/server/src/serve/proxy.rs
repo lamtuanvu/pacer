@@ -32,14 +32,25 @@ pub fn headers(
     token: &str,
     auth: AuthKind,
 ) -> Result<(), axum::http::header::InvalidHeaderValue> {
+    let task_grant = if auth == AuthKind::Task {
+        headers.get("authorization").cloned()
+    } else {
+        None
+    };
     headers.remove("authorization");
     headers.remove("cookie");
+    headers.remove("x-pacer-work-grant");
+    headers.remove("x-pacer-auth");
     headers.insert("authorization", format!("Bearer {token}").parse()?);
+    if let Some(grant) = task_grant {
+        headers.insert("x-pacer-work-grant", grant);
+    }
     headers.insert(
         "x-pacer-auth",
         match auth {
             AuthKind::Bearer => "bearer",
             AuthKind::Cookie => "cookie",
+            AuthKind::Task => "task",
         }
         .parse()?,
     );
@@ -109,6 +120,25 @@ mod tests {
         assert_eq!(request.headers()["x-pacer-auth"], "cookie");
         assert!(!request.headers().contains_key("cookie"));
         assert_eq!(request.headers()["origin"], "http://localhost:4317");
+    }
+    #[test]
+    fn task_grant_is_forwarded_only_in_its_dedicated_header() {
+        let grant = format!("pwg_{}", "a".repeat(64));
+        let mut request = Request::builder()
+            .header("authorization", format!("Bearer {grant}"))
+            .header("cookie", "pacer_session=forged")
+            .header("x-pacer-auth", "bearer")
+            .header("x-pacer-work-grant", "Bearer forged")
+            .body(())
+            .unwrap();
+        headers(request.headers_mut(), "internal", AuthKind::Task).unwrap();
+        assert_eq!(request.headers()["authorization"], "Bearer internal");
+        assert_eq!(request.headers()["x-pacer-auth"], "task");
+        assert_eq!(
+            request.headers()["x-pacer-work-grant"],
+            format!("Bearer {grant}")
+        );
+        assert!(!request.headers().contains_key("cookie"));
     }
     #[tokio::test]
     async fn oversized_operations_return_core_error_before_connecting() {

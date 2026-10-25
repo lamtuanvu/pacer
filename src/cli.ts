@@ -338,6 +338,8 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
 
 export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result> {
   const [cmd = "status", ...rest] = argv;
+  if (ctx.env.PACER_WORK_GRANT && !["dispatch", "mcp", "api"].includes(cmd))
+    return {code:2,out:"",err:"pacer: work grants only allow scoped dispatch commands"};
   if (cmd === "--pacer-fixture-startup-cleanup" && compiledNativeFixture()) {
     if (rest.length) return {code:2,out:"",err:"Fixture cleanup accepts no arguments"};
     try {
@@ -536,6 +538,7 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
           return { code: 0, out: "", err: "", keepAlive: true };
         }
         const s = startServer(() => fresh(ctx), { port: Number(str(opts.port) ?? ctx.env.PACER_PORT ?? DEFAULT_PORT) });
+        ctx.env.PACER_PORT=String(s.port);
         return { code: 0, out: `pacer serve listening on http://127.0.0.1:${s.port} (token: ${ctx.pacerHome}/token)`, err: "", keepAlive: true };
       } catch (e) {
         return { code: 2, out: "", err: explain(e) };

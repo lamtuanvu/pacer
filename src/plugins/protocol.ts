@@ -1,11 +1,12 @@
 import { z } from "zod";
 import { isVersion } from "../update/version";
+import { observationMethodSchema, observationScopeSchema, observationSchema, decisionRequestSchema, proposalSchema } from "../dispatch/types";
 
 /** Plugin protocol version; independent of the client protocol (P4 applies to both). */
-export const PLUGIN_PROTOCOL_VERSION = "1.0.0";
+export const PLUGIN_PROTOCOL_VERSION = "1.1.0";
 export const PLUGIN_PROTOCOL_MAJOR = 1;
 
-export const EXTENSION_POINTS = ["diagnostic", "agentSession"] as const;
+export const EXTENSION_POINTS = ["diagnostic", "agentSession", "observation", "decision"] as const;
 export type ExtensionPoint = (typeof EXTENSION_POINTS)[number];
 
 export const CAPABILITIES = ["tasks.read", "events.subscribe", "process.spawn", "fs.read", "net.http", "secrets.resolve", "config.get", "entitlement.report", "log"] as const;
@@ -50,6 +51,8 @@ export const agentAttachmentResult = z.discriminatedUnion("kind", [z.object({kin
 
 /** Host → plugin. Keys are `<extensionPoint>.<method>`; every plugin serves `diagnostic`. */
 export const EXTENSION_METHODS: Record<string, MethodDef> = {
+  "observation.observe": method({description:"Return normalized, scoped observations without credentials or raw provider payloads.",params:z.object({scope:observationScopeSchema,method:observationMethodSchema}),result:z.array(observationSchema).max(64),deadlineMs:5000}),
+  "decision.decide": method({description:"Recommend ordered candidate IDs; the host validates and controls admission.",params:decisionRequestSchema,result:proposalSchema,deadlineMs:5000}),
   "agentSession.identity": method({description: "Plan native conversation identity allocation or explicit recovery without spawning.",
     params: agentVersion.extend({taskId: z.string().min(1).max(128), sessionId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/).optional(), model: z.string().optional()}),
     result: z.discriminatedUnion("kind", [z.object({kind: z.literal("none")}), z.object({kind: z.literal("assigned"), id: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/)}),

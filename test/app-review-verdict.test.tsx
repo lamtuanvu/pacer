@@ -20,6 +20,15 @@ test("verdict panel has one primary, disables unavailable retry and explains acc
   expect(html).not.toContain("classifier");
   expect(html).toContain(`pacer review ${task.id} --accept`);
 });
+test("work verdict hides retry and send-back actions that cannot preserve its policy",()=>{
+ const managed={...task,work:{rootId:task.id,parentId:null,depth:0}};
+ const html=renderToString(<VerdictPanel task={managed} note="" kind="" executor="" noteFor={null} pending={false} onNote={()=>{}} onKind={()=>{}} onExecutor={()=>{}} onOpenNote={()=>{}} onCancel={()=>{}} onSubmit={()=>{}}/>);
+ expect(html).toContain("Mark accepted");
+ expect(html).toContain("Reject result");
+ expect(html).not.toContain(">Send back<");
+ expect(html).not.toContain(">Retry<");
+  expect(html).toContain("Open the Work tab to retry this work in its existing tree.");
+});
 test("CLI footer follows verdict, kind and safely quoted note", () => {
   const cmd = verdictCommand("t1", { verdict: "reject", kind: "tests", note: 'fix "this" $value' });
   expect(cmd).toContain('--reject --kind tests --note "fix \\"this\\" \\$value"');
