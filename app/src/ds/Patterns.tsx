@@ -19,12 +19,13 @@ export function TextRow({ label, value, meta, className }: {
 export interface ListRowProps extends JSX.HTMLAttributes<HTMLDivElement> {
   leading?: ComponentChildren; content?: ComponentChildren; meta?: ComponentChildren; actions?: ComponentChildren;
   density?: 'normal' | 'compact' | 'touch';
+  layout?: 'aligned';
   outlined?: boolean; tone?: 'bad';
 }
 /** Sibling slots keep navigation and secondary actions from nesting interactive elements. */
-export function ListRow({ leading, content, meta, actions, children, className, density, outlined, tone, ...props }: ListRowProps) {
+export function ListRow({ leading, content, meta, actions, children, className, density, layout, outlined, tone, ...props }: ListRowProps) {
   const inherited = useDensity();
-  return <div {...props} className={classes('pc-list-row', `pc-list-row--${density ?? inherited}`, outlined && 'pc-list-row--outlined', tone && `pc-list-row--${tone}`, className)}>
+  return <div {...props} className={classes('pc-list-row', `pc-list-row--${density ?? inherited}`, layout && `pc-list-row--${layout}`, outlined && 'pc-list-row--outlined', tone && `pc-list-row--${tone}`, className)}>
     {leading && <span className="pc-list-row__leading">{leading}</span>}
     {content ? <div className="pc-list-row__content">{content}</div> : children}
     {meta && <div className="pc-list-row__meta">{meta}</div>}
