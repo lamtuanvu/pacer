@@ -24,7 +24,7 @@ test('Tasks retains the complete display title in text, tooltip and destination 
 });
 
 const browserPath=process.env.PACER_TEST_BROWSER;
-test.skipIf(!browserPath)('Tasks route keeps repository filter and task sections on one page boundary',async()=>{
+test.skipIf(!browserPath)('Tasks route follows Overview full-width gutters and card sections',async()=>{
  const fixture=(await import('./fixtures/ui/snapshot.json')).default;
  const state={...initialState(),connected:true,features:{readModel:true,ops:new Set<string>()},snapshot:fixture};
  const css=(await Promise.all(['app/src/ds/tokens.css','app/src/ds/components.css','app/src/styles.css','app/src/screens/session/session.css'].map(f=>Bun.file(f).text()))).join('\n');
@@ -40,6 +40,8 @@ test.skipIf(!browserPath)('Tasks route keeps repository filter and task sections
     return [left('.pc-filter'),left('.pc-sessions-list'),left('.pc-sessions-list > section')];
    });
    expect(Math.max(...edges)-Math.min(...edges)).toBeLessThan(1);
+   expect(edges[0]).toBeLessThan(100);
+   expect(await page.locator('.pc-sessions-list > .pc-card-section').count()).toBe(2);
    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   }
  }finally{await browser.close();}
@@ -55,15 +57,15 @@ test.skipIf(!browserPath)('Tasks bounds wide rows and keeps titles, metadata and
   const page=await browser.newPage();
   for(const width of [1990,1440,375])for(const theme of ['light','dark']){
    await page.setViewportSize({width,height:1000});
-   await page.setContent(`<html data-theme="${theme}"><style>${css}</style>${renderToString(<NarrowContext.Provider value={width<560}><Page width="wide" className="pc-page-body"><SessionsList running={{data:[runningTask]}} recent={{data:[sessionRow(task),failedTask]}}/></Page></NarrowContext.Provider>)}</html>`);
+   await page.setContent(`<html data-theme="${theme}"><style>${css}</style>${renderToString(<NarrowContext.Provider value={width<560}><Page width="full" className="pc-page-body"><SessionsList running={{data:[runningTask]}} recent={{data:[sessionRow(task),failedTask]}}/></Page></NarrowContext.Provider>)}</html>`);
    if(process.env.PACER_LAYOUT_EVIDENCE)await page.screenshot({path:`${process.env.PACER_LAYOUT_EVIDENCE}/tasks-${width}-${theme}.png`});
    const geometry=await page.locator('.pc-sessions-list').evaluate(n=>({width:n.getBoundingClientRect().width,overflow:document.documentElement.scrollWidth>innerWidth}));
-   expect(geometry.width).toBeLessThanOrEqual(1300);
+   if(width>560)expect(geometry.width).toBeGreaterThan(width-150);
    expect(geometry.overflow).toBe(false);
    const boxes=await page.locator('.pc-list-row__content,.pc-list-row__meta,.pc-list-row__actions').evaluateAll(nodes=>nodes.map(n=>({left:n.getBoundingClientRect().left,right:n.getBoundingClientRect().right,width:n.getBoundingClientRect().width})));
    for(const box of boxes){expect(box.left).toBeGreaterThanOrEqual(0);expect(box.right).toBeLessThanOrEqual(width);expect(box.width).toBeGreaterThan(0);}
    expect(await page.locator('.pc-sessions-rows .pc-list-row__content strong').first().getAttribute('title')).toBe(longTitle);
-   expect(await page.locator('.pc-sessions-rows .pc-list-row__content strong').first().evaluate(n=>n.scrollWidth>n.clientWidth)).toBe(true);
+   if(width<1990)expect(await page.locator('.pc-sessions-rows .pc-list-row__content strong').first().evaluate(n=>n.scrollWidth>n.clientWidth)).toBe(true);
    expect(await page.locator('.pc-sessions-repo').first().getAttribute('title')).toBe(longRepo);
    if(width>560){
     const columns=await page.locator('.pc-sessions-rows .pc-list-row').evaluateAll(rows=>rows.map(row=>({
@@ -108,9 +110,13 @@ test.skipIf(!browserPath)('Start work truncates long recent titles with an ellip
    const title=page.locator('.pc-start-recent .pc-ellipsis');
    expect(await title.getAttribute('title')).toBe(state.snapshot.tasks[0]!.fullTitle);
    expect(await title.evaluate(n=>({clipped:n.scrollWidth>n.clientWidth,overflow:getComputedStyle(n).textOverflow}))).toEqual({clipped:true,overflow:'ellipsis'});
-   const recentGap=await page.locator('.pc-start > section').evaluate(section=>section.querySelector('.pc-start-recent')!.getBoundingClientRect().top-section.querySelector('.pc-section-heading')!.getBoundingClientRect().bottom);
-   expect(recentGap).toBe(12);
+   expect(await page.locator('.pc-start__side .pc-card-section__head').count()).toBe(1);
+   const recentGap=await page.locator('.pc-start-recent').evaluate(section=>section.getBoundingClientRect().top-section.previousElementSibling!.getBoundingClientRect().bottom);
+   expect(recentGap).toBe(0);
    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+   const contentEdge=await page.locator('.pc-start__cols').evaluate(n=>n.getBoundingClientRect().left);
+   expect(contentEdge).toBe(width<560?16:72);
+   if(width>560)expect(await page.locator('.pc-start').evaluate(n=>n.getBoundingClientRect().width)).toBeGreaterThan(width-150);
    const rail=await page.locator(width<560?'.pc-bottom-bar':'.pc-rail').evaluate(n=>n.getBoundingClientRect().left);
    expect(rail).toBeGreaterThanOrEqual(0);
   }

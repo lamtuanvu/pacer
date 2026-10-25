@@ -8,7 +8,7 @@ import {
   type AttachmentItem,
 } from "../ds/AttachmentTray";
 import { SectionHeading } from "../ds/SectionHeading";
-import { Section } from "../ds/Page";
+import { Page } from "../ds/Page";
 import { agentInfo } from "../../../src/view-model/agents";
 import type { RepoRef } from "../../../src/api/read-model/types";
 import type { SessionPreparation } from "../../../src/session/capabilities";
@@ -260,15 +260,17 @@ export function StartSession() {
   }, [preparation.data]);
   if (!supported)
     return (
-      <section className="pc-notice">
-        <SectionHeading>
-          Interactive sessions need a newer service
-        </SectionHeading>
-        <p>
-          Update the Pacer service to start an interactive conversation here.
-        </p>
-        <ButtonLink href="#/overview">Open overview</ButtonLink>
-      </section>
+      <Page width="full">
+        <section className="pc-notice">
+          <SectionHeading>
+            Interactive sessions need a newer service
+          </SectionHeading>
+          <p>
+            Update the Pacer service to start an interactive conversation here.
+          </p>
+          <ButtonLink href="#/overview">Open overview</ButtonLink>
+        </section>
+      </Page>
     );
   const field = (key: keyof SessionDraft, value: string) =>
     setDraft((previous) => ({
@@ -301,69 +303,78 @@ export function StartSession() {
   };
   const recent = state.snapshot?.tasks.slice(0, 6) ?? [];
   return (
-    <div className="pc-start">
+    <Page width="full" className="pc-start">
       <p className="pc-start-intro">
         Your agent. Your workspace. Ready when you are.
       </p>
-      <StartSessionForm
-        {...draft}
-        repos={repos.data ?? []}
-        preparation={draft.repo ? preparation.data : undefined}
-        items={uploads.items}
-        busy={busy}
-        onField={field}
-        onFiles={uploads.uploadFiles}
-        onRemove={(id) => void uploads.remove(id)}
-        onRetry={uploads.retry}
-        onSubmit={() => void start()}
-      />
-      <ErrorMessage
-        error={error ?? repos.error ?? preparation.error ?? uploads.error}
-      />
-      <Disclosure summary="Add a repository">
-        <Field
-          label="Repository folder"
-          help="Enter the full path to an existing local Git checkout."
-        >
-          <TextInput
-            value={repoPath}
-            placeholder="/path/to/project"
-            onInput={(e) => setRepoPath(e.currentTarget.value)}
+      <div className="pc-start__cols">
+        <div className="pc-start__main">
+          <StartSessionForm
+            {...draft}
+            repos={repos.data ?? []}
+            preparation={draft.repo ? preparation.data : undefined}
+            items={uploads.items}
+            busy={busy}
+            onField={field}
+            onFiles={uploads.uploadFiles}
+            onRemove={(id) => void uploads.remove(id)}
+            onRetry={uploads.retry}
+            onSubmit={() => void start()}
           />
-        </Field>
-        <Button
-          disabled={!repoPath.trim()}
-          onClick={() => {
-            void api.call<RepoRef>("repo.add", { path: repoPath }).then(
-              (repo) => {
-                field("repo", repo.key);
-                setRepoPath("");
-                repos.reload();
-              },
-              (e) => setError(e),
-            );
-          }}
-        >
-          Add repository
-        </Button>
-      </Disclosure>
-      {!!recent.length && (
-        <Section title="Recent work">
-          <div className="pc-start-recent">
-            {recent.map((task) => (
-              <ButtonLink
-                key={task.id}
-                variant="quiet"
-                href={`#/tasks/${encodeURIComponent(task.id)}`}
-              >
-                <span className="pc-ellipsis" title={task.fullTitle ?? task.title ?? task.goal}>
-                  {task.fullTitle ?? task.title ?? task.goal}
-                </span>
-              </ButtonLink>
-            ))}
-          </div>
-        </Section>
-      )}
-    </div>
+          <ErrorMessage
+            error={error ?? repos.error ?? preparation.error ?? uploads.error}
+          />
+          <Disclosure summary="Add a repository">
+            <Field
+              label="Repository folder"
+              help="Enter the full path to an existing local Git checkout."
+            >
+              <TextInput
+                value={repoPath}
+                placeholder="/path/to/project"
+                onInput={(e) => setRepoPath(e.currentTarget.value)}
+              />
+            </Field>
+            <Button
+              disabled={!repoPath.trim()}
+              onClick={() => {
+                void api.call<RepoRef>("repo.add", { path: repoPath }).then(
+                  (repo) => {
+                    field("repo", repo.key);
+                    setRepoPath("");
+                    repos.reload();
+                  },
+                  (e) => setError(e),
+                );
+              }}
+            >
+              Add repository
+            </Button>
+          </Disclosure>
+        </div>
+        {!!recent.length && (
+          <aside className="pc-start__side">
+            <section className="pc-card-section" aria-label="Recent work">
+              <div className="pc-card-section__head">
+                <SectionHeading>Recent work</SectionHeading>
+              </div>
+              <div className="pc-start-recent">
+                {recent.map((task) => (
+                  <ButtonLink
+                    key={task.id}
+                    variant="quiet"
+                    href={`#/tasks/${encodeURIComponent(task.id)}`}
+                  >
+                    <span className="pc-ellipsis" title={task.fullTitle ?? task.title ?? task.goal}>
+                      {task.fullTitle ?? task.title ?? task.goal}
+                    </span>
+                  </ButtonLink>
+                ))}
+              </div>
+            </section>
+          </aside>
+        )}
+      </div>
+    </Page>
   );
 }

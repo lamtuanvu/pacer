@@ -190,13 +190,15 @@ metadata and status. The full goal remains available in Brief. Tabs retain their
 roving focus, Left/Right/Home/End navigation and labelled tab panels. Active tasks
 initially select Session; completed tasks initially select Summary. Changing views
 does not change task identity or the scoped Tasks destination. The task list uses
-the shared `Page` wide width (1,300px maximum) rather than an unbounded canvas. Its controller prefers the complete `fullTitle`, with the
+the same full-width `Page` gutters and bordered sections as Overview. Its controller prefers the complete `fullTitle`, with the
 compatibility `title` as a fallback; `pc-ellipsis` clips only when the row runs out
 of space, and tooltips and action names retain the full display text. The list
 remembers its scroll offset for each repository/scope during the app session.
 Start work recent links put their complete display title in a `pc-ellipsis` child
 with a full-title tooltip; clipping belongs to that text block, since ellipsis on
-the flex link itself cannot truncate its anonymous text item.
+the flex link itself cannot truncate its anonymous text item. Start work uses the
+full-width page frame with a main composer and a Recent work side panel; they
+stack when the viewport is 1,000px or narrower.
 No upstream component or license provenance changed.
 
 ### Spacing ownership and rhythm
