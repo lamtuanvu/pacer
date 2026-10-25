@@ -69,6 +69,7 @@ fn reclaims_dead_owner_but_never_a_live_listener_with_forged_dead_owner() {
     std::fs::set_permissions(&owner, std::fs::Permissions::from_mode(0o600)).unwrap();
     assert!(NativeListener::bind_at(path.clone(), &process()).is_err());
     drop(old);
+    wait_for_kernel_refusal(&path);
     let replacement = NativeListener::bind_at(path.clone(), &process()).unwrap();
     drop(replacement);
 }
@@ -122,4 +123,90 @@ fn owner_only_and_redirected_owner_records_fail_closed() {
     assert!(path.exists());
     assert_eq!(std::fs::read(target).unwrap(), b"untouched");
     drop(old);
+}
+
+// A concurrent spawn can retain a kernel reference after this thread closes its fd.
+// Observe kernel readiness without retrying the ownership operation itself.
+fn wait_for_kernel_refusal(path: &Path) {
+    use nix::sys::socket::{AddressFamily, SockFlag, SockType, UnixAddr, connect, socket};
+    use std::os::fd::AsRawFd;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        let probe = socket(
+            AddressFamily::Unix,
+            SockType::Stream,
+            SockFlag::empty(),
+            None,
+        )
+        .unwrap();
+        nix::fcntl::fcntl(
+            &probe,
+            nix::fcntl::FcntlArg::F_SETFD(nix::fcntl::FdFlag::FD_CLOEXEC),
+        )
+        .unwrap();
+        nix::fcntl::fcntl(
+            &probe,
+            nix::fcntl::FcntlArg::F_SETFL(nix::fcntl::OFlag::O_NONBLOCK),
+        )
+        .unwrap();
+        match connect(probe.as_raw_fd(), &UnixAddr::new(path).unwrap()) {
+            Err(nix::errno::Errno::ECONNREFUSED) => return,
+            Ok(()) => {}
+            result => panic!("unexpected kernel listener probe: {result:?}"),
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "kernel listener remained live after owned descriptors closed"
+        );
+        std::thread::yield_now();
+    }
+}
+
+struct OwnedListenerChild(std::process::Child);
+impl Drop for OwnedListenerChild {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+#[test]
+fn inherited_listener_remains_live_until_owned_child_releases_it() {
+    use std::os::fd::OwnedFd;
+    use std::process::{Command, Stdio};
+    let directory = tempfile::tempdir().unwrap();
+    std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    let path = directory.path().join("native.sock");
+    let old = UnixListener::bind(&path).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let owner = path.with_extension("sock.owner");
+    let own = process();
+    let record = serde_json::to_vec(&serde_json::json!({"process":{"pid":own.pid,"bootId":own.boot_id,"birth":"1:0"},"inode":path.symlink_metadata().unwrap().ino()})).unwrap();
+    std::fs::write(&owner, &record).unwrap();
+    std::fs::set_permissions(&owner, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let socket_inode = path.symlink_metadata().unwrap().ino();
+    let owner_inode = owner.symlink_metadata().unwrap().ino();
+    // Explicit stderr inheritance deterministically holds the listener across exec.
+    let inherited: OwnedFd = old.try_clone().unwrap().into();
+    let mut child = OwnedListenerChild(
+        Command::new("/bin/cat")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::from(inherited))
+            .spawn()
+            .unwrap(),
+    );
+    drop(old);
+    assert!(child.0.try_wait().unwrap().is_none());
+    assert!(NativeListener::bind_at(path.clone(), &process()).is_err());
+    assert_eq!(path.symlink_metadata().unwrap().ino(), socket_inode);
+    assert_eq!(owner.symlink_metadata().unwrap().ino(), owner_inode);
+    assert_eq!(std::fs::read(&owner).unwrap(), record);
+    drop(child.0.stdin.take());
+    assert!(child.0.wait().unwrap().success());
+    wait_for_kernel_refusal(&path);
+    let replacement = NativeListener::bind_at(path.clone(), &process()).unwrap();
+    drop(replacement);
+    assert!(!path.exists());
+    assert!(!owner.exists());
 }
