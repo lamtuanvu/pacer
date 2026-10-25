@@ -43,18 +43,20 @@ test("host RPC carries correlation to capability dispatch and routes only live p
   const { PluginProcess } = await import("../src/plugins/process");
   const { tmpDir } = await import("./helpers");
   const { join } = await import("node:path");
+  const {createCallAuthority}=await import("../src/plugins/authority"),{fakeCtx}=await import("./helpers");
+  const authority=createCallAuthority(fakeCtx(),{reads:[],commands:[],stores:[]},{deadlineMs:Date.now()+5000});
   const metadata: unknown[] = [], progress: unknown[] = [];
   const peer = new PluginProcess({ argv: [process.execPath, join(import.meta.dir, "fixtures/sp02-rpc/peer.ts")], cwd: tmpDir(), env: {} }, {
     onRequest: async (_method: string, _params: unknown, meta?: unknown) => { metadata.push(meta); return { observed: true }; },
     onStderr: () => {}, onExit: () => {},
   });
   try {
-    expect(await (peer.request as any)("fixture.capability", {}, 1000, { metadata: { capabilityCall: "active-token" } })).toEqual({ observed: true });
-    expect(metadata).toEqual([{ capabilityCall: "active-token" }]);
+    expect(await (peer.request as any)("fixture.capability", {}, 1000, { authority, metadata: { capabilityCall: authority.token } })).toEqual({ observed: true });
+    expect(metadata).toEqual([{ capabilityCall: authority.token }]);
     await (peer.request as any)("fixture.progress", {}, 1000, { onProgress: (value: unknown) => progress.push(value) });
     await Bun.sleep(5);
     expect(progress).toEqual([{ value: 7 }]);
-  } finally { await peer.terminate(); }
+  } finally { await peer.terminate();await authority.revoke(); }
 });
 
 test("host RPC deadline zero is explicit no timer and caller abort ends pending work", async () => {

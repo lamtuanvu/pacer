@@ -1,7 +1,7 @@
 import { BUNDLED } from "../../plugins/bundled";
 import { pacerArgv } from "../install/self";
 import type { Ctx } from "../types";
-import { PluginRegistry } from "./registry";
+import { PluginRegistry,type RegistryDeps } from "./registry";
 import { fileURLToPath } from "node:url";
 
 const registries = new Map<string, PluginRegistry>();
@@ -19,10 +19,10 @@ export function bundledPluginSpawn(c: Ctx, id: string, runtime: {executable:stri
 }
 
 /** One registry per pacer home in this process; plugins spawn lazily on first call. */
-export function pluginRegistry(ctx: Ctx): PluginRegistry {
+export function pluginRegistry(ctx: Ctx, dependencies?:RegistryDeps): PluginRegistry {
   let r = registries.get(ctx.pacerHome);
   if (!r) {
-    r = new PluginRegistry({ bundled: BUNDLED, spawnBundled: bundledPluginSpawn });
+    r = new PluginRegistry(dependencies??{ bundled: BUNDLED, spawnBundled: bundledPluginSpawn });
     registries.set(ctx.pacerHome, r);
   }
   return r;

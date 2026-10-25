@@ -24,13 +24,16 @@ function setup(agent: string) {
   const raw = readFileSync(join(import.meta.dir, "fixtures/install", `${agent}.json`), "utf8");
   expect(raw).not.toMatch(/\/(?:Users|Volumes)\//);
   const home = realpathSync(mkdtempSync(join(tmpdir(), "pacer-install-replay-"))), pacerHome = join(home, ".pacer");
-  const fixture = JSON.parse(raw.replaceAll("$PACER_HOME", pacerHome).replaceAll("$HOME", home)) as Fixture;
+  const bin=join(pacerHome,"fixture-bin"),callLog=join(pacerHome,"fixture-calls.jsonl");
+  const fixture = JSON.parse(raw.replaceAll("$PACER_HOME", pacerHome).replaceAll("$HOME", home).replaceAll("/fixture/bin",bin)) as Fixture;
   const calls: string[][] = [];
   const ctx: Ctx = { home, pacerHome, now: fixture.now, env: { HOME: home, PACER_HOME: pacerHome },
-    which: name => `/fixture/bin/${name}`,
+    which: name => join(bin,name),
     run: async argv => { calls.push([...argv]); return { code: 0, stdout: "", stderr: "" }; },
   };
   mkdirSync(pacerHome, { mode: 0o700 });
+  mkdirSync(bin,{mode:0o700});
+  writeFileSync(join(bin,"claude"),`#!${process.execPath}\nrequire('node:fs').appendFileSync(${JSON.stringify(callLog)},JSON.stringify([${JSON.stringify(join(bin,"claude"))},...process.argv.slice(2)])+'\\n');`,{mode:0o700});
   for (const [path, image] of Object.entries(fixture.after)) {
     if (!path.startsWith(home + "/")) throw Error("fixture path escapes owned home");
     mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
@@ -49,7 +52,7 @@ function setup(agent: string) {
     };
     walk(home); return files;
   };
-  return { home, ctx, calls, fixture, snapshot };
+  return { home, ctx, get calls(){try{return readFileSync(callLog,"utf8").trim().split("\n").filter(Boolean).map(line=>JSON.parse(line));}catch(error){if((error as NodeJS.ErrnoException).code==="ENOENT")return [];throw error;}}, fixture, snapshot };
 }
 
 for (const agent of ["claude-code", "codex", "cursor", "opencode"]) {

@@ -1,3 +1,4 @@
+import {plannerCheck} from "../plugins/planner-check";
 import { claudeHookChecks } from "../install/doctor-hooks";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -68,7 +69,7 @@ export async function checkSetup(ctx:Ctx, options:{snapshotProbe?:boolean;status
   const record=key?readManifest(ctx).planners[key]:undefined;
   // Moved legacy files are cleanup bookkeeping, not part of the working integration.
   const live=record?.files.filter(f=>f.action!=="moved")??[];
-  connected=live.length>0&&live.every(integrationIntact);
+  connected=live.length>0&&(await plannerCheck(ctx,key!,{...record!,files:live},folder??undefined)).intact;
  }catch(e){errors.connect=e instanceof Error?e.message:String(e);}
  let status=options.status;
  if(!status&&!options.deferStatus&&strategy){

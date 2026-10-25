@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { existsSync, readFileSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { fakeCtx } from "./helpers";
+import { fakeCtx } from "./install-plugin-fixtures";
 import { PACER } from "./install-helpers";
 import { installPlanner } from "../src/install";
 import { readManifest, writeManifest } from "../src/install/manifest";

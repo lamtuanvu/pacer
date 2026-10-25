@@ -290,15 +290,127 @@ export function checkWriteAuthority(
   authorize(authority, scopes, path, operation);
 }
 
+export interface OwnerFileImage {
+  text: string;
+  mode: number;
+}
+function openedImage(authority: CallAuthority, fd: number): OwnerFileImage {
+  const before = checkedType(fd, "file");
+  if (before.size > 4194304)
+    throw new CoreError(
+      "too_large",
+      "installation image exceeds bounded UTF8 limit",
+    );
+  const bytes = Buffer.alloc(before.size);
+  let count = 0;
+  while (count < bytes.length) {
+    authority.assertActive();
+    const n = fs.readSync(
+      fd,
+      bytes,
+      count,
+      Math.min(262144, bytes.length - count),
+      count,
+    );
+    if (!n) denied("installation image changed during read");
+    count += n;
+  }
+  const after = checkedType(fd, "file");
+  if (
+    before.size !== after.size ||
+    before.mtimeMs !== after.mtimeMs ||
+    before.mode !== after.mode
+  )
+    throw new CoreError("conflict", "installation image changed during read");
+  return {
+    text: new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(
+      bytes,
+    ),
+    mode: after.mode & 0o700,
+  };
+}
+function requireImage(
+  authority: CallAuthority,
+  fd: number | undefined,
+  expected: OwnerFileImage | null,
+): void {
+  const observed = fd === undefined ? null : openedImage(authority, fd);
+  if (
+    expected === null
+      ? observed !== null
+      : observed === null ||
+        expected.text !== observed.text ||
+        expected.mode !== observed.mode
+  )
+    throw new CoreError(
+      "conflict",
+      "installation pinned before-image or mode changed",
+    );
+}
+/** Read through the exact native session, including immutable absence of missing parents. */
+export function readOwnerFile(
+  authority: CallAuthority,
+  scopes: readonly string[],
+  raw: string,
+): OwnerFileImage | null {
+  authority.assertGranted("fs.write");
+  const state =
+    states.get(authority) ?? denied("private write roots not prepared");
+  const path = absolutePath(raw),
+    r =
+      state.resources.find(
+        (value) => value.path === path && value.kind === "file",
+      ) ?? denied();
+  if (state.preparationFailure) throw state.preparationFailure;
+  if (state.cleanupFailure) throw state.cleanupFailure;
+  if (!declaredPath(authority, scopes, path)) denied();
+  rootCurrent(r.root);
+  let parent = r.root.directories.get("")!;
+  for (let index = 0; index < r.parts.length - 1; index++) {
+    const prefix = r.parts.slice(0, index + 1),
+      pin = r.root.directories.get(key(prefix));
+    if (!pin) {
+      const fd = open(state, parent.fd, r.parts[index]!, true);
+      if (fd !== undefined) {
+        close(state, fd);
+        denied("unissued installation parent appeared");
+      }
+      return null;
+    }
+    parent = directory(state, r.root, prefix);
+  }
+  const fd = target(state, r, parent);
+  if (fd === undefined) return null;
+  try {
+    const image = openedImage(authority, fd);
+    directory(state, r.root, r.parts.slice(0, -1));
+    const named = target(state, r, parent);
+    if (named !== undefined) close(state, named);
+    return image;
+  } finally {
+    close(state, fd);
+  }
+}
+
 async function write(
   authority: CallAuthority,
   state: State,
   r: Resource,
   parent: Directory,
   text: string,
+  mode = 0o600,
+  expectedImage?: OwnerFileImage | null,
 ) {
   const bytes = Buffer.from(text, "utf8");
   const existing = target(state, r, parent);
+  if (expectedImage !== undefined) {
+    try {
+      requireImage(authority, existing, expectedImage);
+    } catch (error) {
+      if (existing !== undefined) close(state, existing);
+      throw error;
+    }
+  }
   if (existing !== undefined) {
     try {
       const before = checkedType(existing, "file");
@@ -323,7 +435,9 @@ async function write(
         if (prior.equals(bytes)) {
           directory(state, r.root, r.parts.slice(0, -1));
           authority.assertActive();
-          if ((after.mode & 0o777) !== 0o600) fs.fchmodSync(existing, 0o600);
+          if (expectedImage !== undefined)
+            requireImage(authority, existing, expectedImage);
+          if ((after.mode & 0o777) !== mode) fs.fchmodSync(existing, mode);
           checkedType(existing, "file");
           directory(state, r.root, r.parts.slice(0, -1));
           const named = target(state, r, parent);
@@ -349,11 +463,11 @@ async function write(
         fs.constants.O_EXCL |
         fs.constants.O_NOFOLLOW |
         WRITE_CLOEXEC,
-      0o600,
+      mode,
     );
     state.fds.add(staged);
     exists = true;
-    fs.fchmodSync(staged, 0o600);
+    fs.fchmodSync(staged, mode);
     let offset = 0;
     while (offset < bytes.length) {
       authority.assertActive();
@@ -375,7 +489,12 @@ async function write(
     const expected = identity(checkedType(staged, "file"));
     directory(state, r.root, r.parts.slice(0, -1));
     const now = target(state, r, parent);
-    if (now !== undefined) close(state, now);
+    try {
+      if (expectedImage !== undefined)
+        requireImage(authority, now, expectedImage);
+    } finally {
+      if (now !== undefined) close(state, now);
+    }
     authority.assertActive();
     writeNative().renameAt(parent.fd, name, parent.fd, r.parts.at(-1)!);
     exists = false;
@@ -437,11 +556,13 @@ function removeTree(
   }
 }
 /** Complete bounded-text primitive; wire framing/chunk transfer remains host-owned. */
-export async function answerWrite(
+async function answerOwnedWrite(
   authority: CallAuthority,
   scopes: readonly string[],
   method: string,
   params: Record<string, unknown>,
+  mode = 0o600,
+  expectedImage?: OwnerFileImage | null,
 ): Promise<{ ok: true }> {
   const operation =
     method === "capability.fs.write"
@@ -484,7 +605,15 @@ export async function answerWrite(
   state.busy = true;
   try {
     if (operation === "write")
-      await write(authority, state, r, parent, params.text as string);
+      await write(
+        authority,
+        state,
+        r,
+        parent,
+        params.text as string,
+        mode,
+        expectedImage,
+      );
     else if (operation === "mkdir") {
       const current = target(state, r, parent);
       if (current !== undefined) {
@@ -507,6 +636,14 @@ export async function answerWrite(
       authority.assertActive();
     } else {
       const current = target(state, r, parent);
+      if (expectedImage !== undefined) {
+        try {
+          requireImage(authority, current, expectedImage);
+        } catch (error) {
+          if (current !== undefined) close(state, current);
+          throw error;
+        }
+      }
       if (current !== undefined) {
         close(state, current);
         if (r.kind === "directory" && params.recursive !== true) {
@@ -548,4 +685,59 @@ export async function answerWrite(
     state.active = undefined;
     finish();
   }
+}
+
+/** Private admitted installation path; not exposed by any peer capability. */
+export async function writeOwnerFile(
+  authority: CallAuthority,
+  scopes: readonly string[],
+  path: string,
+  text: string,
+  mode: number,
+  expected?: OwnerFileImage | null,
+): Promise<{ ok: true }> {
+  if (
+    !Number.isSafeInteger(mode) ||
+    mode < 0 ||
+    mode > 0o700 ||
+    (mode & ~0o700) !== 0
+  )
+    invalid("invalid private owner write mode");
+  const captured =
+    expected === undefined ? undefined : structuredClone(expected);
+  return answerOwnedWrite(
+    authority,
+    scopes,
+    "capability.fs.write",
+    { path, text },
+    mode,
+    captured,
+  );
+}
+
+/** Peer writes always retain the protocol 0600 policy. */
+export async function answerWrite(
+  authority: CallAuthority,
+  scopes: readonly string[],
+  method: string,
+  params: Record<string, unknown>,
+): Promise<{ ok: true }> {
+  return answerOwnedWrite(authority, scopes, method, params);
+}
+
+/** Private exact-image removal; a peer cannot supply this precondition channel. */
+export async function removeOwnerFile(
+  authority: CallAuthority,
+  scopes: readonly string[],
+  path: string,
+  expected: OwnerFileImage | null,
+): Promise<{ ok: true }> {
+  return answerOwnedWrite(
+    authority,
+    scopes,
+    "capability.fs.remove",
+    { path },
+    0o600,
+    structuredClone(expected),
+  );
 }

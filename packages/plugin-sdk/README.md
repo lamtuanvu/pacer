@@ -188,3 +188,27 @@ write files. The host's existing uninstall path can consume their undo format.
 occupied backup names. It preserves collision suffixes and local-time naming;
 it does not reserve a path or establish permission to write it. Installation
 transactions, locking and recovery remain separate from these pure helpers.
+
+
+### Planner preparation and host settlement
+
+`preparePlannerInstall` and `PreparedPlannerBuilder` prepare integration files
+and record notes using host-supplied reads and real command results. Call
+`prepare()` to close and drain preparation. It returns data; it never commits
+files or claims durability. `createPlannerIO(host, signal)` requires observed
+file modes, checks ranged identity/mode consistency, and uses the negotiated
+`plannerInstallTransactions` broker. A large prior record is a call-bound JSON
+projection read with `readPlannerPrior`, not a manifest path.
+
+The trusted host chooses install, uninstall, reconcile or preview purpose.
+Only install/uninstall can admit new planner command intents; reconcile is
+file-only, and preview/detection/check cannot acquire install effects. The host
+captures immutable undo before a command starts, drains peer work, validates the
+final plan and owns SDK journal settlement and recovery. The private compensation
+budget is reserved before admitting undo work and retains the original exact
+pins after peer cancellation. Native credential stores and host private state
+are excluded from installation sources and destinations.
+
+Manifest v1 and file-journal schema1 remain compatible. Recovery covers FILE
+before-images; it does not promise durable restoration of arbitrary external CLI
+state after a whole-host crash. Deliberate no-undo commands retain that limit.

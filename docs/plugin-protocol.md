@@ -50,7 +50,8 @@ SDKs: `@pacer/plugin` (TypeScript) and `pacer-plugin` (Rust).
           "usage",
           "classifier",
           "notifier",
-          "endpoint"
+          "endpoint",
+          "planner"
         ]
       },
       "additionalProperties": {
@@ -163,7 +164,7 @@ SDKs: `@pacer/plugin` (TypeScript) and `pacer-plugin` (Rust).
 }
 ```
 
-Extension points: `diagnostic`, `agentSession`, `usage`, `classifier`, `notifier`, `endpoint` (every plugin serves `diagnostic`). Capabilities: `tasks.read`, `events.subscribe`, `process.spawn`, `fs.read`, `fs.write`, `net.http`, `secrets.resolve`, `config.get`, `entitlement.report`, `log`, `usage.state`.
+Extension points: `diagnostic`, `agentSession`, `usage`, `classifier`, `notifier`, `endpoint`, `planner` (every plugin serves `diagnostic`). Capabilities: `tasks.read`, `events.subscribe`, `process.spawn`, `fs.read`, `fs.write`, `net.http`, `secrets.resolve`, `config.get`, `entitlement.report`, `log`, `usage.state`.
 
 ## Lifecycle
 
@@ -232,7 +233,8 @@ Params:
               "usage",
               "classifier",
               "notifier",
-              "endpoint"
+              "endpoint",
+              "planner"
             ]
           },
           "additionalProperties": {
@@ -551,6 +553,1325 @@ Large-result completion envelope:
 ```
 
 ## Extension points (host → plugin)
+
+### `planner.install`
+
+Prepare planner integration data; commands are host-brokered and only the host commits files.
+
+Deadline: 120000 ms.
+
+Params:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "agent": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "home": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "pacerHome": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "env": {
+      "type": "object",
+      "properties": {
+        "now": {
+          "type": "number"
+        },
+        "pacerArgv": {
+          "minItems": 1,
+          "maxItems": 32,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 4096
+          }
+        },
+        "plannerKey": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "mcp": {
+          "type": "boolean"
+        },
+        "folder": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "plannerAccount": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "configEnv": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "connect",
+            "reconcile"
+          ]
+        },
+        "skillFolder": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        }
+      },
+      "required": [
+        "now",
+        "pacerArgv",
+        "plannerKey"
+      ],
+      "additionalProperties": false
+    },
+    "binary": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "prior": {
+      "$ref": "#/$defs/__schema0"
+    },
+    "priorRange": {
+      "type": "object",
+      "properties": {
+        "handle": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "handle",
+        "bytes"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "agent",
+    "home",
+    "pacerHome",
+    "env",
+    "binary"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "__schema0": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/__schema0"
+          }
+        },
+        {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema0"
+          }
+        }
+      ]
+    }
+  }
+}
+```
+
+Result:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schema": {
+      "type": "number",
+      "const": 1
+    },
+    "record": {
+      "$ref": "#/$defs/__schema0"
+    },
+    "files": {
+      "maxItems": 512,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          },
+          "before": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "after": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "mode": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 448
+          },
+          "beforeMode": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 448
+          }
+        },
+        "required": [
+          "path",
+          "before",
+          "after"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "touched": {
+      "maxItems": 512,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 4096
+      }
+    },
+    "notes": {
+      "maxItems": 512,
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "uninstallReport": {
+      "type": "object",
+      "properties": {
+        "planner": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "restored": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          }
+        },
+        "removed": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          }
+        },
+        "reverted": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          }
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "planner",
+        "restored",
+        "removed",
+        "reverted",
+        "notes"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "schema",
+    "record",
+    "files",
+    "touched",
+    "notes"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "__schema0": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/__schema0"
+          }
+        },
+        {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema0"
+          }
+        }
+      ]
+    }
+  }
+}
+```
+
+### `planner.uninstall`
+
+Prepare bound-record generic file undo and broker provider command removal under a distinct host purpose.
+
+Deadline: 120000 ms.
+
+Params:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "agent": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "home": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "pacerHome": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "env": {
+      "type": "object",
+      "properties": {
+        "now": {
+          "type": "number"
+        },
+        "pacerArgv": {
+          "minItems": 1,
+          "maxItems": 32,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 4096
+          }
+        },
+        "plannerKey": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "mcp": {
+          "type": "boolean"
+        },
+        "folder": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "plannerAccount": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "configEnv": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "connect",
+            "reconcile"
+          ]
+        },
+        "skillFolder": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        }
+      },
+      "required": [
+        "now",
+        "pacerArgv",
+        "plannerKey"
+      ],
+      "additionalProperties": false
+    },
+    "binary": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "prior": {
+      "$ref": "#/$defs/__schema0"
+    },
+    "priorRange": {
+      "type": "object",
+      "properties": {
+        "handle": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "handle",
+        "bytes"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "agent",
+    "home",
+    "pacerHome",
+    "env",
+    "binary"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "__schema0": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/__schema0"
+          }
+        },
+        {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema0"
+          }
+        }
+      ]
+    }
+  }
+}
+```
+
+Result:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schema": {
+      "type": "number",
+      "const": 1
+    },
+    "record": {
+      "$ref": "#/$defs/__schema0"
+    },
+    "files": {
+      "maxItems": 512,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          },
+          "before": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "after": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "mode": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 448
+          },
+          "beforeMode": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 448
+          }
+        },
+        "required": [
+          "path",
+          "before",
+          "after"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "touched": {
+      "maxItems": 512,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 4096
+      }
+    },
+    "notes": {
+      "maxItems": 512,
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "uninstallReport": {
+      "type": "object",
+      "properties": {
+        "planner": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "restored": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          }
+        },
+        "removed": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          }
+        },
+        "reverted": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          }
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "planner",
+        "restored",
+        "removed",
+        "reverted",
+        "notes"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "schema",
+    "record",
+    "files",
+    "touched",
+    "notes"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "__schema0": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/__schema0"
+          }
+        },
+        {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema0"
+          }
+        }
+      ]
+    }
+  }
+}
+```
+
+### `planner.preview`
+
+Preview selected planner file changes with ordinary read authority and no effects.
+
+Deadline: 5000 ms.
+
+Params:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "agent": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "home": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "pacerHome": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "env": {
+      "type": "object",
+      "properties": {
+        "now": {
+          "type": "number"
+        },
+        "pacerArgv": {
+          "minItems": 1,
+          "maxItems": 32,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 4096
+          }
+        },
+        "plannerKey": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "mcp": {
+          "type": "boolean"
+        },
+        "folder": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "plannerAccount": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "configEnv": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "connect",
+            "reconcile"
+          ]
+        },
+        "skillFolder": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        }
+      },
+      "required": [
+        "now",
+        "pacerArgv",
+        "plannerKey"
+      ],
+      "additionalProperties": false
+    },
+    "binary": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "prior": {
+      "$ref": "#/$defs/__schema0"
+    },
+    "priorRange": {
+      "type": "object",
+      "properties": {
+        "handle": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "handle",
+        "bytes"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "agent",
+    "home",
+    "pacerHome",
+    "env",
+    "binary"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "__schema0": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/__schema0"
+          }
+        },
+        {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema0"
+          }
+        }
+      ]
+    }
+  }
+}
+```
+
+Result:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 4096
+      }
+    },
+    "undo": {
+      "type": "string"
+    },
+    "detail": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "files",
+    "undo"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `planner.plan`
+
+Preview planner integration without installation effect authority.
+
+Deadline: 5000 ms.
+
+Params:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "agent": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "home": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "pacerHome": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "env": {
+      "type": "object",
+      "properties": {
+        "now": {
+          "type": "number"
+        },
+        "pacerArgv": {
+          "minItems": 1,
+          "maxItems": 32,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 4096
+          }
+        },
+        "plannerKey": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "mcp": {
+          "type": "boolean"
+        },
+        "folder": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "plannerAccount": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "configEnv": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "connect",
+            "reconcile"
+          ]
+        },
+        "skillFolder": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        }
+      },
+      "required": [
+        "now",
+        "pacerArgv",
+        "plannerKey"
+      ],
+      "additionalProperties": false
+    },
+    "binary": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "prior": {
+      "$ref": "#/$defs/__schema0"
+    },
+    "priorRange": {
+      "type": "object",
+      "properties": {
+        "handle": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "handle",
+        "bytes"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "agent",
+    "home",
+    "pacerHome",
+    "env",
+    "binary"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "__schema0": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/__schema0"
+          }
+        },
+        {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema0"
+          }
+        }
+      ]
+    }
+  }
+}
+```
+
+Result:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "type": "string"
+    },
+    {
+      "type": "number"
+    },
+    {
+      "type": "boolean"
+    },
+    {
+      "type": "null"
+    },
+    {
+      "type": "array",
+      "items": {
+        "$ref": "#"
+      }
+    },
+    {
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "$ref": "#"
+      }
+    }
+  ]
+}
+```
+
+### `planner.detect`
+
+Detect planner installation using host-selected resources.
+
+Deadline: 5000 ms.
+
+Params:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "agent": {
+      "type": "string",
+      "enum": [
+        "claude-code",
+        "codex",
+        "cursor",
+        "opencode"
+      ]
+    },
+    "binary": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "path": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "name",
+            "path"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "probe": {
+      "type": "object",
+      "properties": {
+        "argv": {
+          "minItems": 1,
+          "maxItems": 32,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 4096
+          }
+        },
+        "timeoutMs": {
+          "type": "number",
+          "const": 5000
+        },
+        "cwd": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "env": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "argv",
+        "timeoutMs",
+        "cwd",
+        "env"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "agent"
+  ],
+  "additionalProperties": false
+}
+```
+
+Result:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "type": "string"
+    },
+    {
+      "type": "number"
+    },
+    {
+      "type": "boolean"
+    },
+    {
+      "type": "null"
+    },
+    {
+      "type": "array",
+      "items": {
+        "$ref": "#"
+      }
+    },
+    {
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "$ref": "#"
+      }
+    }
+  ]
+}
+```
+
+### `planner.check`
+
+Check host-selected planner integration data without installation effect authority.
+
+Deadline: 5000 ms.
+
+Params:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "agent": {
+      "type": "string",
+      "maxLength": 64
+    },
+    "files": {
+      "maxItems": 512,
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/__schema0"
+      }
+    }
+  },
+  "required": [
+    "agent",
+    "files"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "__schema0": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/__schema0"
+          }
+        },
+        {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema0"
+          }
+        }
+      ]
+    }
+  }
+}
+```
+
+Result:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "intact": {
+      "type": "boolean"
+    },
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          },
+          "intact": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "path",
+          "intact"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "intact",
+    "files"
+  ],
+  "additionalProperties": false
+}
+```
 
 ### `classifier.adapters`
 
@@ -2428,6 +3749,175 @@ Result:
 
 Answered only when the manifest declares the capability and, for installed plugins, the grant covers it.
 
+### `capability.planner.run`
+
+Run one dynamically admitted command under the trusted host install purpose; captures undo before spawn.
+
+Params:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "argv": {
+      "minItems": 1,
+      "maxItems": 32,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 4096
+      }
+    },
+    "undo": {
+      "minItems": 1,
+      "maxItems": 32,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 4096
+      }
+    },
+    "timeoutMs": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 30000
+    }
+  },
+  "required": [
+    "argv",
+    "timeoutMs"
+  ],
+  "additionalProperties": false
+}
+```
+
+Result:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "stdout": {
+          "type": "string"
+        },
+        "stderr": {
+          "type": "string"
+        },
+        "timedOut": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "code",
+        "stdout",
+        "stderr",
+        "timedOut"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "output": {
+          "type": "object",
+          "properties": {
+            "stdout": {
+              "type": "string"
+            },
+            "stderr": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "stdout",
+            "stderr"
+          ],
+          "additionalProperties": false
+        },
+        "timedOut": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "code",
+        "output",
+        "timedOut"
+      ],
+      "additionalProperties": false
+    }
+  ]
+}
+```
+
+### `capability.planner.readPriorRange`
+
+Read only an owning call's immutable prior-record projection, never a manifest path.
+
+Params:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "handle": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "offset": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "length": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 262144
+    }
+  },
+  "required": [
+    "handle",
+    "offset",
+    "length"
+  ],
+  "additionalProperties": false
+}
+```
+
+Result:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "base64": {
+      "type": "string",
+      "maxLength": 349528
+    }
+  },
+  "required": [
+    "base64"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### `capability.fs.read`
 
 Read an authorized regular telemetry file; large encoded replies use pinned ranged metadata.
@@ -2466,6 +3956,11 @@ Result:
         },
         "mtime": {
           "type": "number"
+        },
+        "mode": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
         }
       },
       "required": [
@@ -2512,6 +4007,11 @@ Result:
               "maximum": 9007199254740991
             },
             "device": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "mode": {
               "type": "integer",
               "minimum": 0,
               "maximum": 9007199254740991
@@ -2606,6 +4106,11 @@ Result:
             "type": "integer",
             "minimum": 0,
             "maximum": 9007199254740991
+          },
+          "mode": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
           }
         },
         "required": [
@@ -2685,6 +4190,11 @@ Result:
               "maximum": 9007199254740991
             },
             "device": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "mode": {
               "type": "integer",
               "minimum": 0,
               "maximum": 9007199254740991
@@ -2768,6 +4278,11 @@ Params:
           "type": "integer",
           "minimum": 0,
           "maximum": 9007199254740991
+        },
+        "mode": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
         }
       },
       "required": [
@@ -2825,6 +4340,11 @@ Result:
               "maximum": 9007199254740991
             },
             "device": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "mode": {
               "type": "integer",
               "minimum": 0,
               "maximum": 9007199254740991

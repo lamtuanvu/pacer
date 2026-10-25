@@ -1,3 +1,4 @@
+import {plannerPreparedResultAllowed} from "./planner-resources";
 import { scheduleDeadline } from "../deadline";
 import { spawn as nodeSpawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { pluginRpcError as rpcError } from "./errors";
@@ -19,7 +20,7 @@ export interface ProcessHooks {
   onExit: (info: { code: number | null; signal: string | null }) => void;
   spawn?: typeof nodeSpawn;
 }
-export interface RequestOptions { authority?: CallAuthority; metadata?: unknown; signal?: AbortSignal; onProgress?: (event: unknown) => void }
+export interface RequestOptions { prepareInput?: (fits:(params:unknown)=>boolean)=>unknown; authority?: CallAuthority; metadata?: unknown; signal?: AbortSignal; onProgress?: (event: unknown) => void }
 type Pending = { authority?: CallAuthority; metadata?: unknown; transferStarted?: boolean; staging?: ResultStaging; dispose: () => void; onProgress?: (event: unknown) => void; method: string; resolve: (v: unknown) => void; reject: (e: CoreError) => void; cancelDeadline?: () => void };
 const KNOWN: ReadonlySet<string> = new Set<CoreErrorCode>(["unknown_op", "unknown_task", "invalid_input", "unknown_executor", "conflict", "not_allowed", "plugin_timeout", "plugin_unavailable", "plugin_refused", "capability_denied", "unknown_plugin", "not_found", "too_large"]);
 
@@ -58,6 +59,8 @@ export class PluginProcess {
     this.chunkedResults = this.features.includes(RESULT_CHUNK_FEATURE);
   }
 
+  supports(feature:string):boolean {return this.features.includes(feature);}
+
   get alive(): boolean { return !this.over && this.child !== undefined; }
 
   private finish(info: { code: number | null; signal: string | null }, reason?: string): void {
@@ -94,6 +97,10 @@ export class PluginProcess {
     this.child.stdin.write(line);
   }
 
+  private canStage(pending:Pending):boolean {
+    return pending.method==="usage.read"||(this.features.includes("plannerInstallTransactions")&&plannerPreparedResultAllowed(pending.authority,pending.method));
+  }
+
   private receive(line: string): void {
     let m: Record<string, unknown>;
     try { const parsed: unknown = JSON.parse(line); if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return; m = parsed as Record<string, unknown>; }
@@ -120,6 +127,9 @@ export class PluginProcess {
       const metadata = callMetadata.safeParse(m._meta), token = metadata.success ? metadata.data?.capabilityCall : undefined;
       const owner = token ? [...this.pending.values()].find(pending => pending.authority?.token === token
         && (pending.metadata as { capabilityCall?: unknown } | undefined)?.capabilityCall === token)?.authority : undefined;
+      if(token&&!owner) {
+        this.send({id,error:rpcError(new CoreError("capability_denied","capability token has no active pending request"))});return;
+      }
       const budget = CAPABILITY_METHODS[m.method]?.deadlineMs ?? 0;
       const deadline = owner ? Math.min(owner.deadlineMs, budget > 0 ? Date.now() + budget : Infinity) : Infinity;
       const method = m.method;
@@ -156,7 +166,7 @@ export class PluginProcess {
       && Object.keys(result).length === 1 && Object.hasOwn(result, "_chunkedResult");
     if (completion || p.transferStarted) {
       const parsed = chunkedResult.safeParse(result);
-      if (!completion || !parsed.success || !this.chunkedResults || !p.staging || !p.authority || p.method !== "usage.read") {
+      if (!completion || !parsed.success || !this.chunkedResults || !p.staging || !p.authority || !this.canStage(p)) {
         this.rejectPending(m.id, p, new CoreError("plugin_refused", "incomplete or unnegotiated chunked result")); return;
       }
       const id = m.id;
@@ -176,7 +186,7 @@ export class PluginProcess {
 
   private async stageResult(params: unknown, metadata: unknown, deliver: (result: { bytes: number }, owner: CallAuthority) => void): Promise<void> {
     const meta = callMetadata.safeParse(metadata), token = meta.success ? meta.data?.capabilityCall : undefined;
-    const owning = token ? [...this.pending.entries()].find(([, pending]) => pending.method === "usage.read"
+    const owning = token ? [...this.pending.entries()].find(([, pending]) => this.canStage(pending)
       && pending.authority?.token === token && (pending.metadata as { capabilityCall?: unknown } | undefined)?.capabilityCall === token) : undefined;
     const parsed = resultChunkParams.safeParse(params);
     if (!parsed.success || !meta.success) {
@@ -185,7 +195,7 @@ export class PluginProcess {
       throw failure;
     }
     const pending = this.pending.get(parsed.data.request), authority = pending?.authority;
-    if (!this.chunkedResults || !pending || pending.method !== "usage.read" || !authority || token !== authority.token
+    if (!this.chunkedResults || !pending || !this.canStage(pending) || !authority || token !== authority.token
       || (pending.metadata as { capabilityCall?: unknown } | undefined)?.capabilityCall !== token) {
       const failure = new CoreError("capability_denied", "result chunk does not belong to an active negotiated request");
       if (owning) this.rejectPending(owning[0], owning[1], failure);
@@ -215,6 +225,11 @@ export class PluginProcess {
     if (!Number.isFinite(deadlineMs) || deadlineMs < 0) return Promise.reject(new CoreError("invalid_input", "request deadline must be non-negative"));
     if (options.signal?.aborted) return Promise.reject(new CoreError("plugin_unavailable", "owning plugin call ended"));
     const id = this.nextId++;
+    const frame=(value:unknown)=>`${JSON.stringify({jsonrpc:"2.0",id,method,params:value,...(options.metadata?{_meta:options.metadata}:{})})}\n`;
+    try {
+      if(options.prepareInput)params=options.prepareInput(value=>Buffer.byteLength(frame(value))<=MAX_LINE_BYTES);
+      if(Buffer.byteLength(frame(params))>MAX_LINE_BYTES)return Promise.reject(new CoreError("too_large","plugin request exceeds complete frame limit"));
+    } catch(error) {return Promise.reject(error);}
     return new Promise<T>((resolve, reject) => {
       const cancel = (code: "plugin_timeout" | "plugin_unavailable", message: string) => {
         const pending = this.pending.get(id); if (!pending) return;

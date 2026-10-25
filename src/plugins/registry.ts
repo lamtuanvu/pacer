@@ -1,3 +1,4 @@
+import type { PlannerResources } from "./planner-resources";
 import { endpointHttpScopes } from "./endpoint-authority";
 import { prepareCredentialBindings, type CredentialBinding } from "./credential-bindings";
 import { BUNDLED } from "../../plugins/bundled";
@@ -28,7 +29,7 @@ import { EXTENSION_METHODS, HELLO_METHOD, PLUGIN_ID, PLUGIN_PROTOCOL_MAJOR, PLUG
 import type { BundledPlugin } from "./types";
 import { currentVersion } from "../update/version";
 
-export interface PluginCallOptions { credentialBindings?: readonly CredentialBinding[]; classifierConfig?: ClassifierConfig; resources?: CallResources; accountHome?: string | null; deadlineMs?: number; signal?: AbortSignal; onProgress?: (event: unknown) => void }
+export interface PluginCallOptions { plannerResources?: PlannerResources; credentialBindings?: readonly CredentialBinding[]; classifierConfig?: ClassifierConfig; resources?: CallResources; accountHome?: string | null; deadlineMs?: number; signal?: AbortSignal; onProgress?: (event: unknown) => void }
 export interface RegistryDeps { bundled: BundledPlugin[]; spawnBundled: (ctx: Ctx, id: string) => SpawnSpec; spawn?: typeof nodeSpawn; sleep?: (ms: number) => Promise<void> }
 export interface PluginInfo { id: string; version: string; publisher: string; tier: "free" | "commercial"; bundled: boolean; enabled: boolean; state: PluginState; contributes: string[]; capabilities: { name: string; scopes?: string[] }[]; grant: PluginGrant | null; error: string | null; pid: number | null }
 export interface DoctorReport { id: string; ok: boolean; state: PluginState; served: string[]; protocol: { host: string; plugin: string | null }; pid: number | null; restarts: number; error: string | null; needs: string | null }
@@ -41,6 +42,7 @@ interface Entry {
   process?: PluginProcess; starting?: Promise<PluginProcess>; queue: SerialCalls;
   authorities: Map<string, CallAuthority>;
   crashes: number[]; nextStartAt: number; stopping: boolean;
+  plannerFingerprint?:string;plannerRetirement?:Promise<void>;plannerGenerationFailure?:unknown;
   generation?: ClassifierGeneration; processGeneration?: ClassifierGeneration;
   generationTail?: Promise<void>; generationFailure?: unknown; retiringGeneration?: boolean;
 }
@@ -145,6 +147,16 @@ export class PluginRegistry {
       seen.add(e.id);
       if (refusal) { void this.stop(e); this.setState(ctx, e, "refused", refusal); return; }
       const m = e.manifest!;
+      if(Object.hasOwn(m.contributes,"planner")) {
+        const fingerprint=JSON.stringify({manifest:m,config:cfg.config[e.id]??{},grant});
+        if(e.plannerFingerprint!==undefined&&e.plannerFingerprint!==fingerprint) {
+          for(const authority of e.authorities.values())void authority.revoke().catch(error=>{e.plannerGenerationFailure=error;});
+          const retirement=e.plannerRetirement?e.plannerRetirement.then(()=>this.stopProcess(e)):this.stopProcess(e);
+          e.plannerRetirement=retirement.catch(error=>{e.plannerGenerationFailure=error;throw error;});
+          void e.plannerRetirement.catch(()=>{});
+        }
+        e.plannerFingerprint=fingerprint;
+      }
       const covered = e.bundled || (grant !== null && m.capabilities.every(c => grant.capabilities.includes(c.name)));
       if (cfg.disabled.includes(e.id)) { void this.stop(e); this.setState(ctx, e, "disabled"); return; }
       if (!covered) { void this.stop(e); this.setState(ctx, e, "needs_grant", `needs a grant for ${m.capabilities.map(c => c.name).join(", ") || "no capabilities"}`); return; }
@@ -217,7 +229,7 @@ export class PluginRegistry {
   }
 
   private spec(ctx: Ctx, e: Entry): SpawnSpec {
-    const env = { PATH: ctx.env.PATH, HOME: ctx.home, PACER_HOME: ctx.pacerHome, PACER_PLUGIN_ID: e.id, PACER_PLUGIN_PROTOCOL: PLUGIN_PROTOCOL_VERSION };
+    const env = { PATH: ctx.env.PATH, HOME: ctx.home, PACER_HOME: ctx.pacerHome, PACER_PLUGIN_ID: e.id, PACER_PLUGIN_PROTOCOL: PLUGIN_PROTOCOL_VERSION, BUN_RUNTIME_TRANSPILER_CACHE_PATH: "" };
     if (e.bundled) {
       const spec = this.deps.spawnBundled(ctx, e.id);
       // Only the trusted launcher may issue a fixed development core selector.
@@ -254,13 +266,13 @@ export class PluginRegistry {
       e.process = proc; e.processGeneration = generation;
       const grants = e.bundled ? manifest.capabilities.map(c => c.name) : (pluginsConfig(ctx).installed[e.id]?.capabilities ?? []);
       try {
-        const raw = await proc.request(HELLO_METHOD, { protocol: PLUGIN_PROTOCOL_VERSION, features: ["chunkedResults", "httpBodyChunks", "fileWriteChunks"], pacer: currentVersion(), manifest, config, grants }, Math.min(HELLO_DEADLINE_MS, Math.max(1, deadlineAt - Date.now())), { signal });
+        const raw = await proc.request(HELLO_METHOD, { protocol: PLUGIN_PROTOCOL_VERSION, features: ["chunkedResults", "httpBodyChunks", "fileWriteChunks", "plannerInstallTransactions"], pacer: currentVersion(), manifest, config, grants }, Math.min(HELLO_DEADLINE_MS, Math.max(1, deadlineAt - Date.now())), { signal });
         const hello = helloResult.safeParse(raw);
         if (!hello.success) throw new CoreError("plugin_refused", `handshake reply is malformed: ${hello.error.issues[0]?.message ?? "unknown"}`);
         const major = Number(hello.data.protocol.split(".")[0]);
         if (major !== PLUGIN_PROTOCOL_MAJOR) throw new CoreError("plugin_refused", `plugin speaks protocol ${hello.data.protocol}; this pacer serves ${PLUGIN_PROTOCOL_VERSION}`);
         if (hello.data.id !== manifest.id || hello.data.version !== manifest.version) throw new CoreError("plugin_refused", `handshake identity ${hello.data.id}@${hello.data.version} does not match the manifest ${manifest.id}@${manifest.version}`);
-        proc.setFeatures(major === 1 && Number(hello.data.protocol.split(".")[1]) >= 1 ? (hello.data.features ?? []).filter(feature => feature === "chunkedResults" || (feature === "httpBodyChunks" && Number(hello.data.protocol.split(".")[1]) >= 2) || (feature === "fileWriteChunks" && Number(hello.data.protocol.split(".")[1]) >= 4)) : []);
+        proc.setFeatures(major === 1 && Number(hello.data.protocol.split(".")[1]) >= 1 ? (hello.data.features ?? []).filter(feature => feature === "chunkedResults" || (feature === "httpBodyChunks" && Number(hello.data.protocol.split(".")[1]) >= 2) || (feature === "fileWriteChunks" && Number(hello.data.protocol.split(".")[1]) >= 4) || (feature === "plannerInstallTransactions" && Number(hello.data.protocol.split(".")[1]) >= 4)) : []);
         e.pluginProtocol = hello.data.protocol;
         e.served = ["diagnostic", ...hello.data.contributes.filter(p => p !== "diagnostic" && Object.hasOwn(manifest.contributes, p))];
         this.setState(ctx, e, "ready");
@@ -314,6 +326,7 @@ export class PluginRegistry {
     const startedAt = Date.now();
     const credentialBindings = options.credentialBindings?.map(({ ref, resolve }) => ({ ref, resolve }));
     const e = this.findEntry(ctx, id);
+    const plannerFingerprint=e.plannerFingerprint;
     const classifier = this.canonicalClassifier(e) ? structuredClone(options.classifierConfig ?? this.classifierConfig(ctx)) : undefined;
     const generation = classifier ? this.classifierGeneration(classifier) : undefined;
     if (generation) this.updateGeneration(ctx, e, generation);
@@ -340,6 +353,9 @@ export class PluginRegistry {
     }
     return this.admission.run(deadlineAt, async signal => {
       const run = async () => {
+        if(e.plannerRetirement)await e.plannerRetirement;
+        if(e.plannerGenerationFailure)throw e.plannerGenerationFailure;
+        if(plannerFingerprint!==e.plannerFingerprint)throw new CoreError("plugin_unavailable","planner configuration generation changed before admission");
         if (signal.aborted || Date.now() >= deadlineAt) throw new CoreError("plugin_timeout", "plugin call expired before execution");
         const proc = generation ? await this.startGeneration(ctx, e, generation, deadlineAt, signal) : await this.start(ctx, e, deadlineAt, signal);
         if (generation && (e.retiringGeneration || e.generation?.fingerprint !== generation.fingerprint || e.process !== proc)) throw new CoreError("plugin_unavailable", "classifier configuration generation changed before request");
@@ -347,13 +363,15 @@ export class PluginRegistry {
         const point = method.split(".")[0]!;
         if (!e.served.includes(point)) throw new CoreError("plugin_unavailable", `plugin ${id} does not serve ${point}`);
         if (signal.aborted || Date.now() >= deadlineAt) throw new CoreError("plugin_timeout", "plugin call expired before request");
-        const needsAuthority = method === "usage.read" || resources !== undefined || credentialBindings !== undefined;
+        if(options.plannerResources&&(method==="planner.install"||method==="planner.uninstall")&&!proc.supports("plannerInstallTransactions"))throw new CoreError("capability_denied","planner effects require negotiated transactions");
+        const needsAuthority = method === "usage.read" || options.plannerResources !== undefined || resources !== undefined || credentialBindings !== undefined;
         const grants = e.bundled ? manifest.capabilities.map(capability => capability.name) : pluginsConfig(ctx).installed[id]?.capabilities ?? [];
         const authority = needsAuthority ? createCallAuthority(ctx, resources ?? { reads: [], commands: [], stores: [] },
           { deadlineMs: deadlineAt, signal, grants, accountHome: options.accountHome }) : undefined;
         if (authority) e.authorities.set(authority.token, authority);
         try {
           if (authority) {
+            options.plannerResources?.bind(authority,method);
             if (credentialBindings !== undefined) prepareCredentialBindings(authority, credentialBindings);
             await prepareFilesystemAuthority(authority);
             if (authority.resources.writes?.length) await prepareWriteAuthority(authority);
@@ -366,7 +384,7 @@ export class PluginRegistry {
             authority.assertActive();
           }
           const result = await proc.request<T>(method, input, deadlineAt === Infinity ? 0 : Math.max(1, deadlineAt - Date.now()),
-            { signal: authority?.signal ?? signal, authority, metadata: authority ? { capabilityCall: authority.token } : undefined, onProgress: options.onProgress });
+            { ...(options.plannerResources && (method==="planner.install"||method==="planner.uninstall"||method==="planner.plan") ? {prepareInput:(fits:(value:unknown)=>boolean)=>options.plannerResources!.prepareInput(input,fits)} : {}), signal: authority?.signal ?? signal, authority, metadata: authority ? { capabilityCall: authority.token } : undefined, onProgress: options.onProgress });
           if (method === "usage.read") {
             const output = def.result.safeParse(result);
             if (!output.success) throw new CoreError("plugin_refused", "usage reader returned an invalid reading");

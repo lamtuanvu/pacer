@@ -1,3 +1,4 @@
+import { plannerBorrow } from "./planner-resources";
 import { answerWrite, checkWriteAuthority } from "./capability-write";
 import { fileWriteTransfers } from "./file-write-transfers";
 import { FILE_WRITE_CHUNK_FEATURE } from "./write-protocol";
@@ -75,6 +76,20 @@ export async function answerCapability(ctx: Ctx, plugin: { id: string; manifest:
       }
     });
   }
+  if (authority && method === "capability.planner.readPriorRange") return scoped(() => {
+    const lease=plannerBorrow(authority);
+    if(!transport?.features.includes("plannerInstallTransactions")||!lease)throw new CoreError("capability_denied","prior record requires trusted install admission");
+    if(!transport.requestFits(parsed.data))throw new CoreError("too_large","prior range exceeds frame limit");
+    return lease.readPrior(authority,parsed.data as Record<string,unknown>);
+  });
+  if (authority && method === "capability.planner.run") return scoped(() => {
+    const lease = plannerBorrow(authority);
+    if (!transport?.features.includes("plannerInstallTransactions") || !lease) throw new CoreError("capability_denied", "planner command requires trusted install admission");
+    if (!transport.requestFits(parsed.data)) throw new CoreError("too_large", "planner command exceeds transport frame");
+    return lease.run(authority, scopes, parsed.data);
+  });
+  if (authority && method === "capability.process.outputChunk" && plannerBorrow(authority)) return scoped(() => plannerBorrow(authority)!.readOutput(authority, parsed.data as Record<string,unknown>));
+  if (authority && name === "fs.read" && plannerBorrow(authority)) return scoped(() => plannerBorrow(authority)!.read(authority,scopes,method,parsed.data as Record<string,unknown>));
   if (authority && name === "fs.read") return scoped(() => answerFilesystem(authority, scopes, method, parsed.data as Record<string, unknown>));
   if (authority && name === "process.spawn") return scoped(() => method === "capability.process.outputChunk"
     ? readSpawnOutput(authority, parsed.data as Record<string, unknown>) : answerSpawn(authority, scopes, parsed.data as Record<string, unknown>));

@@ -53,7 +53,7 @@ export interface AccountEvidence {
 }
 
 /** Host capabilities only: provider readers never access ambient filesystem/process state. */
-export interface FileInfo { path: string; size: number; mtimeMs: number; inode: number; device: number }
+export interface FileInfo { path: string; size: number; mtimeMs: number; inode: number; device: number; mode?: number }
 export interface Cursor<T> { size: number; mtime: number; inode: number; offset: number; aggregate: T; retainedSince?: number }
 export interface Cached<T> { value: T | null; capturedAt: number | null; stale: boolean; error?: string }
 export interface ReaderIO {

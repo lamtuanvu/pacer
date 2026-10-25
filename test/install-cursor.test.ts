@@ -2,12 +2,12 @@ import { expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Status } from "../src/engine/status";
-import { installCursor } from "../src/install/cursor";
+import { installCursor } from "./install-plugin-adapter";
 import { getMember, setMember } from "../src/install/jsonc";
 import { policyText } from "../src/install/policy";
 import { sessionStart } from "../src/install/session";
-import { runInstall } from "../src/install/txn";
-import { uninstallPlanner } from "../src/install/uninstall";
+import { runInstall } from "./install-plugin-adapter";
+import { uninstallPlanner } from "./install-plugin-adapter";
 import { fakeCtx } from "./helpers";
 import { PACER, snapshot } from "./install-helpers";
 

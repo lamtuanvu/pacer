@@ -100,3 +100,6 @@ export async function commitInstall(io: JournalIO, files: readonly PendingFile[]
     throw error;
   }
 }
+
+/** Strict data parser; parsed paths never confer filesystem authority. */
+export function parseInstallJournal(text:string):Journal {return parse(text);}

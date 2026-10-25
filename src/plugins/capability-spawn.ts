@@ -71,6 +71,11 @@ function stateOf(authority: CallAuthority): State {
   authority.assertGranted("process.spawn");
   return states.get(authority) ?? deny("provider executable was not pinned at call issuance");
 }
+/** Private owner cleanup: retiring output never grants or renews process authority. */
+export function discardSpawnOutput(authority: CallAuthority): void {
+  states.get(authority)?.output.clear();
+}
+
 export async function readSpawnOutput(authority: CallAuthority, params: Record<string, unknown>): Promise<{ base64: string }> {
   const state = stateOf(authority), { handle, offset, length } = params;
   if (typeof handle !== "string" || !Number.isSafeInteger(offset) || (offset as number) < 0 || !Number.isSafeInteger(length) || (length as number) < 0 || (length as number) > MAX_CHUNK) invalid("invalid output range");

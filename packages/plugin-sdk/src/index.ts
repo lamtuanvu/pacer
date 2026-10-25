@@ -64,7 +64,11 @@ export async function* stdinLines(stream: AsyncIterable<Buffer | string> = proce
 export async function serve(o: ServeOptions): Promise<void> {
   const write = o.write ?? ((line: string) => { process.stdout.write(line); });
   const now = o.now ?? (() => Date.now() / 1000);
-  const send = (m: Json) => write(`${JSON.stringify({ jsonrpc: "2.0", ...m })}\n`);
+  const send = (m: Json) => {
+    const line = `${JSON.stringify({ jsonrpc: "2.0", ...m })}\n`;
+    if (Buffer.byteLength(line) > 1048576) throw new PluginError("too_large", "plugin complete frame exceeds limit");
+    write(line);
+  };
   const pending = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void; dispose: () => void }>();
   const inflight = new Map<string | number, AbortController>();
   const tasks = new Set<Promise<void>>();
@@ -133,7 +137,8 @@ export async function serve(o: ServeOptions): Promise<void> {
         const features = major === 1 && Number.isInteger(minor)
           ? offered.filter(feature => feature === "chunkedResults" && minor >= 1
             || feature === "httpBodyChunks" && minor >= 2
-            || feature === "fileWriteChunks" && minor >= 4) : [];
+            || feature === "fileWriteChunks" && minor >= 4
+            || feature === "plannerInstallTransactions" && minor >= 4) : [];
         negotiatedFeatures = new Set(features);
         send({ id, result: { protocol: PROTOCOL, id: o.manifest.id, version: o.manifest.version, contributes: o.contributes ?? Object.keys(o.manifest.contributes ?? {}), ...(features.length ? { features } : {}) } });
         return;
@@ -148,7 +153,7 @@ export async function serve(o: ServeOptions): Promise<void> {
         const scoped = r.method === "usage.read" || !!(r._meta && typeof r._meta === "object"
           && typeof (r._meta as Json).capabilityCall === "string");
         if (scoped && controller.signal.aborted) throw new PluginError("plugin_unavailable", "owning plugin call ended");
-        const chunked = r.method === "usage.read" && typeof id === "number" && hello.protocol.startsWith("1.")
+        const chunked = (r.method === "usage.read" || ((r.method === "planner.install" || r.method === "planner.uninstall") && negotiatedFeatures.has("plannerInstallTransactions"))) && typeof id === "number" && hello.protocol.startsWith("1.")
           && Number(hello.protocol.split(".")[1]) >= 1 && Array.isArray(hello.features) && hello.features.includes("chunkedResults");
         const bytes = chunked ? Buffer.from(JSON.stringify(result)) : undefined;
         if (bytes && bytes.length > 768 * 1024) {

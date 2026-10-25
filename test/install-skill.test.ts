@@ -6,7 +6,7 @@ import { uninstallPlanner } from "../src/install/uninstall";
 import { runDoctor } from "../src/install/doctor";
 import { PACER_SKILL } from "../src/install/skill";
 import { readManifest } from "../src/install/manifest";
-import { fakeCtx } from "./helpers";
+import { fakeCtx } from "./install-plugin-fixtures";
 import { PACER, snapshot } from "./install-helpers";
 import { main } from "../src/cli";
 
@@ -42,8 +42,11 @@ for(const [planner,relative,content,marker] of [
 }
 test("claude-code --no-mcp removes MCP through the claude CLI and never edits ~/.claude.json",async()=>{
  const calls:string[][]=[],ctx=fakeCtx({which:()=>"/usr/bin/claude",run:async(argv:string[])=>{calls.push(argv);return {code:0,stdout:"",stderr:""};}}),path=join(ctx.home,".claude.json"),content='{"mcpServers":{"pacer":{"command":"old"}}}';
+ const binary=join(ctx.pacerHome,"fixture-claude"),log=join(ctx.pacerHome,"fixture-calls.jsonl");mkdirSync(ctx.pacerHome,{recursive:true});
+ writeFileSync(binary,`#!${process.execPath}\nrequire('node:fs').appendFileSync(${JSON.stringify(log)},JSON.stringify([${JSON.stringify(binary)},...process.argv.slice(2)])+'\\n');`,{mode:0o700});ctx.which=name=>name==="claude"?binary:null;
  writeFileSync(path,content);await installPlanner({ctx,pacerArgv:PACER,mcp:false},"claude-code");
- expect(calls).toContainEqual(["/usr/bin/claude","mcp","remove","-s","user","pacer"]);expect(calls.some(a=>a.includes("add"))).toBe(false);expect(readFileSync(path,"utf8")).toBe(content);
+ calls.push(...readFileSync(log,"utf8").trim().split("\n").map(line=>JSON.parse(line)));
+ expect(calls).toContainEqual([binary,"mcp","remove","-s","user","pacer"]);expect(calls.some(a=>a.includes("add"))).toBe(false);expect(readFileSync(path,"utf8")).toBe(content);
 });
 test("skill is short, describes CLI fields and executor/worktree rules",()=>{
  expect(PACER_SKILL.split("\n").length).toBeLessThan(80);expect(PACER_SKILL).toStartWith("---\nname: pacer\ndescription:");

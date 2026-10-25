@@ -1,13 +1,6 @@
 import { existsSync } from "node:fs";
-import { installSkill } from "./skill";
-import { readText } from "./fsx";
 import { join } from "node:path";
 import type { Ctx } from "../types";
-import { upsertBlock } from "./blocks";
-import { getMember, removeMember, setMember } from "./jsonc";
-import type { UndoOp } from "./manifest";
-import { policyText } from "./policy";
-import { runInstall, type InstallEnv, type Txn } from "./txn";
 
 export function opencodeDir(ctx: Pick<Ctx, "home" | "env">): string {
   return join(ctx.env.XDG_CONFIG_HOME || join(ctx.home, ".config"), "opencode");
@@ -19,29 +12,3 @@ export function opencodeConfigPath(ctx: Pick<Ctx, "home" | "env">): string {
   return existsSync(jsonc) ? jsonc : join(dir, "opencode.json");
 }
 
-export async function installOpencode(env: InstallEnv) {
-  return runInstall(env, "opencode", installOpencodeFiles);
-}
-
-export function installOpencodeFiles(tx: Txn): void {
-    const env = tx.env;
-    const dir = env.folder ?? opencodeDir(env.ctx);
-    const configPath = existsSync(join(dir, "opencode.jsonc")) ? join(dir, "opencode.jsonc") : join(dir, "opencode.json");
-    tx.edit(join(dir, "AGENTS.md"),
-      old => upsertBlock(old ?? "", policyText("opencode"), "md"),
-      [{ kind: "block", style: "md" }]);
-
-    installSkill(tx,dir);
-    const pacer = { type: "local", command: [...env.pacerArgv, "mcp"], enabled: true };
-    const undo: UndoOp = { kind: "json-member", path: ["mcp", "pacer"] };
-    if(tx.env.mcp===false && readText(configPath)!==null)tx.edit(configPath,old=>removeMember(old!,["mcp","pacer"]),[]);
-  if(tx.env.mcp===true)tx.edit(configPath, old => {
-      if (!old?.trim()) {
-        undo.dropEmpty = ["mcp"];
-        return JSON.stringify({ $schema: "https://opencode.ai/config.json", mcp: { pacer } }, null, 2) + "\n";
-      }
-      if (getMember(old, ["mcp"]) === undefined) undo.dropEmpty = ["mcp"];
-      return setMember(old, ["mcp", "pacer"], pacer);
-    }, [undo]);
-    tx.notes.push("OpenCode guard is policy-only; policy and skill installed; MCP is optional.");
-}

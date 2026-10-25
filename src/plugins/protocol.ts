@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PLANNER_METHODS, PLANNER_CAPABILITY_METHODS, PLANNER_METHOD_CAPABILITY } from "./planner-protocol";
 import { SCOPED_CAPABILITY_METHODS, SCOPED_METHOD_CAPABILITY } from "./capability-protocol";
 import { usageReadParams, usageReading } from "./usage-protocol";
 export { usageReadParams, usageReading, usageAccount, usageWindow, callMetadata, type UsageReadParams } from "./usage-protocol";
@@ -18,7 +19,7 @@ import { isVersion } from "../update/version";
 export const PLUGIN_PROTOCOL_VERSION = "1.4.0";
 export const PLUGIN_PROTOCOL_MAJOR = 1;
 
-export const EXTENSION_POINTS = ["diagnostic", "agentSession", "usage", "classifier", "notifier", "endpoint"] as const;
+export const EXTENSION_POINTS = ["diagnostic", "agentSession", "usage", "classifier", "notifier", "endpoint", "planner"] as const;
 export type ExtensionPoint = (typeof EXTENSION_POINTS)[number];
 
 export const CAPABILITIES = ["tasks.read", "events.subscribe", "process.spawn", "fs.read", "fs.write", "net.http", "secrets.resolve", "config.get", "entitlement.report", "log", "usage.state"] as const;
@@ -43,7 +44,7 @@ export type PluginManifest = z.infer<typeof manifestSchema>;
 export const HELLO_METHOD = "plugin.hello";
 export const CANCEL_METHOD = "$/cancel";
 
-/** Negotiated transport, never a grant: each chunk belongs to an existing usage request. */
+/** Negotiated transport, never a grant: each chunk belongs to an existing usage request or negotiated planner.install request. */
 export const RESULT_CHUNK_METHOD = "$/resultChunk";
 export const RESULT_CHUNK_FEATURE = "chunkedResults";
 export const resultChunkParams = z.object({ request: z.number().int().positive().safe(), offset: z.number().int().nonnegative().safe(),
@@ -71,6 +72,7 @@ export const agentAttachmentResult = z.discriminatedUnion("kind", [z.object({kin
 
 /** Host → plugin. Keys are `<extensionPoint>.<method>`; every plugin serves `diagnostic`. */
 export const EXTENSION_METHODS: Record<string, MethodDef> = {
+  ...PLANNER_METHODS,
   ...CLASSIFIER_METHODS,
   ...NOTIFIER_METHODS,
   ...ENDPOINT_METHODS,
@@ -83,6 +85,7 @@ export const EXTENSION_METHODS: Record<string, MethodDef> = {
 
 /** Plugin → host. Keys are `capability.<name>`; answered only when the manifest declares the capability. */
 export const CAPABILITY_METHODS: Record<string, MethodDef> = {
+  ...PLANNER_CAPABILITY_METHODS,
   ...SCOPED_CAPABILITY_METHODS,
   ...FS_WRITE_METHODS,
   ...HTTP_CAPABILITY_METHODS,
@@ -90,7 +93,7 @@ export const CAPABILITY_METHODS: Record<string, MethodDef> = {
   "capability.config.get": method({ description: "The plugin's own config slice (plugins.config.<id> in the strategy file).", params: z.object({}), result: z.object({ config: z.record(z.string(), z.json()) }), deadlineMs: 1000 }),
 };
 
-export const METHOD_CAPABILITY: Readonly<Record<string, Capability>> = { ...SCOPED_METHOD_CAPABILITY, ...FS_WRITE_METHOD_CAPABILITY, ...HTTP_METHOD_CAPABILITY };
+export const METHOD_CAPABILITY: Readonly<Record<string, Capability>> = { ...PLANNER_METHOD_CAPABILITY, ...SCOPED_METHOD_CAPABILITY, ...FS_WRITE_METHOD_CAPABILITY, ...HTTP_METHOD_CAPABILITY };
 
 export function capabilityOf(method: string): Capability | null {
   if (Object.hasOwn(METHOD_CAPABILITY, method)) return METHOD_CAPABILITY[method]!;
