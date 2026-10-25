@@ -8,6 +8,7 @@ import {
   type AttachmentItem,
 } from "../ds/AttachmentTray";
 import { SectionHeading } from "../ds/SectionHeading";
+import { Section } from "../ds/Page";
 import { agentInfo } from "../../../src/view-model/agents";
 import type { RepoRef } from "../../../src/api/read-model/types";
 import type { SessionPreparation } from "../../../src/session/capabilities";
@@ -347,8 +348,7 @@ export function StartSession() {
         </Button>
       </Disclosure>
       {!!recent.length && (
-        <section>
-          <SectionHeading>Recent work</SectionHeading>
+        <Section title="Recent work">
           <div className="pc-start-recent">
             {recent.map((task) => (
               <ButtonLink
@@ -362,7 +362,7 @@ export function StartSession() {
               </ButtonLink>
             ))}
           </div>
-        </section>
+        </Section>
       )}
     </div>
   );

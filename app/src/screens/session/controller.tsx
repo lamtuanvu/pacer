@@ -18,6 +18,7 @@ import { Session } from "./Session";
 import { onPageScroll, pageScrollY, scrollPageTo } from "../../shell/page-scroll";
 import { takeoverSession, type TakeoverState } from "./takeover";
 import { SessionsList } from "./SessionsList";
+import { Cluster, Page } from "../../ds/Page";
 import { Conversation } from "./Conversation";
 import type { SessionData, Action } from './types';
 export function sessionRow(task:ClientTask):SessionData {
@@ -67,9 +68,11 @@ export function Sessions({query}:{query:RouteQuery}) {
  const recent=[...new Map([...history,...(snapshot?.tasks.filter(t=>!query.repo||t.repo?.key===query.repo)??[])].map(t=>[t.id,t])).values()]
   .filter(t=>!['running','queued'].includes(t.state)).sort((a,b)=>b.updatedAt-a.updatedAt);
  const resource=(data:SessionData[]|undefined)=>({data,loading:!snapshot});
- return <>{snapshot&&<RepoFilter snapshot={snapshot} query={query}/>}<SessionsList runner={runner} running={resource(snapshot?running(snapshot,{repo:query.repo||null}).map(sessionRow):undefined)} recent={{data:recent.map(sessionRow),loading:page.loading&&!history.length,error:page.error?'Could not load task history.':undefined}} query={withQuery('',query)}/>
- {page.data?.next&&<Button busy={page.loading} onClick={()=>setCursor(page.data!.next!)}>Load older tasks</Button>}
- {page.error&&<Button onClick={page.reload}>Try again</Button>}</>;
+ return <Page width="wide" className="pc-page-body">{snapshot&&<RepoFilter snapshot={snapshot} query={query}/>}<SessionsList runner={runner} running={resource(snapshot?running(snapshot,{repo:query.repo||null}).map(sessionRow):undefined)} recent={{data:recent.map(sessionRow),loading:page.loading&&!history.length,error:page.error?'Could not load task history.':undefined}} query={withQuery('',query)}/>
+ {(page.data?.next||page.error)&&<Cluster>
+  {page.data?.next&&<Button busy={page.loading} onClick={()=>setCursor(page.data!.next!)}>Load older tasks</Button>}
+  {page.error&&<Button onClick={page.reload}>Try again</Button>}
+ </Cluster>}</Page>;
 }
 export function sessionDetail(task:TaskDetail):SessionData {
  return {...sessionRow(task),branch:task.branch,machine:task.machine,started:task.startedAt?clock(task.startedAt,Date.now()/1000):undefined,
