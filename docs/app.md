@@ -111,7 +111,13 @@ was recorded, including planner-delegated work after ten minutes.
 
 **Tasks** contains running work and paginated execution history. Open a finished
 run to see its result, checks, changes and delivery information before the
-collapsed executor transcript. Execution status and quality verdict are separate:
+collapsed executor transcript. Selecting any task opens it beside a compact task
+navigator. The main Tasks link, the task header's Tasks link and browser history
+return to the full list; the repository filter and list position are retained.
+Running tasks open to the Session view so the agent workspace gets the main pane.
+Changes, Brief and Result are available in the task's view tabs. Opening a live
+session takes control when nobody else holds it; a control action appears when
+another viewer owns the session. Execution status and quality verdict are separate:
 a run can be Completed with Outcome not recorded. Accepted does not mean merged;
 Pacer shows Integration not recorded unless integration is independently known.
 Existing verdicts do not identify the reviewer, so they are labelled Accepted.

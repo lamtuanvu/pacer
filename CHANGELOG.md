@@ -24,6 +24,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Changed
 
+- Open tasks in a split workspace with a task navigator and a larger session pane. Keep task details compact, make each list row one navigation target, and use the main Tasks route for returning to the list.
 - Add a read-only `ui:ready` preflight for PR evidence and make skipped local evidence checks explicit; centralize the agent readiness procedure in the UI rules.
 
 ## [0.9.0] - 2026-10-23

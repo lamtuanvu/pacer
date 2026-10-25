@@ -55,17 +55,29 @@ test("result heading prefers the short name and keeps the full brief available",
  expect(html).toContain("A very long instruction");
 });
 
-test("both task views retain identity, scoped back navigation and tab-panel associations", async () => {
+test("task workspace keeps route navigation and four task views", async () => {
  const {TaskDetailFrame} = await import("../app/src/screens/TaskResult");
- for (const tab of ["summary", "session"]) {
-  const html = renderToString(<TaskDetailFrame task={{...task,title:"Short task name"}} query={{repo:"acme/api",scope:"mine"}} tab={tab} onTab={()=>{}}><p>Selected content</p></TaskDetailFrame>);
+ for (const tab of ["session", "changes", "brief", "result"]) {
+  const html = renderToString(<TaskDetailFrame task={{...task,title:"Short task name"}} query={{repo:"acme/api",scope:"mine"}} tab={tab} onTab={()=>{}} navigator={<nav aria-label="Task navigator">Tasks</nav>}><p>Selected content</p></TaskDetailFrame>);
   expect(html).toContain('href="#/tasks?repo=acme%2Fapi&amp;scope=mine"');
+  expect(html).toContain('class="pc-task-workspace"');
+  expect(html).toContain('aria-label="Task navigator"');
   expect(html).toContain('role="tablist"');
   expect(html).toContain(`id="task-t-0412-${tab}-tab" role="tab" aria-selected="true"`);
   expect(html).toContain(`role="tabpanel" id="task-t-0412-${tab}-panel" aria-labelledby="task-t-0412-${tab}-tab"`);
   expect(html.match(/>Short task name<\/h2>/g)?.length).toBe(1);
   expect(html).toContain("Selected content");
+  expect(html).not.toContain('>All tasks</a>');
  }
+});
+
+test("dispatched task adds Work to the split workspace views", async () => {
+ const {TaskDetailFrame} = await import("../app/src/screens/TaskResult");
+ const dispatched={...task,work:{} as TaskDetail["work"]};
+ const html=renderToString(<TaskDetailFrame task={dispatched} query={{}} tab="work" onTab={()=>{}}><p>Dispatch history</p></TaskDetailFrame>);
+ expect(html).toContain('id="task-t-0412-work-tab" role="tab" aria-selected="true"');
+ expect(html).toContain('role="tabpanel" id="task-t-0412-work-panel" aria-labelledby="task-t-0412-work-tab"');
+ expect(html).toContain('Dispatch history');
 });
 
 test("active task summaries never claim that execution ended", () => {
