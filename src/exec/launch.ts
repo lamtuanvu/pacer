@@ -10,10 +10,10 @@ import { orcaAccountHome } from "../orca/accounts";
 import { ensureManagedClaudeStatusLine } from "../install/claude-managed-telemetry";
 
 /** Resolve account settings and read endpoint credentials only when launching a child. */
-export async function runnerEnv(ctx: Ctx, runner: RunnerCfg): Promise<Record<string, string>> {
+export async function runnerEnv(ctx: Ctx, runner: RunnerCfg, probe = false): Promise<Record<string, string>> {
   const account = loadStrategy(ctx).accounts[runner.account];
   if (!account) throw new Error(`account not configured: ${runner.account}`);
-  if (account.kind === "claude") {
+  if (account.kind === "claude" && !probe) {
     try { ensureManagedClaudeStatusLine(ctx, account); }
     catch { /* A status-line setup failure must not prevent the executor launch. */ }
   }
@@ -31,6 +31,7 @@ export async function runnerEnv(ctx: Ctx, runner: RunnerCfg): Promise<Record<str
     })};
   }
   if (account.connection) {
+    if (probe) return opencodeEnv;
     const key = await readKey(ctx, account.name, account.connection.key);
     if (account.connection.key !== "none" && !key) throw Error(`Key missing for endpoint ${account.name}`);
     return {...opencodeEnv, OPENCODE_CONFIG: writeOpencodeConfig(ctx), ...(key ? {[endpointKeyEnv(account.name)]: key} : {})};
@@ -43,7 +44,7 @@ export async function runnerEnv(ctx: Ctx, runner: RunnerCfg): Promise<Record<str
 }
 
 /** Bridge backends still accepting the compatibility provider view. */
-export async function providerEnv(ctx: Ctx, cfg: ProviderCfg): Promise<Record<string, string>> {
+export async function providerEnv(ctx: Ctx, cfg: ProviderCfg, options: {probe?: boolean} = {}): Promise<Record<string, string>> {
   let strategy;
   try { strategy = loadStrategy(ctx); } catch (e) {
     if (e instanceof MissingStrategyError && (cfg.via === "opencode" || !parseRunnerId(cfg.id)?.account)) return {};
@@ -51,7 +52,7 @@ export async function providerEnv(ctx: Ctx, cfg: ProviderCfg): Promise<Record<st
   }
   const runner = resolveRunner(strategy, cfg.id);
   if (!runner) throw new Error(`runner not configured: ${cfg.id}`);
-  return runnerEnv(ctx, runner);
+  return runnerEnv(ctx, runner, options.probe);
 }
 
 /** CLI dotted overrides split on every dot, including quoted paths; use a TOML table value. */

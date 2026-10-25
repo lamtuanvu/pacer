@@ -14,6 +14,8 @@ import { createTask, readTask, updateTask } from "../src/tasks/store";
 import { readAuthFailures } from "../src/usage/auth";
 import { readMarks } from "../src/usage/reactive";
 import { fakeCtx, gitRepo, realRun, tmpDir } from "./helpers";
+import { installPlanner } from "../src/install";
+import { PACER } from "./install-helpers";
 
 const strategy = validateStrategy({
   planner: "claude-code",
@@ -71,6 +73,22 @@ test("conversation limit preserves agent identity without fallback", async () =>
   expect(d.calls).toEqual(["codex"]);
   expect(result.state).toBe("limit");
   expect(result.result?.executor).toBe("codex");
+});
+
+test("conversation integration failure includes the repair hint in its task report", async () => {
+  const ctx = fakeCtx({env: {PACER_BIN: PACER[0]}});
+  await installPlanner({ctx, pacerArgv: PACER}, "claude-code");
+  const path = join(ctx.home, ".claude", "settings.json");
+  const settings = JSON.parse(await Bun.file(path).text());
+  settings.hooks.SessionStart[0].hooks[0].timeout = 99;
+  writeFileSync(path, JSON.stringify(settings));
+  const task = newTask(ctx, {requestedExecutor: "claude-code"});
+  updateTask(ctx, task.id, t => {t.interactionMode = "conversation";});
+
+  const result = await runTask(ctx, task.id, deps({"claude-code": outcomeFor("claude-code", 0)}));
+  expect(result.state).toBe("failed");
+  expect(result.result?.report).toContain("Preserve your customizations");
+  expect(result.result?.report).toContain("pacer install claude-code");
 });
 
 test("conversation waits for its unavailable executor instead of switching accounts", async () => {

@@ -23,6 +23,7 @@
     "test": "TZ=Asia/Ho_Chi_Minh bun test --timeout 30000",
     "live": "bun scripts/live/cli.ts",
     "ui:check": "bun scripts/ui-check.ts",
+    "ui:ready": "bun scripts/ui-ready.ts",
     "typecheck": "tsc --noEmit && tsc -p app",
     "build": "bun scripts/build.ts",
     "release": "bun scripts/release/build.ts",

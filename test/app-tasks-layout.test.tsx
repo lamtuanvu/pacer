@@ -1,0 +1,124 @@
+import {expect, test} from 'bun:test';
+import {chromium} from 'playwright-core';
+import {renderToString} from 'preact-render-to-string';
+import {SessionsList} from '../app/src/screens/session/SessionsList';
+import {NarrowContext} from '../app/src/ds/Density';
+import {Page} from '../app/src/ds/Page';
+import {sessionRow} from '../app/src/screens/session/controller';
+import {Sessions} from '../app/src/screens/session/controller';
+import {Layout} from '../app/src/shell/Layout';
+import {TaskContext} from '../app/src/screens/task-shared';
+import {initialState} from '../app/src/data/store';
+import type {StoreState} from '../app/src/data/store';
+import type {BrowserApi} from '../app/src/data/api';
+import type {ClientTask} from '../src/view-model/snapshot';
+
+const task = {id:'ended',title:'Implement ticket SFOS-488…',fullTitle:'Implement ticket SFOS-488 (ZDD-A3) in the infrastructure repository',goal:'Implement ticket',state:'done',executor:'codex',backend:null,worktree:null,updatedAt:Math.floor(Date.now()/1000),repo:{label:'terastor/storfabricos-infra'}} as ClientTask;
+
+test('Tasks retains the complete display title in text, tooltip and destination name',()=>{
+ const html=renderToString(<SessionsList recent={{data:[sessionRow(task)]}}/>);
+ expect(html).toContain(`>${task.fullTitle}</strong>`);
+ expect(html).toContain(`title="${task.fullTitle}"`);
+ expect(html).toContain(`aria-label="View result ${task.fullTitle}"`);
+ expect(sessionRow({...task,fullTitle:undefined}).title).toBe(task.title);
+});
+
+const browserPath=process.env.PACER_TEST_BROWSER;
+test.skipIf(!browserPath)('Tasks route follows Overview full-width gutters and card sections',async()=>{
+ const fixture=(await import('./fixtures/ui/snapshot.json')).default;
+ const state={...initialState(),connected:true,features:{readModel:true,ops:new Set<string>()},snapshot:fixture};
+ const css=(await Promise.all(['app/src/ds/tokens.css','app/src/ds/components.css','app/src/styles.css','app/src/screens/session/session.css'].map(f=>Bun.file(f).text()))).join('\n');
+ const browser=await chromium.launch({executablePath:browserPath!,headless:true});
+ try{
+  const page=await browser.newPage();
+  for(const width of [1990,1440]){
+   await page.setViewportSize({width,height:1000});
+   const html=renderToString(<TaskContext.Provider value={{state:state as unknown as StoreState,api:{} as BrowserApi}}><Layout route={{name:'sessions',query:{repo:null,scope:null}}} state={state as unknown as StoreState} title="Tasks"><Sessions query={{repo:null,scope:null}}/></Layout></TaskContext.Provider>);
+   await page.setContent(`<html data-pacer-desktop data-pacer-native-titlebar><style>${css}</style><div id="app">${html}</div></html>`);
+   const edges=await page.evaluate(()=>{
+    const left=(selector:string)=>document.querySelector(selector)!.getBoundingClientRect().left;
+    return [left('.pc-filter'),left('.pc-sessions-list'),left('.pc-sessions-list > section')];
+   });
+   expect(Math.max(...edges)-Math.min(...edges)).toBeLessThan(1);
+   expect(edges[0]).toBeLessThan(100);
+   expect(await page.locator('.pc-sessions-list > .pc-card-section').count()).toBe(2);
+   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  }
+ }finally{await browser.close();}
+});
+test.skipIf(!browserPath)('Tasks bounds wide rows and keeps titles, metadata and actions inside narrow viewports',async()=>{
+ const longTitle='Implement ticket SFOS-488 (ZDD-A3) across the deployment controller, rollback checks, migration report, and all affected infrastructure integration tests';
+ const longRepo='terastor/storfabricos-infrastructure-deployment-controller-and-validation';
+ const runningTask=sessionRow({...task,id:'running-long',state:'running',fullTitle:longTitle,repo:{...task.repo!,label:longRepo}});
+ const failedTask=sessionRow({...task,id:'failed-long',state:'failed',fullTitle:'Retry budget refresh after a transient provider outage and verify each affected account'});
+ const css=(await Promise.all(['app/src/ds/tokens.css','app/src/ds/components.css','app/src/styles.css','app/src/screens/session/session.css'].map(f=>Bun.file(f).text()))).join('\n');
+ const browser=await chromium.launch({executablePath:browserPath!,headless:true});
+ try{
+  const page=await browser.newPage();
+  for(const width of [1990,1440,375])for(const theme of ['light','dark']){
+   await page.setViewportSize({width,height:1000});
+   await page.setContent(`<html data-theme="${theme}"><style>${css}</style>${renderToString(<NarrowContext.Provider value={width<560}><Page width="full" className="pc-page-body"><SessionsList running={{data:[runningTask]}} recent={{data:[sessionRow(task),failedTask]}}/></Page></NarrowContext.Provider>)}</html>`);
+   if(process.env.PACER_LAYOUT_EVIDENCE)await page.screenshot({path:`${process.env.PACER_LAYOUT_EVIDENCE}/tasks-${width}-${theme}.png`});
+   const geometry=await page.locator('.pc-sessions-list').evaluate(n=>({width:n.getBoundingClientRect().width,overflow:document.documentElement.scrollWidth>innerWidth}));
+   if(width>560)expect(geometry.width).toBeGreaterThan(width-150);
+   expect(geometry.overflow).toBe(false);
+   const boxes=await page.locator('.pc-list-row__content,.pc-list-row__meta,.pc-list-row__actions').evaluateAll(nodes=>nodes.map(n=>({left:n.getBoundingClientRect().left,right:n.getBoundingClientRect().right,width:n.getBoundingClientRect().width})));
+   for(const box of boxes){expect(box.left).toBeGreaterThanOrEqual(0);expect(box.right).toBeLessThanOrEqual(width);expect(box.width).toBeGreaterThan(0);}
+   expect(await page.locator('.pc-sessions-rows .pc-list-row__content strong').first().getAttribute('title')).toBe(longTitle);
+   if(width<1990)expect(await page.locator('.pc-sessions-rows .pc-list-row__content strong').first().evaluate(n=>n.scrollWidth>n.clientWidth)).toBe(true);
+   expect(await page.locator('.pc-sessions-repo').first().getAttribute('title')).toBe(longRepo);
+   if(width>560){
+    const columns=await page.locator('.pc-sessions-rows .pc-list-row').evaluateAll(rows=>rows.map(row=>({
+     meta:row.querySelector('.pc-list-row__meta')!.getBoundingClientRect().left,
+     actions:row.querySelector('.pc-list-row__actions')!.getBoundingClientRect().left,
+     rowHeight:row.getBoundingClientRect().height,
+     contentTop:row.querySelector('.pc-list-row__content')!.getBoundingClientRect().top,
+     metaTop:row.querySelector('.pc-list-row__meta')!.getBoundingClientRect().top,
+     actionsTop:row.querySelector('.pc-list-row__actions')!.getBoundingClientRect().top,
+    })));
+    for(const column of columns.slice(1)){
+     expect(Math.abs(columns[0]!.meta-column.meta)).toBeLessThan(1);
+     expect(Math.abs(columns[0]!.actions-column.actions)).toBeLessThan(1);
+    }
+    for(const column of columns){
+     expect(column.rowHeight).toBeLessThan(70);
+     expect(Math.abs(column.contentTop-column.metaTop)).toBeLessThan(20);
+     expect(Math.abs(column.contentTop-column.actionsTop)).toBeLessThan(20);
+    }
+   }
+  }
+ }finally{await browser.close();}
+});
+
+test.skipIf(!browserPath)('Start work truncates long recent titles with an ellipsis and keeps desktop and phone shells contained',async()=>{
+ const {StartSession}=await import('../app/src/screens/StartSession');
+ const {TaskContext}=await import('../app/src/screens/task-shared');
+ const {initialState}=await import('../app/src/data/store');
+ const {Layout}=await import('../app/src/shell/Layout');
+ const fixture=(await import('./fixtures/ui/snapshot.json')).default;
+ const state={...initialState(),connected:true,features:{readModel:true,ops:new Set<string>(["session.create"])},snapshot:{...fixture,tasks:[{...fixture.tasks[0]!,fullTitle:'Implement ticket SFOS-488: '+ 'Complete the deployment-target implementation and verify all affected infrastructure. '.repeat(12)}]}};
+ const css=(await Promise.all(['app/src/ds/tokens.css','app/src/ds/components.css','app/src/styles.css'].map(f=>Bun.file(f).text()))).join('\n');
+ const browser=await chromium.launch({executablePath:browserPath!,headless:true});
+ try{
+  const page=await browser.newPage();
+  for(const width of [1990,1440,375])for(const theme of ['light','dark']){
+   await page.setViewportSize({width,height:1000});
+   const html=renderToString(<TaskContext.Provider value={{state:state as unknown as StoreState,api:{} as BrowserApi}}><Layout route={{name:'start',query:{repo:null,scope:width<560?'repo:sample':null}}} state={state as unknown as StoreState} title="Start work"><StartSession/></Layout></TaskContext.Provider>);
+   await page.setContent(`<html data-theme="${theme}" data-pacer-desktop data-pacer-native-titlebar><div id="app"><style>${css}</style>${html}</div></html>`);
+   if(process.env.PACER_LAYOUT_EVIDENCE)await page.screenshot({path:`${process.env.PACER_LAYOUT_EVIDENCE}/start-${width}-${theme}.png`});
+   expect(await page.locator('.pc-start-recent .pc-ellipsis').count()).toBe(1);
+   const title=page.locator('.pc-start-recent .pc-ellipsis');
+   expect(await title.getAttribute('title')).toBe(state.snapshot.tasks[0]!.fullTitle);
+   expect(await title.evaluate(n=>({clipped:n.scrollWidth>n.clientWidth,overflow:getComputedStyle(n).textOverflow}))).toEqual({clipped:true,overflow:'ellipsis'});
+   expect(await page.locator('.pc-start__side .pc-card-section__head').count()).toBe(1);
+   const recentGap=await page.locator('.pc-start-recent').evaluate(section=>section.getBoundingClientRect().top-section.previousElementSibling!.getBoundingClientRect().bottom);
+   expect(recentGap).toBe(0);
+   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+   const contentEdge=await page.locator('.pc-start__cols').evaluate(n=>n.getBoundingClientRect().left);
+   expect(contentEdge).toBe(width<560?16:72);
+   if(width>560)expect(await page.locator('.pc-start').evaluate(n=>n.getBoundingClientRect().width)).toBeGreaterThan(width-150);
+   const rail=await page.locator(width<560?'.pc-bottom-bar':'.pc-rail').evaluate(n=>n.getBoundingClientRect().left);
+   expect(rail).toBeGreaterThanOrEqual(0);
+  }
+ }finally{await browser.close();}
+});

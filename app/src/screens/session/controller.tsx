@@ -20,10 +20,11 @@ import { takeoverSession, type TakeoverState } from "./takeover";
 import { SessionsList } from "./SessionsList";
 import {WorkList} from "./WorkList";
 import {Tabs} from "../../ds/Patterns";
+import { Cluster, Page } from "../../ds/Page";
 import { Conversation } from "./Conversation";
 import type { SessionData, Action } from './types';
 export function sessionRow(task:ClientTask):SessionData {
- return {id:task.id,title:task.title ?? task.fullTitle,goal:task.goal,state:task.state,reviewRequest:task.reviewRequest,review:task.review,resolved:task.resolved,dismissed:task.dismissed,retriedBy:task.retriedBy,executor:task.executor,agent:markAgent(task.executor??'unknown'),repo:task.repo?.label??'Repository unknown',machine:task.host,
+ return {id:task.id,title:task.fullTitle ?? task.title,goal:task.goal,state:task.state,reviewRequest:task.reviewRequest,review:task.review,resolved:task.resolved,dismissed:task.dismissed,retriedBy:task.retriedBy,executor:task.executor,agent:markAgent(task.executor??'unknown'),repo:task.repo?.label??'Repository unknown',machine:task.host,
  phase:task.progress?.phase,elapsed:sessionTime(task,Date.now()/1000),
  changesSummary:task.progress?`${task.progress.files} files · ${task.progress.commits} commits`:undefined};
 }
@@ -70,12 +71,14 @@ export function Sessions({query}:{query:RouteQuery}) {
  const recent=[...new Map([...history,...(snapshot?.tasks.filter(t=>!query.repo||t.repo?.key===query.repo)??[])].map(t=>[t.id,t])).values()]
   .filter(t=>!['running','queued'].includes(t.state)).sort((a,b)=>b.updatedAt-a.updatedAt);
  const resource=(data:SessionData[]|undefined)=>({data,loading:!snapshot});
- return <>{snapshot&&<RepoFilter snapshot={snapshot} query={query}/>}<Tabs label="Task list" id="task-list" value={listMode} options={[{value:"all",label:"All tasks"},{value:"work",label:"Dispatched work"}]} onChange={setListMode}/>
+ return <Page width="full" className="pc-page-body">{snapshot&&<RepoFilter snapshot={snapshot} query={query}/>}<Tabs label="Task list" id="task-list" value={listMode} options={[{value:"all",label:"All tasks"},{value:"work",label:"Dispatched work"}]} onChange={setListMode}/>
  <div role="tabpanel" id={`task-list-${listMode}-panel`} aria-labelledby={`task-list-${listMode}-tab`}>
  {listMode==="work"?<WorkList key={query.repo??""} query={query}/>:<><SessionsList runner={runner} running={resource(snapshot?running(snapshot,{repo:query.repo||null}).map(sessionRow):undefined)} recent={{data:recent.map(sessionRow),loading:page.loading&&!history.length,error:page.error?'Could not load task history.':undefined}} query={withQuery('',query)}/>
- {page.data?.next&&<Button busy={page.loading} onClick={()=>setCursor(page.data!.next!)}>Load older tasks</Button>}
- {page.error&&<Button onClick={page.reload}>Try again</Button>}</>}
- </div></>;
+ {(page.data?.next||page.error)&&<Cluster>
+  {page.data?.next&&<Button busy={page.loading} onClick={()=>setCursor(page.data!.next!)}>Load older tasks</Button>}
+  {page.error&&<Button onClick={page.reload}>Try again</Button>}
+ </Cluster>}</>}
+ </div></Page>;
 }
 export function sessionDetail(task:TaskDetail):SessionData {
  return {...sessionRow(task),branch:task.branch,machine:task.machine,started:task.startedAt?clock(task.startedAt,Date.now()/1000):undefined,

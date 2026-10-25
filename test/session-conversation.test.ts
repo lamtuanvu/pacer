@@ -101,7 +101,7 @@ test("idle conversation stays active, occupies a slot and publishes turn activit
 test("conversation launches interactive per task with original request rather than executor contract", async () => {
   const repo = gitRepo(), bin = tmpDir();
   const executable = join(bin, "codex");
-  writeFileSync(executable, '#!/bin/sh\nif [ "$1" = "--version" ]; then echo "codex-cli 0.163.0"; exit; fi\nprintf "%s\\n" "$@"\n');
+  writeFileSync(executable, '#!/bin/sh\nif [ "$1" = "--version" ]; then echo "codex-cli 0.164.0"; exit; fi\nif [ "$1" = "--help" ] || [ "$2" = "--help" ]; then echo "--config --cd --sandbox --add-dir --model --image --dangerously-bypass-hook-trust --no-daemon"; exit; fi\nprintf "%s\\n" "$@"\n');
   chmodSync(executable, 0o700);
   const ctx = fakeCtx({run: realRun, env: {PATH: `${bin}:${process.env.PATH}`}});
   const task = createTask(ctx, {brief: {goal: "Explain this code", repo}, kind: null, requestedExecutor: "codex", timeoutS: 1});
@@ -123,3 +123,37 @@ test("an isolated conversation refuses git failure instead of running in the ori
   expect(result.exec.stderr).toContain("Cannot create an isolated conversation");
   expect(readTask(ctx,task.id)?.run).toBeUndefined();
 });
+
+for (const agent of ["claude-code", "opencode"]) {
+  for (const resumed of [false, true]) {
+    test(`${agent} ${resumed ? "resumes" : "creates"} its persistent native identity`, async () => {
+      const repo = gitRepo(), bin = tmpDir();
+      const executable = join(bin, agent === "claude-code" ? "claude" : "opencode");
+      writeFileSync(executable, `#!/bin/sh
+if [ "$1" = "--version" ]; then echo "2.1.281"; exit; fi
+if [ "$1" = "--help" ] || [ "$2" = "--help" ]; then echo "--session-id --resume --add-dir --model --settings --standalone --session --prompt"; exit; fi
+if [ "$1" = "api" ]; then echo '{"data":{"id":"ses_native"}}'; exit; fi
+printf '%s\\n' "$@"
+`);
+      chmodSync(executable, 0o700);
+      const ctx = fakeCtx({run: realRun, env: {PATH: `${bin}:${process.env.PATH}`}});
+      const task = createTask(ctx, {brief: {goal: "Explain this code", repo}, kind: null, requestedExecutor: agent, timeoutS: 1, interactionMode: "conversation"});
+      const oldId = agent === "claude-code" ? "01a15fa2-5a28-7bb0-9b62-6a4434975b55" : "ses_native";
+      updateTask(ctx, task.id, t => {t.state = "running"; t.placement = {requested: "current"}; if (resumed) t.conversation = {activity: "starting", agentSessionId: oldId};});
+      const strategy = validateStrategy({planner: "claude-code", providers: {[agent]: agent === "opencode" ? {via: "opencode", model: "provider/model", usage: "unmetered"} : {}}}, ctx.home);
+      const result = await runAttempt(ctx, (strategy.providers[agent] ?? strategy.providers["opencode#opencode"]), readTask(ctx, task.id)!);
+      expect(result.exec.stderr).toBe("");
+      expect(result.exec.code).toBe(0);
+      const current = readTask(ctx, task.id)!;
+      expect(current.run?.agentSession?.id).toBeTruthy();
+      expect(current.conversation?.agentSessionId).toBe(current.run?.agentSession?.id);
+      expect(result.exec.stdout).toContain(current.run!.agentSession!.id);
+      if (resumed) {
+        expect(current.run?.agentSession?.id).toBe(oldId);
+        expect(result.exec.stdout).not.toContain("Explain this code");
+      } else expect(result.exec.stdout).toContain("Explain this code");
+      expect(result.exec.stdout).not.toContain("--dangerously-skip-permissions");
+      expect(result.exec.stdout).not.toContain("--auto");
+    });
+  }
+}

@@ -4,6 +4,9 @@ import { listDispatchModels, refreshObservations } from "../dispatch/refresh";
 import { dispatchAnalytics, resetLearning, recordWorkReview } from "../dispatch/learning";
 import { getWork } from "../dispatch/work";
 import { previewInputSchema } from "../dispatch/types";
+import { clientControlOps } from "./ops-client-control";
+import pkg from "../../package.json";
+import { PROTOCOL_VERSION } from "./protocol";
 import { desktopUpdateOps } from "./ops-desktop-update";
 import { captureBroker } from "../desktop/capture-broker";
 import { desktopOps } from "./ops-desktop";
@@ -163,7 +166,27 @@ async function interactiveTerminal(ctx: Ctx, p: z.infer<typeof interactive>, dep
   }, deps.terminal);
 }
 
-export const OPS: Record<string, OpDef> = { ...sessionOps, ...desktopOps,
+export const OPS: Record<string, OpDef> = {
+  ...clientControlOps,
+  "snapshot.get": op({ description: "Read the complete current v3 snapshot, counts, attention and activity, with its event sequence.", params: z.object({}), handler: async ctx => (await import("./events")).liveSnapshot(ctx) }),
+  "api.list": op({
+    description: "Discover operations by optional name prefix and case-insensitive name/description search; parameter schemas are omitted.",
+    params: z.object({ prefix: z.string().max(128).optional(), search: z.string().max(256).optional() }),
+    handler: (_ctx, p) => ({ protocol: PROTOCOL_VERSION, pacer: pkg.version, ...p,
+      ops: opNames().filter(name => (!p.prefix || name.startsWith(p.prefix)) && (!p.search || `${name} ${OPS[name].description}`.toLowerCase().includes(p.search.toLowerCase())))
+        .map(name => ({ name, description: OPS[name].description })),
+    }),
+  }),
+  "api.describe": op({
+    description: "Describe one operation and its JSON parameter schema; semantic validation also runs when called.",
+    params: z.object({ name: z.string().min(1).max(128) }),
+    handler: (_ctx, p) => {
+      if (!Object.hasOwn(OPS, p.name)) throw new CoreError("unknown_op", "Unknown operation", "Use api.list to discover supported operation names.");
+      return { protocol: PROTOCOL_VERSION, pacer: pkg.version, name: p.name,
+        description: OPS[p.name].description, params: z.toJSONSchema(OPS[p.name].params) };
+    },
+  }),
+ ...sessionOps, ...desktopOps,
   ...desktopUpdateOps,
   "project.strategy.list": op({
     description: "List repository executor overrides, including policies for absent checkouts.", params: z.object({}),

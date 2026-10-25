@@ -216,3 +216,21 @@ test("successful same-scope execution supersedes its older auth sidecar without 
   await recordExecutionEvidence(ctx, scope, {endedAt: ctx.now, exitCode: 0, timedOut: false, classification: "success"});
   expect((await computeStatus(ctx, strategy)).executors.ranked.some(e => e.id === scope.runner)).toBe(true);
 });
+
+test("interactive planner recovers its own authentication evidence after a newer login", async () => {
+  const {ctx,work}=setup();
+  const path=join(ctx.pacerHome,"strategy.yaml"), config=await Bun.file(path).json();
+  config.planner="claude-code#work";config.accounts.work.usage="reactive";
+  writeFileSync(path,JSON.stringify(config));
+  const strategy=loadStrategy(ctx);
+  const {recordExecutionEvidence}=await import("../src/core/evidence");
+  const scope={...accountEvidenceScope(strategy.accounts.work!,strategy.hosts),runner:"claude-code#work",model:"default",host:"local"};
+  const failedAt=ctx.now;
+  utimesSync(join(work,".claude.json"),failedAt-600,failedAt-600);
+  await recordExecutionEvidence(ctx,scope,{endedAt:failedAt,exitCode:1,timedOut:false,classification:"authentication"});
+  expect((await computeStatus(ctx,strategy,{includePlannerSignIn:true})).providers.find(p=>p.id===scope.runner)?.eligibility?.state).toBe("ineligible");
+  utimesSync(join(work,".claude.json"),failedAt+60,failedAt+60);ctx.now=failedAt+61;
+  const planner=(await computeStatus(ctx,strategy,{includePlannerSignIn:true})).providers.find(p=>p.id===scope.runner)!;
+  expect(planner.signedOutReason).toBeUndefined();
+  expect(planner.eligibility?.state).toBe("eligible");
+});

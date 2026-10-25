@@ -41,7 +41,7 @@ test("manifest files report JSON and schema problems by text", () => {
 });
 
 test("method tables include observation and decision adapters without new host capabilities", () => {
-  expect(Object.keys(EXTENSION_METHODS).sort()).toEqual(["agentSession.attachment", "agentSession.capabilities", "agentSession.prepare", "decision.decide", "diagnostic.ping", "observation.observe"]);
+  expect(Object.keys(EXTENSION_METHODS).sort()).toEqual(["agentSession.attachment", "agentSession.capabilities", "agentSession.identity", "agentSession.prepare", "decision.decide", "diagnostic.ping", "observation.observe"]);
   expect(EXTENSION_METHODS["diagnostic.ping"].deadlineMs).toBe(5000);
   expect(Object.keys(CAPABILITY_METHODS).sort()).toEqual(["capability.config.get", "capability.log"]);
   expect(capabilityOf("capability.config.get")).toBe("config.get");

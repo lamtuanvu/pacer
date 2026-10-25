@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { apiCommand } from "./commands/api";
 import { compiledNativeFixture, compiledNativeFixtureSha256 } from "./update/desktop/native-fixture";
 import { compiledAppleTeamId, compiledSignerPins, compiledSigningCertSha1 } from "./update/desktop/native-os";
 import { signerKind } from "./update/desktop/signer-requirement";
@@ -89,7 +90,8 @@ const USAGE = `usage: pacer <command>
   host list [--json] | check <alias> [--repo <path>] [--json] | setup <alias> [--repo <path>] | clean <alias> [--json]
   limits check [--json]                          where each account's usage comes from, its age and freshness
   mcp                                            run the MCP server on stdio
-  api --stdio                                    client protocol v2 on stdio (JSON-RPC)
+  api list|describe <op>|call <op> [--json]       discover and invoke protocol v3 operations
+  api --stdio                                    JSON-RPC (v2 default, v3 negotiation)
   serve [--port <n>] [--internal]                local HTTP status endpoint (default ${DEFAULT_PORT})
   use <strategy>                                 switch to ~/.pacer/strategies/<strategy>.yaml ("default" = strategy.yaml)
   account list [--json] | add <kind> <name> [options] | rm <name> [--delete-home]
@@ -490,7 +492,8 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
       await runMcpStdio(() => fresh(ctx));
       return { code: 0, out: "", err: "", keepAlive: true };
     case "api": {
-      if (rest.length !== 1 || rest[0] !== "--stdio") return { code: 2, out: "", err: "usage: pacer api --stdio" };
+      if (rest[0] !== "--stdio") return apiCommand(rest, ctx);
+      if (rest.length !== 1) return { code: 2, out: "", err: "usage: pacer api --stdio" };
       async function* lines() {
         const decoder = new StringDecoder("utf8");
         let remainder = "";

@@ -29,6 +29,7 @@ pacer paces AI coding work across subscription budgets. A planner plans and revi
 | `scripts/` | Release, protocol-doc, e2e, QA, brand and design-system sync scripts |
 | `test/` | Flat `bun:test` suite (`<area>-<topic>.test.ts`), `fixtures/`, `__snapshots__/`; `test/setup.ts` isolates `HOME`/`PACER_HOME` |
 | `crates/foundation` | `pacer-foundation`: ctx, file rules, lock, `CoreError`, op registry types |
+| `crates/client-control-protocol` | `pacer-client-control-protocol`: generated agent discovery and connected-page control types, split under CRATE-3 |
 | `crates/session-protocol` | `pacer-session-protocol`: generated interactive-session operation types, split from the client schema under CRATE-3 |
 | `crates/cli` | `pacer-cli`: argv dispatch, core exec, status line, self-repair |
 | `crates/pacer` | `pacer`: the binary, start-up and dispatch only |
@@ -72,6 +73,7 @@ These come from the configuration listed in Source. None were run while this ind
 | Typecheck | `bun run typecheck` (`tsc --noEmit && tsc -p app`) | package.json |
 | Test | `bun run test` (pins `TZ=Asia/Ho_Chi_Minh`; plain `bun test` gives unreliable date results) | package.json, CONTRIBUTING.md |
 | UI policy and PR evidence | `bun run ui:check` | scripts/ui-check.ts; ci.yml |
+| Local PR evidence preflight | `bun run ui:ready --pr <number> --ready` (or `--event <path>`) | [UI readiness procedure](rules/ui.md#ui-review-readiness-procedure); scripts/ui-ready.ts |
 | Build binary | `bun run build` | package.json |
 | Rebuild generated assets | `bun run app:build`, `bun run protocol:doc` | package.json, CONTRIBUTING.md |
 | Plugin protocol docs | `bun run plugin:protocol` | package.json |

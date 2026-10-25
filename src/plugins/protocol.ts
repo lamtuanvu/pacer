@@ -41,11 +41,11 @@ export type HelloResult = z.infer<typeof helloResult>;
 export interface MethodDef<P extends z.ZodTypeAny = z.ZodTypeAny, R extends z.ZodTypeAny = z.ZodTypeAny> { description: string; params: P; result: R; deadlineMs: number }
 const method = <P extends z.ZodTypeAny, R extends z.ZodTypeAny>(d: MethodDef<P, R>) => d as unknown as MethodDef;
 
-const agentVersion = z.object({agent: z.string().min(1).max(64), version: z.string().min(1).max(128)});
+const agentVersion = z.object({agent: z.string().min(1).max(64), version: z.string().min(1).max(128), help: z.string().max(100_000).optional(), resumeHelp: z.string().max(100_000).optional(), apiHelp: z.string().max(100_000).optional()});
 const attachmentRef = z.object({id: z.string().min(1).max(128), name: z.string().max(255), mime: z.string().max(128), size: z.number().int().nonnegative(), path: z.string().min(1).max(4096)});
 export const agentCapabilitiesResult = z.object({interactive: z.boolean(), resume: z.boolean(), launchImages: z.boolean(), liveImages: z.boolean(), files: z.boolean(), reason: z.string().optional()});
-export const agentPrepareParams = agentVersion.extend({request: z.string().max(200_000), workspace: z.string().min(1), runDir: z.string().min(1), attachmentDir: z.string().min(1).optional(), attachments: z.array(attachmentRef).max(20), permissionPolicy: z.literal("native"), model: z.string().optional(), sessionId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/).optional()});
-export const agentLaunchResult = z.object({argv: z.array(z.string()).min(1), cwd: z.string().min(1), stdin: z.string().optional()});
+export const agentPrepareParams = agentVersion.extend({request: z.string().max(200_000), workspace: z.string().min(1), runDir: z.string().min(1), attachmentDir: z.string().min(1).optional(), attachments: z.array(attachmentRef).max(20), permissionPolicy: z.literal("native"), model: z.string().optional(), sessionId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/).optional(), newSessionId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/).optional()});
+export const agentLaunchResult = z.object({argv: z.array(z.string()).min(1), cwd: z.string().min(1), stdin: z.string().optional(), reporting: z.object({source: z.string().max(100_000), configEnv: z.enum(["OPENCODE_CONFIG_CONTENT"]), configKey: z.enum(["plugins"])}).optional()});
 export const agentAttachmentParams = agentVersion.extend({workspace: z.string().min(1), attachment: attachmentRef, phase: z.enum(["launch", "live"])});
 export const agentAttachmentResult = z.discriminatedUnion("kind", [z.object({kind: z.literal("native"), args: z.array(z.string())}), z.object({kind: z.literal("reference"), text: z.string(), requiresUserSubmit: z.literal(true)}), z.object({kind: z.literal("unsupported"), reason: z.string()})]);
 
@@ -53,6 +53,10 @@ export const agentAttachmentResult = z.discriminatedUnion("kind", [z.object({kin
 export const EXTENSION_METHODS: Record<string, MethodDef> = {
   "observation.observe": method({description:"Return normalized, scoped observations without credentials or raw provider payloads.",params:z.object({scope:observationScopeSchema,method:observationMethodSchema}),result:z.array(observationSchema).max(64),deadlineMs:5000}),
   "decision.decide": method({description:"Recommend ordered candidate IDs; the host validates and controls admission.",params:decisionRequestSchema,result:proposalSchema,deadlineMs:5000}),
+  "agentSession.identity": method({description: "Plan native conversation identity allocation or explicit recovery without spawning.",
+    params: agentVersion.extend({taskId: z.string().min(1).max(128), sessionId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/).optional(), model: z.string().optional()}),
+    result: z.discriminatedUnion("kind", [z.object({kind: z.literal("none")}), z.object({kind: z.literal("assigned"), id: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/)}),
+      z.object({kind: z.literal("command"), argv: z.array(z.string()).min(1), idPath: z.array(z.string()).min(1).max(8)})]), deadlineMs: 5000}),
   "agentSession.capabilities": method({description: "Interactive agent capabilities for an installed version.", params: agentVersion, result: agentCapabilitiesResult, deadlineMs: 5000}),
   "agentSession.prepare": method({description: "Prepare an interactive argument vector without credentials or spawning.", params: agentPrepareParams, result: agentLaunchResult, deadlineMs: 5000}),
   "agentSession.attachment": method({description: "Prepare native attachment arguments or an explicit reference without submitting input.", params: agentAttachmentParams, result: agentAttachmentResult, deadlineMs: 5000}),

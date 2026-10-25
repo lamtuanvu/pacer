@@ -14,6 +14,8 @@ When changing `app/`, also run `bun run app:build` and include its generated ass
 
 Regenerate client protocol docs with `bun run protocol:doc` and plugin protocol docs with `bun run plugin:protocol`.
 
+For UI-affecting changes, follow the [UI review readiness procedure](.project/rules/ui.md#ui-review-readiness-procedure). `bun run ui:ready --pr <number> --ready` checks current PR evidence metadata using the same validator as CI; `ui:check` alone checks source when no GitHub event is supplied.
+
 ## Rust
 
 The Rust host is built with the Cargo workspace in this repository. Install [rustup](https://rustup.rs) and let it apply the toolchain that `rust-toolchain.toml` pins (1.99.0):

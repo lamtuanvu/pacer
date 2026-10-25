@@ -1,6 +1,6 @@
 # pacer Constitution
 
-Status: Amendment 0.13.0 (scoped work delegation) proposed; amendment 0.12.0 (spacing ownership) proposed; amendment 0.11.0 (affected-area CI selection) proposed; amendment 0.10.0 (portable skills and mandatory project review) proposed; amendment 0.9.0 (compact UI density) proposed; amendment 0.8.0 (plugin system: P13–P15) proposed; amendment 0.7.0 (Rust crate structure and size rules) proposed; amendment 0.6.0 (automated releases) proposed; established rules remain in force. The maintainer adopts the amendment by merging its PR. Amendment 0.5.0 was adopted on 2026-10-20 by merging #209; amendment 0.4.0 on 2026-10-19 by merging #193. | Version: 0.13.0 | Updated: 2026-10-25
+Status: Amendment 0.14.0 (scoped work delegation) proposed; amendment 0.13.0 (UI readiness procedure and preflight) proposed; amendment 0.12.0 (spacing ownership) proposed; amendment 0.11.0 (affected-area CI selection) proposed; amendment 0.10.0 (portable skills and mandatory project review) proposed; amendment 0.9.0 (compact UI density) proposed; amendment 0.8.0 (plugin system: P13–P15) proposed; amendment 0.7.0 (Rust crate structure and size rules) proposed; amendment 0.6.0 (automated releases) proposed; established rules remain in force. The maintainer adopts the amendment by merging its PR. Amendment 0.5.0 was adopted on 2026-10-20 by merging #209; amendment 0.4.0 on 2026-10-19 by merging #193. | Version: 0.14.0 | Updated: 2026-10-26
 Decision authority: the single maintainer, @lamtuanvu ([GOVERNANCE.md](../GOVERNANCE.md), [.github/CODEOWNERS](../.github/CODEOWNERS)). AI reviewers give advice; they do not approve.
 
 ## Purpose and scope
@@ -134,7 +134,22 @@ Full-history secret scanning and complete release validation remain unchanged.
 Scheduled/manual CodeQL remains full; Rust build timings move to affected main
 pushes. No branch protection setting or local CT-11 completion rule is relaxed.
 
-## Amendment 0.13.0 — scoped work delegation
+## Amendment 0.13.0 — UI readiness procedure and preflight
+
+Proposed for adoption by maintainer merge; authorized for the current task on
+2026-10-24. The canonical UI-24 readiness procedure lives in
+[rules/ui.md](rules/ui.md#ui-review-readiness-procedure). Governance/review skills
+and the PR template link to it; AGENTS.md stays a lean entry point.
+
+Agents preflight prepared/current PR metadata using the shared CI validator,
+keep incomplete evidence in drafts, refresh actual reports after revision changes,
+and confirm current-head readiness CI before completion. Local source-only
+success is not evidence validation. The CLI is read-only and never rewrites
+report SHAs or verdicts. Existing report, screenshot, live-validation and scoped
+exception requirements remain; no CI or branch protection gate is relaxed.
+Stale 0.4.0 proposal labels are corrected to its recorded adoption by #193.
+
+## Amendment 0.14.0 — scoped work delegation
 
 Proposed for adoption by maintainer merge; implementation for the current dispatcher task was explicitly authorized on 2026-10-25. API-5 permits an executor to create and manage child work only through a service-issued grant bound to its running task and attempt. The service derives parent identity and enforces subtree, repository, capability, depth, concurrency and lifetime constraints. A grant never authorizes global operations, self-review or free-form shell execution. Executor sessions without a valid grant remain unable to delegate. This amendment changes no other authentication or protocol compatibility rule.
 

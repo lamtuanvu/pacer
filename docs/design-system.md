@@ -25,7 +25,7 @@ Compact is the desktop default, including dialogs outside the shell. `DensityPro
 | `Disclosure` | `summary`, native details attributes and children | Technical routing, cost, log, acceptance and CLI details. Native summary retains keyboard and expanded behavior; full code remains selectable. |
 | `Dialog`, `PopoverDialog`, `useDialogs` | `Dialog`: `title`, `close`, content; shared confirmation/prompt orchestration. `PopoverDialog`: stable `id`, `title`, `close`, content. | Native modal dialogs own Escape cancellation, Tab cycling and focus return. The compact popover variant anchors above the status bar, focuses its first enabled button, and closes on backdrop click. Dialog/Field styles are DS-owned and available to tray. Use an explicit visible submit label, and preserve whitespace validation on required rejection notes. |
 | `TextRow` | `label`, `value`, optional `meta` | Settings check progress uses label/value/meta alignment and tabular figures. Values wrap without hiding labels; this is presentation, not a form or semantic table replacement. |
-| `ListRow` | `leading`, `content`, `meta`, `actions`, native div attributes, optional density | Overview attention/running/done/activity, Sessions list and tray attention. Slots are siblings. Row-level focus/data attributes remain on the outer row. Keep full titles in title/detail while clipping through CSS. Secondary actions belong in actions, outside any destination link. |
+| `ListRow` | `leading`, `content`, `meta`, `actions`, native div attributes, optional density and `layout="aligned"` | Overview attention/running/done/activity, Tasks list and tray attention. Slots are siblings. The aligned variant gives desktop rows stable metadata and action columns above 1100px; below that it keeps the normal wrapping row. Row-level focus/data attributes remain on the outer row. Keep full titles in title/detail while clipping through CSS. Secondary actions belong in actions, outside any destination link. |
 | `ListRowLink` | Native anchor attributes and children | Capacity and tray running rows with a single destination. Never put another control inside it. Session replay uses the DS `pc-row-destination`/`pc-list-row--stretch` contract to expand a single link target without nesting controls. |
 | `SelectableRow`, `ChoiceCard`, `FilterChip` | Button props plus optional `selected`; existing aria-pressed/current supported | Review queue/files, Add Executor choices and repo filters. Selection stays controlled by the caller. Choices use buttons and pressed state, not invented tab semantics. |
 | `CountBadge` | Numeric `count`, optional accessible unit `label` (defaults to work items) | Repository filter chips and finder rows. Neutral filled badge with tabular figures; selected chips inherit the chip contrast pair. Counts remain non-interactive and separate from status pills. |
@@ -189,8 +189,16 @@ and `Tabs` in a sticky navigation region. Both tabs retain the short task name,
 metadata and status. The full goal remains available in Brief. Tabs retain their
 roving focus, Left/Right/Home/End navigation and labelled tab panels. Active tasks
 initially select Session; completed tasks initially select Summary. Changing views
-does not change task identity or the scoped Tasks destination. The task list
+does not change task identity or the scoped Tasks destination. The task list uses
+the same full-width `Page` gutters and bordered sections as Overview. Its controller prefers the complete `fullTitle`, with the
+compatibility `title` as a fallback; `pc-ellipsis` clips only when the row runs out
+of space, and tooltips and action names retain the full display text. The list
 remembers its scroll offset for each repository/scope during the app session.
+Start work recent links put their complete display title in a `pc-ellipsis` child
+with a full-title tooltip; clipping belongs to that text block, since ellipsis on
+the flex link itself cannot truncate its anonymous text item. Start work uses the
+full-width page frame with a main composer and a Recent work side panel; they
+stack when the viewport is 1,000px or narrower.
 No upstream component or license provenance changed.
 
 ### Spacing ownership and rhythm

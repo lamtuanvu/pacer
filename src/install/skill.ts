@@ -3,7 +3,7 @@ import type { Txn } from "./txn";
 
 export const PACER_SKILL = `---
 name: pacer
-description: Route and delegate work by subscription budget, answer budget and pace questions, and wait on or review delegated tasks.
+description: Control Pacer through discoverable CLI operations, inspect subscription budgets, and route, delegate, observe and review work.
 ---
 
 # pacer
@@ -27,6 +27,20 @@ For a failed or incomplete child, use \`pacer dispatch retry --id CHILD_ID --req
 
 Use \`pacer stop <id> --json\` to cancel and \`pacer dismiss <id...>\` to hide settled cards.
 If an executor hits a provider limit, run \`pacer report-limit <provider>\` so routing skips it.
+
+## Other product actions
+
+Discover only what you need: \`pacer api list --prefix runner. --json\` (or \`--search settings\`).
+Inspect one input schema: \`pacer api describe runner.settings.save --json\`.
+Invoke: \`pacer api call <op> --params-file - --json\`, piping a JSON object; omit params for {}.
+Success is {result}; errors are {error:{code,message,hint?}} on stderr with a nonzero exit.
+Use \`expect_rev\` from a fresh read when offered; on conflict re-read before deciding.
+Supply \`consent\` only for user-authorized actions. Never replay an uncertain mutation blindly.
+Use \`strategy.preview\` before saving; show ranking changes and save/switch only as requested.
+Use \`pacer session io <id> --control --json\` for NDJSON terminal input/output; take control first.
+Use \`pacer attachment\` for files and \`pacer api list --prefix client.control --json\` for client controls.
+Pending jobs/client requests need status checks; pending is not success. Native actions need a connected desktop.
+Use \`pacer help\` for stream/file commands. Do not read private task files, credentials or logs.
 
 ## Brief fields
 

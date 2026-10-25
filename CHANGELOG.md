@@ -9,10 +9,22 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - Managed work dispatch through CLI, API and MCP: any supported executor can request a child task, and Pacer selects an eligible executor, account and model using configurable strategy steps, capability tiers, live capacity and usage evidence. Decisions, reservations, lineage, dependencies, scoped grants and independent reviews are recorded for inspection.
 - Replaceable decision engines and observation adapters, with bounded provider refresh and reviewed-outcome learning. The Tasks UI and TUI show dispatched work, its tree, timeline, model evidence and review actions. Ordinary interactive sessions and legacy delegation retain their existing routes.
 - Managed work can retry or answer in the same task and worktree with revision checks, stable request IDs, cumulative attempt limits and prior review evidence. Work views distinguish execution, dependency, capacity and child waiting, and group shared account usage without counting overlapping parent and child readings twice.
+- Discoverable v3 CLI operations through `pacer api list`, `describe` and `call`, with filtered metadata, JSON schemas and bounded JSON file/stdin input. The Pacer skill teaches on-demand discovery for product controls.
+- Scriptable authenticated session I/O, attachment upload/list/download/removal, and targeted acknowledged page/native controls for appearance, navigation, windows and tray actions.
 
 ### Fixed
 
+- Reopening a running Pacer task from the Tasks list now takes control of an unheld live terminal, including interactive conversations, while preserving explicit takeover when another viewer holds it.
+- Keep legacy connected Claude settings usable after unrelated settings edits when pacer's hooks are intact; show the recorded failure reason on a failed interactive session.
+- Honor protocol v3 for in-process clients and retain executor role restrictions when generic CLI calls use a planner-owned service. Explicit service selection never retries refused calls locally.
+- Complete native interactive adapters for Claude Code, Codex and OpenCode: detect CLI capabilities instead of pinning an exact version, retain native conversation identity for resume, honor named accounts and OpenCode models, and report native session activity. Explicit conversations can select the planner account while retaining execution guardrails.
+- Align Tasks and Start work with Overview's full-width page gutters and bordered sections. Keep task metadata and actions in stable desktop columns, show complete titles when space permits, and retain full-title tooltips when long titles clip.
+
 - Remove compounded spacing in app sections, cards, settings and embedded page headers; keep task disclosures evenly spaced and compact while preserving touch targets. Add shared spacing ownership checks and browser geometry regressions.
+
+### Changed
+
+- Add a read-only `ui:ready` preflight for PR evidence and make skipped local evidence checks explicit; centralize the agent readiness procedure in the UI rules.
 
 ## [0.9.0] - 2026-10-23
 
@@ -21,7 +33,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - Retry desktop update coordination and status delivery after transient failures, restore controls only after fresh native verification, and keep verified completed or restored updates terminal when cleanup needs another attempt.
 - Automatically refresh previously connected agent hooks, policies and skills at service startup and before new local agent launches, including named accounts. Preserve customizations with actionable conflicts, and report freshness separately in doctor.
 
-- Select the ArkCLI quota reader for OpenCode's `coding-plan` provider during setup and recover existing Ark Coding Plan quota accounts that have no usage source configured.
+- Select the ArkCLI quota reader for OpenCode’s `coding-plan` provider during setup and recover existing Ark Coding Plan quota accounts that have no usage source configured.
 
 - Use one keyboard-accessible, searchable dropdown style across Start work, delegation, Settings and retry/review, with aligned Start work fields and a styled native attachment trigger. Missing repository/workspace choices now block starting a session.
 
