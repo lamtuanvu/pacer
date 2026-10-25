@@ -87,6 +87,28 @@ export async function exerciseIntegrations(session: Session): Promise<void> {
     writeFileSync(skill, desired);
     check((await cli("integrations", "refresh", "--json")).code === 0, "retry after conflict resolution failed");
     record(session, { kind: "note", behavior: "Retry after resolving customization", surface: "CLI/service", verdict: "PASS", text: "Restoring desired managed content allowed the next reconciliation to succeed without reconnecting other accounts." });
+
+    check((await cli("install", "claude-code")).code === 0, "Claude fixture connect failed");
+    const claudeSettings = join(home, ".claude", "settings.json");
+    const legacy = JSON.parse(readFileSync(manifestPath, "utf8"));
+    const claudeFile = legacy.planners["claude-code"].files.find((file: { path: string }) => file.path === claudeSettings);
+    check(claudeFile, "Claude settings ownership missing");
+    delete claudeFile.managed;
+    writeFileSync(manifestPath, JSON.stringify(legacy));
+    const customized = JSON.parse(readFileSync(claudeSettings, "utf8"));
+    customized.theme = "fixture-dark";
+    writeFileSync(claudeSettings, JSON.stringify(customized));
+    check((await cli("integrations", "refresh", "--json")).code === 0, "legacy Claude unrelated setting caused a conflict");
+    check(JSON.parse(readFileSync(claudeSettings, "utf8")).theme === "fixture-dark", "legacy Claude unrelated setting lost");
+    const ownedStatusLine = JSON.parse(readFileSync(manifestPath, "utf8"));
+    delete ownedStatusLine.planners["claude-code"].files.find((file: { path: string }) => file.path === claudeSettings).managed;
+    writeFileSync(manifestPath, JSON.stringify(ownedStatusLine));
+    customized.statusLine.command = "custom-status";
+    writeFileSync(claudeSettings, JSON.stringify(customized));
+    const statusLineConflict = await cli("integrations", "refresh", "--json");
+    check(statusLineConflict.code === 1 && JSON.parse(statusLineConflict.stdout).some((row: { target: string; state: string }) => row.target === "claude-code" && row.state === "conflict"), "legacy Claude status-line edit was not protected");
+    check(JSON.parse(readFileSync(claudeSettings, "utf8")).statusLine.command === "custom-status", "legacy Claude status-line edit overwritten");
+    record(session, { kind: "note", behavior: "Legacy Claude settings migration", surface: "CLI", verdict: "PASS", text: "Private CLI fixture accepted unrelated Claude settings changes and recorded managed ownership; a later edited pacer-owned status line remained untouched and reported conflict." });
   } catch (error) {
     record(session, { kind: "note", behavior: "Integration fixture", surface: "CLI/service", verdict: "FAIL", text: (error as Error).message }); throw error;
   }

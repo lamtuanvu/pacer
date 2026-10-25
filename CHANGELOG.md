@@ -11,6 +11,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Keep legacy connected Claude settings usable after unrelated settings edits when pacer's hooks are intact; show the recorded failure reason on a failed interactive session.
 - Honor protocol v3 for in-process clients and retain executor role restrictions when generic CLI calls use a planner-owned service. Explicit service selection never retries refused calls locally.
 - Complete native interactive adapters for Claude Code, Codex and OpenCode: detect CLI capabilities instead of pinning an exact version, retain native conversation identity for resume, honor named accounts and OpenCode models, and report native session activity. Explicit conversations can select the planner account while retaining execution guardrails.
 - Bound the Tasks list to the shared wide page layout and use complete task titles so wide windows no longer spread rows across the screen or retain character-truncated titles. Give long Start work recent titles a visible ellipsis and full-title tooltip.

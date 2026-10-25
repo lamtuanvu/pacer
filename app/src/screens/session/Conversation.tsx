@@ -6,6 +6,8 @@ import { agentInfo } from "../../../../src/view-model/agents";
 import { Button, ButtonLink } from "../../ds/Button";
 import { Tabs } from "../../ds/Patterns";
 import { StatusPill } from "../../ds/StatusPill";
+import { Alert } from "../../ds/Alert";
+import { DisclosurePanel } from "../../ds/Page";
 import { SectionHeading } from "../../ds/SectionHeading";
 import { LazyTerminal } from "../../term/LazyTerminal";
 import { useAttachments } from "../../model/attachments";
@@ -134,6 +136,8 @@ export function Conversation({
   const label = executor
     ? `${agentInfo(executor.agent).name} · ${executor.account}`
     : (task.executor ?? "Executor");
+  const repairTarget = task.executor && task.summary?.includes(`Integration ${task.executor} is not ready`)
+    ? task.executor : null;
   return (
     <article className="pc-conversation" aria-label="Interactive conversation">
       <ConversationHeader
@@ -164,6 +168,16 @@ export function Conversation({
           </Button>
         )}
       </div>
+      {task.state === "failed" && task.summary && (
+        <Alert tone="error" title="Session failed">
+          {repairTarget ? (
+            <p>The agent integration needs repair. Preserve your customizations, then reconnect it with <code>pacer install {repairTarget}</code>.</p>
+          ) : <p>The agent stopped. Open technical details for the recorded error.</p>}
+          <DisclosurePanel summary="Technical details">
+            <code className="pc-conversation-detail">{task.summary}</code>
+          </DisclosurePanel>
+        </Alert>
+      )}
       <Tabs
         id="conversation"
         label="Conversation views"
@@ -208,7 +222,9 @@ export function Conversation({
               ? "Your session is queued. The terminal opens when your executor is ready."
               : active
                 ? "Starting the agent terminal…"
-                : "The agent process ended. Your output and changes are retained."}
+                : task.state === "failed"
+                  ? "No agent terminal is available for this failed session."
+                  : "The agent process ended. Your output and changes are retained."}
           </div>
         )}
       </div>

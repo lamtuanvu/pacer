@@ -63,7 +63,8 @@ loaded; start a new session to use refreshed instructions. Remote agent settings
 are not changed.
 
 Successful refreshes are silent. Pacer preserves unrelated settings and optional
-MCP choices. If you customized a managed file or hook, or a recorded account moved,
+MCP choices. Older install records are upgraded when their managed hooks are intact,
+even if unrelated settings changed. If you customized a managed file or hook, or a recorded account moved,
 pacer preserves it and reports a conflict in doctor/Diagnostics. The affected new
 launch receives a repair hint; other accounts can continue. Resolve the conflict
 or review and reconnect the intended account, for example `pacer install codex#work`.

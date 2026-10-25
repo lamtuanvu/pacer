@@ -57,6 +57,50 @@ test("unrelated shared settings survive refresh and changed owned hooks conflict
   expect(JSON.parse(readFileSync(hooks, "utf8")).hooks.SessionStart[0].hooks[0].timeout).toBe(99);
 });
 
+test("legacy Claude install accepts unrelated settings edits when owned hooks are intact", async () => {
+  const { ctx, root } = await connected("claude-code");
+  const path = join(root, "settings.json");
+  const manifest = readManifest(ctx);
+  const file = manifest.planners["claude-code"].files.find(item => item.path === path)!;
+  delete file.managed;
+  writeManifest(ctx, manifest);
+  const settings = JSON.parse(readFileSync(path, "utf8"));
+  settings.theme = "dark";
+  writeFileSync(path, JSON.stringify(settings));
+
+  expect((await reconcileIntegrations(ctx, { target: "claude-code" }))[0].state).toBe("refreshed");
+  expect(JSON.parse(readFileSync(path, "utf8")).theme).toBe("dark");
+  expect(readManifest(ctx).planners["claude-code"].files.find(item => item.path === path)?.managed).toBeDefined();
+});
+
+test("legacy Claude install still rejects edits to a pacer-owned hook", async () => {
+  const { ctx, root } = await connected("claude-code");
+  const path = join(root, "settings.json");
+  const manifest = readManifest(ctx);
+  delete manifest.planners["claude-code"].files.find(item => item.path === path)!.managed;
+  writeManifest(ctx, manifest);
+  const settings = JSON.parse(readFileSync(path, "utf8"));
+  settings.hooks.SessionStart[0].hooks[0].timeout = 99;
+  writeFileSync(path, JSON.stringify(settings));
+
+  expect((await reconcileIntegrations(ctx, { target: "claude-code" }))[0].state).toBe("conflict");
+  expect(JSON.parse(readFileSync(path, "utf8")).hooks.SessionStart[0].hooks[0].timeout).toBe(99);
+});
+
+test("legacy Claude install rejects a changed pacer-owned status line", async () => {
+  const { ctx, root } = await connected("claude-code");
+  const path = join(root, "settings.json");
+  const manifest = readManifest(ctx);
+  delete manifest.planners["claude-code"].files.find(item => item.path === path)!.managed;
+  writeManifest(ctx, manifest);
+  const settings = JSON.parse(readFileSync(path, "utf8"));
+  settings.statusLine.command = "my-custom-status";
+  writeFileSync(path, JSON.stringify(settings));
+
+  expect((await reconcileIntegrations(ctx, { target: "claude-code" }))[0].state).toBe("conflict");
+  expect(JSON.parse(readFileSync(path, "utf8")).statusLine.command).toBe("my-custom-status");
+});
+
 test("missing owned files are recreated and malformed configuration is preserved", async () => {
   const { ctx, root, skill } = await connected();
   rmSync(skill);
