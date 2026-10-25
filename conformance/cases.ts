@@ -119,10 +119,11 @@ export const CASES: ConformanceCase[] = [
     t.install("serial"); t.install("reentrant");
     const h = await t.host();
     for (const id of ["fx-serial", "fx-reentrant"]) { await h.call("plugin.enable", { id, grant: true }); await doctor(h, id); }
-    const time = async (id: string) => { const t0 = Date.now(); await Promise.all([doctor(h, id), doctor(h, id)]); return Date.now() - t0; };
-    const serial = await time("fx-serial"), reentrant = await time("fx-reentrant");
-    assert(serial >= 600, `two pings to a non-reentrant plugin run in order (took ${serial} ms)`);
-    assert(reentrant < 550, `two pings to a reentrant plugin overlap (took ${reentrant} ms)`);
+    const pair = (id: string) => Promise.all([doctor(h, id), doctor(h, id)]);
+    await pair("fx-serial"); await pair("fx-reentrant");
+    const log = (id: string) => readFileSync(join(t.home, ".pacer", "logs", "plugins", `${id}.log`), "utf8");
+    assert(!log("fx-serial").includes("active pings 2"), "non-reentrant pings run one at a time");
+    assert(await eventually(() => log("fx-reentrant").includes("active pings 2")), "reentrant pings overlap");
   } },
   { name: "logs: stderr lands in the plugin log file, never on stdout", async run(t) {
     t.install("good");

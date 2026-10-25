@@ -130,10 +130,16 @@ test("calls serialise unless the manifest is reentrant", async () => {
   installFixture("serial", join(ctx.pacerHome, "plugins")); installFixture("reentrant", join(ctx.pacerHome, "plugins"));
   const r = registry();
   await r.enable(ctx, "fx-serial", true); await r.enable(ctx, "fx-reentrant", true);
-  // Measure call overlap independently of subprocess startup time.
+  // Observe handler overlap instead of elapsed time, which varies under CI load.
   await r.doctor(live(ctx));
-  const time = async (id: string) => { const t0 = Date.now(); await Promise.all([r.call(live(ctx), id, "diagnostic.ping", {}), r.call(live(ctx), id, "diagnostic.ping", {})]); return Date.now() - t0; };
-  expect(await time("fx-serial")).toBeGreaterThanOrEqual(600);
-  expect(await time("fx-reentrant")).toBeLessThan(550);
+  const peak = async (id: string) => {
+    const calls = await Promise.all([
+      r.call<{ peakConcurrentPings: number }>(live(ctx), id, "diagnostic.ping", {}),
+      r.call<{ peakConcurrentPings: number }>(live(ctx), id, "diagnostic.ping", {}),
+    ]);
+    return Math.max(...calls.map(call => call.peakConcurrentPings));
+  };
+  expect(await peak("fx-serial")).toBe(1);
+  expect(await peak("fx-reentrant")).toBe(2);
   await r.shutdown();
 }, 20000);
