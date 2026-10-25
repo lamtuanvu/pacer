@@ -36,6 +36,7 @@ function WorkNode({node,nodes,onChanged}:{node:Node;nodes:Node[];onChanged:()=>v
   {retryAvailable&&<div className="pc-work-retry"><Field label={canAnswer?node.question!.text:"Retry feedback (optional)"}><TextArea rows={3} value={response} maxLength={2000} onInput={event=>setResponse(event.currentTarget.value)}/></Field><Button size="sm" busy={action.busy} disabled={canAnswer&&!response.trim()} onClick={()=>void action.run(canAnswer?"dispatch.answer":"dispatch.retry",{id:node.taskId,expect_rev:node.rev,requestId:workActionRequestId(node.taskId,node.rev,canAnswer?"answer":"retry"),...(canAnswer?{text:response.trim()}:{feedback:response.trim()})},onChanged)}>{canAnswer?"Answer and resume":"Retry work"}</Button></div>}
   {retryContext&&!retryAvailable&&node.retryEligibility?.reason&&<p className="muted">Retry unavailable: {node.retryEligibility.reason}</p>}
   {canStop&&<Button size="sm" variant="quiet" busy={action.busy} onClick={()=>void action.run("dispatch.stop",{id:node.taskId,expect_rev:node.rev},onChanged)}>Stop work</Button>}
+  {action.message&&<p role="status">{action.message}</p>}
   {action.error&&<p role="alert">{String(action.error)}</p>}</div>}
  {children.length>0&&<ol role="list" aria-label={`Children of ${node.title}`} className="pc-work-tree">{children.map(child=><WorkNode key={child.taskId} node={child} nodes={nodes} onChanged={onChanged}/>)}</ol>}
  </li>;
