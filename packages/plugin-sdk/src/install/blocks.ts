@@ -7,7 +7,9 @@ const MARKS = {
 
 export function blockText(body: string, style: BlockStyle): string {
   const [open, close] = MARKS[style];
-  return `${open}\n${body.replace(/\n+$/, "")}\n${close}\n`;
+  let end = body.length;
+  while (end > 0 && body.charCodeAt(end - 1) === 10) end--;
+  return `${open}\n${body.slice(0, end)}\n${close}\n`;
 }
 
 function findBlock(text: string, style: BlockStyle): { start: number; end: number } | null {

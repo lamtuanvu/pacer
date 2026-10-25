@@ -53,3 +53,36 @@ for (const [style, open, close] of [
     }
   });
 }
+
+test("blockText preserves LF-only trimming semantics across bounded mixed-line-ending bodies", () => {
+  const alphabet = ["\n", "\r", "x", "界", "\u2028", "\ud800"];
+  let bodies = [""];
+  for (let length = 0; length <= 4; length++) {
+    for (const body of bodies) {
+      const parts = body.split("\n");
+      while (parts.at(-1) === "") parts.pop();
+      const trimmed = parts.join("\n");
+      expect(blockText(body, "md")).toBe(`<!-- >>> pacer >>> -->\n${trimmed}\n<!-- <<< pacer <<< -->\n`);
+      expect(blockText(body, "hash")).toBe(`# >>> pacer >>>\n${trimmed}\n# <<< pacer <<<\n`);
+    }
+    bodies = bodies.flatMap(body => alphabet.map(character => body + character));
+  }
+});
+
+test("blockText handles a long non-trailing LF run within a bounded child execution", async () => {
+  const module = new URL("../packages/plugin-sdk/src/install/blocks.ts", import.meta.url).href;
+  const source = `import {blockText} from ${JSON.stringify(module)};
+    const body='\\n'.repeat(262144)+'x';
+    for(const [style,open,close] of [['md','<!-- >>> pacer >>> -->','<!-- <<< pacer <<< -->'],['hash','# >>> pacer >>>','# <<< pacer <<<']]) {
+      if(blockText(body,style)!==open+'\\n'+body+'\\n'+close+'\\n')throw Error('body changed');
+    }
+    process.stdout.write('complete');`;
+  const child = Bun.spawn([process.execPath, "--eval", source], {
+    stdout: "pipe", stderr: "pipe", timeout: 2000,
+  });
+  const [code, stdout, stderr] = await Promise.all([
+    child.exited, new Response(child.stdout).text(), new Response(child.stderr).text(),
+  ]);
+  expect({code, stderr}).toEqual({code: 0, stderr: ""});
+  expect(stdout).toBe("complete");
+});
