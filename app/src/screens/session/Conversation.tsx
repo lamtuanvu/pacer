@@ -1,19 +1,14 @@
 import { useEffect, useState } from "preact/hooks";
 import type { TaskDetail } from "../../../../src/core/task-detail";
 import type { SessionInfo } from "../../../../src/session/service";
-import { taskStatus } from "../../../../src/view-model/words";
-import { agentInfo } from "../../../../src/view-model/agents";
-import { Button, ButtonLink } from "../../ds/Button";
-import { Tabs } from "../../ds/Patterns";
-import { StatusPill } from "../../ds/StatusPill";
+import { Button } from "../../ds/Button";
 import { Alert } from "../../ds/Alert";
 import { DisclosurePanel } from "../../ds/Page";
-import { SectionHeading } from "../../ds/SectionHeading";
-import { LazyTerminal } from "../../term/LazyTerminal";
 import { useAttachments } from "../../model/attachments";
 import { changeConversation } from "../../model/conversation";
 import { ErrorMessage, useQuery, useTaskContext } from "../task-shared";
 import { SessionAttachments } from "./Attachments";
+import { SessionView } from "./SessionView";
 
 export function TerminalOpenFallback({ command }: { command: string }) {
   return (
@@ -24,63 +19,70 @@ export function TerminalOpenFallback({ command }: { command: string }) {
   );
 }
 
-export function ConversationHeader({
-  title,
-  repo,
-  branch,
-  executor,
+/** Conversation actions. The task workspace header already shows title, executor and status. */
+export function ConversationActions({
   active,
   busy,
+  canOpen,
+  canResume,
+  filesOpen,
+  onFiles,
+  onOpen,
+  onResume,
   onEnd,
 }: {
-  title: string;
-  repo: string;
-  branch: string | null;
-  executor: string;
   active: boolean;
   busy: boolean;
+  canOpen: boolean;
+  canResume: boolean;
+  filesOpen: boolean;
+  onFiles?: () => void;
+  onOpen: () => void;
+  onResume: () => void;
   onEnd: () => void;
 }) {
   return (
-    <header className="pc-conversation-header">
-      <div className="pc-conversation-heading">
-        <strong title={title}>{title}</strong>
-        <span className="muted">
-          {repo} · {executor}
-        </span>
-        {branch && (
-          <code className="pc-code-scroll" tabIndex={0}>
-            {branch}
-          </code>
-        )}
-      </div>
-      <ButtonLink href="#/">New session</ButtonLink>
+    <div className="pc-conversation-actions" role="group" aria-label="Session actions">
+      {onFiles && (
+        <Button size="sm" variant="quiet" aria-expanded={filesOpen} aria-controls="conversation-files" onClick={onFiles}>
+          Files
+        </Button>
+      )}
+      {canOpen && (
+        <Button size="sm" onClick={onOpen}>
+          Open in terminal
+        </Button>
+      )}
+      {canResume && (
+        <Button size="sm" disabled={busy} onClick={onResume}>
+          Resume conversation
+        </Button>
+      )}
       {active && (
-        <Button disabled={busy} onClick={onEnd}>
+        <Button size="sm" variant="danger" disabled={busy} onClick={onEnd}>
           {busy ? "Ending…" : "End session"}
         </Button>
       )}
-    </header>
+    </div>
   );
 }
 export function Conversation({
   task,
   session,
-  diff,
   onReload,
 }: {
   task: TaskDetail;
   session?: SessionInfo;
-  diff?: { diff: string; untracked: string[] };
   onReload: () => void;
 }) {
-  const { api, state } = useTaskContext(),
+  const { api } = useTaskContext(),
     context = useQuery<{
       draftId: string;
       attachments: unknown[];
       rev: number;
     }>("session.context", { id: task.id });
-  const [tab, setTab] = useState("terminal"),
+  const [footer, setFooter] = useState<HTMLElement | null>(null),
+    [filesOpen, setFilesOpen] = useState(false),
     [busy, setBusy] = useState(false),
     [error, setError] = useState<unknown>(),
     [notice, setNotice] = useState("");
@@ -138,139 +140,73 @@ export function Conversation({
       setError(e);
     }
   };
-  const executor = state.snapshot?.executors?.find(
-    (e) => e.id === task.executor,
-  );
-  const label = executor
-    ? `${agentInfo(executor.agent).name} · ${executor.account}`
-    : (task.executor ?? "Executor");
   const repairTarget = task.executor && task.summary?.includes(`Integration ${task.executor} is not ready`)
     ? task.executor : null;
+  const draftId = context.data?.draftId;
   return (
     <article className="pc-conversation" aria-label="Interactive conversation">
-      <ConversationHeader
-        title={task.fullTitle ?? task.goal}
-        repo={task.repo.label}
-        branch={task.branch}
-        executor={label}
+      <ConversationActions
         active={active}
         busy={busy}
+        canOpen={!!session?.targets.includes("terminal")}
+        canResume={!active && !!task.conversation?.agentSessionId}
+        filesOpen={filesOpen}
+        onFiles={draftId ? () => setFilesOpen((open) => !open) : undefined}
+        onOpen={() => void open()}
+        onResume={() => void resume()}
         onEnd={() => void end()}
       />
-      <div className="pc-conversation-toolbar">
-        <StatusPill status={taskStatus(task)} />
+      <div className="pc-conversation-body">
+        {task.state === "failed" && task.summary && (
+          <Alert tone="error" title="Session failed">
+            {repairTarget ? (
+              <p>The agent integration needs repair. Preserve your customizations, then reconnect it with <code>pacer install {repairTarget}</code>.</p>
+            ) : /ENOSPC|no space left on device/i.test(task.summary) ? (
+              <p>Free space on this machine, then resume if available or start a new session. Your recorded output and workspace are retained.</p>
+            ) : <p>The agent stopped. Open technical details for the recorded error.</p>}
+            <DisclosurePanel summary="Technical details">
+              <code className="pc-conversation-detail">{task.summary}</code>
+            </DisclosurePanel>
+          </Alert>
+        )}
         {task.queue && (
-          <span className="muted">
+          <p className="pc-session-notice muted">
             {task.queue.detail ?? "Waiting for an available execution slot."}
-          </span>
+          </p>
         )}
-        <span className="grow" />
-        {session?.targets.includes("terminal") && (
-          <Button size="sm" onClick={() => void open()}>
-            Open in terminal
-          </Button>
-        )}
-        {!active && task.conversation?.agentSessionId && (
-          <Button size="sm" disabled={busy} onClick={() => void resume()}>
-            Resume conversation
-          </Button>
-        )}
-      </div>
-      {task.state === "failed" && task.summary && (
-        <Alert tone="error" title="Session failed">
-          {repairTarget ? (
-            <p>The agent integration needs repair. Preserve your customizations, then reconnect it with <code>pacer install {repairTarget}</code>.</p>
-          ) : /ENOSPC|no space left on device/i.test(task.summary) ? (
-            <p>Free space on this machine, then resume if available or start a new session. Your recorded output and workspace are retained.</p>
-          ) : <p>The agent stopped. Open technical details for the recorded error.</p>}
-          <DisclosurePanel summary="Technical details">
-            <code className="pc-conversation-detail">{task.summary}</code>
-          </DisclosurePanel>
-        </Alert>
-      )}
-      <Tabs
-        id="conversation"
-        label="Conversation views"
-        value={tab}
-        onChange={setTab}
-        options={[
-          { value: "terminal", label: "Terminal" },
-          { value: "changes", label: "Changes" },
-          { value: "request", label: "Request & files" },
-        ]}
-      />
-      <ErrorMessage error={error ?? context.error} />
-      {notice && <TerminalOpenFallback command={notice} />}
-      <div
-        id="conversation-terminal-panel"
-        role="tabpanel"
-        aria-labelledby="conversation-terminal-tab"
-        hidden={tab !== "terminal"}
-        className="pc-conversation-terminal"
-      >
-        {session?.host === "builtin" ? (
-          <LazyTerminal
-            id={task.id}
-            url={session.attach.ws}
-            cols={session.cols}
-            rows={session.rows}
-            control={active && session.capabilities.control}
-            resize={active && session.capabilities.resize}
-            live={active && session.live}
-            controller={session.controller}
-            takeRequested={take && session.live}
-            onTakeSent={() => setTake(false)}
-            conversation
-            onFiles={(files) => {
-              uploads.uploadFiles(files);
-              setTab("request");
-            }}
-          />
-        ) : (
-          <div className="pc-session-empty" role="status">
-            {task.state === "queued"
-              ? "Your session is queued. The terminal opens when your executor is ready."
-              : active
-                ? "Starting the agent terminal…"
-                : task.state === "failed"
-                  ? "No agent terminal is available for this failed session."
-                  : "The agent process ended. Your output and changes are retained."}
-          </div>
-        )}
-      </div>
-      {tab === "changes" && (
-        <section
-          id="conversation-changes-panel"
-          role="tabpanel"
-          aria-labelledby="conversation-changes-tab"
-        >
-          <SectionHeading>Workspace changes</SectionHeading>
-          <pre className="pc-code-scroll" tabIndex={0}>
-            {diff ? diff.diff || "No tracked changes." : "Loading changes…"}
-            {diff?.untracked.length
-              ? `\nUntracked files:\n${diff.untracked.join("\n")}`
-              : ""}
-          </pre>
-        </section>
-      )}
-      {tab === "request" && (
-        <section
-          id="conversation-request-panel"
-          role="tabpanel"
-          aria-labelledby="conversation-request-tab"
-        >
-          <SectionHeading>Original request</SectionHeading>
-          <p className="pc-conversation-request">{task.brief.goal}</p>
-          {context.data?.draftId && (
+        <ErrorMessage error={error ?? context.error} />
+        {notice && <TerminalOpenFallback command={notice} />}
+        {draftId && (
+          <div id="conversation-files" className="pc-conversation-files" hidden={!filesOpen}>
             <SessionAttachments
               id={task.id}
-              draftId={context.data.draftId}
+              draftId={draftId}
               active={active}
               uploads={uploads}
             />
-          )}
-        </section>
-      )}
+          </div>
+        )}
+        <div className="pc-conversation-session">
+          <SessionView
+            task={task}
+            session={session}
+            active={active}
+            footer={footer}
+            takeRequested={take}
+            onTakeSent={() => setTake(false)}
+            onFiles={(files) => {
+              uploads.uploadFiles(files);
+              setFilesOpen(true);
+            }}
+          />
+        </div>
+      </div>
+      <footer
+        ref={setFooter}
+        className="pc-conversation-footer"
+        role="group"
+        aria-label="Session control"
+      />
     </article>
   );
 }
