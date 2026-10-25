@@ -5,5 +5,5 @@
   "type": "module",
   "description": "pacer plugin runtime: serve extension points over stdio JSON-RPC and call host capabilities.",
   "license": "Apache-2.0",
-  "exports": { ".": "./src/index.ts" }
+  "exports": { ".": "./src/index.ts", "./install": "./src/install.ts" }
 }

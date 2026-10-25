@@ -177,3 +177,14 @@ Injected credential reflection is refused before stdout/stderr is returned.
 Legacy commands without an issued context retain their existing environment
 behavior. Bun's reserved `__proto__` environment entry is unsupported; endpoint
 credential variable names use the `PACER_KEY_` prefix.
+
+### Pure installation helpers
+
+Import `@pacer/plugin/install` for managed text blocks, comment-preserving JSONC
+edits, hook editing and compatible undo records. These helpers do not read or
+write files. The host's existing uninstall path can consume their undo format.
+
+`backupPath(path, now, occupied)` requires an explicit predicate describing
+occupied backup names. It preserves collision suffixes and local-time naming;
+it does not reserve a path or establish permission to write it. Installation
+transactions, locking and recovery remain separate from these pure helpers.

@@ -6,6 +6,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
+- Expose pure planner integration editing and undo helpers through `@pacer/plugin/install`, including JSONC-preserving edits, managed blocks and hook records.
+
 - Record private, bounded OTA request-stage diagnostics in live validation evidence, preserving fixture authorization and HTTP behavior.
 
 ### Changed
