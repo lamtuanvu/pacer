@@ -20,23 +20,43 @@ class Reader {
     return this.buffer[this.position] ?? "";
   }
   async take(): Promise<string> { const c = await this.peek(); this.position++; return c; }
-  async whitespace() { while (/[ \t\r\n]/.test(await this.peek()) && await this.peek() !== "") await this.take(); }
+  async whitespace() {
+    while (true) {
+      await this.peek();
+      while (this.position < this.buffer.length) {
+        const code = this.buffer.charCodeAt(this.position);
+        if (code !== 32 && code !== 9 && code !== 13 && code !== 10) return;
+        this.position++;
+      }
+      if (this.eof) return;
+    }
+  }
   async expect(c: string) { await this.whitespace(); if (await this.take() !== c) throw new Error("invalid state JSON"); }
   async value(): Promise<unknown> {
     await this.whitespace();
-    const chunks: string[] = []; let part = "", depth = 0, quoted = false, escaped = false;
-    while (true) {
-      const c = await this.peek();
-      if (!c || (!quoted && depth === 0 && (c === "," || c === "}" || c === "]"))) break;
-      await this.take(); part += c;
-      if (part.length >= 262144) { chunks.push(part); part = ""; }
-      if (quoted) { if (escaped) escaped = false; else if (c === "\\") escaped = true; else if (c === '"') quoted = false; }
-      else if (c === '"') quoted = true;
-      else if (c === "{" || c === "[") depth++;
-      else if (c === "}" || c === "]") depth--;
-      if (!quoted && depth === 0 && (c === '"' || c === "}" || c === "]")) break;
+    const chunks: string[] = [];
+    let depth = 0, quoted = false, escaped = false, complete = false;
+    while (await this.peek()) {
+      this.check();
+      const start = this.position;
+      // Scan one decoded input chunk synchronously. Awaiting once per character
+      // makes a large compatible cursor entry spend its deadline on promises.
+      while (this.position < this.buffer.length) {
+        const c = this.buffer[this.position]!;
+        if (!quoted && depth === 0 && (c === "," || c === "}" || c === "]")) {
+          complete = true; break;
+        }
+        this.position++;
+        if (quoted) { if (escaped) escaped = false; else if (c === "\\") escaped = true; else if (c === '"') quoted = false; }
+        else if (c === '"') quoted = true;
+        else if (c === "{" || c === "[") depth++;
+        else if (c === "}" || c === "]") depth--;
+        if (!quoted && depth === 0 && (c === '"' || c === "}" || c === "]")) { complete = true; break; }
+      }
+      chunks.push(this.buffer.slice(start, this.position));
+      if (complete) break;
     }
-    return JSON.parse(chunks.join("") + part);
+    return JSON.parse(chunks.join(""));
   }
   async object(action: (key: string, reader: Reader) => Promise<void>) {
     await this.expect("{"); await this.whitespace();
