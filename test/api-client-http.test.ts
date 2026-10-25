@@ -63,13 +63,18 @@ test("HTTP snapshots read task states without supervision and report the server 
   const t = createTask(ctx, { brief: { goal: "g", repo: ctx.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
   updateTask(ctx, t.id, x => { x.state = "running"; x.runnerPid = 2 ** 22 + 7; x.attemptStartedAt = ctx.now; });
   // Cold snapshots intentionally report starting while the server builds its budget.
+  // The legacy client's type omits this additive service field.
+  const starting = (snapshot: object): boolean => {
+    const service = "service" in snapshot ? snapshot.service : null;
+    return Boolean(service && typeof service === "object" && "starting" in service && service.starting === true);
+  };
   const readyBy = Date.now() + 5_000;
   let result = await client.snapshot();
-  while (result.snapshot.service.starting === true && Date.now() < readyBy) {
+  while (starting(result.snapshot) && Date.now() < readyBy) {
     await Bun.sleep(10);
     result = await client.snapshot();
   }
-  expect(result.snapshot.service.starting).not.toBe(true);
+  expect(starting(result.snapshot)).toBe(false);
   expect(result.snapshot.tasks.find(x => x.id === t.id)?.state).toBe("running");
   expect(result.snapshot.budget?.generatedAt).toBe(ctx.now);
 }, 10_000);
