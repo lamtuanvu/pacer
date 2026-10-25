@@ -20,6 +20,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Keep bundled plugin children on the current source core behind the development Rust front door, preserving configured wrapper routing without forwarding ambient selectors to installed plugins.
+
 - Let live native controls verify a completed managed OTA fixture without transferring teardown ownership, and keep authority collection and input within the original command deadline.
 
 - Restore the documented live UI control commands and retain OTA event traces as context without counting them as unverified behavior checks.

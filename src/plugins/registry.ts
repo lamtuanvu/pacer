@@ -218,7 +218,12 @@ export class PluginRegistry {
 
   private spec(ctx: Ctx, e: Entry): SpawnSpec {
     const env = { PATH: ctx.env.PATH, HOME: ctx.home, PACER_HOME: ctx.pacerHome, PACER_PLUGIN_ID: e.id, PACER_PLUGIN_PROTOCOL: PLUGIN_PROTOCOL_VERSION };
-    if (e.bundled) return { ...this.deps.spawnBundled(ctx, e.id), env };
+    if (e.bundled) {
+      const spec = this.deps.spawnBundled(ctx, e.id);
+      // Only the trusted launcher may issue a fixed development core selector.
+      // Installed peers never inherit it, nor any other launcher environment.
+      return { ...spec, env: { ...env, ...(typeof spec.env.PACER_CORE_ARGV === "string" ? {PACER_CORE_ARGV:spec.env.PACER_CORE_ARGV} : {}) } };
+    }
     return { argv: [join(e.dir!, e.manifest!.entry!)], cwd: e.dir!, env };
   }
 

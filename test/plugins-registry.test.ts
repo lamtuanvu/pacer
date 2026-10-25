@@ -137,3 +137,19 @@ test("calls serialise unless the manifest is reentrant", async () => {
   expect(await time("fx-reentrant")).toBeLessThan(550);
   await r.shutdown();
 }, 20000);
+
+test('only bundled peers receive the single host-issued source selector; installed env remains sealed',async()=>{
+  const {spawn}=await import('node:child_process');const {BUNDLED}=await import('../plugins/bundled');
+  const ctx=home();ctx.env.PACER_CORE_ARGV='raw-selector-marker';ctx.env.SECRET='private-env-marker';
+  const captures:Record<string,string|undefined>[]=[];
+  const capture=((file:string,args:string[],options:any)=>{captures.push({...options.env});return spawn(file,args,options);}) as typeof spawn;
+  const bundle=BUNDLED.find(value=>value.manifest.id==='pacer-notify')!;
+  const r=new PluginRegistry({bundled:[bundle],spawn:capture,spawnBundled:()=>({argv:[process.execPath,join(import.meta.dir,'../plugins/pacer-notify/index.ts')],cwd:ctx.home,env:{PACER_CORE_ARGV:'host-issued-selector',SECRET:'private-env-marker'}})});registries.push(r);
+  expect((await r.doctor(live(ctx),'pacer-notify'))[0]?.ok).toBe(true);
+  expect(captures[0]).toEqual({PATH:ctx.env.PATH,HOME:ctx.home,PACER_HOME:ctx.pacerHome,PACER_PLUGIN_ID:'pacer-notify',PACER_PLUGIN_PROTOCOL:'1.4.0',PACER_CORE_ARGV:'host-issued-selector'});
+  await r.shutdown();
+  installFixture('good',join(ctx.pacerHome,'plugins'));
+  const installed=new PluginRegistry({bundled:[],spawn:capture,spawnBundled:()=>{throw Error('installed peer used bundled launcher');}});registries.push(installed);
+  await installed.enable(live(ctx),'fx-good',true);expect((await installed.doctor(live(ctx),'fx-good'))[0]?.ok).toBe(true);
+  expect(captures[1]).toEqual({PATH:ctx.env.PATH,HOME:ctx.home,PACER_HOME:ctx.pacerHome,PACER_PLUGIN_ID:'fx-good',PACER_PLUGIN_PROTOCOL:'1.4.0'});
+});

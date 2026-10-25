@@ -62,10 +62,17 @@ test("HTTP snapshots read task states without supervision and report the server 
   const { ctx, client } = await serve();
   const t = createTask(ctx, { brief: { goal: "g", repo: ctx.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
   updateTask(ctx, t.id, x => { x.state = "running"; x.runnerPid = 2 ** 22 + 7; x.attemptStartedAt = ctx.now; });
-  const result = await client.snapshot();
+  // Cold snapshots intentionally report starting while the server builds its budget.
+  const readyBy = Date.now() + 5_000;
+  let result = await client.snapshot();
+  while (result.snapshot.service.starting === true && Date.now() < readyBy) {
+    await Bun.sleep(10);
+    result = await client.snapshot();
+  }
+  expect(result.snapshot.service.starting).not.toBe(true);
   expect(result.snapshot.tasks.find(x => x.id === t.id)?.state).toBe("running");
   expect(result.snapshot.budget?.generatedAt).toBe(ctx.now);
-});
+}, 10_000);
 
 test("SSE handles partial frames, comments and resume ids, and close stops reconnecting", async () => {
   const requests: { url: string; headers: Headers }[] = [];
