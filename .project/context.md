@@ -15,7 +15,7 @@ pacer paces AI coding work across subscription budgets. A planner plans and revi
 | `src/serve/`, `src/service/` | The local service: HTTP/SSE/WebSocket, app auth and panel. Installed under launchd or as a systemd user unit. |
 | `src/core/`, `src/engine/`, `src/tasks/`, `src/strategy/`, `src/config/` | Domain core: ranking, slots, verdicts, tasks, strategy and config. `CoreError` lives in `src/core/errors.ts`. |
 | `src/usage/` | Usage broker: cache, aggregation, auth/exhausted marks and remote merge; quota and metered readers live in `plugins/pacer-usage/` |
-| `src/attention/`, `src/activity/`, `src/notify/`, `src/jobs/` | Attention, activity log (JSONL, mode 0600), notifications, jobs |
+| `src/attention/`, `src/activity/`, `src/notify/`, `src/jobs/` | Attention, activity log (JSONL, mode 0600), notifications (host policy/ledger, notifier plugin delivery), jobs |
 | `src/exec/`, `src/supervisor/`, `src/remote/`, `src/session/` | Execution backends (direct, Orca), supervised runs and worktrees, SSH remote hosts, PTY live sessions |
 | `src/endpoints/`, `src/install/`, `src/mcp/`, `src/update/` | OpenAI-compatible endpoint executors and their keys, planner hook installers, MCP server, self-update |
 | `src/dashboard/`, `src/render/`, `src/view-model/` | TUI, status line and tables, shared view vocabulary |

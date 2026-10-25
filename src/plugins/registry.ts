@@ -193,6 +193,14 @@ export class PluginRegistry {
     return candidates.find(entry => predicate(entry.manifest!.contributes[point] ?? {}))?.id ?? null;
   }
 
+  /** Fan-out providers use lexical id order, independent of bundle preference. */
+  findAll(ctx: Ctx, point: keyof PluginManifest["contributes"], predicate: (contribution: Record<string, unknown>) => boolean = () => true): string[] {
+    this.refresh(ctx);
+    return [...this.entries.values()].filter(entry => ENABLED.has(entry.state) && entry.manifest
+      && Object.hasOwn(entry.manifest.contributes, point) && predicate(entry.manifest.contributes[point] ?? {}))
+      .map(entry => entry.id).sort();
+  }
+
   private findEntry(ctx: Ctx, id: string): Entry {
     if (!this.entries.size) this.refresh(ctx);
     const e = this.entries.get(id);
@@ -216,14 +224,16 @@ export class PluginRegistry {
       if (signal?.aborted || Date.now() >= deadlineAt) throw new CoreError("plugin_timeout", "plugin call expired before startup");
       this.setState(ctx, e, "starting");
       const manifest = generation?.manifest ?? structuredClone(e.manifest!);
-      const config = generation?.config ?? pluginsConfig(ctx).config[e.id] ?? {};
+      const notifierReference = BUNDLED.find(plugin => plugin.manifest.id === "pacer-notify");
+      const canonicalNotifier = e.bundled && e.id === "pacer-notify" && notifierReference !== undefined && this.deps.bundled.includes(notifierReference);
+      const config = canonicalNotifier ? Object.freeze({ platform: process.platform }) : generation?.config ?? pluginsConfig(ctx).config[e.id] ?? {};
       const proc = new PluginProcess(this.spec(ctx, e), {
         spawn: this.deps.spawn,
         onRequest: (m, p, metadata, deliver, transport) => {
           const parsed = callMetadata.safeParse(metadata);
           const token = parsed.success ? parsed.data?.capabilityCall : undefined;
           const authority = token && e.process === proc ? e.authorities.get(token) : undefined;
-          return answerCapability(authority?.ctx ?? ctx, { id: e.id, manifest, ...(generation ? { config } : {}) }, m, p, authority, deliver, transport);
+          return answerCapability(authority?.ctx ?? ctx, { id: e.id, manifest, ...(generation || canonicalNotifier ? { config } : {}) }, m, p, authority, deliver, transport);
         },
         onStderr: line => appendPluginLog(ctx, e.id, "stderr", line),
         onExit: info => this.onExit(ctx, e, proc, info),

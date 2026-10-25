@@ -131,3 +131,22 @@ that host contract reviewed. Manifest declarations, grants and call descriptors
 all apply. These checks are not an OS sandbox. Tests should inject ReaderIO for
 pure parser cases and use the real SDK/host transport for authority, cancellation
 and persistence behavior.
+
+### Writing a notifier
+
+A notifier contributes `notifier: { kinds: ["os"] }` and handles
+`notifier.deliver` (plugin protocol 1.3). Its input is `{ key, title, body, url }`;
+title and body are limited to 256 and 2048 characters. Return
+`{ delivered: true }` only after successful delivery, otherwise
+`{ delivered: false }`. The host tries enabled notifiers in ID order with a
+five-second deadline, stopping on success. A registered client notifier takes
+precedence. The host retains notification levels, retry policy and the delivery
+ledger.
+
+The bundled `pacer-notify` plugin receives the host platform through
+`host.config()`. It requests `capability.process.spawn` with the fixed bare tool
+`osascript` or `notify-send`, passing title and body as separate literal arguments.
+The host resolves and pins the executable and grants only that message's exact
+argument vector. Plugins cannot choose an executable path, shell script, working
+directory or environment. Disabling `pacer-notify` removes its delivery path;
+there is no built-in OS fallback.

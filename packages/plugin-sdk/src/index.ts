@@ -31,7 +31,7 @@ export class PluginError extends Error {
   constructor(public readonly code: string, message: string, public readonly hint?: string) { super(message); this.name = "PluginError"; }
 }
 
-export const PROTOCOL = "1.2.0";
+export const PROTOCOL = "1.3.0";
 const HELLO = "plugin.hello", CANCEL = "$/cancel";
 type Json = Record<string, unknown>;
 
