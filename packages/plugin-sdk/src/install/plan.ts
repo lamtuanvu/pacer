@@ -38,6 +38,8 @@ export class InstallPlan {
   readonly pending = new Map<string, PendingFile>();
   readonly env: PlanEnv;
   private tail: Promise<void> = Promise.resolve();
+  private closed = false;
+  private failure: { error: unknown } | undefined;
   constructor(private readonly io: PlanIO, env: PlanEnv, planner: string, prior?: PlannerRecord) {
     this.env = structuredClone(env);
     this.record = prior ? structuredClone(prior) : {
@@ -53,9 +55,17 @@ export class InstallPlan {
     if (this.io.signal?.aborted) throw new InstallError("installation planning cancelled");
   }
   private sequence<T>(action: () => Promise<T>): Promise<T> {
+    if (this.closed) return Promise.reject(new InstallError("installation planning closed"));
     const operation = this.tail.then(async () => { this.active(); return await action(); });
-    this.tail = operation.then(() => undefined, () => undefined);
+    this.tail = operation.then(() => undefined, error => { this.failure ??= { error }; });
     return operation;
+  }
+  /** Close staging synchronously, then await every queued operation, retaining failures. */
+  async finishPlanning(): Promise<void> {
+    this.closed = true;
+    await this.tail;
+    if (this.failure) throw this.failure.error;
+    this.active();
   }
   private async external(path: string) {
     this.active();
