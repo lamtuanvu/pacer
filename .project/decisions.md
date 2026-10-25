@@ -80,3 +80,4 @@ Each item awaits a decision from @lamtuanvu. Established rules stay in force in 
 | OD-9 | DCO enforcement: AGENTS.md refers to "the DCO check", but no workflow exists in the repo | Confirm the DCO GitHub App is installed, or add a workflow | Unsigned commits may merge unnoticed |
 | OD-10 | Lift the coding density rule (CT-7) and the phase-named modules (ARCH-11) | Accept as conventions for new code | Readability drift |
 | OD-11 | Automated accessibility tests (UI-7) | axe checks on rendered app pages | Accessibility regressions are caught only by hand |
+| OD-12 | Which identifier should the Rust front-door/coexistence proposal use after integration with main's portable-review amendment 0.10.0? | Retain both proposals without renumbering or adopting either implicitly; assign the Rust proposal a distinct identifier in the amendment process. | Proposal numbering is unresolved; all established rules and task-authorized review requirements remain in force. |
