@@ -8,7 +8,7 @@ export interface SessionSocket {
 export interface TerminalSnapshot { outputOffset:number; cols:number; rows:number; scrollbackAnsi:string; screenAnsi:string; controller:string|null; viewers:number }
 export interface SessionState { status:'connecting'|'live'|'reconnecting'|'resyncing'|'exited'|'error'; you:boolean; controller:string|null; cols:number; rows:number; viewers:number; code?:number; signal?:string; message?:string }
 export interface SessionClientOptions {
- url:string; label:string; cols:number; rows:number; control:boolean;
+ url:string; label:string; cols:number; rows:number; control:boolean; autoControl?:boolean;
  socket?:(url:string)=>SessionSocket;
  schedule?:(fn:()=>void,ms:number)=>(()=>void);
  onSnapshot?:(snapshot:TerminalSnapshot)=>void; onOutput?:(bytes:Uint8Array)=>void;
@@ -17,10 +17,12 @@ export interface SessionClientOptions {
 export class SessionClient {
  state:SessionState;
  private ws?:SessionSocket; private offset?:number; private stopped=false; private ended=false; private attempt=0; private cancel?:()=>void;
+ private autoControlAllowed=true; private autoControlAttempted=false;
  constructor(private options:SessionClientOptions){this.state={status:'connecting',you:false,controller:null,cols:options.cols,rows:options.rows,viewers:0};}
  private update(patch:Partial<SessionState>){this.state={...this.state,...patch};this.options.onState?.(this.state);}
  connect(){
   if(this.stopped||this.ended)return;
+  this.autoControlAttempted=false;
   this.update({status:this.attempt?'reconnecting':'connecting',you:false});
   let ws:SessionSocket;
   try{ws=(this.options.socket??(url=>new WebSocket(url) as unknown as SessionSocket))(this.options.url);}catch{this.retry();return;}
@@ -42,7 +44,12 @@ export class SessionClient {
     case 'snapshot': {
      if(!Number.isSafeInteger(frame.outputOffset)||frame.outputOffset<0||!Number.isInteger(frame.cols)||frame.cols<1||!Number.isInteger(frame.rows)||frame.rows<1||typeof frame.scrollbackAnsi!=='string'||typeof frame.screenAnsi!=='string')throw Error('invalid snapshot');
      this.options.onSnapshot?.(frame);this.offset=frame.outputOffset;this.attempt=0;
-     this.update({status:'live',cols:frame.cols,rows:frame.rows,controller:frame.controller,viewers:frame.viewers,you:false,message:undefined});break;
+     this.update({status:'live',cols:frame.cols,rows:frame.rows,controller:frame.controller,viewers:frame.viewers,you:false,message:undefined});
+     if(this.options.autoControl!==false&&!this.autoControlAttempted){
+      this.autoControlAttempted=true;
+      if(frame.controller===null&&this.autoControlAllowed)void this.take();
+     }
+     break;
     }
     case 'resize':if(Number.isInteger(frame.cols)&&frame.cols>0&&Number.isInteger(frame.rows)&&frame.rows>0)this.update({cols:frame.cols,rows:frame.rows});break;
     case 'control':this.attempt=0;this.update({...(this.offset!==undefined&&this.state.status!=='resyncing'?{status:'live' as const}:{}),controller:frame.controller,you:this.options.control&&frame.you===true,message:frame.reason==='taken'&&!frame.you?'Control was taken by another viewer.':undefined});break;
@@ -73,7 +80,7 @@ export class SessionClient {
    return this.send('take',{force:true});}
   return this.send('take');
  }
- release(){const sent=this.send('release');this.update({you:false});return sent;}
+ release(){this.autoControlAllowed=false;const sent=this.send('release');this.update({you:false});return sent;}
  input(text:string){
   if(!this.options.control||!this.state.you||this.ws?.readyState!==1||this.stopped||this.ended)return false;
   const data=new TextEncoder().encode(text),bytes=new Uint8Array(5+data.length);bytes[0]=10;new DataView(bytes.buffer).setUint32(1,data.length);bytes.set(data,5);this.ws.send(bytes);return true;
