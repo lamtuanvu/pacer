@@ -62,7 +62,7 @@ test("installed fake executor validates availability without launching an attemp
     await expect(registry.call(ctx, "fx-executor", "executor.available", { strategy: { name: "default" } }, { deadlineMs: 0 }))
       .rejects.toMatchObject({ code: "invalid_input" });
     await expect(registry.call(ctx, "fx-executor", "executor.run", {}))
-      .rejects.toMatchObject({ code: "unknown_op" });
+      .rejects.toMatchObject({ code: "invalid_input" });
   } finally { await registry.shutdown(); }
   writeFileSync(join(folder, "fixture.json"), JSON.stringify({ available: true, malformed: true }));
   const malformed = new PluginRegistry({ bundled: [], spawnBundled: () => { throw Error("no bundle"); }, eventPumpMs: 0 });

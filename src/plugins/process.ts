@@ -1,4 +1,5 @@
 import {pluginMetadata} from "./policy-protocol";
+import {executorRunEvent} from "./executor-protocol";
 import {plannerPreparedResultAllowed} from "./planner-resources";
 import { scheduleDeadline } from "../deadline";
 import { spawn as nodeSpawn, type ChildProcessWithoutNullStreams } from "node:child_process";
@@ -129,7 +130,19 @@ export class PluginProcess {
       if (m.method === "$/progress") {
         const params = m.params as { id?: unknown; event?: unknown } | undefined;
         const pending = typeof params?.id === "number" ? this.pending.get(params.id) : undefined;
-        if (pending?.onProgress) {
+        if (pending?.method === "executor.run") {
+          const parsed = executorRunEvent.safeParse(params?.event);
+          if (!parsed.success || !pending.onProgress) {
+            this.rejectPending(params!.id as number, pending,
+              new CoreError("plugin_refused", "invalid or unhandled executor progress"), true);
+            return;
+          }
+          try { pending.onProgress(parsed.data); }
+          catch (error) {
+            this.rejectPending(params!.id as number, pending,
+              error instanceof CoreError ? error : new CoreError("plugin_refused", "executor progress was refused"), true);
+          }
+        } else if (pending?.onProgress) {
           try { pending.onProgress(params?.event); } catch { this.hooks.onStderr("progress callback failed"); }
         }
         return;
@@ -202,9 +215,11 @@ export class PluginProcess {
     this.pending.delete(m.id); p.cancelDeadline?.(); p.dispose(); p.resolve(result);
   }
 
-  private rejectPending(id: number, pending: Pending, error: CoreError): void {
+  private rejectPending(id: number, pending: Pending, error: CoreError, cancel = false): void {
     if (this.pending.get(id) !== pending) return;
-    this.pending.delete(id); pending.cancelDeadline?.(); pending.dispose(); pending.reject(error);
+    this.pending.delete(id); pending.cancelDeadline?.(); pending.dispose();
+    if (cancel) this.send({ method: CANCEL_METHOD, params: { id } });
+    pending.reject(error);
   }
 
   private async stageResult(params: unknown, metadata: unknown, deliver: (result: { bytes: number }, owner: CallAuthority) => void): Promise<void> {

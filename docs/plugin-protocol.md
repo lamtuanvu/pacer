@@ -12,7 +12,7 @@ Protocol 1.1 adds optional top-level `_meta: { capabilityCall }` correlation on 
 
 Protocol 1.5 adds policy/task/event contracts and mutually negotiated `policyObservations` for the host and TypeScript SDK. Task reads require declared and granted `tasks.read` plus a current owning call or process-generation read owner. The exclusive `_meta: { readOwner }` arm permits only task reads and subscription management; mixed, foreign or retired owners never fall back to unowned/effect capability handling. Existing peers/capabilityCall correlation remain supported; peers without this feature cannot use the observation methods. Rust SDK observation helpers are not implemented: the standalone policy protocol crate supplies contracts, not SDK runtime support.
 
-The staged `executor` point currently defines only `contributes.executor.backends: ["direct"]` and `executor.available`. Availability receives a credential-free strategy name and has a 10 s host deadline. This contract has fake conformance coverage but no production caller; run, stop, resume, session state, task patching and executor effects require a separately reviewed owner-bound contract.
+The staged `executor` point declares `contributes.executor.backends: ["direct"]`, `executor.available`, `executor.run` and `executor.stop`. Availability receives a credential-free strategy name with a 10 s deadline. The run envelope names only a host-selected task revision and attempt with run-directory version 1; it has no deadline and sends bounded `$/progress` events that the host validates before applying an owner-bound progress update. Stop is bounded to 30 s. These methods have fake conformance coverage but no production backend caller; full attempt ownership, task patching, resume, session state and executor effects require later review.
 
 The `hostRunner` point names only fixed SSH script IDs and uses bounded arguments, results and finite deadlines. The `hosts` capability defines `open`, `run`, `fetch` and `close` with host-owned broker sessions. Callers supply only a configured alias and fixed script input; the host derives the SSH target and selects the provider. Host setup identity and committed-task transfer use the bundled `remoteCaller` with one-use host-issued grants. Other production SSH paths still require caller cutover.
 
@@ -4636,6 +4636,149 @@ Result:
   },
   "required": [
     "available"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `executor.run`
+
+Staged owned local attempt; no production caller is switched yet.
+
+Params:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "task": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^t-[A-Za-z0-9_-]{1,120}$"
+        },
+        "rev": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "id",
+        "rev"
+      ],
+      "additionalProperties": false
+    },
+    "attempt": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "runDir": {
+      "type": "number",
+      "const": 1
+    }
+  },
+  "required": [
+    "task",
+    "attempt",
+    "runDir"
+  ],
+  "additionalProperties": false
+}
+```
+
+Result:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": [
+        "done",
+        "failed"
+      ]
+    },
+    "exitCode": {
+      "type": "integer",
+      "minimum": -9007199254740991,
+      "maximum": 9007199254740991
+    },
+    "report": {
+      "type": "string",
+      "maxLength": 65536
+    }
+  },
+  "required": [
+    "status",
+    "exitCode",
+    "report"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `executor.stop`
+
+Stop the matching staged local attempt.
+
+Deadline: 30000 ms.
+
+Params:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "taskId": {
+      "type": "string",
+      "pattern": "^t-[A-Za-z0-9_-]{1,120}$"
+    },
+    "attempt": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "graceMs": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 30000
+    }
+  },
+  "required": [
+    "taskId",
+    "attempt",
+    "graceMs"
+  ],
+  "additionalProperties": false
+}
+```
+
+Result:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "code": {
+      "type": "integer",
+      "minimum": -9007199254740991,
+      "maximum": 9007199254740991
+    },
+    "killed": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "code",
+    "killed"
   ],
   "additionalProperties": false
 }

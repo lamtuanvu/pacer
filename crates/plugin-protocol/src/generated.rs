@@ -8425,6 +8425,405 @@ impl<'de> ::serde::Deserialize<'de> for ExecutorAvailableResultReason {
         deserialize_validated_string(deserializer)
     }
 }
+///`ExecutorRunParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "attempt",
+///    "runDir",
+///    "task"
+///  ],
+///  "properties": {
+///    "attempt": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "exclusiveMinimum": 0.0
+///    },
+///    "runDir": {
+///      "type": "number",
+///      "const": 1
+///    },
+///    "task": {
+///      "type": "object",
+///      "required": [
+///        "id",
+///        "rev"
+///      ],
+///      "properties": {
+///        "id": {
+///          "type": "string",
+///          "pattern": "^t-[A-Za-z0-9_-]{1,120}$"
+///        },
+///        "rev": {
+///          "type": "integer",
+///          "maximum": 9007199254740991.0,
+///          "exclusiveMinimum": 0.0
+///        }
+///      },
+///      "additionalProperties": false
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct ExecutorRunParams {
+    pub attempt: ::std::num::NonZeroU64,
+    #[serde(rename = "runDir")]
+    pub run_dir: f64,
+    pub task: ExecutorRunParamsTask,
+}
+///`ExecutorRunParamsTask`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "id",
+///    "rev"
+///  ],
+///  "properties": {
+///    "id": {
+///      "type": "string",
+///      "pattern": "^t-[A-Za-z0-9_-]{1,120}$"
+///    },
+///    "rev": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "exclusiveMinimum": 0.0
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct ExecutorRunParamsTask {
+    pub id: ExecutorRunParamsTaskId,
+    pub rev: ::std::num::NonZeroU64,
+}
+///`ExecutorRunParamsTaskId`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "pattern": "^t-[A-Za-z0-9_-]{1,120}$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct ExecutorRunParamsTaskId(::std::string::String);
+impl ::std::ops::Deref for ExecutorRunParamsTaskId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<ExecutorRunParamsTaskId> for ::std::string::String {
+    fn from(value: ExecutorRunParamsTaskId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for ExecutorRunParamsTaskId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_14(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for ExecutorRunParamsTaskId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for ExecutorRunParamsTaskId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`ExecutorRunResult`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "exitCode",
+///    "report",
+///    "status"
+///  ],
+///  "properties": {
+///    "exitCode": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "minimum": -9007199254740991.0
+///    },
+///    "report": {
+///      "type": "string",
+///      "maxLength": 65536
+///    },
+///    "status": {
+///      "type": "string",
+///      "enum": [
+///        "done",
+///        "failed"
+///      ]
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct ExecutorRunResult {
+    #[serde(rename = "exitCode")]
+    pub exit_code: i64,
+    pub report: ExecutorRunResultReport,
+    pub status: ExecutorRunResultStatus,
+}
+///`ExecutorRunResultReport`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 65536
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct ExecutorRunResultReport(::std::string::String);
+impl ::std::ops::Deref for ExecutorRunResultReport {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<ExecutorRunResultReport> for ::std::string::String {
+    fn from(value: ExecutorRunResultReport) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for ExecutorRunResultReport {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 65536usize {
+            return Err("longer than 65536 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for ExecutorRunResultReport {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for ExecutorRunResultReport {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`ExecutorRunResultStatus`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "enum": [
+///    "done",
+///    "failed"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum ExecutorRunResultStatus {
+    #[serde(rename = "done")]
+    Done,
+    #[serde(rename = "failed")]
+    Failed,
+}
+impl ::std::convert::From<&Self> for ExecutorRunResultStatus {
+    fn from(value: &ExecutorRunResultStatus) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for ExecutorRunResultStatus {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Done => f.write_str("done"),
+            Self::Failed => f.write_str("failed"),
+        }
+    }
+}
+impl ::std::str::FromStr for ExecutorRunResultStatus {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "done" => Ok(Self::Done),
+            "failed" => Ok(Self::Failed),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for ExecutorRunResultStatus {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`ExecutorStopParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "attempt",
+///    "graceMs",
+///    "taskId"
+///  ],
+///  "properties": {
+///    "attempt": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "exclusiveMinimum": 0.0
+///    },
+///    "graceMs": {
+///      "type": "integer",
+///      "maximum": 30000.0,
+///      "minimum": 0.0
+///    },
+///    "taskId": {
+///      "type": "string",
+///      "pattern": "^t-[A-Za-z0-9_-]{1,120}$"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct ExecutorStopParams {
+    pub attempt: ::std::num::NonZeroU64,
+    #[serde(rename = "graceMs")]
+    pub grace_ms: i64,
+    #[serde(rename = "taskId")]
+    pub task_id: ExecutorStopParamsTaskId,
+}
+///`ExecutorStopParamsTaskId`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "pattern": "^t-[A-Za-z0-9_-]{1,120}$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct ExecutorStopParamsTaskId(::std::string::String);
+impl ::std::ops::Deref for ExecutorStopParamsTaskId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<ExecutorStopParamsTaskId> for ::std::string::String {
+    fn from(value: ExecutorStopParamsTaskId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for ExecutorStopParamsTaskId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_14(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for ExecutorStopParamsTaskId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for ExecutorStopParamsTaskId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`ExecutorStopResult`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "code",
+///    "killed"
+///  ],
+///  "properties": {
+///    "code": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "minimum": -9007199254740991.0
+///    },
+///    "killed": {
+///      "type": "boolean"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct ExecutorStopResult {
+    pub code: i64,
+    pub killed: bool,
+}
 ///`HelloParams`
 ///
 /// <details><summary>JSON schema</summary>
@@ -20921,6 +21320,17 @@ fn validate_string_13<T>(
         ::std::sync::LazyLock::new(|| ::regress::Regex::new("^[a-z0-9][a-z0-9-]{1,63}$").unwrap());
     if PATTERN.find(value).is_none() {
         return Err("doesn't match pattern \"^[a-z0-9][a-z0-9-]{1,63}$\"".into());
+    }
+    Ok(construct(value.to_string()))
+}
+fn validate_string_14<T>(
+    value: &str,
+    construct: impl FnOnce(::std::string::String) -> T,
+) -> ::std::result::Result<T, self::error::ConversionError> {
+    static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+        ::std::sync::LazyLock::new(|| ::regress::Regex::new("^t-[A-Za-z0-9_-]{1,120}$").unwrap());
+    if PATTERN.find(value).is_none() {
+        return Err("doesn't match pattern \"^t-[A-Za-z0-9_-]{1,120}$\"".into());
     }
     Ok(construct(value.to_string()))
 }

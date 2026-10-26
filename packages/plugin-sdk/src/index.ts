@@ -25,6 +25,8 @@ export interface HostClient extends ObservationClient {
   http(request:HttpRequest):Promise<HttpResponse>;
   secrets: { present(ref:string):Promise<boolean> };
   call<T = unknown>(method: string, params?: unknown): Promise<T>;
+  /** Send a bounded event during the owning executor.run call. */
+  progress?(event: unknown): void;
   log(level: "debug" | "info" | "warn" | "error", message: string): Promise<void>;
   config(): Promise<Record<string, unknown>>;
 }
@@ -103,7 +105,7 @@ export async function serve(o: ServeOptions): Promise<void> {
   },()=>{observationScope.abort();readOwner=undefined;failObservations(new PluginError("plugin_unavailable","event callback queue cannot deliver reset"));});
 
 
-  function hostFor(metadata?: unknown, signal?: AbortSignal): HostClient {
+  function hostFor(metadata?: unknown, signal?: AbortSignal, requestId?: string | number, method?: string): HostClient {
     const candidate=metadata&&typeof metadata==="object"&&!Array.isArray(metadata)?metadata as Json:undefined;
     if(candidate&&candidate.capabilityCall!==undefined&&candidate.readOwner!==undefined)throw new PluginError("capability_denied","mixed authority metadata");
     const meta=candidate&&(typeof candidate.capabilityCall==="string"||typeof candidate.readOwner==="string")?candidate:undefined;
@@ -133,6 +135,11 @@ export async function serve(o: ServeOptions): Promise<void> {
       },
       events: {async subscribe(types){observations();const result=await call<{ok:true;readOwner:string}>("capability.events.subscribe",{types});if(result.ok!==true||typeof result.readOwner!=="string"||!result.readOwner.length||result.readOwner.length>256)throw new PluginError("plugin_refused","invalid read owner acknowledgement");readOwner=result.readOwner;}},
       call,
+      progress(event) {
+        if (method !== "executor.run" || typeof requestId !== "number" || signal?.aborted)
+          throw new PluginError("capability_denied", "executor progress requires an active run");
+        send({ method: "$/progress", params: { id: requestId, event } });
+      },
       fs: createFileSystem({call,cleanupCall:(method,params)=>call(method,params,true),signal,
         negotiated:()=>negotiatedFeatures.has("fileWriteChunks"),
         fits:(method,params)=>Buffer.byteLength(JSON.stringify({jsonrpc:"2.0",id:`p${nextId}`,method,params,...(meta?{_meta:meta}:{})})+"\n")<=1048576}),
@@ -190,7 +197,7 @@ export async function serve(o: ServeOptions): Promise<void> {
       if (!handler) { send({ id, error: { code: -32601, message: `unknown method ${r.method}`, data: { code: "unknown_op" } } }); return; }
       const controller = new AbortController(); inflight.set(id, controller);
       try {
-        const host = hostFor(r._meta, controller.signal);
+        const host = hostFor(r._meta, controller.signal, id, r.method);
         const result = await handler(r.params ?? {}, host, controller.signal);
         if(o.onEvent&&["diagnostic.ping","policy.before"].includes(r.method)&&!readOwner) {
           if(!host||!r._meta||typeof (r._meta as Json).capabilityCall!=="string")throw new PluginError("capability_denied","observations need an actual owning host call");
