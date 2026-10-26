@@ -1,9 +1,10 @@
 # Install pacer
 
 [Download pacer for Mac](https://github.com/lamtuanvu/pacer/releases/latest).
-Choose `desktop-pacer-<version>-darwin-aarch64.app.tar.gz` for Apple silicon or
-`desktop-pacer-<version>-darwin-x86_64.app.tar.gz` for Intel. Open the archive and
-move `pacer.app` into Applications.
+Open `desktop-pacer-<version>-darwin-aarch64.dmg` (Apple silicon) and drag
+`pacer.app` into Applications. Intel builds are paused for now. The
+`.app.tar.gz` on the same page holds the identical app as the in-app update
+package; extracting it and moving `pacer.app` to Applications also works.
 
 The app is signed with pacer's own certificate until pacer has an Apple Developer ID,
 so macOS blocks the first launch. Open the app once, then choose **Open Anyway** in
