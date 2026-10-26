@@ -19180,6 +19180,257 @@ impl<'de> ::serde::Deserialize<'de> for StreamAckParamsStreamId {
 pub struct StreamAckResult {
     pub seq: i64,
 }
+///`StreamInputAckParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "request",
+///    "seq",
+///    "streamId"
+///  ],
+///  "properties": {
+///    "request": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "exclusiveMinimum": 0.0
+///    },
+///    "seq": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "minimum": 0.0
+///    },
+///    "streamId": {
+///      "type": "string",
+///      "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct StreamInputAckParams {
+    pub request: ::std::num::NonZeroU64,
+    pub seq: i64,
+    #[serde(rename = "streamId")]
+    pub stream_id: StreamInputAckParamsStreamId,
+}
+///`StreamInputAckParamsStreamId`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct StreamInputAckParamsStreamId(::std::string::String);
+impl ::std::ops::Deref for StreamInputAckParamsStreamId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<StreamInputAckParamsStreamId> for ::std::string::String {
+    fn from(value: StreamInputAckParamsStreamId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for StreamInputAckParamsStreamId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_13(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for StreamInputAckParamsStreamId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for StreamInputAckParamsStreamId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`StreamInputAckResult`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "seq"
+///  ],
+///  "properties": {
+///    "seq": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "minimum": 0.0
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct StreamInputAckResult {
+    pub seq: i64,
+}
+///`StreamInputFrame`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "base64",
+///    "request",
+///    "seq",
+///    "streamId"
+///  ],
+///  "properties": {
+///    "base64": {
+///      "type": "string",
+///      "maxLength": 87384,
+///      "minLength": 4,
+///      "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+///    },
+///    "request": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "exclusiveMinimum": 0.0
+///    },
+///    "seq": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "minimum": 0.0
+///    },
+///    "streamId": {
+///      "type": "string",
+///      "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct StreamInputFrame {
+    pub base64: StreamInputFrameBase64,
+    pub request: ::std::num::NonZeroU64,
+    pub seq: i64,
+    #[serde(rename = "streamId")]
+    pub stream_id: StreamInputFrameStreamId,
+}
+///`StreamInputFrameBase64`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 87384,
+///  "minLength": 4,
+///  "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct StreamInputFrameBase64(::std::string::String);
+impl ::std::ops::Deref for StreamInputFrameBase64 {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<StreamInputFrameBase64> for ::std::string::String {
+    fn from(value: StreamInputFrameBase64) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for StreamInputFrameBase64 {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_10(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for StreamInputFrameBase64 {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for StreamInputFrameBase64 {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`StreamInputFrameStreamId`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct StreamInputFrameStreamId(::std::string::String);
+impl ::std::ops::Deref for StreamInputFrameStreamId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<StreamInputFrameStreamId> for ::std::string::String {
+    fn from(value: StreamInputFrameStreamId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for StreamInputFrameStreamId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_13(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for StreamInputFrameStreamId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for StreamInputFrameStreamId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
 ///`StreamProgressEvent`
 ///
 /// <details><summary>JSON schema</summary>
