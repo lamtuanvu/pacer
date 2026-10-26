@@ -9,6 +9,7 @@ export const WRAPPER_VERSION = 1;
 export const WRAPPER_SH = `#!/bin/sh
 # pacer attempt wrapper v${WRAPPER_VERSION}
 D="$1"; shift
+umask 077
 pacer_admission="\${PACER_COMPLETION_NONCE:-$PACER_ADMISSION_SESSION}"
 unset PACER_ADMISSION_SESSION PACER_ADMISSION_DIR PACER_COMPLETION_NONCE
 echo $$ > "$D/pid.tmp" && /bin/mv "$D/pid.tmp" "$D/pid"

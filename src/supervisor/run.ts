@@ -60,7 +60,7 @@ export function startRun(spec: RunSpec): { pid: number } | { error: string } {
       detached: true, cwd: spec.cwd, env: {...launchEnv, HOME: ctx.home, PACER_HOME: ctx.pacerHome, ...(interactive ? { PACER_REPORT_TOKEN: reportToken } : {})}, stdin: "ignore", stdout: "ignore", stderr: "ignore",
     });
     proc.unref();
-    writeFileSync(join(spec.dir, "pid"), String(proc.pid));
+    writeFileSync(join(spec.dir, "pid"), String(proc.pid), { mode: 0o600 });
     return { pid: proc.pid };
   } catch (e) {
     if (lease && !attempted) finishWorkSync(ctx, lease);

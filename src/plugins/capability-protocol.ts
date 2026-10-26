@@ -3,6 +3,8 @@ import type { MethodDef } from "./protocol";
 import { secretReference } from "./http-protocol";
 
 const path = z.string().min(1).max(4096), handle = z.string().min(1).max(256);
+/** Longest host-issued provider process effect; owning call deadlines remain authoritative. */
+export const MAX_PROCESS_SPAWN_MS = 30 * 60 * 1000;
 const bytes = z.number().int().nonnegative().safe();
 const chunk = bytes.max(262144);
 const base64 = z.string().max(349528).regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/);
@@ -24,11 +26,15 @@ export const SCOPED_CAPABILITY_METHODS: Record<string, MethodDef> = {
   "capability.fs.readRange": method("Read a pinned byte range, at most 256 KiB; changed identity fails without partial bytes.",
     z.object({ path, offset: bytes, length: chunk, expected: identity }).strict(), z.union([z.object({ base64, info: fileInfo }), missing])),
   "capability.process.spawn": method("Run only a host-issued pinned command with exact host-owned context and bound credential references.",
-    z.object({ argv: z.array(z.string().max(4096)).min(1).max(32), timeoutMs: z.number().int().positive().max(600000), cwd: path.optional(), env: z.record(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/), z.union([z.string(), z.object({secretRef: secretReference}).strict()])).optional() }).strict(),
+    z.object({ argv: z.array(z.string().max(4096)).min(1).max(32), timeoutMs: z.number().int().positive().max(MAX_PROCESS_SPAWN_MS), cwd: path.optional(), stdin: z.string().max(262144).optional(), env: z.record(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/), z.union([z.string(), z.object({secretRef: secretReference}).strict()])).optional() }).strict(),
     z.union([z.object({ code: z.number().int(), stdout: z.string(), stderr: z.string(), timedOut: z.boolean() }),
-      z.object({ code: z.number().int(), output: z.object({ stdout: handle, stderr: handle }), timedOut: z.boolean() })]), 130000),
+      z.object({ code: z.number().int(), output: z.object({ stdout: handle, stderr: handle }), timedOut: z.boolean() })]), 0),
   "capability.process.outputChunk": method("Read a bounded chunk from this call's captured provider output.",
     z.object({ handle, offset: bytes, length: chunk }).strict(), z.object({ base64 })),
+  "capability.process.startRun": method("Start the one host-issued task-owned detached run directory wrapper.",
+    z.object({ task: z.object({ id: z.string().regex(/^t-[A-Za-z0-9_-]{1,120}$/), rev: z.number().int().positive().safe() }).strict(),
+      attempt: z.number().int().positive().safe(), runDir: z.literal(1) }).strict(),
+    z.object({ pid: z.number().int().positive().safe() }).strict(), 10_000),
   "capability.process.stageBundle": method("Stage one host-issued fixed SSH BUNDLE_OUT binary stream under an owner-bound opaque handle.",
     z.object({ argv: z.array(z.string().max(4096)).min(1).max(32), timeoutMs: z.number().int().positive().max(60_000),
       maxBytes: z.number().int().positive().max(50 * 1024 * 1024) }).strict(),

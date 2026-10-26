@@ -4583,6 +4583,202 @@
       ],
       "additionalProperties": false
     },
+    "executor.run.params": {
+      "type": "object",
+      "properties": {
+        "task": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^t-[A-Za-z0-9_-]{1,120}$"
+            },
+            "rev": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "id",
+            "rev"
+          ],
+          "additionalProperties": false
+        },
+        "attempt": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "runDir": {
+          "type": "number",
+          "const": 1
+        },
+        "effect": {
+          "type": "object",
+          "properties": {
+            "argv": {
+              "minItems": 1,
+              "maxItems": 32,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096
+              }
+            },
+            "cwd": {
+              "type": "string",
+              "minLength": 1
+            },
+            "timeoutMs": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 1800000
+            },
+            "stdin": {
+              "type": "string",
+              "maxLength": 262144
+            },
+            "env": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string",
+                "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+              },
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "secretEnv": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string",
+                "pattern": "^PACER_KEY_[A-Z0-9_]+$"
+              },
+              "additionalProperties": {
+                "type": "string",
+                "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+              }
+            },
+            "detached": {
+              "type": "boolean",
+              "const": true
+            }
+          },
+          "required": [
+            "argv",
+            "cwd",
+            "timeoutMs"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "task",
+        "attempt",
+        "runDir"
+      ],
+      "additionalProperties": false
+    },
+    "executor.run.result": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": [
+                "done",
+                "failed"
+              ]
+            },
+            "exitCode": {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            },
+            "report": {
+              "type": "string",
+              "maxLength": 65536
+            }
+          },
+          "required": [
+            "status",
+            "exitCode",
+            "report"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "const": "launched"
+            },
+            "pid": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "report": {
+              "type": "string",
+              "maxLength": 65536
+            }
+          },
+          "required": [
+            "status",
+            "pid",
+            "report"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "executor.stop.params": {
+      "type": "object",
+      "properties": {
+        "taskId": {
+          "type": "string",
+          "pattern": "^t-[A-Za-z0-9_-]{1,120}$"
+        },
+        "attempt": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "graceMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 30000
+        }
+      },
+      "required": [
+        "taskId",
+        "attempt",
+        "graceMs"
+      ],
+      "additionalProperties": false
+    },
+    "executor.stop.result": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "killed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "code",
+        "killed"
+      ],
+      "additionalProperties": false
+    },
     "classifier.adapters.params": {
       "type": "object",
       "properties": {},
@@ -7232,12 +7428,16 @@
         "timeoutMs": {
           "type": "integer",
           "exclusiveMinimum": 0,
-          "maximum": 600000
+          "maximum": 1800000
         },
         "cwd": {
           "type": "string",
           "minLength": 1,
           "maxLength": 4096
+        },
+        "stdin": {
+          "type": "string",
+          "maxLength": 262144
         },
         "env": {
           "type": "object",
@@ -7379,6 +7579,59 @@
       },
       "required": [
         "base64"
+      ],
+      "additionalProperties": false
+    },
+    "capability.process.startRun.params": {
+      "type": "object",
+      "properties": {
+        "task": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^t-[A-Za-z0-9_-]{1,120}$"
+            },
+            "rev": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "id",
+            "rev"
+          ],
+          "additionalProperties": false
+        },
+        "attempt": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "runDir": {
+          "type": "number",
+          "const": 1
+        }
+      },
+      "required": [
+        "task",
+        "attempt",
+        "runDir"
+      ],
+      "additionalProperties": false
+    },
+    "capability.process.startRun.result": {
+      "type": "object",
+      "properties": {
+        "pid": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "pid"
       ],
       "additionalProperties": false
     },
