@@ -164,6 +164,13 @@ else
   tail -c +"$(($3 + 1))" "$D/$2" | head -c "$4"
 fi`;
 
+/** Fixed persisted-run socket discovery; parity with SCRIPTS.SESSION_SOCKET is tested. */
+export const SESSION_SOCKET_SCRIPT = `D="$1"
+case "$D" in '~/'*) D="$HOME/\${D#??}" ;; esac
+if [ -f "$D/session.sock.path" ]; then path=$(cat "$D/session.sock.path"); else path="$D/session.sock"; fi
+[ -S "$path" ] || exit 1
+printf '%s' "$path"`;
+
 export const QUESTION_SCRIPT = `file="$1/.pacer-question"
 [ -f "$file" ] || exit 0
 [ "$(wc -c < "$file")" -le 4000 ] || { echo "question exceeds 1000 characters" >&2; exit 1; }
@@ -277,6 +284,13 @@ export function readFromArgv(sshTarget: string, controlPath: string, args: reado
     !Number.isSafeInteger(Number(args[2]) + Number(args[3])) || args[4] !== "hex")
     throw Error("invalid host-issued output range");
   return issuedArgv(sshTarget, controlPath, READ_FROM_SCRIPT, [...args]);
+}
+
+export function sessionSocketArgv(sshTarget: string, controlPath: string, args: readonly string[]): string[] {
+  if (args.length !== 1 || typeof args[0] !== "string" || !args[0].startsWith("/") ||
+    args[0].length > 4096 || /[\u0000-\u001f\u007f]/.test(args[0]))
+    throw Error("invalid host-issued session run directory");
+  return issuedArgv(sshTarget, controlPath, SESSION_SOCKET_SCRIPT, [...args]);
 }
 
 export function bundleOutArgv(sshTarget: string, controlPath: string, args: readonly string[]): string[] {
