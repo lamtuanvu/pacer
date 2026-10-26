@@ -5,6 +5,25 @@ use super::{
 };
 
 use crate::ota::wire::WireMessage;
+#[cfg(feature = "ota-fixture")]
+fn record_managed_proof_identity(m: &AdoptionManifest, process: &ProcessIdentity) {
+    if let Ok(assets) = crate::ota::platform_fs::PrivateDir::installation(
+        std::path::Path::new(&m.source.target.pacer_home),
+        &m.source.target.id,
+    )
+    .and_then(|dir| dir.child(m.transaction_id()))
+    {
+        let bytes = serde_json::to_vec(&serde_json::json!({
+            "stage": "proof-validation",
+            "process": process,
+        }));
+        if let Ok(bytes) = bytes {
+            if bytes.len() <= 512 {
+                let _ = assets.write_new("fixture-managed-readiness-identity.json", &bytes);
+            }
+        }
+    }
+}
 fn require(value: bool) -> Result<(), OtaError> {
     if value {
         Ok(())
@@ -315,7 +334,13 @@ async fn readiness(
                     native::elapsed_ms(start, &after).map_err(|_| OtaError::Timeout)?
                         < VERIFY_TIMEOUT_MS,
                 )?;
-                require(j.proof_valid(&proof, branch, m))?;
+                if !j.proof_valid(&proof, branch, m) {
+                    #[cfg(feature = "ota-fixture")]
+                    if branch == AdoptionBranch::Managed {
+                        record_managed_proof_identity(m, &launch.process);
+                    }
+                    return Err(OtaError::Identity);
+                }
                 return Ok(proof);
             }
             AdoptionReadiness::Failed => return Err(OtaError::RecoveryFailed),

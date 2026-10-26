@@ -7,6 +7,60 @@ use crate::ota::{
     wire::{Binding, Installation},
 };
 
+#[cfg(feature = "ota-fixture")]
+#[derive(Clone, Copy)]
+enum ReadinessIdentityStage {
+    Registration,
+    JobObservation,
+    ProcessInspection,
+    ProcessMissing,
+    Owner,
+    Executable,
+    CodeSignature,
+    Launch,
+    ServiceQuery,
+    DesktopSignature,
+}
+#[cfg(feature = "ota-fixture")]
+impl ReadinessIdentityStage {
+    fn code(self) -> &'static str {
+        match self {
+            Self::Registration => "registration",
+            Self::JobObservation => "job-observation",
+            Self::ProcessInspection => "process-inspection",
+            Self::ProcessMissing => "process-missing",
+            Self::Owner => "owner",
+            Self::Executable => "executable",
+            Self::CodeSignature => "code-signature",
+            Self::Launch => "launch",
+            Self::ServiceQuery => "service-query",
+            Self::DesktopSignature => "desktop-signature",
+        }
+    }
+}
+#[cfg(feature = "ota-fixture")]
+fn readiness_identity_payload(
+    stage: ReadinessIdentityStage,
+    process: Option<&ProcessIdentity>,
+) -> Option<Vec<u8>> {
+    let bytes = serde_json::to_vec(&serde_json::json!({
+        "stage": stage.code(),
+        "process": process,
+    }))
+    .ok()?;
+    (bytes.len() <= 512).then_some(bytes)
+}
+#[cfg(feature = "ota-fixture")]
+macro_rules! record_readiness_identity {
+    ($self:expr, $stage:expr, $process:expr) => {
+        $self.record_managed_readiness_identity($stage, $process)
+    };
+}
+#[cfg(not(feature = "ota-fixture"))]
+macro_rules! record_readiness_identity {
+    ($self:expr, $stage:expr, $process:expr) => {};
+}
+
 pub(crate) struct NativeAdoptionPlatform {
     trust: ReleaseTrust,
     binding: Binding,
@@ -16,6 +70,20 @@ pub(crate) struct NativeAdoptionPlatform {
     recovered: Option<AdoptionManifest>,
 }
 impl NativeAdoptionPlatform {
+    #[cfg(feature = "ota-fixture")]
+    fn record_managed_readiness_identity(
+        &self,
+        stage: ReadinessIdentityStage,
+        process: Option<&ProcessIdentity>,
+    ) {
+        if let Some(bytes) = readiness_identity_payload(stage, process) {
+            // First failure only. The private transaction directory is
+            // already owned by the signed native adoption helper.
+            let _ = self
+                .assets
+                .write_new("fixture-managed-readiness-identity.json", &bytes);
+        }
+    }
     pub(crate) fn new(trust: ReleaseTrust, context: AdoptionContext) -> Result<Self, OtaError> {
         ensure(
             context.schema == 1
@@ -332,6 +400,32 @@ mod tests {
             fixture["expected"].as_str().unwrap()
         );
     }
+    #[cfg(feature = "ota-fixture")]
+    #[test]
+    fn readiness_identity_trace_contains_only_fixed_stage_and_bounded_process_identity() {
+        let process = ProcessIdentity {
+            pid: 42,
+            boot_id: "fixture-boot".into(),
+            birth: "fixture-birth".into(),
+        };
+        let bytes = readiness_identity_payload(ReadinessIdentityStage::Launch, Some(&process))
+            .expect("fixed trace should fit");
+        let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(value["stage"], "launch");
+        assert_eq!(value["process"], serde_json::to_value(process).unwrap());
+        assert_eq!(value.as_object().unwrap().len(), 2);
+        assert!(bytes.len() <= 512);
+        let oversized = ProcessIdentity {
+            pid: 43,
+            boot_id: "x".repeat(512),
+            birth: "fixture-birth".into(),
+        };
+        assert!(readiness_identity_payload(
+            ReadinessIdentityStage::ProcessInspection,
+            Some(&oversized)
+        )
+        .is_none());
+    }
 }
 
 use crate::ota::{
@@ -524,20 +618,73 @@ impl NativeAdoptionPlatform {
         &self,
         m: &AdoptionManifest,
     ) -> Result<Option<(ProcessIdentity, PathBuf)>, OtaError> {
-        let (job, _) = self.current_job(m)?;
-        let Some(loaded) = job.observe(&self.trust)? else {
+        self.current_service_traced(m, false)
+    }
+    fn current_service_traced(
+        &self,
+        m: &AdoptionManifest,
+        trace_managed_readiness: bool,
+    ) -> Result<Option<(ProcessIdentity, PathBuf)>, OtaError> {
+        let (job, _) = self.current_job(m).map_err(|error| {
+            if trace_managed_readiness && matches!(error, OtaError::Identity) {
+                record_readiness_identity!(self, ReadinessIdentityStage::Registration, None);
+            }
+            error
+        })?;
+        let Some(loaded) = job.observe(&self.trust).map_err(|error| {
+            if trace_managed_readiness && matches!(error, OtaError::Identity) {
+                record_readiness_identity!(self, ReadinessIdentityStage::JobObservation, None);
+            }
+            error
+        })?
+        else {
             return Ok(None);
         };
         let pid = loaded.pid.ok_or(OtaError::Unavailable)?;
-        let details = native::process_details(pid)
-            .map_err(|_| OtaError::Identity)?
-            .ok_or(OtaError::Identity)?;
-        ensure(
-            details.uid as u64 == m.source.target.owner_uid
-                && details.executable == Path::new(&job.definition.arguments[0]),
-        )?;
+        let details = native::process_details(pid).map_err(|_| {
+            if trace_managed_readiness {
+                record_readiness_identity!(self, ReadinessIdentityStage::ProcessInspection, None);
+            }
+            OtaError::Identity
+        })?;
+        let Some(details) = details else {
+            if trace_managed_readiness {
+                record_readiness_identity!(self, ReadinessIdentityStage::ProcessMissing, None);
+            }
+            return Err(OtaError::Identity);
+        };
+        if details.uid as u64 != m.source.target.owner_uid {
+            if trace_managed_readiness {
+                record_readiness_identity!(
+                    self,
+                    ReadinessIdentityStage::Owner,
+                    Some(&details.identity)
+                );
+            }
+            return Err(OtaError::Identity);
+        }
+        if details.executable != Path::new(&job.definition.arguments[0]) {
+            if trace_managed_readiness {
+                record_readiness_identity!(
+                    self,
+                    ReadinessIdentityStage::Executable,
+                    Some(&details.identity)
+                );
+            }
+            return Err(OtaError::Identity);
+        }
         self.trust
-            .verify_process(&details.identity, CodeRole::Cli)?;
+            .verify_process(&details.identity, CodeRole::Cli)
+            .map_err(|error| {
+                if trace_managed_readiness && matches!(error, OtaError::Identity) {
+                    record_readiness_identity!(
+                        self,
+                        ReadinessIdentityStage::CodeSignature,
+                        Some(&details.identity)
+                    );
+                }
+                error
+            })?;
         Ok(Some((details.identity, details.executable)))
     }
     fn endpoint<'a>(
@@ -1207,10 +1354,16 @@ impl AdoptionPlatform for NativeAdoptionPlatform {
         launch: &'a ota::LaunchEvidence,
     ) -> PlatformFuture<'a, AdoptionReadiness> {
         Box::pin(async move {
-            let Some((p, e)) = self.current_service(m)? else {
+            let trace_managed = branch == control::AdoptionBranch::Managed;
+            let Some((p, e)) = self.current_service_traced(m, trace_managed)? else {
                 return Ok(AdoptionReadiness::Pending);
             };
-            ensure(p == launch.process)?;
+            if p != launch.process {
+                if trace_managed {
+                    record_readiness_identity!(self, ReadinessIdentityStage::Launch, Some(&p));
+                }
+                return Err(OtaError::Identity);
+            }
             #[cfg(feature = "ota-fixture")]
             if branch == control::AdoptionBranch::Managed
                 && crate::ota::fixture_fault::consume(
@@ -1227,10 +1380,30 @@ impl AdoptionPlatform for NativeAdoptionPlatform {
                     &m.binding,
                     branch,
                     &self.trust,
-                )? {
+                )
+                .map_err(|error| {
+                    if trace_managed && matches!(error, OtaError::Identity) {
+                        record_readiness_identity!(
+                            self,
+                            ReadinessIdentityStage::ServiceQuery,
+                            Some(&p)
+                        );
+                    }
+                    error
+                })? {
                     Some(proof) => {
                         self.trust
-                            .verify_process(&proof.desktop, CodeRole::Desktop)?;
+                            .verify_process(&proof.desktop, CodeRole::Desktop)
+                            .map_err(|error| {
+                                if trace_managed && matches!(error, OtaError::Identity) {
+                                    record_readiness_identity!(
+                                        self,
+                                        ReadinessIdentityStage::DesktopSignature,
+                                        Some(&proof.desktop)
+                                    );
+                                }
+                                error
+                            })?;
                         AdoptionReadiness::Ready(proof)
                     }
                     None => AdoptionReadiness::Pending,
