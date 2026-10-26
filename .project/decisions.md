@@ -38,6 +38,22 @@ Draft-readiness clarification in the same proposed amendment: require current re
 
 ## Exceptions
 
+### P4-SP11-2026-10 — reviewed plugin grants for legacy v3 callers
+
+Granted by @lamtuanvu in the 2026-10-26 project conversation; expires on
+**2026-11-30**. Scope: PR #344's `plugin.enable` operation for installed
+(non-bundled) plugins only. An external v3 caller using the former
+`{ id, grant: true }` request without the manifest-bound `expectedConsent`
+value receives HTTP 409 `conflict`. The caller must read that plugin's current
+`expectedConsent` from `plugin.list`, show its current permissions for review,
+and retry with that value. This scoped P4 exception permits the incompatible
+request shape so an old client cannot grant newly requested capabilities without
+review. It does not authorize a blind grant, remove the v3 operation, change the
+protocol major, or waive any other API, security, UI, CT-11, CI or review gate.
+By expiry, whether PR #344 is open or merged, the maintainer must renew this
+exception or approve and implement a versioned compatibility plan for continued
+incompatible v3 behavior.
+
 ### VO-TEMP-2026-10 — manual VoiceOver validation paused
 
 Granted by @lamtuanvu on 2026-10-22 through the explicit project-wide instruction to temporarily turn off the VoiceOver requirement because validation was consuming excessive time. Applies to all Pacer UI work, including Diagnostics repair. Expires on **2026-11-22**, or earlier if the maintainer reinstates it.
