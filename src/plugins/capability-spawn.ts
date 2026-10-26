@@ -202,11 +202,12 @@ async function run(authority: CallAuthority, state: State, pin: Pin, argv: strin
   try {
     authority.assertActive();
     validatePin(pin);
-    child = spawn(pin.canonical!, argv.slice(1), {
+    const start = () => spawn(pin.canonical!, argv.slice(1), {
       stdio: [pin.mode === "codex-live" ? "pipe" : "ignore", "pipe", "pipe"], detached: process.platform !== "win32",
       ...(env === undefined ? {} : { env }),
       ...(pin.context?.cwd ? { cwd: pin.context.canonicalCwd } : {}),
     });
+    child = authority.spawnAdmission ? authority.spawnAdmission(start) : start();
     if (pin.mode === "codex-live") {
       child.stdin?.on("error", () => { failure ??= new CoreError("plugin_unavailable", "Codex usage request input failed"); stop(); });
       child.stdin?.write(CODEX_LIVE_REQUEST);

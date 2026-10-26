@@ -12,11 +12,16 @@ export const executorAvailableResult = z.object({
 
 const taskId = z.string().regex(/^t-[A-Za-z0-9_-]{1,120}$/);
 const positive = z.number().int().positive().safe();
-/** Staged local-attempt envelope. The host selects the task and revision. */
+/** The host selects the task, revision and any exact, bounded local command. */
 export const executorRunParams = z.object({
   task: z.object({ id: taskId, rev: positive }).strict(),
   attempt: positive,
   runDir: z.literal(1),
+  effect: z.object({
+    argv: z.array(z.string().min(1).max(4096)).min(1).max(32),
+    cwd: z.string().min(1),
+    timeoutMs: z.number().int().positive().max(30_000),
+  }).strict().optional(),
 }).strict();
 export const executorRunResult = z.object({
   status: z.enum(["done", "failed"]),
@@ -39,11 +44,11 @@ export const executorRunEvent = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("log"), stream: z.enum(["stdout", "stderr"]), text: z.string().max(4096) }).strict(),
 ]);
 
-/** Fake-only contract. Attempt ownership and effect authority require a later reviewed slice. */
+/** Full attempt outcome, stop and recovery remain later SP09 slices. */
 export const EXECUTOR_METHODS = {
   "executor.available": { description: "Report availability for a host-selected direct backend using a credential-free strategy name; staged only, with no production caller.",
     params: executorAvailableParams, result: executorAvailableResult, deadlineMs: 10_000 },
-  "executor.run": { description: "Staged owned local attempt; no production caller is switched yet.",
+  "executor.run": { description: "Owned local attempt with an optional host-issued bounded process effect.",
     params: executorRunParams, result: executorRunResult, deadlineMs: 0 },
   "executor.stop": { description: "Stop the matching staged local attempt.",
     params: executorStopParams, result: executorStopResult, deadlineMs: 30_000 },

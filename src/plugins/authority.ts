@@ -1,5 +1,6 @@
 import { scheduleDeadline } from "../deadline";
 import { randomUUID } from "node:crypto";
+import type { ChildProcess } from "node:child_process";
 import { CoreError } from "../core/errors";
 import type { Ctx } from "../types";
 
@@ -41,7 +42,9 @@ export interface BundleStageResource {
   timeoutMs: number;
   maxBytes: number;
 }
-export interface AuthorityOptions { deadlineMs: number; signal?: AbortSignal; grants?: readonly string[]; accountHome?: string | null }
+export interface AuthorityOptions { deadlineMs: number; signal?: AbortSignal; grants?: readonly string[]; accountHome?: string | null;
+  /** Host-only synchronous admission around the actual spawn, never sent to a plugin. */
+  spawnAdmission?: (spawn: () => ChildProcess) => ChildProcess }
 
 /** Host-issued immutable resources. Never construct these from plugin RPC params. */
 export class CallAuthority {
@@ -58,7 +61,8 @@ export class CallAuthority {
   private readonly usedHostOperations = new Set<number>();
   private readonly detach: () => void;
 
-  constructor(readonly ctx: Ctx, resources: CallResources, readonly deadlineMs: number, parent?: AbortSignal, grants: readonly string[] = [], readonly accountHome: string | null = null) {
+  constructor(readonly ctx: Ctx, resources: CallResources, readonly deadlineMs: number, parent?: AbortSignal, grants: readonly string[] = [], readonly accountHome: string | null = null,
+    readonly spawnAdmission?: (spawn: () => ChildProcess) => ChildProcess) {
     this.grants = new Set(grants);
     this.resources = structuredClone(resources);
     for (const value of this.resources.commands) {
@@ -158,5 +162,5 @@ export class CallAuthority {
 }
 export function createCallAuthority(ctx: Ctx, resources: CallResources, options: AuthorityOptions): CallAuthority {
   if (!Number.isFinite(options.deadlineMs)) throw new CoreError("invalid_input", "call deadline must be finite");
-  return new CallAuthority(ctx, resources, options.deadlineMs, options.signal, options.grants, options.accountHome);
+  return new CallAuthority(ctx, resources, options.deadlineMs, options.signal, options.grants, options.accountHome, options.spawnAdmission);
 }

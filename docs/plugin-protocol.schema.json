@@ -4277,6 +4277,36 @@
         "runDir": {
           "type": "number",
           "const": 1
+        },
+        "effect": {
+          "type": "object",
+          "properties": {
+            "argv": {
+              "minItems": 1,
+              "maxItems": 32,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096
+              }
+            },
+            "cwd": {
+              "type": "string",
+              "minLength": 1
+            },
+            "timeoutMs": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 30000
+            }
+          },
+          "required": [
+            "argv",
+            "cwd",
+            "timeoutMs"
+          ],
+          "additionalProperties": false
         }
       },
       "required": [

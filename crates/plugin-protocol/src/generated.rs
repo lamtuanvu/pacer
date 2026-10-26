@@ -8443,6 +8443,36 @@ impl<'de> ::serde::Deserialize<'de> for ExecutorAvailableResultReason {
 ///      "maximum": 9007199254740991.0,
 ///      "exclusiveMinimum": 0.0
 ///    },
+///    "effect": {
+///      "type": "object",
+///      "required": [
+///        "argv",
+///        "cwd",
+///        "timeoutMs"
+///      ],
+///      "properties": {
+///        "argv": {
+///          "type": "array",
+///          "items": {
+///            "type": "string",
+///            "maxLength": 4096,
+///            "minLength": 1
+///          },
+///          "maxItems": 32,
+///          "minItems": 1
+///        },
+///        "cwd": {
+///          "type": "string",
+///          "minLength": 1
+///        },
+///        "timeoutMs": {
+///          "type": "integer",
+///          "maximum": 30000.0,
+///          "exclusiveMinimum": 0.0
+///        }
+///      },
+///      "additionalProperties": false
+///    },
 ///    "runDir": {
 ///      "type": "number",
 ///      "const": 1
@@ -8475,9 +8505,147 @@ impl<'de> ::serde::Deserialize<'de> for ExecutorAvailableResultReason {
 #[serde(deny_unknown_fields)]
 pub struct ExecutorRunParams {
     pub attempt: ::std::num::NonZeroU64,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub effect: ::std::option::Option<ExecutorRunParamsEffect>,
     #[serde(rename = "runDir")]
     pub run_dir: f64,
     pub task: ExecutorRunParamsTask,
+}
+///`ExecutorRunParamsEffect`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "argv",
+///    "cwd",
+///    "timeoutMs"
+///  ],
+///  "properties": {
+///    "argv": {
+///      "type": "array",
+///      "items": {
+///        "type": "string",
+///        "maxLength": 4096,
+///        "minLength": 1
+///      },
+///      "maxItems": 32,
+///      "minItems": 1
+///    },
+///    "cwd": {
+///      "type": "string",
+///      "minLength": 1
+///    },
+///    "timeoutMs": {
+///      "type": "integer",
+///      "maximum": 30000.0,
+///      "exclusiveMinimum": 0.0
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct ExecutorRunParamsEffect {
+    pub argv: ::std::vec::Vec<ExecutorRunParamsEffectArgvItem>,
+    pub cwd: ExecutorRunParamsEffectCwd,
+    #[serde(rename = "timeoutMs")]
+    pub timeout_ms: ::std::num::NonZeroU64,
+}
+///`ExecutorRunParamsEffectArgvItem`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 4096,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct ExecutorRunParamsEffectArgvItem(::std::string::String);
+impl ::std::ops::Deref for ExecutorRunParamsEffectArgvItem {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<ExecutorRunParamsEffectArgvItem> for ::std::string::String {
+    fn from(value: ExecutorRunParamsEffectArgvItem) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for ExecutorRunParamsEffectArgvItem {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_7(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for ExecutorRunParamsEffectArgvItem {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for ExecutorRunParamsEffectArgvItem {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`ExecutorRunParamsEffectCwd`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct ExecutorRunParamsEffectCwd(::std::string::String);
+impl ::std::ops::Deref for ExecutorRunParamsEffectCwd {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<ExecutorRunParamsEffectCwd> for ::std::string::String {
+    fn from(value: ExecutorRunParamsEffectCwd) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for ExecutorRunParamsEffectCwd {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_0(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for ExecutorRunParamsEffectCwd {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for ExecutorRunParamsEffectCwd {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
 }
 ///`ExecutorRunParamsTask`
 ///

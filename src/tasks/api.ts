@@ -383,27 +383,33 @@ export async function taskWait(ctx: Ctx, id: string, timeoutS: number, pollMs = 
 
 /** Mark a task stopped and kill its executor; a live runner then finalizes it as stopped. */
 export function taskStop(ctx: Ctx, id: string): TaskRecord | null {
-  const t = readTask(ctx, id);
-  if (!t) return null;
-  if (t.state === "needs_input") return updateTask(ctx, id, x => {
-    x.state = "stopped";
-    if (x.result) x.result.status = "stopped";
+  let remote: TaskRecord["run"];
+  const updated = withTaskLock(ctx, id, () => {
+    const t = readTask(ctx, id);
+    if (!t) return null;
+    if (t.state === "needs_input") return updateTask(ctx, id, x => {
+      x.state = "stopped";
+      if (x.result) x.result.status = "stopped";
+    });
+    if (isTerminal(t)) return t;
+    const runnerAlive = t.state === "running" && alive(t.runnerPid);
+    const stopped = updateTask(ctx, id, x => {
+      if (TERMINAL_STATES.includes(x.state)) return;
+      x.state = "stopped";
+      if (!runnerAlive) {
+        x.result = { status: "stopped", executor: null, model: null, files: "", report: "stopped before an executor ran", backend: "direct" };
+      }
+    });
+    if (stopped.run?.host) remote = stopped.run;
+    else if (stopped.childPid) killTree(stopped.childPid, "SIGTERM");
+    return stopped;
   });
-  if (isTerminal(t)) return t;
-  const runnerAlive = t.state === "running" && alive(t.runnerPid);
-  const updated = updateTask(ctx, id, (x) => {
-    if (TERMINAL_STATES.includes(x.state)) return;
-    x.state = "stopped";
-    if (!runnerAlive) {
-      x.result = { status: "stopped", executor: null, model: null, files: "", report: "stopped before an executor ran", backend: "direct" };
-    }
-  });
-  if (t.run?.host) {
+  if (remote?.host) {
     try {
-      const host = loadStrategy(ctx).hosts[t.run.host];
-      if (host && t.run.remoteDir) void new RemoteRunIO(ctx, host, t.run.remoteDir, t.run.dir)
+      const host = loadStrategy(ctx).hosts[remote.host];
+      if (host && remote.remoteDir) void new RemoteRunIO(ctx, host, remote.remoteDir, remote.dir)
         .stop({ graceMs: 5000, sleep: ms => Bun.sleep(ms) }).catch(() => { /* a live supervisor retries the stop */ });
     } catch { /* retain the stop flag for the supervisor when config is unavailable */ }
-  } else if (t.childPid) killTree(t.childPid, "SIGTERM");
+  }
   return updated;
 }

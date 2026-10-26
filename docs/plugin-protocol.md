@@ -4643,7 +4643,7 @@ Result:
 
 ### `executor.run`
 
-Staged owned local attempt; no production caller is switched yet.
+Owned local attempt with an optional host-issued bounded process effect.
 
 Params:
 
@@ -4679,6 +4679,36 @@ Params:
     "runDir": {
       "type": "number",
       "const": 1
+    },
+    "effect": {
+      "type": "object",
+      "properties": {
+        "argv": {
+          "minItems": 1,
+          "maxItems": 32,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          }
+        },
+        "cwd": {
+          "type": "string",
+          "minLength": 1
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 30000
+        }
+      },
+      "required": [
+        "argv",
+        "cwd",
+        "timeoutMs"
+      ],
+      "additionalProperties": false
     }
   },
   "required": [

@@ -6,11 +6,23 @@ import type { RunRef } from "../tasks/types";
 import type { Ctx } from "../types";
 import { applyExecutorProgress } from "./executor-progress";
 import { executorRunResult } from "./executor-protocol";
+import type { CallResources } from "./authority";
+import { killTree } from "../exec/process";
 import { NativeWriteError, WRITE_DIRECTORY, writeNative } from "./write-native";
 
 interface ExecutorCaller {
   call(ctx: Ctx, pluginId: string, method: "executor.run", params: unknown,
-    options: { onProgress: (event: unknown) => void }): Promise<unknown>;
+    options: { onProgress: (event: unknown) => void; resources?: CallResources; deadlineMs?: number;
+      spawnAdmission?: (spawn: () => import("node:child_process").ChildProcess) => import("node:child_process").ChildProcess }): Promise<unknown>;
+}
+
+export interface LocalExecutorEffect { argv: string[]; cwd: string; timeoutMs: number }
+
+function ownsRun(ctx: Ctx, taskId: string, owner: RunRef): boolean {
+  const task = readTask(ctx, taskId);
+  return !!task && task.state === "running" && task.attempts.length + 1 === owner.attempt &&
+    task.run?.dir === owner.dir && task.run?.attempt === owner.attempt && !task.run?.host &&
+    task.run?.startedAt === owner.startedAt && task.run?.executor === owner.executor;
 }
 
 function privateDirectory(path: string, fd: number): void {
@@ -67,8 +79,13 @@ function claimRunDirectory(ctx: Ctx, taskId: string, attempt: number): string {
 
 /** Stage an owned local attempt. Production dispatch stays on the existing backend until full effects and recovery are reviewed. */
 export async function runOwnedExecutorAttempt(ctx: Ctx, caller: ExecutorCaller, pluginId: string,
-  taskId: string, executor: string, workdir: string): Promise<ReturnType<typeof executorRunResult.parse>> {
+  taskId: string, executor: string, workdir: string,
+  effect?: LocalExecutorEffect): Promise<ReturnType<typeof executorRunResult.parse>> {
   if (!isAbsolute(workdir)) throw new CoreError("invalid_input", "executor workdir must be absolute");
+  if (effect && (!isAbsolute(effect.cwd) || effect.cwd !== workdir || effect.argv.length < 1 ||
+    effect.argv.length > 32 || effect.argv.some(value => !value || value.length > 4096 || value.includes("\0")) ||
+    !Number.isSafeInteger(effect.timeoutMs) || effect.timeoutMs < 1 || effect.timeoutMs > 30_000))
+    throw new CoreError("invalid_input", "invalid executor effect");
   const owner = withTaskLock(ctx, taskId, (): RunRef => {
     const task = readTask(ctx, taskId);
     if (!task) throw new CoreError("unknown_task", `unknown task ${taskId}`);
@@ -82,25 +99,44 @@ export async function runOwnedExecutorAttempt(ctx: Ctx, caller: ExecutorCaller, 
     return run;
   });
   const revision = withTaskLock(ctx, taskId, () => {
-    const task = readTask(ctx, taskId);
-    if (task?.state !== "running" || task.attempts.length + 1 !== owner.attempt ||
-      task.run?.dir !== owner.dir || task.run?.attempt !== owner.attempt || task.run?.host ||
-      task.run?.startedAt !== owner.startedAt ||
-      task.run?.executor !== owner.executor)
+    if (!ownsRun(ctx, taskId, owner))
       throw new CoreError("conflict", "executor attempt changed before dispatch");
-    return task.rev;
+    return readTask(ctx, taskId)!.rev;
   });
-  const raw = await caller.call(ctx, pluginId, "executor.run",
-    { task: { id: taskId, rev: revision }, attempt: owner.attempt, runDir: 1 },
-    { onProgress: event => applyExecutorProgress(ctx, taskId, owner.attempt, event, owner) });
+  let spawnedPid: number | undefined;
+  const spawnAdmission = (spawn: () => import("node:child_process").ChildProcess) =>
+    withTaskLock(ctx, taskId, () => {
+      if (!ownsRun(ctx, taskId, owner))
+        throw new CoreError("conflict", "executor attempt changed before process spawn");
+      const child = spawn();
+      try {
+        if (!child.pid) throw new CoreError("plugin_unavailable", "executor process has no pid");
+        updateTask(ctx, taskId, task => { task.childPid = child.pid; });
+        spawnedPid = child.pid;
+        return child;
+      } catch (error) {
+        if (child.pid) killTree(child.pid, "SIGTERM");
+        throw error;
+      }
+    });
+  let raw: unknown;
+  try { raw = await caller.call(ctx, pluginId, "executor.run",
+    { task: { id: taskId, rev: revision }, attempt: owner.attempt, runDir: 1, ...(effect ? { effect } : {}) },
+    { onProgress: event => applyExecutorProgress(ctx, taskId, owner.attempt, event, owner),
+      ...(effect ? { deadlineMs: effect.timeoutMs + 5000,
+        spawnAdmission,
+        resources: { reads: [], stores: [], commands: [{ argv: effect.argv, cwd: effect.cwd,
+          env: {}, timeoutMs: effect.timeoutMs }] } } : {}) });
+  } finally {
+    if (spawnedPid) withTaskLock(ctx, taskId, () => {
+      const current = readTask(ctx, taskId);
+      if (current?.childPid === spawnedPid) updateTask(ctx, taskId, task => { delete task.childPid; });
+    });
+  }
   const result = executorRunResult.safeParse(raw);
   if (!result.success) throw new CoreError("plugin_refused", "executor returned an invalid result");
   withTaskLock(ctx, taskId, () => {
-    const task = readTask(ctx, taskId);
-    if (task?.state !== "running" || task.attempts.length + 1 !== owner.attempt ||
-      task.run?.dir !== owner.dir || task.run?.attempt !== owner.attempt || task.run?.host ||
-      task.run?.startedAt !== owner.startedAt ||
-      task.run?.executor !== owner.executor)
+    if (!ownsRun(ctx, taskId, owner))
       throw new CoreError("conflict", "executor attempt changed before completion");
   });
   return result.data;

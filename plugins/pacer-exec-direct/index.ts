@@ -1,0 +1,44 @@
+import { PluginError, serve, type Handler } from "@pacer/plugin";
+import { z } from "zod";
+import { manifest } from "./manifest";
+export { manifest } from "./manifest";
+
+const input = z.object({
+  task: z.object({ id: z.string(), rev: z.number().int().positive() }).strict(),
+  attempt: z.number().int().positive(), runDir: z.literal(1),
+  effect: z.object({ argv: z.array(z.string()).min(1).max(32), cwd: z.string(),
+    timeoutMs: z.number().int().positive().max(30_000) }).strict(),
+}).strict();
+
+const spawnResult = z.object({
+  code: z.number().int().safe(), timedOut: z.boolean(),
+  stderr: z.string().optional(),
+  output: z.object({ stdout: z.string().uuid(), stderr: z.string().uuid() }).optional(),
+}).refine(value => value.stderr !== undefined || value.output !== undefined);
+
+export const handlers = {
+  "executor.available": () => ({ available: true }),
+  "executor.run": async (params, host, signal) => {
+    const parsed = input.safeParse(params);
+    if (!parsed.success) throw new PluginError("invalid_input", "direct process effect is required");
+    if (signal.aborted) throw new PluginError("plugin_unavailable", "executor call was cancelled");
+    const { effect } = parsed.data;
+    const result = spawnResult.parse(await host.call("capability.process.spawn", {
+      argv: effect.argv, cwd: effect.cwd, env: {}, timeoutMs: effect.timeoutMs,
+    }));
+    if (signal.aborted) throw new PluginError("plugin_unavailable", "executor call was cancelled");
+    let stderr = result.stderr ?? "";
+    if (result.output) {
+      const chunk = await host.call<{ base64: string }>("capability.process.outputChunk",
+        { handle: result.output.stderr, offset: 0, length: 1024 });
+      stderr = Buffer.from(chunk.base64, "base64").toString("utf8");
+    }
+    return { status: result.code === 0 && !result.timedOut ? "done" : "failed",
+      exitCode: result.code,
+      report: result.timedOut ? "local process timed out" : result.code === 0
+        ? "local process exited successfully" : `local process exited ${result.code}: ${stderr.slice(0, 1024)}` };
+  },
+  "executor.stop": () => ({ code: 137, killed: false }),
+} satisfies Record<string, Handler>;
+
+if (import.meta.main) await serve({ manifest, handlers });
