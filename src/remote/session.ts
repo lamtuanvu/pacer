@@ -7,8 +7,10 @@ import {join} from "node:path";
 import type {Ctx} from "../types";
 import type {HostCfg} from "../config/hosts";
 import {socketPath} from "../session/host";
-import {controlDir,payloadStream,sshArgv,runRemote} from "./ssh";
+import {controlDir,payloadStream,sshArgv} from "./ssh";
 import {SCRIPTS} from "./scripts";
+import {pluginRegistry} from "../plugins";
+import {issueConfiguredHostSessionSocket} from "../plugins/host-session-socket-issuer";
 
 /** Byte-transparent protocol bridge. The remote host owns viewers and control. */
 export class RemoteSession {
@@ -40,8 +42,9 @@ export class RemoteSession {
   private async prepareForward() {
     await this.cancelling;
     if(this.closed)return;
-    const result=await runRemote(this.ctx,this.host,SCRIPTS.SESSION_SOCKET,[this.remoteDir]);
-    if(result.code || !result.stdout.startsWith("/") || /[\r\n\0:]/.test(result.stdout))throw Error("invalid remote session socket");
+    const grant=issueConfiguredHostSessionSocket(this.ctx,this.host.alias,this.remoteDir,this.localDir);
+    const result=await pluginRegistry(this.ctx).sessionSocketConfiguredHost(this.ctx,grant);
+    if(result.code || result.timedOut || !result.stdout.startsWith("/") || /[\r\n\0:]/.test(result.stdout))throw Error("invalid remote session socket");
     if(this.closed)return;
     this.remoteSocket=result.stdout;
     const dir=join(this.localDir,"forward");
@@ -86,7 +89,7 @@ export class RemoteSession {
     void this.connect(socket);
   }
   private async connect(socket:Socket) {
-    try {await this.prepare();} catch { /* exec transport may still be available */ }
+    try {await this.prepare();} catch { socket.destroy(); return; }
     if(socket.destroyed||this.closed)return;
     socket.resume();
     if(!this.forward){this.exec(socket);return;}
