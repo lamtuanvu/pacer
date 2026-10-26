@@ -1,3 +1,4 @@
+import {enableReviewed} from "./fixtures/plugin-consent";
 import { expect, test } from "bun:test";
 import { chmodSync, copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -32,7 +33,7 @@ test("raw1.0 plugin retains agentSession/config/log but gains no uncorrelated ac
   install(ctx, manifest(id));
   const registry = new PluginRegistry({ bundled: [], spawnBundled: () => { throw Error("no bundle in legacy fixture"); } });
   try {
-    await registry.enable(ctx, id, true);
+    await enableReviewed(registry, ctx, id);
     expect(await registry.call(ctx, id, "diagnostic.ping", {})).toMatchObject({ ok: true });
     expect(await registry.call(ctx, id, "agentSession.capabilities", { agent: "codex", version: "0.163.0" }))
       .toEqual({ interactive: true, resume: true, launchImages: true, liveImages: false, files: true });

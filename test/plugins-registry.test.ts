@@ -1,3 +1,4 @@
+import {enableReviewed} from "./fixtures/plugin-consent";
 // test/plugins-registry.test.ts
 import { afterAll, afterEach, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
@@ -75,7 +76,7 @@ test("enable needs a grant once, then starts lazily, answers declared capabiliti
   installFixture("good", join(ctx.pacerHome, "plugins"));
   const r = registry();
   expect(await r.enable(ctx, "fx-good", false)).toEqual({ id: "fx-good", state: "needs_grant", needs: ["log", "config.get"] });
-  expect(await r.enable(ctx, "fx-good", true)).toEqual({ id: "fx-good", state: "idle" });
+  expect(await enableReviewed(r, ctx, "fx-good")).toEqual({ id: "fx-good", state: "idle" });
   expect(r.list(ctx).find(p => p.id === "fx-good")).toMatchObject({ enabled: true, grant: { version: "1.0.0", capabilities: ["log", "config.get"] }, pid: null });
   const [report] = await r.doctor(live(ctx), "fx-good");
   expect(report).toMatchObject({ id: "fx-good", ok: true, state: "ready", served: ["diagnostic"], protocol: { host: PLUGIN_PROTOCOL_VERSION, plugin: PLUGIN_PROTOCOL_VERSION }, restarts: 0 });
@@ -95,7 +96,7 @@ test("undeclared capabilities are denied and a version with more capabilities ne
   const ctx = home();
   const dir = installFixture("undeclared", join(ctx.pacerHome, "plugins"));
   const r = registry();
-  await r.enable(ctx, "fx-undeclared", true);
+  await enableReviewed(r, ctx, "fx-undeclared");
   expect(await codeOf(r.call(live(ctx), "fx-undeclared", "diagnostic.ping", {}))).toBe("capability_denied");
   const manifest = JSON.parse(readFileSync(join(dir, "pacer-plugin.json"), "utf8"));
   writeFileSync(join(dir, "pacer-plugin.json"), JSON.stringify({ ...manifest, version: "1.1.0", capabilities: [{ name: "config.get" }] }));
@@ -108,7 +109,7 @@ test("three crashes within a minute mark the plugin failing; enable clears it", 
   installFixture("crasher", join(ctx.pacerHome, "plugins"));
   const waits: number[] = [];
   const r = registry(async ms => { waits.push(ms); });
-  await r.enable(ctx, "fx-crasher", true);
+  await enableReviewed(r, ctx, "fx-crasher");
   for (let i = 0; i < 3; i++) {
     expect(await r.call(live(ctx), "fx-crasher", "diagnostic.ping", {})).toMatchObject({ ok: true });
     await Bun.sleep(150);
@@ -121,7 +122,7 @@ test("three crashes within a minute mark the plugin failing; enable clears it", 
   expect(r.list(ctx).find(p => p.id === "fx-crasher")).toMatchObject({ state: "failing" });
   expect(await codeOf(r.call(live(ctx), "fx-crasher", "diagnostic.ping", {}))).toBe("plugin_unavailable");
   expect(readActivity(ctx, { kinds: ["plugin_state"] }).entries.map(e => e.text)).toEqual([expect.stringContaining("fx-crasher")]);
-  expect(await r.enable(live(ctx), "fx-crasher", true)).toEqual({ id: "fx-crasher", state: "idle" });
+  expect(await enableReviewed(r, live(ctx), "fx-crasher")).toEqual({ id: "fx-crasher", state: "idle" });
   expect(await r.call(live(ctx), "fx-crasher", "diagnostic.ping", {})).toMatchObject({ ok: true });
   await r.shutdown();
 }, 20000);
@@ -130,7 +131,7 @@ test("calls serialise unless the manifest is reentrant", async () => {
   const ctx = home();
   installFixture("serial", join(ctx.pacerHome, "plugins")); installFixture("reentrant", join(ctx.pacerHome, "plugins"));
   const r = registry();
-  await r.enable(ctx, "fx-serial", true); await r.enable(ctx, "fx-reentrant", true);
+  await enableReviewed(r, ctx, "fx-serial"); await enableReviewed(r, ctx, "fx-reentrant");
   // Observe handler overlap instead of elapsed time, which varies under CI load.
   await r.doctor(live(ctx));
   const peak = async (id: string) => {
@@ -157,6 +158,6 @@ test('only bundled peers receive the single host-issued source selector; install
   await r.shutdown();
   installFixture('good',join(ctx.pacerHome,'plugins'));
   const installed=new PluginRegistry({bundled:[],spawn:capture,spawnBundled:()=>{throw Error('installed peer used bundled launcher');}});registries.push(installed);
-  await installed.enable(live(ctx),'fx-good',true);expect((await installed.doctor(live(ctx),'fx-good'))[0]?.ok).toBe(true);
+  await enableReviewed(installed, live(ctx), 'fx-good');expect((await installed.doctor(live(ctx),'fx-good'))[0]?.ok).toBe(true);
   expect(captures[1]).toEqual({PATH:ctx.env.PATH,HOME:ctx.home,PACER_HOME:ctx.pacerHome,PACER_PLUGIN_ID:'fx-good',PACER_PLUGIN_PROTOCOL:'1.5.0',BUN_RUNTIME_TRANSPILER_CACHE_PATH:''});
 });

@@ -1,3 +1,4 @@
+import {enableReviewed} from "./fixtures/plugin-consent";
 import {expect,test} from 'bun:test';
 import {bundledPluginSpawn} from '../src/plugins/index';
 import {fakeCtx} from './helpers';
@@ -40,7 +41,7 @@ test('bundled selector crosses the sealed spawn boundary; installed peer keeps i
   expect(captures[0]).toEqual({PATH:ctx.env.PATH,HOME:ctx.home,PACER_HOME:ctx.pacerHome,PACER_PLUGIN_ID:'pacer-agent-session',PACER_PLUGIN_PROTOCOL:PLUGIN_PROTOCOL_VERSION,BUN_RUNTIME_TRANSPILER_CACHE_PATH:"",PACER_CORE_ARGV:'fixed-selector'});
   await bundled.shutdown();
   installFixture('good',join(ctx.pacerHome,'plugins'));
-  await installed.enable(ctx,'fx-good',true);
+  await enableReviewed(installed, ctx, 'fx-good');
   expect((await installed.doctor(ctx,'fx-good'))[0]?.ok).toBe(true);
   expect(captures[1]).toEqual({PATH:ctx.env.PATH,HOME:ctx.home,PACER_HOME:ctx.pacerHome,PACER_PLUGIN_ID:'fx-good',PACER_PLUGIN_PROTOCOL:PLUGIN_PROTOCOL_VERSION,BUN_RUNTIME_TRANSPILER_CACHE_PATH:""});
  } finally {await bundled.shutdown();await installed.shutdown();rmSync(ctx.home,{recursive:true,force:true});}

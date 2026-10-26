@@ -1,3 +1,4 @@
+import {enableReviewed} from "./fixtures/plugin-consent";
 import { expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -50,7 +51,7 @@ test("installed fake executor validates availability without launching an attemp
   const folder = installFixture("executor", join(ctx.pacerHome, "plugins"));
   const registry = new PluginRegistry({ bundled: [], spawnBundled: () => { throw Error("no bundle"); }, eventPumpMs: 0 });
   try {
-    await registry.enable(ctx, "fx-executor", true);
+    await enableReviewed(registry, ctx, "fx-executor");
     expect(registry.list(ctx)[0]?.pid).toBeNull();
     const doctor = (await registry.doctor(ctx, "fx-executor"))[0];
     expect(doctor?.ok).toBe(true);

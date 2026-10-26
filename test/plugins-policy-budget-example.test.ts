@@ -5,6 +5,7 @@ import type { ObservationClient, PolicyTask } from '@pacer/plugin';
 import { createBudgetPolicy } from '../plugins/examples/pacer-policy-budget/budget';
 import { BUNDLED } from '../plugins/bundled';
 import { readManifestFile } from '../src/plugins/manifest';
+import {fixtureConsent} from './fixtures/plugin-consent';
 
 function fixture(config: Record<string, unknown> = {}, count = 0) {
   let running = count;
@@ -89,7 +90,8 @@ test('built unbundled example uses actual negotiated host reads and vetoes at it
   expect(readFileSync(entry, 'utf8').startsWith('#!/usr/bin/env bun\n')).toBe(true);
   chmodSync(entry, 0o755);
   copyFileSync(join(import.meta.dir, '../plugins/examples/pacer-policy-budget/pacer-plugin.json'), join(folder, 'pacer-plugin.json'));
-  writeFileSync(join(pacerHome, 'strategy.yaml'), JSON.stringify({ planner: 'codex', accounts: { codex: { kind: 'codex', usage: 'quota' } }, routing: [{ default: ['codex'] }], plugins: { installed: { 'pacer-policy-budget': { version: '0.1.0', capabilities: ['tasks.read', 'events.subscribe', 'config.get', 'log'] } }, config: { 'pacer-policy-budget': { N: 2 } } } }));
+  const consent=fixtureConsent(JSON.parse(readFileSync(join(folder,'pacer-plugin.json'),'utf8')));
+  writeFileSync(join(pacerHome, 'strategy.yaml'), JSON.stringify({ planner: 'codex', accounts: { codex: { kind: 'codex', usage: 'quota' } }, routing: [{ default: ['codex'] }], plugins: { installed: { 'pacer-policy-budget': { version: '0.1.0', capabilities: ['tasks.read', 'events.subscribe', 'config.get', 'log'], consent } }, config: { 'pacer-policy-budget': { N: 2 } } } }));
   const registry = pluginRegistry(ctx, { bundled: [], spawnBundled: () => { throw Error('example must remain unbundled'); } });
   const reports = await registry.doctor(ctx, 'pacer-policy-budget');
   expect(reports).toHaveLength(1);
