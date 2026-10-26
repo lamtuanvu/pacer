@@ -38,6 +38,18 @@ test("fixed host-runner scripts and six bounded method contracts",()=>{
   expect(EXTENSION_METHODS["hostRunner.fetch"].result.safeParse({name:"/tmp/out.bundle",bytes:1,sha256:"a".repeat(64)}).success).toBe(false);
 });
 
+test("retired question clear script refuses without removing a replacement",()=>{
+  const dir=mkdtempSync(join(tmpdir(),"pacer-question-clear-"));
+  const path=join(dir,".pacer-question");
+  try{
+    writeFileSync(path,"new question");
+    const result=Bun.spawnSync(["sh","-c",SCRIPTS.QUESTION_CLEAR,"pacer",dir]);
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr.toString()).toContain("question clear is retired");
+    expect(readFileSync(path,"utf8")).toBe("new question");
+  }finally{rmSync(dir,{recursive:true,force:true});}
+});
+
 test("installed fake runner validates input and every result without SSH",async()=>{
   const home=mkdtempSync(join(tmpdir(),"pacer-host-runner-"));
   symlinkSync(join(import.meta.dir,"..","node_modules"),join(home,"node_modules"),"dir");

@@ -77,6 +77,10 @@ printf 'worktree=%s\\nbranch=%s\\n' "$worktree" "$remote_branch"`,
 [ -f "$file" ] || exit 0
 [ "$(wc -c < "$file")" -le 4000 ] || { echo "question exceeds 1000 characters" >&2; exit 1; }
 cat "$file"`,
+  // Preserve the fixed script ID for protocol compatibility, but never unlink
+  // a question after acceptance: another writer may have replaced the file.
+  QUESTION_CLEAR: `echo 'question clear is retired' >&2
+exit 1`,
   PREFLIGHT: `cd "$1" || exit 1
 base="$2"; branch="$3"
 case "$branch" in pacer/*) ;; *) branch="pacer/$branch" ;; esac
