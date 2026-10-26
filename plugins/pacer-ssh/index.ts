@@ -2,7 +2,7 @@
 import { randomUUID } from "node:crypto";
 import { PluginError, serve, type Handler } from "@pacer/plugin";
 import { manifest } from "./manifest";
-import { bundleOutArgv, checkHomeArgv, checkRepoArgv, preflightArgv, probeArgv, probePayload, questionArgv, setIdentityArgv, usageArgv } from "./probe";
+import { bundleOutArgv, checkHomeArgv, checkRepoArgv, cloneRepoArgv, preflightArgv, probeArgv, probePayload, questionArgv, setIdentityArgv, usageArgv } from "./probe";
 
 export { manifest } from "./manifest";
 
@@ -80,10 +80,12 @@ export const handlers: Record<string, Handler> = {
     const preflight = input?.script === "PREFLIGHT" && Array.isArray(args) && [3, 5].includes(args.length);
     const identity = input?.script === "SET_IDENTITY" && Array.isArray(args) && args.length === 3 &&
       typeof input.completionNonce === "string";
+    const clone = input?.script === "CHECK_REPO" && Array.isArray(args) && args.length === 3 &&
+      args[1] === "clone" && typeof input.completionNonce === "string";
     const question = input?.script === "QUESTION" && Array.isArray(args) && args.length === 1;
     const usage = input?.script === "CODEX_USAGE" && Array.isArray(args) && args.length <= 1;
-    if (!validSession(input?.session) || (!probe && !repoCheck && !preflight && !identity && !question && !usage) ||
-      (identity ? !/^[a-f0-9-]{36}$/.test(input.completionNonce as string) : input.completionNonce !== undefined) ||
+    if (!validSession(input?.session) || (!probe && !repoCheck && !preflight && !identity && !clone && !question && !usage) ||
+      (identity || clone ? !/^[a-f0-9-]{36}$/.test(input.completionNonce as string) : input.completionNonce !== undefined) ||
       input.stdin !== undefined || !Number.isSafeInteger(input.timeoutMs) ||
       (input.timeoutMs as number) < 1 || (input.timeoutMs as number) > 120_000 ||
       !Number.isSafeInteger(input.maxBytes) || (input.maxBytes as number) < 1 || (input.maxBytes as number) > 65_536)
@@ -96,7 +98,8 @@ export const handlers: Record<string, Handler> = {
         usageArgv(session.sshTarget, session.controlPath, args as string[]) : question ?
         questionArgv(session.sshTarget, session.controlPath, args as string[]) : preflight ?
         preflightArgv(session.sshTarget, session.controlPath, args as string[]) : identity ?
-        setIdentityArgv(session.sshTarget, session.controlPath, args as string[], input.completionNonce as string) :
+        setIdentityArgv(session.sshTarget, session.controlPath, args as string[], input.completionNonce as string) : clone ?
+        cloneRepoArgv(session.sshTarget, session.controlPath, args as string[], input.completionNonce as string) :
         checkRepoArgv(session.sshTarget, session.controlPath, (args as string[])[0]!);
     } catch { fail("capability_denied", "invalid host-issued operation"); }
     const result = await host.call<SpawnResult>("capability.process.spawn", {

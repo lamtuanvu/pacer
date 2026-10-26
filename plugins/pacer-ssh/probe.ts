@@ -15,7 +15,7 @@ export const CHECK_REPO_SCRIPT = `path="$1"; shift
 case "$path" in '~/'*) path="$HOME/\${path#??}" ;; esac
 case "$1" in
   home) test -d "$path" ;;
-  clone) git clone -- "$2" "$path" ;;
+  clone) [ ! -e "$path" ] && [ ! -L "$path" ] || exit 1; git clone -- "$2" "$path" ;;
   *)
     if [ ! -d "$path" ]; then printf 'exists=0\\n'; exit 0; fi
     printf 'exists=1\\n'
@@ -112,6 +112,16 @@ export function checkRepoArgv(sshTarget: string, controlPath: string, repo: stri
 export function checkHomeArgv(sshTarget: string, controlPath: string, home: string): string[] {
   if (!home || home.includes("\0")) throw Error("invalid host-issued account home");
   return issuedArgv(sshTarget, controlPath, CHECK_REPO_SCRIPT, [home, "home"]);
+}
+
+export function cloneRepoArgv(sshTarget: string, controlPath: string, args: readonly string[], completionNonce: string): string[] {
+  if (args.length !== 3 || typeof args[0] !== "string" ||
+    !(args[0].startsWith("/") || args[0].startsWith("~/")) || args[0].length > 4096 ||
+    args[1] !== "clone" || typeof args[2] !== "string" || !args[2] || args[2].length > 4096 ||
+    args.some(value => /[\u0000-\u001f\u007f]/.test(value)) ||
+    !/^[a-f0-9-]{36}$/.test(completionNonce))
+    throw Error("invalid host-issued clone tuple");
+  return issuedArgv(sshTarget, controlPath, CHECK_REPO_SCRIPT, [...args], completionNonce);
 }
 
 export function bundleOutArgv(sshTarget: string, controlPath: string, args: readonly string[]): string[] {

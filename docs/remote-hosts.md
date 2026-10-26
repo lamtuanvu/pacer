@@ -74,7 +74,10 @@ pacer host check box --repo ~/src/project
 `setup` offers the exact clone command when the mapped checkout is missing.
 Its checkout preview uses the bundled SSH host runner; if that plugin is
 unavailable, setup stops before offering a clone and does not retry direct SSH.
-Cloning requires confirmation. It separately asks before setting the checkout's
+An approved clone also uses the bundled runner's fixed command. If the
+connection ends without a completion receipt, setup stops without retrying;
+check the host before requesting setup again. Cloning requires confirmation.
+It separately asks before setting the checkout's
 repo-local `user.name` and `user.email` to your local repository's effective
 identity, then runs the checks. Configure that local identity first. Setup is
 interactive with y/N prompts; non-TTY runs decline changes.

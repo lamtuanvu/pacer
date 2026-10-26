@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { checkHomeArgv, checkRepoArgv, CHECK_REPO_SCRIPT, preflightArgv, PREFLIGHT_SCRIPT, probeArgv, PROBE_SCRIPT,
+import { checkHomeArgv, checkRepoArgv, cloneRepoArgv, CHECK_REPO_SCRIPT, preflightArgv, PREFLIGHT_SCRIPT, probeArgv, PROBE_SCRIPT,
   questionArgv, QUESTION_SCRIPT, usageArgv, CODEX_USAGE_SCRIPT,
   setIdentityArgv, SET_IDENTITY_SCRIPT } from "../plugins/pacer-ssh/probe";
 import { SCRIPTS } from "../src/remote/scripts";
@@ -85,6 +85,18 @@ test("SSH reference provider emits only the host-issued read-only repo check com
   const controlPath = join(controlDir(ctx), "cm-%C");
   expect(CHECK_REPO_SCRIPT).toBe(SCRIPTS.CHECK_REPO);
   expect(checkRepoArgv(host.ssh, controlPath, "~/repo")).toEqual(sshArgv(ctx, host, SCRIPTS.CHECK_REPO, ["~/repo", "check"]));
+});
+
+test("SSH clone argv uses only the fixed guarded repo script and issued receipt", () => {
+  const ctx = fakeCtx(), host = { alias: "box", ssh: "box", repos: {}, accounts: {}, maxTasks: 1 };
+  const args = ["~/repo", "clone", "https://example.invalid/acme/repo.git"];
+  const nonce = "123e4567-e89b-42d3-a456-426614174000";
+  expect(CHECK_REPO_SCRIPT).toBe(SCRIPTS.CHECK_REPO);
+  expect(cloneRepoArgv(host.ssh, "/tmp/private/cm-%C", args, nonce))
+    .toEqual(sshArgv(ctx, host, SCRIPTS.CHECK_REPO, args, nonce).map(arg =>
+      arg.startsWith("ControlPath=") ? "ControlPath=/tmp/private/cm-%C" : arg));
+  expect(() => cloneRepoArgv(host.ssh, "/tmp/private/cm-%C", ["~/repo", "clone", "$(id)\n"], nonce)).toThrow();
+  expect(() => cloneRepoArgv(host.ssh, "/tmp/private/cm-%C", ["~/repo", "check", args[2]!], nonce)).toThrow();
 });
 
 test("SSH reference provider builds the exact fixed BUNDLE_OUT argv", async () => {

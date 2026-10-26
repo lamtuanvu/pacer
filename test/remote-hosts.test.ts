@@ -16,7 +16,7 @@ async function fixture() {
   writeFileSync(downFile, "");
   const defaultProbe = `__PACER_BEGIN__\ngit=git version 2.40.0\nsetsid=/bin/setsid\nscript=script from util-linux 2.40\ntail=tail (GNU coreutils) 9.5\ntail_pid=1\ncodex=/bin/codex\nclaude=\nhome=${home}\n`;
   writeFileSync(probeFile, defaultProbe);
-  writeFileSync(ssh, `#!/bin/sh\nPACER_FAKE_HOST_HOME=${JSON.stringify(home)} PACER_FAKE_SSH_LOG=${JSON.stringify(log)} PACER_FAKE_SSH_DOWN="$(cat ${JSON.stringify(downFile)})"; export PACER_FAKE_HOST_HOME PACER_FAKE_SSH_LOG PACER_FAKE_SSH_DOWN\n[ ! -s ${JSON.stringify(downFile)} ] || { echo 'ssh: connection refused' >&2; exit 255; }\ncase "$*" in *"command -v codex"*) cat ${JSON.stringify(probeFile)}; exit 0;; esac\nexec ${JSON.stringify(join(import.meta.dir, "fixtures", "bin", "ssh"))} "$@"\n`);
+  writeFileSync(ssh, `#!/bin/sh\nPACER_FAKE_HOST_HOME=${JSON.stringify(home)} PACER_FAKE_SSH_LOG=${JSON.stringify(log)} PACER_FAKE_SSH_DOWN="$(cat ${JSON.stringify(downFile)})"; export PACER_FAKE_HOST_HOME PACER_FAKE_SSH_LOG PACER_FAKE_SSH_DOWN\n[ ! -s ${JSON.stringify(downFile)} ] || { echo 'ssh: connection refused' >&2; exit 255; }\ncase "$*" in *"command -v codex"*) cat ${JSON.stringify(probeFile)}; exit 0;; *" clone https://github.com/o/r.git") GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=${JSON.stringify(`url.${repo}.insteadOf`)} GIT_CONFIG_VALUE_0=https://github.com/o/r.git; export GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0;; esac\nexec ${JSON.stringify(join(import.meta.dir, "fixtures", "bin", "ssh"))} "$@"\n`);
   chmodSync(ssh, 0o755);
   const ctx = fakeCtx({ env: { ...fakeSshEnv(home, log), PATH: `${bin}:${process.env.PATH}` } });
   ctx.which = name => name === "ssh" ? ssh : null;
@@ -206,11 +206,34 @@ test("missing checkout setup previews clone and clones only with confirmation", 
   await hosts.confirmSetup(ctx, "box", repo, async q => { questions.push(q); return false; });
   expect(questions[0]).toContain("git clone -- https://github.com/o/r.git");
   expect(existsSync(checkout)).toBe(false);
-  // Keep the clone entirely local, using git's URL rewrite at process scope.
+  // The private fake SSH executable rewrites this URL to the disposable local repository.
   const run = ctx.run;
-  ctx.run = (argv, ms, o) => run(argv, ms, argv.at(-1)?.endsWith("clone https://github.com/o/r.git") ? { ...o, env: { ...o?.env, GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: `url.${repo}.insteadOf`, GIT_CONFIG_VALUE_0: "https://github.com/o/r.git" } } : o);
+  ctx.run = (argv, ms, o) => {
+    if (argv[0] === "ssh" && argv.at(-1)?.endsWith("clone https://github.com/o/r.git")) throw Error("direct clone SSH bypass");
+    return run(argv, ms, o);
+  };
   expect((await hosts.confirmSetup(ctx, "box", repo, async () => true)).ok).toBe(true);
   expect(await git(checkout, "config", "--local", "user.email")).toBe("test@example.invalid");
+});
+
+for (const drift of ["mapping", "origin"] as const) test(`setup refuses ${drift} drift after clone preview and consent`, async () => {
+  const { ctx, repo, checkout, home, git } = await fixture();
+  const { rmSync, existsSync } = await import("node:fs");
+  rmSync(checkout, { recursive: true });
+  const other = join(home, "other-checkout"), strategy = join(ctx.pacerHome, "strategy.yaml");
+  let confirmed = false;
+  await expect(hosts.confirmSetup(ctx, "box", repo, async question => {
+    if (question.includes("git clone --")) {
+      confirmed = true;
+      if (drift === "mapping") writeFileSync(strategy, readFileSync(strategy, "utf8").replace(checkout, other));
+      else await git(repo, "remote", "set-url", "origin", "https://github.com/o/r");
+      return true;
+    }
+    return false;
+  })).rejects.toMatchObject({ code: "capability_denied" });
+  expect(confirmed).toBe(true);
+  expect(existsSync(checkout)).toBe(false);
+  expect(existsSync(other)).toBe(false);
 });
 
 test("host clean only removes reviewed settled tasks on the selected host and preserves untransferred branches", async () => {
