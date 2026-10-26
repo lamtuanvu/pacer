@@ -16,6 +16,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Changed
 
+- Mirror full-session remote recordings through bounded, one-use SSH plugin reads. A changed or incomplete recording snapshot pauses that poll, and publication failures restore the prior local files without retrying direct SSH.
 - Check a remote attempt's committed work after a failed executor exit through the bundled SSH host runner. A disabled or uncertain provider stops that transfer decision without a direct SSH retry.
 - Probe the remote platform for full-session binary setup through the bundled SSH host runner with a one-use persisted-run grant. A disabled or failing provider stops startup without a direct SSH retry.
 - Install remote agent binaries through the bundled SSH host runner using a one-use, hash-bound upload. Uploads over 128 MiB are refused; a missing completion receipt stops the attempt without a direct SSH retry.

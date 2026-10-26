@@ -112,6 +112,11 @@ Completion waits until the recording mode is known, so a fast exit during native
 session startup does not skip copying the recording back to the local task.
 pacer polls every five seconds and mirrors output locally, so the normal task
 logs and progress views work. Restarting pacer resumes the recorded remote run.
+For hosts using full sessions, pacer reads recording metadata and file ranges
+through the bundled SSH plugin in bounded pages. If files rotate during a read
+or the provider becomes unavailable, that poll waits for a consistent snapshot;
+it does not retry over direct SSH. A partially published local recording is
+restored on the next observation after an interruption.
 The agent is instructed to commit on its task branch and leave a clean worktree.
 After a nonzero agent exit, pacer checks for committed work through the bundled
 SSH host runner before attempting a result transfer. A refused or timed-out

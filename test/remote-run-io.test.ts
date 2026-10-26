@@ -3,12 +3,14 @@ import { existsSync, mkdirSync, readFileSync, symlinkSync, statSync, writeFileSy
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { RemoteRunIO } from "../src/remote/run-io";
+import { publishSessionFiles, recoverSessionFiles, type SessionFilesSnapshot } from "../src/remote/session-files";
 import { Unreachable, type RunIO } from "../src/supervisor/io";
 import { readRun, type RunState } from "../src/supervisor/run";
 import { supervise } from "../src/supervisor/supervise";
 import { fakeCtx, fakeSshEnv, realRun, tmpDir } from "./helpers";
 import { createTask, updateTask } from "../src/tasks/store";
 import { issueConfiguredHostReport, consumeConfiguredHostReport } from "../src/plugins/host-report-issuer";
+import { issueConfiguredHostSessionFiles, consumeConfiguredHostSessionFiles } from "../src/plugins/host-session-files-issuer";
 import { issueConfiguredHostReadFrom, consumeConfiguredHostReadFrom } from "../src/plugins/host-read-from-issuer";
 import { issueConfiguredHostSessionSocket, consumeConfiguredHostSessionSocket } from "../src/plugins/host-session-socket-issuer";
 import { issueConfiguredHostBinaryCheck, consumeConfiguredHostBinaryCheck } from "../src/plugins/host-binary-check-issuer";
@@ -50,6 +52,10 @@ function setup() {
     setDown: (value: string) => writeFileSync(downFile, value) };
 }
 
+function enableFull(ctx: ReturnType<typeof setup>["ctx"]) {
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders: {claude-code: {}}\nhosts:\n  box:\n    ssh: box-ssh\n    session: full\n");
+}
+
 test("REPORT grants are one-use and bind the persisted run snapshot", async () => {
   const { ctx, remote, local } = setup();
   await expect(pluginRegistry(ctx).call(ctx, "pacer-ssh", "hostRunner.run", {
@@ -71,6 +77,51 @@ test("disabled SSH provider leaves REPORT unreachable without direct SSH fallbac
   const before = existsSync(log) ? readFileSync(log, "utf8") : "";
   await expect(io.read()).rejects.toBeInstanceOf(Unreachable);
   expect(existsSync(log) ? readFileSync(log, "utf8") : "").toBe(before);
+});
+
+test("SESSION_FILES metadata grant binds one persisted full-session run", async () => {
+  const { ctx, remote, local } = setup();
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders: {claude-code: {}}\nhosts:\n  box:\n    ssh: box-ssh\n    session: full\n");
+  await expect(pluginRegistry(ctx).call(ctx, "pacer-ssh", "hostRunner.run", {
+    session: "a".repeat(32), script: "SESSION_FILES", args: [remote], timeoutMs: 60_000, maxBytes: 16_384,
+  })).rejects.toMatchObject({ code: "capability_denied" });
+  mkdirSync(remote, { recursive: true });
+  writeFileSync(join(remote, "session.log"), "recording");
+  const grant = issueConfiguredHostSessionFiles(ctx, "box", remote, local);
+  const result = await pluginRegistry(ctx).sessionFilesConfiguredHost(ctx, grant);
+  expect(result.code).toBe(0);
+  expect(result.stdout).toContain("session.log.bytes=9\n");
+  expect(() => consumeConfiguredHostSessionFiles(ctx, grant)).toThrow();
+  const stale = issueConfiguredHostSessionFiles(ctx, "box", remote, local);
+  const taskId = remote.split("/").at(-2)!;
+  updateTask(ctx, taskId, task => { task.state = "queued"; });
+  expect(() => consumeConfiguredHostSessionFiles(ctx, stale)).toThrow();
+  expect(() => issueConfiguredHostSessionFiles(ctx, "box", remote, join(local, "wrong"))).toThrow();
+});
+
+test("SESSION_FILES and recording ranges require full-session host and bundled provider", async () => {
+  const { ctx, remote, local, log } = setup();
+  expect(() => issueConfiguredHostSessionFiles(ctx, "box", remote, local)).toThrow();
+  expect(() => issueConfiguredHostReadFrom(ctx, "box", remote, local, "session.log" as never, 0, 1)).toThrow();
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders: {claude-code: {}}\nhosts:\n  box:\n    ssh: box-ssh\n    session: full\n");
+  const grant = issueConfiguredHostSessionFiles(ctx, "box", remote, local);
+  await pluginRegistry(ctx).disable(ctx, "pacer-ssh");
+  const before = existsSync(log) ? readFileSync(log, "utf8") : "";
+  await expect(pluginRegistry(ctx).sessionFilesConfiguredHost(ctx, grant)).rejects.toMatchObject({ code: "plugin_unavailable" });
+  expect(existsSync(log) ? readFileSync(log, "utf8") : "").toBe(before);
+});
+
+test("READ_FROM pages only fixed recording names for a persisted full-session run", async () => {
+  const { ctx, remote, local } = setup();
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders: {claude-code: {}}\nhosts:\n  box:\n    ssh: box-ssh\n    session: full\n");
+  mkdirSync(remote, { recursive: true });
+  for (const name of ["session.log", "session.log.1", "session.ckpt", "session.state"] as const) {
+    writeFileSync(join(remote, name), name);
+    const grant = issueConfiguredHostReadFrom(ctx, "box", remote, local, name, 0, 262_144);
+    const result = await pluginRegistry(ctx).readFromConfiguredHost(ctx, grant);
+    expect(Buffer.from(result.stdout, "hex").toString()).toBe(name);
+  }
+  expect(() => issueConfiguredHostReadFrom(ctx, "box", remote, local, "session.sock.path" as never, 0, 1)).toThrow();
 });
 
 test("READ_FROM grants bind one persisted stream range and preserve the 256 KiB binary chunk", async () => {
@@ -775,6 +826,7 @@ test("timed-out or malformed binary cache checks never trigger direct upload", a
 
 test("opted-in hosts launch _session and mirror native recordings without script",async()=>{
   const {ctx,home,remote,local}=setup();
+  enableFull(ctx);
   const binary=join(tmpDir(),"pacer");
   // A local executable stands in for the release and enters the real session host.
   writeFileSync(binary,`#!/bin/sh\nexec '${process.execPath}' '${new URL("../src/cli.ts",import.meta.url).pathname}' "$@"\n`,{mode:0o755});
@@ -793,6 +845,7 @@ test("opted-in hosts launch _session and mirror native recordings without script
 
 test("native completion drains recordings when REPORT observed the launch marker first", async () => {
   const { ctx, home, remote, local } = setup();
+  enableFull(ctx);
   const release = join(home, "release-session");
   const binary = join(tmpDir(), "pacer");
   // START sees the real owned process before _session has initialized its PTY.
@@ -845,6 +898,7 @@ test("a pending full launch can settle to pipe fallback without losing or repeat
 
 for(const refused of [false,true]) test.skipIf(!await canListen())(`full remote protocol supports exact snapshots and control (forward refused=${refused})`,async()=>{
   const {ctx,home,local,remote,log}=setup();
+  enableFull(ctx);
   if(refused) ctx.env.PACER_FAKE_FORWARD_REFUSED="1";
   const run=ctx.run;
   // The fixture runner must also receive transport environment overrides.
@@ -1013,25 +1067,218 @@ test("socket discovery waits for an actual remote socket",async()=>{
 
 test("native mirrors transfer only appended log bytes and changed retained files",async()=>{
   const {ctx,remote,local}=setup();const {rmSync,appendFileSync,renameSync}=await import("node:fs");
+  enableFull(ctx);
   mkdirSync(remote,{recursive:true});writeFileSync(join(remote,"session.host"),"builtin");writeFileSync(join(remote,"exit"),"0");
   for(const name of ["session.log","session.log.1","session.ckpt","session.state"])writeFileSync(join(remote,name),name==="session.state"?"state":"first");
-  const run=ctx.run;const payloads:string[]=[];
-  ctx.run=async(argv,ms,o)=>{const result=await run(argv,ms,o);if(argv.at(-1)?.includes("for attempt in 1 2 3"))payloads.push(result.stdout);return result;};
+  const registry=pluginRegistry(ctx), ranges:string[][]=[];
+  const read=registry.readFromConfiguredHost.bind(registry);
+  registry.readFromConfiguredHost=async (context,grant,signal)=>{ranges.push([...grant.resource.args]);return read(context,grant,signal);};
   const io=new RemoteRunIO(ctx,{...host,session:"full"},remote,local);
   await io.read();const retained=statSync(join(local,"session.ckpt")).mtimeMs;
   await io.read();
-  expect(payloads[1]).not.toContain(Buffer.from("first").toString("hex"));
+  const unchanged=ranges.length;
+  expect(unchanged).toBe(4);
   expect(statSync(join(local,"session.ckpt")).mtimeMs).toBe(retained);
   appendFileSync(join(remote,"session.log"),"second");await io.read();
-  expect(payloads[2]).toContain(Buffer.from("second").toString("hex"));
-  expect(payloads[2]).not.toContain(Buffer.from("first").toString("hex"));
+  expect(ranges.slice(unchanged)).toEqual([[remote,"session.log","5","6","hex"]]);
   expect(readFileSync(join(local,"session.log"),"utf8")).toBe("firstsecond");
   renameSync(join(remote,"session.log"),join(remote,"session.log.1"));writeFileSync(join(remote,"session.log"),"new");
   writeFileSync(join(remote,"session.ckpt"),"next");await io.read();
+  expect(ranges.some(args=>args[1]==="session.log.1"&&args[2]==="0")).toBe(true);
   expect(readFileSync(join(local,"session.log"),"utf8")).toBe("new");
   expect(readFileSync(join(local,"session.log.1"),"utf8")).toBe("firstsecond");
   expect(readFileSync(join(local,"session.ckpt"),"utf8")).toBe("next");
   rmSync(join(remote,"session.log.1"));await io.read();expect(existsSync(join(local,"session.log.1"))).toBe(false);
+});
+
+test("full-session mirror pages a recording larger than one plugin response", async () => {
+  const { ctx, remote, local } = setup();
+  enableFull(ctx);
+  mkdirSync(remote, { recursive: true });
+  writeFileSync(join(remote, "session.host"), "builtin");
+  writeFileSync(join(remote, "exit"), "0");
+  const bytes = randomBytes(1024 * 1024 + 17);
+  writeFileSync(join(remote, "session.log"), bytes);
+  const io = new RemoteRunIO(ctx, { ...host, session: "full" }, remote, local);
+  await io.read();
+  expect(readFileSync(join(local, "session.log"))).toEqual(bytes);
+});
+
+test("full-session mirror retains a bounded cursor across polls before publishing a large recording", async () => {
+  const { ctx, remote, local } = setup();
+  enableFull(ctx);
+  mkdirSync(remote, { recursive: true });
+  writeFileSync(join(remote, "session.host"), "builtin");
+  writeFileSync(join(remote, "exit"), "0");
+  const bytes = randomBytes(5 * 1024 * 1024);
+  writeFileSync(join(remote, "session.log"), bytes);
+  const io = new RemoteRunIO(ctx, { ...host, session: "full" }, remote, local);
+  expect((await io.read()).exit).toBeNull();
+  expect(existsSync(join(local, "session.log"))).toBe(false);
+  const staleTemp = join(local, ".session-files-paging", "manifest.json.tmp-crashed-writer");
+  writeFileSync(staleTemp, "stale", { mode: 0o600 });
+  const taskId = remote.split("/").at(-2)!;
+  updateTask(ctx, taskId, task => { task.state = "running"; });
+  const restarted = new RemoteRunIO(ctx, { ...host, session: "full" }, remote, local);
+  expect((await restarted.read()).exit).toBe(0);
+  expect(existsSync(staleTemp)).toBe(false);
+  expect(readFileSync(join(local, "session.log"))).toEqual(bytes);
+}, 30_000);
+
+test("full-session state read never exceeds an exhausted recording poll budget", async () => {
+  const { ctx, remote, local } = setup();
+  enableFull(ctx);
+  mkdirSync(remote, { recursive: true });
+  writeFileSync(join(remote, "session.host"), "builtin");
+  writeFileSync(join(remote, "exit"), "0");
+  writeFileSync(join(remote, "session.log"), Buffer.alloc(4 * 1024 * 1024, 0x61));
+  writeFileSync(join(remote, "session.state"), "viewer");
+  const registry = pluginRegistry(ctx), original = registry.readFromConfiguredHost.bind(registry);
+  let requested = 0;
+  registry.readFromConfiguredHost = async (context, grant, signal) => {
+    requested += Number(grant.resource.args[3]);
+    return original(context, grant, signal);
+  };
+  const io = new RemoteRunIO(ctx, { ...host, session: "full" }, remote, local);
+  expect((await io.read()).exit).toBe(0);
+  expect(requested).toBe(4 * 1024 * 1024);
+  expect(existsSync(join(local, "session.state"))).toBe(false);
+  expect(readFileSync(join(local, "session.log")).length).toBe(4 * 1024 * 1024);
+  await io.read();
+  expect(requested).toBe(4 * 1024 * 1024 + 6);
+  expect(readFileSync(join(local, "session.state"), "utf8")).toBe("viewer");
+}, 30_000);
+
+test("a rotated generation discards a retained paging cursor", async () => {
+  const { ctx, remote, local } = setup();
+  enableFull(ctx);
+  mkdirSync(remote, { recursive: true });
+  writeFileSync(join(remote, "session.host"), "builtin");
+  writeFileSync(join(remote, "exit"), "0");
+  writeFileSync(join(remote, "session.log"), Buffer.alloc(5 * 1024 * 1024, 0x61));
+  const io = new RemoteRunIO(ctx, { ...host, session: "full" }, remote, local);
+  expect((await io.read()).exit).toBeNull();
+  expect(existsSync(join(local, ".session-files-paging/manifest.json"))).toBe(true);
+  const { renameSync } = await import("node:fs");
+  renameSync(join(remote, "session.log"), join(remote, "session.log.1"));
+  writeFileSync(join(remote, "session.log"), "new generation");
+  writeFileSync(join(remote, "session.ckpt"), "new checkpoint");
+  expect((await io.read()).exit).toBeNull();
+  expect(existsSync(join(local, "session.log"))).toBe(false);
+  expect((await io.read()).exit).toBe(0);
+  expect(readFileSync(join(local, "session.log"), "utf8")).toBe("new generation");
+  expect(readFileSync(join(local, "session.log.1"))).toEqual(Buffer.alloc(5 * 1024 * 1024, 0x61));
+}, 30_000);
+
+test("full-session mirror refuses rotation during pagination without publishing a mixed set", async () => {
+  const { ctx, remote, local } = setup();
+  enableFull(ctx);
+  mkdirSync(remote, { recursive: true });
+  writeFileSync(join(remote, "session.host"), "builtin");
+  writeFileSync(join(remote, "exit"), "0");
+  writeFileSync(join(remote, "session.log"), "old log");
+  writeFileSync(join(remote, "session.ckpt"), "old checkpoint");
+  const io = new RemoteRunIO(ctx, { ...host, session: "full" }, remote, local);
+  await io.read();
+  const priorLog = readFileSync(join(local, "session.log"));
+  const priorCheckpoint = readFileSync(join(local, "session.ckpt"));
+  writeFileSync(join(remote, "session.log"), Buffer.alloc(300_000, 0x61));
+  const registry = pluginRegistry(ctx), original = registry.readFromConfiguredHost.bind(registry);
+  let changed = false;
+  registry.readFromConfiguredHost = async (context, grant, signal) => {
+    const result = await original(context, grant, signal);
+    if (!changed) { changed = true; writeFileSync(join(remote, "session.ckpt"), "new checkpoint"); }
+    return result;
+  };
+  await expect(io.read()).rejects.toBeInstanceOf(Unreachable);
+  expect(readFileSync(join(local, "session.log"))).toEqual(priorLog);
+  expect(readFileSync(join(local, "session.ckpt"))).toEqual(priorCheckpoint);
+});
+
+test("full-session state churn does not block stable multi-page recording bytes", async () => {
+  const { ctx, remote, local } = setup();
+  enableFull(ctx);
+  mkdirSync(remote, { recursive: true });
+  writeFileSync(join(remote, "session.host"), "builtin");
+  writeFileSync(join(remote, "exit"), "0");
+  writeFileSync(join(remote, "session.log"), "old log");
+  writeFileSync(join(remote, "session.state"), "old state");
+  const io = new RemoteRunIO(ctx, { ...host, session: "full" }, remote, local);
+  await io.read();
+  const bytes = Buffer.concat([Buffer.from("old log"), Buffer.alloc(300_000, 0x61)]);
+  const { appendFileSync } = await import("node:fs");
+  appendFileSync(join(remote, "session.log"), bytes.subarray(7));
+  const registry = pluginRegistry(ctx), original = registry.readFromConfiguredHost.bind(registry);
+  let changed = false;
+  registry.readFromConfiguredHost = async (context, grant, signal) => {
+    const result = await original(context, grant, signal);
+    if (!changed) { changed = true; writeFileSync(join(remote, "session.state"), "new viewer state"); }
+    return result;
+  };
+  expect((await io.read()).exit).toBe(0);
+  expect(readFileSync(join(local, "session.log"))).toEqual(bytes);
+  expect(readFileSync(join(local, "session.state"), "utf8")).toBe("old state");
+});
+
+test("full-session mirror refuses a short range without changing the last local recording", async () => {
+  const { ctx, remote, local } = setup();
+  enableFull(ctx);
+  mkdirSync(remote, { recursive: true });
+  writeFileSync(join(remote, "session.host"), "builtin");
+  writeFileSync(join(remote, "exit"), "0");
+  writeFileSync(join(remote, "session.log"), "old log");
+  const io = new RemoteRunIO(ctx, { ...host, session: "full" }, remote, local);
+  await io.read();
+  writeFileSync(join(remote, "session.log"), Buffer.alloc(300_000, 0x61));
+  const registry = pluginRegistry(ctx);
+  registry.readFromConfiguredHost = async () => ({ code: 0, stdout: "aa", stderr: "", timedOut: false });
+  await expect(io.read()).rejects.toBeInstanceOf(Unreachable);
+  expect(readFileSync(join(local, "session.log"), "utf8")).toBe("old log");
+});
+
+test("full-session metadata refusal does not retry direct SSH", async () => {
+  const { ctx, remote, local, log } = setup();
+  enableFull(ctx);
+  const registry = pluginRegistry(ctx);
+  registry.reportConfiguredHost = async () => ({ code: 0, stdout: "session=builtin\nexit=0\n", stderr: "", timedOut: false });
+  await registry.disable(ctx, "pacer-ssh");
+  const before = existsSync(log) ? readFileSync(log, "utf8") : "";
+  const io = new RemoteRunIO(ctx, { ...host, session: "full" }, remote, local);
+  await expect(io.read()).rejects.toBeInstanceOf(Unreachable);
+  expect(existsSync(log) ? readFileSync(log, "utf8") : "").toBe(before);
+});
+
+test("recording publication rolls back a failed second replacement and recovers after restart", async () => {
+  const { renameSync } = await import("node:fs");
+  const local = tmpDir(), stage = tmpDir();
+  writeFileSync(join(local, "session.ckpt"), "old checkpoint");
+  writeFileSync(join(local, "session.log"), "old log");
+  writeFileSync(join(stage, "session.ckpt"), "new checkpoint");
+  writeFileSync(join(stage, "session.log"), "new log");
+  const snapshot: SessionFilesSnapshot = {
+    "session.ckpt": { bytes: 14, sum: "changed" }, "session.log.1": { bytes: null, sum: "" },
+    "session.log": { bytes: 7, sum: "2" }, "session.state": { bytes: null, sum: "" },
+  };
+  let replacements = 0;
+  expect(() => publishSessionFiles(local, stage, ["session.ckpt", "session.log"], snapshot, (source, target) => {
+    if (++replacements === 2) throw Error("injected publish failure");
+    renameSync(source, target);
+  })).toThrow("injected publish failure");
+  expect(readFileSync(join(local, "session.ckpt"), "utf8")).toBe("old checkpoint");
+  expect(readFileSync(join(local, "session.log"), "utf8")).toBe("old log");
+
+  const backup = join(local, ".session-files-rollback");
+  mkdirSync(backup, { mode: 0o700 });
+  writeFileSync(join(backup, "session.ckpt"), "old checkpoint");
+  writeFileSync(join(backup, "session.log"), "old log");
+  writeFileSync(join(local, ".session-files-rollback.json"), JSON.stringify([
+    { name: "session.ckpt", present: true }, { name: "session.log", present: true },
+  ]));
+  writeFileSync(join(local, "session.ckpt"), "partially published");
+  recoverSessionFiles(local);
+  expect(readFileSync(join(local, "session.ckpt"), "utf8")).toBe("old checkpoint");
+  expect(readFileSync(join(local, "session.log"), "utf8")).toBe("old log");
+  expect(existsSync(join(local, ".session-files-rollback.json"))).toBe(false);
 });
 
 test("START rejects a binary tampered with after upload",async()=>{

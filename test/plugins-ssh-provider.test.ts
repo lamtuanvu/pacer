@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { binaryCheckArgv, binaryUploadArgv, BINARY_SCRIPT, checkHomeArgv, checkRepoArgv, cleanArgv, CLEAN_SCRIPT, cloneRepoArgv, CHECK_REPO_SCRIPT, preflightArgv, PREFLIGHT_SCRIPT, prepareArgv, PREPARE_SCRIPT, probeArgv, PROBE_SCRIPT, readFromArgv, READ_FROM_SCRIPT, reportArgv, REPORT_SCRIPT, sessionSocketArgv, SESSION_SOCKET_SCRIPT, stopArgv, STOP_SCRIPT,
+import { binaryCheckArgv, binaryUploadArgv, BINARY_SCRIPT, checkHomeArgv, checkRepoArgv, cleanArgv, CLEAN_SCRIPT, cloneRepoArgv, CHECK_REPO_SCRIPT, preflightArgv, PREFLIGHT_SCRIPT, prepareArgv, PREPARE_SCRIPT, probeArgv, PROBE_SCRIPT, readFromArgv, READ_FROM_SCRIPT, reportArgv, REPORT_SCRIPT, sessionFilesArgv, SESSION_FILES_SCRIPT, sessionSocketArgv, SESSION_SOCKET_SCRIPT, stopArgv, STOP_SCRIPT,
   questionArgv, QUESTION_SCRIPT, usageArgv, CODEX_USAGE_SCRIPT,
   setIdentityArgv, SET_IDENTITY_SCRIPT } from "../plugins/pacer-ssh/probe";
 import { SCRIPTS } from "../src/remote/scripts";
@@ -25,6 +25,45 @@ test("SSH reference provider emits exactly the host-issued read-only probe comma
   const controlPath = join(controlDir(ctx), "cm-%C");
   expect(PROBE_SCRIPT).toBe(SCRIPTS.PROBE);
   expect(probeArgv(host.ssh, controlPath)).toEqual(sshArgv(ctx, host, SCRIPTS.PROBE, []));
+});
+
+test("SSH session metadata is fixed, bounded, and contains no recording bytes", async () => {
+  const home = tmpDir(), ctx = fakeCtx({ home, pacerHome: join(home, ".pacer") });
+  mkdirSync(ctx.pacerHome, { recursive: true });
+  const host = { alias: "box", ssh: "ssh-fixture", repos: {}, accounts: {}, maxTasks: 1 };
+  const controlPath = join(controlDir(ctx), "cm-%C"), remote = join(home, ".pacer-remote/runs/t-20261027-010000-abcd/1");
+  mkdirSync(remote, { recursive: true });
+  writeFileSync(join(remote, "session.log"), Buffer.alloc(1024 * 1024, 0x61));
+  writeFileSync(join(remote, "session.ckpt"), "checkpoint");
+  expect(SESSION_FILES_SCRIPT).toBe(SCRIPTS.SESSION_FILES);
+  expect(sessionFilesArgv(host.ssh, controlPath, [remote])).toEqual(sshArgv(ctx, host, SCRIPTS.SESSION_FILES, [remote]));
+  expect(() => sessionFilesArgv(host.ssh, controlPath, [remote, "0"])).toThrow();
+  const result = await realRun(["bash", "-c", SCRIPTS.SESSION_FILES, "pacer", remote], 10000);
+  expect(result.code).toBe(0);
+  expect(result.stdout).toContain("session.log.bytes=1048576\n");
+  expect(result.stdout).toContain("session.ckpt.bytes=10\n");
+  expect(result.stdout).not.toContain("61616161");
+  expect(Buffer.byteLength(result.stdout)).toBeLessThan(4096);
+});
+
+test("SESSION_FILES metadata remains available while optional session state changes", async () => {
+  const remote = tmpDir();
+  writeFileSync(join(remote, "session.log"), "stable log");
+  writeFileSync(join(remote, "session.ckpt"), "stable checkpoint");
+  const state = join(remote, "session.state"), temporary = `${state}.tmp`;
+  let version = 0;
+  const writer = setInterval(() => {
+    writeFileSync(temporary, JSON.stringify({ viewers: ++version }));
+    renameSync(temporary, state);
+  }, 1);
+  try {
+    for (let i = 0; i < 8; i++) {
+      const result = await realRun(["bash", "-c", SCRIPTS.SESSION_FILES, "pacer", remote], 10000);
+      expect(result.code).toBe(0);
+      expect(result.stdout).toContain("session.log.bytes=10\n");
+      expect(result.stdout).toContain("session.ckpt.bytes=17\n");
+    }
+  } finally { clearInterval(writer); }
 });
 
 test("SSH question read is fixed and bounded", () => {
@@ -159,6 +198,8 @@ test("SSH output reader pins the fixed hex range and rejects path or size expans
   expect(readFromArgv(host.ssh, "/tmp/private/cm-%C", args))
     .toEqual(sshArgv(ctx, host, SCRIPTS.READ_FROM, args).map(arg =>
       arg.startsWith("ControlPath=") ? "ControlPath=/tmp/private/cm-%C" : arg));
+  for (const name of ["session.log", "session.log.1", "session.ckpt", "session.state"])
+    expect(readFromArgv(host.ssh, "/tmp/private/cm-%C", [args[0]!, name, "0", "262144", "hex"])).toBeArray();
   for (const bad of [
     ["../run", ...args.slice(1)], [args[0]!, "../../secret", ...args.slice(2)],
     [...args.slice(0, 3), "262145", "hex"], [...args.slice(0, 4), "text"],
