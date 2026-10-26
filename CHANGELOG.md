@@ -6,8 +6,23 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
+- Record private, bounded OTA request-stage diagnostics in live validation evidence while preserving fixture authorization and HTTP behavior.
+
+### Fixed
+
+- Open current task details from native tray attention actions after the Tasks route migration.
+- Detect macOS iTerm.app consistently when opening session viewers through the preferred terminal.
+- Let live native controls inspect a completed managed OTA fixture without transferring teardown ownership, and keep authority collection and input within the original command deadline.
+- Restore the documented live UI control commands and retain OTA event traces as context without counting them as unverified behavior checks.
+- Wait for a remote session's recording-mode handoff before reporting a fast exit, preserving native recordings and pipe-fallback output.
+- Keep paired desktop helper channels alive through authenticated startup by acknowledging descriptor receipt before Root releases its duplicate; transfer both startup descriptors together and retain them until Core confirms receipt.
+
+## [0.10.0] - 2026-10-26
+
+### Added
+
 - A dedicated Settings → Dispatcher page shows the default planner, active decision ladder, model choices, and a read-only task preview. Its editor validates and activates a new named strategy. Routing and project strategy precedence are explained in the UI.
-- Record private, bounded OTA request-stage diagnostics in live validation evidence, preserving fixture authorization and HTTP behavior.
+
 - Managed work dispatch through CLI, API and MCP: any supported executor can request a child task, and Pacer selects an eligible executor, account and model using configurable strategy steps, capability tiers, live capacity and usage evidence. Decisions, reservations, lineage, dependencies, scoped grants and independent reviews are recorded for inspection.
 - Replaceable decision engines and observation adapters, with bounded provider refresh and reviewed-outcome learning. The Tasks UI and TUI show dispatched work, its tree, timeline, model evidence and review actions. Ordinary interactive sessions and legacy delegation retain their existing routes.
 - Managed work can retry or answer in the same task and worktree with revision checks, stable request IDs, cumulative attempt limits and prior review evidence. Work views distinguish execution, dependency, capacity and child waiting, and group shared account usage without counting overlapping parent and child readings twice.
@@ -15,17 +30,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - Discoverable v3 CLI operations through `pacer api list`, `describe` and `call`, with filtered metadata, JSON schemas and bounded JSON file/stdin input. The Pacer skill teaches on-demand discovery for product controls.
 - Scriptable authenticated session I/O, attachment upload/list/download/removal, and targeted acknowledged page/native controls for appearance, navigation, windows and tray actions.
 
-### Changed
-
-- Settings → Dispatcher now contains saved global profiles and executor eligibility, including repository overrides. Former Routing and Strategies links redirect there.
-- Open tasks in a split workspace with a task navigator and a larger session pane. Keep task details compact, make each list row one navigation target, and use the main Tasks route for returning to the list.
-- Add a read-only `ui:ready` preflight for PR evidence and make skipped local evidence checks explicit; centralize the agent readiness procedure in the UI rules.
-
 ### Fixed
 
-- Open current task details from native tray attention actions after the Tasks route migration.
 - Release a finished conversation's runner ownership so a failed session can resume once its terminal has stopped. Explain disk-full failures and provide an attach command when a terminal viewer cannot open.
-- Use the preferred terminal selected in This machine for session viewers and other local terminal actions, while preserving existing terminal.app preferences and detecting macOS iTerm.app consistently.
+- Use the preferred terminal selected in This machine for session viewers and other local terminal actions, while preserving existing terminal.app preferences.
 - Round the tray panel corners and overlay its More menu without growing the panel.
 - Reopening a running Pacer task from the Tasks list now takes control of an unheld live terminal, including interactive conversations, while preserving explicit takeover when another viewer holds it.
 - Keep legacy connected Claude settings usable after unrelated settings edits when pacer's hooks are intact; show the recorded failure reason on a failed interactive session.
@@ -35,11 +43,12 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 - Remove compounded spacing in app sections, cards, settings and embedded page headers; keep task disclosures evenly spaced and compact while preserving touch targets. Add shared spacing ownership checks and browser geometry regressions.
 
-- Let live native controls verify a completed managed OTA fixture without transferring teardown ownership, and keep authority collection and input within the original command deadline.
+### Changed
 
-- Restore the documented live UI control commands and retain OTA event traces as context without counting them as unverified behavior checks.
-- Wait for the remote session's recording-mode handoff before reporting a fast exit, preserving native recordings and pipe-fallback output.
-- Keep paired desktop helper channels alive through authenticated startup by acknowledging descriptor receipt before Root releases its duplicate. Transfer both startup descriptors together to avoid coalesced messages losing their ownership framing. Retain helper I/O and control descriptors until Core confirms receipt.
+- Settings → Dispatcher now contains saved global profiles and executor eligibility, including repository overrides. Former Routing and Strategies links redirect there.
+
+- Open tasks in a split workspace with a task navigator and a larger session pane. Keep task details compact, make each list row one navigation target, and use the main Tasks route for returning to the list.
+- Add a read-only `ui:ready` preflight for PR evidence and make skipped local evidence checks explicit; centralize the agent readiness procedure in the UI rules.
 
 ## [0.9.0] - 2026-10-23
 
