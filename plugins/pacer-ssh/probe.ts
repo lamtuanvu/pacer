@@ -153,6 +153,36 @@ for stream in stdout stderr session.raw; do
   printf '%s=%s\\n%sm=%s\\n' "$key" "$bytes" "$key" "$stamp"
 done`;
 
+/** Fixed bounded full-session metadata program; parity with SCRIPTS.SESSION_FILES is tested. */
+export const SESSION_FILES_SCRIPT = `D="$1"
+case "$D" in '~/'*) D="$HOME/\${D#??}" ;; esac
+# Return only bounded metadata. File bytes are read separately in fixed ranges.
+for attempt in 1 2 3; do
+  before=$(cksum "$D/session.ckpt" "$D/session.log.1" 2>/dev/null)
+  inode=$(ls -i "$D/session.log" 2>/dev/null | awk '{print $1}')
+  data=""
+  for file in session.ckpt session.log.1 session.log session.state; do
+    bytes=""; sum=""
+    if [ -f "$D/$file" ]; then
+      if [ "$file" = session.state ]; then
+        sum=$(cksum "$D/$file" 2>/dev/null) || sum=""
+        bytes=""; [ -z "$sum" ] || bytes=$(printf '%s\n' "$sum" | awk '{print $2}')
+      else bytes=$(wc -c < "$D/$file" | tr -d ' ') || exit 1; fi
+      if [ "$file" = session.log ]; then
+        sum="$inode"
+      elif [ "$file" != session.state ]; then
+        sum=$(cksum "$D/$file") || exit 1
+      fi
+    fi
+    data="$data$file.bytes=$bytes
+$file.sum=$sum
+"
+  done
+  after=$(cksum "$D/session.ckpt" "$D/session.log.1" 2>/dev/null)
+  [ "$before" = "$after" ] && [ "$inode" = "$(ls -i "$D/session.log" 2>/dev/null | awk '{print $1}')" ] && { printf '%s' "$data"; exit 0; }
+done
+exit 1`;
+
 /** Fixed bounded run-output reader; parity with SCRIPTS.READ_FROM is tested. */
 export const READ_FROM_SCRIPT = `D="$1"
 case "$D" in '~/'*) D="$HOME/\${D#??}" ;; esac
@@ -295,11 +325,17 @@ export function reportArgv(sshTarget: string, controlPath: string, args: readonl
   return issuedArgv(sshTarget, controlPath, REPORT_SCRIPT, [...args]);
 }
 
+export function sessionFilesArgv(sshTarget: string, controlPath: string, args: readonly string[]): string[] {
+  if (args.length !== 1 || !/^(\/|~\/)[^\u0000-\u001f\u007f]+$/.test(args[0] ?? ""))
+    throw Error("invalid host-issued session files path");
+  return issuedArgv(sshTarget, controlPath, SESSION_FILES_SCRIPT, [...args]);
+}
+
 export function readFromArgv(sshTarget: string, controlPath: string, args: readonly string[]): string[] {
   if (args.length !== 5 || args.some(value => typeof value !== "string") ||
     !args[0]!.startsWith("/") ||
     args[0].length > 4096 || /[\u0000-\u001f\u007f]/.test(args[0]) ||
-    !["stdout", "stderr", "session.raw"].includes(args[1]!) ||
+    !["stdout", "stderr", "session.raw", "session.log", "session.log.1", "session.ckpt", "session.state"].includes(args[1]!) ||
     !/^(?:0|[1-9][0-9]*)$/.test(args[2]!) || !Number.isSafeInteger(Number(args[2])) ||
     !/^[1-9][0-9]*$/.test(args[3]!) || Number(args[3]) > 262_144 ||
     !Number.isSafeInteger(Number(args[2]) + Number(args[3])) || args[4] !== "hex")

@@ -141,33 +141,28 @@ else
   chmod 700 "$tmp" && mv -f "$tmp" "$file" || exit 1
 fi
 printf '%s\\n' "$file"`,
-  SESSION_FILES: `D="$1"; offset="$2"; previous_inode="$3"; previous_ckpt="$4"; previous_rotated="$5"
+  SESSION_FILES: `D="$1"
 case "$D" in '~/'*) D="$HOME/\${D#??}" ;; esac
-# Retry if a checkpoint/rotation changes while copying the retained generation.
+# Return only bounded metadata. File bytes are read separately in fixed ranges.
 for attempt in 1 2 3; do
   before=$(cksum "$D/session.ckpt" "$D/session.log.1" 2>/dev/null)
   inode=$(ls -i "$D/session.log" 2>/dev/null | awk '{print $1}')
-  bytes=0; [ ! -f "$D/session.log" ] || bytes=$(wc -c < "$D/session.log")
-  start="$offset"
-  [ "$inode" = "$previous_inode" ] && [ "$bytes" -ge "$start" ] || start=0
-  data="session.log.inode=$inode
-session.log.offset=$start
-"
+  data=""
   for file in session.ckpt session.log.1 session.log session.state; do
-    case "$file" in session.ckpt|session.log.1) sum=$(cksum "$D/$file" 2>/dev/null) ;; *) sum=""; [ ! -f "$D/$file" ] || sum=present ;; esac
-    data="$data$file.sum=$sum
-"
-    case "$file" in
-      session.ckpt) [ "$sum" != "$previous_ckpt" ] || continue ;;
-      session.log.1) [ "$sum" != "$previous_rotated" ] || continue ;;
-    esac
-    hex=""
+    bytes=""; sum=""
     if [ -f "$D/$file" ]; then
+      if [ "$file" = session.state ]; then
+        sum=$(cksum "$D/$file" 2>/dev/null) || sum=""
+        bytes=""; [ -z "$sum" ] || bytes=$(printf '%s\n' "$sum" | awk '{print $2}')
+      else bytes=$(wc -c < "$D/$file" | tr -d ' ') || exit 1; fi
       if [ "$file" = session.log ]; then
-        hex=$(tail -c +"$((start + 1))" "$D/$file" | od -An -v -tx1 | tr -d ' \n')
-      else hex=$(od -An -v -tx1 "$D/$file" | tr -d ' \n'); fi
+        sum="$inode"
+      elif [ "$file" != session.state ]; then
+        sum=$(cksum "$D/$file") || exit 1
+      fi
     fi
-    data="$data$file=$hex
+    data="$data$file.bytes=$bytes
+$file.sum=$sum
 "
   done
   after=$(cksum "$D/session.ckpt" "$D/session.log.1" 2>/dev/null)

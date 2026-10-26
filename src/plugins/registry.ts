@@ -51,6 +51,7 @@ import { consumeConfiguredHostClean, validateConfiguredHostClean, type Configure
 import { consumeConfiguredHostStop, validateConfiguredHostStop, type ConfiguredHostStopGrant } from "./host-stop-issuer";
 import { consumeConfiguredHostPrepare, validateConfiguredHostPrepare, type ConfiguredHostPrepareGrant } from "./host-prepare-issuer";
 import { consumeConfiguredHostReport, validateConfiguredHostReport, type ConfiguredHostReportGrant } from "./host-report-issuer";
+import { consumeConfiguredHostSessionFiles, validateConfiguredHostSessionFiles, type ConfiguredHostSessionFilesGrant } from "./host-session-files-issuer";
 import { consumeConfiguredHostAttemptPreflight, validateConfiguredHostAttemptPreflight, type ConfiguredHostAttemptPreflightGrant } from "./host-attempt-preflight-issuer";
 import { consumeConfiguredHostReadFrom, validateConfiguredHostReadFrom, type ConfiguredHostReadFromGrant } from "./host-read-from-issuer";
 import { consumeConfiguredHostSessionSocket, validateConfiguredHostSessionSocket, type ConfiguredHostSessionSocketGrant } from "./host-session-socket-issuer";
@@ -69,6 +70,7 @@ const HOST_CALL_QUESTION_ISSUER = Symbol("host-call-question-issuer");
 const HOST_CALL_USAGE_ISSUER = Symbol("host-call-usage-issuer");
 const HOST_PROVIDER_MUTATION_ISSUER = Symbol("host-provider-mutation-issuer");
 const HOST_REPORT_ISSUER = Symbol("host-report-issuer");
+const HOST_SESSION_FILES_ISSUER = Symbol("host-session-files-issuer");
 const HOST_ATTEMPT_PREFLIGHT_ISSUER = Symbol("host-attempt-preflight-issuer");
 const HOST_CALL_PREFLIGHT_ISSUER = Symbol("host-call-preflight-issuer");
 const HOST_READ_FROM_ISSUER = Symbol("host-read-from-issuer");
@@ -84,7 +86,7 @@ interface HostFetchAdmission { grant: PersistedFetchGrant; process: PluginProces
   claim: (authority: CallAuthority, staged: StagedFetchResult) => void | Promise<void> }
 interface HostCallerFetchAdmission { grant: PersistedFetchGrant;
   claim: (caller: CallAuthority, ticket: ClaimedBundleTicket) => void | Promise<void> }
-export interface PluginCallOptions { plannerResources?: PlannerResources; credentialBindings?: readonly CredentialBinding[]; classifierConfig?: ClassifierConfig; resources?: CallResources; accountHome?: string | null; deadlineMs?: number; signal?: AbortSignal; onProgress?: (event: unknown) => void; /** Internal host-lease binding: never restart or substitute this provider. */ expectedProcess?: PluginProcess; [HOST_CHECK_ISSUER]?: true; [HOST_FETCH_ISSUER]?: HostFetchAdmission; [HOST_CALL_FETCH_ISSUER]?: HostCallerFetchAdmission; [HOST_CALL_IDENTITY_ISSUER]?: ConfiguredHostIdentityGrant; [HOST_CALL_QUESTION_ISSUER]?: PersistedQuestionGrant; [HOST_CALL_USAGE_ISSUER]?: ConfiguredRemoteUsageGrant; [HOST_CALL_PROBE_ISSUER]?: true; [HOST_PROVIDER_MUTATION_ISSUER]?: true; [HOST_REPORT_ISSUER]?: true; [HOST_ATTEMPT_PREFLIGHT_ISSUER]?: true; [HOST_CALL_PREFLIGHT_ISSUER]?: true; [HOST_READ_FROM_ISSUER]?: true; [HOST_SESSION_SOCKET_ISSUER]?: true; [HOST_BINARY_CHECK_ISSUER]?: true; [HOST_RUNTIME_PROBE_ISSUER]?: true; [HOST_BINARY_UPLOAD_ISSUER]?: true }
+export interface PluginCallOptions { plannerResources?: PlannerResources; credentialBindings?: readonly CredentialBinding[]; classifierConfig?: ClassifierConfig; resources?: CallResources; accountHome?: string | null; deadlineMs?: number; signal?: AbortSignal; onProgress?: (event: unknown) => void; /** Internal host-lease binding: never restart or substitute this provider. */ expectedProcess?: PluginProcess; [HOST_CHECK_ISSUER]?: true; [HOST_FETCH_ISSUER]?: HostFetchAdmission; [HOST_CALL_FETCH_ISSUER]?: HostCallerFetchAdmission; [HOST_CALL_IDENTITY_ISSUER]?: ConfiguredHostIdentityGrant; [HOST_CALL_QUESTION_ISSUER]?: PersistedQuestionGrant; [HOST_CALL_USAGE_ISSUER]?: ConfiguredRemoteUsageGrant; [HOST_CALL_PROBE_ISSUER]?: true; [HOST_PROVIDER_MUTATION_ISSUER]?: true; [HOST_REPORT_ISSUER]?: true; [HOST_SESSION_FILES_ISSUER]?: true; [HOST_ATTEMPT_PREFLIGHT_ISSUER]?: true; [HOST_CALL_PREFLIGHT_ISSUER]?: true; [HOST_READ_FROM_ISSUER]?: true; [HOST_SESSION_SOCKET_ISSUER]?: true; [HOST_BINARY_CHECK_ISSUER]?: true; [HOST_RUNTIME_PROBE_ISSUER]?: true; [HOST_BINARY_UPLOAD_ISSUER]?: true }
 export interface RegistryDeps { bundled: BundledPlugin[]; spawnBundled: (ctx: Ctx, id: string) => SpawnSpec; spawn?: typeof nodeSpawn; sleep?: (ms: number) => Promise<void>; eventPumpMs?:number }
 export interface PluginInfo { id: string; version: string; publisher: string; tier: "free" | "commercial"; bundled: boolean; enabled: boolean; state: PluginState; contributes: string[]; capabilities: { name: string; scopes?: string[] }[]; grant: PluginGrant | null; error: string | null; pid: number | null }
 export interface DoctorReport { id: string; ok: boolean; state: PluginState; served: string[]; protocol: { host: string; plugin: string | null }; pid: number | null; restarts: number; error: string | null; needs: string | null }
@@ -675,6 +677,66 @@ export class PluginRegistry {
           resources: { reads: [], commands: [{ argv, timeoutMs }], stores: [] }, [HOST_REPORT_ISSUER]: true });
       validateConfiguredHostReport(ctx, grant);
       if (!active()) throw new CoreError("capability_denied", "configured report host changed after observation");
+      return result;
+    } finally {
+      clearInterval(watch); signal?.removeEventListener("abort", cancel);
+      if (session) await this.call(ctx, provider.id, "hostRunner.close", { session },
+        { deadlineMs: 5000, expectedProcess: process }).catch(() => {});
+    }
+  }
+
+  /** Read bounded metadata for one persisted full-session remote run through the bundled SSH provider. */
+  async sessionFilesConfiguredHost(ctx: Ctx, grant: ConfiguredHostSessionFilesGrant, signal?: AbortSignal): Promise<{ code: number; stdout: string; stderr: string; timedOut: boolean }> {
+    consumeConfiguredHostSessionFiles(ctx, grant);
+    const { alias, args, hostFingerprint, timeoutMs, maxBytes } = grant.resource;
+    const host = loadStrategy(ctx).hosts[alias];
+    if (!host || JSON.stringify(host) !== hostFingerprint)
+      throw new CoreError("capability_denied", "configured session files host changed");
+    const providers = this.findAll(ctx, "hostRunner", contribution =>
+      Array.isArray(contribution.kinds) && contribution.kinds.length === 1 && contribution.kinds[0] === "ssh");
+    if (providers.length !== 1 || providers[0] !== "pacer-ssh")
+      throw new CoreError("plugin_unavailable", "bundled SSH host runner provider is required");
+    const provider = this.entries.get(providers[0]!)!;
+    await this.call(ctx, provider.id, "diagnostic.ping", {}, { deadlineMs: 5000, signal });
+    const process = provider.process, generation = this.hostGeneration(ctx, provider);
+    if (!process?.alive || !provider.served.includes("hostRunner"))
+      throw new CoreError("plugin_unavailable", "SSH host runner provider is not ready");
+    const directory = controlDir(ctx), original = lstatSync(directory);
+    if (!original.isDirectory() || (original.mode & 0o077) !== 0 ||
+      (globalThis.process.getuid && original.uid !== globalThis.process.getuid()))
+      throw new CoreError("capability_denied", "SSH control directory is not private");
+    const controlPath = join(directory, "cm-%C");
+    const active = () => {
+      const current = loadStrategy(ctx).hosts[alias], now = lstatSync(directory);
+      return current && JSON.stringify(current) === hostFingerprint &&
+        provider.process === process && process.alive && this.hostGeneration(ctx, provider) === generation &&
+        now.isDirectory() && now.dev === original.dev && now.ino === original.ino &&
+        now.uid === original.uid && (now.mode & 0o7777) === (original.mode & 0o7777);
+    };
+    if (!active()) throw new CoreError("capability_denied", "configured session files snapshot changed");
+    const controller = new AbortController();
+    const cancel = () => controller.abort(new CoreError("capability_denied", "configured session files retired"));
+    signal?.addEventListener("abort", cancel, { once: true });
+    const watch = setInterval(() => { try { if (!active()) cancel(); else validateConfiguredHostSessionFiles(ctx, grant); } catch { cancel(); } }, 100);
+    watch.unref();
+    let session: string | undefined;
+    try {
+      const opened = await this.call<{ session: string }>(ctx, provider.id, "hostRunner.open",
+        { alias, sshTarget: host.ssh, controlPath },
+        { deadlineMs: 10_000, signal: controller.signal, expectedProcess: process });
+      session = opened.session;
+      validateConfiguredHostSessionFiles(ctx, grant);
+      if (controller.signal.aborted || !active()) throw new CoreError("capability_denied", "configured session files retired");
+      const argv = sshArgv(ctx, host, SCRIPTS.SESSION_FILES, [...args]);
+      if (!argv.includes(`ControlPath=${controlPath}`) || !active())
+        throw new CoreError("capability_denied", "configured session files SSH path changed");
+      const result = await this.call<{ code: number; stdout: string; stderr: string; timedOut: boolean }>(
+        ctx, provider.id, "hostRunner.run",
+        { session, script: "SESSION_FILES", args: [...args], timeoutMs, maxBytes },
+        { deadlineMs: timeoutMs + 10_000, signal: controller.signal, expectedProcess: process,
+          resources: { reads: [], commands: [{ argv, timeoutMs }], stores: [] }, [HOST_SESSION_FILES_ISSUER]: true });
+      validateConfiguredHostSessionFiles(ctx, grant);
+      if (!active()) throw new CoreError("capability_denied", "configured session files host changed after observation");
       return result;
     } finally {
       clearInterval(watch); signal?.removeEventListener("abort", cancel);
@@ -1588,6 +1650,9 @@ export class PluginRegistry {
     if (method === "hostRunner.run" && (params as { script?: string } | null)?.script === "REPORT" &&
       !options[HOST_REPORT_ISSUER])
       throw new CoreError("capability_denied", "remote report requires host-owned issuance");
+    if (method === "hostRunner.run" && (params as { script?: string } | null)?.script === "SESSION_FILES" &&
+      !options[HOST_SESSION_FILES_ISSUER])
+      throw new CoreError("capability_denied", "remote session files require host-owned issuance");
     if (method === "hostRunner.run" && (params as { script?: string } | null)?.script === "READ_FROM" &&
       !options[HOST_READ_FROM_ISSUER])
       throw new CoreError("capability_denied", "remote read requires host-owned issuance");
