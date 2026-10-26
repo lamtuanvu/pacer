@@ -48,6 +48,7 @@ import * as setup from "../core/setup";
 import * as notify from "../core/notify";
 import * as clients from "../clients/registry";
 import { publishConfigChange } from "../core/events";
+import { refreshAccountUsage, refreshAllUsage } from "../usage/refresh";
 import { KINDS, loadStrategy } from "../config/strategy";
 import { CoreError, toCoreError } from "../core/errors";
 import { isExecutorSession } from "../install/role";
@@ -63,6 +64,7 @@ import type { Ctx } from "../types";
 export const LEGACY_TASK_LIST = Symbol("legacy task summaries");
 
 export interface OpDeps {
+  usageRefreshDone?: () => Promise<void>;
   desktopUpdates?: DesktopUpdateRuntime;
   onboardingRoute?: import("../onboarding/try").TryDeps["route"];
   snapshotProbe?: boolean;
@@ -422,6 +424,11 @@ export const OPS: Record<string, OpDef> = {
   "runner.block": op({ description: "Block an executor for a duration, with an optional reason.", params: z.object({ id, for: z.string().optional(), reason: z.string().optional() }), handler: (ctx, p) => { core.runners.block(ctx, p.id, p); return { ok: true }; } }),
   "runner.unblock": op({ description: "Remove an executor's manual block.", params: z.object({ id }), handler: (ctx, p) => { core.runners.unblock(ctx, p.id); return { ok: true }; } }),
   "limits.check": op({ description: "Provider limits, freshness and usage sources.", params: z.object({}), handler: (ctx) => core.limits.check(ctx) }),
+  "limits.refresh": op({ description: "Refresh configured account usage from each provider's available source without starting an agent turn.", params: z.object({ account: id.optional() }), handler: async (ctx, p, deps) => {
+    const accounts = p.account ? [await refreshAccountUsage(ctx, p.account)] : await refreshAllUsage(ctx);
+    await deps.usageRefreshDone?.();
+    return { accounts };
+  } }),
   "limits.report": op({ description: "Mark a provider's account exhausted until unix seconds or its cooldown.", params: z.object({ provider: id, until: z.number().optional() }), handler: (ctx, p) => core.limits.report(ctx, p.provider, p.until) }),
   "routing.status": op({ description: "Current budget and routing status.", params: z.object({}), handler: (ctx) => core.routing.status(ctx) }),
   "dispatch.config.get": op({description:"Read the active planner and effective dispatcher configuration, including built-in defaults.",params:z.object({}),handler:ctx=>{const current=loadStrategy(ctx);return {strategy:current.name,planner:current.planner.agent,plannerAccount:current.planner.account,source:current.dispatch?"strategy":"built-in",config:current.dispatch??dispatchConfigSchema.parse({})};}}),

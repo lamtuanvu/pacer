@@ -55,7 +55,7 @@ test('terminal.open is editable and malformed template settings are rejected',as
  expect(await callOp(ctx,'config.set',{key:'terminal.open',value:'kitty'})).toMatchObject({key:'terminal.open',value:'kitty'});
  await expect(callOp(ctx,'config.set',{key:'terminal.open',value:'invalid'})).rejects.toThrow();
 });
-test('session viewers honor a legacy macOS terminal.app choice', () => {
+test.skipIf(process.platform !== 'darwin')('session viewers honor a legacy macOS terminal.app choice', () => {
  const ctx=fakeCtx({env:{TERM_PROGRAM:'Apple_Terminal'}});mkdirSync(ctx.pacerHome,{recursive:true});
  writeFileSync(join(ctx.pacerHome,'strategy.yaml'),'planner: claude-code\nproviders: {claude-code: {}}\nterminal: {app: Ghostty}\n');
  expect(terminalSetting(ctx)).toBe('ghostty');

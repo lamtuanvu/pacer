@@ -634,6 +634,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "pacer-limits-protocol"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "pacer-plugin"
 version = "0.1.0"
 dependencies = [

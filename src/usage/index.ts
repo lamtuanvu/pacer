@@ -3,39 +3,29 @@ import { statusTimer } from "./trace";
 import type { AccountCfg, RunnerCfg } from "../config/accounts";
 import type { ProviderCfg } from "../config/strategy";
 import type { Ctx, UsageReading } from "../types";
-import { readByteplus } from "./byteplus";
-import { readClaude } from "./claude";
-import { readCodex } from "./codex";
-import { readMetered } from "./metered";
+import { usageAdapter } from "./adapter";
+export type { RefreshCapability } from "./adapter";
 import { limitWindow } from "./reactive";
 import { recordAuthReading } from "./auth";
 import { cachedRemoteUsage } from "../remote/usage";
 
 async function base(ctx: Ctx, cfg: ProviderCfg, account?: AccountCfg, refresh = false): Promise<UsageReading> {
-  switch (cfg.usage) {
-    case "quota":
-      if (cfg.id === "claude-code") return readClaude(ctx, account);
-      if (cfg.id === "codex") return readCodex(ctx, account);
-      if (cfg.quotaSource === "arkcli") return readByteplus(ctx, refresh);
-      return { windows: [], capturedAt: null, stale: false, error: `no quota source for ${cfg.id}` };
-    case "metered":
-      return readMetered(ctx, cfg, refresh);
-    case "reactive":
-      return { windows: [{ name: "limit", usedPct: 0, resetsAt: null, lengthS: 0, paced: false }], capturedAt: ctx.now, stale: false, source: "reactive" };
-    case "unmetered":
-      return { windows: [], capturedAt: ctx.now, stale: false, source: "unmetered" };
-  }
+  return usageAdapter(cfg).read(ctx, cfg, account, refresh);
 }
 
-const sources = new Map<string, {at:number; value?:UsageReading; pending?:Promise<UsageReading>}>();
+const sources = new Map<string, {at:number; value?:UsageReading; pending?:Promise<UsageReading>; refreshing?:boolean}>();
 async function cachedBase(ctx:Ctx,cfg:ProviderCfg,account?:AccountCfg, refresh = false, cacheOnly = false, hosts?: Record<string, import("../config/hosts").HostCfg>):Promise<UsageReading> {
   const source=cfg.usage === "quota" ? cfg.quotaSource === "arkcli" ? "arkcli" : cfg.id : JSON.stringify(cfg);
   const key=`${ctx.pacerHome}:${source}:${JSON.stringify(account ?? null)}:${JSON.stringify(hosts ?? {})}`;
   const hit=sources.get(key);
   if(cacheOnly)return hit?.value ?? {windows: [], capturedAt: null, stale: true};
-  if(hit?.pending)return hit.pending;
+  if(hit?.pending) {
+    if (!refresh || hit.refreshing) return hit.pending;
+    await hit.pending;
+    return cachedBase(ctx, cfg, account, true, false, hosts);
+  }
   if(!refresh && hit?.value && ctx.now-hit.at>=0 && ctx.now-hit.at<60)return hit.value;
-  const entry:{at:number;value?:UsageReading;pending?:Promise<UsageReading>}={at:ctx.now};
+  const entry:{at:number;value?:UsageReading;pending?:Promise<UsageReading>;refreshing?:boolean}={at:ctx.now,refreshing:refresh};
   sources.set(key,entry);
   entry.pending=(async()=>{
     const trace = statusTimer(ctx);
@@ -43,12 +33,18 @@ async function cachedBase(ctx:Ctx,cfg:ProviderCfg,account?:AccountCfg, refresh =
     try {
       const value=await Promise.race([base(ctx,cfg,account,refresh),new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(Error(`usage source ${source} timed out`)),10000);})]);
       if (account) recordAuthReading(ctx, account.name, value, accountEvidenceScope(account, hosts));
-      entry.value=value;return value;
+      entry.value = value.error && hit?.value?.windows.length
+        ? { ...hit.value, stale: true, error: value.error }
+        : hit?.value?.capturedAt != null && (value.capturedAt == null || value.capturedAt < hit.value.capturedAt)
+          ? hit.value : value;
+      return entry.value;
     } catch (e) {
       const value = {windows: [], capturedAt: null, stale: false, error: String(e)};
       if (account) recordAuthReading(ctx, account.name, value, accountEvidenceScope(account, hosts));
-      entry.value = value;
-      return value;
+      entry.value = hit?.value?.windows.length
+        ? { ...hit.value, stale: true, error: value.error }
+        : value;
+      return entry.value;
     }
     finally{trace(`usage.${cfg.quotaSource === "arkcli" ? "arkcli" : cfg.id}`);clearTimeout(timer);entry.pending=undefined;}
   })();
@@ -97,7 +93,7 @@ export async function readAccountUsage(ctx: Ctx, account: AccountCfg, runners: R
 
 /** Refresh is a source capability, not a request to read native credentials. */
 export function usageRefreshCapability(account: AccountCfg): "provider-command" | "passive-log" | "unavailable" {
-  if (account.usage === "metered" || account.quotaSource === "arkcli" || account.usageSource === "arkcli") return "provider-command";
-  if (account.usage === "quota" && (account.kind === "codex" || account.kind === "claude")) return "passive-log";
-  return "unavailable";
+  const cfg = { id: account.kind === "claude" ? "claude-code" : account.kind === "endpoint" ? account.name : account.kind,
+    usage: account.usage, quotaSource: account.quotaSource === "arkcli" || account.usageSource === "arkcli" ? "arkcli" : null } as ProviderCfg;
+  return usageAdapter(cfg).capability;
 }
