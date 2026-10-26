@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { crateContentHash, publishPluginCrates } from "../scripts/release/crates";
+import { readFileSync } from "node:fs";
 
 test("independent crate versions ignore generated VCS and lock metadata but detect source changes", async () => {
   const archive = async (sha: string, source: string) => new Bun.Archive({
@@ -74,13 +75,13 @@ test("independent protocol dry-run refusal prevents all uploads and SDK packagin
 
 test("0.2 release graph packages independent areas before the SDK", async () => {
   const { PLUGIN_CRATE_FOLDERS } = await import("../scripts/release/crates");
-  expect(PLUGIN_CRATE_FOLDERS).toEqual(["plugin-protocol", "plugin-agent-protocol", "plugin-dispatch-protocol", "plugin-hosts-protocol", "plugin-sdk"]);
+  expect(PLUGIN_CRATE_FOLDERS).toEqual(["plugin-protocol", "plugin-agent-protocol", "plugin-dispatch-protocol", "plugin-hosts-protocol", "plugin-exec-protocol", "plugin-sdk"]);
   const { readFileSync } = await import("node:fs");
   const metadata = PLUGIN_CRATE_FOLDERS.map(folder => Bun.TOML.parse(readFileSync(new URL(`../crates/${folder}/Cargo.toml`, import.meta.url), "utf8")) as { package: { name: string; version: string; publish: boolean }; dependencies: Record<string, unknown> });
   for (const item of metadata) expect(item.package).toMatchObject({ version: "0.2.0", publish: true });
-  for (const item of metadata.slice(0, 4)) expect(Object.keys(item.dependencies).filter(name => name.startsWith("pacer-plugin"))).toEqual([]);
-  const sdk = metadata[4]!;
-  for (const name of ["pacer-plugin-protocol", "pacer-plugin-agent-protocol", "pacer-plugin-dispatch-protocol", "pacer-plugin-hosts-protocol"]) expect(sdk.dependencies[name]).toMatchObject({ version: "0.2.0" });
+  for (const item of metadata.slice(0, 5)) expect(Object.keys(item.dependencies).filter(name => name.startsWith("pacer-plugin"))).toEqual([]);
+  const sdk = metadata[5]!;
+  for (const name of ["pacer-plugin-protocol", "pacer-plugin-agent-protocol", "pacer-plugin-dispatch-protocol", "pacer-plugin-hosts-protocol", "pacer-plugin-exec-protocol"]) expect(sdk.dependencies[name]).toMatchObject({ version: "0.2.0" });
   expect(sdk.dependencies["pacer-plugin-policy-protocol"]).toBeUndefined();
   const calls: string[] = [];
   await expect(publishPluginCrates({
@@ -94,7 +95,7 @@ test("0.2 release graph packages independent areas before the SDK", async () => 
 });
 
 test("new publishable area archives use the same bounded canonical content checks", async () => {
-  for (const name of ["pacer-plugin-agent-protocol", "pacer-plugin-dispatch-protocol", "pacer-plugin-hosts-protocol"]) {
+  for (const name of ["pacer-plugin-agent-protocol", "pacer-plugin-dispatch-protocol", "pacer-plugin-hosts-protocol", "pacer-plugin-exec-protocol"]) {
     const bytes = await new Bun.Archive({
       [`${name}-0.2.0/Cargo.toml`]: `[package]\nname="${name}"\nversion="0.2.0"\n`,
       [`${name}-0.2.0/src/lib.rs`]: "pub struct Distinct;",
@@ -103,4 +104,15 @@ test("new publishable area archives use the same bounded canonical content check
   }
   const privateArea = await new Bun.Archive({ "pacer-plugin-policy-protocol-0.0.0/Cargo.toml": "private", "pacer-plugin-policy-protocol-0.0.0/src/lib.rs": "private" }, { compress: "gzip" }).bytes();
   await expect(crateContentHash(privateArea)).rejects.toThrow("Invalid plugin crate archive path");
+});
+
+test("SDK facade re-exports every generated execution type", () => {
+  const generated = readFileSync(new URL("../crates/plugin-exec-protocol/src/generated.rs", import.meta.url), "utf8");
+  const sdk = readFileSync(new URL("../crates/plugin-sdk/src/lib.rs", import.meta.url), "utf8");
+  const block = sdk.match(/pub use pacer_plugin_exec_protocol::\{([^}]+)\};/s)?.[1];
+  expect(block).toBeDefined();
+  const declared = [...generated.matchAll(/pub (?:struct|enum|type) ((?:Executor|CapabilityProcess)[A-Za-z0-9_]+)/g)]
+    .map(match => match[1]!).sort();
+  const exported = block!.split(",").map(name => name.trim()).filter(Boolean).sort();
+  expect(exported).toEqual(declared);
 });

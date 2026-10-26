@@ -13,3 +13,5 @@ For 0.2, agent-session/native identity types live in the independent publishable
 Observation/decision extension types likewise move to independent publishable `pacer-plugin-dispatch-protocol` 0.2; the SDK type facade preserves their names. No protocol area has a layer-0 peer dependency.
 
 Host-runner and host capability types move to independent publishable `pacer-plugin-hosts-protocol` 0.2. The SDK facade preserves their names; direct 0.2 protocol consumers import them from the new crate. See [ADR 0009](../../docs/decisions/0009-plugin-hosts-protocol-area.md).
+
+Executor and process capability types move to independent publishable `pacer-plugin-exec-protocol` 0.2. The SDK facade preserves `Executor*` and `CapabilityProcess*` names; direct root-protocol imports change to `pacer_plugin_exec_protocol`. See [ADR 0010](../../docs/decisions/0010-plugin-exec-protocol-area.md).
