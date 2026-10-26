@@ -60,6 +60,17 @@ fn startup_identities(record:&serde_json::Value)->Result<Vec<ProcessIdentity>,Ot
     Ok(identities)
 }
 #[cfg(feature="ota-fixture")]
+fn attached_startup_service_cleanup(
+    record: &serde_json::Value,
+    policy: &crate::ota::fixture_policy::FixturePolicy,
+    service_program: &Path,
+) -> bool {
+    startup_identities(record).is_ok()
+        && record["initialLayout"] == "paired"
+        && policy.signing_cert_sha1.is_some()
+        && service_program == policy.external_cli()
+}
+#[cfg(feature="ota-fixture")]
 fn startup_version(record: &serde_json::Value) -> Result<&'static str, OtaError> {
     ensure(
         record["nativeFixture"]["baselineVersion"] == "0.2.3"
@@ -263,13 +274,21 @@ pub(crate) async fn fixture_jobs(
         jobs.push((label.clone(), Some((job, bytes)), loaded, process));
     }
     if retire && jobs.iter().any(|(_, _, loaded, _)| loaded.is_some()) {
-      if startup_identities(&record).is_ok() {
+      // A never-armed attached service can reserve cleanup through its own
+      // authenticated native provider; a managed startup needs diagnostics.
+      let attached_startup = jobs[0].1.as_ref().is_some_and(|(job, _)| {
+        job.definition.arguments.first().is_some_and(|program| {
+          attached_startup_service_cleanup(&record, policy, Path::new(program))
+        })
+      });
+      if startup_identities(&record).is_ok() && !attached_startup {
         ensure(desktops.is_empty())?;
         let reservation=reserve_startup_cleanup(trust).await?;
         for (_,owned,loaded,_) in &jobs {
           if let Some((job,_))=owned { if loaded.is_some() { retire_startup_job(trust,job,&reservation).await?; } }
         }
       } else {
+        if attached_startup { startup_proof(trust)?; }
         let (_, owned, loaded, process) = &jobs[0];
         let (job, _) = owned.as_ref().ok_or(OtaError::Unavailable)?;
         ensure(loaded.is_some())?;
@@ -283,6 +302,7 @@ pub(crate) async fn fixture_jobs(
         let acknowledgment = control::request_fixture_cleanup(&endpoint, trust)?;
         let reservation = acknowledgment.reservation_id;
         ensure(reservation == format!("fixture-cleanup-{}", policy.nonce))?;
+        if attached_startup { startup_proof(trust)?; }
         for desktop in &acknowledgment.desktops {
             ensure(desktops.contains(desktop))?;
             wait_exact_exit(desktop).await?;
@@ -295,6 +315,7 @@ pub(crate) async fn fixture_jobs(
         for (_, owned, loaded, process) in &jobs {
             let Some((job, _)) = owned else { continue };
             if loaded.is_some() {
+                if attached_startup { startup_proof(trust)?; }
                 ensure(recovery_authority::reservation_held(
                     &policy.home,
                     &reservation,
@@ -492,6 +513,33 @@ mod tests {
         }
         let mut bad=valid.clone();bad["exercise"]=serde_json::json!({});assert!(startup_identities(&bad).is_err());
         let mut bad=valid.clone();bad["runtime"]["extra"]=true.into();assert!(startup_identities(&bad).is_err());
+    }
+    #[cfg(feature = "ota-fixture")]
+    #[test]
+    fn signed_paired_attached_startup_uses_exact_service_cleanup() {
+        let root = PathBuf::from("/fixture/.work/live/test/ota");
+        let policy = crate::ota::fixture_policy::FixturePolicy {
+            schema: 1,
+            root: root.clone(),
+            nonce: "a".repeat(32),
+            home: root.parent().unwrap().join("home"),
+            port: 7444,
+            current_app: root.join("current.app"),
+            service_label: format!("com.pacer.live.{}.service", "a".repeat(32)),
+            recovery_label: format!("com.pacer.live.{}.recovery", "a".repeat(32)),
+            uid: 501,
+            signing_cert_sha1: Some("A".repeat(40)),
+        };
+        let identity = |pid| serde_json::json!({"pid":pid,"birth":format!("birth-{pid}"),"bootId":"boot"});
+        let record = serde_json::json!({"initialLayout":"paired","exercise":null,"runtime":{"schema":1,"state":"starting","request":null,"driver":identity(11),"sourceService":identity(12),"desktop":identity(13)}});
+        assert!(attached_startup_service_cleanup(&record, &policy, &policy.external_cli()));
+        assert!(!attached_startup_service_cleanup(&record, &policy, &policy.current_app.join("Contents/Resources/pacer")));
+        let mut unsigned = policy.clone(); unsigned.signing_cert_sha1 = None;
+        assert!(!attached_startup_service_cleanup(&record, &unsigned, &policy.external_cli()));
+        let mut bridge = record.clone(); bridge["initialLayout"] = "bridge".into();
+        assert!(!attached_startup_service_cleanup(&bridge, &policy, &policy.external_cli()));
+        let mut armed = record.clone(); armed["exercise"] = serde_json::json!({});
+        assert!(!attached_startup_service_cleanup(&armed, &policy, &policy.external_cli()));
     }
     #[test]
     fn inspection_requires_exact_immutable_ledger_registration() {

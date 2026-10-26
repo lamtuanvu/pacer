@@ -114,10 +114,17 @@ export async function attachFixtureService(state: OtaRecord): Promise<FixtureJob
   return report;
 }
 
-/** Only the separately recorded, same-policy diagnostic helper may retire a never-ready baseline. */
+/** Retire a never-ready baseline through either its signed attached service or fixed diagnostic lease. */
 export async function retireFixtureStartupJobs(state: OtaRecord): Promise<FixtureJobs> {
+  const { signedAttachedStartup, validateDiagnosticFiles } = await import("./ota-diagnostics");
+  if (signedAttachedStartup(state)) {
+    const before = await inspectFixtureJobs(state);
+    fixtureInstallation(state, before, state.nativeFixture!.baselineVersion, "attached");
+    const source = before.jobs[0].process;
+    if (!source || state.registrations[0].processes.length !== 1 || !sameProcess(source, state.registrations[0].processes[0])) throw Error("Exact attached startup service is unproven");
+    return inspectFixtureJobs(state, true);
+  }
   if (!state.diagnostics || !state.nativeFixture || state.exercise || state.runtime?.state !== "starting" || state.runtime.request !== null) throw Error("No fixed startup cleanup diagnostic is recorded");
-  const { validateDiagnosticFiles } = await import("./ota-diagnostics");
   const directory = join(state.root, "diagnostics");
   validateDiagnosticFiles(directory, state.diagnostics, digest(JSON.stringify(otaFixturePolicy(state))));
   for (const name of ["pacer-startup-cleanup", "pacer-update-helper", ...(state.diagnostics.nativeShimSha256 ? ["libpacer-native.dylib"] : [])]) await run(state, ["/usr/bin/codesign", "--verify", "--strict", join(directory, name)]);
