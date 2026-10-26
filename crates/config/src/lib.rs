@@ -14,6 +14,7 @@ use std::{
     fs, io,
     path::{Path, PathBuf},
 };
+pub mod doc;
 mod host_suggest;
 mod repo_add;
 mod repos;
