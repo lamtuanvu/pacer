@@ -48,6 +48,21 @@ test("failed active refresh keeps a previous measured reading historical", async
   expect(reading.stale).toBe(true);
 });
 
+test("an Ark CLI sign-in failure replaces prior subscription availability", async () => {
+  let expired = false;
+  const ctx = fakeCtx({ now: 1_800_000_000, run: async () => ({ code: 0, stderr: "", stdout: JSON.stringify({ items: [{
+    product: "coding-plan", subscribed: !expired,
+    ...(expired ? { error: "requires BytePlus Ark SSO STS, please run `arkcli auth login`" } : { periods: [{label:"weekly",percent:18}] }),
+  }] }) }) });
+  const account = { name: "coding-plan", kind: "endpoint", source: "opencode", usage: "quota", quotaSource: "arkcli" } as const;
+  await readAccountUsage(ctx, account as never, []);
+  expired = true;
+  ctx.now += 300;
+  const reading = await readAccountUsage(ctx, account as never, [], true);
+  expect(reading.availability).toMatchObject({state:"unknown",reason:"authentication_failed"});
+  expect(reading.windows).toEqual([]);
+});
+
 test("passive Claude refresh reports unchanged rather than making old data fresh", async () => {
   const ctx = setup(async () => { throw Error("no subprocess expected"); });
   const result = await refreshAccountUsage(ctx, "claude-code");

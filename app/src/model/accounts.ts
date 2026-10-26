@@ -2,10 +2,17 @@ import { clock as formatClock } from "../../../src/view-model/time";
 import { accountNeedsSignIn } from "../../../src/view-model/words";
 export interface Model { id: string; name?: string; context?: number; output?: number; tools?: boolean }
 export interface Account {
-  name: string; kind: string; folder?: string; source?: string; signedIn?: boolean | null; signin_command?: string; runners?: string[];
+  name: string; kind: string; folder?: string; source?: string; quotaSource?: string | null; signedIn?: boolean | null; signin_command?: string; runners?: string[];
   state?: string | { state?: string; detail?: string }; detail?: string;
   connection?: { base_url_host?: string; key?: string; models: Model[]; checked_at?: string | number };
-  usageReading?: { windows: { name: string; usedPct: number | null; resetsAt: number | null }[]; capturedAt?: number | null; stale?: boolean; source?: string; error?: string };
+  usageReading?: { windows: { name: string; usedPct: number | null; resetsAt: number | null }[]; capturedAt?: number | null; stale?: boolean; source?: string; error?: string; availability?: { state: string; reason: string } };
+}
+export const arkcliSignInRequired = (account: Account) => account.quotaSource === "arkcli" && account.usageReading?.availability?.reason === "authentication_failed";
+export function arkcliRefreshMessage(result: { accounts?: { account: string; outcome: string; error?: string | null }[] }, name: string): string {
+  const reading = result.accounts?.find(item => item.account === name);
+  if (!reading || reading.outcome === "failed") return reading?.error || "Usage could not be refreshed. Check Ark CLI sign-in and try again.";
+  if (reading.outcome === "unsupported") return "Usage refresh is unavailable for this account.";
+  return "Usage refreshed.";
 }
 export interface Limit { account: string; capturedAt?: number | null; stale?: boolean; source?: string | null; usedPct?: number | null; window?: string | null; resetsAt?: number | null; error?: string | null; hint?: string | null }
 export const clock = (seconds: number) => formatClock(seconds, Date.now() / 1000);

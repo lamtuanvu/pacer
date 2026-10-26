@@ -14,6 +14,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Show Ark CLI authentication failures as unknown subscription status instead of no active subscription, with sign-in and refresh guidance in Settings › Accounts.
 - The desktop shows the live service version before loading older service screens and no longer restarts a mismatched service automatically.
 
 ## [0.10.0] - 2026-10-26
