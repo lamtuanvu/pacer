@@ -3,6 +3,7 @@ import type { Server, ServerWebSocket, WebSocketHandler } from 'bun';
 import type { Ctx } from '../types';
 import { FrameType, WireDecoder, wire, MAX_FRAME, type Frame } from '../session/framing';
 import { sessionDirectory, sessionSocket } from '../session/service';
+import { terminalDirectory } from '../terminal/workspace';
 import { readRecording } from '../session/recording';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -75,6 +76,16 @@ export async function upgradeSession(req:Request,server:Server<SessionWS>,ctx:Ct
  try{
   const dir=sessionDirectory(ctx,id);
   if(!dir)return new Response('Live session unavailable',{status:409});
+  return upgradeDirectory(req,server,dir);
+ }catch{return new Response('Session not found',{status:404});}
+}
+export async function upgradeTerminal(req:Request,server:Server<SessionWS>,ctx:Ctx,id:string):Promise<Response|undefined>{
+ if(req.method!=='GET')return new Response('method not allowed',{status:405});
+ try{return upgradeDirectory(req,server,terminalDirectory(ctx,id));}
+ catch{return new Response('Terminal not found',{status:404});}
+}
+async function upgradeDirectory(req:Request,server:Server<SessionWS>,dir:string):Promise<Response|undefined>{
+ try{
   const raw=new URL(req.url).searchParams.get('from'),from=raw===null?undefined:Number(raw);
   if(from!==undefined&&(!Number.isSafeInteger(from)||from<0||raw===''))return new Response('invalid from offset',{status:400});
   const offline=()=>{

@@ -4,6 +4,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Added
+
+- Add a persistent built-in terminal with workspace shells, tabs, splits, search and integrated app action sessions.
+
 ## [0.11.0] - 2026-10-26
 
 ### Added
