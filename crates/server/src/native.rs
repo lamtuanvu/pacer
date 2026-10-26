@@ -10,7 +10,7 @@ use pacer_foundation::{
 use serde_json::Value;
 
 /// Production operations currently selected by the native registry.
-pub const NATIVE_OPS: &[&str] = &["notifications.get", "notifications.set"];
+pub const NATIVE_OPS: &[&str] = &["notifications.get", "notifications.set", "repo.remove"];
 
 pub struct Dispatcher {
     registry: Registry,
@@ -18,6 +18,7 @@ pub struct Dispatcher {
 impl Dispatcher {
     pub fn new(forward: &str) -> Self {
         let mut ops: Vec<NativeOp> = pacer_config::ops().to_vec();
+        ops.extend_from_slice(pacer_config::repo_ops());
         #[cfg(feature = "test-ops")]
         ops.push(NativeOp {
             name: "test.echo",
@@ -44,8 +45,9 @@ impl Dispatcher {
     /// Some legacy JSON is accepted by JavaScript but not serde_json. Forward
     /// that request before consuming it so its parsing and file behavior stay exact.
     pub fn needs_core_parser(&self, ctx: &Ctx, name: &str) -> bool {
-        (matches!(name, "notifications.get" | "notifications.set")
-            && pacer_config::requires_core_parser(ctx))
+        (name == "repo.remove" && pacer_config::requires_core_repo_parser(ctx))
+            || (matches!(name, "notifications.get" | "notifications.set")
+                && pacer_config::requires_core_parser(ctx))
             || (name == "notifications.set" && pacer_config::requires_core_set_parser(ctx))
     }
     /// Merge selected native names with the actual core hello advertisement.
@@ -156,7 +158,10 @@ mod registry_tests {
                 .is_none()
         );
         assert!(Dispatcher::new("*").names().is_empty());
-        assert_eq!(NATIVE_OPS, &["notifications.get", "notifications.set"]);
+        assert_eq!(
+            NATIVE_OPS,
+            &["notifications.get", "notifications.set", "repo.remove"]
+        );
         #[cfg(not(feature = "test-ops"))]
         assert_eq!(Dispatcher::new("").names(), NATIVE_OPS);
     }
@@ -193,6 +198,32 @@ mod registry_tests {
         }
         fs::write(path, r#"{"other":42,"enabled":true}"#).unwrap();
         assert!(!dispatcher.needs_core_parser(&ctx, "notifications.set"));
+    }
+    #[tokio::test]
+    async fn repo_remove_is_native_but_can_be_forced_to_core() {
+        let dir = tempfile::tempdir().unwrap();
+        let ctx = Ctx::with(
+            dir.path().into(),
+            dir.path().join("pacer"),
+            HashMap::new(),
+            0.0,
+        );
+        assert!(
+            Dispatcher::new("repo.remove")
+                .call(&ctx, "repo.remove", json!({"key":"missing"}))
+                .await
+                .is_none()
+        );
+        assert_eq!(
+            Dispatcher::new("")
+                .call(&ctx, "repo.remove", json!({"key":"missing"}))
+                .await,
+            Some(Ok(json!({"removed":true})))
+        );
+        assert_eq!(
+            fs::read_to_string(ctx.pacer_home.join("state/repos.json")).unwrap(),
+            "{}"
+        );
     }
     #[cfg(feature = "test-ops")]
     #[tokio::test]
