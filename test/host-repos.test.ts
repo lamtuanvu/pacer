@@ -11,9 +11,9 @@ import { fakeCtx } from "./helpers";
 function fixture() {
   const ctx = fakeCtx(), remote: string[] = [];
   mkdirSync(ctx.pacerHome, { recursive: true });
-  const bin = join(ctx.home, "bin"), ssh = join(bin, "ssh"), sshLog = join(ctx.home, "ssh.log");
+  const bin = join(ctx.home, "bin"), ssh = join(bin, "ssh"), sshLog = join(ctx.home, "ssh.log"), existsFlag = join(ctx.home, "checkout-exists");
   mkdirSync(bin, { recursive: true });
-  writeFileSync(ssh, `#!/bin/sh\nprintf '%s\\n' "$*" >> '${sshLog}'\ncase "$*" in\n  *"__PACER_DONE__="*) nonce=$(printf '%s' "$*" | sed -n 's/.*__PACER_DONE__=\\([a-f0-9-]*\\).*/\\1/p'); printf '__PACER_BEGIN__\\n\\n__PACER_DONE__=%s\\n' "$nonce" ;;\n  *) printf '__PACER_BEGIN__\\n' ;;\nesac\n`);
+  writeFileSync(ssh, `#!/bin/sh\nprintf '%s\\n' "$*" >> '${sshLog}'\ncase "$*" in\n  *"__PACER_DONE__="*) nonce=$(printf '%s' "$*" | sed -n 's/.*__PACER_DONE__=\\([a-f0-9-]*\\).*/\\1/p'); printf '__PACER_BEGIN__\\n\\n__PACER_DONE__=%s\\n' "$nonce" ;;\n  *"command -v codex"*) printf '__PACER_BEGIN__\\ngit=git version 2.43.0\\nsetsid=/bin/setsid\\nscript=script from util-linux 2.40\\ntail=/usr/bin/tail\\n' ;;\n  *" check"*) if [ -f ${JSON.stringify(existsFlag)} ]; then printf '__PACER_BEGIN__\\nexists=1\\ngit=1\\norigin=https://github.com/acme/api.git\\nname=Test User\\nemail=test@example.invalid\\n'; else printf '__PACER_BEGIN__\\nexists=0\\n'; fi ;;\n  *) printf '__PACER_BEGIN__\\n' ;;\nesac\n`);
   chmodSync(ssh, 0o700);
   ctx.env = { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}` };
   ctx.which = name => name === "ssh" ? ssh : null;
@@ -22,13 +22,12 @@ function fixture() {
     planner: "claude-code", hosts: { devbox: { ssh: "devbox", repos: { "github.com/acme/api": "~/src/api" } } },
     routing: [{ default: ["codex"] }],
   }));
-  let exists = false;
   ctx.run = async argv => {
     if (argv[0] === "git") return { code: 0, stderr: "", stdout: argv.includes("get-url") ? "https://github.com/acme/api.git" : argv.includes("user.name") ? "Test User" : "test@example.invalid" };
     const cmd = argv.at(-1)!;
     remote.push(cmd);
-    if (cmd.endsWith("clone https://github.com/acme/api.git")) exists = true;
-    const stdout = cmd.includes("command -v codex") ? "git=git version 2.43.0\nsetsid=/bin/setsid\nscript=script from util-linux 2.40\ntail=/usr/bin/tail\n" : exists ? "exists=1\ngit=1\norigin=https://github.com/acme/api.git\nname=Test User\nemail=test@example.invalid\n" : "exists=0\n";
+    if (cmd.endsWith("clone https://github.com/acme/api.git")) writeFileSync(existsFlag, "");
+    const stdout = cmd.includes("command -v codex") ? "git=git version 2.43.0\nsetsid=/bin/setsid\nscript=script from util-linux 2.40\ntail=/usr/bin/tail\n" : existsSync(existsFlag) ? "exists=1\ngit=1\norigin=https://github.com/acme/api.git\nname=Test User\nemail=test@example.invalid\n" : "exists=0\n";
     return { code: 0, stderr: "", stdout: `__PACER_BEGIN__\n${stdout}` };
   };
   return { ctx, remote, sshLog };
@@ -54,7 +53,7 @@ test("repo setup requires consent before any SSH and runs clone, identity, check
   const clone = remote.findIndex(c => c.endsWith("clone https://github.com/acme/api.git"));
   expect(clone).toBeGreaterThanOrEqual(0);
   expect(readFileSync(sshLog, "utf8")).toContain('config --local user.name "$2"');
-  expect(remote.slice(clone + 1).some(c => c.includes("command -v codex"))).toBe(true);
+  expect(readFileSync(sshLog, "utf8")).toContain("command -v codex");
 });
 
 test("repo setup can skip clone and identity and reports a failed check", async () => {
