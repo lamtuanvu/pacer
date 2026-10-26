@@ -43,9 +43,12 @@ export async function pluginsCmd(args: string[], ctx: Ctx): Promise<Result> {
         if (pos.length !== 1) throw Error(USAGE);
         let r = await callOp(ctx, "plugin.enable", { id: pos[0] }) as { id: string; state: string; needs?: string[] };
         if (r.state === "needs_grant" && r.needs) {
-          const ask = `${pos[0]} asks for: ${r.needs.join(", ") || "no capabilities"}. Grant and enable?`;
+          const { plugins } = await callOp(ctx, "plugin.list", {}) as {plugins: (Info & {expectedConsent: string | null; capabilities: {name:string;scopes?:string[]}[]})[]};
+          const reviewed = plugins.find(plugin => plugin.id === pos[0]);
+          if (!reviewed?.expectedConsent) throw new CoreError("conflict", "Plugin permissions changed. Review the current request before granting access.");
+          const ask = `${pos[0]} version ${reviewed.version} asks for: ${reviewed.capabilities.map(capability => capability.scopes?.length ? `${capability.name} (${capability.scopes.join(", ")})` : capability.name).join(", ") || "no capabilities"}. Grant and enable?`;
           if (!flags.yes && !(await confirm(ask))) return { code: 1, out: "", err: `pacer: ${pos[0]} not enabled. ${ask} Re-run with --yes to grant.` };
-          r = await callOp(ctx, "plugin.enable", { id: pos[0], grant: true }) as typeof r;
+          r = await callOp(ctx, "plugin.enable", { id: pos[0], grant: true, expectedConsent: reviewed.expectedConsent }) as typeof r;
         }
         return { code: 0, out: `${r.id}: ${r.state}`, err: "" };
       }

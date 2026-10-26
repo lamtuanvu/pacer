@@ -2,6 +2,7 @@
 :root {
   color-scheme: light dark;
   --surface-page: #ffffff;
+  --surface-plugin-canvas: #ffffff;
   --surface-card: #fafafa;
   --surface-lane: #f4f4f5;
   --line: #e4e4e7;
@@ -172,6 +173,7 @@
 @media (prefers-color-scheme: dark) {
 :root:not([data-theme="light"]) {
   --surface-page: #09090b;
+  --surface-plugin-canvas: #ffffff;
   --surface-card: #18181b;
   --surface-lane: #27272a;
   --line: #3f3f46;
@@ -213,6 +215,7 @@
 }
 :root[data-theme="dark"] {
   --surface-page: #09090b;
+  --surface-plugin-canvas: #ffffff;
   --surface-card: #18181b;
   --surface-lane: #27272a;
   --line: #3f3f46;

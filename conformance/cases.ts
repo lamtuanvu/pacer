@@ -14,9 +14,14 @@ export interface ConformanceCase { name: string; run(t: CaseContext): Promise<vo
 
 export function assert(cond: unknown, message: string): asserts cond { if (!cond) throw new Error(`conformance: ${message}`); }
 const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
-type Info = { id: string; state: string; pid: number | null; error: string | null; version: string };
+type Info = { id: string; state: string; pid: number | null; error: string | null; version: string; expectedConsent: string | null };
 type Report = { id: string; ok: boolean; state: string; served: string[]; pid: number | null; restarts: number; error: string | null; needs: string | null };
 const listed = async (h: HostSession) => Object.fromEntries(((await h.call<{ plugins: Info[] }>("plugin.list")).plugins).map(p => [p.id, p]));
+const grant = async (h: HostSession, id: string) => {
+  const expectedConsent = (await listed(h))[id]?.expectedConsent;
+  assert(expectedConsent, `consent declaration exists for ${id}`);
+  return h.call<{state:string}>("plugin.enable", {id, grant:true, expectedConsent});
+};
 const doctor = async (h: HostSession, id: string) => (await h.call<{ reports: Report[] }>("plugin.doctor", { id })).reports[0]!;
 /** Events arrive through a polled subscription, so wait for them instead of checking once. */
 const eventually = async (seen: () => boolean, ms = 5000) => { const end = Date.now() + ms; while (!seen() && Date.now() < end) await Bun.sleep(50); return seen(); };
@@ -58,7 +63,7 @@ function lifecycleCases(rust: boolean): ConformanceCase[] {
       else t.install("claims");
       t.install(names.good, { manifest: { version: "9.9.9" } });
       const h = await t.host();
-      await h.call("plugin.enable", { id: ids.claims, grant: true });
+      await grant(h, ids.claims);
       const r = await doctor(h, ids.claims);
       assert(r.ok && r.served.join() === "diagnostic", `a claimed point the manifest lacks is not served (got ${r.served.join()})`);
       assert((await listed(h))[ids.good]?.version === "9.9.9", "the listing shows the manifest version");
@@ -66,7 +71,7 @@ function lifecycleCases(rust: boolean): ConformanceCase[] {
     { name: "lazy start: list starts nothing, doctor starts the process", async run(t) {
       t.install(names.good);
       const h = await t.host();
-      await h.call("plugin.enable", { id: ids.good, grant: true });
+      await grant(h, ids.good);
       assert((await listed(h))[ids.good]?.pid === null, "no pid before the first call");
       const r = await doctor(h, ids.good);
       assert(r.ok && r.pid !== null && alive(r.pid), "doctor starts the plugin and reports its pid");
@@ -75,7 +80,7 @@ function lifecycleCases(rust: boolean): ConformanceCase[] {
     { name: "deadline: plugin_timeout, the process survives, a later ping works", async run(t) {
       t.install(names.slow);
       const h = await t.host();
-      await h.call("plugin.enable", { id: ids.slow, grant: true });
+      await grant(h, ids.slow);
       const t0 = Date.now(), first = await doctor(h, ids.slow);
       assert(!first.ok && /^plugin_timeout/.test(first.error ?? ""), `the slow ping reports plugin_timeout (got ${first.error})`);
       assert(Date.now() - t0 >= 4500 && Date.now() - t0 < 8000, "the deadline is about 5 s");
@@ -86,7 +91,7 @@ function lifecycleCases(rust: boolean): ConformanceCase[] {
     { name: "crash and backoff: restarts, then failing after three crashes, enable clears", async run(t) {
       t.install(names.crasher);
       const h = await t.host();
-      await h.call("plugin.enable", { id: ids.crasher, grant: true });
+      await grant(h, ids.crasher);
       const pids: number[] = [];
       for (let i = 0; i < 3; i++) { const r = await doctor(h, ids.crasher); assert(r.ok, `ping ${i + 1} works before the crash`); pids.push(r.pid!); await t.sleep(250); }
       assert(new Set(pids).size === 3, "each restart is a new process");
@@ -97,7 +102,7 @@ function lifecycleCases(rust: boolean): ConformanceCase[] {
         .filter(e => e.type === "plugin" && (e.data as { id: string }).id === ids.crasher)
         .map(e => (e.data as { state: string }).state);
       assert(states.at(-1) === "failing", "the last event for the crashed plugin is failing");
-      const after = await h.call<{ state: string }>("plugin.enable", { id: ids.crasher, grant: true });
+      const after = await grant(h, ids.crasher);
       assert(after.state === "idle", "enable clears failing");
       assert((await doctor(h, ids.crasher)).ok, "the plugin runs again after enable");
     } },
@@ -109,7 +114,7 @@ export const CASES: ConformanceCase[] = [
   { name: "executor availability fake stays lazy and serves only the staged direct point", async run(t) {
     t.install("executor");
     const h=await t.host();
-    await h.call("plugin.enable",{id:"fx-executor",grant:true});
+    await grant(h, "fx-executor");
     assert((await listed(h))["fx-executor"]?.pid===null,"fake executor remains lazy at listing");
     const r=await doctor(h,"fx-executor");
     assert(r.ok&&r.served.includes("executor"),"fake executor handshakes without running an attempt");
@@ -117,7 +122,7 @@ export const CASES: ConformanceCase[] = [
   { name: "host runner fake stays lazy and claims the staged SSH point", async run(t) {
     t.install("host-runner");
     const h=await t.host();
-    await h.call("plugin.enable",{id:"fx-host-runner",grant:true});
+    await grant(h, "fx-host-runner");
     assert((await listed(h))["fx-host-runner"]?.pid===null,"fake host runner remains lazy at listing");
     const r=await doctor(h,"fx-host-runner");
     assert(r.ok&&r.served.includes("hostRunner"),"fake host runner handshakes without SSH");
@@ -156,7 +161,7 @@ export const CASES: ConformanceCase[] = [
     t.install("good"); t.install("undeclared"); t.install("over-privileged");
     writeFileSync(join(t.home, ".pacer", "strategy.yaml"), "planner: claude-code\nproviders:\n  claude-code: {}\nplugins:\n  config:\n    fx-good: { region: eu }\n");
     const h = await t.host();
-    for (const id of ["fx-good", "fx-undeclared", "fx-over"]) await h.call("plugin.enable", { id, grant: true });
+    for (const id of ["fx-good", "fx-undeclared", "fx-over"]) await grant(h, id);
     assert((await doctor(h, "fx-good")).ok, "a declared config.get answers");
     const denied = await doctor(h, "fx-undeclared");
     assert(!denied.ok && /^capability_denied/.test(denied.error ?? ""), `an undeclared capability is refused (got ${denied.error})`);
@@ -168,19 +173,20 @@ export const CASES: ConformanceCase[] = [
     const h = await t.host();
     const first = await h.call<{ state: string; needs?: string[] }>("plugin.enable", { id: "fx-good" });
     assert(first.state === "needs_grant" && first.needs?.join() === "log,config.get", "enable without grant returns the capability set");
-    assert((await h.call<{ state: string }>("plugin.enable", { id: "fx-good", grant: true })).state === "idle", "enable with grant records it");
+    assert((await grant(h, "fx-good")).state === "idle", "enable with grant records it");
     const m = JSON.parse(readFileSync(join(dir, "pacer-plugin.json"), "utf8"));
     writeFileSync(join(dir, "pacer-plugin.json"), JSON.stringify({ ...m, version: "1.1.0", capabilities: [...m.capabilities, { name: "net.http" }] }));
     assert((await listed(h))["fx-good"]?.state === "needs_grant", "a version asking for more drops back to needs_grant");
     writeFileSync(join(dir, "pacer-plugin.json"), JSON.stringify({ ...m, version: "1.1.0" }));
-    assert((await listed(h))["fx-good"]?.state === "idle", "a version with the same capabilities stays enabled");
+    assert((await listed(h))["fx-good"]?.state === "needs_grant", "a changed declaration requires renewed consent even with the same capability names");
+    assert((await grant(h,"fx-good")).state === "idle", "fresh consent enables the changed declaration");
   } },
   { name: "serialisation: one call at a time unless reentrant", async run(t) {
     t.install("serial", { fixture: { pingProbe: "serial" } });
     t.install("reentrant", { fixture: { pingProbe: "barrier" } });
     const h = await t.host();
     for (const id of ["fx-serial", "fx-reentrant"]) {
-      await h.call("plugin.enable", { id, grant: true });
+      await grant(h, id);
       const warmup = await doctor(h, id);
       assert(warmup.ok && warmup.pid !== null, `${id} warmup succeeds`);
       const reports = await Promise.all([doctor(h, id), doctor(h, id)]);
@@ -196,7 +202,7 @@ export const CASES: ConformanceCase[] = [
   { name: "logs: stderr lands in the plugin log file, never on stdout", async run(t) {
     t.install("good");
     const h = await t.host();
-    await h.call("plugin.enable", { id: "fx-good", grant: true });
+    await grant(h, "fx-good");
     assert((await doctor(h, "fx-good")).ok, "ping ok");
     const log = join(t.home, ".pacer", "logs", "plugins", "fx-good.log");
     const end = Date.now() + 3000; while (Date.now() < end && !/ping 1/.test(readFileSync(log, "utf8"))) await t.sleep(20);
@@ -206,7 +212,7 @@ export const CASES: ConformanceCase[] = [
   { name: "shutdown: closing the host terminates its plugins", async run(t) {
     t.install("good");
     const h = await t.host();
-    await h.call("plugin.enable", { id: "fx-good", grant: true });
+    await grant(h, "fx-good");
     const pid = (await doctor(h, "fx-good")).pid!;
     await h.close();
     const end = Date.now() + 5000; while (Date.now() < end && alive(pid)) await t.sleep(50);
@@ -221,7 +227,7 @@ export const CASES: ConformanceCase[] = [
     mkdirSync(join(pacerHome,"tasks"),{recursive:true});
     writeFileSync(join(pacerHome,"tasks",taskId+".json"),JSON.stringify({id:taskId,rev:1,createdAt:1,state:"queued",kind:null,requestedExecutor:null,timeoutS:60,attempts:[],brief:{goal:"observation fixture",repo:t.home}}));
     const h=await t.host({subscribe:false});
-    await h.call("plugin.enable",{id:"fx-observations",grant:true});
+    await grant(h, "fx-observations");
     assert((await listed(h))["fx-observations"]!.pid===null,"enable remains metadata-only");
     const report=await doctor(h,"fx-observations");assert(report.ok,"actual doctor establishes generation observations");
     await h.call("task.stop",{id:taskId});

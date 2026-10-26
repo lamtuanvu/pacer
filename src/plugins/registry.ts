@@ -13,6 +13,7 @@ import type { AdapterId } from "../classify/types";
 import { prepareHttpAuthority } from "./http-authority";
 import { spawn as nodeSpawn } from "node:child_process";
 import { existsSync, lstatSync, readdirSync, rmSync, statSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { isAbsolute, join, normalize } from "node:path";
 import { appendActivity } from "../activity/log";
 import { CoreError } from "../core/errors";
@@ -59,7 +60,12 @@ interface HostCallerFetchAdmission { grant: PersistedFetchGrant;
   claim: (caller: CallAuthority, ticket: ClaimedBundleTicket) => void | Promise<void> }
 export interface PluginCallOptions { plannerResources?: PlannerResources; credentialBindings?: readonly CredentialBinding[]; classifierConfig?: ClassifierConfig; resources?: CallResources; accountHome?: string | null; deadlineMs?: number; signal?: AbortSignal; onProgress?: (event: unknown) => void; /** Internal host-lease binding: never restart or substitute this provider. */ expectedProcess?: PluginProcess; [HOST_CHECK_ISSUER]?: true; [HOST_FETCH_ISSUER]?: HostFetchAdmission; [HOST_CALL_FETCH_ISSUER]?: HostCallerFetchAdmission; [HOST_CALL_IDENTITY_ISSUER]?: ConfiguredHostIdentityGrant; [HOST_PROVIDER_MUTATION_ISSUER]?: true }
 export interface RegistryDeps { bundled: BundledPlugin[]; spawnBundled: (ctx: Ctx, id: string) => SpawnSpec; spawn?: typeof nodeSpawn; sleep?: (ms: number) => Promise<void>; eventPumpMs?:number }
-export interface PluginInfo { id: string; version: string; publisher: string; tier: "free" | "commercial"; bundled: boolean; enabled: boolean; state: PluginState; contributes: string[]; capabilities: { name: string; scopes?: string[] }[]; grant: PluginGrant | null; error: string | null; pid: number | null }
+export interface PluginInfo { id: string; version: string; publisher: string; tier: "free" | "commercial"; bundled: boolean; enabled: boolean; state: PluginState; contributes: string[]; capabilities: { name: string; scopes?: string[] }[]; expectedConsent: string | null; grant: PluginGrant | null; error: string | null; pid: number | null; surface: { prefix: string; available: boolean } | null }
+
+/** Binds consent to the entire validated declaration, including scoped access. */
+function consentFingerprint(manifest: PluginManifest): string {
+  return createHash("sha256").update(JSON.stringify(manifest)).digest("hex");
+}
 export interface DoctorReport { id: string; ok: boolean; state: PluginState; served: string[]; protocol: { host: string; plugin: string | null }; pid: number | null; restarts: number; error: string | null; needs: string | null }
 
 interface ClassifierGeneration { fingerprint: string; manifest: PluginManifest; config: Record<string, unknown> }
@@ -527,7 +533,8 @@ export class PluginRegistry {
         }
         e.plannerFingerprint=fingerprint;
       }
-      const covered = e.bundled || (grant !== null && m.capabilities.every(c => grant.capabilities.includes(c.name)));
+      const covered = e.bundled || (grant !== null && m.capabilities.every(c => grant.capabilities.includes(c.name)) &&
+        grant.consent === consentFingerprint(m));
       if (cfg.disabled.includes(e.id)) { this.retireObservations(e);void this.stop(e); this.setState(ctx, e, "disabled"); return; }
       if (!covered) { this.retireObservations(e);void this.stop(e); this.setState(ctx, e, "needs_grant", `needs a grant for ${m.capabilities.map(c => c.name).join(", ") || "no capabilities"}`); return; }
       if (!ENABLED.has(e.state) && e.state !== "failing") this.setState(ctx, e, "idle");
@@ -567,10 +574,19 @@ export class PluginRegistry {
   list(ctx: Ctx): PluginInfo[] {
     this.refresh(ctx);
     const cfg = pluginsConfig(ctx);
+    const surfaceCounts = new Map<string, number>();
+    for (const entry of this.entries.values()) {
+      const prefix = entry.manifest?.contributes.surface?.prefix;
+      if (!entry.bundled && entry.dir && ENABLED.has(entry.state) && prefix)
+        surfaceCounts.set(prefix, (surfaceCounts.get(prefix) ?? 0) + 1);
+    }
     return [...this.entries.values()].sort((a, b) => a.id.localeCompare(b.id)).map(e => ({
       id: e.id, version: e.manifest?.version ?? "", publisher: e.manifest?.publisher ?? "", tier: e.manifest?.tier ?? "free", bundled: e.bundled,
       enabled: ENABLED.has(e.state) || e.state === "failing", state: e.state, contributes: Object.keys(e.manifest?.contributes ?? {}),
-      capabilities: e.manifest?.capabilities ?? [], grant: cfg.installed[e.id] ?? null, error: e.error, pid: e.process?.pid ?? null,
+      capabilities: e.manifest?.capabilities ?? [], expectedConsent: e.manifest && !e.bundled ? consentFingerprint(e.manifest) : null,
+      grant: cfg.installed[e.id] ?? null, error: e.error, pid: e.process?.pid ?? null,
+      surface: e.manifest?.contributes.surface ? { prefix: e.manifest.contributes.surface.prefix,
+        available: !e.bundled && !!e.dir && ENABLED.has(e.state) && surfaceCounts.get(e.manifest.contributes.surface.prefix) === 1 } : null,
     }));
   }
 
@@ -890,16 +906,28 @@ export class PluginRegistry {
     }, options.signal);
   }
 
-  async enable(ctx: Ctx, id: string, grant: boolean): Promise<{ id: string; state: PluginState; needs?: string[] }> {
+  async enable(ctx: Ctx, id: string, grant: boolean, expectedConsent?: string): Promise<{ id: string; state: PluginState; needs?: string[] }> {
     this.refresh(ctx);
     const e = this.findEntry(ctx, id);
     if (e.state === "refused") throw new CoreError("plugin_refused", `plugin ${id} cannot be enabled: ${e.error}`);
     const m = e.manifest!;
     const needs = m.capabilities.map(c => c.name);
     const current = pluginsConfig(ctx).installed[id];
-    const covered = e.bundled || (current !== undefined && needs.every(n => current.capabilities.includes(n)));
+    const covered = e.bundled || (current !== undefined && needs.every(n => current.capabilities.includes(n)) &&
+      current.consent === consentFingerprint(m));
     if (!covered && !grant) return { id, state: "needs_grant", needs };
-    if (!e.bundled && (!covered || current?.version !== m.version)) await setPluginGrant(ctx, id, { version: m.version, capabilities: needs });
+    if (!e.bundled && grant) {
+      if (!expectedConsent || expectedConsent !== consentFingerprint(m)) throw new CoreError("conflict", "Plugin permissions changed. Review the current request before granting access.");
+      // Re-read while holding the config write lock. Never persist a capability set
+      // from a declaration other than the one the caller actually reviewed.
+      await setPluginGrant(ctx, id, { version: m.version, capabilities: needs, consent: expectedConsent }, () => {
+        const fresh = readManifestFile(join(e.dir!, "pacer-plugin.json"));
+        if (!fresh.ok || fresh.manifest.id !== id || consentFingerprint(fresh.manifest) !== expectedConsent)
+          throw new CoreError("conflict", "Plugin permissions changed. Review the current request before granting access.");
+      });
+    } else if (!e.bundled && !covered) {
+      return { id, state: "needs_grant", needs };
+    }
     await setPluginDisabled(ctx, id, false);
     e.crashes = []; e.nextStartAt = 0;
     if (e.state === "failing") e.state = "idle";

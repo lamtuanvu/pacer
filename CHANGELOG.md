@@ -6,7 +6,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
-- Serve enabled, granted plugin surfaces through opaque-origin CSP sandbox documents and static-only scoped URLs, with descriptor-anchored file reads. The Settings screen and TUI summary remain in progress.
+- Serve enabled, granted plugin surfaces through opaque-origin CSP sandbox documents and static-only scoped URLs, with descriptor-anchored file reads. Settings → Plugins now lists state, permissions and available panels, offers grant and lifecycle controls, and `pacer status` includes a one-line plugin summary. Commercial license status reads unavailable until entitlement reports are exposed.
 - Add a host-only, one-use finalized bundle input that rechecks the persisted run and private publication, then supplies an immutable bounded byte snapshot for safe downstream Git consumption.
 - Stage the direct executor manifest and bounded availability contract with a fake conformance plugin; no attempt runner or production backend is switched yet.
 - Add scoped `hosts.open/run/fetch/close` plugin capabilities with caller-owned broker sessions, configured SSH aliases and fixed-script fake-provider forwarding; host setup identity and committed-task transfer use the bundled remote caller while other SSH paths still await cutover.
@@ -26,6 +26,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Bind installed plugin grants to the reviewed manifest fingerprint and reject stale or missing consent with a conflict before storing access; Settings refreshes the changed request for review. Earlier installed grants without a fingerprint require fresh review before use because their scoped access was not recorded.
 - Open current task details from native tray attention actions after the Tasks route migration.
 - Detect macOS iTerm.app consistently when opening session viewers through the preferred terminal.
 - Let live native controls inspect a completed managed OTA fixture without transferring teardown ownership, and keep authority collection and input within the original command deadline.

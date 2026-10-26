@@ -3641,7 +3641,7 @@ Params JSON Schema:
 
 ### `plugin.enable`
 
-Enable a plugin. An installed plugin without a matching grant returns needs_grant with its capability set until called with grant: true.
+Enable a plugin. An installed plugin needing a grant returns needs_grant. Granting requires expectedConsent from the reviewed plugin.list declaration; a changed declaration returns conflict.
 
 Params JSON Schema:
 
@@ -3656,6 +3656,10 @@ Params JSON Schema:
     },
     "grant": {
       "type": "boolean"
+    },
+    "expectedConsent": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
     }
   },
   "required": [

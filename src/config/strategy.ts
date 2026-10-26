@@ -38,7 +38,7 @@ export interface ProviderCfg {
 }
 export interface RouteRule { kinds: string[] | null; executors: string[] }
 
-export interface PluginGrant { version: string; capabilities: string[] }
+export interface PluginGrant { version: string; capabilities: string[]; consent?: string }
 export interface PluginsCfg { policy: { mode: "open" | "closed" }; disabled: string[]; installed: Record<string, PluginGrant>; config: Record<string, Record<string, unknown>> }
 export const EMPTY_PLUGINS: PluginsCfg = { policy: { mode: "open" }, disabled: [], installed: {}, config: {} };
 
@@ -66,7 +66,10 @@ export function parsePlugins(raw: unknown, p: string[]): PluginsCfg {
       if (!isObj(g)) { p.push(`plugins.installed.${id} must be a mapping`); continue; }
       if (typeof g.version !== "string" || !SEMVER.test(g.version)) p.push(`plugins.installed.${id}.version must be semver`);
       if (!Array.isArray(g.capabilities) || g.capabilities.some(c => typeof c !== "string")) p.push(`plugins.installed.${id}.capabilities must be a list of names`);
-      else installed[id] = { version: String(g.version), capabilities: g.capabilities.map(String) };
+      else {
+        if (g.consent !== undefined && (typeof g.consent !== "string" || !/^[a-f0-9]{64}$/.test(g.consent))) p.push(`plugins.installed.${id}.consent must be a SHA-256 fingerprint`);
+        installed[id] = { version: String(g.version), capabilities: g.capabilities.map(String), ...(typeof g.consent === "string" ? {consent: g.consent} : {}) };
+      }
     }
   }
   const config: Record<string, Record<string, unknown>> = {};

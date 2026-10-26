@@ -6,6 +6,7 @@ export const SETTINGS_PAGES: readonly { id: string; label: string; icon: IconNam
   { id: 'planner', label: 'Planner & pacing', icon: 'gauge' },
   { id: 'accounts', label: 'Accounts', icon: 'accounts' },
   { id: 'executors', label: 'Executors', icon: 'executors' },
+  { id: 'plugins', label: 'Plugins', icon: 'layers' },
   { id: 'machine', label: 'This machine', icon: 'hosts' },
   { id: 'hosts', label: 'Remote hosts', icon: 'servers' },
   { id: 'dispatcher', label: 'Dispatcher', icon: 'routing' },

@@ -7,9 +7,15 @@ import { startServer } from "../src/serve/http";
 import { fakeCtx } from "./helpers";
 import { writeNative } from "../src/plugins/write-native";
 import { pluginRegistry } from "../src/plugins";
+import { callOp } from "../src/api/ops";
 
 const base = { id: "fx-surface", version: "1.0.0", publisher: "test", host: "^1", entry: "main.ts", capabilities: [] };
 const manifest = (dir: string, prefix = "fx") => ({ ...base, contributes: { surface: { prefix, dir } } });
+async function grantSurface(ctx: ReturnType<typeof fakeCtx>, id = "fx-surface") {
+  const expectedConsent = pluginRegistry(ctx).list(ctx).find(plugin => plugin.id === id)?.expectedConsent;
+  expect(expectedConsent).toBeString();
+  await callOp(ctx, "plugin.enable", {id, grant:true, expectedConsent:expectedConsent!});
+}
 
 test("published surface directory schema and runtime reject the same unsafe paths", () => {
   const schema = pluginProtocolSchema() as { $defs: { manifest: { properties: { contributes: { properties: { surface: { properties: { dir: { pattern: string } } } } } } } } };
@@ -38,6 +44,9 @@ test("declaring a surface without a grant never exposes its HTML", async () => {
   writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders:\n  claude-code: {}\n");
   const s = startServer(() => ctx, { port: 0, listener: false, pumpMs: 0 });
   try {
+    expect(pluginRegistry(ctx).list(ctx).find(plugin => plugin.id === "fx-surface")?.surface).toEqual({ prefix: "fx", available: false });
+    const doctor = await callOp(ctx, "plugin.doctor", { id: "fx-surface" }) as { reports: { id: string; state: string }[] };
+    expect(doctor.reports[0]).toMatchObject({ id: "fx-surface", state: "needs_grant" });
     const response = await fetch(`http://127.0.0.1:${s.port}/app/plugins/fx/index.html`, { headers: { authorization: `Bearer ${s.token}` } });
     expect(response.status).toBe(404);
     expect(await response.text()).not.toContain("privilegedOperation");
@@ -52,9 +61,11 @@ test("granted surface files have an opaque sandboxed document origin", async () 
   writeFileSync(join(dir, "main.ts"), "");
   writeFileSync(join(dir, "ui", "index.html"), "<script src=\"./main.js\"></script>");
   writeFileSync(join(dir, "ui", "main.js"), "document.body.dataset.plugin = 'ready';");
-  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders:\n  claude-code: {}\nplugins:\n  installed:\n    fx-surface: { version: 1.0.0, capabilities: [] }\n");
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders:\n  claude-code: {}\n");
+  await grantSurface(ctx);
   const s = startServer(() => ctx, { port: 0, listener: false, pumpMs: 0 });
   try {
+    expect(pluginRegistry(ctx).list(ctx).find(plugin => plugin.id === "fx-surface")?.surface).toEqual({ prefix: "fx", available: true });
     const url = `http://127.0.0.1:${s.port}/app/plugins/fx/index.html`;
     const auth = { authorization: `Bearer ${s.token}` };
     expect((await fetch(url)).status).toBe(401);
@@ -79,8 +90,25 @@ test("granted surface files have an opaque sandboxed document origin", async () 
     expect((await fetch(url.replace("fx/", "nope/"), { headers: auth })).status).toBe(404);
     expect((await fetch(`http://127.0.0.1:${s.port}/app/plugins/fx/%2e%2e/strategy.yaml`, { headers: auth })).status).toBe(404);
     await pluginRegistry(ctx).disable(ctx, "fx-surface");
+    expect(pluginRegistry(ctx).list(ctx).find(plugin => plugin.id === "fx-surface")?.surface).toEqual({ prefix: "fx", available: false });
     expect((await fetch(ok.url)).status).toBe(401);
   } finally { await s.stop(); }
+});
+
+test("duplicate active prefixes never advertise a panel as available", async () => {
+  const ctx = fakeCtx({ now: Date.now() / 1000 });
+  for (const id of ["fx-surface", "fx-other"]) {
+    const dir = join(ctx.pacerHome, "plugins", id);
+    mkdirSync(join(dir, "ui"), { recursive: true });
+    writeFileSync(join(dir, "pacer-plugin.json"), JSON.stringify({ ...manifest("ui"), id }));
+    writeFileSync(join(dir, "main.ts"), "");
+  }
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders:\n  claude-code: {}\n");
+  await grantSurface(ctx,"fx-surface");
+  await grantSurface(ctx,"fx-other");
+  const registry = pluginRegistry(ctx);
+  expect(registry.list(ctx).filter(plugin => plugin.surface?.prefix === "fx").map(plugin => plugin.surface?.available)).toEqual([false, false]);
+  expect(registry.surface(ctx, "fx")).toBeNull();
 });
 
 test("surface serving never follows a symlink outside its plugin folder", async () => {
@@ -91,7 +119,8 @@ test("surface serving never follows a symlink outside its plugin folder", async 
   writeFileSync(join(dir, "main.ts"), "");
   writeFileSync(join(ctx.pacerHome, "secret.txt"), "private fixture");
   symlinkSync(join(ctx.pacerHome, "secret.txt"), join(dir, "ui", "secret.txt"));
-  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders:\n  claude-code: {}\nplugins:\n  installed:\n    fx-surface: { version: 1.0.0, capabilities: [] }\n");
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders:\n  claude-code: {}\n");
+  await grantSurface(ctx);
   const s = startServer(() => ctx, { port: 0, listener: false, pumpMs: 0 });
   try {
     const response = await fetch(`http://127.0.0.1:${s.port}/app/plugins/fx/secret.txt`, { headers: { authorization: `Bearer ${s.token}` } });
@@ -111,7 +140,8 @@ test("surface file read stays on the opened directory when its path is swapped",
   writeFileSync(join(dir, "main.ts"), "");
   writeFileSync(join(ui, "index.html"), "safe fixture");
   writeFileSync(join(outside, "index.html"), "outside secret");
-  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders:\n  claude-code: {}\nplugins:\n  installed:\n    fx-surface: { version: 1.0.0, capabilities: [] }\n");
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders:\n  claude-code: {}\n");
+  await grantSurface(ctx);
   const native = writeNative();
   const original = native.openAt.bind(native);
   let swapped = false;
