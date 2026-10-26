@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { stringify } from "yaml";
 import * as hosts from "../src/remote/hosts";
@@ -7,6 +7,7 @@ import { main } from "../src/cli";
 import { callOp } from "../src/api/ops";
 import { fakeCtx, fakeSshEnv, gitRepo, realRun, tmpDir } from "./helpers";
 import { pluginRegistry, shutdownPlugins } from "../src/plugins";
+import { reserveIdle } from "../src/update/desktop/admission";
 
 async function fixture() {
   const repo = gitRepo(), checkout = gitRepo(), home = tmpDir();
@@ -243,7 +244,8 @@ test("host clean only removes reviewed settled tasks on the selected host and pr
   const tasks = [];
   for (const [host, state, reviewed] of [["box", "done", true], ["box", "done", false], ["box", "running", true], ["other", "done", true]] as const) {
     const t = createTask(ctx, { brief: { goal: "cleanup", repo }, kind: null, requestedExecutor: null, timeoutS: 60 });
-    const worktree = join(home, ".pacer-remote", "worktrees", t.id), dir = join(home, ".pacer-remote", "runs", t.id, "1");
+    const worktree = join(home, ".pacer-remote", "worktrees", "repo-test", `${t.id}-1`), dir = join(home, ".pacer-remote", "runs", t.id, "1");
+    mkdirSync(join(home, ".pacer-remote", "worktrees", "repo-test"), { recursive: true });
     await git(checkout, "worktree", "add", "-b", `pacer/${t.id}`, worktree);
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, "session.raw"), "recorded output");
@@ -256,6 +258,41 @@ test("host clean only removes reviewed settled tasks on the selected host and pr
   expect(existsSync(tasks[0].dir)).toBe(false);
   expect(await git(checkout, "rev-parse", "--verify", `pacer/${tasks[0].id}`)).not.toBe("");
   for (const t of tasks.slice(1)) expect(existsSync(t.worktree)).toBe(true);
+});
+
+test("host clean refuses unissued and disabled provider calls, preserving ambiguous cleanup", async () => {
+  const { ctx, repo, checkout, home, git, log } = await fixture();
+  const { createTask, updateTask } = await import("../src/tasks/store");
+  const task = createTask(ctx, { brief: { goal: "cleanup", repo }, kind: null, requestedExecutor: null, timeoutS: 60 });
+  const worktree = join(home, ".pacer-remote", "worktrees", "repo-test", `${task.id}-1`);
+  const dir = join(home, ".pacer-remote", "runs", task.id, "1");
+  mkdirSync(join(home, ".pacer-remote", "worktrees", "repo-test"), { recursive: true });
+  await git(checkout, "worktree", "add", "-b", `pacer/${task.id}`, worktree);
+  mkdirSync(dir, { recursive: true });
+  updateTask(ctx, task.id, record => { record.state = "done"; record.dismissed = true;
+    record.run = { host: "box", mode: "new", remoteWorktree: worktree, remoteDir: dir,
+      workdir: worktree, dir: "unused", attempt: 1, executor: "codex@box", startedAt: 1, logFile: "unused" }; });
+  const registry = pluginRegistry(ctx);
+  await expect(registry.call(ctx, "pacer-ssh", "hostRunner.run", {
+    session: "a".repeat(32), script: "CLEAN", args: [worktree, dir, checkout, task.id, ""],
+    timeoutMs: 50_000, maxBytes: 65_536, completionNonce: "123e4567-e89b-42d3-a456-426614174000",
+  })).rejects.toMatchObject({ code: "capability_denied" });
+  await registry.disable(ctx, "pacer-ssh");
+  const before = existsSync(log) ? readFileSync(log, "utf8") : "";
+  expect(await hosts.clean(ctx, "box")).toEqual({ removed: [], kept: [{ id: task.id, reason: "remote cleanup failed" }] });
+  expect(existsSync(log) ? readFileSync(log, "utf8") : "").toBe(before);
+  await registry.enable(ctx, "pacer-ssh", true);
+  writeFileSync(join(home, "bin", "ssh"), "#!/bin/sh\nprintf '__PACER_BEGIN__\\n'\n");
+  chmodSync(join(home, "bin", "ssh"), 0o755);
+  const original = ctx.run;
+  ctx.run = (argv, timeoutMs, options) => {
+    if (argv[0] === "ssh") throw Error("direct cleanup SSH bypass");
+    return original(argv, timeoutMs, options);
+  };
+  expect(await hosts.clean(ctx, "box")).toEqual({ removed: [], kept: [{ id: task.id, reason: "remote cleanup failed" }] });
+  const idle = await reserveIdle(ctx, "123e4567-e89b-42d3-a456-426614174011");
+  expect(idle.reserved).toBe(false);
+  expect(idle.blockers.some(blocker => blocker.label === "Remote cleanup operation on box")).toBe(true);
 });
 
 test("host check rejects BSD or missing script", async () => {
