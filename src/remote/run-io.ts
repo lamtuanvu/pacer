@@ -76,7 +76,7 @@ export class RemoteRunIO implements RunIO {
       mkdirSync(this.localDir, { recursive: true });
       writeFileSync(join(this.localDir, "admission.json"), JSON.stringify({ lease, host: this.host.alias, remoteDir: this.remoteDir }), { mode: 0o600 });
       if (full) sent = true; // Binary staging can also outlive a lost SSH response.
-      const binary = full ? await ensureRemoteBinary(this.ctx,this.host,this.runtime) : undefined;
+      const binary = full ? await ensureRemoteBinary(this.ctx,this.host,this.remoteDir,this.localDir,this.runtime) : undefined;
       const launch = full ? JSON.stringify({argv,cwd,completionNonce:lease,capBytes: options.capBytes ?? (execution?.sessionLogMb ?? 8)*1024*1024})+"\n" : wrapper;
       sent = true;
       const launchEnv = { ...env, PACER_COMPLETION_NONCE: lease };
