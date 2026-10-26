@@ -3,6 +3,7 @@ mod generated;
 pub use generated::*;
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::HostRunnerUploadParams;
 
