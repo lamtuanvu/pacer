@@ -47,3 +47,34 @@ test("SDK stream progress waits for scoped acknowledgement and stays unavailable
     expect(ordinaryCanStream).toBe(false);
   } finally { ch.close(); await done; }
 });
+
+test("SDK stream input is one owned frame and acknowledges only after provider work", async () => {
+  const ch = channel(), output: Record<string, any>[] = [];
+  const streamId = "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa";
+  let received = "";
+  const done = serve({ manifest, input: ch.input, write(line) { output.push(JSON.parse(line)); }, handlers: {
+    "hostRunner.stream": async (_params, host) => {
+      const frame = await host.streamInput!.next();
+      received = Buffer.from(frame.bytes).toString();
+      await frame.ack();
+      return { code: 0, bytes: frame.bytes.length };
+    },
+  } });
+  try {
+    ch.send({ jsonrpc: "2.0", id: 1, method: "plugin.hello",
+      params: { protocol: "1.5.0", pacer: "test", manifest, config: {}, grants: [] } });
+    ch.send({ jsonrpc: "2.0", id: 3, method: "hostRunner.stream", params: { streamId },
+      _meta: { capabilityCall: "owned-token" } });
+    ch.send({ jsonrpc: "2.0", method: "$/streamInput", params: { request: 3, streamId, seq: 0, base64: "YWJj" } });
+    const until = Date.now() + 2000;
+    while (!output.some(frame => frame.method === "$/streamInputAck") && Date.now() < until) await Bun.sleep(5);
+    const ack = output.find(frame => frame.method === "$/streamInputAck")!;
+    expect(received).toBe("abc");
+    expect(ack).toMatchObject({ params: { request: 3, streamId, seq: 0 },
+      _meta: { capabilityCall: "owned-token" } });
+    expect(output.some(frame => frame.id === 3 && frame.result)).toBe(false);
+    ch.send({ jsonrpc: "2.0", id: ack.id, result: { seq: 0 } });
+    while (!output.some(frame => frame.id === 3 && frame.result) && Date.now() < until) await Bun.sleep(5);
+    expect(output.find(frame => frame.id === 3)?.result).toEqual({ code: 0, bytes: 3 });
+  } finally { ch.close(); await done; }
+});

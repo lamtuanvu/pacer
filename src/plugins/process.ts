@@ -5,8 +5,9 @@ import { spawn as nodeSpawn, type ChildProcessWithoutNullStreams } from "node:ch
 import { pluginRpcError as rpcError } from "./errors";
 import { CoreError, type CoreErrorCode } from "../core/errors";
 import { MAX_LINE_BYTES, readLines } from "./lines";
-import { CANCEL_METHOD, CAPABILITY_METHODS, RESULT_CHUNK_METHOD, RESULT_CHUNK_FEATURE, STREAM_ACK_METHOD, streamAckParams, streamProgressEvent, resultChunkParams, chunkedResult } from "./protocol";
+import { CANCEL_METHOD, CAPABILITY_METHODS, RESULT_CHUNK_METHOD, RESULT_CHUNK_FEATURE, STREAM_ACK_METHOD, STREAM_INPUT_METHOD, STREAM_INPUT_ACK_METHOD, streamAckParams, streamProgressEvent, streamInputFrame, streamInputAckParams, resultChunkParams, chunkedResult } from "./protocol";
 import type { CallAuthority } from "./authority";
+import { armDuplexInput, clearDuplexInput, consumeDuplexInputReceipt } from "./capability-duplex";
 import type { ResultStaging } from "./result-staging";
 
 export interface SpawnSpec { argv: string[]; cwd: string; env: Record<string, string | undefined> }
@@ -25,7 +26,9 @@ export interface ProcessHooks {
 }
 export interface StreamProgress { streamId: string; consume: (bytes: Buffer) => Promise<void> }
 export interface RequestOptions { prepareInput?: (fits:(params:unknown)=>boolean)=>unknown; authority?: CallAuthority; metadata?: unknown; signal?: AbortSignal; onProgress?: (event: unknown) => void; stream?: StreamProgress }
-type StreamPending = StreamProgress & { nextSeq: number; outstanding?: { seq: number; done: Promise<void>; cancelDeadline: () => void } };
+type StreamPending = StreamProgress & { nextSeq: number; inputSeq: number;
+  outstanding?: { seq: number; done: Promise<void>; cancelDeadline: () => void };
+  input?: { seq: number; resolve: () => void; reject: (error: CoreError) => void; cancelDeadline: () => void } };
 type Pending = { authority?: CallAuthority; metadata?: unknown; transferStarted?: boolean; staging?: ResultStaging; dispose: () => void; onProgress?: (event: unknown) => void; stream?: StreamPending; method: string; resolve: (v: unknown) => void; reject: (e: CoreError) => void; cancelDeadline?: () => void };
 const KNOWN: ReadonlySet<string> = new Set<CoreErrorCode>(["unknown_op", "unknown_task", "invalid_input", "unknown_executor", "conflict", "not_allowed", "plugin_timeout", "plugin_unavailable", "plugin_refused", "capability_denied", "unknown_plugin", "not_found", "too_large"]);
 
@@ -81,7 +84,11 @@ export class PluginProcess {
     if(this.over){if(reportExit&&!this.exitReported){this.exitReported=true;this.hooks.onExit(info);}return;}
     this.over = true; this.child = undefined;
     const text = reason ?? `plugin exited${info.code !== null ? ` with code ${info.code}` : info.signal ? ` on ${info.signal}` : ""}`;
-    for (const p of this.pending.values()) { p.cancelDeadline?.(); p.dispose(); p.reject(new CoreError("plugin_unavailable", `${p.method}: ${text}`)); }
+    for (const p of this.pending.values()) { p.cancelDeadline?.(); p.dispose();
+      p.stream?.input?.cancelDeadline();
+      if (p.authority && p.stream?.input) clearDuplexInput(p.authority, p.stream.input.seq);
+      p.stream?.input?.reject(new CoreError("plugin_unavailable", "stream input owner ended"));
+      p.reject(new CoreError("plugin_unavailable", `${p.method}: ${text}`)); }
     this.pending.clear();
     if(reportExit){this.exitReported=true;this.hooks.onExit(info);}
   }
@@ -152,6 +159,12 @@ export class PluginProcess {
           .catch(error => this.send({ id: m.id, error: rpcError(error) }));
         return;
       }
+      if (m.method === STREAM_INPUT_ACK_METHOD) {
+        if (m.id === undefined || m.id === null) return;
+        try { this.ackStreamInput(m.id, m.params, m._meta); }
+        catch (error) { this.send({ id: m.id, error: rpcError(error) }); }
+        return;
+      }
       if (m.id === undefined || m.id === null) return;
       const id = m.id;
       const metadata = pluginMetadata.safeParse(m._meta);
@@ -196,7 +209,7 @@ export class PluginProcess {
     if (typeof m.id !== "number") return;
     const p = this.pending.get(m.id);
     if (!p) return;
-    if (p.stream?.outstanding) {
+    if (p.stream?.outstanding || p.stream?.input) {
       this.rejectPending(m.id, p, new CoreError("plugin_refused", "stream result arrived before acknowledgement"));
       return;
     }
@@ -275,11 +288,64 @@ export class PluginProcess {
     this.sendReply(id, { seq: parsed.data.seq }, pending.authority, Date.now() + 5000, STREAM_ACK_METHOD);
   }
 
+  private ackStreamInput(id: unknown, raw: unknown, metadata: unknown): void {
+    const parsed = streamInputAckParams.safeParse(raw);
+    const pending = parsed.success ? this.pending.get(parsed.data.request) : undefined;
+    const stream = pending?.stream, input = stream?.input;
+    const token = metadata && typeof metadata === "object" && !Array.isArray(metadata)
+      ? (metadata as Record<string, unknown>).capabilityCall : undefined;
+    if (!parsed.success || !pending || !stream || !input || !pending.authority ||
+      parsed.data.streamId !== stream.streamId || parsed.data.seq !== input.seq ||
+      token !== pending.authority.token ||
+      (pending.metadata as { capabilityCall?: unknown } | undefined)?.capabilityCall !== token) {
+      if (parsed.success && pending?.stream) this.rejectPending(parsed.data.request, pending,
+        new CoreError("plugin_refused", "stream input acknowledgement failed owner verification"));
+      throw new CoreError("capability_denied", "stream input acknowledgement has no active owner");
+    }
+    try { consumeDuplexInputReceipt(pending.authority, input.seq); }
+    catch (error) {
+      this.rejectPending(parsed.data.request, pending, new CoreError("plugin_refused", "stream input had no broker write receipt"));
+      throw error;
+    }
+    this.sendReply(id, { seq: parsed.data.seq }, pending.authority, Date.now() + 5000, STREAM_INPUT_ACK_METHOD);
+    input.cancelDeadline();
+    stream.input = undefined;
+    stream.inputSeq++;
+    input.resolve();
+  }
+
+  /** Push one bounded viewer frame to the exact pending stream, then await its SSH write receipt. */
+  sendStreamInput(streamId: string, bytes: Buffer): Promise<void> {
+    const owning = [...this.pending.entries()].find(([, pending]) => pending.stream?.streamId === streamId);
+    if (!owning || !this.alive) return Promise.reject(new CoreError("capability_denied", "stream input has no active owner"));
+    const [request, pending] = owning, stream = pending.stream!;
+    try { pending.authority?.assertActive(); }
+    catch (error) { return Promise.reject(error); }
+    if (stream.input || !Buffer.isBuffer(bytes) || bytes.length < 1 || bytes.length > 65_536)
+      return Promise.reject(new CoreError("conflict", "stream input frame is unavailable or over its bound"));
+    const frame = { request, streamId, seq: stream.inputSeq, base64: bytes.toString("base64") };
+    if (!streamInputFrame.safeParse(frame).success)
+      return Promise.reject(new CoreError("invalid_input", "invalid stream input frame"));
+    try { armDuplexInput(pending.authority!, stream.inputSeq, bytes); }
+    catch (error) { return Promise.reject(error); }
+    return new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => this.rejectPending(request, pending,
+        new CoreError("plugin_timeout", "stream input was not acknowledged")), 5000);
+      timer.unref();
+      stream.input = { seq: stream.inputSeq, resolve, reject, cancelDeadline: () => clearTimeout(timer) };
+      this.send({ method: STREAM_INPUT_METHOD, params: frame });
+    });
+  }
+
   private rejectPending(id: number, pending: Pending, error: CoreError): void {
     if (this.pending.get(id) !== pending) return;
     // Keep a pending frame's five-second timer alive so an in-flight consumer
     // and acknowledgement waiter also settle after the parent call is gone.
-    this.pending.delete(id); pending.cancelDeadline?.(); pending.dispose(); pending.reject(error);
+    this.pending.delete(id); pending.cancelDeadline?.(); pending.dispose();
+    if (pending.stream?.input) { pending.stream.input.cancelDeadline();
+      if (pending.authority) clearDuplexInput(pending.authority, pending.stream.input.seq);
+      pending.stream.input.reject(error); pending.stream.input = undefined; }
+    pending.reject(error);
   }
 
   private async stageResult(params: unknown, metadata: unknown, deliver: (result: { bytes: number }, owner: CallAuthority) => void): Promise<void> {
@@ -337,6 +403,9 @@ export class PluginProcess {
       const cancel = (code: "plugin_timeout" | "plugin_unavailable", message: string) => {
         const pending = this.pending.get(id); if (!pending) return;
         this.pending.delete(id); pending.cancelDeadline?.(); pending.dispose();
+        if (pending.stream?.input) { pending.stream.input.cancelDeadline();
+          if (pending.authority) clearDuplexInput(pending.authority, pending.stream.input.seq);
+          pending.stream.input.reject(new CoreError(code, message)); pending.stream.input = undefined; }
         this.send({ method: CANCEL_METHOD, params: { id } });
         reject(new CoreError(code, message));
       };
@@ -348,7 +417,7 @@ export class PluginProcess {
       const dispose = () => options.signal?.removeEventListener("abort", abort);
       const cancelDeadline = deadlineMs === 0 ? undefined : scheduleDeadline(Date.now() + deadlineMs, () => cancel("plugin_timeout", `${method} passed its ${deadlineMs} ms deadline`));
       this.pending.set(id, { method, authority: options.authority, metadata: options.metadata, resolve: value => resolve(value as T), reject, cancelDeadline, dispose, onProgress: options.onProgress,
-        stream: options.stream ? { ...options.stream, nextSeq: 0 } : undefined });
+        stream: options.stream ? { ...options.stream, nextSeq: 0, inputSeq: 0 } : undefined });
       options.signal?.addEventListener("abort", abort, { once: true });
       this.send({ id, method, params, ...(options.metadata ? { _meta: options.metadata } : {}) });
     });

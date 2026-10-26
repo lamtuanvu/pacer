@@ -27,6 +27,8 @@ export interface HostClient extends ObservationClient {
   call<T = unknown>(method: string, params?: unknown): Promise<T>;
   /** Present only for an owned hostRunner.stream request. Waits for host consumption. */
   streamProgress?: (streamId: string, seq: number, bytes: Uint8Array) => Promise<void>;
+  /** Present only for an owned hostRunner.stream request. One frame until ack. */
+  streamInput?: { next(): Promise<{ bytes: Uint8Array; ack(): Promise<void> }> };
   log(level: "debug" | "info" | "warn" | "error", message: string): Promise<void>;
   config(): Promise<Record<string, unknown>>;
 }
@@ -87,6 +89,9 @@ export async function serve(o: ServeOptions): Promise<void> {
   };
   const pending = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void; dispose: () => void }>();
   const inflight = new Map<string | number, AbortController>();
+  type InputFrame = { seq: number; bytes: Uint8Array; delivered: boolean };
+  const streamInputs = new Map<number, { streamId: string; nextSeq: number; frame?: InputFrame;
+    waiter?: { resolve: () => void; reject: (error: Error) => void } }>();
   const tasks = new Set<Promise<void>>();
   let nextId = 1, startedAt: number | null = null, hello: Hello | null = null;
 
@@ -143,6 +148,29 @@ export async function serve(o: ServeOptions): Promise<void> {
         const ack = await call<{ seq: number }>("$/streamAck", { request: request.id, streamId, seq });
         if (ack?.seq !== seq) throw new PluginError("plugin_refused", "invalid stream progress acknowledgement");
       } } : {}),
+      ...(request?.method === "hostRunner.stream" && meta?.capabilityCall ? { streamInput: { next: async () => {
+        const state = streamInputs.get(request.id);
+        if (!state || signal?.aborted || state.frame?.delivered || state.waiter)
+          throw new PluginError("capability_denied", "stream input owner is unavailable");
+        if (!state.frame) await new Promise<void>((resolve, reject) => {
+          const abort = () => { state.waiter = undefined; reject(new PluginError("plugin_unavailable", "stream input owner ended")); };
+          state.waiter = { resolve: () => { signal?.removeEventListener("abort", abort); resolve(); },
+            reject: error => { signal?.removeEventListener("abort", abort); reject(error); } };
+          signal?.addEventListener("abort", abort, { once: true });
+          if (signal?.aborted) abort();
+        });
+        const frame = state.frame;
+        if (!frame || frame.delivered || signal?.aborted) throw new PluginError("capability_denied", "stream input frame is unavailable");
+        frame.delivered = true;
+        return { bytes: frame.bytes, ack: async () => {
+          if (signal?.aborted || state.frame !== frame) throw new PluginError("capability_denied", "stream input frame retired");
+          const ack = await call<{ seq: number }>("$/streamInputAck", { request: request.id,
+            streamId: state.streamId, seq: frame.seq });
+          if (ack?.seq !== frame.seq) throw new PluginError("plugin_refused", "invalid stream input acknowledgement");
+          state.frame = undefined;
+          state.nextSeq++;
+        } };
+      } } } : {}),
       fs: createFileSystem({call,cleanupCall:(method,params)=>call(method,params,true),signal,
         negotiated:()=>negotiatedFeatures.has("fileWriteChunks"),
         fits:(method,params)=>Buffer.byteLength(JSON.stringify({jsonrpc:"2.0",id:`p${nextId}`,method,params,...(meta?{_meta:meta}:{})})+"\n")<=1048576}),
@@ -176,6 +204,25 @@ export async function serve(o: ServeOptions): Promise<void> {
       if(negotiatedFeatures.has(POLICY_OBSERVATIONS_FEATURE)&&readOwner&&isPolicyEvent(r.params))callbacks.push(r.params);
       return;
     }
+    if (r.method === "$/streamInput" && r.id === undefined) {
+      const value = r.params && typeof r.params === "object" && !Array.isArray(r.params) ? r.params as Json : {};
+      const state = typeof value.request === "number" ? streamInputs.get(value.request) : undefined;
+      if (!state) return;
+      const bad = Object.keys(value).length !== 4 || value.streamId !== state.streamId ||
+        value.seq !== state.nextSeq || state.frame !== undefined ||
+        typeof value.base64 !== "string" || value.base64.length < 4 || value.base64.length > 87_384 ||
+        !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value.base64);
+      const bytes = bad ? Buffer.alloc(0) : Buffer.from(value.base64 as string, "base64");
+      if (bad || !bytes.length || bytes.length > 65_536 || bytes.toString("base64") !== value.base64) {
+        inflight.get(value.request as number)?.abort();
+        state.waiter?.reject(new PluginError("plugin_refused", "invalid stream input frame"));
+        state.waiter = undefined;
+        return;
+      }
+      state.frame = { seq: value.seq as number, bytes, delivered: false };
+      state.waiter?.resolve(); state.waiter = undefined;
+      return;
+    }
 
     if (typeof r.method === "string") {
       const id = r.id as string | number | undefined;
@@ -199,6 +246,11 @@ export async function serve(o: ServeOptions): Promise<void> {
       const handler = o.handlers?.[r.method] ?? builtin[r.method];
       if (!handler) { send({ id, error: { code: -32601, message: `unknown method ${r.method}`, data: { code: "unknown_op" } } }); return; }
       const controller = new AbortController(); inflight.set(id, controller);
+      if (r.method === "hostRunner.stream" && typeof id === "number" &&
+        r.params && typeof r.params === "object" && !Array.isArray(r.params) &&
+        typeof (r.params as Json).streamId === "string" &&
+        r._meta && typeof r._meta === "object" && typeof (r._meta as Json).capabilityCall === "string")
+        streamInputs.set(id, { streamId: (r.params as Json).streamId as string, nextSeq: 0 });
       try {
         const host = hostFor(r._meta, controller.signal,
           r.method === "hostRunner.stream" && typeof id === "number" ? { method: r.method, id } : undefined);
@@ -226,7 +278,8 @@ export async function serve(o: ServeOptions): Promise<void> {
         } else send({ id, result });
       }
       catch (e) { send({ id, error: errorBody(e) }); }
-      finally { inflight.delete(id); controller.abort(); }
+      finally { inflight.delete(id); controller.abort();
+        if (typeof id === "number") { const state = streamInputs.get(id); state?.waiter?.reject(new PluginError("plugin_unavailable", "stream input owner ended")); streamInputs.delete(id); } }
       return;
     }
     if (typeof r.id !== "string") return;

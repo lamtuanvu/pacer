@@ -85,6 +85,11 @@ export const streamProgressEvent = z.object({ streamId: hostRunnerStreamId, seq:
 export const streamAckParams = z.object({ request: z.number().int().positive().safe(), streamId: hostRunnerStreamId,
   seq: z.number().int().nonnegative().safe() }).strict();
 export const streamAckResult = z.object({ seq: z.number().int().nonnegative().safe() }).strict();
+export const STREAM_INPUT_METHOD = "$/streamInput";
+export const STREAM_INPUT_ACK_METHOD = "$/streamInputAck";
+export const streamInputFrame = streamProgressEvent.extend({ request: z.number().int().positive().safe() }).strict();
+export const streamInputAckParams = streamAckParams;
+export const streamInputAckResult = streamAckResult;
 
 export const helloParams = z.object({
   protocol: z.string(), pacer: z.string(), manifest: manifestSchema, features: z.array(z.string().min(1).max(64)).max(16).optional(),
