@@ -12,6 +12,7 @@ import { inspectDesktopArchive } from "../release/desktop-verify";
 import { assetFile, companionFile, hostTarget } from "../../src/update/manifest";
 import { parsePlistDictionary } from "../../src/service";
 import { parseNativeFixture, type NativeFixture } from "../../src/update/desktop/native-fixture";
+import { overlayPublishedBaseline } from "./ota-baseline-request-stages";
 
 export const PUBLISHED_BRIDGE_SOURCE = "9205c94ce0b32efd797e4892e56cdc374de01212";
 const sourceRoots = new Set(["src", "app", "desktop", "plugins", "packages", "scripts", "package.json", "bun.lock", "bunfig.toml", "tsconfig.json", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "crates", "xtask", ".cargo"]);
@@ -198,12 +199,13 @@ async function createFixtureSigner(directory: string, run: (argv: string[], cwd?
 }
 
 /** This entry point accepts only a harness session ID. All commands, versions and outputs are fixed. */
-export async function buildOtaFixtures(id: string, signerMode: "adhoc" | "cert" = "adhoc", initialLayout: InitialLayout = "bridge", oldServiceChoice = false, baselineProcessType: BaselineProcessType = "Background"): Promise<void> {
+export async function buildOtaFixtures(id: string, signerMode: "adhoc" | "cert" = "adhoc", initialLayout: InitialLayout = "bridge", oldServiceChoice = false, baselineProcessType: BaselineProcessType = "Background", baselineRequestStages = false): Promise<void> {
   initialLayout = initialLayoutSchema.parse(initialLayout);
   baselineProcessType = baselineProcessTypeSchema.parse(baselineProcessType);
   if (oldServiceChoice && initialLayout !== "paired") throw Error("Fixture old-service choice requires paired layout");
   if (baselineProcessType === "Standard" && initialLayout !== "paired") throw Error("Standard baseline requires paired layout");
   if (oldServiceChoice && baselineProcessType === "Standard") throw Error("Fixture old-service choice and Standard baseline require a distinct compiled lease");
+  if (baselineRequestStages && (baselineProcessType !== "Standard" || initialLayout !== "paired")) throw Error("Baseline request stages require paired Standard layout");
   if (process.platform !== "darwin") throw Error("Native fixtures require macOS");
   if (signerMode !== "cert") throw Error("Old-bridge to paired native OTA requires --signer cert");
   const target = hostTarget(); if (!target || target.os !== "darwin") throw Error("Unsupported fixture host");
@@ -248,6 +250,7 @@ export async function buildOtaFixtures(id: string, signerMode: "adhoc" | "cert" 
     }
     environment = { ...fixtureBuildEnvironment(home, publicKey, policy), CARGO_TARGET_DIR: targetDir };
     await snapshotPublishedBridge(join(build, "baseline/source"), run);
+    const baselineDiagnostic = overlayPublishedBaseline(join(build, "baseline/source"), baselineRequestStages);
     copyFixtureSource(checkout, join(build, "candidate/source"), "0.2.4");
     const snapshotDigest = (root: string) => {
       const hash = createHash("sha256");
@@ -261,7 +264,7 @@ export async function buildOtaFixtures(id: string, signerMode: "adhoc" | "cert" 
       };
       walk(root); return hash.digest("hex");
     };
-    writeFileSync(join(session.root, "evidence/source-snapshot.json"), JSON.stringify({ schema: 1, scope: "published-bridge-to-paired", initialLayout, oldServiceChoice: oldServiceChoice ? "continue" : null, baselineProcessType, baselineSource: PUBLISHED_BRIDGE_SOURCE, at: new Date().toISOString(), versions: versions.map((version, index) => ({ version, sha256: snapshotDigest(join(build, index === 0 ? "baseline" : "candidate", "source")) })) }, null, 2) + "\n", { mode: 0o600, flag: "wx" });
+    writeFileSync(join(session.root, "evidence/source-snapshot.json"), JSON.stringify({ schema: 1, scope: "published-bridge-to-paired", initialLayout, oldServiceChoice: oldServiceChoice ? "continue" : null, baselineProcessType, baselineSource: PUBLISHED_BRIDGE_SOURCE, baselineDiagnostic: baselineDiagnostic ? { kind: "bounded-request-stages", moduleSha256: baselineDiagnostic.moduleSha256 } : null, at: new Date().toISOString(), versions: versions.map((version, index) => ({ version, sha256: snapshotDigest(join(build, index === 0 ? "baseline" : "candidate", "source")) })) }, null, 2) + "\n", { mode: 0o600, flag: "wx" });
     process.stderr.write("OTA fixture source snapshots captured for both versions.\n");
     for (const [index, version] of versions.entries()) {
       readOtaRecord(id); // Refuse changed lease before every build stage.

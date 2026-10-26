@@ -14,7 +14,7 @@ const usage = `usage: bun run live <command> [--id <id>]
                                   start isolated service and disposable repo; ui seeds sample data
   ota prepare --from-app <path> --to-app <path>
                                   copy disposable OTA bundles (requires --id)
-  ota build [--signer cert] [--initial-layout bridge|paired] [--fixture-continue-old-service] [--baseline-process-type Background|Standard]
+  ota build [--signer cert] [--initial-layout bridge|paired] [--fixture-continue-old-service] [--baseline-process-type Background|Standard] [--baseline-request-stages]
                                   compile isolated signed native fixtures (requires --id);
                                   cert signs with a disposable pinned certificate
   ota exercise --scenario <name>  run a fixed native fixture scenario (requires --id)
@@ -55,13 +55,14 @@ export async function main(argv: string[]): Promise<number> {
     if (valueOptions.has(arg)) {
       if (!before[i + 1] || before[i + 1].startsWith("--")) throw Error(`${arg} requires a value`);
       options.set(arg, before[++i]);
-    } else if (["--keep", "--print", "--fixture-continue-old-service"].includes(arg)) flags.add(arg);
+    } else if (["--keep", "--print", "--fixture-continue-old-service", "--baseline-request-stages"].includes(arg)) flags.add(arg);
     else if (arg.startsWith("--")) throw Error(`Unknown option: ${arg}`);
     else positionals.push(arg);
   }
   const id = options.get("--id");
   if (command !== "ota" && ["--from-app", "--to-app", "--scenario", "--signer", "--initial-layout", "--baseline-process-type"].some(key => options.has(key))) throw Error("OTA options require the ota command");
   if (flags.has("--fixture-continue-old-service") && command !== "ota") throw Error("Fixture old-service choice requires OTA build");
+  if (flags.has("--baseline-request-stages") && command !== "ota") throw Error("Baseline request stages require OTA build");
   if (options.has("--seed") && command !== "up") throw Error("--seed is only valid for up");
   if (options.has("--front-door") && command !== "up") throw Error("--front-door is only valid for up");
   if (command === "up") {
@@ -74,9 +75,10 @@ export async function main(argv: string[]): Promise<number> {
     return 0;
   }
   if (command === "ota") {
-    if (!id || positionals.length !== 1 || forwarded.length || [...flags].some(flag => flag !== "--fixture-continue-old-service")) throw Error("usage: live ota build|prepare|exercise|cleanup --id <id>");
+    if (!id || positionals.length !== 1 || forwarded.length || [...flags].some(flag => !["--fixture-continue-old-service", "--baseline-request-stages"].includes(flag))) throw Error("usage: live ota build|prepare|exercise|cleanup --id <id>");
     const action = positionals[0];
     if (flags.has("--fixture-continue-old-service") && action !== "build") throw Error("Fixture old-service choice requires OTA build");
+    if (flags.has("--baseline-request-stages") && action !== "build") throw Error("Baseline request stages require OTA build");
     const allowed = action === "prepare" ? ["--id", "--from-app", "--to-app"] : action === "exercise" ? ["--id", "--scenario"] : action === "build" ? ["--id", "--signer", "--initial-layout", "--baseline-process-type"] : ["--id"];
     if ([...options.keys()].some(key => !allowed.includes(key))) throw Error("Unsupported OTA option");
     if (action === "prepare") {
@@ -95,7 +97,7 @@ export async function main(argv: string[]): Promise<number> {
       if (priority !== "Background" && priority !== "Standard") throw Error("--baseline-process-type must be Background or Standard");
       if (priority === "Standard" && layout !== "paired") throw Error("Standard baseline requires paired layout");
       if (flags.has("--fixture-continue-old-service") && priority === "Standard") throw Error("Fixture old-service choice and Standard baseline require a distinct compiled lease");
-      await buildOtaFixtures(id, signer, layout, flags.has("--fixture-continue-old-service"), priority);
+      await buildOtaFixtures(id, signer, layout, flags.has("--fixture-continue-old-service"), priority, flags.has("--baseline-request-stages"));
     }
     else if (action === "cleanup") await cleanupOta(id);
     else throw Error("Unsupported OTA action");
