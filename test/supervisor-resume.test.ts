@@ -47,7 +47,7 @@ test("resumed runner records the attempt's real exit", async () => {
   expect(done.attempts).toHaveLength(1);
   expect(done.attempts[0]).toMatchObject({ executor: "cursor", exitCode: 0 });
   expect(done.result?.report).toContain("resumed-output");
-  expect(readTask(ctx, t.id)?.runnerPid).toBe(process.pid);
+  expect(readTask(ctx, t.id)?.runnerPid).toBeUndefined();
 });
 
 test("dead runner with an exit record stays running and retries resume after 60 seconds", async () => {

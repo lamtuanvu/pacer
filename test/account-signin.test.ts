@@ -57,6 +57,7 @@ test("account rows expose executor ids and removal locks, with the planner takin
 
 test("signin opens Codex login with its quoted account home through the terminal opener", async () => {
   const ctx = configured();
+  ctx.env.TERM_PROGRAM = "Apple_Terminal";
   const calls: string[][] = [];
   const result = await signin(ctx, "codex", {target: "terminal"}, {
     platform: "darwin", which: () => "/bin/open", env: {}, orcaAvailable: async () => false,

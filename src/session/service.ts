@@ -8,7 +8,7 @@ import { OrcaClient, isReady, isLiveTerminal, type WorkerStartOpts } from '../ex
 import { loadOrcaState, type OrcaWorkerEntry } from '../exec/orca/state';
 import { readTask } from '../tasks/store';
 import { CoreError } from '../core/errors';
-import { loadStrategy } from '../config/strategy';
+import { loadStrategy, strategyPath } from '../config/strategy';
 import { attachCommand, detectTerminal, hasDesktop, launchViewer, terminalRecipe, validateTaskId, type ViewerTarget } from './targets';
 import { takeoverAvailability } from './takeover';
 export interface Capabilities { snapshot:boolean; control:boolean; record:boolean; resize:boolean }
@@ -87,7 +87,19 @@ export async function sessionInfo(ctx:Ctx,id:string,orcaLive?:boolean,includeTar
  if(terminalSetting(ctx))info.targets.push('terminal');if(ctx.env.TMUX&&ctx.which('tmux'))info.targets.push('tmux');
  return info;
 }
-export function terminalSetting(ctx:Ctx):string|null{if(!hasDesktop(ctx))return null;try{const setting=loadStrategy(ctx).terminal?.open;return !setting||setting==='auto'?detectTerminal(ctx):setting;}catch{return detectTerminal(ctx);}}
+export function terminalSetting(ctx:Ctx):string|null{
+ if(!hasDesktop(ctx))return null;
+ try{
+  const setting=loadStrategy(ctx).terminal?.open;
+  if(setting&&setting!=='auto')return setting;
+  if(!setting&&process.platform==='darwin'){
+   const raw=Bun.YAML.parse(readFileSync(strategyPath(ctx),'utf8')) as {terminal?:{app?:string}};
+   const legacy:Record<string,string>={Terminal:'terminal-app',iTerm:'iterm',Ghostty:'ghostty'};
+   if(raw?.terminal?.app&&legacy[raw.terminal.app])return legacy[raw.terminal.app];
+  }
+  return detectTerminal(ctx);
+ }catch{return detectTerminal(ctx);}
+}
 export async function openSession(ctx:Ctx,id:string,target:ViewerTarget):Promise<{opened:boolean;command?:string}>{
  return withWork(ctx,{kind:"operation",id,label:"Opening session viewer"},()=>openSessionAdmitted(ctx,id,target));
 }
@@ -104,7 +116,7 @@ async function openSessionAdmitted(ctx:Ctx,id:string,target:ViewerTarget):Promis
    return r.ok?{opened:true}:fallback;
   }
   const argv=target==='tmux'?['tmux','split-window',attachCommand(id)]:terminalRecipe(terminalSetting(ctx)!,id);
-  if(target==='terminal')return await launchViewer(ctx,argv)?{opened:true}:fallback;
+  if(target==='terminal')return await launchViewer(ctx,argv,process.platform==='darwin'&&['open','osascript'].includes(argv[0]!))?{opened:true}:fallback;
   const r=await ctx.run(argv,15_000,{env:ctx.env});return r.code===0?{opened:true}:fallback;
  }catch{return fallback;}
 }
