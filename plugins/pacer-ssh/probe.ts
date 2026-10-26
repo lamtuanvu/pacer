@@ -100,6 +100,39 @@ if [ -f "$D/exit" ]; then printf 'code=%s\\nkilled=0\\n' "$(cat "$D/exit")"; els
   printf 'code=137\\nkilled=1\\n'
 fi`;
 
+/** Fixed remote preparation script; the host owns the exact tuple and stdin bytes. */
+export const PREPARE_SCRIPT = `checkout="$1"; tag="$2"; task="$3"; base="$4"; branch="$5"; attempt="\${6:-1}"
+case "$checkout" in '~/'*) checkout="$HOME/\${checkout#??}" ;; esac
+cd "$checkout" || exit 1
+git fetch -q origin "$branch" 2>/dev/null || true
+if ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+  mkdir -p "$HOME/.pacer-remote" || exit 1
+  tmp=$(mktemp "$HOME/.pacer-remote/base.XXXXXX") || exit 1
+  trap 'rm -f "$tmp"' EXIT HUP INT TERM
+  cat > "$tmp"
+  if [ -s "$tmp" ]; then
+    git bundle verify "$tmp" >&2 && git fetch -q "$tmp" "refs/pacer/base/$task" || exit 1
+  fi
+  rm -f "$tmp"
+fi
+git cat-file -e "$base^{commit}" 2>/dev/null || { echo missing-base >&2; exit 3; }
+worktree="$HOME/.pacer-remote/worktrees/$tag/$task-$attempt"
+mkdir -p "$HOME/.pacer-remote/worktrees/$tag" || exit 1
+remote_branch="pacer/$task"
+if git show-ref --verify --quiet "refs/heads/$remote_branch"; then
+  count=$(git rev-list --count "$base..$remote_branch") || exit 1
+  if [ "$count" = 0 ]; then
+    # An earlier attempt may still have this unchanged branch checked out.
+    git worktree add -q --force "$worktree" "$remote_branch" || exit 1
+  else
+    remote_branch="pacer/$task-$attempt"
+    git worktree add -q -b "$remote_branch" "$worktree" "$base" || exit 1
+  fi
+else
+  git worktree add -q -b "$remote_branch" "$worktree" "$base" || exit 1
+fi
+printf 'worktree=%s\\nbranch=%s\\n' "$worktree" "$remote_branch"`;
+
 export const QUESTION_SCRIPT = `file="$1/.pacer-question"
 [ -f "$file" ] || exit 0
 [ "$(wc -c < "$file")" -le 4000 ] || { echo "question exceeds 1000 characters" >&2; exit 1; }
@@ -182,6 +215,18 @@ export function stopArgv(sshTarget: string, controlPath: string, args: readonly 
     !/^(?:[1-9]|[1-5][0-9]|60)$/.test(args[1] ?? "") ||
     !/^[a-f0-9-]{36}$/.test(completionNonce)) throw Error("invalid host-issued stop tuple");
   return issuedArgv(sshTarget, controlPath, STOP_SCRIPT, [...args], completionNonce);
+}
+
+export function prepareArgv(sshTarget: string, controlPath: string, args: readonly string[], completionNonce: string): string[] {
+  if (args.length !== 6 || args.some(value => typeof value !== "string" || value.length > 4096 ||
+    /[\u0000-\u001f\u007f]/.test(value)) ||
+    !(args[0]!.startsWith("/") || args[0]!.startsWith("~/")) ||
+    !/^[A-Za-z0-9._-]+-[a-f0-9]{8}$/.test(args[1]!) ||
+    !/^t-\d{8}-\d{6}-[0-9a-f]{4}$/.test(args[2]!) ||
+    !/^[a-f0-9]{40,64}$/.test(args[3]!) || !args[4] ||
+    !/^[1-9][0-9]*$/.test(args[5]!) || !/^[a-f0-9-]{36}$/.test(completionNonce))
+    throw Error("invalid host-issued prepare tuple");
+  return issuedArgv(sshTarget, controlPath, PREPARE_SCRIPT, [...args], completionNonce);
 }
 
 export function bundleOutArgv(sshTarget: string, controlPath: string, args: readonly string[]): string[] {

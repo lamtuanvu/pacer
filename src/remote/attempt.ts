@@ -17,7 +17,9 @@ import { remoteExclusion } from "./eligibility";
 import { RemoteRunIO } from "./run-io";
 import { SCRIPTS } from "./scripts";
 import { receiveQuestion, transferBack } from "./transfer";
-import { payload, runRemote, sshArgv } from "./ssh";
+import { runRemote } from "./ssh";
+import { pluginRegistry } from "../plugins";
+import { issueConfiguredHostPrepare } from "../plugins/host-prepare-issuer";
 import { probeCodexUsage } from "./usage";
 
 const MAX_BUNDLE = 50 * 1024 * 1024;
@@ -69,15 +71,15 @@ export async function runRemoteAttempt(ctx: Ctx, cfg: ProviderCfg, task: TaskRec
     const tag = `${key.split("/").at(-1)}-${createHash("sha1").update(key).digest("hex").slice(0, 8)}`;
     const attempt = task.attempts.length + 1;
     const args = [host.repos[key], tag, task.id, baseSha, base, String(attempt)];
-    let prepared = await runRemote(ctx, host, SCRIPTS.PREPARE, args, { stdin: "" });
+    const registry = pluginRegistry(ctx);
+    const initial = await issueConfiguredHostPrepare(ctx, host.alias, task.id, baseSha, base, new Uint8Array());
+    if (JSON.stringify(initial.resource.args) !== JSON.stringify(args)) return failed("remote prepare snapshot changed");
+    let prepared = await registry.prepareConfiguredHost(ctx, initial);
     if (prepared.code === 3 && prepared.stderr.includes("missing-base")) {
       const bundle = await baseBundle(ctx, git.top, task.id, baseSha);
-      const proc = Bun.spawn(sshArgv(ctx, host, SCRIPTS.PREPARE, args), { env: ctx.env, stdin: new Blob([new Uint8Array(bundle)]), stdout: "pipe", stderr: "pipe" });
-      const timer = setTimeout(() => proc.kill(), 60000);
-      try {
-        const [stdout, stderr, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
-        prepared = { stdout: payload(stdout), stderr, code };
-      } finally { clearTimeout(timer); }
+      const retry = await issueConfiguredHostPrepare(ctx, host.alias, task.id, baseSha, base, bundle);
+      if (JSON.stringify(retry.resource.args) !== JSON.stringify(args)) return failed("remote prepare snapshot changed");
+      prepared = await registry.prepareConfiguredHost(ctx, retry);
     }
     if (prepared.code) return failed(prepared.stderr || "remote preparation failed");
     const worktree = prepared.stdout.split("\n").find(l => l.startsWith("worktree="))?.slice(9);

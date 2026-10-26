@@ -1,6 +1,9 @@
 import { expect, test } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { randomBytes } from "node:crypto";
+import { issueConfiguredHostPrepare, consumeConfiguredHostPrepare } from "../src/plugins/host-prepare-issuer";
+import { pluginRegistry } from "../src/plugins";
 import { runAttempt, resumeAttempt } from "../src/exec/direct";
 import { loadStrategy } from "../src/config/strategy";
 import { taskWorktreePath } from "../src/supervisor/worktree";
@@ -118,7 +121,9 @@ test("remote env carries only the declared account folder", async () => {
 test("an unpublished base is sent as a bundle", async () => {
   const f = await setup();
   writeFileSync(join(f.repo, "base.txt"), "unpublished 🦊\n");
-  await f.git("-C", f.repo, "add", "base.txt");
+  const binary = randomBytes(128 * 1024);
+  writeFileSync(join(f.repo, "binary.bin"), binary);
+  await f.git("-C", f.repo, "add", "base.txt", "binary.bin");
   await f.git("-C", f.repo, "commit", "-q", "-m", "unpublished");
   const base = await f.git("-C", f.repo, "rev-parse", "HEAD");
   const result = await runAttempt(f.ctx, f.cfg, f.task);
@@ -127,6 +132,55 @@ test("an unpublished base is sent as a bundle", async () => {
   expect(run.baseSha).toBe(base);
   expect(await f.git("-C", run.remoteWorktree!, "rev-parse", "HEAD^")).toBe(base);
   expect(readFileSync(join(run.remoteWorktree!, "base.txt"), "utf8")).toBe("unpublished 🦊\n");
+  expect(readFileSync(join(run.remoteWorktree!, "binary.bin"))).toEqual(binary);
+}, 60000);
+
+test("PREPARE grant binds the persisted task and consumes binary input once", async () => {
+  const f = await setup();
+  const sha = await f.git("-C", f.repo, "rev-parse", "HEAD");
+  await expect(pluginRegistry(f.ctx).call(f.ctx, "pacer-ssh", "hostRunner.run", {
+    session: "a".repeat(32), script: "PREPARE", args: ["~/src/r", "r-12345678", f.task.id, sha, "main", "1"],
+    timeoutMs: 60_000, maxBytes: 65_536, completionNonce: "123e4567-e89b-42d3-a456-426614174000",
+  })).rejects.toMatchObject({ code: "capability_denied" });
+  const bytes = Uint8Array.from([0, 255, 10, 128]);
+  const grant = await issueConfiguredHostPrepare(f.ctx, "box", f.task.id, sha, "main", bytes);
+  bytes[0] = 99;
+  expect(await consumeConfiguredHostPrepare(f.ctx, grant)).toEqual(Uint8Array.from([0, 255, 10, 128]));
+  await expect(consumeConfiguredHostPrepare(f.ctx, grant)).rejects.toMatchObject({ code: "capability_denied" });
+  const stale = await issueConfiguredHostPrepare(f.ctx, "box", f.task.id, sha, "main", bytes);
+  updateTask(f.ctx, f.task.id, task => { task.state = "queued"; });
+  await expect(consumeConfiguredHostPrepare(f.ctx, stale)).rejects.toMatchObject({ code: "capability_denied" });
+  await expect(issueConfiguredHostPrepare(f.ctx, "box", f.task.id, sha, "other", bytes))
+    .rejects.toMatchObject({ code: "capability_denied" });
+  await expect(issueConfiguredHostPrepare(f.ctx, "box", f.task.id, sha, "main", new Uint8Array(50 * 1024 * 1024 + 1)))
+    .rejects.toMatchObject({ code: "capability_denied" });
+}, 60000);
+
+test("disabled SSH provider fails PREPARE without direct SSH fallback", async () => {
+  const f = await setup();
+  const registry = pluginRegistry(f.ctx);
+  await registry.disable(f.ctx, "pacer-ssh");
+  const before = existsSync(f.sshLog) ? readFileSync(f.sshLog, "utf8") : "";
+  const result = await runAttempt(f.ctx, f.cfg, f.task);
+  expect(result.exec.code).toBe(1);
+  expect(result.exec.stderr).toContain("host box unreachable");
+  expect(existsSync(f.sshLog) ? readFileSync(f.sshLog, "utf8") : "").toBe(before);
+}, 60000);
+
+test("an unreceipted missing-base PREPARE cannot trigger a bundle retry", async () => {
+  const f = await setup();
+  writeFileSync(join(f.repo, "unpublished.txt"), "local only\n");
+  await f.git("-C", f.repo, "add", "unpublished.txt");
+  await f.git("-C", f.repo, "commit", "-q", "-m", "unpublished");
+  const wrapper = join(f.ctx.home, "unreceipted-ssh");
+  const fixture = join(import.meta.dir, "fixtures", "bin", "ssh");
+  writeFileSync(wrapper, `#!/bin/sh\n"${fixture}" "$@" | sed '/__PACER_DONE__/d'\n`);
+  chmodSync(wrapper, 0o755);
+  f.ctx.which = name => name === "ssh" ? wrapper : Bun.which(name);
+  const result = await runAttempt(f.ctx, f.cfg, f.task);
+  expect(result.exec.code).toBe(1);
+  expect(result.exec.stderr).toContain("remote prepare completion is unverified");
+  expect(readFileSync(f.sshLog, "utf8").match(/BatchMode=yes/g)).toHaveLength(1);
 }, 60000);
 
 test("resume does not mistake an unrelated local head for a completed transfer", async () => {
