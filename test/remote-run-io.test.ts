@@ -610,7 +610,7 @@ test("raw mirror derives phase-1 files, masks secrets, drains chunks, rotates an
 },10000);
 
 test.skipIf(!await canListen())("a read-only viewer streams over the ControlMaster and detaching returns to polling", async () => {
-  const { io, remote, local, log, ctx } = setup();
+  const { io, remote, local, log } = setup();
   mkdirSync(remote,{recursive:true});
   writeFileSync(join(remote,"session.host"),"pty");
   writeFileSync(join(remote,"session.raw"),'Script started on date [COMMAND="agent"]\nfirst\r\n');
@@ -628,14 +628,15 @@ test.skipIf(!await canListen())("a read-only viewer streams over the ControlMast
     for(let n=0;n<200 && !predicate();n++) await Bun.sleep(20);
     expect(predicate()).toBe(true);
   };
-  await wait(()=>readFileSync(log,"utf8").includes('tail -c +'));
+  await wait(()=>readFileSync(log,"utf8").includes('session.raw'));
+  expect(readFileSync(log,"utf8")).not.toContain('exec tail -c +');
   socket.write(wire(FrameType.input,Buffer.from("never remote input")));
   socket.write(wire(FrameType.size,{cols:30,rows:10}));
   const { appendFileSync } = await import("node:fs");
   appendFileSync(join(remote,"session.raw"),"second\r\n");
   await wait(()=>frames.some(f=>f.type===FrameType.output && f.data.includes(Buffer.from("second"))));
   expect(readFileSync(join(local,"stdout"),"utf8")).toBe("first\nsecond\n");
-  expect((await import("../src/remote/ssh")).sshArgv(ctx,host,(await import("../src/remote/scripts")).SCRIPTS.FOLLOW,[remote,"0"])).toContain("ControlMaster=auto");
+  expect(readFileSync(log,"utf8")).toContain("ControlMaster=auto");
   socket.destroy();
   await Bun.sleep(150);
   appendFileSync(join(remote,"session.raw"),"third\r\n");
@@ -657,15 +658,13 @@ async function canListen(): Promise<boolean> {
   finally {server.close();rmSync(path,{force:true});}
 }
 
-test("viewer protocol streams raw bytes with fake SSH and kills tail on detach", async()=>{
+test("viewer protocol streams bounded READ_FROM bytes and stops on detach", async()=>{
   const {ctx,remote,local,log}=setup();
   const {RemoteRecording}=await import("../src/remote/recording");
   const {RemoteViewer}=await import("../src/remote/viewer");
   const {EventEmitter}=await import("node:events");
   const {appendFileSync}=await import("node:fs");
   const {wire,FrameType,WireDecoder}=await import("../src/session/framing");
-  const {SCRIPTS}=await import("../src/remote/scripts");
-  const {runRemote}=await import("../src/remote/ssh");
   mkdirSync(remote,{recursive:true});
   const raw='Script started on date [COMMAND="agent"]\nfirst\r\n';
   writeFileSync(join(remote,"session.raw"),raw);
@@ -694,14 +693,41 @@ test("viewer protocol streams raw bytes with fake SSH and kills tail on detach",
     await wait(()=>frames.some(f=>f.type===FrameType.output&&f.data.includes(Buffer.from("second"))));
     expect(readFileSync(join(local,"stdout"),"utf8")).toBe("first\nsecond\n");
     expect(recording.recording.term.cols).toBe(120);
-    expect((await import("../src/remote/ssh")).sshArgv(ctx,host,(await import("../src/remote/scripts")).SCRIPTS.FOLLOW,[remote,"0"])).toContain("ControlMaster=auto");
+    expect(readFileSync(log,"utf8")).toContain("session.raw");
+    expect(readFileSync(log,"utf8")).not.toContain("exec tail -c +");
     expect(readFileSync(log,"utf8")).not.toContain("do not forward");
     socket.destroy();
     await wait(()=>!viewer.active);
     appendFileSync(join(remote,"session.raw"),"third\r\n");
-    const r=await runRemote(ctx,host,SCRIPTS.READ_FROM,[remote,"session.raw",String(recording.offset),"262144","hex"]);
-    await serial(()=>recording.output(Buffer.from(r.stdout,"hex")));
+    const reconnect=new SocketFixture();
+    viewer.accept(reconnect as unknown as import("node:net").Socket);
+    reconnect.emit("data",wire(FrameType.hello,{v:1,label:"reconnect"}));
+    await wait(()=>frames.some(f=>f.type===FrameType.output&&f.data.includes(Buffer.from("third"))));
     expect(readFileSync(join(local,"stdout"),"utf8")).toBe("first\nsecond\nthird\n");
+    reconnect.destroy();
+    await wait(()=>!viewer.active);
+    const registry=pluginRegistry(ctx);
+    const realRead=registry.readFromConfiguredHost;
+    let timedRead=false;
+    registry.readFromConfiguredHost=async()=>{timedRead=true;return {code:0,stdout:Buffer.from("fourth\r\n").toString("hex"),stderr:"",timedOut:true};};
+    const timedOut=new SocketFixture();
+    viewer.accept(timedOut as unknown as import("node:net").Socket);
+    timedOut.emit("data",wire(FrameType.hello,{v:1,label:"timeout"}));
+    await wait(()=>timedRead);
+    await wait(()=>!viewer.active);
+    expect(readFileSync(join(local,"stdout"),"utf8")).toBe("first\nsecond\nthird\n");
+    timedOut.destroy();
+    registry.readFromConfiguredHost=realRead;
+    await pluginRegistry(ctx).disable(ctx,"pacer-ssh");
+    const before=readFileSync(log,"utf8");
+    appendFileSync(join(remote,"session.raw"),"fourth\r\n");
+    const refused=new SocketFixture();
+    viewer.accept(refused as unknown as import("node:net").Socket);
+    refused.emit("data",wire(FrameType.hello,{v:1,label:"refused"}));
+    await Bun.sleep(200);
+    expect(readFileSync(log,"utf8")).toBe(before);
+    expect(readFileSync(join(local,"stdout"),"utf8")).toBe("first\nsecond\nthird\n");
+    refused.destroy();
   } finally {await viewer.close(0);await recording.close();}
 },10000);
 
@@ -802,34 +828,52 @@ test("PTY script uses the bash resolved on the remote PATH",async()=>{
   expect(readFileSync(join(home,"selected-shell"),"utf8")).toBe(join(bin,"bash"));
 });
 
-test("service exit kills its live stream SSH child",async()=>{
-  const {ctx,home,local}=setup();const bin=join(home,"stream-bin");mkdirSync(bin);
-  const pidFile=join(home,"stream-pid");
-  writeFileSync(join(bin,"ssh"),'#!/bin/sh\necho $$ > "$STREAM_PID"\nprintf "__PACER_BEGIN__\\n"\nexec sleep 30\n',{mode:0o755});
-  const file=join(home,"service.ts");
-  writeFileSync(file,`
-    import {EventEmitter} from "node:events";
-    import {existsSync} from "node:fs";
-    import {RemoteViewer} from ${JSON.stringify(new URL("../src/remote/viewer.ts",import.meta.url).pathname)};
-    import {RemoteRecording} from ${JSON.stringify(new URL("../src/remote/recording.ts",import.meta.url).pathname)};
-    import {wire,FrameType} from ${JSON.stringify(new URL("../src/session/framing.ts",import.meta.url).pathname)};
-    const ctx={pacerHome:process.env.PACER_HOME,env:process.env} as any;
-    const recording=new RemoteRecording(ctx,process.env.LOCAL!);await recording.ready;
-    const viewer=new RemoteViewer(ctx,{ssh:"unused"} as any,"unused",recording,fn=>fn());
-    class Socket extends EventEmitter {writableLength=0;write(){return true;}destroy(){this.emit("close");}}
-    const socket=new Socket();viewer.accept(socket as any);
-    socket.emit("data",wire(FrameType.hello,{v:1}));
-    for(let n=0;n<100&&!existsSync(process.env.STREAM_PID!);n++)await Bun.sleep(10);
-    process.exit(existsSync(process.env.STREAM_PID!)?0:2);
-  `);
-  const proc=Bun.spawn([process.execPath,file],{env:{...ctx.env,PATH:`${bin}:${ctx.env.PATH}`,STREAM_PID:pidFile,PACER_HOME:ctx.pacerHome,LOCAL:local},stdout:"ignore",stderr:"pipe"});
-  expect(await proc.exited).toBe(0);
-  const pid=Number(readFileSync(pidFile,"utf8"));
-  const alive=()=>{try{process.kill(pid,0);return true;}catch{return false;}};
+test("viewer discards a stale range and aborts an in-flight read on detach",async()=>{
+  const {ctx,remote,local,log}=setup();
+  const {RemoteRecording}=await import("../src/remote/recording");
+  const {RemoteViewer}=await import("../src/remote/viewer");
+  const {EventEmitter}=await import("node:events");
+  const {wire,FrameType}=await import("../src/session/framing");
+  const recording=new RemoteRecording(ctx,local);
+  const viewer=new RemoteViewer(ctx,host,remote,recording,fn=>fn());
+  const registry=pluginRegistry(ctx);
+  const original=registry.readFromConfiguredHost;
+  let calls=0, releaseFirst: (()=>void) | undefined, aborted=false;
+  registry.readFromConfiguredHost=async (_ctx,_grant,signal)=>{
+    calls++;
+    if(calls===1) {
+      await new Promise<void>(resolve=>{releaseFirst=resolve;});
+      return {code:0,stdout:Buffer.from("race").toString("hex"),stderr:"",timedOut:false};
+    }
+    return new Promise((_,reject)=>signal?.addEventListener("abort",()=>{
+      aborted=true;reject(new Error("cancelled"));
+    },{once:true}));
+  };
+  class Socket extends EventEmitter {
+    destroyed=false;writableLength=0;
+    write(){return true;}
+    destroy(){this.destroyed=true;this.emit("close");}
+  }
+  const socket=new Socket();
   try {
-    for(let n=0;n<100&&alive();n++)await Bun.sleep(10);
-    expect(alive()).toBe(false);
-  }finally{try{process.kill(pid,"SIGKILL");}catch{}}
+    viewer.accept(socket as unknown as import("node:net").Socket);
+    socket.emit("data",wire(FrameType.hello,{v:1}));
+    for(let i=0;i<100&&!releaseFirst;i++) await Bun.sleep(10);
+    expect(releaseFirst).toBeDefined();
+    await recording.output(Buffer.from("race")); // Ordinary poll won the same cursor.
+    releaseFirst!();
+    for(let i=0;i<100&&calls<2;i++) await Bun.sleep(10);
+    expect(calls).toBe(2);
+    expect(recording.offset).toBe(4);
+    socket.destroy();
+    await viewer.stopStream();
+    expect(aborted).toBe(true);
+    expect(viewer.active).toBe(false);
+    expect(existsSync(log) ? readFileSync(log,"utf8") : "").toBe("");
+  } finally {
+    registry.readFromConfiguredHost=original;
+    await viewer.close(0);await recording.close();
+  }
 },5000);
 
 test("release upload is content addressed, host verified, reused and repaired",async()=>{
