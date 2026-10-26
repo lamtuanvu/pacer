@@ -3932,6 +3932,9 @@ pub struct CapabilityPlannerRunResultVariant1Output {
 ///    "handle"
 ///  ],
 ///  "properties": {
+///    "graceful": {
+///      "type": "boolean"
+///    },
 ///    "handle": {
 ///      "type": "string",
 ///      "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"
@@ -3944,6 +3947,8 @@ pub struct CapabilityPlannerRunResultVariant1Output {
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct CapabilityProcessDuplexCloseParams {
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub graceful: ::std::option::Option<bool>,
     pub handle: CapabilityProcessDuplexCloseParamsHandle,
 }
 ///`CapabilityProcessDuplexCloseParamsHandle`
@@ -3999,12 +4004,41 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityProcessDuplexCloseParamsHandle
 ///{
 ///  "type": "object",
 ///  "required": [
-///    "ok"
+///    "code",
+///    "ok",
+///    "signal",
+///    "terminated"
 ///  ],
 ///  "properties": {
+///    "code": {
+///      "anyOf": [
+///        {
+///          "type": "integer",
+///          "maximum": 255.0,
+///          "minimum": 0.0
+///        },
+///        {
+///          "type": "null"
+///        }
+///      ]
+///    },
 ///    "ok": {
 ///      "type": "boolean",
 ///      "const": true
+///    },
+///    "signal": {
+///      "anyOf": [
+///        {
+///          "type": "string",
+///          "maxLength": 32
+///        },
+///        {
+///          "type": "null"
+///        }
+///      ]
+///    },
+///    "terminated": {
+///      "type": "boolean"
 ///    }
 ///  },
 ///  "additionalProperties": false
@@ -4014,7 +4048,58 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityProcessDuplexCloseParamsHandle
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct CapabilityProcessDuplexCloseResult {
+    pub code: ::std::option::Option<u8>,
     pub ok: bool,
+    pub signal: ::std::option::Option<CapabilityProcessDuplexCloseResultSignal>,
+    pub terminated: bool,
+}
+///`CapabilityProcessDuplexCloseResultSignal`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 32
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct CapabilityProcessDuplexCloseResultSignal(::std::string::String);
+impl ::std::ops::Deref for CapabilityProcessDuplexCloseResultSignal {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<CapabilityProcessDuplexCloseResultSignal> for ::std::string::String {
+    fn from(value: CapabilityProcessDuplexCloseResultSignal) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for CapabilityProcessDuplexCloseResultSignal {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 32usize {
+            return Err("longer than 32 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for CapabilityProcessDuplexCloseResultSignal {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for CapabilityProcessDuplexCloseResultSignal {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
 }
 ///`CapabilityProcessDuplexOpenParams`
 ///
@@ -4191,6 +4276,11 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityProcessDuplexOpenResultHandle 
 ///      "maximum": 65536.0,
 ///      "exclusiveMinimum": 0.0
 ///    },
+///    "pollMs": {
+///      "type": "integer",
+///      "maximum": 1000.0,
+///      "exclusiveMinimum": 0.0
+///    },
 ///    "timeoutMs": {
 ///      "type": "integer",
 ///      "maximum": 60000.0,
@@ -4206,6 +4296,12 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityProcessDuplexOpenResultHandle 
 pub struct CapabilityProcessDuplexReadParams {
     pub handle: CapabilityProcessDuplexReadParamsHandle,
     pub length: ::std::num::NonZeroU64,
+    #[serde(
+        rename = "pollMs",
+        default,
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub poll_ms: ::std::option::Option<::std::num::NonZeroU64>,
     #[serde(rename = "timeoutMs")]
     pub timeout_ms: ::std::num::NonZeroU64,
 }
