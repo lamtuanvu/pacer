@@ -14,9 +14,11 @@ use std::{
     fs, io,
     path::{Path, PathBuf},
 };
+mod host_suggest;
 mod repo_add;
 mod repos;
 mod routing;
+pub use host_suggest::{host_suggest, ops as host_suggest_ops, requires_core_host_suggest_parser};
 pub use repo_add::{add_repo, ops as repo_add_ops};
 pub use repos::{ops as repo_ops, remove_repo, requires_core_repo_parser};
 pub use routing::{ops as routing_ops, requires_core_routing_parser, routing_get};

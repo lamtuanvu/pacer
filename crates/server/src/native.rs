@@ -11,6 +11,7 @@ use serde_json::Value;
 
 /// Production operations currently selected by the native registry.
 pub const NATIVE_OPS: &[&str] = &[
+    "host.suggest",
     "notifications.get",
     "notifications.set",
     "repo.add",
@@ -27,6 +28,7 @@ impl Dispatcher {
         ops.extend_from_slice(pacer_config::repo_ops());
         ops.extend_from_slice(pacer_config::repo_add_ops());
         ops.extend_from_slice(pacer_config::routing_ops());
+        ops.extend_from_slice(pacer_config::host_suggest_ops());
         #[cfg(feature = "test-ops")]
         ops.push(NativeOp {
             name: "test.echo",
@@ -55,6 +57,7 @@ impl Dispatcher {
     pub fn needs_core_parser(&self, ctx: &Ctx, name: &str) -> bool {
         (matches!(name, "repo.add" | "repo.remove") && pacer_config::requires_core_repo_parser(ctx))
             || (name == "routing.get" && pacer_config::requires_core_routing_parser(ctx))
+            || (name == "host.suggest" && pacer_config::requires_core_host_suggest_parser(ctx))
             || (matches!(name, "notifications.get" | "notifications.set")
                 && pacer_config::requires_core_parser(ctx))
             || (name == "notifications.set" && pacer_config::requires_core_set_parser(ctx))
@@ -170,6 +173,7 @@ mod registry_tests {
         assert_eq!(
             NATIVE_OPS,
             &[
+                "host.suggest",
                 "notifications.get",
                 "notifications.set",
                 "repo.add",
@@ -315,8 +319,38 @@ mod registry_tests {
                 .await
                 .is_none()
         );
-        fs::write(&path, "accounts: {personal: {kind: claude}}\nplanner: claude-code\nhosts: {box: {ssh: box}}\n").unwrap();
+        fs::write(&path, "accounts: {personal: {kind: claude}}\nplanner: claude-code\nhosts: {box: {ssh: box, max_tasks: 3}}\n").unwrap();
         assert!(dispatcher.needs_core_parser(&ctx, "routing.get"));
+    }
+    #[tokio::test]
+    async fn host_suggest_selects_native_only_for_supported_local_config() {
+        let dir = tempfile::tempdir().unwrap();
+        let ctx = Ctx::with(
+            dir.path().join("home"),
+            dir.path().join("pacer"),
+            HashMap::new(),
+            0.0,
+        );
+        fs::create_dir_all(ctx.pacer_home.clone()).unwrap();
+        fs::create_dir_all(ctx.home.join(".ssh")).unwrap();
+        fs::write(ctx.pacer_home.join("strategy.yaml"),
+            "accounts: {personal: {kind: claude}}\nplanner: claude-code\nhosts: {devbox: {ssh: dev-ssh}}\n").unwrap();
+        let config = ctx.home.join(".ssh/config");
+        fs::write(&config, "Host dev-ssh fresh-box\n").unwrap();
+        let dispatcher = Dispatcher::new("");
+        assert!(!dispatcher.needs_core_parser(&ctx, "host.suggest"));
+        assert_eq!(
+            dispatcher.call(&ctx, "host.suggest", json!({})).await,
+            Some(Ok(json!(["fresh-box"])))
+        );
+        assert!(
+            Dispatcher::new("host.suggest")
+                .call(&ctx, "host.suggest", json!({}))
+                .await
+                .is_none()
+        );
+        fs::write(config, "Include conf.d/*\n").unwrap();
+        assert!(dispatcher.needs_core_parser(&ctx, "host.suggest"));
     }
     #[cfg(feature = "test-ops")]
     #[tokio::test]

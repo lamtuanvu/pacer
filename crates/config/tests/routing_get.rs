@@ -58,7 +58,7 @@ fn unsupported_or_changed_strategy_stays_with_typescript() {
     write(&ctx, basic);
     assert!(!pacer_config::requires_core_routing_parser(&ctx));
     for yaml in [
-        format!("{basic}hosts: {{box: {{ssh: box}}}}\n"),
+        format!("{basic}hosts: {{box: {{ssh: box, max_tasks: 3}}}}\n"),
         format!("{basic}accounts: {{other: {{kind: codex}}}}\n"),
         "accounts: &accounts {personal: {kind: claude}}\nplanner: claude-code\n".to_owned(),
         "accounts: [bad]\nplanner: claude-code\n".to_owned(),
