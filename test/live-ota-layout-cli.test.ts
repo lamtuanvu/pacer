@@ -16,3 +16,11 @@ test("fixture old-service choice is an opt-in paired build flag only", async () 
   await expect(main(["ota", "exercise", "--id", "nonexistent-choice-fixture", "--scenario", "adopt", "--fixture-continue-old-service"])).rejects.toThrow("OTA build");
   await expect(main(["ota", "build", "--id", "nonexistent-choice-fixture", "--fixture-continue-old-service"])).rejects.toThrow("paired layout");
 });
+
+test("baseline launch priority is a fixed paired build-only option", async () => {
+  await expect(main(["ota", "build", "--id", "nonexistent-priority-fixture", "--baseline-process-type", "Interactive"])).rejects.toThrow("--baseline-process-type must be Background or Standard");
+  await expect(main(["ota", "exercise", "--id", "nonexistent-priority-fixture", "--scenario", "adopt", "--baseline-process-type", "Standard"])).rejects.toThrow("Unsupported OTA option");
+  await expect(main(["status", "--baseline-process-type", "Standard"])).rejects.toThrow("OTA options require the ota command");
+  await expect(main(["ota", "build", "--id", "nonexistent-priority-fixture", "--baseline-process-type", "Standard"])).rejects.toThrow("Standard baseline requires paired layout");
+  await expect(main(["ota", "build", "--id", "nonexistent-priority-fixture", "--initial-layout", "paired", "--fixture-continue-old-service", "--baseline-process-type", "Standard"])).rejects.toThrow("distinct compiled lease");
+});

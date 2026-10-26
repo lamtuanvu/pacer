@@ -20,14 +20,17 @@ pub struct FixturePolicy {
     pub signing_cert_sha1: Option<String>,
 }
 impl FixturePolicy {
-    fn validate_old_service_choice(&self, record: &serde_json::Value) -> Result<(), ()> {
-        let selected = self.nonce.starts_with("f0a3c29e5c0d");
-        match (selected, record.get("oldServiceChoice")) {
+    fn validate_fixture_selection(&self, record: &serde_json::Value) -> Result<(), ()> {
+        let choice = self.nonce.starts_with("f0a3c29e5c0d");
+        let standard = self.nonce.starts_with("f0a3c29e") && !choice;
+        match (choice, record.get("oldServiceChoice")) {
             (false, None) => {},
             (true, Some(serde_json::Value::String(choice))) if choice == "continue" => {},
             _ => return Err(()),
         }
-        if selected && record["initialLayout"] != "paired" { return Err(()); }
+        let priority = record.get("baselineProcessType").map(serde_json::Value::as_str).unwrap_or(Some("Background")).ok_or(())?;
+        if priority != if standard { "Standard" } else { "Background" } { return Err(()); }
+        if (choice || standard) && record["initialLayout"] != "paired" { return Err(()); }
         Ok(())
     }
     pub fn parse(text: &str) -> Result<Self, ()> {
@@ -81,7 +84,7 @@ impl FixturePolicy {
         if record.get("phase").and_then(serde_json::Value::as_str) != Some("prepared") {
             return Err(());
         }
-        self.validate_old_service_choice(&record)
+        self.validate_fixture_selection(&record)
     }
     pub fn permits_old_service_choice(&self) -> bool {
         self.nonce.starts_with("f0a3c29e5c0d") && self.validate_live().is_ok()
@@ -141,7 +144,7 @@ impl FixturePolicy {
     pub fn validate_build(&self, public_key: &str) -> Result<(), ()> {
         use sha2::{Digest, Sha256};
         let record = self.private_record()?;
-        self.validate_old_service_choice(&record)?;
+        self.validate_fixture_selection(&record)?;
         if record["phase"] == "prepared" {
             return Ok(());
         }
@@ -348,7 +351,7 @@ mod tests {
     #[test]
     fn building_lease_can_compile_but_cannot_authorize_runtime_effects() {
         use sha2::{Digest, Sha256};
-        let (_temp, policy) = fixture();
+        let (_temp, mut policy) = fixture();
         let path = policy.root.join("record.json");
         let mut record: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
@@ -358,6 +361,21 @@ mod tests {
             {"path":policy.root.join("build/baseline/pacer.app"),"sha256":null},
             {"path":policy.root.join("build/candidate/pacer.app"),"sha256":null}
         ]);
+        std::fs::write(&path, serde_json::to_vec(&record).unwrap()).unwrap();
+        assert!(policy.validate_build("disposable-public-key").is_ok());
+        // A record-only priority change cannot alter a compiled Background lease.
+        record["baselineProcessType"] = serde_json::json!("Standard");
+        record["initialLayout"] = serde_json::json!("paired");
+        std::fs::write(&path, serde_json::to_vec(&record).unwrap()).unwrap();
+        assert!(policy.validate_build("disposable-public-key").is_err());
+        // The published bridge's strict policy and nested BuildIntent shapes
+        // are unchanged. A distinct compiled nonce selects the Standard lease.
+        policy.nonce = format!("f0a3c29e5c0e{}", "a".repeat(20));
+        policy.service_label = format!("com.pacer.live.{}.service", policy.nonce);
+        policy.recovery_label = format!("com.pacer.live.{}.recovery", policy.nonce);
+        record["nonce"] = policy.nonce.clone().into();
+        record["serviceLabel"] = policy.service_label.clone().into();
+        record["recoveryLabel"] = policy.recovery_label.clone().into();
         std::fs::write(&path, serde_json::to_vec(&record).unwrap()).unwrap();
         assert!(policy.validate_build("disposable-public-key").is_ok());
         assert!(policy.validate_live().is_err());

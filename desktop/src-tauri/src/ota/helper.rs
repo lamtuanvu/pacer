@@ -655,14 +655,14 @@ mod tests {
 
 /// Fixed fixture entry point that installs the lease's external service.
 #[cfg(all(target_os = "macos", feature = "ota-fixture"))]
-pub async fn fixture_attach() -> Result<serde_json::Value, OtaError> {
+pub async fn fixture_attach(standard: bool) -> Result<serde_json::Value, OtaError> {
     let trust = ReleaseTrust::configured().ok_or(OtaError::Unavailable)?;
     let own = super::native::process_details(std::process::id())
         .map_err(|_| OtaError::Identity)?
         .ok_or(OtaError::Identity)?;
     trust.verify_process(&own.identity, CodeRole::Helper)?;
     trust.verify_static(&own.executable, CodeRole::Helper)?;
-    serde_json::to_value(super::platform::fixture_attach(&trust).await?)
+    serde_json::to_value(super::platform::fixture_attach(&trust, if standard { "Standard" } else { "Background" }).await?)
         .map_err(|_| OtaError::Invalid)
 }
 
