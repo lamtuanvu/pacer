@@ -71,7 +71,7 @@ export const executorAttemptOutcome = z.object({
   partial: z.string().optional(),
 }).strict();
 export const executorStopParams = z.object({ taskId, attempt: positive,
-  graceMs: z.number().int().nonnegative().max(30_000) }).strict();
+  graceMs: z.number().int().nonnegative().max(25_000) }).strict();
 export const executorStopResult = z.object({ code: z.number().int().safe(), killed: z.boolean() }).strict();
 export const executorProgress = z.object({
   phase: z.enum(["driving", "testing", "needs-input", "starting", "working", "idle", "lost-contact"]),

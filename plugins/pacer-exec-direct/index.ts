@@ -50,7 +50,14 @@ export const handlers = {
       report: result.timedOut ? "local process timed out" : result.code === 0
         ? "local process exited successfully" : `local process exited ${result.code}: ${stderr.slice(0, 1024)}` };
   },
-  "executor.stop": () => ({ code: 137, killed: false }),
+  "executor.stop": async (params, host, signal) => {
+    const stop = z.object({ taskId: z.string(), attempt: z.number().int().positive(),
+      graceMs: z.number().int().nonnegative().max(25_000) }).strict().parse(params);
+    if (signal.aborted) throw new PluginError("plugin_unavailable", "executor stop was cancelled");
+    const result = await host.call<{ code: number; killed: boolean }>("capability.process.stopRun", stop);
+    if (signal.aborted) throw new PluginError("plugin_unavailable", "executor stop completion is uncertain");
+    return result;
+  },
 } satisfies Record<string, Handler>;
 
 if (import.meta.main) await serve({ manifest, handlers });

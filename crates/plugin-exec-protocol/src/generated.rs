@@ -1851,6 +1851,123 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityProcessStartRunParamsTaskId {
 pub struct CapabilityProcessStartRunResult {
     pub pid: ::std::num::NonZeroU64,
 }
+///`CapabilityProcessStopRunParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "attempt",
+///    "graceMs",
+///    "taskId"
+///  ],
+///  "properties": {
+///    "attempt": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "exclusiveMinimum": 0.0
+///    },
+///    "graceMs": {
+///      "type": "integer",
+///      "maximum": 25000.0,
+///      "minimum": 0.0
+///    },
+///    "taskId": {
+///      "type": "string",
+///      "pattern": "^t-[A-Za-z0-9_-]{1,120}$"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct CapabilityProcessStopRunParams {
+    pub attempt: ::std::num::NonZeroU64,
+    #[serde(rename = "graceMs")]
+    pub grace_ms: i64,
+    #[serde(rename = "taskId")]
+    pub task_id: CapabilityProcessStopRunParamsTaskId,
+}
+///`CapabilityProcessStopRunParamsTaskId`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "pattern": "^t-[A-Za-z0-9_-]{1,120}$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct CapabilityProcessStopRunParamsTaskId(::std::string::String);
+impl ::std::ops::Deref for CapabilityProcessStopRunParamsTaskId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<CapabilityProcessStopRunParamsTaskId> for ::std::string::String {
+    fn from(value: CapabilityProcessStopRunParamsTaskId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for CapabilityProcessStopRunParamsTaskId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_8(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for CapabilityProcessStopRunParamsTaskId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for CapabilityProcessStopRunParamsTaskId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`CapabilityProcessStopRunResult`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "code",
+///    "killed"
+///  ],
+///  "properties": {
+///    "code": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "minimum": -9007199254740991.0
+///    },
+///    "killed": {
+///      "type": "boolean"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct CapabilityProcessStopRunResult {
+    pub code: i64,
+    pub killed: bool,
+}
 ///`ExecutorAvailableParams`
 ///
 /// <details><summary>JSON schema</summary>
@@ -2863,7 +2980,7 @@ impl<'de> ::serde::Deserialize<'de> for ExecutorRunResultVariant1Report {
 ///    },
 ///    "graceMs": {
 ///      "type": "integer",
-///      "maximum": 30000.0,
+///      "maximum": 25000.0,
 ///      "minimum": 0.0
 ///    },
 ///    "taskId": {

@@ -5,6 +5,10 @@ import { CoreError } from "../core/errors";
 import type { Ctx } from "../types";
 
 export interface CallResources {
+  /** One exact persisted detached wrapper stop, issued by the service only. */
+  detachedStop?: { taskId: string; rev: number; attempt: number; dir: string;
+    dirIdentity: { dev: number; ino: number }; pid: number; startedAt: number;
+    executor: string; graceMs: number };
   /** One exact task-owned detached wrapper launch, issued by the service only. */
   detachedRun?: { taskId: string; rev: number; attempt: number; dir: string;
     dirIdentity: { dev: number; ino: number }; argv: string[]; cwd: string;
@@ -76,6 +80,7 @@ export class CallAuthority {
   private readElapsed = 0;
   private readonly usedHostOperations = new Set<number>();
   private detachedRunUsed = false;
+  private detachedStopUsed = false;
   private readonly detach: () => void;
 
   constructor(readonly ctx: Ctx, resources: CallResources, readonly deadlineMs: number, parent?: AbortSignal, grants: readonly string[] = [], readonly accountHome: string | null = null,
@@ -120,6 +125,10 @@ export class CallAuthority {
       Object.freeze(this.resources.detachedRun.cwdIdentity);
       Object.freeze(this.resources.detachedRun);
     }
+    if (this.resources.detachedStop) {
+      Object.freeze(this.resources.detachedStop.dirIdentity);
+      Object.freeze(this.resources.detachedStop);
+    }
     Object.freeze(this.resources);
     const cancel = () => { void this.revoke().catch(() => {}); };
     parent?.addEventListener("abort", cancel, { once: true });
@@ -161,6 +170,15 @@ export class CallAuthority {
     if (!grant || this.detachedRunUsed || grant.taskId !== taskId || grant.rev !== rev || grant.attempt !== attempt)
       throw new CoreError("capability_denied", "detached run is not issued for this call");
     this.detachedRunUsed = true;
+    return grant;
+  }
+  consumeDetachedStop(taskId: string, attempt: number, graceMs: number): NonNullable<CallResources["detachedStop"]> {
+    this.assertGranted("process.spawn");
+    const grant = this.resources.detachedStop;
+    if (!grant || this.detachedStopUsed || grant.taskId !== taskId || grant.attempt !== attempt ||
+      grant.graceMs !== graceMs)
+      throw new CoreError("capability_denied", "detached stop is not issued for this call");
+    this.detachedStopUsed = true;
     return grant;
   }
   onRevoke(cleanup: () => void | Promise<void>): () => void {

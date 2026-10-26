@@ -7,8 +7,11 @@ import { fakeCtx } from "./helpers";
 import { PluginRegistry } from "../src/plugins/registry";
 import { manifestSchema } from "../src/plugins/protocol";
 import { runOwnedExecutorAttempt } from "../src/plugins/executor-attempt";
+import { stopOwnedExecutorAttempt } from "../src/plugins/executor-stop";
 import { answerDetachedRun } from "../src/plugins/capability-detached-run";
+import { answerDetachedStop } from "../src/plugins/capability-detached-stop";
 import { createCallAuthority } from "../src/plugins/authority";
+import { CoreError } from "../src/core/errors";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
 import { readOutput, readRun, stopRun } from "../src/supervisor/run";
 
@@ -66,6 +69,132 @@ test("detached launch denies credential references before claiming a run directo
         detached: true, secretEnv: { PACER_KEY_FIXTURE: "endpoint:fixture" } },
       [{ ref: "endpoint:fixture", resolve: async () => "fixture-key" }]))
       .rejects.toMatchObject({ code: "invalid_input" });
+    expect(readTask(ctx, task.id)?.run).toBeUndefined();
+  } finally { await registry.shutdown(); rmSync(home, { recursive: true, force: true }); }
+});
+
+test("bundled executor stops only its task-owned detached wrapper", async () => {
+  const { home, ctx, task, registry } = fixture();
+  const marker = join(home, "stop-started.txt");
+  let dir: string | undefined;
+  try {
+    await runOwnedExecutorAttempt(ctx, registry, "pacer-exec-direct", task.id, "codex", home,
+      { argv: ["bun", "-e", `await Bun.write(${JSON.stringify(marker)}, "started"); await Bun.sleep(30000)`],
+        cwd: home, timeoutMs: 60000, detached: true });
+    dir = readTask(ctx, task.id)?.run?.dir;
+    expect(dir).toBeDefined();
+    const deadline = Date.now() + 5000;
+    while (!existsSync(marker)) {
+      if (Date.now() > deadline) throw Error("detached wrapper did not start");
+      await Bun.sleep(25);
+    }
+    const stopped = await stopOwnedExecutorAttempt(ctx, registry, "pacer-exec-direct", task.id, 1, 3000);
+    expect(stopped.code).toBe(143);
+    expect(stopped.killed).toBe(false);
+    expect(readRun(dir!).exit).toBe(143);
+    await expect(stopOwnedExecutorAttempt(ctx, registry, "pacer-exec-direct", task.id, 1, 3000))
+      .rejects.toMatchObject({ code: "conflict" });
+  } finally {
+    if (dir) await stopRun(dir, { graceMs: 1000 }).catch(() => {});
+    await registry.shutdown(); rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("stale stop owner is refused without signaling its detached wrapper", async () => {
+  const { home, ctx, task, registry } = fixture();
+  const marker = join(home, "stale-stop-started.txt");
+  let dir: string | undefined;
+  try {
+    await runOwnedExecutorAttempt(ctx, registry, "pacer-exec-direct", task.id, "codex", home,
+      { argv: ["bun", "-e", `await Bun.write(${JSON.stringify(marker)}, "started"); await Bun.sleep(30000)`],
+        cwd: home, timeoutMs: 60000, detached: true });
+    dir = readTask(ctx, task.id)?.run?.dir;
+    const deadline = Date.now() + 5000;
+    while (!existsSync(marker)) {
+      if (Date.now() > deadline) throw Error("detached wrapper did not start");
+      await Bun.sleep(25);
+    }
+    await expect(stopOwnedExecutorAttempt(ctx, {
+      call: (callCtx, pluginId, method, params, options) => {
+        updateTask(ctx, task.id, value => { value.state = "stopped"; });
+        return registry.call(callCtx, pluginId, method, params, options);
+      },
+    }, "pacer-exec-direct", task.id, 1, 3000)).rejects.toMatchObject({ code: "capability_denied" });
+    expect(readRun(dir!).alive).toBe(true);
+  } finally {
+    if (dir) await stopRun(dir, { graceMs: 1000 }).catch(() => {});
+    await registry.shutdown(); rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("unverified stop receipt cannot settle a running wrapper", async () => {
+  const { home, ctx, task, registry } = fixture();
+  const marker = join(home, "uncertain-stop-started.txt");
+  let dir: string | undefined;
+  try {
+    await runOwnedExecutorAttempt(ctx, registry, "pacer-exec-direct", task.id, "codex", home,
+      { argv: ["bun", "-e", `await Bun.write(${JSON.stringify(marker)}, "started"); await Bun.sleep(30000)`],
+        cwd: home, timeoutMs: 60000, detached: true });
+    dir = readTask(ctx, task.id)?.run?.dir;
+    const deadline = Date.now() + 5000;
+    while (!existsSync(marker)) {
+      if (Date.now() > deadline) throw Error("detached wrapper did not start");
+      await Bun.sleep(25);
+    }
+    await expect(stopOwnedExecutorAttempt(ctx, {
+      call: async () => ({ code: 143, killed: false }),
+    }, "pacer-exec-direct", task.id, 1, 3000)).rejects.toMatchObject({ code: "conflict" });
+    expect(readRun(dir!).alive).toBe(true);
+    await expect(stopOwnedExecutorAttempt(ctx, {
+      call: async () => { throw new CoreError("plugin_unavailable", "provider lost"); },
+    }, "pacer-exec-direct", task.id, 1, 3000)).rejects.toMatchObject({ code: "plugin_unavailable" });
+    expect(readRun(dir!).alive).toBe(true);
+  } finally {
+    if (dir) await stopRun(dir, { graceMs: 1000 }).catch(() => {});
+    await registry.shutdown(); rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("detached stop broker rejects foreign identity and replay", async () => {
+  const { home, ctx, task, registry } = fixture();
+  const marker = join(home, "broker-stop-started.txt");
+  let dir: string | undefined;
+  try {
+    await runOwnedExecutorAttempt(ctx, registry, "pacer-exec-direct", task.id, "codex", home,
+      { argv: ["bun", "-e", `await Bun.write(${JSON.stringify(marker)}, "started"); await Bun.sleep(30000)`],
+        cwd: home, timeoutMs: 60000, detached: true });
+    dir = readTask(ctx, task.id)?.run?.dir;
+    const deadline = Date.now() + 5000;
+    while (!existsSync(marker)) {
+      if (Date.now() > deadline) throw Error("detached wrapper did not start");
+      await Bun.sleep(25);
+    }
+    const persisted = readTask(ctx, task.id)!, run = readRun(dir!);
+    const linked = statSync(dir!);
+    const authority = createCallAuthority(ctx, { reads: [], commands: [], stores: [], detachedStop: {
+      taskId: task.id, rev: persisted.rev, attempt: 1, dir: dir!,
+      dirIdentity: { dev: linked.dev, ino: linked.ino }, pid: run.pid!,
+      startedAt: persisted.run!.startedAt, executor: "codex", graceMs: 3000,
+    } }, { deadlineMs: Date.now() + 10_000, grants: ["process.spawn"] });
+    await expect(answerDetachedStop(authority, { taskId: "t-foreign", attempt: 1, graceMs: 3000 }))
+      .rejects.toMatchObject({ code: "capability_denied" });
+    expect(readRun(dir!).alive).toBe(true);
+    expect((await answerDetachedStop(authority, { taskId: task.id, attempt: 1, graceMs: 3000 })).code).toBe(143);
+    await expect(answerDetachedStop(authority, { taskId: task.id, attempt: 1, graceMs: 3000 }))
+      .rejects.toMatchObject({ code: "capability_denied" });
+    await authority.revoke();
+  } finally {
+    if (dir) await stopRun(dir, { graceMs: 1000 }).catch(() => {});
+    await registry.shutdown(); rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("unissued public executor stop cannot reach a local process", async () => {
+  const { home, ctx, task, registry } = fixture();
+  try {
+    await expect(registry.call(ctx, "pacer-exec-direct", "executor.stop",
+      { taskId: task.id, attempt: 1, graceMs: 1000 }, { deadlineMs: 5000 }))
+      .rejects.toMatchObject({ code: "capability_denied" });
     expect(readTask(ctx, task.id)?.run).toBeUndefined();
   } finally { await registry.shutdown(); rmSync(home, { recursive: true, force: true }); }
 });

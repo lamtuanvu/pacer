@@ -4751,7 +4751,7 @@
         "graceMs": {
           "type": "integer",
           "minimum": 0,
-          "maximum": 30000
+          "maximum": 25000
         }
       },
       "required": [
@@ -7632,6 +7632,49 @@
       },
       "required": [
         "pid"
+      ],
+      "additionalProperties": false
+    },
+    "capability.process.stopRun.params": {
+      "type": "object",
+      "properties": {
+        "taskId": {
+          "type": "string",
+          "pattern": "^t-[A-Za-z0-9_-]{1,120}$"
+        },
+        "attempt": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "graceMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 25000
+        }
+      },
+      "required": [
+        "taskId",
+        "attempt",
+        "graceMs"
+      ],
+      "additionalProperties": false
+    },
+    "capability.process.stopRun.result": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "killed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "code",
+        "killed"
       ],
       "additionalProperties": false
     },
