@@ -10,8 +10,8 @@ import { exerciseRepair } from "./core-repair";
 import { CONTROL_COMMANDS, controlMain } from "./control/cli";
 
 const usage = `usage: bun run live <command> [--id <id>]
-  up [--repo-template <dir>] [--seed ui] [--front-door rust]
-                                  start isolated service and disposable repo; ui seeds sample data
+  up [--repo-template <dir>] [--seed ui|plugin-remove] [--front-door rust]
+                                  start isolated service and disposable repo; plugin-remove adds one inert removable plugin
   ota prepare --from-app <path> --to-app <path>
                                   copy disposable OTA bundles (requires --id)
   ota build [--signer cert] [--initial-layout bridge|paired]       compile isolated signed native fixtures (requires --id);

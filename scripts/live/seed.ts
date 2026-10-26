@@ -1,13 +1,34 @@
 import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createTask, updateTask } from "../../src/tasks/store";
 import type { Ctx } from "../../src/types";
 import type { TaskRecord } from "../../src/tasks/types";
 import { atomicWrite, checkout } from "./core";
 
-export function validateSeed(seed?: string): asserts seed is "ui" | undefined {
-  if (seed !== undefined && seed !== "ui") throw Error(`Unknown seed: ${seed}; expected ui`);
+export function validateSeed(seed?: string): asserts seed is "ui" | "plugin-remove" | undefined {
+  if (seed !== undefined && seed !== "ui" && seed !== "plugin-remove") throw Error(`Unknown seed: ${seed}; expected ui or plugin-remove`);
+}
+
+export const REMOVE_FIXTURE_ID = "fx-live-remove";
+export const REMOVE_FIXTURE_MANIFEST = JSON.stringify({
+  id: REMOVE_FIXTURE_ID,
+  version: "1.0.0",
+  publisher: "pacer-live-fixture",
+  host: "^1",
+  entry: "main.ts",
+  capabilities: [],
+}) + "\n";
+export const REMOVE_FIXTURE_ENTRY = "#!/bin/sh\nexit 3\n";
+
+/** Fixed, inert installed plugin used only by the guarded removal fixture. */
+export function seedPluginRemove(root: string): void {
+  seedUi(root);
+  chmodSync(join(root, "home/orca"), 0o700);
+  const dir = join(root, "home/plugins", REMOVE_FIXTURE_ID);
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  atomicWrite(join(dir, "pacer-plugin.json"), REMOVE_FIXTURE_MANIFEST);
+  atomicWrite(join(dir, "main.ts"), REMOVE_FIXTURE_ENTRY, 0o700);
 }
 
 /** Synthetic state only: no native credentials, executor launches or service installs. */
