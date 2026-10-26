@@ -7,6 +7,8 @@ import { readRun, type RunState } from "../src/supervisor/run";
 import { supervise } from "../src/supervisor/supervise";
 import { fakeCtx, fakeSshEnv, realRun, tmpDir } from "./helpers";
 import { createTask, updateTask } from "../src/tasks/store";
+import { issueConfiguredHostReport, consumeConfiguredHostReport } from "../src/plugins/host-report-issuer";
+import { pluginRegistry } from "../src/plugins";
 
 const host = { alias: "box", ssh: "box-ssh", repos: {}, maxTasks: 2, accounts: {} };
 function setup() {
@@ -41,6 +43,29 @@ function setup() {
   return { io: new RemoteRunIO(ctx, host, remote, local), home, remote, local, log, ctx,
     setDown: (value: string) => writeFileSync(downFile, value) };
 }
+
+test("REPORT grants are one-use and bind the persisted run snapshot", async () => {
+  const { ctx, remote, local } = setup();
+  await expect(pluginRegistry(ctx).call(ctx, "pacer-ssh", "hostRunner.run", {
+    session: "a".repeat(32), script: "REPORT", args: [remote], timeoutMs: 60_000, maxBytes: 65_536,
+  })).rejects.toMatchObject({ code: "capability_denied" });
+  const grant = issueConfiguredHostReport(ctx, "box", remote, local);
+  consumeConfiguredHostReport(ctx, grant);
+  expect(() => consumeConfiguredHostReport(ctx, grant)).toThrow();
+  const stale = issueConfiguredHostReport(ctx, "box", remote, local);
+  const taskId = remote.split("/").at(-2)!;
+  updateTask(ctx, taskId, task => { task.state = "queued"; });
+  expect(() => consumeConfiguredHostReport(ctx, stale)).toThrow();
+  expect(() => issueConfiguredHostReport(ctx, "box", remote, join(local, "other"))).toThrow();
+});
+
+test("disabled SSH provider leaves REPORT unreachable without direct SSH fallback", async () => {
+  const { ctx, io, log } = setup();
+  await pluginRegistry(ctx).disable(ctx, "pacer-ssh");
+  const before = existsSync(log) ? readFileSync(log, "utf8") : "";
+  await expect(io.read()).rejects.toBeInstanceOf(Unreachable);
+  expect(existsSync(log) ? readFileSync(log, "utf8") : "").toBe(before);
+});
 async function exited(io: RemoteRunIO): Promise<RunState> {
   const end = Date.now() + 8000;
   while (Date.now() < end) {
@@ -453,24 +478,23 @@ printf '%s' "$$" > "$2/pid"
 while [ ! -e '${release}' ]; do sleep 0.01; done
 exec '${process.execPath}' '${new URL("../src/cli.ts", import.meta.url).pathname}' "$@"
 `, { mode: 0o755 });
-  const run = ctx.run;
-  let firstReport = true;
-  ctx.run = async (argv, ms, options) => {
-    if (firstReport && argv.at(-1)?.includes("admission_complete=%s")) {
-      firstReport = false;
-      // REPORT reads session.host before exit. Force the valid interleaving:
-      // capture full, let the real session complete, then observe exit 7.
-      const observed = readFileSync(join(remote, "session.host"), "utf8");
-      expect(observed).toBe("full");
-      writeFileSync(release, "");
-      const deadline = Date.now() + 8000;
-      while (!existsSync(join(remote, "exit")) && Date.now() < deadline) await Bun.sleep(10);
-      expect(existsSync(join(remote, "exit"))).toBe(true);
-      const result = await run(argv, ms, options);
-      return { ...result, stdout: result.stdout.replace(/^session=.*$/m, `session=${observed}`) };
-    }
-    return run(argv, ms, options);
-  };
+  const ssh = join(home, "bin", "ssh"), intercepted = join(home, "bin", "report-ssh");
+  const marker = join(home, "report-interleaved");
+  writeFileSync(intercepted, `#!/bin/sh
+case "$*" in
+  *admission_complete=%s*)
+    if [ ! -e '${marker}' ]; then
+      observed=$(cat '${join(remote, "session.host")}')
+      touch '${marker}' '${release}'
+      n=0
+      while [ ! -e '${join(remote, "exit")}' ] && [ "$n" -lt 800 ]; do sleep 0.01; n=$((n + 1)); done
+      '${ssh}' "$@" | sed "s/^session=.*/session=$observed/"
+      exit
+    fi ;;
+esac
+exec '${ssh}' "$@"
+`, { mode: 0o755 });
+  ctx.which = name => name === "ssh" ? intercepted : null;
   const io = new RemoteRunIO(ctx, { ...host, session: "full" }, remote, local, { binary });
   try {
     expect(await io.start(["sh", "-c", "printf done; exit 7"], home, {}, "")).toHaveProperty("pid");
@@ -483,25 +507,17 @@ exec '${process.execPath}' '${new URL("../src/cli.ts", import.meta.url).pathname
 }, 15000);
 
 test("a pending full launch can settle to pipe fallback without losing or repeating bytes", async () => {
-  const local = tmpDir();
-  let reports = 0, chunks = 0;
-  const ctx = fakeCtx({ run: async (argv) => {
-    const command = argv.at(-1) ?? "";
-    if (command.includes("admission_complete=%s")) {
-      return { code: 0, stdout: `__PACER_BEGIN__\nsession=${++reports === 1 ? "full" : "none"}\npid=123\nalive=0\nexit=7\nstarted=1\nout=4\nerr=0\n`, stderr: "" };
-    }
-    if (command.includes("tail -c")) {
-      chunks++;
-      return { code: 0, stdout: `__PACER_BEGIN__\n${Buffer.from("done").toString("hex")}`, stderr: "" };
-    }
-    throw new Error("unexpected fake-host command");
-  } });
-  const io = new RemoteRunIO(ctx, { ...host, session: "full" }, "~/fixture", local);
+  const { ctx, remote, local } = setup();
+  mkdirSync(remote, { recursive: true });
+  writeFileSync(join(remote, "session.host"), "full");
+  writeFileSync(join(remote, "exit"), "7");
+  writeFileSync(join(remote, "stdout"), "done");
+  const io = new RemoteRunIO(ctx, { ...host, session: "full" }, remote, local);
   expect(await io.read()).toMatchObject({ exit: null, alive: true, stdoutBytes: 4 });
+  writeFileSync(join(remote, "session.host"), "none");
   expect(await io.read()).toMatchObject({ exit: 7, alive: false, stdoutBytes: 4 });
   expect(readFileSync(join(local, "stdout"), "utf8")).toBe("done");
-  expect(reports).toBe(2);
-  expect(chunks).toBe(1);
+  expect((await io.read()).exit).toBe(7);
 });
 
 for(const refused of [false,true]) test.skipIf(!await canListen())(`full remote protocol supports exact snapshots and control (forward refused=${refused})`,async()=>{

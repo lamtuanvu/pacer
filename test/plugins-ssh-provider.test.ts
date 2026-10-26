@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { checkHomeArgv, checkRepoArgv, cleanArgv, CLEAN_SCRIPT, cloneRepoArgv, CHECK_REPO_SCRIPT, preflightArgv, PREFLIGHT_SCRIPT, prepareArgv, PREPARE_SCRIPT, probeArgv, PROBE_SCRIPT, stopArgv, STOP_SCRIPT,
+import { checkHomeArgv, checkRepoArgv, cleanArgv, CLEAN_SCRIPT, cloneRepoArgv, CHECK_REPO_SCRIPT, preflightArgv, PREFLIGHT_SCRIPT, prepareArgv, PREPARE_SCRIPT, probeArgv, PROBE_SCRIPT, reportArgv, REPORT_SCRIPT, stopArgv, STOP_SCRIPT,
   questionArgv, QUESTION_SCRIPT, usageArgv, CODEX_USAGE_SCRIPT,
   setIdentityArgv, SET_IDENTITY_SCRIPT } from "../plugins/pacer-ssh/probe";
 import { SCRIPTS } from "../src/remote/scripts";
@@ -139,6 +139,17 @@ test("SSH prepare argv uses only the fixed issued PREPARE script", () => {
       arg.startsWith("ControlPath=") ? "ControlPath=/tmp/private/cm-%C" : arg));
   expect(() => prepareArgv(host.ssh, "/tmp/private/cm-%C", ["../repo", ...args.slice(1)], nonce)).toThrow();
   expect(() => prepareArgv(host.ssh, "/tmp/private/cm-%C", [...args.slice(0, 5), "0"], nonce)).toThrow();
+});
+
+test("SSH report argv uses only the fixed persisted-run REPORT script", () => {
+  const ctx = fakeCtx(), host = { alias: "box", ssh: "box", repos: {}, accounts: {}, maxTasks: 1 };
+  const args = ["/remote/.pacer-remote/runs/t-20261026-120000-abcd/1"];
+  expect(REPORT_SCRIPT).toBe(SCRIPTS.REPORT);
+  expect(reportArgv(host.ssh, "/tmp/private/cm-%C", args))
+    .toEqual(sshArgv(ctx, host, SCRIPTS.REPORT, args).map(arg =>
+      arg.startsWith("ControlPath=") ? "ControlPath=/tmp/private/cm-%C" : arg));
+  expect(() => reportArgv(host.ssh, "/tmp/private/cm-%C", ["../other"])).toThrow();
+  expect(() => reportArgv(host.ssh, "/tmp/private/cm-%C", ["/remote/run\nwhoami"])).toThrow();
 });
 
 test("SSH reference provider builds the exact fixed BUNDLE_OUT argv", async () => {
@@ -340,7 +351,8 @@ test("SSH provider rejects unissued operations and foreign sessions before spawn
   const opened = await open({ alias: "box", sshTarget: "box", controlPath: "/tmp/private/cm-%C" }, host, signal) as { session: string };
   const request = { session: opened.session, script: "PROBE", args: [], timeoutMs: 1000, maxBytes: 1024 };
   for (const invalid of [
-    { ...request, script: "CLEAN" }, { ...request, args: ["--anything"] },
+    { ...request, script: "CLEAN" }, { ...request, script: "REPORT", args: ["~/run"] },
+    { ...request, args: ["--anything"] },
     { ...request, script: "PREPARE", args: ["~/repo", "repo-12345678", "t-20261026-120000-abcd", "a".repeat(40), "main", "1"] },
     { ...request, script: "CHECK_REPO", args: ["~/repo", "clone"] },
     { ...request, script: "CHECK_REPO", args: ["~/repo", "check", "extra"] },
