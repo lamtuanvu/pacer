@@ -7,6 +7,7 @@ import type { Ctx } from "../types";
 import { SCRIPTS } from "./scripts";
 import { runRemote } from "./ssh";
 import { issueConfiguredHostBinaryCheck } from "../plugins/host-binary-check-issuer";
+import { issueConfiguredHostBinaryUpload } from "../plugins/host-binary-upload-issuer";
 import { pluginRegistry } from "../plugins";
 
 export function remotePlatform(os: string, arch: string): Platform {
@@ -48,7 +49,11 @@ export async function ensureRemoteBinary(ctx: Ctx, host: HostCfg, remoteDir: str
       existing.stdout.trim()!==expected) throw Error("remote binary check returned an invalid path");
     return expected;
   }
-  const uploaded=await runRemote(ctx,host,SCRIPTS.BINARY,[hash,"upload"],{stdin:Buffer.from(bytes).toString("base64"),timeoutMs:300_000});
-  if (uploaded.code || !uploaded.stdout.trim()) throw Error(uploaded.stderr || "remote binary hash verification failed");
-  return uploaded.stdout.trim();
+  const uploadGrant=issueConfiguredHostBinaryUpload(ctx,host.alias,remoteDir,localDir,bytes);
+  const uploaded=await pluginRegistry(ctx).uploadConfiguredHostBinary(ctx,uploadGrant);
+  if (uploaded.code || uploaded.timedOut) throw Error(uploaded.stderr || "remote binary hash verification failed");
+  const expected=`${facts.home}/.pacer-remote/bin/${hash}/pacer`;
+  if (!facts.home?.startsWith("/") || /[\u0000-\u001f\u007f]/.test(facts.home) ||
+    uploaded.stdout.trim()!==expected) throw Error("remote binary upload returned an invalid path");
+  return expected;
 }
