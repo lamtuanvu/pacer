@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { closeSync, constants, fstatSync, lstatSync, mkdtempSync, openSync, readSync,
-  realpathSync, rmdirSync, rmSync, statSync, unlinkSync, writeSync, type Stats } from "node:fs";
+  realpathSync, rmSync, statSync, type Stats } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { CoreError } from "../core/errors";
 import { execProcess } from "../exec/process";
@@ -18,45 +18,35 @@ interface Captured { caller: CallAuthority; ticket: ClaimedBundleTicket; grant: 
 const prepared = new WeakMap<PreparedBundle, Captured>();
 interface Publication { caller: CallAuthority; grant: PersistedFetchGrant; path: string;
   name: string; directoryFd: number;
-  file: Stats; sha256: string; head: string; commits: number; finalized: boolean; detach?: () => void }
+  directory: Stats; file: Stats; sha256: string; head: string; commits: number;
+  finalized: boolean; consumed: boolean; detach?: () => void }
 const published = new WeakMap<ClaimedBundleTicket, Publication>();
 
 function denied(message: string): CoreError { return new CoreError("capability_denied", message); }
 
-/** Copy the issued bytes into an unlinked inode before Git can reopen them. Only a read FD survives. */
-function pinnedBundleInput(stage: Readonly<{ path: string; bytes: number; sha256: string }>, root: string): number {
-  const dir = mkdtempSync(join(root, ".bundle-input-")), path = join(dir, "bundle");
-  let source: number | undefined, writer: number | undefined, reader: number | undefined;
-  let named = false, directory = true;
+/** Capture bounded, verified bytes without ever exposing a writable temporary inode. */
+function snapshotBundleInput(stage: Readonly<{ path: string; bytes: number; sha256: string }>,
+  issuedSource?: number): Blob {
+  let source: number | undefined = issuedSource;
   try {
-    source = openSync(stage.path, constants.O_RDONLY | constants.O_NOFOLLOW);
-    writer = openSync(path, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
-    named = true;
-    reader = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
-    unlinkSync(path); named = false;
-    rmdirSync(dir); directory = false;
-    const hash = createHash("sha256"), chunk = Buffer.allocUnsafe(65_536);
+    source ??= openSync(stage.path, constants.O_RDONLY | constants.O_NOFOLLOW);
+    const hash = createHash("sha256"), chunk = Buffer.allocUnsafe(65_536), parts: Uint8Array<ArrayBuffer>[] = [];
     let bytes = 0, count: number;
     while ((count = readSync(source, chunk, 0, chunk.length, null)) > 0) {
       bytes += count;
       if (bytes > stage.bytes) throw denied("claimed bundle size changed during inspection");
       hash.update(chunk.subarray(0, count));
-      let written = 0;
-      while (written < count) written += writeSync(writer, chunk, written, count - written);
+      const part = new Uint8Array(count);
+      part.set(chunk.subarray(0, count));
+      parts.push(part);
     }
-    if (bytes !== stage.bytes || hash.digest("hex") !== stage.sha256 ||
-      fstatSync(reader).size !== stage.bytes)
+    if (bytes !== stage.bytes || hash.digest("hex") !== stage.sha256)
       throw denied("claimed bundle changed during inspection");
-    closeSync(writer); writer = undefined;
-    closeSync(source); source = undefined;
-    const pinned = reader; reader = undefined;
-    return pinned;
+    const snapshot = new Blob(parts);
+    if (snapshot.size !== stage.bytes) throw denied("claimed bundle snapshot size changed");
+    return snapshot;
   } finally {
     if (source !== undefined) closeSync(source);
-    if (writer !== undefined) closeSync(writer);
-    if (reader !== undefined) closeSync(reader);
-    if (named) unlinkSync(path);
-    if (directory) rmdirSync(dir);
   }
 }
 
@@ -76,7 +66,7 @@ export async function prepareClaimedBundle(caller: CallAuthority, ticket: Claime
   if (!executable || !isAbsolute(executable)) throw new CoreError("plugin_unavailable", "local git is unavailable");
   const canonical = realpathSync(executable), link = lstatSync(executable), binary = statSync(canonical);
   if (!binary.isFile() || !(binary.mode & 0o111)) throw denied("local git executable is unavailable");
-  const run = async (args: string[], env: Record<string, string | undefined> = {}, stdinFd?: number) => {
+  const run = async (args: string[], env: Record<string, string | undefined> = {}, stdinBlob?: Blob) => {
     caller.assertActive(); validatePersistedFetch(caller.ctx, grant);
     const currentLink = lstatSync(executable), currentBinary = statSync(canonical);
     if (realpathSync(executable) !== canonical || currentLink.dev !== link.dev || currentLink.ino !== link.ino ||
@@ -89,7 +79,7 @@ export async function prepareClaimedBundle(caller: CallAuthority, ticket: Claime
       env: { PATH: caller.ctx.env.PATH, HOME: caller.ctx.home,
         GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null",
         GIT_TERMINAL_PROMPT: "0", ...env }, timeoutMs: Math.min(10_000, remaining),
-      maxStdoutBytes: MAX_GIT_OUTPUT, stdinFd });
+      maxStdoutBytes: MAX_GIT_OUTPUT, stdinBlob });
     caller.assertActive(); validatePersistedFetch(caller.ctx, grant);
     if (result.timedOut || result.stdoutOverflow)
       throw new CoreError("plugin_timeout", "bundle verification output or deadline exceeded");
@@ -98,9 +88,7 @@ export async function prepareClaimedBundle(caller: CallAuthority, ticket: Claime
   };
   const runBundle = async (args: string[], env: Record<string, string | undefined> = {}) => {
     caller.assertActive();
-    const fd = pinnedBundleInput(stage, join(caller.ctx.pacerHome, "transfers"));
-    try { return await run(args, env, fd); }
-    finally { closeSync(fd); }
+    return run(args, env, snapshotBundleInput(stage));
   };
   let inspection: string | undefined;
   try {
@@ -173,7 +161,8 @@ export function publishPreparedBundle(caller: CallAuthority, receipt: PreparedBu
   const placement = relocateTransferredBundle(caller, saved.ticket, saved.grant.taskId, false);
   const record: Publication = { caller, grant: saved.grant, path: placement.path,
     name: placement.name, directoryFd: placement.directoryFd,
-    file: placement.file, sha256: saved.sha256, head: saved.head, commits: saved.commits, finalized: false };
+    directory: fstatSync(placement.directoryFd), file: placement.file, sha256: saved.sha256,
+    head: saved.head, commits: saved.commits, finalized: false, consumed: false };
   published.set(saved.ticket, record);
   try { record.detach = caller.onRevoke(() => rollbackClaimedPublication(caller, saved.ticket)); }
   catch (error) { rollbackClaimedPublication(caller, saved.ticket); throw error; }
@@ -241,4 +230,49 @@ export function finalizeClaimedPublication(caller: CallAuthority, ticket: Claime
   closeSync(record.directoryFd);
   record.finalized = true;
   record.detach?.();
+}
+
+/** Consume an immutable, bounded byte snapshot after the plugin call has retired. */
+export async function withFinalizedClaimedBundleInput<T>(caller: CallAuthority,
+  ticket: ClaimedBundleTicket, grant: PersistedFetchGrant, consume: (input: Blob) => Promise<T>): Promise<T> {
+  const record = published.get(ticket);
+  if (!record || !record.finalized || record.consumed || record.caller !== caller || record.grant !== grant)
+    throw denied("finalized bundle input is foreign or already consumed");
+  record.consumed = true;
+  validatePersistedFetch(caller.ctx, grant);
+  const parentPath = dirname(record.path);
+  let directory: number | undefined, source: number | undefined;
+  try {
+    const parent = lstatSync(parentPath);
+    if (!parent.isDirectory() || parent.isSymbolicLink() || parent.dev !== record.directory.dev ||
+      parent.ino !== record.directory.ino) throw denied("private bundle publication directory changed");
+    directory = openSync(parentPath, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+    const openedParent = fstatSync(directory);
+    if (openedParent.dev !== record.directory.dev || openedParent.ino !== record.directory.ino)
+      throw denied("private bundle publication directory changed");
+    source = writeNative().openAt(directory, record.name, WRITE_OPEN);
+    const file = fstatSync(source);
+    if (!file.isFile() || file.dev !== record.file.dev || file.ino !== record.file.ino ||
+      file.size !== record.file.size || (file.mode & 0o077) !== 0)
+      throw denied("private bundle publication changed");
+    const current = lstatSync(record.path);
+    if (!current.isFile() || current.isSymbolicLink() || current.dev !== file.dev || current.ino !== file.ino)
+      throw denied("private bundle publication changed");
+    const ownedSource = source;
+    source = undefined;
+    const snapshot = snapshotBundleInput({ path: record.path, bytes: record.file.size,
+      sha256: record.sha256 }, ownedSource);
+    const after = lstatSync(record.path);
+    const pinnedParent = fstatSync(directory), currentParent = lstatSync(parentPath);
+    if (after.dev !== file.dev || after.ino !== file.ino ||
+      pinnedParent.dev !== record.directory.dev || pinnedParent.ino !== record.directory.ino ||
+      currentParent.dev !== record.directory.dev || currentParent.ino !== record.directory.ino)
+      throw denied("private bundle publication changed during consumption");
+    closeSync(directory); directory = undefined;
+    validatePersistedFetch(caller.ctx, grant);
+    return await consume(snapshot);
+  } finally {
+    if (source !== undefined) closeSync(source);
+    if (directory !== undefined) closeSync(directory);
+  }
 }

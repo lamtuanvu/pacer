@@ -6,6 +6,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
+- Add a host-only, one-use finalized bundle input that rechecks the persisted run and private publication, then supplies an immutable bounded byte snapshot for safe downstream Git consumption.
 - Stage the direct executor manifest and bounded availability contract with a fake conformance plugin; no attempt runner or production backend is switched yet.
 - Add a scoped `hosts.open/run/close` plugin capability with caller-owned broker sessions, configured SSH aliases and fixed-script fake-provider forwarding; production SSH callers are not yet migrated.
 - Define a bounded, staged plugin host-runner wire contract and fake conformance fixture; remote SSH execution remains on the existing adapter.

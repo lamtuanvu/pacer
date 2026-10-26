@@ -22,6 +22,8 @@ export interface ExecSpec {
   stdinUntilResponseId?: number;
   /** Existing host-owned descriptor, inherited as the child's stdin. Caller retains ownership. */
   stdinFd?: number;
+  /** Immutable bounded binary input, streamed as the child's stdin. */
+  stdinBlob?: Blob;
   env: Record<string, string | undefined>;
   timeoutMs: number;
   logFile?: string;
@@ -51,6 +53,7 @@ function spawn(spec: ExecSpec) {
     env: { ...(spec.env ?? process.env), PWD: spec.cwd },
     stdin: spec.stdinUntilResponseId !== undefined ? "pipe"
       : spec.stdinFd !== undefined ? spec.stdinFd
+      : spec.stdinBlob !== undefined ? spec.stdinBlob
       : spec.stdin !== undefined ? new Blob([spec.stdin]) : "ignore",
     stdout: "pipe",
     stderr: "pipe",

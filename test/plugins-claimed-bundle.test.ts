@@ -2,10 +2,12 @@ import { afterEach, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { createCallAuthority, type CallAuthority } from "../src/plugins/authority";
+import { execProcess } from "../src/exec/process";
 import { prepareBundleStageAuthority, stageBundle, resolveStagedBundle,
   transferStagedBundleOwnership } from "../src/plugins/bundle-stage";
 import { issuePersistedFetch } from "../src/plugins/fetch-issuer";
-import { finalizeClaimedPublication, prepareClaimedBundle, publishPreparedBundle } from "../src/plugins/claimed-bundle";
+import { finalizeClaimedPublication, prepareClaimedBundle, publishPreparedBundle,
+  withFinalizedClaimedBundleInput } from "../src/plugins/claimed-bundle";
 import { writeNative } from "../src/plugins/write-native";
 import { createTask, updateTask } from "../src/tasks/store";
 import { fakeCtx, realRun, tmpDir } from "./helpers";
@@ -97,6 +99,89 @@ test("valid SHA-256 bundle uses the source repository object format", async () =
   const published = publishPreparedBundle(f.caller, prepared);
   finalizeClaimedPublication(f.caller, f.ticket);
   expect(readFileSync(published.path)).toEqual(readFileSync(f.bundle));
+});
+
+test("finalized bundle snapshot is immutable through same-UID rewrite and consumed once", async () => {
+  const f = await fixture();
+  const publication = publishPreparedBundle(f.caller,
+    await prepareClaimedBundle(f.caller, f.ticket, f.grant));
+  finalizeClaimedPublication(f.caller, f.ticket);
+  await f.caller.revoke();
+  const expected = readFileSync(f.bundle);
+  await withFinalizedClaimedBundleInput(f.caller, f.ticket, f.grant, async input => {
+    expect((input as unknown) instanceof Blob).toBe(true);
+    writeFileSync(publication.path, "same-UID rewrite");
+    const fetched = await execProcess({ argv: ["/usr/bin/git", "-C", f.repo, "bundle", "unbundle",
+      "/dev/fd/0"], cwd: f.ctx.home, env: { PATH: process.env.PATH, HOME: f.ctx.home }, timeoutMs: 10_000,
+      maxStdoutBytes: 1024 * 1024, stdinBlob: input as Blob });
+    if (fetched.code !== 0) throw Error(fetched.stderr);
+    expect(await f.git("-C", f.repo, "rev-parse", `${f.head}^{commit}`)).toBe(f.head);
+    const actual = Buffer.from(await (input as Blob).arrayBuffer());
+    expect(actual).toEqual(expected);
+    actual[0] = 0;
+    expect(Buffer.from(await (input as Blob).arrayBuffer())).toEqual(expected);
+    expect(readdirSync(join(f.ctx.pacerHome, "transfers")).filter(name => name.startsWith(".bundle-input-")))
+      .toHaveLength(0);
+  });
+  await expect(withFinalizedClaimedBundleInput(f.caller, f.ticket, f.grant, async () => {}))
+    .rejects.toMatchObject({ code: "capability_denied" });
+});
+
+test("macOS Git fetch cannot consume a bundle through stdin directly", async () => {
+  if (process.platform !== "darwin") return;
+  const f = await fixture();
+  publishPreparedBundle(f.caller, await prepareClaimedBundle(f.caller, f.ticket, f.grant));
+  finalizeClaimedPublication(f.caller, f.ticket);
+  await withFinalizedClaimedBundleInput(f.caller, f.ticket, f.grant, async input => {
+    const fetched = await execProcess({ argv: ["/usr/bin/git", "-C", f.repo, "fetch", "--no-tags",
+      "/dev/fd/0", f.grant.resource.args[2]], cwd: f.ctx.home,
+      env: { PATH: process.env.PATH, HOME: f.ctx.home }, timeoutMs: 10_000,
+      maxStdoutBytes: 1024 * 1024, stdinBlob: input as Blob });
+    expect(fetched.code).not.toBe(0);
+    await expect(f.git("-C", f.repo, "rev-parse", `${f.head}^{commit}`)).rejects.toThrow();
+  });
+});
+
+test("finalized input rechecks the persisted run and consumes once on consumer failure", async () => {
+  const changed = await fixture();
+  publishPreparedBundle(changed.caller,
+    await prepareClaimedBundle(changed.caller, changed.ticket, changed.grant));
+  finalizeClaimedPublication(changed.caller, changed.ticket);
+  const otherGrant = issuePersistedFetch(changed.ctx, changed.taskId, 1, 1024 * 1024, 5000);
+  await expect(withFinalizedClaimedBundleInput(changed.caller, changed.ticket, otherGrant,
+    async () => {})).rejects.toMatchObject({ code: "capability_denied" });
+  updateTask(changed.ctx, changed.taskId, record => { record.run!.remoteBranch = "pacer/replaced"; });
+  await expect(withFinalizedClaimedBundleInput(changed.caller, changed.ticket, changed.grant,
+    async () => {})).rejects.toMatchObject({ code: "capability_denied" });
+
+  const f = await fixture();
+  publishPreparedBundle(f.caller, await prepareClaimedBundle(f.caller, f.ticket, f.grant));
+  finalizeClaimedPublication(f.caller, f.ticket);
+  await expect(withFinalizedClaimedBundleInput(f.caller, f.ticket, f.grant, async () => {
+    throw Error("consumer failed");
+  })).rejects.toThrow("consumer failed");
+  await expect(withFinalizedClaimedBundleInput(f.caller, f.ticket, f.grant, async () => {}))
+    .rejects.toMatchObject({ code: "capability_denied" });
+});
+
+test("finalized bundle input refuses same-UID file or directory replacement before consumption", async () => {
+  for (const replace of ["file", "directory"]) {
+    const f = await fixture();
+    const publication = publishPreparedBundle(f.caller,
+      await prepareClaimedBundle(f.caller, f.ticket, f.grant));
+    finalizeClaimedPublication(f.caller, f.ticket);
+    if (replace === "file") {
+      renameSync(publication.path, `${publication.path}.moved`);
+      writeFileSync(publication.path, readFileSync(f.bundle), { mode: 0o600 });
+    } else {
+      const tasks = join(f.ctx.pacerHome, "tasks");
+      renameSync(tasks, `${tasks}-moved`);
+      mkdirSync(tasks, { mode: 0o700 });
+      writeFileSync(join(tasks, basename(publication.path)), readFileSync(f.bundle), { mode: 0o600 });
+    }
+    await expect(withFinalizedClaimedBundleInput(f.caller, f.ticket, f.grant, async () => {}))
+      .rejects.toMatchObject({ code: "capability_denied" });
+  }
 });
 
 test("transient same-UID stage rewrite during Git inspection cannot certify different bytes", async () => {
