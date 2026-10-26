@@ -60,6 +60,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Changed
 
+- Route `pacer host setup` repository identity updates through the bundled remote caller and SSH provider with a one-use host-issued grant. Setup reports a plugin error if either required plugin is disabled.
 - Settings → Dispatcher now contains saved global profiles and executor eligibility, including repository overrides. Former Routing and Strategies links redirect there.
 
 - Open tasks in a split workspace with a task navigator and a larger session pane. Keep task details compact, make each list row one navigation target, and use the main Tasks route for returning to the list.

@@ -345,6 +345,15 @@
               ],
               "additionalProperties": false
             },
+            "remoteCaller": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/manifest___schema0"
+              }
+            },
             "executor": {
               "type": "object",
               "properties": {
@@ -608,6 +617,15 @@
                     "kinds"
                   ],
                   "additionalProperties": false
+                },
+                "remoteCaller": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {
+                    "$ref": "#/$defs/helloParams___schema0"
+                  }
                 },
                 "executor": {
                   "type": "object",
@@ -4089,6 +4107,65 @@
       },
       "required": [
         "ok"
+      ],
+      "additionalProperties": false
+    },
+    "remoteCaller.identity.params": {
+      "type": "object",
+      "properties": {
+        "alias": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "email": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      },
+      "required": [
+        "alias",
+        "path",
+        "name",
+        "email"
+      ],
+      "additionalProperties": false
+    },
+    "remoteCaller.identity.result": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "stdout": {
+          "type": "string",
+          "maxLength": 524288
+        },
+        "stderr": {
+          "type": "string",
+          "maxLength": 524288
+        },
+        "timedOut": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "code",
+        "stdout",
+        "stderr",
+        "timedOut"
       ],
       "additionalProperties": false
     },
