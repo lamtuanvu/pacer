@@ -346,10 +346,15 @@ async fn notification_set_waits_for_shared_settings_lock() {
     let held = ctx.clone();
     let (ready, started) = mpsc::channel();
     let holder = std::thread::spawn(move || {
-        pacer_foundation::lock::with_lock(&held, "notification-settings", Default::default(), || {
-            ready.send(()).unwrap();
-            std::thread::sleep(Duration::from_millis(200));
-        })
+        pacer_foundation::lock::with_lock(
+            &held,
+            "notification-settings",
+            Default::default(),
+            || {
+                ready.send(()).unwrap();
+                std::thread::sleep(Duration::from_millis(200));
+            },
+        )
         .unwrap();
     });
     started.recv().unwrap();
