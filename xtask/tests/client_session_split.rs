@@ -32,3 +32,19 @@ fn client_controls_have_their_own_generated_area_without_expanding_the_core_crat
     assert!(!controls.contains("pub struct TaskDelegateParams"));
     assert!(!controls.contains("pub struct SessionCreateParams"));
 }
+
+#[test]
+fn terminal_operations_have_their_own_generated_area() {
+    let schema = Path::new(env!("CARGO_MANIFEST_DIR")).join("../docs/protocol.schema.json");
+    let core = xtask::generate(&schema).unwrap();
+    assert!(!core.contains("pub struct TerminalCreateParams"));
+    assert!(!core.contains("pub struct HostTerminalParams"));
+    let output = schema
+        .parent()
+        .unwrap()
+        .join("../crates/terminal-protocol/src/generated.rs");
+    let terminal = xtask::generate_for(&schema, &output).unwrap();
+    assert!(terminal.contains("pub struct TerminalCreateParams"));
+    assert!(terminal.contains("pub struct HostTerminalParams"));
+    assert!(!terminal.contains("pub struct TaskDelegateParams"));
+}

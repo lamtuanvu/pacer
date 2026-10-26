@@ -27,6 +27,7 @@ export function v2Hello() {
 }
 
 for (const op of ["limits.refresh", "session.draft.create", "session.prepare", "session.create", "session.context", "session.end", "session.resume", "session.attachment.prepare"]) V3_ONLY_OPS.add(op);
+for (const op of ["terminal.list", "terminal.create", "terminal.rename", "terminal.close"]) V3_ONLY_OPS.add(op);
 
 function budget(s: SnapshotV3): BudgetData | null {
  if(!s.planner)return null;
