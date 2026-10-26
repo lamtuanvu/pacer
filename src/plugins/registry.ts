@@ -58,6 +58,7 @@ import { consumeConfiguredHostSessionSocket, validateConfiguredHostSessionSocket
 import { consumeConfiguredHostBinaryCheck, validateConfiguredHostBinaryCheck, type ConfiguredHostBinaryCheckGrant } from "./host-binary-check-issuer";
 import { consumeConfiguredHostRuntimeProbe, validateConfiguredHostRuntimeProbe, type ConfiguredHostRuntimeProbeGrant } from "./host-runtime-probe-issuer";
 import { consumeConfiguredHostBinaryUpload, validateConfiguredHostBinaryUpload, validateConfiguredHostBinaryUploadState, type ConfiguredHostBinaryUploadGrant } from "./host-binary-upload-issuer";
+import { consumeConfiguredHostStart, validateConfiguredHostStart, validateConfiguredHostStartState, type ConfiguredHostStartGrant } from "./host-start-issuer";
 import { beginWorkSync, finishWorkSync } from "../update/desktop/admission";
 import { z } from "zod";
 
@@ -477,6 +478,81 @@ export class PluginRegistry {
         finishWorkSync(ctx, nonce);
         await validateConfiguredHostPrepare(ctx, grant);
         if (!active()) throw new CoreError("capability_denied", "configured prepare host changed after completion");
+        return { ...result, stdout: result.stdout.slice(0, -receipt.length) };
+      } catch (error) {
+        if (!started) finishWorkSync(ctx, nonce);
+        throw error;
+      }
+    } finally {
+      clearInterval(watch); signal?.removeEventListener("abort", cancel);
+      if (session) await this.call(ctx, provider.id, "hostRunner.close", { session },
+        { deadlineMs: 5000, expectedProcess: process }).catch(() => {});
+    }
+  }
+
+  /** Host-only one-use START with an exact, bounded binary stdin snapshot. */
+  async startConfiguredHost(ctx: Ctx, grant: ConfiguredHostStartGrant, signal?: AbortSignal): Promise<{ code: number; stdout: string; stderr: string; timedOut: boolean }> {
+    const input = consumeConfiguredHostStart(ctx, grant);
+    const { alias, args, hostFingerprint } = grant.resource;
+    const host = loadStrategy(ctx).hosts[alias];
+    if (!host || JSON.stringify(host) !== hostFingerprint)
+      throw new CoreError("capability_denied", "configured start host changed");
+    const providers = this.findAll(ctx, "hostRunner", contribution =>
+      Array.isArray(contribution.kinds) && contribution.kinds.length === 1 && contribution.kinds[0] === "ssh");
+    if (providers.length !== 1 || providers[0] !== "pacer-ssh")
+      throw new CoreError("plugin_unavailable", "bundled SSH host runner provider is required");
+    const provider = this.entries.get(providers[0]!)!;
+    await this.call(ctx, provider.id, "diagnostic.ping", {}, { deadlineMs: 5000, signal });
+    const process = provider.process, generation = this.hostGeneration(ctx, provider);
+    if (!process?.alive || !provider.served.includes("hostRunner"))
+      throw new CoreError("plugin_unavailable", "SSH host runner provider is not ready");
+    const directory = controlDir(ctx), original = lstatSync(directory);
+    if (!original.isDirectory() || (original.mode & 0o077) !== 0 ||
+      (globalThis.process.getuid && original.uid !== globalThis.process.getuid()))
+      throw new CoreError("capability_denied", "SSH control directory is not private");
+    const controlPath = join(directory, "cm-%C"), timeoutMs = grant.resource.timeoutMs;
+    const active = () => {
+      try { validateConfiguredHostStartState(ctx, grant); } catch { return false; }
+      const current = loadStrategy(ctx).hosts[alias], now = lstatSync(directory);
+      return current && !current.paused && JSON.stringify(current) === hostFingerprint &&
+        provider.process === process && process.alive && this.hostGeneration(ctx, provider) === generation &&
+        now.isDirectory() && now.dev === original.dev && now.ino === original.ino &&
+        now.uid === original.uid && (now.mode & 0o7777) === (original.mode & 0o7777);
+    };
+    if (!active()) throw new CoreError("capability_denied", "configured start snapshot changed");
+    const controller = new AbortController();
+    const cancel = () => controller.abort(new CoreError("capability_denied", "configured start retired"));
+    signal?.addEventListener("abort", cancel, { once: true });
+    const watch = setInterval(() => { try { if (!active()) cancel(); } catch { cancel(); } }, 100);
+    watch.unref();
+    let session: string | undefined;
+    try {
+      const opened = await this.call<{ session: string }>(ctx, provider.id, "hostRunner.open",
+        { alias, sshTarget: host.ssh, controlPath },
+        { deadlineMs: 10_000, signal: controller.signal, expectedProcess: process });
+      session = opened.session;
+      validateConfiguredHostStart(ctx, grant);
+      if (controller.signal.aborted || !active()) throw new CoreError("capability_denied", "configured start retired");
+      const nonce = beginWorkSync(ctx, { kind: "operation", id: randomUUID(), label: `Remote start operation on ${alias}` });
+      let started = false;
+      try {
+        const argv = sshArgv(ctx, host, SCRIPTS.START, [...args], nonce);
+        if (!argv.includes(`ControlPath=${controlPath}`) || !active())
+          throw new CoreError("capability_denied", "configured start SSH path changed");
+        started = true;
+        const result = await this.call<{ code: number; stdout: string; stderr: string; timedOut: boolean }>(
+          ctx, provider.id, "hostRunner.run",
+          { session, script: "START", args: [...args], timeoutMs, maxBytes: grant.resource.maxBytes, completionNonce: nonce },
+          { deadlineMs: timeoutMs + 10_000, signal: controller.signal, expectedProcess: process,
+            resources: { reads: [], commands: [{ argv, timeoutMs, mode: "start-input", input,
+              inputSha256: createHash("sha256").update(input).digest("hex") }], stores: [] },
+            [HOST_PROVIDER_MUTATION_ISSUER]: true });
+        const receipt = `\n__PACER_DONE__=${nonce}\n`;
+        if (result.timedOut || result.code === 255 || !result.stdout.endsWith(receipt))
+          throw new CoreError("plugin_refused", "remote start completion is unverified");
+        finishWorkSync(ctx, nonce);
+        validateConfiguredHostStart(ctx, grant);
+        if (!active()) throw new CoreError("capability_denied", "configured start host changed after completion");
         return { ...result, stdout: result.stdout.slice(0, -receipt.length) };
       } catch (error) {
         if (!started) finishWorkSync(ctx, nonce);
@@ -1637,6 +1713,7 @@ export class PluginRegistry {
     if (method === "hostRunner.fetch" && !options[HOST_FETCH_ISSUER])
       throw new CoreError("capability_denied", "host fetch requires host-owned issuance");
     if (method === "hostRunner.run" && ((params as { script?: string } | null)?.script === "SET_IDENTITY" ||
+      (params as { script?: string } | null)?.script === "START" ||
       (params as { script?: string } | null)?.script === "CLEAN" ||
       (params as { script?: string } | null)?.script === "STOP" ||
       (params as { script?: string } | null)?.script === "PREPARE" ||
@@ -1674,6 +1751,10 @@ export class PluginRegistry {
       (!options[HOST_PROVIDER_MUTATION_ISSUER] || method !== "hostRunner.run" ||
         (params as { script?: string } | null)?.script !== "PREPARE"))
       throw new CoreError("capability_denied", "remote prepare input requires host-owned issuance");
+    if (options.resources?.commands.some(command => command.mode === "start-input") &&
+      (!options[HOST_PROVIDER_MUTATION_ISSUER] || method !== "hostRunner.run" ||
+        (params as { script?: string } | null)?.script !== "START"))
+      throw new CoreError("capability_denied", "remote start input requires host-owned issuance");
     if (options.resources?.hosts?.some(resource => resource.script === "SET_IDENTITY") && !options[HOST_CALL_IDENTITY_ISSUER])
       throw new CoreError("capability_denied", "host identity resource requires host-owned issuance");
     if (options.resources?.hosts?.some(resource => resource.script === "QUESTION") && !options[HOST_CALL_QUESTION_ISSUER])

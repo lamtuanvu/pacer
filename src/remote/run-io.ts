@@ -13,12 +13,11 @@ import { RemoteViewer } from "./viewer";
 import { RemoteRecording } from "./recording";
 import { RemoteSession } from "./session";
 import { ensureRemoteBinary } from "./runtime";
-import { SCRIPTS } from "./scripts";
-import { runRemote } from "./ssh";
 import { pluginRegistry } from "../plugins";
 import { issueConfiguredHostStop } from "../plugins/host-stop-issuer";
 import { issueConfiguredHostReport } from "../plugins/host-report-issuer";
 import { issueConfiguredHostReadFrom } from "../plugins/host-read-from-issuer";
+import { issueConfiguredHostStart } from "../plugins/host-start-issuer";
 import { mirrorSessionFiles, recoverSessionFiles, type SessionFilesSnapshot } from "./session-files";
 
 const fields = (text: string) => Object.fromEntries(text.trim().split("\n").map(line => {
@@ -47,13 +46,6 @@ export class RemoteRunIO implements RunIO {
   };
   constructor(private ctx: Ctx, private host: HostCfg, private remoteDir: string, private localDir: string, private runtime: {binary?:string} = {}) {}
 
-  private async run(script: string, args: string[], stdin?: string): Promise<RunResult> {
-    const result = await runRemote(this.ctx, this.host, script, args, { stdin });
-    if (result.code === 255) throw new Unreachable(`host ${this.host.alias} unreachable`);
-    if (result.code !== 0) throw new Error(result.stderr || `remote command exited ${result.code}`);
-    return result;
-  }
-
   private async readFrom(stream: "stdout" | "stderr" | "session.raw", offset: number, length: number): Promise<RunResult> {
     const grant = issueConfiguredHostReadFrom(this.ctx, this.host.alias, this.remoteDir,
       this.localDir, stream, offset, length);
@@ -80,9 +72,14 @@ export class RemoteRunIO implements RunIO {
       if (full) sent = true; // Binary staging can also outlive a lost SSH response.
       const binary = full ? await ensureRemoteBinary(this.ctx,this.host,this.remoteDir,this.localDir,this.runtime) : undefined;
       const launch = full ? JSON.stringify({argv,cwd,completionNonce:lease,capBytes: options.capBytes ?? (execution?.sessionLogMb ?? 8)*1024*1024})+"\n" : wrapper;
-      sent = true;
       const launchEnv = { ...env, PACER_COMPLETION_NONCE: lease };
-      const result = await this.run(SCRIPTS.START, [this.remoteDir, cwd, full ? "full" : mode, ...(binary ? [binary] : []), ...Object.entries(launchEnv).map(([key, value]) => `${key}=${value}`), "--", ...argv], `${launch}__PACER_STDIN__\n${stdin}`);
+      const args = [this.remoteDir, cwd, full ? "full" : mode, ...(binary ? [binary] : []),
+        ...Object.entries(launchEnv).map(([key, value]) => `${key}=${value}`), "--", ...argv];
+      const grant = issueConfiguredHostStart(this.ctx, this.host.alias, this.remoteDir, this.localDir,
+        args, Buffer.from(`${launch}__PACER_STDIN__\n${stdin}`));
+      sent = true;
+      const result = await pluginRegistry(this.ctx).startConfiguredHost(this.ctx, grant);
+      if (result.code !== 0 || result.timedOut) return { error: result.stderr || "remote start unavailable" };
       const started = fields(result.stdout);
       if (started.error) return { error: `remote start refused: ${started.error}` };
       const pid = number(started.pid);

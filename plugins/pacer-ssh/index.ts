@@ -2,7 +2,7 @@
 import { randomUUID } from "node:crypto";
 import { PluginError, serve, type Handler } from "@pacer/plugin";
 import { manifest } from "./manifest";
-import { binaryCheckArgv, binaryUploadArgv, bundleOutArgv, checkHomeArgv, checkRepoArgv, cleanArgv, cloneRepoArgv, preflightArgv, prepareArgv, probeArgv, probePayload, questionArgv, readFromArgv, reportArgv, sessionFilesArgv, sessionSocketArgv, setIdentityArgv, stopArgv, usageArgv } from "./probe";
+import { binaryCheckArgv, binaryUploadArgv, bundleOutArgv, checkHomeArgv, checkRepoArgv, cleanArgv, cloneRepoArgv, preflightArgv, prepareArgv, probeArgv, probePayload, questionArgv, readFromArgv, reportArgv, sessionFilesArgv, sessionSocketArgv, setIdentityArgv, startArgv, stopArgv, usageArgv } from "./probe";
 
 export { manifest } from "./manifest";
 
@@ -93,10 +93,12 @@ export const handlers: Record<string, Handler> = {
     const binaryCheck = input?.script === "BINARY" && Array.isArray(args) && args.length === 2 && args[1] === "check";
     const stop = input?.script === "STOP" && Array.isArray(args) && args.length === 2 &&
       typeof input.completionNonce === "string";
+    const start = input?.script === "START" && Array.isArray(args) && args.length >= 6 && args.length <= 25 &&
+      typeof input.completionNonce === "string";
     const question = input?.script === "QUESTION" && Array.isArray(args) && args.length === 1;
     const usage = input?.script === "CODEX_USAGE" && Array.isArray(args) && args.length <= 1;
-    if (!validSession(input?.session) || (!probe && !repoCheck && !preflight && !identity && !clone && !clean && !stop && !prepare && !report && !sessionFiles && !readFrom && !sessionSocket && !binaryCheck && !question && !usage) ||
-      (identity || clone || clean || stop || prepare ? !/^[a-f0-9-]{36}$/.test(input.completionNonce as string) : input.completionNonce !== undefined) ||
+    if (!validSession(input?.session) || (!probe && !repoCheck && !preflight && !identity && !clone && !clean && !stop && !start && !prepare && !report && !sessionFiles && !readFrom && !sessionSocket && !binaryCheck && !question && !usage) ||
+      (identity || clone || clean || stop || start || prepare ? !/^[a-f0-9-]{36}$/.test(input.completionNonce as string) : input.completionNonce !== undefined) ||
       input.stdin !== undefined || !Number.isSafeInteger(input.timeoutMs) ||
       (input.timeoutMs as number) < 1 || (input.timeoutMs as number) > 120_000 ||
       !Number.isSafeInteger(input.maxBytes) || (input.maxBytes as number) < 1 ||
@@ -112,7 +114,8 @@ export const handlers: Record<string, Handler> = {
         preflightArgv(session.sshTarget, session.controlPath, args as string[]) : identity ?
         setIdentityArgv(session.sshTarget, session.controlPath, args as string[], input.completionNonce as string) : stop ?
         stopArgv(session.sshTarget, session.controlPath, args as string[], input.completionNonce as string) : prepare ?
-        prepareArgv(session.sshTarget, session.controlPath, args as string[], input.completionNonce as string) : report ?
+        prepareArgv(session.sshTarget, session.controlPath, args as string[], input.completionNonce as string) : start ?
+        startArgv(session.sshTarget, session.controlPath, args as string[], input.completionNonce as string) : report ?
         reportArgv(session.sshTarget, session.controlPath, args as string[]) : sessionFiles ?
         sessionFilesArgv(session.sshTarget, session.controlPath, args as string[]) : readFrom ?
         readFromArgv(session.sshTarget, session.controlPath, args as string[]) : sessionSocket ?
