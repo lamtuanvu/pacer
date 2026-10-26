@@ -7,8 +7,7 @@ import { verifyProductionArchive } from "./desktop-verify";
 import { validSignerPins, type SignerPins } from "../../src/update/desktop/signer-requirement";
 
 export const DESKTOP_FEED_URL = "https://raw.githubusercontent.com/lamtuanvu/pacer/desktop-updates/stable.json";
-// macOS Intel (x86_64) is temporarily not built for release; restore by re-adding "x86_64".
-export const DESKTOP_ARCHES = ["aarch64"] as const;
+export const DESKTOP_ARCHES = ["aarch64", "x86_64"] as const;
 export type DesktopArch = typeof DESKTOP_ARCHES[number];
 export type BundleMetadata = { schema: number; version: string; arch: string; bundleId: string; protocolMajors: number[]; admissionProtocol: number; nativeTransportAbi: number; rollbackCompatible: boolean; fixture: boolean };
 export interface DesktopReleaseOptions {
