@@ -51,6 +51,7 @@ import { publishConfigChange } from "../core/events";
 import { refreshAccountUsage, refreshAllUsage } from "../usage/refresh";
 import { KINDS, loadStrategy } from "../config/strategy";
 import { CoreError, toCoreError } from "../core/errors";
+import { withLock } from "../core/lock";
 import { isExecutorSession } from "../install/role";
 import * as strategy from "../strategy/service";
 import { publish } from "../link/publish";
@@ -452,15 +453,21 @@ export const OPS: Record<string, OpDef> = {
   "routing.route": op({ description: "Rank confirmed eligible executors before labelled uncertain fallbacks for an optional task kind.", params: z.object({ kind: z.enum(KINDS).optional(), goal:z.string().min(1).optional(), repo:z.string().min(1).optional() }), handler: (ctx, p) => core.routing.route(ctx, p.kind ?? null, undefined, {goal:p.goal,repo:p.repo}) }),
   "strategy.build": op({description:"Open a strategy planning session.",params:z.object({agent:agent.optional(),from:id.optional(),brief:z.string().max(2000).optional(),worktree:z.string().min(1).max(4096).optional()}),handler:(ctx,p,deps)=>strategyAction(async()=>{const result=await buildStrategy(ctx,p,{open:deps.openTerminal});await publish(ctx,[{type:"alert",data:{key:"strategy-build",level:result.opened?"info":"error",title:result.opened?"Strategy session opened":"Strategy session failed",body:result.opened?"":result.message,at:ctx.now}}]);return {opened:result.opened,target:result.target,command:result.command};})}),
   "strategy.list": op({ description: "Available strategies and the active strategy.", params: z.object({}), handler: (ctx) => { try { return strategy.list(ctx); } catch (e) { throw toCoreError(e); } } }),
-  "strategy.use": op({ description: "Activate a named strategy.", params: z.object({ name: z.string().min(1) }), handler: (ctx, p) => mutation(ctx, "strategy", () => strategyAction(async () => ({name: p.name, path: await strategy.use(ctx, p.name)}))) }),
+  "strategy.use": op({ description: "Activate a named strategy.", params: z.object({ name: z.string().min(1) }), handler: (ctx, p) => strategyAction(async () => {
+    const observed = loadStrategy(ctx).name;
+    return withLock(ctx, "strategy", async () => {
+      if (loadStrategy(ctx).name !== observed) throw new CoreError("conflict", "active strategy changed; retry");
+      return mutation(ctx, "strategy", async () => ({name: p.name, path: await strategy.use(ctx, p.name)}));
+    });
+  }) }),
   "strategy.show": op({ description: "Show a strategy's YAML, summary and active status.", params: z.object({name: id}), handler: (ctx, p) => strategyAction(() => strategy.show(ctx, p.name)) }),
   "strategy.preview": op({ description: "Validate a strategy draft without writing and compare its ranking and routing.", params: z.object({draft}), handler: (ctx, p) => strategyAction(() => strategy.preview(ctx, p.draft)) }),
-  "strategy.save": op({ description: "Save a validated named strategy with a reason, optionally replacing an inactive strategy.", params: z.object({name: id, draft, reason: z.string().min(1), overwrite: z.boolean().optional()}), handler: (ctx, p) => mutation(ctx, "strategy", () => strategyAction(() => { const {name, path} = strategy.save(ctx, p.name, p.draft, p.reason, {overwrite: p.overwrite}); return {name, path}; })) }),
-  "strategy.remove": op({ description: "Remove a named strategy; default and the active strategy are protected.", params: z.object({name: id}), handler: (ctx, p) => mutation(ctx, "strategy", () => strategyAction(() => {
+  "strategy.save": op({ description: "Save a validated named strategy with a reason, optionally replacing an inactive strategy.", params: z.object({name: id, draft, reason: z.string().min(1), overwrite: z.boolean().optional()}), handler: (ctx, p) => withLock(ctx, "strategy", () => mutation(ctx, "strategy", () => strategyAction(() => { const {name, path} = strategy.save(ctx, p.name, p.draft, p.reason, {overwrite: p.overwrite}); return {name, path}; }))) }),
+  "strategy.remove": op({ description: "Remove a named strategy; default and the active strategy are protected.", params: z.object({name: id}), handler: (ctx, p) => withLock(ctx, "strategy", () => mutation(ctx, "strategy", () => strategyAction(() => {
     if (p.name === "default" || loadStrategy(ctx).name === p.name) throw new CoreError("not_allowed", `cannot delete ${p.name === "default" ? "the default" : "the active"} strategy`, "Switch to another strategy first; default cannot be removed.");
     strategy.remove(ctx, p.name);
     return {removed: true};
-  })) }),
+  }))) }),
   "plugin.list": op({ description: "Discovered plugins with state, capabilities, grants and pid; starts nothing.", params: z.object({}), handler: ctx => plugins.list(ctx) }),
   "plugin.enable": op({ description: "Enable a plugin. An installed plugin without a matching grant returns needs_grant with its capability set until called with grant: true.", params: z.object({ id: pluginId, grant: z.boolean().optional() }), handler: (ctx, p) => mutation(ctx, "plugins", () => plugins.enable(ctx, p.id, p.grant ?? false)) }),
   "plugin.disable": op({ description: "Stop a plugin and record it as disabled.", params: z.object({ id: pluginId }), handler: (ctx, p) => mutation(ctx, "plugins", () => plugins.disable(ctx, p.id)) }),

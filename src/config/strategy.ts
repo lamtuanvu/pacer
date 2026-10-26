@@ -1,8 +1,9 @@
 import { parseDispatchConfig } from "./dispatch";
 import type { DispatchConfig } from "../dispatch/types";
 import { validateTerminalOpen } from "../session/targets";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { randomBytes } from "node:crypto";
 import type { Ctx, UsageKind } from "../types";
 import { isObj } from "../util";
 import { parseRunnerId, runnerDefaults, resolveRunner } from "./runner-id";
@@ -295,7 +296,12 @@ export function useStrategy(ctx: Ctx, name: string): string {
   }
   const path = join(ctx.pacerHome, "strategies", `${name}.yaml`);
   parseFile(path, name); // validate before switching
-  mkdirSync(ctx.pacerHome, { recursive: true });
-  writeFileSync(active, `${name}\n`);
+  mkdirSync(ctx.pacerHome, { recursive: true, mode: 0o700 });
+  chmodSync(ctx.pacerHome, 0o700);
+  const temporary = `${active}.${randomBytes(8).toString("hex")}.tmp`;
+  try {
+    writeFileSync(temporary, `${name}\n`, { flag: "wx", mode: 0o600 });
+    renameSync(temporary, active);
+  } finally { rmSync(temporary, { force: true }); }
   return path;
 }

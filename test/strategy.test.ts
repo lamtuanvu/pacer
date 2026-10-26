@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   MissingStrategyError, StrategyError, loadStrategy, parseDuration, parseSize,
@@ -110,6 +110,26 @@ test("useStrategy validates, switches the active strategy, and 'default' switche
   useStrategy(ctx, "default");
   expect(existsSync(join(ctx.pacerHome, "active"))).toBe(false);
   expect(loadStrategy(ctx).planner.agent).toBe("codex");
+});
+
+test("useStrategy replaces an active symlink without writing its target", () => {
+  const ctx = fakeCtx();
+  mkdirSync(join(ctx.pacerHome, "strategies"), { recursive: true });
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "planner: codex\nproviders: {codex: {}}\n");
+  writeFileSync(join(ctx.pacerHome, "strategies/offline.yaml"), "planner: codex\nproviders: {codex: {}}\n");
+  const protectedFile = join(ctx.home, "protected.txt");
+  writeFileSync(protectedFile, "keep this text");
+  symlinkSync(protectedFile, join(ctx.pacerHome, "active"));
+  chmodSync(ctx.pacerHome, 0o755);
+
+  useStrategy(ctx, "offline");
+
+  expect(readFileSync(protectedFile, "utf8")).toBe("keep this text");
+  expect(readFileSync(join(ctx.pacerHome, "active"), "utf8")).toBe("offline\n");
+  expect(lstatSync(join(ctx.pacerHome, "active")).isSymbolicLink()).toBe(false);
+  expect(lstatSync(join(ctx.pacerHome, "active")).mode & 0o777).toBe(0o600);
+  expect(lstatSync(ctx.pacerHome).mode & 0o777).toBe(0o700);
+  expect(readdirSync(ctx.pacerHome).filter(name => name.startsWith("active.")).length).toBe(0);
 });
 
 test("examples/strategy.yaml is valid", async () => {
