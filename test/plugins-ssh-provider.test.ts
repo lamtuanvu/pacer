@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { checkHomeArgv, checkRepoArgv, cleanArgv, CLEAN_SCRIPT, cloneRepoArgv, CHECK_REPO_SCRIPT, preflightArgv, PREFLIGHT_SCRIPT, prepareArgv, PREPARE_SCRIPT, probeArgv, PROBE_SCRIPT, readFromArgv, READ_FROM_SCRIPT, reportArgv, REPORT_SCRIPT, sessionSocketArgv, SESSION_SOCKET_SCRIPT, stopArgv, STOP_SCRIPT,
+import { binaryCheckArgv, BINARY_SCRIPT, checkHomeArgv, checkRepoArgv, cleanArgv, CLEAN_SCRIPT, cloneRepoArgv, CHECK_REPO_SCRIPT, preflightArgv, PREFLIGHT_SCRIPT, prepareArgv, PREPARE_SCRIPT, probeArgv, PROBE_SCRIPT, readFromArgv, READ_FROM_SCRIPT, reportArgv, REPORT_SCRIPT, sessionSocketArgv, SESSION_SOCKET_SCRIPT, stopArgv, STOP_SCRIPT,
   questionArgv, QUESTION_SCRIPT, usageArgv, CODEX_USAGE_SCRIPT,
   setIdentityArgv, SET_IDENTITY_SCRIPT } from "../plugins/pacer-ssh/probe";
 import { SCRIPTS } from "../src/remote/scripts";
@@ -175,6 +175,17 @@ test("SSH session socket discovery pins the fixed persisted-run script", () => {
       arg.startsWith("ControlPath=") ? "ControlPath=/tmp/private/cm-%C" : arg));
   expect(() => sessionSocketArgv(host.ssh, "/tmp/private/cm-%C", ["../run"])).toThrow();
   expect(() => sessionSocketArgv(host.ssh, "/tmp/private/cm-%C", ["/run\nother"])).toThrow();
+});
+
+test("SSH binary check pins the content-addressed read-only action", () => {
+  const ctx = fakeCtx(), host = { alias: "box", ssh: "box", repos: {}, accounts: {}, maxTasks: 1 };
+  const hash = "a".repeat(64), args = [hash, "check"];
+  expect(BINARY_SCRIPT).toBe(SCRIPTS.BINARY);
+  expect(binaryCheckArgv(host.ssh, "/tmp/private/cm-%C", args))
+    .toEqual(sshArgv(ctx, host, SCRIPTS.BINARY, args).map(arg =>
+      arg.startsWith("ControlPath=") ? "ControlPath=/tmp/private/cm-%C" : arg));
+  expect(() => binaryCheckArgv(host.ssh, "/tmp/private/cm-%C", [hash, "upload"])).toThrow();
+  expect(() => binaryCheckArgv(host.ssh, "/tmp/private/cm-%C", ["bad", "check"])).toThrow();
 });
 
 test("SSH reference provider builds the exact fixed BUNDLE_OUT argv", async () => {
@@ -379,6 +390,7 @@ test("SSH provider rejects unissued operations and foreign sessions before spawn
     { ...request, script: "CLEAN" }, { ...request, script: "REPORT", args: ["~/run"] },
     { ...request, script: "READ_FROM", args: ["/run", "secrets", "0", "1", "hex"] },
     { ...request, script: "SESSION_SOCKET", args: ["~/run"] },
+    { ...request, script: "BINARY", args: ["a".repeat(64), "upload"] },
     { ...request, args: ["--anything"] },
     { ...request, script: "PREPARE", args: ["~/repo", "repo-12345678", "t-20261026-120000-abcd", "a".repeat(40), "main", "1"] },
     { ...request, script: "CHECK_REPO", args: ["~/repo", "clone"] },
