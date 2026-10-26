@@ -9,7 +9,7 @@ pub use fields::fields;
 use format::{back_in, js_round, meter_text};
 pub use runtime::run;
 use serde_json::Value;
-use words::{OFFLINE_WORDS, compact_verdict_words, mode_words, tone_for};
+use words::{OFFLINE_WORDS, compact_verdict_words, mode_words, policy_words, tone_for};
 
 pub fn fmt_reset(ts: Option<f64>, now: f64) -> String {
     let Some(ts) = ts.filter(|ts| *ts != 0.0) else {
@@ -121,26 +121,34 @@ pub fn render(input: Option<&Value>, width: usize, color: bool) -> String {
             .map(|s| format!("  {s}"))
             .collect::<String>()
     };
+    let join = |parts: &[&str]| {
+        parts
+            .iter()
+            .filter(|s| !s.is_empty())
+            .copied()
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    let policy = policy_words(&f["policy"], false);
+    let compact_policy = policy_words(&f["policy"], true);
+    let mark_used = format!("{mark}{used}");
     let stages = [
         format!(
             "{mark} {name} {main}{}",
-            suffix(&[&running, &attention, &mode])
+            suffix(&[&policy, &running, &attention, &mode])
         ),
-        format!("{mark} {name} {main}{}", suffix(&[&running, &attention])),
-        [&mark, &main, &running, &attention]
-            .into_iter()
-            .filter(|s| !s.is_empty())
-            .cloned()
-            .collect::<Vec<_>>()
-            .join(" "),
         format!(
-            "{mark}{used}{}",
-            if attention.is_empty() {
-                String::new()
-            } else {
-                format!(" {attention}")
-            }
+            "{mark} {name} {main}{}",
+            suffix(&[&policy, &running, &attention])
         ),
+        join(&[&mark, &main, &policy, &running, &attention]),
+        join(&[&mark, &used, &policy, &attention]),
+        join(&[&mark, &used, &compact_policy, &attention]),
+        join(&[&mark_used, &compact_policy, &attention]),
+        join(&[&compact_policy, &attention]),
+        join(&[&mark_used, &compact_policy]),
+        join(&[&mark, &compact_policy]),
+        compact_policy,
     ];
     let width = if width == 0 { 80 } else { width };
     let start = if width <= 20 {
@@ -155,7 +163,7 @@ pub fn render(input: Option<&Value>, width: usize, color: bool) -> String {
     stages[start..]
         .iter()
         .find(|s| visible_len(s) <= width)
-        .unwrap_or(&stages[3])
+        .unwrap_or(&stages[stages.len() - 1])
         .clone()
 }
 fn visible_len(s: &str) -> usize {

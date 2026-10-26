@@ -1,11 +1,33 @@
-import { expect, test } from "bun:test";
+import { createHttp } from "../packages/plugin-sdk/src/http";
+import { createCallAuthority, type CallAuthority } from "../src/plugins/authority";
+import { prepareHttpAuthority } from "../src/plugins/http-authority";
+import { answerCapability } from "../src/plugins/host";
+import { manifestSchema } from "../src/plugins/protocol";
+import { fakeCtx } from "./helpers";
+import { afterEach, expect, test } from "bun:test";
 import { KINDS } from "../src/config/strategy";
 import type { TaskRecord, TaskResult } from "../src/tasks/types";
-import { HttpError, isLocalUrl, joinUrl, postJson } from "../src/classify/http";
+import { HttpError, isLocalUrl, joinUrl, postJson } from "../plugins/pacer-classify/http";
 import {
   KIND_CRITERIA, QUESTIONS, difficultyState, guardEventId, guardState,
   parseState, redactState, resultCheckState, stateHash, taskKindState, withoutPlannerKind,
 } from "../src/classify/state";
+
+
+// Real SDK HTTP transport over the host capability broker; only owned loopback fixtures.
+const owners: CallAuthority[] = [];
+afterEach(async () => { await Promise.all(owners.splice(0).map(owner => owner.revoke())); });
+function sdkHost(ctx = fakeCtx(), key: string | null = "test-key") {
+  if (key !== null) ctx.env.TYPESAFE_API_KEY = key;
+  const manifest = manifestSchema.parse({ id: "classifier-fixture", version: "1.0.0", publisher: "fixture", host: "^1.2", capabilities: [{ name: "net.http", scopes: ["127.0.0.1"] }, { name: "secrets.resolve" }] });
+  const owner = createCallAuthority(ctx, { reads: [], commands: [], stores: [], http: { hosts: ["127.0.0.1"] } }, { deadlineMs: Date.now() + 10000, grants: ["net.http", "secrets.resolve"] });
+  owners.push(owner);
+  prepareHttpAuthority(owner, { declaredScopes: ["127.0.0.1"], explicitWildcardGrant: false });
+  const fits = (_method: string, params: unknown) => Buffer.byteLength(JSON.stringify(params)) < 1048000;
+  const transport = { features: ["httpBodyChunks"], requestFits: (params: unknown) => fits("", params), resultFits: (result: unknown) => fits("", result) };
+  const call = (method: string, params: unknown) => answerCapability(ctx, { id: manifest.id, manifest }, method, params, owner, undefined, transport);
+  return { http: createHttp({ call, fits, negotiated: () => true, signal: owner.signal }), secrets: { present: async (ref: string) => (await call("capability.secrets.resolve", { ref }) as { present: boolean }).present } };
+}
 
 const task: TaskRecord = { rev: 1,
   id: "t-one", createdAt: 0, kind: "tests", requestedExecutor: null,
@@ -74,34 +96,36 @@ function server(fetch: (request: Request) => Response | Promise<Response>) {
   return Bun.serve({ hostname: "127.0.0.1", port: 0, fetch });
 }
 
-test("postJson sends JSON and custom headers and returns 200 JSON", async () => {
-  const app = server(async (request) => Response.json({ body: await request.json(), type: request.headers.get("content-type"), auth: request.headers.get("authorization"), method: request.method }));
+test("postJson sends JSON and host-injected authorization and returns 200 JSON", async () => {
+  let authorization: string | null = null;
+  const app = server(async (request) => { authorization = request.headers.get("authorization"); return Response.json({ body: await request.json(), type: request.headers.get("content-type"), method: request.method }); });
   try {
-    expect(await postJson<Record<string, unknown>>(app.url.href, { hello: "world" }, { headers: { Authorization: "Bearer fake" }, timeoutMs: 1000 })).toEqual({ body: { hello: "world" }, type: "application/json", auth: "Bearer fake", method: "POST" });
-  } finally { app.stop(true); }
+    expect(await postJson<Record<string, unknown>>(sdkHost(fakeCtx(), "fake"), app.url.href, { hello: "world" }, { keyRef: "secrets:TYPESAFE_API_KEY", timeoutMs: 1000 })).toEqual({ body: { hello: "world" }, type: "application/json", method: "POST" });
+    expect(authorization as string | null).toBe("Bearer fake");
+  } finally { await app.stop(true); }
 });
 
 test("postJson throws HttpError with status and body for 500", async () => {
   const app = server(() => new Response("unavailable", { status: 500 }));
   try {
-    const error = await postJson(app.url.href, {}, { timeoutMs: 1000 }).catch((e) => e);
+    const error = await postJson(sdkHost(), app.url.href, {}, { timeoutMs: 1000 }).catch((e) => e);
     expect(error).toBeInstanceOf(HttpError);
     if (!(error instanceof HttpError)) throw new Error("Expected an HttpError");
     expect(error.status).toBe(500);
     expect(error.body).toBe("unavailable");
-  } finally { app.stop(true); }
+  } finally { await app.stop(true); }
 });
 
 test("postJson rejects malformed JSON", async () => {
   const app = server(() => new Response("not json"));
-  try { await expect(postJson(app.url.href, {}, { timeoutMs: 1000 })).rejects.toThrow(); }
-  finally { app.stop(true); }
+  try { await expect(postJson(sdkHost(), app.url.href, {}, { timeoutMs: 1000 })).rejects.toThrow(); }
+  finally { await app.stop(true); }
 });
 
 test("postJson rejects a slow handler beyond timeoutMs", async () => {
   const app = server(async () => { await Bun.sleep(150); return Response.json({ ok: true }); });
-  try { await expect(postJson(app.url.href, {}, { timeoutMs: 10 })).rejects.toThrow(); }
-  finally { app.stop(true); }
+  try { await expect(postJson(sdkHost(), app.url.href, {}, { timeoutMs: 10 })).rejects.toThrow(); }
+  finally { await app.stop(true); }
 });
 
 test("joinUrl strips trailing base slashes", () => {
@@ -116,8 +140,9 @@ test("isLocalUrl recognizes loopback and localhost subdomains only", () => {
 
 
 test("redactState replaces home only before a slash or end", () => {
-  const input = { own: "/Users/vu/repo", home: "/Users/vu", other: "~/repo", prose: "At /Users/vu/repo and ~/repo", nested: ["/Users/vu", "/Users/vu-backup"] };
-  expect(JSON.parse(redactState(JSON.stringify(input), "/Users/vu"))).toEqual({ own: "~/repo", home: "~", other: "~/repo", prose: "At ~/repo and ~/repo", nested: ["~", "/Users/vu-backup"] });
+  const home = fakeCtx().home;
+  const input = { own: `${home}/repo`, home, other: "~/repo", prose: `At ${home}/repo and ~/repo`, nested: [home, `${home}-backup`] };
+  expect(JSON.parse(redactState(JSON.stringify(input), home))).toEqual({ own: "~/repo", home: "~", other: "~/repo", prose: "At ~/repo and ~/repo", nested: ["~", `${home}-backup`] });
   expect(JSON.parse(redactState('{"path":"/home/a.b/repo /home/axb/repo"}', "/home/a.b"))).toEqual({ path: "~/repo /home/axb/repo" });
 });
 
@@ -125,12 +150,12 @@ test("HttpError caps body in its message at 200 characters and retains the full 
   const body = "x".repeat(200) + "private tail";
   const app = server(() => new Response(body, { status: 500 }));
   try {
-    const error = await postJson(app.url.href, {}, { timeoutMs: 1000 }).catch((e) => e);
+    const error = await postJson(sdkHost(), app.url.href, {}, { timeoutMs: 1000 }).catch((e) => e);
     expect(error).toBeInstanceOf(HttpError);
     if (!(error instanceof HttpError)) throw new Error("Expected an HttpError");
     expect(error.body).toBe(body);
     expect(error.message).toBe("HTTP 500: " + "x".repeat(200));
-  } finally { app.stop(true); }
+  } finally { await app.stop(true); }
 });
 
 test("postJson rejects redirects without forwarding authorization", async () => {
@@ -143,7 +168,7 @@ test("postJson rejects redirects without forwarding authorization", async () => 
     return new Response(null, { status: 302, headers: { Location: "/target" } });
   });
   try {
-    await expect(postJson(app.url.href, {}, { headers: { Authorization: "Bearer private-key" }, timeoutMs: 1000 })).rejects.toThrow();
+    await expect(postJson(sdkHost(), app.url.href, {}, { keyRef: "secrets:TYPESAFE_API_KEY", timeoutMs: 1000 })).rejects.toThrow();
     expect(redirected).toBe(0);
-  } finally { app.stop(true); }
+  } finally { await app.stop(true); }
 });

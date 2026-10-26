@@ -1,0 +1,171 @@
+{
+  "schema": 1,
+  "agent": "codex",
+  "now": 1700000000,
+  "pacerArgv": [
+    "pacer"
+  ],
+  "before": {
+    "$HOME/.codex/AGENTS.md": {
+      "text": "# User instructions\n\nKeep this text.\n",
+      "mode": 384
+    },
+    "$HOME/.codex/config.toml": {
+      "text": "# Retain user comment\nmodel = \"fixture-model\"\n[mcp_servers.other]\ncommand = \"other\"\n",
+      "mode": 384
+    },
+    "$HOME/.codex/hooks.json": {
+      "text": "{\"hooks\":{\"SessionStart\":[{\"hooks\":[{\"command\":\"other-start\",\"custom\":true}]}],\"PreToolUse\":[{\"matcher\":\"spawn_agent\",\"hooks\":[{\"command\":\"other-guard\"}]}]}}\n",
+      "mode": 384
+    },
+    "$HOME/unrelated.txt": {
+      "text": "Unrelated fixture content: 界\n",
+      "mode": 384
+    }
+  },
+  "after": {
+    "$HOME/.codex/AGENTS.md": {
+      "text": "# User instructions\n\nKeep this text.\n\n<!-- >>> pacer >>> -->\nThis applies only when you are the planner pacer is configured for; if pacer started you as an executor (PACER_ROLE=executor), ignore it.\n# pacer delegation policy (Codex is the planner)\n\nYour role: plan, decide and review; delegate execution.\n\nThe budget block arrives at session start. Read it before choosing work or an executor.\n\n## Modes\n\n| Mode | How to work |\n| --- | --- |\n| strict/emergency | Delegate execution to available executors; reserve planner budget for decisions and review. |\n| normal | Delegate substantial execution work; keep planning and review with the planner. |\n| relaxed | You may execute directly or delegate when useful. |\n\n## Delegation workflow\n\nUse the installed `pacer` skill for CLI routing, brief files, waiting and review.\nRun `pacer route <kind> --json`, then `pacer delegate --brief-file <path|-> --json`.\nReview the diff and run acceptance before `pacer review <id> --accept|--reject`.\n\n## Subagents\n\n**Codex subagents count as you doing the work**.\nA hook blocks them for execution work unless the mode is `relaxed`, no executor is available, or `PACER=off`. Read-only helpers and reviewers stay allowed.\n\n## Review and completion\n\nReview each delegated result and verify before reporting done. Check the changes and run the acceptance command; then run `pacer review <id> --accept|--reject [--kind <k>]` to record your verdict and any corrected kind tag.\n\nWhen a human decision is needed, use `pacer task request-review <id> --note \"<specific concern>\"` (or MCP task_request_review) instead of recording a verdict you have not reached. Successful execution alone never means acceptance. A completed run without a verdict stays in history and does not require a second human acknowledgment.\n\nEscape hatch: set `PACER=off` to disable pacing and delegation enforcement for the session.\n<!-- <<< pacer <<< -->\n",
+      "mode": 384
+    },
+    "$HOME/.codex/AGENTS.md.pacer-bak-20231115-051320": {
+      "text": "# User instructions\n\nKeep this text.\n",
+      "mode": 384
+    },
+    "$HOME/.codex/config.toml": {
+      "text": "# Retain user comment\nmodel = \"fixture-model\"\n[mcp_servers.other]\ncommand = \"other\"\n\n# >>> pacer >>>\n[mcp_servers.pacer]\ncommand = \"pacer\"\nargs = [\"mcp\"]\n# <<< pacer <<<\n",
+      "mode": 384
+    },
+    "$HOME/.codex/config.toml.pacer-bak-20231115-051320": {
+      "text": "# Retain user comment\nmodel = \"fixture-model\"\n[mcp_servers.other]\ncommand = \"other\"\n",
+      "mode": 384
+    },
+    "$HOME/.codex/hooks.json": {
+      "text": "{\n  \"hooks\": {\n    \"SessionStart\": [\n      {\n        \"hooks\": [\n          {\n            \"command\": \"other-start\",\n            \"custom\": true\n          }\n        ]\n      },\n      {\n        \"hooks\": [\n          {\n            \"command\": \"pacer status --hook codex\",\n            \"timeout\": 15,\n            \"type\": \"command\",\n            \"statusMessage\": \"Checking subscription budgets\"\n          }\n        ]\n      }\n    ],\n    \"PreToolUse\": [\n      {\n        \"matcher\": \"spawn_agent\",\n        \"hooks\": [\n          {\n            \"command\": \"other-guard\"\n          }\n        ]\n      },\n      {\n        \"matcher\": \"spawn_agent\",\n        \"hooks\": [\n          {\n            \"command\": \"pacer guard --planner codex\",\n            \"timeout\": 15,\n            \"type\": \"command\"\n          }\n        ]\n      }\n    ]\n  }\n}\n",
+      "mode": 384
+    },
+    "$HOME/.codex/hooks.json.pacer-bak-20231115-051320": {
+      "text": "{\"hooks\":{\"SessionStart\":[{\"hooks\":[{\"command\":\"other-start\",\"custom\":true}]}],\"PreToolUse\":[{\"matcher\":\"spawn_agent\",\"hooks\":[{\"command\":\"other-guard\"}]}]}}\n",
+      "mode": 384
+    },
+    "$HOME/.codex/skills/pacer/SKILL.md": {
+      "text": "---\nname: pacer\ndescription: Route and delegate work by subscription budget, answer budget and pace questions, and wait on or review delegated tasks.\n---\n\n# pacer\n\nUse the pacer CLI as the primary interface; MCP is an optional adapter.\nExecutors (PACER_ROLE=executor) must complete their assigned task directly and must not delegate.\n\n1. Run `pacer status --json` and read the planner mode and budget.\n2. Run `pacer route <kind> --json` to choose an available executor.\n3. Write a brief JSON file, then run `pacer delegate --brief-file brief.json --json`.\n   To avoid shell quoting, pipe the JSON to `pacer delegate --brief-file - --json`.\n4. Use the returned `id` with `pacer watch <id> --json` to stream output and state changes until settled.\n   It emits one JSON event per line (default timeout 600 seconds, max 3000). Exit 0 means settled,\n   not necessarily successful; inspect the final state. Exit 2 means timeout or error; check the final event.\n   Watch again after a timeout; Ctrl-C stops watching without stopping the task.\n   Use `pacer wait <id> --json` for completion only, or `pacer tasks <id> --json` for a snapshot.\n   Use these commands instead of polling private task files or tailing executor logs.\n5. Review the diff and run acceptance yourself, then `pacer review <id> --accept --json`\n   or `pacer review <id> --reject --json`; optionally correct `--kind <kind>`.\n\nUse `pacer stop <id> --json` to cancel and `pacer dismiss <id...>` to hide settled cards.\nIf an executor hits a provider limit, run `pacer report-limit <provider>` so routing skips it.\n\n## Brief fields\n\nJSON object: `goal` (required string), `repo` (absolute path, defaults to cwd),\n`kind`, `scope`, `acceptance` (verification command), `constraints`, `context`,\n`executor`, `timeout_min` (1–240), `worktree` (current/new/auto),\n`worktree_reason` (one line, max 200 characters).\nCommand-line flags override file fields. Give a kind tag and a concrete acceptance command.\n\nChoose current for uncommitted work, read-only research/review, installed dependencies/build\noutput, or a small follow-up there. Choose new when another task or the user is editing there,\nfor parallel tasks on the same repo, or exploratory/risky work. Give a worktree_reason;\nomit the choice to let pacer decide (auto).\n\nStrict/emergency: delegate execution and reserve planner budget for decisions/review.\nNormal: delegate substantial execution. Relaxed: execute directly or delegate when useful.\nReview and verify before reporting completion; the worker's report is evidence to check.\n",
+      "mode": 384
+    },
+    "$HOME/unrelated.txt": {
+      "text": "Unrelated fixture content: 界\n",
+      "mode": 384
+    }
+  },
+  "manifest": {
+    "version": 1,
+    "planners": {
+      "codex": {
+        "planner": "codex",
+        "installedAt": 1700000000,
+        "pacerArgv": [
+          "pacer"
+        ],
+        "files": [
+          {
+            "path": "$HOME/.codex/config.toml",
+            "action": "edited",
+            "backup": "$HOME/.codex/config.toml.pacer-bak-20231115-051320",
+            "exact": true,
+            "undo": [
+              {
+                "kind": "block",
+                "style": "hash"
+              },
+              {
+                "kind": "toml-table",
+                "table": "mcp_servers.pacer"
+              }
+            ],
+            "afterHash": "4a75fc511d703f372254525d4b7388918307082c4f72419a624b110918534ee3",
+            "managed": {
+              "schema": 1,
+              "hash": "727b9a1af5b69bb6c1f70473633d4ece8f144c7f506ea05824f4c3a4e5aab8d6"
+            }
+          },
+          {
+            "path": "$HOME/.codex/skills/pacer/SKILL.md",
+            "action": "created",
+            "exact": true,
+            "undo": [],
+            "afterHash": "379e5010a584c82752b7eceb7a326f3b9523d8d3b2cdf5f33c409a3622e5d85c",
+            "managed": {
+              "schema": 1,
+              "hash": "379e5010a584c82752b7eceb7a326f3b9523d8d3b2cdf5f33c409a3622e5d85c"
+            }
+          },
+          {
+            "path": "$HOME/.codex/AGENTS.md",
+            "action": "edited",
+            "backup": "$HOME/.codex/AGENTS.md.pacer-bak-20231115-051320",
+            "exact": true,
+            "undo": [
+              {
+                "kind": "block",
+                "style": "md"
+              }
+            ],
+            "afterHash": "5de93f2e670e66621cb569d011caec0723ef1de91a7ce9759e3ae593cca02bc6",
+            "managed": {
+              "schema": 1,
+              "hash": "08e83f317325b284cbd91d1d242fc2d3e268f6f9538d96d446c6e70f5e9984bb"
+            }
+          },
+          {
+            "path": "$HOME/.codex/hooks.json",
+            "action": "edited",
+            "backup": "$HOME/.codex/hooks.json.pacer-bak-20231115-051320",
+            "exact": true,
+            "undo": [
+              {
+                "kind": "hooks",
+                "format": "claude",
+                "commands": [
+                  "pacer status --hook codex",
+                  "pacer guard --planner codex"
+                ],
+                "restore": []
+              }
+            ],
+            "afterHash": "e415d2f88129dc701fb35b8399dbe28b94ca4d073e7131421b9e139199a60107",
+            "managed": {
+              "schema": 1,
+              "hash": "8a8dfb83e555c1defcc01fd5d653e0b31bc35c54df94bbe9bfb199989041513b"
+            }
+          }
+        ],
+        "commands": [],
+        "notes": [
+          "Codex may ask you to review and trust the new pacer hooks the next time it starts."
+        ],
+        "mcp": true
+      }
+    }
+  },
+  "installCalls": [],
+  "uninstall": {
+    "report": {
+      "planner": "codex",
+      "restored": [
+        "$HOME/.codex/hooks.json",
+        "$HOME/.codex/AGENTS.md",
+        "$HOME/.codex/config.toml"
+      ],
+      "removed": [
+        "$HOME/.codex/skills/pacer/SKILL.md"
+      ],
+      "reverted": [],
+      "notes": []
+    },
+    "calls": []
+  },
+  "unrelatedEdit": {
+    "path": "$HOME/.codex/AGENTS.md",
+    "append": "\n# User edit after install\n"
+  }
+}

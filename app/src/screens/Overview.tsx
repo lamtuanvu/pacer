@@ -13,7 +13,7 @@ import { agentInfo, markAgent } from "../../../src/view-model/agents";
 import { ago, clock, elapsed } from "../../../src/view-model/time";
 import { capacity, counts, doneToday, needsYou, otherReposNeedingYou, plannerMeter, running, type Scope } from "../../../src/view-model/selectors";
 import type { ClientSnapshot, ClientTask } from "../../../src/view-model/snapshot";
-import { attentionStatus, executorLabel, taskStatus, taskOutcome } from "../../../src/view-model/words";
+import { policyWords, policyDetail, attentionStatus, executorLabel, taskStatus, taskOutcome } from "../../../src/view-model/words";
 import { useActions } from "../data/action-context";
 import type { ActionRunner } from "../data/actions";
 import { AgentMark } from "../ds/AgentMark";
@@ -146,7 +146,8 @@ export function OverviewView({ snapshot, query, now, runner, activity, ops, quic
   const narrow = useNarrow(query);
   const scope: Scope = { repo: narrow ? activeRepo(query) : query.repo || null };
   return <NarrowContext.Provider value={narrow}><Page width="full" className={`pc-overview${narrow ? " pc-overview--narrow" : ""}`}>
-    <SetupBanner />
+    <SetupBanner showPolicy={false} />
+    <span className="muted" title={policyDetail(snapshot.policy)}>{policyWords(snapshot.policy)}</span>
     {!narrow && <PlannerStrip snapshot={snapshot} />}
     <RepoFilter snapshot={snapshot} query={query} narrow={narrow} />
     <div className="pc-overview__cols">

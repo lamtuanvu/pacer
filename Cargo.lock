@@ -949,8 +949,10 @@ dependencies = [
 
 [[package]]
 name = "pacer-plugin"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
+ "pacer-plugin-agent-protocol",
+ "pacer-plugin-dispatch-protocol",
  "pacer-plugin-protocol",
  "serde",
  "serde_json",
@@ -959,8 +961,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "pacer-plugin-agent-protocol"
+version = "0.2.0"
+dependencies = [
+ "regress",
+ "serde",
+ "serde_json",
+ "xtask",
+]
+
+[[package]]
+name = "pacer-plugin-dispatch-protocol"
+version = "0.2.0"
+dependencies = [
+ "regress",
+ "serde",
+ "serde_json",
+ "xtask",
+]
+
+[[package]]
+name = "pacer-plugin-policy-protocol"
+version = "0.0.0"
+dependencies = [
+ "regress",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "pacer-plugin-protocol"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "regress",
  "serde",

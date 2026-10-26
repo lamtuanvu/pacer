@@ -71,3 +71,36 @@ test("independent protocol dry-run refusal prevents all uploads and SDK packagin
  await expect(publishPluginCrates({crates:[{name:"pacer-plugin-protocol",version:"0.1.0"},{name:"pacer-plugin",version:"0.1.0"}],package:async c=>{calls.push(`package ${c.name}`);return "a".repeat(64)},publishedChecksum:async()=>null,dryRun:async c=>{calls.push(`dry ${c.name}`);throw Error("protocol refusal")},publish:async c=>{calls.push(`publish ${c.name}`)}})).rejects.toThrow("protocol refusal");
  expect(calls).toEqual(["package pacer-plugin-protocol","dry pacer-plugin-protocol"]);
 });
+
+test("0.2 release graph packages both independent areas before the SDK", async () => {
+  const { PLUGIN_CRATE_FOLDERS } = await import("../scripts/release/crates");
+  expect(PLUGIN_CRATE_FOLDERS).toEqual(["plugin-protocol", "plugin-agent-protocol", "plugin-dispatch-protocol", "plugin-sdk"]);
+  const { readFileSync } = await import("node:fs");
+  const metadata = PLUGIN_CRATE_FOLDERS.map(folder => Bun.TOML.parse(readFileSync(new URL(`../crates/${folder}/Cargo.toml`, import.meta.url), "utf8")) as { package: { name: string; version: string; publish: boolean }; dependencies: Record<string, unknown> });
+  for (const item of metadata) expect(item.package).toMatchObject({ version: "0.2.0", publish: true });
+  for (const item of metadata.slice(0, 3)) expect(Object.keys(item.dependencies).filter(name => name.startsWith("pacer-plugin"))).toEqual([]);
+  const sdk = metadata[3]!;
+  for (const name of ["pacer-plugin-protocol", "pacer-plugin-agent-protocol", "pacer-plugin-dispatch-protocol"]) expect(sdk.dependencies[name]).toMatchObject({ version: "0.2.0" });
+  expect(sdk.dependencies["pacer-plugin-policy-protocol"]).toBeUndefined();
+  const calls: string[] = [];
+  await expect(publishPluginCrates({
+    crates: metadata.map(item => ({ name: item.package.name, version: item.package.version })),
+    package: async item => { calls.push(item.name); return "a".repeat(64); },
+    publishedChecksum: async () => null,
+    dryRun: async item => { if (item.name === "pacer-plugin-dispatch-protocol") throw Error("dispatch refused"); },
+    publish: async () => {},
+  })).rejects.toThrow("dispatch refused");
+  expect(calls).toEqual(["pacer-plugin-protocol", "pacer-plugin-agent-protocol", "pacer-plugin-dispatch-protocol"]);
+});
+
+test("new publishable area archives use the same bounded canonical content checks", async () => {
+  for (const name of ["pacer-plugin-agent-protocol", "pacer-plugin-dispatch-protocol"]) {
+    const bytes = await new Bun.Archive({
+      [`${name}-0.2.0/Cargo.toml`]: `[package]\nname="${name}"\nversion="0.2.0"\n`,
+      [`${name}-0.2.0/src/lib.rs`]: "pub struct Distinct;",
+    }, { compress: "gzip" }).bytes();
+    expect(await crateContentHash(bytes)).toMatch(/^[0-9a-f]{64}$/);
+  }
+  const privateArea = await new Bun.Archive({ "pacer-plugin-policy-protocol-0.0.0/Cargo.toml": "private", "pacer-plugin-policy-protocol-0.0.0/src/lib.rs": "private" }, { compress: "gzip" }).bytes();
+  await expect(crateContentHash(privateArea)).rejects.toThrow("Invalid plugin crate archive path");
+});

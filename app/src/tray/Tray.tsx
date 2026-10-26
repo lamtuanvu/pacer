@@ -100,6 +100,7 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
     </header>
     {sessionEnded ? <p className="tray-notice" role="alert">Session ended. Run pacer open.</p> : !snapshot ? <LoadingState label="Connecting to pacer…" /> : !connected && <p className="tray-notice" role="status">Reconnecting…</p>}
     {model && <>
+      <div className="tray-line" title={model.policyDetail}><span className="muted">{model.policy}</span></div>
       <nav className="tray-counts" aria-label="Task counts">{[
         { n: model.needsCount, label: "needs you", route: "/", warn: true },
         { n: snapshot.counts?.running ?? model.active.length, label: "running", route: "/sessions" },

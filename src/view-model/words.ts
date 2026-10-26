@@ -140,3 +140,16 @@ export function attentionStatus(item: { kind: string; taskId?: string }, tasks: 
 export const offlineWords = "pacer not running · pacer serve";
 export const compactVerdictWords = (verdict: string): string =>
   verdict === "out" || verdict === "EXHAUSTED" ? "out" : verdict === "ahead" || verdict === "AHEAD" ? "ahead" : "";
+
+/** Policy metadata is independent of planner pacing mode; missing old-service data stays unknown. */
+export interface PolicySummary { mode: "open" | "closed"; plugins: number }
+export function policyWords(policy?: PolicySummary): string {
+  if (!policy) return "policy: unknown";
+  return policy.mode === "closed" ? `policy: closed (${policy.plugins} plugins)` : "policy: open";
+}
+export const policyDetail = (policy?: PolicySummary): string => policy ? `${policyWords(policy)} · ${policy.plugins} enabled policy plugins` : policyWords(policy);
+
+/** Width-constrained terminals: slash separates the mode from the enabled plugin count. */
+export function compactPolicyWords(policy?: PolicySummary): string {
+  return policy ? `policy:${policy.mode}/${policy.plugins}` : "policy:unknown";
+}
