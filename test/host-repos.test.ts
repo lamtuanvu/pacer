@@ -71,7 +71,7 @@ test("host account folder returns a login command without connecting or logging 
 });
 
 test("a clone failure fails its step and prevents identity setup", async () => {
-  const { ctx, remote } = fixture(), run = ctx.run;
+  const { ctx, sshLog } = fixture(), run = ctx.run;
   ctx.run = async (...args) => {
     const result = await run(...args);
     return args[0].at(-1)?.endsWith("clone https://github.com/acme/api.git") ? { ...result, code: 1 } : result;
@@ -79,7 +79,7 @@ test("a clone failure fails its step and prevents identity setup", async () => {
   const { job } = await callOp(ctx, "host.repo.setup", { alias: "devbox", key: "github.com/acme/api", consent: true }) as { job: Job };
   expect(job.state).toBe("failed");
   expect(job.steps.map(s => s.state)).toEqual(["failed", "skipped", "skipped"]);
-  expect(existsSync(join(ctx.home, "ssh.log"))).toBe(false);
+  expect(readFileSync(sshLog, "utf8")).not.toContain('config --local user.name "$2"');
 });
 
 test("an existing checkout skips clone and a second setup still checks identity", async () => {

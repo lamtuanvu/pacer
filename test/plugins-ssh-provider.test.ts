@@ -260,6 +260,15 @@ test("SSH provider check accepts only a host snapshot and read-only configured p
   expect(calls[1]?.argv).toEqual(checkHomeArgv("box", "/tmp/private/cm-%C", "~/.codex"));
 });
 
+test("incomplete checkout probes cannot authorize a setup clone", async () => {
+  const host = { call: async () => ({ code: 0, stdout: "__PACER_BEGIN__\nexists=0\n",
+    stderr: "", timedOut: true }) } as unknown as HostClient;
+  const result = await handlers["hostRunner.check"]!(
+    { alias: "box", repo: "~/repo", sshTarget: "box", controlPath: "/tmp/private/cm-%C" },
+    host, new AbortController().signal);
+  expect(result).toMatchObject({ ok: false, facts: {} });
+});
+
 test("SSH provider rejects unissued operations and foreign sessions before spawn", async () => {
   const calls: unknown[] = [];
   const host = { call: async (_method: string, params: unknown) => {

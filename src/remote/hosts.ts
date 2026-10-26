@@ -240,15 +240,20 @@ export async function addAccount(ctx: Ctx, alias: string, account: string, home:
 }
 
 export interface SetupOptions { clone?: boolean; identity?: boolean; consent: boolean; steps?: StepApi }
+async function checkoutExists(ctx: Ctx, alias: string, path: string): Promise<boolean> {
+  const result = await pluginRegistry(ctx).checkConfiguredHost(ctx, alias, path).catch(() => null);
+  const exists = result?.facts?.exists;
+  if (result?.checks.length !== 1 || result.checks[0]?.name !== "checkout" ||
+    (exists !== "0" && exists !== "1")) throw new CoreError("invalid_input", `host ${alias} unreachable`);
+  return exists === "1";
+}
 export async function setup(ctx: Ctx, alias: string, repo: string, o: SetupOptions): Promise<HostCheck> {
   if (o.consent !== true) throw new CoreError("invalid_input", "host repo setup requires consent: true");
   const host = configured(ctx, alias), local = await localRepo(ctx, repo), path = local.key && host.repos[local.key];
   if (!path) throw new CoreError("invalid_input", `repo not mapped on ${alias}`);
   if (o.clone !== false) {
     o.steps?.start("Clone");
-    const r = await runRemote(ctx, host, SCRIPTS.CHECK_REPO, [path, "check"]);
-    if (r.code) throw new CoreError("invalid_input", `host ${alias} unreachable`);
-    if (fields(r.stdout).exists !== "1") {
+    if (!await checkoutExists(ctx, alias, path)) {
       const cloned = await runRemote(ctx, host, SCRIPTS.CHECK_REPO, [path, "clone", local.origin]);
       if (cloned.code) throw new CoreError("invalid_input", `clone failed on ${alias}`);
       o.steps?.pass("Clone");
@@ -292,10 +297,9 @@ export async function setupJob(ctx: Ctx, alias: string, key: string, o: Omit<Set
 export async function confirmSetup(ctx: Ctx, alias: string, repo: string, confirm: (question: string) => Promise<boolean>) {
   const host = configured(ctx, alias), local = await localRepo(ctx, repo), path = local.key && host.repos[local.key];
   if (!path) throw new CoreError("invalid_input", `repo not mapped on ${alias}`);
-  const r = await runRemote(ctx, host, SCRIPTS.CHECK_REPO, [path, "check"]);
-  if (r.code) throw new CoreError("invalid_input", `host ${alias} unreachable`);
+  const exists = await checkoutExists(ctx, alias, path);
   const target = path.startsWith("~/") ? `"$HOME"/${shq(path.slice(2))}` : shq(path);
-  const clone = fields(r.stdout).exists !== "1" && await confirm(`Run on ${alias}: git clone -- ${shq(local.origin)} ${target}?`);
+  const clone = !exists && await confirm(`Run on ${alias}: git clone -- ${shq(local.origin)} ${target}?`);
   if (!local.name || !local.email) throw new CoreError("invalid_input", "local repo needs user.name and user.email");
   const identity = await confirm(`Set repo-local identity on ${alias} to ${local.name} <${local.email}>?`);
   return setup(ctx, alias, repo, { clone, identity, consent: true });
