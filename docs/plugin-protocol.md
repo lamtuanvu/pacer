@@ -18,7 +18,7 @@ The `hostRunner` point names only fixed SSH script IDs and uses bounded argument
 
 Peers explicitly negotiate `chunkedResults` in hello features. For a large usage result, the plugin sends sequential `$/resultChunk` requests containing the original numeric request id, contiguous byte offset and at most 256 KiB of base64 JSON bytes, with the original call metadata. It waits for each `{ bytes }` acknowledgement, then replies to the original request with `{ _chunkedResult: { bytes } }`. The host resolves only after exact-length complete JSON assembly under the original authority/deadline. Legacy peers keep ordinary replies; chunks never renew authority.
 
-Only a host-issued `hostRunner.stream` call may keep its request open without a whole-call deadline. Its owner signal and exact provider generation revoke it; every progress frame has a five-second acknowledgement deadline. The plugin emits one `$/progress` event with the original numeric request id and a bounded stream frame, then calls `$/streamAck` with the original call metadata. The host acknowledges only after consuming the frame. Sequence starts at zero and advances one at a time. Other progress callbacks keep their fire-and-forget behavior; other hostRunner methods retain finite deadlines.
+Only a host-issued `hostRunner.stream` call may keep its request open without a whole-call deadline. Its owner signal and exact provider generation revoke it; each directional frame has a five-second acknowledgement deadline. The plugin emits one `$/progress` event with the original numeric request id and a bounded stream frame, then calls `$/streamAck` with the original call metadata. The host acknowledges only after consuming the frame. For viewer input, the host sends one `$/streamInput` notification, then waits for the plugin's `$/streamInputAck` after the brokered SSH write. Each direction has its own sequence starting at zero and one unacknowledged 64 KiB frame. Other progress callbacks keep their fire-and-forget behavior; other hostRunner methods retain finite deadlines.
 
 SDKs: `@pacer/plugin` (TypeScript) and `pacer-plugin` (Rust).
 
@@ -844,6 +844,99 @@ Host runner stream `$/progress` event:
 ### `$/streamAck`
 
 Plugin → host acknowledgement of one consumed progress frame on the same owned hostRunner.stream call.
+
+Params:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "request": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "streamId": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"
+    },
+    "seq": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "request",
+    "streamId",
+    "seq"
+  ],
+  "additionalProperties": false
+}
+```
+
+Result:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "seq": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "seq"
+  ],
+  "additionalProperties": false
+}
+```
+
+Host → plugin `$/streamInput` notification for one bounded viewer input frame:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "streamId": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"
+    },
+    "seq": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "base64": {
+      "type": "string",
+      "minLength": 4,
+      "maxLength": 87384,
+      "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+    },
+    "request": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "streamId",
+    "seq",
+    "base64",
+    "request"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `$/streamInputAck`
+
+Plugin → host receipt after the brokered SSH stdin write accepts the exact input frame.
 
 Params:
 

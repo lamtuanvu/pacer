@@ -19,7 +19,28 @@ interface Connection {
   closing?: Promise<{ ok: true }>;
 }
 const connections = new WeakMap<CallAuthority, Connection>();
+interface IssuedInput { seq: number; bytes: Buffer; accepted: boolean }
+const issuedInputs = new WeakMap<CallAuthority, IssuedInput>();
 const deny = (): never => { throw new CoreError("capability_denied", "SSH duplex handle is not owned by this call"); };
+
+/** One host-origin frame. The plugin cannot choose stdin bytes or replay a write. */
+export function armDuplexInput(authority: CallAuthority, seq: number, bytes: Buffer): void {
+  authority.assertActive();
+  if (issuedInputs.has(authority) || !Number.isSafeInteger(seq) || seq < 0 ||
+    !Buffer.isBuffer(bytes) || bytes.length < 1 || bytes.length > 65_536) return deny();
+  issuedInputs.set(authority, { seq, bytes: Buffer.from(bytes), accepted: false });
+}
+
+export function clearDuplexInput(authority: CallAuthority, seq: number): void {
+  if (issuedInputs.get(authority)?.seq === seq) issuedInputs.delete(authority);
+}
+
+export function consumeDuplexInputReceipt(authority: CallAuthority, seq: number): void {
+  authority.assertActive();
+  const issued = issuedInputs.get(authority);
+  if (!issued || issued.seq !== seq || !issued.accepted) return deny();
+  issuedInputs.delete(authority);
+}
 
 function terminate(connection: Connection): void {
   const child = connection.child;
@@ -55,6 +76,7 @@ function close(authority: CallAuthority, connection: Connection): Promise<{ ok: 
       process.off("exit", connection.onExit);
       connection.detach();
       connection.release();
+      issuedInputs.delete(authority);
       if (connections.get(authority) === connection) connections.delete(authority);
     }
     return { ok: true };
@@ -111,6 +133,9 @@ async function read(authority: CallAuthority, connection: Connection, length: nu
       signal.addEventListener("abort", cancelled, { once: true });
       if (signal.aborted) cancelled(); else take();
     }));
+  } catch (error) {
+    await close(authority, connection);
+    throw error instanceof CoreError ? error : new CoreError("plugin_unavailable", "SSH duplex output failed");
   } finally { connection.reading = false; }
 }
 
@@ -119,9 +144,11 @@ async function write(authority: CallAuthority, connection: Connection, base64: s
   const bytes = Buffer.from(base64, "base64");
   if (!bytes.length || bytes.length > 65_536 || bytes.toString("base64") !== base64)
     throw new CoreError("invalid_input", "SSH duplex input exceeds the bounded frame");
+  const issued = issuedInputs.get(authority);
+  if (!issued || issued.accepted || !issued.bytes.equals(bytes)) return deny();
   connection.writing = true;
   try {
-    return await bounded(authority, connection, timeoutMs, signal => new Promise<{ bytes: number }>((resolve, reject) => {
+    const result = await bounded(authority, connection, timeoutMs, signal => new Promise<{ bytes: number }>((resolve, reject) => {
       const stream = connection.child.stdin;
       const cleanup = () => { stream.off("error", failed); signal.removeEventListener("abort", cancelled); };
       const failed = () => { cleanup(); reject(new CoreError("plugin_unavailable", "SSH duplex input failed")); };
@@ -135,6 +162,12 @@ async function write(authority: CallAuthority, connection: Connection, base64: s
         else resolve({ bytes: bytes.length });
       });
     }));
+    authority.assertActive();
+    issued.accepted = true;
+    return result;
+  } catch (error) {
+    await close(authority, connection);
+    throw error instanceof CoreError ? error : new CoreError("plugin_unavailable", "SSH duplex input failed");
   } finally { connection.writing = false; }
 }
 
@@ -149,6 +182,7 @@ export async function answerDuplex(authority: CallAuthority, declaredScopes: rea
     try { child = spawn(pin.executable, argv.slice(1), { env: pin.env, detached: process.platform !== "win32", stdio: ["pipe", "pipe", "pipe"] }); }
     catch (error) { pin.release(); throw error; }
     child.stderr.resume(); // Never retain session or SSH diagnostic bytes.
+    child.stdin.on("error", () => {}); // The write callback reports failure; keep late EPIPE contained.
     const connection: Connection = { handle: randomUUID(), child, exited: Promise.resolve(), release: pin.release,
       detach: () => {}, onExit: () => {}, reading: false, writing: false, closed: false, exitedAlready: false, fullyClosed: false };
     connection.exited = new Promise<void>(resolve => {

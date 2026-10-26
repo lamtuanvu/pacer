@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { createCallAuthority } from "../src/plugins/authority";
 import { prepareSpawnAuthority } from "../src/plugins/capability-spawn";
 import { answerCapability } from "../src/plugins/host";
+import { armDuplexInput, consumeDuplexInputReceipt } from "../src/plugins/capability-duplex";
 import { fakeCtx, tmpDir } from "./helpers";
 
 test("a stream-owned duplex SSH child uses exact argv and bounded simultaneous bytes", async () => {
@@ -29,7 +30,19 @@ test("a stream-owned duplex SSH child uses exact argv and bounded simultaneous b
       .rejects.toMatchObject({ code: "conflict" });
     const bytes = Buffer.from("duplex fox 🦊");
     await expect(call("capability.process.duplex.write", { handle: opened.handle,
+      base64: bytes.toString("base64"), timeoutMs: 5000 }))
+      .rejects.toMatchObject({ code: "capability_denied" });
+    armDuplexInput(authority, 0, bytes);
+    await expect(call("capability.process.duplex.write", { handle: opened.handle,
+      base64: Buffer.from("wrong").toString("base64"), timeoutMs: 5000 }))
+      .rejects.toMatchObject({ code: "capability_denied" });
+    await expect(call("capability.process.duplex.write", { handle: opened.handle,
       base64: bytes.toString("base64"), timeoutMs: 5000 })).resolves.toEqual({ bytes: bytes.length });
+    await expect(call("capability.process.duplex.write", { handle: opened.handle,
+      base64: bytes.toString("base64"), timeoutMs: 5000 }))
+      .rejects.toMatchObject({ code: "capability_denied" });
+    consumeDuplexInputReceipt(authority, 0);
+    expect(() => consumeDuplexInputReceipt(authority, 0)).toThrow();
     const received = await read as { base64: string; eof: boolean };
     expect(Buffer.from(received.base64, "base64")).toEqual(bytes);
     expect(received.eof).toBe(false);
@@ -97,6 +110,75 @@ test("a timed-out duplex read reaps its SSH child and retires the handle", async
       .rejects.toMatchObject({ code: "capability_denied" });
     const pid = Number(readFileSync(pidFile, "utf8"));
     expect(() => process.kill(pid, 0)).toThrow();
+  } finally { await authority.revoke(); }
+});
+
+test("a failed SSH stdin write retires its handle without a receipt", async () => {
+  const dir = tmpDir(), ssh = join(dir, "ssh"), readyFile = join(dir, "ready");
+  writeFileSync(ssh, "#!/bin/sh\nexec 0<&-\nprintf ready > \"$1\"\nexec sleep 30\n", { mode: 0o755 });
+  const ctx = fakeCtx({ env: { ...process.env, HOME: dir }, which: name => name === "ssh" ? ssh : null });
+  const argv = ["ssh", readyFile];
+  const authority = createCallAuthority(ctx,
+    { reads: [], commands: [{ argv, timeoutMs: 1000, mode: "session-duplex" }], stores: [] },
+    { deadlineMs: Date.now() + 5000, grants: ["process.spawn"] });
+  prepareSpawnAuthority(authority);
+  const plugin = { id: "pacer-ssh", manifest: { capabilities: [{ name: "process.spawn", scopes: ["ssh"] }] } } as Parameters<typeof answerCapability>[1];
+  const call = (method: string, params: unknown) => answerCapability(ctx, plugin, method, params, authority);
+  try {
+    const { handle } = await call("capability.process.duplex.open", { argv, timeoutMs: 1000 }) as { handle: string };
+    for (let i = 0; i < 100 && !existsSync(readyFile); i++) await Bun.sleep(10);
+    expect(existsSync(readyFile)).toBe(true);
+    const bytes = Buffer.alloc(65_536, 1);
+    let failed = false;
+    for (let seq = 0; seq < 4; seq++) {
+      armDuplexInput(authority, seq, bytes);
+      try {
+        await call("capability.process.duplex.write", { handle,
+          base64: bytes.toString("base64"), timeoutMs: 1000 });
+        consumeDuplexInputReceipt(authority, seq);
+      } catch (error) {
+        expect(error).toMatchObject({ code: "plugin_unavailable" });
+        expect(() => consumeDuplexInputReceipt(authority, seq)).toThrow();
+        failed = true;
+        break;
+      }
+    }
+    expect(failed).toBe(true);
+    await expect(call("capability.process.duplex.write", { handle,
+      base64: bytes.toString("base64"), timeoutMs: 1000 }))
+      .rejects.toMatchObject({ code: "capability_denied" });
+  } finally { await authority.revoke(); }
+});
+
+test("a blocked SSH stdin write times out and has no receipt", async () => {
+  const dir = tmpDir(), ssh = join(dir, "ssh");
+  writeFileSync(ssh, `#!${Bun.which("python3")}\nimport time\ntime.sleep(30)\n`, { mode: 0o755 });
+  const ctx = fakeCtx({ env: { ...process.env, HOME: dir }, which: name => name === "ssh" ? ssh : null });
+  const argv = ["ssh", "unused"];
+  const authority = createCallAuthority(ctx,
+    { reads: [], commands: [{ argv, timeoutMs: 1000, mode: "session-duplex" }], stores: [] },
+    { deadlineMs: Date.now() + 5000, grants: ["process.spawn"] });
+  prepareSpawnAuthority(authority);
+  const plugin = { id: "pacer-ssh", manifest: { capabilities: [{ name: "process.spawn", scopes: ["ssh"] }] } } as Parameters<typeof answerCapability>[1];
+  const call = (method: string, params: unknown) => answerCapability(ctx, plugin, method, params, authority);
+  let timedOut = false;
+  try {
+    const { handle } = await call("capability.process.duplex.open", { argv, timeoutMs: 1000 }) as { handle: string };
+    const bytes = Buffer.alloc(65_536, 1);
+    for (let seq = 0; seq < 32; seq++) {
+      armDuplexInput(authority, seq, bytes);
+      try {
+        await call("capability.process.duplex.write", { handle,
+          base64: bytes.toString("base64"), timeoutMs: 100 });
+        consumeDuplexInputReceipt(authority, seq);
+      } catch (error) {
+        expect(error).toMatchObject({ code: "plugin_timeout" });
+        expect(() => consumeDuplexInputReceipt(authority, seq)).toThrow();
+        timedOut = true;
+        break;
+      }
+    }
+    expect(timedOut).toBe(true);
   } finally { await authority.revoke(); }
 });
 
