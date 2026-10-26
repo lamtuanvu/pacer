@@ -3,6 +3,7 @@ import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSy
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { checkRepoArgv, CHECK_REPO_SCRIPT, preflightArgv, PREFLIGHT_SCRIPT, probeArgv, PROBE_SCRIPT,
+  questionArgv, QUESTION_SCRIPT,
   setIdentityArgv, SET_IDENTITY_SCRIPT } from "../plugins/pacer-ssh/probe";
 import { SCRIPTS } from "../src/remote/scripts";
 import { controlDir, sshArgv } from "../src/remote/ssh";
@@ -14,6 +15,8 @@ import type { HostClient } from "@pacer/plugin";
 import { createTask, updateTask } from "../src/tasks/store";
 import { issuePersistedFetch } from "../src/plugins/fetch-issuer";
 import { resolveStagedBundle } from "../src/plugins/bundle-stage";
+import { questionBlobHash } from "../src/plugins/question-issuer";
+import { realRun } from "./helpers";
 
 test("SSH reference provider emits exactly the host-issued read-only probe command", () => {
   const home = tmpDir(), ctx = fakeCtx({ home, pacerHome: join(home, ".pacer") });
@@ -22,6 +25,45 @@ test("SSH reference provider emits exactly the host-issued read-only probe comma
   const controlPath = join(controlDir(ctx), "cm-%C");
   expect(PROBE_SCRIPT).toBe(SCRIPTS.PROBE);
   expect(probeArgv(host.ssh, controlPath)).toEqual(sshArgv(ctx, host, SCRIPTS.PROBE, []));
+});
+
+test("SSH question read is fixed and bounded", () => {
+  const home = tmpDir(), ctx = fakeCtx({ home, pacerHome: join(home, ".pacer") });
+  mkdirSync(ctx.pacerHome, { recursive: true });
+  const host = { alias: "box", ssh: "ssh-fixture", repos: {}, accounts: {}, maxTasks: 1 };
+  const controlPath = join(controlDir(ctx), "cm-%C"), path = "/remote/worktree";
+  expect(QUESTION_SCRIPT).toBe(SCRIPTS.QUESTION);
+  expect(questionArgv(host.ssh, controlPath, [path])).toEqual(sshArgv(ctx, host, SCRIPTS.QUESTION, [path]));
+  expect(() => questionArgv(host.ssh, controlPath, ["../other"])).toThrow();
+});
+
+test("accepted question is clean in a SHA-256 Git worktree and changed bytes remain dirty", async () => {
+  const repo = tmpDir(), text = "which database?\n";
+  const git = async (...args: string[]) => {
+    const result = await realRun(["git", "-C", repo, ...args], 10000);
+    expect(result.code).toBe(0);
+    return result.stdout.trim();
+  };
+  const init = await realRun(["git", "init", "-q", "--object-format=sha256", "-b", "main", repo], 10000);
+  expect(init.code).toBe(0);
+  await git("config", "user.name", "Fixture");
+  await git("config", "user.email", "fixture@example.invalid");
+  await git("commit", "-q", "--allow-empty", "-m", "base");
+  const base = await git("rev-parse", "HEAD");
+  expect(base).toHaveLength(64);
+  await git("branch", "pacer/task");
+  const file = join(repo, ".pacer-question");
+  writeFileSync(file, text);
+  const args = [repo, base, "pacer/task", questionBlobHash(text, "sha1"), questionBlobHash(text, "sha256")];
+  const preflight = () => realRun(["bash", "-c", SCRIPTS.PREFLIGHT, "pacer", ...args], 10000);
+  const accepted = await preflight();
+  expect(accepted.code).toBe(0);
+  expect(accepted.stdout).toContain("dirty=0\n");
+  writeFileSync(file, "another question\n");
+  const changed = await preflight();
+  expect(changed.code).toBe(0);
+  expect(changed.stdout).toContain("dirty=1\n");
+  expect(readFileSync(file, "utf8")).toBe("another question\n");
 });
 
 test("SSH reference provider emits only the host-issued read-only repo check command", () => {
@@ -54,8 +96,12 @@ test("SSH reference provider builds only the fixed persisted-run PREFLIGHT argv"
   expect(PREFLIGHT_SCRIPT).toBe(SCRIPTS.PREFLIGHT);
   expect(preflightArgv(configured.ssh, controlPath, args))
     .toEqual(sshArgv(ctx, configured, SCRIPTS.PREFLIGHT, [...args]));
+  const withQuestion = [...args, "a".repeat(40), "b".repeat(64)];
+  expect(preflightArgv(configured.ssh, controlPath, withQuestion))
+    .toEqual(sshArgv(ctx, configured, SCRIPTS.PREFLIGHT, withQuestion));
   expect(() => preflightArgv(configured.ssh, controlPath, ["/remote/worktree", "bad", "pacer/task"]))
     .toThrow();
+  expect(() => preflightArgv(configured.ssh, controlPath, [...args, "unissued"])).toThrow();
 });
 
 test("SSH reference provider runs only the exact issued SET_IDENTITY command", async () => {

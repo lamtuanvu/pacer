@@ -6,6 +6,9 @@ import { loadStrategy } from "../src/config/strategy";
 import { taskWorktreePath } from "../src/supervisor/worktree";
 import { runTask } from "../src/tasks/runner";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
+import { receiveQuestion } from "../src/remote/transfer";
+import { consumePersistedQuestion, issuePersistedQuestion, questionBlobHash, validatePersistedQuestion } from "../src/plugins/question-issuer";
+import { SCRIPTS } from "../src/remote/scripts";
 import { fakeCtx, fakeSshEnv, realRun, tmpDir } from "./helpers";
 
 // These integration tests catch prompt interpolation, inherited planner account
@@ -65,4 +68,69 @@ test("remote question is received verbatim and task id reaches the host",async()
  const prompt=readFileSync(join(readTask(f.ctx,f.task.id)!.run!.remoteDir!,"stdin"),"utf8");
  expect(prompt).toContain(".pacer-question");
  expect(prompt).not.toContain('run pacer ask');
+ expect(readFileSync(join(readTask(f.ctx,f.task.id)!.run!.remoteWorktree!,".pacer-question"),"utf8"))
+   .toBe('which db? $(rm -rf ~)');
+},60000);
+
+test("accepted question is not cleared when the remote file changes", async () => {
+ const f=await setup();
+ await runAttempt(f.ctx,f.cfg,f.task);
+ const task=readTask(f.ctx,f.task.id)!, run=task.run!, path=join(run.remoteWorktree!,".pacer-question");
+ writeFileSync(path,"a different question");
+ const host=loadStrategy(f.ctx).hosts.box!;
+ await expect(receiveQuestion(f.ctx,task,host,run)).rejects.toThrow("changed after task acceptance");
+ expect(readFileSync(path,"utf8")).toBe("a different question");
+},60000);
+
+test("crash retry keeps the accepted question and preflight rejects changed bytes", async () => {
+ const f=await setup();
+ await runAttempt(f.ctx,f.cfg,f.task);
+ const task=readTask(f.ctx,f.task.id)!, run=task.run!, path=join(run.remoteWorktree!,".pacer-question");
+ const host=loadStrategy(f.ctx).hosts.box!, accepted=task.question!.text;
+ await receiveQuestion(f.ctx,task,host,run);
+ expect(readTask(f.ctx,task.id)?.question?.text).toBe(accepted);
+ expect(readFileSync(path,"utf8")).toBe(accepted);
+ const preflight=async()=>realRun(["bash","-c",SCRIPTS.PREFLIGHT,"pacer",
+   run.remoteWorktree!,run.baseSha!,run.remoteBranch!,questionBlobHash(accepted,"sha1"),
+   questionBlobHash(accepted,"sha256")],10000);
+ const same=await preflight();
+ expect(same.code).toBe(0);
+ expect(same.stdout).toContain("dirty=0\n");
+ writeFileSync(path,"replacement question");
+ const changed=await preflight();
+ expect(changed.code).toBe(0);
+ expect(changed.stdout).toContain("dirty=1\n");
+ expect(readFileSync(path,"utf8")).toBe("replacement question");
+ // Reproduce a replacement after preflight's hash read. Even if the old hash
+ // is returned, observation must not remove the newly written question.
+ writeFileSync(path,accepted);
+ const bin=join(f.hostHome,"hash-race-bin");mkdirSync(bin);
+ writeFileSync(join(bin,"git"),`#!/bin/sh
+if [ "$1" = hash-object ] && [ ! -f "$PACER_TEST_RACE_MARKER" ]; then
+  printf '%s' "$PACER_TEST_ACCEPTED_HASH"
+  printf '%s' 'late replacement' > "$PACER_TEST_QUESTION_FILE"
+  : > "$PACER_TEST_RACE_MARKER"
+  exit 0
+fi
+exec /usr/bin/git "$@"
+`,{mode:0o755});
+ const raced=await realRun(["bash","-c",SCRIPTS.PREFLIGHT,"pacer",run.remoteWorktree!,
+   run.baseSha!,run.remoteBranch!,questionBlobHash(accepted,"sha1"),questionBlobHash(accepted,"sha256")],10000,{env:{
+     PATH:`${bin}:${process.env.PATH}`,PACER_TEST_ACCEPTED_HASH:questionBlobHash(accepted),
+     PACER_TEST_QUESTION_FILE:path,PACER_TEST_RACE_MARKER:join(bin,"replaced") }});
+ expect(raced.code).toBe(0);
+ expect(raced.stdout).toContain("dirty=1\n");
+ expect(readFileSync(path,"utf8")).toBe("late replacement");
+},60000);
+
+test("question grants are pinned to the persisted revision and one use", async () => {
+ const f=await setup();
+ await runAttempt(f.ctx,f.cfg,f.task);
+ const task=readTask(f.ctx,f.task.id)!, run=task.run!;
+ const read=issuePersistedQuestion(f.ctx,task.id,run.attempt);
+ validatePersistedQuestion(f.ctx,read);
+ consumePersistedQuestion(f.ctx,read);
+ expect(()=>consumePersistedQuestion(f.ctx,read)).toThrow();
+ updateTask(f.ctx,task.id,t=>{ t.run!.transferredHead="a".repeat(40); });
+ expect(()=>validatePersistedQuestion(f.ctx,read)).toThrow();
 },60000);

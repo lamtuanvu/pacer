@@ -5,10 +5,9 @@ import { ask } from "../core/tasks";
 import { readTask, updateTask } from "../tasks/store";
 import type { RunRef, TaskRecord } from "../tasks/types";
 import type { Ctx } from "../types";
-import { SCRIPTS } from "./scripts";
-import { runRemote } from "./ssh";
 import { pluginRegistry } from "../plugins";
 import { issuePersistedFetch, validatePersistedFetch, type PersistedFetchGrant } from "../plugins/fetch-issuer";
+import { issuePersistedQuestion } from "../plugins/question-issuer";
 import { prepareClaimedBundle, publishPreparedBundle, removeConsumedClaimedBundle,
   withFinalizedClaimedBundleInput } from "../plugins/claimed-bundle";
 import type { CallAuthority } from "../plugins/authority";
@@ -20,13 +19,17 @@ type TransferResult = { ok: true; branch: string; commits: number; reviewWorktre
 /** Collect the file before cleanliness checks, including failed/no-commit attempts. */
 export async function receiveQuestion(ctx: Ctx, task: TaskRecord, host: HostCfg, run: RunRef): Promise<void> {
   if (!run.remoteWorktree) return;
-  const result = await runRemote(ctx,host,SCRIPTS.QUESTION,[run.remoteWorktree]);
-  if (result.code) throw new Error(result.stderr || "cannot read remote question");
+  if (run.host !== host.alias) throw new Error("remote question host changed");
+  const registry = pluginRegistry(ctx), caller = registry.find(ctx, "remoteCaller", () => true);
+  if (caller !== "pacer-remote-caller") throw new Error("bundled remote caller plugin is unavailable");
+  const read = issuePersistedQuestion(ctx, task.id, run.attempt);
+  const result = await registry.callWithIssuedHostQuestion<{ code: number; stdout: string; stderr: string; timedOut: boolean }>(
+    ctx, caller, "remoteCaller.questionRead", { alias: host.alias, path: run.remoteWorktree }, read);
+  if (result.code || result.timedOut) throw new Error(result.stderr || "cannot read remote question");
   if (!result.stdout) return;
   const prior = readTask(ctx,task.id)?.question;
+  if (prior && prior.text !== result.stdout) throw new Error("remote question changed after task acceptance");
   if (!prior) await ask(ctx,task.id,result.stdout);
-  const cleared = await runRemote(ctx,host,SCRIPTS.QUESTION_CLEAR,[run.remoteWorktree]);
-  if (cleared.code) throw new Error(cleared.stderr || "cannot clear remote question");
 }
 
 /** Receive only committed task changes, after checking ancestry, cleanliness and identity. */
@@ -96,6 +99,9 @@ export async function transferBack(ctx: Ctx, task: TaskRecord, host: HostCfg, ru
     if (imported.code || imported.timedOut || imported.stdoutOverflow ||
       imported.stdout.trim() !== `${head} refs/heads/${remoteBranch}`)
       return fail(imported.stderr.trim() || "bundle unbundle failed");
+    // A question written during preflight or bundle import must not be missed
+    // before the local branch is published.
+    await receiveQuestion(ctx,task,host,run);
     validatePersistedFetch(ctx, grant);
     if (!matchesPersisted(grant)) return fail("remote transfer task or run changed");
     // Cleanup can fail under same-UID replacement. Settle it before publishing

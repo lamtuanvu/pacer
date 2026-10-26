@@ -30,6 +30,13 @@ export const handlers: Record<string, Handler> = {
         args: [request.path, request.name, request.email], timeoutMs: 50_000, maxBytes: 65_536 });
     } finally { await host.hosts!.close(opened.session); }
   },
+  "remoteCaller.questionRead": async (raw, host) => {
+    const request = raw as { alias: string; path: string };
+    const opened = await host.hosts!.open(request.alias);
+    try { return await host.hosts!.run({ session: opened.session, script: "QUESTION",
+      args: [request.path], timeoutMs: 20_000, maxBytes: 8192 }); }
+    finally { await host.hosts!.close(opened.session); }
+  },
 };
 
 if (import.meta.main) await serve({ manifest, handlers });

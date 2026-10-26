@@ -19,4 +19,10 @@ export const REMOTE_CALLER_METHODS = {
     result: HOST_RUNNER_METHODS["hostRunner.run"].result,
     deadlineMs: 60_000,
   },
+  "remoteCaller.questionRead": {
+    description: "Read one question from a persisted remote task run with a host-issued grant.",
+    params: z.object({ alias: hostRunnerAlias, path: z.string().min(1).max(4096) }).strict(),
+    result: HOST_RUNNER_METHODS["hostRunner.run"].result,
+    deadlineMs: 40_000,
+  },
 } as const;

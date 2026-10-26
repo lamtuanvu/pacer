@@ -242,10 +242,11 @@ export class HostLeaseBroker {
       parsed.data.args[1] === "check";
     const identity = parsed.data.script === "SET_IDENTITY" && parsed.data.args.length === 3 &&
       parsed.data.args.every(arg => arg.length > 0);
-    if ((!probe && !repoCheck && !identity) || parsed.data.stdin !== undefined ||
+    const question = parsed.data.script === "QUESTION" && parsed.data.args.length === 1;
+    if ((!probe && !repoCheck && !identity && !question) || parsed.data.stdin !== undefined ||
       parsed.data.completionNonce !== undefined || parsed.data.maxBytes > 65_536)
       throw denied("host operation is not issued for this caller");
-    if (repoCheck || identity) authority.consumeHostOperation({
+    if (repoCheck || identity || question) authority.consumeHostOperation({
       alias: lease.alias, hostFingerprint: lease.hostFingerprint, script: parsed.data.script,
       args: parsed.data.args, timeoutMs: parsed.data.timeoutMs, maxBytes: parsed.data.maxBytes,
     });
@@ -305,7 +306,8 @@ export class HostLeaseBroker {
     const deadlineAt = Math.min(authority.deadlineMs, Date.now() + 50_000);
     if (deadlineAt <= Date.now()) throw new CoreError("plugin_timeout", "remote preflight deadline expired");
     lease.preflightUsed = true;
-    const params = { session: lease.providerSession, script: "PREFLIGHT", args: [...grant.resource.args],
+    const params = { session: lease.providerSession, script: "PREFLIGHT",
+      args: [...grant.resource.args, ...(grant.questionHashes ? [...grant.questionHashes] : [])],
       timeoutMs: Math.min(50_000, Math.max(1, deadlineAt - Date.now())), maxBytes: 65_536 };
     const pending = this.invoke(lease, "hostRunner.run", params, deadlineAt, authority.signal);
     lease.inFlight = pending;

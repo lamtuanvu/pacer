@@ -7,17 +7,19 @@ import { readTask } from "../tasks/store";
 import type { Ctx } from "../types";
 import type { BundleStageResource } from "./authority";
 import { issueBundleStageResource } from "./bundle-stage";
+import { questionBlobHash } from "./question-issuer";
 
 export interface PersistedFetchGrant {
   readonly taskId: string;
   readonly attempt: number;
   readonly taskRev: number;
   readonly repo: string;
+  readonly questionHashes?: readonly [string, string];
   readonly resource: Readonly<BundleStageResource>;
 }
 
 interface Captured { home: string; taskId: string; attempt: number; taskRev: number; repo: string;
-  alias: string; args: [string, string, string]; resource: BundleStageResource; consumed: boolean }
+  alias: string; args: [string, string, string]; questionHashes?: readonly [string, string]; resource: BundleStageResource; consumed: boolean }
 const issued = new WeakMap<PersistedFetchGrant, Captured>();
 const deny = (): never => { throw new CoreError("capability_denied", "persisted fetch authority changed or was not issued"); };
 
@@ -31,10 +33,13 @@ export function issuePersistedFetch(ctx: Ctx, taskId: string, attempt: number,
   const args: [string, string, string] = [run.remoteWorktree, run.baseSha, run.remoteBranch];
   const resource = issueBundleStageResource(ctx, run.host, args, maxBytes, timeoutMs);
   Object.freeze(resource.args); Object.freeze(resource.argv); Object.freeze(resource);
+  const questionHashes = task.question?.text ? Object.freeze([
+    questionBlobHash(task.question.text, "sha1"), questionBlobHash(task.question.text, "sha256")
+  ] as const) : undefined;
   const grant: PersistedFetchGrant = Object.freeze({ taskId, attempt, taskRev: task.rev,
-    repo: task.brief.repo, resource });
+    repo: task.brief.repo, questionHashes, resource });
   issued.set(grant, { home: ctx.pacerHome, taskId, attempt, taskRev: task.rev,
-    repo: task.brief.repo, alias: run.host, args, resource, consumed: false });
+    repo: task.brief.repo, alias: run.host, args, questionHashes, resource, consumed: false });
   return grant;
 }
 
@@ -46,7 +51,10 @@ export function validatePersistedFetch(ctx: Ctx, grant: PersistedFetchGrant): vo
   if (!task || task.rev !== saved.taskRev || task.brief.repo !== saved.repo ||
     !run || run.attempt !== saved.attempt || run.host !== saved.alias ||
     run.remoteWorktree !== saved.args[0] || run.baseSha !== saved.args[1] ||
-    run.remoteBranch !== saved.args[2]) return deny();
+    run.remoteBranch !== saved.args[2] ||
+    JSON.stringify(grant.questionHashes) !== JSON.stringify(saved.questionHashes) ||
+    JSON.stringify(task.question?.text ? [questionBlobHash(task.question.text, "sha1"),
+      questionBlobHash(task.question.text, "sha256")] : undefined) !== JSON.stringify(saved.questionHashes)) return deny();
   const host = loadStrategy(ctx).hosts[saved.alias];
   if (!host || host.paused || JSON.stringify(host) !== saved.resource.hostFingerprint ||
     JSON.stringify(sshArgv(ctx, host, SCRIPTS.BUNDLE_OUT, saved.args)) !== JSON.stringify(saved.resource.argv)) return deny();
