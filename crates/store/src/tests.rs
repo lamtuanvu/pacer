@@ -1,6 +1,40 @@
 #![allow(clippy::unwrap_used)]
 use super::*;
 
+#[test]
+fn strategy_switch_records_alert_activity_and_config_in_order() {
+    let tmp = tempfile::tempdir().unwrap();
+    let ctx = Ctx::with(
+        tmp.path().join("home"),
+        tmp.path().join("pacer"),
+        Default::default(),
+        1_700_000_000.0,
+    );
+    record_strategy_switch(&ctx, "research").unwrap();
+    let rows: Vec<Value> = fs::read_to_string(ctx.pacer_home.join("link/outbox.jsonl"))
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(rows.len(), 3);
+    assert_eq!(rows[0]["envelope"]["type"], "alert");
+    assert_eq!(
+        rows[0]["envelope"]["data"]["title"],
+        "Switched to strategy research"
+    );
+    assert_eq!(rows[1]["envelope"]["type"], "entity");
+    assert_eq!(rows[2]["envelope"]["type"], "config");
+    assert_eq!(rows[2]["envelope"]["data"]["area"], "strategy");
+    let latest: Value =
+        serde_json::from_slice(&fs::read(ctx.pacer_home.join("link/latest.json")).unwrap())
+            .unwrap();
+    assert_eq!(
+        latest["alerts"][0]["title"],
+        "Switched to strategy research"
+    );
+    assert_eq!(latest["seq"], 3);
+}
+
 #[cfg(unix)]
 #[test]
 fn private_append_refuses_symlink_without_touching_target() {

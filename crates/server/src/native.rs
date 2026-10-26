@@ -19,6 +19,7 @@ pub const NATIVE_OPS: &[&str] = &[
     "routing.get",
     "strategy.list",
     "strategy.show",
+    "strategy.use",
 ];
 
 pub struct Dispatcher {
@@ -31,6 +32,7 @@ impl Dispatcher {
         ops.extend_from_slice(pacer_config::repo_add_ops());
         ops.extend_from_slice(pacer_config::routing_ops());
         ops.extend_from_slice(pacer_config::strategy_list_ops());
+        ops.extend_from_slice(pacer_config::strategy_use_ops());
         ops.extend_from_slice(pacer_config::host_suggest_ops());
         #[cfg(feature = "test-ops")]
         ops.push(NativeOp {
@@ -73,7 +75,9 @@ impl Dispatcher {
         if name == "test.echo" && params["force_core"] == true {
             return true;
         }
-        name == "strategy.show" && pacer_config::requires_core_strategy_show_parser(ctx, params)
+        (name == "strategy.show" && pacer_config::requires_core_strategy_show_parser(ctx, params))
+            || (name == "strategy.use"
+                && pacer_config::requires_core_strategy_use_parser(ctx, params))
     }
     /// Merge selected native names with the actual core hello advertisement.
     pub fn decorate_hello(&self, hello: &mut Value) {
@@ -193,7 +197,8 @@ mod registry_tests {
                 "repo.remove",
                 "routing.get",
                 "strategy.list",
-                "strategy.show"
+                "strategy.show",
+                "strategy.use"
             ]
         );
         #[cfg(not(feature = "test-ops"))]
@@ -237,6 +242,41 @@ mod registry_tests {
             !Dispatcher::new("strategy.list")
                 .names()
                 .contains(&"strategy.list")
+        );
+    }
+    #[tokio::test]
+    async fn strategy_use_request_selector_and_forced_forwarding() {
+        let dir = tempfile::tempdir().unwrap();
+        let ctx = Ctx::with(
+            dir.path().into(),
+            dir.path().join("pacer"),
+            HashMap::new(),
+            1_700_000_000.0,
+        );
+        fs::create_dir_all(ctx.pacer_home.join("strategies")).unwrap();
+        let yaml =
+            "planner: codex\naccounts: {personal: {kind: codex}}\nrouting: [{default: [codex]}]\n";
+        fs::write(ctx.pacer_home.join("strategy.yaml"), yaml).unwrap();
+        fs::write(ctx.pacer_home.join("strategies/research.yaml"), yaml).unwrap();
+        let dispatcher = Dispatcher::new("");
+        let params = json!({"name":"research"});
+        assert!(!dispatcher.needs_core_request(&ctx, "strategy.use", &params));
+        assert!(dispatcher.needs_core_request(&ctx, "strategy.use", &json!({"name":"missing"})));
+        assert!(
+            Dispatcher::new("strategy.use")
+                .call(&ctx, "strategy.use", params.clone())
+                .await
+                .is_none()
+        );
+        let result = dispatcher
+            .call(&ctx, "strategy.use", params)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(result["name"], "research");
+        assert_eq!(
+            fs::read(ctx.pacer_home.join("active")).unwrap(),
+            b"research\n"
         );
     }
     #[test]

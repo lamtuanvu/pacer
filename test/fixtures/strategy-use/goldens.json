@@ -1,0 +1,190 @@
+[
+  {
+    "id": "activate-research",
+    "initial": "default",
+    "target": "research",
+    "defaultYaml": "# Main work\nplanner: codex\naccounts: {personal: {kind: codex}}\nrouting: [{default: [codex]}]\n",
+    "researchYaml": "# Research mode\nplanner: codex\naccounts: {personal: {kind: codex}}\npacing: {policy: even, planner_reserve: 25}\nrouting: [{default: [codex]}]\n",
+    "result": {
+      "name": "research",
+      "path": "$PACER_HOME/strategies/research.yaml"
+    },
+    "active": "research\n",
+    "activity": [
+      {
+        "kind": "config",
+        "level": "info",
+        "text": "Configuration changed · strategy",
+        "id": "<activity-id>",
+        "at": 1700000000
+      }
+    ],
+    "outbox": [
+      {
+        "seq": 1,
+        "at": 1700000000,
+        "envelope": {
+          "type": "alert",
+          "data": {
+            "key": "strategy-switch",
+            "level": "info",
+            "title": "Switched to strategy research",
+            "body": "Nothing to do.",
+            "notification": {
+              "kind": "strategy",
+              "strategy": "research"
+            },
+            "at": 1700000000
+          }
+        }
+      },
+      {
+        "seq": 2,
+        "at": 1700000000,
+        "envelope": {
+          "type": "entity",
+          "data": {
+            "kind": "activity",
+            "id": "<activity-id>",
+            "value": {
+              "kind": "config",
+              "level": "info",
+              "text": "Configuration changed · strategy",
+              "id": "<activity-id>",
+              "at": 1700000000
+            }
+          }
+        }
+      },
+      {
+        "seq": 3,
+        "at": 1700000000,
+        "envelope": {
+          "type": "config",
+          "data": {
+            "area": "strategy",
+            "at": 1700000000
+          }
+        }
+      }
+    ],
+    "latest": {
+      "v": 1,
+      "seq": 3,
+      "at": 1700000000,
+      "budget": null,
+      "mode": null,
+      "tasks": [],
+      "alerts": [
+        {
+          "key": "strategy-switch",
+          "level": "info",
+          "title": "Switched to strategy research",
+          "body": "Nothing to do.",
+          "at": 1700000000,
+          "notification": {
+            "kind": "strategy",
+            "strategy": "research"
+          }
+        }
+      ],
+      "console": null,
+      "consoles": [],
+      "strategies": []
+    }
+  },
+  {
+    "id": "return-default",
+    "initial": "research",
+    "target": "default",
+    "defaultYaml": "# Main work\nplanner: codex\naccounts: {personal: {kind: codex}}\nrouting: [{default: [codex]}]\n",
+    "researchYaml": "# Research mode\nplanner: codex\naccounts: {personal: {kind: codex}}\npacing: {policy: even, planner_reserve: 25}\nrouting: [{default: [codex]}]\n",
+    "result": {
+      "name": "default",
+      "path": "$PACER_HOME/strategy.yaml"
+    },
+    "active": null,
+    "activity": [
+      {
+        "kind": "config",
+        "level": "info",
+        "text": "Configuration changed · strategy",
+        "id": "<activity-id>",
+        "at": 1700000000
+      }
+    ],
+    "outbox": [
+      {
+        "seq": 1,
+        "at": 1700000000,
+        "envelope": {
+          "type": "alert",
+          "data": {
+            "key": "strategy-switch",
+            "level": "info",
+            "title": "Switched to strategy default",
+            "body": "Nothing to do.",
+            "notification": {
+              "kind": "strategy",
+              "strategy": "default"
+            },
+            "at": 1700000000
+          }
+        }
+      },
+      {
+        "seq": 2,
+        "at": 1700000000,
+        "envelope": {
+          "type": "entity",
+          "data": {
+            "kind": "activity",
+            "id": "<activity-id>",
+            "value": {
+              "kind": "config",
+              "level": "info",
+              "text": "Configuration changed · strategy",
+              "id": "<activity-id>",
+              "at": 1700000000
+            }
+          }
+        }
+      },
+      {
+        "seq": 3,
+        "at": 1700000000,
+        "envelope": {
+          "type": "config",
+          "data": {
+            "area": "strategy",
+            "at": 1700000000
+          }
+        }
+      }
+    ],
+    "latest": {
+      "v": 1,
+      "seq": 3,
+      "at": 1700000000,
+      "budget": null,
+      "mode": null,
+      "tasks": [],
+      "alerts": [
+        {
+          "key": "strategy-switch",
+          "level": "info",
+          "title": "Switched to strategy default",
+          "body": "Nothing to do.",
+          "at": 1700000000,
+          "notification": {
+            "kind": "strategy",
+            "strategy": "default"
+          }
+        }
+      ],
+      "console": null,
+      "consoles": [],
+      "strategies": []
+    }
+  }
+]

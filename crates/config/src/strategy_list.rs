@@ -222,6 +222,24 @@ fn model(ctx: &Ctx) -> Option<Value> {
     Some(Value::Array(rows))
 }
 
+/// Preselect only requested names in a catalog whose complete YAML set and
+/// current active file are representable by the native loader.
+pub(crate) fn use_selection(ctx: &Ctx, params: &Value) -> Option<(String, String)> {
+    let name = params.get("name")?.as_str()?;
+    if !valid_name(name) {
+        return None;
+    }
+    let rows = model(ctx)?;
+    let rows = rows.as_array()?;
+    if !rows.iter().any(|row| row["name"] == name) {
+        return None;
+    }
+    let observed = rows.iter().find(|row| row["active"] == true)?["name"]
+        .as_str()?
+        .to_owned();
+    Some((name.to_owned(), observed))
+}
+
 /// Keep the full call with TypeScript when any file needs broader validation.
 pub fn requires_core_strategy_list_parser(ctx: &Ctx) -> bool {
     model(ctx).is_none()
