@@ -16,6 +16,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Changed
 
+- Run consented remote checkout clones through the bundled SSH host runner with a one-use configured grant and completion receipt. Missing receipts leave the operation unsettled and never trigger a direct SSH retry.
 - Check remote checkout existence for setup and clone consent through the bundled SSH host runner's fixed read-only script. Plugin refusal stops setup without a direct SSH retry.
 - Check configured remote account folders, checkouts and repository identity through the bundled SSH host runner's fixed read-only script. Plugin refusal does not retry these checks through direct SSH.
 - Run the initial `pacer host check` SSH and tool diagnostic through the bundled SSH host runner. Disabled or failing plugins report the host unreachable; paused hosts remain diagnosable.

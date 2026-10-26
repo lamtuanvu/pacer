@@ -26,7 +26,7 @@ printf 'home=%s\\n' "$HOME"`,
 case "$path" in '~/'*) path="$HOME/\${path#??}" ;; esac
 case "$1" in
   home) test -d "$path" ;;
-  clone) git clone -- "$2" "$path" ;;
+  clone) [ ! -e "$path" ] && [ ! -L "$path" ] || exit 1; git clone -- "$2" "$path" ;;
   *)
     if [ ! -d "$path" ]; then printf 'exists=0\\n'; exit 0; fi
     printf 'exists=1\\n'

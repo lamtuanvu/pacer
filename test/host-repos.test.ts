@@ -11,9 +11,24 @@ import { fakeCtx } from "./helpers";
 function fixture() {
   const ctx = fakeCtx(), remote: string[] = [];
   mkdirSync(ctx.pacerHome, { recursive: true });
-  const bin = join(ctx.home, "bin"), ssh = join(bin, "ssh"), sshLog = join(ctx.home, "ssh.log"), existsFlag = join(ctx.home, "checkout-exists");
+  const bin = join(ctx.home, "bin"), ssh = join(bin, "ssh"), sshLog = join(ctx.home, "ssh.log"), existsFlag = join(ctx.home, "checkout-exists"), failClone = join(ctx.home, "fail-clone");
   mkdirSync(bin, { recursive: true });
-  writeFileSync(ssh, `#!/bin/sh\nprintf '%s\\n' "$*" >> '${sshLog}'\ncase "$*" in\n  *"__PACER_DONE__="*) nonce=$(printf '%s' "$*" | sed -n 's/.*__PACER_DONE__=\\([a-f0-9-]*\\).*/\\1/p'); printf '__PACER_BEGIN__\\n\\n__PACER_DONE__=%s\\n' "$nonce" ;;\n  *"command -v codex"*) printf '__PACER_BEGIN__\\ngit=git version 2.43.0\\nsetsid=/bin/setsid\\nscript=script from util-linux 2.40\\ntail=/usr/bin/tail\\n' ;;\n  *" check"*) if [ -f ${JSON.stringify(existsFlag)} ]; then printf '__PACER_BEGIN__\\nexists=1\\ngit=1\\norigin=https://github.com/acme/api.git\\nname=Test User\\nemail=test@example.invalid\\n'; else printf '__PACER_BEGIN__\\nexists=0\\n'; fi ;;\n  *) printf '__PACER_BEGIN__\\n' ;;\nesac\n`);
+  writeFileSync(ssh, `#!/bin/sh
+printf '%s\\n' "$*" >> '${sshLog}'
+case "$*" in
+  *"__PACER_DONE__="*)
+    nonce=$(printf '%s' "$*" | sed -n 's/.*__PACER_DONE__=\\([a-f0-9-]*\\).*/\\1/p')
+    case "$*" in *" clone "*)
+      if [ -f ${JSON.stringify(failClone)} ]; then printf '__PACER_BEGIN__\\n\\n__PACER_DONE__=%s\\n' "$nonce"; exit 1; fi
+      touch ${JSON.stringify(existsFlag)}
+    ;; esac
+    printf '__PACER_BEGIN__\\n\\n__PACER_DONE__=%s\\n' "$nonce"
+    ;;
+  *"command -v codex"*) printf '__PACER_BEGIN__\\ngit=git version 2.43.0\\nsetsid=/bin/setsid\\nscript=script from util-linux 2.40\\ntail=/usr/bin/tail\\n' ;;
+  *" check"*) if [ -f ${JSON.stringify(existsFlag)} ]; then printf '__PACER_BEGIN__\\nexists=1\\ngit=1\\norigin=https://github.com/acme/api.git\\nname=Test User\\nemail=test@example.invalid\\n'; else printf '__PACER_BEGIN__\\nexists=0\\n'; fi ;;
+  *) printf '__PACER_BEGIN__\\n' ;;
+esac
+`);
   chmodSync(ssh, 0o700);
   ctx.env = { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}` };
   ctx.which = name => name === "ssh" ? ssh : null;
@@ -26,11 +41,10 @@ function fixture() {
     if (argv[0] === "git") return { code: 0, stderr: "", stdout: argv.includes("get-url") ? "https://github.com/acme/api.git" : argv.includes("user.name") ? "Test User" : "test@example.invalid" };
     const cmd = argv.at(-1)!;
     remote.push(cmd);
-    if (cmd.endsWith("clone https://github.com/acme/api.git")) writeFileSync(existsFlag, "");
     const stdout = cmd.includes("command -v codex") ? "git=git version 2.43.0\nsetsid=/bin/setsid\nscript=script from util-linux 2.40\ntail=/usr/bin/tail\n" : existsSync(existsFlag) ? "exists=1\ngit=1\norigin=https://github.com/acme/api.git\nname=Test User\nemail=test@example.invalid\n" : "exists=0\n";
     return { code: 0, stderr: "", stdout: `__PACER_BEGIN__\n${stdout}` };
   };
-  return { ctx, remote, sshLog };
+  return { ctx, remote, sshLog, failClone };
 }
 
 test("repo map normalizes canonical keys and rejects incomplete keys without editing", async () => {
@@ -50,7 +64,7 @@ test("repo setup requires consent before any SSH and runs clone, identity, check
   const { job } = await callOp(ctx, "host.repo.setup", { alias: "devbox", key: "github.com/acme/api", consent: true }) as { job: Job };
   expect(job.state).toBe("passed");
   expect(job.steps.map(s => [s.name, s.state])).toEqual([["Clone", "passed"], ["Set identity", "passed"], ["Check", "passed"]]);
-  const clone = remote.findIndex(c => c.endsWith("clone https://github.com/acme/api.git"));
+  const clone = readFileSync(sshLog, "utf8").indexOf(" clone https://github.com/acme/api.git");
   expect(clone).toBeGreaterThanOrEqual(0);
   expect(readFileSync(sshLog, "utf8")).toContain('config --local user.name "$2"');
   expect(readFileSync(sshLog, "utf8")).toContain("command -v codex");
@@ -71,11 +85,8 @@ test("host account folder returns a login command without connecting or logging 
 });
 
 test("a clone failure fails its step and prevents identity setup", async () => {
-  const { ctx, sshLog } = fixture(), run = ctx.run;
-  ctx.run = async (...args) => {
-    const result = await run(...args);
-    return args[0].at(-1)?.endsWith("clone https://github.com/acme/api.git") ? { ...result, code: 1 } : result;
-  };
+  const { ctx, sshLog, failClone } = fixture();
+  writeFileSync(failClone, "");
   const { job } = await callOp(ctx, "host.repo.setup", { alias: "devbox", key: "github.com/acme/api", consent: true }) as { job: Job };
   expect(job.state).toBe("failed");
   expect(job.steps.map(s => s.state)).toEqual(["failed", "skipped", "skipped"]);
