@@ -28,7 +28,7 @@ import { observationMethodSchema, observationScopeSchema, observationSchema, dec
 export const PLUGIN_PROTOCOL_VERSION = "1.5.0";
 export const PLUGIN_PROTOCOL_MAJOR = 1;
 
-export const EXTENSION_POINTS = ["diagnostic", "agentSession", "observation", "decision", "usage", "classifier", "notifier", "endpoint", "planner", "policy", "hostRunner", "remoteCaller", "executor"] as const;
+export const EXTENSION_POINTS = ["diagnostic", "agentSession", "observation", "decision", "usage", "classifier", "notifier", "endpoint", "planner", "policy", "hostRunner", "remoteCaller", "executor", "surface"] as const;
 export type ExtensionPoint = (typeof EXTENSION_POINTS)[number];
 
 export const CAPABILITIES = ["tasks.read", "events.subscribe", "process.spawn", "fs.read", "fs.write", "net.http", "secrets.resolve", "config.get", "entitlement.report", "log", "usage.state", "hosts"] as const;
@@ -37,6 +37,12 @@ export type Capability = (typeof CAPABILITIES)[number];
 export const PLUGIN_ID = /^[a-z0-9][a-z0-9-]{1,63}$/;
 const SEMVER_RANGE = /^(\^|~|>=)?\d+(\.\d+){0,2}$|^\*$/;
 const genericContribution = z.record(z.string(), z.json());
+/** Static assets are confined to a named directory below the installed plugin. */
+export const surfaceContribution = z.object({
+  prefix: z.string().regex(/^[a-z0-9-]{1,32}$/),
+  dir: z.string().min(1).max(256).regex(/^(?![A-Za-z]:)(?!\.{1,2}(?:\/|$))[^/\\\x00-\x1f\x7f]+(?:\/(?!\.{1,2}(?:\/|$))[^/\\\x00-\x1f\x7f]+)*$/,
+    "dir must be a relative path inside the plugin folder"),
+}).strict();
 /** Keep the published manifest schema as strict as runtime validation. */
 export const manifestContributes = z.object({
   diagnostic: genericContribution.optional(),
@@ -52,6 +58,7 @@ export const manifestContributes = z.object({
   hostRunner: hostRunnerContribution.optional(),
   remoteCaller: genericContribution.optional(),
   executor: executorContribution.optional(),
+  surface: surfaceContribution.optional(),
 }).strict();
 
 export const manifestSchema = z.object({

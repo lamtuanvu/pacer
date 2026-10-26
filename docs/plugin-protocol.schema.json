@@ -374,6 +374,26 @@
                 "backends"
               ],
               "additionalProperties": false
+            },
+            "surface": {
+              "type": "object",
+              "properties": {
+                "prefix": {
+                  "type": "string",
+                  "pattern": "^[a-z0-9-]{1,32}$"
+                },
+                "dir": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256,
+                  "pattern": "^(?![A-Za-z]:)(?!\\.{1,2}(?:\\/|$))[^/\\\\\\x00-\\x1f\\x7f]+(?:\\/(?!\\.{1,2}(?:\\/|$))[^/\\\\\\x00-\\x1f\\x7f]+)*$"
+                }
+              },
+              "required": [
+                "prefix",
+                "dir"
+              ],
+              "additionalProperties": false
             }
           },
           "additionalProperties": false
@@ -645,6 +665,26 @@
                   },
                   "required": [
                     "backends"
+                  ],
+                  "additionalProperties": false
+                },
+                "surface": {
+                  "type": "object",
+                  "properties": {
+                    "prefix": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9-]{1,32}$"
+                    },
+                    "dir": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256,
+                      "pattern": "^(?![A-Za-z]:)(?!\\.{1,2}(?:\\/|$))[^/\\\\\\x00-\\x1f\\x7f]+(?:\\/(?!\\.{1,2}(?:\\/|$))[^/\\\\\\x00-\\x1f\\x7f]+)*$"
+                    }
+                  },
+                  "required": [
+                    "prefix",
+                    "dir"
                   ],
                   "additionalProperties": false
                 }

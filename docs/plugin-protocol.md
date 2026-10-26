@@ -14,6 +14,8 @@ Protocol 1.5 adds policy/task/event contracts and mutually negotiated `policyObs
 
 The staged `executor` point currently defines only `contributes.executor.backends: ["direct"]` and `executor.available`. Availability receives a credential-free strategy name and has a 10 s host deadline. This contract has fake conformance coverage but no production caller; run, stop, resume, session state, task patching and executor effects require a separately reviewed owner-bound contract.
 
+The staged `surface` point has no plugin methods. Its manifest contract is `contributes.surface: { prefix, dir }`, where `dir` is a safe relative path below the installed plugin folder. The host does not yet serve plugin files: an isolated browser origin and race-safe file access are required before static surfaces can be enabled.
+
 The `hostRunner` point names only fixed SSH script IDs and uses bounded arguments, results and finite deadlines. The `hosts` capability defines `open`, `run`, `fetch` and `close` with host-owned broker sessions. Callers supply only a configured alias and fixed script input; the host derives the SSH target and selects the provider. Host setup identity and committed-task transfer use the bundled `remoteCaller` with one-use host-issued grants. Other production SSH paths still require caller cutover.
 
 Peers explicitly negotiate `chunkedResults` in hello features. For a large usage result, the plugin sends sequential `$/resultChunk` requests containing the original numeric request id, contiguous byte offset and at most 256 KiB of base64 JSON bytes, with the original call metadata. It waits for each `{ bytes }` acknowledgement, then replies to the original request with `{ _chunkedResult: { bytes } }`. The host resolves only after exact-length complete JSON assembly under the original authority/deadline. Legacy peers keep ordinary replies; chunks never renew authority.
@@ -189,6 +191,26 @@ SDKs: `@pacer/plugin` (TypeScript) and `pacer-plugin` (Rust).
             "backends"
           ],
           "additionalProperties": false
+        },
+        "surface": {
+          "type": "object",
+          "properties": {
+            "prefix": {
+              "type": "string",
+              "pattern": "^[a-z0-9-]{1,32}$"
+            },
+            "dir": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "pattern": "^(?![A-Za-z]:)(?!\\.{1,2}(?:\\/|$))[^/\\\\\\x00-\\x1f\\x7f]+(?:\\/(?!\\.{1,2}(?:\\/|$))[^/\\\\\\x00-\\x1f\\x7f]+)*$"
+            }
+          },
+          "required": [
+            "prefix",
+            "dir"
+          ],
+          "additionalProperties": false
         }
       },
       "additionalProperties": false
@@ -294,7 +316,7 @@ SDKs: `@pacer/plugin` (TypeScript) and `pacer-plugin` (Rust).
 }
 ```
 
-Extension points: `diagnostic`, `agentSession`, `observation`, `decision`, `usage`, `classifier`, `notifier`, `endpoint`, `planner`, `policy`, `hostRunner`, `remoteCaller`, `executor` (every plugin serves `diagnostic`). Capabilities: `tasks.read`, `events.subscribe`, `process.spawn`, `fs.read`, `fs.write`, `net.http`, `secrets.resolve`, `config.get`, `entitlement.report`, `log`, `usage.state`, `hosts`.
+Extension points: `diagnostic`, `agentSession`, `observation`, `decision`, `usage`, `classifier`, `notifier`, `endpoint`, `planner`, `policy`, `hostRunner`, `remoteCaller`, `executor`, `surface` (every plugin serves `diagnostic`). Capabilities: `tasks.read`, `events.subscribe`, `process.spawn`, `fs.read`, `fs.write`, `net.http`, `secrets.resolve`, `config.get`, `entitlement.report`, `log`, `usage.state`, `hosts`.
 
 ## Lifecycle
 
@@ -494,6 +516,26 @@ Params:
               },
               "required": [
                 "backends"
+              ],
+              "additionalProperties": false
+            },
+            "surface": {
+              "type": "object",
+              "properties": {
+                "prefix": {
+                  "type": "string",
+                  "pattern": "^[a-z0-9-]{1,32}$"
+                },
+                "dir": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256,
+                  "pattern": "^(?![A-Za-z]:)(?!\\.{1,2}(?:\\/|$))[^/\\\\\\x00-\\x1f\\x7f]+(?:\\/(?!\\.{1,2}(?:\\/|$))[^/\\\\\\x00-\\x1f\\x7f]+)*$"
+                }
+              },
+              "required": [
+                "prefix",
+                "dir"
               ],
               "additionalProperties": false
             }

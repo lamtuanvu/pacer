@@ -302,7 +302,7 @@ impl ::std::convert::From<CapabilityFsBeginWriteParamsPath> for ::std::string::S
 impl ::std::str::FromStr for CapabilityFsBeginWriteParamsPath {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_7(value, Self)
+        validate_string_8(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityFsBeginWriteParamsPath {
@@ -557,7 +557,7 @@ impl ::std::convert::From<CapabilityFsListParamsDir> for ::std::string::String {
 impl ::std::str::FromStr for CapabilityFsListParamsDir {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_7(value, Self)
+        validate_string_8(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityFsListParamsDir {
@@ -603,7 +603,7 @@ impl ::std::convert::From<CapabilityFsListParamsGlob> for ::std::string::String 
 impl ::std::str::FromStr for CapabilityFsListParamsGlob {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_7(value, Self)
+        validate_string_8(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityFsListParamsGlob {
@@ -780,7 +780,7 @@ impl ::std::convert::From<CapabilityFsListResultFilesItemPath> for ::std::string
 impl ::std::str::FromStr for CapabilityFsListResultFilesItemPath {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_7(value, Self)
+        validate_string_8(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityFsListResultFilesItemPath {
@@ -852,7 +852,7 @@ impl ::std::convert::From<CapabilityFsMkdirParamsPath> for ::std::string::String
 impl ::std::str::FromStr for CapabilityFsMkdirParamsPath {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_7(value, Self)
+        validate_string_8(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityFsMkdirParamsPath {
@@ -949,7 +949,7 @@ impl ::std::convert::From<CapabilityFsReadParamsPath> for ::std::string::String 
 impl ::std::str::FromStr for CapabilityFsReadParamsPath {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_7(value, Self)
+        validate_string_8(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityFsReadParamsPath {
@@ -1125,7 +1125,7 @@ impl ::std::convert::From<CapabilityFsReadRangeParamsPath> for ::std::string::St
 impl ::std::str::FromStr for CapabilityFsReadRangeParamsPath {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_7(value, Self)
+        validate_string_8(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityFsReadRangeParamsPath {
@@ -1267,7 +1267,7 @@ impl ::std::convert::From<CapabilityFsReadRangeResultVariant0Base64> for ::std::
 impl ::std::str::FromStr for CapabilityFsReadRangeResultVariant0Base64 {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_5(value, Self)
+        validate_string_6(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityFsReadRangeResultVariant0Base64 {
@@ -1373,7 +1373,7 @@ impl ::std::convert::From<CapabilityFsReadRangeResultVariant0InfoPath> for ::std
 impl ::std::str::FromStr for CapabilityFsReadRangeResultVariant0InfoPath {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_7(value, Self)
+        validate_string_8(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityFsReadRangeResultVariant0InfoPath {
@@ -1595,7 +1595,7 @@ impl ::std::convert::From<CapabilityFsReadResultVariant2RangedPath> for ::std::s
 impl ::std::str::FromStr for CapabilityFsReadResultVariant2RangedPath {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_7(value, Self)
+        validate_string_8(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityFsReadResultVariant2RangedPath {
@@ -1769,7 +1769,7 @@ impl ::std::convert::From<CapabilityFsRemoveParamsPath> for ::std::string::Strin
 impl ::std::str::FromStr for CapabilityFsRemoveParamsPath {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_7(value, Self)
+        validate_string_8(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityFsRemoveParamsPath {
@@ -1866,7 +1866,7 @@ impl ::std::convert::From<CapabilityFsStatParamsPath> for ::std::string::String 
 impl ::std::str::FromStr for CapabilityFsStatParamsPath {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_7(value, Self)
+        validate_string_8(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityFsStatParamsPath {
@@ -2013,7 +2013,7 @@ impl ::std::convert::From<CapabilityFsStatResultInfoPath> for ::std::string::Str
 impl ::std::str::FromStr for CapabilityFsStatResultInfoPath {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_7(value, Self)
+        validate_string_8(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityFsStatResultInfoPath {
@@ -2276,7 +2276,7 @@ impl ::std::convert::From<CapabilityFsWriteParamsPath> for ::std::string::String
 impl ::std::str::FromStr for CapabilityFsWriteParamsPath {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_7(value, Self)
+        validate_string_8(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityFsWriteParamsPath {
@@ -2453,7 +2453,7 @@ impl ::std::convert::From<CapabilityLogParamsMessage> for ::std::string::String 
 impl ::std::str::FromStr for CapabilityLogParamsMessage {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_6(value, Self)
+        validate_string_7(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityLogParamsMessage {
@@ -2734,7 +2734,7 @@ impl ::std::convert::From<CapabilityNetHttpBodyReadChunkResultBase64> for ::std:
 impl ::std::str::FromStr for CapabilityNetHttpBodyReadChunkResultBase64 {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_4(value, Self)
+        validate_string_5(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityNetHttpBodyReadChunkResultBase64 {
@@ -2917,7 +2917,7 @@ impl ::std::convert::From<CapabilityNetHttpBodyStageChunkParamsBase64> for ::std
 impl ::std::str::FromStr for CapabilityNetHttpBodyStageChunkParamsBase64 {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_4(value, Self)
+        validate_string_5(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityNetHttpBodyStageChunkParamsBase64 {
@@ -3167,7 +3167,7 @@ impl ::std::convert::From<CapabilityNetHttpParamsAuthorizationSecretRef> for ::s
 impl ::std::str::FromStr for CapabilityNetHttpParamsAuthorizationSecretRef {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_11(value, Self)
+        validate_string_12(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityNetHttpParamsAuthorizationSecretRef {
@@ -3736,7 +3736,7 @@ impl ::std::convert::From<CapabilityPlannerRunParamsArgvItem> for ::std::string:
 impl ::std::str::FromStr for CapabilityPlannerRunParamsArgvItem {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_6(value, Self)
+        validate_string_7(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityPlannerRunParamsArgvItem {
@@ -3781,7 +3781,7 @@ impl ::std::convert::From<CapabilityPlannerRunParamsUndoItem> for ::std::string:
 impl ::std::str::FromStr for CapabilityPlannerRunParamsUndoItem {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_6(value, Self)
+        validate_string_7(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityPlannerRunParamsUndoItem {
@@ -4062,7 +4062,7 @@ impl ::std::convert::From<CapabilityProcessOutputChunkResultBase64> for ::std::s
 impl ::std::str::FromStr for CapabilityProcessOutputChunkResultBase64 {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_5(value, Self)
+        validate_string_6(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityProcessOutputChunkResultBase64 {
@@ -4187,7 +4187,7 @@ impl ::std::convert::From<CapabilityProcessSpawnParamsArgvItem> for ::std::strin
 impl ::std::str::FromStr for CapabilityProcessSpawnParamsArgvItem {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_6(value, Self)
+        validate_string_7(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityProcessSpawnParamsArgvItem {
@@ -4233,7 +4233,7 @@ impl ::std::convert::From<CapabilityProcessSpawnParamsCwd> for ::std::string::St
 impl ::std::str::FromStr for CapabilityProcessSpawnParamsCwd {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_7(value, Self)
+        validate_string_8(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityProcessSpawnParamsCwd {
@@ -4373,7 +4373,7 @@ impl ::std::convert::From<CapabilityProcessSpawnParamsEnvValueVariant1SecretRef>
 impl ::std::str::FromStr for CapabilityProcessSpawnParamsEnvValueVariant1SecretRef {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_11(value, Self)
+        validate_string_12(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityProcessSpawnParamsEnvValueVariant1SecretRef {
@@ -4691,7 +4691,7 @@ impl ::std::convert::From<CapabilityProcessStageBundleParamsArgvItem> for ::std:
 impl ::std::str::FromStr for CapabilityProcessStageBundleParamsArgvItem {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_6(value, Self)
+        validate_string_7(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityProcessStageBundleParamsArgvItem {
@@ -4908,7 +4908,7 @@ impl ::std::convert::From<CapabilitySecretsResolveParamsRef> for ::std::string::
 impl ::std::str::FromStr for CapabilitySecretsResolveParamsRef {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_11(value, Self)
+        validate_string_12(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilitySecretsResolveParamsRef {
@@ -5354,7 +5354,7 @@ impl ::std::convert::From<CapabilityUsageStateReadChunkResultBase64> for ::std::
 impl ::std::str::FromStr for CapabilityUsageStateReadChunkResultBase64 {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_5(value, Self)
+        validate_string_6(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityUsageStateReadChunkResultBase64 {
@@ -5537,7 +5537,7 @@ impl ::std::convert::From<CapabilityUsageStateStageChunkParamsBase64> for ::std:
 impl ::std::str::FromStr for CapabilityUsageStateStageChunkParamsBase64 {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_5(value, Self)
+        validate_string_6(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityUsageStateStageChunkParamsBase64 {
@@ -6603,7 +6603,7 @@ impl ::std::convert::From<EndpointLaunchEnvParamsAccountKeyRef> for ::std::strin
 impl ::std::str::FromStr for EndpointLaunchEnvParamsAccountKeyRef {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_11(value, Self)
+        validate_string_12(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for EndpointLaunchEnvParamsAccountKeyRef {
@@ -6823,7 +6823,7 @@ impl ::std::convert::From<EndpointLaunchEnvParamsAccountsItemKeyRef> for ::std::
 impl ::std::str::FromStr for EndpointLaunchEnvParamsAccountsItemKeyRef {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_11(value, Self)
+        validate_string_12(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for EndpointLaunchEnvParamsAccountsItemKeyRef {
@@ -7050,7 +7050,7 @@ impl ::std::convert::From<EndpointLaunchEnvResultSecretEnvValue> for ::std::stri
 impl ::std::str::FromStr for EndpointLaunchEnvResultSecretEnvValue {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_11(value, Self)
+        validate_string_12(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for EndpointLaunchEnvResultSecretEnvValue {
@@ -7146,7 +7146,7 @@ impl ::std::convert::From<EndpointModelsParamsKeyRef> for ::std::string::String 
 impl ::std::str::FromStr for EndpointModelsParamsKeyRef {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_11(value, Self)
+        validate_string_12(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for EndpointModelsParamsKeyRef {
@@ -7630,7 +7630,7 @@ impl ::std::convert::From<EndpointTestParamsAccountKeyRef> for ::std::string::St
 impl ::std::str::FromStr for EndpointTestParamsAccountKeyRef {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_11(value, Self)
+        validate_string_12(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for EndpointTestParamsAccountKeyRef {
@@ -7850,7 +7850,7 @@ impl ::std::convert::From<EndpointTestParamsAccountsItemKeyRef> for ::std::strin
 impl ::std::str::FromStr for EndpointTestParamsAccountsItemKeyRef {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_11(value, Self)
+        validate_string_12(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for EndpointTestParamsAccountsItemKeyRef {
@@ -7988,7 +7988,7 @@ impl ::std::convert::From<EndpointTestParamsConfigRef> for ::std::string::String
 impl ::std::str::FromStr for EndpointTestParamsConfigRef {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_11(value, Self)
+        validate_string_12(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for EndpointTestParamsConfigRef {
@@ -8664,6 +8664,26 @@ impl<'de> ::serde::Deserialize<'de> for ExecutorAvailableResultReason {
 ///                "type": "string"
 ///              }
 ///            },
+///            "surface": {
+///              "type": "object",
+///              "required": [
+///                "dir",
+///                "prefix"
+///              ],
+///              "properties": {
+///                "dir": {
+///                  "type": "string",
+///                  "maxLength": 256,
+///                  "minLength": 1,
+///                  "pattern": "^(?![A-Za-z]:)(?!\\.{1,2}(?:\\/|$))[^/\\\\\\x00-\\x1f\\x7f]+(?:\\/(?!\\.{1,2}(?:\\/|$))[^/\\\\\\x00-\\x1f\\x7f]+)*$"
+///                },
+///                "prefix": {
+///                  "type": "string",
+///                  "pattern": "^[a-z0-9-]{1,32}$"
+///                }
+///              },
+///              "additionalProperties": false
+///            },
 ///            "usage": {
 ///              "type": "object",
 ///              "additionalProperties": {
@@ -8762,7 +8782,7 @@ impl ::std::convert::From<HelloParamsFeaturesItem> for ::std::string::String {
 impl ::std::str::FromStr for HelloParamsFeaturesItem {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_9(value, Self)
+        validate_string_10(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for HelloParamsFeaturesItem {
@@ -9080,6 +9100,26 @@ impl ::std::convert::TryFrom<&str> for HelloParamsGrantsItem {
 ///          "propertyNames": {
 ///            "type": "string"
 ///          }
+///        },
+///        "surface": {
+///          "type": "object",
+///          "required": [
+///            "dir",
+///            "prefix"
+///          ],
+///          "properties": {
+///            "dir": {
+///              "type": "string",
+///              "maxLength": 256,
+///              "minLength": 1,
+///              "pattern": "^(?![A-Za-z]:)(?!\\.{1,2}(?:\\/|$))[^/\\\\\\x00-\\x1f\\x7f]+(?:\\/(?!\\.{1,2}(?:\\/|$))[^/\\\\\\x00-\\x1f\\x7f]+)*$"
+///            },
+///            "prefix": {
+///              "type": "string",
+///              "pattern": "^[a-z0-9-]{1,32}$"
+///            }
+///          },
+///          "additionalProperties": false
 ///        },
 ///        "usage": {
 ///          "type": "object",
@@ -9488,6 +9528,26 @@ impl<'de> ::serde::Deserialize<'de> for HelloParamsManifestCapabilitiesItemScope
 ///        "type": "string"
 ///      }
 ///    },
+///    "surface": {
+///      "type": "object",
+///      "required": [
+///        "dir",
+///        "prefix"
+///      ],
+///      "properties": {
+///        "dir": {
+///          "type": "string",
+///          "maxLength": 256,
+///          "minLength": 1,
+///          "pattern": "^(?![A-Za-z]:)(?!\\.{1,2}(?:\\/|$))[^/\\\\\\x00-\\x1f\\x7f]+(?:\\/(?!\\.{1,2}(?:\\/|$))[^/\\\\\\x00-\\x1f\\x7f]+)*$"
+///        },
+///        "prefix": {
+///          "type": "string",
+///          "pattern": "^[a-z0-9-]{1,32}$"
+///        }
+///      },
+///      "additionalProperties": false
+///    },
 ///    "usage": {
 ///      "type": "object",
 ///      "additionalProperties": {
@@ -9565,6 +9625,8 @@ pub struct HelloParamsManifestContributes {
         skip_serializing_if = ":: std :: collections :: HashMap::is_empty"
     )]
     pub remote_caller: ::std::collections::HashMap<::std::string::String, HelloParamsSchema0>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub surface: ::std::option::Option<HelloParamsManifestContributesSurface>,
     #[serde(
         default,
         skip_serializing_if = ":: std :: collections :: HashMap::is_empty"
@@ -9586,6 +9648,7 @@ impl ::std::default::Default for HelloParamsManifestContributes {
             planner: Default::default(),
             policy: Default::default(),
             remote_caller: Default::default(),
+            surface: Default::default(),
             usage: Default::default(),
         }
     }
@@ -9710,6 +9773,131 @@ impl ::std::convert::From<&Self> for HelloParamsManifestContributesHostRunnerKin
         value.clone()
     }
 }
+///`HelloParamsManifestContributesSurface`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "dir",
+///    "prefix"
+///  ],
+///  "properties": {
+///    "dir": {
+///      "type": "string",
+///      "maxLength": 256,
+///      "minLength": 1,
+///      "pattern": "^(?![A-Za-z]:)(?!\\.{1,2}(?:\\/|$))[^/\\\\\\x00-\\x1f\\x7f]+(?:\\/(?!\\.{1,2}(?:\\/|$))[^/\\\\\\x00-\\x1f\\x7f]+)*$"
+///    },
+///    "prefix": {
+///      "type": "string",
+///      "pattern": "^[a-z0-9-]{1,32}$"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct HelloParamsManifestContributesSurface {
+    pub dir: HelloParamsManifestContributesSurfaceDir,
+    pub prefix: HelloParamsManifestContributesSurfacePrefix,
+}
+///`HelloParamsManifestContributesSurfaceDir`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 256,
+///  "minLength": 1,
+///  "pattern": "^(?![A-Za-z]:)(?!\\.{1,2}(?:\\/|$))[^/\\\\\\x00-\\x1f\\x7f]+(?:\\/(?!\\.{1,2}(?:\\/|$))[^/\\\\\\x00-\\x1f\\x7f]+)*$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct HelloParamsManifestContributesSurfaceDir(::std::string::String);
+impl ::std::ops::Deref for HelloParamsManifestContributesSurfaceDir {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<HelloParamsManifestContributesSurfaceDir> for ::std::string::String {
+    fn from(value: HelloParamsManifestContributesSurfaceDir) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for HelloParamsManifestContributesSurfaceDir {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_4(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for HelloParamsManifestContributesSurfaceDir {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for HelloParamsManifestContributesSurfaceDir {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`HelloParamsManifestContributesSurfacePrefix`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "pattern": "^[a-z0-9-]{1,32}$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct HelloParamsManifestContributesSurfacePrefix(::std::string::String);
+impl ::std::ops::Deref for HelloParamsManifestContributesSurfacePrefix {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<HelloParamsManifestContributesSurfacePrefix> for ::std::string::String {
+    fn from(value: HelloParamsManifestContributesSurfacePrefix) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for HelloParamsManifestContributesSurfacePrefix {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_13(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for HelloParamsManifestContributesSurfacePrefix {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for HelloParamsManifestContributesSurfacePrefix {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
 ///`HelloParamsManifestEntry`
 ///
 /// <details><summary>JSON schema</summary>
@@ -9783,7 +9971,7 @@ impl ::std::convert::From<HelloParamsManifestHost> for ::std::string::String {
 impl ::std::str::FromStr for HelloParamsManifestHost {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_10(value, Self)
+        validate_string_11(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for HelloParamsManifestHost {
@@ -9828,7 +10016,7 @@ impl ::std::convert::From<HelloParamsManifestId> for ::std::string::String {
 impl ::std::str::FromStr for HelloParamsManifestId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_13(value, Self)
+        validate_string_15(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for HelloParamsManifestId {
@@ -10190,7 +10378,7 @@ impl ::std::convert::From<HelloResultFeaturesItem> for ::std::string::String {
 impl ::std::str::FromStr for HelloResultFeaturesItem {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_9(value, Self)
+        validate_string_10(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for HelloResultFeaturesItem {
@@ -10397,6 +10585,26 @@ impl<'de> ::serde::Deserialize<'de> for HelloResultFeaturesItem {
 ///          "propertyNames": {
 ///            "type": "string"
 ///          }
+///        },
+///        "surface": {
+///          "type": "object",
+///          "required": [
+///            "dir",
+///            "prefix"
+///          ],
+///          "properties": {
+///            "dir": {
+///              "type": "string",
+///              "maxLength": 256,
+///              "minLength": 1,
+///              "pattern": "^(?![A-Za-z]:)(?!\\.{1,2}(?:\\/|$))[^/\\\\\\x00-\\x1f\\x7f]+(?:\\/(?!\\.{1,2}(?:\\/|$))[^/\\\\\\x00-\\x1f\\x7f]+)*$"
+///            },
+///            "prefix": {
+///              "type": "string",
+///              "pattern": "^[a-z0-9-]{1,32}$"
+///            }
+///          },
+///          "additionalProperties": false
 ///        },
 ///        "usage": {
 ///          "type": "object",
@@ -10805,6 +11013,26 @@ impl<'de> ::serde::Deserialize<'de> for ManifestCapabilitiesItemScopesItem {
 ///        "type": "string"
 ///      }
 ///    },
+///    "surface": {
+///      "type": "object",
+///      "required": [
+///        "dir",
+///        "prefix"
+///      ],
+///      "properties": {
+///        "dir": {
+///          "type": "string",
+///          "maxLength": 256,
+///          "minLength": 1,
+///          "pattern": "^(?![A-Za-z]:)(?!\\.{1,2}(?:\\/|$))[^/\\\\\\x00-\\x1f\\x7f]+(?:\\/(?!\\.{1,2}(?:\\/|$))[^/\\\\\\x00-\\x1f\\x7f]+)*$"
+///        },
+///        "prefix": {
+///          "type": "string",
+///          "pattern": "^[a-z0-9-]{1,32}$"
+///        }
+///      },
+///      "additionalProperties": false
+///    },
 ///    "usage": {
 ///      "type": "object",
 ///      "additionalProperties": {
@@ -10882,6 +11110,8 @@ pub struct ManifestContributes {
         skip_serializing_if = ":: std :: collections :: HashMap::is_empty"
     )]
     pub remote_caller: ::std::collections::HashMap<::std::string::String, ManifestSchema0>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub surface: ::std::option::Option<ManifestContributesSurface>,
     #[serde(
         default,
         skip_serializing_if = ":: std :: collections :: HashMap::is_empty"
@@ -10903,6 +11133,7 @@ impl ::std::default::Default for ManifestContributes {
             planner: Default::default(),
             policy: Default::default(),
             remote_caller: Default::default(),
+            surface: Default::default(),
             usage: Default::default(),
         }
     }
@@ -11027,6 +11258,131 @@ impl ::std::convert::From<&Self> for ManifestContributesHostRunnerKindsItem {
         value.clone()
     }
 }
+///`ManifestContributesSurface`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "dir",
+///    "prefix"
+///  ],
+///  "properties": {
+///    "dir": {
+///      "type": "string",
+///      "maxLength": 256,
+///      "minLength": 1,
+///      "pattern": "^(?![A-Za-z]:)(?!\\.{1,2}(?:\\/|$))[^/\\\\\\x00-\\x1f\\x7f]+(?:\\/(?!\\.{1,2}(?:\\/|$))[^/\\\\\\x00-\\x1f\\x7f]+)*$"
+///    },
+///    "prefix": {
+///      "type": "string",
+///      "pattern": "^[a-z0-9-]{1,32}$"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct ManifestContributesSurface {
+    pub dir: ManifestContributesSurfaceDir,
+    pub prefix: ManifestContributesSurfacePrefix,
+}
+///`ManifestContributesSurfaceDir`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 256,
+///  "minLength": 1,
+///  "pattern": "^(?![A-Za-z]:)(?!\\.{1,2}(?:\\/|$))[^/\\\\\\x00-\\x1f\\x7f]+(?:\\/(?!\\.{1,2}(?:\\/|$))[^/\\\\\\x00-\\x1f\\x7f]+)*$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct ManifestContributesSurfaceDir(::std::string::String);
+impl ::std::ops::Deref for ManifestContributesSurfaceDir {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<ManifestContributesSurfaceDir> for ::std::string::String {
+    fn from(value: ManifestContributesSurfaceDir) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for ManifestContributesSurfaceDir {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_4(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for ManifestContributesSurfaceDir {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for ManifestContributesSurfaceDir {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`ManifestContributesSurfacePrefix`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "pattern": "^[a-z0-9-]{1,32}$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct ManifestContributesSurfacePrefix(::std::string::String);
+impl ::std::ops::Deref for ManifestContributesSurfacePrefix {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<ManifestContributesSurfacePrefix> for ::std::string::String {
+    fn from(value: ManifestContributesSurfacePrefix) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for ManifestContributesSurfacePrefix {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_13(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for ManifestContributesSurfacePrefix {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for ManifestContributesSurfacePrefix {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
 ///`ManifestEntry`
 ///
 /// <details><summary>JSON schema</summary>
@@ -11100,7 +11456,7 @@ impl ::std::convert::From<ManifestHost> for ::std::string::String {
 impl ::std::str::FromStr for ManifestHost {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_10(value, Self)
+        validate_string_11(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for ManifestHost {
@@ -11145,7 +11501,7 @@ impl ::std::convert::From<ManifestId> for ::std::string::String {
 impl ::std::str::FromStr for ManifestId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_13(value, Self)
+        validate_string_15(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for ManifestId {
@@ -11808,7 +12164,7 @@ impl ::std::convert::From<PlannerCheckResultFilesItemPath> for ::std::string::St
 impl ::std::str::FromStr for PlannerCheckResultFilesItemPath {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_7(value, Self)
+        validate_string_8(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerCheckResultFilesItemPath {
@@ -12072,7 +12428,7 @@ impl ::std::convert::From<PlannerDetectParamsBinaryName> for ::std::string::Stri
 impl ::std::str::FromStr for PlannerDetectParamsBinaryName {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_9(value, Self)
+        validate_string_10(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerDetectParamsBinaryName {
@@ -12118,7 +12474,7 @@ impl ::std::convert::From<PlannerDetectParamsBinaryPath> for ::std::string::Stri
 impl ::std::str::FromStr for PlannerDetectParamsBinaryPath {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_7(value, Self)
+        validate_string_8(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerDetectParamsBinaryPath {
@@ -12218,7 +12574,7 @@ impl ::std::convert::From<PlannerDetectParamsProbeArgvItem> for ::std::string::S
 impl ::std::str::FromStr for PlannerDetectParamsProbeArgvItem {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_6(value, Self)
+        validate_string_7(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerDetectParamsProbeArgvItem {
@@ -12264,7 +12620,7 @@ impl ::std::convert::From<PlannerDetectParamsProbeCwd> for ::std::string::String
 impl ::std::str::FromStr for PlannerDetectParamsProbeCwd {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_7(value, Self)
+        validate_string_8(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerDetectParamsProbeCwd {
@@ -12536,7 +12892,7 @@ impl ::std::convert::From<PlannerInstallParamsAgent> for ::std::string::String {
 impl ::std::str::FromStr for PlannerInstallParamsAgent {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_9(value, Self)
+        validate_string_10(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerInstallParamsAgent {
@@ -12582,7 +12938,7 @@ impl ::std::convert::From<PlannerInstallParamsBinary> for ::std::string::String 
 impl ::std::str::FromStr for PlannerInstallParamsBinary {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_7(value, Self)
+        validate_string_8(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerInstallParamsBinary {
@@ -12729,7 +13085,7 @@ impl ::std::convert::From<PlannerInstallParamsEnvFolder> for ::std::string::Stri
 impl ::std::str::FromStr for PlannerInstallParamsEnvFolder {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_7(value, Self)
+        validate_string_8(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerInstallParamsEnvFolder {
@@ -12835,7 +13191,7 @@ impl ::std::convert::From<PlannerInstallParamsEnvPacerArgvItem> for ::std::strin
 impl ::std::str::FromStr for PlannerInstallParamsEnvPacerArgvItem {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_6(value, Self)
+        validate_string_7(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerInstallParamsEnvPacerArgvItem {
@@ -12972,7 +13328,7 @@ impl ::std::convert::From<PlannerInstallParamsEnvSkillFolder> for ::std::string:
 impl ::std::str::FromStr for PlannerInstallParamsEnvSkillFolder {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_7(value, Self)
+        validate_string_8(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerInstallParamsEnvSkillFolder {
@@ -13018,7 +13374,7 @@ impl ::std::convert::From<PlannerInstallParamsHome> for ::std::string::String {
 impl ::std::str::FromStr for PlannerInstallParamsHome {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_7(value, Self)
+        validate_string_8(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerInstallParamsHome {
@@ -13064,7 +13420,7 @@ impl ::std::convert::From<PlannerInstallParamsPacerHome> for ::std::string::Stri
 impl ::std::str::FromStr for PlannerInstallParamsPacerHome {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_7(value, Self)
+        validate_string_8(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerInstallParamsPacerHome {
@@ -13478,7 +13834,7 @@ impl ::std::convert::From<PlannerInstallResultFilesItemPath> for ::std::string::
 impl ::std::str::FromStr for PlannerInstallResultFilesItemPath {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_7(value, Self)
+        validate_string_8(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerInstallResultFilesItemPath {
@@ -13605,7 +13961,7 @@ impl ::std::convert::From<PlannerInstallResultTouchedItem> for ::std::string::St
 impl ::std::str::FromStr for PlannerInstallResultTouchedItem {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_7(value, Self)
+        validate_string_8(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerInstallResultTouchedItem {
@@ -13763,7 +14119,7 @@ impl ::std::convert::From<PlannerInstallResultUninstallReportRemovedItem>
 impl ::std::str::FromStr for PlannerInstallResultUninstallReportRemovedItem {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_7(value, Self)
+        validate_string_8(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerInstallResultUninstallReportRemovedItem {
@@ -13811,7 +14167,7 @@ impl ::std::convert::From<PlannerInstallResultUninstallReportRestoredItem>
 impl ::std::str::FromStr for PlannerInstallResultUninstallReportRestoredItem {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_7(value, Self)
+        validate_string_8(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerInstallResultUninstallReportRestoredItem {
@@ -13859,7 +14215,7 @@ impl ::std::convert::From<PlannerInstallResultUninstallReportRevertedItem>
 impl ::std::str::FromStr for PlannerInstallResultUninstallReportRevertedItem {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_7(value, Self)
+        validate_string_8(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerInstallResultUninstallReportRevertedItem {
@@ -14054,7 +14410,7 @@ impl ::std::convert::From<PlannerPlanParamsAgent> for ::std::string::String {
 impl ::std::str::FromStr for PlannerPlanParamsAgent {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_9(value, Self)
+        validate_string_10(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerPlanParamsAgent {
@@ -14100,7 +14456,7 @@ impl ::std::convert::From<PlannerPlanParamsBinary> for ::std::string::String {
 impl ::std::str::FromStr for PlannerPlanParamsBinary {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_7(value, Self)
+        validate_string_8(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerPlanParamsBinary {
@@ -14247,7 +14603,7 @@ impl ::std::convert::From<PlannerPlanParamsEnvFolder> for ::std::string::String 
 impl ::std::str::FromStr for PlannerPlanParamsEnvFolder {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_7(value, Self)
+        validate_string_8(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerPlanParamsEnvFolder {
@@ -14353,7 +14709,7 @@ impl ::std::convert::From<PlannerPlanParamsEnvPacerArgvItem> for ::std::string::
 impl ::std::str::FromStr for PlannerPlanParamsEnvPacerArgvItem {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_6(value, Self)
+        validate_string_7(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerPlanParamsEnvPacerArgvItem {
@@ -14490,7 +14846,7 @@ impl ::std::convert::From<PlannerPlanParamsEnvSkillFolder> for ::std::string::St
 impl ::std::str::FromStr for PlannerPlanParamsEnvSkillFolder {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_7(value, Self)
+        validate_string_8(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerPlanParamsEnvSkillFolder {
@@ -14536,7 +14892,7 @@ impl ::std::convert::From<PlannerPlanParamsHome> for ::std::string::String {
 impl ::std::str::FromStr for PlannerPlanParamsHome {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_7(value, Self)
+        validate_string_8(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerPlanParamsHome {
@@ -14582,7 +14938,7 @@ impl ::std::convert::From<PlannerPlanParamsPacerHome> for ::std::string::String 
 impl ::std::str::FromStr for PlannerPlanParamsPacerHome {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_7(value, Self)
+        validate_string_8(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerPlanParamsPacerHome {
@@ -15010,7 +15366,7 @@ impl ::std::convert::From<PlannerPreviewParamsAgent> for ::std::string::String {
 impl ::std::str::FromStr for PlannerPreviewParamsAgent {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_9(value, Self)
+        validate_string_10(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerPreviewParamsAgent {
@@ -15056,7 +15412,7 @@ impl ::std::convert::From<PlannerPreviewParamsBinary> for ::std::string::String 
 impl ::std::str::FromStr for PlannerPreviewParamsBinary {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_7(value, Self)
+        validate_string_8(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerPreviewParamsBinary {
@@ -15203,7 +15559,7 @@ impl ::std::convert::From<PlannerPreviewParamsEnvFolder> for ::std::string::Stri
 impl ::std::str::FromStr for PlannerPreviewParamsEnvFolder {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_7(value, Self)
+        validate_string_8(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerPreviewParamsEnvFolder {
@@ -15309,7 +15665,7 @@ impl ::std::convert::From<PlannerPreviewParamsEnvPacerArgvItem> for ::std::strin
 impl ::std::str::FromStr for PlannerPreviewParamsEnvPacerArgvItem {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_6(value, Self)
+        validate_string_7(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerPreviewParamsEnvPacerArgvItem {
@@ -15446,7 +15802,7 @@ impl ::std::convert::From<PlannerPreviewParamsEnvSkillFolder> for ::std::string:
 impl ::std::str::FromStr for PlannerPreviewParamsEnvSkillFolder {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_7(value, Self)
+        validate_string_8(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerPreviewParamsEnvSkillFolder {
@@ -15492,7 +15848,7 @@ impl ::std::convert::From<PlannerPreviewParamsHome> for ::std::string::String {
 impl ::std::str::FromStr for PlannerPreviewParamsHome {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_7(value, Self)
+        validate_string_8(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerPreviewParamsHome {
@@ -15538,7 +15894,7 @@ impl ::std::convert::From<PlannerPreviewParamsPacerHome> for ::std::string::Stri
 impl ::std::str::FromStr for PlannerPreviewParamsPacerHome {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_7(value, Self)
+        validate_string_8(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerPreviewParamsPacerHome {
@@ -15783,7 +16139,7 @@ impl ::std::convert::From<PlannerPreviewResultFilesItem> for ::std::string::Stri
 impl ::std::str::FromStr for PlannerPreviewResultFilesItem {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_7(value, Self)
+        validate_string_8(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerPreviewResultFilesItem {
@@ -15978,7 +16334,7 @@ impl ::std::convert::From<PlannerUninstallParamsAgent> for ::std::string::String
 impl ::std::str::FromStr for PlannerUninstallParamsAgent {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_9(value, Self)
+        validate_string_10(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerUninstallParamsAgent {
@@ -16024,7 +16380,7 @@ impl ::std::convert::From<PlannerUninstallParamsBinary> for ::std::string::Strin
 impl ::std::str::FromStr for PlannerUninstallParamsBinary {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_7(value, Self)
+        validate_string_8(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerUninstallParamsBinary {
@@ -16171,7 +16527,7 @@ impl ::std::convert::From<PlannerUninstallParamsEnvFolder> for ::std::string::St
 impl ::std::str::FromStr for PlannerUninstallParamsEnvFolder {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_7(value, Self)
+        validate_string_8(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerUninstallParamsEnvFolder {
@@ -16277,7 +16633,7 @@ impl ::std::convert::From<PlannerUninstallParamsEnvPacerArgvItem> for ::std::str
 impl ::std::str::FromStr for PlannerUninstallParamsEnvPacerArgvItem {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_6(value, Self)
+        validate_string_7(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerUninstallParamsEnvPacerArgvItem {
@@ -16414,7 +16770,7 @@ impl ::std::convert::From<PlannerUninstallParamsEnvSkillFolder> for ::std::strin
 impl ::std::str::FromStr for PlannerUninstallParamsEnvSkillFolder {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_7(value, Self)
+        validate_string_8(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerUninstallParamsEnvSkillFolder {
@@ -16460,7 +16816,7 @@ impl ::std::convert::From<PlannerUninstallParamsHome> for ::std::string::String 
 impl ::std::str::FromStr for PlannerUninstallParamsHome {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_7(value, Self)
+        validate_string_8(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerUninstallParamsHome {
@@ -16506,7 +16862,7 @@ impl ::std::convert::From<PlannerUninstallParamsPacerHome> for ::std::string::St
 impl ::std::str::FromStr for PlannerUninstallParamsPacerHome {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_7(value, Self)
+        validate_string_8(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerUninstallParamsPacerHome {
@@ -16920,7 +17276,7 @@ impl ::std::convert::From<PlannerUninstallResultFilesItemPath> for ::std::string
 impl ::std::str::FromStr for PlannerUninstallResultFilesItemPath {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_7(value, Self)
+        validate_string_8(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerUninstallResultFilesItemPath {
@@ -17047,7 +17403,7 @@ impl ::std::convert::From<PlannerUninstallResultTouchedItem> for ::std::string::
 impl ::std::str::FromStr for PlannerUninstallResultTouchedItem {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_7(value, Self)
+        validate_string_8(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerUninstallResultTouchedItem {
@@ -17205,7 +17561,7 @@ impl ::std::convert::From<PlannerUninstallResultUninstallReportRemovedItem>
 impl ::std::str::FromStr for PlannerUninstallResultUninstallReportRemovedItem {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_7(value, Self)
+        validate_string_8(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerUninstallResultUninstallReportRemovedItem {
@@ -17253,7 +17609,7 @@ impl ::std::convert::From<PlannerUninstallResultUninstallReportRestoredItem>
 impl ::std::str::FromStr for PlannerUninstallResultUninstallReportRestoredItem {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_7(value, Self)
+        validate_string_8(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerUninstallResultUninstallReportRestoredItem {
@@ -17301,7 +17657,7 @@ impl ::std::convert::From<PlannerUninstallResultUninstallReportRevertedItem>
 impl ::std::str::FromStr for PlannerUninstallResultUninstallReportRevertedItem {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_7(value, Self)
+        validate_string_8(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerUninstallResultUninstallReportRevertedItem {
@@ -17387,7 +17743,7 @@ impl ::std::convert::From<RemoteCallerFetchParamsAlias> for ::std::string::Strin
 impl ::std::str::FromStr for RemoteCallerFetchParamsAlias {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_12(value, Self)
+        validate_string_14(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for RemoteCallerFetchParamsAlias {
@@ -17503,7 +17859,7 @@ impl ::std::convert::From<RemoteCallerIdentityParamsAlias> for ::std::string::St
 impl ::std::str::FromStr for RemoteCallerIdentityParamsAlias {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_12(value, Self)
+        validate_string_14(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for RemoteCallerIdentityParamsAlias {
@@ -17641,7 +17997,7 @@ impl ::std::convert::From<RemoteCallerIdentityParamsPath> for ::std::string::Str
 impl ::std::str::FromStr for RemoteCallerIdentityParamsPath {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_7(value, Self)
+        validate_string_8(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for RemoteCallerIdentityParamsPath {
@@ -17730,7 +18086,7 @@ impl ::std::convert::From<RemoteCallerIdentityResultStderr> for ::std::string::S
 impl ::std::str::FromStr for RemoteCallerIdentityResultStderr {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_8(value, Self)
+        validate_string_9(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for RemoteCallerIdentityResultStderr {
@@ -17775,7 +18131,7 @@ impl ::std::convert::From<RemoteCallerIdentityResultStdout> for ::std::string::S
 impl ::std::str::FromStr for RemoteCallerIdentityResultStdout {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_8(value, Self)
+        validate_string_9(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for RemoteCallerIdentityResultStdout {
@@ -17887,7 +18243,7 @@ impl ::std::convert::From<ResultChunkParamsBase64> for ::std::string::String {
 impl ::std::str::FromStr for ResultChunkParamsBase64 {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_5(value, Self)
+        validate_string_6(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for ResultChunkParamsBase64 {
@@ -18390,7 +18746,7 @@ impl ::std::convert::From<UsageReadParamsResourcesClaudeFilesItem> for ::std::st
 impl ::std::str::FromStr for UsageReadParamsResourcesClaudeFilesItem {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_7(value, Self)
+        validate_string_8(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for UsageReadParamsResourcesClaudeFilesItem {
@@ -18436,7 +18792,7 @@ impl ::std::convert::From<UsageReadParamsResourcesCodexSessions> for ::std::stri
 impl ::std::str::FromStr for UsageReadParamsResourcesCodexSessions {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_7(value, Self)
+        validate_string_8(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for UsageReadParamsResourcesCodexSessions {
@@ -20798,6 +21154,30 @@ fn validate_string_4<T>(
     value: &str,
     construct: impl FnOnce(::std::string::String) -> T,
 ) -> ::std::result::Result<T, self::error::ConversionError> {
+    if value.chars().count() > 256usize {
+        return Err("longer than 256 characters".into());
+    }
+    if value.chars().count() < 1usize {
+        return Err("shorter than 1 characters".into());
+    }
+    static PATTERN: ::std::sync::LazyLock<::regress::Regex> = ::std::sync::LazyLock::new(|| {
+        ::regress::Regex::new(
+                "^(?![A-Za-z]:)(?!\\.{1,2}(?:\\/|$))[^/\\\\\\x00-\\x1f\\x7f]+(?:\\/(?!\\.{1,2}(?:\\/|$))[^/\\\\\\x00-\\x1f\\x7f]+)*$",
+            )
+            .unwrap()
+    });
+    if PATTERN.find(value).is_none() {
+        return Err(
+            "doesn't match pattern \"^(?![A-Za-z]:)(?!\\.{1,2}(?:\\/|$))[^/\\\\\\x00-\\x1f\\x7f]+(?:\\/(?!\\.{1,2}(?:\\/|$))[^/\\\\\\x00-\\x1f\\x7f]+)*$\""
+                .into(),
+        );
+    }
+    Ok(construct(value.to_string()))
+}
+fn validate_string_5<T>(
+    value: &str,
+    construct: impl FnOnce(::std::string::String) -> T,
+) -> ::std::result::Result<T, self::error::ConversionError> {
     if value.chars().count() > 349528usize {
         return Err("longer than 349528 characters".into());
     }
@@ -20815,7 +21195,7 @@ fn validate_string_4<T>(
     }
     Ok(construct(value.to_string()))
 }
-fn validate_string_5<T>(
+fn validate_string_6<T>(
     value: &str,
     construct: impl FnOnce(::std::string::String) -> T,
 ) -> ::std::result::Result<T, self::error::ConversionError> {
@@ -20834,7 +21214,7 @@ fn validate_string_5<T>(
     }
     Ok(construct(value.to_string()))
 }
-fn validate_string_6<T>(
+fn validate_string_7<T>(
     value: &str,
     construct: impl FnOnce(::std::string::String) -> T,
 ) -> ::std::result::Result<T, self::error::ConversionError> {
@@ -20843,7 +21223,7 @@ fn validate_string_6<T>(
     }
     Ok(construct(value.to_string()))
 }
-fn validate_string_7<T>(
+fn validate_string_8<T>(
     value: &str,
     construct: impl FnOnce(::std::string::String) -> T,
 ) -> ::std::result::Result<T, self::error::ConversionError> {
@@ -20855,7 +21235,7 @@ fn validate_string_7<T>(
     }
     Ok(construct(value.to_string()))
 }
-fn validate_string_8<T>(
+fn validate_string_9<T>(
     value: &str,
     construct: impl FnOnce(::std::string::String) -> T,
 ) -> ::std::result::Result<T, self::error::ConversionError> {
@@ -20864,7 +21244,7 @@ fn validate_string_8<T>(
     }
     Ok(construct(value.to_string()))
 }
-fn validate_string_9<T>(
+fn validate_string_10<T>(
     value: &str,
     construct: impl FnOnce(::std::string::String) -> T,
 ) -> ::std::result::Result<T, self::error::ConversionError> {
@@ -20876,7 +21256,7 @@ fn validate_string_9<T>(
     }
     Ok(construct(value.to_string()))
 }
-fn validate_string_10<T>(
+fn validate_string_11<T>(
     value: &str,
     construct: impl FnOnce(::std::string::String) -> T,
 ) -> ::std::result::Result<T, self::error::ConversionError> {
@@ -20888,7 +21268,7 @@ fn validate_string_10<T>(
     }
     Ok(construct(value.to_string()))
 }
-fn validate_string_11<T>(
+fn validate_string_12<T>(
     value: &str,
     construct: impl FnOnce(::std::string::String) -> T,
 ) -> ::std::result::Result<T, self::error::ConversionError> {
@@ -20902,7 +21282,18 @@ fn validate_string_11<T>(
     }
     Ok(construct(value.to_string()))
 }
-fn validate_string_12<T>(
+fn validate_string_13<T>(
+    value: &str,
+    construct: impl FnOnce(::std::string::String) -> T,
+) -> ::std::result::Result<T, self::error::ConversionError> {
+    static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+        ::std::sync::LazyLock::new(|| ::regress::Regex::new("^[a-z0-9-]{1,32}$").unwrap());
+    if PATTERN.find(value).is_none() {
+        return Err("doesn't match pattern \"^[a-z0-9-]{1,32}$\"".into());
+    }
+    Ok(construct(value.to_string()))
+}
+fn validate_string_14<T>(
     value: &str,
     construct: impl FnOnce(::std::string::String) -> T,
 ) -> ::std::result::Result<T, self::error::ConversionError> {
@@ -20913,7 +21304,7 @@ fn validate_string_12<T>(
     }
     Ok(construct(value.to_string()))
 }
-fn validate_string_13<T>(
+fn validate_string_15<T>(
     value: &str,
     construct: impl FnOnce(::std::string::String) -> T,
 ) -> ::std::result::Result<T, self::error::ConversionError> {
