@@ -1,0 +1,125 @@
+[
+  {
+    "id": "inactive-named",
+    "initial": "default",
+    "target": "research",
+    "defaultYaml": "# Main work\nplanner: codex\naccounts: {personal: {kind: codex}}\nrouting: [{default: [codex]}]\n",
+    "researchYaml": "# Research mode\nplanner: codex\naccounts: {personal: {kind: codex}}\npacing: {policy: even, planner_reserve: 25}\nrouting: [{default: [codex]}]\n",
+    "outcome": {
+      "result": {
+        "removed": true
+      }
+    },
+    "remaining": null,
+    "active": null,
+    "activity": [
+      {
+        "kind": "config",
+        "level": "info",
+        "text": "Configuration changed · strategy",
+        "id": "<activity-id>",
+        "at": 1700000000
+      }
+    ],
+    "outbox": [
+      {
+        "seq": 1,
+        "at": 1700000000,
+        "envelope": {
+          "type": "entity",
+          "data": {
+            "kind": "activity",
+            "id": "<activity-id>",
+            "value": {
+              "kind": "config",
+              "level": "info",
+              "text": "Configuration changed · strategy",
+              "id": "<activity-id>",
+              "at": 1700000000
+            }
+          }
+        }
+      },
+      {
+        "seq": 2,
+        "at": 1700000000,
+        "envelope": {
+          "type": "config",
+          "data": {
+            "area": "strategy",
+            "at": 1700000000
+          }
+        }
+      }
+    ],
+    "latest": {
+      "v": 1,
+      "seq": 2,
+      "at": 1700000000,
+      "budget": null,
+      "mode": null,
+      "tasks": [],
+      "alerts": [],
+      "console": null,
+      "consoles": [],
+      "strategies": []
+    }
+  },
+  {
+    "id": "active-named",
+    "initial": "research",
+    "target": "research",
+    "defaultYaml": "# Main work\nplanner: codex\naccounts: {personal: {kind: codex}}\nrouting: [{default: [codex]}]\n",
+    "researchYaml": "# Research mode\nplanner: codex\naccounts: {personal: {kind: codex}}\npacing: {policy: even, planner_reserve: 25}\nrouting: [{default: [codex]}]\n",
+    "outcome": {
+      "error": {
+        "code": "not_allowed",
+        "message": "cannot delete the active strategy",
+        "hint": "Switch to another strategy first; default cannot be removed."
+      }
+    },
+    "remaining": "# Research mode\nplanner: codex\naccounts: {personal: {kind: codex}}\npacing: {policy: even, planner_reserve: 25}\nrouting: [{default: [codex]}]\n",
+    "active": "research\n",
+    "activity": [],
+    "outbox": [],
+    "latest": null
+  },
+  {
+    "id": "default-protected",
+    "initial": "default",
+    "target": "default",
+    "defaultYaml": "# Main work\nplanner: codex\naccounts: {personal: {kind: codex}}\nrouting: [{default: [codex]}]\n",
+    "researchYaml": "# Research mode\nplanner: codex\naccounts: {personal: {kind: codex}}\npacing: {policy: even, planner_reserve: 25}\nrouting: [{default: [codex]}]\n",
+    "outcome": {
+      "error": {
+        "code": "not_allowed",
+        "message": "cannot delete the default strategy",
+        "hint": "Switch to another strategy first; default cannot be removed."
+      }
+    },
+    "remaining": "# Research mode\nplanner: codex\naccounts: {personal: {kind: codex}}\npacing: {policy: even, planner_reserve: 25}\nrouting: [{default: [codex]}]\n",
+    "active": null,
+    "activity": [],
+    "outbox": [],
+    "latest": null
+  },
+  {
+    "id": "missing-named",
+    "initial": "default",
+    "target": "missing",
+    "defaultYaml": "# Main work\nplanner: codex\naccounts: {personal: {kind: codex}}\nrouting: [{default: [codex]}]\n",
+    "researchYaml": "# Research mode\nplanner: codex\naccounts: {personal: {kind: codex}}\npacing: {policy: even, planner_reserve: 25}\nrouting: [{default: [codex]}]\n",
+    "outcome": {
+      "error": {
+        "code": "invalid_input",
+        "message": "unknown strategy \"missing\"",
+        "hint": "Use strategy.list to choose a strategy and strategy.preview to validate a draft."
+      }
+    },
+    "remaining": "# Research mode\nplanner: codex\naccounts: {personal: {kind: codex}}\npacing: {policy: even, planner_reserve: 25}\nrouting: [{default: [codex]}]\n",
+    "active": null,
+    "activity": [],
+    "outbox": [],
+    "latest": null
+  }
+]

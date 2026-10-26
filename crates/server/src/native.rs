@@ -18,6 +18,7 @@ pub const NATIVE_OPS: &[&str] = &[
     "repo.remove",
     "routing.get",
     "strategy.list",
+    "strategy.remove",
     "strategy.show",
     "strategy.use",
 ];
@@ -32,6 +33,7 @@ impl Dispatcher {
         ops.extend_from_slice(pacer_config::repo_add_ops());
         ops.extend_from_slice(pacer_config::routing_ops());
         ops.extend_from_slice(pacer_config::strategy_list_ops());
+        ops.extend_from_slice(pacer_config::strategy_remove_ops());
         ops.extend_from_slice(pacer_config::strategy_use_ops());
         ops.extend_from_slice(pacer_config::host_suggest_ops());
         #[cfg(feature = "test-ops")]
@@ -78,6 +80,8 @@ impl Dispatcher {
         (name == "strategy.show" && pacer_config::requires_core_strategy_show_parser(ctx, params))
             || (name == "strategy.use"
                 && pacer_config::requires_core_strategy_use_parser(ctx, params))
+            || (name == "strategy.remove"
+                && pacer_config::requires_core_strategy_remove_parser(ctx, params))
     }
     /// Merge selected native names with the actual core hello advertisement.
     pub fn decorate_hello(&self, hello: &mut Value) {
@@ -197,6 +201,7 @@ mod registry_tests {
                 "repo.remove",
                 "routing.get",
                 "strategy.list",
+                "strategy.remove",
                 "strategy.show",
                 "strategy.use"
             ]
@@ -278,6 +283,36 @@ mod registry_tests {
             fs::read(ctx.pacer_home.join("active")).unwrap(),
             b"research\n"
         );
+    }
+    #[tokio::test]
+    async fn strategy_remove_selects_supported_named_file_and_forwards_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let ctx = Ctx::with(
+            dir.path().into(),
+            dir.path().join("pacer"),
+            HashMap::new(),
+            1_700_000_000.0,
+        );
+        fs::create_dir_all(ctx.pacer_home.join("strategies")).unwrap();
+        let yaml =
+            "planner: codex\naccounts: {personal: {kind: codex}}\nrouting: [{default: [codex]}]\n";
+        fs::write(ctx.pacer_home.join("strategy.yaml"), yaml).unwrap();
+        fs::write(ctx.pacer_home.join("strategies/research.yaml"), yaml).unwrap();
+        let dispatcher = Dispatcher::new("");
+        let params = json!({"name":"research"});
+        assert!(!dispatcher.needs_core_request(&ctx, "strategy.remove", &params));
+        assert!(dispatcher.needs_core_request(&ctx, "strategy.remove", &json!({"name":"missing"})));
+        assert!(
+            Dispatcher::new("strategy.remove")
+                .call(&ctx, "strategy.remove", params.clone())
+                .await
+                .is_none()
+        );
+        assert_eq!(
+            dispatcher.call(&ctx, "strategy.remove", params).await,
+            Some(Ok(json!({"removed":true})))
+        );
+        assert!(!ctx.pacer_home.join("strategies/research.yaml").exists());
     }
     #[test]
     fn notification_write_keeps_javascript_number_and_key_cases_with_core() {

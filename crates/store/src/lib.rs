@@ -204,6 +204,11 @@ pub fn record_config_change(ctx: &Ctx) -> io::Result<()> {
     record_config_change_area(ctx, "config")
 }
 
+/// A strategy mutation with no separate alert, such as removing a named file.
+pub fn record_strategy_change(ctx: &Ctx) -> io::Result<()> {
+    record_config_change_area(ctx, "strategy")
+}
+
 fn record_config_change_area(ctx: &Ctx, area: &str) -> io::Result<()> {
     let mut random = [0u8; 2];
     getrandom::fill(&mut random).map_err(io::Error::other)?;
