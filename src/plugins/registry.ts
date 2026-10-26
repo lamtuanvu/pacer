@@ -48,6 +48,7 @@ import { consumeConfiguredRemoteUsage, validateConfiguredRemoteUsage, type Confi
 import { z } from "zod";
 
 const HOST_CHECK_ISSUER = Symbol("host-check-issuer");
+type ConfiguredHostCheck = { ok: boolean; checks: { name: string; ok: boolean; detail: string }[]; facts?: Record<string, string> };
 const HOST_FETCH_ISSUER = Symbol("host-fetch-issuer");
 const HOST_CALL_FETCH_ISSUER = Symbol("host-call-fetch-issuer");
 const HOST_CALL_IDENTITY_ISSUER = Symbol("host-call-identity-issuer");
@@ -112,11 +113,22 @@ export class PluginRegistry {
   }
 
   /** Host state is the sole issuer for this read-only diagnostic check. */
-  async checkConfiguredHost(ctx: Ctx, alias: string, repo?: string, signal?: AbortSignal): Promise<{ ok: boolean; checks: { name: string; ok: boolean; detail: string }[]; facts?: Record<string, string> }> {
+  async checkConfiguredHost(ctx: Ctx, alias: string, repo?: string, signal?: AbortSignal): Promise<ConfiguredHostCheck> {
+    return this.issuedHostCheck(ctx, alias, repo === undefined ? {} : { repo }, signal);
+  }
+
+  /** Host-only issuer for a declared account folder; the provider can only test directory presence. */
+  async checkConfiguredAccountHome(ctx: Ctx, alias: string, account: string, signal?: AbortSignal): Promise<ConfiguredHostCheck> {
+    return this.issuedHostCheck(ctx, alias, { account }, signal);
+  }
+
+  private async issuedHostCheck(ctx: Ctx, alias: string, target: { repo?: string; account?: string }, signal?: AbortSignal): Promise<ConfiguredHostCheck> {
     const host = loadStrategy(ctx).hosts[alias];
     // A paused host still needs diagnostics; the issued script is read-only.
-    if (!host || (repo !== undefined && !Object.values(host.repos).includes(repo)))
+    if (!host || (target.repo !== undefined && !Object.values(host.repos).includes(target.repo)) ||
+      (target.account !== undefined && !Object.hasOwn(host.accounts, target.account)))
       throw new CoreError("capability_denied", "host check target is not configured");
+    const home = target.account === undefined ? undefined : host.accounts[target.account]!.home;
     const fingerprint = JSON.stringify(host);
     const providers = this.findAll(ctx, "hostRunner", contribution =>
       Array.isArray(contribution.kinds) && contribution.kinds.length === 1 && contribution.kinds[0] === "ssh");
@@ -132,8 +144,8 @@ export class PluginRegistry {
       (globalThis.process.getuid && original.uid !== globalThis.process.getuid()))
       throw new CoreError("capability_denied", "SSH control directory is not private");
     const controlPath = join(directory, "cm-%C"), timeoutMs = 50_000;
-    const argv = sshArgv(ctx, host, repo === undefined ? SCRIPTS.PROBE : SCRIPTS.CHECK_REPO,
-      repo === undefined ? [] : [repo, "check"]);
+    const argv = sshArgv(ctx, host, target.repo === undefined && home === undefined ? SCRIPTS.PROBE : SCRIPTS.CHECK_REPO,
+      home !== undefined ? [home, "home"] : target.repo === undefined ? [] : [target.repo, "check"]);
     const active = () => {
       const current = loadStrategy(ctx).hosts[alias], now = lstatSync(directory);
       return current && JSON.stringify(current) === fingerprint &&
@@ -150,10 +162,14 @@ export class PluginRegistry {
     watch.unref();
     try {
       if (signal?.aborted || !active()) throw new CoreError("capability_denied", "host check retired");
-      const result = await this.call<{ ok: boolean; checks: { name: string; ok: boolean; detail: string }[]; facts?: Record<string, string> }>(
-        ctx, provider.id, "hostRunner.check", { alias, ...(repo === undefined ? {} : { repo }), sshTarget: host.ssh, controlPath },
+      const result = await this.call<ConfiguredHostCheck>(
+        ctx, provider.id, "hostRunner.check", { alias, ...(target.repo === undefined ? {} : { repo: target.repo }),
+          ...(home === undefined ? {} : { home }), sshTarget: host.ssh, controlPath },
         { deadlineMs: 60_000, signal: controller.signal, expectedProcess: process,
           resources: { reads: [], commands: [{ argv, timeoutMs }], stores: [] }, [HOST_CHECK_ISSUER]: true });
+      if (home !== undefined && (result.checks.length !== 1 || result.checks[0]?.name !== "account home" ||
+        result.checks[0].ok !== result.ok || result.facts !== undefined))
+        throw new CoreError("plugin_refused", "SSH provider did not confirm the account-home check");
       if (!active()) throw new CoreError("capability_denied", "host check snapshot changed");
       return result;
     } finally { clearInterval(watch); signal?.removeEventListener("abort", cancel); }

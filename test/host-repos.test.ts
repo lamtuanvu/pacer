@@ -89,5 +89,5 @@ test("an existing checkout skips clone and a second setup still checks identity"
   const { job } = await callOp(ctx, "host.repo.setup", params) as { job: Job };
   expect(job.state).toBe("passed");
   expect(job.steps.map(s => s.state)).toEqual(["skipped", "passed", "passed"]);
-  expect(readFileSync(sshLog, "utf8").match(/config --local user.name/g)).toHaveLength(2);
+  expect(readFileSync(sshLog, "utf8").match(/config --local user.name "\$2"/g)).toHaveLength(2);
 });
