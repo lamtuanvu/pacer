@@ -66,6 +66,22 @@ test("busy host counts only running tasks with the stored host alias", async () 
   expect(await remoteExclusion(ctx, strategy(), "codex@box", task, { reachable: async () => true })).toBe("Codex busy (2/2)");
 });
 
+test("a remote attempt does not consume its own sole host slot", async () => {
+  const ctx = fakeCtx({ run: origin });
+  const s = validateStrategy({
+    accounts: { claude: { kind: "claude" }, codex: { kind: "codex" } }, planner: "claude-code",
+    hosts: { box: { ssh: "box-ssh", repos: { "github.com/o/r": "~/src/r" }, max_tasks: 1 } },
+    routing: [{ default: ["codex@box"] }],
+  }, "test");
+  const current = createTask(ctx, { brief: { goal: "current", repo: "/repo" }, kind: null, requestedExecutor: "codex@box", timeoutS: 60 });
+  updateTask(ctx, current.id, t => { t.state = "running"; t.executor = "codex@box"; });
+  expect(await remoteExclusion(ctx, s, "codex@box", task, { reachable: async () => true })).toBe("Codex busy (1/1)");
+  expect(await remoteExclusion(ctx, s, "codex@box", task, { reachable: async () => true, currentTaskId: current.id })).toBeNull();
+  const other = createTask(ctx, { brief: { goal: "other", repo: "/repo" }, kind: null, requestedExecutor: "codex@box", timeoutS: 60 });
+  updateTask(ctx, other.id, t => { t.state = "running"; t.executor = "codex@box"; });
+  expect(await remoteExclusion(ctx, s, "codex@box", task, { reachable: async () => true, currentTaskId: current.id })).toBe("Codex busy (1/1)");
+});
+
 test("route without a task checks reachability only", async () => {
   const { ctx, strategy: configured } = remoteEligibilityFixture();
   const result = await route(ctx, null, configured);
