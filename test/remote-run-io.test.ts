@@ -10,6 +10,7 @@ import { fakeCtx, fakeSshEnv, realRun, tmpDir } from "./helpers";
 import { createTask, updateTask } from "../src/tasks/store";
 import { issueConfiguredHostReport, consumeConfiguredHostReport } from "../src/plugins/host-report-issuer";
 import { issueConfiguredHostReadFrom, consumeConfiguredHostReadFrom } from "../src/plugins/host-read-from-issuer";
+import { issueConfiguredHostSessionSocket, consumeConfiguredHostSessionSocket } from "../src/plugins/host-session-socket-issuer";
 import { pluginRegistry } from "../src/plugins";
 
 const host = { alias: "box", ssh: "box-ssh", repos: {}, maxTasks: 2, accounts: {} };
@@ -110,6 +111,49 @@ test("READ_FROM refuses malformed or over-range provider hex", async () => {
     const grant = issueConfiguredHostReadFrom(ctx, "box", remote, local, "stdout", 0, 1);
     await expect(registry.readFromConfiguredHost(ctx, grant)).rejects.toMatchObject({ code: "plugin_refused" });
   }
+});
+
+test("SESSION_SOCKET discovers only the configured persisted run and consumes its grant once", async () => {
+  const { ctx, remote, local } = setup();
+  const { createServer } = await import("node:net");
+  const { socketPath } = await import("../src/session/host");
+  const path = socketPath(remote), server = createServer();
+  mkdirSync(remote, { recursive: true });
+  if (path !== join(remote, "session.sock")) writeFileSync(join(remote, "session.sock.path"), path);
+  try {
+    await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(path, resolve); });
+    await expect(pluginRegistry(ctx).call(ctx, "pacer-ssh", "hostRunner.run", {
+      session: "a".repeat(32), script: "SESSION_SOCKET", args: [remote], timeoutMs: 60_000, maxBytes: 4096,
+    })).rejects.toMatchObject({ code: "capability_denied" });
+    const grant = issueConfiguredHostSessionSocket(ctx, "box", remote, local);
+    const result = await pluginRegistry(ctx).sessionSocketConfiguredHost(ctx, grant);
+    expect(result).toMatchObject({ code: 0, stdout: path, timedOut: false });
+    await expect(pluginRegistry(ctx).sessionSocketConfiguredHost(ctx, grant))
+      .rejects.toMatchObject({ code: "capability_denied" });
+    const stale = issueConfiguredHostSessionSocket(ctx, "box", remote, local);
+    const taskId = remote.split("/").at(-2)!;
+    updateTask(ctx, taskId, task => { task.state = "queued"; });
+    expect(() => consumeConfiguredHostSessionSocket(ctx, stale)).toThrow();
+    expect(() => issueConfiguredHostSessionSocket(ctx, "box", remote, join(local, "wrong"))).toThrow();
+  } finally { server.close(); }
+});
+
+test("disabled SSH provider refuses SESSION_SOCKET without a direct fallback", async () => {
+  const { ctx, remote, local, log } = setup();
+  const { RemoteSession } = await import("../src/remote/session");
+  const { Duplex } = await import("node:stream");
+  const registry = pluginRegistry(ctx);
+  await registry.disable(ctx, "pacer-ssh");
+  const before = existsSync(log) ? readFileSync(log, "utf8") : "";
+  const grant = issueConfiguredHostSessionSocket(ctx, "box", remote, local);
+  await expect(registry.sessionSocketConfiguredHost(ctx, grant)).rejects.toMatchObject({ code: "plugin_unavailable" });
+  const bridge = new RemoteSession(ctx, host, remote, local);
+  const socket = new Duplex({ read() {}, write(_data, _encoding, done) { done(); } });
+  const closed = new Promise<void>(resolve => socket.once("close", resolve));
+  bridge.accept(socket as unknown as import("node:net").Socket);
+  await closed;
+  await bridge.close();
+  expect(existsSync(log) ? readFileSync(log, "utf8") : "").toBe(before);
 });
 async function exited(io: RemoteRunIO): Promise<RunState> {
   const end = Date.now() + 8000;
@@ -630,8 +674,12 @@ for(const lateRefusal of [false,true]) test(`exec fallback relays session frames
   const {RemoteSession}=await import("../src/remote/session");
   const {Duplex}=await import("node:stream");
   const {wire,FrameType,WireDecoder}=await import("../src/session/framing");
+  const {createServer}=await import("node:net");
+  const {socketPath}=await import("../src/session/host");
   mkdirSync(remote,{recursive:true});
-  writeFileSync(join(remote,"session.sock.path"),"/tmp/fixture.sock");
+  const remoteSocket=socketPath(remote), remoteServer=createServer();
+  if(remoteSocket!==join(remote,"session.sock"))writeFileSync(join(remote,"session.sock.path"),remoteSocket);
+  await new Promise<void>((resolve,reject)=>{remoteServer.once("error",reject);remoteServer.listen(remoteSocket,resolve);});
   // This executable stands in for a session socket endpoint in socket-restricted sandboxes.
   const pipe=join(home,"protocol.ts"),pidFile=join(home,"pipe.pid");
   writeFileSync(pipe,`
@@ -672,12 +720,12 @@ for(const lateRefusal of [false,true]) test(`exec fallback relays session frames
     expect(readFileSync(log,"utf8")).toContain("socket exec pipe");
     if(lateRefusal){
       await bridge.prepare();
-      expect(commands.filter(a=>a.at(-1)?.includes('[ -S "$path" ]')).length).toBe(2);
+      expect(readFileSync(log,"utf8").split('[ -S "$path" ]').length-1).toBe(2);
       expect(commands.filter(a=>a.includes("forward")).length).toBe(2);
     }
     expect(commands.find(a=>a.includes("-O")&&a.includes("forward"))).toEqual(expect.arrayContaining(["-L",expect.stringContaining("ControlPath=")]));
   }finally{
-    socket.destroy();await bridge.close();
+    socket.destroy();await bridge.close();remoteServer.close();
     const pid=Number(readFileSync(pidFile,"utf8"));
     const alive=()=>{try{process.kill(pid,0);return true;}catch{return false;}};
     try{await wait(()=>!alive());}finally{if(alive())process.kill(pid,"SIGKILL");}
@@ -695,25 +743,31 @@ test("native recording observation failures are retried as unreachable",async()=
 test("forward preparation creates a private directory and removes stale socket paths",async()=>{
   const {RemoteSession}=await import("../src/remote/session");
   const {socketPath}=await import("../src/session/host");
-  const local=join(tmpDir(),"missing");
+  const {createServer}=await import("node:net");
+  const {ctx,remote,local}=setup();
+  mkdirSync(remote,{recursive:true});
+  const remoteSocket=socketPath(remote),remoteServer=createServer();
+  if(remoteSocket!==join(remote,"session.sock"))writeFileSync(join(remote,"session.sock.path"),remoteSocket);
+  await new Promise<void>((resolve,reject)=>{remoteServer.once("error",reject);remoteServer.listen(remoteSocket,resolve);});
   let forwards=0;
-  const ctx=fakeCtx({run:async argv=>{
+  const run=ctx.run;
+  ctx.run=async (argv,ms,o)=>{
     if(argv.includes("forward")){
       expect(statSync(join(local,"forward")).mode&0o777).toBe(0o700);
       expect(existsSync(socketPath(join(local,"forward")))).toBe(false);
       forwards++;
       return {code:0,stdout:"",stderr:""};
     }
-    return {code:0,stdout:"__PACER_BEGIN__\n/tmp/remote.sock",stderr:""};
-  }});
-  const first=new RemoteSession(ctx,host,"~/run",local);
+    return run(argv,ms,o);
+  };
+  const first=new RemoteSession(ctx,host,remote,local);
   try{await first.prepare();}finally{await first.close();}
   expect(forwards).toBe(1);
   const {chmodSync}=await import("node:fs");
   chmodSync(join(local,"forward"),0o755);
   writeFileSync(socketPath(join(local,"forward")),"stale");
-  const second=new RemoteSession(ctx,host,"~/run",local);
-  try{await second.prepare();}finally{await second.close();}
+  const second=new RemoteSession(ctx,host,remote,local);
+  try{await second.prepare();}finally{await second.close();remoteServer.close();}
   expect(forwards).toBe(2);
 });
 
@@ -768,14 +822,23 @@ test("START rejects a binary tampered with after upload",async()=>{
 },10000);
 
 test("service exit cancels its full-session SSH forward",async()=>{
-  const {ctx,home,local,log}=setup();const file=join(home,"exit-forward.ts");
+  const {ctx,home,local,remote,log}=setup();const file=join(home,"exit-forward.ts");
+  const {createServer}=await import("node:net");
+  const {socketPath}=await import("../src/session/host");
+  mkdirSync(remote,{recursive:true});
+  const remoteSocket=socketPath(remote),remoteServer=createServer();
+  if(remoteSocket!==join(remote,"session.sock"))writeFileSync(join(remote,"session.sock.path"),remoteSocket);
+  await new Promise<void>((resolve,reject)=>{remoteServer.once("error",reject);remoteServer.listen(remoteSocket,resolve);});
   writeFileSync(file,`
     import {RemoteSession} from ${JSON.stringify(new URL("../src/remote/session.ts",import.meta.url).pathname)};
-    const ctx={env:process.env,pacerHome:process.env.PACER_HOME,run:async argv=>({code:0,stdout:argv.includes("forward")?"":"__PACER_BEGIN__\\n/tmp/fixture.sock",stderr:""})} as any;
-    const bridge=new RemoteSession(ctx,{ssh:"box"} as any,"~/run",process.env.LOCAL!);
+    import {fakeCtx,realRun} from ${JSON.stringify(new URL("./helpers.ts",import.meta.url).pathname)};
+    const ctx=fakeCtx({home:process.env.HOST_HOME,pacerHome:process.env.PACER_HOME,env:process.env,
+      run:(argv,ms,o)=>argv.includes("forward")?Promise.resolve({code:0,stdout:"",stderr:""}):realRun(argv,ms,{...o,env:{...process.env,...o?.env}}),
+      which:name=>name==="ssh"?process.env.FAKE_SSH!:null});
+    const bridge=new RemoteSession(ctx,{alias:"box",ssh:"box-ssh",repos:{},maxTasks:2,accounts:{}} as any,process.env.REMOTE!,process.env.LOCAL!);
     await bridge.prepare();process.exit(0);
   `);
-  const proc=Bun.spawn([process.execPath,file],{env:{...ctx.env,PACER_HOME:ctx.pacerHome,LOCAL:local},stdout:"ignore",stderr:"pipe"});
-  expect(await proc.exited).toBe(0);
+  const proc=Bun.spawn([process.execPath,file],{env:{...ctx.env,PACER_HOME:ctx.pacerHome,HOST_HOME:ctx.home,FAKE_SSH:ctx.which("ssh")!,REMOTE:remote,LOCAL:local},stdout:"ignore",stderr:"pipe"});
+  try{expect(await proc.exited).toBe(0);}finally{remoteServer.close();}
   expect(readFileSync(log,"utf8")).toContain("-O cancel");
 });
