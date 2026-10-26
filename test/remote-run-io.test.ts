@@ -6,15 +6,21 @@ import { Unreachable, type RunIO } from "../src/supervisor/io";
 import { readRun, type RunState } from "../src/supervisor/run";
 import { supervise } from "../src/supervisor/supervise";
 import { fakeCtx, fakeSshEnv, realRun, tmpDir } from "./helpers";
+import { createTask, updateTask } from "../src/tasks/store";
 
 const host = { alias: "box", ssh: "box-ssh", repos: {}, maxTasks: 2, accounts: {} };
 function setup() {
   const home = tmpDir(), local = tmpDir(), log = join(tmpDir(), "ssh.log");
   writeFileSync(join(home, ".bash_profile"), 'echo hello from profile\nexport PATH="$HOME/bin:$PATH"\n');
   const env = fakeSshEnv(home, log);
+  const bin = join(home, "bin"); mkdirSync(bin, { recursive: true });
+  const ssh = join(bin, "ssh");
+  const downFile = join(home, "down.txt"); writeFileSync(downFile, "");
+  writeFileSync(ssh, `#!/bin/sh\nPACER_FAKE_HOST_HOME=${JSON.stringify(home)} PACER_FAKE_SSH_LOG=${JSON.stringify(log)} PACER_FAKE_SSH_DOWN="$(cat ${JSON.stringify(downFile)})"; export PACER_FAKE_HOST_HOME PACER_FAKE_SSH_LOG PACER_FAKE_SSH_DOWN\nexec ${JSON.stringify(join(import.meta.dir, "fixtures", "bin", "ssh"))} "$@"\n`, { mode: 0o755 });
+  env.PATH = `${bin}:${env.PATH}`;
   // macOS has no setsid utility; provide the same session semantics on the fake host.
   if (!Bun.which("setsid")) {
-    const bin = join(home, "bin"); mkdirSync(bin);
+    const bin = join(home, "bin"); mkdirSync(bin, { recursive: true });
     writeFileSync(join(bin, "setsid"), `#!${Bun.which("python3")}\nimport os, sys\nos.setsid()\nos.execvp(sys.argv[1], sys.argv[1:])\n`, { mode: 0o755 });
     env.PATH = `${bin}:${env.PATH}`;
   }
@@ -23,9 +29,17 @@ function setup() {
     symlinkSync(Bun.which("gtail")!,join(bin,"tail"));
     env.PATH=`${bin}:${env.PATH}`;
   }
-  const ctx = fakeCtx({ env: { ...process.env, ...env }, run: (argv, ms, o) => realRun(argv, ms, { ...o, env: { ...process.env, ...env, ...o?.env } }) });
-  const remote = join(home, ".pacer-remote/runs/t/1");
-  return { io: new RemoteRunIO(ctx, host, remote, local), home, remote, local, log, ctx };
+  const ctx = fakeCtx({ env: { ...process.env, ...env }, run: (argv, ms, o) => realRun(argv, ms, { ...o, env: { ...process.env, ...env, ...o?.env } }),
+    which: name => name === "ssh" ? ssh : null });
+  mkdirSync(ctx.pacerHome, { recursive: true });
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders: {claude-code: {}}\nhosts:\n  box:\n    ssh: box-ssh\n");
+  const task = createTask(ctx, { brief: { goal: "remote fixture", repo: home }, kind: null, requestedExecutor: null, timeoutS: 60 });
+  const remote = join(home, ".pacer-remote", "runs", task.id, "1");
+  updateTask(ctx, task.id, record => { record.state = "running";
+    record.run = { host: "box", mode: "new", remoteDir: remote, remoteWorktree: home,
+      workdir: home, dir: local, attempt: 1, executor: "codex@box", startedAt: 1, logFile: "unused" }; });
+  return { io: new RemoteRunIO(ctx, host, remote, local), home, remote, local, log, ctx,
+    setDown: (value: string) => writeFileSync(downFile, value) };
 }
 async function exited(io: RemoteRunIO): Promise<RunState> {
   const end = Date.now() + 8000;
@@ -104,7 +118,9 @@ test("read reports remote command failures as unreachable, and stop on an unreac
   const host = { alias: "box", ssh: "box-ssh", repos: {}, maxTasks: 2, accounts: {} };
   const failing = (code: number) => ({ ...fakeCtx(), run: async () => ({ code, stdout: "", stderr: "boom" }) });
   expect(await new RemoteRunIO(failing(1), host, "~/r", tmpDir()).read().catch((e) => e)).toBeInstanceOf(Unreachable);
-  expect(await new RemoteRunIO(failing(255), host, "~/r", tmpDir()).stop({ graceMs: 1000, sleep: async () => {} })).toEqual({ code: 137, killed: false });
+  const unreachable = setup();
+  unreachable.setDown("box-ssh");
+  expect(await unreachable.io.stop({ graceMs: 1000, sleep: async () => {} })).toEqual({ code: 137, killed: false });
 });
 
 const utilScript = Bun.spawnSync(["script", "--version"]).stdout.toString().includes("util-linux");

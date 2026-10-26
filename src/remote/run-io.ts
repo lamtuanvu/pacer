@@ -15,6 +15,8 @@ import { RemoteSession } from "./session";
 import { ensureRemoteBinary } from "./runtime";
 import { SCRIPTS } from "./scripts";
 import { runRemote } from "./ssh";
+import { pluginRegistry } from "../plugins";
+import { issueConfiguredHostStop } from "../plugins/host-stop-issuer";
 
 const fields = (text: string) => Object.fromEntries(text.trim().split("\n").map(line => {
   const i = line.indexOf("="); return [line.slice(0, i), line.slice(i + 1)];
@@ -183,10 +185,17 @@ export class RemoteRunIO implements RunIO {
     let result: Record<string, string>;
     await this.session?.close();this.session=undefined;
     // An unreachable host cannot be stopped now; the attempt ends and `pacer host clean` removes the run later.
-    try { result = fields((await this.run(SCRIPTS.STOP, [this.remoteDir, String(Math.ceil(o.graceMs / 1000))])).stdout); }
+    try {
+      const grant = issueConfiguredHostStop(this.ctx, this.host.alias, this.remoteDir, this.localDir, Math.ceil(o.graceMs / 1000));
+      const stopped = await pluginRegistry(this.ctx).stopConfiguredHost(this.ctx, grant);
+      if (stopped.code === 255) throw new Unreachable(`host ${this.host.alias} unreachable`);
+      if (stopped.code !== 0) throw new Error(stopped.stderr || `remote command exited ${stopped.code}`);
+      result = fields(stopped.stdout);
+    }
     catch (e) {
       await this.viewer?.close(137);
-      if (e instanceof Unreachable) return { code: 137, killed: false };
+      if (e instanceof Unreachable || (e instanceof Error && "code" in e &&
+        ["plugin_unavailable", "plugin_timeout"].includes(String(e.code)))) return { code: 137, killed: false };
       throw e;
     }
     if (this.recording) {

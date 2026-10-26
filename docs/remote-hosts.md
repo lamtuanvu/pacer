@@ -154,7 +154,10 @@ A dropped connection during a run leaves the agent running while pacer keeps
 polling. After ten minutes of continuous unreachability the attempt ends `lost`
 with a reason. Reconnect and inspect the host run before retrying work that may
 still be running there. `pacer stop <task-id>` stops a reachable remote process
-group through the normal task interface.
+group through the normal task interface and the bundled SSH host runner. A
+missing completion receipt leaves that stop operation unsettled. A later stop
+may confirm its own result but cannot confirm the earlier attempt; inspect the
+remote run before retrying work.
 
 Transfer refusals produce `partial` with the reason, keeping the remote branch
 and worktree for recovery. Fix identity with `pacer host setup` when appropriate;

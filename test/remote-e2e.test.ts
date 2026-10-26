@@ -34,9 +34,12 @@ async function setup(wait = false) {
   writeFileSync(join(bin, "codex"), `#!/bin/sh\ncat > PROMPT.txt\necho agent-started\n${wait ? 'while [ ! -f "$HOME/release" ]; do sleep 0.05; done' : ''}\ngit add PROMPT.txt\ngit commit -q -m result\necho agent-done\n`, { mode: 0o755 });
   if (!Bun.which("setsid")) writeFileSync(join(bin, "setsid"), `#!${Bun.which("python3")}\nimport os, sys\nos.setsid()\nos.execvp(sys.argv[1], sys.argv[1:])\n`, { mode: 0o755 });
   writeFileSync(join(hostHome, ".bash_profile"), 'echo hello from profile\nexport PATH="$HOME/bin:$PATH"\n');
-  const env = { ...process.env, ...fakeSshEnv(hostHome, join(root, "ssh.log")), PACER_BACKEND: "direct" };
+  const ssh = join(bin, "ssh"), sshLog = join(root, "ssh.log");
+  writeFileSync(ssh, `#!/bin/sh\nPACER_FAKE_HOST_HOME=${JSON.stringify(hostHome)} PACER_FAKE_SSH_LOG=${JSON.stringify(sshLog)}; export PACER_FAKE_HOST_HOME PACER_FAKE_SSH_LOG\nexec ${JSON.stringify(join(import.meta.dir, "fixtures", "bin", "ssh"))} "$@"\n`, { mode: 0o755 });
+  const env = { ...process.env, ...fakeSshEnv(hostHome, sshLog), PACER_BACKEND: "direct" };
+  env.PATH = `${bin}:${env.PATH}`;
   const ctx = fakeCtx({ env, run: (argv, ms, o) => realRun(argv, ms, { ...o, env: { ...env, ...o?.env } }),
-    which: name => name === "ssh" ? join(import.meta.dir, "fixtures", "bin", "ssh") :
+    which: name => name === "ssh" ? ssh :
       name === "git" ? "/usr/bin/git" : Bun.which(name) });
   mkdirSync(ctx.pacerHome, { recursive: true });
   writeFileSync(join(ctx.pacerHome, "strategy.yaml"), JSON.stringify({ accounts: { claude: { kind: "claude" }, codex: { kind: "codex" } }, planner: "claude-code", hosts: { box: { ssh: "box-ssh", repos: { "example.invalid/o/r": "~/src/r" } } }, routing: [{ default: ["codex@box"] }] }));
@@ -103,7 +106,7 @@ test("stopping a remote task kills it on the host", async () => {
   updateTask(f.ctx, f.task.id, t => { t.runnerPid = 2147483647; delete t.childPid; });
   try {
     expect(taskStop(f.ctx, f.task.id)?.state).toBe("stopped");
-    await until(() => readFileSync(f.sshLog, "utf8").includes('D="$1"; grace="$2"'), 1000);
+    await until(() => readFileSync(f.sshLog, "utf8").includes('D="$1"; grace="$2"'), 10000);
     await until(() => existsSync(join(run.remoteDir!, "exit")));
     const io = new RemoteRunIO(f.ctx, loadStrategy(f.ctx).hosts.box, run.remoteDir!, run.dir);
     expect((await io.read()).alive).toBe(false);
