@@ -472,9 +472,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # macOS Intel (x86_64) release packages are temporarily not built.
           - runner: macos-15
             arch: aarch64
+          - runner: macos-15-intel
+            arch: x86_64
     env:
       VERSION: ${{ needs.verify.outputs.version }}
       ARCH: ${{ matrix.arch }}
