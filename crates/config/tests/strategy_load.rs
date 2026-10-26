@@ -10,10 +10,14 @@ fn goldens() -> Vec<Value> {
 }
 
 #[test]
-fn basic_current_strategy_normalization_matches_typescript() {
+fn basic_strategy_normalization_matches_typescript() {
     let selected = [
         "current-basic",
         "current-pacing",
+        "current-host",
+        "legacy-basic",
+        "legacy-reversed",
+        "legacy-opencode",
         "active-name",
         "flow-and-comments",
         "crlf",

@@ -302,6 +302,187 @@
     }
   },
   {
+    "id": "current-execution",
+    "yaml": "planner: codex\naccounts: {personal: {kind: codex}}\nrouting: [{default: [codex]}]\nexecution: {local_max_tasks: 3}\n",
+    "path": "$HOME/strategy.yaml",
+    "result": {
+      "name": "default",
+      "planner": {
+        "agent": "codex",
+        "account": "personal"
+      },
+      "accounts": {
+        "personal": {
+          "name": "personal",
+          "model": null,
+          "kind": "codex",
+          "source": "default",
+          "home": null,
+          "orcaAccount": null,
+          "usage": "quota",
+          "usageSource": "native",
+          "quotaSource": null,
+          "provider": null,
+          "weeklyUsd": null,
+          "weeklyTokens": null,
+          "cooldownS": 21600,
+          "allowPaid": false
+        }
+      },
+      "hosts": {},
+      "runners": {
+        "codex": {
+          "id": "codex",
+          "name": "codex",
+          "host": null,
+          "agent": "codex",
+          "account": "personal",
+          "model": null
+        }
+      },
+      "legacy": false,
+      "runnerAliases": {
+        "codex": "codex"
+      },
+      "providers": {
+        "codex": {
+          "id": "codex",
+          "via": null,
+          "model": null,
+          "usage": "quota",
+          "allowPaid": false,
+          "cooldownS": 21600,
+          "quotaSource": null,
+          "weeklyTokens": null,
+          "weeklyUsd": null
+        }
+      },
+      "pacing": {
+        "policy": "priority",
+        "order": [
+          "codex"
+        ],
+        "plannerReserve": 15,
+        "aheadThreshold": 10,
+        "behindThreshold": -10,
+        "accounts": "spread",
+        "fillThreshold": 90
+      },
+      "routing": [
+        {
+          "kinds": null,
+          "executors": [
+            "codex"
+          ]
+        }
+      ],
+      "taskRetentionDays": 14,
+      "plugins": {
+        "disabled": [],
+        "installed": {},
+        "config": {}
+      },
+      "execution": {
+        "local_max_tasks": 3
+      },
+      "classifier": {}
+    }
+  },
+  {
+    "id": "current-host-advanced",
+    "yaml": "planner: codex\naccounts: {personal: {kind: codex}}\nhosts: {devbox: {ssh: dev-ssh, max_tasks: 3}}\nrouting: [{default: [codex]}]\n",
+    "path": "$HOME/strategy.yaml",
+    "result": {
+      "name": "default",
+      "planner": {
+        "agent": "codex",
+        "account": "personal"
+      },
+      "accounts": {
+        "personal": {
+          "name": "personal",
+          "model": null,
+          "kind": "codex",
+          "source": "default",
+          "home": null,
+          "orcaAccount": null,
+          "usage": "quota",
+          "usageSource": "native",
+          "quotaSource": null,
+          "provider": null,
+          "weeklyUsd": null,
+          "weeklyTokens": null,
+          "cooldownS": 21600,
+          "allowPaid": false
+        }
+      },
+      "hosts": {
+        "devbox": {
+          "alias": "devbox",
+          "ssh": "dev-ssh",
+          "repos": {},
+          "maxTasks": 3,
+          "accounts": {},
+          "paused": false
+        }
+      },
+      "runners": {
+        "codex": {
+          "id": "codex",
+          "name": "codex",
+          "host": null,
+          "agent": "codex",
+          "account": "personal",
+          "model": null
+        }
+      },
+      "legacy": false,
+      "runnerAliases": {
+        "codex": "codex"
+      },
+      "providers": {
+        "codex": {
+          "id": "codex",
+          "via": null,
+          "model": null,
+          "usage": "quota",
+          "allowPaid": false,
+          "cooldownS": 21600,
+          "quotaSource": null,
+          "weeklyTokens": null,
+          "weeklyUsd": null
+        }
+      },
+      "pacing": {
+        "policy": "priority",
+        "order": [
+          "codex"
+        ],
+        "plannerReserve": 15,
+        "aheadThreshold": 10,
+        "behindThreshold": -10,
+        "accounts": "spread",
+        "fillThreshold": 90
+      },
+      "routing": [
+        {
+          "kinds": null,
+          "executors": [
+            "codex"
+          ]
+        }
+      ],
+      "taskRetentionDays": 14,
+      "plugins": {
+        "disabled": [],
+        "installed": {},
+        "config": {}
+      },
+      "execution": {},
+      "classifier": {}
+    }
+  },
+  {
     "id": "legacy-basic",
     "yaml": "planner: codex\nproviders: {codex: {usage: quota}, cursor: {usage: reactive}}\nrouting: [{default: [codex, cursor]}]\n",
     "path": "$HOME/strategy.yaml",
@@ -411,6 +592,129 @@
           "executors": [
             "codex",
             "cursor"
+          ]
+        }
+      ],
+      "taskRetentionDays": 14,
+      "plugins": {
+        "disabled": [],
+        "installed": {},
+        "config": {}
+      },
+      "execution": {},
+      "classifier": {}
+    }
+  },
+  {
+    "id": "legacy-reversed",
+    "yaml": "planner: codex\nproviders: {cursor: {usage: reactive}, codex: {usage: quota}}\n",
+    "path": "$HOME/strategy.yaml",
+    "result": {
+      "name": "default",
+      "planner": {
+        "agent": "codex",
+        "account": "codex"
+      },
+      "accounts": {
+        "cursor": {
+          "name": "cursor",
+          "model": null,
+          "kind": "cursor",
+          "source": "default",
+          "home": null,
+          "orcaAccount": null,
+          "usage": "reactive",
+          "usageSource": "reactive",
+          "quotaSource": null,
+          "provider": null,
+          "weeklyUsd": null,
+          "weeklyTokens": null,
+          "cooldownS": 21600,
+          "allowPaid": false
+        },
+        "codex": {
+          "name": "codex",
+          "model": null,
+          "kind": "codex",
+          "source": "default",
+          "home": null,
+          "orcaAccount": null,
+          "usage": "quota",
+          "usageSource": "native",
+          "quotaSource": null,
+          "provider": null,
+          "weeklyUsd": null,
+          "weeklyTokens": null,
+          "cooldownS": 21600,
+          "allowPaid": false
+        }
+      },
+      "hosts": {},
+      "runners": {
+        "cursor": {
+          "id": "cursor",
+          "name": "cursor",
+          "host": null,
+          "agent": "cursor",
+          "account": "cursor",
+          "model": null
+        },
+        "codex": {
+          "id": "codex",
+          "name": "codex",
+          "host": null,
+          "agent": "codex",
+          "account": "codex",
+          "model": null
+        }
+      },
+      "legacy": true,
+      "runnerAliases": {
+        "cursor": "cursor",
+        "codex": "codex"
+      },
+      "providers": {
+        "cursor": {
+          "id": "cursor",
+          "via": null,
+          "model": null,
+          "usage": "reactive",
+          "allowPaid": false,
+          "cooldownS": 21600,
+          "quotaSource": null,
+          "weeklyTokens": null,
+          "weeklyUsd": null
+        },
+        "codex": {
+          "id": "codex",
+          "via": null,
+          "model": null,
+          "usage": "quota",
+          "allowPaid": false,
+          "cooldownS": 21600,
+          "quotaSource": null,
+          "weeklyTokens": null,
+          "weeklyUsd": null
+        }
+      },
+      "pacing": {
+        "policy": "priority",
+        "order": [
+          "codex",
+          "cursor"
+        ],
+        "plannerReserve": 15,
+        "aheadThreshold": 10,
+        "behindThreshold": -10,
+        "accounts": "spread",
+        "fillThreshold": 90
+      },
+      "routing": [
+        {
+          "kinds": null,
+          "executors": [
+            "cursor",
+            "codex"
           ]
         }
       ],

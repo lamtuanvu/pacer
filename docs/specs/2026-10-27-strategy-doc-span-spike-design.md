@@ -20,9 +20,9 @@ The remaining 11 `setIn`/`setScalar` classes, plus the other 41 oracle cases, ar
 
 ## Strategy read-model checkpoint
 
-The TypeScript parse/validation oracle at `test/fixtures/strategy-load/` records 16 synthetic cases: eight valid normalized strategies, seven ordered `StrategyError` problem lists and one YAML syntax error. It calls `Bun.YAML.parse` and `validateStrategy` with a literal `$HOME` path. Active-file selection, missing-file errors and migration are not covered yet.
+The TypeScript parse/validation oracle at `test/fixtures/strategy-load/` records 19 synthetic cases: eleven valid normalized strategies, seven ordered `StrategyError` problem lists and one YAML syntax error. It calls `Bun.YAML.parse` and `validateStrategy` with a literal `$HOME` path. Active-file selection, missing-file errors and migration are not covered yet.
 
-`pacer_config::strategy_load::normalize_basic` matches the complete normalized JSON for five valid current-account cases, including defaults, explicit pacing, quoted/flow YAML, CRLF and an active strategy name. It rejects the other eleven cases before returning a Rust result: legacy providers, hosts, YAML aliases, invalid schema and syntax errors all remain TypeScript-owned. The prototype is read-only, makes no file reads or writes, and is not registered as an operation. It does not yet reproduce validation error messages or the full `Strategy` schema.
+`pacer_config::strategy_load::normalize_basic` matches the complete normalized JSON for nine valid oracle cases, including basic current/legacy accounts, a simple host, defaults, explicit pacing, quoted/flow YAML, CRLF, source order and an active strategy name. It rejects two advanced valid cases (execution settings and host capacity) and eight invalid schema/syntax/alias cases before returning a Rust result; those cases remain TypeScript-owned. The prototype is read-only, makes no file reads or writes, and is not registered as an operation. It does not yet reproduce validation error messages or the full `Strategy` schema beyond this conservative subset.
 
 ## Next gate
 
