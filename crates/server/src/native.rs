@@ -15,6 +15,7 @@ pub const NATIVE_OPS: &[&str] = &[
     "notifications.set",
     "repo.add",
     "repo.remove",
+    "routing.get",
 ];
 
 pub struct Dispatcher {
@@ -25,6 +26,7 @@ impl Dispatcher {
         let mut ops: Vec<NativeOp> = pacer_config::ops().to_vec();
         ops.extend_from_slice(pacer_config::repo_ops());
         ops.extend_from_slice(pacer_config::repo_add_ops());
+        ops.extend_from_slice(pacer_config::routing_ops());
         #[cfg(feature = "test-ops")]
         ops.push(NativeOp {
             name: "test.echo",
@@ -52,6 +54,7 @@ impl Dispatcher {
     /// that request before consuming it so its parsing and file behavior stay exact.
     pub fn needs_core_parser(&self, ctx: &Ctx, name: &str) -> bool {
         (matches!(name, "repo.add" | "repo.remove") && pacer_config::requires_core_repo_parser(ctx))
+            || (name == "routing.get" && pacer_config::requires_core_routing_parser(ctx))
             || (matches!(name, "notifications.get" | "notifications.set")
                 && pacer_config::requires_core_parser(ctx))
             || (name == "notifications.set" && pacer_config::requires_core_set_parser(ctx))
@@ -170,7 +173,8 @@ mod registry_tests {
                 "notifications.get",
                 "notifications.set",
                 "repo.add",
-                "repo.remove"
+                "repo.remove",
+                "routing.get"
             ]
         );
         #[cfg(not(feature = "test-ops"))]
@@ -284,6 +288,35 @@ mod registry_tests {
             assert!(matches!(result, Some(Ok(_))), "{result:?}");
         }
         assert!(!dispatcher.needs_core_parser(&ctx, "repo.add"));
+    }
+    #[tokio::test]
+    async fn routing_get_selects_native_only_for_supported_strategy_shape() {
+        let dir = tempfile::tempdir().unwrap();
+        let ctx = Ctx::with(
+            dir.path().join("home"),
+            dir.path().join("pacer"),
+            HashMap::new(),
+            0.0,
+        );
+        fs::create_dir_all(&ctx.pacer_home).unwrap();
+        let path = ctx.pacer_home.join("strategy.yaml");
+        fs::write(&path, "accounts: {personal: {kind: claude}, codex: {kind: codex}}\nplanner: claude-code\nrouting: [{default: [codex]}]\n").unwrap();
+        let dispatcher = Dispatcher::new("");
+        assert!(!dispatcher.needs_core_parser(&ctx, "routing.get"));
+        assert_eq!(
+            dispatcher.call(&ctx, "routing.get", json!({})).await,
+            Some(Ok(
+                json!({"rules":[{"executors":["codex"]}],"available":["claude-code","codex"]})
+            ))
+        );
+        assert!(
+            Dispatcher::new("routing.get")
+                .call(&ctx, "routing.get", json!({}))
+                .await
+                .is_none()
+        );
+        fs::write(&path, "accounts: {personal: {kind: claude}}\nplanner: claude-code\nhosts: {box: {ssh: box}}\n").unwrap();
+        assert!(dispatcher.needs_core_parser(&ctx, "routing.get"));
     }
     #[cfg(feature = "test-ops")]
     #[tokio::test]
