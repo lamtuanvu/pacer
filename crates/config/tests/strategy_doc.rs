@@ -194,6 +194,134 @@ fn every_selected_flow_insertion_in_the_corpus_matches_typescript_after_bytes() 
 }
 
 #[test]
+fn flow_map_deletion_matches_first_middle_last_only_and_crlf_goldens() {
+    let cases = goldens();
+    for id in [
+        "flow-delete-first",
+        "flow-delete-middle",
+        "flow-delete-last",
+        "flow-delete-only",
+        "crlf-delete",
+        "delete-absent",
+    ] {
+        let case = cases.iter().find(|case| case["id"] == id).unwrap();
+        assert_eq!(
+            pacer_config::doc::delete_flow_entry(
+                case["before"].as_str().unwrap(),
+                case["path"].as_array().unwrap()
+            ),
+            Some(case["after"].as_str().unwrap().to_owned()),
+            "{id}"
+        );
+    }
+    let block = cases
+        .iter()
+        .find(|case| case["id"] == "delete-null")
+        .unwrap();
+    assert_eq!(
+        pacer_config::doc::delete_flow_entry(
+            block["before"].as_str().unwrap(),
+            block["path"].as_array().unwrap()
+        ),
+        None
+    );
+}
+
+#[test]
+fn simple_mapping_key_rename_matches_typescript_goldens() {
+    let cases = goldens();
+    for id in ["rename-routing-key", "rename-quoted-key"] {
+        let case = cases.iter().find(|case| case["id"] == id).unwrap();
+        assert_eq!(
+            pacer_config::doc::rename_mapping_key(
+                case["before"].as_str().unwrap(),
+                case["path"].as_array().unwrap(),
+                case["value"].as_str().unwrap(),
+            ),
+            Some(case["after"].as_str().unwrap().to_owned()),
+            "{id}"
+        );
+    }
+    for id in ["rename-conflict", "rename-missing"] {
+        let case = cases.iter().find(|case| case["id"] == id).unwrap();
+        assert_eq!(
+            pacer_config::doc::rename_mapping_key(
+                case["before"].as_str().unwrap(),
+                case["path"].as_array().unwrap(),
+                case["value"].as_str().unwrap(),
+            ),
+            None,
+            "{id}"
+        );
+    }
+}
+
+#[test]
+fn every_selected_map_edit_in_the_corpus_matches_typescript_after_bytes() {
+    let mut selected = Vec::new();
+    for case in goldens() {
+        let Some(before) = case["before"].as_str() else {
+            continue;
+        };
+        let Some(path) = case["path"].as_array() else {
+            continue;
+        };
+        let output = match case["op"].as_str() {
+            Some("deleteIn") => pacer_config::doc::delete_flow_entry(before, path),
+            Some("renameKey") => case["value"]
+                .as_str()
+                .and_then(|name| pacer_config::doc::rename_mapping_key(before, path, name)),
+            _ => continue,
+        };
+        if let Some(output) = output {
+            assert_eq!(output, case["after"].as_str().unwrap(), "{}", case["id"]);
+            selected.push(case["id"].as_str().unwrap().to_owned());
+        }
+    }
+    assert_eq!(
+        selected,
+        [
+            "flow-delete-first",
+            "flow-delete-middle",
+            "flow-delete-last",
+            "delete-absent",
+            "rename-routing-key",
+            "rename-quoted-key",
+            "crlf-delete",
+            "flow-delete-only",
+        ]
+    );
+}
+
+#[test]
+fn unsupported_map_layouts_and_key_names_stay_with_typescript() {
+    use serde_json::json;
+
+    assert_eq!(
+        pacer_config::doc::delete_flow_entry(
+            "pacing: { policy: priority}\n",
+            &[json!("pacing"), json!("policy")]
+        ),
+        None
+    );
+    assert_eq!(
+        pacer_config::doc::delete_flow_entry(
+            "pacing: {policy: [first, second]}\n",
+            &[json!("pacing"), json!("policy")]
+        ),
+        None
+    );
+    assert_eq!(
+        pacer_config::doc::rename_mapping_key(
+            "pacing: {policy: priority}\n",
+            &[json!("pacing"), json!("policy")],
+            "new\nkey"
+        ),
+        None
+    );
+}
+
+#[test]
 fn every_selected_edit_in_the_corpus_matches_its_typescript_after_bytes() {
     let mut selected = Vec::new();
     for case in goldens() {

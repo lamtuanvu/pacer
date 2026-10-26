@@ -23,9 +23,15 @@ enum Node {
     Map {
         opening: Span,
         closing: Span,
-        entries: Vec<(String, Node)>,
+        entries: Vec<MapEntry>,
     },
     Seq(Vec<Node>),
+}
+
+struct MapEntry {
+    key: String,
+    key_span: Span,
+    value: Node,
 }
 
 fn parse_node(events: &[(Event<'_>, Span)], cursor: &mut usize) -> Option<Node> {
@@ -40,11 +46,20 @@ fn parse_node(events: &[(Event<'_>, Span)], cursor: &mut usize) -> Option<Node> 
         Event::MappingStart(0, None) => {
             let mut entries = Vec::new();
             while !matches!(events.get(*cursor)?.0, Event::MappingEnd) {
-                let Node::Scalar { value: key, .. } = parse_node(events, cursor)? else {
+                let Node::Scalar {
+                    value: key,
+                    span: key_span,
+                    ..
+                } = parse_node(events, cursor)?
+                else {
                     return None;
                 };
                 let value = parse_node(events, cursor)?;
-                entries.push((key, value));
+                entries.push(MapEntry {
+                    key,
+                    key_span,
+                    value,
+                });
             }
             let closing = events.get(*cursor)?.1;
             *cursor += 1;
@@ -73,8 +88,8 @@ fn lookup<'a>(node: &'a Node, path: &[Value]) -> Option<&'a Node> {
     match node {
         Node::Map { entries, .. } => {
             let key = head.as_str()?;
-            let mut found = entries.iter().filter(|(candidate, _)| candidate == key);
-            let (_, child) = found.next()?;
+            let mut found = entries.iter().filter(|entry| entry.key == key);
+            let child = &found.next()?.value;
             if found.next().is_some() {
                 return None;
             }
@@ -247,7 +262,7 @@ pub fn insert_missing_flow_scalar(text: &str, path: &[Value], value: &Value) -> 
     else {
         return None;
     };
-    if entries.iter().any(|(existing, _)| existing == key) {
+    if entries.iter().any(|entry| entry.key == key) {
         return None;
     }
     let open_start = char_to_byte(text, opening.start.index())?;
@@ -256,12 +271,12 @@ pub fn insert_missing_flow_scalar(text: &str, path: &[Value], value: &Value) -> 
     if text.get(open_start..open_end)? != "{" || text.get(close_start..close_start + 1)? != "}" {
         return None;
     }
-    let at = if let Some((_, last)) = entries.last() {
+    let at = if let Some(last) = entries.last() {
         let Node::Scalar {
             style: ScalarStyle::Plain,
             span,
             ..
-        } = last
+        } = &last.value
         else {
             return None;
         };
@@ -287,5 +302,116 @@ pub fn insert_missing_flow_scalar(text: &str, path: &[Value], value: &Value) -> 
             if entries.is_empty() { "" } else { ", " }
         ),
     );
+    Some(output)
+}
+
+/// Delete one entry from a strict flow map. Other mapping layouts stay with
+/// the TypeScript editor until their source ranges have byte-level goldens.
+#[must_use]
+pub fn delete_flow_entry(text: &str, path: &[Value]) -> Option<String> {
+    let (key, parent_path) = path.split_last()?;
+    let key = key.as_str()?;
+    let root = parse_document(text)?;
+    let Node::Map {
+        opening,
+        closing,
+        entries,
+    } = lookup(&root, parent_path)?
+    else {
+        return None;
+    };
+    let open = char_to_byte(text, opening.start.index())?;
+    let content_start = char_to_byte(text, opening.end.index())?;
+    let content_end = char_to_byte(text, closing.start.index())?;
+    if text.get(open..content_start)? != "{" || text.get(content_end..content_end + 1)? != "}" {
+        return None;
+    }
+    let mut positions = Vec::with_capacity(entries.len());
+    let mut next_start = content_start;
+    for entry in entries {
+        let Node::Scalar {
+            span,
+            style: ScalarStyle::Plain,
+            ..
+        } = &entry.value
+        else {
+            return None;
+        };
+        let key_start = char_to_byte(text, entry.key_span.start.index())?;
+        let key_end = char_to_byte(text, entry.key_span.end.index())?;
+        let value_start = char_to_byte(text, span.start.index())?;
+        let value_end = char_to_byte(text, span.end.index())?;
+        if key_start != next_start
+            || !safe_plain_string(&entry.key)
+            || text.get(key_start..key_end)? != entry.key
+            || text.get(key_end..value_start)? != ": "
+        {
+            return None;
+        }
+        positions.push((key_start, value_end));
+        next_start = value_end;
+        if next_start < content_end {
+            if text.get(next_start..next_start + 2)? != ", " {
+                return None;
+            }
+            next_start += 2;
+        }
+    }
+    if next_start != content_end {
+        return None;
+    }
+    let mut found = entries
+        .iter()
+        .enumerate()
+        .filter(|(_, entry)| entry.key == key);
+    let Some((index, _)) = found.next() else {
+        return Some(text.to_owned());
+    };
+    if found.next().is_some() {
+        return None;
+    }
+    let (start, end) = if let Some(next) = positions.get(index + 1) {
+        (positions[index].0, next.0)
+    } else if index > 0 {
+        (positions[index - 1].1, positions[index].1)
+    } else {
+        positions[index]
+    };
+    let mut output = text.to_owned();
+    output.replace_range(start..end, "");
+    Some(output)
+}
+
+/// Rename one plain mapping key without re-emitting its surrounding document.
+#[must_use]
+pub fn rename_mapping_key(text: &str, path: &[Value], new_name: &str) -> Option<String> {
+    let (key, parent_path) = path.split_last()?;
+    let key = key.as_str()?;
+    if !new_name.is_ascii()
+        || !(safe_plain_string(new_name)
+            || (safe_quoted_ascii(new_name) && new_name.contains(": ")))
+    {
+        return None;
+    }
+    let root = parse_document(text)?;
+    let Node::Map { entries, .. } = lookup(&root, parent_path)? else {
+        return None;
+    };
+    if entries.iter().any(|entry| entry.key == new_name) {
+        return None;
+    }
+    let mut found = entries.iter().filter(|entry| entry.key == key);
+    let entry = found.next()?;
+    if found.next().is_some() {
+        return None;
+    }
+    let start = char_to_byte(text, entry.key_span.start.index())?;
+    let end = char_to_byte(text, entry.key_span.end.index())?;
+    if start >= end || !key.is_ascii() || !safe_plain_string(key) || text.get(start..end)? != key {
+        return None;
+    }
+    let replacement = render_scalar(&Value::String(new_name.to_owned()), ScalarStyle::Plain)?;
+    let mut output = text.to_owned();
+    output.replace_range(start..end, &replacement);
     Some(output)
 }
