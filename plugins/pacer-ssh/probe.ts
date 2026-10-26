@@ -61,6 +61,24 @@ export const SET_IDENTITY_SCRIPT = `path="$1"
 case "$path" in '~/'*) path="$HOME/\${path#??}" ;; esac
 git -C "$path" config --local user.name "$2" && git -C "$path" config --local user.email "$3"`;
 
+/** Fixed cleanup script; parity with SCRIPTS.CLEAN is checked in tests. */
+export const CLEAN_SCRIPT = `worktree="$1"; D="$2"; checkout="$3"; task="$4"; delete_branch="$5"
+case "$worktree" in '~/'*) worktree="$HOME/\${worktree#??}" ;; esac
+case "$D" in '~/'*) D="$HOME/\${D#??}" ;; esac
+case "$checkout" in '~/'*) checkout="$HOME/\${checkout#??}" ;; esac
+# Resolve the task run directory before deleting anything; reject traversal and symlink escapes.
+remote_home=$(cd "$HOME" && pwd -P) || exit 1
+runs=$(cd "$HOME/.pacer-remote/runs" && pwd -P) || exit 1
+D=$(cd "$(dirname "$D")" && pwd -P) || exit 1
+case "$D" in "$remote_home/.pacer-remote/runs/"*) ;; *) exit 1 ;; esac
+[ "$(basename "$D")" = "$task" ] && [ "$D" = "$runs/$task" ] || exit 1
+cd "$checkout" || exit 1
+if [ -d "$worktree" ]; then git worktree remove --force "$worktree" || exit 1; fi
+rm -rf "$D" || exit 1
+if [ -n "$delete_branch" ] && git show-ref --verify --quiet "refs/heads/$delete_branch"; then
+  git branch -D "$delete_branch" || exit 1
+fi`;
+
 export const QUESTION_SCRIPT = `file="$1/.pacer-question"
 [ -f "$file" ] || exit 0
 [ "$(wc -c < "$file")" -le 4000 ] || { echo "question exceeds 1000 characters" >&2; exit 1; }
@@ -122,6 +140,19 @@ export function cloneRepoArgv(sshTarget: string, controlPath: string, args: read
     !/^[a-f0-9-]{36}$/.test(completionNonce))
     throw Error("invalid host-issued clone tuple");
   return issuedArgv(sshTarget, controlPath, CHECK_REPO_SCRIPT, [...args], completionNonce);
+}
+
+export function cleanArgv(sshTarget: string, controlPath: string, args: readonly string[], completionNonce: string): string[] {
+  if (args.length !== 5 || args.some(value => typeof value !== "string" || value.length > 4096 ||
+    /[\u0000-\u001f\u007f]/.test(value)) ||
+    !args.slice(0, 2).every(value => value.startsWith("/")) ||
+    !(args[2]!.startsWith("/") || args[2]!.startsWith("~/")) ||
+    !/^t-\d{8}-\d{6}-[0-9a-f]{4}$/.test(args[3]!) ||
+    (args[4] !== "" && args[4] !== `pacer/${args[3]}` &&
+      !new RegExp(`^pacer/${args[3]}-[1-9][0-9]*$`).test(args[4]!)) ||
+    !/^[a-f0-9-]{36}$/.test(completionNonce))
+    throw Error("invalid host-issued clean tuple");
+  return issuedArgv(sshTarget, controlPath, CLEAN_SCRIPT, [...args], completionNonce);
 }
 
 export function bundleOutArgv(sshTarget: string, controlPath: string, args: readonly string[]): string[] {

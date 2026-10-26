@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { checkHomeArgv, checkRepoArgv, cloneRepoArgv, CHECK_REPO_SCRIPT, preflightArgv, PREFLIGHT_SCRIPT, probeArgv, PROBE_SCRIPT,
+import { checkHomeArgv, checkRepoArgv, cleanArgv, CLEAN_SCRIPT, cloneRepoArgv, CHECK_REPO_SCRIPT, preflightArgv, PREFLIGHT_SCRIPT, probeArgv, PROBE_SCRIPT,
   questionArgv, QUESTION_SCRIPT, usageArgv, CODEX_USAGE_SCRIPT,
   setIdentityArgv, SET_IDENTITY_SCRIPT } from "../plugins/pacer-ssh/probe";
 import { SCRIPTS } from "../src/remote/scripts";
@@ -97,6 +97,24 @@ test("SSH clone argv uses only the fixed guarded repo script and issued receipt"
       arg.startsWith("ControlPath=") ? "ControlPath=/tmp/private/cm-%C" : arg));
   expect(() => cloneRepoArgv(host.ssh, "/tmp/private/cm-%C", ["~/repo", "clone", "$(id)\n"], nonce)).toThrow();
   expect(() => cloneRepoArgv(host.ssh, "/tmp/private/cm-%C", ["~/repo", "check", args[2]!], nonce)).toThrow();
+});
+
+test("SSH cleanup argv uses only the fixed issued CLEAN script", () => {
+  const ctx = fakeCtx(), host = { alias: "box", ssh: "box", repos: {}, accounts: {}, maxTasks: 1 };
+  const id = "t-20261026-120000-abcd", nonce = "123e4567-e89b-42d3-a456-426614174000";
+  const args = [`/remote/.pacer-remote/worktrees/repo/${id}-1`, `/remote/.pacer-remote/runs/${id}/1`,
+    "/remote/repo", id, `pacer/${id}`];
+  expect(CLEAN_SCRIPT).toBe(SCRIPTS.CLEAN);
+  expect(cleanArgv(host.ssh, "/tmp/private/cm-%C", args, nonce))
+    .toEqual(sshArgv(ctx, host, SCRIPTS.CLEAN, args, nonce).map(arg =>
+      arg.startsWith("ControlPath=") ? "ControlPath=/tmp/private/cm-%C" : arg));
+  const tildeCheckout = [...args]; tildeCheckout[2] = "~/repo";
+  expect(cleanArgv(host.ssh, "/tmp/private/cm-%C", tildeCheckout, nonce))
+    .toEqual(sshArgv(ctx, host, SCRIPTS.CLEAN, tildeCheckout, nonce).map(arg =>
+      arg.startsWith("ControlPath=") ? "ControlPath=/tmp/private/cm-%C" : arg));
+  expect(() => cleanArgv(host.ssh, "/tmp/private/cm-%C", [...args.slice(0, 2), "../repo", ...args.slice(3)], nonce)).toThrow();
+  expect(() => cleanArgv(host.ssh, "/tmp/private/cm-%C", [...args.slice(0, 4), "pacer/other"], nonce)).toThrow();
+  expect(() => cleanArgv(host.ssh, "/tmp/private/cm-%C", [...args.slice(0, 3), "../other", ""], nonce)).toThrow();
 });
 
 test("SSH reference provider builds the exact fixed BUNDLE_OUT argv", async () => {

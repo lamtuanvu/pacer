@@ -47,6 +47,7 @@ import { consumeConfiguredHostIdentity, validateConfiguredHostIdentity,
 import { consumePersistedQuestion, validatePersistedQuestion, type PersistedQuestionGrant } from "./question-issuer";
 import { consumeConfiguredRemoteUsage, validateConfiguredRemoteUsage, type ConfiguredRemoteUsageGrant } from "./remote-usage-issuer";
 import { consumeConfiguredHostClone, validateConfiguredHostClone, type ConfiguredHostCloneGrant } from "./host-clone-issuer";
+import { consumeConfiguredHostClean, validateConfiguredHostClean, type ConfiguredHostCleanGrant } from "./host-clean-issuer";
 import { beginWorkSync, finishWorkSync } from "../update/desktop/admission";
 import { z } from "zod";
 
@@ -238,6 +239,78 @@ export class PluginRegistry {
         finishWorkSync(ctx, nonce);
         await validateConfiguredHostClone(ctx, grant);
         if (!active()) throw new CoreError("capability_denied", "configured clone host changed after completion");
+        return { ...result, stdout: result.stdout.slice(0, -receipt.length) };
+      } catch (error) {
+        if (!issued) finishWorkSync(ctx, nonce);
+        throw error;
+      }
+    } finally {
+      clearInterval(watch); signal?.removeEventListener("abort", cancel);
+      if (session) await this.call(ctx, provider.id, "hostRunner.close", { session },
+        { deadlineMs: 5000, expectedProcess: process }).catch(() => {});
+    }
+  }
+
+  /** Host-only one-use cleanup; uncertain completion retains the durable mutation lease. */
+  async cleanConfiguredHost(ctx: Ctx, grant: ConfiguredHostCleanGrant, signal?: AbortSignal): Promise<{ code: number; stdout: string; stderr: string; timedOut: boolean }> {
+    await consumeConfiguredHostClean(ctx, grant);
+    const { alias, args, hostFingerprint } = grant.resource;
+    const host = loadStrategy(ctx).hosts[alias];
+    if (!host || JSON.stringify(host) !== hostFingerprint)
+      throw new CoreError("capability_denied", "configured cleanup host changed");
+    const providers = this.findAll(ctx, "hostRunner", contribution =>
+      Array.isArray(contribution.kinds) && contribution.kinds.length === 1 && contribution.kinds[0] === "ssh");
+    if (providers.length !== 1 || providers[0] !== "pacer-ssh")
+      throw new CoreError("plugin_unavailable", "bundled SSH host runner provider is required");
+    const provider = this.entries.get(providers[0]!)!;
+    await this.call(ctx, provider.id, "diagnostic.ping", {}, { deadlineMs: 5000, signal });
+    const process = provider.process, generation = this.hostGeneration(ctx, provider);
+    if (!process?.alive || !provider.served.includes("hostRunner"))
+      throw new CoreError("plugin_unavailable", "SSH host runner provider is not ready");
+    const directory = controlDir(ctx), original = lstatSync(directory);
+    if (!original.isDirectory() || (original.mode & 0o077) !== 0 ||
+      (globalThis.process.getuid && original.uid !== globalThis.process.getuid()))
+      throw new CoreError("capability_denied", "SSH control directory is not private");
+    const controlPath = join(directory, "cm-%C"), timeoutMs = grant.resource.timeoutMs;
+    const active = () => {
+      const current = loadStrategy(ctx).hosts[alias], now = lstatSync(directory);
+      return current && JSON.stringify(current) === hostFingerprint &&
+        provider.process === process && process.alive && this.hostGeneration(ctx, provider) === generation &&
+        now.isDirectory() && now.dev === original.dev && now.ino === original.ino &&
+        now.uid === original.uid && (now.mode & 0o7777) === (original.mode & 0o7777);
+    };
+    if (!active()) throw new CoreError("capability_denied", "configured cleanup snapshot changed");
+    const controller = new AbortController();
+    const cancel = () => controller.abort(new CoreError("capability_denied", "configured cleanup retired"));
+    signal?.addEventListener("abort", cancel, { once: true });
+    const watch = setInterval(() => { try { if (!active()) cancel(); } catch { cancel(); } }, 100);
+    watch.unref();
+    let session: string | undefined;
+    try {
+      const opened = await this.call<{ session: string }>(ctx, provider.id, "hostRunner.open",
+        { alias, sshTarget: host.ssh, controlPath },
+        { deadlineMs: 10_000, signal: controller.signal, expectedProcess: process });
+      session = opened.session;
+      await validateConfiguredHostClean(ctx, grant);
+      if (controller.signal.aborted || !active()) throw new CoreError("capability_denied", "configured cleanup retired");
+      const nonce = beginWorkSync(ctx, { kind: "operation", id: randomUUID(), label: `Remote cleanup operation on ${alias}` });
+      let issued = false;
+      try {
+        const argv = sshArgv(ctx, host, SCRIPTS.CLEAN, [...args], nonce);
+        if (!argv.includes(`ControlPath=${controlPath}`) || !active())
+          throw new CoreError("capability_denied", "configured cleanup SSH path changed");
+        issued = true;
+        const result = await this.call<{ code: number; stdout: string; stderr: string; timedOut: boolean }>(
+          ctx, provider.id, "hostRunner.run",
+          { session, script: "CLEAN", args: [...args], timeoutMs, maxBytes: grant.resource.maxBytes, completionNonce: nonce },
+          { deadlineMs: 60_000, signal: controller.signal, expectedProcess: process,
+            resources: { reads: [], commands: [{ argv, timeoutMs }], stores: [] }, [HOST_PROVIDER_MUTATION_ISSUER]: true });
+        const receipt = `\n__PACER_DONE__=${nonce}\n`;
+        if (result.timedOut || result.code === 255 || !result.stdout.endsWith(receipt))
+          throw new CoreError("plugin_refused", "remote cleanup completion is unverified");
+        finishWorkSync(ctx, nonce);
+        await validateConfiguredHostClean(ctx, grant);
+        if (!active()) throw new CoreError("capability_denied", "configured cleanup host changed after completion");
         return { ...result, stdout: result.stdout.slice(0, -receipt.length) };
       } catch (error) {
         if (!issued) finishWorkSync(ctx, nonce);
@@ -894,6 +967,7 @@ export class PluginRegistry {
     if (method === "hostRunner.fetch" && !options[HOST_FETCH_ISSUER])
       throw new CoreError("capability_denied", "host fetch requires host-owned issuance");
     if (method === "hostRunner.run" && ((params as { script?: string } | null)?.script === "SET_IDENTITY" ||
+      (params as { script?: string } | null)?.script === "CLEAN" ||
       ((params as { script?: string; args?: string[] } | null)?.script === "CHECK_REPO" &&
         (params as { args?: string[] }).args?.[1] === "clone")) &&
       !options[HOST_PROVIDER_MUTATION_ISSUER])
