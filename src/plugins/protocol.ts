@@ -4,7 +4,8 @@ import { EXECUTOR_METHODS, executorContribution } from "./executor-protocol";
 import { HOSTS_METHODS, HOSTS_METHOD_CAPABILITY } from "./hosts-protocol";
 import { REMOTE_CALLER_METHODS } from "./remote-caller-protocol";
 export {HOST_RUNNER_SCRIPTS,hostRunnerAlias,hostRunnerSession,hostRunnerScript,hostRunnerContribution} from "./host-runner-protocol";
-export { executorContribution, executorAvailableParams, executorAvailableResult } from "./executor-protocol";
+export { executorContribution, executorAvailableParams, executorAvailableResult,
+  executorSessionStateParams, executorSessionStateResult } from "./executor-protocol";
 export {POLICY_DECISIONS,POLICY_EVENT_TYPES,POLICY_TASK_STATES,POLICY_OBSERVATIONS_FEATURE,pluginMetadata,readOwnerMetadata,policyBeforeParams,policyVerdict,policyEvent} from "./policy-protocol";
 import { z } from "zod";
 import { PLANNER_METHODS, PLANNER_CAPABILITY_METHODS, PLANNER_METHOD_CAPABILITY } from "./planner-protocol";
