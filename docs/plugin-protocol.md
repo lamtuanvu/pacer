@@ -4232,20 +4232,13 @@ Params:
       "const": "BINARY"
     },
     "args": {
-      "type": "array",
-      "prefixItems": [
-        {
-          "type": "string",
-          "pattern": "^[a-f0-9]{64}$"
-        },
-        {
-          "type": "string",
-          "const": "upload"
-        }
-      ],
-      "items": false,
       "minItems": 2,
-      "maxItems": 2
+      "maxItems": 2,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 64
+      }
     },
     "timeoutMs": {
       "type": "integer",
