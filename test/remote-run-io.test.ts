@@ -1061,13 +1061,8 @@ test("a pending full launch can settle to pipe fallback without losing or repeat
   expect((await io.read()).exit).toBe(7);
 });
 
-for(const refused of [false,true]) test.skipIf(!await canListen())(`full remote protocol supports exact snapshots and control (forward refused=${refused})`,async()=>{
-  const {ctx,home,local,remote,log}=setup();
-  enableFull(ctx);
-  if(refused) ctx.env.PACER_FAKE_FORWARD_REFUSED="1";
-  const run=ctx.run;
-  // The fixture runner must also receive transport environment overrides.
-  ctx.run=(argv,ms,o)=>run(argv,ms,{...o,env:{...ctx.env,...o?.env}});
+test.skipIf(!await canListen())("full viewer streams through bundled SESSION_PIPE",async()=>{
+  const {ctx,home,local,remote,log}=setup();enableFull(ctx);
   const {Recording}=await import("../src/session/recording");
   const {ViewerHub}=await import("../src/session/viewers");
   const {createServer,createConnection}=await import("node:net");
@@ -1077,7 +1072,7 @@ for(const refused of [false,true]) test.skipIf(!await canListen())(`full remote 
   const binary=join(home,"fixture-pacer");
   writeFileSync(binary,`#!/bin/sh\nexec '${process.execPath}' '${new URL("../src/cli.ts",import.meta.url).pathname}' "$@"\n`,{mode:0o755});
   writeFileSync(join(remote,"session.binary"),binary);
-  const record=new Recording(remote);await record.output(Buffer.from("\x1b[31mexact\x1b[0m\r\n"));
+  const record=new Recording(remote);await record.output(Buffer.from("exact\r\n"));
   let typed="",cols=120;
   const hub=new ViewerHub(()=>wire(FrameType.snapshot,{...record.snapshot(),controller:hub.controller,viewers:hub.size}),()=>null,fn=>{void fn();},()=>{},()=>{},
     {input:bytes=>{typed+=bytes.toString();},resize:(c)=>{cols=c;}});
@@ -1090,137 +1085,47 @@ for(const refused of [false,true]) test.skipIf(!await canListen())(`full remote 
   let socket:ReturnType<typeof createConnection>|undefined;
   const wait=async(fn:()=>boolean)=>{for(let i=0;i<200&&!fn();i++)await Bun.sleep(20);expect(fn()).toBe(true);};
   try{
-    await io.read();
-    socket=createConnection(socketPath(local));const decoder=new WireDecoder();
+    await io.read();socket=createConnection(socketPath(local));const decoder=new WireDecoder();
     await new Promise<void>((resolve,reject)=>{socket!.once("connect",resolve);socket!.once("error",reject);});
     socket.on("data",bytes=>frames.push(...decoder.push(Buffer.from(bytes))));
     socket.write(wire(FrameType.hello,{v:1,client:"cli",label:"remote viewer"}));
     await wait(()=>frames.some(f=>f.type===FrameType.snapshot));
     expect(JSON.parse(frames.find(f=>f.type===FrameType.snapshot)!.data.toString()).screenAnsi).toBe(record.snapshot().screenAnsi);
-    socket.write(wire(FrameType.take,{}));
-    await wait(()=>frames.some(f=>f.type===FrameType.control&&JSON.parse(f.data.toString()).you===true));
+    socket.write(wire(FrameType.take,{}));await wait(()=>frames.some(f=>f.type===FrameType.control&&JSON.parse(f.data.toString()).you===true));
     socket.write(wire(FrameType.input,Buffer.from("input 🦊")));socket.write(wire(FrameType.size,{cols:80,rows:24}));
     await wait(()=>typed==="input 🦊"&&cols===80);
     socket.write(wire(FrameType.release,{}));await wait(()=>hub.controller===null);
-    expect(readFileSync(log,"utf8")).toContain("-O forward");
-    if(refused)expect(readFileSync(log,"utf8")).toContain("socket exec pipe");
-    if(!refused){
-      socket.destroy();await wait(()=>readFileSync(log,"utf8").includes("-O cancel"));
-      const count=readFileSync(log,"utf8").split("-O forward").length;
-      await io.read();expect(readFileSync(log,"utf8").split("-O forward").length).toBe(count);
-      frames.length=0;
-      socket=createConnection(socketPath(local));const nextDecoder=new WireDecoder();
-      socket.on("data",bytes=>frames.push(...nextDecoder.push(Buffer.from(bytes))));
-      await new Promise<void>((resolve,reject)=>{socket!.once("connect",resolve);socket!.once("error",reject);});
-      socket.write(wire(FrameType.hello,{v:1}));await wait(()=>frames.some(f=>f.type===FrameType.snapshot));
-      expect(readFileSync(log,"utf8").split("-O forward").length).toBe(count+1);
-    }
-  }finally{
-    socket?.destroy();writeFileSync(join(remote,"exit"),"0");await io.read();
-    hub.destroy();server.close();await record.close();
-  }
+    expect(readFileSync(log,"utf8")).toContain("socket exec pipe");
+    expect(readFileSync(log,"utf8")).not.toContain("-O forward");
+    socket.destroy();await wait(()=>hub.size===0);
+    frames.length=0;socket=createConnection(socketPath(local));const nextDecoder=new WireDecoder();
+    socket.on("data",bytes=>frames.push(...nextDecoder.push(Buffer.from(bytes))));
+    await new Promise<void>((resolve,reject)=>{socket!.once("connect",resolve);socket!.once("error",reject);});
+    socket.write(wire(FrameType.hello,{v:1}));await wait(()=>frames.some(f=>f.type===FrameType.snapshot));
+  }finally{socket?.destroy();writeFileSync(join(remote,"exit"),"0");await io.read();hub.destroy();server.close();await record.close();}
 },15000);
 
-for(const lateRefusal of [false,true]) test(`exec fallback relays session frames over fake SSH (late refusal=${lateRefusal})`,async()=>{
-  const {ctx,home,local,remote,log}=setup();
+test.skipIf(!await canListen())("full-session listener serializes bind and close during bind",async()=>{
   const {RemoteSession}=await import("../src/remote/session");
-  const {Duplex}=await import("node:stream");
-  const {wire,FrameType,WireDecoder}=await import("../src/session/framing");
-  const {createServer}=await import("node:net");
   const {socketPath}=await import("../src/session/host");
-  mkdirSync(remote,{recursive:true});
-  const remoteSocket=socketPath(remote), remoteServer=createServer();
-  if(remoteSocket!==join(remote,"session.sock"))writeFileSync(join(remote,"session.sock.path"),remoteSocket);
-  await new Promise<void>((resolve,reject)=>{remoteServer.once("error",reject);remoteServer.listen(remoteSocket,resolve);});
-  // This executable stands in for a session socket endpoint in socket-restricted sandboxes.
-  const pipe=join(home,"protocol.ts"),pidFile=join(home,"pipe.pid");
-  writeFileSync(pipe,`
-    import {writeFileSync} from "node:fs";
-    writeFileSync(${JSON.stringify(pidFile)},String(process.pid));
-    setInterval(()=>{},1000);
-    import {wire,FrameType,WireDecoder} from ${JSON.stringify(new URL("../src/session/framing.ts",import.meta.url).pathname)};
-    const decoder=new WireDecoder();
-    process.stdin.on("data",bytes=>{for(const frame of decoder.push(bytes)) {
-      if(frame.type===FrameType.hello)process.stdout.write(wire(FrameType.snapshot,{screenAnsi:"exact",cols:120,rows:40}));
-      if(frame.type===FrameType.take)process.stdout.write(wire(FrameType.control,{you:true}));
-      if(frame.type===FrameType.input)process.stdout.write(wire(FrameType.output,frame.data));
-    }});
-  `);
-  writeFileSync(join(remote,"session.binary"),join(home,"fixture-pacer"));
-  writeFileSync(join(home,"fixture-pacer"),`#!/bin/sh\nexec '${process.execPath}' '${pipe}'\n`,{mode:0o755});
-  ctx.env.PACER_FAKE_FORWARD_REFUSED="1";
-  const original=ctx.run;
-  const commands:string[][]=[];
-  ctx.run=(argv,ms,o)=>{
-    commands.push(argv);
-    if(argv.at(-1)?.includes('[ -S "$path" ]'))return Promise.resolve({code:0,stdout:"__PACER_BEGIN__\n/tmp/fixture.sock",stderr:""});
-    if(lateRefusal && argv.includes("-O") && argv.includes("forward"))return Promise.resolve({code:0,stdout:"",stderr:""});
-    return original(argv,ms,{...o,env:{...ctx.env,...o?.env}});
-  };
+  const {ctx,remote,local}=setup();
   const bridge=new RemoteSession(ctx,host,remote,local);
-  const frames:{type:number;data:Buffer}[]=[],decoder=new WireDecoder();
-  const socket=new Duplex({read(){},write(data,_encoding,done){frames.push(...decoder.push(Buffer.from(data)));done();}});
-  const wait=async(fn:()=>boolean)=>{for(let n=0;n<200&&!fn();n++)await Bun.sleep(10);expect(fn()).toBe(true);};
-  try{
-    await bridge.prepare();bridge.accept(socket as unknown as import("node:net").Socket);
-    socket.push(wire(FrameType.hello,{v:1}));
-    await wait(()=>frames.some(f=>f.type===FrameType.snapshot));
-    socket.push(wire(FrameType.take,{}));
-    await wait(()=>frames.some(f=>f.type===FrameType.control));
-    socket.push(wire(FrameType.input,Buffer.from("control 🦊")));
-    await wait(()=>frames.some(f=>f.type===FrameType.output&&f.data.toString()==="control 🦊"));
-    expect(readFileSync(log,"utf8")).toContain("socket exec pipe");
-    if(lateRefusal){
-      await bridge.prepare();
-      expect(readFileSync(log,"utf8").split('[ -S "$path" ]').length-1).toBe(2);
-      expect(commands.filter(a=>a.includes("forward")).length).toBe(2);
-    }
-    expect(commands.find(a=>a.includes("-O")&&a.includes("forward"))).toEqual(expect.arrayContaining(["-L",expect.stringContaining("ControlPath=")]));
-  }finally{
-    socket.destroy();await bridge.close();remoteServer.close();
-    const pid=Number(readFileSync(pidFile,"utf8"));
-    const alive=()=>{try{process.kill(pid,0);return true;}catch{return false;}};
-    try{await wait(()=>!alive());}finally{if(alive())process.kill(pid,"SIGKILL");}
-  }
-  if(lateRefusal)expect(commands.some(a=>a.includes("cancel"))).toBe(true);
-});
+  await Promise.all([bridge.listen(),bridge.listen(),bridge.listen()]);
+  expect(existsSync(socketPath(local))).toBe(true);
+  await bridge.close();
+  expect(existsSync(socketPath(local))).toBe(false);
+  const next=new RemoteSession(ctx,host,remote,local);
+  const started=next.listen();
+  await Promise.all([started,next.close()]);
+  expect(existsSync(socketPath(local))).toBe(false);
+  expect(existsSync(join(local,"session.bridge.pid"))).toBe(false);
+},5000);
 
 test("native recording observation failures are retried as unreachable",async()=>{
   const ctx=fakeCtx({run:async argv=>argv.at(-1)?.includes("for stream in stdout stderr session.raw")
     ? {code:0,stdout:"__PACER_BEGIN__\nsession=builtin\npid=1\nalive=1\n",stderr:""}
     : {code:1,stdout:"",stderr:"rotation changed"}});
   await expect(new RemoteRunIO(ctx,host,"~/run",tmpDir()).read()).rejects.toBeInstanceOf(Unreachable);
-});
-
-test("forward preparation creates a private directory and removes stale socket paths",async()=>{
-  const {RemoteSession}=await import("../src/remote/session");
-  const {socketPath}=await import("../src/session/host");
-  const {createServer}=await import("node:net");
-  const {ctx,remote,local}=setup();
-  mkdirSync(remote,{recursive:true});
-  const remoteSocket=socketPath(remote),remoteServer=createServer();
-  if(remoteSocket!==join(remote,"session.sock"))writeFileSync(join(remote,"session.sock.path"),remoteSocket);
-  await new Promise<void>((resolve,reject)=>{remoteServer.once("error",reject);remoteServer.listen(remoteSocket,resolve);});
-  let forwards=0;
-  const run=ctx.run;
-  ctx.run=async (argv,ms,o)=>{
-    if(argv.includes("forward")){
-      expect(statSync(join(local,"forward")).mode&0o777).toBe(0o700);
-      expect(existsSync(socketPath(join(local,"forward")))).toBe(false);
-      forwards++;
-      return {code:0,stdout:"",stderr:""};
-    }
-    return run(argv,ms,o);
-  };
-  const first=new RemoteSession(ctx,host,remote,local);
-  try{await first.prepare();}finally{await first.close();}
-  expect(forwards).toBe(1);
-  const {chmodSync}=await import("node:fs");
-  chmodSync(join(local,"forward"),0o755);
-  writeFileSync(socketPath(join(local,"forward")),"stale");
-  const second=new RemoteSession(ctx,host,remote,local);
-  try{await second.prepare();}finally{await second.close();remoteServer.close();}
-  expect(forwards).toBe(2);
 });
 
 test("socket discovery waits for an actual remote socket",async()=>{
@@ -1467,25 +1372,3 @@ ${command}`),{mode:0o755});
   expect(Date.now()-began).toBeLessThan(4000);
   expect(existsSync(marker)).toBe(false);
 },10000);
-
-test("service exit cancels its full-session SSH forward",async()=>{
-  const {ctx,home,local,remote,log}=setup();const file=join(home,"exit-forward.ts");
-  const {createServer}=await import("node:net");
-  const {socketPath}=await import("../src/session/host");
-  mkdirSync(remote,{recursive:true});
-  const remoteSocket=socketPath(remote),remoteServer=createServer();
-  if(remoteSocket!==join(remote,"session.sock"))writeFileSync(join(remote,"session.sock.path"),remoteSocket);
-  await new Promise<void>((resolve,reject)=>{remoteServer.once("error",reject);remoteServer.listen(remoteSocket,resolve);});
-  writeFileSync(file,`
-    import {RemoteSession} from ${JSON.stringify(new URL("../src/remote/session.ts",import.meta.url).pathname)};
-    import {fakeCtx,realRun} from ${JSON.stringify(new URL("./helpers.ts",import.meta.url).pathname)};
-    const ctx=fakeCtx({home:process.env.HOST_HOME,pacerHome:process.env.PACER_HOME,env:process.env,
-      run:(argv,ms,o)=>argv.includes("forward")?Promise.resolve({code:0,stdout:"",stderr:""}):realRun(argv,ms,{...o,env:{...process.env,...o?.env}}),
-      which:name=>name==="ssh"?process.env.FAKE_SSH!:null});
-    const bridge=new RemoteSession(ctx,{alias:"box",ssh:"box-ssh",repos:{},maxTasks:2,accounts:{}} as any,process.env.REMOTE!,process.env.LOCAL!);
-    await bridge.prepare();process.exit(0);
-  `);
-  const proc=Bun.spawn([process.execPath,file],{env:{...ctx.env,PACER_HOME:ctx.pacerHome,HOST_HOME:ctx.home,FAKE_SSH:ctx.which("ssh")!,REMOTE:remote,LOCAL:local},stdout:"ignore",stderr:"pipe"});
-  try{expect(await proc.exited).toBe(0);}finally{remoteServer.close();}
-  expect(readFileSync(log,"utf8")).toContain("-O cancel");
-});
