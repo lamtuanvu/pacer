@@ -133,6 +133,15 @@ test('Accounts show usage words, sign-in pills, used-by and sign-in commands onl
  expect(html).toMatch(/<details class="pc-disclosure"><summary>Fix sign-in<span class="sr-only"> for out<\/span><\/summary><code>CODEX_HOME=/);expect(html).not.toContain('<details open');
 });
 
+test('Ark CLI quota authentication errors show recovery in the affected account',()=>{
+ const accounts=[{name:'coding-plan',kind:'endpoint',quotaSource:'arkcli',state:'not_tested',usageReading:{windows:[],error:'Ark CLI sign-in required. Run arkcli auth login.',availability:{state:'unknown',reason:'authentication_failed'}}}];
+ const html=render(<SettingsGeneral section="accounts" initialData={{...settings,accounts}}/>);
+ expect(html).toContain('Fix Ark CLI sign-in');
+ expect(html).toContain('arkcli auth login');
+ expect(html).toContain('Refresh usage');
+ expect(html).not.toContain('No subscription');
+});
+
 test('multiple accounts always shows the threshold beside Spread and Fill, disabled only for Spread',()=>{
  for(const mode of ['spread','fill']) {
   const html=render(<SettingsGeneral section="planner" initialData={{...settings,config:{...settings.config,keys:{...settings.config.keys,'pacing.accounts':{value:mode}}}}}/>);

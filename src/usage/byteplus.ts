@@ -24,6 +24,13 @@ export async function readByteplus(ctx: Ctx, refresh = false): Promise<UsageRead
     error: "invalid coding-plan subscription response" };
   const item = items.find(i => isObj(i) && i.product === "coding-plan" && i.subscribed === true);
   if (!isObj(item)) {
+    const failed = items.find(i => isObj(i) && i.product === "coding-plan" && typeof i.error === "string");
+    if (isObj(failed)) {
+      const auth = /(?:auth login|sso sts|refresh_token|authentication|unauthori[sz]ed)/i.test(String(failed.error));
+      return { windows: [], capturedAt: c.capturedAt, stale: c.stale, source: "provider-cli",
+        availability: { state: "unknown", reason: auth ? "authentication_failed" : "subscription_failed", validUntil: c.capturedAt === null ? null : c.capturedAt + 600 },
+        error: auth ? "Ark CLI sign-in required. Run arkcli auth login." : "Could not read coding-plan subscription." };
+    }
     const explicit = !items.length || items.some(i => isObj(i) && i.product === "coding-plan" && i.subscribed === false);
     return { windows: [], capturedAt: c.capturedAt, stale: c.stale, source: "provider-cli",
       availability: { state: explicit && !c.stale ? "unavailable" : "unknown", reason: explicit ? "subscription_missing" : "subscription_response_invalid", validUntil: c.capturedAt === null ? null : c.capturedAt + 600 },
