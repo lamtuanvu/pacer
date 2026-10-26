@@ -16,6 +16,7 @@ rust-version.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 regress = "0.10"
+uuid = { version = "1", features = ["serde"] }
 
 [lints]
 workspace = true
