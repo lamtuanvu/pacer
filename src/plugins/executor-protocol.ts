@@ -41,6 +41,17 @@ export const RUN_DIR_CONTRACT = {
     "report.json", "transcript-report.md", "prompt.md"],
 } as const;
 
+/** Host-verified durable state passed to a future plugin reattach/stop owner. */
+export const executorRunState = z.object({
+  task: z.object({ id: taskId, rev: positive }).strict(),
+  attempt: positive, runDir: z.literal(1), dir: z.string().min(1).max(4096),
+  state: z.enum(["running", "exited", "uncertain"]),
+  pid: positive.nullable(), exitCode: z.number().int().safe().nullable(),
+  startedAt: z.number().finite().nullable(),
+  stdoutBytes: z.number().int().nonnegative().safe(),
+  stderrBytes: z.number().int().nonnegative().safe(),
+}).strict();
+
 /** Preparatory full outcome contract; the staged executor.run method still returns executorRunResult. */
 export const executorAttemptOutcome = z.object({
   takeover: z.boolean().optional(),
