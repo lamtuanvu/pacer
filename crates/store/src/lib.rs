@@ -154,6 +154,26 @@ fn publish(ctx: &Ctx, event: Value) -> io::Result<()> {
             let seq = snapshot["seq"].as_u64().unwrap_or(0) + 1;
             snapshot["seq"] = json!(seq);
             snapshot["at"] = js_number(ctx.now);
+            if event["type"] == "alert" {
+                let alert = event["data"].clone();
+                let mut alerts = vec![alert.clone()];
+                if let Some(existing) = snapshot["alerts"].as_array() {
+                    alerts.extend(
+                        existing
+                            .iter()
+                            .filter(|row| row["key"] != alert["key"])
+                            .cloned(),
+                    );
+                }
+                alerts.sort_by(|left, right| {
+                    right["at"]
+                        .as_f64()
+                        .unwrap_or(0.0)
+                        .total_cmp(&left["at"].as_f64().unwrap_or(0.0))
+                });
+                alerts.truncate(10);
+                snapshot["alerts"] = Value::Array(alerts);
+            }
             let row = json!({"seq":seq,"at":js_number(ctx.now),"envelope":event});
             let mut bytes = serde_json::to_vec(&row)?;
             bytes.push(b'\n');
@@ -181,10 +201,14 @@ fn publish(ctx: &Ctx, event: Value) -> io::Result<()> {
 /// Publishing is best effort in the TypeScript core; an activity append error
 /// still fails the operation after the settings write.
 pub fn record_config_change(ctx: &Ctx) -> io::Result<()> {
+    record_config_change_area(ctx, "config")
+}
+
+fn record_config_change_area(ctx: &Ctx, area: &str) -> io::Result<()> {
     let mut random = [0u8; 2];
     getrandom::fill(&mut random).map_err(io::Error::other)?;
     let id = format!("{}-{:02x}{:02x}", ctx.now, random[0], random[1]);
-    let entry = json!({"kind":"config","level":"info","text":"Configuration changed · config","id":id,"at":js_number(ctx.now)});
+    let entry = json!({"kind":"config","level":"info","text":format!("Configuration changed · {area}"),"id":id,"at":js_number(ctx.now)});
     let mut bytes = serde_json::to_vec(&entry)?;
     bytes.push(b'\n');
     with_activity_lock(ctx, || {
@@ -196,9 +220,23 @@ pub fn record_config_change(ctx: &Ctx) -> io::Result<()> {
     );
     let _ = publish(
         ctx,
-        json!({"type":"config","data":{"area":"config","at":js_number(ctx.now)}}),
+        json!({"type":"config","data":{"area":area,"at":js_number(ctx.now)}}),
     );
     Ok(())
+}
+
+/// Match strategy.use's alert, activity append and refresh sequence. Outbox
+/// delivery is best effort; a failed activity append still fails the operation.
+pub fn record_strategy_switch(ctx: &Ctx, name: &str) -> io::Result<()> {
+    let _ = publish(
+        ctx,
+        json!({"type":"alert","data":{
+            "key":"strategy-switch","level":"info",
+            "title":format!("Switched to strategy {name}"),"body":"Nothing to do.",
+            "notification":{"kind":"strategy","strategy":name},"at":js_number(ctx.now)
+        }}),
+    );
+    record_config_change_area(ctx, "strategy")
 }
 
 #[cfg(test)]

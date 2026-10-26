@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { callOp, type OpDeps } from "../src/api/ops";
@@ -53,6 +53,41 @@ test("strategy use also publishes a strategy config change only on success", asy
   const last = eventsSince(ctx, 0).last;
   await expect(callOp(ctx, "strategy.use", {name: "missing"})).rejects.toMatchObject({code: "invalid_input"});
   expect(eventsSince(ctx, last).events).toEqual([]);
+});
+
+test("strategy.use rejects an active switch made while waiting for the strategy lock", async () => {
+  const ctx = configured();
+  for (const name of ["research", "other"]) {
+    await callOp(ctx, "strategy.save", { name, draft: { from: "default" }, reason: "Test" });
+  }
+  const active = join(ctx.pacerHome, "active");
+  const lock = join(ctx.pacerHome, "orca/strategy.lock");
+  mkdirSync(join(ctx.pacerHome, "orca"), { recursive: true });
+  writeFileSync(lock, "held");
+  const since = eventsSince(ctx, 0).last;
+  const pending = callOp(ctx, "strategy.use", { name: "research" });
+  try {
+    await Bun.sleep(75);
+    writeFileSync(active, "other\n");
+  } finally { rmSync(lock, { force: true }); }
+  await expect(pending).rejects.toMatchObject({ code: "conflict" });
+  expect(readFileSync(active, "utf8")).toBe("other\n");
+  expect(eventsSince(ctx, since).events).toEqual([]);
+});
+
+test("strategy.save waits for the shared strategy lock before creating a file", async () => {
+  const ctx = configured();
+  const lock = join(ctx.pacerHome, "orca/strategy.lock");
+  const saved = join(ctx.pacerHome, "strategies/locked.yaml");
+  mkdirSync(join(ctx.pacerHome, "orca"), { recursive: true });
+  writeFileSync(lock, "held");
+  const pending = callOp(ctx, "strategy.save", { name: "locked", draft: { from: "default" }, reason: "Test" });
+  try {
+    await Bun.sleep(75);
+    expect(existsSync(saved)).toBe(false);
+  } finally { rmSync(lock, { force: true }); }
+  await expect(pending).resolves.toMatchObject({ name: "locked" });
+  expect(existsSync(saved)).toBe(true);
 });
 
 test("update.check honors the cache and force with a local release base and publishes config", async () => {
