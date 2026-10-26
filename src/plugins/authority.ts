@@ -1,21 +1,38 @@
 import { scheduleDeadline } from "../deadline";
 import { randomUUID } from "node:crypto";
+import type { ChildProcess } from "node:child_process";
 import { CoreError } from "../core/errors";
 import type { Ctx } from "../types";
 
 export interface CallResources {
+  /** One exact persisted detached wrapper stop, issued by the service only. */
+  detachedStop?: { taskId: string; rev: number; attempt: number; dir: string;
+    dirIdentity: { dev: number; ino: number }; pid: number; startedAt: number;
+    executor: string; graceMs: number };
+  /** One exact task-owned detached wrapper launch, issued by the service only. */
+  detachedRun?: { taskId: string; rev: number; attempt: number; dir: string;
+    dirIdentity: { dev: number; ino: number }; argv: string[]; cwd: string;
+    executable: string; executableIdentity: { dev: number; ino: number; size: number; mtimeMs: number; mode: number };
+    cwdIdentity: { dev: number; ino: number }; env: Record<string, string>; stdin?: string };
   /** Host-issued secret-reference aliases; names only, never credential values. */
   secretAliases?: Record<string, string>;
   /** Exact hostnames derived only from validated host configuration/grants. */
   http?: { hosts: string[] };
-  writes?: { path: string; root?: string; kind: "file" | "directory"; operations: ("write" | "mkdir" | "remove")[] }[];
+  writes?: { path: string; root?: string; rootIdentity?: { dev: number; ino: number };
+    kind: "file" | "directory"; operations: ("write" | "mkdir" | "remove")[] }[];
   reads: { path: string; kind: "file" | "codex-logs" }[];
   commands: {
     argv: string[];
     timeoutMs: number;
+    /** Exact UTF-8 process input issued by the host, bounded at admission. */
+    stdin?: string;
     cwd?: string;
     env?: Record<string, string>;
     secretEnv?: Record<string, string>;
+    /** Host-only policy: discard child streams before run-file capture or plugin reply. */
+    suppressOutput?: boolean;
+    /** Host-only run files receiving the bounded child output; never selected by plugin RPC params. */
+    capture?: { stdout: string; stderr: string };
     /** Host-only fixed interactive exchange; never selected by plugin RPC params. */
     mode?: "codex-live" | "prepare-bundle" | "binary-upload" | "start-input" | "session-duplex";
     /** Host-only bounded input, never provided through the plugin RPC. */
@@ -44,7 +61,10 @@ export interface BundleStageResource {
   timeoutMs: number;
   maxBytes: number;
 }
-export interface AuthorityOptions { deadlineMs: number; signal?: AbortSignal; grants?: readonly string[]; accountHome?: string | null; /** Only the private owner-bound host stream may omit a wall deadline. */ ownerBoundStream?: boolean }
+export interface AuthorityOptions { deadlineMs: number; signal?: AbortSignal; grants?: readonly string[]; accountHome?: string | null;
+  /** Only the private owner-bound host stream may omit a wall deadline. */ ownerBoundStream?: boolean;
+  /** Host-only synchronous admission around the actual spawn, never sent to a plugin. */
+  spawnAdmission?: (spawn: () => ChildProcess) => ChildProcess }
 
 /** Host-issued immutable resources. Never construct these from plugin RPC params. */
 export class CallAuthority {
@@ -59,15 +79,19 @@ export class CallAuthority {
   private readonly issuedAt = Date.now();
   private readElapsed = 0;
   private readonly usedHostOperations = new Set<number>();
+  private detachedRunUsed = false;
+  private detachedStopUsed = false;
   private readonly detach: () => void;
 
-  constructor(readonly ctx: Ctx, resources: CallResources, readonly deadlineMs: number, parent?: AbortSignal, grants: readonly string[] = [], readonly accountHome: string | null = null) {
+  constructor(readonly ctx: Ctx, resources: CallResources, readonly deadlineMs: number, parent?: AbortSignal, grants: readonly string[] = [], readonly accountHome: string | null = null,
+    readonly spawnAdmission?: (spawn: () => ChildProcess) => ChildProcess) {
     this.grants = new Set(grants);
     this.resources = structuredClone(resources);
     for (const value of this.resources.commands) {
       Object.freeze(value.argv);
       if (value.env) Object.freeze(value.env);
       if (value.secretEnv) Object.freeze(value.secretEnv);
+      if (value.capture) Object.freeze(value.capture);
     }
     for (const list of [this.resources.reads, this.resources.commands, this.resources.stores]) {
       for (const value of list) Object.freeze(value);
@@ -84,11 +108,27 @@ export class CallAuthority {
       Object.freeze(this.resources.bundleStages);
     }
     if (this.resources.writes) {
-      for (const resource of this.resources.writes) { Object.freeze(resource.operations); Object.freeze(resource); }
+      for (const resource of this.resources.writes) {
+        Object.freeze(resource.operations);
+        if (resource.rootIdentity) Object.freeze(resource.rootIdentity);
+        Object.freeze(resource);
+      }
       Object.freeze(this.resources.writes);
     }
     if (this.resources.http) { Object.freeze(this.resources.http.hosts); Object.freeze(this.resources.http); }
     if (this.resources.secretAliases) Object.freeze(this.resources.secretAliases);
+    if (this.resources.detachedRun) {
+      Object.freeze(this.resources.detachedRun.argv);
+      Object.freeze(this.resources.detachedRun.env);
+      Object.freeze(this.resources.detachedRun.dirIdentity);
+      Object.freeze(this.resources.detachedRun.executableIdentity);
+      Object.freeze(this.resources.detachedRun.cwdIdentity);
+      Object.freeze(this.resources.detachedRun);
+    }
+    if (this.resources.detachedStop) {
+      Object.freeze(this.resources.detachedStop.dirIdentity);
+      Object.freeze(this.resources.detachedStop);
+    }
     Object.freeze(this.resources);
     const cancel = () => { void this.revoke().catch(() => {}); };
     parent?.addEventListener("abort", cancel, { once: true });
@@ -123,6 +163,23 @@ export class CallAuthority {
       resource.args.length === request.args.length && resource.args.every((arg, i) => arg === request.args[i]));
     if (at < 0) throw new CoreError("capability_denied", "host operation is not issued for this call");
     this.usedHostOperations.add(at);
+  }
+  consumeDetachedRun(taskId: string, rev: number, attempt: number): NonNullable<CallResources["detachedRun"]> {
+    this.assertGranted("process.spawn");
+    const grant = this.resources.detachedRun;
+    if (!grant || this.detachedRunUsed || grant.taskId !== taskId || grant.rev !== rev || grant.attempt !== attempt)
+      throw new CoreError("capability_denied", "detached run is not issued for this call");
+    this.detachedRunUsed = true;
+    return grant;
+  }
+  consumeDetachedStop(taskId: string, attempt: number, graceMs: number): NonNullable<CallResources["detachedStop"]> {
+    this.assertGranted("process.spawn");
+    const grant = this.resources.detachedStop;
+    if (!grant || this.detachedStopUsed || grant.taskId !== taskId || grant.attempt !== attempt ||
+      grant.graceMs !== graceMs)
+      throw new CoreError("capability_denied", "detached stop is not issued for this call");
+    this.detachedStopUsed = true;
+    return grant;
   }
   onRevoke(cleanup: () => void | Promise<void>): () => void {
     this.assertActive();
@@ -162,5 +219,5 @@ export class CallAuthority {
 export function createCallAuthority(ctx: Ctx, resources: CallResources, options: AuthorityOptions): CallAuthority {
   if (!Number.isFinite(options.deadlineMs) && !(options.ownerBoundStream && options.deadlineMs === Infinity && options.signal))
     throw new CoreError("invalid_input", "call deadline must be finite");
-  return new CallAuthority(ctx, resources, options.deadlineMs, options.signal, options.grants, options.accountHome);
+  return new CallAuthority(ctx, resources, options.deadlineMs, options.signal, options.grants, options.accountHome, options.spawnAdmission);
 }

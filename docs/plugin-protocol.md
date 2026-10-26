@@ -12,7 +12,7 @@ Protocol 1.1 adds optional top-level `_meta: { capabilityCall }` correlation on 
 
 Protocol 1.5 adds policy/task/event contracts and mutually negotiated `policyObservations` for the host and TypeScript SDK. Task reads require declared and granted `tasks.read` plus a current owning call or process-generation read owner. The exclusive `_meta: { readOwner }` arm permits only task reads and subscription management; mixed, foreign or retired owners never fall back to unowned/effect capability handling. Existing peers/capabilityCall correlation remain supported; peers without this feature cannot use the observation methods. Rust SDK observation helpers are not implemented: the standalone policy protocol crate supplies contracts, not SDK runtime support.
 
-The staged `executor` point currently defines only `contributes.executor.backends: ["direct"]` and `executor.available`. Availability receives a credential-free strategy name and has a 10 s host deadline. This contract has fake conformance coverage but no production caller; run, stop, resume, session state, task patching and executor effects require a separately reviewed owner-bound contract.
+The staged `executor` point defines `contributes.executor.backends: ["direct"]`, `executor.available`, `executor.run` and `executor.stop`. The bundled reference plugin is visible to `plugin list` and `plugin doctor`, but reports unavailable for production dispatch. An admitted run names the exact host-selected task revision and attempt with run-directory version 1, then sends bounded progress for owner-validated host updates. The current plugin can request a one-use host-issued detached process effect. The staged `executor.stop` route uses a one-use host-issued grant bound to the persisted local wrapper and private run directory, and requires its recorded exit; full attempt ownership, resume and session state remain separate SP09 work. The production direct backend has not switched.
 
 The `hostRunner` point names only fixed SSH script IDs and uses bounded arguments, results and finite deadlines. The `hosts` capability defines `open`, `run`, `fetch` and `close` with host-owned broker sessions. Callers supply only a configured alias and fixed script input; the host derives the SSH target and selects the provider. Routing reachability uses the bundled `remoteCaller` and the broker's read-only `PROBE`; host setup identity, task questions and committed-task transfer use one-use host-issued grants. The accepted question stays in the durable task record; preflight ignores its remote file only while the file's Git blob hash still matches. Other production SSH paths still require caller cutover.
 
@@ -5095,6 +5095,236 @@ Result:
 }
 ```
 
+### `executor.run`
+
+Owned local attempt with an optional host-issued bounded process effect.
+
+Params:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "task": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^t-[A-Za-z0-9_-]{1,120}$"
+        },
+        "rev": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "id",
+        "rev"
+      ],
+      "additionalProperties": false
+    },
+    "attempt": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "runDir": {
+      "type": "number",
+      "const": 1
+    },
+    "effect": {
+      "type": "object",
+      "properties": {
+        "argv": {
+          "minItems": 1,
+          "maxItems": 32,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          }
+        },
+        "cwd": {
+          "type": "string",
+          "minLength": 1
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 1800000
+        },
+        "stdin": {
+          "type": "string",
+          "maxLength": 262144
+        },
+        "env": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          },
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "secretEnv": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "pattern": "^PACER_KEY_[A-Z0-9_]+$"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+          }
+        },
+        "detached": {
+          "type": "boolean",
+          "const": true
+        }
+      },
+      "required": [
+        "argv",
+        "cwd",
+        "timeoutMs"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "task",
+    "attempt",
+    "runDir"
+  ],
+  "additionalProperties": false
+}
+```
+
+Result:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "done",
+            "failed"
+          ]
+        },
+        "exitCode": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "report": {
+          "type": "string",
+          "maxLength": 65536
+        }
+      },
+      "required": [
+        "status",
+        "exitCode",
+        "report"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "const": "launched"
+        },
+        "pid": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "report": {
+          "type": "string",
+          "maxLength": 65536
+        }
+      },
+      "required": [
+        "status",
+        "pid",
+        "report"
+      ],
+      "additionalProperties": false
+    }
+  ]
+}
+```
+
+### `executor.stop`
+
+Stop the matching staged local attempt.
+
+Deadline: 30000 ms.
+
+Params:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "taskId": {
+      "type": "string",
+      "pattern": "^t-[A-Za-z0-9_-]{1,120}$"
+    },
+    "attempt": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "graceMs": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 25000
+    }
+  },
+  "required": [
+    "taskId",
+    "attempt",
+    "graceMs"
+  ],
+  "additionalProperties": false
+}
+```
+
+Result:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "code": {
+      "type": "integer",
+      "minimum": -9007199254740991,
+      "maximum": 9007199254740991
+    },
+    "killed": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "code",
+    "killed"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### `classifier.adapters`
 
 Adapters this plugin serves; external adapters leave the machine.
@@ -8164,12 +8394,16 @@ Params:
     "timeoutMs": {
       "type": "integer",
       "exclusiveMinimum": 0,
-      "maximum": 600000
+      "maximum": 1800000
     },
     "cwd": {
       "type": "string",
       "minLength": 1,
       "maxLength": 4096
+    },
+    "stdin": {
+      "type": "string",
+      "maxLength": 262144
     },
     "env": {
       "type": "object",
@@ -8333,6 +8567,134 @@ Result:
   },
   "required": [
     "base64"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `capability.process.startRun`
+
+Start the one host-issued task-owned detached run directory wrapper.
+
+Params:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "task": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^t-[A-Za-z0-9_-]{1,120}$"
+        },
+        "rev": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "id",
+        "rev"
+      ],
+      "additionalProperties": false
+    },
+    "attempt": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "runDir": {
+      "type": "number",
+      "const": 1
+    }
+  },
+  "required": [
+    "task",
+    "attempt",
+    "runDir"
+  ],
+  "additionalProperties": false
+}
+```
+
+Result:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "pid": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "pid"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `capability.process.stopRun`
+
+Stop one host-issued task-owned detached wrapper with a bounded grace period.
+
+Params:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "taskId": {
+      "type": "string",
+      "pattern": "^t-[A-Za-z0-9_-]{1,120}$"
+    },
+    "attempt": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "graceMs": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 25000
+    }
+  },
+  "required": [
+    "taskId",
+    "attempt",
+    "graceMs"
+  ],
+  "additionalProperties": false
+}
+```
+
+Result:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "code": {
+      "type": "integer",
+      "minimum": -9007199254740991,
+      "maximum": 9007199254740991
+    },
+    "killed": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "code",
+    "killed"
   ],
   "additionalProperties": false
 }

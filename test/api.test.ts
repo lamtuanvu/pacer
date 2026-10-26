@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { validateStrategy } from "../src/config/strategy";
@@ -6,6 +6,7 @@ import { execProcess } from "../src/exec/process";
 import { DelegateError, delegate, selfCommand, superviseTask, taskStatus, taskStop, taskWait, validateInput } from "../src/tasks/api";
 import { runTask } from "../src/tasks/runner";
 import { listTasks, readTask, updateTask } from "../src/tasks/store";
+import * as taskStore from "../src/tasks/store";
 import { fakeCtx, tmpDir } from "./helpers";
 
 const s = validateStrategy({ planner: "claude-code", providers: { "claude-code": {}, codex: {} } }, "/x");
@@ -110,6 +111,34 @@ test("stop kills the running executor and the task ends stopped", async () => {
   expect(r.result?.status).toBe("stopped");
 });
 
+test("stop signals a child recorded after the initial task snapshot", () => {
+  const ctx = fakeCtx();
+  const task = taskStore.createTask(ctx, { brief: { goal: "race", repo: tmpDir() }, kind: null,
+    requestedExecutor: "codex", timeoutS: 60 });
+  updateTask(ctx, task.id, t => { t.state = "running"; });
+  const originalRead = taskStore.readTask;
+  let injected = false;
+  const read = spyOn(taskStore, "readTask").mockImplementation((current, id) => {
+    const snapshot = originalRead(current, id);
+    if (id === task.id && !injected) {
+      injected = true;
+      updateTask(current, id, t => { t.childPid = 54321; });
+    }
+    return snapshot;
+  });
+  const originalKill = process.kill;
+  const signaled: number[] = [];
+  process.kill = ((pid: number, signal?: NodeJS.Signals | number) => {
+    if (signal === "SIGTERM") { signaled.push(pid); return true; }
+    return originalKill(pid, signal);
+  }) as typeof process.kill;
+  try {
+    expect(taskStop(ctx, task.id)?.state).toBe("stopped");
+    expect(injected).toBe(true);
+    expect(signaled).toContain(-54321);
+  } finally { read.mockRestore(); process.kill = originalKill; }
+});
+
 test("stopping a queued task with no live runner finalizes it; terminal tasks are unchanged", async () => {
   const ctx = fakeCtx();
   const t = (await delegate(ctx, { brief: { goal: "g", repo: tmpDir() } }, () => 1, s));
@@ -118,6 +147,20 @@ test("stopping a queued task with no live runner finalizes it; terminal tasks ar
   expect(r?.result?.report).toBe("stopped before an executor ran");
   expect(taskStop(ctx, t.id)?.state).toBe("stopped");
   expect(taskStop(ctx, "t-20261011-140500-abcd")).toBeNull();
+});
+
+test("stopping a needs-input task keeps its report and changes its result status", () => {
+  const ctx = fakeCtx();
+  const task = taskStore.createTask(ctx, { brief: { goal: "question", repo: tmpDir() }, kind: null,
+    requestedExecutor: "codex", timeoutS: 60 });
+  updateTask(ctx, task.id, t => {
+    t.state = "needs_input";
+    t.result = { status: "needs_input", executor: "codex", model: null, files: "",
+      report: "waiting for answer", backend: "direct" };
+  });
+  const stopped = taskStop(ctx, task.id);
+  expect(stopped?.state).toBe("stopped");
+  expect(stopped?.result).toMatchObject({ status: "stopped", report: "waiting for answer" });
 });
 
 

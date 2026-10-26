@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, 
 import { join } from "node:path";
 import { createCallAuthority, type CallAuthority } from "../src/plugins/authority";
 import { answerSpawn, prepareSpawnAuthority } from "../src/plugins/capability-spawn";
+import { SCOPED_CAPABILITY_METHODS } from "../src/plugins/capability-protocol";
 import { prepareCredentialBindings } from "../src/plugins/credential-bindings";
 import { fakeCtx } from "./helpers";
 const owners: CallAuthority[] = [], homes: string[] = [];
@@ -38,9 +39,44 @@ test("altered vector/context and undeclared scopes deny before credential lookup
     { ...f.params, argv: [...f.params.argv, "extra"] }, { ...f.params, cwd: f.cwd + "/other" },
     { ...f.params, env: { PLAIN: "changed", CREDENTIAL: { secretRef: "endpoint:owned" } } },
     { ...f.params, env: { ...f.params.env, EXTRA: "x" } }, { ...f.params, env: {} },
+    { ...f.params, stdin: "unissued" },
   ]) await expect(f.run(params)).rejects.toMatchObject({ code: "capability_denied" });
   await expect(answerSpawn(f.authority, ["other-tool"], f.params)).rejects.toMatchObject({ code: "capability_denied" });
   expect(f.lookups).toBe(0); expect(existsSync(f.receipt)).toBe(false);
+});
+test("host-issued stdin is exact and reaches the pinned child", async () => {
+  expect(SCOPED_CAPABILITY_METHODS["capability.process.spawn"]!.deadlineMs).toBe(0);
+  const f = fixture();
+  const script = join(f.authority.ctx.home, "stdin-child.js");
+  writeFileSync(script, `process.stdin.setEncoding("utf8");let input="";for await(const chunk of process.stdin)input+=chunk;require("node:fs").writeFileSync(${JSON.stringify(f.receipt)}, input);`);
+  const command = { argv: ["owned-child", script], cwd: f.cwd, env: {}, timeoutMs: 5000,
+    stdin: "host prompt\n" };
+  const authority = createCallAuthority(f.authority.ctx, { reads: [], commands: [command], stores: [] },
+    { deadlineMs: Date.now() + 10000, grants: ["process.spawn"] });
+  owners.push(authority); prepareSpawnAuthority(authority);
+  const params = { argv: command.argv, cwd: f.cwd, env: {}, timeoutMs: 5000 };
+  await expect(answerSpawn(authority, ["owned-child"], { ...params, stdin: "plugin override" }))
+    .rejects.toMatchObject({ code: "capability_denied" });
+  expect(existsSync(f.receipt)).toBe(false);
+  expect(await answerSpawn(authority, ["owned-child"], { ...params, stdin: command.stdin }))
+    .toMatchObject({ code: 0, timedOut: false });
+  expect(readFileSync(f.receipt, "utf8")).toBe(command.stdin);
+});
+test("timed-out stdin child is reaped before returning", async () => {
+  const f = fixture();
+  const script = join(f.authority.ctx.home, "stdin-hold.js");
+  writeFileSync(script, `require("node:fs").writeFileSync(${JSON.stringify(f.receipt)},String(process.pid));process.stdin.resume();setTimeout(()=>{},10000);`);
+  const command = { argv: ["owned-child", script], cwd: f.cwd, env: {}, timeoutMs: 1000,
+    stdin: "host prompt" };
+  const authority = createCallAuthority(f.authority.ctx, { reads: [], commands: [command], stores: [] },
+    { deadlineMs: Date.now() + 3000, grants: ["process.spawn"] });
+  owners.push(authority); prepareSpawnAuthority(authority);
+  const result = await answerSpawn(authority, ["owned-child"], {
+    argv: command.argv, cwd: f.cwd, env: {}, timeoutMs: 1000, stdin: command.stdin,
+  });
+  expect(result).toMatchObject({ timedOut: true });
+  expect(existsSync(f.receipt)).toBe(true);
+  expect(() => process.kill(Number(readFileSync(f.receipt, "utf8")), 0)).toThrow();
 });
 for (const mode of ["stdout", "stderr"]) test(`exact injected credential reflection in ${mode} is refused before output handles`, async () => {
   const f = fixture(mode);
