@@ -17,6 +17,10 @@ test("staged executor run and stop have bounded, credential-free contracts", () 
   const stop = EXTENSION_METHODS["executor.stop"]!;
   expect(run.deadlineMs).toBe(0);
   expect(run.params.safeParse({ task: { id: "t-fixture", rev: 1 }, attempt: 1, runDir: 1 }).success).toBe(true);
+  const effect = { argv: ["codex", "exec"], cwd: "/owned/repo", timeoutMs: 1_800_000 };
+  expect(run.params.safeParse({ task: { id: "t-fixture", rev: 1 }, attempt: 1, runDir: 1, effect }).success).toBe(true);
+  expect(run.params.safeParse({ task: { id: "t-fixture", rev: 1 }, attempt: 1, runDir: 1,
+    effect: { ...effect, timeoutMs: 1_800_001 } }).success).toBe(false);
   for (const params of [
     { task: { id: "t-fixture", rev: 0 }, attempt: 1, runDir: 1 },
     { task: { id: "t-fixture", rev: 1 }, attempt: 1, runDir: 1, env: { TOKEN: "secret" } },

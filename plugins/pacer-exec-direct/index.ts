@@ -7,7 +7,7 @@ const input = z.object({
   task: z.object({ id: z.string(), rev: z.number().int().positive() }).strict(),
   attempt: z.number().int().positive(), runDir: z.literal(1),
   effect: z.object({ argv: z.array(z.string()).min(1).max(32), cwd: z.string(),
-    timeoutMs: z.number().int().positive().max(600_000), stdin: z.string().max(262144).optional() }).strict(),
+    timeoutMs: z.number().int().positive().max(30 * 60 * 1000), stdin: z.string().max(262144).optional() }).strict(),
 }).strict();
 
 const spawnResult = z.object({

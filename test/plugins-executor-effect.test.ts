@@ -32,6 +32,22 @@ test("owned direct plugin call executes only the exact host-issued local process
     expect(readFileSync(marker, "utf8")).toBe("ran");
     expect(readTask(ctx, task.id)?.run?.attempt).toBe(1);
     expect(existsSync(join(pacerHome, "runs", task.id, "1"))).toBe(true);
+    const longTask = createTask(ctx, { brief: { goal: "long task allowance", repo: home }, kind: null,
+      requestedExecutor: "codex", timeoutS: 1800 });
+    updateTask(ctx, longTask.id, t => { t.state = "running"; t.executor = "codex"; });
+    const longMarker = join(home, "long-allowance.txt");
+    const longArgv = ["bun", "-e", `await Bun.write(${JSON.stringify(longMarker)}, "allowed")`];
+    const longResult = await runOwnedExecutorAttempt(ctx, registry, "pacer-exec-direct", longTask.id,
+      "codex", home, { argv: longArgv, cwd: home, timeoutMs: 1_800_000 });
+    expect(longResult.status).toBe("done");
+    expect(readFileSync(longMarker, "utf8")).toBe("allowed");
+    const overLimit = createTask(ctx, { brief: { goal: "over ceiling", repo: home }, kind: null,
+      requestedExecutor: "codex", timeoutS: 1800 });
+    updateTask(ctx, overLimit.id, t => { t.state = "running"; t.executor = "codex"; });
+    await expect(runOwnedExecutorAttempt(ctx, registry, "pacer-exec-direct", overLimit.id,
+      "codex", home, { argv: longArgv, cwd: home, timeoutMs: 1_800_001 }))
+      .rejects.toMatchObject({ code: "invalid_input" });
+    expect(readTask(ctx, overLimit.id)?.run).toBeUndefined();
     const stdinTask = createTask(ctx, { brief: { goal: "stdin", repo: home }, kind: null,
       requestedExecutor: "codex", timeoutS: 60 });
     updateTask(ctx, stdinTask.id, t => { t.state = "running"; t.executor = "codex"; });

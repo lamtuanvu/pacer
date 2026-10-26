@@ -18,6 +18,8 @@ test("spawn wire accepts bounded stdin and context but rejects malformed referen
   expect(schema).toBeDefined();
   const safe = { argv: ["arkcli", "usage", "plan", "--product", "coding-plan"], timeoutMs: 8000 };
   expect(schema.safeParse(safe).success).toBe(true);
+  expect(schema.safeParse({ ...safe, timeoutMs: 1_800_000 }).success).toBe(true);
+  expect(schema.safeParse({ ...safe, timeoutMs: 1_800_001 }).success).toBe(false);
   for (const change of [{ env: { PLAIN: "value" } }, { cwd: "/fixture/owned" }, { env: { KEY: {secretRef: "endpoint:owned"} } }]) expect(schema.safeParse({ ...safe, ...change }).success).toBe(true);
   expect(schema.safeParse({ ...safe, stdin: "owned input" }).success).toBe(true);
   for (const change of [{ stdin: "x".repeat(262145) }, { env: { KEY: {secretRef: "raw-value"} } }, { env: { KEY: {secretRef: "endpoint:owned", extra:true} } }]) expect(schema.safeParse({ ...safe, ...change }).success).toBe(false);

@@ -6,6 +6,7 @@ import type { RunRef } from "../tasks/types";
 import type { Ctx } from "../types";
 import { applyExecutorProgress } from "./executor-progress";
 import { executorRunResult } from "./executor-protocol";
+import { MAX_PROCESS_SPAWN_MS } from "./capability-protocol";
 import type { CallResources } from "./authority";
 import { killTree } from "../exec/process";
 import { NativeWriteError, WRITE_DIRECTORY, writeNative } from "./write-native";
@@ -84,7 +85,7 @@ export async function runOwnedExecutorAttempt(ctx: Ctx, caller: ExecutorCaller, 
   if (!isAbsolute(workdir)) throw new CoreError("invalid_input", "executor workdir must be absolute");
   if (effect && (!isAbsolute(effect.cwd) || effect.cwd !== workdir || effect.argv.length < 1 ||
     effect.argv.length > 32 || effect.argv.some(value => !value || value.length > 4096 || value.includes("\0")) ||
-    !Number.isSafeInteger(effect.timeoutMs) || effect.timeoutMs < 1 || effect.timeoutMs > 600_000 ||
+    !Number.isSafeInteger(effect.timeoutMs) || effect.timeoutMs < 1 || effect.timeoutMs > MAX_PROCESS_SPAWN_MS ||
     (effect.stdin !== undefined && (typeof effect.stdin !== "string" || Buffer.byteLength(effect.stdin, "utf8") > 262144))))
     throw new CoreError("invalid_input", "invalid executor effect");
   const owner = withTaskLock(ctx, taskId, (): RunRef => {

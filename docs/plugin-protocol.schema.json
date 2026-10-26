@@ -4298,7 +4298,7 @@
             "timeoutMs": {
               "type": "integer",
               "exclusiveMinimum": 0,
-              "maximum": 600000
+              "maximum": 1800000
             },
             "stdin": {
               "type": "string",
@@ -7039,7 +7039,7 @@
         "timeoutMs": {
           "type": "integer",
           "exclusiveMinimum": 0,
-          "maximum": 600000
+          "maximum": 1800000
         },
         "cwd": {
           "type": "string",

@@ -4138,7 +4138,7 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityProcessOutputChunkResultBase64
 ///    },
 ///    "timeoutMs": {
 ///      "type": "integer",
-///      "maximum": 600000.0,
+///      "maximum": 1800000.0,
 ///      "exclusiveMinimum": 0.0
 ///    }
 ///  },
@@ -8519,7 +8519,7 @@ impl<'de> ::serde::Deserialize<'de> for ExecutorAvailableResultReason {
 ///        },
 ///        "timeoutMs": {
 ///          "type": "integer",
-///          "maximum": 600000.0,
+///          "maximum": 1800000.0,
 ///          "exclusiveMinimum": 0.0
 ///        }
 ///      },
@@ -8596,7 +8596,7 @@ pub struct ExecutorRunParams {
 ///    },
 ///    "timeoutMs": {
 ///      "type": "integer",
-///      "maximum": 600000.0,
+///      "maximum": 1800000.0,
 ///      "exclusiveMinimum": 0.0
 ///    }
 ///  },

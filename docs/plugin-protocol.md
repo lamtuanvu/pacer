@@ -12,7 +12,7 @@ Protocol 1.1 adds optional top-level `_meta: { capabilityCall }` correlation on 
 
 Protocol 1.5 adds policy/task/event contracts and mutually negotiated `policyObservations` for the host and TypeScript SDK. Task reads require declared and granted `tasks.read` plus a current owning call or process-generation read owner. The exclusive `_meta: { readOwner }` arm permits only task reads and subscription management; mixed, foreign or retired owners never fall back to unowned/effect capability handling. Existing peers/capabilityCall correlation remain supported; peers without this feature cannot use the observation methods. Rust SDK observation helpers are not implemented: the standalone policy protocol crate supplies contracts, not SDK runtime support.
 
-The staged `executor` point declares `contributes.executor.backends: ["direct"]`, `executor.available`, `executor.run` and `executor.stop`. Availability receives a credential-free strategy name with a 10 s deadline. The run envelope names only a host-selected task revision and attempt with run-directory version 1; it has no default deadline and sends bounded `$/progress` events that the host validates before applying an owner-bound progress update. The preview local effect can carry at most 256 KiB of exact host-issued UTF-8 stdin and run for at most 10 minutes; captured stdout and stderr remain limited to 1 MiB each. Stop is bounded to 30 s. The production direct backend remains separate and supports longer task timeouts. Production dispatch, durable run files, interactive sessions, recovery, and full stop semantics still require later SP09 work.
+The staged `executor` point declares `contributes.executor.backends: ["direct"]`, `executor.available`, `executor.run` and `executor.stop`. Availability receives a credential-free strategy name with a 10 s deadline. The run envelope names only a host-selected task revision and attempt with run-directory version 1; it has no default deadline and sends bounded `$/progress` events that the host validates before applying an owner-bound progress update. The preview local effect can carry at most 256 KiB of exact host-issued UTF-8 stdin and has a host-owned timeout ceiling of 30 minutes; captured stdout and stderr remain limited to 1 MiB each. Stop is bounded to 30 s. Production dispatch, durable run files, interactive sessions, recovery, and full stop semantics still require later SP09 work.
 
 The `hostRunner` point names only fixed SSH script IDs and uses bounded arguments, results and finite deadlines. The `hosts` capability defines `open`, `run`, `fetch` and `close` with host-owned broker sessions. Callers supply only a configured alias and fixed script input; the host derives the SSH target and selects the provider. Host setup identity and committed-task transfer use the bundled `remoteCaller` with one-use host-issued grants. Other production SSH paths still require caller cutover.
 
@@ -4700,7 +4700,7 @@ Params:
         "timeoutMs": {
           "type": "integer",
           "exclusiveMinimum": 0,
-          "maximum": 600000
+          "maximum": 1800000
         },
         "stdin": {
           "type": "string",
@@ -7887,7 +7887,7 @@ Params:
     "timeoutMs": {
       "type": "integer",
       "exclusiveMinimum": 0,
-      "maximum": 600000
+      "maximum": 1800000
     },
     "cwd": {
       "type": "string",

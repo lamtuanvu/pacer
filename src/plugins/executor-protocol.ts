@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MAX_PROCESS_SPAWN_MS } from "./capability-protocol";
 
 /** Staged SP09 contribution: only the existing direct backend is named. */
 export const executorContribution = z.object({ backends: z.tuple([z.literal("direct")]) }).strict();
@@ -20,7 +21,7 @@ export const executorRunParams = z.object({
   effect: z.object({
     argv: z.array(z.string().min(1).max(4096)).min(1).max(32),
     cwd: z.string().min(1),
-    timeoutMs: z.number().int().positive().max(600_000),
+    timeoutMs: z.number().int().positive().max(MAX_PROCESS_SPAWN_MS),
     stdin: z.string().max(262144).optional(),
   }).strict().optional(),
 }).strict();
