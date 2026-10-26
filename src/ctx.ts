@@ -6,7 +6,8 @@ import { execProcess } from "./exec/process";
 export const defaultRun: RunFn = async (argv, timeoutMs, options) => {
   const { code, stdout, stderr, timedOut } = await execProcess({
     argv, cwd: process.cwd(), env: options?.env ?? process.env,
-    timeoutMs, stdin: options?.stdin,
+    timeoutMs, stdin: options?.stdin, stdinUntilResponseId: options?.stdinUntilResponseId,
+    ...(options?.stdinUntilResponseId !== undefined ? { maxStdoutBytes: 64_000 } : {}),
   });
   return { code, stdout, stderr, ...(timedOut ? { timedOut: true } : {}) };
 };

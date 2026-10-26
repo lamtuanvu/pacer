@@ -30,7 +30,7 @@ function delegateWait(env: Record<string, string | undefined>, repo: string, ext
   return { code: p.exitCode, task: JSON.parse(p.stdout.toString()), stderr: p.stderr.toString() };
 }
 
-const CODEX_OK = 'out=""; while [ $# -gt 0 ]; do case "$1" in -o) out="$2"; shift 2;; *) shift;; esac; done; cat >/dev/null; echo hi > fixed.txt; echo "Created fixed.txt; acceptance passes." > "$out"';
+const CODEX_OK = 'case " $* " in *" app-server "*) printf \'{"id":2,"result":{"rateLimits":{"primary":{"usedPercent":1,"windowDurationMins":10080,"resetsAt":2000000000}}}}\\n\'; exit 0;; esac; out=""; while [ $# -gt 0 ]; do case "$1" in -o) out="$2"; shift 2;; *) shift;; esac; done; cat >/dev/null; echo hi > fixed.txt; echo "Created fixed.txt; acceptance passes." > "$out"';
 
 test("delegate --wait runs codex through a detached runner and verifies the result", () => {
   const { repo, env } = setup({ codex: CODEX_OK }, "planner: claude-code\nproviders:\n  claude-code: {}\n  codex: {}\n");
