@@ -11,6 +11,7 @@ import { createTask, updateTask } from "../src/tasks/store";
 import { issueConfiguredHostReport, consumeConfiguredHostReport } from "../src/plugins/host-report-issuer";
 import { issueConfiguredHostReadFrom, consumeConfiguredHostReadFrom } from "../src/plugins/host-read-from-issuer";
 import { issueConfiguredHostSessionSocket, consumeConfiguredHostSessionSocket } from "../src/plugins/host-session-socket-issuer";
+import { issueConfiguredHostBinaryCheck, consumeConfiguredHostBinaryCheck } from "../src/plugins/host-binary-check-issuer";
 import { pluginRegistry } from "../src/plugins";
 
 const host = { alias: "box", ssh: "box-ssh", repos: {}, maxTasks: 2, accounts: {} };
@@ -153,6 +154,33 @@ test("disabled SSH provider refuses SESSION_SOCKET without a direct fallback", a
   bridge.accept(socket as unknown as import("node:net").Socket);
   await closed;
   await bridge.close();
+  expect(existsSync(log) ? readFileSync(log, "utf8") : "").toBe(before);
+});
+
+test("BINARY check is issued only for one persisted run and exact content hash", async () => {
+  const { ctx, home, remote, local } = setup();
+  const hash = "a".repeat(64);
+  await expect(pluginRegistry(ctx).call(ctx, "pacer-ssh", "hostRunner.run", {
+    session: "a".repeat(32), script: "BINARY", args: [hash, "check"], timeoutMs: 60_000, maxBytes: 4096,
+  })).rejects.toMatchObject({ code: "capability_denied" });
+  const grant = issueConfiguredHostBinaryCheck(ctx, "box", remote, local, hash);
+  consumeConfiguredHostBinaryCheck(ctx, grant);
+  expect(() => consumeConfiguredHostBinaryCheck(ctx, grant)).toThrow();
+  const stale = issueConfiguredHostBinaryCheck(ctx, "box", remote, local, hash);
+  const taskId = remote.split("/").at(-2)!;
+  updateTask(ctx, taskId, task => { task.state = "queued"; });
+  expect(() => consumeConfiguredHostBinaryCheck(ctx, stale)).toThrow();
+  expect(() => issueConfiguredHostBinaryCheck(ctx, "box", remote, local, "bad")).toThrow();
+  expect(() => issueConfiguredHostBinaryCheck(ctx, "box", remote, join(home, "wrong"), hash)).toThrow();
+});
+
+test("disabled SSH provider refuses BINARY check without direct SSH fallback", async () => {
+  const { ctx, remote, local, log } = setup();
+  const registry = pluginRegistry(ctx);
+  await registry.disable(ctx, "pacer-ssh");
+  const before = existsSync(log) ? readFileSync(log, "utf8") : "";
+  const grant = issueConfiguredHostBinaryCheck(ctx, "box", remote, local, "a".repeat(64));
+  await expect(registry.checkConfiguredHostBinary(ctx, grant)).rejects.toMatchObject({ code: "plugin_unavailable" });
   expect(existsSync(log) ? readFileSync(log, "utf8") : "").toBe(before);
 });
 async function exited(io: RemoteRunIO): Promise<RunState> {
@@ -514,30 +542,54 @@ test("service exit kills its live stream SSH child",async()=>{
 },5000);
 
 test("release upload is content addressed, host verified, reused and repaired",async()=>{
-  const {ctx,home}=setup();
+  const {ctx,home,remote,local}=setup();
   const {ensureRemoteBinary,remotePlatform}=await import("../src/remote/runtime");
   const binary=join(tmpDir(),"pacer");writeFileSync(binary,"release fixture\u0000\u00ff");
   expect(remotePlatform("Linux","aarch64")).toEqual({os:"linux",arch:"arm64"});
   expect(()=>remotePlatform("Linux","mips")).toThrow("unsupported");
-  const installed=await ensureRemoteBinary(ctx,host,{binary});
+  const installed=await ensureRemoteBinary(ctx,host,remote,local,{binary});
   const bytes=readFileSync(binary);
   const hash=new Bun.CryptoHasher("sha256").update(bytes).digest("hex");
   expect(installed).toBe(join(home,".pacer-remote/bin",hash,"pacer"));
   expect(readFileSync(installed)).toEqual(bytes);
   const first=statSync(installed).mtimeMs;
-  await ensureRemoteBinary(ctx,host,{binary});
+  await ensureRemoteBinary(ctx,host,remote,local,{binary});
   expect(statSync(installed).mtimeMs).toBe(first);
   const {chmodSync}=await import("node:fs");
   const dirs=[join(home,".pacer-remote"),join(home,".pacer-remote/bin"),join(home,".pacer-remote/bin",hash)];
   for(const dir of dirs)chmodSync(dir,0o755);
   writeFileSync(installed,"corrupt");
-  await ensureRemoteBinary(ctx,host,{binary});
+  await ensureRemoteBinary(ctx,host,remote,local,{binary});
   expect(readFileSync(installed)).toEqual(bytes);
   for(const dir of dirs)expect(statSync(dir).mode&0o777).toBe(0o700);
   const run=ctx.run;
   ctx.run=(argv,ms,o)=>run(argv,ms,o?.stdin?{...o,stdin:Buffer.from("bad upload").toString("base64")}:o);
   writeFileSync(installed,"corrupt again");
-  await expect(ensureRemoteBinary(ctx,host,{binary})).rejects.toThrow("hash");
+  await expect(ensureRemoteBinary(ctx,host,remote,local,{binary})).rejects.toThrow("hash");
+});
+
+test("timed-out or malformed binary cache checks never trigger direct upload", async () => {
+  const { ctx, remote, local } = setup();
+  const { ensureRemoteBinary } = await import("../src/remote/runtime");
+  const binary = join(tmpDir(), "pacer"); writeFileSync(binary, "release fixture");
+  const registry = pluginRegistry(ctx), check = registry.checkConfiguredHostBinary.bind(registry);
+  const run = ctx.run;
+  let uploads = 0;
+  ctx.run = (argv, ms, options) => {
+    if (argv.at(-1) === "upload") uploads++;
+    return run(argv, ms, options);
+  };
+  try {
+    for (const result of [
+      { code: 1, stdout: "", stderr: "", timedOut: true },
+      { code: 0, stdout: "", stderr: "", timedOut: false },
+      { code: 0, stdout: "/tmp/foreign/pacer\n", stderr: "", timedOut: false },
+    ]) {
+      registry.checkConfiguredHostBinary = async () => result;
+      await expect(ensureRemoteBinary(ctx, host, remote, local, { binary })).rejects.toThrow();
+    }
+    expect(uploads).toBe(0);
+  } finally { registry.checkConfiguredHostBinary = check; }
 });
 
 test("opted-in hosts launch _session and mirror native recordings without script",async()=>{

@@ -6,6 +6,8 @@ import type { HostCfg } from "../config/hosts";
 import type { Ctx } from "../types";
 import { SCRIPTS } from "./scripts";
 import { runRemote } from "./ssh";
+import { issueConfiguredHostBinaryCheck } from "../plugins/host-binary-check-issuer";
+import { pluginRegistry } from "../plugins";
 
 export function remotePlatform(os: string, arch: string): Platform {
   const platform = hostPlatform(os.toLowerCase(), ({x86_64:"x64",aarch64:"arm64"} as Record<string,string>)[arch] ?? arch);
@@ -14,7 +16,8 @@ export function remotePlatform(os: string, arch: string): Platform {
 }
 
 /** A local release file may be supplied by callers packaging their own release. */
-export async function ensureRemoteBinary(ctx: Ctx, host: HostCfg, options: {binary?:string} = {}): Promise<string> {
+export async function ensureRemoteBinary(ctx: Ctx, host: HostCfg, remoteDir: string,
+  localDir: string, options: {binary?:string} = {}): Promise<string> {
   const probe = await runRemote(ctx,host,SCRIPTS.PROBE,[]);
   if (probe.code) throw Error(probe.stderr || "remote platform probe failed");
   const facts = Object.fromEntries(probe.stdout.trim().split("\n").map(line=>{const i=line.indexOf("=");return [line.slice(0,i),line.slice(i+1)];}));
@@ -36,8 +39,15 @@ export async function ensureRemoteBinary(ctx: Ctx, host: HostCfg, options: {bina
     if (bytes.length!==asset.size || sha256Hex(bytes)!==asset.sha256) throw Error("remote release hash mismatch");
   }
   const hash=sha256Hex(bytes);
-  const existing=await runRemote(ctx,host,SCRIPTS.BINARY,[hash,"check"]);
-  if (existing.code===0 && existing.stdout.trim()) return existing.stdout.trim();
+  const grant=issueConfiguredHostBinaryCheck(ctx,host.alias,remoteDir,localDir,hash);
+  const existing=await pluginRegistry(ctx).checkConfiguredHostBinary(ctx,grant);
+  if (existing.timedOut) throw Error("remote binary check timed out");
+  if (existing.code===0) {
+    const expected=`${facts.home}/.pacer-remote/bin/${hash}/pacer`;
+    if (!facts.home?.startsWith("/") || /[\u0000-\u001f\u007f]/.test(facts.home) ||
+      existing.stdout.trim()!==expected) throw Error("remote binary check returned an invalid path");
+    return expected;
+  }
   const uploaded=await runRemote(ctx,host,SCRIPTS.BINARY,[hash,"upload"],{stdin:Buffer.from(bytes).toString("base64"),timeoutMs:300_000});
   if (uploaded.code || !uploaded.stdout.trim()) throw Error(uploaded.stderr || "remote binary hash verification failed");
   return uploaded.stdout.trim();

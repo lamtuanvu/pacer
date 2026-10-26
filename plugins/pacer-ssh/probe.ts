@@ -164,6 +164,27 @@ else
   tail -c +"$(($3 + 1))" "$D/$2" | head -c "$4"
 fi`;
 
+/** Fixed content-addressed runtime check; parity with SCRIPTS.BINARY is tested. */
+export const BINARY_SCRIPT = `hash="$1"; action="$2"
+[[ "$hash" =~ ^[a-f0-9]{64}$ ]] || exit 1
+umask 077
+dir="$HOME/.pacer-remote/bin/$hash"
+file="$dir/pacer"
+checksum() { if command -v sha256sum >/dev/null; then sha256sum "$1"; else shasum -a 256 "$1"; fi; }
+if [ "$action" = check ]; then
+  [ -x "$file" ] && [ "$(checksum "$file" | cut -d ' ' -f 1)" = "$hash" ] || exit 1
+else
+  mkdir -p "$dir" || exit 1
+  chmod 700 "$HOME/.pacer-remote" "$HOME/.pacer-remote/bin" "$dir" || exit 1
+  tmp=$(mktemp "$dir/upload.XXXXXX") || exit 1
+  trap 'rm -f "$tmp"' EXIT
+  # Decode portably on GNU and BSD hosts.
+  if base64 --help 2>&1 | grep -q -- --decode; then base64 --decode > "$tmp"; else base64 -D > "$tmp"; fi
+  [ "$(checksum "$tmp" | cut -d ' ' -f 1)" = "$hash" ] || { echo 'remote binary hash mismatch' >&2; exit 1; }
+  chmod 700 "$tmp" && mv -f "$tmp" "$file" || exit 1
+fi
+printf '%s\\n' "$file"`;
+
 /** Fixed persisted-run socket discovery; parity with SCRIPTS.SESSION_SOCKET is tested. */
 export const SESSION_SOCKET_SCRIPT = `D="$1"
 case "$D" in '~/'*) D="$HOME/\${D#??}" ;; esac
@@ -291,6 +312,12 @@ export function sessionSocketArgv(sshTarget: string, controlPath: string, args: 
     args[0].length > 4096 || /[\u0000-\u001f\u007f]/.test(args[0]))
     throw Error("invalid host-issued session run directory");
   return issuedArgv(sshTarget, controlPath, SESSION_SOCKET_SCRIPT, [...args]);
+}
+
+export function binaryCheckArgv(sshTarget: string, controlPath: string, args: readonly string[]): string[] {
+  if (args.length !== 2 || !/^[a-f0-9]{64}$/.test(args[0] ?? "") || args[1] !== "check")
+    throw Error("invalid host-issued binary check");
+  return issuedArgv(sshTarget, controlPath, BINARY_SCRIPT, [...args]);
 }
 
 export function bundleOutArgv(sshTarget: string, controlPath: string, args: readonly string[]): string[] {
