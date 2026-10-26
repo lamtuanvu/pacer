@@ -12,6 +12,7 @@ import { pidAlive } from "../link/store";
 export const workOptionsSchema = z.object({
   requirements: requirementsSchema.default({}), preferences: preferencesSchema.default({models:[], strengths:[]}), model: z.string().min(1).max(256).optional(),
   kind: z.string().min(1).max(128).optional(), difficulty: z.enum(["simple","standard","complex"]).default("standard"),
+  delegationEnforcement: z.enum(["strict","cooperative"]).default("strict"),
   allowDelegation: z.boolean().default(false), maxDepth: z.number().int().min(1).max(10).default(3),
   maxDescendants: z.number().int().min(1).max(1000).default(20), maxConcurrent: z.number().int().min(1).max(64).default(4),
   maxAttempts: z.number().int().min(1).max(20).default(3),
@@ -21,7 +22,12 @@ export const workOptionsSchema = z.object({
 export type WorkOptions = z.infer<typeof workOptionsSchema>;
 export interface WorkNode {taskId:string; parentId:string|null; rootId:string; depth:number; options:WorkOptions; dependencies:string[]}
 interface NodeRow {task_id:string;parent_id:string|null;root_id:string;depth:number;options:string;dependencies:string}
-const node = (r: NodeRow): WorkNode => ({taskId:r.task_id,parentId:r.parent_id,rootId:r.root_id,depth:r.depth,options:JSON.parse(r.options),dependencies:JSON.parse(r.dependencies)});
+const node = (r: NodeRow): WorkNode => {
+  const stored=JSON.parse(r.options) as Partial<WorkOptions>;
+  return {taskId:r.task_id,parentId:r.parent_id,rootId:r.root_id,depth:r.depth,
+    options:{...stored,delegationEnforcement:stored.delegationEnforcement??"cooperative"} as WorkOptions,
+    dependencies:JSON.parse(r.dependencies)};
+};
 export function getWork(ctx:Ctx,id:string): WorkNode|null {
   const row=dispatchDatabase(ctx).query<NodeRow,[string]>("SELECT * FROM work_nodes WHERE task_id=?").get(id);return row?node(row):null;
 }
@@ -45,8 +51,10 @@ export function registerWork(ctx:Ctx,id:string,input:unknown={},parentId?:string
     if(grant&&authorizeWorkGrant(ctx,grant).taskId!==parentId)throw new CoreError("not_allowed","Grant does not authorize this parent");
     const options=workOptionsSchema.parse(input), parent=parentId?getWork(ctx,parentId):null;
     if(parentId&&!parent)throw new CoreError("not_allowed","Parent has no work policy");
+    if(!parent&&options.delegationEnforcement!=="strict")throw new CoreError("not_allowed","New managed work requires strict delegation enforcement");
     const root=parent?getWork(ctx,parent.rootId)!:null;
     if(parent){
+      if(parent.options.delegationEnforcement==="strict"&&options.delegationEnforcement!=="strict")throw new CoreError("not_allowed","Child cannot weaken strict delegation enforcement");
       if(!root!.options.allowDelegation||readTask(ctx,parentId!)?.state!=="running")throw new CoreError("not_allowed","Parent cannot delegate");
       if(task.brief.repo!==readTask(ctx,parentId!)!.brief.repo)throw new CoreError("not_allowed","Child repository must match its parent");
       if(parent.depth+1>parent.options.maxDepth)throw new CoreError("not_allowed","Delegation depth limit reached");
