@@ -111,15 +111,17 @@ export class PluginRegistry {
     return JSON.stringify({ manifest: e.manifest, config: cfg.config[e.id] ?? {}, grant: e.bundled ? null : cfg.installed[e.id] ?? null });
   }
 
-  /** No production caller yet. Host state is the sole issuer for this read-only check. */
+  /** Host state is the sole issuer for this read-only diagnostic check. */
   async checkConfiguredHost(ctx: Ctx, alias: string, repo?: string, signal?: AbortSignal): Promise<{ ok: boolean; checks: { name: string; ok: boolean; detail: string }[]; facts?: Record<string, string> }> {
     const host = loadStrategy(ctx).hosts[alias];
-    if (!host || host.paused || (repo !== undefined && !Object.values(host.repos).includes(repo)))
+    // A paused host still needs diagnostics; the issued script is read-only.
+    if (!host || (repo !== undefined && !Object.values(host.repos).includes(repo)))
       throw new CoreError("capability_denied", "host check target is not configured");
     const fingerprint = JSON.stringify(host);
     const providers = this.findAll(ctx, "hostRunner", contribution =>
       Array.isArray(contribution.kinds) && contribution.kinds.length === 1 && contribution.kinds[0] === "ssh");
-    if (providers.length !== 1) throw new CoreError("plugin_unavailable", "one SSH host runner provider is required");
+    if (providers.length !== 1 || providers[0] !== "pacer-ssh")
+      throw new CoreError("plugin_unavailable", "bundled SSH host runner provider is required");
     const provider = this.entries.get(providers[0]!)!;
     await this.call(ctx, provider.id, "diagnostic.ping", {}, { deadlineMs: 5000, signal });
     const process = provider.process, generation = this.hostGeneration(ctx, provider);
@@ -134,7 +136,7 @@ export class PluginRegistry {
       repo === undefined ? [] : [repo, "check"]);
     const active = () => {
       const current = loadStrategy(ctx).hosts[alias], now = lstatSync(directory);
-      return current && !current.paused && JSON.stringify(current) === fingerprint &&
+      return current && JSON.stringify(current) === fingerprint &&
         provider.process === process && process.alive && this.hostGeneration(ctx, provider) === generation &&
         now.isDirectory() && now.dev === original.dev && now.ino === original.ino &&
         now.uid === original.uid && (now.mode & 0o7777) === (original.mode & 0o7777) &&
