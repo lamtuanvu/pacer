@@ -2,7 +2,7 @@
 import { randomUUID } from "node:crypto";
 import { PluginError, serve, type Handler } from "@pacer/plugin";
 import { manifest } from "./manifest";
-import { bundleOutArgv, checkHomeArgv, checkRepoArgv, cleanArgv, cloneRepoArgv, preflightArgv, probeArgv, probePayload, questionArgv, setIdentityArgv, usageArgv } from "./probe";
+import { bundleOutArgv, checkHomeArgv, checkRepoArgv, cleanArgv, cloneRepoArgv, preflightArgv, probeArgv, probePayload, questionArgv, setIdentityArgv, stopArgv, usageArgv } from "./probe";
 
 export { manifest } from "./manifest";
 
@@ -84,10 +84,12 @@ export const handlers: Record<string, Handler> = {
       args[1] === "clone" && typeof input.completionNonce === "string";
     const clean = input?.script === "CLEAN" && Array.isArray(args) && args.length === 5 &&
       typeof input.completionNonce === "string";
+    const stop = input?.script === "STOP" && Array.isArray(args) && args.length === 2 &&
+      typeof input.completionNonce === "string";
     const question = input?.script === "QUESTION" && Array.isArray(args) && args.length === 1;
     const usage = input?.script === "CODEX_USAGE" && Array.isArray(args) && args.length <= 1;
-    if (!validSession(input?.session) || (!probe && !repoCheck && !preflight && !identity && !clone && !clean && !question && !usage) ||
-      (identity || clone || clean ? !/^[a-f0-9-]{36}$/.test(input.completionNonce as string) : input.completionNonce !== undefined) ||
+    if (!validSession(input?.session) || (!probe && !repoCheck && !preflight && !identity && !clone && !clean && !stop && !question && !usage) ||
+      (identity || clone || clean || stop ? !/^[a-f0-9-]{36}$/.test(input.completionNonce as string) : input.completionNonce !== undefined) ||
       input.stdin !== undefined || !Number.isSafeInteger(input.timeoutMs) ||
       (input.timeoutMs as number) < 1 || (input.timeoutMs as number) > 120_000 ||
       !Number.isSafeInteger(input.maxBytes) || (input.maxBytes as number) < 1 || (input.maxBytes as number) > 65_536)
@@ -100,7 +102,8 @@ export const handlers: Record<string, Handler> = {
         usageArgv(session.sshTarget, session.controlPath, args as string[]) : question ?
         questionArgv(session.sshTarget, session.controlPath, args as string[]) : preflight ?
         preflightArgv(session.sshTarget, session.controlPath, args as string[]) : identity ?
-        setIdentityArgv(session.sshTarget, session.controlPath, args as string[], input.completionNonce as string) : clean ?
+        setIdentityArgv(session.sshTarget, session.controlPath, args as string[], input.completionNonce as string) : stop ?
+        stopArgv(session.sshTarget, session.controlPath, args as string[], input.completionNonce as string) : clean ?
         cleanArgv(session.sshTarget, session.controlPath, args as string[], input.completionNonce as string) : clone ?
         cloneRepoArgv(session.sshTarget, session.controlPath, args as string[], input.completionNonce as string) :
         checkRepoArgv(session.sshTarget, session.controlPath, (args as string[])[0]!);

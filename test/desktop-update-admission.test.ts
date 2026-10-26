@@ -263,14 +263,15 @@ test("remote completion is bound to host, directory and nonce after caller recon
   expect((await reserveIdle(ctx, "tx-a")).blockers).toHaveLength(1);
 });
 
-test("missing remote process and synthetic stop exit do not prove detached completion", async () => {
+test("missing remote process and unissued stop do not prove detached completion", async () => {
   const ctx = context(), local = join(ctx.pacerHome, "runs", "remote", "1");
   const host = { alias: "box", ssh: "box", repos: {}, maxTasks: 1, accounts: {} };
   ctx.run = async () => ({ code: 0, stdout: "__PACER_BEGIN__\npid=42\n", stderr: "" });
   const io = new RemoteRunIO(ctx, host, "/remote/run", local);
   await io.start(["executor"], "/remote", {}, "", { session: "pipe" });
   ctx.run = async () => ({ code: 0, stdout: "__PACER_BEGIN__\nalive=0\nexit=137\ncode=137\nkilled=0\nout=0\nerr=0\n", stderr: "" });
-  await io.read(); await io.stop({ graceMs: 1, sleep: Bun.sleep });
+  await io.read();
+  await expect(io.stop({ graceMs: 1, sleep: Bun.sleep })).rejects.toMatchObject({ code: "capability_denied" });
   expect((await reserveIdle(ctx, "tx-a")).reserved).toBe(false);
 });
 
