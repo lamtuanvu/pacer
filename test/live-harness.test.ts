@@ -29,7 +29,7 @@ describe("live guard (D3)", () => {
   for (const args of [
     ["install", "codex"], ["uninstall"], ["init"], ["setup"], ["statusline"], ["update", "--check"],
     ["service", "install"], ["service", "uninstall"], ["plugin", "uninstall"], ["plugin", "remove"],
-    ["account", "add"], ["account", "rm"], ["account", "login"], ["host", "setup"], ["orca"], ["orca", "status"], ["open"], ["open", "--browser"],
+    ["account", "add"], ["account", "rm"], ["account", "login"], ["host", "setup"], ["orca"], ["orca", "status"], ["open"], ["open", "--browser"], ["api", "--stdio"],
   ]) test(`refuses ${args.join(" ")}`, () => expect(refusal(args)).toContain("D3"));
   for (const args of [["status", "--json"], ["service", "status"], ["account", "list"], ["host", "check"], ["plugin", "install"], ["plugin", "list"], ["plugin", "doctor"], ["open", "--print", "tasks"], ["delegate", "--wait"], ["wait", "task"], ["_run", "task"], ["dashboard"]]) {
     test(`allows ${args.join(" ")}`, () => expect(refusal(args)).toBeUndefined());
@@ -39,6 +39,11 @@ describe("live guard (D3)", () => {
     expect(child.exitCode).toBe(3);
     expect(child.stderr.toString()).toContain("D3");
   });
+});
+
+test("fixed stdio fixture refuses caller-supplied commands before loading a session", async () => {
+  await expect(main(["stdio-strategy-list", "--id", "missing", "api"])).rejects.toThrow("usage: live stdio-strategy-list");
+  await expect(main(["stdio-strategy-list", "--id", "missing", "--", "api", "--stdio"])).rejects.toThrow("usage: live stdio-strategy-list");
 });
 
 test("sandbox environment keeps HOME and auth references but overrides pacer state", () => {
