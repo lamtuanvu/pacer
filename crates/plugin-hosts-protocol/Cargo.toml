@@ -1,0 +1,21 @@
+[package]
+name = "pacer-plugin-hosts-protocol"
+version = "0.2.0"
+publish = true
+description = "Generated host-runner and host capability wire types for the pacer plugin protocol."
+readme = "README.md"
+repository.workspace = true
+keywords = ["pacer", "plugin", "protocol", "ssh"]
+categories = ["development-tools"]
+include = ["src/**", "README.md", "Cargo.toml", "Cargo.lock"]
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+regress = "0.10"
+
+[lints]
+workspace = true

@@ -953,6 +953,7 @@ version = "0.2.0"
 dependencies = [
  "pacer-plugin-agent-protocol",
  "pacer-plugin-dispatch-protocol",
+ "pacer-plugin-hosts-protocol",
  "pacer-plugin-protocol",
  "serde",
  "serde_json",
@@ -978,6 +979,15 @@ dependencies = [
  "serde",
  "serde_json",
  "xtask",
+]
+
+[[package]]
+name = "pacer-plugin-hosts-protocol"
+version = "0.2.0"
+dependencies = [
+ "regress",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

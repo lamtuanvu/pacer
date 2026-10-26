@@ -1,0 +1,10 @@
+{
+  "id": "host-broker-caller",
+  "version": "1.0.0",
+  "publisher": "pacer",
+  "host": "^1.5",
+  "contributes": {},
+  "capabilities": [{ "name": "hosts" }],
+  "entry": "caller.ts",
+  "reentrant": true
+}

@@ -4617,6 +4617,243 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityProcessSpawnResultVariant1Outp
         deserialize_validated_string(deserializer)
     }
 }
+///`CapabilityProcessStageBundleParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "argv",
+///    "maxBytes",
+///    "timeoutMs"
+///  ],
+///  "properties": {
+///    "argv": {
+///      "type": "array",
+///      "items": {
+///        "type": "string",
+///        "maxLength": 4096
+///      },
+///      "maxItems": 32,
+///      "minItems": 1
+///    },
+///    "maxBytes": {
+///      "type": "integer",
+///      "maximum": 52428800.0,
+///      "exclusiveMinimum": 0.0
+///    },
+///    "timeoutMs": {
+///      "type": "integer",
+///      "maximum": 60000.0,
+///      "exclusiveMinimum": 0.0
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct CapabilityProcessStageBundleParams {
+    pub argv: ::std::vec::Vec<CapabilityProcessStageBundleParamsArgvItem>,
+    #[serde(rename = "maxBytes")]
+    pub max_bytes: ::std::num::NonZeroU64,
+    #[serde(rename = "timeoutMs")]
+    pub timeout_ms: ::std::num::NonZeroU64,
+}
+///`CapabilityProcessStageBundleParamsArgvItem`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 4096
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct CapabilityProcessStageBundleParamsArgvItem(::std::string::String);
+impl ::std::ops::Deref for CapabilityProcessStageBundleParamsArgvItem {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<CapabilityProcessStageBundleParamsArgvItem> for ::std::string::String {
+    fn from(value: CapabilityProcessStageBundleParamsArgvItem) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for CapabilityProcessStageBundleParamsArgvItem {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_6(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for CapabilityProcessStageBundleParamsArgvItem {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for CapabilityProcessStageBundleParamsArgvItem {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`CapabilityProcessStageBundleResult`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "bytes",
+///    "handle",
+///    "sha256"
+///  ],
+///  "properties": {
+///    "bytes": {
+///      "type": "integer",
+///      "maximum": 52428800.0,
+///      "minimum": 0.0
+///    },
+///    "handle": {
+///      "type": "string",
+///      "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"
+///    },
+///    "sha256": {
+///      "type": "string",
+///      "pattern": "^[a-f0-9]{64}$"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct CapabilityProcessStageBundleResult {
+    pub bytes: i64,
+    pub handle: CapabilityProcessStageBundleResultHandle,
+    pub sha256: CapabilityProcessStageBundleResultSha256,
+}
+///`CapabilityProcessStageBundleResultHandle`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct CapabilityProcessStageBundleResultHandle(::std::string::String);
+impl ::std::ops::Deref for CapabilityProcessStageBundleResultHandle {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<CapabilityProcessStageBundleResultHandle> for ::std::string::String {
+    fn from(value: CapabilityProcessStageBundleResultHandle) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for CapabilityProcessStageBundleResultHandle {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| {
+                ::regress::Regex::new(
+                    "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$",
+                )
+                .unwrap()
+            });
+        if PATTERN.find(value).is_none() {
+            return Err(
+                "doesn't match pattern \"^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$\""
+                    .into(),
+            );
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for CapabilityProcessStageBundleResultHandle {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for CapabilityProcessStageBundleResultHandle {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`CapabilityProcessStageBundleResultSha256`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "pattern": "^[a-f0-9]{64}$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct CapabilityProcessStageBundleResultSha256(::std::string::String);
+impl ::std::ops::Deref for CapabilityProcessStageBundleResultSha256 {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<CapabilityProcessStageBundleResultSha256> for ::std::string::String {
+    fn from(value: CapabilityProcessStageBundleResultSha256) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for CapabilityProcessStageBundleResultSha256 {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| ::regress::Regex::new("^[a-f0-9]{64}$").unwrap());
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^[a-f0-9]{64}$\"".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for CapabilityProcessStageBundleResultSha256 {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for CapabilityProcessStageBundleResultSha256 {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
 ///`CapabilitySecretsResolveParams`
 ///
 /// <details><summary>JSON schema</summary>
@@ -7998,6 +8235,196 @@ impl ::std::convert::TryFrom<&str> for EndpointTestResultState {
         value.parse()
     }
 }
+///`ExecutorAvailableParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "strategy"
+///  ],
+///  "properties": {
+///    "strategy": {
+///      "type": "object",
+///      "required": [
+///        "name"
+///      ],
+///      "properties": {
+///        "name": {
+///          "type": "string",
+///          "maxLength": 128,
+///          "minLength": 1
+///        }
+///      },
+///      "additionalProperties": false
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct ExecutorAvailableParams {
+    pub strategy: ExecutorAvailableParamsStrategy,
+}
+///`ExecutorAvailableParamsStrategy`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "name"
+///  ],
+///  "properties": {
+///    "name": {
+///      "type": "string",
+///      "maxLength": 128,
+///      "minLength": 1
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct ExecutorAvailableParamsStrategy {
+    pub name: ExecutorAvailableParamsStrategyName,
+}
+///`ExecutorAvailableParamsStrategyName`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 128,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct ExecutorAvailableParamsStrategyName(::std::string::String);
+impl ::std::ops::Deref for ExecutorAvailableParamsStrategyName {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<ExecutorAvailableParamsStrategyName> for ::std::string::String {
+    fn from(value: ExecutorAvailableParamsStrategyName) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for ExecutorAvailableParamsStrategyName {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_1(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for ExecutorAvailableParamsStrategyName {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for ExecutorAvailableParamsStrategyName {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`ExecutorAvailableResult`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "available"
+///  ],
+///  "properties": {
+///    "available": {
+///      "type": "boolean"
+///    },
+///    "reason": {
+///      "type": "string",
+///      "maxLength": 1024,
+///      "minLength": 1
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct ExecutorAvailableResult {
+    pub available: bool,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub reason: ::std::option::Option<ExecutorAvailableResultReason>,
+}
+///`ExecutorAvailableResultReason`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 1024,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct ExecutorAvailableResultReason(::std::string::String);
+impl ::std::ops::Deref for ExecutorAvailableResultReason {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<ExecutorAvailableResultReason> for ::std::string::String {
+    fn from(value: ExecutorAvailableResultReason) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for ExecutorAvailableResultReason {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 1024usize {
+            return Err("longer than 1024 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for ExecutorAvailableResultReason {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for ExecutorAvailableResultReason {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
 ///`HelloParams`
 ///
 /// <details><summary>JSON schema</summary>
@@ -8046,7 +8473,8 @@ impl ::std::convert::TryFrom<&str> for EndpointTestResultState {
 ///          "config.get",
 ///          "entitlement.report",
 ///          "log",
-///          "usage.state"
+///          "usage.state",
+///          "hosts"
 ///        ]
 ///      }
 ///    },
@@ -8085,7 +8513,8 @@ impl ::std::convert::TryFrom<&str> for EndpointTestResultState {
 ///                  "config.get",
 ///                  "entitlement.report",
 ///                  "log",
-///                  "usage.state"
+///                  "usage.state",
+///                  "hosts"
 ///                ]
 ///              },
 ///              "scopes": {
@@ -8102,30 +8531,141 @@ impl ::std::convert::TryFrom<&str> for EndpointTestResultState {
 ///        "contributes": {
 ///          "default": {},
 ///          "type": "object",
-///          "additionalProperties": {
-///            "type": "object",
-///            "additionalProperties": {
-///              "$ref": "#/$defs/helloParams___schema0"
+///          "properties": {
+///            "agentSession": {
+///              "type": "object",
+///              "additionalProperties": {
+///                "$ref": "#/$defs/helloParams___schema0"
+///              },
+///              "propertyNames": {
+///                "type": "string"
+///              }
 ///            },
-///            "propertyNames": {
-///              "type": "string"
+///            "classifier": {
+///              "type": "object",
+///              "additionalProperties": {
+///                "$ref": "#/$defs/helloParams___schema0"
+///              },
+///              "propertyNames": {
+///                "type": "string"
+///              }
+///            },
+///            "decision": {
+///              "type": "object",
+///              "additionalProperties": {
+///                "$ref": "#/$defs/helloParams___schema0"
+///              },
+///              "propertyNames": {
+///                "type": "string"
+///              }
+///            },
+///            "diagnostic": {
+///              "type": "object",
+///              "additionalProperties": {
+///                "$ref": "#/$defs/helloParams___schema0"
+///              },
+///              "propertyNames": {
+///                "type": "string"
+///              }
+///            },
+///            "endpoint": {
+///              "type": "object",
+///              "additionalProperties": {
+///                "$ref": "#/$defs/helloParams___schema0"
+///              },
+///              "propertyNames": {
+///                "type": "string"
+///              }
+///            },
+///            "executor": {
+///              "type": "object",
+///              "required": [
+///                "backends"
+///              ],
+///              "properties": {
+///                "backends": {
+///                  "type": "array",
+///                  "items": false,
+///                  "maxItems": 1,
+///                  "minItems": 1,
+///                  "prefixItems": [
+///                    {
+///                      "type": "string",
+///                      "const": "direct"
+///                    }
+///                  ]
+///                }
+///              },
+///              "additionalProperties": false
+///            },
+///            "hostRunner": {
+///              "type": "object",
+///              "required": [
+///                "kinds"
+///              ],
+///              "properties": {
+///                "kinds": {
+///                  "type": "array",
+///                  "items": false,
+///                  "maxItems": 1,
+///                  "minItems": 1,
+///                  "prefixItems": [
+///                    {
+///                      "type": "string",
+///                      "const": "ssh"
+///                    }
+///                  ]
+///                }
+///              },
+///              "additionalProperties": false
+///            },
+///            "notifier": {
+///              "type": "object",
+///              "additionalProperties": {
+///                "$ref": "#/$defs/helloParams___schema0"
+///              },
+///              "propertyNames": {
+///                "type": "string"
+///              }
+///            },
+///            "observation": {
+///              "type": "object",
+///              "additionalProperties": {
+///                "$ref": "#/$defs/helloParams___schema0"
+///              },
+///              "propertyNames": {
+///                "type": "string"
+///              }
+///            },
+///            "planner": {
+///              "type": "object",
+///              "additionalProperties": {
+///                "$ref": "#/$defs/helloParams___schema0"
+///              },
+///              "propertyNames": {
+///                "type": "string"
+///              }
+///            },
+///            "policy": {
+///              "type": "object",
+///              "additionalProperties": {
+///                "$ref": "#/$defs/helloParams___schema0"
+///              },
+///              "propertyNames": {
+///                "type": "string"
+///              }
+///            },
+///            "usage": {
+///              "type": "object",
+///              "additionalProperties": {
+///                "$ref": "#/$defs/helloParams___schema0"
+///              },
+///              "propertyNames": {
+///                "type": "string"
+///              }
 ///            }
 ///          },
-///          "propertyNames": {
-///            "type": "string",
-///            "enum": [
-///              "diagnostic",
-///              "agentSession",
-///              "observation",
-///              "decision",
-///              "usage",
-///              "classifier",
-///              "notifier",
-///              "endpoint",
-///              "planner",
-///              "policy"
-///            ]
-///          }
+///          "additionalProperties": false
 ///        },
 ///        "entry": {
 ///          "type": "string",
@@ -8248,7 +8788,8 @@ impl<'de> ::serde::Deserialize<'de> for HelloParamsFeaturesItem {
 ///    "config.get",
 ///    "entitlement.report",
 ///    "log",
-///    "usage.state"
+///    "usage.state",
+///    "hosts"
 ///  ]
 ///}
 /// ```
@@ -8288,6 +8829,8 @@ pub enum HelloParamsGrantsItem {
     Log,
     #[serde(rename = "usage.state")]
     UsageState,
+    #[serde(rename = "hosts")]
+    Hosts,
 }
 impl ::std::convert::From<&Self> for HelloParamsGrantsItem {
     fn from(value: &HelloParamsGrantsItem) -> Self {
@@ -8308,6 +8851,7 @@ impl ::std::fmt::Display for HelloParamsGrantsItem {
             Self::EntitlementReport => f.write_str("entitlement.report"),
             Self::Log => f.write_str("log"),
             Self::UsageState => f.write_str("usage.state"),
+            Self::Hosts => f.write_str("hosts"),
         }
     }
 }
@@ -8326,6 +8870,7 @@ impl ::std::str::FromStr for HelloParamsGrantsItem {
             "entitlement.report" => Ok(Self::EntitlementReport),
             "log" => Ok(Self::Log),
             "usage.state" => Ok(Self::UsageState),
+            "hosts" => Ok(Self::Hosts),
             _ => Err("invalid value".into()),
         }
     }
@@ -8376,7 +8921,8 @@ impl ::std::convert::TryFrom<&str> for HelloParamsGrantsItem {
 ///              "config.get",
 ///              "entitlement.report",
 ///              "log",
-///              "usage.state"
+///              "usage.state",
+///              "hosts"
 ///            ]
 ///          },
 ///          "scopes": {
@@ -8393,30 +8939,141 @@ impl ::std::convert::TryFrom<&str> for HelloParamsGrantsItem {
 ///    "contributes": {
 ///      "default": {},
 ///      "type": "object",
-///      "additionalProperties": {
-///        "type": "object",
-///        "additionalProperties": {
-///          "$ref": "#/$defs/helloParams___schema0"
+///      "properties": {
+///        "agentSession": {
+///          "type": "object",
+///          "additionalProperties": {
+///            "$ref": "#/$defs/helloParams___schema0"
+///          },
+///          "propertyNames": {
+///            "type": "string"
+///          }
 ///        },
-///        "propertyNames": {
-///          "type": "string"
+///        "classifier": {
+///          "type": "object",
+///          "additionalProperties": {
+///            "$ref": "#/$defs/helloParams___schema0"
+///          },
+///          "propertyNames": {
+///            "type": "string"
+///          }
+///        },
+///        "decision": {
+///          "type": "object",
+///          "additionalProperties": {
+///            "$ref": "#/$defs/helloParams___schema0"
+///          },
+///          "propertyNames": {
+///            "type": "string"
+///          }
+///        },
+///        "diagnostic": {
+///          "type": "object",
+///          "additionalProperties": {
+///            "$ref": "#/$defs/helloParams___schema0"
+///          },
+///          "propertyNames": {
+///            "type": "string"
+///          }
+///        },
+///        "endpoint": {
+///          "type": "object",
+///          "additionalProperties": {
+///            "$ref": "#/$defs/helloParams___schema0"
+///          },
+///          "propertyNames": {
+///            "type": "string"
+///          }
+///        },
+///        "executor": {
+///          "type": "object",
+///          "required": [
+///            "backends"
+///          ],
+///          "properties": {
+///            "backends": {
+///              "type": "array",
+///              "items": false,
+///              "maxItems": 1,
+///              "minItems": 1,
+///              "prefixItems": [
+///                {
+///                  "type": "string",
+///                  "const": "direct"
+///                }
+///              ]
+///            }
+///          },
+///          "additionalProperties": false
+///        },
+///        "hostRunner": {
+///          "type": "object",
+///          "required": [
+///            "kinds"
+///          ],
+///          "properties": {
+///            "kinds": {
+///              "type": "array",
+///              "items": false,
+///              "maxItems": 1,
+///              "minItems": 1,
+///              "prefixItems": [
+///                {
+///                  "type": "string",
+///                  "const": "ssh"
+///                }
+///              ]
+///            }
+///          },
+///          "additionalProperties": false
+///        },
+///        "notifier": {
+///          "type": "object",
+///          "additionalProperties": {
+///            "$ref": "#/$defs/helloParams___schema0"
+///          },
+///          "propertyNames": {
+///            "type": "string"
+///          }
+///        },
+///        "observation": {
+///          "type": "object",
+///          "additionalProperties": {
+///            "$ref": "#/$defs/helloParams___schema0"
+///          },
+///          "propertyNames": {
+///            "type": "string"
+///          }
+///        },
+///        "planner": {
+///          "type": "object",
+///          "additionalProperties": {
+///            "$ref": "#/$defs/helloParams___schema0"
+///          },
+///          "propertyNames": {
+///            "type": "string"
+///          }
+///        },
+///        "policy": {
+///          "type": "object",
+///          "additionalProperties": {
+///            "$ref": "#/$defs/helloParams___schema0"
+///          },
+///          "propertyNames": {
+///            "type": "string"
+///          }
+///        },
+///        "usage": {
+///          "type": "object",
+///          "additionalProperties": {
+///            "$ref": "#/$defs/helloParams___schema0"
+///          },
+///          "propertyNames": {
+///            "type": "string"
+///          }
 ///        }
 ///      },
-///      "propertyNames": {
-///        "type": "string",
-///        "enum": [
-///          "diagnostic",
-///          "agentSession",
-///          "observation",
-///          "decision",
-///          "usage",
-///          "classifier",
-///          "notifier",
-///          "endpoint",
-///          "planner",
-///          "policy"
-///        ]
-///      }
+///      "additionalProperties": false
 ///    },
 ///    "entry": {
 ///      "type": "string",
@@ -8459,10 +9116,7 @@ impl ::std::convert::TryFrom<&str> for HelloParamsGrantsItem {
 #[serde(deny_unknown_fields)]
 pub struct HelloParamsManifest {
     pub capabilities: ::std::vec::Vec<HelloParamsManifestCapabilitiesItem>,
-    pub contributes: ::std::collections::HashMap<
-        HelloParamsManifestContributesKey,
-        ::std::collections::HashMap<::std::string::String, HelloParamsSchema0>,
-    >,
+    pub contributes: HelloParamsManifestContributes,
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub entry: ::std::option::Option<HelloParamsManifestEntry>,
     pub host: HelloParamsManifestHost,
@@ -8496,7 +9150,8 @@ pub struct HelloParamsManifest {
 ///        "config.get",
 ///        "entitlement.report",
 ///        "log",
-///        "usage.state"
+///        "usage.state",
+///        "hosts"
 ///      ]
 ///    },
 ///    "scopes": {
@@ -8536,7 +9191,8 @@ pub struct HelloParamsManifestCapabilitiesItem {
 ///    "config.get",
 ///    "entitlement.report",
 ///    "log",
-///    "usage.state"
+///    "usage.state",
+///    "hosts"
 ///  ]
 ///}
 /// ```
@@ -8576,6 +9232,8 @@ pub enum HelloParamsManifestCapabilitiesItemName {
     Log,
     #[serde(rename = "usage.state")]
     UsageState,
+    #[serde(rename = "hosts")]
+    Hosts,
 }
 impl ::std::convert::From<&Self> for HelloParamsManifestCapabilitiesItemName {
     fn from(value: &HelloParamsManifestCapabilitiesItemName) -> Self {
@@ -8596,6 +9254,7 @@ impl ::std::fmt::Display for HelloParamsManifestCapabilitiesItemName {
             Self::EntitlementReport => f.write_str("entitlement.report"),
             Self::Log => f.write_str("log"),
             Self::UsageState => f.write_str("usage.state"),
+            Self::Hosts => f.write_str("hosts"),
         }
     }
 }
@@ -8614,6 +9273,7 @@ impl ::std::str::FromStr for HelloParamsManifestCapabilitiesItemName {
             "entitlement.report" => Ok(Self::EntitlementReport),
             "log" => Ok(Self::Log),
             "usage.state" => Ok(Self::UsageState),
+            "hosts" => Ok(Self::Hosts),
             _ => Err("invalid value".into()),
         }
     }
@@ -8669,26 +9329,272 @@ impl<'de> ::serde::Deserialize<'de> for HelloParamsManifestCapabilitiesItemScope
         deserialize_validated_string(deserializer)
     }
 }
-///`HelloParamsManifestContributesKey`
+///`HelloParamsManifestContributes`
 ///
 /// <details><summary>JSON schema</summary>
 ///
 /// ```json
 ///{
-///  "type": "string",
-///  "enum": [
-///    "diagnostic",
-///    "agentSession",
-///    "observation",
-///    "decision",
-///    "usage",
-///    "classifier",
-///    "notifier",
-///    "endpoint",
-///    "planner",
-///    "policy"
-///  ]
+///  "default": {},
+///  "type": "object",
+///  "properties": {
+///    "agentSession": {
+///      "type": "object",
+///      "additionalProperties": {
+///        "$ref": "#/$defs/helloParams___schema0"
+///      },
+///      "propertyNames": {
+///        "type": "string"
+///      }
+///    },
+///    "classifier": {
+///      "type": "object",
+///      "additionalProperties": {
+///        "$ref": "#/$defs/helloParams___schema0"
+///      },
+///      "propertyNames": {
+///        "type": "string"
+///      }
+///    },
+///    "decision": {
+///      "type": "object",
+///      "additionalProperties": {
+///        "$ref": "#/$defs/helloParams___schema0"
+///      },
+///      "propertyNames": {
+///        "type": "string"
+///      }
+///    },
+///    "diagnostic": {
+///      "type": "object",
+///      "additionalProperties": {
+///        "$ref": "#/$defs/helloParams___schema0"
+///      },
+///      "propertyNames": {
+///        "type": "string"
+///      }
+///    },
+///    "endpoint": {
+///      "type": "object",
+///      "additionalProperties": {
+///        "$ref": "#/$defs/helloParams___schema0"
+///      },
+///      "propertyNames": {
+///        "type": "string"
+///      }
+///    },
+///    "executor": {
+///      "type": "object",
+///      "required": [
+///        "backends"
+///      ],
+///      "properties": {
+///        "backends": {
+///          "type": "array",
+///          "items": false,
+///          "maxItems": 1,
+///          "minItems": 1,
+///          "prefixItems": [
+///            {
+///              "type": "string",
+///              "const": "direct"
+///            }
+///          ]
+///        }
+///      },
+///      "additionalProperties": false
+///    },
+///    "hostRunner": {
+///      "type": "object",
+///      "required": [
+///        "kinds"
+///      ],
+///      "properties": {
+///        "kinds": {
+///          "type": "array",
+///          "items": false,
+///          "maxItems": 1,
+///          "minItems": 1,
+///          "prefixItems": [
+///            {
+///              "type": "string",
+///              "const": "ssh"
+///            }
+///          ]
+///        }
+///      },
+///      "additionalProperties": false
+///    },
+///    "notifier": {
+///      "type": "object",
+///      "additionalProperties": {
+///        "$ref": "#/$defs/helloParams___schema0"
+///      },
+///      "propertyNames": {
+///        "type": "string"
+///      }
+///    },
+///    "observation": {
+///      "type": "object",
+///      "additionalProperties": {
+///        "$ref": "#/$defs/helloParams___schema0"
+///      },
+///      "propertyNames": {
+///        "type": "string"
+///      }
+///    },
+///    "planner": {
+///      "type": "object",
+///      "additionalProperties": {
+///        "$ref": "#/$defs/helloParams___schema0"
+///      },
+///      "propertyNames": {
+///        "type": "string"
+///      }
+///    },
+///    "policy": {
+///      "type": "object",
+///      "additionalProperties": {
+///        "$ref": "#/$defs/helloParams___schema0"
+///      },
+///      "propertyNames": {
+///        "type": "string"
+///      }
+///    },
+///    "usage": {
+///      "type": "object",
+///      "additionalProperties": {
+///        "$ref": "#/$defs/helloParams___schema0"
+///      },
+///      "propertyNames": {
+///        "type": "string"
+///      }
+///    }
+///  },
+///  "additionalProperties": false
 ///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct HelloParamsManifestContributes {
+    #[serde(
+        rename = "agentSession",
+        default,
+        skip_serializing_if = ":: std :: collections :: HashMap::is_empty"
+    )]
+    pub agent_session: ::std::collections::HashMap<::std::string::String, HelloParamsSchema0>,
+    #[serde(
+        default,
+        skip_serializing_if = ":: std :: collections :: HashMap::is_empty"
+    )]
+    pub classifier: ::std::collections::HashMap<::std::string::String, HelloParamsSchema0>,
+    #[serde(
+        default,
+        skip_serializing_if = ":: std :: collections :: HashMap::is_empty"
+    )]
+    pub decision: ::std::collections::HashMap<::std::string::String, HelloParamsSchema0>,
+    #[serde(
+        default,
+        skip_serializing_if = ":: std :: collections :: HashMap::is_empty"
+    )]
+    pub diagnostic: ::std::collections::HashMap<::std::string::String, HelloParamsSchema0>,
+    #[serde(
+        default,
+        skip_serializing_if = ":: std :: collections :: HashMap::is_empty"
+    )]
+    pub endpoint: ::std::collections::HashMap<::std::string::String, HelloParamsSchema0>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub executor: ::std::option::Option<HelloParamsManifestContributesExecutor>,
+    #[serde(
+        rename = "hostRunner",
+        default,
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub host_runner: ::std::option::Option<HelloParamsManifestContributesHostRunner>,
+    #[serde(
+        default,
+        skip_serializing_if = ":: std :: collections :: HashMap::is_empty"
+    )]
+    pub notifier: ::std::collections::HashMap<::std::string::String, HelloParamsSchema0>,
+    #[serde(
+        default,
+        skip_serializing_if = ":: std :: collections :: HashMap::is_empty"
+    )]
+    pub observation: ::std::collections::HashMap<::std::string::String, HelloParamsSchema0>,
+    #[serde(
+        default,
+        skip_serializing_if = ":: std :: collections :: HashMap::is_empty"
+    )]
+    pub planner: ::std::collections::HashMap<::std::string::String, HelloParamsSchema0>,
+    #[serde(
+        default,
+        skip_serializing_if = ":: std :: collections :: HashMap::is_empty"
+    )]
+    pub policy: ::std::collections::HashMap<::std::string::String, HelloParamsSchema0>,
+    #[serde(
+        default,
+        skip_serializing_if = ":: std :: collections :: HashMap::is_empty"
+    )]
+    pub usage: ::std::collections::HashMap<::std::string::String, HelloParamsSchema0>,
+}
+impl ::std::default::Default for HelloParamsManifestContributes {
+    fn default() -> Self {
+        HelloParamsManifestContributes {
+            agent_session: Default::default(),
+            classifier: Default::default(),
+            decision: Default::default(),
+            diagnostic: Default::default(),
+            endpoint: Default::default(),
+            executor: Default::default(),
+            host_runner: Default::default(),
+            notifier: Default::default(),
+            observation: Default::default(),
+            planner: Default::default(),
+            policy: Default::default(),
+            usage: Default::default(),
+        }
+    }
+}
+///`HelloParamsManifestContributesExecutor`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "backends"
+///  ],
+///  "properties": {
+///    "backends": {
+///      "type": "array",
+///      "items": false,
+///      "maxItems": 1,
+///      "minItems": 1,
+///      "prefixItems": [
+///        {
+///          "type": "string",
+///          "const": "direct"
+///        }
+///      ]
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct HelloParamsManifestContributesExecutor {
+    pub backends: [HelloParamsManifestContributesExecutorBackendsItem; 1usize],
+}
+///`HelloParamsManifestContributesExecutorBackendsItem`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///false
 /// ```
 /// </details>
 #[derive(
@@ -8703,71 +9609,71 @@ impl<'de> ::serde::Deserialize<'de> for HelloParamsManifestCapabilitiesItemScope
     PartialEq,
     PartialOrd,
 )]
-pub enum HelloParamsManifestContributesKey {
-    #[serde(rename = "diagnostic")]
-    Diagnostic,
-    #[serde(rename = "agentSession")]
-    AgentSession,
-    #[serde(rename = "observation")]
-    Observation,
-    #[serde(rename = "decision")]
-    Decision,
-    #[serde(rename = "usage")]
-    Usage,
-    #[serde(rename = "classifier")]
-    Classifier,
-    #[serde(rename = "notifier")]
-    Notifier,
-    #[serde(rename = "endpoint")]
-    Endpoint,
-    #[serde(rename = "planner")]
-    Planner,
-    #[serde(rename = "policy")]
-    Policy,
-}
-impl ::std::convert::From<&Self> for HelloParamsManifestContributesKey {
-    fn from(value: &HelloParamsManifestContributesKey) -> Self {
+#[serde(deny_unknown_fields)]
+pub enum HelloParamsManifestContributesExecutorBackendsItem {}
+impl ::std::convert::From<&Self> for HelloParamsManifestContributesExecutorBackendsItem {
+    fn from(value: &HelloParamsManifestContributesExecutorBackendsItem) -> Self {
         value.clone()
     }
 }
-impl ::std::fmt::Display for HelloParamsManifestContributesKey {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        match *self {
-            Self::Diagnostic => f.write_str("diagnostic"),
-            Self::AgentSession => f.write_str("agentSession"),
-            Self::Observation => f.write_str("observation"),
-            Self::Decision => f.write_str("decision"),
-            Self::Usage => f.write_str("usage"),
-            Self::Classifier => f.write_str("classifier"),
-            Self::Notifier => f.write_str("notifier"),
-            Self::Endpoint => f.write_str("endpoint"),
-            Self::Planner => f.write_str("planner"),
-            Self::Policy => f.write_str("policy"),
-        }
-    }
+///`HelloParamsManifestContributesHostRunner`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "kinds"
+///  ],
+///  "properties": {
+///    "kinds": {
+///      "type": "array",
+///      "items": false,
+///      "maxItems": 1,
+///      "minItems": 1,
+///      "prefixItems": [
+///        {
+///          "type": "string",
+///          "const": "ssh"
+///        }
+///      ]
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct HelloParamsManifestContributesHostRunner {
+    pub kinds: [HelloParamsManifestContributesHostRunnerKindsItem; 1usize],
 }
-impl ::std::str::FromStr for HelloParamsManifestContributesKey {
-    type Err = self::error::ConversionError;
-    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        match value {
-            "diagnostic" => Ok(Self::Diagnostic),
-            "agentSession" => Ok(Self::AgentSession),
-            "observation" => Ok(Self::Observation),
-            "decision" => Ok(Self::Decision),
-            "usage" => Ok(Self::Usage),
-            "classifier" => Ok(Self::Classifier),
-            "notifier" => Ok(Self::Notifier),
-            "endpoint" => Ok(Self::Endpoint),
-            "planner" => Ok(Self::Planner),
-            "policy" => Ok(Self::Policy),
-            _ => Err("invalid value".into()),
-        }
-    }
-}
-impl ::std::convert::TryFrom<&str> for HelloParamsManifestContributesKey {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+///`HelloParamsManifestContributesHostRunnerKindsItem`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///false
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+#[serde(deny_unknown_fields)]
+pub enum HelloParamsManifestContributesHostRunnerKindsItem {}
+impl ::std::convert::From<&Self> for HelloParamsManifestContributesHostRunnerKindsItem {
+    fn from(value: &HelloParamsManifestContributesHostRunnerKindsItem) -> Self {
+        value.clone()
     }
 }
 ///`HelloParamsManifestEntry`
@@ -9307,7 +10213,8 @@ impl<'de> ::serde::Deserialize<'de> for HelloResultFeaturesItem {
 ///              "config.get",
 ///              "entitlement.report",
 ///              "log",
-///              "usage.state"
+///              "usage.state",
+///              "hosts"
 ///            ]
 ///          },
 ///          "scopes": {
@@ -9324,30 +10231,141 @@ impl<'de> ::serde::Deserialize<'de> for HelloResultFeaturesItem {
 ///    "contributes": {
 ///      "default": {},
 ///      "type": "object",
-///      "additionalProperties": {
-///        "type": "object",
-///        "additionalProperties": {
-///          "$ref": "#/$defs/manifest___schema0"
+///      "properties": {
+///        "agentSession": {
+///          "type": "object",
+///          "additionalProperties": {
+///            "$ref": "#/$defs/manifest___schema0"
+///          },
+///          "propertyNames": {
+///            "type": "string"
+///          }
 ///        },
-///        "propertyNames": {
-///          "type": "string"
+///        "classifier": {
+///          "type": "object",
+///          "additionalProperties": {
+///            "$ref": "#/$defs/manifest___schema0"
+///          },
+///          "propertyNames": {
+///            "type": "string"
+///          }
+///        },
+///        "decision": {
+///          "type": "object",
+///          "additionalProperties": {
+///            "$ref": "#/$defs/manifest___schema0"
+///          },
+///          "propertyNames": {
+///            "type": "string"
+///          }
+///        },
+///        "diagnostic": {
+///          "type": "object",
+///          "additionalProperties": {
+///            "$ref": "#/$defs/manifest___schema0"
+///          },
+///          "propertyNames": {
+///            "type": "string"
+///          }
+///        },
+///        "endpoint": {
+///          "type": "object",
+///          "additionalProperties": {
+///            "$ref": "#/$defs/manifest___schema0"
+///          },
+///          "propertyNames": {
+///            "type": "string"
+///          }
+///        },
+///        "executor": {
+///          "type": "object",
+///          "required": [
+///            "backends"
+///          ],
+///          "properties": {
+///            "backends": {
+///              "type": "array",
+///              "items": false,
+///              "maxItems": 1,
+///              "minItems": 1,
+///              "prefixItems": [
+///                {
+///                  "type": "string",
+///                  "const": "direct"
+///                }
+///              ]
+///            }
+///          },
+///          "additionalProperties": false
+///        },
+///        "hostRunner": {
+///          "type": "object",
+///          "required": [
+///            "kinds"
+///          ],
+///          "properties": {
+///            "kinds": {
+///              "type": "array",
+///              "items": false,
+///              "maxItems": 1,
+///              "minItems": 1,
+///              "prefixItems": [
+///                {
+///                  "type": "string",
+///                  "const": "ssh"
+///                }
+///              ]
+///            }
+///          },
+///          "additionalProperties": false
+///        },
+///        "notifier": {
+///          "type": "object",
+///          "additionalProperties": {
+///            "$ref": "#/$defs/manifest___schema0"
+///          },
+///          "propertyNames": {
+///            "type": "string"
+///          }
+///        },
+///        "observation": {
+///          "type": "object",
+///          "additionalProperties": {
+///            "$ref": "#/$defs/manifest___schema0"
+///          },
+///          "propertyNames": {
+///            "type": "string"
+///          }
+///        },
+///        "planner": {
+///          "type": "object",
+///          "additionalProperties": {
+///            "$ref": "#/$defs/manifest___schema0"
+///          },
+///          "propertyNames": {
+///            "type": "string"
+///          }
+///        },
+///        "policy": {
+///          "type": "object",
+///          "additionalProperties": {
+///            "$ref": "#/$defs/manifest___schema0"
+///          },
+///          "propertyNames": {
+///            "type": "string"
+///          }
+///        },
+///        "usage": {
+///          "type": "object",
+///          "additionalProperties": {
+///            "$ref": "#/$defs/manifest___schema0"
+///          },
+///          "propertyNames": {
+///            "type": "string"
+///          }
 ///        }
 ///      },
-///      "propertyNames": {
-///        "type": "string",
-///        "enum": [
-///          "diagnostic",
-///          "agentSession",
-///          "observation",
-///          "decision",
-///          "usage",
-///          "classifier",
-///          "notifier",
-///          "endpoint",
-///          "planner",
-///          "policy"
-///        ]
-///      }
+///      "additionalProperties": false
 ///    },
 ///    "entry": {
 ///      "type": "string",
@@ -9390,10 +10408,7 @@ impl<'de> ::serde::Deserialize<'de> for HelloResultFeaturesItem {
 #[serde(deny_unknown_fields)]
 pub struct Manifest {
     pub capabilities: ::std::vec::Vec<ManifestCapabilitiesItem>,
-    pub contributes: ::std::collections::HashMap<
-        ManifestContributesKey,
-        ::std::collections::HashMap<::std::string::String, ManifestSchema0>,
-    >,
+    pub contributes: ManifestContributes,
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub entry: ::std::option::Option<ManifestEntry>,
     pub host: ManifestHost,
@@ -9427,7 +10442,8 @@ pub struct Manifest {
 ///        "config.get",
 ///        "entitlement.report",
 ///        "log",
-///        "usage.state"
+///        "usage.state",
+///        "hosts"
 ///      ]
 ///    },
 ///    "scopes": {
@@ -9467,7 +10483,8 @@ pub struct ManifestCapabilitiesItem {
 ///    "config.get",
 ///    "entitlement.report",
 ///    "log",
-///    "usage.state"
+///    "usage.state",
+///    "hosts"
 ///  ]
 ///}
 /// ```
@@ -9507,6 +10524,8 @@ pub enum ManifestCapabilitiesItemName {
     Log,
     #[serde(rename = "usage.state")]
     UsageState,
+    #[serde(rename = "hosts")]
+    Hosts,
 }
 impl ::std::convert::From<&Self> for ManifestCapabilitiesItemName {
     fn from(value: &ManifestCapabilitiesItemName) -> Self {
@@ -9527,6 +10546,7 @@ impl ::std::fmt::Display for ManifestCapabilitiesItemName {
             Self::EntitlementReport => f.write_str("entitlement.report"),
             Self::Log => f.write_str("log"),
             Self::UsageState => f.write_str("usage.state"),
+            Self::Hosts => f.write_str("hosts"),
         }
     }
 }
@@ -9545,6 +10565,7 @@ impl ::std::str::FromStr for ManifestCapabilitiesItemName {
             "entitlement.report" => Ok(Self::EntitlementReport),
             "log" => Ok(Self::Log),
             "usage.state" => Ok(Self::UsageState),
+            "hosts" => Ok(Self::Hosts),
             _ => Err("invalid value".into()),
         }
     }
@@ -9600,26 +10621,272 @@ impl<'de> ::serde::Deserialize<'de> for ManifestCapabilitiesItemScopesItem {
         deserialize_validated_string(deserializer)
     }
 }
-///`ManifestContributesKey`
+///`ManifestContributes`
 ///
 /// <details><summary>JSON schema</summary>
 ///
 /// ```json
 ///{
-///  "type": "string",
-///  "enum": [
-///    "diagnostic",
-///    "agentSession",
-///    "observation",
-///    "decision",
-///    "usage",
-///    "classifier",
-///    "notifier",
-///    "endpoint",
-///    "planner",
-///    "policy"
-///  ]
+///  "default": {},
+///  "type": "object",
+///  "properties": {
+///    "agentSession": {
+///      "type": "object",
+///      "additionalProperties": {
+///        "$ref": "#/$defs/manifest___schema0"
+///      },
+///      "propertyNames": {
+///        "type": "string"
+///      }
+///    },
+///    "classifier": {
+///      "type": "object",
+///      "additionalProperties": {
+///        "$ref": "#/$defs/manifest___schema0"
+///      },
+///      "propertyNames": {
+///        "type": "string"
+///      }
+///    },
+///    "decision": {
+///      "type": "object",
+///      "additionalProperties": {
+///        "$ref": "#/$defs/manifest___schema0"
+///      },
+///      "propertyNames": {
+///        "type": "string"
+///      }
+///    },
+///    "diagnostic": {
+///      "type": "object",
+///      "additionalProperties": {
+///        "$ref": "#/$defs/manifest___schema0"
+///      },
+///      "propertyNames": {
+///        "type": "string"
+///      }
+///    },
+///    "endpoint": {
+///      "type": "object",
+///      "additionalProperties": {
+///        "$ref": "#/$defs/manifest___schema0"
+///      },
+///      "propertyNames": {
+///        "type": "string"
+///      }
+///    },
+///    "executor": {
+///      "type": "object",
+///      "required": [
+///        "backends"
+///      ],
+///      "properties": {
+///        "backends": {
+///          "type": "array",
+///          "items": false,
+///          "maxItems": 1,
+///          "minItems": 1,
+///          "prefixItems": [
+///            {
+///              "type": "string",
+///              "const": "direct"
+///            }
+///          ]
+///        }
+///      },
+///      "additionalProperties": false
+///    },
+///    "hostRunner": {
+///      "type": "object",
+///      "required": [
+///        "kinds"
+///      ],
+///      "properties": {
+///        "kinds": {
+///          "type": "array",
+///          "items": false,
+///          "maxItems": 1,
+///          "minItems": 1,
+///          "prefixItems": [
+///            {
+///              "type": "string",
+///              "const": "ssh"
+///            }
+///          ]
+///        }
+///      },
+///      "additionalProperties": false
+///    },
+///    "notifier": {
+///      "type": "object",
+///      "additionalProperties": {
+///        "$ref": "#/$defs/manifest___schema0"
+///      },
+///      "propertyNames": {
+///        "type": "string"
+///      }
+///    },
+///    "observation": {
+///      "type": "object",
+///      "additionalProperties": {
+///        "$ref": "#/$defs/manifest___schema0"
+///      },
+///      "propertyNames": {
+///        "type": "string"
+///      }
+///    },
+///    "planner": {
+///      "type": "object",
+///      "additionalProperties": {
+///        "$ref": "#/$defs/manifest___schema0"
+///      },
+///      "propertyNames": {
+///        "type": "string"
+///      }
+///    },
+///    "policy": {
+///      "type": "object",
+///      "additionalProperties": {
+///        "$ref": "#/$defs/manifest___schema0"
+///      },
+///      "propertyNames": {
+///        "type": "string"
+///      }
+///    },
+///    "usage": {
+///      "type": "object",
+///      "additionalProperties": {
+///        "$ref": "#/$defs/manifest___schema0"
+///      },
+///      "propertyNames": {
+///        "type": "string"
+///      }
+///    }
+///  },
+///  "additionalProperties": false
 ///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct ManifestContributes {
+    #[serde(
+        rename = "agentSession",
+        default,
+        skip_serializing_if = ":: std :: collections :: HashMap::is_empty"
+    )]
+    pub agent_session: ::std::collections::HashMap<::std::string::String, ManifestSchema0>,
+    #[serde(
+        default,
+        skip_serializing_if = ":: std :: collections :: HashMap::is_empty"
+    )]
+    pub classifier: ::std::collections::HashMap<::std::string::String, ManifestSchema0>,
+    #[serde(
+        default,
+        skip_serializing_if = ":: std :: collections :: HashMap::is_empty"
+    )]
+    pub decision: ::std::collections::HashMap<::std::string::String, ManifestSchema0>,
+    #[serde(
+        default,
+        skip_serializing_if = ":: std :: collections :: HashMap::is_empty"
+    )]
+    pub diagnostic: ::std::collections::HashMap<::std::string::String, ManifestSchema0>,
+    #[serde(
+        default,
+        skip_serializing_if = ":: std :: collections :: HashMap::is_empty"
+    )]
+    pub endpoint: ::std::collections::HashMap<::std::string::String, ManifestSchema0>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub executor: ::std::option::Option<ManifestContributesExecutor>,
+    #[serde(
+        rename = "hostRunner",
+        default,
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub host_runner: ::std::option::Option<ManifestContributesHostRunner>,
+    #[serde(
+        default,
+        skip_serializing_if = ":: std :: collections :: HashMap::is_empty"
+    )]
+    pub notifier: ::std::collections::HashMap<::std::string::String, ManifestSchema0>,
+    #[serde(
+        default,
+        skip_serializing_if = ":: std :: collections :: HashMap::is_empty"
+    )]
+    pub observation: ::std::collections::HashMap<::std::string::String, ManifestSchema0>,
+    #[serde(
+        default,
+        skip_serializing_if = ":: std :: collections :: HashMap::is_empty"
+    )]
+    pub planner: ::std::collections::HashMap<::std::string::String, ManifestSchema0>,
+    #[serde(
+        default,
+        skip_serializing_if = ":: std :: collections :: HashMap::is_empty"
+    )]
+    pub policy: ::std::collections::HashMap<::std::string::String, ManifestSchema0>,
+    #[serde(
+        default,
+        skip_serializing_if = ":: std :: collections :: HashMap::is_empty"
+    )]
+    pub usage: ::std::collections::HashMap<::std::string::String, ManifestSchema0>,
+}
+impl ::std::default::Default for ManifestContributes {
+    fn default() -> Self {
+        ManifestContributes {
+            agent_session: Default::default(),
+            classifier: Default::default(),
+            decision: Default::default(),
+            diagnostic: Default::default(),
+            endpoint: Default::default(),
+            executor: Default::default(),
+            host_runner: Default::default(),
+            notifier: Default::default(),
+            observation: Default::default(),
+            planner: Default::default(),
+            policy: Default::default(),
+            usage: Default::default(),
+        }
+    }
+}
+///`ManifestContributesExecutor`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "backends"
+///  ],
+///  "properties": {
+///    "backends": {
+///      "type": "array",
+///      "items": false,
+///      "maxItems": 1,
+///      "minItems": 1,
+///      "prefixItems": [
+///        {
+///          "type": "string",
+///          "const": "direct"
+///        }
+///      ]
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct ManifestContributesExecutor {
+    pub backends: [ManifestContributesExecutorBackendsItem; 1usize],
+}
+///`ManifestContributesExecutorBackendsItem`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///false
 /// ```
 /// </details>
 #[derive(
@@ -9634,71 +10901,71 @@ impl<'de> ::serde::Deserialize<'de> for ManifestCapabilitiesItemScopesItem {
     PartialEq,
     PartialOrd,
 )]
-pub enum ManifestContributesKey {
-    #[serde(rename = "diagnostic")]
-    Diagnostic,
-    #[serde(rename = "agentSession")]
-    AgentSession,
-    #[serde(rename = "observation")]
-    Observation,
-    #[serde(rename = "decision")]
-    Decision,
-    #[serde(rename = "usage")]
-    Usage,
-    #[serde(rename = "classifier")]
-    Classifier,
-    #[serde(rename = "notifier")]
-    Notifier,
-    #[serde(rename = "endpoint")]
-    Endpoint,
-    #[serde(rename = "planner")]
-    Planner,
-    #[serde(rename = "policy")]
-    Policy,
-}
-impl ::std::convert::From<&Self> for ManifestContributesKey {
-    fn from(value: &ManifestContributesKey) -> Self {
+#[serde(deny_unknown_fields)]
+pub enum ManifestContributesExecutorBackendsItem {}
+impl ::std::convert::From<&Self> for ManifestContributesExecutorBackendsItem {
+    fn from(value: &ManifestContributesExecutorBackendsItem) -> Self {
         value.clone()
     }
 }
-impl ::std::fmt::Display for ManifestContributesKey {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        match *self {
-            Self::Diagnostic => f.write_str("diagnostic"),
-            Self::AgentSession => f.write_str("agentSession"),
-            Self::Observation => f.write_str("observation"),
-            Self::Decision => f.write_str("decision"),
-            Self::Usage => f.write_str("usage"),
-            Self::Classifier => f.write_str("classifier"),
-            Self::Notifier => f.write_str("notifier"),
-            Self::Endpoint => f.write_str("endpoint"),
-            Self::Planner => f.write_str("planner"),
-            Self::Policy => f.write_str("policy"),
-        }
-    }
+///`ManifestContributesHostRunner`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "kinds"
+///  ],
+///  "properties": {
+///    "kinds": {
+///      "type": "array",
+///      "items": false,
+///      "maxItems": 1,
+///      "minItems": 1,
+///      "prefixItems": [
+///        {
+///          "type": "string",
+///          "const": "ssh"
+///        }
+///      ]
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct ManifestContributesHostRunner {
+    pub kinds: [ManifestContributesHostRunnerKindsItem; 1usize],
 }
-impl ::std::str::FromStr for ManifestContributesKey {
-    type Err = self::error::ConversionError;
-    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        match value {
-            "diagnostic" => Ok(Self::Diagnostic),
-            "agentSession" => Ok(Self::AgentSession),
-            "observation" => Ok(Self::Observation),
-            "decision" => Ok(Self::Decision),
-            "usage" => Ok(Self::Usage),
-            "classifier" => Ok(Self::Classifier),
-            "notifier" => Ok(Self::Notifier),
-            "endpoint" => Ok(Self::Endpoint),
-            "planner" => Ok(Self::Planner),
-            "policy" => Ok(Self::Policy),
-            _ => Err("invalid value".into()),
-        }
-    }
-}
-impl ::std::convert::TryFrom<&str> for ManifestContributesKey {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
+///`ManifestContributesHostRunnerKindsItem`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///false
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+#[serde(deny_unknown_fields)]
+pub enum ManifestContributesHostRunnerKindsItem {}
+impl ::std::convert::From<&Self> for ManifestContributesHostRunnerKindsItem {
+    fn from(value: &ManifestContributesHostRunnerKindsItem) -> Self {
+        value.clone()
     }
 }
 ///`ManifestEntry`

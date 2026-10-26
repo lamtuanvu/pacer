@@ -1,5 +1,6 @@
-import { existsSync, mkdirSync, unlinkSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { existsSync, mkdirSync, readdirSync, unlinkSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { join } from "node:path";
 import type { HostCfg } from "../config/hosts";
 import { taskWorktreePath } from "../supervisor/worktree";
 import { ask } from "../core/tasks";
@@ -24,7 +25,7 @@ export async function receiveQuestion(ctx: Ctx, task: TaskRecord, host: HostCfg,
 }
 
 /** Receive only committed task changes, after checking ancestry, cleanliness and identity. */
-export async function transferBack(ctx: Ctx, task: TaskRecord, host: HostCfg, run: RunRef): Promise<TransferResult> {
+export async function transferBack(ctx: Ctx, task: TaskRecord, host: HostCfg, run: RunRef, bundleTimeoutMs = 60_000): Promise<TransferResult> {
   let branch = `pacer/${task.id}`, ref = `refs/heads/${branch}`;
   const remoteBranch = run.remoteBranch ?? branch;
   let bundle: string | undefined;
@@ -65,12 +66,21 @@ export async function transferBack(ctx: Ctx, task: TaskRecord, host: HostCfg, ru
     const foreign = [...new Set([...(facts.emails ?? "").split(","), ...(facts.signoffs ?? "").split(",")].filter(email => email && email !== identity.stdout.trim()))].sort();
     if (foreign.length) return fail(`foreign identity ${foreign.join(",")}; run pacer host setup ${host.alias}`);
     if (!facts.emails) return fail("invalid remote pre-flight");
-    const path = join(tasksDir(ctx), `${task.id}.bundle`);
-    mkdirSync(dirname(path), { recursive: true });
-    bundle = path;
-    const streamed = await bundleToFile(ctx, host, [run.remoteWorktree, run.baseSha, remoteBranch], path, 50 * 1024 * 1024);
+    const dir = tasksDir(ctx);
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    // Keep forensic bundles from failed verification, but bound retained copies.
+    // Never delete a prior artifact just to make room for a retry.
+    const retained = readdirSync(dir).filter(name => name.startsWith(`${task.id}.`) && name.endsWith(".bundle"));
+    if (retained.length >= 8) return fail("too many retained bundles for this task");
+    const path = join(dir, `${task.id}.${randomUUID()}.bundle`);
+    const streamed = await bundleToFile(ctx, host, [run.remoteWorktree, run.baseSha, remoteBranch], path, 50 * 1024 * 1024, bundleTimeoutMs);
+    if (streamed.timedOut) return fail("bundle stream timed out");
+    if (streamed.stderrOverflow) return fail("bundle stream stderr over 64 KB");
     if (streamed.stdoutOverflow) return fail("bundle over 50 MB");
     if (streamed.code) return fail(streamed.stderr.trim() || "bundle stream failed");
+    if (streamed.published !== true) return fail("bundle stream was not published");
+    // A diagnostic path is valid only after the receive path publishes it.
+    bundle = path;
     const verified = await git("bundle", "verify", path);
     if (verified.code) return fail(verified.stderr.trim() || "bundle verification failed");
     const heads = await git("bundle", "list-heads", path);
