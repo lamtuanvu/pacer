@@ -21,6 +21,7 @@ import { transferred } from "./transfer";
 import { probeCodexUsage } from "./usage";
 import { pluginRegistry } from "../plugins";
 import { issueConfiguredHostIdentity } from "../plugins/host-identity-issuer";
+import { issueConfiguredHostClone, type ConfiguredHostCloneSnapshot } from "../plugins/host-clone-issuer";
 
 export interface HostFacts {
   os: string | null;
@@ -239,7 +240,9 @@ export async function addAccount(ctx: Ctx, alias: string, account: string, home:
   return { command: `${cfg.kind === "codex" ? "CODEX_HOME" : "CLAUDE_CONFIG_DIR"}=${folder} ${cfg.kind === "codex" ? "codex login" : "claude\n# Then run /login to sign in."}` };
 }
 
-export interface SetupOptions { clone?: boolean; identity?: boolean; consent: boolean; steps?: StepApi }
+const SETUP_CLONE_PREVIEW = Symbol("setup-clone-preview");
+export interface SetupOptions { clone?: boolean; identity?: boolean; consent: boolean; steps?: StepApi;
+  [SETUP_CLONE_PREVIEW]?: ConfiguredHostCloneSnapshot }
 async function checkoutExists(ctx: Ctx, alias: string, path: string): Promise<boolean> {
   const result = await pluginRegistry(ctx).checkConfiguredHost(ctx, alias, path).catch(() => null);
   const exists = result?.facts?.exists;
@@ -252,9 +255,17 @@ export async function setup(ctx: Ctx, alias: string, repo: string, o: SetupOptio
   const host = configured(ctx, alias), local = await localRepo(ctx, repo), path = local.key && host.repos[local.key];
   if (!path) throw new CoreError("invalid_input", `repo not mapped on ${alias}`);
   if (o.clone !== false) {
+    const snapshot: ConfiguredHostCloneSnapshot = { alias, key: local.key!, path, origin: local.origin,
+      hostFingerprint: JSON.stringify(host) };
+    const preview = o[SETUP_CLONE_PREVIEW];
+    if (preview && (preview.alias !== snapshot.alias || preview.key !== snapshot.key ||
+      preview.path !== snapshot.path || preview.origin !== snapshot.origin ||
+      preview.hostFingerprint !== snapshot.hostFingerprint))
+      throw new CoreError("capability_denied", "configured clone changed after consent");
     o.steps?.start("Clone");
     if (!await checkoutExists(ctx, alias, path)) {
-      const cloned = await runRemote(ctx, host, SCRIPTS.CHECK_REPO, [path, "clone", local.origin]);
+      const grant = await issueConfiguredHostClone(ctx, alias, repo, o.consent, preview ?? snapshot);
+      const cloned = await pluginRegistry(ctx).cloneConfiguredHost(ctx, grant);
       if (cloned.code) throw new CoreError("invalid_input", `clone failed on ${alias}`);
       o.steps?.pass("Clone");
     } else o.steps?.skip("Clone", "checkout already exists");
@@ -297,12 +308,14 @@ export async function setupJob(ctx: Ctx, alias: string, key: string, o: Omit<Set
 export async function confirmSetup(ctx: Ctx, alias: string, repo: string, confirm: (question: string) => Promise<boolean>) {
   const host = configured(ctx, alias), local = await localRepo(ctx, repo), path = local.key && host.repos[local.key];
   if (!path) throw new CoreError("invalid_input", `repo not mapped on ${alias}`);
+  const snapshot: ConfiguredHostCloneSnapshot = { alias, key: local.key!, path, origin: local.origin,
+    hostFingerprint: JSON.stringify(host) };
   const exists = await checkoutExists(ctx, alias, path);
   const target = path.startsWith("~/") ? `"$HOME"/${shq(path.slice(2))}` : shq(path);
   const clone = !exists && await confirm(`Run on ${alias}: git clone -- ${shq(local.origin)} ${target}?`);
   if (!local.name || !local.email) throw new CoreError("invalid_input", "local repo needs user.name and user.email");
   const identity = await confirm(`Set repo-local identity on ${alias} to ${local.name} <${local.email}>?`);
-  return setup(ctx, alias, repo, { clone, identity, consent: true });
+  return setup(ctx, alias, repo, { clone, identity, consent: true, [SETUP_CLONE_PREVIEW]: snapshot });
 }
 
 export function terminal(ctx: Ctx, alias: string, opener = openInTerminal) {
