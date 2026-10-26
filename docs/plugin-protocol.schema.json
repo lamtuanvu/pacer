@@ -7296,6 +7296,151 @@
       ],
       "additionalProperties": false
     },
+    "capability.process.duplex.open.params": {
+      "type": "object",
+      "properties": {
+        "argv": {
+          "minItems": 1,
+          "maxItems": 32,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 4096
+          }
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 60000
+        }
+      },
+      "required": [
+        "argv",
+        "timeoutMs"
+      ],
+      "additionalProperties": false
+    },
+    "capability.process.duplex.open.result": {
+      "type": "object",
+      "properties": {
+        "handle": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"
+        }
+      },
+      "required": [
+        "handle"
+      ],
+      "additionalProperties": false
+    },
+    "capability.process.duplex.read.params": {
+      "type": "object",
+      "properties": {
+        "handle": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"
+        },
+        "length": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 65536
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 60000
+        }
+      },
+      "required": [
+        "handle",
+        "length",
+        "timeoutMs"
+      ],
+      "additionalProperties": false
+    },
+    "capability.process.duplex.read.result": {
+      "type": "object",
+      "properties": {
+        "base64": {
+          "type": "string",
+          "maxLength": 87384
+        },
+        "eof": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "base64",
+        "eof"
+      ],
+      "additionalProperties": false
+    },
+    "capability.process.duplex.write.params": {
+      "type": "object",
+      "properties": {
+        "handle": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"
+        },
+        "base64": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 87384,
+          "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 60000
+        }
+      },
+      "required": [
+        "handle",
+        "base64",
+        "timeoutMs"
+      ],
+      "additionalProperties": false
+    },
+    "capability.process.duplex.write.result": {
+      "type": "object",
+      "properties": {
+        "bytes": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 65536
+        }
+      },
+      "required": [
+        "bytes"
+      ],
+      "additionalProperties": false
+    },
+    "capability.process.duplex.close.params": {
+      "type": "object",
+      "properties": {
+        "handle": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"
+        }
+      },
+      "required": [
+        "handle"
+      ],
+      "additionalProperties": false
+    },
+    "capability.process.duplex.close.result": {
+      "type": "object",
+      "properties": {
+        "ok": {
+          "type": "boolean",
+          "const": true
+        }
+      },
+      "required": [
+        "ok"
+      ],
+      "additionalProperties": false
+    },
     "capability.usage.state.begin.params": {
       "type": "object",
       "properties": {
