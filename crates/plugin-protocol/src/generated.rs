@@ -3167,7 +3167,7 @@ impl ::std::convert::From<CapabilityNetHttpParamsAuthorizationSecretRef> for ::s
 impl ::std::str::FromStr for CapabilityNetHttpParamsAuthorizationSecretRef {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_10(value, Self)
+        validate_string_11(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityNetHttpParamsAuthorizationSecretRef {
@@ -4373,7 +4373,7 @@ impl ::std::convert::From<CapabilityProcessSpawnParamsEnvValueVariant1SecretRef>
 impl ::std::str::FromStr for CapabilityProcessSpawnParamsEnvValueVariant1SecretRef {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_10(value, Self)
+        validate_string_11(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityProcessSpawnParamsEnvValueVariant1SecretRef {
@@ -4908,7 +4908,7 @@ impl ::std::convert::From<CapabilitySecretsResolveParamsRef> for ::std::string::
 impl ::std::str::FromStr for CapabilitySecretsResolveParamsRef {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_10(value, Self)
+        validate_string_11(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilitySecretsResolveParamsRef {
@@ -6603,7 +6603,7 @@ impl ::std::convert::From<EndpointLaunchEnvParamsAccountKeyRef> for ::std::strin
 impl ::std::str::FromStr for EndpointLaunchEnvParamsAccountKeyRef {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_10(value, Self)
+        validate_string_11(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for EndpointLaunchEnvParamsAccountKeyRef {
@@ -6823,7 +6823,7 @@ impl ::std::convert::From<EndpointLaunchEnvParamsAccountsItemKeyRef> for ::std::
 impl ::std::str::FromStr for EndpointLaunchEnvParamsAccountsItemKeyRef {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_10(value, Self)
+        validate_string_11(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for EndpointLaunchEnvParamsAccountsItemKeyRef {
@@ -7050,7 +7050,7 @@ impl ::std::convert::From<EndpointLaunchEnvResultSecretEnvValue> for ::std::stri
 impl ::std::str::FromStr for EndpointLaunchEnvResultSecretEnvValue {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_10(value, Self)
+        validate_string_11(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for EndpointLaunchEnvResultSecretEnvValue {
@@ -7146,7 +7146,7 @@ impl ::std::convert::From<EndpointModelsParamsKeyRef> for ::std::string::String 
 impl ::std::str::FromStr for EndpointModelsParamsKeyRef {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_10(value, Self)
+        validate_string_11(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for EndpointModelsParamsKeyRef {
@@ -7630,7 +7630,7 @@ impl ::std::convert::From<EndpointTestParamsAccountKeyRef> for ::std::string::St
 impl ::std::str::FromStr for EndpointTestParamsAccountKeyRef {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_10(value, Self)
+        validate_string_11(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for EndpointTestParamsAccountKeyRef {
@@ -7850,7 +7850,7 @@ impl ::std::convert::From<EndpointTestParamsAccountsItemKeyRef> for ::std::strin
 impl ::std::str::FromStr for EndpointTestParamsAccountsItemKeyRef {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_10(value, Self)
+        validate_string_11(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for EndpointTestParamsAccountsItemKeyRef {
@@ -7988,7 +7988,7 @@ impl ::std::convert::From<EndpointTestParamsConfigRef> for ::std::string::String
 impl ::std::str::FromStr for EndpointTestParamsConfigRef {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_10(value, Self)
+        validate_string_11(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for EndpointTestParamsConfigRef {
@@ -8655,6 +8655,15 @@ impl<'de> ::serde::Deserialize<'de> for ExecutorAvailableResultReason {
 ///                "type": "string"
 ///              }
 ///            },
+///            "remoteCaller": {
+///              "type": "object",
+///              "additionalProperties": {
+///                "$ref": "#/$defs/helloParams___schema0"
+///              },
+///              "propertyNames": {
+///                "type": "string"
+///              }
+///            },
 ///            "usage": {
 ///              "type": "object",
 ///              "additionalProperties": {
@@ -8753,7 +8762,7 @@ impl ::std::convert::From<HelloParamsFeaturesItem> for ::std::string::String {
 impl ::std::str::FromStr for HelloParamsFeaturesItem {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_8(value, Self)
+        validate_string_9(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for HelloParamsFeaturesItem {
@@ -9055,6 +9064,15 @@ impl ::std::convert::TryFrom<&str> for HelloParamsGrantsItem {
 ///          }
 ///        },
 ///        "policy": {
+///          "type": "object",
+///          "additionalProperties": {
+///            "$ref": "#/$defs/helloParams___schema0"
+///          },
+///          "propertyNames": {
+///            "type": "string"
+///          }
+///        },
+///        "remoteCaller": {
 ///          "type": "object",
 ///          "additionalProperties": {
 ///            "$ref": "#/$defs/helloParams___schema0"
@@ -9461,6 +9479,15 @@ impl<'de> ::serde::Deserialize<'de> for HelloParamsManifestCapabilitiesItemScope
 ///        "type": "string"
 ///      }
 ///    },
+///    "remoteCaller": {
+///      "type": "object",
+///      "additionalProperties": {
+///        "$ref": "#/$defs/helloParams___schema0"
+///      },
+///      "propertyNames": {
+///        "type": "string"
+///      }
+///    },
 ///    "usage": {
 ///      "type": "object",
 ///      "additionalProperties": {
@@ -9533,6 +9560,12 @@ pub struct HelloParamsManifestContributes {
     )]
     pub policy: ::std::collections::HashMap<::std::string::String, HelloParamsSchema0>,
     #[serde(
+        rename = "remoteCaller",
+        default,
+        skip_serializing_if = ":: std :: collections :: HashMap::is_empty"
+    )]
+    pub remote_caller: ::std::collections::HashMap<::std::string::String, HelloParamsSchema0>,
+    #[serde(
         default,
         skip_serializing_if = ":: std :: collections :: HashMap::is_empty"
     )]
@@ -9552,6 +9585,7 @@ impl ::std::default::Default for HelloParamsManifestContributes {
             observation: Default::default(),
             planner: Default::default(),
             policy: Default::default(),
+            remote_caller: Default::default(),
             usage: Default::default(),
         }
     }
@@ -9749,7 +9783,7 @@ impl ::std::convert::From<HelloParamsManifestHost> for ::std::string::String {
 impl ::std::str::FromStr for HelloParamsManifestHost {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_9(value, Self)
+        validate_string_10(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for HelloParamsManifestHost {
@@ -9794,7 +9828,7 @@ impl ::std::convert::From<HelloParamsManifestId> for ::std::string::String {
 impl ::std::str::FromStr for HelloParamsManifestId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_11(value, Self)
+        validate_string_12(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for HelloParamsManifestId {
@@ -10156,7 +10190,7 @@ impl ::std::convert::From<HelloResultFeaturesItem> for ::std::string::String {
 impl ::std::str::FromStr for HelloResultFeaturesItem {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_8(value, Self)
+        validate_string_9(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for HelloResultFeaturesItem {
@@ -10347,6 +10381,15 @@ impl<'de> ::serde::Deserialize<'de> for HelloResultFeaturesItem {
 ///          }
 ///        },
 ///        "policy": {
+///          "type": "object",
+///          "additionalProperties": {
+///            "$ref": "#/$defs/manifest___schema0"
+///          },
+///          "propertyNames": {
+///            "type": "string"
+///          }
+///        },
+///        "remoteCaller": {
 ///          "type": "object",
 ///          "additionalProperties": {
 ///            "$ref": "#/$defs/manifest___schema0"
@@ -10753,6 +10796,15 @@ impl<'de> ::serde::Deserialize<'de> for ManifestCapabilitiesItemScopesItem {
 ///        "type": "string"
 ///      }
 ///    },
+///    "remoteCaller": {
+///      "type": "object",
+///      "additionalProperties": {
+///        "$ref": "#/$defs/manifest___schema0"
+///      },
+///      "propertyNames": {
+///        "type": "string"
+///      }
+///    },
 ///    "usage": {
 ///      "type": "object",
 ///      "additionalProperties": {
@@ -10825,6 +10877,12 @@ pub struct ManifestContributes {
     )]
     pub policy: ::std::collections::HashMap<::std::string::String, ManifestSchema0>,
     #[serde(
+        rename = "remoteCaller",
+        default,
+        skip_serializing_if = ":: std :: collections :: HashMap::is_empty"
+    )]
+    pub remote_caller: ::std::collections::HashMap<::std::string::String, ManifestSchema0>,
+    #[serde(
         default,
         skip_serializing_if = ":: std :: collections :: HashMap::is_empty"
     )]
@@ -10844,6 +10902,7 @@ impl ::std::default::Default for ManifestContributes {
             observation: Default::default(),
             planner: Default::default(),
             policy: Default::default(),
+            remote_caller: Default::default(),
             usage: Default::default(),
         }
     }
@@ -11041,7 +11100,7 @@ impl ::std::convert::From<ManifestHost> for ::std::string::String {
 impl ::std::str::FromStr for ManifestHost {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_9(value, Self)
+        validate_string_10(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for ManifestHost {
@@ -11086,7 +11145,7 @@ impl ::std::convert::From<ManifestId> for ::std::string::String {
 impl ::std::str::FromStr for ManifestId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_11(value, Self)
+        validate_string_12(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for ManifestId {
@@ -12013,7 +12072,7 @@ impl ::std::convert::From<PlannerDetectParamsBinaryName> for ::std::string::Stri
 impl ::std::str::FromStr for PlannerDetectParamsBinaryName {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_8(value, Self)
+        validate_string_9(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerDetectParamsBinaryName {
@@ -12477,7 +12536,7 @@ impl ::std::convert::From<PlannerInstallParamsAgent> for ::std::string::String {
 impl ::std::str::FromStr for PlannerInstallParamsAgent {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_8(value, Self)
+        validate_string_9(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerInstallParamsAgent {
@@ -13995,7 +14054,7 @@ impl ::std::convert::From<PlannerPlanParamsAgent> for ::std::string::String {
 impl ::std::str::FromStr for PlannerPlanParamsAgent {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_8(value, Self)
+        validate_string_9(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerPlanParamsAgent {
@@ -14951,7 +15010,7 @@ impl ::std::convert::From<PlannerPreviewParamsAgent> for ::std::string::String {
 impl ::std::str::FromStr for PlannerPreviewParamsAgent {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_8(value, Self)
+        validate_string_9(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerPreviewParamsAgent {
@@ -15919,7 +15978,7 @@ impl ::std::convert::From<PlannerUninstallParamsAgent> for ::std::string::String
 impl ::std::str::FromStr for PlannerUninstallParamsAgent {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_8(value, Self)
+        validate_string_9(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for PlannerUninstallParamsAgent {
@@ -17252,6 +17311,374 @@ impl ::std::convert::TryFrom<&str> for PlannerUninstallResultUninstallReportReve
     }
 }
 impl<'de> ::serde::Deserialize<'de> for PlannerUninstallResultUninstallReportRevertedItem {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`RemoteCallerIdentityParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "alias",
+///    "email",
+///    "name",
+///    "path"
+///  ],
+///  "properties": {
+///    "alias": {
+///      "type": "string",
+///      "pattern": "^[a-z0-9][a-z0-9-]*$"
+///    },
+///    "email": {
+///      "type": "string",
+///      "maxLength": 256,
+///      "minLength": 1
+///    },
+///    "name": {
+///      "type": "string",
+///      "maxLength": 256,
+///      "minLength": 1
+///    },
+///    "path": {
+///      "type": "string",
+///      "maxLength": 4096,
+///      "minLength": 1
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct RemoteCallerIdentityParams {
+    pub alias: RemoteCallerIdentityParamsAlias,
+    pub email: RemoteCallerIdentityParamsEmail,
+    pub name: RemoteCallerIdentityParamsName,
+    pub path: RemoteCallerIdentityParamsPath,
+}
+///`RemoteCallerIdentityParamsAlias`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "pattern": "^[a-z0-9][a-z0-9-]*$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct RemoteCallerIdentityParamsAlias(::std::string::String);
+impl ::std::ops::Deref for RemoteCallerIdentityParamsAlias {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<RemoteCallerIdentityParamsAlias> for ::std::string::String {
+    fn from(value: RemoteCallerIdentityParamsAlias) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for RemoteCallerIdentityParamsAlias {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| ::regress::Regex::new("^[a-z0-9][a-z0-9-]*$").unwrap());
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^[a-z0-9][a-z0-9-]*$\"".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for RemoteCallerIdentityParamsAlias {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for RemoteCallerIdentityParamsAlias {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`RemoteCallerIdentityParamsEmail`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 256,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct RemoteCallerIdentityParamsEmail(::std::string::String);
+impl ::std::ops::Deref for RemoteCallerIdentityParamsEmail {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<RemoteCallerIdentityParamsEmail> for ::std::string::String {
+    fn from(value: RemoteCallerIdentityParamsEmail) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for RemoteCallerIdentityParamsEmail {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_3(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for RemoteCallerIdentityParamsEmail {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for RemoteCallerIdentityParamsEmail {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`RemoteCallerIdentityParamsName`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 256,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct RemoteCallerIdentityParamsName(::std::string::String);
+impl ::std::ops::Deref for RemoteCallerIdentityParamsName {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<RemoteCallerIdentityParamsName> for ::std::string::String {
+    fn from(value: RemoteCallerIdentityParamsName) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for RemoteCallerIdentityParamsName {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_3(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for RemoteCallerIdentityParamsName {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for RemoteCallerIdentityParamsName {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`RemoteCallerIdentityParamsPath`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 4096,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct RemoteCallerIdentityParamsPath(::std::string::String);
+impl ::std::ops::Deref for RemoteCallerIdentityParamsPath {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<RemoteCallerIdentityParamsPath> for ::std::string::String {
+    fn from(value: RemoteCallerIdentityParamsPath) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for RemoteCallerIdentityParamsPath {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_7(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for RemoteCallerIdentityParamsPath {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for RemoteCallerIdentityParamsPath {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`RemoteCallerIdentityResult`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "code",
+///    "stderr",
+///    "stdout",
+///    "timedOut"
+///  ],
+///  "properties": {
+///    "code": {
+///      "type": "integer",
+///      "maximum": 255.0,
+///      "minimum": 0.0
+///    },
+///    "stderr": {
+///      "type": "string",
+///      "maxLength": 524288
+///    },
+///    "stdout": {
+///      "type": "string",
+///      "maxLength": 524288
+///    },
+///    "timedOut": {
+///      "type": "boolean"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct RemoteCallerIdentityResult {
+    pub code: u8,
+    pub stderr: RemoteCallerIdentityResultStderr,
+    pub stdout: RemoteCallerIdentityResultStdout,
+    #[serde(rename = "timedOut")]
+    pub timed_out: bool,
+}
+///`RemoteCallerIdentityResultStderr`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 524288
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct RemoteCallerIdentityResultStderr(::std::string::String);
+impl ::std::ops::Deref for RemoteCallerIdentityResultStderr {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<RemoteCallerIdentityResultStderr> for ::std::string::String {
+    fn from(value: RemoteCallerIdentityResultStderr) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for RemoteCallerIdentityResultStderr {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_8(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for RemoteCallerIdentityResultStderr {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for RemoteCallerIdentityResultStderr {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`RemoteCallerIdentityResultStdout`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 524288
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct RemoteCallerIdentityResultStdout(::std::string::String);
+impl ::std::ops::Deref for RemoteCallerIdentityResultStdout {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<RemoteCallerIdentityResultStdout> for ::std::string::String {
+    fn from(value: RemoteCallerIdentityResultStdout) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for RemoteCallerIdentityResultStdout {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_8(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for RemoteCallerIdentityResultStdout {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for RemoteCallerIdentityResultStdout {
     fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
     where
         D: ::serde::Deserializer<'de>,
@@ -20326,6 +20753,15 @@ fn validate_string_8<T>(
     value: &str,
     construct: impl FnOnce(::std::string::String) -> T,
 ) -> ::std::result::Result<T, self::error::ConversionError> {
+    if value.chars().count() > 524288usize {
+        return Err("longer than 524288 characters".into());
+    }
+    Ok(construct(value.to_string()))
+}
+fn validate_string_9<T>(
+    value: &str,
+    construct: impl FnOnce(::std::string::String) -> T,
+) -> ::std::result::Result<T, self::error::ConversionError> {
     if value.chars().count() > 64usize {
         return Err("longer than 64 characters".into());
     }
@@ -20334,7 +20770,7 @@ fn validate_string_8<T>(
     }
     Ok(construct(value.to_string()))
 }
-fn validate_string_9<T>(
+fn validate_string_10<T>(
     value: &str,
     construct: impl FnOnce(::std::string::String) -> T,
 ) -> ::std::result::Result<T, self::error::ConversionError> {
@@ -20346,7 +20782,7 @@ fn validate_string_9<T>(
     }
     Ok(construct(value.to_string()))
 }
-fn validate_string_10<T>(
+fn validate_string_11<T>(
     value: &str,
     construct: impl FnOnce(::std::string::String) -> T,
 ) -> ::std::result::Result<T, self::error::ConversionError> {
@@ -20360,7 +20796,7 @@ fn validate_string_10<T>(
     }
     Ok(construct(value.to_string()))
 }
-fn validate_string_11<T>(
+fn validate_string_12<T>(
     value: &str,
     construct: impl FnOnce(::std::string::String) -> T,
 ) -> ::std::result::Result<T, self::error::ConversionError> {
