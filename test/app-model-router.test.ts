@@ -41,6 +41,8 @@ test("former routing and strategies settings links lead to Dispatcher with work 
   for (const section of ["routing", "strategies"]) {
     expect(resolveRoute(`#/settings/${section}`)).toEqual({redirect:"#/settings/dispatcher"});
     expect(resolveRoute(`#/settings/${section}?repo=k&scope=all`)).toEqual({redirect:"#/settings/dispatcher?repo=k&scope=all"});
+    expect(resolveRoute(`#/settings/${section}?repo=k&scope=all`,false)).toEqual({redirect:"#/settings/dispatcher?repo=k&scope=all"});
+    expect(resolveRoute(`#/settings/${section}?repo=k&scope=all`,null)).toEqual({redirect:"#/settings/dispatcher?repo=k&scope=all"});
   }
 });
 

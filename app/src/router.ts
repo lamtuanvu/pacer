@@ -102,13 +102,13 @@ export function resolveRoute(hash: string, setupComplete: boolean | null = true,
   const [path = "/", search = ""] = raw.split("?");
   const params = new URLSearchParams(search);
   const query: RouteQuery = { repo: params.get("repo"), scope: params.get("scope") };
+  if (path === "/settings/routing" || path === "/settings/strategies") return {redirect:withQuery("#/settings/dispatcher",query)};
   const route = match(path);
   const settingsArea = route.name === "settings" || route.name === "hosts" || route.name === "add-executor";
   const interactiveArea = interactiveEntry && (route.name === "start" || route.name === "sessions");
   if (!settingsArea && !interactiveArea && setupComplete === null) return { name: "loading", query };
   if (!settingsArea && !interactiveArea && route.name !== "setup" && setupComplete === false) return { redirect: withQuery("#/setup", query) };
   const legacy = /^\/(review|sessions)(?:\/(.*))?$/.exec(path);
-  if (path === "/settings/routing" || path === "/settings/strategies") return {redirect:withQuery("#/settings/dispatcher",query)};
   if (legacy) {
     const destination = legacy[2] !== undefined ? `/tasks/${legacy[2]}` : legacy[1] === "review" ? "/needs-you" : "/tasks";
     if (legacy[2] === undefined || (!legacy[2].includes("/") && decode(legacy[2]) !== null)) return {redirect:withQuery(`#${destination}`,query)};
