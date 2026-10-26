@@ -20,7 +20,8 @@ export const executorRunParams = z.object({
   effect: z.object({
     argv: z.array(z.string().min(1).max(4096)).min(1).max(32),
     cwd: z.string().min(1),
-    timeoutMs: z.number().int().positive().max(30_000),
+    timeoutMs: z.number().int().positive().max(600_000),
+    stdin: z.string().max(262144).optional(),
   }).strict().optional(),
 }).strict();
 export const executorRunResult = z.object({

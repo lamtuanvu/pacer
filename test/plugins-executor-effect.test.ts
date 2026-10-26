@@ -32,6 +32,16 @@ test("owned direct plugin call executes only the exact host-issued local process
     expect(readFileSync(marker, "utf8")).toBe("ran");
     expect(readTask(ctx, task.id)?.run?.attempt).toBe(1);
     expect(existsSync(join(pacerHome, "runs", task.id, "1"))).toBe(true);
+    const stdinTask = createTask(ctx, { brief: { goal: "stdin", repo: home }, kind: null,
+      requestedExecutor: "codex", timeoutS: 60 });
+    updateTask(ctx, stdinTask.id, t => { t.state = "running"; t.executor = "codex"; });
+    const stdinMarker = join(home, "stdin.txt");
+    const stdinResult = await runOwnedExecutorAttempt(ctx, registry, "pacer-exec-direct", stdinTask.id,
+      "codex", home, { argv: ["bun", "-e", `await Bun.write(${JSON.stringify(stdinMarker)}, await Bun.stdin.text())`],
+        cwd: home, timeoutMs: 31_000, stdin: "host-issued prompt\n" });
+    expect(stdinResult.status).toBe("done");
+    expect(readFileSync(stdinMarker, "utf8")).toBe("host-issued prompt\n");
+    expect(readTask(ctx, stdinTask.id)?.childPid).toBeUndefined();
     const unauthorized = join(home, "unauthorized.txt");
     await expect(registry.call(ctx, "pacer-exec-direct", "executor.run", {
       task: { id: task.id, rev: readTask(ctx, task.id)!.rev }, attempt: 2, runDir: 1,

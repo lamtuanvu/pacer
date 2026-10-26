@@ -4298,7 +4298,11 @@
             "timeoutMs": {
               "type": "integer",
               "exclusiveMinimum": 0,
-              "maximum": 30000
+              "maximum": 600000
+            },
+            "stdin": {
+              "type": "string",
+              "maxLength": 262144
             }
           },
           "required": [
@@ -7041,6 +7045,10 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 4096
+        },
+        "stdin": {
+          "type": "string",
+          "maxLength": 262144
         },
         "env": {
           "type": "object",

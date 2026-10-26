@@ -14,6 +14,8 @@ export interface CallResources {
   commands: {
     argv: string[];
     timeoutMs: number;
+    /** Exact UTF-8 process input issued by the host, bounded at admission. */
+    stdin?: string;
     cwd?: string;
     env?: Record<string, string>;
     secretEnv?: Record<string, string>;

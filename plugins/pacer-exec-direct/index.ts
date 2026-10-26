@@ -7,7 +7,7 @@ const input = z.object({
   task: z.object({ id: z.string(), rev: z.number().int().positive() }).strict(),
   attempt: z.number().int().positive(), runDir: z.literal(1),
   effect: z.object({ argv: z.array(z.string()).min(1).max(32), cwd: z.string(),
-    timeoutMs: z.number().int().positive().max(30_000) }).strict(),
+    timeoutMs: z.number().int().positive().max(600_000), stdin: z.string().max(262144).optional() }).strict(),
 }).strict();
 
 const spawnResult = z.object({
@@ -25,6 +25,7 @@ export const handlers = {
     const { effect } = parsed.data;
     const result = spawnResult.parse(await host.call("capability.process.spawn", {
       argv: effect.argv, cwd: effect.cwd, env: {}, timeoutMs: effect.timeoutMs,
+      ...(effect.stdin === undefined ? {} : { stdin: effect.stdin }),
     }));
     if (signal.aborted) throw new PluginError("plugin_unavailable", "executor call was cancelled");
     let stderr = result.stderr ?? "";

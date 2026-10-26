@@ -16,7 +16,7 @@ interface ExecutorCaller {
       spawnAdmission?: (spawn: () => import("node:child_process").ChildProcess) => import("node:child_process").ChildProcess }): Promise<unknown>;
 }
 
-export interface LocalExecutorEffect { argv: string[]; cwd: string; timeoutMs: number }
+export interface LocalExecutorEffect { argv: string[]; cwd: string; timeoutMs: number; stdin?: string }
 
 function ownsRun(ctx: Ctx, taskId: string, owner: RunRef): boolean {
   const task = readTask(ctx, taskId);
@@ -84,7 +84,8 @@ export async function runOwnedExecutorAttempt(ctx: Ctx, caller: ExecutorCaller, 
   if (!isAbsolute(workdir)) throw new CoreError("invalid_input", "executor workdir must be absolute");
   if (effect && (!isAbsolute(effect.cwd) || effect.cwd !== workdir || effect.argv.length < 1 ||
     effect.argv.length > 32 || effect.argv.some(value => !value || value.length > 4096 || value.includes("\0")) ||
-    !Number.isSafeInteger(effect.timeoutMs) || effect.timeoutMs < 1 || effect.timeoutMs > 30_000))
+    !Number.isSafeInteger(effect.timeoutMs) || effect.timeoutMs < 1 || effect.timeoutMs > 600_000 ||
+    (effect.stdin !== undefined && (typeof effect.stdin !== "string" || Buffer.byteLength(effect.stdin, "utf8") > 262144))))
     throw new CoreError("invalid_input", "invalid executor effect");
   const owner = withTaskLock(ctx, taskId, (): RunRef => {
     const task = readTask(ctx, taskId);
@@ -126,7 +127,7 @@ export async function runOwnedExecutorAttempt(ctx: Ctx, caller: ExecutorCaller, 
       ...(effect ? { deadlineMs: effect.timeoutMs + 5000,
         spawnAdmission,
         resources: { reads: [], stores: [], commands: [{ argv: effect.argv, cwd: effect.cwd,
-          env: {}, timeoutMs: effect.timeoutMs }] } } : {}) });
+          env: {}, timeoutMs: effect.timeoutMs, ...(effect.stdin === undefined ? {} : { stdin: effect.stdin }) }] } } : {}) });
   } finally {
     if (spawnedPid) withTaskLock(ctx, taskId, () => {
       const current = readTask(ctx, taskId);
