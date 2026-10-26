@@ -110,6 +110,26 @@ async fn acknowledged_native_and_forward_escape() {
 }
 #[cfg(feature = "test-ops")]
 #[tokio::test]
+async fn request_aware_stdio_fallback_keeps_original_line() {
+    let ctx = Ctx::from_env();
+    let dispatcher = Dispatcher::new("");
+    let input = b"{ \"jsonrpc\":\"2.0\", \"method\":\"test.echo\", \"id\":7, \"params\":{ \"force_core\":true, \"name\":\"caf\\u00e9\" } }\n";
+    let mut core = Vec::new();
+    let out = Mutex::new(Vec::new());
+    let state = Mutex::new(Negotiation {
+        native: true,
+        previous: true,
+        pending: None,
+        settled: None,
+    });
+    forward_input(&input[..], &mut core, &out, &ctx, &dispatcher, &state)
+        .await
+        .unwrap();
+    assert_eq!(core, input);
+    assert!(out.into_inner().is_empty());
+}
+#[cfg(feature = "test-ops")]
+#[tokio::test]
 async fn delayed_hello_ack_selects_pipelined_large_native_request() {
     let ctx = Ctx::from_env();
     let dispatcher = Dispatcher::new("");

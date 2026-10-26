@@ -232,6 +232,69 @@ pub fn strategy_list(ctx: &Ctx) -> Result<Value, CoreError> {
     model(ctx).ok_or_else(|| CoreError::new(Code::Conflict, "strategy changed during list read"))
 }
 
+fn show_model_with(ctx: &Ctx, params: &Value, before_active: impl FnOnce()) -> Option<Value> {
+    let name = params.get("name")?.as_str()?;
+    if !valid_name(name) {
+        return None;
+    }
+    let pacer = openat(
+        CWD,
+        &ctx.pacer_home,
+        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC,
+        Mode::empty(),
+    )
+    .ok()?;
+    let yaml = if name == "default" {
+        read_regular(&pacer, "strategy.yaml", MAX_STRATEGY_BYTES)?
+    } else {
+        let dir = openat(
+            &pacer,
+            "strategies",
+            OFlags::RDONLY
+                | OFlags::DIRECTORY
+                | OFlags::NOFOLLOW
+                | OFlags::NONBLOCK
+                | OFlags::CLOEXEC,
+            Mode::empty(),
+        )
+        .ok()?;
+        read_regular(&dir, &format!("{name}.yaml"), MAX_STRATEGY_BYTES)?
+    };
+    let parsed = normalize_basic(&yaml, name)?;
+    // TypeScript reads the requested YAML before loading the active strategy.
+    // Validate the catalog and active target after this read so a concurrent
+    // switch cannot pair fresh YAML with a stale active flag.
+    before_active();
+    let rows = model(ctx)?;
+    let row = rows
+        .as_array()?
+        .iter()
+        .find(|row| row.get("name").and_then(Value::as_str) == Some(name))?;
+    Some(json!({
+        "yaml":yaml,
+        "summary":summary(&parsed)?,
+        "active":row.get("active")?.as_bool()?,
+    }))
+}
+
+fn show_model(ctx: &Ctx, params: &Value) -> Option<Value> {
+    show_model_with(ctx, params, || {})
+}
+
+/// Forward invalid and broader strategy shapes before native dispatch.
+pub fn requires_core_strategy_show_parser(ctx: &Ctx, params: &Value) -> bool {
+    show_model(ctx, params).is_none()
+}
+
+/// Return the named strategy's exact YAML bytes and TypeScript-compatible summary.
+pub fn strategy_show(ctx: &Ctx, params: &Value) -> Result<Value, CoreError> {
+    if params.get("name").and_then(Value::as_str).is_none() {
+        return Err(CoreError::new(Code::InvalidInput, "name is required"));
+    }
+    show_model(ctx, params)
+        .ok_or_else(|| CoreError::new(Code::Conflict, "strategy changed during show read"))
+}
+
 fn list_op(ctx: &Ctx, params: Value) -> pacer_foundation::api::registry::OpFuture<'_> {
     Box::pin(async move {
         if !params.is_object() && !params.is_null() {
@@ -251,9 +314,48 @@ fn list_op(ctx: &Ctx, params: Value) -> pacer_foundation::api::registry::OpFutur
     })
 }
 
+fn show_op(ctx: &Ctx, params: Value) -> pacer_foundation::api::registry::OpFuture<'_> {
+    Box::pin(async move { strategy_show(ctx, &params) })
+}
+
 pub fn ops() -> &'static [NativeOp] {
-    &[NativeOp {
-        name: "strategy.list",
-        call: list_op,
-    }]
+    &[
+        NativeOp {
+            name: "strategy.list",
+            call: list_op,
+        },
+        NativeOp {
+            name: "strategy.show",
+            call: show_op,
+        },
+    ]
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+    use super::*;
+    use std::{collections::HashMap, fs};
+
+    #[test]
+    fn show_uses_active_state_after_requested_yaml_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let ctx = Ctx::with(
+            dir.path().join("home"),
+            dir.path().join("pacer"),
+            HashMap::new(),
+            0.0,
+        );
+        fs::create_dir_all(ctx.pacer_home.join("strategies")).unwrap();
+        let yaml =
+            "planner: codex\naccounts: {personal: {kind: codex}}\nrouting: [{default: [codex]}]\n";
+        fs::write(ctx.pacer_home.join("strategy.yaml"), yaml).unwrap();
+        fs::write(ctx.pacer_home.join("strategies/research.yaml"), yaml).unwrap();
+        let result = show_model_with(&ctx, &json!({"name":"default"}), || {
+            fs::write(ctx.pacer_home.join("active"), "research\n").unwrap();
+        })
+        .unwrap();
+        assert_eq!(result["yaml"], yaml);
+        assert_eq!(result["active"], false);
+    }
 }

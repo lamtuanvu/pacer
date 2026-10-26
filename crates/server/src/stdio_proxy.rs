@@ -128,6 +128,11 @@ async fn forward_input<
             && let Some(method) = request.get("method").and_then(Value::as_str)
             && dispatcher.names().contains(&method)
             && !dispatcher.needs_core_parser(ctx, method)
+            && !dispatcher.needs_core_request(
+                ctx,
+                method,
+                request.get("params").unwrap_or(&Value::Null),
+            )
         {
             let method = method.to_owned();
             let ctx = ctx.at_now();
