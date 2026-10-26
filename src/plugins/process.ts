@@ -5,7 +5,7 @@ import { spawn as nodeSpawn, type ChildProcessWithoutNullStreams } from "node:ch
 import { pluginRpcError as rpcError } from "./errors";
 import { CoreError, type CoreErrorCode } from "../core/errors";
 import { MAX_LINE_BYTES, readLines } from "./lines";
-import { CANCEL_METHOD, CAPABILITY_METHODS, RESULT_CHUNK_METHOD, RESULT_CHUNK_FEATURE, resultChunkParams, chunkedResult } from "./protocol";
+import { CANCEL_METHOD, CAPABILITY_METHODS, RESULT_CHUNK_METHOD, RESULT_CHUNK_FEATURE, STREAM_ACK_METHOD, streamAckParams, streamProgressEvent, resultChunkParams, chunkedResult } from "./protocol";
 import type { CallAuthority } from "./authority";
 import type { ResultStaging } from "./result-staging";
 
@@ -23,8 +23,10 @@ export interface ProcessHooks {
   onExit: (info: { code: number | null; signal: string | null }) => void;
   spawn?: typeof nodeSpawn;
 }
-export interface RequestOptions { prepareInput?: (fits:(params:unknown)=>boolean)=>unknown; authority?: CallAuthority; metadata?: unknown; signal?: AbortSignal; onProgress?: (event: unknown) => void }
-type Pending = { authority?: CallAuthority; metadata?: unknown; transferStarted?: boolean; staging?: ResultStaging; dispose: () => void; onProgress?: (event: unknown) => void; method: string; resolve: (v: unknown) => void; reject: (e: CoreError) => void; cancelDeadline?: () => void };
+export interface StreamProgress { streamId: string; consume: (bytes: Buffer) => Promise<void> }
+export interface RequestOptions { prepareInput?: (fits:(params:unknown)=>boolean)=>unknown; authority?: CallAuthority; metadata?: unknown; signal?: AbortSignal; onProgress?: (event: unknown) => void; stream?: StreamProgress }
+type StreamPending = StreamProgress & { nextSeq: number; outstanding?: { seq: number; done: Promise<void>; cancelDeadline: () => void } };
+type Pending = { authority?: CallAuthority; metadata?: unknown; transferStarted?: boolean; staging?: ResultStaging; dispose: () => void; onProgress?: (event: unknown) => void; stream?: StreamPending; method: string; resolve: (v: unknown) => void; reject: (e: CoreError) => void; cancelDeadline?: () => void };
 const KNOWN: ReadonlySet<string> = new Set<CoreErrorCode>(["unknown_op", "unknown_task", "invalid_input", "unknown_executor", "conflict", "not_allowed", "plugin_timeout", "plugin_unavailable", "plugin_refused", "capability_denied", "unknown_plugin", "not_found", "too_large"]);
 
 /** One plugin child: JSON-RPC both ways on stdio, stderr to a hook, deadlines owned here. */
@@ -129,9 +131,25 @@ export class PluginProcess {
       if (m.method === "$/progress") {
         const params = m.params as { id?: unknown; event?: unknown } | undefined;
         const pending = typeof params?.id === "number" ? this.pending.get(params.id) : undefined;
+        if (!pending?.stream && params?.event && typeof params.event === "object" && !Array.isArray(params.event)) {
+          const streamId = (params.event as { streamId?: unknown }).streamId;
+          const owning = [...this.pending.entries()].find(([, candidate]) => candidate.stream?.streamId === streamId);
+          if (owning) this.rejectPending(owning[0], owning[1], new CoreError("plugin_refused", "stream progress has the wrong request ID"));
+          return;
+        }
+        if (pending?.stream) {
+          this.receiveStreamProgress(params!.id as number, pending, params?.event);
+          return;
+        }
         if (pending?.onProgress) {
           try { pending.onProgress(params?.event); } catch { this.hooks.onStderr("progress callback failed"); }
         }
+        return;
+      }
+      if (m.method === STREAM_ACK_METHOD) {
+        if (m.id === undefined || m.id === null) return;
+        void this.ackStreamProgress(m.id, m.params, m._meta)
+          .catch(error => this.send({ id: m.id, error: rpcError(error) }));
         return;
       }
       if (m.id === undefined || m.id === null) return;
@@ -178,6 +196,10 @@ export class PluginProcess {
     if (typeof m.id !== "number") return;
     const p = this.pending.get(m.id);
     if (!p) return;
+    if (p.stream?.outstanding) {
+      this.rejectPending(m.id, p, new CoreError("plugin_refused", "stream result arrived before acknowledgement"));
+      return;
+    }
     if (m.error) {
       const err = m.error as { message?: string; data?: { code?: string; hint?: string } };
       const code = err.data?.code && KNOWN.has(err.data.code) ? (err.data.code as CoreErrorCode) : "plugin_unavailable";
@@ -199,11 +221,64 @@ export class PluginProcess {
       }, error => this.rejectPending(id, p, error instanceof CoreError ? error : new CoreError("plugin_refused", "chunked result assembly failed")));
       return;
     }
-    this.pending.delete(m.id); p.cancelDeadline?.(); p.dispose(); p.resolve(result);
+    this.pending.delete(m.id); p.cancelDeadline?.(); p.stream?.outstanding?.cancelDeadline(); p.dispose(); p.resolve(result);
+  }
+
+  private receiveStreamProgress(id: number, pending: Pending, raw: unknown): void {
+    const stream = pending.stream!;
+    const frame = streamProgressEvent.safeParse(raw);
+    const valid = frame.success && frame.data.streamId === stream.streamId &&
+      frame.data.seq === stream.nextSeq && !stream.outstanding;
+    if (!valid) {
+      this.rejectPending(id, pending, new CoreError("plugin_refused", "invalid or unacknowledged stream progress"));
+      return;
+    }
+    const bytes = Buffer.from(frame.data.base64, "base64");
+    if (!bytes.length || bytes.length > 65_536 || bytes.toString("base64") !== frame.data.base64) {
+      this.rejectPending(id, pending, new CoreError("plugin_refused", "stream progress exceeds the bounded frame"));
+      return;
+    }
+    const timeout = new CoreError("plugin_timeout", "stream progress was not acknowledged");
+    let cancelDeadline!: () => void;
+    const deadline = new Promise<never>((_, reject) => {
+      const timer = setTimeout(() => { this.rejectPending(id, pending, timeout); reject(timeout); }, 5000);
+      timer.unref();
+      cancelDeadline = () => clearTimeout(timer);
+    });
+    const done = Promise.race([Promise.resolve().then(() => stream.consume(bytes)), deadline]);
+    void done.catch(error => this.rejectPending(id, pending,
+      error instanceof CoreError ? error : new CoreError("plugin_unavailable", "stream consumer failed")));
+    stream.outstanding = { seq: frame.data.seq, done, cancelDeadline };
+  }
+
+  private async ackStreamProgress(id: unknown, raw: unknown, metadata: unknown): Promise<void> {
+    const parsed = streamAckParams.safeParse(raw);
+    const request = parsed.success ? parsed.data.request : undefined;
+    const pending = request === undefined ? undefined : this.pending.get(request);
+    const stream = pending?.stream;
+    const token = metadata && typeof metadata === "object" && !Array.isArray(metadata)
+      ? (metadata as Record<string, unknown>).capabilityCall : undefined;
+    if (!pending || !stream || !pending.authority || !stream.outstanding ||
+      !parsed.success || parsed.data.streamId !== stream.streamId ||
+      parsed.data.seq !== stream.outstanding.seq || token !== pending.authority.token ||
+      (pending.metadata as { capabilityCall?: unknown } | undefined)?.capabilityCall !== token) {
+      if (pending?.stream) this.rejectPending(request as number, pending,
+        new CoreError("plugin_refused", "stream acknowledgement failed owner verification"));
+      throw new CoreError("capability_denied", "stream acknowledgement has no active owning frame");
+    }
+    await stream.outstanding.done;
+    if (this.pending.get(request as number) !== pending || pending.authority.signal.aborted)
+      throw new CoreError("capability_denied", "stream acknowledgement owner ended");
+    stream.outstanding.cancelDeadline();
+    stream.outstanding = undefined;
+    stream.nextSeq++;
+    this.sendReply(id, { seq: parsed.data.seq }, pending.authority, Date.now() + 5000, STREAM_ACK_METHOD);
   }
 
   private rejectPending(id: number, pending: Pending, error: CoreError): void {
     if (this.pending.get(id) !== pending) return;
+    // Keep a pending frame's five-second timer alive so an in-flight consumer
+    // and acknowledgement waiter also settle after the parent call is gone.
     this.pending.delete(id); pending.cancelDeadline?.(); pending.dispose(); pending.reject(error);
   }
 
@@ -247,6 +322,11 @@ export class PluginProcess {
     if (!this.alive) return Promise.reject(new CoreError("plugin_unavailable", `${method}: plugin is not running`));
     if (!Number.isFinite(deadlineMs) || deadlineMs < 0) return Promise.reject(new CoreError("invalid_input", "request deadline must be non-negative"));
     if (options.signal?.aborted) return Promise.reject(new CoreError("plugin_unavailable", "owning plugin call ended"));
+    if (options.stream && (method !== "hostRunner.stream" || !options.authority ||
+      (options.metadata as { capabilityCall?: unknown } | undefined)?.capabilityCall !== options.authority.token ||
+      (params as { streamId?: unknown } | undefined)?.streamId !== options.stream.streamId ||
+      !/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(options.stream.streamId)))
+      return Promise.reject(new CoreError("capability_denied", "stream progress requires an owning host stream"));
     const id = this.nextId++;
     const frame=(value:unknown)=>`${JSON.stringify({jsonrpc:"2.0",id,method,params:value,...(options.metadata?{_meta:options.metadata}:{})})}\n`;
     try {
@@ -267,7 +347,8 @@ export class PluginProcess {
       };
       const dispose = () => options.signal?.removeEventListener("abort", abort);
       const cancelDeadline = deadlineMs === 0 ? undefined : scheduleDeadline(Date.now() + deadlineMs, () => cancel("plugin_timeout", `${method} passed its ${deadlineMs} ms deadline`));
-      this.pending.set(id, { method, authority: options.authority, metadata: options.metadata, resolve: value => resolve(value as T), reject, cancelDeadline, dispose, onProgress: options.onProgress });
+      this.pending.set(id, { method, authority: options.authority, metadata: options.metadata, resolve: value => resolve(value as T), reject, cancelDeadline, dispose, onProgress: options.onProgress,
+        stream: options.stream ? { ...options.stream, nextSeq: 0 } : undefined });
       options.signal?.addEventListener("abort", abort, { once: true });
       this.send({ id, method, params, ...(options.metadata ? { _meta: options.metadata } : {}) });
     });

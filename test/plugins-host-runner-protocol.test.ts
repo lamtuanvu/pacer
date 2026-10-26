@@ -88,6 +88,11 @@ test("installed fake runner validates input and every result without SSH",async(
     await expect(registry.call(ctx,"fx-host-runner","hostRunner.run",{...request,maxBytes:0})).rejects.toMatchObject({code:"invalid_input"});
     await expect(registry.call(ctx,"fx-host-runner","hostRunner.run",{...request,args:["too-long"],maxBytes:1})).rejects.toMatchObject({code:"plugin_refused"});
     await expect(registry.call(ctx,"fx-host-runner","hostRunner.run",args["hostRunner.run"],{deadlineMs:0})).rejects.toMatchObject({code:"invalid_input"});
+    await expect(registry.call(ctx,"fx-host-runner","hostRunner.stream",args["hostRunner.stream"],{deadlineMs:0})).rejects.toMatchObject({code:"invalid_input"});
+    await expect(registry.call(ctx,"fx-host-runner","hostRunner.stream",
+      {...request,script:"SESSION_PIPE",args:["/remote/run"],maxBytes:65_536,
+        streamId:"aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa"}))
+      .rejects.toMatchObject({code:"capability_denied"});
     await expect(registry.call(ctx,"fx-host-runner","hostRunner.run",{...request,script:"PROBE",maxBytes:1024}))
       .rejects.toMatchObject({code:"capability_denied"});
     await expect(registry.call(ctx,"fx-host-runner","hostRunner.run",args["hostRunner.run"],{
