@@ -906,6 +906,7 @@ dependencies = [
  "regress",
  "serde",
  "serde_json",
+ "uuid",
  "xtask",
 ]
 
@@ -995,6 +996,16 @@ dependencies = [
 
 [[package]]
 name = "pacer-session-protocol"
+version = "0.0.0"
+dependencies = [
+ "regress",
+ "serde",
+ "serde_json",
+ "uuid",
+]
+
+[[package]]
+name = "pacer-terminal-protocol"
 version = "0.0.0"
 dependencies = [
  "regress",

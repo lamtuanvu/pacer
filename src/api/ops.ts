@@ -28,6 +28,7 @@ import * as delegationPause from "../core/pause";
 import * as modeHold from "../core/mode-hold";
 import { checkRunner, type RunnerCheckDeps } from "../core/runner-check";
 import { sessionOps } from "./ops-session";
+import { terminalOps } from "./ops-terminal";
 import { z } from "zod";
 import type { TerminalDeps } from "../terminal/open";
 import { openInTerminal } from "../terminal/open";
@@ -64,6 +65,7 @@ import type { Ctx } from "../types";
 export const LEGACY_TASK_LIST = Symbol("legacy task summaries");
 
 export interface OpDeps {
+  appAuthenticated?: boolean;
   usageRefreshDone?: () => Promise<void>;
   desktopUpdates?: DesktopUpdateRuntime;
   onboardingRoute?: import("../onboarding/try").TryDeps["route"];
@@ -156,14 +158,21 @@ function taskMutation<T>(ctx: Ctx, id: string, expect: number | undefined, actio
 const interactive = z.object({
   interactive: z.enum(["account-add", "account-add-orca", "runner-add", "init"]),
   worktree: z.string().min(1).max(4096).optional(),
+  request_id: z.uuid().optional(),
 });
+
+function appTerminal(deps: OpDeps, requestId?: string) {
+  return (ctx: Ctx, options: import("../terminal/open").TerminalOptions, terminalDeps?: Partial<TerminalDeps>) =>
+    (deps.openTerminal ?? deps.openInTerminal ?? openInTerminal)(ctx,
+      deps.appAuthenticated ? {...options,target:"builtin",requestId} : options,terminalDeps);
+}
 
 async function interactiveTerminal(ctx: Ctx, p: z.infer<typeof interactive>, deps: OpDeps) {
   const commands = {
     "account-add": ["account", "add"], "account-add-orca": ["account", "add", "--orca"],
     "runner-add": ["runner", "add"], init: ["init"],
   };
-  return (deps.openTerminal ?? openInTerminal)(ctx, {
+  return appTerminal(deps,p.request_id)(ctx, {
     argv: [...pacerArgv(ctx.env), ...commands[p.interactive]], title: "pacer settings", worktree: p.worktree,
   }, deps.terminal);
 }
@@ -188,7 +197,7 @@ export const OPS: Record<string, OpDef> = {
         description: OPS[p.name].description, params: z.toJSONSchema(OPS[p.name].params) };
     },
   }),
- ...sessionOps, ...desktopOps,
+ ...sessionOps, ...terminalOps, ...desktopOps,
   ...desktopUpdateOps,
   "project.strategy.list": op({
     description: "List repository executor overrides, including policies for absent checkouts.", params: z.object({}),
@@ -241,7 +250,7 @@ export const OPS: Record<string, OpDef> = {
   "client.heartbeat": op({ description: "Renew a client lease, which lapses after 45 seconds without a heartbeat.", params: z.object({client_id: id}), handler: (ctx, p) => clients.heartbeat(ctx, p.client_id) }),
   "client.list": op({ description: "Registered clients with live leases.", params: z.object({}), handler: ctx => clients.list(ctx) }),
   "account.list": op({ description: "Accounts, usage and sign-in commands without account emails.", params: z.object({}), handler: ctx => accounts.list(ctx) }),
-  "account.signin": op({ description: "Open the account login in an available terminal, or return its command.", params: z.union([z.object({name: id, target: z.enum(["auto", "orca", "terminal", "tmux"]).optional()}),interactive.omit({interactive:true}).extend({interactive:z.enum(["account-add","account-add-orca","init"])})]), handler: (ctx, p, deps) => "interactive" in p ? interactiveTerminal(ctx,p,deps) : accounts.signin(ctx, p.name, p, deps.terminal) }),
+  "account.signin": op({ description: "Open the account login in an available terminal, or return its command.", params: z.union([z.object({name: id, target: z.enum(["auto", "orca", "terminal", "tmux"]).optional(),request_id:z.uuid().optional()}),interactive.omit({interactive:true}).extend({interactive:z.enum(["account-add","account-add-orca","init"])})]), handler: (ctx, p, deps) => "interactive" in p ? interactiveTerminal(ctx,p,deps) : accounts.signin(ctx, p.name, {...p,target:deps.appAuthenticated?"builtin":p.target,requestId:p.request_id}, deps.terminal) }),
   "account.add": op({
     description: "Create a Claude or Codex account home, configure and test a model endpoint, or add an executor for a provider OpenCode is signed in to (source: opencode).",
     // `source: opencode` is tried first so it is not read as a pacer-managed endpoint.
@@ -285,7 +294,7 @@ export const OPS: Record<string, OpDef> = {
   "host.repo.setup": op({ description: "Clone and set repo identity with explicit consent, as a job.", params: z.object({alias: id, key: id, clone: z.boolean().optional(), identity: z.boolean().optional(), consent: z.literal(true)}), handler: async (ctx, p) => ({job: await core.hosts.setupJob(ctx, p.alias, p.key, p)}) }),
   "host.account.add": op({ description: "Map a host account folder and return its login command.", params: z.object({alias: id, account: id, home: z.string().trim().min(1)}), handler: (ctx, p) => mutation(ctx, "hosts", () => core.hosts.addAccount(ctx, p.alias, p.account, p.home)) }),
   "host.clean": op({ description: "Preview host branch fates or clean worktrees as a job.", params: z.object({alias: id, dry_run: z.boolean().optional()}), handler: async (ctx, p) => p.dry_run ? core.hosts.clean(ctx, p.alias, {dryRun: true}) : {job: await core.hosts.cleanJob(ctx, p.alias)} }),
-  "host.terminal": op({ description: "Open an SSH terminal for a host.", params: z.object({alias: id}), handler: (ctx, p, deps) => core.hosts.terminal(ctx, p.alias, deps.openInTerminal) }),
+  "host.terminal": op({ description: "Open an SSH terminal for a host.", params: z.object({alias: id,request_id:z.uuid().optional()}), handler: (ctx, p, deps) => core.hosts.terminal(ctx, p.alias, appTerminal(deps,p.request_id),{builtin:!!deps.appAuthenticated}) }),
   "host.remove": op({ description: "Remove an SSH host unless a runner uses it; local is reserved.", params: z.object({alias: id}), handler: (ctx, p) => mutation(ctx, "hosts", () => core.hosts.remove(ctx, p.alias)) }),
   "config.get": op({ description: "Allow-listed settings with their sources and compatible planner candidates.", params: z.object({}), handler: ctx => config.get(ctx) }),
   "config.set": op({ description: "Change a setting with validation, rollback and an undo command; planner requires an integration choice.", params: z.object({ key: z.enum(config.CONFIG_KEYS), value: z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]), integrations: z.enum(["install", "skip"]).optional() }), handler: async (ctx, p, deps) => { const {notes, ...result} = await config.set(ctx, p.key, p.value, {...p, terminalPresetsOnly: deps.terminalPresetsOnly}); return result; } }),
@@ -450,7 +459,7 @@ export const OPS: Record<string, OpDef> = {
   "dispatch.analytics": op({description:"Comparable reviewed outcomes, sample sizes and uncertainty; missing usage stays unknown.",params:z.object({repo:z.string().optional(),kind:id.optional()}),handler:(ctx,p)=>dispatchAnalytics(ctx,p)}),
   "dispatch.learning.reset": op({description:"Reset derived learning for a repository without deleting work history, and optionally exclude it.",params:z.object({repo:z.string().min(1),excluded:z.boolean().default(false),expect_rev:z.number().nonnegative()}),handler:(ctx,p)=>{const revision=resetLearning(ctx,p.repo,p.excluded,p.expect_rev);return{reset:true,excluded:p.excluded,revision};}}),
   "routing.route": op({ description: "Rank confirmed eligible executors before labelled uncertain fallbacks for an optional task kind.", params: z.object({ kind: z.enum(KINDS).optional(), goal:z.string().min(1).optional(), repo:z.string().min(1).optional() }), handler: (ctx, p) => core.routing.route(ctx, p.kind ?? null, undefined, {goal:p.goal,repo:p.repo}) }),
-  "strategy.build": op({description:"Open a strategy planning session.",params:z.object({agent:agent.optional(),from:id.optional(),brief:z.string().max(2000).optional(),worktree:z.string().min(1).max(4096).optional()}),handler:(ctx,p,deps)=>strategyAction(async()=>{const result=await buildStrategy(ctx,p,{open:deps.openTerminal});await publish(ctx,[{type:"alert",data:{key:"strategy-build",level:result.opened?"info":"error",title:result.opened?"Strategy session opened":"Strategy session failed",body:result.opened?"":result.message,at:ctx.now}}]);return {opened:result.opened,target:result.target,command:result.command};})}),
+  "strategy.build": op({description:"Open a strategy planning session.",params:z.object({agent:agent.optional(),from:id.optional(),brief:z.string().max(2000).optional(),worktree:z.string().min(1).max(4096).optional(),request_id:z.uuid().optional()}),handler:(ctx,p,deps)=>strategyAction(async()=>{const result=await buildStrategy(ctx,p,{open:appTerminal(deps,p.request_id)});await publish(ctx,[{type:"alert",data:{key:"strategy-build",level:result.opened?"info":"error",title:result.opened?"Strategy session opened":"Strategy session failed",body:result.opened?"":result.message,at:ctx.now}}]);return {opened:result.opened,target:result.target,command:result.command,...(result.terminalId?{terminalId:result.terminalId}:{})};})}),
   "strategy.list": op({ description: "Available strategies and the active strategy.", params: z.object({}), handler: (ctx) => { try { return strategy.list(ctx); } catch (e) { throw toCoreError(e); } } }),
   "strategy.use": op({ description: "Activate a named strategy.", params: z.object({ name: z.string().min(1) }), handler: (ctx, p) => mutation(ctx, "strategy", () => strategyAction(async () => ({name: p.name, path: await strategy.use(ctx, p.name)}))) }),
   "strategy.show": op({ description: "Show a strategy's YAML, summary and active status.", params: z.object({name: id}), handler: (ctx, p) => strategyAction(() => strategy.show(ctx, p.name)) }),

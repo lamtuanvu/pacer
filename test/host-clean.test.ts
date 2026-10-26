@@ -56,6 +56,15 @@ test("host terminal sends SSH argv to the terminal opener", async () => {
   } })).toEqual({ opened: true, target: "terminal", command: "ssh devbox" });
   expect(calls).toEqual([{ argv: ["ssh", "devbox"], title: "SSH devbox" }]);
 });
+test("app host terminal uses a bounded noninteractive SSH recipe", async () => {
+  const {ctx} = fixture();
+  const options: unknown[] = [];
+  await callOp(ctx,"host.terminal",{alias:"devbox",request_id:"8fbe6848-4b3d-4f7c-b2f2-a8d421925830"},{appAuthenticated:true,openInTerminal:async(_ctx,input)=>{
+    options.push(input);
+    return {opened:true,target:"builtin",command:"ssh",terminalId:"8fbe6848-4b3d-4f7c-b2f2-a8d421925830"};
+  }});
+  expect(options).toEqual([{argv:["ssh","-o","BatchMode=yes","-o","ConnectTimeout=10","--","devbox"],title:"SSH devbox",target:"builtin",requestId:"8fbe6848-4b3d-4f7c-b2f2-a8d421925830"}]);
+});
 
 test("host removal names a disabled configured executor reference", async () => {
   const { ctx } = fixture();

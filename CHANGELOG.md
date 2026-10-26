@@ -7,6 +7,12 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 ### Added
 
 - Record private, bounded OTA request-stage diagnostics in live validation evidence while preserving fixture authorization and HTTP behavior.
+- Add a persistent built-in terminal with workspace shells, tabs, splits, search and integrated app action sessions.
+
+## [0.11.0] - 2026-10-26
+
+### Added
+
 - macOS desktop releases include a `.dmg` for first installs: open it and drag pacer into Applications. It holds the same signed app as the `.app.tar.gz` update package; release validation checks that the two match.
 
 ### Changed

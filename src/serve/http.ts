@@ -15,7 +15,8 @@ import { createReadCache } from "./read-cache";
 import { liveSnapshot } from "../api/events";
 import { shutdownPlugins } from "../plugins";
 import { recoverJobs, registerJobDaemon } from "../jobs/registry";
-import { sessionWebSocket, upgradeSession, type SessionWS } from "./session-ws";
+import { sessionWebSocket, upgradeSession, upgradeTerminal, type SessionWS } from "./session-ws";
+import { isExecutorSession } from "../install/role";
 import { randomBytes } from "node:crypto";
 import { checkSession, safeEqual } from "./app-auth";
 import { appPage, appRoute } from "./app-routes";
@@ -128,6 +129,7 @@ export function startServer(
     async fetch(req, server) {
       const { pathname } = new URL(req.url);
       const sessionRoute=pathname.match(/^\/v[23]\/tasks\/([A-Za-z0-9_-]+)\/session$/);
+      const terminalRoute=pathname.match(/^\/v3\/terminals\/([0-9a-f-]{36})\/session$/);
       const hosts = [`127.0.0.1:${publicPort}`, `localhost:${publicPort}`];
       if (!hosts.includes(req.headers.get("host") ?? "")) return new Response("misdirected request\n", { status: 421 });
       const app = pathname.startsWith("/app/");
@@ -170,7 +172,7 @@ export function startServer(
           }
           if (/^\/v[23]\/session\/exchange$/.test(pathname)) return new Response("forbidden\n", { status: 403 });
           const site = req.headers.get("sec-fetch-site");
-          if ((sessionRoute && !hosts.map(host => `http://${host}`).includes(req.headers.get("origin") ?? "")) || (site !== null && !["same-origin", "none"].includes(site)) ||
+          if (((sessionRoute || terminalRoute) && !hosts.map(host => `http://${host}`).includes(req.headers.get("origin") ?? "")) || (site !== null && !["same-origin", "none"].includes(site)) ||
               (!["GET", "HEAD"].includes(req.method) &&
                (!hosts.map(host => `http://${host}`).includes(req.headers.get("origin") ?? "") || req.headers.get("x-pacer-client") !== "app"))) {
             return app ? appPage("Forbidden.", 403) : new Response("forbidden\n", { status: 403 });
@@ -188,8 +190,12 @@ export function startServer(
       const captureResponse = await desktopCaptureRoute(req, getCtx());
       if (captureResponse) return captureResponse;
       if (sessionRoute) return upgradeSession(req, server, getCtx(), sessionRoute[1]!);
+      if (terminalRoute) {
+        if (workGrant || isExecutorSession(requestCtx())) return new Response("forbidden\n", { status: 403 });
+        return upgradeTerminal(req, server, getCtx(), terminalRoute[1]!);
+      }
       if (/^\/v[23]\//.test(pathname)) {
-        const response=await handleV2(req, { getCtx: requestCtx, opDeps: {...opts.opDeps, usageRefreshDone: refreshStatusAfterPending, snapshotProbe:false, terminalPresetsOnly: !bearer}, tailMs, status, snapshot: () => readCache.get() });
+        const response=await handleV2(req, { getCtx: requestCtx, opDeps: {...opts.opDeps, usageRefreshDone: refreshStatusAfterPending, snapshotProbe:false, terminalPresetsOnly: !bearer,appAuthenticated:!bearer&&!workGrant}, tailMs, status, snapshot: () => readCache.get() });
         response.headers.set("X-Pacer","1");
         return response;
       }

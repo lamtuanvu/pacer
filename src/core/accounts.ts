@@ -208,7 +208,7 @@ function watchSignin(ctx: Ctx, name: string): void {
   signinPolls.set(key, timer);
 }
 
-export async function signin(ctx: Ctx, name: string, o: {target?: TerminalOptions["target"]} = {}, deps: Partial<TerminalDeps> = {}) {
+export async function signin(ctx: Ctx, name: string, o: {target?: TerminalOptions["target"];requestId?:string} = {}, deps: Partial<TerminalDeps> = {}) {
   const account = loadStrategy(ctx).accounts[name];
   if (!account) throw new CoreError("invalid_input", `unknown account: ${name}`);
   if (account.kind !== "claude" && account.kind !== "codex") throw new CoreError("not_allowed", `account ${name} has no supported login`);
@@ -217,7 +217,7 @@ export async function signin(ctx: Ctx, name: string, o: {target?: TerminalOption
   const result = await openInTerminal(ctx, {
     argv: account.kind === "codex" ? ["codex", "login"] : ["claude"],
     env: {[account.kind === "codex" ? "CODEX_HOME" : "CLAUDE_CONFIG_DIR"]: folder ?? join(ctx.home, account.kind === "codex" ? ".codex" : ".claude")},
-    title: `Sign in to ${name}`, target: o.target,
+    title: `Sign in to ${name}`, target: o.target, requestId:o.requestId,
   }, deps);
   watchSignin(ctx, name);
   return result;
