@@ -197,6 +197,71 @@
       ],
       "additionalProperties": false
     },
+    "streamProgressEvent": {
+      "type": "object",
+      "properties": {
+        "streamId": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "base64": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 87384,
+          "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+        }
+      },
+      "required": [
+        "streamId",
+        "seq",
+        "base64"
+      ],
+      "additionalProperties": false
+    },
+    "streamAckParams": {
+      "type": "object",
+      "properties": {
+        "request": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "streamId": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "request",
+        "streamId",
+        "seq"
+      ],
+      "additionalProperties": false
+    },
+    "streamAckResult": {
+      "type": "object",
+      "properties": {
+        "seq": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "seq"
+      ],
+      "additionalProperties": false
+    },
     "callMetadata": {
       "type": "object",
       "properties": {
@@ -4047,6 +4112,10 @@
           "type": "integer",
           "exclusiveMinimum": 0,
           "maximum": 52428800
+        },
+        "streamId": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"
         }
       },
       "required": [
@@ -4069,7 +4138,7 @@
         "bytes": {
           "type": "integer",
           "minimum": 0,
-          "maximum": 52428800
+          "maximum": 9007199254740991
         }
       },
       "required": [

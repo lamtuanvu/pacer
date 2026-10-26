@@ -15,6 +15,7 @@ export const hostRunnerAlias = z.string().regex(/^[a-z0-9][a-z0-9-]*$/);
 /** Only the host broker may supply this validated snapshot of hosts.<alias>.ssh. */
 export const hostRunnerSshTarget = z.string().regex(/^[A-Za-z0-9._@][A-Za-z0-9._@-]*$/);
 export const hostRunnerSession = z.string().regex(/^[A-Za-z0-9_-]{16,128}$/);
+export const hostRunnerStreamId = z.string().regex(/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/);
 /** Provider-only snapshot; the host derives this from its private SSH socket directory. */
 const hostRunnerControlPath = z.string().max(512).regex(/^\/[^\u0000-\u001f]*\/cm-%C$/);
 const text = z.string().max(4096).refine(value => !/[\u0000-\u001f\u007f]/.test(value), "control characters are forbidden");
@@ -52,9 +53,9 @@ export const HOST_RUNNER_METHODS = {
       timeoutMs: z.number().int().positive().max(300_000), maxBytes: z.number().int().positive().max(4096),
       completionNonce: z.string().uuid() }).strict(),
     result: z.object({ code: exitCode, stdout: z.string().max(4096), stderr: z.string().max(4096), timedOut: z.boolean() }).strict(), deadlineMs: 310_000 },
-  "hostRunner.stream": { description: "Stage a fixed-script byte stream; progress framing is reserved for a later authority patch.",
-    params: request.extend({ maxBytes: z.number().int().positive().max(50 * 1024 * 1024) }).strict(),
-    result: z.object({ code: exitCode, bytes: byteCount }).strict(), deadlineMs: 120_000 },
+  "hostRunner.stream": { description: "Stream one host-issued fixed SSH session through acknowledged progress frames.",
+    params: request.extend({ maxBytes: z.number().int().positive().max(50 * 1024 * 1024), streamId: hostRunnerStreamId.optional() }).strict(),
+    result: z.object({ code: exitCode, bytes: z.number().int().nonnegative().safe() }).strict(), deadlineMs: 120_000 },
   "hostRunner.fetch": { description: "Stage a fixed-script bundle fetch; the host later resolves the safe artifact name.",
     params: request.extend({ maxBytes: z.number().int().positive().max(50 * 1024 * 1024) }).strict(),
     result: z.object({ name: z.string().regex(/^[a-f0-9]{64}\.bundle$/), bytes: byteCount,

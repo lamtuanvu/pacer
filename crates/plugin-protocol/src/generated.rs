@@ -3167,7 +3167,7 @@ impl ::std::convert::From<CapabilityNetHttpParamsAuthorizationSecretRef> for ::s
 impl ::std::str::FromStr for CapabilityNetHttpParamsAuthorizationSecretRef {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_11(value, Self)
+        validate_string_12(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityNetHttpParamsAuthorizationSecretRef {
@@ -3974,7 +3974,7 @@ impl ::std::convert::From<CapabilityProcessDuplexCloseParamsHandle> for ::std::s
 impl ::std::str::FromStr for CapabilityProcessDuplexCloseParamsHandle {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_12(value, Self)
+        validate_string_13(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityProcessDuplexCloseParamsHandle {
@@ -4152,7 +4152,7 @@ impl ::std::convert::From<CapabilityProcessDuplexOpenResultHandle> for ::std::st
 impl ::std::str::FromStr for CapabilityProcessDuplexOpenResultHandle {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_12(value, Self)
+        validate_string_13(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityProcessDuplexOpenResultHandle {
@@ -4237,7 +4237,7 @@ impl ::std::convert::From<CapabilityProcessDuplexReadParamsHandle> for ::std::st
 impl ::std::str::FromStr for CapabilityProcessDuplexReadParamsHandle {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_12(value, Self)
+        validate_string_13(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityProcessDuplexReadParamsHandle {
@@ -4403,26 +4403,7 @@ impl ::std::convert::From<CapabilityProcessDuplexWriteParamsBase64> for ::std::s
 impl ::std::str::FromStr for CapabilityProcessDuplexWriteParamsBase64 {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 87384usize {
-            return Err("longer than 87384 characters".into());
-        }
-        if value.chars().count() < 4usize {
-            return Err("shorter than 4 characters".into());
-        }
-        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
-            ::std::sync::LazyLock::new(|| {
-                ::regress::Regex::new(
-                    "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
-                )
-                .unwrap()
-            });
-        if PATTERN.find(value).is_none() {
-            return Err(
-                "doesn't match pattern \"^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$\""
-                    .into(),
-            );
-        }
-        Ok(Self(value.to_string()))
+        validate_string_10(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityProcessDuplexWriteParamsBase64 {
@@ -4467,7 +4448,7 @@ impl ::std::convert::From<CapabilityProcessDuplexWriteParamsHandle> for ::std::s
 impl ::std::str::FromStr for CapabilityProcessDuplexWriteParamsHandle {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_12(value, Self)
+        validate_string_13(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityProcessDuplexWriteParamsHandle {
@@ -4962,7 +4943,7 @@ impl ::std::convert::From<CapabilityProcessSpawnParamsEnvValueVariant1SecretRef>
 impl ::std::str::FromStr for CapabilityProcessSpawnParamsEnvValueVariant1SecretRef {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_11(value, Self)
+        validate_string_12(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityProcessSpawnParamsEnvValueVariant1SecretRef {
@@ -5363,7 +5344,7 @@ impl ::std::convert::From<CapabilityProcessStageBundleResultHandle> for ::std::s
 impl ::std::str::FromStr for CapabilityProcessStageBundleResultHandle {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_12(value, Self)
+        validate_string_13(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityProcessStageBundleResultHandle {
@@ -5484,7 +5465,7 @@ impl ::std::convert::From<CapabilitySecretsResolveParamsRef> for ::std::string::
 impl ::std::str::FromStr for CapabilitySecretsResolveParamsRef {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_11(value, Self)
+        validate_string_12(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilitySecretsResolveParamsRef {
@@ -7179,7 +7160,7 @@ impl ::std::convert::From<EndpointLaunchEnvParamsAccountKeyRef> for ::std::strin
 impl ::std::str::FromStr for EndpointLaunchEnvParamsAccountKeyRef {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_11(value, Self)
+        validate_string_12(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for EndpointLaunchEnvParamsAccountKeyRef {
@@ -7399,7 +7380,7 @@ impl ::std::convert::From<EndpointLaunchEnvParamsAccountsItemKeyRef> for ::std::
 impl ::std::str::FromStr for EndpointLaunchEnvParamsAccountsItemKeyRef {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_11(value, Self)
+        validate_string_12(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for EndpointLaunchEnvParamsAccountsItemKeyRef {
@@ -7626,7 +7607,7 @@ impl ::std::convert::From<EndpointLaunchEnvResultSecretEnvValue> for ::std::stri
 impl ::std::str::FromStr for EndpointLaunchEnvResultSecretEnvValue {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_11(value, Self)
+        validate_string_12(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for EndpointLaunchEnvResultSecretEnvValue {
@@ -7722,7 +7703,7 @@ impl ::std::convert::From<EndpointModelsParamsKeyRef> for ::std::string::String 
 impl ::std::str::FromStr for EndpointModelsParamsKeyRef {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_11(value, Self)
+        validate_string_12(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for EndpointModelsParamsKeyRef {
@@ -8206,7 +8187,7 @@ impl ::std::convert::From<EndpointTestParamsAccountKeyRef> for ::std::string::St
 impl ::std::str::FromStr for EndpointTestParamsAccountKeyRef {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_11(value, Self)
+        validate_string_12(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for EndpointTestParamsAccountKeyRef {
@@ -8426,7 +8407,7 @@ impl ::std::convert::From<EndpointTestParamsAccountsItemKeyRef> for ::std::strin
 impl ::std::str::FromStr for EndpointTestParamsAccountsItemKeyRef {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_11(value, Self)
+        validate_string_12(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for EndpointTestParamsAccountsItemKeyRef {
@@ -8564,7 +8545,7 @@ impl ::std::convert::From<EndpointTestParamsConfigRef> for ::std::string::String
 impl ::std::str::FromStr for EndpointTestParamsConfigRef {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_11(value, Self)
+        validate_string_12(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for EndpointTestParamsConfigRef {
@@ -10359,7 +10340,7 @@ impl ::std::convert::From<HelloParamsManifestHost> for ::std::string::String {
 impl ::std::str::FromStr for HelloParamsManifestHost {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_10(value, Self)
+        validate_string_11(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for HelloParamsManifestHost {
@@ -10404,7 +10385,7 @@ impl ::std::convert::From<HelloParamsManifestId> for ::std::string::String {
 impl ::std::str::FromStr for HelloParamsManifestId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_14(value, Self)
+        validate_string_15(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for HelloParamsManifestId {
@@ -11676,7 +11657,7 @@ impl ::std::convert::From<ManifestHost> for ::std::string::String {
 impl ::std::str::FromStr for ManifestHost {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_10(value, Self)
+        validate_string_11(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for ManifestHost {
@@ -11721,7 +11702,7 @@ impl ::std::convert::From<ManifestId> for ::std::string::String {
 impl ::std::str::FromStr for ManifestId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_14(value, Self)
+        validate_string_15(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for ManifestId {
@@ -17963,7 +17944,7 @@ impl ::std::convert::From<RemoteCallerFetchParamsAlias> for ::std::string::Strin
 impl ::std::str::FromStr for RemoteCallerFetchParamsAlias {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_13(value, Self)
+        validate_string_14(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for RemoteCallerFetchParamsAlias {
@@ -18079,7 +18060,7 @@ impl ::std::convert::From<RemoteCallerIdentityParamsAlias> for ::std::string::St
 impl ::std::str::FromStr for RemoteCallerIdentityParamsAlias {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_13(value, Self)
+        validate_string_14(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for RemoteCallerIdentityParamsAlias {
@@ -18428,7 +18409,7 @@ impl ::std::convert::From<RemoteCallerQuestionReadParamsAlias> for ::std::string
 impl ::std::str::FromStr for RemoteCallerQuestionReadParamsAlias {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_13(value, Self)
+        validate_string_14(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for RemoteCallerQuestionReadParamsAlias {
@@ -18678,7 +18659,7 @@ impl ::std::convert::From<RemoteCallerReachabilityParamsAlias> for ::std::string
 impl ::std::str::FromStr for RemoteCallerReachabilityParamsAlias {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_13(value, Self)
+        validate_string_14(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for RemoteCallerReachabilityParamsAlias {
@@ -18779,7 +18760,7 @@ impl ::std::convert::From<RemoteCallerUsageReadParamsAlias> for ::std::string::S
 impl ::std::str::FromStr for RemoteCallerUsageReadParamsAlias {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_13(value, Self)
+        validate_string_14(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for RemoteCallerUsageReadParamsAlias {
@@ -19081,6 +19062,250 @@ impl ::std::convert::TryFrom<&str> for ResultChunkParamsBase64 {
     }
 }
 impl<'de> ::serde::Deserialize<'de> for ResultChunkParamsBase64 {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`StreamAckParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "request",
+///    "seq",
+///    "streamId"
+///  ],
+///  "properties": {
+///    "request": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "exclusiveMinimum": 0.0
+///    },
+///    "seq": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "minimum": 0.0
+///    },
+///    "streamId": {
+///      "type": "string",
+///      "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct StreamAckParams {
+    pub request: ::std::num::NonZeroU64,
+    pub seq: i64,
+    #[serde(rename = "streamId")]
+    pub stream_id: StreamAckParamsStreamId,
+}
+///`StreamAckParamsStreamId`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct StreamAckParamsStreamId(::std::string::String);
+impl ::std::ops::Deref for StreamAckParamsStreamId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<StreamAckParamsStreamId> for ::std::string::String {
+    fn from(value: StreamAckParamsStreamId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for StreamAckParamsStreamId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_13(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for StreamAckParamsStreamId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for StreamAckParamsStreamId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`StreamAckResult`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "seq"
+///  ],
+///  "properties": {
+///    "seq": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "minimum": 0.0
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct StreamAckResult {
+    pub seq: i64,
+}
+///`StreamProgressEvent`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "base64",
+///    "seq",
+///    "streamId"
+///  ],
+///  "properties": {
+///    "base64": {
+///      "type": "string",
+///      "maxLength": 87384,
+///      "minLength": 4,
+///      "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+///    },
+///    "seq": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "minimum": 0.0
+///    },
+///    "streamId": {
+///      "type": "string",
+///      "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct StreamProgressEvent {
+    pub base64: StreamProgressEventBase64,
+    pub seq: i64,
+    #[serde(rename = "streamId")]
+    pub stream_id: StreamProgressEventStreamId,
+}
+///`StreamProgressEventBase64`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 87384,
+///  "minLength": 4,
+///  "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct StreamProgressEventBase64(::std::string::String);
+impl ::std::ops::Deref for StreamProgressEventBase64 {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<StreamProgressEventBase64> for ::std::string::String {
+    fn from(value: StreamProgressEventBase64) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for StreamProgressEventBase64 {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_10(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for StreamProgressEventBase64 {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for StreamProgressEventBase64 {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`StreamProgressEventStreamId`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct StreamProgressEventStreamId(::std::string::String);
+impl ::std::ops::Deref for StreamProgressEventStreamId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<StreamProgressEventStreamId> for ::std::string::String {
+    fn from(value: StreamProgressEventStreamId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for StreamProgressEventStreamId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_13(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for StreamProgressEventStreamId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for StreamProgressEventStreamId {
     fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
     where
         D: ::serde::Deserializer<'de>,
@@ -22064,6 +22289,28 @@ fn validate_string_10<T>(
     value: &str,
     construct: impl FnOnce(::std::string::String) -> T,
 ) -> ::std::result::Result<T, self::error::ConversionError> {
+    if value.chars().count() > 87384usize {
+        return Err("longer than 87384 characters".into());
+    }
+    if value.chars().count() < 4usize {
+        return Err("shorter than 4 characters".into());
+    }
+    static PATTERN: ::std::sync::LazyLock<::regress::Regex> = ::std::sync::LazyLock::new(|| {
+        ::regress::Regex::new("^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$")
+            .unwrap()
+    });
+    if PATTERN.find(value).is_none() {
+        return Err(
+            "doesn't match pattern \"^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$\""
+                .into(),
+        );
+    }
+    Ok(construct(value.to_string()))
+}
+fn validate_string_11<T>(
+    value: &str,
+    construct: impl FnOnce(::std::string::String) -> T,
+) -> ::std::result::Result<T, self::error::ConversionError> {
     static PATTERN: ::std::sync::LazyLock<::regress::Regex> = ::std::sync::LazyLock::new(|| {
         ::regress::Regex::new("^(\\^|~|>=)?\\d+(\\.\\d+){0,2}$|^\\*$").unwrap()
     });
@@ -22072,7 +22319,7 @@ fn validate_string_10<T>(
     }
     Ok(construct(value.to_string()))
 }
-fn validate_string_11<T>(
+fn validate_string_12<T>(
     value: &str,
     construct: impl FnOnce(::std::string::String) -> T,
 ) -> ::std::result::Result<T, self::error::ConversionError> {
@@ -22086,7 +22333,7 @@ fn validate_string_11<T>(
     }
     Ok(construct(value.to_string()))
 }
-fn validate_string_12<T>(
+fn validate_string_13<T>(
     value: &str,
     construct: impl FnOnce(::std::string::String) -> T,
 ) -> ::std::result::Result<T, self::error::ConversionError> {
@@ -22104,7 +22351,7 @@ fn validate_string_12<T>(
     }
     Ok(construct(value.to_string()))
 }
-fn validate_string_13<T>(
+fn validate_string_14<T>(
     value: &str,
     construct: impl FnOnce(::std::string::String) -> T,
 ) -> ::std::result::Result<T, self::error::ConversionError> {
@@ -22115,7 +22362,7 @@ fn validate_string_13<T>(
     }
     Ok(construct(value.to_string()))
 }
-fn validate_string_14<T>(
+fn validate_string_15<T>(
     value: &str,
     construct: impl FnOnce(::std::string::String) -> T,
 ) -> ::std::result::Result<T, self::error::ConversionError> {

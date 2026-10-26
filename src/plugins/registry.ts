@@ -88,7 +88,7 @@ interface HostFetchAdmission { grant: PersistedFetchGrant; process: PluginProces
   claim: (authority: CallAuthority, staged: StagedFetchResult) => void | Promise<void> }
 interface HostCallerFetchAdmission { grant: PersistedFetchGrant;
   claim: (caller: CallAuthority, ticket: ClaimedBundleTicket) => void | Promise<void> }
-export interface PluginCallOptions { plannerResources?: PlannerResources; credentialBindings?: readonly CredentialBinding[]; classifierConfig?: ClassifierConfig; resources?: CallResources; accountHome?: string | null; deadlineMs?: number; signal?: AbortSignal; onProgress?: (event: unknown) => void; /** Internal host-lease binding: never restart or substitute this provider. */ expectedProcess?: PluginProcess; [HOST_CHECK_ISSUER]?: true; [HOST_FETCH_ISSUER]?: HostFetchAdmission; [HOST_CALL_FETCH_ISSUER]?: HostCallerFetchAdmission; [HOST_CALL_IDENTITY_ISSUER]?: ConfiguredHostIdentityGrant; [HOST_CALL_QUESTION_ISSUER]?: PersistedQuestionGrant; [HOST_CALL_USAGE_ISSUER]?: ConfiguredRemoteUsageGrant; [HOST_CALL_PROBE_ISSUER]?: true; [HOST_PROVIDER_MUTATION_ISSUER]?: true; [HOST_REPORT_ISSUER]?: true; [HOST_SESSION_FILES_ISSUER]?: true; [HOST_ATTEMPT_PREFLIGHT_ISSUER]?: true; [HOST_CALL_PREFLIGHT_ISSUER]?: true; [HOST_READ_FROM_ISSUER]?: true; [HOST_SESSION_SOCKET_ISSUER]?: true; [HOST_SESSION_STREAM_ISSUER]?: true; [HOST_BINARY_CHECK_ISSUER]?: true; [HOST_RUNTIME_PROBE_ISSUER]?: true; [HOST_BINARY_UPLOAD_ISSUER]?: true }
+export interface PluginCallOptions { plannerResources?: PlannerResources; credentialBindings?: readonly CredentialBinding[]; classifierConfig?: ClassifierConfig; resources?: CallResources; accountHome?: string | null; deadlineMs?: number; signal?: AbortSignal; onProgress?: (event: unknown) => void; onStreamProgress?: (bytes: Buffer) => Promise<void>; /** Internal host-lease binding: never restart or substitute this provider. */ expectedProcess?: PluginProcess; [HOST_CHECK_ISSUER]?: true; [HOST_FETCH_ISSUER]?: HostFetchAdmission; [HOST_CALL_FETCH_ISSUER]?: HostCallerFetchAdmission; [HOST_CALL_IDENTITY_ISSUER]?: ConfiguredHostIdentityGrant; [HOST_CALL_QUESTION_ISSUER]?: PersistedQuestionGrant; [HOST_CALL_USAGE_ISSUER]?: ConfiguredRemoteUsageGrant; [HOST_CALL_PROBE_ISSUER]?: true; [HOST_PROVIDER_MUTATION_ISSUER]?: true; [HOST_REPORT_ISSUER]?: true; [HOST_SESSION_FILES_ISSUER]?: true; [HOST_ATTEMPT_PREFLIGHT_ISSUER]?: true; [HOST_CALL_PREFLIGHT_ISSUER]?: true; [HOST_READ_FROM_ISSUER]?: true; [HOST_SESSION_SOCKET_ISSUER]?: true; [HOST_SESSION_STREAM_ISSUER]?: true; [HOST_BINARY_CHECK_ISSUER]?: true; [HOST_RUNTIME_PROBE_ISSUER]?: true; [HOST_BINARY_UPLOAD_ISSUER]?: true }
 export interface RegistryDeps { bundled: BundledPlugin[]; spawnBundled: (ctx: Ctx, id: string) => SpawnSpec; spawn?: typeof nodeSpawn; sleep?: (ms: number) => Promise<void>; eventPumpMs?:number }
 export interface PluginInfo { id: string; version: string; publisher: string; tier: "free" | "commercial"; bundled: boolean; enabled: boolean; state: PluginState; contributes: string[]; capabilities: { name: string; scopes?: string[] }[]; grant: PluginGrant | null; error: string | null; pid: number | null }
 export interface DoctorReport { id: string; ok: boolean; state: PluginState; served: string[]; protocol: { host: string; plugin: string | null }; pid: number | null; restarts: number; error: string | null; needs: string | null }
@@ -1759,6 +1759,9 @@ export class PluginRegistry {
     if (options.resources?.commands.some(command => command.mode === "session-duplex") &&
       (method !== "hostRunner.stream" || !options[HOST_SESSION_STREAM_ISSUER]))
       throw new CoreError("capability_denied", "remote session duplex requires host-owned issuance");
+    if (method === "hostRunner.stream" && (params as { script?: string } | null)?.script === "SESSION_PIPE" &&
+      !options[HOST_SESSION_STREAM_ISSUER])
+      throw new CoreError("capability_denied", "remote session stream requires host-owned issuance");
     if (options.resources?.hosts?.some(resource => resource.script === "SET_IDENTITY") && !options[HOST_CALL_IDENTITY_ISSUER])
       throw new CoreError("capability_denied", "host identity resource requires host-owned issuance");
     if (options.resources?.hosts?.some(resource => resource.script === "QUESTION") && !options[HOST_CALL_QUESTION_ISSUER])
@@ -1777,13 +1780,17 @@ export class PluginRegistry {
     const def = EXTENSION_METHODS[method];
     if (!def) throw new CoreError("unknown_op", `unknown plugin method ${method}`);
     const requested = options.deadlineMs ?? def.deadlineMs;
+    const ownerBoundStream = method === "hostRunner.stream" && options[HOST_SESSION_STREAM_ISSUER] === true &&
+      requested === 0 && !!options.signal && !!options.expectedProcess && !!options.onStreamProgress &&
+      !!options.resources?.commands.some(command => command.mode === "session-duplex") &&
+      typeof (params as { streamId?: unknown } | null)?.streamId === "string";
     if (!Number.isFinite(requested) || requested < 0) throw new CoreError("invalid_input", "plugin deadline must be non-negative");
     const boundedObservation=["diagnostic.ping","policy.before"].includes(method)&&e.manifest!.capabilities.some(c=>c.name==="tasks.read"||c.name==="events.subscribe");
     const hostRunner = method.startsWith("hostRunner.");
     const executorAvailable = method === "executor.available";
-    if((hostRunner || executorAvailable) && requested === 0) throw new CoreError("invalid_input", "staged plugin calls require a finite deadline");
-    const duration = method === "usage.read" || boundedObservation || hostRunner || executorAvailable ? requested === 0 ? def.deadlineMs : Math.min(requested, def.deadlineMs) : requested;
-    if ((options.resources || credentialBindings !== undefined || (classifier && method === "classifier.ask")) && duration === 0) throw new CoreError("invalid_input", "scoped capabilities require a finite deadline");
+    if((hostRunner || executorAvailable) && requested === 0 && !ownerBoundStream) throw new CoreError("invalid_input", "staged plugin calls require a finite deadline");
+    const duration = ownerBoundStream ? 0 : method === "usage.read" || boundedObservation || hostRunner || executorAvailable ? requested === 0 ? def.deadlineMs : Math.min(requested, def.deadlineMs) : requested;
+    if ((options.resources || credentialBindings !== undefined || (classifier && method === "classifier.ask")) && duration === 0 && !ownerBoundStream) throw new CoreError("invalid_input", "scoped capabilities require a finite deadline");
     const deadlineAt = duration === 0 ? Infinity : startedAt + duration;
     const parsed = method === "usage.read" || hostRunner || executorAvailable || (classifier && method === "classifier.ask") ? def.params.safeParse(params) : null;
     if (parsed && !parsed.success) throw new CoreError("invalid_input", hostRunner ? "invalid host runner params" : executorAvailable ? "invalid executor availability params" : method === "usage.read" ? "invalid usage reader params" : "invalid classifier params");
@@ -1826,7 +1833,7 @@ export class PluginRegistry {
         const needsAuthority = observationAdmission || method === "usage.read" || options.plannerResources !== undefined || resources !== undefined || credentialBindings !== undefined || manifest.capabilities.some(capability => capability.name === "hosts");
         const grants = e.bundled ? manifest.capabilities.map(capability => capability.name) : pluginsConfig(ctx).installed[id]?.capabilities ?? [];
         const authority = needsAuthority ? createCallAuthority(ctx, resources ?? { reads: [], commands: [], stores: [] },
-          { deadlineMs: deadlineAt, signal, grants, accountHome: options.accountHome }) : undefined;
+          { deadlineMs: deadlineAt, signal, grants, accountHome: options.accountHome, ownerBoundStream }) : undefined;
         if (authority) {
           e.authorities.set(authority.token, authority);
           if (observationAdmission) this.observationAdmissions.add(authority);
@@ -1857,7 +1864,8 @@ export class PluginRegistry {
             authority.assertActive();
           }
           const result = await proc.request<T>(method, input, deadlineAt === Infinity ? 0 : Math.max(1, deadlineAt - Date.now()),
-            { ...(options.plannerResources && (method==="planner.install"||method==="planner.uninstall"||method==="planner.plan") ? {prepareInput:(fits:(value:unknown)=>boolean)=>options.plannerResources!.prepareInput(input,fits)} : {}), signal: authority?.signal ?? signal, authority, metadata: authority ? { capabilityCall: authority.token } : undefined, onProgress: options.onProgress });
+            { ...(options.plannerResources && (method==="planner.install"||method==="planner.uninstall"||method==="planner.plan") ? {prepareInput:(fits:(value:unknown)=>boolean)=>options.plannerResources!.prepareInput(input,fits)} : {}), signal: authority?.signal ?? signal, authority, metadata: authority ? { capabilityCall: authority.token } : undefined, onProgress: options.onProgress,
+              stream: ownerBoundStream ? { streamId: (input as { streamId: string }).streamId, consume: options.onStreamProgress! } : undefined });
           if (method === "hostRunner.fetch") {
             const admission = options[HOST_FETCH_ISSUER]!;
             const staged = stagedFetchResult.safeParse(result);
@@ -1880,7 +1888,7 @@ export class PluginRegistry {
           if (method === "usage.read" || hostRunner || executorAvailable) {
             const output = def.result.safeParse(result);
             if (!output.success) throw new CoreError("plugin_refused", hostRunner ? "host runner returned an invalid result" : executorAvailable ? "executor returned an invalid availability result" : "usage reader returned an invalid reading");
-            if(hostRunner && (method === "hostRunner.stream" || method === "hostRunner.fetch") &&
+            if(hostRunner && (method === "hostRunner.fetch" || method === "hostRunner.stream" && !ownerBoundStream) &&
               (output.data as {bytes:number}).bytes > (input as {maxBytes:number}).maxBytes)
               throw new CoreError("plugin_refused", "host runner exceeded the requested byte limit");
             if((method === "hostRunner.run" || method === "hostRunner.upload") &&

@@ -2826,6 +2826,10 @@ impl<'de> ::serde::Deserialize<'de> for HostRunnerRunResultStdout {
 ///      "type": "string",
 ///      "pattern": "^[A-Za-z0-9_-]{16,128}$"
 ///    },
+///    "streamId": {
+///      "type": "string",
+///      "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"
+///    },
 ///    "timeoutMs": {
 ///      "type": "integer",
 ///      "maximum": 120000.0,
@@ -2844,6 +2848,12 @@ pub struct HostRunnerStreamParams {
     pub max_bytes: ::std::num::NonZeroU64,
     pub script: HostRunnerStreamParamsScript,
     pub session: HostRunnerStreamParamsSession,
+    #[serde(
+        rename = "streamId",
+        default,
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub stream_id: ::std::option::Option<HostRunnerStreamParamsStreamId>,
     #[serde(rename = "timeoutMs")]
     pub timeout_ms: ::std::num::NonZeroU64,
 }
@@ -3088,6 +3098,64 @@ impl<'de> ::serde::Deserialize<'de> for HostRunnerStreamParamsSession {
         deserialize_validated_string(deserializer)
     }
 }
+///`HostRunnerStreamParamsStreamId`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct HostRunnerStreamParamsStreamId(::std::string::String);
+impl ::std::ops::Deref for HostRunnerStreamParamsStreamId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<HostRunnerStreamParamsStreamId> for ::std::string::String {
+    fn from(value: HostRunnerStreamParamsStreamId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for HostRunnerStreamParamsStreamId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| {
+                ::regress::Regex::new(
+                    "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$",
+                )
+                .unwrap()
+            });
+        if PATTERN.find(value).is_none() {
+            return Err(
+                "doesn't match pattern \"^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$\""
+                    .into(),
+            );
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for HostRunnerStreamParamsStreamId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for HostRunnerStreamParamsStreamId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
 ///`HostRunnerStreamResult`
 ///
 /// <details><summary>JSON schema</summary>
@@ -3102,7 +3170,7 @@ impl<'de> ::serde::Deserialize<'de> for HostRunnerStreamParamsSession {
 ///  "properties": {
 ///    "bytes": {
 ///      "type": "integer",
-///      "maximum": 52428800.0,
+///      "maximum": 9007199254740991.0,
 ///      "minimum": 0.0
 ///    },
 ///    "code": {
