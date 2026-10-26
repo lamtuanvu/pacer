@@ -5,7 +5,7 @@ import { createServer } from "node:net";
 import { spawn } from "node:child_process";
 
 import { sourceFingerprint, type SourceFingerprint } from "./control/fingerprint";
-import { seedUi, validateSeed } from "./seed";
+import { seedPluginRemove, seedUi, validateSeed } from "./seed";
 import { processIdentity, type ProcessIdentity } from "../../src/update/desktop/process-identity";
 
 export const checkout = resolve(import.meta.dir, "../..");
@@ -19,7 +19,7 @@ export interface Session {
   proxyPid?: number;
   serviceIdentity?: ProcessIdentity;
   createdAt: string;
-  seed?: "ui";
+  seed?: "ui" | "plugin-remove";
   /** "rust": the Rust front door (target/debug/pacer) serves and dispatches, forwarding to the TypeScript core. */
   frontDoor?: "rust";
   stopped?: boolean;
@@ -99,7 +99,7 @@ export function sandboxEnv(session: Session, inherited = process.env): NodeJS.Pr
     PACER_BACKEND: "direct",
     PACER_NO_UPDATE_CHECK: "1",
     PACER_ORCA_USER_DATA: join(session.root, "orca-profile"),
-    ...(session.seed === "ui" ? {
+    ...(session.seed ? {
       HOME: join(session.root, "home"),
       PATH: `${join(session.root, "home/bin")}:${join(session.root, "bin")}:${inherited.PATH ?? ""}`,
       CODEX_HOME: join(session.root, "home/accounts/team"),
@@ -114,7 +114,7 @@ export function shellQuote(value: string): string {
 }
 export function environmentScript(session: Session): string {
   const env = sandboxEnv(session);
-  return ["PATH", "PACER_BIN", "PACER_HOME", "PACER_PORT", "PACER_BACKEND", "PACER_NO_UPDATE_CHECK", "PACER_ORCA_USER_DATA", ...(session.frontDoor === "rust" ? ["PACER_CORE_ARGV"] : []), ...(session.seed === "ui" ? ["HOME", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME"] : [])]
+  return ["PATH", "PACER_BIN", "PACER_HOME", "PACER_PORT", "PACER_BACKEND", "PACER_NO_UPDATE_CHECK", "PACER_ORCA_USER_DATA", ...(session.frontDoor === "rust" ? ["PACER_CORE_ARGV"] : []), ...(session.seed ? ["HOME", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME"] : [])]
     .map(key => `export ${key}=${shellQuote(env[key]!)}`).join("\n") + "\n";
 }
 async function reservePort(): Promise<number> {
@@ -219,6 +219,7 @@ export async function up(id = `live-${Date.now()}`, template?: string, base = li
     // Only sandbox-owned config is created; never copy the user's strategy or credentials.
     atomicWrite(join(root, "home/strategy.yaml"), "planner: claude-code\nproviders:\n  codex: {usage: quota}\nrouting:\n  - default: [codex]\n");
     if (seed === "ui") seedUi(root);
+    if (seed === "plugin-remove") seedPluginRemove(root);
     saveSession(session);
     for (const args of [["init", "-q", "-b", "main"], ["add", "."], ["-c", "user.name=Live validation", "-c", "user.email=live@example.invalid", "-c", "core.hooksPath=/dev/null", "commit", "-q", "--allow-empty", "-m", "Sandbox baseline"]]) {
       const result = await run(["git", ...args], session, false);
