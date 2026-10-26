@@ -2,6 +2,39 @@
 use super::*;
 
 #[test]
+fn named_strategy_removal_records_activity_and_config_without_alert() {
+    let temp = tempfile::tempdir().unwrap();
+    let ctx = Ctx::with(
+        temp.path().join("home"),
+        temp.path().join("pacer"),
+        Default::default(),
+        1_700_000_000.0,
+    );
+    record_strategy_change(&ctx).unwrap();
+    let outbox = fs::read_to_string(ctx.pacer_home.join("link/outbox.jsonl")).unwrap();
+    let kinds: Vec<String> = outbox
+        .lines()
+        .map(|line| {
+            serde_json::from_str::<Value>(line).unwrap()["envelope"]["type"]
+                .as_str()
+                .unwrap()
+                .to_owned()
+        })
+        .collect();
+    assert_eq!(kinds, ["entity", "config"]);
+    let latest: Value =
+        serde_json::from_slice(&fs::read(ctx.pacer_home.join("link/latest.json")).unwrap())
+            .unwrap();
+    assert_eq!(latest["seq"], 2);
+    assert_eq!(latest["alerts"], json!([]));
+    assert!(
+        fs::read_to_string(ctx.pacer_home.join("state/activity.jsonl"))
+            .unwrap()
+            .contains("Configuration changed · strategy")
+    );
+}
+
+#[test]
 fn strategy_switch_records_alert_activity_and_config_in_order() {
     let tmp = tempfile::tempdir().unwrap();
     let ctx = Ctx::with(
