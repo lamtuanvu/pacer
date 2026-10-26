@@ -45,7 +45,7 @@ import { accountCmd, runnerCmd } from "./commands/accounts";
 import { makeCtx } from "./ctx";
 import { computeStatus, displayName } from "./engine/status";
 import { runMcpStdio } from "./mcp/server";
-import { shutdownPlugins } from "./plugins";
+import { pluginRegistry, shutdownPlugins } from "./plugins";
 import { runStdio } from "./api/stdio";
 import { StringDecoder } from "node:string_decoder";
 import { renderHook } from "./render/hook";
@@ -201,7 +201,12 @@ async function status(args: string[], ctx: Ctx): Promise<Result> {
     const st = mode === "hook" ? await plannerSessionStatus(ctx, planner as AgentId) : await computeStatus(ctx, loadStrategy(ctx));
     if (mode === "json") return { code: 0, out: JSON.stringify(st, null, 1), err: "" };
     if (mode === "hook") return { code: 0, out: renderHook(st, planner!), err: "" };
-    return { code: 0, out: [renderText(st), updateLine(readUpdateCheck(ctx))].filter(Boolean).join("\n"), err: "" };
+    const plugins = pluginRegistry(ctx).list(ctx);
+    const enabled = plugins.filter(plugin => ["idle", "starting", "ready"].includes(plugin.state)).length;
+    const disabled = plugins.filter(plugin => plugin.state === "disabled").length;
+    const attention = plugins.length - enabled - disabled;
+    const pluginLine = `Plugins: ${enabled} enabled · ${disabled} disabled · ${attention} need attention`;
+    return { code: 0, out: [renderText(st), updateLine(readUpdateCheck(ctx)), pluginLine].filter(Boolean).join("\n"), err: "" };
   } catch (e) {
     // Status line and hooks run inside other tools: never fail them.
     if (mode === "line") return lineResult(null);

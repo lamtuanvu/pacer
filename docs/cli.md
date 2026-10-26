@@ -234,15 +234,46 @@ pacer plugin enable pacer-usage
 ```
 
 `list` shows bundled and installed plugins, their state and capabilities.
+Open **Settings → Plugins** in the web or desktop app to review each plugin's
+state, publisher, version, license tier, requested access and grant. Expand
+**Capabilities and permissions** for a plain-language summary; exact capability
+IDs and scopes are under **Technical capability IDs and scopes**. An installed
+plugin that needs permission shows **Allow and enable** and asks you to review
+the access before granting it. You can also enable, disable, run a check, or
+remove an installed plugin there. Removing asks for confirmation and deletes its
+installed files and grant. Bundled plugins can be disabled but not removed.
+
+Plugins that declare a panel show **Open panel** only while their grant is valid
+and the panel is available. The panel opens inside an isolated frame and cannot
+access the host app. A disabled or unavailable plugin has no panel control.
+Commercial license status reads **unavailable** until entitlement reporting is
+supported by the service. `pacer open settings/plugins` opens this page.
+
+Text `pacer status` ends with one **Plugins:** line counting enabled, disabled
+and attention-needed plugins. The `--json`, `--line` and `--hook` forms keep
+their existing output formats.
+
 `doctor` checks an enabled plugin's handshake and liveness, starting it if
 needed. It does not verify a provider login or fetch fresh quota data. `pacer-usage` supplies the
 [usage readers](accounts.md#usage-reader-plugin-unreleased). Disabling it stops
 new reads through that plugin without selecting a built-in fallback.
 
 Installed plugins need a grant before use. `enable` asks before granting requested
-capabilities; `--yes` grants without the interactive question. A version requesting
-additional capabilities needs another grant. `remove <id>` removes an installed
+capabilities; `--yes` grants without the interactive question. A changed declaration
+needs another grant even when capability names are unchanged. `remove <id>` removes an installed
 plugin; bundled plugins can be disabled but cannot be removed.
+
+Existing installed plugins with grants saved before manifest fingerprints are
+treated as needing permission. Review each current declaration in Settings →
+Plugins or run `pacer plugin enable <id>` again. This includes plugins whose
+capability names have not changed, because older grants did not record scopes.
+
+Grant requests are bound to the manifest shown during review, including its version
+and scoped capabilities. If that declaration changes before confirmation, pacer
+returns a conflict and asks for a fresh review. Older clients that send
+`plugin.enable { id, grant: true }` without the `expectedConsent` value from
+`plugin.list` also receive a conflict; update the client and retry after reviewing
+the current declaration. `plugin.enable` without `grant` retains its existing behavior.
 
 ## pacer open
 

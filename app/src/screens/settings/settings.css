@@ -88,3 +88,13 @@
 .u3-diagnostics{display:flex;flex-direction:column;gap:var(--space-4);min-width:0}
 .u3-diagnostics pre,#diagnostics pre{max-width:100%;overflow-x:auto;white-space:pre}
 .u3-diagnostics .pc-card>div{min-width:0}
+
+.u3-plugin-list{display:grid;gap:var(--space-4);min-width:0}
+.u3-plugin-card{display:grid;gap:var(--space-3);min-width:0}
+.u3-plugin-top{display:flex;justify-content:space-between;align-items:start;gap:var(--space-3);flex-wrap:wrap}
+.u3-plugin-heading{display:grid;gap:var(--space-1);min-width:0}
+.u3-plugin-heading>strong{display:block;max-width:100%;overflow-x:auto;white-space:nowrap}
+.u3-plugin-heading>span{overflow-wrap:anywhere}
+.u3-plugin-card p{margin:0}
+.u3-plugin-frame{min-width:0}
+.u3-plugin-frame iframe{display:block;width:100%;min-height:var(--size-360);border:1px solid var(--line);border-radius:var(--radius-md);color-scheme:light;background:var(--surface-plugin-canvas)}

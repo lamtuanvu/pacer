@@ -9005,6 +9005,10 @@ impl<'de> ::serde::Deserialize<'de> for PluginDoctorParamsId {
 ///    "id"
 ///  ],
 ///  "properties": {
+///    "expectedConsent": {
+///      "type": "string",
+///      "pattern": "^[a-f0-9]{64}$"
+///    },
 ///    "grant": {
 ///      "type": "boolean"
 ///    },
@@ -9020,9 +9024,69 @@ impl<'de> ::serde::Deserialize<'de> for PluginDoctorParamsId {
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct PluginEnableParams {
+    #[serde(
+        rename = "expectedConsent",
+        default,
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub expected_consent: ::std::option::Option<PluginEnableParamsExpectedConsent>,
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub grant: ::std::option::Option<bool>,
     pub id: PluginEnableParamsId,
+}
+///`PluginEnableParamsExpectedConsent`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "pattern": "^[a-f0-9]{64}$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct PluginEnableParamsExpectedConsent(::std::string::String);
+impl ::std::ops::Deref for PluginEnableParamsExpectedConsent {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<PluginEnableParamsExpectedConsent> for ::std::string::String {
+    fn from(value: PluginEnableParamsExpectedConsent) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for PluginEnableParamsExpectedConsent {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| ::regress::Regex::new("^[a-f0-9]{64}$").unwrap());
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^[a-f0-9]{64}$\"".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for PluginEnableParamsExpectedConsent {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for PluginEnableParamsExpectedConsent {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
 }
 ///`PluginEnableParamsId`
 ///

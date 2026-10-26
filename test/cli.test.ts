@@ -34,6 +34,14 @@ test("status --json prints the full status object", async () => {
   expect(typeof st.calendarPace).toBe("boolean");
 });
 
+test("status text summarizes plugin readiness in one line", async () => {
+  const ctx = await withStrategy(OK_STRATEGY);
+  const output = await main(["status"], ctx);
+  expect(output.code).toBe(0);
+  expect(output.out).toMatch(/^Plugins: \d+ enabled · \d+ disabled · \d+ need attention$/m);
+  expect(output.out.match(/^Plugins:/gm)).toHaveLength(1);
+});
+
 test("missing strategy: status exits 2 with guidance; --line and --hook still exit 0", async () => {
   const ctx = withLoginIndicators(fakeCtx());
   const r = await main(["status"], ctx);

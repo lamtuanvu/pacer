@@ -2,6 +2,7 @@ import { HostsSection } from "./HostsSection";
 export { HostsSection } from "./HostsSection";
 import { ExecutorsSection } from "./Executors";
 export { ExecutorsSection } from "./Executors";
+import { PluginsSection } from "./Plugins";
 import { UpdatesSection } from "./Updates";
 import { LazyDispatcher } from "./LazyDispatcher";
 
@@ -95,6 +96,9 @@ export function SettingsGeneral({
     case "executors":
       content = <ExecutorsSection />;
       break;
+    case "plugins":
+      content = <PluginsSection />;
+      break;
     case "machine":
       content = <MachineSection initialData={initialData.config} />;
       break;
@@ -128,7 +132,7 @@ export function SettingsGeneral({
       >
         <Page width="full" className="u3-settings u3-settings-page">
           <div className="u3-general-sections">{content}</div>
-          {section !== "executors" && (
+          {section !== "executors" && section !== "plugins" && (
             <p className="u3-settings-note">
               Changes apply on the next routing decision.
             </p>

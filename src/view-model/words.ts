@@ -86,6 +86,12 @@ const executorStates: Record<string, Status> = {
   disabled: status("Disabled", "neutral", "■"), checking: status("Checking", "info", "…"),
 };
 export const executorStatus = (state: string): Status => Object.hasOwn(executorStates, state) ? executorStates[state]! : unknownStatus;
+const pluginStates: Record<string, Status> = {
+  ready: status("Ready", "good", "✓"), idle: status("Enabled", "info", "●"), starting: status("Starting", "info", "…"),
+  disabled: status("Disabled", "neutral", "■"), needs_grant: status("Needs permission", "warn", "!"),
+  failing: status("Needs attention", "warn", "!"), refused: status("Unavailable", "bad", "✕"),
+};
+export const pluginStatus = (state: string): Status => Object.hasOwn(pluginStates, state) ? pluginStates[state]! : unknownStatus;
 const endpointStates: Record<string, Status> = {
   ready: executorStates.ready!, not_tested: status("Not tested", "neutral", "…"),
   not_working: status("Not working", "bad", "✕"), key_missing: status("Key missing", "bad", "✕"),
