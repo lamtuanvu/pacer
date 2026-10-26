@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { command } from "./desktop-verify";
-import { desktopAssetName, stableVersion, digest, type DesktopArch } from "./desktop-feed";
+import { command, DISK_IMAGE_IDENTIFIER } from "./desktop-verify";
+import { desktopAssetName, desktopDiskImageName, stableVersion, digest, type DesktopArch } from "./desktop-feed";
 import { stageDesktopPackage, verifyDesktopExecutable, verifyNativeLibrary } from "./desktop";
 import { signerRequirement } from "../../src/update/desktop/signer-requirement";
 
@@ -90,20 +90,41 @@ export async function signStagedDesktop(o: { root: string; stage: string; out: s
   if (transport.schema !== 1 || transport.role !== "cli" || transport.version !== o.version || transport.arch !== o.arch || transport.nativeTransportAbi !== 1 || transport.transport !== "unix-audit-token" || transport.verified !== true) throw Error("Signed native transport validation failed");
   const helper = JSON.parse(await run([join(resources, "pacer-update-helper"), "--pacer-helper-runtime-test"]));
   if (helper.schema !== 1 || helper.role !== "update-helper" || helper.version !== o.version || helper.arch !== o.arch || helper.runtime !== "tauri-updater" || helper.verified !== true) throw Error("Signed native helper runtime validation failed");
+  const notarize = async (path: string, upload: string) => {
+    const receipt = JSON.parse(await run(["/usr/bin/xcrun", "notarytool", "submit", upload, "--key", apple!.notaryKey, "--key-id", apple!.notaryKeyId, "--issuer", apple!.notaryIssuer, "--wait", "--output-format", "json"], 1_800_000));
+    if (receipt.status !== "Accepted" || typeof receipt.id !== "string" || !receipt.id) throw Error("Apple notarization was not accepted");
+    await run(["/usr/bin/xcrun", "stapler", "staple", path], 120_000);
+    await run(["/usr/bin/xcrun", "stapler", "validate", path]);
+  };
   if (apple) {
     const upload = join(o.stage, "notarization.zip");
     await run(["/usr/bin/ditto", "-c", "-k", "--sequesterRsrc", "--keepParent", app, upload], 120_000);
-    const receipt = JSON.parse(await run(["/usr/bin/xcrun", "notarytool", "submit", upload, "--key", apple.notaryKey, "--key-id", apple.notaryKeyId, "--issuer", apple.notaryIssuer, "--wait", "--output-format", "json"], 1_800_000));
-    if (receipt.status !== "Accepted" || typeof receipt.id !== "string" || !receipt.id) throw Error("Apple notarization was not accepted");
-    await run(["/usr/bin/xcrun", "stapler", "staple", app], 120_000);
-    await run(["/usr/bin/xcrun", "stapler", "validate", app]);
+    await notarize(app, upload);
     await run(["/usr/sbin/spctl", "--assess", "--type", "execute", app]);
   }
   mkdirSync(o.out, { recursive: true });
-  const artifact = join(o.out, desktopAssetName(o.version, o.arch));
-  if (existsSync(artifact) || existsSync(artifact + ".sig")) throw Error("Refusing to overwrite a desktop artifact");
+  const artifact = join(o.out, desktopAssetName(o.version, o.arch)), image = join(o.out, desktopDiskImageName(o.version, o.arch));
+  if (existsSync(artifact) || existsSync(artifact + ".sig") || existsSync(image)) throw Error("Refusing to overwrite a desktop artifact");
   await run(["/usr/bin/tar", "--format=ustar", "-czf", artifact, "-C", o.stage, "pacer.app"], 120_000);
   await run([process.execPath, join(o.root, "desktop/node_modules/@tauri-apps/cli/tauri.js"), "signer", "sign", "--private-key-path", c.signerKey, "--app-version", o.version, artifact], 120_000);
+  // First-install disk image of the same final app, beside a drop link to /Applications.
+  // Release validation requires its app to match the update archive byte for byte.
+  const volume = join(o.stage, "disk-image");
+  mkdirSync(volume, { mode: 0o755 });
+  await run(["/usr/bin/ditto", app, join(volume, "pacer.app")], 120_000);
+  symlinkSync("/Applications", join(volume, "Applications"));
+  for (let attempt = 1; ; attempt++) {
+    // hdiutil intermittently reports a busy resource on hosted runners.
+    try { await run(["/usr/bin/hdiutil", "create", "-quiet", "-volname", "pacer", "-srcfolder", volume, "-fs", "HFS+", "-format", "UDZO", "-imagekey", "zlib-level=9", image], 600_000); break; }
+    catch (error) { rmSync(image, { force: true }); if (attempt === 3) throw error; }
+  }
+  // Interim images stay unsigned: the self-signed certificate adds no trust to the
+  // container, and the app inside carries the pinned signatures.
+  if (apple) {
+    await run(["/usr/bin/codesign", "--force", "--sign", apple.identity, "--keychain", c.keychain, "--identifier", DISK_IMAGE_IDENTIFIER, "--timestamp", image], 120_000);
+    await notarize(image, image);
+    await run(["/usr/sbin/spctl", "--assess", "--type", "open", "--context", "context:primary-signature", image]);
+  }
   return artifact;
 }
 if (import.meta.main) {

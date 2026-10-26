@@ -1,5 +1,11 @@
 import { expect, test } from "bun:test";
-import { accountsModel } from "../app/src/model/accounts";
+import { accountsModel, arkcliRefreshMessage } from "../app/src/model/accounts";
+
+test("Ark CLI refresh reports the provider outcome instead of a generic save success", () => {
+  expect(arkcliRefreshMessage({ accounts: [{ account: "plan", outcome: "failed", error: "Ark CLI sign-in required. Run arkcli auth login." }] }, "plan"))
+    .toBe("Ark CLI sign-in required. Run arkcli auth login.");
+  expect(arkcliRefreshMessage({ accounts: [{ account: "plan", outcome: "updated" }] }, "plan")).toBe("Usage refreshed.");
+});
 test("accounts retain all windows and use limits freshness and sign-in facts", () => {
   const rows = accountsModel([{ name: "team", kind: "codex", signedIn: false, signin_command: "codex login", usageReading: { windows: [{ name: "5h", usedPct: 20, resetsAt: 100 }, { name: "7d", usedPct: 40, resetsAt: 200 }] } }], [{ account: "team", stale: true, capturedAt: 50, source: "session-log" }]);
   expect(rows[0]!.windows).toHaveLength(2);

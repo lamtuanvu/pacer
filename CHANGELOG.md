@@ -9,6 +9,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - Record private, bounded OTA request-stage diagnostics in live validation evidence while preserving fixture authorization and HTTP behavior.
 - Add plugin policy checks for delegation, executor routing and task review, with bounded task observations, event subscriptions, failure modes and policy status across API, CLI, TUI and app surfaces.
 - Expose pure planner integration editing and undo helpers through `@pacer/plugin/install`, including JSONC-preserving edits, managed blocks and hook records.
+- macOS desktop releases include a `.dmg` for first installs: open it and drag pacer into Applications. It holds the same signed app as the `.app.tar.gz` update package; release validation checks that the two match.
 
 ### Changed
 
@@ -17,6 +18,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - OS notification delivery moves to the bundled `pacer-notify` plugin behind exact per-message spawn authority; the host retains levels, client preference and delivery ledger. Plugin protocol 1.3 adds `notifier.deliver`.
 - Run rules, Ollama and Jev classifiers through the bundled `pacer-classify` plugin. The host retains decision policy and resolves HTTP authorization by reference; disabled classifiers have no built-in implementation fallback.
 - Run Claude Code, Codex, Ark Coding Plan and metered OpenCode usage readers in the bundled `pacer-usage` plugin, preserving rich readings and host pacing policy. Disabled or failing readers report unavailable usage without a built-in fallback; inspect them with `pacer plugin list` and `pacer plugin doctor`.
+- Let a conversation's session UI fill the task workspace between a slim action row and a pinned control footer, and stop calling it a terminal. The footer shows who is driving, Take/Release control, size and the screen reader toggle; files stay with the session. A hidden or collapsed pane no longer resizes the agent's terminal, and Tab no longer traps focus in a watched terminal.
 
 ### Fixed
 
@@ -28,6 +30,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - Keep paired desktop helper channels alive through authenticated startup by acknowledging descriptor receipt before Root releases its duplicate; transfer both startup descriptors together and retain them until Core confirms receipt.
 - Let keyboard users scroll long setup connection previews horizontally with the Left and Right Arrow keys after Tab focus, keeping complete paths and undo text visible.
 - Keep bundled plugin children on the current source core behind the development Rust front door, preserving configured wrapper routing without forwarding ambient selectors to installed plugins.
+- Show Ark CLI authentication failures as unknown subscription status instead of no active subscription, with sign-in and refresh guidance in Settings › Accounts.
+- The desktop shows the live service version before loading older service screens and no longer restarts a mismatched service automatically.
 
 ## [0.10.0] - 2026-10-26
 

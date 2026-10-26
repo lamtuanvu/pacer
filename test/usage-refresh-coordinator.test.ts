@@ -54,6 +54,37 @@ test("failed active refresh keeps a previous measured reading historical", async
   expect(reading.stale).toBe(true);
 });
 
+test("an Ark CLI sign-in failure replaces prior subscription availability", async () => {
+  let expired = false;
+  const ctx = pluginFixtureCtx({ now: 1_800_000_000, run: async () => ({ code: 0, stderr: "", stdout: JSON.stringify({ items: [{
+    product: "coding-plan", subscribed: !expired,
+    ...(expired ? { error: "requires BytePlus Ark SSO STS, please run `arkcli auth login`" } : { periods: [{label:"weekly",percent:18}] }),
+  }] }) }) });
+  const account = { name: "coding-plan", kind: "endpoint", source: "opencode", usage: "quota", quotaSource: "arkcli" } as const;
+  await readAccountUsage(ctx, account as never, []);
+  expired = true;
+  ctx.now += 300;
+  const reading = await readAccountUsage(ctx, account as never, [], true);
+  expect(reading.availability).toMatchObject({state:"unknown",reason:"authentication_failed"});
+  expect(reading.windows).toEqual([]);
+});
+
+test("a malformed Ark CLI refresh retains measured windows as historical", async () => {
+  let malformed = false;
+  const ctx = pluginFixtureCtx({ now: 1_800_000_000, run: async () => ({ code: 0, stderr: "", stdout: JSON.stringify(malformed ? {} : { items: [{
+    product: "coding-plan", subscribed: true, periods: [{ label: "weekly", percent: 18 }],
+  }] }) }) });
+  const account = { name: "coding-plan", kind: "endpoint", source: "opencode", usage: "quota", quotaSource: "arkcli" } as const;
+  await readAccountUsage(ctx, account as never, []);
+  malformed = true;
+  ctx.now += 300;
+  const reading = await readAccountUsage(ctx, account as never, [], true);
+  expect(reading.windows[0]?.usedPct).toBe(18);
+  expect(reading.stale).toBe(true);
+  expect(reading.availability).toMatchObject({ state: "unknown", reason: "subscription_response_invalid" });
+  expect(reading.error).toBe("invalid coding-plan subscription response");
+});
+
 test("passive Claude refresh reports unchanged rather than making old data fresh", async () => {
   const ctx = setup();
   const result = await refreshAccountUsage(ctx, "claude-code");

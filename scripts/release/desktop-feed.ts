@@ -3,20 +3,23 @@ import { lstatSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import { compareVersions } from "../../src/update/version";
-import { verifyProductionArchive } from "./desktop-verify";
+import { verifyProductionArchive, verifyProductionDiskImage } from "./desktop-verify";
 import { validSignerPins, type SignerPins } from "../../src/update/desktop/signer-requirement";
 
 export const DESKTOP_FEED_URL = "https://raw.githubusercontent.com/lamtuanvu/pacer/desktop-updates/stable.json";
 export const DESKTOP_ARCHES = ["aarch64", "x86_64"] as const;
 export type DesktopArch = typeof DESKTOP_ARCHES[number];
 export type BundleMetadata = { schema: number; version: string; arch: string; bundleId: string; protocolMajors: number[]; admissionProtocol: number; nativeTransportAbi: number; rollbackCompatible: boolean; fixture: boolean };
+/** Verified app metadata plus the content digest that binds the disk image to the update archive. */
+export type VerifiedDesktopApp = BundleMetadata & { appTree: string };
 export interface DesktopReleaseOptions {
   mode: "production" | "fixture";
   publicKey: string;
   /** Compiled signer pins the archives must satisfy (Team ID, interim certificate, or both). */
   pins: SignerPins;
   /** Only explicit fixture mode may replace macOS validation. Production always uses the actual OS verifier. */
-  verifyArchive?: (bytes: Uint8Array, arch: DesktopArch) => Promise<BundleMetadata>;
+  verifyArchive?: (bytes: Uint8Array, arch: DesktopArch) => Promise<VerifiedDesktopApp>;
+  verifyDiskImage?: (bytes: Uint8Array, arch: DesktopArch) => Promise<VerifiedDesktopApp>;
 }
 export interface DesktopPublisher {
   readonly mode: "production" | "fixture";
@@ -26,6 +29,8 @@ export interface DesktopPublisher {
   compareAndSwap(expected: string | null, feed: string): Promise<void>;
 }
 export function desktopAssetName(version: string, arch: DesktopArch): string { stableVersion(version); return `desktop-pacer-${version}-darwin-${arch}.app.tar.gz`; }
+/** First-install download only; the updater feed never references it. */
+export function desktopDiskImageName(version: string, arch: DesktopArch): string { stableVersion(version); return `desktop-pacer-${version}-darwin-${arch}.dmg`; }
 export function stableVersion(version: string): void {
   if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version)) throw Error("Desktop stable releases require a stable semantic version");
 }
@@ -63,7 +68,7 @@ function productionOptions(): DesktopReleaseOptions {
 async function validate(releaseDir: string, version: string, options: DesktopReleaseOptions) {
   stableVersion(version);
   if (!options.publicKey || !validSignerPins(options.pins)) throw Error("Invalid desktop trust inputs");
-  if (options.mode === "production" && options.verifyArchive) throw Error("Production desktop validation cannot use a fixture verifier");
+  if (options.mode === "production" && (options.verifyArchive || options.verifyDiskImage)) throw Error("Production desktop validation cannot use a fixture verifier");
   const manifestName = `desktop-release-${version}.json`, manifestBytes = input(join(releaseDir, manifestName), 128 * 1024);
   const manifest = releaseSchema.parse(JSON.parse(manifestBytes.toString("utf8")));
   if (manifest.version !== version) throw Error("Desktop release manifest version mismatch");
@@ -77,7 +82,10 @@ async function validate(releaseDir: string, version: string, options: DesktopRel
     if (!metadata || metadata.schema !== 1 || metadata.version !== version || metadata.arch !== arch || metadata.bundleId !== "dev.pacer.desktop" ||
         metadata.protocolMajors.length !== 1 || metadata.protocolMajors[0] !== 3 || metadata.admissionProtocol !== 1 || metadata.nativeTransportAbi !== 1 || !metadata.rollbackCompatible || metadata.fixture !== (options.mode === "fixture")) throw Error("Signed desktop metadata/identity mismatch");
     platforms[`darwin-${arch}`] = { url: `https://github.com/lamtuanvu/pacer/releases/download/v${version}/${name}`, signature, sha256: digest(bytes), bundleId: metadata.bundleId, protocolMajors: metadata.protocolMajors, admissionProtocol: 1, rollbackCompatible: true };
-    assets.set(name, bytes); assets.set(name + ".sig", signatureBytes);
+    const imageName = desktopDiskImageName(version, arch), image = input(join(releaseDir, imageName));
+    const mounted = options.mode === "fixture" ? await options.verifyDiskImage?.(image, arch) : await verifyProductionDiskImage(image, arch, options.pins);
+    if (!mounted || !/^[a-f0-9]{64}$/.test(metadata.appTree) || mounted.appTree !== metadata.appTree) throw Error("Desktop disk image does not contain the signed update app");
+    assets.set(name, bytes); assets.set(name + ".sig", signatureBytes); assets.set(imageName, image);
   }
   return { feed: JSON.stringify({ ...manifest, platforms }, null, 2) + "\n", assets };
 }
