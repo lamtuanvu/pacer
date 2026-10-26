@@ -82,7 +82,7 @@ impl ::std::convert::From<CapabilityHostsCloseParamsSession> for ::std::string::
 impl ::std::str::FromStr for CapabilityHostsCloseParamsSession {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_5(value, Self)
+        validate_string_6(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityHostsCloseParamsSession {
@@ -193,7 +193,7 @@ impl ::std::convert::From<CapabilityHostsFetchParamsSession> for ::std::string::
 impl ::std::str::FromStr for CapabilityHostsFetchParamsSession {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_5(value, Self)
+        validate_string_6(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityHostsFetchParamsSession {
@@ -288,7 +288,7 @@ impl ::std::convert::From<CapabilityHostsOpenParamsAlias> for ::std::string::Str
 impl ::std::str::FromStr for CapabilityHostsOpenParamsAlias {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_6(value, Self)
+        validate_string_7(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityHostsOpenParamsAlias {
@@ -358,7 +358,7 @@ impl ::std::convert::From<CapabilityHostsOpenResultSession> for ::std::string::S
 impl ::std::str::FromStr for CapabilityHostsOpenResultSession {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_5(value, Self)
+        validate_string_6(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityHostsOpenResultSession {
@@ -683,7 +683,7 @@ impl ::std::convert::From<CapabilityHostsRunParamsSession> for ::std::string::St
 impl ::std::str::FromStr for CapabilityHostsRunParamsSession {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_5(value, Self)
+        validate_string_6(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityHostsRunParamsSession {
@@ -899,6 +899,10 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityHostsRunResultStdout {
 ///      "maxLength": 512,
 ///      "pattern": "^\\/[^\\u0000-\\u001f]*\\/cm-%C$"
 ///    },
+///    "home": {
+///      "type": "string",
+///      "pattern": "\\S"
+///    },
 ///    "repo": {
 ///      "type": "string",
 ///      "pattern": "\\S"
@@ -922,6 +926,8 @@ pub struct HostRunnerCheckParams {
         skip_serializing_if = "::std::option::Option::is_none"
     )]
     pub control_path: ::std::option::Option<HostRunnerCheckParamsControlPath>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub home: ::std::option::Option<HostRunnerCheckParamsHome>,
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub repo: ::std::option::Option<HostRunnerCheckParamsRepo>,
     #[serde(
@@ -959,7 +965,7 @@ impl ::std::convert::From<HostRunnerCheckParamsAlias> for ::std::string::String 
 impl ::std::str::FromStr for HostRunnerCheckParamsAlias {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_6(value, Self)
+        validate_string_7(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for HostRunnerCheckParamsAlias {
@@ -1022,6 +1028,51 @@ impl<'de> ::serde::Deserialize<'de> for HostRunnerCheckParamsControlPath {
         deserialize_validated_string(deserializer)
     }
 }
+///`HostRunnerCheckParamsHome`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "pattern": "\\S"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct HostRunnerCheckParamsHome(::std::string::String);
+impl ::std::ops::Deref for HostRunnerCheckParamsHome {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<HostRunnerCheckParamsHome> for ::std::string::String {
+    fn from(value: HostRunnerCheckParamsHome) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for HostRunnerCheckParamsHome {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_4(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for HostRunnerCheckParamsHome {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for HostRunnerCheckParamsHome {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
 ///`HostRunnerCheckParamsRepo`
 ///
 /// <details><summary>JSON schema</summary>
@@ -1050,12 +1101,7 @@ impl ::std::convert::From<HostRunnerCheckParamsRepo> for ::std::string::String {
 impl ::std::str::FromStr for HostRunnerCheckParamsRepo {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
-            ::std::sync::LazyLock::new(|| ::regress::Regex::new("\\S").unwrap());
-        if PATTERN.find(value).is_none() {
-            return Err("doesn't match pattern \"\\S\"".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_4(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for HostRunnerCheckParamsRepo {
@@ -1100,7 +1146,7 @@ impl ::std::convert::From<HostRunnerCheckParamsSshTarget> for ::std::string::Str
 impl ::std::str::FromStr for HostRunnerCheckParamsSshTarget {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_4(value, Self)
+        validate_string_5(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for HostRunnerCheckParamsSshTarget {
@@ -1461,7 +1507,7 @@ impl ::std::convert::From<HostRunnerCloseParamsSession> for ::std::string::Strin
 impl ::std::str::FromStr for HostRunnerCloseParamsSession {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_5(value, Self)
+        validate_string_6(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for HostRunnerCloseParamsSession {
@@ -1805,7 +1851,7 @@ impl ::std::convert::From<HostRunnerFetchParamsSession> for ::std::string::Strin
 impl ::std::str::FromStr for HostRunnerFetchParamsSession {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_5(value, Self)
+        validate_string_6(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for HostRunnerFetchParamsSession {
@@ -2033,7 +2079,7 @@ impl ::std::convert::From<HostRunnerOpenParamsAlias> for ::std::string::String {
 impl ::std::str::FromStr for HostRunnerOpenParamsAlias {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_6(value, Self)
+        validate_string_7(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for HostRunnerOpenParamsAlias {
@@ -2124,7 +2170,7 @@ impl ::std::convert::From<HostRunnerOpenParamsSshTarget> for ::std::string::Stri
 impl ::std::str::FromStr for HostRunnerOpenParamsSshTarget {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_4(value, Self)
+        validate_string_5(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for HostRunnerOpenParamsSshTarget {
@@ -2194,7 +2240,7 @@ impl ::std::convert::From<HostRunnerOpenResultSession> for ::std::string::String
 impl ::std::str::FromStr for HostRunnerOpenResultSession {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_5(value, Self)
+        validate_string_6(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for HostRunnerOpenResultSession {
@@ -2530,7 +2576,7 @@ impl ::std::convert::From<HostRunnerRunParamsSession> for ::std::string::String 
 impl ::std::str::FromStr for HostRunnerRunParamsSession {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_5(value, Self)
+        validate_string_6(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for HostRunnerRunParamsSession {
@@ -3028,7 +3074,7 @@ impl ::std::convert::From<HostRunnerStreamParamsSession> for ::std::string::Stri
 impl ::std::str::FromStr for HostRunnerStreamParamsSession {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_5(value, Self)
+        validate_string_6(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for HostRunnerStreamParamsSession {
@@ -3154,6 +3200,17 @@ fn validate_string_4<T>(
     value: &str,
     construct: impl FnOnce(::std::string::String) -> T,
 ) -> ::std::result::Result<T, self::error::ConversionError> {
+    static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+        ::std::sync::LazyLock::new(|| ::regress::Regex::new("\\S").unwrap());
+    if PATTERN.find(value).is_none() {
+        return Err("doesn't match pattern \"\\S\"".into());
+    }
+    Ok(construct(value.to_string()))
+}
+fn validate_string_5<T>(
+    value: &str,
+    construct: impl FnOnce(::std::string::String) -> T,
+) -> ::std::result::Result<T, self::error::ConversionError> {
     static PATTERN: ::std::sync::LazyLock<::regress::Regex> = ::std::sync::LazyLock::new(|| {
         ::regress::Regex::new("^[A-Za-z0-9._@][A-Za-z0-9._@-]*$").unwrap()
     });
@@ -3162,7 +3219,7 @@ fn validate_string_4<T>(
     }
     Ok(construct(value.to_string()))
 }
-fn validate_string_5<T>(
+fn validate_string_6<T>(
     value: &str,
     construct: impl FnOnce(::std::string::String) -> T,
 ) -> ::std::result::Result<T, self::error::ConversionError> {
@@ -3173,7 +3230,7 @@ fn validate_string_5<T>(
     }
     Ok(construct(value.to_string()))
 }
-fn validate_string_6<T>(
+fn validate_string_7<T>(
     value: &str,
     construct: impl FnOnce(::std::string::String) -> T,
 ) -> ::std::result::Result<T, self::error::ConversionError> {
