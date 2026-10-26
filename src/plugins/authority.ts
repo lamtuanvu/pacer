@@ -44,7 +44,7 @@ export interface BundleStageResource {
   timeoutMs: number;
   maxBytes: number;
 }
-export interface AuthorityOptions { deadlineMs: number; signal?: AbortSignal; grants?: readonly string[]; accountHome?: string | null }
+export interface AuthorityOptions { deadlineMs: number; signal?: AbortSignal; grants?: readonly string[]; accountHome?: string | null; /** Only the private owner-bound host stream may omit a wall deadline. */ ownerBoundStream?: boolean }
 
 /** Host-issued immutable resources. Never construct these from plugin RPC params. */
 export class CallAuthority {
@@ -160,6 +160,7 @@ export class CallAuthority {
   }
 }
 export function createCallAuthority(ctx: Ctx, resources: CallResources, options: AuthorityOptions): CallAuthority {
-  if (!Number.isFinite(options.deadlineMs)) throw new CoreError("invalid_input", "call deadline must be finite");
+  if (!Number.isFinite(options.deadlineMs) && !(options.ownerBoundStream && options.deadlineMs === Infinity && options.signal))
+    throw new CoreError("invalid_input", "call deadline must be finite");
   return new CallAuthority(ctx, resources, options.deadlineMs, options.signal, options.grants, options.accountHome);
 }
