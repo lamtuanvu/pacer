@@ -1,0 +1,5 @@
+{
+  "basic": {"rules":[{"executors":["codex"]}],"available":["claude-code","codex"]},
+  "kinds": {"rules":[{"kinds":["docs","tests"],"executors":["codex"]},{"executors":["claude-code"]}],"available":["claude-code","codex"]},
+  "alias": {"rules":[{"executors":["codex"]}],"available":["codex"]}
+}

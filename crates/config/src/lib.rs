@@ -16,8 +16,10 @@ use std::{
 };
 mod repo_add;
 mod repos;
+mod routing;
 pub use repo_add::{add_repo, ops as repo_add_ops};
 pub use repos::{ops as repo_ops, remove_repo, requires_core_repo_parser};
+pub use routing::{ops as routing_ops, requires_core_routing_parser, routing_get};
 
 const LEVELS: [&str; 3] = ["off", "important", "all"];
 
