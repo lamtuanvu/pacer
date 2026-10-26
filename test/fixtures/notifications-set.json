@@ -1,0 +1,88 @@
+[
+  {
+    "name": "default",
+    "level": "all",
+    "result": {
+      "level": "all"
+    },
+    "after": "{\"notifications\":\"all\"}",
+    "activity": "{\"kind\":\"config\",\"level\":\"info\",\"text\":\"Configuration changed · config\",\"id\":\"<ID>\",\"at\":42}\n",
+    "outbox": "{\"seq\":1,\"at\":42,\"envelope\":{\"type\":\"entity\",\"data\":{\"kind\":\"activity\",\"id\":\"<ID>\",\"value\":{\"kind\":\"config\",\"level\":\"info\",\"text\":\"Configuration changed · config\",\"id\":\"<ID>\",\"at\":42}}}}\n{\"seq\":2,\"at\":42,\"envelope\":{\"type\":\"config\",\"data\":{\"area\":\"config\",\"at\":42}}}\n",
+    "latest": "{\"v\":1,\"seq\":2,\"at\":42,\"budget\":null,\"mode\":null,\"tasks\":[],\"alerts\":[],\"console\":null,\"consoles\":[],\"strategies\":[]}"
+  },
+  {
+    "name": "existing",
+    "settings": "{\"other\":1,\"notifications\":\"off\"}\n",
+    "level": "all",
+    "result": {
+      "level": "all"
+    },
+    "after": "{\"other\":1,\"notifications\":\"all\"}",
+    "activity": "{\"kind\":\"config\",\"level\":\"info\",\"text\":\"Configuration changed · config\",\"id\":\"<ID>\",\"at\":42}\n",
+    "outbox": "{\"seq\":1,\"at\":42,\"envelope\":{\"type\":\"entity\",\"data\":{\"kind\":\"activity\",\"id\":\"<ID>\",\"value\":{\"kind\":\"config\",\"level\":\"info\",\"text\":\"Configuration changed · config\",\"id\":\"<ID>\",\"at\":42}}}}\n{\"seq\":2,\"at\":42,\"envelope\":{\"type\":\"config\",\"data\":{\"area\":\"config\",\"at\":42}}}\n",
+    "latest": "{\"v\":1,\"seq\":2,\"at\":42,\"budget\":null,\"mode\":null,\"tasks\":[],\"alerts\":[],\"console\":null,\"consoles\":[],\"strategies\":[]}"
+  },
+  {
+    "name": "array",
+    "settings": "[\"one\",\"two\"]",
+    "level": "off",
+    "result": {
+      "level": "off"
+    },
+    "after": "{\"0\":\"one\",\"1\":\"two\",\"notifications\":\"off\"}",
+    "activity": "{\"kind\":\"config\",\"level\":\"info\",\"text\":\"Configuration changed · config\",\"id\":\"<ID>\",\"at\":42}\n",
+    "outbox": "{\"seq\":1,\"at\":42,\"envelope\":{\"type\":\"entity\",\"data\":{\"kind\":\"activity\",\"id\":\"<ID>\",\"value\":{\"kind\":\"config\",\"level\":\"info\",\"text\":\"Configuration changed · config\",\"id\":\"<ID>\",\"at\":42}}}}\n{\"seq\":2,\"at\":42,\"envelope\":{\"type\":\"config\",\"data\":{\"area\":\"config\",\"at\":42}}}\n",
+    "latest": "{\"v\":1,\"seq\":2,\"at\":42,\"budget\":null,\"mode\":null,\"tasks\":[],\"alerts\":[],\"console\":null,\"consoles\":[],\"strategies\":[]}"
+  },
+  {
+    "name": "null",
+    "settings": "null",
+    "level": "important",
+    "result": {
+      "level": "important"
+    },
+    "after": "{\"notifications\":\"important\"}",
+    "activity": "{\"kind\":\"config\",\"level\":\"info\",\"text\":\"Configuration changed · config\",\"id\":\"<ID>\",\"at\":42}\n",
+    "outbox": "{\"seq\":1,\"at\":42,\"envelope\":{\"type\":\"entity\",\"data\":{\"kind\":\"activity\",\"id\":\"<ID>\",\"value\":{\"kind\":\"config\",\"level\":\"info\",\"text\":\"Configuration changed · config\",\"id\":\"<ID>\",\"at\":42}}}}\n{\"seq\":2,\"at\":42,\"envelope\":{\"type\":\"config\",\"data\":{\"area\":\"config\",\"at\":42}}}\n",
+    "latest": "{\"v\":1,\"seq\":2,\"at\":42,\"budget\":null,\"mode\":null,\"tasks\":[],\"alerts\":[],\"console\":null,\"consoles\":[],\"strategies\":[]}"
+  },
+  {
+    "name": "invalid-json",
+    "settings": "{",
+    "level": "all",
+    "result": {
+      "level": "all"
+    },
+    "after": "{\"notifications\":\"all\"}",
+    "activity": "{\"kind\":\"config\",\"level\":\"info\",\"text\":\"Configuration changed · config\",\"id\":\"<ID>\",\"at\":42}\n",
+    "outbox": "{\"seq\":1,\"at\":42,\"envelope\":{\"type\":\"entity\",\"data\":{\"kind\":\"activity\",\"id\":\"<ID>\",\"value\":{\"kind\":\"config\",\"level\":\"info\",\"text\":\"Configuration changed · config\",\"id\":\"<ID>\",\"at\":42}}}}\n{\"seq\":2,\"at\":42,\"envelope\":{\"type\":\"config\",\"data\":{\"area\":\"config\",\"at\":42}}}\n",
+    "latest": "{\"v\":1,\"seq\":2,\"at\":42,\"budget\":null,\"mode\":null,\"tasks\":[],\"alerts\":[],\"console\":null,\"consoles\":[],\"strategies\":[]}"
+  },
+  {
+    "name": "unicode-string",
+    "settings": "\"😀\"",
+    "level": "off",
+    "result": {
+      "level": "off"
+    },
+    "after": "{\"0\":\"\\ud83d\",\"1\":\"\\ude00\",\"notifications\":\"off\"}",
+    "activity": "{\"kind\":\"config\",\"level\":\"info\",\"text\":\"Configuration changed · config\",\"id\":\"<ID>\",\"at\":42}\n",
+    "outbox": "{\"seq\":1,\"at\":42,\"envelope\":{\"type\":\"entity\",\"data\":{\"kind\":\"activity\",\"id\":\"<ID>\",\"value\":{\"kind\":\"config\",\"level\":\"info\",\"text\":\"Configuration changed · config\",\"id\":\"<ID>\",\"at\":42}}}}\n{\"seq\":2,\"at\":42,\"envelope\":{\"type\":\"config\",\"data\":{\"area\":\"config\",\"at\":42}}}\n",
+    "latest": "{\"v\":1,\"seq\":2,\"at\":42,\"budget\":null,\"mode\":null,\"tasks\":[],\"alerts\":[],\"console\":null,\"consoles\":[],\"strategies\":[]}"
+  },
+  {
+    "name": "invalid-level",
+    "settings": "{\"other\":1}",
+    "level": "bad",
+    "result": {
+      "error": {
+        "code": "invalid_input",
+        "message": "level: Invalid option: expected one of \"off\"|\"important\"|\"all\""
+      }
+    },
+    "after": "{\"other\":1}",
+    "activity": null,
+    "outbox": null,
+    "latest": null
+  }
+]

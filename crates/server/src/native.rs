@@ -10,7 +10,7 @@ use pacer_foundation::{
 use serde_json::Value;
 
 /// Production operations currently selected by the native registry.
-pub const NATIVE_OPS: &[&str] = &["notifications.get"];
+pub const NATIVE_OPS: &[&str] = &["notifications.get", "notifications.set"];
 
 pub struct Dispatcher {
     registry: Registry,
@@ -44,7 +44,9 @@ impl Dispatcher {
     /// Some legacy JSON is accepted by JavaScript but not serde_json. Forward
     /// that request before consuming it so its parsing and file behavior stay exact.
     pub fn needs_core_parser(&self, ctx: &Ctx, name: &str) -> bool {
-        name == "notifications.get" && pacer_config::requires_core_parser(ctx)
+        (matches!(name, "notifications.get" | "notifications.set")
+            && pacer_config::requires_core_parser(ctx))
+            || (name == "notifications.set" && pacer_config::requires_core_set_parser(ctx))
     }
     /// Merge selected native names with the actual core hello advertisement.
     pub fn decorate_hello(&self, hello: &mut Value) {
@@ -139,9 +141,11 @@ pub(crate) fn slow_dispatcher() -> Dispatcher {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod registry_tests {
     use super::*;
     use serde_json::json;
+    use std::{collections::HashMap, fs};
     #[tokio::test]
     async fn dispatcher_respects_startup_forwarding() {
         let dispatcher = Dispatcher::new("test.echo");
@@ -152,18 +156,43 @@ mod registry_tests {
                 .is_none()
         );
         assert!(Dispatcher::new("*").names().is_empty());
-        assert_eq!(NATIVE_OPS, &["notifications.get"]);
+        assert_eq!(NATIVE_OPS, &["notifications.get", "notifications.set"]);
         #[cfg(not(feature = "test-ops"))]
         assert_eq!(Dispatcher::new("").names(), NATIVE_OPS);
     }
     #[test]
-    fn notification_read_is_native_unless_explicitly_forwarded() {
-        assert!(Dispatcher::new("").names().contains(&"notifications.get"));
-        assert!(
-            !Dispatcher::new("notifications.get")
-                .names()
-                .contains(&"notifications.get")
+    fn notification_operations_are_native_unless_explicitly_forwarded() {
+        for name in NATIVE_OPS {
+            assert!(Dispatcher::new("").names().contains(name));
+            assert!(!Dispatcher::new(name).names().contains(name));
+        }
+    }
+    #[test]
+    fn notification_write_keeps_javascript_number_and_key_cases_with_core() {
+        let dir = tempfile::tempdir().unwrap();
+        let ctx = Ctx::with(
+            dir.path().join("home"),
+            dir.path().join("pacer"),
+            HashMap::new(),
+            0.0,
         );
+        fs::create_dir_all(&ctx.pacer_home).unwrap();
+        let path = ctx.pacer_home.join("settings.json");
+        let dispatcher = Dispatcher::new("");
+        for body in [
+            r#"{"2":"two","1":"one"}"#,
+            r#"{"minus":-0,"float":1e21}"#,
+            r#"{"big":9007199254740993}"#,
+            r#"{"nested":{"3":true,"2":false}}"#,
+        ] {
+            fs::write(&path, body).unwrap();
+            assert!(
+                dispatcher.needs_core_parser(&ctx, "notifications.set"),
+                "{body}"
+            );
+        }
+        fs::write(path, r#"{"other":42,"enabled":true}"#).unwrap();
+        assert!(!dispatcher.needs_core_parser(&ctx, "notifications.set"));
     }
     #[cfg(feature = "test-ops")]
     #[tokio::test]

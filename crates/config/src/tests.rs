@@ -181,3 +181,187 @@ fn default_object_write_is_private_and_refuses_temp_collision() {
         0o700
     );
 }
+
+#[tokio::test]
+async fn notification_set_matches_typescript_results_and_settings_bytes() {
+    let cases: Value = serde_json::from_str(include_str!(
+        "../../../test/fixtures/notifications-set.json"
+    ))
+    .unwrap();
+    let set = ops()
+        .iter()
+        .find(|op| op.name == "notifications.set")
+        .unwrap();
+    for case in cases.as_array().unwrap() {
+        let (_tmp, mut ctx) = context();
+        ctx.now = 42.0;
+        let path = ctx.pacer_home.join("settings.json");
+        if let Some(before) = case.get("settings").and_then(Value::as_str) {
+            fs::create_dir_all(&ctx.pacer_home).unwrap();
+            fs::write(&path, before).unwrap();
+        }
+        let actual = (set.call)(&ctx, json!({"level": case["level"]})).await;
+        if let Some(error) = case["result"].get("error") {
+            let actual = actual.unwrap_err();
+            assert_eq!(actual.code, Code::InvalidInput, "{}", case["name"]);
+            assert_eq!(actual.message, error["message"], "{}", case["name"]);
+        } else {
+            assert_eq!(actual.unwrap(), case["result"], "{}", case["name"]);
+        }
+        assert_eq!(
+            fs::read_to_string(&path).ok().as_deref(),
+            case["after"].as_str(),
+            "{}",
+            case["name"]
+        );
+        assert_eq!(
+            ctx.pacer_home.join("link/outbox.jsonl").exists(),
+            case["outbox"].is_string(),
+            "{}",
+            case["name"]
+        );
+        let activity = fs::read_to_string(ctx.pacer_home.join("state/activity.jsonl")).ok();
+        let outbox = fs::read_to_string(ctx.pacer_home.join("link/outbox.jsonl")).ok();
+        let id = activity.as_ref().and_then(|body| {
+            serde_json::from_str::<Value>(body)
+                .ok()
+                .and_then(|entry| entry["id"].as_str().map(str::to_owned))
+        });
+        let normalize = |body: Option<String>| {
+            body.map(|body| match id.as_ref() {
+                Some(id) => body.replace(id, "<ID>"),
+                None => body,
+            })
+        };
+        assert_eq!(
+            normalize(activity).as_deref(),
+            case["activity"].as_str(),
+            "{} activity",
+            case["name"]
+        );
+        assert_eq!(
+            normalize(outbox).as_deref(),
+            case["outbox"].as_str(),
+            "{} outbox",
+            case["name"]
+        );
+        assert_eq!(
+            fs::read_to_string(ctx.pacer_home.join("link/latest.json"))
+                .ok()
+                .as_deref(),
+            case["latest"].as_str(),
+            "{} latest",
+            case["name"]
+        );
+    }
+}
+
+#[tokio::test]
+async fn notification_set_advances_existing_outbox_without_losing_snapshot_fields() {
+    let (_tmp, mut ctx) = context();
+    ctx.now = 42.0;
+    let link = ctx.pacer_home.join("link");
+    fs::create_dir_all(&link).unwrap();
+    fs::write(
+        link.join("latest.json"),
+        r#"{"v":1,"seq":7,"at":41,"budget":null,"mode":null,"tasks":[],"alerts":[],"console":null,"consoles":[],"strategies":[],"future":"kept"}"#,
+    )
+    .unwrap();
+    let set = ops()
+        .iter()
+        .find(|op| op.name == "notifications.set")
+        .unwrap();
+    assert_eq!(
+        (set.call)(&ctx, json!({"level":"off"})).await.unwrap(),
+        json!({"level":"off"})
+    );
+    let outbox = fs::read_to_string(link.join("outbox.jsonl")).unwrap();
+    let rows: Vec<Value> = outbox
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0]["seq"], 8);
+    assert_eq!(rows[0]["envelope"]["type"], "entity");
+    assert_eq!(rows[1]["seq"], 9);
+    assert_eq!(rows[1]["envelope"]["type"], "config");
+    let snapshot: Value =
+        serde_json::from_slice(&fs::read(link.join("latest.json")).unwrap()).unwrap();
+    assert_eq!(snapshot["seq"], 9);
+    assert_eq!(snapshot["future"], "kept");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn notification_set_uses_private_files_and_refuses_settings_collision() {
+    use std::os::unix::fs::PermissionsExt;
+    let (_tmp, ctx) = context();
+    let set = ops()
+        .iter()
+        .find(|op| op.name == "notifications.set")
+        .unwrap();
+    let settings = ctx.pacer_home.join("settings.json");
+    fs::create_dir_all(&ctx.pacer_home).unwrap();
+    let mut temp = settings.as_os_str().to_os_string();
+    temp.push(format!(".{}.tmp", std::process::id()));
+    let temp = PathBuf::from(temp);
+    fs::write(&temp, b"collision").unwrap();
+    let error = (set.call)(&ctx, json!({"level":"all"})).await.unwrap_err();
+    assert_eq!(error.code, Code::InvalidInput);
+    assert_eq!(fs::read(&temp).unwrap(), b"collision");
+    assert!(!settings.exists());
+    assert!(!ctx.pacer_home.join("state/activity.jsonl").exists());
+    fs::remove_file(&temp).unwrap();
+    (set.call)(&ctx, json!({"level":"all"})).await.unwrap();
+    for path in [
+        settings,
+        ctx.pacer_home.join("state/activity.jsonl"),
+        ctx.pacer_home.join("link/outbox.jsonl"),
+        ctx.pacer_home.join("link/latest.json"),
+    ] {
+        assert_eq!(
+            fs::metadata(path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+    }
+    for dir in ["state", "link"] {
+        assert_eq!(
+            fs::metadata(ctx.pacer_home.join(dir))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700
+        );
+    }
+}
+
+#[tokio::test]
+async fn notification_set_waits_for_shared_settings_lock() {
+    use std::{
+        sync::mpsc,
+        time::{Duration, Instant},
+    };
+    let (_tmp, ctx) = context();
+    let held = ctx.clone();
+    let (ready, started) = mpsc::channel();
+    let holder = std::thread::spawn(move || {
+        pacer_foundation::lock::with_lock(&held, "notifications", Default::default(), || {
+            ready.send(()).unwrap();
+            std::thread::sleep(Duration::from_millis(200));
+        })
+        .unwrap();
+    });
+    started.recv().unwrap();
+    let set = ops()
+        .iter()
+        .find(|op| op.name == "notifications.set")
+        .unwrap();
+    let start = Instant::now();
+    assert_eq!(
+        (set.call)(&ctx, json!({"level":"off"})).await.unwrap(),
+        json!({"level":"off"})
+    );
+    assert!(start.elapsed() >= Duration::from_millis(150));
+    holder.join().unwrap();
+}

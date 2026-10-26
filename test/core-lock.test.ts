@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { existsSync, mkdirSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { withLock } from "../src/core/lock";
 import { fakeCtx } from "./helpers";
@@ -17,6 +17,10 @@ test("withLock keeps lock files where older pacer versions look for them", async
   const ctx = fakeCtx();
   await withLock(ctx, "y", async () => {
     expect(existsSync(join(ctx.pacerHome, "orca", "y.lock"))).toBe(true);
+    if (process.platform !== "win32") {
+      expect(statSync(join(ctx.pacerHome, "orca")).mode & 0o777).toBe(0o700);
+      expect(statSync(join(ctx.pacerHome, "orca", "y.lock")).mode & 0o777).toBe(0o600);
+    }
   });
   expect(existsSync(join(ctx.pacerHome, "orca", "y.lock"))).toBe(false);
 });
