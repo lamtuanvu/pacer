@@ -14,7 +14,7 @@ Protocol 1.5 adds policy/task/event contracts and mutually negotiated `policyObs
 
 The staged `executor` point currently defines only `contributes.executor.backends: ["direct"]` and `executor.available`. Availability receives a credential-free strategy name and has a 10 s host deadline. This contract has fake conformance coverage but no production caller; run, stop, resume, session state, task patching and executor effects require a separately reviewed owner-bound contract.
 
-The `hostRunner` point names only fixed SSH script IDs and uses bounded arguments, results and finite deadlines. The `hosts` capability defines `open`, `run`, `fetch` and `close` with host-owned broker sessions. Callers supply only a configured alias and fixed script input; the host derives the SSH target and selects the provider. Host setup identity, task questions and committed-task transfer use the bundled `remoteCaller` with one-use host-issued grants. The accepted question stays in the durable task record; preflight ignores its remote file only while the file's Git blob hash still matches. Other production SSH paths still require caller cutover.
+The `hostRunner` point names only fixed SSH script IDs and uses bounded arguments, results and finite deadlines. The `hosts` capability defines `open`, `run`, `fetch` and `close` with host-owned broker sessions. Callers supply only a configured alias and fixed script input; the host derives the SSH target and selects the provider. Routing reachability uses the bundled `remoteCaller` and the broker's read-only `PROBE`; host setup identity, task questions and committed-task transfer use one-use host-issued grants. The accepted question stays in the durable task record; preflight ignores its remote file only while the file's Git blob hash still matches. Other production SSH paths still require caller cutover.
 
 Peers explicitly negotiate `chunkedResults` in hello features. For a large usage result, the plugin sends sequential `$/resultChunk` requests containing the original numeric request id, contiguous byte offset and at most 256 KiB of base64 JSON bytes, with the original call metadata. It waits for each `{ bytes }` acknowledgement, then replies to the original request with `{ _chunkedResult: { bytes } }`. The host resolves only after exact-length complete JSON assembly under the original authority/deadline. Legacy peers keep ordinary replies; chunks never renew authority.
 
@@ -4445,6 +4445,49 @@ Result:
   },
   "required": [
     "ok"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `remoteCaller.reachability`
+
+Probe one configured SSH host through the broker's fixed read-only script.
+
+Deadline: 30000 ms.
+
+Params:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "alias": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
+    }
+  },
+  "required": [
+    "alias"
+  ],
+  "additionalProperties": false
+}
+```
+
+Result:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "reachable": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "reachable"
   ],
   "additionalProperties": false
 }

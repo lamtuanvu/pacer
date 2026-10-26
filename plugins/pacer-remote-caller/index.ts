@@ -7,6 +7,15 @@ export const manifest: PluginManifest = {
 };
 
 export const handlers: Record<string, Handler> = {
+  "remoteCaller.reachability": async (raw, host) => {
+    const request = raw as { alias: string };
+    const opened = await host.hosts!.open(request.alias);
+    try {
+      const result = await host.hosts!.run({ session: opened.session, script: "PROBE",
+        args: [], timeoutMs: 15_000, maxBytes: 65_536 });
+      return { reachable: result.code === 0 && !result.timedOut };
+    } finally { await host.hosts!.close(opened.session); }
+  },
   "remoteCaller.fetch": async (raw, host) => {
     const request = raw as { alias: string; timeoutMs: number; maxBytes: number };
     const opened = await host.hosts!.open(request.alias);
