@@ -16,6 +16,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Changed
 
+- Run the initial `pacer host check` SSH and tool diagnostic through the bundled SSH host runner. Disabled or failing plugins report the host unreachable; paused hosts remain diagnosable.
 - Check remote runner reachability through the bundled remote caller and fixed SSH provider. A disabled or failing plugin reports the host unreachable without trying direct SSH.
 - Read configured remote Codex usage through the bundled remote caller and fixed SSH provider with a one-use account/host grant. Plugin refusal produces no direct SSH retry; previously cached readings remain available.
 - Receive remote task questions through one-use host-issued `remoteCaller` reads; keep the accepted text durable and ignore the remote question file at preflight only while its exact content matches.

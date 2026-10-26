@@ -162,15 +162,14 @@ async function performCheck(ctx: Ctx, alias: string, { host, s, local, repos, na
     else steps?.fail(name, detail);
   };
   steps?.start("ssh");
-  // A no-op isolates connectivity from tool failures in the diagnostic probe.
-  const connected = await runRemote(ctx, host, SCRIPTS.ECHO_STDIN, [], { stdin: "", timeoutMs: 15000 }).catch(() => null);
-  if (!connected || connected.code !== 0) {
+  const probe = await pluginRegistry(ctx).checkConfiguredHost(ctx, alias).catch(() => null);
+  if (!probe?.ok) {
     for (const name of names) add(name, false, name === "ssh" ? "unreachable" : "skipped");
     return finish();
   }
   add("ssh", true);
   steps?.start("git");
-  const probe = await runRemote(ctx, host, SCRIPTS.PROBE, []).catch(() => null), tools = fields(probe?.stdout ?? "");
+  const tools = probe.facts ?? {};
   Object.assign(facts, { os: tools.os || null, glibc: tools.glibc || null, arch: tools.arch || null, git: tools.git?.replace(/^git version\s+/, "") || null, setsid: tools.setsid || null,
     tools: { ...(tools.codex ? { codex: tools.codex } : {}), ...(tools.claude ? { claude: tools.claude } : {}) } });
   // Bun's Linux release binaries require glibc >= 2.17 (bun.com/docs/installation).

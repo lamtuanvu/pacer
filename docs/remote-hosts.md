@@ -80,6 +80,9 @@ interactive with y/N prompts; non-TTY runs decline changes.
 `check` tests SSH, git, `setsid`, the agent CLIs used on the host, declared account
 folders, checkout origins and repo-local identity. Without `--repo`, it checks
 all mapped checkouts against the identity of your current local repository.
+Its initial SSH and tool probe runs through the bundled SSH host runner plugin.
+If that plugin is disabled or unavailable, the check reports SSH unreachable.
+A paused host can still be checked without making it eligible for work.
 It prints one line per check, such as `ok  ssh` or `FAIL git: git 2.25 < 2.30`,
 and exits 1 when checks fail. When SSH fails, remaining checks say `skipped`.
 `list` and `check` support `--json`.

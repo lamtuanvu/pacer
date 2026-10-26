@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { stringify } from "yaml";
 import { callOp } from "../src/api/ops";
@@ -14,13 +14,18 @@ function fixture(codex = "/bin/codex") {
     accounts: { claude: { kind: "claude" }, codex: { kind: "codex" } }, planner: "claude-code",
     hosts: { devbox: { ssh: "devbox" } }, routing: [{ default: ["codex@devbox", "claude-code@devbox", "codex"] }],
   }));
-  ctx.run = async argv => ({ code: 0, stderr: "", stdout: argv[0] === "ssh"
-    ? `__PACER_BEGIN__\nos=Linux\narch=x86_64\ngit=git version 2.43.0\nsetsid=/bin/setsid\nscript=script from util-linux 2.40\ntail=/usr/bin/tail\ncodex=${codex}\nclaude=/bin/claude\n` : "" });
-  return ctx;
+  const ssh = join(ctx.home, "fake-ssh"), down = join(ctx.home, "down"), gate = join(ctx.home, "gate"),
+    started = join(ctx.home, "started"), release = join(ctx.home, "release");
+  writeFileSync(ssh, `#!/bin/sh\n[ ! -f ${JSON.stringify(down)} ] || exit 255\nif [ -f ${JSON.stringify(gate)} ]; then touch ${JSON.stringify(started)}; n=0; while [ ! -f ${JSON.stringify(release)} ] && [ "$n" -lt 500 ]; do sleep 0.01; n=$((n+1)); done; fi\nprintf '__PACER_BEGIN__\\nos=Linux\\narch=x86_64\\ngit=git version 2.43.0\\nsetsid=/bin/setsid\\nscript=script from util-linux 2.40\\ntail=/usr/bin/tail\\ncodex=${codex}\\nclaude=/bin/claude\\n'\n`);
+  chmodSync(ssh, 0o755);
+  ctx.which = name => name === "ssh" ? ssh : null;
+  ctx.env.PATH = process.env.PATH;
+  ctx.run = async () => ({ code: 0, stderr: "", stdout: "" });
+  return { ctx, down, gate, started, release };
 }
 
 test("host.check passes job steps and stores parsed host facts", async () => {
-  const ctx = fixture();
+  const { ctx } = fixture();
   const { job } = await callOp(ctx, "host.check", { alias: "devbox" }) as { job: Job };
   expect(job.state).toBe("passed");
   expect(job.steps.map(s => [s.name, s.state])).toEqual([
@@ -31,7 +36,7 @@ test("host.check passes job steps and stores parsed host facts", async () => {
 });
 
 test("missing codex fails its job step and persists the failed check", async () => {
-  const ctx = fixture("");
+  const { ctx } = fixture("");
   const { job } = await callOp(ctx, "host.check", { alias: "devbox" }) as { job: Job };
   expect(job.state).toBe("failed");
   expect(job.steps.find(s => s.name === "codex")).toMatchObject({ state: "failed", detail: "codex not on login PATH" });
@@ -39,27 +44,23 @@ test("missing codex fails its job step and persists the failed check", async () 
 });
 
 test("overlapping host checks share the same running job", async () => {
-  const ctx = fixture(), run = ctx.run;
-  let release!: () => void, entered!: () => void;
-  const gate = new Promise<void>(resolve => { release = resolve; });
-  const started = new Promise<void>(resolve => { entered = resolve; });
-  ctx.run = async (...args) => {
-    if (args[0][0] === "ssh") { entered(); await gate; }
-    return run(...args);
-  };
+  const { ctx, gate, started, release } = fixture();
+  writeFileSync(gate, "");
   const first = callOp(ctx, "host.check", { alias: "devbox" }) as Promise<{ job: Job }>;
-  await started;
+  const until = Date.now() + 2000;
+  while (!existsSync(started) && Date.now() < until) await Bun.sleep(10);
+  expect(existsSync(started)).toBe(true);
   try {
     const second = await callOp(ctx, "host.check", { alias: "devbox" }) as { job: Job };
     expect(second.job.state).toBe("running");
-    release();
+    writeFileSync(release, "");
     expect((await first).job.id).toBe(second.job.id);
-  } finally { release(); await first; }
+  } finally { writeFileSync(release, ""); await first; }
 });
 
 test("unreachable checks are stored and later steps are skipped", async () => {
-  const ctx = fixture();
-  ctx.run = async () => ({ code: 255, stdout: "", stderr: "unreachable" });
+  const { ctx, down } = fixture();
+  writeFileSync(down, "");
   const { job } = await callOp(ctx, "host.check", { alias: "devbox" }) as { job: Job };
   expect(job.state).toBe("failed");
   expect(job.steps[0]).toMatchObject({ name: "ssh", state: "failed", detail: "unreachable" });
