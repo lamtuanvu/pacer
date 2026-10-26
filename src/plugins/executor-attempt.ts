@@ -1,0 +1,107 @@
+import { closeSync, fstatSync, lstatSync, openSync, type Stats } from "node:fs";
+import { isAbsolute, join } from "node:path";
+import { CoreError } from "../core/errors";
+import { readTask, updateTask, withTaskLock } from "../tasks/store";
+import type { RunRef } from "../tasks/types";
+import type { Ctx } from "../types";
+import { applyExecutorProgress } from "./executor-progress";
+import { executorRunResult } from "./executor-protocol";
+import { NativeWriteError, WRITE_DIRECTORY, writeNative } from "./write-native";
+
+interface ExecutorCaller {
+  call(ctx: Ctx, pluginId: string, method: "executor.run", params: unknown,
+    options: { onProgress: (event: unknown) => void }): Promise<unknown>;
+}
+
+function privateDirectory(path: string, fd: number): void {
+  let linked: Stats;
+  try { linked = lstatSync(path); }
+  catch { throw new CoreError("conflict", "executor run directory is unavailable"); }
+  const opened = fstatSync(fd);
+  if (!linked.isDirectory() || !opened.isDirectory() || linked.dev !== opened.dev || linked.ino !== opened.ino ||
+    (opened.mode & 0o077) !== 0 ||
+    (process.getuid?.() !== undefined && opened.uid !== process.getuid()))
+    throw new CoreError("conflict", "executor run directory is not private or changed");
+}
+
+function claimRunDirectory(ctx: Ctx, taskId: string, attempt: number): string {
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(taskId))
+    throw new CoreError("invalid_input", "invalid executor task id");
+  const native = writeNative();
+  let homeFd: number;
+  try { homeFd = openSync(ctx.pacerHome, WRITE_DIRECTORY); }
+  catch { throw new CoreError("conflict", "executor run home is unavailable"); }
+  const opened = [homeFd];
+  const runs = join(ctx.pacerHome, "runs");
+  const taskDir = join(runs, taskId);
+  const attemptDir = join(taskDir, String(attempt));
+  try {
+    privateDirectory(ctx.pacerHome, homeFd);
+    const openChild = (parent: number, name: string, path: string, existing: boolean): number => {
+      try { native.mkdirAt(parent, name, 0o700); }
+      catch (error) {
+        if (!(error instanceof NativeWriteError) || error.errno !== 17)
+          throw new CoreError("conflict", "executor run directory could not be created");
+        if (!existing) throw new CoreError("conflict", "executor attempt directory already exists");
+      }
+      let fd: number;
+      try { fd = native.openAt(parent, name, WRITE_DIRECTORY); }
+      catch { throw new CoreError("conflict", "executor run directory is unavailable"); }
+      opened.push(fd);
+      privateDirectory(path, fd);
+      return fd;
+    };
+    const runsFd = openChild(homeFd, "runs", runs, true);
+    const taskFd = openChild(runsFd, taskId, taskDir, true);
+    openChild(taskFd, String(attempt), attemptDir, false);
+    // Resolve every path again after creation; a replaced ancestor cannot become the persisted run owner.
+    privateDirectory(ctx.pacerHome, homeFd);
+    privateDirectory(runs, runsFd);
+    privateDirectory(taskDir, taskFd);
+    privateDirectory(attemptDir, opened[opened.length - 1]!);
+    return attemptDir;
+  } finally {
+    for (const fd of opened.reverse()) closeSync(fd);
+  }
+}
+
+/** Stage an owned local attempt. Production dispatch stays on the existing backend until full effects and recovery are reviewed. */
+export async function runOwnedExecutorAttempt(ctx: Ctx, caller: ExecutorCaller, pluginId: string,
+  taskId: string, executor: string, workdir: string): Promise<ReturnType<typeof executorRunResult.parse>> {
+  if (!isAbsolute(workdir)) throw new CoreError("invalid_input", "executor workdir must be absolute");
+  const owner = withTaskLock(ctx, taskId, (): RunRef => {
+    const task = readTask(ctx, taskId);
+    if (!task) throw new CoreError("unknown_task", `unknown task ${taskId}`);
+    if (task.state !== "running" || task.run || task.executor !== executor)
+      throw new CoreError("conflict", "executor task is no longer available for this attempt");
+    const attempt = task.attempts.length + 1;
+    const dir = claimRunDirectory(ctx, taskId, attempt);
+    const run: RunRef = { dir, attempt, executor, startedAt: Date.now() / 1000,
+      mode: "current", workdir, logFile: join(dir, "stdout") };
+    updateTask(ctx, taskId, current => { current.run = run; });
+    return run;
+  });
+  const revision = withTaskLock(ctx, taskId, () => {
+    const task = readTask(ctx, taskId);
+    if (task?.state !== "running" || task.attempts.length + 1 !== owner.attempt ||
+      task.run?.dir !== owner.dir || task.run?.attempt !== owner.attempt || task.run?.host ||
+      task.run?.startedAt !== owner.startedAt ||
+      task.run?.executor !== owner.executor)
+      throw new CoreError("conflict", "executor attempt changed before dispatch");
+    return task.rev;
+  });
+  const raw = await caller.call(ctx, pluginId, "executor.run",
+    { task: { id: taskId, rev: revision }, attempt: owner.attempt, runDir: 1 },
+    { onProgress: event => applyExecutorProgress(ctx, taskId, owner.attempt, event, owner) });
+  const result = executorRunResult.safeParse(raw);
+  if (!result.success) throw new CoreError("plugin_refused", "executor returned an invalid result");
+  withTaskLock(ctx, taskId, () => {
+    const task = readTask(ctx, taskId);
+    if (task?.state !== "running" || task.attempts.length + 1 !== owner.attempt ||
+      task.run?.dir !== owner.dir || task.run?.attempt !== owner.attempt || task.run?.host ||
+      task.run?.startedAt !== owner.startedAt ||
+      task.run?.executor !== owner.executor)
+      throw new CoreError("conflict", "executor attempt changed before completion");
+  });
+  return result.data;
+}
