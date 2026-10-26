@@ -147,7 +147,7 @@ export function SessionRoute({id, embedded = false, view}:{id:string; embedded?:
  changes:{data:diff.data?sessionChangeText(diff.data):undefined,loading:diff.loading,error:message(diff.error)}}:undefined;
  const handler=useRef(()=>{});handler.current=()=>{if(stop)void invoke(stop).catch(error=>setShortcutError(message(error)??'Action failed'));};
  useEffect(()=>keys.register({keys:'s',label:'Stop session',scope:'sessions',run:()=>handler.current()}),[]);
- if(task.data?.interactionMode==='conversation' && (!view || view==='terminal'))return <Conversation key={id} task={task.data} session={session.data} diff={diff.data?conversationChanges(diff.data):undefined} onReload={()=>{task.reload();session.reload();}}/>;
+ if(task.data?.interactionMode==='conversation' && (!view || view==='terminal'))return <Conversation key={id} task={task.data} session={session.data} onReload={()=>{task.reload();session.reload();}}/>;
  return <>{dialogs.dialog}{shortcutError&&<p role="status">{shortcutError}</p>}<Session embedded={embedded} view={view} key={id} onTakeSent={()=>setTakeRequested(false)} onTakeover={()=>void takeOver()} takeoverBusy={takeoverBusy} takeoverStarting={takeoverStarting} takeoverError={takeoverError} takeRequested={takeRequested} data={data} loading={task.loading} error={message(task.error)} onAction={invoke} onAttach={async(_,target)=>{const key=`attach:${id}:${target}`;const outcome=await runner.run(key,{label:'Open viewer',op:'task.attach',params:{id,target}});if(outcome.status==='error'||outcome.status==='handled')throw new Error(outcome.message);return runner.result(key) as {opened:boolean;command?:string};}} onReload={task.reload}/></>;
 }
 const message=(error:unknown)=>error instanceof Error?error.message:error?String(error):undefined;
