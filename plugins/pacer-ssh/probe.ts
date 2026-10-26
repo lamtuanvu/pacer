@@ -79,6 +79,27 @@ if [ -n "$delete_branch" ] && git show-ref --verify --quiet "refs/heads/$delete_
   git branch -D "$delete_branch" || exit 1
 fi`;
 
+/** Fixed remote stop script; parity with SCRIPTS.STOP is checked in tests. */
+export const STOP_SCRIPT = `D="$1"; grace="$2"
+case "$D" in '~/'*) D="$HOME/\${D#??}" ;; esac
+if [ -f "$D/exit" ]; then printf 'code=%s\\nkilled=0\\n' "$(cat "$D/exit")"; exit 0; fi
+pid=$(cat "$D/pid" 2>/dev/null)
+case "$pid" in ''|*[!0-9]*) printf 'code=137\\nkilled=0\\n'; exit 0 ;; esac
+case "$(ps -o args= -p "$pid")" in *"$D/run.sh"*|*"_session $D") ;; *) printf 'code=137\\nkilled=0\\n'; exit 0 ;; esac
+end=$(($(date +%s) + grace))
+while [ ! -f "$D/child" ] && [ "$(date +%s)" -lt "$end" ]; do sleep 0.05; done
+kill -TERM -- "-$pid" 2>/dev/null
+while [ "$(date +%s)" -lt "$end" ]; do
+  if [ -f "$D/exit" ]; then printf 'code=%s\\nkilled=0\\n' "$(cat "$D/exit")"; exit 0; fi
+  sleep 0.05
+done
+kill -KILL -- "-$pid" 2>/dev/null
+sleep 0.1
+if [ -f "$D/exit" ]; then printf 'code=%s\\nkilled=0\\n' "$(cat "$D/exit")"; else
+  printf '137\\n' > "$D/exit"
+  printf 'code=137\\nkilled=1\\n'
+fi`;
+
 export const QUESTION_SCRIPT = `file="$1/.pacer-question"
 [ -f "$file" ] || exit 0
 [ "$(wc -c < "$file")" -le 4000 ] || { echo "question exceeds 1000 characters" >&2; exit 1; }
@@ -153,6 +174,14 @@ export function cleanArgv(sshTarget: string, controlPath: string, args: readonly
     !/^[a-f0-9-]{36}$/.test(completionNonce))
     throw Error("invalid host-issued clean tuple");
   return issuedArgv(sshTarget, controlPath, CLEAN_SCRIPT, [...args], completionNonce);
+}
+
+export function stopArgv(sshTarget: string, controlPath: string, args: readonly string[], completionNonce: string): string[] {
+  if (args.length !== 2 || typeof args[0] !== "string" || !args[0].startsWith("/") ||
+    args[0].length > 4096 || /[\u0000-\u001f\u007f]/.test(args[0]) ||
+    !/^(?:[1-9]|[1-5][0-9]|60)$/.test(args[1] ?? "") ||
+    !/^[a-f0-9-]{36}$/.test(completionNonce)) throw Error("invalid host-issued stop tuple");
+  return issuedArgv(sshTarget, controlPath, STOP_SCRIPT, [...args], completionNonce);
 }
 
 export function bundleOutArgv(sshTarget: string, controlPath: string, args: readonly string[]): string[] {
