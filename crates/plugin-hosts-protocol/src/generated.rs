@@ -82,7 +82,7 @@ impl ::std::convert::From<CapabilityHostsCloseParamsSession> for ::std::string::
 impl ::std::str::FromStr for CapabilityHostsCloseParamsSession {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_6(value, Self)
+        validate_string_7(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityHostsCloseParamsSession {
@@ -193,7 +193,7 @@ impl ::std::convert::From<CapabilityHostsFetchParamsSession> for ::std::string::
 impl ::std::str::FromStr for CapabilityHostsFetchParamsSession {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_6(value, Self)
+        validate_string_7(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityHostsFetchParamsSession {
@@ -288,7 +288,7 @@ impl ::std::convert::From<CapabilityHostsOpenParamsAlias> for ::std::string::Str
 impl ::std::str::FromStr for CapabilityHostsOpenParamsAlias {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_7(value, Self)
+        validate_string_8(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityHostsOpenParamsAlias {
@@ -358,7 +358,7 @@ impl ::std::convert::From<CapabilityHostsOpenResultSession> for ::std::string::S
 impl ::std::str::FromStr for CapabilityHostsOpenResultSession {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_6(value, Self)
+        validate_string_7(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityHostsOpenResultSession {
@@ -683,7 +683,7 @@ impl ::std::convert::From<CapabilityHostsRunParamsSession> for ::std::string::St
 impl ::std::str::FromStr for CapabilityHostsRunParamsSession {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_6(value, Self)
+        validate_string_7(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityHostsRunParamsSession {
@@ -728,7 +728,7 @@ impl ::std::convert::From<CapabilityHostsRunParamsStdin> for ::std::string::Stri
 impl ::std::str::FromStr for CapabilityHostsRunParamsStdin {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_3(value, Self)
+        validate_string_4(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityHostsRunParamsStdin {
@@ -965,7 +965,7 @@ impl ::std::convert::From<HostRunnerCheckParamsAlias> for ::std::string::String 
 impl ::std::str::FromStr for HostRunnerCheckParamsAlias {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_7(value, Self)
+        validate_string_8(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for HostRunnerCheckParamsAlias {
@@ -1056,7 +1056,7 @@ impl ::std::convert::From<HostRunnerCheckParamsHome> for ::std::string::String {
 impl ::std::str::FromStr for HostRunnerCheckParamsHome {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_4(value, Self)
+        validate_string_5(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for HostRunnerCheckParamsHome {
@@ -1101,7 +1101,7 @@ impl ::std::convert::From<HostRunnerCheckParamsRepo> for ::std::string::String {
 impl ::std::str::FromStr for HostRunnerCheckParamsRepo {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_4(value, Self)
+        validate_string_5(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for HostRunnerCheckParamsRepo {
@@ -1146,7 +1146,7 @@ impl ::std::convert::From<HostRunnerCheckParamsSshTarget> for ::std::string::Str
 impl ::std::str::FromStr for HostRunnerCheckParamsSshTarget {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_5(value, Self)
+        validate_string_6(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for HostRunnerCheckParamsSshTarget {
@@ -1386,10 +1386,7 @@ impl ::std::convert::From<HostRunnerCheckResultFactsKey> for ::std::string::Stri
 impl ::std::str::FromStr for HostRunnerCheckResultFactsKey {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 64usize {
-            return Err("longer than 64 characters".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_3(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for HostRunnerCheckResultFactsKey {
@@ -1507,7 +1504,7 @@ impl ::std::convert::From<HostRunnerCloseParamsSession> for ::std::string::Strin
 impl ::std::str::FromStr for HostRunnerCloseParamsSession {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_6(value, Self)
+        validate_string_7(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for HostRunnerCloseParamsSession {
@@ -1851,7 +1848,7 @@ impl ::std::convert::From<HostRunnerFetchParamsSession> for ::std::string::Strin
 impl ::std::str::FromStr for HostRunnerFetchParamsSession {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_6(value, Self)
+        validate_string_7(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for HostRunnerFetchParamsSession {
@@ -2079,7 +2076,7 @@ impl ::std::convert::From<HostRunnerOpenParamsAlias> for ::std::string::String {
 impl ::std::str::FromStr for HostRunnerOpenParamsAlias {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_7(value, Self)
+        validate_string_8(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for HostRunnerOpenParamsAlias {
@@ -2170,7 +2167,7 @@ impl ::std::convert::From<HostRunnerOpenParamsSshTarget> for ::std::string::Stri
 impl ::std::str::FromStr for HostRunnerOpenParamsSshTarget {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_5(value, Self)
+        validate_string_6(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for HostRunnerOpenParamsSshTarget {
@@ -2240,7 +2237,7 @@ impl ::std::convert::From<HostRunnerOpenResultSession> for ::std::string::String
 impl ::std::str::FromStr for HostRunnerOpenResultSession {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_6(value, Self)
+        validate_string_7(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for HostRunnerOpenResultSession {
@@ -2576,7 +2573,7 @@ impl ::std::convert::From<HostRunnerRunParamsSession> for ::std::string::String 
 impl ::std::str::FromStr for HostRunnerRunParamsSession {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_6(value, Self)
+        validate_string_7(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for HostRunnerRunParamsSession {
@@ -2621,7 +2618,7 @@ impl ::std::convert::From<HostRunnerRunParamsStdin> for ::std::string::String {
 impl ::std::str::FromStr for HostRunnerRunParamsStdin {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_3(value, Self)
+        validate_string_4(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for HostRunnerRunParamsStdin {
@@ -3074,7 +3071,7 @@ impl ::std::convert::From<HostRunnerStreamParamsSession> for ::std::string::Stri
 impl ::std::str::FromStr for HostRunnerStreamParamsSession {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_6(value, Self)
+        validate_string_7(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for HostRunnerStreamParamsSession {
@@ -3123,6 +3120,296 @@ impl<'de> ::serde::Deserialize<'de> for HostRunnerStreamParamsSession {
 pub struct HostRunnerStreamResult {
     pub bytes: i64,
     pub code: u8,
+}
+///`HostRunnerUploadParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "args",
+///    "completionNonce",
+///    "maxBytes",
+///    "script",
+///    "session",
+///    "timeoutMs"
+///  ],
+///  "properties": {
+///    "args": {
+///      "type": "array",
+///      "items": {
+///        "type": "string",
+///        "maxLength": 64
+///      },
+///      "maxItems": 2,
+///      "minItems": 2
+///    },
+///    "completionNonce": {
+///      "type": "string",
+///      "format": "uuid",
+///      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+///    },
+///    "maxBytes": {
+///      "type": "integer",
+///      "maximum": 4096.0,
+///      "exclusiveMinimum": 0.0
+///    },
+///    "script": {
+///      "type": "string",
+///      "const": "BINARY"
+///    },
+///    "session": {
+///      "type": "string",
+///      "pattern": "^[A-Za-z0-9_-]{16,128}$"
+///    },
+///    "timeoutMs": {
+///      "type": "integer",
+///      "maximum": 300000.0,
+///      "exclusiveMinimum": 0.0
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct HostRunnerUploadParams {
+    pub args: [HostRunnerUploadParamsArgsItem; 2usize],
+    #[serde(rename = "completionNonce")]
+    pub completion_nonce: ::uuid::Uuid,
+    #[serde(rename = "maxBytes")]
+    pub max_bytes: ::std::num::NonZeroU64,
+    pub script: ::std::string::String,
+    pub session: HostRunnerUploadParamsSession,
+    #[serde(rename = "timeoutMs")]
+    pub timeout_ms: ::std::num::NonZeroU64,
+}
+///`HostRunnerUploadParamsArgsItem`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 64
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct HostRunnerUploadParamsArgsItem(::std::string::String);
+impl ::std::ops::Deref for HostRunnerUploadParamsArgsItem {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<HostRunnerUploadParamsArgsItem> for ::std::string::String {
+    fn from(value: HostRunnerUploadParamsArgsItem) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for HostRunnerUploadParamsArgsItem {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_3(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for HostRunnerUploadParamsArgsItem {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for HostRunnerUploadParamsArgsItem {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`HostRunnerUploadParamsSession`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "pattern": "^[A-Za-z0-9_-]{16,128}$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct HostRunnerUploadParamsSession(::std::string::String);
+impl ::std::ops::Deref for HostRunnerUploadParamsSession {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<HostRunnerUploadParamsSession> for ::std::string::String {
+    fn from(value: HostRunnerUploadParamsSession) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for HostRunnerUploadParamsSession {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_7(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for HostRunnerUploadParamsSession {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for HostRunnerUploadParamsSession {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`HostRunnerUploadResult`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "code",
+///    "stderr",
+///    "stdout",
+///    "timedOut"
+///  ],
+///  "properties": {
+///    "code": {
+///      "type": "integer",
+///      "maximum": 255.0,
+///      "minimum": 0.0
+///    },
+///    "stderr": {
+///      "type": "string",
+///      "maxLength": 4096
+///    },
+///    "stdout": {
+///      "type": "string",
+///      "maxLength": 4096
+///    },
+///    "timedOut": {
+///      "type": "boolean"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct HostRunnerUploadResult {
+    pub code: u8,
+    pub stderr: HostRunnerUploadResultStderr,
+    pub stdout: HostRunnerUploadResultStdout,
+    #[serde(rename = "timedOut")]
+    pub timed_out: bool,
+}
+///`HostRunnerUploadResultStderr`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 4096
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct HostRunnerUploadResultStderr(::std::string::String);
+impl ::std::ops::Deref for HostRunnerUploadResultStderr {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<HostRunnerUploadResultStderr> for ::std::string::String {
+    fn from(value: HostRunnerUploadResultStderr) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for HostRunnerUploadResultStderr {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_0(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for HostRunnerUploadResultStderr {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for HostRunnerUploadResultStderr {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`HostRunnerUploadResultStdout`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 4096
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct HostRunnerUploadResultStdout(::std::string::String);
+impl ::std::ops::Deref for HostRunnerUploadResultStdout {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<HostRunnerUploadResultStdout> for ::std::string::String {
+    fn from(value: HostRunnerUploadResultStdout) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for HostRunnerUploadResultStdout {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_0(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for HostRunnerUploadResultStdout {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for HostRunnerUploadResultStdout {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
 }
 ///`PacerPluginProtocol150`
 ///
@@ -3191,12 +3478,21 @@ fn validate_string_3<T>(
     value: &str,
     construct: impl FnOnce(::std::string::String) -> T,
 ) -> ::std::result::Result<T, self::error::ConversionError> {
+    if value.chars().count() > 64usize {
+        return Err("longer than 64 characters".into());
+    }
+    Ok(construct(value.to_string()))
+}
+fn validate_string_4<T>(
+    value: &str,
+    construct: impl FnOnce(::std::string::String) -> T,
+) -> ::std::result::Result<T, self::error::ConversionError> {
     if value.chars().count() > 65536usize {
         return Err("longer than 65536 characters".into());
     }
     Ok(construct(value.to_string()))
 }
-fn validate_string_4<T>(
+fn validate_string_5<T>(
     value: &str,
     construct: impl FnOnce(::std::string::String) -> T,
 ) -> ::std::result::Result<T, self::error::ConversionError> {
@@ -3207,7 +3503,7 @@ fn validate_string_4<T>(
     }
     Ok(construct(value.to_string()))
 }
-fn validate_string_5<T>(
+fn validate_string_6<T>(
     value: &str,
     construct: impl FnOnce(::std::string::String) -> T,
 ) -> ::std::result::Result<T, self::error::ConversionError> {
@@ -3219,7 +3515,7 @@ fn validate_string_5<T>(
     }
     Ok(construct(value.to_string()))
 }
-fn validate_string_6<T>(
+fn validate_string_7<T>(
     value: &str,
     construct: impl FnOnce(::std::string::String) -> T,
 ) -> ::std::result::Result<T, self::error::ConversionError> {
@@ -3230,7 +3526,7 @@ fn validate_string_6<T>(
     }
     Ok(construct(value.to_string()))
 }
-fn validate_string_7<T>(
+fn validate_string_8<T>(
     value: &str,
     construct: impl FnOnce(::std::string::String) -> T,
 ) -> ::std::result::Result<T, self::error::ConversionError> {

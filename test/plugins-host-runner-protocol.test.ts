@@ -41,6 +41,8 @@ test("fixed host-runner scripts and seven bounded method contracts",()=>{
   expect(upload.safeParse({...mutation,stdin:"bytes"}).success).toBe(false);
   expect(upload.safeParse({...mutation,timeoutMs:300_001}).success).toBe(false);
   expect(upload.safeParse({...mutation,args:["a".repeat(64),"check"]}).success).toBe(false);
+  expect(upload.safeParse({...mutation,args:["bad","upload"]}).success).toBe(false);
+  expect(upload.safeParse({...mutation,args:["a".repeat(64),"upload","extra"]}).success).toBe(false);
   expect(run.safeParse({...request,maxBytes:1024,timeoutMs:300_000}).success).toBe(false);
   expect(EXTENSION_METHODS["hostRunner.fetch"].result.safeParse({name:"/tmp/out.bundle",bytes:1,sha256:"a".repeat(64)}).success).toBe(false);
 });
