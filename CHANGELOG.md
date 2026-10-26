@@ -15,6 +15,12 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - Discoverable v3 CLI operations through `pacer api list`, `describe` and `call`, with filtered metadata, JSON schemas and bounded JSON file/stdin input. The Pacer skill teaches on-demand discovery for product controls.
 - Scriptable authenticated session I/O, attachment upload/list/download/removal, and targeted acknowledged page/native controls for appearance, navigation, windows and tray actions.
 
+### Changed
+
+- Settings → Dispatcher now contains saved global profiles and executor eligibility, including repository overrides. Former Routing and Strategies links redirect there.
+- Open tasks in a split workspace with a task navigator and a larger session pane. Keep task details compact, make each list row one navigation target, and use the main Tasks route for returning to the list.
+- Add a read-only `ui:ready` preflight for PR evidence and make skipped local evidence checks explicit; centralize the agent readiness procedure in the UI rules.
+
 ### Fixed
 
 - Release a finished conversation's runner ownership so a failed session can resume once its terminal has stopped. Explain disk-full failures and provide an attach command when a terminal viewer cannot open.
@@ -27,15 +33,6 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - Align Tasks and Start work with Overview's full-width page gutters and bordered sections. Keep task metadata and actions in stable desktop columns, show complete titles when space permits, and retain full-title tooltips when long titles clip.
 
 - Remove compounded spacing in app sections, cards, settings and embedded page headers; keep task disclosures evenly spaced and compact while preserving touch targets. Add shared spacing ownership checks and browser geometry regressions.
-
-### Changed
-
-- Settings → Dispatcher now contains saved global profiles and executor eligibility, including repository overrides. Former Routing and Strategies links redirect there.
-
-- Open tasks in a split workspace with a task navigator and a larger session pane. Keep task details compact, make each list row one navigation target, and use the main Tasks route for returning to the list.
-- Add a read-only `ui:ready` preflight for PR evidence and make skipped local evidence checks explicit; centralize the agent readiness procedure in the UI rules.
-
-### Fixed
 
 - Let live native controls verify a completed managed OTA fixture without transferring teardown ownership, and keep authority collection and input within the original command deadline.
 
