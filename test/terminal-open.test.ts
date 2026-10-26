@@ -20,7 +20,7 @@ test("macOS uses Terminal with a private quoted script", async () => {
   expect(statSync(script).mode & 0o777).toBe(0o700);
 });
 test("an unset preference detects the same macOS terminal as session viewers", async () => {
-  const ctx=fakeCtx({env:{TERM_PROGRAM:"iTerm.app"}}), d=deps();
+  const ctx=fakeCtx({env:{TERM_PROGRAM:"iTerm"}}), d=deps();
   await openInTerminal(ctx,{argv:["codex","login"],title:"Login",target:"terminal"},d.deps);
   expect(d.calls[0]?.slice(0,3)).toEqual(["open","-a","iTerm"]);
 });
