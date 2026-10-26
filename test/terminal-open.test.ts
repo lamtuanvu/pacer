@@ -11,13 +11,18 @@ function deps(overrides: Partial<TerminalDeps> = {}) {
   return { calls, deps: { platform: "darwin", which: () => "/usr/bin/fake", orcaAvailable: async () => false, env: {}, run: async (argv: string[]) => { calls.push(argv); return { code: 0, stdout: "", stderr: "" }; }, ...overrides } as TerminalDeps };
 }
 test("macOS uses Terminal with a private quoted script", async () => {
-  const ctx = fakeCtx(), d = deps();
+  const ctx = fakeCtx({env:{TERM_PROGRAM:"Apple_Terminal"}}), d = deps();
   const result = await openInTerminal(ctx, { argv: ["codex", "login"], env: { CODEX_HOME: "/tmp/a b" }, title: "Sign in" }, d.deps);
   expect(result).toEqual({ opened: true, target: "terminal", command: "CODEX_HOME='/tmp/a b' codex login" });
   expect(d.calls[0]?.slice(0, 3)).toEqual(["open", "-a", "Terminal"]);
   const script = d.calls[0]![3]!;
   expect(readFileSync(script, "utf8")).toContain("CODEX_HOME='/tmp/a b' codex login");
   expect(statSync(script).mode & 0o777).toBe(0o700);
+});
+test("an unset preference detects the same macOS terminal as session viewers", async () => {
+  const ctx=fakeCtx({env:{TERM_PROGRAM:"iTerm.app"}}), d=deps();
+  await openInTerminal(ctx,{argv:["codex","login"],title:"Login",target:"terminal"},d.deps);
+  expect(d.calls[0]?.slice(0,3)).toEqual(["open","-a","iTerm"]);
 });
 test("terminal.app is configured and read through config", async () => {
   const ctx = fakeCtx(), d = deps();
@@ -29,6 +34,23 @@ test("terminal.app is configured and read through config", async () => {
   await openInTerminal(ctx, { argv: ["codex", "login"], title: "Login" }, d.deps);
   expect(d.calls[0]?.slice(0, 3)).toEqual(["open", "-a", "Ghostty"]);
   await expect(config.set(ctx, "terminal.app", "unknown")).rejects.toThrow();
+});
+test("terminal.open selects the macOS app for other terminal actions", async () => {
+  const ctx = fakeCtx(), d = deps();
+  mkdirSync(ctx.pacerHome, { recursive: true });
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders:\n  claude-code: {}\n");
+  await config.set(ctx, "terminal.app", "Terminal");
+  await config.set(ctx, "terminal.open", "iterm");
+  await openInTerminal(ctx, { argv: ["codex", "login"], title: "Login", target: "terminal" }, d.deps);
+  expect(d.calls[0]?.slice(0, 3)).toEqual(["open", "-a", "iTerm"]);
+});
+test("terminal.open selects the Linux app for other terminal actions", async () => {
+  const ctx = fakeCtx(), d = deps({platform:"linux"});
+  mkdirSync(ctx.pacerHome, { recursive: true });
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders:\n  claude-code: {}\n");
+  await config.set(ctx, "terminal.open", "kitty");
+  await openInTerminal(ctx, { argv: ["codex", "login"], title: "Login", target: "terminal" }, d.deps);
+  expect(d.calls[0]?.[0]).toBe("kitty");
 });
 test("headless Linux returns the copyable command", async () => {
   const ctx = fakeCtx(), d = deps({ platform: "linux", which: () => null });

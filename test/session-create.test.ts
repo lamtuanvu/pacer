@@ -10,6 +10,24 @@ import { writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { readTask, createTask, updateTask } from "../src/tasks/store";
 import { callOp } from "../src/api/ops";
+import { runTask } from "../src/tasks/runner";
+import { queueDeps, queueStrategy, queueTask } from "./queue-helpers";
+
+test("a failed conversation releases its runner after recording the result", async () => {
+  const ctx = fakeCtx(), task = queueTask(ctx, "Recover conversation", "codex");
+  updateTask(ctx, task.id, t => {
+    t.interactionMode = "conversation";
+    t.conversation = { activity: "starting", agentSessionId: "native-id" };
+  });
+  const deps = queueDeps(queueStrategy());
+  deps.runAttempt = async () => {
+    throw Error("ENOSPC: no space left on device");
+  };
+  const failed = await runTask(ctx, task.id, deps);
+  expect(failed.state).toBe("failed");
+  expect(failed.result?.report).toContain("ENOSPC");
+  expect(failed.runnerPid).toBeUndefined();
+});
 
 test("resume refuses an ended session while its previous runner is still settling", async () => {
   const ctx = fakeCtx();

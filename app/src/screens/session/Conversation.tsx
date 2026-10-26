@@ -15,6 +15,15 @@ import { changeConversation } from "../../model/conversation";
 import { ErrorMessage, useQuery, useTaskContext } from "../task-shared";
 import { SessionAttachments } from "./Attachments";
 
+export function TerminalOpenFallback({ command }: { command: string }) {
+  return (
+    <Alert tone="error" title="Terminal did not open">
+      <p>Run this command in your preferred terminal:</p>
+      <code className="pc-code-scroll" tabIndex={0}>{command}</code>
+    </Alert>
+  );
+}
+
 export function ConversationHeader({
   title,
   repo,
@@ -124,8 +133,7 @@ export function Conversation({
         "task.attach",
         { id: task.id, target: "terminal" },
       );
-      if (!result.opened)
-        setNotice(result.command ?? "Open the session with pacer attach.");
+      setNotice(result.opened ? "" : result.command ?? `pacer attach ${task.id}`);
     } catch (e) {
       setError(e);
     }
@@ -172,6 +180,8 @@ export function Conversation({
         <Alert tone="error" title="Session failed">
           {repairTarget ? (
             <p>The agent integration needs repair. Preserve your customizations, then reconnect it with <code>pacer install {repairTarget}</code>.</p>
+          ) : /ENOSPC|no space left on device/i.test(task.summary) ? (
+            <p>Free space on this machine, then resume if available or start a new session. Your recorded output and workspace are retained.</p>
           ) : <p>The agent stopped. Open technical details for the recorded error.</p>}
           <DisclosurePanel summary="Technical details">
             <code className="pc-conversation-detail">{task.summary}</code>
@@ -190,7 +200,7 @@ export function Conversation({
         ]}
       />
       <ErrorMessage error={error ?? context.error} />
-      <p role="status">{notice}</p>
+      {notice && <TerminalOpenFallback command={notice} />}
       <div
         id="conversation-terminal-panel"
         role="tabpanel"

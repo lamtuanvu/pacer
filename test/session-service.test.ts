@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { terminalRecipe, attachCommand } from '../src/session/targets';
-import { BuiltinSessionHost, OrcaSessionHost, sessionInfo, openSession } from '../src/session/service';
+import { BuiltinSessionHost, OrcaSessionHost, sessionInfo, openSession, terminalSetting } from '../src/session/service';
 import { callOp } from '../src/api/ops';
 import { fakeCtx } from './helpers';
 import { writeJsonAtomic } from '../src/fsutil';
@@ -55,6 +55,13 @@ test('terminal.open is editable and malformed template settings are rejected',as
  expect(await callOp(ctx,'config.set',{key:'terminal.open',value:'kitty'})).toMatchObject({key:'terminal.open',value:'kitty'});
  await expect(callOp(ctx,'config.set',{key:'terminal.open',value:'invalid'})).rejects.toThrow();
 });
+test('session viewers honor a legacy macOS terminal.app choice', () => {
+ const ctx=fakeCtx({env:{TERM_PROGRAM:'Apple_Terminal'}});mkdirSync(ctx.pacerHome,{recursive:true});
+ writeFileSync(join(ctx.pacerHome,'strategy.yaml'),'planner: claude-code\nproviders: {claude-code: {}}\nterminal: {app: Ghostty}\n');
+ expect(terminalSetting(ctx)).toBe('ghostty');
+ writeFileSync(join(ctx.pacerHome,'strategy.yaml'),'planner: claude-code\nproviders: {claude-code: {}}\nterminal: {app: Ghostty, open: auto}\n');
+ expect(terminalSetting(ctx)).toBe('terminal-app');
+});
 test('terminal viewers return promptly while keeping a long-lived process alive',async()=>{
  const { launchViewer }=await import('../src/session/targets');
  const ctx=fakeCtx({env:{PATH:process.env.PATH}}),marker=join(ctx.home,'viewer-alive');
@@ -64,6 +71,14 @@ test('terminal viewers return promptly while keeping a long-lived process alive'
  for(let i=0;i<30;i++){if((await Bun.file(marker).exists()))break;await Bun.sleep(25);}
  expect(await Bun.file(marker).text()).toBe('alive');
  expect(await launchViewer(ctx,[process.execPath,'-e','process.exit(1)'])).toBe(false);
+});
+test('macOS viewer launch waits for the launcher to report success',async()=>{
+ const {launchViewer}=await import('../src/session/targets');
+ const calls:string[][]=[];
+ const ctx=fakeCtx({run:async argv=>{calls.push(argv);return {code:1,stdout:'',stderr:'no window'};}});
+ const argv=['/bin/sh','-c','sleep 0.2; exit 1'];
+ expect(await launchViewer(ctx,argv,true)).toBe(false);
+ expect(calls).toEqual([argv]);
 });
 test('desktop viewer availability rejects SSH and Linux without a display',async()=>{
  const { hasDesktop }=await import('../src/session/targets');

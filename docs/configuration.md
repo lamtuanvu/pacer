@@ -141,9 +141,13 @@ the tray menu's **Pause 1h** pauses new delegation; running tasks continue.
 whole minutes, hours or days, up to seven days. `mode.hold` can keep a mode until
 the planner window resets, or an explicit future timestamp; `mode.release` ends it.
 
-`terminal.app` selects Terminal, iTerm or Ghostty on macOS (default Terminal).
-Automatic terminal opening tries Orca, the terminal app, then tmux. On a headless
-machine, operations return a copyable command with `opened: false`.
+**Settings → This machine → Preferred terminal** chooses the app used by
+**Open in terminal** and other local terminal actions. The choice is stored as
+`terminal.open`; `auto` detects a terminal. Existing `terminal.app` choices
+remain in effect until a preferred terminal is chosen. The CLI can also set a
+custom argv template with `pacer config set terminal.open '<template with {cmd}>'`.
+Automatic terminal opening tries Orca, the chosen terminal app, then tmux. On a
+headless machine, operations return a copyable command with `opened: false`.
 Notifications are stored in `settings.json`, default to `important`, and support
 `off`, `important` and `all`.
 

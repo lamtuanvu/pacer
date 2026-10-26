@@ -90,6 +90,7 @@ function finish(ctx: Ctx, id: string, result: TaskResult): TaskRecord {
     };
     if (t.takeover) t.takeover.state = "ended";
     delete t.childPid;
+    delete t.runnerPid;
   });
   if (finished.state === "done") {
     const seen = new Set<string>([id]);

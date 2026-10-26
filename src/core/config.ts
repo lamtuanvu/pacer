@@ -64,6 +64,9 @@ export function get(ctx: Ctx) {
     const s = loadStrategy(ctx), path = strategyPath(ctx), doc = new StrategyDoc(readFileSync(path, 'utf8')), values = effective(s, doc);
     return {
       keys: Object.fromEntries(CONFIG_KEYS.map(key => [key, {value: values[key], source: doc.getIn(key.split('.')) === undefined ? 'default' : path}])),
+      terminalChoices: process.platform === 'darwin'
+        ? [{value:'auto',label:'Automatic'},{value:'terminal-app',label:'Terminal'},{value:'iterm',label:'iTerm'},{value:'ghostty',label:'Ghostty'}]
+        : [{value:'auto',label:'Automatic'},{value:'ghostty',label:'Ghostty'},{value:'wezterm',label:'WezTerm'},{value:'kitty',label:'Kitty'},{value:'alacritty',label:'Alacritty'},{value:'gnome-terminal',label:'GNOME Terminal'},{value:'x-terminal-emulator',label:'System terminal'}],
       planners: PLANNERS.flatMap(agent => plannerAccounts(ctx, s, agent).map(a => formatRunnerId({agent, account: a.name, host: null}, {...runnerDefaults(s.accounts), opencode: undefined}))),
     };
   } catch (e) { throw toCoreError(e); }

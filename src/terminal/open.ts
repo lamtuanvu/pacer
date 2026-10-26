@@ -3,6 +3,7 @@ import { chmodSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writ
 import { join } from "node:path";
 import { strategyPath } from "../config/strategy";
 import { CoreError } from "../core/errors";
+import { detectTerminal, splitArgv } from "../session/targets";
 import { OrcaClient, isReady } from "../exec/orca/client";
 import { shellCommand } from "../install/fsx";
 import type { Ctx, RunFn } from "../types";
@@ -99,14 +100,45 @@ async function openAdmitted(ctx: Ctx, o: TerminalOptions, deps: Partial<Terminal
           argv = ["tmux", "new-window", shellCommand([launchScript()])];
         } else if (d.platform === "darwin") {
           if (!d.which("open")) continue;
-          let app = "Terminal";
+          const names: Record<string, string> = {
+            "terminal-app": "Terminal", iterm: "iTerm", ghostty: "Ghostty",
+            wezterm: "WezTerm", kitty: "kitty", alacritty: "Alacritty",
+          };
+          let app = names[detectTerminal(ctx, d.platform) ?? ""] ?? "Terminal";
+          let template: string | undefined;
           try {
-            const raw = Bun.YAML.parse(readFileSync(strategyPath(ctx), "utf8")) as { terminal?: { app?: string } };
+            const raw = Bun.YAML.parse(readFileSync(strategyPath(ctx), "utf8")) as { terminal?: { app?: string; open?: string } };
             if (["Terminal", "iTerm", "Ghostty"].includes(raw?.terminal?.app ?? "")) app = raw.terminal!.app!;
+            const selected = raw?.terminal?.open === "auto"
+              ? detectTerminal(ctx, d.platform)
+              : raw?.terminal?.open;
+            if (selected && names[selected]) app = names[selected];
+            else if (selected?.includes("{cmd}")) template = selected;
           } catch { /* default before configuration */ }
-          argv = ["open", "-a", app, launchScript()];
-        } else if (d.platform === "linux" && d.which("x-terminal-emulator")) {
-          argv = ["x-terminal-emulator", "-e", launchScript()];
+          const script = launchScript();
+          argv = template
+            ? splitArgv(template).map(arg => arg.replaceAll("{cmd}", script))
+            : ["open", "-a", app, script];
+        } else if (d.platform === "linux") {
+          let selected: string | undefined;
+          try {
+            const raw = Bun.YAML.parse(readFileSync(strategyPath(ctx), "utf8")) as {terminal?: {open?: string}};
+            selected = raw?.terminal?.open;
+          } catch { /* default before configuration */ }
+          if (selected === "auto") selected = detectTerminal(ctx, d.platform) ?? undefined;
+          if (!selected && !d.which("x-terminal-emulator")) continue;
+          const script = launchScript();
+          const linux: Record<string, string[]> = {
+            ghostty: ["ghostty", "-e", script],
+            wezterm: ["wezterm", "start", "--", script],
+            kitty: ["kitty", script],
+            alacritty: ["alacritty", "-e", script],
+            "gnome-terminal": ["gnome-terminal", "--", script],
+            "x-terminal-emulator": ["x-terminal-emulator", "-e", script],
+          };
+          argv = selected?.includes("{cmd}")
+            ? splitArgv(selected).map(arg => arg.replaceAll("{cmd}", script))
+            : linux[selected ?? "x-terminal-emulator"] ?? ["x-terminal-emulator", "-e", script];
         } else continue;
         const result = await d.run(argv, 5000, { env: d.env });
         if (result.code === 0) return { opened: true, target, command };

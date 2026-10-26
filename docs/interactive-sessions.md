@@ -14,7 +14,13 @@ Claude Code starts with an assigned native conversation UUID. OpenCode creates a
 
 End session stops the process while retaining its changes and output. It does not accept or merge the work. Resume conversation is available when the agent supplied a native session identity and its adapter supports resuming; it keeps the same agent/account and worktree.
 
-If a session fails before its terminal opens, the working screen shows the recorded failure reason. Follow its repair hint, then start a new session; the failed record remains available for reference.
+If a session fails, the working screen shows its recorded failure reason. For a
+full disk, free space on this machine before resuming. Resume keeps the native
+conversation identity when available and waits until the previous agent process
+and terminal have stopped. **Open in terminal** can replay retained output; if
+opening the app fails, the screen shows a copyable `pacer attach` command. A
+failure before the agent reports a resumable identity requires a new session;
+the failed record remains available for reference.
 
 CLI equivalents require a running `pacer serve`:
 

@@ -60,8 +60,9 @@ export function detectTerminal(ctx:Ctx,platform:NodeJS.Platform=process.platform
  return ['ghostty','wezterm','kitty','alacritty','gnome-terminal','x-terminal-emulator'].find(bin=>ctx.which(bin))??null;
 }
 /** GUI terminals may remain in the foreground for the lifetime of the window. */
-export async function launchViewer(ctx:Ctx,argv:string[]):Promise<boolean>{
+export async function launchViewer(ctx:Ctx,argv:string[],verifyExit=false):Promise<boolean>{
  try{
+  if(verifyExit)return (await ctx.run(argv,15_000,{env:ctx.env})).code===0;
   const proc=Bun.spawn(argv,{env:ctx.env,stdin:'ignore',stdout:'ignore',stderr:'ignore',detached:true});
   const status=await Promise.race([proc.exited,Bun.sleep(100).then(()=>null)]);
   proc.unref();return status===null||status===0;

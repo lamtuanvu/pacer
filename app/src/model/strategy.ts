@@ -1,4 +1,4 @@
-export interface ConfigData { keys: Record<string,{value:unknown;source?:string}>; planners:string[] }
+export interface ConfigData { keys: Record<string,{value:unknown;source?:string}>; planners:string[]; terminalChoices?: {value:string;label:string}[] }
 export const pacingFields = ['pacing.policy','pacing.planner_reserve','pacing.accounts','pacing.fill_threshold'] as const;
 export type PacingDraft = Record<typeof pacingFields[number],string>;
 export function pacingDraft(keys:ConfigData['keys']):PacingDraft { return Object.fromEntries(pacingFields.map(k=>[k,String(keys[k]?.value ?? '')])) as PacingDraft; }

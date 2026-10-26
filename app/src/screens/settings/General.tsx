@@ -577,6 +577,19 @@ export function MachineSection({ initialData }: { initialData?: ConfigData }) {
   const query = useResource("config.get", {}, initialData),
     action = useOperation(query.reload);
   const value = query.data?.keys["execution.local_max_tasks"]?.value;
+  const terminal = String(query.data?.keys["terminal.open"]?.value ?? "");
+  const legacy = String(query.data?.keys["terminal.app"]?.value ?? "Terminal");
+  const choices = query.data?.terminalChoices ?? [
+    {value:"auto",label:"Automatic"},{value:"terminal-app",label:"Terminal"},
+    {value:"iterm",label:"iTerm"},{value:"ghostty",label:"Ghostty"},
+  ];
+  const legacyPreset = query.data?.keys["terminal.app"]?.source === "default"
+    ? undefined
+    : ({Terminal:"terminal-app",iTerm:"iterm",Ghostty:"ghostty"} as Record<string,string>)[legacy];
+  const selectedTerminal = terminal || (legacyPreset && choices.some(choice => choice.value === legacyPreset) ? legacyPreset : "auto");
+  const terminalChoices = choices.some(choice => choice.value === selectedTerminal)
+    ? choices
+    : [...choices, {value:selectedTerminal,label:"Custom terminal (CLI)",disabled:true,reason:"Configured from the CLI"}];
   return (
     <Section id="machine" title="This machine">
       <ResourceState resource={query}>
@@ -599,6 +612,15 @@ export function MachineSection({ initialData }: { initialData?: ConfigData }) {
                   value: Number(e.currentTarget.value),
                 });
             }}
+          />
+        </Field>
+        <Field label="Preferred terminal" help="Used when opening sessions and other terminal actions on this machine.">
+          <ChoicePicker
+            aria-label="Preferred terminal"
+            value={selectedTerminal}
+            options={terminalChoices}
+            disabled={action.busy}
+            onValueChange={(choice) => void action.run("config.set", {key:"terminal.open",value:choice})}
           />
         </Field>
       </ResourceState>
