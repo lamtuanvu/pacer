@@ -314,6 +314,13 @@ export class PluginProcess {
     input.resolve();
   }
 
+  /** Readiness is true only after the exact owned request is registered. */
+  hasPendingStream(streamId: string): boolean {
+    return this.alive && [...this.pending.values()].some(pending =>
+      pending.method === "hostRunner.stream" && pending.stream?.streamId === streamId &&
+      !!pending.authority && !pending.authority.signal.aborted);
+  }
+
   /** Push one bounded viewer frame to the exact pending stream, then await its SSH write receipt. */
   sendStreamInput(streamId: string, bytes: Buffer): Promise<void> {
     const owning = [...this.pending.entries()].find(([, pending]) => pending.stream?.streamId === streamId);

@@ -27,6 +27,7 @@ test("stream progress is acknowledged only after the exact owner consumes it", a
     const result = process.request<{ code: number; bytes: number }>("hostRunner.stream", { streamId }, 3000,
       { authority, metadata: { capabilityCall: authority.token }, stream: { streamId,
         consume: async bytes => { seen = bytes.toString(); await consumed; } } });
+    expect(process.hasPendingStream(streamId)).toBe(true);
     await Bun.sleep(100);
     expect(seen).toBe("abc");
     let done = false;
@@ -34,6 +35,19 @@ test("stream progress is acknowledged only after the exact owner consumes it", a
     expect(done).toBe(false);
     release();
     expect(await result).toEqual({ code: 0, bytes: 3 });
+    expect(process.hasPendingStream(streamId)).toBe(false);
+  } finally { await process.terminate(); await authority.revoke(); }
+});
+
+test("a rejected stream request never reports ready", async () => {
+  const { authority, process } = start();
+  const streamId = "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa";
+  try {
+    const rejected = process.request("hostRunner.stream", { streamId, padding: "x".repeat(2 * 1024 * 1024) }, 3000,
+      { authority, metadata: { capabilityCall: authority.token }, stream: { streamId, consume: async () => {} } });
+    expect(process.hasPendingStream(streamId)).toBe(false);
+    await expect(rejected).rejects.toMatchObject({ code: "too_large" });
+    expect(process.hasPendingStream(streamId)).toBe(false);
   } finally { await process.terminate(); await authority.revoke(); }
 });
 
