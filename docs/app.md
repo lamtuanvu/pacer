@@ -114,6 +114,7 @@ run to see its result, checks, changes and delivery information before the
 collapsed executor transcript. Selecting any task opens it beside a compact task
 navigator. The main Tasks link, the task header's Tasks link and browser history
 return to the full list; the repository filter and list position are retained.
+Attention actions in the native tray open the same task detail route.
 Running tasks open to the Session view so the agent workspace gets the main pane.
 Changes, Brief and Result are available in the task's view tabs. Opening a live
 session takes control when nobody else holds it; a control action appears when

@@ -812,8 +812,11 @@ pub fn route(raw: &str) -> Option<String> {
     if value == "/" || value == "/overview" {
         return Some("#/".into());
     }
+    if value == "/needs-you" {
+        return Some("#/needs-you".into());
+    }
     let parts: Vec<_> = value.trim_matches('/').split('/').collect();
-    if !matches!(parts[0], "review" | "sessions" | "settings")
+    if !matches!(parts[0], "review" | "sessions" | "settings" | "tasks")
         || parts.len() > 3
         || (parts.len() == 3 && (parts[0] != "settings" || parts[1] != "hosts"))
         || parts.iter().any(|p| {
@@ -1414,6 +1417,9 @@ mod tests {
         for raw in [
             "/",
             "/overview",
+            "/needs-you",
+            "/tasks",
+            "/tasks/t-20261026-143834-b2c1",
             "#/review/t-123",
             "/sessions/t-123",
             "/settings/hosts/workstation",
@@ -1422,7 +1428,6 @@ mod tests {
             assert_eq!(route(&normalized), Some(normalized));
         }
         for retired in [
-            "tasks",
             "executors",
             "accounts",
             "strategy",
@@ -1433,6 +1438,7 @@ mod tests {
             assert!(route(&format!("pacer://{retired}/id")).is_none());
         }
         assert_eq!(route("pacer://overview"), Some("#/".into()));
+        assert_eq!(route("pacer://tasks/t-0412"), Some("#/tasks/t-0412".into()));
         for raw in [
             "javascript:alert(1)",
             "//evil.test",
@@ -1440,6 +1446,8 @@ mod tests {
             "/review/../settings",
             "/app/tray.html",
             "/review/a?x=1",
+            "/tasks/a/b",
+            "/tasks/%2e%2e",
         ] {
             assert!(route(raw).is_none(), "{raw}");
         }

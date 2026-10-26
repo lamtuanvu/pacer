@@ -23,6 +23,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Open current task details from native tray attention actions after the Tasks route migration.
 - Release a finished conversation's runner ownership so a failed session can resume once its terminal has stopped. Explain disk-full failures and provide an attach command when a terminal viewer cannot open.
 - Use the preferred terminal selected in This machine for session viewers and other local terminal actions, while preserving existing terminal.app preferences and detecting macOS iTerm.app consistently.
 - Round the tray panel corners and overlay its More menu without growing the panel.
