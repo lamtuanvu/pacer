@@ -8,10 +8,10 @@ from the tray to exit; the Dock icon or Open pacer restores the window.
 ## Download and set up
 
 [Download pacer for Mac](https://github.com/lamtuanvu/pacer/releases/latest).
-Choose `pacer-<version>-darwin-arm64-unsigned.dmg` for Apple silicon or
-`pacer-<version>-darwin-x64-unsigned.dmg` for Intel and drag pacer into Applications.
-
-The app is not yet signed. On first open, Control-click pacer in Applications and choose Open.
+Open `desktop-pacer-<version>-darwin-aarch64.dmg` (Apple silicon) and drag pacer
+into Applications. The app is signed with pacer's own certificate until pacer has
+an Apple Developer ID, so approve the first launch once in System Settings ›
+Privacy & Security › **Open Anyway**. Later versions install from Settings › Updates.
 
 **Welcome** opens one consent screen for the background service and the terminal
 link at `~/.local/bin/pacer`. If the directory is missing from PATH, an optional
@@ -48,10 +48,10 @@ CARGO_NET_OFFLINE=true bunx --no-install tauri build --bundles dmg --no-sign
 
 Offline builds require the locked crates and Bun packages to be cached first.
 The app is at `src-tauri/target/release/bundle/macos/pacer.app` and the disk image
-is under `src-tauri/target/release/bundle/dmg/`. The release workflow stages the
-matching CLI artifact with `TAURI_TARGET_TRIPLE=<triple> ./scripts/stage-cli.sh <cli>`,
-builds with `--target <triple> --bundles dmg --no-sign`, and publishes a versioned
-`-unsigned.dmg` for each architecture with checksums and provenance. The manual
+is under `src-tauri/target/release/bundle/dmg/`. Releases do not use Tauri's disk
+image: the release workflow signs the complete app, then publishes it as the
+`.app.tar.gz` update package and a `.dmg` built from the same signed app (see
+[distribution](../docs/distribution.md)). The manual
 `desktop.yml` workflow fetches the locked dependencies, tests and builds offline,
 then uploads a zipped unsigned app. It does not publish a release. This build
 is also available for owner testing; signing and notarization are separate work.

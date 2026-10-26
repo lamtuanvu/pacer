@@ -3,7 +3,7 @@ import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpDir } from "./helpers";
-import { buildDesktopFeed, desktopAssetName, publishDesktopRelease, verifyUpdateSignature, type DesktopReleaseOptions } from "../scripts/release/desktop-feed";
+import { buildDesktopFeed, desktopAssetName, desktopDiskImageName, publishDesktopRelease, verifyUpdateSignature, type DesktopReleaseOptions } from "../scripts/release/desktop-feed";
 
 function signingFixture() {
   const keys = generateKeyPairSync("ed25519"), id = Buffer.from("fixture1");
@@ -23,10 +23,12 @@ function fixture() {
   for (const arch of ["aarch64"] as const) {
     const bytes = Buffer.from(`signed fixture archive ${arch}`), name = desktopAssetName("1.2.3", arch);
     writeFileSync(join(dir, name), bytes); writeFileSync(join(dir, name + ".sig"), signing.signature(bytes));
+    writeFileSync(join(dir, desktopDiskImageName("1.2.3", arch)), Buffer.from(`fixture disk image ${arch}`));
   }
   const options: DesktopReleaseOptions = {
     mode: "fixture", publicKey: signing.publicKey, pins: { appleTeamId: "FIXTURE123" },
-    verifyArchive: async (_bytes, arch) => ({ schema: 1, version: "1.2.3", arch, bundleId: "dev.pacer.desktop", protocolMajors: [3], admissionProtocol: 1, nativeTransportAbi: 1, rollbackCompatible: true, fixture: true }),
+    verifyArchive: async (_bytes, arch) => ({ schema: 1, version: "1.2.3", arch, bundleId: "dev.pacer.desktop", protocolMajors: [3], admissionProtocol: 1, nativeTransportAbi: 1, rollbackCompatible: true, fixture: true, appTree: "a".repeat(64) }),
+    verifyDiskImage: async (_bytes, arch) => ({ schema: 1, version: "1.2.3", arch, bundleId: "dev.pacer.desktop", protocolMajors: [3], admissionProtocol: 1, nativeTransportAbi: 1, rollbackCompatible: true, fixture: true, appTree: "a".repeat(64) }),
   };
   let promotions = 0;
   const assets = new Map<string, Uint8Array>();
@@ -54,12 +56,21 @@ test("complete feed contains the darwin-arm64 immutable URL and matching metadat
   expect(Object.keys(feed.platforms)).toEqual(["darwin-aarch64"]);
   expect(feed.platforms["darwin-aarch64"].url).toBe("https://github.com/lamtuanvu/pacer/releases/download/v1.2.3/desktop-pacer-1.2.3-darwin-aarch64.app.tar.gz");
   expect(feed.platforms["darwin-aarch64"].admissionProtocol).toBe(1);
+  expect(JSON.stringify(feed)).not.toContain(".dmg");
 });
 
-for (const reason of ["missing-archive", "bad-signature", "wrong-version", "wrong-arch", "wrong-protocol", "no-notarization", "prerelease", "cli-only"]) {
+test("publication uploads the first-install disk image as an immutable asset", async () => {
+  const f = fixture();
+  await publishDesktopRelease(f.dir, "1.2.3", f.publisher, f.options);
+  expect([...f.assets.keys()].sort()).toEqual(["desktop-pacer-1.2.3-darwin-aarch64.app.tar.gz", "desktop-pacer-1.2.3-darwin-aarch64.app.tar.gz.sig", "desktop-pacer-1.2.3-darwin-aarch64.dmg", "desktop-release-1.2.3.json"]);
+});
+
+for (const reason of ["missing-archive", "missing-disk-image", "different-disk-image", "bad-signature", "wrong-version", "wrong-arch", "wrong-protocol", "no-notarization", "prerelease", "cli-only"]) {
   test(`invalid desktop release ${reason} performs zero promotions`, async () => {
     const f = fixture(); let version = "1.2.3";
     if (reason === "missing-archive" || reason === "cli-only") rmSync(join(f.dir, desktopAssetName("1.2.3", "aarch64")));
+    if (reason === "missing-disk-image") rmSync(join(f.dir, desktopDiskImageName("1.2.3", "aarch64")));
+    if (reason === "different-disk-image") f.options.verifyDiskImage = async (b, a) => ({ ...await f.options.verifyArchive!(b, a), appTree: "b".repeat(64) });
     if (reason === "bad-signature") writeFileSync(join(f.dir, desktopAssetName("1.2.3", "aarch64") + ".sig"), "invalid");
     if (reason === "prerelease") version = "1.2.3-beta.1";
     const original = f.options.verifyArchive!;
@@ -117,6 +128,7 @@ test("downgrade and production fixture verifier are refused before asset writes"
   const f = fixture();
   await expect(publishDesktopRelease(f.dir, "1.2.3", { ...f.publisher, readFeed: async () => ({ head: "newer", feed: '{"version":"2.0.0"}' }) }, f.options)).rejects.toThrow("downgrade");
   await expect(buildDesktopFeed(f.dir, "1.2.3", { ...f.options, mode: "production" })).rejects.toThrow("fixture verifier");
+  await expect(buildDesktopFeed(f.dir, "1.2.3", { ...f.options, mode: "production", verifyArchive: undefined })).rejects.toThrow("fixture verifier");
   expect(f.assets.size).toBe(0);
 });
 test("lost CAS response is recovered only when the exact validated feed is current", async () => {
@@ -152,6 +164,14 @@ test("interim archives are verified by certificate requirement, Developer ID arc
   const apple = signedAppChecks("/a/pacer.app", { appleTeamId: "ABCDE12345" }).map(a => a.join(" "));
   expect(apple).toContain("/usr/bin/xcrun stapler validate /a/pacer.app");
   expect(apple).toContain("/usr/sbin/spctl --assess --type execute /a/pacer.app");
+  const { diskImageChecks } = await import("../scripts/release/desktop-verify");
+  expect(diskImageChecks("/a/pacer.dmg", { signingCertSha1: cert })).toEqual([]);
+  expect(diskImageChecks("/a/pacer.dmg", { appleTeamId: "ABCDE12345", signingCertSha1: cert })).toEqual([]);
+  expect(diskImageChecks("/a/pacer.dmg", { appleTeamId: "ABCDE12345" }).map(a => a.join(" "))).toEqual([
+    `/usr/bin/codesign --verify --strict -R=anchor apple generic and identifier "dev.pacer.desktop.disk-image" and certificate leaf[subject.OU] = "ABCDE12345" /a/pacer.dmg`,
+    "/usr/bin/xcrun stapler validate /a/pacer.dmg",
+    "/usr/sbin/spctl --assess --type open --context context:primary-signature /a/pacer.dmg",
+  ]);
   const bridge = signedAppChecks("/a/pacer.app", { appleTeamId: "ABCDE12345", signingCertSha1: cert }).map(a => a.join(" "));
   expect(bridge.join("\n")).not.toMatch(/stapler|spctl/);
   expect(bridge.some(c => c.includes("or certificate leaf"))).toBe(true);

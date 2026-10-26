@@ -5,7 +5,7 @@ Every tagged release (`vX.Y.Z`, see [CONTRIBUTING](../CONTRIBUTING.md#releasing)
 | Channel | Install | Built from |
 | --- | --- | --- |
 | GitHub Releases | download `pacer-<os>-<arch>` and check it against `SHA256SUMS` | `release.yml` |
-| Desktop app | macOS: download `desktop-pacer-<version>-darwin-<arch>.app.tar.gz` (signed, updates itself); Linux: `pacer-<version>-linux-<arch>-unsigned.AppImage` or `.deb`; see [desktop](../desktop/README.md) | `release.yml` |
+| Desktop app | macOS: download `desktop-pacer-<version>-darwin-<arch>.dmg` (signed app, updates itself through the `.app.tar.gz` package); Linux: `pacer-<version>-linux-<arch>-unsigned.AppImage` or `.deb`; see [desktop](../desktop/README.md) | `release.yml` |
 | install.sh | `curl -fsSL https://raw.githubusercontent.com/lamtuanvu/pacer/main/install.sh \| sh` | GitHub Releases |
 | npm | `npm install -g @lamtuanvu/pacer` | `bun run release:npm` |
 | Homebrew | `brew install lamtuanvu/tap/pacer` | `bun run release:homebrew` |
@@ -171,10 +171,18 @@ all three thin executable architectures, the thin Mach-O library, and signed `pa
 compatibility metadata, including `nativeTransportAbi:1`. Missing or incompatible
 libraries reject the package before execution. Production metadata has `fixture:false`.
 
+The same final app also goes into a first-install disk image: `pacer.app` beside
+an `Applications` link, built with `hdiutil` as compressed HFS+. Developer ID
+images are signed as `dev.pacer.desktop.disk-image`, notarized and stapled.
+Interim images stay unsigned, since the self-signed certificate adds no trust
+to the container. The feed never references the image. Before publication,
+the generator mounts it read-only and requires the app inside to pass the same
+checks as the update archive and to match that archive's app file for file.
+
 Immutable GitHub release assets are:
 
-- `desktop-pacer-VERSION-darwin-aarch64.app.tar.gz` and `.sig`
-- `desktop-pacer-VERSION-darwin-x86_64.app.tar.gz` and `.sig`
+- `desktop-pacer-VERSION-darwin-aarch64.app.tar.gz` and `.sig`, and `desktop-pacer-VERSION-darwin-aarch64.dmg`
+- `desktop-pacer-VERSION-darwin-x86_64.app.tar.gz` and `.sig`, and `desktop-pacer-VERSION-darwin-x86_64.dmg` (Intel builds are paused)
 - `desktop-release-VERSION.json`, with changelog notes and the release commit date
 
 The `desktop-` prefix keeps existing CLI download patterns unchanged. Publication

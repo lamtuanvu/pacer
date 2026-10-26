@@ -23,6 +23,8 @@ test("signed desktop builds use compile-time production trust, separate bundled 
   expect(cleanup.if).toBe("always()");
   expect(cleanup.run).toContain("--cleanup");
   expect(body).not.toContain("--clobber");
+  const attest = steps.find((s: any) => s.uses?.startsWith("actions/attest-build-provenance"));
+  expect(attest.with["subject-path"].trim().split("\n")).toEqual(["dist/desktop-assets/*.app.tar.gz", "dist/desktop-assets/*.dmg"]);
 });
 test("dispatch fixture release exercise needs no production credentials and cannot publish", () => {
   const job = jobs["desktop-fixture"];

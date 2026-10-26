@@ -3,7 +3,7 @@
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { gunzipSync } from "node:zlib";
-import { buildDesktopFeed, DESKTOP_ARCHES, desktopAssetName, digest, publishDesktopRelease, type DesktopReleaseOptions } from "./desktop-feed";
+import { buildDesktopFeed, DESKTOP_ARCHES, desktopAssetName, desktopDiskImageName, digest, publishDesktopRelease, type DesktopReleaseOptions } from "./desktop-feed";
 import { localFixturePublisher } from "./desktop-publisher";
 
 export async function fixtureFeedDryRun(root: string) {
@@ -32,14 +32,18 @@ export async function fixtureFeedDryRun(root: string) {
       // Build an explicit data fixture archive. No native manager or executable is represented as exercised.
       const archive = new Bun.Archive({ "pacer.app/Contents/Resources/pacer-release.json": JSON.stringify(metadata), "FIXTURE-ONLY.txt": "Data-only release fixture; never install" }, { compress: "gzip" });
       await Bun.write(artifact, await archive.blob());
+      // The data-only disk image fixture carries the same entries; it is never mounted.
+      await Bun.write(join(release, desktopDiskImageName(version, arch)), await archive.blob());
       await signer(["signer", "sign", "--private-key-path", key, "--password", "disposable-fixture", "--app-version", version, artifact]);
       signatures++;
     }
-    const options: DesktopReleaseOptions = { mode: "fixture", publicKey, pins: { appleTeamId: "FIXTURE123" }, verifyArchive: async bytes => {
+    const verify = async (bytes: Uint8Array) => {
       const file = (await new Bun.Archive(gunzipSync(bytes)).files()).get("pacer.app/Contents/Resources/pacer-release.json");
       if (!file) throw Error("Missing fixture metadata");
-      return JSON.parse(await file.text());
-    } };
+      const text = await file.text();
+      return { ...JSON.parse(text), appTree: digest(Buffer.from(text)) };
+    };
+    const options: DesktopReleaseOptions = { mode: "fixture", publicKey, pins: { appleTeamId: "FIXTURE123" }, verifyArchive: verify, verifyDiskImage: verify };
     const publisher = await localFixturePublisher(join(root, "local"), version);
     await publishDesktopRelease(release, version, publisher, options);
     const first = await publisher.readFeed();
@@ -47,7 +51,7 @@ export async function fixtureFeedDryRun(root: string) {
     if ((await publisher.readFeed()).head !== first.head) throw Error("Fixture retry changed feed");
     const feed = await buildDesktopFeed(release, version, options);
     writeFileSync(join(root, "stable.json"), feed);
-    const report = { mode: "fixture", signatures, immutableRetry: "PASS", cas: "PASS", feedSha256: digest(Buffer.from(feed)), production: "UNVERIFIED", native: "UNVERIFIED", detail: "Real Tauri signatures and local Git CAS; data-only archives, no Apple signing/notarization/native installation or remote publication" };
+    const report = { mode: "fixture", signatures, immutableRetry: "PASS", cas: "PASS", feedSha256: digest(Buffer.from(feed)), production: "UNVERIFIED", native: "UNVERIFIED", detail: "Real Tauri signatures and local Git CAS; data-only archives and disk images, no Apple signing/notarization/native installation or remote publication" };
     writeFileSync(join(root, "report.json"), JSON.stringify(report, null, 2) + "\n");
     return report;
   } finally { rmSync(privateDir, { recursive: true, force: true }); }
