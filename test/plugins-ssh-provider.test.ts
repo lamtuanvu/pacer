@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { checkRepoArgv, CHECK_REPO_SCRIPT, preflightArgv, PREFLIGHT_SCRIPT, probeArgv, PROBE_SCRIPT,
+import { checkHomeArgv, checkRepoArgv, CHECK_REPO_SCRIPT, preflightArgv, PREFLIGHT_SCRIPT, probeArgv, PROBE_SCRIPT,
   questionArgv, QUESTION_SCRIPT, usageArgv, CODEX_USAGE_SCRIPT,
   setIdentityArgv, SET_IDENTITY_SCRIPT } from "../plugins/pacer-ssh/probe";
 import { SCRIPTS } from "../src/remote/scripts";
@@ -238,7 +238,7 @@ test("SSH provider check accepts only a host snapshot and read-only configured p
   const calls: { argv: string[] }[] = [];
   const host = { call: async (_method: string, params: { argv: string[] }) => {
     calls.push(params);
-    return { code: 0, stdout: "__PACER_BEGIN__\nexists=1\ngit=1\n", stderr: "", timedOut: false };
+    return { code: 0, stdout: "__PACER_BEGIN__\nexists=1\ngit=1\norigin=https://github.com/o/r\nname=Local User\nemail=local@example.test\n", stderr: "", timedOut: false };
   } } as unknown as HostClient;
   const check = handlers["hostRunner.check"]!;
   const signal = new AbortController().signal;
@@ -247,11 +247,17 @@ test("SSH provider check accepts only a host snapshot and read-only configured p
     { alias: "box", repo: "~/repo", sshTarget: "-bad", controlPath: "/tmp/private/cm-%C" },
     { alias: "box", repo: "~/repo", sshTarget: "box", controlPath: "relative/cm-%C" },
     { alias: "box", repo: "", sshTarget: "box", controlPath: "/tmp/private/cm-%C" },
+    { alias: "box", repo: "~/repo", home: "~/.codex", sshTarget: "box", controlPath: "/tmp/private/cm-%C" },
   ]) await expect(check(input, host, signal)).rejects.toMatchObject({ code: "capability_denied" });
   expect(calls).toHaveLength(0);
   const result = await check({ alias: "box", repo: "~/repo", sshTarget: "box", controlPath: "/tmp/private/cm-%C" }, host, signal);
-  expect(result).toMatchObject({ ok: true, checks: [{ name: "checkout", ok: true }] });
+  expect(result).toMatchObject({ ok: true, checks: [{ name: "checkout", ok: true }],
+    facts: { exists: "1", git: "1", origin: "https://github.com/o/r", name: "Local User", email: "local@example.test" } });
   expect(calls[0]?.argv).toEqual(checkRepoArgv("box", "/tmp/private/cm-%C", "~/repo"));
+  const home = await check({ alias: "box", home: "~/.codex", sshTarget: "box", controlPath: "/tmp/private/cm-%C" }, host, signal);
+  expect(home).toMatchObject({ ok: true, checks: [{ name: "account home", ok: true }] });
+  expect(home).not.toHaveProperty("facts");
+  expect(calls[1]?.argv).toEqual(checkHomeArgv("box", "/tmp/private/cm-%C", "~/.codex"));
 });
 
 test("SSH provider rejects unissued operations and foreign sessions before spawn", async () => {

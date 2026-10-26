@@ -109,6 +109,11 @@ export function checkRepoArgv(sshTarget: string, controlPath: string, repo: stri
   return issuedArgv(sshTarget, controlPath, CHECK_REPO_SCRIPT, [repo, "check"]);
 }
 
+export function checkHomeArgv(sshTarget: string, controlPath: string, home: string): string[] {
+  if (!home || home.includes("\0")) throw Error("invalid host-issued account home");
+  return issuedArgv(sshTarget, controlPath, CHECK_REPO_SCRIPT, [home, "home"]);
+}
+
 export function bundleOutArgv(sshTarget: string, controlPath: string, args: readonly string[]): string[] {
   if (args.length !== 3 || typeof args[0] !== "string" || !args[0].startsWith("/") ||
     args[0].length > 4096 || /[\u0000-\u001f\u007f]/.test(args[0]) ||

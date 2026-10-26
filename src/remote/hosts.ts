@@ -200,18 +200,19 @@ async function performCheck(ctx: Ctx, alias: string, { host, s, local, repos, na
   }
   steps?.start("account homes");
   const missing: string[] = [];
-  for (const [account, cfg] of Object.entries(host.accounts)) {
-    const r = await runRemote(ctx, host, SCRIPTS.CHECK_REPO, [cfg.home, "home"]).catch(() => ({ code: 255 }));
-    if (r.code) missing.push(account);
+  for (const account of Object.keys(host.accounts)) {
+    const result = await pluginRegistry(ctx).checkConfiguredAccountHome(ctx, alias, account).catch(() => null);
+    if (!result?.ok) missing.push(account);
   }
   add("account homes", !missing.length, missing.length ? `missing: ${missing.join(", ")}` : "");
   for (const [key, path] of repos) {
     steps?.start(`checkout ${key}`);
-    const r = await runRemote(ctx, host, SCRIPTS.CHECK_REPO, [path, "check"]).catch(() => ({ code: 255, stdout: "" })), facts = fields(r.stdout);
-    const checkoutOk = r.code === 0 && facts.git === "1" && repoKey(facts.origin ?? "") === key;
-    add(`checkout ${key}`, checkoutOk, checkoutOk ? "" : facts.exists !== "1" ? "missing checkout" : facts.git !== "1" ? "not a git checkout" : "origin mismatch");
+    const repoCheck = await pluginRegistry(ctx).checkConfiguredHost(ctx, alias, path).catch(() => null);
+    const repoFacts = repoCheck?.facts ?? {};
+    const checkoutOk = !!repoCheck?.ok && repoFacts.git === "1" && repoKey(repoFacts.origin ?? "") === key;
+    add(`checkout ${key}`, checkoutOk, checkoutOk ? "" : repoFacts.exists !== "1" ? "missing checkout" : repoFacts.git !== "1" ? "not a git checkout" : "origin mismatch");
     steps?.start(`identity ${key}`);
-    const identityOk = !!local.name && !!local.email && facts.name === local.name && facts.email === local.email;
+    const identityOk = !!local.name && !!local.email && repoFacts.name === local.name && repoFacts.email === local.email;
     // Never put identity values or remote paths in returned diagnostics.
     add(`identity ${key}`, identityOk, identityOk ? "" : "repo-local identity does not match local repo");
   }
