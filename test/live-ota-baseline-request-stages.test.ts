@@ -83,6 +83,8 @@ test("diagnostic baseline variant is restricted to paired Standard build", async
   await expect(buildOtaFixtures("unused", "cert", "paired", false, "Standard", false, "/tmp/pacer-live-cargo-unused")).rejects.toThrow("External Cargo target requires baseline request stages");
   await expect(liveMain(["ota", "cleanup", "--id", "unused", "--baseline-request-stages"])).rejects.toThrow("Baseline request stages require OTA build");
   await expect(liveMain(["ota", "cleanup", "--id", "unused", "--cargo-target-dir", "/tmp/pacer-live-cargo-unused"])).rejects.toThrow("Unsupported OTA option");
+  await expect(liveMain(["ota", "cleanup", "--id", "unused", "--fixture-continue-old-service"])).rejects.toThrow("Fixture old-service choice requires OTA build");
+  await expect(buildOtaFixtures("unused", "cert", "paired", true, "Standard", false)).rejects.toThrow("Fixture Standard old-service choice requires paired Standard request stages");
 });
 
 test("external Cargo target must be an existing empty private owned directory on a different device", () => {

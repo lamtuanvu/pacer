@@ -208,7 +208,7 @@ export async function buildOtaFixtures(id: string, signerMode: "adhoc" | "cert" 
   baselineProcessType = baselineProcessTypeSchema.parse(baselineProcessType);
   if (oldServiceChoice && initialLayout !== "paired") throw Error("Fixture old-service choice requires paired layout");
   if (baselineProcessType === "Standard" && initialLayout !== "paired") throw Error("Standard baseline requires paired layout");
-  if (oldServiceChoice && baselineProcessType === "Standard") throw Error("Fixture old-service choice and Standard baseline require a distinct compiled lease");
+  if (oldServiceChoice && baselineProcessType === "Standard" && !baselineRequestStages) throw Error("Fixture Standard old-service choice requires paired Standard request stages");
   if (baselineRequestStages && (baselineProcessType !== "Standard" || initialLayout !== "paired")) throw Error("Baseline request stages require paired Standard layout");
   if (cargoTargetDir && !baselineRequestStages) throw Error("External Cargo target requires baseline request stages");
   if (process.platform !== "darwin") throw Error("Native fixtures require macOS");

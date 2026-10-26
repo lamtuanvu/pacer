@@ -96,7 +96,7 @@ export async function main(argv: string[]): Promise<number> {
       const priority = options.get("--baseline-process-type") ?? "Background";
       if (priority !== "Background" && priority !== "Standard") throw Error("--baseline-process-type must be Background or Standard");
       if (priority === "Standard" && layout !== "paired") throw Error("Standard baseline requires paired layout");
-      if (flags.has("--fixture-continue-old-service") && priority === "Standard") throw Error("Fixture old-service choice and Standard baseline require a distinct compiled lease");
+      if (flags.has("--fixture-continue-old-service") && priority === "Standard" && !flags.has("--baseline-request-stages")) throw Error("Fixture Standard old-service choice requires paired Standard request stages");
       await buildOtaFixtures(id, signer, layout, flags.has("--fixture-continue-old-service"), priority, flags.has("--baseline-request-stages"), options.get("--cargo-target-dir"));
     }
     else if (action === "cleanup") await cleanupOta(id);

@@ -21,8 +21,10 @@ pub struct FixturePolicy {
 }
 impl FixturePolicy {
     fn validate_fixture_selection(&self, record: &serde_json::Value) -> Result<(), ()> {
-        let choice = self.nonce.starts_with("f0a3c29e5c0d");
-        let standard = self.nonce.starts_with("f0a3c29e") && !choice;
+        let background_choice = self.nonce.starts_with("f0a3c29e5c0d");
+        let standard_choice = self.nonce.starts_with("f0a3c29e5c0f");
+        let choice = background_choice || standard_choice;
+        let standard = self.nonce.starts_with("f0a3c29e") && !background_choice;
         match (choice, record.get("oldServiceChoice")) {
             (false, None) => {},
             (true, Some(serde_json::Value::String(choice))) if choice == "continue" => {},
@@ -87,7 +89,7 @@ impl FixturePolicy {
         self.validate_fixture_selection(&record)
     }
     pub fn permits_old_service_choice(&self) -> bool {
-        self.nonce.starts_with("f0a3c29e5c0d") && self.validate_live().is_ok()
+        (self.nonce.starts_with("f0a3c29e5c0d") || self.nonce.starts_with("f0a3c29e5c0f")) && self.validate_live().is_ok()
     }
     fn private_record(&self) -> Result<serde_json::Value, ()> {
         use std::io::Read;
@@ -285,6 +287,37 @@ mod tests {
         assert!(!policy.permits_old_service_choice());
         record["initialLayout"] = "paired".into();
         record["oldServiceChoice"] = "skip".into();
+        std::fs::write(&path, serde_json::to_vec(&record).unwrap()).unwrap();
+        assert!(!policy.permits_old_service_choice());
+    }
+    #[test]
+    fn standard_choice_is_disjoint_from_background_and_plain_standard_leases() {
+        let (_temp, mut policy) = fixture();
+        policy.nonce = format!("f0a3c29e5c0f{}", "a".repeat(20));
+        policy.service_label = format!("com.pacer.live.{}.service", policy.nonce);
+        policy.recovery_label = format!("com.pacer.live.{}.recovery", policy.nonce);
+        let path = policy.root.join("record.json");
+        let mut record: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        record["nonce"] = policy.nonce.clone().into();
+        record["serviceLabel"] = policy.service_label.clone().into();
+        record["recoveryLabel"] = policy.recovery_label.clone().into();
+        record["initialLayout"] = "paired".into();
+        record["baselineProcessType"] = "Standard".into();
+        std::fs::write(&path, serde_json::to_vec(&record).unwrap()).unwrap();
+        assert!(!policy.permits_old_service_choice());
+        record["oldServiceChoice"] = "continue".into();
+        std::fs::write(&path, serde_json::to_vec(&record).unwrap()).unwrap();
+        assert!(policy.permits_old_service_choice());
+        record["baselineProcessType"] = "Background".into();
+        std::fs::write(&path, serde_json::to_vec(&record).unwrap()).unwrap();
+        assert!(!policy.permits_old_service_choice());
+        record["baselineProcessType"] = "Standard".into();
+        policy.nonce = format!("f0a3c29e5c0e{}", "a".repeat(20));
+        policy.service_label = format!("com.pacer.live.{}.service", policy.nonce);
+        policy.recovery_label = format!("com.pacer.live.{}.recovery", policy.nonce);
+        record["nonce"] = policy.nonce.clone().into();
+        record["serviceLabel"] = policy.service_label.clone().into();
+        record["recoveryLabel"] = policy.recovery_label.clone().into();
         std::fs::write(&path, serde_json::to_vec(&record).unwrap()).unwrap();
         assert!(!policy.permits_old_service_choice());
     }

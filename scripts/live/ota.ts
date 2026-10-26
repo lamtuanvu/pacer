@@ -22,7 +22,10 @@ const OLD_SERVICE_CHOICE_NONCE_PREFIX = "f0a3c29e5c0d";
 /** Standard retains the original diagnostic family, excluding the already reserved Background choice subfamily. */
 const STANDARD_BASELINE_NONCE_PREFIX = "f0a3c29e";
 const NEW_STANDARD_BASELINE_NONCE_PREFIX = "f0a3c29e5c0e";
+/** A separate Standard lease may opt into the same existing shell choice. */
+const STANDARD_CHOICE_NONCE_PREFIX = "f0a3c29e5c0f";
 const standardBaselineNonce = (nonce: string): boolean => nonce.startsWith(STANDARD_BASELINE_NONCE_PREFIX) && !nonce.startsWith(OLD_SERVICE_CHOICE_NONCE_PREFIX);
+const oldServiceChoiceNonce = (nonce: string): boolean => nonce.startsWith(OLD_SERVICE_CHOICE_NONCE_PREFIX) || nonce.startsWith(STANDARD_CHOICE_NONCE_PREFIX);
 const hash = z.string().regex(/^[a-f0-9]{64}$/);
 const source = z.object({ path: z.string(), sha256: hash.nullable() }).strict();
 const buildIntent = z.object({ schema: z.literal(1), kind: z.literal("native-build"), buildRoot: z.string(), baselineVersion: z.literal("0.2.3"), candidateVersion: z.literal("0.2.4"), arch: z.enum(["aarch64", "x86_64"]), updaterKeySha256: hash, signingCertSha1: z.string().regex(/^[0-9A-F]{40}$/).optional() }).strict();
@@ -65,9 +68,9 @@ export function reserveOtaBuild(id: string, arch: "aarch64" | "x86_64", updaterK
   baselineProcessType = baselineProcessTypeSchema.parse(baselineProcessType);
   if (oldServiceChoice && initialLayout !== "paired") throw Error("Fixture old-service choice requires paired layout");
   if (baselineProcessType === "Standard" && initialLayout !== "paired") throw Error("Standard baseline requires paired layout");
-  if (oldServiceChoice && baselineProcessType === "Standard") throw Error("Fixture old-service choice and Standard baseline require a distinct compiled lease");
+  if (oldServiceChoice && baselineProcessType === "Standard" && initialLayout !== "paired") throw Error("Fixture Standard old-service choice requires paired layout");
   const session = sessionFor(id, options), root = join(session.root, "ota");
-  let nonce = oldServiceChoice ? OLD_SERVICE_CHOICE_NONCE_PREFIX + randomBytes(10).toString("hex") : baselineProcessType === "Standard" ? NEW_STANDARD_BASELINE_NONCE_PREFIX + randomBytes(10).toString("hex") : randomBytes(16).toString("hex");
+  let nonce = oldServiceChoice ? (baselineProcessType === "Standard" ? STANDARD_CHOICE_NONCE_PREFIX : OLD_SERVICE_CHOICE_NONCE_PREFIX) + randomBytes(10).toString("hex") : baselineProcessType === "Standard" ? NEW_STANDARD_BASELINE_NONCE_PREFIX + randomBytes(10).toString("hex") : randomBytes(16).toString("hex");
   while (!oldServiceChoice && baselineProcessType === "Background" && nonce.startsWith(STANDARD_BASELINE_NONCE_PREFIX)) nonce = randomBytes(16).toString("hex");
   const nativeFixture = buildIntent.parse({ schema: 1, kind: "native-build", buildRoot: join(root, "build"), baselineVersion: "0.2.3", candidateVersion: "0.2.4", arch, updaterKeySha256, ...(signingCertSha1 ? { signingCertSha1 } : {}) });
   const serviceLabel = `com.pacer.live.${nonce}.service`, recoveryLabel = `com.pacer.live.${nonce}.recovery`;
@@ -246,7 +249,7 @@ export function readOtaRecord(id: string, options: OtaOptions = {}): OtaRecord {
   canonical(root); owned(root, "directory", true); owned(statePath(session), "file", true);
   if (lstatSync(statePath(session)).size > 262_144) throw Error("OTA resource record exceeds inspection limit");
   const state = schema.parse(JSON.parse(readFileSync(statePath(session), "utf8")));
-  if (state.nativeFixture && (state.oldServiceChoice === "continue") !== state.nonce.startsWith(OLD_SERVICE_CHOICE_NONCE_PREFIX)) throw Error("Fixture old-service choice differs from compiled nonce");
+  if (state.nativeFixture && (state.oldServiceChoice === "continue") !== oldServiceChoiceNonce(state.nonce)) throw Error("Fixture old-service choice differs from compiled nonce");
   if (state.oldServiceChoice && state.initialLayout !== "paired") throw Error("Fixture old-service choice requires paired layout");
   if (state.nativeFixture && (state.baselineProcessType === "Standard") !== standardBaselineNonce(state.nonce)) throw Error("Baseline process type differs from build intent");
   if (state.baselineProcessType === "Standard" && state.initialLayout !== "paired") throw Error("Standard baseline requires paired layout");

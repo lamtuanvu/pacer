@@ -22,5 +22,5 @@ test("baseline launch priority is a fixed paired build-only option", async () =>
   await expect(main(["ota", "exercise", "--id", "nonexistent-priority-fixture", "--scenario", "adopt", "--baseline-process-type", "Standard"])).rejects.toThrow("Unsupported OTA option");
   await expect(main(["status", "--baseline-process-type", "Standard"])).rejects.toThrow("OTA options require the ota command");
   await expect(main(["ota", "build", "--id", "nonexistent-priority-fixture", "--baseline-process-type", "Standard"])).rejects.toThrow("Standard baseline requires paired layout");
-  await expect(main(["ota", "build", "--id", "nonexistent-priority-fixture", "--initial-layout", "paired", "--fixture-continue-old-service", "--baseline-process-type", "Standard"])).rejects.toThrow("distinct compiled lease");
+  await expect(main(["ota", "build", "--id", "nonexistent-priority-fixture", "--initial-layout", "paired", "--fixture-continue-old-service", "--baseline-process-type", "Standard"])).rejects.toThrow("paired Standard request stages");
 });
