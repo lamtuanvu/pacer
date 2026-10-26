@@ -1,19 +1,24 @@
 /** Fixed, read-only stdio witness. Generic D3 stdio remains refused. */
 import { spawn } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { checkout, healthy, pacerArgv, record, sandboxEnv, type Session } from "./core";
 
-const yaml = "planner: codex\naccounts: {personal: {kind: codex}}\nrouting: [{default: [codex]}]\n";
-const expected = [{ name: "default", active: true, summary: "Configured executors, Codex keeps 15%", description: "" }];
-const input = [
-  { jsonrpc: "2.0", id: 1, method: "hello", params: { protocol: 3 } },
-  { jsonrpc: "2.0", id: 2, method: "strategy.list", params: {} },
-].map(value => JSON.stringify(value)).join("\n") + "\n";
+type StrategyRead = "strategy.list" | "strategy.show";
+const defaultYaml = "planner: codex\naccounts: {personal: {kind: codex}}\nrouting: [{default: [codex]}]\n";
+const researchYaml = "# Research mode\nplanner: codex\naccounts: {personal: {kind: codex}}\npacing: {policy: even, planner_reserve: 25}\nrouting: [{default: [codex]}]\n";
+const listExpected = [{ name: "default", active: true, summary: "Configured executors, Codex keeps 15%", description: "" }];
+const showExpected = { yaml: researchYaml, summary: "Configured executors, Codex keeps 25%; even policy", active: true };
+function input(operation: StrategyRead): string {
+  return [
+    { jsonrpc: "2.0", id: 1, method: "hello", params: { protocol: 3 } },
+    { jsonrpc: "2.0", id: 2, method: operation, params: operation === "strategy.list" ? {} : { name: "research" } },
+  ].map(value => JSON.stringify(value)).join("\n") + "\n";
+}
 const MAX_OUTPUT = 64 * 1024;
 const TIMEOUT_MS = 15_000;
 
-async function runFixed(session: Session, home: string, core: "real" | "stub", forward: boolean) {
+async function runFixed(session: Session, home: string, operation: StrategyRead, core: "real" | "stub", forward: boolean) {
   const env = sandboxEnv(session);
   delete env.PACER_WORK_GRANT;
   delete env.PACER_ROLE;
@@ -23,7 +28,7 @@ async function runFixed(session: Session, home: string, core: "real" | "stub", f
   env.PACER_CORE_ARGV = JSON.stringify(core === "stub"
     ? [process.execPath, join(checkout, "scripts/live/stdio-strategy-core.ts")]
     : [process.execPath, join(checkout, "src/cli.ts")]);
-  if (forward) env.PACER_FORWARD_OPS = "strategy.list";
+  if (forward) env.PACER_FORWARD_OPS = operation;
   const child = spawn(pacerArgv(session)[0], ["api", "--stdio"], {
     cwd: join(session.root, "repo"), env, stdio: ["pipe", "pipe", "pipe"], detached: true,
   });
@@ -58,37 +63,51 @@ async function runFixed(session: Session, home: string, core: "real" | "stub", f
         resolve({ code, replies });
       } catch { reject(Error("fixed stdio probe returned malformed JSON")); }
     });
-    child.stdin.end(input);
+    child.stdin.end(input(operation));
   });
 }
 
 function result(replies: Record<string, unknown>[]): unknown {
   const hello = replies.find(reply => reply.id === 1);
   if ((hello?.result as { protocol?: string } | undefined)?.protocol !== "3.0.0") throw Error("fixed stdio hello did not acknowledge v3");
-  const operation = replies.find(reply => reply.id === 2);
-  if (!operation || "error" in operation || replies.length !== 2) throw Error("fixed stdio strategy.list did not return one result");
-  return operation.result;
+  const reply = replies.find(reply => reply.id === 2);
+  if (!reply || "error" in reply || replies.length !== 2) throw Error("fixed stdio strategy read did not return one result");
+  return reply.result;
 }
 
 /** Exercise the owned Rust binary with one fixed operation and two core paths. */
-export async function exerciseStdioStrategyList(session: Session): Promise<void> {
+async function exercise(session: Session, operation: StrategyRead): Promise<void> {
   if (session.frontDoor !== "rust" || !await healthy(session)) throw Error("A running Rust live sandbox is required");
-  const home = mkdtempSync(join(session.root, "stdio-strategy-list-"));
+  const home = mkdtempSync(join(session.root, "stdio-strategy-read-"));
   try {
-    writeFileSync(join(home, "strategy.yaml"), yaml, { mode: 0o600, flag: "wx" });
+    writeFileSync(join(home, "strategy.yaml"), defaultYaml, { mode: 0o600, flag: "wx" });
+    if (operation === "strategy.show") {
+      mkdirSync(join(home, "strategies"), { mode: 0o700 });
+      writeFileSync(join(home, "strategies/research.yaml"), researchYaml, { mode: 0o600, flag: "wx" });
+      writeFileSync(join(home, "active"), "research\n", { mode: 0o600, flag: "wx" });
+    }
+    const expected = operation === "strategy.list" ? listExpected : showExpected;
     for (const [label, core, forward, wanted] of [
       ["native selection", "stub", false, expected],
       ["forced core forwarding", "stub", true, { forwardedToFixedCore: true }],
       ["real core parity", "real", false, expected],
     ] as const) {
       try {
-        const observed = result((await runFixed(session, home, core, forward)).replies);
+        const observed = result((await runFixed(session, home, operation, core, forward)).replies);
         if (JSON.stringify(observed) !== JSON.stringify(wanted)) throw Error(`${label}: unexpected result ${JSON.stringify(observed)}`);
-        record(session, { kind: "note", behavior: `Stdio strategy.list ${label}`, surface: "stdio", steps: "Fixed v3 hello then fixed read-only strategy.list in an owned probe home", verdict: "PASS", text: `${label} returned ${JSON.stringify(observed)}.` });
+        record(session, { kind: "note", behavior: `Stdio ${operation} ${label}`, surface: "stdio", steps: `Fixed v3 hello then fixed read-only ${operation} in an owned probe home`, verdict: "PASS", text: `${label} returned ${JSON.stringify(observed)}.` });
       } catch (error) {
-        record(session, { kind: "note", behavior: `Stdio strategy.list ${label}`, surface: "stdio", steps: "Fixed v3 hello then fixed read-only strategy.list in an owned probe home", verdict: "FAIL", text: error instanceof Error ? error.message : String(error) });
+        record(session, { kind: "note", behavior: `Stdio ${operation} ${label}`, surface: "stdio", steps: `Fixed v3 hello then fixed read-only ${operation} in an owned probe home`, verdict: "FAIL", text: error instanceof Error ? error.message : String(error) });
         throw error;
       }
     }
   } finally { rmSync(home, { recursive: true, force: true }); }
+}
+
+export async function exerciseStdioStrategyList(session: Session): Promise<void> {
+  await exercise(session, "strategy.list");
+}
+
+export async function exerciseStdioStrategyShow(session: Session): Promise<void> {
+  await exercise(session, "strategy.show");
 }

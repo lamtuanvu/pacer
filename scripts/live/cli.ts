@@ -8,7 +8,7 @@ import { desktop, tui } from "./surfaces";
 import { exerciseUpdater } from "./updater";
 import { exerciseRepair } from "./core-repair";
 import { CONTROL_COMMANDS, controlMain } from "./control/cli";
-import { exerciseStdioStrategyList } from "./stdio-strategy-list";
+import { exerciseStdioStrategyList, exerciseStdioStrategyShow } from "./stdio-strategy-list";
 
 const usage = `usage: bun run live <command> [--id <id>]
   up [--repo-template <dir>] [--seed ui] [--front-door rust|rust-test-ops]
@@ -27,6 +27,7 @@ const usage = `usage: bun run live <command> [--id <id>]
   updater --id <id>               exercise fixed disposable CLI updater fixtures (seeded sandbox)
   repair --id <id>                exercise fixed disposable core self-repair fixtures (seeded sandbox)
   stdio-strategy-list --id <id>   exercise fixed read-only v3 native/forwarded stdio selection
+  stdio-strategy-show --id <id>   exercise fixed named strategy.show over v3 stdio
   env                             print sandbox export lines
   pacer -- <args...>               run guarded checkout CLI in sandbox repo
   login [--screen <screen>]        print fresh single-use app login URL
@@ -68,9 +69,10 @@ export async function main(argv: string[]): Promise<number> {
     console.log(JSON.stringify(await up(id, options.get("--repo-template"), undefined, options.get("--seed"), options.get("--front-door")), null, 2));
     return 0;
   }
-  if (command === "stdio-strategy-list") {
-    if (!id || options.size !== 1 || positionals.length || separator >= 0 || flags.size) throw Error("usage: live stdio-strategy-list --id <id>");
-    await exerciseStdioStrategyList(loadSession(id));
+  if (command === "stdio-strategy-list" || command === "stdio-strategy-show") {
+    if (!id || options.size !== 1 || positionals.length || separator >= 0 || flags.size) throw Error(`usage: live ${command} --id <id>`);
+    if (command === "stdio-strategy-list") await exerciseStdioStrategyList(loadSession(id));
+    else await exerciseStdioStrategyShow(loadSession(id));
     return 0;
   }
   if (command === "status") {

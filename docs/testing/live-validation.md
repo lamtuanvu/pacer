@@ -59,6 +59,12 @@ sentinel, and a real-core response. It caps output and runtime. Generic
 `live pacer -- api --stdio` remains refused by D3; the fixture accepts no
 caller-supplied operation or params.
 
+For the named read-only `strategy.show` selector, run
+`bun run live stdio-strategy-show --id <rust-sandbox-id>`. It seeds a fixed
+`research` strategy in a separate owned probe home and checks the same three
+paths with fixed `{ "name": "research" }` params. The fixture does not expose
+arbitrary YAML, names or operations to callers.
+
 Paired startup sends the listener and helper channel together in one descriptor-transfer frame. Root retains the helper channel’s sender duplicate until Core receives both descriptors, repeats the existing trust checks and acknowledges receipt. The bounded acknowledgement does not establish application readiness. Failure or generation retirement closes the pending channels; after acknowledgement, Root releases the duplicate so genuine Core EOF remains observable.
 
 Root also directly parents the original immutable recovery helper. Its private helper-control channel accepts only bounded fixed helper requests, with role, hash, manifest/journal and static/dynamic image verification; it is not an API or environment selector. Root writes the existing bootstrap and invokes fixed `--ota-pipe`; paired mode never falls back to Core spawning an old helper. Evidence must show the old helper's unchanged bytes and actual Root parent, alongside original desktop/helper kernel audit identity.
