@@ -1,4 +1,5 @@
 import type { Hello, ApiClient } from "../../../src/api/client-types";
+import { TerminalActionRequests } from "./terminal-action-request";
 export class ApiError extends Error {
   constructor(readonly code: string, message: string, readonly hint?: string, readonly status?: number) { super(message); this.name = "ApiError"; }
 }
@@ -8,9 +9,10 @@ export function reportSessionEnded(): void {
   void host.__TAURI__?.core?.invoke("session_expired").catch(() => { /* shell may already be navigating to recovery */ });
 }
 /** Ops that are v3-only, or whose /v2 result is frozen to an older shape. */
-const V3_OPS = new Set(["dispatch.config.get", "runner.settings.get", "runner.settings.save", "task.list", "doctor.run", "project.strategy.list", "project.strategy.get", "project.strategy.set", "project.strategy.remove", "setup.check", "service.install", "onboarding.try", "onboarding.skip", "limits.refresh"]);
+const V3_OPS = new Set(["dispatch.config.get", "runner.settings.get", "runner.settings.save", "task.list", "doctor.run", "project.strategy.list", "project.strategy.get", "project.strategy.set", "project.strategy.remove", "setup.check", "service.install", "onboarding.try", "onboarding.skip", "limits.refresh", "terminal.list", "terminal.create", "terminal.rename", "terminal.close"]);
 export type BrowserApi = Pick<ApiClient, "hello" | "snapshot" | "call">;
 export function createApi(onSessionEnded: () => void = () => {}): BrowserApi {
+  const terminalRequests=new TerminalActionRequests(()=>crypto.randomUUID());
   let version: 2 | 3 | undefined;
   let negotiation: Promise<Hello> | undefined;
   async function request<T>(path: string, params?: unknown): Promise<T> {
@@ -52,9 +54,16 @@ export function createApi(onSessionEnded: () => void = () => {}): BrowserApi {
     call: async <T>(op: string, params: unknown = {}): Promise<T> => {
       if (!version) await select();
       if (version === 2 && op.startsWith("desktop.update.")) throw new ApiError("unknown_op", "Desktop updates require a newer service.");
+      const prepared=terminalRequests.prepare(op,params);
+      params=prepared.params;
       try {
-        return (await request<{ result: T }>(`/v${version === 3 || V3_OPS.has(op) ? 3 : 2}/ops/${encodeURIComponent(op)}`, params)).result;
+        const result = (await request<{ result: T }>(`/v${version === 3 || V3_OPS.has(op) ? 3 : 2}/ops/${encodeURIComponent(op)}`, params)).result;
+        terminalRequests.finish(prepared.key);
+        const terminalId = (result as {terminalId?:unknown} | null)?.terminalId;
+        if (typeof terminalId === "string" && /^[0-9a-f-]{36}$/.test(terminalId)) location.hash = `#/terminal/${terminalId}`;
+        return result;
       } catch (error) {
+        terminalRequests.finish(prepared.key,error instanceof ApiError?error.status??0:0);
         if (op !== "task.list" || !(error instanceof ApiError) || error.status !== 404) throw error;
         // A filtered v2 list is a cursor page; limit alone returns legacy summaries.
         const filtered = { states: ["queued", "running", "done", "partial", "failed", "limit", "stopped", "needs_input"], ...(params as Record<string, unknown>) };

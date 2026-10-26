@@ -5,11 +5,27 @@ import { openInTerminal, type TerminalDeps } from "../src/terminal/open";
 import * as config from "../src/core/config";
 import { fakeCtx, realRun } from "./helpers";
 import { reserveIdle } from "../src/update/desktop/admission";
+import { closeTerminal, getTerminal } from "../src/terminal/workspace";
 
 function deps(overrides: Partial<TerminalDeps> = {}) {
   const calls: string[][] = [];
   return { calls, deps: { platform: "darwin", which: () => "/usr/bin/fake", orcaAvailable: async () => false, env: {}, run: async (argv: string[]) => { calls.push(argv); return { code: 0, stdout: "", stderr: "" }; }, ...overrides } as TerminalDeps };
 }
+test("built-in target runs a trusted argv once for the same request", async () => {
+  const ctx = fakeCtx({env:{...process.env}});
+  const options = {argv:["/bin/sh","-c","printf terminal-ready"],title:"Action",target:"builtin" as const,requestId:"action-once"};
+  const first = await openInTerminal(ctx,options);
+  try {
+    const second = await openInTerminal(ctx,options);
+    expect(second.terminalId).toBe(first.terminalId);
+    expect(first.target).toBe("builtin");
+    expect(first.opened).toBe(true);
+    expect((await getTerminal(ctx,first.terminalId!)).kind).toBe("action");
+  } finally {
+    const terminal = await getTerminal(ctx,first.terminalId!);
+    await closeTerminal(ctx,terminal.id,terminal.rev);
+  }
+});
 test("macOS uses Terminal with a private quoted script", async () => {
   const ctx = fakeCtx({env:{TERM_PROGRAM:"Apple_Terminal"}}), d = deps();
   const result = await openInTerminal(ctx, { argv: ["codex", "login"], env: { CODEX_HOME: "/tmp/a b" }, title: "Sign in" }, d.deps);

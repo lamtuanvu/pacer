@@ -7,6 +7,7 @@ pacer delegates coding work according to subscription usage and pace. Start with
 - [Executors](executors.md): CLI requirements, usage sources and execution placement.
 - [Remote runners over SSH](remote-hosts.md): host setup, account folders, bundle transfer, local review and recovery.
 - [CLI and skill](cli.md): structured briefs, task commands and JSON contracts.
+- [Built-in terminal](terminal.md): workspace shells, tabs, splits, search and integrated app actions.
 - [Client protocol 3.0](protocol.md): HTTP + SSE and JSON-RPC transports, errors, events and operation schemas.
 - [Protocol 2.x overlap](protocol-v2.md): compatibility API, served for one more pacer minor release.
 - [Desktop app](../desktop/README.md): the recommended way to install and set up pacer.

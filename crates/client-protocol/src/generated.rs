@@ -2134,6 +2134,11 @@ impl<'de> ::serde::Deserialize<'de> for AccountRemoveParamsName {
 ///          "maxLength": 128,
 ///          "minLength": 1
 ///        },
+///        "request_id": {
+///          "type": "string",
+///          "format": "uuid",
+///          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+///        },
 ///        "target": {
 ///          "type": "string",
 ///          "enum": [
@@ -2160,6 +2165,11 @@ impl<'de> ::serde::Deserialize<'de> for AccountRemoveParamsName {
 ///            "init"
 ///          ]
 ///        },
+///        "request_id": {
+///          "type": "string",
+///          "format": "uuid",
+///          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+///        },
 ///        "worktree": {
 ///          "type": "string",
 ///          "maxLength": 4096,
@@ -2178,10 +2188,14 @@ pub enum AccountSigninParams {
     Variant0 {
         name: AccountSigninParamsVariant0Name,
         #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+        request_id: ::std::option::Option<::uuid::Uuid>,
+        #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
         target: ::std::option::Option<AccountSigninParamsVariant0Target>,
     },
     Variant1 {
         interactive: AccountSigninParamsVariant1Interactive,
+        #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+        request_id: ::std::option::Option<::uuid::Uuid>,
         #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
         worktree: ::std::option::Option<AccountSigninParamsVariant1Worktree>,
     },
@@ -8181,88 +8195,6 @@ impl ::std::default::Default for HostSuggestParams {
         Self {}
     }
 }
-///`HostTerminalParams`
-///
-/// <details><summary>JSON schema</summary>
-///
-/// ```json
-///{
-///  "type": "object",
-///  "required": [
-///    "alias"
-///  ],
-///  "properties": {
-///    "alias": {
-///      "type": "string",
-///      "maxLength": 128,
-///      "minLength": 1
-///    }
-///  },
-///  "additionalProperties": false
-///}
-/// ```
-/// </details>
-#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
-#[serde(deny_unknown_fields)]
-pub struct HostTerminalParams {
-    pub alias: HostTerminalParamsAlias,
-}
-///`HostTerminalParamsAlias`
-///
-/// <details><summary>JSON schema</summary>
-///
-/// ```json
-///{
-///  "type": "string",
-///  "maxLength": 128,
-///  "minLength": 1
-///}
-/// ```
-/// </details>
-#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-#[serde(transparent)]
-pub struct HostTerminalParamsAlias(::std::string::String);
-impl ::std::ops::Deref for HostTerminalParamsAlias {
-    type Target = ::std::string::String;
-    fn deref(&self) -> &::std::string::String {
-        &self.0
-    }
-}
-impl ::std::convert::From<HostTerminalParamsAlias> for ::std::string::String {
-    fn from(value: HostTerminalParamsAlias) -> Self {
-        value.0
-    }
-}
-impl ::std::str::FromStr for HostTerminalParamsAlias {
-    type Err = self::error::ConversionError;
-    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 128usize {
-            return Err("longer than 128 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
-    }
-}
-impl ::std::convert::TryFrom<&str> for HostTerminalParamsAlias {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl<'de> ::serde::Deserialize<'de> for HostTerminalParamsAlias {
-    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
-    where
-        D: ::serde::Deserializer<'de>,
-    {
-        ::std::string::String::deserialize(deserializer)?
-            .parse()
-            .map_err(|e: self::error::ConversionError| {
-                <D::Error as ::serde::de::Error>::custom(e.to_string())
-            })
-    }
-}
 ///`JobCancelParams`
 ///
 /// <details><summary>JSON schema</summary>
@@ -10178,6 +10110,11 @@ impl ::std::default::Default for RoutingStatusParams {
 ///          "type": "string",
 ///          "const": "runner-add"
 ///        },
+///        "request_id": {
+///          "type": "string",
+///          "format": "uuid",
+///          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+///        },
 ///        "worktree": {
 ///          "type": "string",
 ///          "maxLength": 4096,
@@ -10261,6 +10198,8 @@ impl ::std::default::Default for RoutingStatusParams {
 pub enum RunnerAddParams {
     Variant0 {
         interactive: ::std::string::String,
+        #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+        request_id: ::std::option::Option<::uuid::Uuid>,
         #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
         worktree: ::std::option::Option<RunnerAddParamsVariant0Worktree>,
     },
@@ -11778,6 +11717,11 @@ impl ::std::default::Default for SnapshotGetParams {
 ///      "maxLength": 128,
 ///      "minLength": 1
 ///    },
+///    "request_id": {
+///      "type": "string",
+///      "format": "uuid",
+///      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+///    },
 ///    "worktree": {
 ///      "type": "string",
 ///      "maxLength": 4096,
@@ -11798,6 +11742,8 @@ pub struct StrategyBuildParams {
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub from: ::std::option::Option<StrategyBuildParamsFrom>,
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub request_id: ::std::option::Option<::uuid::Uuid>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub worktree: ::std::option::Option<StrategyBuildParamsWorktree>,
 }
 impl ::std::default::Default for StrategyBuildParams {
@@ -11806,6 +11752,7 @@ impl ::std::default::Default for StrategyBuildParams {
             agent: Default::default(),
             brief: Default::default(),
             from: Default::default(),
+            request_id: Default::default(),
             worktree: Default::default(),
         }
     }

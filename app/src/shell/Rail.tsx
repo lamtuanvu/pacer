@@ -8,11 +8,12 @@ import { Icon, type IconName } from "../ds/icons";
 import { primaryFor, routes, type Route, type RouteTarget } from "../router";
 import { StrategyQuickAccess } from "./StrategyQuickAccess";
 
-const ITEMS: { name: "start" | "overview" | "review" | "sessions"; label: string; to: RouteTarget; icon: IconName; count: (c: Counts) => number; words: string; tone: "warn" | "info" }[] = [
+const ITEMS: { name: "start" | "overview" | "review" | "sessions" | "terminal"; label: string; to: RouteTarget; icon: IconName; count: (c: Counts) => number; words: string; tone: "warn" | "info" }[] = [
   { name: "start", label: "Start work", to: routes.start(), icon: "tasks", count: () => 0, words: "running", tone: "info" },
   { name: "overview", label: "Overview", to: routes.overview(), icon: "overview", count: () => 0, words: "need you", tone: "warn" },
   { name: "review", label: "Needs you", to: routes.needsYou(), icon: "review", count: c => c.attention, words: "need you", tone: "warn" },
   { name: "sessions", label: "Tasks", to: routes.tasks(), icon: "sessions", count: c => c.running, words: "running", tone: "info" },
+  { name: "terminal", label: "Terminal", to: routes.terminal(), icon: "terminal", count: () => 0, words: "", tone: "info" },
 ];
 const SETTINGS = new Set(["settings", "hosts", "add-executor"]);
 /** 40 px desktop icon rail; touch-sized bottom navigation on narrow screens. Setup readiness comes from the shared service checklist. */

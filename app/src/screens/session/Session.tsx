@@ -157,9 +157,9 @@ export function Session({ embedded = false, data, loading, error, initialTab, vi
           </Disclosure>}
         </>}</ResourceView>
       </section>
-      {!embedded && session && session.host !== 'none' && <section><SectionHeading as="h3">Watch it elsewhere</SectionHeading>
+      {!embedded && session && session.host !== 'none' && <section><SectionHeading as="h3">Session access</SectionHeading>
         {session.targets.includes('orca') && <Button disabled={!canAttach('orca')} onClick={() => void attach('orca')}>Open in Orca terminal</Button>}
-        {session.targets.includes('terminal') && <Button disabled={!canAttach('terminal')} onClick={() => void attach('terminal')}>Open in my terminal</Button>}
+        {session.targets.includes('terminal') && <Button onClick={() => setTab('terminal')}>View in Pacer</Button>}
         <div className="pc-session-copy"><code className="pc-code-scroll" tabIndex={0}>{session.attach.cli}</code>
           <Button size="sm" onClick={() => { void navigator.clipboard.writeText(session.attach.cli).then(() => setNotice('Attach command copied.')).catch(() => setActionError('Could not copy. Select the command and copy it.')); }}>Copy</Button>
         </div>

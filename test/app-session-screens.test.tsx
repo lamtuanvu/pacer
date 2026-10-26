@@ -24,8 +24,8 @@ function textContent(html: string): string {
 const data=fixture as SessionData;
 test('Session board preserves layout, copy, service actions and metadata',()=>{const html=renderToString(<Session data={data}/>);
  expect(html).toContain('pc-page--full');expect(html).toContain('aria-label="Breadcrumb"');
- for(const word of [data.goal,'codex#team','pacer/t-0415','this Mac','started 11:49','Testing','Changes','Brief','Watch it elsewhere','Activity','Stop and retry…','pacer attach t-0415'])expect(html).toContain(word);
- expect(html.indexOf('Activity')).toBeLessThan(html.indexOf('Watch it elsewhere'));expect(html).toContain('aria-label="Codex"');expect(html).not.toContain('pc-btn--primary');});
+ for(const word of [data.goal,'codex#team','pacer/t-0415','this Mac','started 11:49','Testing','Changes','Brief','Session access','Activity','Stop and retry…','pacer attach t-0415'])expect(html).toContain(word);
+ expect(html.indexOf('Activity')).toBeLessThan(html.indexOf('Session access'));expect(html).toContain('aria-label="Codex"');expect(html).not.toContain('pc-btn--primary');});
 test('Orca host offers Open in Orca and no terminal control',()=>{const html=renderToString(<Session data={{...data,session:{...data.session!,host:'orca'}}}/>);expect(html).toContain('This session runs in Orca');expect(html).toContain('Open in Orca');expect(html).not.toContain('Take control');});
 test('none host renders escaped plain log; tabs render their resources',()=>{expect(renderToString(<Session data={{...data,session:{...data.session!,host:'none'},log:{data:'<script>bad</script>'}}}/>)).toContain('&lt;script>');expect(renderToString(<Session data={data} initialTab="brief"/>)).toContain('Split the store;');expect(renderToString(<Session data={data} initialTab="changes"/>)).toContain('diff --git');});
 test('task Changes uses the v3 patch field and embedded views do not point to hidden tabs',()=>{
@@ -33,7 +33,7 @@ test('task Changes uses the v3 patch field and embedded views do not point to hi
  expect(changes).toContain('diff --git a/example b/example');expect(changes).toContain('new.txt');expect(changes).not.toContain('undefined');
  expect(conversationChanges({patch:'diff --git a/example b/example',untracked:['new.txt'],truncated:false})).toEqual({diff:'diff --git a/example b/example',untracked:['new.txt']});
  const html=renderToString(<Session embedded view="changes" data={{...data,changes:{data:changes}}}/>);
- expect(html).toContain('diff --git a/example b/example');expect(html).not.toContain('aria-labelledby="session-t-0415-changes-tab"');expect(html).not.toContain('Watch it elsewhere');
+ expect(html).toContain('diff --git a/example b/example');expect(html).not.toContain('aria-labelledby="session-t-0415-changes-tab"');expect(html).not.toContain('Session access');
 });
 test('loading, errors and empty resources are explicit',()=>{expect(renderToString(<Session loading/>)).toContain('Loading session');expect(renderToString(<Session error="Offline"/>)).toContain('Offline');expect(renderToString(<Session/>)).toContain('Session not found');const html=renderToString(<Session data={{...data,timeline:{error:'Timeline unavailable'},doneWhen:{},brief:{loading:true}}} initialTab="brief"/>);expect(html).toContain('Timeline unavailable');expect(html).toContain('No done-when command');expect(html).toContain('Loading brief');});
 test('Sessions list opens tasks with one row target',()=>{const html=renderToString(<SessionsList running={{data:[data]}} recent={{data:[{...data,id:'t-ended',state:'done'}]}}/>);expect(html).toContain('Running');expect(html).toContain('Completed');expect(html).toContain('href="#/tasks/t-0415"');expect(html).not.toContain('View result');expect(html).toContain('#/tasks/t-ended');expect(renderToString(<SessionsList running={{loading:true}} recent={{error:'Unavailable'}}/>)).toContain('Unavailable');expect(renderToString(<SessionsList/>)).toContain('No running sessions');});
@@ -109,15 +109,15 @@ test('headless sessions explain the run and offer one prominent takeover action 
  expect(html).toMatch(/class="[^"]*pc-btn--primary[^"]*">Take over<\/button>/);
  expect(html.match(/>Take over<\/button>/g)).toHaveLength(1);
  expect(html).toContain('&lt;script>plain output&lt;/script>');
- for (const text of ['Watch it elsewhere','Open in Orca terminal','Open in my terminal','pacer attach','no terminal recording',' · unavailable']) expect(html).not.toContain(text);
+ for (const text of ['Session access','Open in Orca terminal','Open in my terminal','pacer attach','no terminal recording',' · unavailable']) expect(html).not.toContain(text);
 });
 
 test('live and recorded sessions retain watch options without the headless explanation', () => {
  for (const live of [true, false]) {
   const html = renderToString(<Session data={{...data,session:{...data.session!,live}}} onAttach={async()=>({opened:true})}/>);
-  expect(html).toContain('Watch it elsewhere');
+  expect(html).toContain('Session access');
   expect(html).toContain('>Open in Orca terminal</button>');
-  expect(html).toContain('>Open in my terminal</button>');
+  expect(html).toContain('>View in Pacer</button>');
   expect(html).toContain('pacer attach t-0415');
   expect(html).not.toContain('This run is headless');
  }
@@ -127,7 +127,7 @@ test('live and recorded sessions retain watch options without the headless expla
 test('missing sessions do not advertise watch-elsewhere options', () => {
  const html = renderToString(<Session data={{...data,session:undefined}}/>);
  expect(html).toContain('Session unavailable.');
- expect(html).not.toContain('Watch it elsewhere');
+ expect(html).not.toContain('Session access');
  expect(html).not.toContain('pacer attach');
 });
 

@@ -6,6 +6,7 @@ import { CoreError } from "../core/errors";
 import { detectTerminal, splitArgv } from "../session/targets";
 import { OrcaClient, isReady } from "../exec/orca/client";
 import { shellCommand } from "../install/fsx";
+import { createTerminal } from "./workspace";
 import type { Ctx, RunFn } from "../types";
 import { attachRunEvidenceSync, beginWorkSync, finishUnlaunchedWorkSync, markLaunchStartedSync, withWork } from "../update/desktop/admission";
 
@@ -16,17 +17,22 @@ export interface TerminalDeps {
   orcaAvailable(): Promise<boolean>;
   env: Ctx["env"];
 }
-type Target = "orca" | "terminal" | "tmux";
+type Target = "orca" | "terminal" | "tmux" | "builtin";
 export interface TerminalOptions {
   argv: string[];
   env?: Record<string, string>;
   title: string;
   target?: "auto" | Target;
   worktree?: string;
+  requestId?: string;
 }
 /** Open only pacer-built argv; return the same copyable command on headless hosts. */
-export async function openInTerminal(ctx: Ctx, o: TerminalOptions, deps: Partial<TerminalDeps> = {}): Promise<{ opened: boolean; target: Target | "none"; command: string }> {
+export async function openInTerminal(ctx: Ctx, o: TerminalOptions, deps: Partial<TerminalDeps> = {}): Promise<{ opened: boolean; target: Target | "none"; command: string; terminalId?: string }> {
   if (!o.argv.length) throw new CoreError("invalid_input", "terminal command is empty");
+  if (o.target === "builtin") {
+    const terminal = await createTerminal(ctx, {kind:"action",requestId:o.requestId ?? randomUUID(),title:o.title,cwd:ctx.home,argv:o.argv,env:o.env});
+    return {opened:true,target:"builtin",command:shellCommand(o.argv),terminalId:terminal.id};
+  }
   return withWork(ctx, { kind: "operation", id: randomUUID(), label: "Opening terminal" }, () => openAdmitted(ctx, o, deps));
 }
 

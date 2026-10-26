@@ -1,6 +1,7 @@
 import NodeWebSocket from "ws";
 import type { ServerWebSocket } from "bun";
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
+import { isAbsolute, join, relative } from "node:path";
 import { record, type Session } from "./core";
 import { authorizeSeedRepair } from "./repair";
 import { authorizeFixtureRequest } from "./ota-request";
@@ -39,6 +40,26 @@ export function refusedOp(method: string, pathname: string): string | undefined 
   if (Object.hasOwn(BLOCKED_OPS, op) || (op.startsWith("service.") && op !== "service.status") || (op.startsWith("desktop.update.") && op !== "desktop.update.status")) return op;
 }
 
+/** A shell may see only disposable sandbox files during live validation. */
+export function safeTerminalFolder(root: string, cwd: unknown): boolean {
+  if (typeof cwd !== "string" || !isAbsolute(cwd)) return false;
+  try {
+    const actual = realpathSync(cwd);
+    return [join(root, "repo"), join(root, "home")].some(folder => {
+      const part = relative(realpathSync(folder), actual);
+      return part === "" || (part !== ".." && !part.startsWith("../") && !isAbsolute(part));
+    });
+  } catch { return false; }
+}
+
+async function safeTerminalCreate(session: Session, req: Request): Promise<boolean> {
+  try {
+    if (Number(req.headers.get("content-length")) > 256 * 1024) return false;
+    const body = await req.clone().json() as Record<string, unknown>;
+    return body?.kind === "shell" && safeTerminalFolder(session.root, body.cwd);
+  } catch { return false; }
+}
+
 export function upstreamHeaders(input: Headers, publicPort: number, innerPort: number): Headers {
   const headers = new Headers(input);
   headers.set("host", `127.0.0.1:${innerPort}`);
@@ -75,9 +96,11 @@ export function startProxy(session: Session) {
         return Response.json({ pid: process.pid }, { headers: { "x-pacer-live-proxy": "1" } });
       }
       const op = refusedOp(req.method, url.pathname);
-      if (op && !await authorizeSeedRepair(session, req) && !await authorizeFixtureRequest(session, req)) {
-        const message = `Live validation D8: ${op} changes the real user environment`;
-        record(session, { kind: "note", behavior: `D8 blocked ${op}`, surface: "API proxy", verdict: "UNVERIFIED", steps: `${req.method} ${url.pathname}`, text: message });
+      const unsafeTerminal = req.method === "POST" && url.pathname === "/v3/ops/terminal.create" && !await safeTerminalCreate(session, req);
+      if (unsafeTerminal || (op && !await authorizeSeedRepair(session, req) && !await authorizeFixtureRequest(session, req))) {
+        const blocked = unsafeTerminal ? "terminal.create" : op!;
+        const message = `Live validation D8: ${blocked} changes the real user environment`;
+        record(session, { kind: "note", behavior: `D8 blocked ${blocked}`, surface: "API proxy", verdict: "UNVERIFIED", steps: `${req.method} ${url.pathname}`, text: message });
         return Response.json({ error: { code: "forbidden", message } }, { status: 403 });
       }
       const headers = upstreamHeaders(req.headers, session.port, session.innerPort!);

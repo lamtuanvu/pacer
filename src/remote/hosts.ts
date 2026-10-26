@@ -294,9 +294,9 @@ export async function confirmSetup(ctx: Ctx, alias: string, repo: string, confir
   return setup(ctx, alias, repo, { clone, identity, consent: true });
 }
 
-export function terminal(ctx: Ctx, alias: string, opener = openInTerminal) {
+export function terminal(ctx: Ctx, alias: string, opener = openInTerminal, options: {builtin?:boolean} = {}) {
   const host = configured(ctx, alias);
-  return opener(ctx, { argv: ["ssh", host.ssh], title: `SSH ${alias}` });
+  return opener(ctx, { argv: options.builtin ? ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "--", host.ssh] : ["ssh", host.ssh], title: `SSH ${alias}` });
 }
 
 /** Host-only cleanup; preserve branches whose results have not been transferred. */

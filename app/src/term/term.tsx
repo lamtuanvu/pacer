@@ -1,4 +1,4 @@
-import { Checkbox } from "../ds/Controls";
+import { Checkbox, Field, TextInput } from "../ds/Controls";
 import { clock } from "../../../src/view-model/time";
 import { useDialogs } from "../ds/useDialogs";
 import type { ComponentChildren } from 'preact';
@@ -6,24 +6,28 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { createPortal } from "preact/compat";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { SearchAddon } from "@xterm/addon-search";
 import { Button } from "../ds/Button";
 import { SessionClient, type SessionState } from "./client";
 import { filesFromPaste } from "../model/attachments";
 import { terminalDocument } from "./document";
-export interface TerminalViewProps { id:string; url?:string; label?:string; cols?:number; rows?:number; control?:boolean; resize?:boolean; live?:boolean; controller?:string|null; driving?:boolean; takeRequested?:boolean; onTakeSent?:()=>void; takeover?:ComponentChildren; conversation?:boolean; onFiles?:(files:File[])=>void; footer?:HTMLElement|null }
+export interface TerminalViewProps { id:string; url?:string; label?:string; cols?:number; rows?:number; control?:boolean; resize?:boolean; live?:boolean; controller?:string|null; driving?:boolean; takeRequested?:boolean; onTakeSent?:()=>void; takeover?:ComponentChildren; conversation?:boolean; shell?:boolean; onFiles?:(files:File[])=>void; footer?:HTMLElement|null }
 /** Loaded only by import(). The shell may disable its shortcuts when data-session-control is true. */
-export function TerminalView({id,url,label='pacer app',cols=120,rows=40,control=false,resize=true,live=true,controller=null,driving=false,takeRequested=false,onTakeSent,takeover,conversation=false,onFiles,footer}:TerminalViewProps){
+export function TerminalView({id,url,label='pacer app',cols=120,rows=40,control=false,resize=true,live=true,controller=null,driving=false,takeRequested=false,onTakeSent,takeover,conversation=false,shell=false,onFiles,footer}:TerminalViewProps){
  const dialogs=useDialogs();
  const mount=useRef<HTMLDivElement>(null),pane=useRef<HTMLDivElement>(null),client=useRef<SessionClient>();
  const [state,setState]=useState<SessionState>({status:'connecting',you:false,controller,cols,rows,viewers:0});
  const [reader,setReader]=useState(false),[error,setError]=useState(''),[generation,setGeneration]=useState(0),[exitAt,setExitAt]=useState('');
- const terminal=useRef<Terminal>(),taken=useRef(false);
+ const terminal=useRef<Terminal>(),searchAddon=useRef<SearchAddon>(),taken=useRef(false);
+ const [search,setSearch]=useState(''),[searchFound,setSearchFound]=useState<boolean|null>(null);
  useEffect(()=>{
   if(!mount.current||!pane.current)return;
   setError('');setExitAt('');
   const nonce=document.querySelector<HTMLMetaElement>('meta[name="pacer-style-nonce"]')?.content??'';
   const term=new Terminal({documentOverride:terminalDocument(document,nonce),cols,rows,disableStdin:true,screenReaderMode:reader,fontFamily:getComputedStyle(mount.current).getPropertyValue('--font-mono').trim(),fontSize:parseFloat(getComputedStyle(mount.current).getPropertyValue('--type-code-size')),scrollback:10000,convertEol:false});
-  terminal.current=term;const fit=new FitAddon();term.loadAddon(fit);term.open(mount.current);
+  terminal.current=term;const fit=new FitAddon();term.loadAddon(fit);
+  if(shell){const addon=new SearchAddon();term.loadAddon(addon);searchAddon.current=addon;}
+  term.open(mount.current);
   const applyTheme=()=>{const style=getComputedStyle(mount.current!);const token=(name:string)=>style.getPropertyValue(name).trim();term.options.theme={background:token('--surface-page'),foreground:token('--ink'),cursor:token('--ink'),selectionBackground:token('--line'),black:token('--ink'),red:token('--bad-fg'),green:token('--good-fg'),yellow:token('--warn-fg'),blue:token('--info-fg'),magenta:token('--link'),cyan:token('--info-fg'),white:token('--ink-secondary'),brightBlack:token('--ink-muted'),brightRed:token('--bad-fill'),brightGreen:token('--good-fill'),brightYellow:token('--warn-fill'),brightBlue:token('--link'),brightMagenta:token('--link'),brightCyan:token('--info-fg'),brightWhite:token('--ink')};};
   applyTheme();const observer=new MutationObserver(applyTheme);observer.observe(document.documentElement,{attributes:true,attributeFilter:['data-theme','class']});const media=matchMedia('(prefers-color-scheme: dark)');media.addEventListener('change',applyTheme);
   const endpoint=new URL(url??`/v2/tasks/${encodeURIComponent(id)}/session`,location.href);endpoint.protocol=['https:','wss:'].includes(endpoint.protocol)?'wss:':'ws:';
@@ -48,21 +52,28 @@ export function TerminalView({id,url,label='pacer app',cols=120,rows=40,control=
   const input=term.onData(data=>connection.input(data));
   const resizer=new ResizeObserver(()=>{clearTimeout(resizeTimer);resizeTimer=setTimeout(scale,150);});resizer.observe(pane.current);
   connection.connect();scale();
-  return ()=>{clearTimeout(resizeTimer);resizer.disconnect();observer.disconnect();media.removeEventListener('change',applyTheme);input.dispose();connection.dispose();term.dispose();client.current=undefined;terminal.current=undefined;};
- },[id,url,label,control,resize,live,generation]);
+  return ()=>{clearTimeout(resizeTimer);resizer.disconnect();observer.disconnect();media.removeEventListener('change',applyTheme);input.dispose();connection.dispose();term.dispose();client.current=undefined;terminal.current=undefined;searchAddon.current=undefined;};
+ },[id,url,label,control,resize,live,shell,generation]);
  useEffect(()=>{if(terminal.current)terminal.current.options.screenReaderMode=reader;},[reader]);
  // Focus on the next frame, after the control state renders.
  useEffect(()=>{if(!state.you)return;const frame=requestAnimationFrame(()=>terminal.current?.focus());return ()=>cancelAnimationFrame(frame);},[state.you]);
  useEffect(()=>{if(takeRequested&&!taken.current&&state.status==='live'){taken.current=true;void client.current?.take(message=>dialogs.confirm(message,'Take control','Take control')).then(()=>onTakeSent?.()).catch(e=>setError(String(e)));}},[takeRequested,state.status]);
  const mode=state.status==='exited'?`Exited with code ${state.code ?? 'unknown'}${state.signal?` (${state.signal})`:''}${exitAt?` at ${exitAt}`:''}`:state.you?'You have control':state.status==='live'?'Watching · read-only':state.status==='resyncing'?'Refreshing snapshot…':state.status==='error'?'Session error':state.status==='reconnecting'?'Reconnecting…':'Connecting…';
- const hint=state.you?'Keystrokes go to the agent. Ctrl-] to release.':conversation?'Nothing you type reaches the agent. Closing this window leaves your conversation running.':'Nothing you type reaches the agent.';
+ const hint=state.you?`Keystrokes go to your ${shell?'shell':'agent'}. Ctrl-] to release.`:shell?'Nothing you type reaches the shell until you take control.':conversation?'Nothing you type reaches the agent. Closing this window leaves your conversation running.':'Nothing you type reaches the agent.';
  const readerToggle=<label><Checkbox checked={reader} onChange={e=>setReader(e.currentTarget.checked)}/> Screen reader</label>;
  const toggleControl=()=>{if(state.you)client.current?.release();else{void client.current?.take(message=>dialogs.confirm(message,'Take control','Take control')).catch(e=>setError(String(e)));}};
  const reconnect=()=>setGeneration(n=>n+1);
+ const find=(backward=false)=>{if(!search.trim()){searchAddon.current?.clearDecorations();setSearchFound(null);return;}setSearchFound(backward?searchAddon.current?.findPrevious(search)??false:searchAddon.current?.findNext(search)??false);};
  return <section className={`pc-terminal-view${footer?' pc-terminal-view--fill':''}`} data-session-control={state.you?'true':'false'} onKeyDown={e=>{if(state.you)e.stopPropagation();}}
   onPasteCapture={event=>{if(!onFiles)return;const files=filesFromPaste(event);if(files.length){event.preventDefault();event.stopPropagation();const text=event.clipboardData?.getData('text/plain');if(text&&state.you)terminal.current?.paste(text);onFiles(files);}}}
   onDragOver={event=>{if(onFiles)event.preventDefault();}} onDrop={event=>{if(onFiles){event.preventDefault();onFiles(Array.from(event.dataTransfer?.files??[]));}}}>
   {dialogs.dialog}
+  {shell&&<div className="pc-terminal-search" role="search" aria-label="Terminal output search">
+   <Field label="Search terminal output"><TextInput value={search} onInput={event=>{setSearch(event.currentTarget.value);setSearchFound(null);}} onKeyDown={event=>{if(event.key==='Enter'){event.preventDefault();find(event.shiftKey);}}}/></Field>
+   <Button size="sm" disabled={!search.trim()} onClick={()=>find(true)}>Previous</Button>
+   <Button size="sm" disabled={!search.trim()} onClick={()=>find()}>Next</Button>
+   {searchFound===false&&<span role="status">No match</span>}
+  </div>}
   <div className={`pc-terminal-frame${state.you?' pc-terminal-frame--control':''}${footer?' pc-terminal-frame--fill':''}`}><div className="pc-terminal-pane" ref={pane}><div ref={mount} className="pc-terminal-mount"/></div>
    {!footer&&<div className="pc-terminal-strip"><strong role="status" aria-live="polite">{mode}</strong><span>{hint}</span><span>{state.cols}×{state.rows}</span>{readerToggle}</div>}
   </div>
@@ -76,13 +87,13 @@ export function TerminalView({id,url,label='pacer app',cols=120,rows=40,control=
    <span className="pc-session-control__size">{state.cols}×{state.rows}</span>{readerToggle}
   </div>,footer):<>
   {state.message&&<p role="status">{state.message}</p>}{error&&<p role="alert">{error}</p>}
-  <TerminalControls control={control} live={live} driving={driving} state={state} takeover={takeover} onControl={toggleControl} onReconnect={reconnect}/>
+  <TerminalControls control={control} live={live} driving={driving} shell={shell} state={state} takeover={takeover} onControl={toggleControl} onReconnect={reconnect}/>
   </>}
  </section>;
 }
-export function TerminalControls({control,live,driving,state,takeover,onControl,onReconnect}:{control:boolean;live:boolean;driving?:boolean;state:SessionState;takeover?:ComponentChildren;onControl:()=>void;onReconnect?:()=>void}){
+export function TerminalControls({control,live,driving,shell,state,takeover,onControl,onReconnect}:{control:boolean;live:boolean;driving?:boolean;shell?:boolean;state:SessionState;takeover?:ComponentChildren;onControl:()=>void;onReconnect?:()=>void}){
  return <div className="pc-session-row">{control&&live&&state.status==='live'&&<Button aria-pressed={state.you} onClick={onControl}>{state.you?(driving?'Hand back':'Release control'):'Take control'}</Button>}
   {takeover}{state.status==='error'&&<Button onClick={onReconnect}>Reconnect</Button>}
-  <span className="pc-session-muted">{driving?'Ends this session and sends the task to review':state.you?'Other viewers stay read-only while you hold control.':'Only for agents running interactively. pacer pauses its idle timer while you type.'}</span></div>;
+  <span className="pc-session-muted">{shell?'Only one window can type into this shell at a time. Closing this page leaves it running.':driving?'Ends this session and sends the task to review':state.you?'Other viewers stay read-only while you hold control.':'Only for agents running interactively. pacer pauses its idle timer while you type.'}</span></div>;
 }
 export default TerminalView;

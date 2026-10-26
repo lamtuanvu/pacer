@@ -90,6 +90,7 @@ function App() {
       keys.register({ keys: "g o", label: "Go to Overview", scope: "global", run: go("#/overview") }),
       keys.register({ keys: "g r", label: "Go to Needs you", scope: "global", run: go("#/needs-you") }),
       keys.register({ keys: "g s", label: "Go to Tasks", scope: "global", run: go("#/tasks") }),
+      keys.register({ keys: "g t", label: "Go to Terminal", scope: "global", run: go("#/terminal") }),
       keys.register({ keys: ",", label: "Open Settings", scope: "global", run: go("#/settings") }),
       keys.register({ keys: "?", label: "Show keyboard shortcuts", scope: "global", run: () => setHelp(true) }),
       keys.register({ keys: "d", label: "Delegate a task", scope: "global", run: () => setDelegate(true) }),

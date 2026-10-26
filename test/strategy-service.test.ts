@@ -1,6 +1,6 @@
 import { withLoginIndicators } from "./helpers";
 import { test, expect } from "bun:test";
-import { mkdirSync, readFileSync, existsSync, readdirSync, statSync, writeFileSync, utimesSync } from "node:fs";
+import { mkdirSync, readFileSync, existsSync, readdirSync, statSync, writeFileSync, utimesSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { fakeCtx } from "./helpers";
 import * as s from "../src/strategy/service";
@@ -59,6 +59,41 @@ test("launcher writes the complete brief and uses the terminal opener",async()=>
  const text=readFileSync(result.path,"utf8");expect(text).toContain(yaml);expect(text).toContain("Protect Claude; $(touch /tmp/nope)");expect(text).toContain("Codex first, Claude keeps 15%");expect(text).toContain("Current status:");expect(text).toContain("Save only after explicit approval");expect(text).toContain("Never switch");
  const fallback=await build({...ctx,which:()=>null});expect(fallback.opened).toBe(false);expect(fallback.message).toContain(fallback.command);
  for(const agent of ["agy","evil"])await expect(build(ctx,{agent})).rejects.toThrow("configured planner");
+});
+test("strategy action retries reuse their prompt and reject changed intent",async()=>{
+ const ctx=await setup();const options={agent:"codex",from:"default",brief:"Protect Claude",request_id:"8fbe6848-4b3d-4f7c-b2f2-a8d421925830"};
+ const open=async(_ctx:typeof ctx,input:{argv:string[]})=>({opened:true,target:"builtin" as const,command:input.argv[0]!,terminalId:"8fbe6848-4b3d-4f7c-b2f2-a8d421925830"});
+ const first=await build(ctx,options,{open});
+ const second=await build(ctx,options,{open});
+ expect(second.path).toBe(first.path);
+ expect(readFileSync(first.path,"utf8")).toContain("Protect Claude");
+ await expect(build(ctx,{...options,brief:"Different"},{open})).rejects.toThrow("different details");
+});
+test("strategy prompt preparation serializes retries and recovers interrupted writes",async()=>{
+ const ctx=await setup(), id="24f48461-8b31-462a-9b99-310278f49f0d";
+ const folder=join(ctx.pacerHome,"link","sessions");mkdirSync(folder,{recursive:true});
+ const path=join(folder,`${id}.md`);writeFileSync(path,"incomplete",{mode:0o600});
+ const options={agent:"codex",from:"default",brief:"Stable",request_id:id};
+ let opens=0;
+ const open=async(_ctx:typeof ctx,input:{argv:string[]})=>{opens++;return {opened:true,target:"builtin" as const,command:input.argv[0]!,terminalId:id};};
+ const [first,second]=await Promise.all([build(ctx,options,{open}),build(ctx,options,{open})]);
+ expect(first.path).toBe(second.path);
+ expect(readFileSync(path,"utf8")).toContain("Stable");
+ expect(readFileSync(join(folder,`${id}.json`),"utf8")).toContain("Stable");
+ expect(opens).toBe(2);
+ const complete=readFileSync(path,"utf8");
+ writeFileSync(path,"# Build a pacer strategy\npartial",{mode:0o600});
+ await build(ctx,options,{open:async(_ctx,input)=>{
+   expect(input.argv.at(-1)).toBe(complete);
+   expect(readFileSync(path,"utf8")).toBe(complete);
+   return {opened:true,target:"builtin" as const,command:input.argv[0]!,terminalId:id};
+ }});
+ rmSync(path);
+ await build(ctx,options,{open:async(_ctx,input)=>{
+   expect(input.argv.at(-1)).toBe(complete);
+   expect(readFileSync(path,"utf8")).toBe(complete);
+   return {opened:true,target:"builtin" as const,command:input.argv[0]!,terminalId:id};
+ }});
 });
 test("strategy build commands reject malformed input and snapshots accept both shapes",()=>{
  const data={cmd:"strategy-build" as const,agent:"codex",from:"default",brief:"Protect Claude",worktreeId:"wt",branch:"main"};const wrap=(data:unknown)=>({type:"cmd",data});
