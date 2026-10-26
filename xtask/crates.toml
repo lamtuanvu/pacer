@@ -18,6 +18,9 @@ generated = true
 [crates.pacer-client-control-protocol]
 layer = 0
 generated = true
+[crates.pacer-limits-protocol]
+layer = 0
+generated = true
 [crates.pacer-session-protocol]
 layer = 0
 generated = true
