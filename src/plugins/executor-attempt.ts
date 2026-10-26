@@ -8,16 +8,20 @@ import { applyExecutorProgress } from "./executor-progress";
 import { executorRunResult } from "./executor-protocol";
 import { MAX_PROCESS_SPAWN_MS } from "./capability-protocol";
 import type { CallResources } from "./authority";
+import type { CredentialBinding } from "./credential-bindings";
+import { secretReference } from "./http-protocol";
 import { killTree } from "../exec/process";
 import { NativeWriteError, WRITE_DIRECTORY, writeNative } from "./write-native";
 
 interface ExecutorCaller {
   call(ctx: Ctx, pluginId: string, method: "executor.run", params: unknown,
     options: { onProgress: (event: unknown) => void; resources?: CallResources; deadlineMs?: number;
-      spawnAdmission?: (spawn: () => import("node:child_process").ChildProcess) => import("node:child_process").ChildProcess }): Promise<unknown>;
+      spawnAdmission?: (spawn: () => import("node:child_process").ChildProcess) => import("node:child_process").ChildProcess;
+      credentialBindings?: readonly CredentialBinding[] }): Promise<unknown>;
 }
 
-export interface LocalExecutorEffect { argv: string[]; cwd: string; timeoutMs: number; stdin?: string }
+export interface LocalExecutorEffect { argv: string[]; cwd: string; timeoutMs: number; stdin?: string;
+  env?: Record<string, string>; secretEnv?: Record<string, string> }
 
 function ownsRun(ctx: Ctx, taskId: string, owner: RunRef): boolean {
   const task = readTask(ctx, taskId);
@@ -83,13 +87,24 @@ function claimRunDirectory(ctx: Ctx, taskId: string, attempt: number):
 /** Stage an owned local attempt. Production dispatch stays on the existing backend until full effects and recovery are reviewed. */
 export async function runOwnedExecutorAttempt(ctx: Ctx, caller: ExecutorCaller, pluginId: string,
   taskId: string, executor: string, workdir: string,
-  effect?: LocalExecutorEffect): Promise<ReturnType<typeof executorRunResult.parse>> {
+  effect?: LocalExecutorEffect, credentialBindings: readonly CredentialBinding[] = []): Promise<ReturnType<typeof executorRunResult.parse>> {
   if (!isAbsolute(workdir)) throw new CoreError("invalid_input", "executor workdir must be absolute");
   if (effect && (!isAbsolute(effect.cwd) || effect.cwd !== workdir || effect.argv.length < 1 ||
     effect.argv.length > 32 || effect.argv.some(value => !value || value.length > 4096 || value.includes("\0")) ||
     !Number.isSafeInteger(effect.timeoutMs) || effect.timeoutMs < 1 || effect.timeoutMs > MAX_PROCESS_SPAWN_MS ||
-    (effect.stdin !== undefined && (typeof effect.stdin !== "string" || Buffer.byteLength(effect.stdin, "utf8") > 262144))))
+    (effect.stdin !== undefined && (typeof effect.stdin !== "string" || Buffer.byteLength(effect.stdin, "utf8") > 262144)) ||
+    Object.entries(effect.env ?? {}).some(([name, value]) => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) ||
+      name.startsWith("PACER_KEY_") ||
+      typeof value !== "string" || value.includes("\0")) ||
+    Object.entries(effect.secretEnv ?? {}).some(([name, ref]) => !/^PACER_KEY_[A-Z0-9_]+$/.test(name) ||
+      Object.hasOwn(effect.env ?? {}, name) || !secretReference.safeParse(ref).success)))
     throw new CoreError("invalid_input", "invalid executor effect");
+  const refs = new Set(Object.values(effect?.secretEnv ?? {}));
+  if (credentialBindings.some(binding => !refs.has(binding.ref) || typeof binding.resolve !== "function") ||
+    new Set(credentialBindings.map(binding => binding.ref)).size !== credentialBindings.length ||
+    credentialBindings.length !== refs.size)
+    throw new CoreError("invalid_input", "executor credential binding is not issued for this effect");
+  const sensitiveOutput = refs.size > 0;
   let runIdentity: { dev: number; ino: number };
   const owner = withTaskLock(ctx, taskId, (): RunRef => {
     const task = readTask(ctx, taskId);
@@ -128,16 +143,23 @@ export async function runOwnedExecutorAttempt(ctx: Ctx, caller: ExecutorCaller, 
     });
   let raw: unknown;
   try { raw = await caller.call(ctx, pluginId, "executor.run",
-    { task: { id: taskId, rev: revision }, attempt: owner.attempt, runDir: 1, ...(effect ? { effect } : {}) },
+    { task: { id: taskId, rev: revision }, attempt: owner.attempt, runDir: 1, ...(effect ? { effect: {
+      argv: effect.argv, cwd: effect.cwd, timeoutMs: effect.timeoutMs,
+      ...(effect.stdin === undefined ? {} : { stdin: effect.stdin }),
+      ...(effect.env === undefined ? {} : { env: effect.env }),
+      ...(effect.secretEnv === undefined ? {} : { secretEnv: effect.secretEnv }),
+    } } : {}) },
     { onProgress: event => applyExecutorProgress(ctx, taskId, owner.attempt, event, owner),
       ...(effect ? { deadlineMs: effect.timeoutMs + 5000,
         spawnAdmission,
-        resources: { reads: [], stores: [], writes: ["stdout", "stderr"].map(name => ({
+        credentialBindings,
+        resources: { reads: [], stores: [], writes: (sensitiveOutput ? [] : ["stdout", "stderr"]).map(name => ({
           path: join(owner.dir, name), root: owner.dir, rootIdentity: runIdentity,
           kind: "file" as const, operations: ["write" as const],
         })), commands: [{ argv: effect.argv, cwd: effect.cwd,
-          env: {}, timeoutMs: effect.timeoutMs,
-          capture: { stdout: join(owner.dir, "stdout"), stderr: join(owner.dir, "stderr") },
+          env: effect.env ?? {}, secretEnv: effect.secretEnv ?? {}, timeoutMs: effect.timeoutMs,
+          ...(sensitiveOutput ? { suppressOutput: true } : {
+            capture: { stdout: join(owner.dir, "stdout"), stderr: join(owner.dir, "stderr") } }),
           ...(effect.stdin === undefined ? {} : { stdin: effect.stdin }) }] } } : {}) });
   } finally {
     if (spawnedPid) withTaskLock(ctx, taskId, () => {

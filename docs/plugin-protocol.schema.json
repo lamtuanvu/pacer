@@ -4303,6 +4303,27 @@
             "stdin": {
               "type": "string",
               "maxLength": 262144
+            },
+            "env": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string",
+                "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+              },
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "secretEnv": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string",
+                "pattern": "^PACER_KEY_[A-Z0-9_]+$"
+              },
+              "additionalProperties": {
+                "type": "string",
+                "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+              }
             }
           },
           "required": [

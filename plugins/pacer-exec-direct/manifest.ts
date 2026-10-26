@@ -6,6 +6,7 @@ export const manifest = {
   contributes: { executor: { backends: ["direct"] } },
   capabilities: [
     { name: "process.spawn", scopes: ["bun", "codex", "claude", "cursor-agent", "agy", "opencode"] },
+    { name: "secrets.resolve" },
     { name: "fs.write", scopes: ["${PACER_HOME}/runs/**"] },
   ],
   reentrant: true, tier: "free",

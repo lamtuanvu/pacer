@@ -33,6 +33,7 @@ interface Pin {
     secretEnv: Readonly<Record<string, string>>;
   };
   capture?: { stdout: string; stderr: string };
+  suppressOutput?: boolean;
 }
 interface State { pins: Pin[]; busy: boolean; liveUsed: boolean; output: Map<string, Buffer>; cleanupFailure?: Error }
 const states = new WeakMap<CallAuthority, State>();
@@ -47,7 +48,8 @@ export function prepareSpawnAuthority(authority: CallAuthority): void {
   const pins = authority.resources.commands.map(command => {
     const selected = authority.ctx.which(command.argv[0]!);
     const pin: Pin = { argv: command.argv, timeoutMs: command.timeoutMs, selected, mode: command.mode,
-      stdin: command.stdin, capture: command.capture };
+      stdin: command.stdin, capture: command.capture, suppressOutput: command.suppressOutput };
+    if (pin.suppressOutput && pin.capture) invalid("sensitive provider output cannot be captured");
     if (command.stdin !== undefined && (typeof command.stdin !== "string" ||
       Buffer.byteLength(command.stdin, "utf8") > 262144)) invalid("invalid issued provider stdin");
     if (command.mode === "codex-live" &&
@@ -276,6 +278,9 @@ async function run(authority: CallAuthority, state: State, pin: Pin, argv: strin
   if (failure) throw failure;
   authority.assertActive();
   const stdout = Buffer.concat(parts[0]!), stderr = Buffer.concat(parts[1]!);
+  // A child can emit a credential fragment; whole-secret matching cannot make
+  // secret-bearing output safe for durable files or the plugin transport.
+  if (pin.suppressOutput) return { code, stdout: "", stderr: "", timedOut };
   if (secrets.some(secret => stdout.includes(Buffer.from(secret)) || stderr.includes(Buffer.from(secret)))) {
     throw new CoreError("capability_denied", "provider output exposed an injected credential", undefined, { reason: "credential_reflection" });
   }

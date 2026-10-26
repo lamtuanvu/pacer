@@ -7,7 +7,8 @@ const input = z.object({
   task: z.object({ id: z.string(), rev: z.number().int().positive() }).strict(),
   attempt: z.number().int().positive(), runDir: z.literal(1),
   effect: z.object({ argv: z.array(z.string()).min(1).max(32), cwd: z.string(),
-    timeoutMs: z.number().int().positive().max(30 * 60 * 1000), stdin: z.string().max(262144).optional() }).strict(),
+    timeoutMs: z.number().int().positive().max(30 * 60 * 1000), stdin: z.string().max(262144).optional(),
+    env: z.record(z.string(), z.string()).optional(), secretEnv: z.record(z.string(), z.string()).optional() }).strict(),
 }).strict();
 
 const spawnResult = z.object({
@@ -24,7 +25,9 @@ export const handlers = {
     if (signal.aborted) throw new PluginError("plugin_unavailable", "executor call was cancelled");
     const { effect } = parsed.data;
     const result = spawnResult.parse(await host.call("capability.process.spawn", {
-      argv: effect.argv, cwd: effect.cwd, env: {}, timeoutMs: effect.timeoutMs,
+      argv: effect.argv, cwd: effect.cwd,
+      env: { ...effect.env, ...Object.fromEntries(Object.entries(effect.secretEnv ?? {}).map(
+        ([name, ref]) => [name, { secretRef: ref }])) }, timeoutMs: effect.timeoutMs,
       ...(effect.stdin === undefined ? {} : { stdin: effect.stdin }),
     }));
     if (signal.aborted) throw new PluginError("plugin_unavailable", "executor call was cancelled");

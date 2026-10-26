@@ -4284,14 +4284,7 @@ impl ::std::convert::From<CapabilityProcessSpawnParamsEnvKey> for ::std::string:
 impl ::std::str::FromStr for CapabilityProcessSpawnParamsEnvKey {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
-            ::std::sync::LazyLock::new(|| {
-                ::regress::Regex::new("^[A-Za-z_][A-Za-z0-9_]*$").unwrap()
-            });
-        if PATTERN.find(value).is_none() {
-            return Err("doesn't match pattern \"^[A-Za-z_][A-Za-z0-9_]*$\"".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_13(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityProcessSpawnParamsEnvKey {
@@ -8513,6 +8506,27 @@ impl<'de> ::serde::Deserialize<'de> for ExecutorAvailableResultReason {
 ///          "type": "string",
 ///          "minLength": 1
 ///        },
+///        "env": {
+///          "type": "object",
+///          "additionalProperties": {
+///            "type": "string"
+///          },
+///          "propertyNames": {
+///            "type": "string",
+///            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+///          }
+///        },
+///        "secretEnv": {
+///          "type": "object",
+///          "additionalProperties": {
+///            "type": "string",
+///            "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+///          },
+///          "propertyNames": {
+///            "type": "string",
+///            "pattern": "^PACER_KEY_[A-Z0-9_]+$"
+///          }
+///        },
 ///        "stdin": {
 ///          "type": "string",
 ///          "maxLength": 262144
@@ -8590,6 +8604,27 @@ pub struct ExecutorRunParams {
 ///      "type": "string",
 ///      "minLength": 1
 ///    },
+///    "env": {
+///      "type": "object",
+///      "additionalProperties": {
+///        "type": "string"
+///      },
+///      "propertyNames": {
+///        "type": "string",
+///        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+///      }
+///    },
+///    "secretEnv": {
+///      "type": "object",
+///      "additionalProperties": {
+///        "type": "string",
+///        "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+///      },
+///      "propertyNames": {
+///        "type": "string",
+///        "pattern": "^PACER_KEY_[A-Z0-9_]+$"
+///      }
+///    },
 ///    "stdin": {
 ///      "type": "string",
 ///      "maxLength": 262144
@@ -8609,6 +8644,20 @@ pub struct ExecutorRunParams {
 pub struct ExecutorRunParamsEffect {
     pub argv: ::std::vec::Vec<ExecutorRunParamsEffectArgvItem>,
     pub cwd: ExecutorRunParamsEffectCwd,
+    #[serde(
+        default,
+        skip_serializing_if = ":: std :: collections :: HashMap::is_empty"
+    )]
+    pub env: ::std::collections::HashMap<ExecutorRunParamsEffectEnvKey, ::std::string::String>,
+    #[serde(
+        rename = "secretEnv",
+        default,
+        skip_serializing_if = ":: std :: collections :: HashMap::is_empty"
+    )]
+    pub secret_env: ::std::collections::HashMap<
+        ExecutorRunParamsEffectSecretEnvKey,
+        ExecutorRunParamsEffectSecretEnvValue,
+    >,
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub stdin: ::std::option::Option<ExecutorRunParamsEffectStdin>,
     #[serde(rename = "timeoutMs")]
@@ -8698,6 +8747,146 @@ impl ::std::convert::TryFrom<&str> for ExecutorRunParamsEffectCwd {
     }
 }
 impl<'de> ::serde::Deserialize<'de> for ExecutorRunParamsEffectCwd {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`ExecutorRunParamsEffectEnvKey`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct ExecutorRunParamsEffectEnvKey(::std::string::String);
+impl ::std::ops::Deref for ExecutorRunParamsEffectEnvKey {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<ExecutorRunParamsEffectEnvKey> for ::std::string::String {
+    fn from(value: ExecutorRunParamsEffectEnvKey) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for ExecutorRunParamsEffectEnvKey {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_13(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for ExecutorRunParamsEffectEnvKey {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for ExecutorRunParamsEffectEnvKey {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`ExecutorRunParamsEffectSecretEnvKey`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "pattern": "^PACER_KEY_[A-Z0-9_]+$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct ExecutorRunParamsEffectSecretEnvKey(::std::string::String);
+impl ::std::ops::Deref for ExecutorRunParamsEffectSecretEnvKey {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<ExecutorRunParamsEffectSecretEnvKey> for ::std::string::String {
+    fn from(value: ExecutorRunParamsEffectSecretEnvKey) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for ExecutorRunParamsEffectSecretEnvKey {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| ::regress::Regex::new("^PACER_KEY_[A-Z0-9_]+$").unwrap());
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^PACER_KEY_[A-Z0-9_]+$\"".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for ExecutorRunParamsEffectSecretEnvKey {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for ExecutorRunParamsEffectSecretEnvKey {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`ExecutorRunParamsEffectSecretEnvValue`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct ExecutorRunParamsEffectSecretEnvValue(::std::string::String);
+impl ::std::ops::Deref for ExecutorRunParamsEffectSecretEnvValue {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<ExecutorRunParamsEffectSecretEnvValue> for ::std::string::String {
+    fn from(value: ExecutorRunParamsEffectSecretEnvValue) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for ExecutorRunParamsEffectSecretEnvValue {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_12(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for ExecutorRunParamsEffectSecretEnvValue {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for ExecutorRunParamsEffectSecretEnvValue {
     fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
     where
         D: ::serde::Deserializer<'de>,
@@ -8810,7 +8999,7 @@ impl ::std::convert::From<ExecutorRunParamsTaskId> for ::std::string::String {
 impl ::std::str::FromStr for ExecutorRunParamsTaskId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_15(value, Self)
+        validate_string_16(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for ExecutorRunParamsTaskId {
@@ -9047,7 +9236,7 @@ impl ::std::convert::From<ExecutorStopParamsTaskId> for ::std::string::String {
 impl ::std::str::FromStr for ExecutorStopParamsTaskId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_15(value, Self)
+        validate_string_16(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for ExecutorStopParamsTaskId {
@@ -10498,7 +10687,7 @@ impl ::std::convert::From<HelloParamsManifestId> for ::std::string::String {
 impl ::std::str::FromStr for HelloParamsManifestId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_14(value, Self)
+        validate_string_15(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for HelloParamsManifestId {
@@ -11815,7 +12004,7 @@ impl ::std::convert::From<ManifestId> for ::std::string::String {
 impl ::std::str::FromStr for ManifestId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_14(value, Self)
+        validate_string_15(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for ManifestId {
@@ -18057,7 +18246,7 @@ impl ::std::convert::From<RemoteCallerFetchParamsAlias> for ::std::string::Strin
 impl ::std::str::FromStr for RemoteCallerFetchParamsAlias {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_13(value, Self)
+        validate_string_14(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for RemoteCallerFetchParamsAlias {
@@ -18173,7 +18362,7 @@ impl ::std::convert::From<RemoteCallerIdentityParamsAlias> for ::std::string::St
 impl ::std::str::FromStr for RemoteCallerIdentityParamsAlias {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_13(value, Self)
+        validate_string_14(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for RemoteCallerIdentityParamsAlias {
@@ -21586,13 +21775,24 @@ fn validate_string_13<T>(
     construct: impl FnOnce(::std::string::String) -> T,
 ) -> ::std::result::Result<T, self::error::ConversionError> {
     static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+        ::std::sync::LazyLock::new(|| ::regress::Regex::new("^[A-Za-z_][A-Za-z0-9_]*$").unwrap());
+    if PATTERN.find(value).is_none() {
+        return Err("doesn't match pattern \"^[A-Za-z_][A-Za-z0-9_]*$\"".into());
+    }
+    Ok(construct(value.to_string()))
+}
+fn validate_string_14<T>(
+    value: &str,
+    construct: impl FnOnce(::std::string::String) -> T,
+) -> ::std::result::Result<T, self::error::ConversionError> {
+    static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
         ::std::sync::LazyLock::new(|| ::regress::Regex::new("^[a-z0-9][a-z0-9-]*$").unwrap());
     if PATTERN.find(value).is_none() {
         return Err("doesn't match pattern \"^[a-z0-9][a-z0-9-]*$\"".into());
     }
     Ok(construct(value.to_string()))
 }
-fn validate_string_14<T>(
+fn validate_string_15<T>(
     value: &str,
     construct: impl FnOnce(::std::string::String) -> T,
 ) -> ::std::result::Result<T, self::error::ConversionError> {
@@ -21603,7 +21803,7 @@ fn validate_string_14<T>(
     }
     Ok(construct(value.to_string()))
 }
-fn validate_string_15<T>(
+fn validate_string_16<T>(
     value: &str,
     construct: impl FnOnce(::std::string::String) -> T,
 ) -> ::std::result::Result<T, self::error::ConversionError> {

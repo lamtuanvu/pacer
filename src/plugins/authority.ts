@@ -20,6 +20,8 @@ export interface CallResources {
     cwd?: string;
     env?: Record<string, string>;
     secretEnv?: Record<string, string>;
+    /** Host-only policy: discard child streams before run-file capture or plugin reply. */
+    suppressOutput?: boolean;
     /** Host-only run files receiving the bounded child output; never selected by plugin RPC params. */
     capture?: { stdout: string; stderr: string };
     /** Host-only fixed interactive exchange; never selected by plugin RPC params. */

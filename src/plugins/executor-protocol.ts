@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { MAX_PROCESS_SPAWN_MS } from "./capability-protocol";
+import { secretReference } from "./http-protocol";
 
 /** Staged SP09 contribution: only the existing direct backend is named. */
 export const executorContribution = z.object({ backends: z.tuple([z.literal("direct")]) }).strict();
@@ -23,6 +24,8 @@ export const executorRunParams = z.object({
     cwd: z.string().min(1),
     timeoutMs: z.number().int().positive().max(MAX_PROCESS_SPAWN_MS),
     stdin: z.string().max(262144).optional(),
+    env: z.record(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/).refine(name => !name.startsWith("PACER_KEY_")), z.string()).optional(),
+    secretEnv: z.record(z.string().regex(/^PACER_KEY_[A-Z0-9_]+$/), secretReference).optional(),
   }).strict().optional(),
 }).strict();
 export const executorRunResult = z.object({

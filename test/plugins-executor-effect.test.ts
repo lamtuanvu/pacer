@@ -70,6 +70,54 @@ test("owned direct plugin call executes only the exact host-issued local process
     expect(stdinResult.status).toBe("done");
     expect(readFileSync(stdinMarker, "utf8")).toBe("host-issued prompt\n");
     expect(readTask(ctx, stdinTask.id)?.childPid).toBeUndefined();
+    const secretTask = createTask(ctx, { brief: { goal: "bound endpoint launch", repo: home }, kind: null,
+      requestedExecutor: "codex", timeoutS: 60 });
+    updateTask(ctx, secretTask.id, t => { t.state = "running"; t.executor = "codex"; });
+    const secretMarker = join(home, "secret-launch.txt"), secret = "owned-endpoint-key-fixture";
+    let reads = 0;
+    const secretResult = await runOwnedExecutorAttempt(ctx, registry, "pacer-exec-direct", secretTask.id,
+      "codex", home, { argv: ["bun", "-e", `await Bun.write(${JSON.stringify(secretMarker)},
+        [process.env.PLAIN, process.env.PACER_KEY_FIXTURE].join(":"));
+        process.stdout.write(process.env.PACER_KEY_FIXTURE.slice(0, 8));
+        process.stderr.write(process.env.PACER_KEY_FIXTURE.slice(4, 12));`], cwd: home, timeoutMs: 5000,
+        env: { PLAIN: "host-issued" }, secretEnv: { PACER_KEY_FIXTURE: "endpoint:fixture" } },
+      [{ ref: "endpoint:fixture", resolve: async () => { reads++; return secret; } }]);
+    expect(secretResult.status).toBe("done");
+    expect(readFileSync(secretMarker, "utf8")).toBe(`host-issued:${secret}`);
+    expect(reads).toBe(1);
+    expect(JSON.stringify(secretResult)).not.toContain(secret);
+    expect(existsSync(join(pacerHome, "runs", secretTask.id, "1", "stdout"))).toBe(false);
+    expect(existsSync(join(pacerHome, "runs", secretTask.id, "1", "stderr"))).toBe(false);
+    expect(JSON.stringify(secretResult)).not.toContain(secret.slice(0, 8));
+    expect(JSON.stringify(secretResult)).not.toContain(secret.slice(4, 12));
+    const unboundTask = createTask(ctx, { brief: { goal: "unbound endpoint", repo: home }, kind: null,
+      requestedExecutor: "codex", timeoutS: 60 });
+    updateTask(ctx, unboundTask.id, t => { t.state = "running"; t.executor = "codex"; });
+    await expect(runOwnedExecutorAttempt(ctx, registry, "pacer-exec-direct", unboundTask.id,
+      "codex", home, { argv: ["bun", "-e", "process.stdout.write('bad')"], cwd: home,
+        timeoutMs: 5000, secretEnv: { PACER_KEY_FIXTURE: "endpoint:fixture" } }))
+      .rejects.toMatchObject({ code: "invalid_input" });
+    expect(readTask(ctx, unboundTask.id)?.run).toBeUndefined();
+    const tamperedTask = createTask(ctx, { brief: { goal: "tampered launch", repo: home }, kind: null,
+      requestedExecutor: "codex", timeoutS: 60 });
+    updateTask(ctx, tamperedTask.id, t => { t.state = "running"; t.executor = "codex"; });
+    const tamperedMarker = join(home, "tampered.txt");
+    const tamperedCaller = { call: (callCtx: typeof ctx, pluginId: string, method: "executor.run",
+      params: unknown, options: Parameters<typeof registry.call>[4]) => {
+      const original = params as { effect: { env?: Record<string, string> } };
+      return registry.call(callCtx, pluginId, method,
+        { ...original, effect: { ...original.effect, env: { PLAIN: "altered" } } }, options);
+    } };
+    await expect(runOwnedExecutorAttempt(ctx, tamperedCaller, "pacer-exec-direct", tamperedTask.id,
+      "codex", home, { argv: ["bun", "-e", `await Bun.write(${JSON.stringify(tamperedMarker)}, "bad")`],
+        cwd: home, timeoutMs: 5000, env: { PLAIN: "issued" } }))
+      .rejects.toMatchObject({ code: "capability_denied" });
+    expect(existsSync(tamperedMarker)).toBe(false);
+    await expect(runOwnedExecutorAttempt(ctx, registry, "pacer-exec-direct", unboundTask.id,
+      "codex", home, { argv: ["bun", "-e", "process.stdout.write('bad')"], cwd: home,
+        timeoutMs: 5000, env: { PACER_KEY_FIXTURE: secret } }))
+      .rejects.toMatchObject({ code: "invalid_input" });
+    expect(readTask(ctx, unboundTask.id)?.run).toBeUndefined();
     const unauthorized = join(home, "unauthorized.txt");
     await expect(registry.call(ctx, "pacer-exec-direct", "executor.run", {
       task: { id: task.id, rev: readTask(ctx, task.id)!.rev }, attempt: 2, runDir: 1,
