@@ -276,3 +276,34 @@ export async function withFinalizedClaimedBundleInput<T>(caller: CallAuthority,
     if (directory !== undefined) closeSync(directory);
   }
 }
+
+/** Remove only the verified publication after its immutable input was consumed. */
+export function removeConsumedClaimedBundle(caller: CallAuthority,
+  ticket: ClaimedBundleTicket, grant: PersistedFetchGrant): void {
+  const record = published.get(ticket);
+  if (!record || record.caller !== caller || record.grant !== grant ||
+    !record.finalized || !record.consumed)
+    throw denied("consumed bundle publication is foreign or unavailable");
+  const parentPath = dirname(record.path);
+  let directory: number | undefined, source: number | undefined;
+  try {
+    const parent = lstatSync(parentPath);
+    if (!parent.isDirectory() || parent.isSymbolicLink() || parent.dev !== record.directory.dev ||
+      parent.ino !== record.directory.ino) throw denied("private bundle publication directory changed");
+    directory = openSync(parentPath, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+    const pinned = fstatSync(directory);
+    if (pinned.dev !== record.directory.dev || pinned.ino !== record.directory.ino)
+      throw denied("private bundle publication directory changed");
+    source = writeNative().openAt(directory, record.name, WRITE_OPEN);
+    const file = fstatSync(source), named = lstatSync(record.path);
+    if (!file.isFile() || file.dev !== record.file.dev || file.ino !== record.file.ino ||
+      named.dev !== file.dev || named.ino !== file.ino || named.isSymbolicLink())
+      throw denied("private bundle publication changed");
+    writeNative().unlinkAt(directory, record.name, false);
+    if (fstatSync(source).nlink !== 0) throw denied("private bundle publication cleanup did not remove pinned inode");
+    published.delete(ticket);
+  } finally {
+    if (source !== undefined) closeSync(source);
+    if (directory !== undefined) closeSync(directory);
+  }
+}

@@ -9828,7 +9828,7 @@ impl ::std::convert::From<HelloParamsManifestId> for ::std::string::String {
 impl ::std::str::FromStr for HelloParamsManifestId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_12(value, Self)
+        validate_string_13(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for HelloParamsManifestId {
@@ -11145,7 +11145,7 @@ impl ::std::convert::From<ManifestId> for ::std::string::String {
 impl ::std::str::FromStr for ManifestId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_12(value, Self)
+        validate_string_13(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for ManifestId {
@@ -17318,6 +17318,117 @@ impl<'de> ::serde::Deserialize<'de> for PlannerUninstallResultUninstallReportRev
         deserialize_validated_string(deserializer)
     }
 }
+///`RemoteCallerFetchParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "alias",
+///    "maxBytes",
+///    "timeoutMs"
+///  ],
+///  "properties": {
+///    "alias": {
+///      "type": "string",
+///      "pattern": "^[a-z0-9][a-z0-9-]*$"
+///    },
+///    "maxBytes": {
+///      "type": "integer",
+///      "maximum": 52428800.0,
+///      "exclusiveMinimum": 0.0
+///    },
+///    "timeoutMs": {
+///      "type": "integer",
+///      "maximum": 60000.0,
+///      "exclusiveMinimum": 0.0
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct RemoteCallerFetchParams {
+    pub alias: RemoteCallerFetchParamsAlias,
+    #[serde(rename = "maxBytes")]
+    pub max_bytes: ::std::num::NonZeroU64,
+    #[serde(rename = "timeoutMs")]
+    pub timeout_ms: ::std::num::NonZeroU64,
+}
+///`RemoteCallerFetchParamsAlias`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "pattern": "^[a-z0-9][a-z0-9-]*$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct RemoteCallerFetchParamsAlias(::std::string::String);
+impl ::std::ops::Deref for RemoteCallerFetchParamsAlias {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<RemoteCallerFetchParamsAlias> for ::std::string::String {
+    fn from(value: RemoteCallerFetchParamsAlias) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for RemoteCallerFetchParamsAlias {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_12(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for RemoteCallerFetchParamsAlias {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for RemoteCallerFetchParamsAlias {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`RemoteCallerFetchResult`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "ok"
+///  ],
+///  "properties": {
+///    "ok": {
+///      "type": "boolean",
+///      "const": true
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct RemoteCallerFetchResult {
+    pub ok: bool,
+}
 ///`RemoteCallerIdentityParams`
 ///
 /// <details><summary>JSON schema</summary>
@@ -17392,12 +17503,7 @@ impl ::std::convert::From<RemoteCallerIdentityParamsAlias> for ::std::string::St
 impl ::std::str::FromStr for RemoteCallerIdentityParamsAlias {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
-            ::std::sync::LazyLock::new(|| ::regress::Regex::new("^[a-z0-9][a-z0-9-]*$").unwrap());
-        if PATTERN.find(value).is_none() {
-            return Err("doesn't match pattern \"^[a-z0-9][a-z0-9-]*$\"".into());
-        }
-        Ok(Self(value.to_string()))
+        validate_string_12(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for RemoteCallerIdentityParamsAlias {
@@ -20797,6 +20903,17 @@ fn validate_string_11<T>(
     Ok(construct(value.to_string()))
 }
 fn validate_string_12<T>(
+    value: &str,
+    construct: impl FnOnce(::std::string::String) -> T,
+) -> ::std::result::Result<T, self::error::ConversionError> {
+    static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+        ::std::sync::LazyLock::new(|| ::regress::Regex::new("^[a-z0-9][a-z0-9-]*$").unwrap());
+    if PATTERN.find(value).is_none() {
+        return Err("doesn't match pattern \"^[a-z0-9][a-z0-9-]*$\"".into());
+    }
+    Ok(construct(value.to_string()))
+}
+fn validate_string_13<T>(
     value: &str,
     construct: impl FnOnce(::std::string::String) -> T,
 ) -> ::std::result::Result<T, self::error::ConversionError> {
