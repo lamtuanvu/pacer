@@ -5,6 +5,12 @@ const identityText = z.string().min(1).max(256).refine(value => !/[\u0000-\u001f
 
 /** Host-issued caller input. The broker still checks every byte against its one-use grant. */
 export const REMOTE_CALLER_METHODS = {
+  "remoteCaller.reachability": {
+    description: "Probe one configured SSH host through the broker's fixed read-only script.",
+    params: z.object({ alias: hostRunnerAlias }).strict(),
+    result: z.object({ reachable: z.boolean() }).strict(),
+    deadlineMs: 30_000,
+  },
   "remoteCaller.fetch": {
     description: "Receive one host-issued persisted task bundle through an owned host session.",
     params: z.object({ alias: hostRunnerAlias, timeoutMs: z.number().int().positive().max(60_000),

@@ -134,7 +134,11 @@ remote Claude usage measurement is not available yet.
 
 An unreachable host is excluded from routing with `host box unreachable`, and
 routing can fall through to the next runner. Reachability is cached for 60
-seconds. Missing repository mappings, current placement and `max_tasks` also
+seconds. The bundled remote caller probes the configured alias through the
+fixed SSH provider; if either plugin is disabled or unavailable, the host is
+reported unreachable until the plugin is restored or the cache expires. There
+is no direct SSH retry for routing reachability. Missing repository mappings,
+current placement and `max_tasks` also
 exclude remote runners with a reason.
 
 A dropped connection during a run leaves the agent running while pacer keeps

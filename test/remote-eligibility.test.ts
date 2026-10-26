@@ -8,6 +8,7 @@ import { runTask } from "../src/tasks/runner";
 import { createTask, updateTask } from "../src/tasks/store";
 import type { Status } from "../src/engine/status";
 import { fakeCtx } from "./helpers";
+import { remoteEligibilityFixture } from "./fixtures/remote-eligibility";
 
 const strategy = (repos: Record<string, string> = { "github.com/o/r": "~/src/r" }) => validateStrategy({
   accounts: { claude: { kind: "claude" }, codex: { kind: "codex" } }, planner: "claude-code",
@@ -40,24 +41,20 @@ test("missing and noncanonical origins are excluded", async () => {
 });
 
 test("reachability is cached in memory and on disk for sixty seconds", async () => {
-  const ctx = fakeCtx({ now: 1000 });
-  let probes = 0;
-  ctx.run = async argv => {
-    if (argv[0] !== "ssh") return origin();
-    probes++;
-    return { code: 255, stdout: "", stderr: "offline" };
-  };
-  expect(await remoteExclusion(ctx, strategy(), "codex@box", task)).toBe("host box unreachable");
-  expect(await remoteExclusion({ ...ctx, now: 1059 }, strategy(), "codex@box", task)).toBe("host box unreachable");
-  expect(probes).toBe(1);
+  const { ctx, strategy: configured, log, setDown } = remoteEligibilityFixture();
+  ctx.now = 1000;
+  setDown("box-ssh");
+  expect(await remoteExclusion(ctx, configured, "codex@box")).toBe("host box unreachable");
+  expect(await remoteExclusion({ ...ctx, now: 1059 }, configured, "codex@box")).toBe("host box unreachable");
+  expect(readFileSync(log, "utf8").match(/BatchMode=yes/g)).toHaveLength(1);
   const cache = JSON.parse(readFileSync(join(ctx.pacerHome, "cache/hosts.json"), "utf8"));
-  const other = fakeCtx({ now: 1059, run: ctx.run });
+  const other = fakeCtx({ now: 1059 });
   mkdirSync(join(other.pacerHome, "cache"), { recursive: true });
   writeFileSync(join(other.pacerHome, "cache/hosts.json"), JSON.stringify(cache));
-  expect(await remoteExclusion(other, strategy(), "codex@box", task)).toBe("host box unreachable");
-  expect(probes).toBe(1);
-  await remoteExclusion({ ...ctx, now: 1060 }, strategy(), "codex@box", task);
-  expect(probes).toBe(2);
+  expect(await remoteExclusion(other, configured, "codex@box")).toBe("host box unreachable");
+  expect(readFileSync(log, "utf8").match(/BatchMode=yes/g)).toHaveLength(1);
+  await remoteExclusion({ ...ctx, now: 1060 }, configured, "codex@box");
+  expect(readFileSync(log, "utf8").match(/BatchMode=yes/g)).toHaveLength(2);
 });
 
 test("busy host counts only running tasks with the stored host alias", async () => {
@@ -70,8 +67,8 @@ test("busy host counts only running tasks with the stored host alias", async () 
 });
 
 test("route without a task checks reachability only", async () => {
-  const ctx = fakeCtx({ run: async argv => ({ code: argv[0] === "ssh" ? 0 : 127, stdout: "", stderr: "" }) });
-  const result = await route(ctx, null, strategy({}));
+  const { ctx, strategy: configured } = remoteEligibilityFixture();
+  const result = await route(ctx, null, configured);
   expect(result.ranked.map(r => r.id)).toContain("codex@box");
   const down = await route(fakeCtx(), null, strategy());
   expect(down.excluded).toContainEqual(expect.objectContaining({ id: "codex@box", account: "codex", reason: "host box unreachable" }));
@@ -99,16 +96,12 @@ test("runner falls back from an unreachable remote and records the reason in the
 });
 
 test("host cache hides SSH usernames and invalidates changed SSH targets", async () => {
-  let up = true, probes = 0;
-  const ctx = fakeCtx({ run: async argv => {
-    if (argv[0] !== "ssh") return origin();
-    probes++;
-    return { code: up ? 0 : 255, stdout: "", stderr: "" };
-  } });
-  const s = strategy(); s.hosts.box.ssh = "private-user@box-ssh";
-  expect(await remoteExclusion(ctx, s, "codex@box", task)).toBeNull();
+  const { ctx, log, setTarget, setDown } = remoteEligibilityFixture();
+  const s = setTarget("private-user@box-ssh");
+  expect(await remoteExclusion(ctx, s, "codex@box")).toBeNull();
   expect(readFileSync(join(ctx.pacerHome, "cache/hosts.json"), "utf8")).not.toContain("private-user");
-  up = false; s.hosts.box.ssh = "other-target";
-  expect(await remoteExclusion(ctx, s, "codex@box", task)).toBe("host box unreachable");
-  expect(probes).toBe(2);
+  setDown("other-target");
+  const changed = setTarget("other-target");
+  expect(await remoteExclusion(ctx, changed, "codex@box")).toBe("host box unreachable");
+  expect(readFileSync(log, "utf8").match(/BatchMode=yes/g)).toHaveLength(2);
 });
