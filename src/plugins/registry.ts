@@ -12,7 +12,7 @@ import { classifierPluginConfig, classifierSnapshot } from "./classifier-config"
 import type { AdapterId } from "../classify/types";
 import { prepareHttpAuthority } from "./http-authority";
 import { spawn as nodeSpawn } from "node:child_process";
-import { existsSync, readdirSync, rmSync, statSync } from "node:fs";
+import { existsSync, lstatSync, readdirSync, rmSync, statSync } from "node:fs";
 import { isAbsolute, join, normalize } from "node:path";
 import { appendActivity } from "../activity/log";
 import { CoreError } from "../core/errors";
@@ -27,13 +27,37 @@ import { prepareFilesystemAuthority } from "./capability-fs";
 import { prepareSpawnAuthority } from "./capability-spawn";
 import { CallAdmission, SerialCalls } from "./admission";
 import { CallAuthority, createCallAuthority, type CallResources } from "./authority";
+import { HostLeaseBroker, type HostFetchBinding, type HostFetchResult, type HostLeaseSnapshot } from "./host-lease";
 import { callMetadata } from "./protocol";
 import { PluginProcess, type SpawnSpec } from "./process";
 import { EXTENSION_METHODS, HELLO_METHOD, PLUGIN_ID, PLUGIN_PROTOCOL_MAJOR, PLUGIN_PROTOCOL_VERSION, type PluginManifest, type PluginState, helloResult } from "./protocol";
 import type { BundledPlugin } from "./types";
 import { currentVersion } from "../update/version";
+import { controlDir, sshArgv } from "../remote/ssh";
+import { SCRIPTS } from "../remote/scripts";
+import { HOST_RUNNER_METHODS } from "./host-runner-protocol";
+import { discardTransferredBundle, prepareBundleStageAuthority, resolveStagedBundle,
+  transferStagedBundleOwnership, type ClaimedBundleTicket } from "./bundle-stage";
+import { finalizeClaimedPublication, rollbackClaimedPublication } from "./claimed-bundle";
+import { consumePersistedFetch, validatePersistedFetch, type PersistedFetchGrant } from "./fetch-issuer";
+import { validateRemotePreflight } from "./remote-preflight";
+import { consumeConfiguredHostIdentity, validateConfiguredHostIdentity,
+  type ConfiguredHostIdentityGrant } from "./host-identity-issuer";
+import { z } from "zod";
 
-export interface PluginCallOptions { plannerResources?: PlannerResources; credentialBindings?: readonly CredentialBinding[]; classifierConfig?: ClassifierConfig; resources?: CallResources; accountHome?: string | null; deadlineMs?: number; signal?: AbortSignal; onProgress?: (event: unknown) => void }
+const HOST_CHECK_ISSUER = Symbol("host-check-issuer");
+const HOST_FETCH_ISSUER = Symbol("host-fetch-issuer");
+const HOST_CALL_FETCH_ISSUER = Symbol("host-call-fetch-issuer");
+const HOST_CALL_IDENTITY_ISSUER = Symbol("host-call-identity-issuer");
+const HOST_PROVIDER_MUTATION_ISSUER = Symbol("host-provider-mutation-issuer");
+const stagedFetchResult = z.object({ handle: z.string().regex(/^[a-f0-9-]{36}$/),
+  bytes: z.number().int().nonnegative().max(50 * 1024 * 1024), sha256: z.string().regex(/^[a-f0-9]{64}$/) }).strict();
+type StagedFetchResult = z.infer<typeof stagedFetchResult>;
+interface HostFetchAdmission { grant: PersistedFetchGrant; process: PluginProcess; generation: string;
+  claim: (authority: CallAuthority, staged: StagedFetchResult) => void | Promise<void> }
+interface HostCallerFetchAdmission { grant: PersistedFetchGrant;
+  claim: (caller: CallAuthority, ticket: ClaimedBundleTicket) => void | Promise<void> }
+export interface PluginCallOptions { plannerResources?: PlannerResources; credentialBindings?: readonly CredentialBinding[]; classifierConfig?: ClassifierConfig; resources?: CallResources; accountHome?: string | null; deadlineMs?: number; signal?: AbortSignal; onProgress?: (event: unknown) => void; /** Internal host-lease binding: never restart or substitute this provider. */ expectedProcess?: PluginProcess; [HOST_CHECK_ISSUER]?: true; [HOST_FETCH_ISSUER]?: HostFetchAdmission; [HOST_CALL_FETCH_ISSUER]?: HostCallerFetchAdmission; [HOST_CALL_IDENTITY_ISSUER]?: ConfiguredHostIdentityGrant; [HOST_PROVIDER_MUTATION_ISSUER]?: true }
 export interface RegistryDeps { bundled: BundledPlugin[]; spawnBundled: (ctx: Ctx, id: string) => SpawnSpec; spawn?: typeof nodeSpawn; sleep?: (ms: number) => Promise<void>; eventPumpMs?:number }
 export interface PluginInfo { id: string; version: string; publisher: string; tier: "free" | "commercial"; bundled: boolean; enabled: boolean; state: PluginState; contributes: string[]; capabilities: { name: string; scopes?: string[] }[]; grant: PluginGrant | null; error: string | null; pid: number | null }
 export interface DoctorReport { id: string; ok: boolean; state: PluginState; served: string[]; protocol: { host: string; plugin: string | null }; pid: number | null; restarts: number; error: string | null; needs: string | null }
@@ -62,6 +86,10 @@ const ENABLED: ReadonlySet<PluginState> = new Set(["idle", "starting", "ready"])
 const CRASH_WINDOW_S = 60, CRASH_LIMIT = 3, MAX_BACKOFF_MS = 30_000, HELLO_DEADLINE_MS = 10_000;
 
 export class PluginRegistry {
+  private readonly hostLeases = new HostLeaseBroker({ validate: (lease, authority) => this.validateHostLease(lease, authority) });
+  private readonly hostCallGenerations = new WeakMap<CallAuthority, string>();
+  private readonly hostCallerFetch = new WeakMap<CallAuthority, HostCallerFetchAdmission>();
+  private readonly hostCallerIdentity = new WeakMap<CallAuthority, ConfiguredHostIdentityGrant>();
   private readonly retiredProcesses=new Set<Promise<void>>();
   private readonly observationAdmissions=new WeakSet<CallAuthority>();
   private eventTimer:ReturnType<typeof setInterval>|undefined;
@@ -71,6 +99,297 @@ export class PluginRegistry {
   private readonly refusedShadows = new Set<string>();
   private readonly sleep: (ms: number) => Promise<void>;
   constructor(private readonly deps: RegistryDeps) { this.sleep = deps.sleep ?? (ms => Bun.sleep(ms)); }
+
+  private hostGeneration(ctx: Ctx, e: Entry): string {
+    const cfg = pluginsConfig(ctx);
+    return JSON.stringify({ manifest: e.manifest, config: cfg.config[e.id] ?? {}, grant: e.bundled ? null : cfg.installed[e.id] ?? null });
+  }
+
+  /** No production caller yet. Host state is the sole issuer for this read-only check. */
+  async checkConfiguredHost(ctx: Ctx, alias: string, repo?: string, signal?: AbortSignal): Promise<{ ok: boolean; checks: { name: string; ok: boolean; detail: string }[]; facts?: Record<string, string> }> {
+    const host = loadStrategy(ctx).hosts[alias];
+    if (!host || host.paused || (repo !== undefined && !Object.values(host.repos).includes(repo)))
+      throw new CoreError("capability_denied", "host check target is not configured");
+    const fingerprint = JSON.stringify(host);
+    const providers = this.findAll(ctx, "hostRunner", contribution =>
+      Array.isArray(contribution.kinds) && contribution.kinds.length === 1 && contribution.kinds[0] === "ssh");
+    if (providers.length !== 1) throw new CoreError("plugin_unavailable", "one SSH host runner provider is required");
+    const provider = this.entries.get(providers[0]!)!;
+    await this.call(ctx, provider.id, "diagnostic.ping", {}, { deadlineMs: 5000, signal });
+    const process = provider.process, generation = this.hostGeneration(ctx, provider);
+    if (!process?.alive || !provider.served.includes("hostRunner"))
+      throw new CoreError("plugin_unavailable", "SSH host runner provider is not ready");
+    const directory = controlDir(ctx), original = lstatSync(directory);
+    if (!original.isDirectory() || (original.mode & 0o077) !== 0 ||
+      (globalThis.process.getuid && original.uid !== globalThis.process.getuid()))
+      throw new CoreError("capability_denied", "SSH control directory is not private");
+    const controlPath = join(directory, "cm-%C"), timeoutMs = 50_000;
+    const argv = sshArgv(ctx, host, repo === undefined ? SCRIPTS.PROBE : SCRIPTS.CHECK_REPO,
+      repo === undefined ? [] : [repo, "check"]);
+    const active = () => {
+      const current = loadStrategy(ctx).hosts[alias], now = lstatSync(directory);
+      return current && !current.paused && JSON.stringify(current) === fingerprint &&
+        provider.process === process && process.alive && this.hostGeneration(ctx, provider) === generation &&
+        now.isDirectory() && now.dev === original.dev && now.ino === original.ino &&
+        now.uid === original.uid && (now.mode & 0o7777) === (original.mode & 0o7777) &&
+        argv.includes(`ControlPath=${controlPath}`);
+    };
+    if (!active()) throw new CoreError("capability_denied", "host check snapshot changed before issuance");
+    const controller = new AbortController();
+    const cancel = () => controller.abort(new CoreError("capability_denied", "host check retired"));
+    signal?.addEventListener("abort", cancel, { once: true });
+    const watch = setInterval(() => { try { if (!active()) cancel(); } catch { cancel(); } }, 100);
+    watch.unref();
+    try {
+      if (signal?.aborted || !active()) throw new CoreError("capability_denied", "host check retired");
+      const result = await this.call<{ ok: boolean; checks: { name: string; ok: boolean; detail: string }[]; facts?: Record<string, string> }>(
+        ctx, provider.id, "hostRunner.check", { alias, ...(repo === undefined ? {} : { repo }), sshTarget: host.ssh, controlPath },
+        { deadlineMs: 60_000, signal: controller.signal, expectedProcess: process,
+          resources: { reads: [], commands: [{ argv, timeoutMs }], stores: [] }, [HOST_CHECK_ISSUER]: true });
+      if (!active()) throw new CoreError("capability_denied", "host check snapshot changed");
+      return result;
+    } finally { clearInterval(watch); signal?.removeEventListener("abort", cancel); }
+  }
+
+  /** Host-only preparation seam. It returns no artifact until a later verified claimant is wired. */
+  async callIssuedHostFetch(ctx: Ctx, id: string, grant: PersistedFetchGrant, params: unknown,
+    claim: HostFetchAdmission["claim"], signal?: AbortSignal): Promise<void> {
+    const resource = consumePersistedFetch(ctx, grant);
+    const parsed = HOST_RUNNER_METHODS["hostRunner.fetch"].params.safeParse(params);
+    if (!parsed.success || parsed.data.script !== "BUNDLE_OUT" ||
+      JSON.stringify(parsed.data.args) !== JSON.stringify(resource.args) ||
+      parsed.data.timeoutMs > resource.timeoutMs || parsed.data.maxBytes > resource.maxBytes)
+      throw new CoreError("capability_denied", "host fetch does not match the persisted run");
+    const provider = this.findEntry(ctx, id);
+    await this.call(ctx, id, "diagnostic.ping", {}, { deadlineMs: 5000, signal });
+    const process = provider.process, generation = this.hostGeneration(ctx, provider);
+    if (!process?.alive || !provider.served.includes("hostRunner"))
+      throw new CoreError("plugin_unavailable", "host fetch provider is unavailable");
+    validatePersistedFetch(ctx, grant);
+    await this.call<void>(ctx, id, "hostRunner.fetch", parsed.data,
+      { deadlineMs: Math.min(120_000, parsed.data.timeoutMs + 10_000), signal, expectedProcess: process,
+        resources: { reads: [], commands: [], stores: [], bundleStages: [{ ...resource,
+          args: [...resource.args] as [string, string, string], argv: [...resource.argv] }] },
+        [HOST_FETCH_ISSUER]: { grant, process, generation, claim } });
+  }
+
+  /** Host-only: attach one persisted fetch grant to the exact caller call authority. */
+  async callWithIssuedHostFetch<T>(ctx: Ctx, id: string, method: string, params: unknown,
+    grant: PersistedFetchGrant, claim: HostCallerFetchAdmission["claim"], signal?: AbortSignal): Promise<T> {
+    validatePersistedFetch(ctx, grant);
+    const caller = this.findEntry(ctx, id);
+    if (method.startsWith("hostRunner.") || !caller.manifest?.capabilities.some(cap => cap.name === "hosts") ||
+      caller.manifest.contributes.hostRunner)
+      throw new CoreError("capability_denied", "persisted fetch requires a distinct hosts caller");
+    return this.call<T>(ctx, id, method, params, { signal,
+      deadlineMs: Math.min(120_000, grant.resource.timeoutMs + 30_000),
+      [HOST_CALL_FETCH_ISSUER]: { grant, claim } });
+  }
+
+  /** Host-only: attach one configured identity operation to a distinct hosts caller. */
+  async callWithIssuedHostIdentity<T>(ctx: Ctx, id: string, method: string, params: unknown,
+    grant: ConfiguredHostIdentityGrant, signal?: AbortSignal): Promise<T> {
+    await validateConfiguredHostIdentity(ctx, grant);
+    const caller = this.findEntry(ctx, id);
+    if (method.startsWith("hostRunner.") || !caller.manifest?.capabilities.some(cap => cap.name === "hosts") ||
+      caller.manifest.contributes.hostRunner)
+      throw new CoreError("capability_denied", "configured identity requires a distinct hosts caller");
+    await consumeConfiguredHostIdentity(ctx, grant);
+    return this.call<T>(ctx, id, method, params, { signal, deadlineMs: 60_000,
+      resources: { reads: [], commands: [], stores: [], hosts: [{ ...grant.resource,
+        args: [...grant.resource.args] }] }, [HOST_CALL_IDENTITY_ISSUER]: grant });
+  }
+
+  private async callBrokerHostFetch(ctx: Ctx, caller: CallAuthority, binding: HostFetchBinding,
+    grant: PersistedFetchGrant, timeoutMs: number, maxBytes: number, deadlineAt: number,
+    signal: AbortSignal): Promise<{ result: HostFetchResult; ticket: ClaimedBundleTicket }> {
+    validatePersistedFetch(ctx, grant);
+    const provider = this.entries.get(binding.provider.id);
+    const process = binding.provider.process as PluginProcess;
+    if (!provider || provider.process !== process || !process.alive ||
+      this.hostGeneration(ctx, provider) !== binding.provider.generation)
+      throw new CoreError("capability_denied", "bound host fetch provider retired");
+    const remaining = deadlineAt - Date.now();
+    if (remaining <= 0) throw new CoreError("plugin_timeout", "host fetch deadline expired");
+    const params = { session: binding.providerSession, script: "BUNDLE_OUT", args: [...binding.resource.args],
+      timeoutMs: Math.min(timeoutMs, binding.resource.timeoutMs, Math.max(1, Math.floor(remaining))), maxBytes };
+    let ticket: ClaimedBundleTicket | undefined, stagedResult: StagedFetchResult | undefined;
+    try {
+      await this.call<void>(ctx, provider.id, "hostRunner.fetch", params,
+        { deadlineMs: remaining, signal, expectedProcess: process,
+          resources: { reads: [], commands: [], stores: [], bundleStages: [{ ...binding.resource,
+            args: [...binding.resource.args] as [string, string, string], argv: [...binding.resource.argv] }] },
+          [HOST_FETCH_ISSUER]: { grant, process, generation: binding.provider.generation,
+            claim: (providerAuthority, staged) => {
+              const source = resolveStagedBundle(providerAuthority, staged.handle);
+              if (source.bytes !== staged.bytes || source.sha256 !== staged.sha256)
+                throw new CoreError("plugin_refused", "host fetch stage metadata changed");
+              ticket = transferStagedBundleOwnership(providerAuthority, staged.handle, caller, grant);
+              stagedResult = staged;
+            } } });
+      if (!ticket || !stagedResult) throw new CoreError("plugin_refused", "host fetch completed without a private claim");
+      caller.assertGranted("hosts");
+      return { ticket, result: { handle: ticket.id, bytes: stagedResult.bytes, sha256: stagedResult.sha256 } };
+    } catch (error) {
+      if (ticket) discardTransferredBundle(caller, ticket);
+      throw error;
+    }
+  }
+
+  private validateHostLease(lease: HostLeaseSnapshot, authority: CallAuthority): void {
+    authority.assertGranted("hosts");
+    this.refresh(authority.ctx);
+    const caller = [...this.entries.values()].find(entry => entry.process === lease.callerProcess);
+    if (!caller || !ENABLED.has(caller.state) || !caller.process?.alive ||
+      !caller.manifest?.capabilities.some(capability => capability.name === "hosts") ||
+      this.hostGeneration(authority.ctx, caller) !== lease.callerGeneration)
+      throw new CoreError("capability_denied", "host caller generation retired");
+    const host = loadStrategy(authority.ctx).hosts[lease.alias];
+    if (!host || host.paused || host.ssh !== lease.sshTarget || JSON.stringify(host) !== lease.hostFingerprint)
+      throw new CoreError("capability_denied", "host alias changed or is unavailable");
+    const provider = this.entries.get(lease.provider.id);
+    if (!provider || !ENABLED.has(provider.state) || provider.process !== lease.provider.process ||
+      !provider.process?.alive || !provider.served.includes("hostRunner") ||
+      this.hostGeneration(authority.ctx, provider) !== lease.provider.generation)
+      throw new CoreError("capability_denied", "host provider generation retired");
+  }
+
+  private async answerHosts(ctx: Ctx, caller: Entry, callerProcess: PluginProcess,
+    authority: CallAuthority, method: string, params: unknown): Promise<unknown> {
+    authority.assertGranted("hosts");
+    if (caller.manifest?.contributes.hostRunner) throw new CoreError("capability_denied", "host runner providers cannot forward hosts calls");
+    if (method === "capability.hosts.fetch") {
+      const admission = this.hostCallerFetch.get(authority);
+      if (!admission) throw new CoreError("capability_denied", "host fetch has no persisted caller grant");
+      const request = params as { session: string; timeoutMs: number; maxBytes: number };
+      if (request.timeoutMs > admission.grant.resource.timeoutMs ||
+        request.maxBytes > admission.grant.resource.maxBytes)
+        throw new CoreError("capability_denied", "host fetch exceeds the issued bounds");
+      let ticket: ClaimedBundleTicket | undefined, leaseBinding: HostFetchBinding | undefined;
+      try {
+        const preflight = await this.hostLeases.preflight(authority, request.session, admission.grant);
+        await this.hostLeases.fetch(authority, request.session, admission.grant,
+          async (binding, signal, deadlineAt) => {
+            leaseBinding = binding;
+            const claimed = await this.callBrokerHostFetch(ctx, authority, binding, admission.grant,
+              request.timeoutMs, request.maxBytes, deadlineAt, signal);
+            ticket = claimed.ticket;
+            return claimed.result;
+          }, () => { if (ticket) discardTransferredBundle(authority, ticket); });
+        if (!ticket) throw new CoreError("plugin_refused", "host fetch did not claim a private stage");
+        authority.assertGranted("hosts");
+        await admission.claim(authority, ticket);
+        authority.assertGranted("hosts");
+        validatePersistedFetch(ctx, admission.grant);
+        if (!leaseBinding) throw new CoreError("capability_denied", "host fetch lease binding is unavailable");
+        this.validateHostLease(leaseBinding, authority);
+        validateRemotePreflight(ctx, preflight, admission.grant, leaseBinding);
+        finalizeClaimedPublication(authority, ticket, preflight);
+        return { ok: true };
+      } catch (error) {
+        if (ticket) rollbackClaimedPublication(authority, ticket);
+        if (ticket) discardTransferredBundle(authority, ticket);
+        throw error;
+      }
+    }
+    if (method === "capability.hosts.run") {
+      const request = params as Parameters<HostLeaseBroker["run"]>[1];
+      if (request.script === "SET_IDENTITY") {
+        const grant = this.hostCallerIdentity.get(authority);
+        if (!grant) throw new CoreError("capability_denied", "host identity has no configured grant");
+        await validateConfiguredHostIdentity(ctx, grant);
+        const result = await this.hostLeases.run(authority, request);
+        await validateConfiguredHostIdentity(ctx, grant);
+        return result;
+      }
+      return this.hostLeases.run(authority, request);
+    }
+    if (method === "capability.hosts.close") return this.hostLeases.close(authority, params as { session: string });
+    if (method !== "capability.hosts.open") throw new CoreError("unknown_op", "unknown hosts method");
+    const callerGeneration = this.hostCallGenerations.get(authority);
+    if (!callerGeneration) throw new CoreError("capability_denied", "host call has no captured generation");
+    this.refresh(ctx);
+    if (caller.process !== callerProcess || !callerProcess.alive || !ENABLED.has(caller.state) ||
+      this.hostGeneration(ctx, caller) !== callerGeneration)
+      throw new CoreError("capability_denied", "host caller process retired");
+    const alias = (params as { alias: string }).alias;
+    const host = loadStrategy(ctx).hosts[alias];
+    if (!host || host.paused) throw new CoreError("not_found", "configured host alias is unavailable");
+    const providers = this.findAll(ctx, "hostRunner", contribution =>
+      Array.isArray(contribution.kinds) && contribution.kinds.length === 1 && contribution.kinds[0] === "ssh");
+    if (providers.length !== 1 || providers[0] === caller.id)
+      throw new CoreError("plugin_unavailable", "one distinct SSH host runner provider is required");
+    const provider = this.entries.get(providers[0]!)!;
+    const remaining = authority.deadlineMs - Date.now();
+    if (remaining <= 0) throw new CoreError("plugin_timeout", "host call expired before provider startup");
+    await this.call(ctx, provider.id, "diagnostic.ping", {}, { deadlineMs: Math.min(5000, remaining), signal: authority.signal });
+    const process = provider.process;
+    if (!process?.alive || !provider.served.includes("hostRunner"))
+      throw new CoreError("plugin_unavailable", "SSH host runner provider is not ready");
+    const providerGeneration = this.hostGeneration(ctx, provider);
+    const controlDirectory = controlDir(ctx);
+    const controlDirectoryEntry = lstatSync(controlDirectory);
+    if (!controlDirectoryEntry.isDirectory() || (controlDirectoryEntry.mode & 0o077) !== 0 ||
+      (globalThis.process.getuid && controlDirectoryEntry.uid !== globalThis.process.getuid()))
+      throw new CoreError("capability_denied", "SSH control directory is not private");
+    const controlPath = join(controlDirectory, "cm-%C");
+    return this.hostLeases.open(authority, {
+      alias, sshTarget: host.ssh, controlPath, hostFingerprint: JSON.stringify(host),
+      callerProcess, callerGeneration,
+      provider: { id: provider.id, generation: providerGeneration, process,
+        invoke: async (providerMethod, input, deadlineAt, signal) => {
+          if (provider.process !== process || !process.alive ||
+            this.hostGeneration(ctx, provider) !== providerGeneration)
+            throw new CoreError("capability_denied", "host provider process changed");
+          const deadlineMs = deadlineAt - Date.now();
+          if (deadlineMs <= 0) throw new CoreError("plugin_timeout", "host provider deadline expired");
+          let resources: CallResources | undefined;
+          if (providerMethod === "hostRunner.run") {
+            const parsed = HOST_RUNNER_METHODS["hostRunner.run"].params.safeParse(input);
+            if (!parsed.success) throw new CoreError("capability_denied", "host operation is not issued for this caller");
+            const probe = parsed.data.script === "PROBE" && parsed.data.args.length === 0;
+            const repoCheck = parsed.data.script === "CHECK_REPO" && parsed.data.args.length === 2 &&
+              parsed.data.args[0]!.length > 0 && parsed.data.args[1] === "check";
+            const preflight = parsed.data.script === "PREFLIGHT" && parsed.data.args.length === 3 &&
+              parsed.data.args[0]!.startsWith("/") && /^[a-f0-9]{40,64}$/.test(parsed.data.args[1]!) &&
+              /^pacer\/[A-Za-z0-9._/-]+$/.test(parsed.data.args[2]!) &&
+              !parsed.data.args[2]!.includes("..") && !parsed.data.args[2]!.includes("//");
+            const identity = parsed.data.script === "SET_IDENTITY" && parsed.data.args.length === 3 &&
+              parsed.data.args.every(arg => arg.length > 0) && !!parsed.data.completionNonce;
+            if ((!probe && !repoCheck && !preflight && !identity) || parsed.data.stdin !== undefined ||
+              (!identity && parsed.data.completionNonce !== undefined) || parsed.data.maxBytes > 65_536)
+              throw new CoreError("capability_denied", "host operation is not issued for this caller");
+            const timeoutMs = Math.min(parsed.data.timeoutMs, Math.max(1, Math.floor(deadlineMs)));
+            const currentDirectoryEntry = lstatSync(controlDirectory);
+            if (!currentDirectoryEntry.isDirectory() || currentDirectoryEntry.dev !== controlDirectoryEntry.dev ||
+              currentDirectoryEntry.ino !== controlDirectoryEntry.ino ||
+              currentDirectoryEntry.uid !== controlDirectoryEntry.uid ||
+              (currentDirectoryEntry.mode & 0o7777) !== (controlDirectoryEntry.mode & 0o7777))
+              throw new CoreError("capability_denied", "SSH control directory changed during provider session");
+            const argv = sshArgv(ctx, host, probe ? SCRIPTS.PROBE : preflight ? SCRIPTS.PREFLIGHT :
+              identity ? SCRIPTS.SET_IDENTITY : SCRIPTS.CHECK_REPO, parsed.data.args,
+              identity ? parsed.data.completionNonce : undefined);
+            const issuedDirectoryEntry = lstatSync(controlDirectory);
+            if (!argv.includes(`ControlPath=${controlPath}`) ||
+              issuedDirectoryEntry.dev !== controlDirectoryEntry.dev ||
+              issuedDirectoryEntry.ino !== controlDirectoryEntry.ino ||
+              issuedDirectoryEntry.uid !== controlDirectoryEntry.uid ||
+              (issuedDirectoryEntry.mode & 0o7777) !== (controlDirectoryEntry.mode & 0o7777))
+              throw new CoreError("capability_denied", "SSH control path changed during provider call");
+            input = { ...parsed.data, timeoutMs };
+            resources = { reads: [], commands: [{ argv, timeoutMs }], stores: [] };
+          }
+          const output = await this.call(ctx, provider.id, providerMethod, input,
+            { deadlineMs, signal, expectedProcess: process, resources,
+              ...(providerMethod === "hostRunner.run" && (input as { script?: string }).script === "SET_IDENTITY" ?
+                { [HOST_PROVIDER_MUTATION_ISSUER]: true } : {}) });
+          if (provider.process !== process || !process.alive ||
+            this.hostGeneration(ctx, provider) !== providerGeneration)
+            throw new CoreError("capability_denied", "host provider process changed");
+          return output;
+        } },
+    });
+  }
 
   private entry(id: string, manifest: PluginManifest | null, bundled: boolean, dir: string | null): Entry {
     let e = this.entries.get(id);
@@ -345,7 +664,8 @@ export class PluginRegistry {
             const result={ok:true,readOwner:generationOwner.token};if(deliver)deliver(result);this.eventTimerState();return Promise.resolve(result);
           }
           if(readToken)throw new CoreError("capability_denied","read owner cannot authorize this method");
-          return answerCapability(authority?.ctx ?? ctx, { id: e.id, manifest, ...(generation || canonicalNotifier ? { config } : {}) }, m, p, authority, deliver, transport);
+          return answerCapability(authority?.ctx ?? ctx, { id: e.id, manifest, ...(generation || canonicalNotifier ? { config } : {}) }, m, p, authority, deliver, transport,
+            (hostMethod, hostParams, owner) => this.answerHosts(owner.ctx, e, proc, owner, hostMethod, hostParams));
         },
         validateReadOwner:(token,method)=>{this.readOwner(e,proc,token,method);},
         onStderr: line => appendPluginLog(ctx, e.id, "stderr", line),
@@ -421,6 +741,16 @@ export class PluginRegistry {
   }
 
   async call<T>(ctx: Ctx, id: string, method: string, params: unknown, options: PluginCallOptions = {}): Promise<T> {
+    if (method === "hostRunner.check" && options[HOST_CHECK_ISSUER] !== true)
+      throw new CoreError("capability_denied", "host check requires host-owned issuance");
+    if (method === "hostRunner.fetch" && !options[HOST_FETCH_ISSUER])
+      throw new CoreError("capability_denied", "host fetch requires host-owned issuance");
+    if (method === "hostRunner.run" && (params as { script?: string } | null)?.script === "SET_IDENTITY" &&
+      !options[HOST_PROVIDER_MUTATION_ISSUER])
+      throw new CoreError("capability_denied", "host mutation requires host-owned issuance");
+    if (options.resources?.hosts?.some(resource => resource.script === "SET_IDENTITY") &&
+      !options[HOST_CALL_IDENTITY_ISSUER])
+      throw new CoreError("capability_denied", "host identity resource requires host-owned issuance");
     const startedAt = Date.now();
     const credentialBindings = options.credentialBindings?.map(({ ref, resolve }) => ({ ref, resolve }));
     const e = this.findEntry(ctx, id);
@@ -435,11 +765,14 @@ export class PluginRegistry {
     const requested = options.deadlineMs ?? def.deadlineMs;
     if (!Number.isFinite(requested) || requested < 0) throw new CoreError("invalid_input", "plugin deadline must be non-negative");
     const boundedObservation=["diagnostic.ping","policy.before"].includes(method)&&e.manifest!.capabilities.some(c=>c.name==="tasks.read"||c.name==="events.subscribe");
-    const duration = method === "usage.read" || boundedObservation ? requested === 0 ? def.deadlineMs : Math.min(requested, def.deadlineMs) : requested;
+    const hostRunner = method.startsWith("hostRunner.");
+    const executorAvailable = method === "executor.available";
+    if((hostRunner || executorAvailable) && requested === 0) throw new CoreError("invalid_input", "staged plugin calls require a finite deadline");
+    const duration = method === "usage.read" || boundedObservation || hostRunner || executorAvailable ? requested === 0 ? def.deadlineMs : Math.min(requested, def.deadlineMs) : requested;
     if ((options.resources || credentialBindings !== undefined || (classifier && method === "classifier.ask")) && duration === 0) throw new CoreError("invalid_input", "scoped capabilities require a finite deadline");
     const deadlineAt = duration === 0 ? Infinity : startedAt + duration;
-    const parsed = method === "usage.read" || (classifier && method === "classifier.ask") ? def.params.safeParse(params) : null;
-    if (parsed && !parsed.success) throw new CoreError("invalid_input", method === "usage.read" ? "invalid usage reader params" : "invalid classifier params");
+    const parsed = method === "usage.read" || hostRunner || executorAvailable || (classifier && method === "classifier.ask") ? def.params.safeParse(params) : null;
+    if (parsed && !parsed.success) throw new CoreError("invalid_input", hostRunner ? "invalid host runner params" : executorAvailable ? "invalid executor availability params" : method === "usage.read" ? "invalid usage reader params" : "invalid classifier params");
     let input = parsed?.success ? parsed.data : params;
     let resources = options.resources;
     if (classifier && method === "classifier.ask") {
@@ -457,7 +790,11 @@ export class PluginRegistry {
         if(e.plannerGenerationFailure)throw e.plannerGenerationFailure;
         if(plannerFingerprint!==e.plannerFingerprint)throw new CoreError("plugin_unavailable","planner configuration generation changed before admission");
         if (signal.aborted || Date.now() >= deadlineAt) throw new CoreError("plugin_timeout", "plugin call expired before execution");
-        const proc = generation ? await this.startGeneration(ctx, e, generation, deadlineAt, signal) : observationFingerprint!==undefined?await this.generationTask(e,async()=>{
+        const proc = options.expectedProcess ? (() => {
+          if (e.process !== options.expectedProcess || !options.expectedProcess.alive)
+            throw new CoreError("capability_denied", "bound host provider process retired");
+          return options.expectedProcess;
+        })() : generation ? await this.startGeneration(ctx, e, generation, deadlineAt, signal) : observationFingerprint!==undefined?await this.generationTask(e,async()=>{
           if(e.observationFingerprint!==observationFingerprint)throw new CoreError("plugin_unavailable","observation generation changed before admission");
           if(e.process&&e.processObservationFingerprint!==observationFingerprint)await this.stopProcess(e);
           return this.start(ctx,e,deadlineAt,signal);
@@ -468,13 +805,24 @@ export class PluginRegistry {
         const point = method.split(".")[0]!;
         if (!e.served.includes(point)) throw new CoreError("plugin_unavailable", `plugin ${id} does not serve ${point}`);
         if (signal.aborted || Date.now() >= deadlineAt) throw new CoreError("plugin_timeout", "plugin call expired before request");
+        if (options.expectedProcess && (e.process !== proc || !proc.alive))
+          throw new CoreError("capability_denied", "bound host provider process retired before request");
         if(options.plannerResources&&(method==="planner.install"||method==="planner.uninstall")&&!proc.supports("plannerInstallTransactions"))throw new CoreError("capability_denied","planner effects require negotiated transactions");
         const observationAdmission=["diagnostic.ping","policy.before"].includes(method)&&manifest.capabilities.some(c=>c.name==="tasks.read"||c.name==="events.subscribe");
-        const needsAuthority = observationAdmission || method === "usage.read" || options.plannerResources !== undefined || resources !== undefined || credentialBindings !== undefined;
+        const needsAuthority = observationAdmission || method === "usage.read" || options.plannerResources !== undefined || resources !== undefined || credentialBindings !== undefined || manifest.capabilities.some(capability => capability.name === "hosts");
         const grants = e.bundled ? manifest.capabilities.map(capability => capability.name) : pluginsConfig(ctx).installed[id]?.capabilities ?? [];
         const authority = needsAuthority ? createCallAuthority(ctx, resources ?? { reads: [], commands: [], stores: [] },
           { deadlineMs: deadlineAt, signal, grants, accountHome: options.accountHome }) : undefined;
-        if (authority) {e.authorities.set(authority.token, authority);if(observationAdmission)this.observationAdmissions.add(authority);}
+        if (authority) {
+          e.authorities.set(authority.token, authority);
+          if (observationAdmission) this.observationAdmissions.add(authority);
+          if (manifest.capabilities.some(capability => capability.name === "hosts"))
+            this.hostCallGenerations.set(authority, this.hostGeneration(ctx, e));
+          const hostFetch = options[HOST_CALL_FETCH_ISSUER];
+          if (hostFetch) this.hostCallerFetch.set(authority, hostFetch);
+          const hostIdentity = options[HOST_CALL_IDENTITY_ISSUER];
+          if (hostIdentity) this.hostCallerIdentity.set(authority, hostIdentity);
+        }
         try {
           if (authority) {
             options.plannerResources?.bind(authority,method);
@@ -483,6 +831,7 @@ export class PluginRegistry {
             if (authority.resources.writes?.length) await prepareWriteAuthority(authority);
             await prepareStateAuthority(authority);
             prepareSpawnAuthority(authority);
+            prepareBundleStageAuthority(authority);
             prepareHttpAuthority(authority, {
               declaredScopes: endpointHttpScopes(this.canonicalEndpoint(e), method, manifest.capabilities.find(capability => capability.name === "net.http")?.scopes ?? [], authority.resources),
               explicitWildcardGrant: !e.bundled && grants.includes("net.http"),
@@ -491,9 +840,34 @@ export class PluginRegistry {
           }
           const result = await proc.request<T>(method, input, deadlineAt === Infinity ? 0 : Math.max(1, deadlineAt - Date.now()),
             { ...(options.plannerResources && (method==="planner.install"||method==="planner.uninstall"||method==="planner.plan") ? {prepareInput:(fits:(value:unknown)=>boolean)=>options.plannerResources!.prepareInput(input,fits)} : {}), signal: authority?.signal ?? signal, authority, metadata: authority ? { capabilityCall: authority.token } : undefined, onProgress: options.onProgress });
-          if (method === "usage.read") {
+          if (method === "hostRunner.fetch") {
+            const admission = options[HOST_FETCH_ISSUER]!;
+            const staged = stagedFetchResult.safeParse(result);
+            if (!staged.success || staged.data.bytes > (input as { maxBytes: number }).maxBytes)
+              throw new CoreError("plugin_refused", "host provider returned an invalid staged bundle handle");
+            if (!authority) throw new CoreError("capability_denied", "host fetch has no owning authority");
+            authority.assertActive();
+            validatePersistedFetch(ctx, admission.grant);
+            if (e.process !== admission.process || !admission.process.alive ||
+              this.hostGeneration(ctx, e) !== admission.generation)
+              throw new CoreError("capability_denied", "host fetch provider generation retired");
+            await admission.claim(authority, staged.data);
+            authority.assertActive();
+            validatePersistedFetch(ctx, admission.grant);
+            if (e.process !== admission.process || !admission.process.alive ||
+              this.hostGeneration(ctx, e) !== admission.generation)
+              throw new CoreError("capability_denied", "host fetch provider generation retired during claim");
+            return undefined as T;
+          }
+          if (method === "usage.read" || hostRunner || executorAvailable) {
             const output = def.result.safeParse(result);
-            if (!output.success) throw new CoreError("plugin_refused", "usage reader returned an invalid reading");
+            if (!output.success) throw new CoreError("plugin_refused", hostRunner ? "host runner returned an invalid result" : executorAvailable ? "executor returned an invalid availability result" : "usage reader returned an invalid reading");
+            if(hostRunner && (method === "hostRunner.stream" || method === "hostRunner.fetch") &&
+              (output.data as {bytes:number}).bytes > (input as {maxBytes:number}).maxBytes)
+              throw new CoreError("plugin_refused", "host runner exceeded the requested byte limit");
+            if(method === "hostRunner.run" &&
+              Buffer.byteLength((output.data as {stdout:string;stderr:string}).stdout) + Buffer.byteLength((output.data as {stdout:string;stderr:string}).stderr) > (input as {maxBytes:number}).maxBytes)
+              throw new CoreError("plugin_refused", "host runner exceeded the requested byte limit");
             return output.data as T;
           }
           return result;

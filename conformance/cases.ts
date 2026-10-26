@@ -106,6 +106,22 @@ function lifecycleCases(rust: boolean): ConformanceCase[] {
 }
 
 export const CASES: ConformanceCase[] = [
+  { name: "executor availability fake stays lazy and serves only the staged direct point", async run(t) {
+    t.install("executor");
+    const h=await t.host();
+    await h.call("plugin.enable",{id:"fx-executor",grant:true});
+    assert((await listed(h))["fx-executor"]?.pid===null,"fake executor remains lazy at listing");
+    const r=await doctor(h,"fx-executor");
+    assert(r.ok&&r.served.includes("executor"),"fake executor handshakes without running an attempt");
+  } },
+  { name: "host runner fake stays lazy and claims the staged SSH point", async run(t) {
+    t.install("host-runner");
+    const h=await t.host();
+    await h.call("plugin.enable",{id:"fx-host-runner",grant:true});
+    assert((await listed(h))["fx-host-runner"]?.pid===null,"fake host runner remains lazy at listing");
+    const r=await doctor(h,"fx-host-runner");
+    assert(r.ok&&r.served.includes("hostRunner"),"fake host runner handshakes without SSH");
+  } },
   {
  name: 'bundled usage discovery refuses an installed canonical-id shadow',
  async run(t) {

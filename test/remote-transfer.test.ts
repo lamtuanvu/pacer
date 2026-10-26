@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { taskWorktreePath } from "../src/supervisor/worktree";
 import { transferBack } from "../src/remote/transfer";
@@ -119,3 +119,25 @@ test("a clean transfer fetches only pacer/<id> and opens a review worktree", asy
   expect(Buffer.from(await Bun.file(join(result.reviewWorktree, "binary")).arrayBuffer())).toEqual(Buffer.from([0, 255, 254, 128, 10]));
   expect(existsSync(join(f.ctx.pacerHome, "tasks", `${f.task.id}.bundle`))).toBe(false);
 });
+
+test("a retained bundle from a prior attempt does not block a fresh transfer", async () => {
+  const f = await setup();
+  await f.commit("-m", "remote result");
+  const prior = join(f.ctx.pacerHome, "tasks", `${f.task.id}.prior.bundle`);
+  writeFileSync(prior, "retained previous verification failure", { mode: 0o600 });
+  const result = await transferBack(f.ctx, f.task, f.host, f.run);
+  expect(result.ok).toBe(true);
+  expect(readFileSync(prior, "utf8")).toBe("retained previous verification failure");
+}, 30000);
+
+test("a timed-out bundle stream returns a timeout reason without a phantom artifact", async () => {
+  const f = await setup();
+  await f.commit("-m", "remote result");
+  const bin = join(f.run.dir, "timeout-bin");
+  mkdirSync(bin);
+  writeFileSync(join(bin, "ssh"), "#!/bin/sh\nprintf '__PACER_BEGIN__\\n'\nsleep 5\n", { mode: 0o700 });
+  f.ctx.env = { ...f.ctx.env, PATH: `${bin}:${f.ctx.env.PATH ?? ""}` };
+  const result = await transferBack(f.ctx, f.task, f.host, f.run, 40);
+  expect(result).toEqual({ ok: false, reason: "bundle stream timed out" });
+  expect(existsSync(join(f.ctx.pacerHome, "tasks", `${f.task.id}.bundle`))).toBe(false);
+}, 30000);

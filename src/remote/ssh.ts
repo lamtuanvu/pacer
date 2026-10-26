@@ -1,7 +1,7 @@
 import { beginWorkSync, finishWorkSync } from "../update/desktop/admission";
 import { createHash, randomUUID } from "node:crypto";
-import { chmodSync, closeSync, lstatSync, mkdirSync, openSync, writeSync } from "node:fs";
-import { join } from "node:path";
+import { chmodSync, closeSync, constants, fstatSync, fsyncSync, linkSync, lstatSync, mkdirSync, mkdtempSync, openSync, rmdirSync, rmSync, unlinkSync, writeSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
 import type { HostCfg } from "../config/hosts";
 import { shq } from "../install/fsx";
 import type { Ctx, RunResult } from "../types";
@@ -108,23 +108,115 @@ export async function* payloadStream(stream: ReadableStream<Uint8Array>): AsyncG
   if (!framed) throw new Error("remote payload sentinel missing");
 }
 
-export async function bundleToFile(ctx: Ctx, host: HostCfg, args: string[], path: string, maxBytes: number): Promise<RunResult & { stdoutOverflow?: boolean }> {
-  const fd = openSync(path, "w", 0o600);
-  let proc: Bun.Subprocess<"ignore", "pipe", "pipe">;
-  try {
-    proc = Bun.spawn(sshArgv(ctx, host, SCRIPTS.BUNDLE_OUT, args), { env: ctx.env, stdin: "ignore", stdout: "pipe", stderr: "pipe", detached: true });
-  } catch (e) { closeSync(fd); throw e; }
-  const error = new Response(proc.stderr).text();
-  const timer = setTimeout(() => killTree(proc.pid, "SIGKILL"), 60000);
-  let size = 0, overflow = false;
-  try {
-    for await (const bytes of payloadStream(proc.stdout)) {
-      size += bytes.length;
-      if (size > maxBytes) { overflow = true; killTree(proc.pid, "SIGKILL"); break; }
-      let at = 0;
-      while (at < bytes.length) at += writeSync(fd, bytes, at, bytes.length - at);
+async function boundedStderr(stream: ReadableStream<Uint8Array>, overflow: () => void): Promise<{ text: string; overflow: boolean }> {
+  const limit = 64 * 1024;
+  const chunks: Buffer[] = [];
+  let size = 0, exceeded = false;
+  for await (const chunk of stream) {
+    const remaining = limit - size;
+    if (remaining > 0) {
+      const part = Buffer.from(chunk.subarray(0, remaining));
+      chunks.push(part);
+      size += part.length;
     }
-    const [code, stderr] = await Promise.all([proc.exited, error]);
-    return { code, stderr, stdout: "", ...(overflow ? { stdoutOverflow: true } : {}) };
-  } finally { clearTimeout(timer); closeSync(fd); if (proc.exitCode === null) killTree(proc.pid, "SIGKILL"); }
+    if (chunk.length > remaining && !exceeded) {
+      exceeded = true;
+      overflow();
+    }
+  }
+  return { text: Buffer.concat(chunks).toString("utf8"), overflow: exceeded };
+}
+
+export async function bundleToFile(ctx: Ctx, host: HostCfg, args: string[], path: string, maxBytes: number, timeoutMs = 60_000): Promise<RunResult & { stdoutOverflow?: boolean; stderrOverflow?: boolean; published?: true }> {
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > 50 * 1024 * 1024) throw new Error("invalid remote bundle limit");
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 60_000) throw new Error("invalid remote bundle timeout");
+  const homeInfo = lstatSync(ctx.pacerHome);
+  if (!homeInfo.isDirectory() || homeInfo.isSymbolicLink() ||
+    (process.getuid && homeInfo.uid !== process.getuid()) || (homeInfo.mode & 0o022) !== 0) {
+    throw new Error("remote bundle home is writable by another user or not owned by this user");
+  }
+  const taskDir = resolve(ctx.pacerHome, "tasks");
+  if (dirname(resolve(path)) !== taskDir || !basename(path).endsWith(".bundle")) throw new Error("remote bundle destination is outside tasks");
+  const destination = lstatSync(taskDir);
+  if (!destination.isDirectory() || destination.isSymbolicLink() ||
+    (process.getuid && destination.uid !== process.getuid()) || (destination.mode & 0o022) !== 0) {
+    throw new Error("remote bundle task directory is writable by another user or not owned by this user");
+  }
+  try { lstatSync(path); throw new Error("remote bundle destination already exists"); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+  const stage = mkdtempSync(join(taskDir, ".bundle-stage-"));
+  const file = join(stage, "incoming.bundle");
+  let fd: number | undefined;
+  let proc: Bun.Subprocess<"ignore", "pipe", "pipe"> | undefined;
+  let stderrPromise: Promise<{ text: string; overflow: boolean }> | undefined;
+  try {
+    const stageInfo = lstatSync(stage);
+    if (!stageInfo.isDirectory() || stageInfo.isSymbolicLink() ||
+      (process.getuid && stageInfo.uid !== process.getuid()) || (stageInfo.mode & 0o077) !== 0) {
+      throw new Error("remote bundle stage is not private and owned by this user");
+    }
+    fd = openSync(file, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW, 0o600);
+    const opened = fstatSync(fd);
+    if (!opened.isFile() || opened.nlink !== 1 ||
+      (process.getuid && opened.uid !== process.getuid()) || (opened.mode & 0o077) !== 0) {
+      throw new Error("remote bundle stage is not a private regular file");
+    }
+    if (ctx.operation?.signal.aborted) throw new Error("remote bundle transfer cancelled");
+    proc = Bun.spawn(sshArgv(ctx, host, SCRIPTS.BUNDLE_OUT, args), {
+      env: ctx.env, stdin: "ignore", stdout: "pipe", stderr: "pipe", detached: true,
+    });
+    const child = proc;
+    stderrPromise = boundedStderr(child.stderr, () => killTree(child.pid, "SIGKILL"));
+    let timedOut = false, cancelled = false, size = 0, overflow = false;
+    const abort = () => { cancelled = true; killTree(child.pid, "SIGKILL"); };
+    ctx.operation?.signal.addEventListener("abort", abort, { once: true });
+    if (ctx.operation?.signal.aborted) abort();
+    const timer = setTimeout(() => { timedOut = true; killTree(child.pid, "SIGKILL"); }, timeoutMs);
+    try {
+      let streamError: unknown;
+      try {
+        for await (const bytes of payloadStream(child.stdout)) {
+          if (cancelled || timedOut) break;
+          size += bytes.length;
+          if (size > maxBytes) { overflow = true; killTree(child.pid, "SIGKILL"); break; }
+          let at = 0;
+          while (at < bytes.length) {
+            const written = writeSync(fd, bytes, at, bytes.length - at);
+            if (written < 1) throw new Error("remote bundle stage write made no progress");
+            at += written;
+          }
+        }
+      } catch (error) {
+        streamError = error;
+        if (child.exitCode === null) killTree(child.pid, "SIGKILL");
+      }
+      const [code, stderrResult] = await Promise.all([child.exited, stderrPromise]);
+      const stderr = stderrResult.text;
+      if (cancelled || ctx.operation?.signal.aborted) throw new Error("remote bundle transfer cancelled");
+      if (timedOut) return { code, stderr, stdout: "", timedOut: true };
+      if (overflow) return { code, stderr, stdout: "", stdoutOverflow: true };
+      if (stderrResult.overflow) return { code, stderr, stdout: "", stderrOverflow: true };
+      if (streamError) throw streamError;
+      if (code !== 0) return { code, stderr, stdout: "" };
+      fsyncSync(fd);
+      closeSync(fd);
+      fd = undefined;
+      // Hard-link publication is atomic and refuses an existing path or symlink.
+      // Both paths are under the same private PACER_HOME filesystem.
+      linkSync(file, path);
+      unlinkSync(file);
+      rmdirSync(stage);
+      return { code, stderr, stdout: "", published: true };
+    } finally {
+      clearTimeout(timer);
+      ctx.operation?.signal.removeEventListener("abort", abort);
+    }
+  } finally {
+    let closeFailure: unknown;
+    if (fd !== undefined) try { closeSync(fd); } catch (error) { closeFailure = error; }
+    if (proc && proc.exitCode === null) { killTree(proc.pid, "SIGKILL"); await proc.exited; }
+    if (stderrPromise) await stderrPromise.catch(() => "");
+    rmSync(stage, { recursive: true, force: true });
+    if (closeFailure) throw closeFailure;
+  }
 }

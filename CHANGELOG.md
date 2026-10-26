@@ -6,6 +6,9 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
+- Stage the direct executor manifest and bounded availability contract with a fake conformance plugin; no attempt runner or production backend is switched yet.
+- Add a scoped `hosts.open/run/close` plugin capability with caller-owned broker sessions, configured SSH aliases and fixed-script fake-provider forwarding; production SSH callers are not yet migrated.
+- Define a bounded, staged plugin host-runner wire contract and fake conformance fixture; remote SSH execution remains on the existing adapter.
 - Record private, bounded OTA request-stage diagnostics in live validation evidence while preserving fixture authorization and HTTP behavior.
 - Add plugin policy checks for delegation, executor routing and task review, with bounded task observations, event subscriptions, failure modes and policy status across API, CLI, TUI and app surfaces.
 - Expose pure planner integration editing and undo helpers through `@pacer/plugin/install`, including JSONC-preserving edits, managed blocks and hook records.

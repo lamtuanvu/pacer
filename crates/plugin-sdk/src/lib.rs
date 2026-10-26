@@ -103,6 +103,27 @@ pub mod types {
         ObservationObserveResultItemValueWindowsItem,
         ObservationObserveResultItemValueWindowsItemPool,
     };
+    pub use pacer_plugin_hosts_protocol::{
+        CapabilityHostsCloseParams, CapabilityHostsCloseParamsSession, CapabilityHostsCloseResult,
+        CapabilityHostsOpenParams, CapabilityHostsOpenParamsAlias, CapabilityHostsOpenResult,
+        CapabilityHostsOpenResultSession, CapabilityHostsRunParams,
+        CapabilityHostsRunParamsArgsItem, CapabilityHostsRunParamsScript,
+        CapabilityHostsRunParamsSession, CapabilityHostsRunParamsStdin, CapabilityHostsRunResult,
+        CapabilityHostsRunResultStderr, CapabilityHostsRunResultStdout, HostRunnerCheckParams,
+        HostRunnerCheckParamsAlias, HostRunnerCheckParamsRepo, HostRunnerCheckResult,
+        HostRunnerCheckResultChecksItem, HostRunnerCheckResultChecksItemDetail,
+        HostRunnerCheckResultChecksItemName, HostRunnerCheckResultFactsKey,
+        HostRunnerCheckResultFactsValue, HostRunnerCloseParams, HostRunnerCloseParamsSession,
+        HostRunnerCloseResult, HostRunnerFetchParams, HostRunnerFetchParamsArgsItem,
+        HostRunnerFetchParamsScript, HostRunnerFetchParamsSession, HostRunnerFetchResult,
+        HostRunnerFetchResultName, HostRunnerFetchResultSha256, HostRunnerOpenParams,
+        HostRunnerOpenParamsAlias, HostRunnerOpenParamsSshTarget, HostRunnerOpenResult,
+        HostRunnerOpenResultSession, HostRunnerRunParams, HostRunnerRunParamsArgsItem,
+        HostRunnerRunParamsScript, HostRunnerRunParamsSession, HostRunnerRunParamsStdin,
+        HostRunnerRunResult, HostRunnerRunResultStderr, HostRunnerRunResultStdout,
+        HostRunnerStreamParams, HostRunnerStreamParamsArgsItem, HostRunnerStreamParamsScript,
+        HostRunnerStreamParamsSession, HostRunnerStreamResult,
+    };
     pub use pacer_plugin_protocol::*;
 }
 pub use serve::{Ctx, HandlerResult, Manifest, Plugin, Progress};

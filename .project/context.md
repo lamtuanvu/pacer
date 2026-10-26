@@ -122,3 +122,5 @@ Docs-only changes need just the repository rule, plus the protocol reviewer when
 Plugin 0.2 agent/native generated-area and SDK facade compatibility: [decision](../docs/decisions/0007-plugin-protocol-area-splits.md). Direct 0.2 agent type paths move to pacer-plugin-agent-protocol; immutable 0.1 lane unchanged.
 
 Observation/decision extension types likewise move to independent publishable `pacer-plugin-dispatch-protocol` 0.2; the SDK type facade preserves their names. No protocol area has a layer-0 peer dependency.
+
+Host-runner and host capability types live in independent publishable `pacer-plugin-hosts-protocol` 0.2; the SDK type facade preserves their names. [ADR 0009](../docs/decisions/0009-plugin-hosts-protocol-area.md) records the split.

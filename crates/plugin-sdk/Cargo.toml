@@ -17,6 +17,7 @@ testing = []
 [dependencies]
 pacer-plugin-agent-protocol = { path = "../plugin-agent-protocol", version = "0.2.0" }
 pacer-plugin-dispatch-protocol = { path = "../plugin-dispatch-protocol", version = "0.2.0" }
+pacer-plugin-hosts-protocol = { path = "../plugin-hosts-protocol", version = "0.2.0" }
 pacer-plugin-protocol = { path = "../plugin-protocol", version = "0.2.0" }
 serde.workspace = true
 serde_json.workspace = true

@@ -42,6 +42,7 @@ Layers from bottom (0) to top. Budgets are the planned size at the end of M3; CR
 | 0 | `pacer-plugin-protocol` (`crates/plugin-protocol`) | Generated plugin-protocol types | 1,500–2,500 generated | none |
 | 0 | `pacer-plugin-dispatch-protocol` (`crates/plugin-dispatch-protocol`) | Generated observation and decision extension types; publishable 0.2 area | ≤ 10,000 generated | none |
 | 0 | `pacer-plugin-agent-protocol` (`crates/plugin-agent-protocol`) | Generated agent-session and native identity types; publishable 0.2 area | ≤ 10,000 generated | none |
+| 0 | `pacer-plugin-hosts-protocol` (`crates/plugin-hosts-protocol`) | Generated host-runner and host capability types; publishable 0.2 area | ≤ 10,000 generated | none |
 | 0 | `pacer-plugin-policy-protocol` (`crates/plugin-policy-protocol`) | Generated policy and read-only observation contracts; standalone unpublished area | ≤ 10,000 generated | none |
 | 1 | `pacer-foundation` (`crates/foundation`) | Ctx, file rules, lock, `CoreError`, op registry types | 1,000–1,500 | none |
 | 2 | `pacer-store` (`crates/store`) | Task store, activity log, outbox and events | 2,000–2,500 | none |
