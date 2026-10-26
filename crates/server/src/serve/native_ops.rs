@@ -67,7 +67,8 @@ pub async fn handle(
             "body exceeds 256 KiB",
         )));
     }
-    let bytes = match to_bytes(req.into_body(), 256 * 1024).await {
+    let (parts, body) = req.into_parts();
+    let bytes = match to_bytes(body, 256 * 1024).await {
         Ok(bytes) => bytes,
         Err(_) => {
             return Ok(error(CoreError::new(
@@ -88,6 +89,9 @@ pub async fn handle(
             )));
         }
     };
+    if dispatcher.needs_core_request(ctx, &name, &params) {
+        return Err(Request::from_parts(parts, Body::from(bytes)));
+    }
     match dispatcher.call(ctx, &name, params).await {
         Some(Ok(value)) => Ok(response(200, json!({"result":value}))),
         Some(Err(value)) => Ok(error(value)),
@@ -160,6 +164,92 @@ mod tests {
     use super::*;
     use axum::body::to_bytes;
     use serde_json::json;
+    #[tokio::test]
+    async fn strategy_show_selects_supported_name_and_forwards_unsupported_request() {
+        let dir = tempfile::tempdir().unwrap();
+        let ctx = Ctx::with(
+            dir.path().join("home"),
+            dir.path().join("pacer"),
+            std::collections::HashMap::new(),
+            0.0,
+        );
+        std::fs::create_dir_all(ctx.pacer_home.join("strategies")).unwrap();
+        let yaml = "# Main work\nplanner: codex\naccounts: {personal: {kind: codex}}\nrouting: [{default: [codex]}]\n";
+        std::fs::write(ctx.pacer_home.join("strategy.yaml"), yaml).unwrap();
+        let dispatcher = crate::native::Dispatcher::new("");
+        let request = Request::builder()
+            .method("POST")
+            .uri("/v3/ops/strategy.show")
+            .body(Body::from(r#"{"name":"default"}"#))
+            .unwrap();
+        let response = handle(
+            request,
+            &dispatcher,
+            &ctx,
+            crate::serve::auth::AuthKind::Bearer,
+        )
+        .await
+        .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
+                .unwrap();
+        assert_eq!(
+            body,
+            json!({"result":{"yaml":yaml,"summary":"Configured executors, Codex keeps 15%","active":true}})
+        );
+        let raw = br#"{ "name": "missing" }"#;
+        let request = Request::builder()
+            .method("POST")
+            .uri("/v3/ops/strategy.show?source=api")
+            .body(Body::from(raw.as_slice()))
+            .unwrap();
+        let Err(forwarded) = handle(
+            request,
+            &dispatcher,
+            &ctx,
+            crate::serve::auth::AuthKind::Bearer,
+        )
+        .await
+        else {
+            panic!("unsupported name should stay core-owned")
+        };
+        assert_eq!(forwarded.uri(), "/v3/ops/strategy.show?source=api");
+        assert_eq!(
+            to_bytes(forwarded.into_body(), 1024).await.unwrap(),
+            raw.as_slice()
+        );
+    }
+    #[cfg(feature = "test-ops")]
+    #[tokio::test]
+    async fn request_aware_fallback_preserves_raw_http_request() {
+        let dispatcher = crate::native::Dispatcher::new("");
+        let ctx = pacer_foundation::Ctx::from_env();
+        let raw = br#"{ "force_core": true, "name": "caf\u00e9" }"#;
+        let request = Request::builder()
+            .method("POST")
+            .uri("/v3/ops/test.echo?source=api")
+            .header("x-test-source", "unchanged")
+            .body(Body::from(raw.as_slice()))
+            .unwrap();
+        let Err(forwarded) = handle(
+            request,
+            &dispatcher,
+            &ctx,
+            crate::serve::auth::AuthKind::Bearer,
+        )
+        .await
+        else {
+            panic!("request should remain core-owned")
+        };
+        assert_eq!(forwarded.method(), "POST");
+        assert_eq!(forwarded.uri(), "/v3/ops/test.echo?source=api");
+        assert_eq!(forwarded.headers()["x-test-source"], "unchanged");
+        assert_eq!(
+            to_bytes(forwarded.into_body(), 1024).await.unwrap(),
+            raw.as_slice()
+        );
+    }
     #[cfg(feature = "test-ops")]
     #[tokio::test]
     async fn unverified_task_grant_keeps_core_ownership() {

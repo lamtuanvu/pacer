@@ -18,6 +18,7 @@ pub const NATIVE_OPS: &[&str] = &[
     "repo.remove",
     "routing.get",
     "strategy.list",
+    "strategy.show",
 ];
 
 pub struct Dispatcher {
@@ -64,6 +65,15 @@ impl Dispatcher {
             || (matches!(name, "notifications.get" | "notifications.set")
                 && pacer_config::requires_core_parser(ctx))
             || (name == "notifications.set" && pacer_config::requires_core_set_parser(ctx))
+    }
+    /// Request-specific selection after a bounded body parse. The transport
+    /// keeps the original request bytes when this returns true.
+    pub fn needs_core_request(&self, ctx: &Ctx, name: &str, params: &Value) -> bool {
+        #[cfg(feature = "test-ops")]
+        if name == "test.echo" && params["force_core"] == true {
+            return true;
+        }
+        name == "strategy.show" && pacer_config::requires_core_strategy_show_parser(ctx, params)
     }
     /// Merge selected native names with the actual core hello advertisement.
     pub fn decorate_hello(&self, hello: &mut Value) {
@@ -182,7 +192,8 @@ mod registry_tests {
                 "repo.add",
                 "repo.remove",
                 "routing.get",
-                "strategy.list"
+                "strategy.list",
+                "strategy.show"
             ]
         );
         #[cfg(not(feature = "test-ops"))]
