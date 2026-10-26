@@ -1,5 +1,6 @@
 import { compareVersions, currentVersion, isVersion } from "../update/version";
 import { parseOrcaOutput } from "../exec/orca/client";
+import { sanitizedOrcaEnv } from "../orca/env";
 import { isObj } from "../util";
 import { serviceInstalled } from "../service";
 import { appendFileSync, readdirSync, existsSync, readFileSync, rmSync, statSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
@@ -48,7 +49,7 @@ export async function refreshConsoleTerminals(ctx: Ctx, unknown = false): Promis
   entry.pending = (async () => {
     if (!ctx.which("orca")) return;
     try {
-      const r = await ctx.run(["orca", "terminal", "list", "--json"], 1500);
+      const r = await ctx.run(["orca", "terminal", "list", "--json"], 1500, { env: sanitizedOrcaEnv(ctx.env) });
       const reply = parseOrcaOutput(r.stdout);
       if (r.code !== 0 || !isObj(reply) || reply.ok !== true || !isObj(reply.result) || !Array.isArray(reply.result.terminals)) return;
       if (!completeTerminalList(reply) || !completeTerminalList(reply.result)) return;
