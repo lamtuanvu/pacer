@@ -30,6 +30,31 @@ export const executorRunResult = z.object({
   exitCode: z.number().int().safe(),
   report: z.string().max(65_536),
 }).strict();
+
+/** The files the eventual executor owner must preserve for current task and session readers. */
+export const RUN_DIR_CONTRACT = {
+  version: 1,
+  files: ["argv", "stdout", "stderr", "pid", "exit", "session.log", "session.json",
+    "report.json", "transcript-report.md", "prompt.md"],
+} as const;
+
+/** Preparatory full outcome contract; the staged executor.run method still returns executorRunResult. */
+export const executorAttemptOutcome = z.object({
+  takeover: z.boolean().optional(),
+  attempt: z.object({
+    executor: z.string().min(1), model: z.string().nullable(),
+    actualModel: z.string().nullable().optional(), dispatchSettingsHash: z.string().optional(),
+    startedAt: z.number().finite(), endedAt: z.number().finite(), exitCode: z.number().int().safe(),
+    timedOut: z.boolean(), limitHit: z.boolean(), log: z.string(), brokenReason: z.string().optional(),
+    routing: z.json().optional(), usageAtStart: z.json().optional(), usageAtEnd: z.json().optional(),
+  }).strict(),
+  exec: z.object({
+    code: z.number().int().safe(), stdout: z.string(), stderr: z.string(), timedOut: z.boolean(),
+    stdoutOverflow: z.boolean().optional(),
+  }).strict(),
+  report: z.string(), backend: z.string().optional(), worktree: z.string().optional(),
+  partial: z.string().optional(),
+}).strict();
 export const executorStopParams = z.object({ taskId, attempt: positive,
   graceMs: z.number().int().nonnegative().max(30_000) }).strict();
 export const executorStopResult = z.object({ code: z.number().int().safe(), killed: z.boolean() }).strict();
