@@ -322,6 +322,91 @@ fn unsupported_map_layouts_and_key_names_stay_with_typescript() {
 }
 
 #[test]
+fn strict_flow_list_rewrites_match_typescript_bytes() {
+    let cases = goldens();
+    for id in [
+        "list-flow-append",
+        "list-flow-padding",
+        "list-duplicate-reorder",
+        "list-empty",
+        "crlf-list",
+    ] {
+        let case = cases.iter().find(|case| case["id"] == id).unwrap();
+        assert_eq!(
+            pacer_config::doc::replace_flow_list(
+                case["before"].as_str().unwrap(),
+                case["path"].as_array().unwrap(),
+                case["value"].as_array().unwrap(),
+            ),
+            Some(case["after"].as_str().unwrap().to_owned()),
+            "{id}"
+        );
+    }
+    let block = cases
+        .iter()
+        .find(|case| case["id"] == "list-block-survivor-comment")
+        .unwrap();
+    assert_eq!(
+        pacer_config::doc::replace_flow_list(
+            block["before"].as_str().unwrap(),
+            block["path"].as_array().unwrap(),
+            block["value"].as_array().unwrap(),
+        ),
+        None
+    );
+}
+
+#[test]
+fn every_selected_flow_list_in_the_corpus_matches_typescript_after_bytes() {
+    let mut selected = Vec::new();
+    for case in goldens() {
+        if case["op"] != "setList" {
+            continue;
+        }
+        let (Some(before), Some(path), Some(values)) = (
+            case["before"].as_str(),
+            case["path"].as_array(),
+            case["value"].as_array(),
+        ) else {
+            continue;
+        };
+        if let Some(output) = pacer_config::doc::replace_flow_list(before, path, values) {
+            assert_eq!(output, case["after"].as_str().unwrap(), "{}", case["id"]);
+            selected.push(case["id"].as_str().unwrap().to_owned());
+        }
+    }
+    assert_eq!(
+        selected,
+        [
+            "list-flow-append",
+            "list-flow-padding",
+            "list-duplicate-reorder",
+            "list-empty",
+            "crlf-list"
+        ]
+    );
+}
+
+#[test]
+fn unproven_flow_list_styles_stay_with_typescript() {
+    use serde_json::json;
+
+    let path = [json!("routing")];
+    assert_eq!(
+        pacer_config::doc::replace_flow_list("routing: []\n", &path, &[json!("codex")]),
+        None
+    );
+    assert_eq!(
+        pacer_config::doc::replace_flow_list("routing: [ codex ]\n", &path, &[]),
+        None
+    );
+    assert_eq!(
+        pacer_config::doc::replace_flow_list("routing: ['codex']\n", &path, &[json!("local")]),
+        None
+    );
+}
+
+#[test]
 fn every_selected_edit_in_the_corpus_matches_its_typescript_after_bytes() {
     let mut selected = Vec::new();
     for case in goldens() {

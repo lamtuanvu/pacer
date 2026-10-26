@@ -25,7 +25,11 @@ enum Node {
         closing: Span,
         entries: Vec<MapEntry>,
     },
-    Seq(Vec<Node>),
+    Seq {
+        opening: Span,
+        closing: Span,
+        entries: Vec<Node>,
+    },
 }
 
 struct MapEntry {
@@ -74,8 +78,13 @@ fn parse_node(events: &[(Event<'_>, Span)], cursor: &mut usize) -> Option<Node> 
             while !matches!(events.get(*cursor)?.0, Event::SequenceEnd) {
                 entries.push(parse_node(events, cursor)?);
             }
+            let closing = events.get(*cursor)?.1;
             *cursor += 1;
-            Some(Node::Seq(entries))
+            Some(Node::Seq {
+                opening: *span,
+                closing,
+                entries,
+            })
         }
         _ => None,
     }
@@ -95,7 +104,9 @@ fn lookup<'a>(node: &'a Node, path: &[Value]) -> Option<&'a Node> {
             }
             lookup(child, tail)
         }
-        Node::Seq(entries) => lookup(entries.get(usize::try_from(head.as_u64()?).ok()?)?, tail),
+        Node::Seq { entries, .. } => {
+            lookup(entries.get(usize::try_from(head.as_u64()?).ok()?)?, tail)
+        }
         Node::Scalar { .. } => None,
     }
 }
@@ -413,5 +424,86 @@ pub fn rename_mapping_key(text: &str, path: &[Value], new_name: &str) -> Option<
     let replacement = render_scalar(&Value::String(new_name.to_owned()), ScalarStyle::Plain)?;
     let mut output = text.to_owned();
     output.replace_range(start..end, &replacement);
+    Some(output)
+}
+
+/// Rewrite a flow sequence of plain strings, retaining its bracket padding.
+/// Source comments, quoted items, and block sequences remain with TypeScript.
+#[must_use]
+pub fn replace_flow_list(text: &str, path: &[Value], values: &[Value]) -> Option<String> {
+    let root = parse_document(text)?;
+    let Node::Seq {
+        opening,
+        closing,
+        entries,
+    } = lookup(&root, path)?
+    else {
+        return None;
+    };
+    let open = char_to_byte(text, opening.start.index())?;
+    let inner_start = open.checked_add(1)?;
+    let inner_end = char_to_byte(text, closing.start.index())?;
+    if text.get(open..inner_start)? != "[" || text.get(inner_end..inner_end + 1)? != "]" {
+        return None;
+    }
+    let mut cursor = inner_start;
+    let mut prefix = "";
+    let mut suffix = "";
+    for (index, entry) in entries.iter().enumerate() {
+        let Node::Scalar {
+            value,
+            style: ScalarStyle::Plain,
+            span,
+        } = entry
+        else {
+            return None;
+        };
+        let start = char_to_byte(text, span.start.index())?;
+        let end = char_to_byte(text, span.end.index())?;
+        if !safe_plain_string(value) || text.get(start..end)? != value {
+            return None;
+        }
+        if index == 0 {
+            prefix = text.get(cursor..start)?;
+            if !matches!(prefix, "" | " ") {
+                return None;
+            }
+        } else if text.get(cursor..start)? != ", " {
+            return None;
+        }
+        cursor = end;
+    }
+    if entries.is_empty() {
+        if inner_start != inner_end {
+            return None;
+        }
+    } else {
+        suffix = text.get(cursor..inner_end)?;
+        if !matches!(suffix, "" | " ") {
+            return None;
+        }
+    }
+    let rendered = values
+        .iter()
+        .map(Value::as_str)
+        .collect::<Option<Vec<_>>>()?;
+    if !rendered
+        .iter()
+        .all(|value| value.is_ascii() && safe_plain_string(value))
+    {
+        return None;
+    }
+    if entries.is_empty() && !rendered.is_empty()
+        || rendered.is_empty() && (!prefix.is_empty() || !suffix.is_empty())
+    {
+        return None;
+    }
+    let replacement = if rendered.is_empty() {
+        String::new()
+    } else {
+        format!("{prefix}{}{suffix}", rendered.join(", "))
+    };
+    let mut output = text.to_owned();
+    output.replace_range(inner_start..inner_end, &replacement);
     Some(output)
 }
