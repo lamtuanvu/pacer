@@ -8,7 +8,8 @@ const input = z.object({
   attempt: z.number().int().positive(), runDir: z.literal(1),
   effect: z.object({ argv: z.array(z.string()).min(1).max(32), cwd: z.string(),
     timeoutMs: z.number().int().positive().max(30 * 60 * 1000), stdin: z.string().max(262144).optional(),
-    env: z.record(z.string(), z.string()).optional(), secretEnv: z.record(z.string(), z.string()).optional() }).strict(),
+    env: z.record(z.string(), z.string()).optional(), secretEnv: z.record(z.string(), z.string()).optional(),
+    detached: z.literal(true).optional() }).strict(),
 }).strict();
 
 const spawnResult = z.object({
@@ -24,6 +25,13 @@ export const handlers = {
     if (!parsed.success) throw new PluginError("invalid_input", "direct process effect is required");
     if (signal.aborted) throw new PluginError("plugin_unavailable", "executor call was cancelled");
     const { effect } = parsed.data;
+    if (effect.detached) {
+      const launched = await host.call<{ pid: number }>("capability.process.startRun", {
+        task: parsed.data.task, attempt: parsed.data.attempt, runDir: parsed.data.runDir,
+      });
+      if (signal.aborted) throw new PluginError("plugin_unavailable", "executor call was cancelled after launch; inspect run directory");
+      return { status: "launched", pid: launched.pid, report: "detached wrapper started" };
+    }
     const result = spawnResult.parse(await host.call("capability.process.spawn", {
       argv: effect.argv, cwd: effect.cwd,
       env: { ...effect.env, ...Object.fromEntries(Object.entries(effect.secretEnv ?? {}).map(

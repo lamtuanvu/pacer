@@ -10,6 +10,7 @@ import { CallAuthority } from "./authority";
 import { answerUsageState } from "./usage-state";
 import { answerFilesystem } from "./capability-fs";
 import { answerSpawn, readSpawnOutput } from "./capability-spawn";
+import { answerDetachedRun } from "./capability-detached-run";
 import { stageBundle } from "./bundle-stage";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -101,6 +102,8 @@ export async function answerCapability(ctx: Ctx, plugin: { id: string; manifest:
     ? readSpawnOutput(authority, parsed.data as Record<string, unknown>) : method === "capability.process.stageBundle"
       ? scopes.includes("ssh") ? stageBundle(authority, parsed.data as { argv: string[]; timeoutMs: number; maxBytes: number })
         : Promise.reject(new CoreError("capability_denied", "bundle staging requires declared SSH process scope"))
+      : method === "capability.process.startRun"
+        ? Promise.resolve(answerDetachedRun(authority, scopes, parsed.data as { task: { id: string; rev: number }; attempt: number; runDir: 1 }))
       : answerSpawn(authority, scopes, parsed.data as Record<string, unknown>));
   if (authority && name === "usage.state") return scoped(() => answerUsageState(authority,
     method.slice("capability.usage.state.".length) as Parameters<typeof answerUsageState>[1], parsed.data as Record<string, unknown>));

@@ -1,4 +1,4 @@
-import { closeSync, fstatSync, lstatSync, openSync, type Stats } from "node:fs";
+import { closeSync, fstatSync, lstatSync, openSync, realpathSync, statSync, type Stats } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { CoreError } from "../core/errors";
 import { readTask, updateTask, withTaskLock } from "../tasks/store";
@@ -21,7 +21,7 @@ interface ExecutorCaller {
 }
 
 export interface LocalExecutorEffect { argv: string[]; cwd: string; timeoutMs: number; stdin?: string;
-  env?: Record<string, string>; secretEnv?: Record<string, string> }
+  env?: Record<string, string>; secretEnv?: Record<string, string>; detached?: true }
 
 function ownsRun(ctx: Ctx, taskId: string, owner: RunRef): boolean {
   const task = readTask(ctx, taskId);
@@ -104,6 +104,18 @@ export async function runOwnedExecutorAttempt(ctx: Ctx, caller: ExecutorCaller, 
     new Set(credentialBindings.map(binding => binding.ref)).size !== credentialBindings.length ||
     credentialBindings.length !== refs.size)
     throw new CoreError("invalid_input", "executor credential binding is not issued for this effect");
+  if (effect?.detached && refs.size) throw new CoreError("invalid_input", "detached secret-bearing output suppression is not available");
+  const detachedPin = effect?.detached ? (() => {
+    const selected = ctx.which(effect.argv[0]!);
+    if (!selected || !isAbsolute(selected)) throw new CoreError("invalid_input", "detached executor executable is unavailable");
+    try {
+      const executable = realpathSync(selected), binary = statSync(executable), cwd = realpathSync(effect.cwd), directory = statSync(cwd);
+      if (!binary.isFile() || !(binary.mode & 0o111) || !directory.isDirectory()) throw Error();
+      return { executable, executableIdentity: { dev: binary.dev, ino: binary.ino, size: binary.size, mtimeMs: binary.mtimeMs,
+        mode: binary.mode },
+        cwd, cwdIdentity: { dev: directory.dev, ino: directory.ino } };
+    } catch { throw new CoreError("invalid_input", "detached executor source is unavailable"); }
+  })() : undefined;
   const sensitiveOutput = refs.size > 0;
   let runIdentity: { dev: number; ino: number };
   const owner = withTaskLock(ctx, taskId, (): RunRef => {
@@ -148,15 +160,21 @@ export async function runOwnedExecutorAttempt(ctx: Ctx, caller: ExecutorCaller, 
       ...(effect.stdin === undefined ? {} : { stdin: effect.stdin }),
       ...(effect.env === undefined ? {} : { env: effect.env }),
       ...(effect.secretEnv === undefined ? {} : { secretEnv: effect.secretEnv }),
+      ...(effect.detached ? { detached: true as const } : {}),
     } } : {}) },
     { onProgress: event => applyExecutorProgress(ctx, taskId, owner.attempt, event, owner),
-      ...(effect ? { deadlineMs: effect.timeoutMs + 5000,
-        spawnAdmission,
+      ...(effect ? { deadlineMs: effect.detached ? 15_000 : effect.timeoutMs + 5000,
+        ...(effect.detached ? {} : { spawnAdmission }),
         credentialBindings,
-        resources: { reads: [], stores: [], writes: (sensitiveOutput ? [] : ["stdout", "stderr"]).map(name => ({
+        resources: { reads: [], stores: [], ...(detachedPin ? { detachedRun: {
+          taskId, rev: revision, attempt: owner.attempt, dir: owner.dir, dirIdentity: runIdentity!,
+          argv: effect.argv, cwd: detachedPin.cwd, executable: detachedPin.executable,
+          executableIdentity: detachedPin.executableIdentity, cwdIdentity: detachedPin.cwdIdentity,
+          env: effect.env ?? {}, ...(effect.stdin === undefined ? {} : { stdin: effect.stdin }),
+        } } : {}), writes: (effect.detached || sensitiveOutput ? [] : ["stdout", "stderr"]).map(name => ({
           path: join(owner.dir, name), root: owner.dir, rootIdentity: runIdentity,
           kind: "file" as const, operations: ["write" as const],
-        })), commands: [{ argv: effect.argv, cwd: effect.cwd,
+        })), commands: effect.detached ? [] : [{ argv: effect.argv, cwd: effect.cwd,
           env: effect.env ?? {}, secretEnv: effect.secretEnv ?? {}, timeoutMs: effect.timeoutMs,
           ...(sensitiveOutput ? { suppressOutput: true } : {
             capture: { stdout: join(owner.dir, "stdout"), stderr: join(owner.dir, "stderr") } }),

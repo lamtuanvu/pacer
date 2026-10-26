@@ -4324,6 +4324,10 @@
                 "type": "string",
                 "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
               }
+            },
+            "detached": {
+              "type": "boolean",
+              "const": true
             }
           },
           "required": [
@@ -4342,31 +4346,59 @@
       "additionalProperties": false
     },
     "executor.run.result": {
-      "type": "object",
-      "properties": {
-        "status": {
-          "type": "string",
-          "enum": [
-            "done",
-            "failed"
-          ]
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": [
+                "done",
+                "failed"
+              ]
+            },
+            "exitCode": {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            },
+            "report": {
+              "type": "string",
+              "maxLength": 65536
+            }
+          },
+          "required": [
+            "status",
+            "exitCode",
+            "report"
+          ],
+          "additionalProperties": false
         },
-        "exitCode": {
-          "type": "integer",
-          "minimum": -9007199254740991,
-          "maximum": 9007199254740991
-        },
-        "report": {
-          "type": "string",
-          "maxLength": 65536
+        {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "const": "launched"
+            },
+            "pid": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "report": {
+              "type": "string",
+              "maxLength": 65536
+            }
+          },
+          "required": [
+            "status",
+            "pid",
+            "report"
+          ],
+          "additionalProperties": false
         }
-      },
-      "required": [
-        "status",
-        "exitCode",
-        "report"
-      ],
-      "additionalProperties": false
+      ]
     },
     "executor.stop.params": {
       "type": "object",
@@ -7211,6 +7243,59 @@
       },
       "required": [
         "base64"
+      ],
+      "additionalProperties": false
+    },
+    "capability.process.startRun.params": {
+      "type": "object",
+      "properties": {
+        "task": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^t-[A-Za-z0-9_-]{1,120}$"
+            },
+            "rev": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "id",
+            "rev"
+          ],
+          "additionalProperties": false
+        },
+        "attempt": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "runDir": {
+          "type": "number",
+          "const": 1
+        }
+      },
+      "required": [
+        "task",
+        "attempt",
+        "runDir"
+      ],
+      "additionalProperties": false
+    },
+    "capability.process.startRun.result": {
+      "type": "object",
+      "properties": {
+        "pid": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "pid"
       ],
       "additionalProperties": false
     },

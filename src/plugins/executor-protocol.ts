@@ -26,13 +26,14 @@ export const executorRunParams = z.object({
     stdin: z.string().max(262144).optional(),
     env: z.record(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/).refine(name => !name.startsWith("PACER_KEY_")), z.string()).optional(),
     secretEnv: z.record(z.string().regex(/^PACER_KEY_[A-Z0-9_]+$/), secretReference).optional(),
+    detached: z.literal(true).optional(),
   }).strict().optional(),
 }).strict();
-export const executorRunResult = z.object({
-  status: z.enum(["done", "failed"]),
-  exitCode: z.number().int().safe(),
-  report: z.string().max(65_536),
-}).strict();
+export const executorRunResult = z.discriminatedUnion("status", [
+  z.object({ status: z.enum(["done", "failed"]), exitCode: z.number().int().safe(),
+    report: z.string().max(65_536) }).strict(),
+  z.object({ status: z.literal("launched"), pid: positive, report: z.string().max(65_536) }).strict(),
+]);
 
 /** The files the eventual executor owner must preserve for current task and session readers. */
 export const RUN_DIR_CONTRACT = {

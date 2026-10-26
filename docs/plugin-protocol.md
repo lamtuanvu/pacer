@@ -12,9 +12,11 @@ Protocol 1.1 adds optional top-level `_meta: { capabilityCall }` correlation on 
 
 Protocol 1.5 adds policy/task/event contracts and mutually negotiated `policyObservations` for the host and TypeScript SDK. Task reads require declared and granted `tasks.read` plus a current owning call or process-generation read owner. The exclusive `_meta: { readOwner }` arm permits only task reads and subscription management; mixed, foreign or retired owners never fall back to unowned/effect capability handling. Existing peers/capabilityCall correlation remain supported; peers without this feature cannot use the observation methods. Rust SDK observation helpers are not implemented: the standalone policy protocol crate supplies contracts, not SDK runtime support.
 
-The staged `executor` point declares `contributes.executor.backends: ["direct"]`, `executor.available`, `executor.run` and `executor.stop`. The bundled reference plugin is visible to `plugin list` and `plugin doctor`, but reports unavailable for task dispatch until detached run, stop and recovery ownership are implemented. Availability receives a credential-free strategy name with a 10 s deadline. The run envelope names only a host-selected task revision and attempt with run-directory version 1; it has no default deadline and sends bounded `$/progress` events that the host validates before applying an owner-bound progress update. The preview local effect can carry at most 256 KiB of exact host-issued UTF-8 stdin and has a host-owned timeout ceiling of 30 minutes. The host can pin plain environment values and `PACER_KEY_*` secret references to that effect; it resolves bound key bytes only at child spawn, while the plugin sees references. A secret-bearing preview suppresses both child streams before run-file capture or plugin reply because partial key output cannot be reliably redacted; ordinary captured streams remain limited to 1 MiB each. Stop is bounded to 30 s. Production dispatch, durable run files, interactive sessions, recovery, and full stop semantics still require later SP09 work.
+The staged `executor` point declares `contributes.executor.backends: ["direct"]`, `executor.available`, `executor.run` and `executor.stop`. The bundled reference plugin is visible to `plugin list` and `plugin doctor`, but reports unavailable for task dispatch until detached stop and recovery ownership are implemented. Availability receives a credential-free strategy name with a 10 s deadline. The run envelope names only a host-selected task revision and attempt with run-directory version 1; it has no default deadline and sends bounded `$/progress` events that the host validates before applying an owner-bound progress update. The preview local effect can carry at most 256 KiB of exact host-issued UTF-8 stdin and has a host-owned timeout ceiling of 30 minutes. The host can pin plain environment values and `PACER_KEY_*` secret references to that effect; it resolves bound key bytes only at child spawn, while the plugin sees references. A secret-bearing preview suppresses both child streams before run-file capture or plugin reply because partial key output cannot be reliably redacted; ordinary captured streams remain limited to 1 MiB each. Stop is bounded to 30 s. Production dispatch, interactive sessions, recovery, and full stop semantics still require later SP09 work.
 
 Before a future direct plugin reattach or stop call, the host can inspect the exact task-owned private run directory. The typed recovery snapshot binds task revision, attempt and run-directory version 1 to the existing wrapper's pid, exit and output-byte readers; a missing completion record is `uncertain`, never proof that the child ended. This is a host-only preparatory contract, not a new plugin method or a production task route.
+
+The bundled direct plugin can request a one-use detached wrapper launch for the exact host-issued task revision and attempt. The host pins the executable and workdir, owns the private run directory and starts the existing runDir v1 wrapper; a `launched` reply carries a pid, not an exit status or completed task outcome. Detached effects with endpoint-key references are refused before directory claim until durable output suppression exists. Plugin-owned stop and crash reattach, timeout enforcement, full AttemptOutcome and production task routing remain unimplemented.
 
 The `hostRunner` point names only fixed SSH script IDs and uses bounded arguments, results and finite deadlines. The `hosts` capability defines `open`, `run`, `fetch` and `close` with host-owned broker sessions. Callers supply only a configured alias and fixed script input; the host derives the SSH target and selects the provider. Host setup identity and committed-task transfer use the bundled `remoteCaller` with one-use host-issued grants. Other production SSH paths still require caller cutover.
 
@@ -4728,6 +4730,10 @@ Params:
             "type": "string",
             "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
           }
+        },
+        "detached": {
+          "type": "boolean",
+          "const": true
         }
       },
       "required": [
@@ -4752,31 +4758,59 @@ Result:
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "type": "object",
-  "properties": {
-    "status": {
-      "type": "string",
-      "enum": [
-        "done",
-        "failed"
-      ]
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "done",
+            "failed"
+          ]
+        },
+        "exitCode": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "report": {
+          "type": "string",
+          "maxLength": 65536
+        }
+      },
+      "required": [
+        "status",
+        "exitCode",
+        "report"
+      ],
+      "additionalProperties": false
     },
-    "exitCode": {
-      "type": "integer",
-      "minimum": -9007199254740991,
-      "maximum": 9007199254740991
-    },
-    "report": {
-      "type": "string",
-      "maxLength": 65536
+    {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "const": "launched"
+        },
+        "pid": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "report": {
+          "type": "string",
+          "maxLength": 65536
+        }
+      },
+      "required": [
+        "status",
+        "pid",
+        "report"
+      ],
+      "additionalProperties": false
     }
-  },
-  "required": [
-    "status",
-    "exitCode",
-    "report"
-  ],
-  "additionalProperties": false
+  ]
 }
 ```
 
@@ -8083,6 +8117,75 @@ Result:
   },
   "required": [
     "base64"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `capability.process.startRun`
+
+Start the one host-issued task-owned detached run directory wrapper.
+
+Params:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "task": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^t-[A-Za-z0-9_-]{1,120}$"
+        },
+        "rev": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "id",
+        "rev"
+      ],
+      "additionalProperties": false
+    },
+    "attempt": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "runDir": {
+      "type": "number",
+      "const": 1
+    }
+  },
+  "required": [
+    "task",
+    "attempt",
+    "runDir"
+  ],
+  "additionalProperties": false
+}
+```
+
+Result:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "pid": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "pid"
   ],
   "additionalProperties": false
 }

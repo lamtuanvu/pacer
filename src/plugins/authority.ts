@@ -5,6 +5,11 @@ import { CoreError } from "../core/errors";
 import type { Ctx } from "../types";
 
 export interface CallResources {
+  /** One exact task-owned detached wrapper launch, issued by the service only. */
+  detachedRun?: { taskId: string; rev: number; attempt: number; dir: string;
+    dirIdentity: { dev: number; ino: number }; argv: string[]; cwd: string;
+    executable: string; executableIdentity: { dev: number; ino: number; size: number; mtimeMs: number; mode: number };
+    cwdIdentity: { dev: number; ino: number }; env: Record<string, string>; stdin?: string };
   /** Host-issued secret-reference aliases; names only, never credential values. */
   secretAliases?: Record<string, string>;
   /** Exact hostnames derived only from validated host configuration/grants. */
@@ -66,6 +71,7 @@ export class CallAuthority {
   private readonly issuedAt = Date.now();
   private readElapsed = 0;
   private readonly usedHostOperations = new Set<number>();
+  private detachedRunUsed = false;
   private readonly detach: () => void;
 
   constructor(readonly ctx: Ctx, resources: CallResources, readonly deadlineMs: number, parent?: AbortSignal, grants: readonly string[] = [], readonly accountHome: string | null = null,
@@ -102,6 +108,14 @@ export class CallAuthority {
     }
     if (this.resources.http) { Object.freeze(this.resources.http.hosts); Object.freeze(this.resources.http); }
     if (this.resources.secretAliases) Object.freeze(this.resources.secretAliases);
+    if (this.resources.detachedRun) {
+      Object.freeze(this.resources.detachedRun.argv);
+      Object.freeze(this.resources.detachedRun.env);
+      Object.freeze(this.resources.detachedRun.dirIdentity);
+      Object.freeze(this.resources.detachedRun.executableIdentity);
+      Object.freeze(this.resources.detachedRun.cwdIdentity);
+      Object.freeze(this.resources.detachedRun);
+    }
     Object.freeze(this.resources);
     const cancel = () => { void this.revoke().catch(() => {}); };
     parent?.addEventListener("abort", cancel, { once: true });
@@ -136,6 +150,14 @@ export class CallAuthority {
       resource.args.length === request.args.length && resource.args.every((arg, i) => arg === request.args[i]));
     if (at < 0) throw new CoreError("capability_denied", "host operation is not issued for this call");
     this.usedHostOperations.add(at);
+  }
+  consumeDetachedRun(taskId: string, rev: number, attempt: number): NonNullable<CallResources["detachedRun"]> {
+    this.assertGranted("process.spawn");
+    const grant = this.resources.detachedRun;
+    if (!grant || this.detachedRunUsed || grant.taskId !== taskId || grant.rev !== rev || grant.attempt !== attempt)
+      throw new CoreError("capability_denied", "detached run is not issued for this call");
+    this.detachedRunUsed = true;
+    return grant;
   }
   onRevoke(cleanup: () => void | Promise<void>): () => void {
     this.assertActive();
