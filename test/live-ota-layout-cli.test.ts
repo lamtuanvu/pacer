@@ -10,3 +10,9 @@ test("initial layout is a fixed build-only option and cannot be selected during 
   expect(error).toBeInstanceOf(Error);
   expect((error as Error).message).toMatch(/Native fixtures require macOS|requires --signer cert/);
 });
+
+test("fixture old-service choice is an opt-in paired build flag only", async () => {
+  await expect(main(["status", "--fixture-continue-old-service"])).rejects.toThrow("OTA build");
+  await expect(main(["ota", "exercise", "--id", "nonexistent-choice-fixture", "--scenario", "adopt", "--fixture-continue-old-service"])).rejects.toThrow("OTA build");
+  await expect(main(["ota", "build", "--id", "nonexistent-choice-fixture", "--fixture-continue-old-service"])).rejects.toThrow("paired layout");
+});

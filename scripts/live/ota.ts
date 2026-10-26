@@ -15,6 +15,8 @@ export interface OtaOptions { base?: string; sourceRoot?: string; realHome?: str
 export const OTA_SCENARIOS = ["upgrade", "startup-failure", "helper-crash", "interrupted-install", "restore-failure", "adopt", "adopt-failure", "attached", "wrong-service", "watcher-race", "active-work", "invalid-signature", "corrupt-archive", "wrong-architecture", "incompatible", "offline"] as const;
 export const initialLayoutSchema = z.enum(["bridge", "paired"]);
 export type InitialLayout = z.infer<typeof initialLayoutSchema>;
+/** The published baseline sees only an ordinary nonce; the candidate binds this subfamily to the private record. */
+const OLD_SERVICE_CHOICE_NONCE_PREFIX = "f0a3c29e5c0d";
 const hash = z.string().regex(/^[a-f0-9]{64}$/);
 const source = z.object({ path: z.string(), sha256: hash.nullable() }).strict();
 const buildIntent = z.object({ schema: z.literal(1), kind: z.literal("native-build"), buildRoot: z.string(), baselineVersion: z.literal("0.2.3"), candidateVersion: z.literal("0.2.4"), arch: z.enum(["aarch64", "x86_64"]), updaterKeySha256: hash, signingCertSha1: z.string().regex(/^[0-9A-F]{40}$/).optional() }).strict();
@@ -26,6 +28,7 @@ const registration = z.object({ label: z.string(), path: z.string(), state: z.en
 const schema = z.object({
   schema: z.literal(1), sessionId: z.string(), root: z.string(), ownerUid: z.number().int(), nonce: z.string().regex(/^[a-f0-9]{32}$/),
   initialLayout: initialLayoutSchema.default("bridge"),
+  oldServiceChoice: z.literal("continue").optional(),
   phase: z.enum(["building", "preparing", "prepared", "cleaned"]), pacerHome: z.string(), port: z.number().int(), innerPort: z.number().int(),
   installationId: z.string(), currentApp: z.string(), candidateApp: z.string(), serviceLabel: z.string(), recoveryLabel: z.string(),
   sources: z.tuple([source, source]), registrationBefore: hash.nullable(), registrations: z.tuple([registration, registration]),
@@ -50,13 +53,16 @@ export function otaFixturePolicy(state: OtaRecord) {
   return { schema: 1 as const, root: state.root, nonce: state.nonce, home: state.pacerHome, port: state.innerPort, currentApp: state.currentApp, serviceLabel: state.serviceLabel, recoveryLabel: state.recoveryLabel, uid: state.ownerUid, ...(cert ? { signingCertSha1: cert } : {}) };
 }
 /** Reserve compile coordinates only. A building lease grants no runtime capability. */
-export function reserveOtaBuild(id: string, arch: "aarch64" | "x86_64", updaterKeySha256: string, options: OtaOptions = {}, signingCertSha1?: string, initialLayout: InitialLayout = "bridge"): OtaRecord {
+export function reserveOtaBuild(id: string, arch: "aarch64" | "x86_64", updaterKeySha256: string, options: OtaOptions = {}, signingCertSha1?: string, initialLayout: InitialLayout = "bridge", oldServiceChoice = false): OtaRecord {
   initialLayout = initialLayoutSchema.parse(initialLayout);
-  const session = sessionFor(id, options), root = join(session.root, "ota"), nonce = randomBytes(16).toString("hex");
+  if (oldServiceChoice && initialLayout !== "paired") throw Error("Fixture old-service choice requires paired layout");
+  const session = sessionFor(id, options), root = join(session.root, "ota");
+  let nonce = oldServiceChoice ? OLD_SERVICE_CHOICE_NONCE_PREFIX + randomBytes(10).toString("hex") : randomBytes(16).toString("hex");
+  while (!oldServiceChoice && nonce.startsWith(OLD_SERVICE_CHOICE_NONCE_PREFIX)) nonce = randomBytes(16).toString("hex");
   const nativeFixture = buildIntent.parse({ schema: 1, kind: "native-build", buildRoot: join(root, "build"), baselineVersion: "0.2.3", candidateVersion: "0.2.4", arch, updaterKeySha256, ...(signingCertSha1 ? { signingCertSha1 } : {}) });
   const serviceLabel = `com.pacer.live.${nonce}.service`, recoveryLabel = `com.pacer.live.${nonce}.recovery`;
   const registration = (label: string): OtaRecord["registrations"][number] => ({ label, path: join(root, "registrations", `${label}.plist`), state: "reserved", sha256: null, processes: [] });
-  const state: OtaRecord = { schema: 1, sessionId: id, root, nonce, ownerUid: uid(), initialLayout, phase: "building", pacerHome: join(session.root, "home"), port: session.port, innerPort: session.innerPort!, installationId: `ota-${nonce}`, currentApp: join(root, "current.app"), candidateApp: join(root, "candidate.app"), serviceLabel, recoveryLabel,
+  const state: OtaRecord = { schema: 1, sessionId: id, root, nonce, ownerUid: uid(), initialLayout, ...(oldServiceChoice ? { oldServiceChoice: "continue" as const } : {}), phase: "building", pacerHome: join(session.root, "home"), port: session.port, innerPort: session.innerPort!, installationId: `ota-${nonce}`, currentApp: join(root, "current.app"), candidateApp: join(root, "candidate.app"), serviceLabel, recoveryLabel,
     sources: [{ path: join(root, "build/baseline/pacer.app"), sha256: null }, { path: join(root, "build/candidate/pacer.app"), sha256: null }], registrationBefore: registrationDigest(options), registrations: [registration(serviceLabel), registration(recoveryLabel)], processes: [], nativeFixture, artifacts: [], external: [], exercise: null, runtime: null, diagnostics: null, diagnosticsHistory: [], diagnosticProcesses: [] };
   mkdirSync(root, { mode: 0o700 });
   persist(session, state);
@@ -230,6 +236,8 @@ export function readOtaRecord(id: string, options: OtaOptions = {}): OtaRecord {
   canonical(root); owned(root, "directory", true); owned(statePath(session), "file", true);
   if (lstatSync(statePath(session)).size > 262_144) throw Error("OTA resource record exceeds inspection limit");
   const state = schema.parse(JSON.parse(readFileSync(statePath(session), "utf8")));
+  if (state.nativeFixture && (state.oldServiceChoice === "continue") !== state.nonce.startsWith(OLD_SERVICE_CHOICE_NONCE_PREFIX)) throw Error("Fixture old-service choice differs from compiled nonce");
+  if (state.oldServiceChoice && state.initialLayout !== "paired") throw Error("Fixture old-service choice requires paired layout");
   const prefix = `com.pacer.live.${state.nonce}`;
   if (state.sessionId !== id || state.root !== root || state.ownerUid !== uid() || state.pacerHome !== join(session.root, "home") ||
       state.port !== session.port || state.innerPort !== session.innerPort || state.installationId !== `ota-${state.nonce}` ||

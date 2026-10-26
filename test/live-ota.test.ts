@@ -423,6 +423,23 @@ test("initial layout defaults to bridge and unknown layout refuses before reserv
   expect(reserveOtaBuild(f.session.id, "aarch64", "a".repeat(64), f.options).initialLayout).toBe("bridge");
 });
 
+test("fixture old-service choice is paired-only and bound to a compiled nonce", async () => {
+  const { reserveOtaBuild, otaFixturePolicy } = await import("../scripts/live/ota");
+  const f = fixture();
+  expect(() => reserveOtaBuild(f.session.id, "aarch64", "a".repeat(64), f.options, undefined, "bridge", true)).toThrow("paired layout");
+  expect(existsSync(join(f.session.root, "ota"))).toBe(false);
+  const state = reserveOtaBuild(f.session.id, "aarch64", "a".repeat(64), f.options, undefined, "paired", true);
+  expect(state.oldServiceChoice).toBe("continue");
+  expect(state.nonce.startsWith("f0a3c29e5c0d")).toBe(true);
+  expect(Object.keys(state.nativeFixture!).sort()).toEqual(["arch", "baselineVersion", "buildRoot", "candidateVersion", "kind", "schema", "updaterKeySha256"].sort());
+  expect(Object.keys(otaFixturePolicy(state)).sort()).toEqual(["currentApp", "home", "nonce", "port", "recoveryLabel", "root", "schema", "serviceLabel", "uid"].sort());
+  const path = join(f.session.root, "ota/record.json"), changed = JSON.parse(readFileSync(path, "utf8"));
+  delete changed.oldServiceChoice;
+  atomicWrite(path, JSON.stringify(changed));
+  expect(() => readOtaRecord(f.session.id, f.options)).toThrow("Fixture old-service choice differs from compiled nonce");
+  expect(f.calls()).toBe(0);
+});
+
 
 test("runtime driver cannot request an initial layout change before any ownership query", async () => {
   const { updateOtaDriverRecord } = await import("../scripts/live/ota");
