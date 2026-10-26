@@ -13,6 +13,7 @@ import { answerSpawn, readSpawnOutput } from "./capability-spawn";
 import { answerDuplex } from "./capability-duplex";
 import { answerDetachedRun } from "./capability-detached-run";
 import { answerDetachedStop } from "./capability-detached-stop";
+import { answerDetachedInspect } from "./capability-detached-inspect";
 import { stageBundle } from "./bundle-stage";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -112,6 +113,8 @@ export async function answerCapability(ctx: Ctx, plugin: { id: string; manifest:
         ? Promise.resolve(answerDetachedRun(authority, scopes, parsed.data as { task: { id: string; rev: number }; attempt: number; runDir: 1 }))
       : method === "capability.process.stopRun"
         ? answerDetachedStop(authority, parsed.data as { taskId: string; attempt: number; graceMs: number })
+      : method === "capability.process.inspectRun"
+        ? Promise.resolve(answerDetachedInspect(authority, parsed.data as { taskId: string; attempt: number }))
       : answerSpawn(authority, scopes, parsed.data as Record<string, unknown>));
   if (authority && name === "usage.state") return scoped(() => answerUsageState(authority,
     method.slice("capability.usage.state.".length) as Parameters<typeof answerUsageState>[1], parsed.data as Record<string, unknown>));

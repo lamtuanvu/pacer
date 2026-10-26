@@ -714,6 +714,179 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityProcessDuplexWriteParamsHandle
 pub struct CapabilityProcessDuplexWriteResult {
     pub bytes: ::std::num::NonZeroU64,
 }
+///`CapabilityProcessInspectRunParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "attempt",
+///    "taskId"
+///  ],
+///  "properties": {
+///    "attempt": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "exclusiveMinimum": 0.0
+///    },
+///    "taskId": {
+///      "type": "string",
+///      "pattern": "^t-[A-Za-z0-9_-]{1,120}$"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct CapabilityProcessInspectRunParams {
+    pub attempt: ::std::num::NonZeroU64,
+    #[serde(rename = "taskId")]
+    pub task_id: CapabilityProcessInspectRunParamsTaskId,
+}
+///`CapabilityProcessInspectRunParamsTaskId`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "pattern": "^t-[A-Za-z0-9_-]{1,120}$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct CapabilityProcessInspectRunParamsTaskId(::std::string::String);
+impl ::std::ops::Deref for CapabilityProcessInspectRunParamsTaskId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<CapabilityProcessInspectRunParamsTaskId> for ::std::string::String {
+    fn from(value: CapabilityProcessInspectRunParamsTaskId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for CapabilityProcessInspectRunParamsTaskId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_8(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for CapabilityProcessInspectRunParamsTaskId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for CapabilityProcessInspectRunParamsTaskId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`CapabilityProcessInspectRunResult`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "state"
+///  ],
+///  "properties": {
+///    "state": {
+///      "type": "string",
+///      "enum": [
+///        "running",
+///        "exited",
+///        "uncertain"
+///      ]
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct CapabilityProcessInspectRunResult {
+    pub state: CapabilityProcessInspectRunResultState,
+}
+///`CapabilityProcessInspectRunResultState`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "enum": [
+///    "running",
+///    "exited",
+///    "uncertain"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum CapabilityProcessInspectRunResultState {
+    #[serde(rename = "running")]
+    Running,
+    #[serde(rename = "exited")]
+    Exited,
+    #[serde(rename = "uncertain")]
+    Uncertain,
+}
+impl ::std::convert::From<&Self> for CapabilityProcessInspectRunResultState {
+    fn from(value: &CapabilityProcessInspectRunResultState) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for CapabilityProcessInspectRunResultState {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Running => f.write_str("running"),
+            Self::Exited => f.write_str("exited"),
+            Self::Uncertain => f.write_str("uncertain"),
+        }
+    }
+}
+impl ::std::str::FromStr for CapabilityProcessInspectRunResultState {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "running" => Ok(Self::Running),
+            "exited" => Ok(Self::Exited),
+            "uncertain" => Ok(Self::Uncertain),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for CapabilityProcessInspectRunResultState {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
 ///`CapabilityProcessOutputChunkParams`
 ///
 /// <details><summary>JSON schema</summary>
@@ -2958,6 +3131,190 @@ impl<'de> ::serde::Deserialize<'de> for ExecutorRunResultVariant1Report {
         D: ::serde::Deserializer<'de>,
     {
         deserialize_validated_string(deserializer)
+    }
+}
+///`ExecutorSessionStateParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "attempt",
+///    "taskId"
+///  ],
+///  "properties": {
+///    "attempt": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "exclusiveMinimum": 0.0
+///    },
+///    "taskId": {
+///      "type": "string",
+///      "pattern": "^t-[A-Za-z0-9_-]{1,120}$"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct ExecutorSessionStateParams {
+    pub attempt: ::std::num::NonZeroU64,
+    #[serde(rename = "taskId")]
+    pub task_id: ExecutorSessionStateParamsTaskId,
+}
+///`ExecutorSessionStateParamsTaskId`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "pattern": "^t-[A-Za-z0-9_-]{1,120}$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct ExecutorSessionStateParamsTaskId(::std::string::String);
+impl ::std::ops::Deref for ExecutorSessionStateParamsTaskId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<ExecutorSessionStateParamsTaskId> for ::std::string::String {
+    fn from(value: ExecutorSessionStateParamsTaskId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for ExecutorSessionStateParamsTaskId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_8(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for ExecutorSessionStateParamsTaskId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for ExecutorSessionStateParamsTaskId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`ExecutorSessionStateResult`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "handle",
+///    "host",
+///    "state"
+///  ],
+///  "properties": {
+///    "handle": {
+///      "type": "null"
+///    },
+///    "host": {
+///      "type": "string",
+///      "const": "builtin"
+///    },
+///    "state": {
+///      "type": "string",
+///      "enum": [
+///        "running",
+///        "exited",
+///        "uncertain"
+///      ]
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct ExecutorSessionStateResult {
+    pub handle: (),
+    pub host: ::std::string::String,
+    pub state: ExecutorSessionStateResultState,
+}
+///`ExecutorSessionStateResultState`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "enum": [
+///    "running",
+///    "exited",
+///    "uncertain"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum ExecutorSessionStateResultState {
+    #[serde(rename = "running")]
+    Running,
+    #[serde(rename = "exited")]
+    Exited,
+    #[serde(rename = "uncertain")]
+    Uncertain,
+}
+impl ::std::convert::From<&Self> for ExecutorSessionStateResultState {
+    fn from(value: &ExecutorSessionStateResultState) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for ExecutorSessionStateResultState {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Running => f.write_str("running"),
+            Self::Exited => f.write_str("exited"),
+            Self::Uncertain => f.write_str("uncertain"),
+        }
+    }
+}
+impl ::std::str::FromStr for ExecutorSessionStateResultState {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "running" => Ok(Self::Running),
+            "exited" => Ok(Self::Exited),
+            "uncertain" => Ok(Self::Uncertain),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for ExecutorSessionStateResultState {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
     }
 }
 ///`ExecutorStopParams`

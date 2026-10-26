@@ -112,6 +112,8 @@ pub mod types {
         CapabilityProcessDuplexReadResult, CapabilityProcessDuplexReadResultBase64,
         CapabilityProcessDuplexWriteParams, CapabilityProcessDuplexWriteParamsBase64,
         CapabilityProcessDuplexWriteParamsHandle, CapabilityProcessDuplexWriteResult,
+        CapabilityProcessInspectRunParams, CapabilityProcessInspectRunParamsTaskId,
+        CapabilityProcessInspectRunResult, CapabilityProcessInspectRunResultState,
         CapabilityProcessOutputChunkParams, CapabilityProcessOutputChunkParamsHandle,
         CapabilityProcessOutputChunkResult, CapabilityProcessOutputChunkResultBase64,
         CapabilityProcessSpawnParams, CapabilityProcessSpawnParamsArgvItem,
@@ -133,8 +135,9 @@ pub mod types {
         ExecutorRunParamsEffectSecretEnvKey, ExecutorRunParamsEffectSecretEnvValue,
         ExecutorRunParamsEffectStdin, ExecutorRunParamsTask, ExecutorRunParamsTaskId,
         ExecutorRunResult, ExecutorRunResultVariant0Report, ExecutorRunResultVariant0Status,
-        ExecutorRunResultVariant1Report, ExecutorStopParams, ExecutorStopParamsTaskId,
-        ExecutorStopResult,
+        ExecutorRunResultVariant1Report, ExecutorSessionStateParams,
+        ExecutorSessionStateParamsTaskId, ExecutorSessionStateResult, ExecutorStopParams,
+        ExecutorStopParamsTaskId, ExecutorStopResult,
     };
     pub use pacer_plugin_hosts_protocol::{
         CapabilityHostsCloseParams, CapabilityHostsCloseParamsSession, CapabilityHostsCloseResult,

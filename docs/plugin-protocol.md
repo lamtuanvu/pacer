@@ -12,7 +12,7 @@ Protocol 1.1 adds optional top-level `_meta: { capabilityCall }` correlation on 
 
 Protocol 1.5 adds policy/task/event contracts and mutually negotiated `policyObservations` for the host and TypeScript SDK. Task reads require declared and granted `tasks.read` plus a current owning call or process-generation read owner. The exclusive `_meta: { readOwner }` arm permits only task reads and subscription management; mixed, foreign or retired owners never fall back to unowned/effect capability handling. Existing peers/capabilityCall correlation remain supported; peers without this feature cannot use the observation methods. Rust SDK observation helpers are not implemented: the standalone policy protocol crate supplies contracts, not SDK runtime support.
 
-The staged `executor` point defines `contributes.executor.backends: ["direct"]`, `executor.available`, `executor.run` and `executor.stop`. The bundled reference plugin is visible to `plugin list` and `plugin doctor`, but reports unavailable for production dispatch. An admitted run names the exact host-selected task revision and attempt with run-directory version 1, then sends bounded progress for owner-validated host updates. The current plugin can request a one-use host-issued detached process effect. The staged `executor.stop` route uses a one-use host-issued grant bound to the persisted local wrapper and private run directory, and requires its recorded exit; full attempt ownership, resume and session state remain separate SP09 work. The production direct backend has not switched.
+The staged `executor` point defines `contributes.executor.backends: ["direct"]`, `executor.available`, `executor.run`, `executor.stop` and `executor.sessionState`. The bundled reference plugin is visible to `plugin list` and `plugin doctor`, but reports unavailable for production dispatch. An admitted run names the exact host-selected task revision and attempt with run-directory version 1, then sends bounded progress for owner-validated host updates. The current plugin can request a one-use host-issued detached process effect. The staged `executor.stop` route uses a one-use host-issued grant bound to the persisted local wrapper and private run directory, and requires its recorded exit. `executor.sessionState` reads only the exact host-issued persisted local wrapper through a one-use grant and preserves running, exited and uncertain states so uncertainty cannot authorize a replacement launch. Full attempt ownership and resume remain separate SP09 work. The production direct backend has not switched.
 
 The `hostRunner` point names only fixed SSH script IDs and uses bounded arguments, results and finite deadlines. The `hosts` capability defines `open`, `run`, `fetch` and `close` with host-owned broker sessions. Callers supply only a configured alias and fixed script input; the host derives the SSH target and selects the provider. Routing reachability uses the bundled `remoteCaller` and the broker's read-only `PROBE`; host setup identity, task questions and committed-task transfer use one-use host-issued grants. The accepted question stays in the durable task record; preflight ignores its remote file only while the file's Git blob hash still matches. Other production SSH paths still require caller cutover.
 
@@ -5325,6 +5325,69 @@ Result:
 }
 ```
 
+### `executor.sessionState`
+
+Read the running, exited or uncertain state of one host-issued persisted local executor session.
+
+Deadline: 5000 ms.
+
+Params:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "taskId": {
+      "type": "string",
+      "pattern": "^t-[A-Za-z0-9_-]{1,120}$"
+    },
+    "attempt": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "taskId",
+    "attempt"
+  ],
+  "additionalProperties": false
+}
+```
+
+Result:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "state": {
+      "type": "string",
+      "enum": [
+        "running",
+        "exited",
+        "uncertain"
+      ]
+    },
+    "host": {
+      "type": "string",
+      "const": "builtin"
+    },
+    "handle": {
+      "type": "null"
+    }
+  },
+  "required": [
+    "state",
+    "host",
+    "handle"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### `classifier.adapters`
 
 Adapters this plugin serves; external adapters leave the machine.
@@ -8695,6 +8758,58 @@ Result:
   "required": [
     "code",
     "killed"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `capability.process.inspectRun`
+
+Read one host-issued persisted detached wrapper without process or file effects.
+
+Params:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "taskId": {
+      "type": "string",
+      "pattern": "^t-[A-Za-z0-9_-]{1,120}$"
+    },
+    "attempt": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "taskId",
+    "attempt"
+  ],
+  "additionalProperties": false
+}
+```
+
+Result:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "state": {
+      "type": "string",
+      "enum": [
+        "running",
+        "exited",
+        "uncertain"
+      ]
+    }
+  },
+  "required": [
+    "state"
   ],
   "additionalProperties": false
 }

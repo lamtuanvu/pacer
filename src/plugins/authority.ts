@@ -5,6 +5,9 @@ import { CoreError } from "../core/errors";
 import type { Ctx } from "../types";
 
 export interface CallResources {
+  /** One exact persisted detached wrapper read, issued by the service only. */
+  detachedInspect?: { taskId: string; rev: number; attempt: number; dir: string;
+    dirIdentity: { dev: number; ino: number }; startedAt: number; executor: string };
   /** One exact persisted detached wrapper stop, issued by the service only. */
   detachedStop?: { taskId: string; rev: number; attempt: number; dir: string;
     dirIdentity: { dev: number; ino: number }; pid: number; startedAt: number;
@@ -81,6 +84,7 @@ export class CallAuthority {
   private readonly usedHostOperations = new Set<number>();
   private detachedRunUsed = false;
   private detachedStopUsed = false;
+  private detachedInspectUsed = false;
   private readonly detach: () => void;
 
   constructor(readonly ctx: Ctx, resources: CallResources, readonly deadlineMs: number, parent?: AbortSignal, grants: readonly string[] = [], readonly accountHome: string | null = null,
@@ -128,6 +132,10 @@ export class CallAuthority {
     if (this.resources.detachedStop) {
       Object.freeze(this.resources.detachedStop.dirIdentity);
       Object.freeze(this.resources.detachedStop);
+    }
+    if (this.resources.detachedInspect) {
+      Object.freeze(this.resources.detachedInspect.dirIdentity);
+      Object.freeze(this.resources.detachedInspect);
     }
     Object.freeze(this.resources);
     const cancel = () => { void this.revoke().catch(() => {}); };
@@ -179,6 +187,14 @@ export class CallAuthority {
       grant.graceMs !== graceMs)
       throw new CoreError("capability_denied", "detached stop is not issued for this call");
     this.detachedStopUsed = true;
+    return grant;
+  }
+  consumeDetachedInspect(taskId: string, attempt: number): NonNullable<CallResources["detachedInspect"]> {
+    this.assertGranted("process.spawn");
+    const grant = this.resources.detachedInspect;
+    if (!grant || this.detachedInspectUsed || grant.taskId !== taskId || grant.attempt !== attempt)
+      throw new CoreError("capability_denied", "detached inspection is not issued for this call");
+    this.detachedInspectUsed = true;
     return grant;
   }
   onRevoke(cleanup: () => void | Promise<void>): () => void {

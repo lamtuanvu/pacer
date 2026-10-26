@@ -58,6 +58,14 @@ export const handlers = {
     if (signal.aborted) throw new PluginError("plugin_unavailable", "executor stop completion is uncertain");
     return result;
   },
+  "executor.sessionState": async (params, host, signal) => {
+    const input = z.object({ taskId: z.string(), attempt: z.number().int().positive() }).strict().parse(params);
+    if (signal.aborted) throw new PluginError("plugin_unavailable", "executor inspection was cancelled");
+    const observed = await host.call<{ state: "running" | "exited" | "uncertain" }>(
+      "capability.process.inspectRun", input);
+    if (signal.aborted) throw new PluginError("plugin_unavailable", "executor inspection was cancelled");
+    return { state: observed.state, host: "builtin", handle: null };
+  },
 } satisfies Record<string, Handler>;
 
 if (import.meta.main) await serve({ manifest, handlers });

@@ -1874,10 +1874,10 @@ export class PluginRegistry {
     const boundedObservation=["diagnostic.ping","policy.before"].includes(method)&&e.manifest!.capabilities.some(c=>c.name==="tasks.read"||c.name==="events.subscribe");
     const hostRunner = method.startsWith("hostRunner.");
     const executorAvailable = method === "executor.available";
-    const executorAttempt = method === "executor.run" || method === "executor.stop";
-    const executorStop = method === "executor.stop";
-    if((hostRunner || executorAvailable || executorStop) && requested === 0 && !ownerBoundStream) throw new CoreError("invalid_input", "staged plugin calls require a finite deadline");
-    const duration = ownerBoundStream ? 0 : method === "usage.read" || boundedObservation || hostRunner || executorAvailable || executorStop ? requested === 0 ? def.deadlineMs : Math.min(requested, def.deadlineMs) : requested;
+    const executorAttempt = method === "executor.run" || method === "executor.stop" || method === "executor.sessionState";
+    const executorBounded = method === "executor.stop" || method === "executor.sessionState";
+    if((hostRunner || executorAvailable || executorBounded) && requested === 0 && !ownerBoundStream) throw new CoreError("invalid_input", "staged plugin calls require a finite deadline");
+    const duration = ownerBoundStream ? 0 : method === "usage.read" || boundedObservation || hostRunner || executorAvailable || executorBounded ? requested === 0 ? def.deadlineMs : Math.min(requested, def.deadlineMs) : requested;
     if ((options.resources || credentialBindings !== undefined || (classifier && method === "classifier.ask")) && duration === 0 && !ownerBoundStream) throw new CoreError("invalid_input", "scoped capabilities require a finite deadline");
     const deadlineAt = duration === 0 ? Infinity : startedAt + duration;
     if (method === "executor.run" && !options.onProgress) throw new CoreError("invalid_input", "executor run requires a progress owner");

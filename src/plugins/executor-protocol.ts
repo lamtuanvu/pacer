@@ -73,6 +73,11 @@ export const executorAttemptOutcome = z.object({
 export const executorStopParams = z.object({ taskId, attempt: positive,
   graceMs: z.number().int().nonnegative().max(25_000) }).strict();
 export const executorStopResult = z.object({ code: z.number().int().safe(), killed: z.boolean() }).strict();
+/** Read-only session state; uncertainty cannot authorize a replacement launch. */
+export const executorSessionStateParams = z.object({ taskId, attempt: positive }).strict();
+export const executorSessionStateResult = z.object({
+  state: z.enum(["running", "exited", "uncertain"]), host: z.literal("builtin"), handle: z.null(),
+}).strict();
 export const executorProgress = z.object({
   phase: z.enum(["driving", "testing", "needs-input", "starting", "working", "idle", "lost-contact"]),
   lastOutputAt: z.number().finite().nullable(), lastChangeAt: z.number().finite().nullable(),
@@ -94,4 +99,6 @@ export const EXECUTOR_METHODS = {
     params: executorRunParams, result: executorRunResult, deadlineMs: 0 },
   "executor.stop": { description: "Stop the matching staged local attempt.",
     params: executorStopParams, result: executorStopResult, deadlineMs: 30_000 },
+  "executor.sessionState": { description: "Read the running, exited or uncertain state of one host-issued persisted local executor session.",
+    params: executorSessionStateParams, result: executorSessionStateResult, deadlineMs: 5_000 },
 } as const;

@@ -4779,6 +4779,51 @@
       ],
       "additionalProperties": false
     },
+    "executor.sessionState.params": {
+      "type": "object",
+      "properties": {
+        "taskId": {
+          "type": "string",
+          "pattern": "^t-[A-Za-z0-9_-]{1,120}$"
+        },
+        "attempt": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "taskId",
+        "attempt"
+      ],
+      "additionalProperties": false
+    },
+    "executor.sessionState.result": {
+      "type": "object",
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": [
+            "running",
+            "exited",
+            "uncertain"
+          ]
+        },
+        "host": {
+          "type": "string",
+          "const": "builtin"
+        },
+        "handle": {
+          "type": "null"
+        }
+      },
+      "required": [
+        "state",
+        "host",
+        "handle"
+      ],
+      "additionalProperties": false
+    },
     "classifier.adapters.params": {
       "type": "object",
       "properties": {},
@@ -7675,6 +7720,42 @@
       "required": [
         "code",
         "killed"
+      ],
+      "additionalProperties": false
+    },
+    "capability.process.inspectRun.params": {
+      "type": "object",
+      "properties": {
+        "taskId": {
+          "type": "string",
+          "pattern": "^t-[A-Za-z0-9_-]{1,120}$"
+        },
+        "attempt": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "taskId",
+        "attempt"
+      ],
+      "additionalProperties": false
+    },
+    "capability.process.inspectRun.result": {
+      "type": "object",
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": [
+            "running",
+            "exited",
+            "uncertain"
+          ]
+        }
+      },
+      "required": [
+        "state"
       ],
       "additionalProperties": false
     },
