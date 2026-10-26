@@ -1,4 +1,5 @@
 import { getWork, pendingChildren, issueWorkGrant, revokeWorkGrants } from "../dispatch/work";
+import { issueEnforcementToken, revokeEnforcementTokens } from "../dispatch/enforcement-token";
 import { resolveTaskDispatch, reserveDispatch, releaseDispatch, selectedDispatchModel } from "../dispatch/runtime";
 import {dispatchSettingsHash} from "../dispatch/learning";
 import type { Candidate, DispatchPreview } from "../dispatch/types";
@@ -122,7 +123,7 @@ export async function runTask(ctx: Ctx, id: string, deps: RunnerDeps = DEFAULTS)
     finishWorkSync(ctx, lease);
     const current=readTask(ctx,id);
     if (getWork(ctx,id) && (current?.runnerPid===process.pid || TERMINAL_STATES.includes(current?.state??"queued"))) {
-      releaseDispatch(ctx,id); revokeWorkGrants(ctx,id);
+      releaseDispatch(ctx,id); revokeWorkGrants(ctx,id); revokeEnforcementTokens(ctx,id);
     }
     if (TERMINAL_STATES.includes(readTask(ctx, id)?.state ?? "queued")) {
       await drainQueue({...ctx, now: ctx.now + (Date.now() - startedAt)/1000}, deps.spawnRunner, {
@@ -440,7 +441,11 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
       const selectedCandidate = dispatchCandidates.find(c=>c.runner===pick);
       if(selectedCandidate)triedCandidates.add(selectedCandidate.id);
       let executionCtx=ctx;
-      if(work?.options.allowDelegation){const token=issueWorkGrant({...ctx,now:Date.now()/1000},id,task.attempts.length+1);executionCtx={...ctx,env:{...ctx.env,PACER_WORK_GRANT:token}};}
+      if(work?.options.delegationEnforcement==="strict"){
+        const token=issueEnforcementToken({...ctx,now:Date.now()/1000},id,task.attempts.length+1);
+        executionCtx={...executionCtx,env:{...executionCtx.env,PACER_ENFORCEMENT_MODE:"strict",PACER_ENFORCEMENT_TOKEN:token}};
+      }
+      if(work?.options.allowDelegation){const token=issueWorkGrant({...ctx,now:Date.now()/1000},id,task.attempts.length+1);executionCtx={...executionCtx,env:{...executionCtx.env,PACER_WORK_GRANT:token}};}
 
       let out: AttemptOutcome;
       try {
@@ -491,7 +496,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
         const reason = brokenReason(out.exec, duration, unchanged);
         if (reason) out.attempt.brokenReason = reason;
       }
-      if(work){releaseDispatch(ctx,id);revokeWorkGrants(ctx,id);}
+      if(work){releaseDispatch(ctx,id);revokeWorkGrants(ctx,id);revokeEnforcementTokens(ctx,id);}
       if(work)out.attempt.dispatchSettingsHash=dispatchSettingsHash(s,pick);
       out.attempt.routing = routing;
       out.attempt.usageAtStart = usageAtStart;

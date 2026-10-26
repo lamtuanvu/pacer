@@ -6,6 +6,7 @@ import { reserveDispatch, releaseDispatch } from "../src/dispatch/runtime";
 import { dispatchDatabase } from "../src/dispatch/store";
 import { candidate,request } from "./fixtures/dispatch";
 import { runDecision,ladderEngine } from "../src/dispatch/engines";
+import { authorizeEnforcementToken } from "../src/dispatch/enforcement-token";
 test("shared-pool reservations prevent simultaneous over-admission",async()=>{
  const ctx=fakeCtx(),repo=tmpDir();const make=()=>createTask(ctx,{brief:{goal:"x",repo},kind:"feature",requestedExecutor:null,timeoutS:600});
  const a=make(),b=make();registerWork(ctx,a.id,{estimatePct:30});registerWork(ctx,b.id,{estimatePct:30});
@@ -23,7 +24,12 @@ test("work runner executes the model selected by the decision engine",async()=>{
  const task=createTask(ctx,{brief:{goal:"debug",repo},kind:"debug",requestedExecutor:null,timeoutS:60});registerWork(ctx,task.id,{requirements:{minTier:"medium",tools:true}});
  const launched:string[]=[];
  const result=await runTask(ctx,task.id,{loadStrategy:()=>s,hooks:defaultHooks,computeStatus:async(statusCtx)=>({generatedAt:statusCtx.now,strategy:"test",planner:"claude-code",mode:"normal",disabled:false,calendarPace:false,providers:[{id:"codex",usage:"unmetered",windows:[],binding:null,verdict:"OK",installed:true,stale:false}],executors:{ranked:[],excluded:[]}}),
- runAttempt:async(_c,cfg)=>{launched.push(cfg.model??"");return{exec:{code:0,stdout:"ok",stderr:"",timedOut:false},report:"ok",attempt:{executor:cfg.id,model:cfg.model,startedAt:ctx.now,endedAt:ctx.now+1,exitCode:0,timedOut:false,limitHit:false,log:""}};},verifyRepo:async()=>({files:""})});
+ runAttempt:async(runCtx,cfg)=>{
+  expect(runCtx.env.PACER_ENFORCEMENT_MODE).toBe("strict");
+  expect(authorizeEnforcementToken({...runCtx,now:Date.now()/1000},runCtx.env.PACER_ENFORCEMENT_TOKEN??"")).toMatchObject({taskId:task.id,attempt:1});
+  expect(runCtx.env.PACER_WORK_GRANT).toBeUndefined();
+  launched.push(cfg.model??"");return{exec:{code:0,stdout:"ok",stderr:"",timedOut:false},report:"ok",attempt:{executor:cfg.id,model:cfg.model,startedAt:ctx.now,endedAt:ctx.now+1,exitCode:0,timedOut:false,limitHit:false,log:""}};
+ },verifyRepo:async()=>({files:""})});
  expect(result.state).toBe("done");expect(launched).toEqual(["provider/deep"]);expect(result.attempts[0].model).toBe("provider/deep");
 });
 test("managed work honors the cumulative attempt cap inside one runner invocation",async()=>{
