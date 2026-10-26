@@ -150,7 +150,7 @@ fn notification_level_unlocked(ctx: &Ctx) -> Result<Value, CoreError> {
 }
 
 fn notification_level(ctx: &Ctx) -> Result<Value, CoreError> {
-    with_lock(ctx, "notifications", LockOptions::default(), || {
+    with_lock(ctx, "notification-settings", LockOptions::default(), || {
         notification_level_unlocked(ctx)
     })
     .map_err(|error| CoreError::new(Code::InvalidInput, error.to_string()))?
@@ -183,7 +183,7 @@ fn write_notification_level(ctx: &Ctx, level: &str) -> Result<(), CoreError> {
 }
 
 fn set_notification_level(ctx: &Ctx, level: &str) -> Result<Value, CoreError> {
-    with_lock(ctx, "notifications", LockOptions::default(), || {
+    with_lock(ctx, "notification-settings", LockOptions::default(), || {
         write_notification_level(ctx, level)
     })
     .map_err(|error| CoreError::new(Code::InvalidInput, error.to_string()))??;

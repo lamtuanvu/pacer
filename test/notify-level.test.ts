@@ -13,7 +13,7 @@ test('TypeScript setter waits for the shared notification settings lock', async 
   mkdirSync(join(ctx.pacerHome, 'orca'), {recursive:true});
   const settings = join(ctx.pacerHome, 'settings.json');
   writeFileSync(settings, '{"notifications":"off"}');
-  const lock = join(ctx.pacerHome, 'orca/notifications.lock');
+  const lock = join(ctx.pacerHome, 'orca/notification-settings.lock');
   writeFileSync(lock, 'held');
   const marker = join(ctx.pacerHome, 'child-ready');
   const child = Bun.spawn([process.execPath, '-e', `

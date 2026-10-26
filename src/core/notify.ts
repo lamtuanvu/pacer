@@ -8,7 +8,7 @@ import { withLockSync } from "./lock";
 export type NotificationLevel = "off" | "important" | "all";
 const levels = ["off", "important", "all"];
 export function getLevel(ctx: Ctx): {level: NotificationLevel} {
-  return withLockSync(ctx, "notifications", () => {
+  return withLockSync(ctx, "notification-settings", () => {
     const file=join(ctx.pacerHome,"settings.json");
     const settings=readJson<Record<string,unknown>>(file) ?? {};
     const own=settings.notifications;
@@ -22,7 +22,7 @@ export function getLevel(ctx: Ctx): {level: NotificationLevel} {
 export function setLevel(ctx: Ctx, level: NotificationLevel) {
   if (!levels.includes(level)) throw new CoreError("invalid_input", "notifications must be off, important or all", `choose ${levels.join(', ')}`);
   try {
-    withLockSync(ctx, "notifications", () => {
+    withLockSync(ctx, "notification-settings", () => {
       const file=join(ctx.pacerHome,"settings.json");
       writeJsonAtomic(file,{...readJson<Record<string,unknown>>(file),notifications:level});
     });
