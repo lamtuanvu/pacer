@@ -19,7 +19,7 @@ export type RouteTarget =
   | { name: "settings"; section?: string; query?: TargetQuery }
   | { name: "hosts"; alias?: string; query?: TargetQuery }
   | { name: "add-executor"; host?: string; query?: TargetQuery };
-export const SETTINGS_SECTIONS = ["planner", "accounts", "executors", "machine", "routing", "dispatcher", "strategies", "updates", "notifications", "appearance", "diagnostics"] as const;
+export const SETTINGS_SECTIONS = ["planner", "accounts", "executors", "machine", "dispatcher", "updates", "notifications", "appearance", "diagnostics"] as const;
 const EMPTY_QUERY: RouteQuery = { repo: null, scope: null };
 const withTargetQuery = <T extends RouteTarget>(target: T, query?: TargetQuery): T => query ? { ...target, query } : target;
 export const routes = {
@@ -79,6 +79,7 @@ export function primaryFor(route: Route): PrimaryRoute {
 /** Map service settings sections to Settings; setup item ids open Overview. */
 export function settingsPath(section: unknown): string {
   if (typeof section !== "string") return "/settings";
+  if (section === "routing" || section === "strategies") return "/settings/dispatcher";
   return (SETTINGS_SECTIONS as readonly string[]).includes(section) ? `/settings/${section}` : "/";
 }
 
@@ -107,6 +108,7 @@ export function resolveRoute(hash: string, setupComplete: boolean | null = true,
   if (!settingsArea && !interactiveArea && setupComplete === null) return { name: "loading", query };
   if (!settingsArea && !interactiveArea && route.name !== "setup" && setupComplete === false) return { redirect: withQuery("#/setup", query) };
   const legacy = /^\/(review|sessions)(?:\/(.*))?$/.exec(path);
+  if (path === "/settings/routing" || path === "/settings/strategies") return {redirect:withQuery("#/settings/dispatcher",query)};
   if (legacy) {
     const destination = legacy[2] !== undefined ? `/tasks/${legacy[2]}` : legacy[1] === "review" ? "/needs-you" : "/tasks";
     if (legacy[2] === undefined || (!legacy[2].includes("/") && decode(legacy[2]) !== null)) return {redirect:withQuery(`#${destination}`,query)};

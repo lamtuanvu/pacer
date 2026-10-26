@@ -2,6 +2,7 @@ import type { DispatchConfig, DispatchPreview, ModelRecord } from "../../../../s
 import { executorLabel } from "../../../../src/view-model/words";
 import type { RouteQuery } from "../../router";
 import type { BrowserApi } from "../../data/api";
+import type { ComponentChildren } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import { Button, TextAction } from "../../ds/Button";
 import { Checkbox, Disclosure, Field, TextInput } from "../../ds/Controls";
@@ -27,7 +28,7 @@ export interface DispatcherInventory {models:ModelRecord[];advertised:{runner:st
 export function DispatcherModelInventory({inventory}:{inventory:DispatcherInventory}) {
   return <div className="pc-card">
     <p>These models can be considered by the dispatcher. A declared tier is a configuration choice, not a measured quality score. <TextAction href="#/settings/executors">View executors</TextAction></p>
-    {inventory.models.length?<div className="pc-stack pc-stack--compact">{inventory.models.map(model=><div className="u3-setting" key={`${model.runner}:${modelLabel(model)}`}><div><strong>{executorLabel(model.executor)}</strong> · {modelLabel(model)}<div className="u3-muted">Account {model.account} · {model.tier==="unknown"?"Tier unknown":`${model.tier} tier`} · {model.actualModel?`Observed model ${model.actualModel}`:"Exact model unknown"}</div></div><div>{model.provenance==="observed"?"Allowed from discovery":"Configured"}</div></div>)}</div>:<p>No allowed models are configured for this strategy.</p>}
+    {inventory.models.length?<div className="pc-stack pc-stack--compact">{inventory.models.map(model=><div className="u3-setting" key={`${model.runner}:${modelLabel(model)}`}><div><strong>{executorLabel(model.executor)}</strong> · {modelLabel(model)}<div className="u3-muted">Account {model.account} · {model.tier==="unknown"?"Tier unknown":`${model.tier} tier`} · {model.actualModel?`Observed model ${model.actualModel}`:"Exact model unknown"}</div></div><div>{model.provenance==="observed"?"Allowed from discovery":"Configured"}</div></div>)}</div>:<p>No allowed models are configured for this profile.</p>}
     {!!inventory.advertised.filter(model=>!model.authorized).length&&<p className="u3-muted">Other advertised models are suggestions only; they are not enabled automatically.</p>}
   </div>;
 }
@@ -94,10 +95,10 @@ export function DispatcherEditor({view,onActivated,call}:{view:DispatcherConfigV
     event.preventDefault();if(busy||!changed)return;
     setBusy(true);setError("");setNotice("");
     try{
-      if(!/^[a-z0-9][a-z0-9-]{0,39}$/.test(name)||name==="default")throw new Error("Choose a new strategy name using lowercase letters, numbers or hyphens.");
+      if(!/^[a-z0-9][a-z0-9-]{0,39}$/.test(name)||name==="default")throw new Error("Choose a new profile name using lowercase letters, numbers or hyphens.");
       if(!reason.trim())throw new Error("Explain why you are changing the dispatcher.");
       const latest=await call<DispatcherConfigView>("dispatch.config.get",{});
-      if(latest.strategy!==view.strategy||JSON.stringify(latest.config)!==JSON.stringify(view.config))throw new Error("The active strategy changed in another client. Reload this page before saving.");
+      if(latest.strategy!==view.strategy||JSON.stringify(latest.config)!==JSON.stringify(view.config))throw new Error("The active profile changed in another client. Reload this page before saving.");
       const strategyDraft={from:view.strategy,set:{dispatch:draft}};
       const validation=await call<{ok:boolean;errors:string[]}>("strategy.preview",{draft:strategyDraft});
       if(!validation.ok)throw new Error(validation.errors.join(" ")||"The ladder needs changes before it can be saved.");
@@ -110,12 +111,12 @@ export function DispatcherEditor({view,onActivated,call}:{view:DispatcherConfigV
   };
   return <Disclosure className="pc-disclosure-panel" summary="Edit decision ladder">
     <div className="pc-disclosure-panel__body">
-      {view.config.engine!=="ladder"?<p>This strategy uses a plugin decision engine. Edit its plugin configuration in the strategy file; the ladder shown here is not active.</p>:<form className="pc-stack pc-stack--section" onSubmit={event=>void save(event)}>
-        <p>Change the steps, validate them, then save as a new strategy. The current strategy remains active until the new one is saved and activated.</p>
+      {view.config.engine!=="ladder"?<p>This profile uses a plugin decision engine. Edit its plugin configuration in the strategy file; the ladder shown here is not active.</p>:<form className="pc-stack pc-stack--section" onSubmit={event=>void save(event)}>
+        <p>Change the steps, validate them, then save as a new profile. The current profile remains active until the new one is saved and activated.</p>
         <DispatcherLadderFields config={draft} onChange={setDraft}/>
         <div className="pc-card pc-stack pc-stack--normal">
-          <SectionHeading>Save and use a new strategy</SectionHeading>
-          <Field label="Strategy name" help="Lowercase letters, numbers and hyphens. The default strategy stays unchanged."><TextInput value={name} maxLength={40} onInput={event=>setName(event.currentTarget.value)}/></Field>
+          <SectionHeading>Save and use a new profile</SectionHeading>
+          <Field label="Profile name" help="Lowercase letters, numbers and hyphens. The default profile stays unchanged."><TextInput value={name} maxLength={40} onInput={event=>setName(event.currentTarget.value)}/></Field>
           <Field label="Reason for change"><TextInput value={reason} maxLength={500} onInput={event=>setReason(event.currentTarget.value)}/></Field>
           {!changed&&<p className="u3-muted">Change at least one ladder setting before saving.</p>}
           <div><Button type="submit" variant="primary" busy={busy} disabled={!changed||!name||!reason.trim()}>Validate and activate</Button></div>
@@ -137,15 +138,15 @@ export function DispatcherOverview({view}:{view:DispatcherConfigView}) {
       <div className="pc-card">
         <SectionHeading>How a choice is made</SectionHeading>
         <ol>
-          <li><strong>Project strategy</strong> limits executors for a repository when one is selected.</li>
-          <li><strong>Routing rules</strong> choose the executor list by task kind when no project strategy is selected.</li>
+          <li><strong>Project override</strong> limits executors for a repository when one is selected.</li>
+          <li><strong>Global eligibility rules</strong> choose the executor list by task kind when no project override is selected.</li>
           <li><strong>Dispatcher decision engine</strong> ranks eligible accounts and models from that list. The default engine uses the first matching ladder step.</li>
         </ol>
-        <p><TextAction href="#/settings/routing">View routing and project rules</TextAction></p>
+        <p>Manage saved profiles and executor eligibility below.</p>
       </div>
       <div className="pc-card">
         <SectionHeading>{ladderActive?"Decision ladder":"Decision engine"}</SectionHeading>
-        <p>Active strategy: <strong>{view.strategy}</strong> · {view.source === "built-in" ? "built-in defaults" : "saved configuration"} · {ladderActive?"ordered ladder":`plugin ${view.config.engine.slice(7)}`}</p>
+        <p>Active profile: <strong>{view.strategy}</strong> · {view.source === "built-in" ? "built-in defaults" : "saved configuration"} · {ladderActive?"ordered ladder":`plugin ${view.config.engine.slice(7)}`}</p>
         {!ladderActive&&<p>{ladderFallback?"If the plugin cannot decide, Pacer uses this fallback ladder.":"If the plugin cannot decide, Pacer queues the work."}</p>}
         {(ladderActive||ladderFallback)&&<><ol>{view.config.steps.map(step=><li key={step.id}><strong>{stepTitle(step.id)}</strong> · {capacityLabel(step.capacity)}{step.match.kind?` · ${step.match.kind} tasks`:" · any task kind"}<br/><span className="u3-muted">Rank by {step.rank.map(rankLabel).join(", ")}</span></li>)}</ol>
         <p>If no step matches, Pacer {view.config.onNoMatch === "queue" ? "queues the work" : "reports that no eligible executor is available"}.</p></>}
@@ -154,16 +155,16 @@ export function DispatcherOverview({view}:{view:DispatcherConfigView}) {
   </Section>;
 }
 
-export function DispatcherSection({query}:{query:RouteQuery}) {
+export function DispatcherSection({query,children}:{query:RouteQuery;children?:ComponentChildren}) {
   const {state}=useTaskContext();
-  if(!state.features.ops.has("dispatch.config.get"))return <Section id="dispatcher" title="Dispatcher"><p>This service does not support dispatcher settings yet. Update the service to view the decision ladder.</p></Section>;
-  return <DispatcherContent query={query}/>;
+  if(!state.features.ops.has("dispatch.config.get"))return <><Section id="dispatcher" title="Dispatcher"><p>This service does not support dispatcher settings yet. Update the service to view the decision ladder.</p></Section>{children}</>;
+  return <DispatcherContent query={query}>{children}</DispatcherContent>;
 }
 export function DispatcherReadError({error,reload,subject}:{error:unknown;reload:()=>void;subject:string}){
   if(!error)return null;
   return <div className="pc-stack pc-stack--compact"><p>Could not refresh {subject}. Showing the last loaded reading.</p><ErrorMessage error={error}/><div><Button onClick={reload}>Try again</Button></div></div>;
 }
-function DispatcherContent({query}:{query:RouteQuery}){
+function DispatcherContent({query,children}:{query:RouteQuery;children?:ComponentChildren}){
   const {state,api}=useTaskContext();
   const config=useResource<DispatcherConfigView>("dispatch.config.get");
   const models=useResource<DispatcherInventory>("dispatch.models");
@@ -171,6 +172,7 @@ function DispatcherContent({query}:{query:RouteQuery}){
   const [activationNotice,setActivationNotice]=useState("");
   const refresh=async()=>{setRefreshing(true);setRefreshError(undefined);try{await api.call("dispatch.refresh",{});models.reload();}catch(error){setRefreshError(error);}finally{setRefreshing(false);}};
   return config.data?<><DispatcherReadError error={config.error} reload={config.reload} subject="dispatcher settings"/><DispatcherOverview view={config.data}/>
+    {children}
     <DispatcherEditor key={config.data.strategy} view={config.data} call={api.call.bind(api)} onActivated={name=>{setActivationNotice(`${name} is active. Future dispatch decisions use this ladder.`);config.reload();models.reload();}}/>
     {activationNotice&&<p role="status" aria-live="polite">{activationNotice}</p>}
     <Section id="model-choices" title="Model choices" actions={state.features.ops.has("dispatch.refresh")?<Button busy={refreshing} onClick={()=>void refresh()}>Refresh readings</Button>:undefined}>
@@ -179,7 +181,7 @@ function DispatcherContent({query}:{query:RouteQuery}){
       <ErrorMessage error={refreshError}/>
     </Section>
     {state.features.ops.has("dispatch.preview")&&<DispatcherPreviewForm query={query}/>}
-  </>:<Section id="dispatcher" title="Dispatcher"><p role={config.error?"alert":undefined}>{config.error?"Dispatcher settings could not be loaded.":"Loading dispatcher settings…"}</p></Section>;
+  </>:<><Section id="dispatcher" title="Dispatcher"><p role={config.error?"alert":undefined}>{config.error?"Dispatcher settings could not be loaded.":"Loading dispatcher settings…"}</p></Section>{children}</>;
 }
 
 function DispatcherPreviewForm({query}:{query:RouteQuery}) {

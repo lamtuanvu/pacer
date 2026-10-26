@@ -98,7 +98,7 @@ export function routingContextSummary(context: RoutingContext): {
   }
 
   return {
-    primary: `Strategy: ${context.activeStrategy.name}`,
+    primary: `Profile: ${context.activeStrategy.name}`,
     secondary: context.activeStrategy.summary,
     badge: context.activeStrategy.active ? "Active" : "",
   };

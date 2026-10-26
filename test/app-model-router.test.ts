@@ -37,6 +37,13 @@ test("old routes fall back to Overview and keep the repo filter and scope", () =
   }
 });
 
+test("former routing and strategies settings links lead to Dispatcher with work scope", () => {
+  for (const section of ["routing", "strategies"]) {
+    expect(resolveRoute(`#/settings/${section}`)).toEqual({redirect:"#/settings/dispatcher"});
+    expect(resolveRoute(`#/settings/${section}?repo=k&scope=all`)).toEqual({redirect:"#/settings/dispatcher?repo=k&scope=all"});
+  }
+});
+
 test("incomplete setup redirects to Setup except within settings", () => {
   for (const hash of ["#/", "#/review/one", "#/sessions", "#/missing", "#/tasks/t1"]) expect(resolveRoute(hash, false)).toEqual({ redirect: "#/setup" });
   expect(resolveRoute("#/review/one?repo=k&scope=all", false)).toEqual({ redirect: "#/setup?repo=k&scope=all" });

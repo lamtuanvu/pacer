@@ -9,14 +9,15 @@ import { initialState } from "../app/src/data/store";
 test("dispatcher settings explain the active planner and built-in ladder", () => {
   const html = renderToString(<DispatcherOverview view={{strategy:"default",planner:"claude-code",plannerAccount:"claude1",source:"built-in",config:dispatchConfigSchema.parse({})}} />);
   expect(SETTINGS_PAGES.some(page=>page.id==="dispatcher")).toBe(true);
+  expect(SETTINGS_PAGES.some(page=>page.id==="routing"||page.id==="strategies")).toBe(false);
   expect(html).toContain("Claude Code");
   expect(html).toContain("claude1");
   expect(html).toContain("Any executor");
   expect(html).toContain("built-in");
   expect(html).toContain("Capable model with spare capacity");
   expect(html).toContain("Usable fallback");
-  expect(html).toContain("Project strategy");
-  expect(html).toContain("Routing rules");
+  expect(html).toContain("Project override");
+  expect(html).toContain("Global eligibility rules");
   expect(html).toContain("Rank by Task fit, Spare capacity");
   expect(html).not.toContain("task-fit");
 });
@@ -45,8 +46,8 @@ test("ladder setup exposes ordered steps, restrictions, capacity and fallback", 
 });
 test("ladder editor saves a new strategy before activation", () => {
   const html=renderToString(<DispatcherEditor view={{strategy:"default",planner:"claude-code",plannerAccount:"claude1",source:"built-in",config:dispatchConfigSchema.parse({})}} onActivated={()=>{}} call={async<T,>()=>undefined as T}/>);
-  expect(html).toContain("Save and use a new strategy");
-  expect(html).toContain("Strategy name");
+  expect(html).toContain("Save and use a new profile");
+  expect(html).toContain("Profile name");
   expect(html).toContain("Reason for change");
   expect(html).toContain("Validate and activate");
 });

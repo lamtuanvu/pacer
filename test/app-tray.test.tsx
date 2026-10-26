@@ -234,7 +234,7 @@ test("tray action destinations use mounted screens and preserve settings section
   expect(route({view:"task",id:"running 1"})).toBe("/tasks/running%201");
   expect(route({view:"review",id:"done 1"})).toBe("/tasks/done%201");
   expect(route({view:"settings",section:"executors"})).toBe("/settings/executors");
-  for (const [view, to] of Object.entries({executors:"/settings/executors",accounts:"/settings/accounts",hosts:"/settings/hosts",strategy:"/settings/strategies",setup:"/",tasks:"/tasks"})) expect(route({view})).toBe(to);
+  for (const [view, to] of Object.entries({executors:"/settings/executors",accounts:"/settings/accounts",hosts:"/settings/hosts",strategy:"/settings/dispatcher",setup:"/",tasks:"/tasks"})) expect(route({view})).toBe(to);
 });
 
 test("long settings actions shorten to Settings and labels ellipsize instead of overflowing", async () => {

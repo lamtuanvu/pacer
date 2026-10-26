@@ -14,7 +14,7 @@ const defaultOpener: OpenDeps["opener"] = async url => {
 export function screenRoute(screen = "overview"): string {
   const [name = "", ...rest] = screen.replace(/^\/+/, "").split("/");
   if (name === "executors" && rest.join("/") === "add") return "/settings/add-executor";
-  const root = ({ overview: "", home: "", setup: "", delegate: "", tasks: "sessions", session: "sessions", executors: "settings/executors", accounts: "settings/accounts", hosts: "settings/hosts", strategy: "settings/strategies" } as Record<string, string>)[name] ?? name;
+  const root = ({ overview: "", home: "", setup: "", delegate: "", tasks: "sessions", session: "sessions", executors: "settings/executors", accounts: "settings/accounts", hosts: "settings/hosts", strategy: "settings/dispatcher" } as Record<string, string>)[name] ?? name;
   return `/${[root, ...rest].filter(Boolean).join("/")}`;
 }
 

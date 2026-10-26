@@ -46,12 +46,12 @@ command under Sign out; run it in a terminal.
 | Overview | Check planner usage and pace, mode, items needing attention, who runs next and running work; delegate a task. |
 | Tasks | Browse running tasks, tasks waiting for review and paginated history; delegate, stop, retry or dismiss work. |
 | Task detail | Follow the live log, inspect the diff and untracked files, accept or reject with a note, retry or stop. |
-| Executors | Inspect availability and reasons, reorder and save routing, block or unblock, test endpoints and remove executors. |
+| Executors | Inspect availability and reasons, block or unblock, test endpoints and remove executors. |
 | Add executor | Choose an agent and account; for a model endpoint, enter connection details, discover models and test. Endpoint Ready state requires a passing test. After success, **OK** clears setup and returns to Executors; **Add another executor** resets all choices and starts at agent selection. |
 | Accounts & budgets | Inspect usage windows, resets, freshness, sign-in state and endpoint details; add or remove accounts. |
-| Strategy | Switch strategies, edit pacing, preview the ranking, save a named strategy or remove an inactive non-default strategy. |
+| Dispatcher | See the selected planner, decision ladder and task preview; switch saved global profiles; edit task-kind eligibility rules and repository overrides. |
 | Hosts | Add, check and remove remote hosts. |
-| Settings | Change the planner, notifications and integrations; inspect the Dispatcher ladder, model choices and task preview; check and apply updates, inspect versions and find the sign-out command. |
+| Settings | Change the planner, notifications and integrations; check and apply updates, inspect versions and find the sign-out command. |
 
 Headless runs in the Session view show “This run is headless — Take over to work
 in it live” with a prominent **Take over** button. Watch-elsewhere options and the
