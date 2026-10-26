@@ -1,10 +1,31 @@
+import { createHttp } from "../packages/plugin-sdk/src/http";
+import { createCallAuthority, type CallAuthority } from "../src/plugins/authority";
+import { prepareHttpAuthority } from "../src/plugins/http-authority";
+import { answerCapability } from "../src/plugins/host";
+import { manifestSchema } from "../src/plugins/protocol";
 import { afterEach, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { jevClassifier, jevRequest, mapJevAnswer } from "../src/classify/jev";
+import { jevClassifier, jevRequest, mapJevAnswer } from "../plugins/pacer-classify/jev";
 import { readSecrets, secret } from "../src/classify/secrets";
 import type { Question } from "../src/classify/types";
 import { fakeCtx } from "./helpers";
+
+
+// Real SDK HTTP transport over the host capability broker; only owned loopback fixtures.
+const owners: CallAuthority[] = [];
+afterEach(async () => { await Promise.all(owners.splice(0).map(owner => owner.revoke())); });
+function sdkHost(ctx = fakeCtx(), key: string | null = "test-key") {
+  if (key !== null) ctx.env.TYPESAFE_API_KEY = key;
+  const manifest = manifestSchema.parse({ id: "classifier-fixture", version: "1.0.0", publisher: "fixture", host: "^1.2", capabilities: [{ name: "net.http", scopes: ["127.0.0.1"] }, { name: "secrets.resolve" }] });
+  const owner = createCallAuthority(ctx, { reads: [], commands: [], stores: [], http: { hosts: ["127.0.0.1"] } }, { deadlineMs: Date.now() + 10000, grants: ["net.http", "secrets.resolve"] });
+  owners.push(owner);
+  prepareHttpAuthority(owner, { declaredScopes: ["127.0.0.1"], explicitWildcardGrant: false });
+  const fits = (_method: string, params: unknown) => Buffer.byteLength(JSON.stringify(params)) < 1048000;
+  const transport = { features: ["httpBodyChunks"], requestFits: (params: unknown) => fits("", params), resultFits: (result: unknown) => fits("", result) };
+  const call = (method: string, params: unknown) => answerCapability(ctx, { id: manifest.id, manifest }, method, params, owner, undefined, transport);
+  return { http: createHttp({ call, fits, negotiated: () => true, signal: owner.signal }), secrets: { present: async (ref: string) => (await call("capability.secrets.resolve", { ref }) as { present: boolean }).present } };
+}
 
 const choice: Question = { type: "choice", id: "task_kind", instructions: "Choose kind", criteria: { docs: "Documentation", tests: "Tests" } };
 const score: Question = { type: "score", id: "difficulty", instructions: "Rate reliability", min: 0, max: 1 };
@@ -12,8 +33,8 @@ const yesno: Question = { type: "yesno", id: "guard", instructions: "Execution w
 const choiceFixture = { model: "jev-latest", answers: { task_kind: { type: "choice", choice: "docs", probabilities: { docs: 0.8, tests: 0.2 }, confidence: 0.9 } }, usage: { input_tokens: 100, output_tokens: 20 } };
 const scoreFixture = { model: "jev-latest", answers: { difficulty: { type: "score", score: 0.7 } }, usage: { input_tokens: 100, output_tokens: 20 } };
 const probabilityFixture = { model: "jev-latest", answers: { guard: { type: "probability", probability: 0.3 } }, usage: { input_tokens: 100, output_tokens: 20 } };
-const cleanup: (() => void)[] = [];
-afterEach(() => { for (const stop of cleanup.splice(0)) stop(); });
+const cleanup: (() => void | Promise<void>)[] = [];
+afterEach(async () => { await Promise.all(cleanup.splice(0).map(stop => stop())); });
 
 function serverFor(response: unknown) {
   const requests: { path: string; authorization: string | null; method: string; body: unknown }[] = [];
@@ -24,8 +45,10 @@ function serverFor(response: unknown) {
   cleanup.push(() => server.stop(true));
   return { baseUrl: `http://127.0.0.1:${server.port}`, requests };
 }
-function adapter(baseUrl: string, overrides: Partial<Parameters<typeof jevClassifier>[0]> = {}) {
-  return jevClassifier({ baseUrl, model: "jev-latest", apiKey: () => "test-key", keyName: "TYPESAFE_API_KEY", timeoutMs: 1000, usdPerMtokIn: null, usdPerMtokOut: null, ...overrides });
+function adapter(baseUrl: string, overrides: Partial<Parameters<typeof jevClassifier>[0]> & { timeoutMs?: number; key?: string | null; ctx?: ReturnType<typeof fakeCtx> } = {}) {
+  const { timeoutMs = 1000, key = "test-key", ctx = fakeCtx(), ...config } = overrides;
+  const plugin = jevClassifier({ baseUrl, model: "jev-latest", keyRef: "secrets:TYPESAFE_API_KEY", usdPerMtokIn: null, usdPerMtokOut: null, ...config }, sdkHost(ctx, key));
+  return { ...plugin, ask: (state: string, question: Question) => plugin.ask(state, question, timeoutMs) };
 }
 function secretsFile(contents: string, mode = 0o600) {
   const ctx = fakeCtx();
@@ -92,20 +115,20 @@ test("does not invent a cost when usage is absent", async () => {
 
 test("missing key rejects before sending a request", async () => {
   const { baseUrl, requests } = serverFor(choiceFixture);
-  await expect(adapter(baseUrl, { apiKey: () => null }).ask("s", choice)).rejects.toThrow("TYPESAFE_API_KEY");
+  await expect(adapter(baseUrl, { key: null }).ask("s", choice)).rejects.toThrow("TYPESAFE_API_KEY");
   expect(requests).toHaveLength(0);
 });
 
 test("missing answer id rejects", async () => {
   const { baseUrl } = serverFor({ answers: {} });
-  await expect(adapter(baseUrl).ask("s", choice)).rejects.toThrow("task_kind");
+  await expect(adapter(baseUrl).ask("s", choice)).rejects.toThrow("Missing Jev answer");
 });
 
-test("refuses mode 0644 secrets with chmod hint and sends no request", async () => {
+test("host refuses mode 0644 secrets with chmod hint; plugin sees safe refusal and sends no request", async () => {
   const { ctx, path } = secretsFile("TYPESAFE_API_KEY=file-key\n", 0o644);
   expect(() => readSecrets(ctx)).toThrow(`must be mode 0600 (is 0644); run: chmod 600 ${path}`);
   const { baseUrl, requests } = serverFor(choiceFixture);
-  await expect(adapter(baseUrl, { apiKey: () => secret(ctx, "TYPESAFE_API_KEY") }).ask("s", choice)).rejects.toThrow("chmod 600");
+  await expect(adapter(baseUrl, { ctx, key: null }).ask("s", choice)).rejects.toThrow("secret reference could not be resolved");
   expect(requests).toHaveLength(0);
 });
 
@@ -132,17 +155,17 @@ test("Jev HTTP errors omit an upstream body that echoes the API key", async () =
   const body = `Upstream unauthorized: ${key}`;
   const app = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response(body, { status: 401 }) });
   cleanup.push(() => app.stop(true));
-  const error = await adapter(app.url.href, { apiKey: () => key }).ask("s", choice).catch((e) => e);
+  const error = await adapter(app.url.href, { key }).ask("s", choice).catch((e) => e);
   expect(error).toBeInstanceOf(Error);
   expect(error.message).not.toContain(key);
   expect(error.message).not.toContain(body);
-  expect(error.message).toBe("Jev HTTP 401");
+  expect(error).toMatchObject({ code: "capability_denied", message: "HTTP response exposed an injected credential" });
 });
 
-test("Jev scrubs the API key from non-HTTP error messages", async () => {
+test("Jev parser errors never echo question identifiers containing the API key", async () => {
   const key = "secret-test-key";
   const { baseUrl } = serverFor({ answers: {} });
-  const error = await adapter(baseUrl, { apiKey: () => key }).ask("s", { ...choice, id: key + key }).catch((e) => e);
+  const error = await adapter(baseUrl, { key }).ask("s", { ...choice, id: key + key }).catch((e) => e);
   expect(error).toBeInstanceOf(Error);
   expect(error.message).not.toContain(key);
   expect(error.message).toContain("Missing Jev answer");
@@ -165,3 +188,12 @@ test("Jev rejects a hung server within its short timeout budget", async () => {
   expect(error).toBeInstanceOf(Error);
   expect(performance.now() - start).toBeLessThan(3000);
 }, 10000);
+
+// A nonreflecting authenticated failure still preserves the provider status-only diagnostic.
+test("Jev ordinary authenticated HTTP error remains status-only", async () => {
+  const app = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("private upstream detail", { status: 401 }) });
+  cleanup.push(() => app.stop(true));
+  const error = await adapter(app.url.href).ask("s", choice).catch(error => error);
+  expect(error.message).toBe("Jev HTTP 401");
+  expect(error.message).not.toContain("private upstream detail");
+});

@@ -17,7 +17,7 @@ async function setup(ids = ["cursor"]) {
 }
 test("forbidden explicit delegation including force fails before creation or spawn", async () => {
   const { ctx, s, repo } = await setup(); let spawned = 0;
-  for (const force of [false, true]) expect(() => delegate(ctx, { brief: { goal: "work", repo: ctx.home }, repoRef: repo, executor: "codex", force }, () => { spawned++; return 1; }, s)).toThrow("project policy");
+  for (const force of [false, true]) await expect(delegate(ctx, { brief: { goal: "work", repo: ctx.home }, repoRef: repo, executor: "codex", force }, () => { spawned++; return 1; }, s)).rejects.toThrow("project policy");
   expect(spawned).toBe(0); expect(listTasksWhere(ctx, {})).toHaveLength(0);
 });
 test("legacy tasks resolve policy and hooks cannot widen or reorder its list", async () => {
@@ -79,7 +79,7 @@ test("exhausting the allowlist never falls back to a healthy global executor", a
 test("unresolved low-level delegation cannot silently use global routing", async () => {
   const { ctx, s, repo } = await setup(); let spawned = false;
   await removeRepo(ctx,repo.key);
-  expect(() => delegate(ctx, { brief: { goal: "work", repo: ctx.home } }, () => { spawned = true; return 1; }, s)).toThrow("Resolve the repository");
+  await expect(delegate(ctx, { brief: { goal: "work", repo: ctx.home } }, () => { spawned = true; return 1; }, s)).rejects.toThrow("Resolve the repository");
   expect(spawned).toBe(false);
 });
 

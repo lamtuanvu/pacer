@@ -8,14 +8,18 @@ import { ensureAccounts } from "./accounts";
 import { CoreError } from "./errors";
 import type {Ctx} from "../types";
 import {readKey, writeKey} from "../endpoints/keys";
-import {discoverModels, type DiscoveryResult} from "../endpoints/models";
-import {writeOpencodeConfig} from "../endpoints/opencode-config";
+import type {DiscoveryResult} from "../endpoints/models";
+import {discoverEndpointModels} from "../plugins/endpoint-adapter";
+import {writeEndpointConfig} from "../plugins/endpoint-adapter";
 import {endpointRow} from "../endpoints/row";
 import {readEndpointState, redactEndpointMessage, writeEndpointState} from "../endpoints/state";
 import {testEndpoint as runTest} from "../endpoints/test-task";
 
 export interface EndpointDeps {
-  fetch?: Parameters<typeof discoverModels>[0]["fetch"];
+  /** Catalog transport only; endpoint discovery uses the plugin adapter. */
+  fetch?: (url: string, init?: RequestInit) => Promise<Response>;
+  discover?: typeof discoverEndpointModels;
+  endpointTest?: NonNullable<Parameters<typeof runTest>[2]>["endpointTest"];
   spawn?: NonNullable<Parameters<typeof runTest>[2]>["spawn"];
 }
 export interface EndpointInput {
@@ -101,7 +105,7 @@ async function save(ctx: Ctx, input: EndpointInput, editing: boolean, deps: Endp
     if (input.key && preview.toString().includes(input.key)) throw Error("endpoint metadata contains credentials");
     validateStrategy(Bun.YAML.parse(preview.toString()),strategyPath(ctx));
     if (input.key && (keySource==='file' || keySource==='keychain')) await writeKey(ctx,name,keySource,input.key);
-    edit(change);
+    await edit(change);
     writeEndpointState(ctx,name,{state:'not_tested'});
     if (input.test!==false) await runTest(ctx,name,deps);
     const updated=loadStrategy(ctx);
@@ -123,7 +127,7 @@ export async function editEndpoint(ctx: Ctx, input: EndpointEdit, deps: Endpoint
     quota_source:input.quota_source ?? a.quotaSource ?? undefined,...input,test:input.test ?? false},true,deps);
 }
 export async function testEndpoint(ctx: Ctx, name: string, deps: EndpointDeps = {}) {
-  account(ctx,name); writeOpencodeConfig(ctx); return runTest(ctx,name,deps);
+  account(ctx,name); await writeEndpointConfig(ctx, loadStrategy(ctx).accounts); return runTest(ctx,name,deps);
 }
 export async function listModels(ctx: Ctx, input: {name?: string; base_url?: string; key?: string | null}, deps: EndpointDeps = {}): Promise<DiscoveryResult> {
   const c=input.name ? account(ctx,input.name).connection : undefined;
@@ -131,7 +135,7 @@ export async function listModels(ctx: Ctx, input: {name?: string; base_url?: str
   if (!baseUrl) throw Error("endpoint base URL is required");
   const key=input.key!==undefined ? input.key : c ? await readKey(ctx,input.name!,c.key) : null;
   if (c && c.key!=='none' && !key) throw Error("Key missing: configure the endpoint key before discovery");
-  return discoverModels({baseUrl,key,fetch:deps.fetch});
+  return (deps.discover ?? discoverEndpointModels)(ctx,{baseUrl,key});
 }
 /** Project only provider URL and model ids. Never access options.apiKey or auth files. */
 export function externalEndpoint(ctx: Ctx, name: string) {

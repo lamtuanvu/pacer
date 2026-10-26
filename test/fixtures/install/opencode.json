@@ -1,0 +1,135 @@
+{
+  "schema": 1,
+  "agent": "opencode",
+  "now": 1700000000,
+  "pacerArgv": [
+    "pacer"
+  ],
+  "before": {
+    "$HOME/.config/opencode/AGENTS.md": {
+      "text": "# User instructions\n\nKeep this text.\n",
+      "mode": 384
+    },
+    "$HOME/.config/opencode/opencode.jsonc": {
+      "text": "{\n\t// Keep user comment\n\t\"mcp\": {\"other\": {\"type\":\"remote\",\"url\":\"https://example.invalid/mcp\"},},\n\t\"theme\": \"dark\",\n}\n",
+      "mode": 384
+    },
+    "$HOME/unrelated.txt": {
+      "text": "Unrelated fixture content: 界\n",
+      "mode": 384
+    }
+  },
+  "after": {
+    "$HOME/.config/opencode/AGENTS.md": {
+      "text": "# User instructions\n\nKeep this text.\n\n<!-- >>> pacer >>> -->\nThis applies only when you are the planner pacer is configured for; if pacer started you as an executor (PACER_ROLE=executor), ignore it.\n# pacer delegation policy (OpenCode is the planner)\n\nYour role: plan, decide and review; delegate execution.\n\nAt the start of every session, run `pacer status --json` and read its budget, mode and executor recommendations.\n\n## Modes\n\n| Mode | How to work |\n| --- | --- |\n| strict/emergency | Delegate execution to available executors; reserve planner budget for decisions and review. |\n| normal | Delegate substantial execution work; keep planning and review with the planner. |\n| relaxed | You may execute directly or delegate when useful. |\n\n## Delegation workflow\n\nUse the installed `pacer` skill for CLI routing, brief files, waiting and review.\nRun `pacer route <kind> --json`, then `pacer delegate --brief-file <path|-> --json`.\nReview the diff and run acceptance before `pacer review <id> --accept|--reject`.\n\n## Subagents\n\n**OpenCode subagents count as you doing the work**.\nDo not use them for execution work unless the mode is `relaxed`, no executor is available, or `PACER=off`. Read-only helpers and reviewers stay allowed.\n\n## Review and completion\n\nReview each delegated result and verify before reporting done. Check the changes and run the acceptance command; then run `pacer review <id> --accept|--reject [--kind <k>]` to record your verdict and any corrected kind tag.\n\nWhen a human decision is needed, use `pacer task request-review <id> --note \"<specific concern>\"` (or MCP task_request_review) instead of recording a verdict you have not reached. Successful execution alone never means acceptance. A completed run without a verdict stays in history and does not require a second human acknowledgment.\n\nEscape hatch: set `PACER=off` to disable pacing and delegation enforcement for the session.\n<!-- <<< pacer <<< -->\n",
+      "mode": 384
+    },
+    "$HOME/.config/opencode/AGENTS.md.pacer-bak-20231115-051320": {
+      "text": "# User instructions\n\nKeep this text.\n",
+      "mode": 384
+    },
+    "$HOME/.config/opencode/opencode.jsonc": {
+      "text": "{\n\t// Keep user comment\n\t\"mcp\": {\n\t  \"pacer\": {\n\t    \"type\": \"local\",\n\t    \"command\": [\n\t      \"pacer\",\n\t      \"mcp\"\n\t    ],\n\t    \"enabled\": true\n\t  },\"other\": {\"type\":\"remote\",\"url\":\"https://example.invalid/mcp\"},},\n\t\"theme\": \"dark\",\n}\n",
+      "mode": 384
+    },
+    "$HOME/.config/opencode/opencode.jsonc.pacer-bak-20231115-051320": {
+      "text": "{\n\t// Keep user comment\n\t\"mcp\": {\"other\": {\"type\":\"remote\",\"url\":\"https://example.invalid/mcp\"},},\n\t\"theme\": \"dark\",\n}\n",
+      "mode": 384
+    },
+    "$HOME/.config/opencode/skills/pacer/SKILL.md": {
+      "text": "---\nname: pacer\ndescription: Route and delegate work by subscription budget, answer budget and pace questions, and wait on or review delegated tasks.\n---\n\n# pacer\n\nUse the pacer CLI as the primary interface; MCP is an optional adapter.\nExecutors (PACER_ROLE=executor) must complete their assigned task directly and must not delegate.\n\n1. Run `pacer status --json` and read the planner mode and budget.\n2. Run `pacer route <kind> --json` to choose an available executor.\n3. Write a brief JSON file, then run `pacer delegate --brief-file brief.json --json`.\n   To avoid shell quoting, pipe the JSON to `pacer delegate --brief-file - --json`.\n4. Use the returned `id` with `pacer watch <id> --json` to stream output and state changes until settled.\n   It emits one JSON event per line (default timeout 600 seconds, max 3000). Exit 0 means settled,\n   not necessarily successful; inspect the final state. Exit 2 means timeout or error; check the final event.\n   Watch again after a timeout; Ctrl-C stops watching without stopping the task.\n   Use `pacer wait <id> --json` for completion only, or `pacer tasks <id> --json` for a snapshot.\n   Use these commands instead of polling private task files or tailing executor logs.\n5. Review the diff and run acceptance yourself, then `pacer review <id> --accept --json`\n   or `pacer review <id> --reject --json`; optionally correct `--kind <kind>`.\n\nUse `pacer stop <id> --json` to cancel and `pacer dismiss <id...>` to hide settled cards.\nIf an executor hits a provider limit, run `pacer report-limit <provider>` so routing skips it.\n\n## Brief fields\n\nJSON object: `goal` (required string), `repo` (absolute path, defaults to cwd),\n`kind`, `scope`, `acceptance` (verification command), `constraints`, `context`,\n`executor`, `timeout_min` (1–240), `worktree` (current/new/auto),\n`worktree_reason` (one line, max 200 characters).\nCommand-line flags override file fields. Give a kind tag and a concrete acceptance command.\n\nChoose current for uncommitted work, read-only research/review, installed dependencies/build\noutput, or a small follow-up there. Choose new when another task or the user is editing there,\nfor parallel tasks on the same repo, or exploratory/risky work. Give a worktree_reason;\nomit the choice to let pacer decide (auto).\n\nStrict/emergency: delegate execution and reserve planner budget for decisions/review.\nNormal: delegate substantial execution. Relaxed: execute directly or delegate when useful.\nReview and verify before reporting completion; the worker's report is evidence to check.\n",
+      "mode": 384
+    },
+    "$HOME/unrelated.txt": {
+      "text": "Unrelated fixture content: 界\n",
+      "mode": 384
+    }
+  },
+  "manifest": {
+    "version": 1,
+    "planners": {
+      "opencode": {
+        "planner": "opencode",
+        "installedAt": 1700000000,
+        "pacerArgv": [
+          "pacer"
+        ],
+        "files": [
+          {
+            "path": "$HOME/.config/opencode/AGENTS.md",
+            "action": "edited",
+            "backup": "$HOME/.config/opencode/AGENTS.md.pacer-bak-20231115-051320",
+            "exact": true,
+            "undo": [
+              {
+                "kind": "block",
+                "style": "md"
+              }
+            ],
+            "afterHash": "c3ef43b5ed75a12355e75ab20b6fde020de450458d0cbe8e1015d4b17da4d03f",
+            "managed": {
+              "schema": 1,
+              "hash": "5b6e8e5eb4ebc0ebfdce7ea4a4e37800a701578bf9a4ff6ef27c28e608567ad7"
+            }
+          },
+          {
+            "path": "$HOME/.config/opencode/skills/pacer/SKILL.md",
+            "action": "created",
+            "exact": true,
+            "undo": [],
+            "afterHash": "379e5010a584c82752b7eceb7a326f3b9523d8d3b2cdf5f33c409a3622e5d85c",
+            "managed": {
+              "schema": 1,
+              "hash": "379e5010a584c82752b7eceb7a326f3b9523d8d3b2cdf5f33c409a3622e5d85c"
+            }
+          },
+          {
+            "path": "$HOME/.config/opencode/opencode.jsonc",
+            "action": "edited",
+            "backup": "$HOME/.config/opencode/opencode.jsonc.pacer-bak-20231115-051320",
+            "exact": true,
+            "undo": [
+              {
+                "kind": "json-member",
+                "path": [
+                  "mcp",
+                  "pacer"
+                ]
+              }
+            ],
+            "afterHash": "8f37ee265cd58683a5d52c054317850f70c2a46730849e13660b826adb97c165",
+            "managed": {
+              "schema": 1,
+              "hash": "22f22fbf9276c947d7daf35921f07168a3b5fe670a8de4e9a75a10e278465c8c"
+            }
+          }
+        ],
+        "commands": [],
+        "notes": [
+          "OpenCode guard is policy-only; policy and skill installed; MCP is optional."
+        ],
+        "mcp": true
+      }
+    }
+  },
+  "installCalls": [],
+  "uninstall": {
+    "report": {
+      "planner": "opencode",
+      "restored": [
+        "$HOME/.config/opencode/opencode.jsonc",
+        "$HOME/.config/opencode/AGENTS.md"
+      ],
+      "removed": [
+        "$HOME/.config/opencode/skills/pacer/SKILL.md"
+      ],
+      "reverted": [],
+      "notes": []
+    },
+    "calls": []
+  },
+  "unrelatedEdit": {
+    "path": "$HOME/.config/opencode/AGENTS.md",
+    "append": "\n# User edit after install\n"
+  }
+}

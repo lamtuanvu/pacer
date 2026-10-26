@@ -30,7 +30,7 @@ test("fmtReset shows a time within 20h and a weekday after", () => {
 });
 
 test("status line shows the planner on one line", () => {
-  expect(strip(renderLine(ST))).toBe("▬┃ Claude Code 4%·10");
+  expect(strip(renderLine(ST))).toBe("▬┃ Claude Code 4%·10  policy: unknown");
 });
 
 test("text report and claude-code hook JSON", () => {

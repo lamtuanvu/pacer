@@ -1,3 +1,4 @@
+import {endpointTestFromSpawn} from './fixtures/endpoint-test-fixtures';
 import { expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -17,7 +18,7 @@ function setup() {
 }
 test("test task uses launch helpers in a disposable git repo and records Ready", async () => {
   const ctx = setup(); let repo = "";
-  const state = await testEndpoint(ctx, "api", {spawn: async spec => {
+  const state = await testEndpoint(ctx, "api", {endpointTest: endpointTestFromSpawn(async spec => {
     repo = spec.cwd; expect(existsSync(join(repo, ".git"))).toBe(true);
     expect(repo.startsWith(ctx.pacerHome)).toBe(true);
     expect(spec.argv).toContain("pacer-api/m");
@@ -26,19 +27,19 @@ test("test task uses launch helpers in a disposable git repo and records Ready",
     expect(spec.logFile).toBeUndefined();
     writeFileSync(join(repo, "hello.txt"), "ok");
     return {code: 0, stdout: "", stderr: "", timedOut: false};
-  }});
+  })});
   expect(state).toEqual({state: "ready", checked_at: new Date(ctx.now * 1000).toISOString()});
   expect(readEndpointState(ctx, "api")).toEqual(state); expect(existsSync(repo)).toBe(false);
   expect(statSync(join(ctx.pacerHome, "endpoints/state.json")).mode & 0o777).toBe(0o600);
 });
 for (const failure of ["missing", "wrong", "exit", "timeout", "throw"]) test(`test task failure ${failure} is recorded and cleaned`, async () => {
   const ctx = setup(); let repo = "";
-  const result = await testEndpoint(ctx, "api", {spawn: async spec => {
+  const result = await testEndpoint(ctx, "api", {endpointTest: endpointTestFromSpawn(async spec => {
     repo = spec.cwd;
     if (failure === "throw") throw Error(`Authorization: Bearer ${ctx.env.TEST_ENDPOINT_KEY}\nsecond line`);
     if (failure !== "missing") writeFileSync(join(repo, "hello.txt"), failure === "wrong" ? "wrong" : "ok");
     return {code: failure === "exit" ? 1 : 0, stdout: "", stderr: `failed ${ctx.env.TEST_ENDPOINT_KEY}\nsecond line`, timedOut: failure === "timeout"};
-  }});
+  })});
   expect(result.state).toBe("not_working"); expect(result.detail).not.toContain("private-endpoint-value"); expect(result.detail).not.toContain("second line");
   expect(readFileSync(join(ctx.pacerHome, "endpoints/state.json"), "utf8")).not.toContain("private-endpoint-value");
   expect(existsSync(repo)).toBe(false);
@@ -59,7 +60,7 @@ test("routing and shared account rows reflect live keys and stored states", asyn
   expect(rows.find((a: any) => a.name === "api")).toMatchObject({state: "key_missing", connection: {key: "missing"}});
   expect(rows.find((a: any) => a.name === "external")).toMatchObject({state: "external"});
   expect(status.executors.ranked.some(r => r.id === "opencode#external")).toBe(true);
-  expect((await testEndpoint(ctx, "api", {spawn: async () => {throw Error("must not launch");}})).state).toBe("not_working");
+  expect((await testEndpoint(ctx, "api", {endpointTest: endpointTestFromSpawn(async () => {throw Error("must not launch");})})).state).toBe("not_working");
 });
 test("state updates preserve other accounts and file permissions", () => {
   const ctx = setup();

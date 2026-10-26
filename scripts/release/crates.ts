@@ -4,6 +4,8 @@ import { join, resolve } from "node:path";
 import { gunzipSync } from "node:zlib";
 import { sha256Hex } from "../../src/update/manifest";
 
+export const PLUGIN_CRATE_FOLDERS = ["plugin-protocol", "plugin-agent-protocol", "plugin-dispatch-protocol", "plugin-sdk"] as const;
+
 interface Crate { name: string; version: string }
 interface Publishing {
   crates: Crate[];
@@ -23,7 +25,7 @@ export async function crateContentHash(bytes: Uint8Array): Promise<string> {
   let size = 0;
   let root: string | undefined;
   for (const [path, file] of files) {
-    const match = /^(pacer-plugin(?:-protocol)?-\d+\.\d+\.\d+)\/(.+)$/.exec(path);
+    const match = /^(pacer-plugin(?:-(?:(?:agent|dispatch)-)?protocol)?-\d+\.\d+\.\d+)\/(.+)$/.exec(path);
     if (!match || match[2].split("/").some(part => !part || part === "." || part === "..") || path.includes("\\")) throw Error("Invalid plugin crate archive path");
     if (root !== undefined && root !== match[1]) throw Error("Plugin crate has multiple archive roots");
     root = match[1];
@@ -57,9 +59,9 @@ if (import.meta.main) {
   if (args.length && !publish) throw Error("usage: bun scripts/release/crates.ts [--publish]");
   if (publish && !process.env.CARGO_REGISTRY_TOKEN) throw Error("CARGO_REGISTRY_TOKEN is required to publish plugin crates");
   const root = resolve(import.meta.dir, "../..");
-  const crates = ["plugin-protocol", "plugin-sdk"].map(folder => {
+  const crates = PLUGIN_CRATE_FOLDERS.map(folder => {
     const { package: metadata } = Bun.TOML.parse(readFileSync(join(root, "crates", folder, "Cargo.toml"), "utf8")) as { package: { name: string; version: string } };
-    if (!/^pacer-plugin(-protocol)?$/.test(metadata.name) || !/^\d+\.\d+\.\d+$/.test(metadata.version)) throw Error("Invalid plugin crate release metadata");
+    if (!/^pacer-plugin(-((agent|dispatch)-)?protocol)?$/.test(metadata.name) || !/^\d+\.\d+\.\d+$/.test(metadata.version)) throw Error("Invalid plugin crate release metadata");
     return { name: metadata.name, version: metadata.version };
   });
   const run = async (argv: string[]) => {

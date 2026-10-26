@@ -14,9 +14,10 @@ pacer paces AI coding work across subscription budgets. A planner plans and revi
 | `src/api/` | Versioned protocol (`protocol.ts`, now 3.0.0), operation registry (`ops.ts`), HTTP and stdio JSON-RPC transports, `v2-compat` adapter, read model |
 | `src/serve/`, `src/service/` | The local service: HTTP/SSE/WebSocket, app auth and panel. Installed under launchd or as a systemd user unit. |
 | `src/core/`, `src/engine/`, `src/tasks/`, `src/strategy/`, `src/config/` | Domain core: ranking, slots, verdicts, tasks, strategy and config. `CoreError` lives in `src/core/errors.ts`. |
-| `src/usage/`, `src/attention/`, `src/activity/`, `src/notify/`, `src/jobs/` | Usage readers, attention, activity log (JSONL, mode 0600), notifications, jobs |
+| `src/usage/` | Usage broker: cache, aggregation, auth/exhausted marks and remote merge; quota and metered readers live in `plugins/pacer-usage/` |
+| `src/attention/`, `src/activity/`, `src/notify/`, `src/jobs/` | Attention, activity log (JSONL, mode 0600), notifications (host policy/ledger, notifier plugin delivery), jobs |
 | `src/exec/`, `src/supervisor/`, `src/remote/`, `src/session/` | Execution backends (direct, Orca), supervised runs and worktrees, SSH remote hosts, PTY live sessions |
-| `src/endpoints/`, `src/install/`, `src/mcp/`, `src/update/` | OpenAI-compatible endpoint executors and their keys, planner hook installers, MCP server, self-update |
+| `src/endpoints/`, `src/install/`, `src/mcp/`, `src/update/` | Endpoint account/key/state adapters (vendor behavior lives in `plugins/pacer-endpoints/`), planner hook installers, MCP server, self-update |
 | `src/dashboard/`, `src/render/`, `src/view-model/` | TUI, status line and tables, shared view vocabulary |
 | `src/plugins/` | Plugin host: protocol schemas, manifest, registry and lifecycle, stdio subprocess transport, capability broker, `pacer plugin run` |
 | `plugins/` | Bundled reference plugins (`plugins/bundled.ts`), compiled into the binary |
@@ -36,6 +37,7 @@ pacer paces AI coding work across subscription budgets. A planner plans and revi
 | `crates/pacer` | `pacer`: the binary, start-up and dispatch only |
 | `crates/plugin-sdk` | `pacer-plugin`: Rust plugin SDK |
 | `crates/fixtures` | `pacer-fixtures`: Rust conformance fixture plugins |
+| `crates/plugin-policy-protocol` | `pacer-plugin-policy-protocol`: generated policy/task-read/event contracts, CRATE-3 area split; standalone and unpublished until SDK adoption |
 
 Dependency direction: clients → `src/api` → core → adapters. Source: [ADR clients-over-local-service](../docs/decisions/2026-10-16-clients-over-local-service.md).
 
@@ -116,3 +118,7 @@ The human approver for every merge is @lamtuanvu. Adopted amendment 0.4.0 requir
 | Release | Version bumps, CHANGELOG, release scripts and workflows, distribution packages | [reviewers/release.md](reviewers/release.md) | Advisory |
 
 Docs-only changes need just the repository rule, plus the protocol reviewer when `docs/protocol*.md` changes.
+
+Plugin 0.2 agent/native generated-area and SDK facade compatibility: [decision](../docs/decisions/0007-plugin-protocol-area-splits.md). Direct 0.2 agent type paths move to pacer-plugin-agent-protocol; immutable 0.1 lane unchanged.
+
+Observation/decision extension types likewise move to independent publishable `pacer-plugin-dispatch-protocol` 0.2; the SDK type facade preserves their names. No protocol area has a layer-0 peer dependency.

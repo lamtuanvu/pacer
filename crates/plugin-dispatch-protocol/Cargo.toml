@@ -1,0 +1,24 @@
+[package]
+name = "pacer-plugin-dispatch-protocol"
+version = "0.2.0"
+publish = true
+description = "Generated observation and decision wire types for the pacer plugin protocol."
+readme = "README.md"
+repository.workspace = true
+keywords = ["pacer", "plugin", "protocol", "json-rpc"]
+categories = ["development-tools"]
+include = ["src/**", "README.md", "Cargo.toml", "Cargo.lock"]
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+regress = "0.10"
+
+[dev-dependencies]
+xtask = { path = "../../xtask" }
+
+[lints]
+workspace = true

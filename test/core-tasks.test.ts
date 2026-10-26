@@ -13,50 +13,50 @@ import { readTask } from "../src/tasks/store";
 import { fakeCtx, tmpDir } from "./helpers";
 
 const s = validateStrategy({ planner: "claude-code", providers: { "claude-code": {}, codex: {} } }, "/x");
-const mk = (ctx = fakeCtx()) => ({ ctx, t: tasks.delegate(ctx, { brief: { goal: "g", repo: tmpDir() } }, () => 1, s) });
+const mk = async (ctx = fakeCtx()) => ({ ctx, t: (await tasks.delegate(ctx, { brief: { goal: "g", repo: tmpDir() } }, () => 1, s)) });
 
-test("get throws unknown_task for a missing id", () => {
-  const { ctx } = mk();
+test("get throws unknown_task for a missing id", async () => {
+  const { ctx } = await mk();
   expect(() => tasks.get(ctx, "t-20261014-000000-0000")).toThrow(CoreError);
   try { tasks.get(ctx, "nope"); } catch (e) { expect((e as CoreError).code).toBe("unknown_task"); }
 });
 
-test("delegate maps validation failures to invalid_input", () => {
+test("delegate maps validation failures to invalid_input", async () => {
   const ctx = fakeCtx();
-  try { tasks.delegate(ctx, { brief: { goal: "", repo: "rel" } }, () => 1, s); throw new Error("no throw"); }
+  try { (await tasks.delegate(ctx, { brief: { goal: "", repo: "rel" } }, () => 1, s)); throw new Error("no throw"); }
   catch (e) { expect((e as CoreError).code).toBe("invalid_input"); }
 });
 
-test("list is newest first and honours limit", () => {
+test("list is newest first and honours limit", async () => {
   const ctx = fakeCtx();
-  const a = tasks.delegate(ctx, { brief: { goal: "a", repo: tmpDir() } }, () => 1, s);
-  const b = tasks.delegate(ctx, { brief: { goal: "b", repo: tmpDir() } }, () => 1, s);
+  const a = (await tasks.delegate(ctx, { brief: { goal: "a", repo: tmpDir() } }, () => 1, s));
+  const b = (await tasks.delegate(ctx, { brief: { goal: "b", repo: tmpDir() } }, () => 1, s));
   expect(tasks.list(ctx).map((t) => t.id).slice(0, 2)).toEqual([b.id, a.id].sort().reverse());
   expect(tasks.list(ctx, { limit: 1 })).toHaveLength(1);
 });
 
 test("wait refuses timeouts outside 1..3000", async () => {
-  const { ctx, t } = mk();
+  const { ctx, t } = await mk();
   for (const bad of [0, 0.5, 3001, Number.NaN]) {
     await expect(tasks.wait(ctx, t.id, bad)).rejects.toMatchObject({ code: "invalid_input" });
   }
 });
 
-test("stop marks a queued task stopped", () => {
-  const { ctx, t } = mk();
+test("stop marks a queued task stopped", async () => {
+  const { ctx, t } = await mk();
   expect(tasks.stop(ctx, t.id).state).toBe("stopped");
 });
 
 test("review records the verdict and refuses unknown kinds", async () => {
-  const { ctx, t } = mk();
+  const { ctx, t } = await mk();
   tasks.stop(ctx, t.id);
   expect(await tasks.review(ctx, t.id, { accepted: true })).toMatchObject({ task: { id: t.id, review: { accepted: true } } });
   expect(readTask(ctx, t.id)?.review?.accepted).toBe(true);
   await expect(tasks.review(ctx, t.id, { accepted: true, kind: "dance" })).rejects.toThrow(/unknown kind/);
 });
 
-test("dismiss reports unknown ids and still dismisses known ones", () => {
-  const { ctx, t } = mk();
+test("dismiss reports unknown ids and still dismisses known ones", async () => {
+  const { ctx, t } = await mk();
   const r = tasks.dismiss(ctx, ["missing-1", t.id, "missing-2"]);
   expect(r.dismissed.map((x) => x.id)).toEqual([t.id]);
   expect(r.unknown).toEqual(["missing-1", "missing-2"]);
@@ -64,31 +64,31 @@ test("dismiss reports unknown ids and still dismisses known ones", () => {
 });
 
 test("retry re-delegates the stored brief, links both tasks, and passes the executor", async () => {
-  const { ctx, t } = mk();
+  const { ctx, t } = await mk();
   const inputs: unknown[] = [];
-  const r = await tasks.retry(ctx, t.id, { executor: "codex" }, { delegate: (c, input) => { inputs.push(input); return tasks.delegate(c, input, () => 1, s); } });
+  const r = await tasks.retry(ctx, t.id, { executor: "codex" }, { delegate: async (c, input) => { inputs.push(input); return (await tasks.delegate(c, input, () => 1, s)); } });
   expect(inputs[0]).toMatchObject({ brief: t.brief, kind: t.kind, timeoutMin: t.timeoutS / 60, retryOf: t.id, executor: "codex" });
   expect(readTask(ctx, t.id)?.retriedBy).toBe(r.retry.id);
   expect(readTask(ctx, r.retry.id)?.retryOf).toBe(t.id);
 });
 
 test("retry without executor lets routing choose", async () => {
-  const { ctx, t } = mk();
+  const { ctx, t } = await mk();
   const inputs: Parameters<typeof tasks.delegate>[1][] = [];
-  await tasks.retry(ctx, t.id, {}, { delegate: (c, input) => { inputs.push(input); return tasks.delegate(c, input, () => 1, s); } });
+  await tasks.retry(ctx, t.id, {}, { delegate: async (c, input) => { inputs.push(input); return (await tasks.delegate(c, input, () => 1, s)); } });
   expect(inputs[0].executor).toBeUndefined();
 });
 
 for (const worktree of ["current", "new"] as const) {
   test(`retry preserves explicit ${worktree} placement and its reason`, async () => {
     const ctx = fakeCtx();
-    const t = tasks.delegate(ctx, {
+    const t = (await tasks.delegate(ctx, {
       brief: { goal: "g", repo: tmpDir() }, worktree, worktree_reason: "keep this placement",
-    }, () => 1, s);
+    }, () => 1, s));
     const inputs: Parameters<typeof tasks.delegate>[1][] = [];
-    const r = await tasks.retry(ctx, t.id, {}, { delegate: (c, input) => {
+    const r = await tasks.retry(ctx, t.id, {}, { delegate: async (c, input) => {
       inputs.push(input);
-      return tasks.delegate(c, input, () => 1, s);
+      return (await tasks.delegate(c, input, () => 1, s));
     } });
     expect(inputs[0]).toMatchObject({ worktree, worktree_reason: "keep this placement" });
     expect(r.retry.placement).toEqual(t.placement);
@@ -97,8 +97,8 @@ for (const worktree of ["current", "new"] as const) {
 
 test("retry preserves force", async () => {
   const ctx = fakeCtx();
-  const t = tasks.delegate(ctx, { brief: { goal: "g", repo: tmpDir() }, force: true }, () => 1, s);
-  const r = await tasks.retry(ctx, t.id, {}, { delegate: (c, input) => tasks.delegate(c, input, () => 1, s) });
+  const t = (await tasks.delegate(ctx, { brief: { goal: "g", repo: tmpDir() }, force: true }, () => 1, s));
+  const r = await tasks.retry(ctx, t.id, {}, { delegate: async (c, input) => (await tasks.delegate(c, input, () => 1, s)) });
   expect(r.retry.force).toBe(true);
 });
 
@@ -121,9 +121,9 @@ for (const name of ["../escape", "nested/lock", "nested\\lock", "retry-..-lock"]
 }
 
 test("concurrent retries create exactly one retry", async () => {
-  const { ctx, t } = mk();
+  const { ctx, t } = await mk();
   let created = 0;
-  const d = (c: typeof ctx, input: Parameters<typeof tasks.delegate>[1]) => { created++; return tasks.delegate(c, input, () => 1, s); };
+  const d = async (c: typeof ctx, input: Parameters<typeof tasks.delegate>[1]) => { created++; return (await tasks.delegate(c, input, () => 1, s)); };
   const results = await Promise.allSettled([tasks.retry(ctx, t.id, {}, { delegate: d }), tasks.retry(ctx, t.id, {}, { delegate: d })]);
   expect(created).toBe(1);
   expect(results.filter((r) => r.status === "rejected").map((r) => (r as PromiseRejectedResult).reason.code)).toEqual(["conflict"]);
@@ -149,15 +149,15 @@ test("shortTitle removes code, paths and URLs before selecting the first clause"
 });
 test("delegate stores trimmed titles and derives absent ones, including activity and retries", async () => {
   const ctx=fakeCtx(), brief={goal:"Fix queue. Then test everything",repo:tmpDir()};
-  const t=tasks.delegate(ctx,{brief,title:"  Queue fix  "},()=>1,s);
+  const t=(await tasks.delegate(ctx,{brief,title:"  Queue fix  "},()=>1,s));
   expect(t.title).toBe("Queue fix");
   expect(readTask(ctx,t.id)?.title).toBe("Queue fix");
   expect(readActivity(ctx,{}).entries[0]?.text).toContain("“Queue fix”");
-  expect(tasks.delegate(ctx,{brief},()=>1,s).title).toBe("Fix queue");
-  expect(()=>tasks.delegate(ctx,{brief,title:"x".repeat(61)},()=>1,s)).toThrow(/title/);
-  expect(()=>tasks.delegate(ctx,{brief,title:"   "},()=>1,s)).toThrow(/title/);
+  expect((await tasks.delegate(ctx,{brief},()=>1,s)).title).toBe("Fix queue");
+  await expect(tasks.delegate(ctx,{brief,title:"x".repeat(61)},()=>1,s)).rejects.toThrow(/title/);
+  await expect(tasks.delegate(ctx,{brief,title:"   "},()=>1,s)).rejects.toThrow(/title/);
   expect(parseDelegateBrief({...brief,title:"  Short  "},brief.repo).title).toBe("Short");
   expect(z.object(delegateSchema).safeParse({...brief,title:"x".repeat(61)}).success).toBe(false);
-  const r=await tasks.retry(ctx,t.id,{}, {delegate:(c,i)=>tasks.delegate(c,i,()=>1,s)});
+  const r=await tasks.retry(ctx,t.id,{}, {delegate:async (c,i)=>(await tasks.delegate(c,i,()=>1,s))});
   expect(r.retry.title).toBe("Queue fix");
 });

@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
 import { join } from "node:path";
+import { mkdtempSync, rmSync, existsSync } from "node:fs";
+import { tmpdir } from "node:os";
 
 test("health answers while the service thread is synchronously blocked", async () => {
   const child = Bun.spawn([process.execPath, join(import.meta.dir, "fixtures/serve-health-block.ts")], { stdout: "pipe", stderr: "pipe" });
@@ -23,13 +25,43 @@ test("health answers while the service thread is synchronously blocked", async (
   } finally { child.kill("SIGKILL"); await child.exited; }
 }, 10000);
 
-test("serve --help prints usage and exits without opening a listener", async () => {
-  const child = Bun.spawn([process.execPath, "src/cli.ts", "serve", "--help"], { stdout: "pipe", stderr: "pipe" });
+for (const delayed of [false, true]) {
+  test(`serve --help exits without a listener despite ${delayed ? "delayed" : "normal"} module availability`, async () => {
+    const home = mkdtempSync(join(tmpdir(), "pacer-serve-help-"));
+    const pacerHome = join(home, "state");
+    const guard = join(import.meta.dir, "fixtures/serve-help-guard.ts");
+    const child = Bun.spawn([process.execPath, "--preload", guard, "src/cli.ts", "serve", "--help"], {
+      env: { HOME: home, PACER_HOME: pacerHome, PACER_NO_UPDATE_CHECK: "1", PACER_TEST_DELAY_IMPORT: delayed ? "1" : "0", BUN_RUNTIME_TRANSPILER_CACHE_PATH: "" },
+      stdout: "pipe", stderr: "pipe", timeout: 10000,
+    });
+    try {
+      const [code, stdout, stderr] = await Promise.all([
+        child.exited, new Response(child.stdout).text(), new Response(child.stderr).text(),
+      ]);
+      expect(code).toBe(0);
+      expect(stdout).toContain("serve [--port");
+      expect(stderr).toBe("serve-help-listeners:[]\n");
+      expect(existsSync(pacerHome)).toBe(false);
+    } finally { child.kill("SIGKILL"); await child.exited; rmSync(home, { recursive: true, force: true }); }
+  });
+}
+
+test("serve-help guard rejects the real service before any listener can bind", async () => {
+  const home = mkdtempSync(join(tmpdir(), "pacer-serve-help-control-"));
+  const guard = join(import.meta.dir, "fixtures/serve-help-guard.ts");
+  const child = Bun.spawn([process.execPath, "--preload", guard, "src/cli.ts", "serve", "--port", "0"], {
+    env: { HOME: home, PACER_HOME: join(home, "state"), PACER_NO_UPDATE_CHECK: "1", BUN_RUNTIME_TRANSPILER_CACHE_PATH: "" },
+    stdout: "pipe", stderr: "pipe", timeout: 10000,
+  });
   try {
-    const code = await Promise.race([child.exited, Bun.sleep(1000).then(() => "timeout")]);
-    expect(code).toBe(0);
-    expect(await new Response(child.stdout).text()).toContain("serve [--port");
-  } finally { child.kill("SIGKILL"); await child.exited; }
+    const [code, stdout, stderr] = await Promise.all([
+      child.exited, new Response(child.stdout).text(), new Response(child.stderr).text(),
+    ]);
+    expect(code).toBe(2);
+    expect(stdout).toBe("");
+    expect(stderr).toContain("serve-help fixture refused Bun.serve");
+    expect(stderr).toContain('serve-help-listeners:["Bun.serve"]');
+  } finally { child.kill("SIGKILL"); await child.exited; rmSync(home, { recursive: true, force: true }); }
 });
 
 test("health reports a stale heartbeat while the backend remains blocked, then recovers", async () => {

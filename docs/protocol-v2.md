@@ -98,7 +98,8 @@ The snapshot preserves `v`, `seq`, `at`, `budget`, `mode`, `tasks`, `alerts`, `c
 | `today` | Local midnight `since`, settled task count, accepted, rejected, failed (including limit) and settled counts by repo key |
 | `hosts` | Alias, SSH target, paused/down/checking/needs_setup/ready state, running count, max tasks, executor ids and mapped repo count |
 | `repos` | Known repositories ordered by last use: `{ key, label, path }`, with canonical host/owner/repo or local hash key and main-checkout path |
-| `setup` | Complete flag, count of required items open, and items with id, title, status and required flag |
+| `policy` | Metadata-only `{mode: open | closed, plugins: number}`: configured failure mode and enabled policy plugin count, including enabled failing policies. No plugin starts or policy calls. Missing older-service metadata is unknown, never implied open or closed. Terminal labels use `policy: open` / `policy: closed (n plugins)`; width-constrained labels use `policy:open/n`, `policy:closed/n`, or `policy:unknown` (n is the enabled plugin count). |
+| `setup` | Complete flag, count of required items open, items with id, title, status and required flag, and the same `policy` metadata as the snapshot. `setup.check` also includes policy metadata. Closed mode with zero plugins is displayed explicitly. |
 
 Executor, account and planner rows add optional `eligibility`: `{ state, reasons, evaluatedAt, validUntil, evidenceAgeS, availability, budget, spendingRisk }`. `state` is `eligible`, `uncertain` or `ineligible`; reasons contain stable `code` and `evidenceIds`. Missing fields on older services mean unknown eligibility. Timestamps are Unix seconds; a null deadline or age means unavailable, not fresh evidence. These fields do not change the protocol major.
 `routing.route` includes eligibility on ranked and excluded candidates, an `uncertain` subset and `fallback: "uncertain"` on automatic fallback candidates. Eligible choices precede uncertain ones within global and project routing. Attempts preserve the launch decision and fallback in `routing`. Preflight refreshes supported sources and checks evidence/configuration again before dispatch. Pacing verdicts and legacy state enums are not execution permission. Credits alone do not permit paid execution; `spendingRisk: "unknown"` does not mean no paid usage.
@@ -709,6 +710,7 @@ Params JSON Schema:
       "items": {
         "type": "string",
         "enum": [
+          "policy",
           "plugin_state",
           "task_started",
           "task_settled",

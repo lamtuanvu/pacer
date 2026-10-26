@@ -1,3 +1,4 @@
+import {endpointDiscoveryDeps} from "./endpoint-discovery-fixtures";
 // Regression tests for interactive account/endpoint wizard defects found in live validation.
 import {expect, test} from "bun:test";
 import {mkdirSync, readFileSync, writeFileSync} from "node:fs";
@@ -27,7 +28,7 @@ function script(answers: string[], overrides: AccountDeps = {}) {
   const questions: string[] = [], printed: string[] = [];
   const deps: AccountDeps = {
     prompt: async q => { questions.push(q); if (!answers.length) throw Error(`unexpected prompt: ${q}`); return answers.shift()!; },
-    promptSecret: async () => secret, print: line => { printed.push(line); }, fetch: listed, ...overrides,
+    promptSecret: async () => secret, print: line => { printed.push(line); }, ...endpointDiscoveryDeps(listed), ...overrides,
   };
   return {deps, questions, printed};
 }
@@ -156,7 +157,7 @@ const blankNames = async (input: string | URL | Request) => {
 
 test("interactive endpoint save shows every line of a validation error", async () => {
   const ctx = setup();
-  const s = script(["3", "1", "work", "http://localhost/v1", "none", "1,2", "unmetered", "n"], {fetch: blankNames});
+  const s = script(["3", "1", "work", "http://localhost/v1", "none", "1,2", "unmetered", "n"], {...endpointDiscoveryDeps(blankNames)});
   const result = await accountCmd(["add"], ctx, s.deps);
   expect(result.code).not.toBe(0);
   expect(result.err).toContain("invalid strategy");
@@ -184,7 +185,7 @@ const embeddingsOnly = async (url: string) => /models\.dev|127\.0\.0\.1:(11434|1
 
 test("the URL path hides models that cannot run an executor and says so", async () => {
   const ctx = setup();
-  const s = script(["3", "1", "work", "http://test.invalid/v1", "none", "1", "unmetered", "n"], {fetch: mixed as never});
+  const s = script(["3", "1", "work", "http://test.invalid/v1", "none", "1", "unmetered", "n"], {...endpointDiscoveryDeps(mixed as never)});
   expect((await accountCmd(["add"], ctx, s.deps)).code).toBe(0);
   expect(s.printed).toContain("1. qwen3-coder · 262144 context");
   expect(s.printed.some(l => l.includes("nomic-embed-text"))).toBe(false);
@@ -194,7 +195,7 @@ test("the URL path hides models that cannot run an executor and says so", async 
 
 test("when every listed model is hidden, the URL path asks for model ids", async () => {
   const ctx = setup();
-  const s = script(["3", "1", "work", "http://test.invalid/v1", "none", "my-model", "", "", "unmetered", "n"], {fetch: embeddingsOnly as never});
+  const s = script(["3", "1", "work", "http://test.invalid/v1", "none", "my-model", "", "", "unmetered", "n"], {...endpointDiscoveryDeps(embeddingsOnly as never)});
   expect((await accountCmd(["add"], ctx, s.deps)).code).toBe(0);
   expect(s.printed).toContain("None of this endpoint's models can run an executor. Enter model ids.");
   expect(s.questions).toContain("Model ids (comma separated)");

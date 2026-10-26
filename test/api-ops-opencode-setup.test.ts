@@ -1,3 +1,4 @@
+import {discoveryFromFetch} from "./endpoint-discovery-fixtures";
 import {expect, test} from "bun:test";
 import {mkdirSync, readFileSync, writeFileSync} from "node:fs";
 import {join} from "node:path";
@@ -20,7 +21,7 @@ function setup(signed = ["openrouter"]) {
   writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "accounts:\n  personal: {kind: claude}\nplanner: claude-code\nrouting:\n  - default: [claude-code]\n");
   return ctx;
 }
-const noNetwork = {endpoint: {fetch: (async () => { throw new Error("no local servers"); }) as never}};
+const noNetwork = {endpoint: {fetch: (async () => { throw new Error("no catalog"); }) as never, discover: discoveryFromFetch(async () => { throw new Error("no local servers"); })}};
 
 test("executor.setup.candidates lists signed-in providers without secrets", async () => {
   const ctx = setup();

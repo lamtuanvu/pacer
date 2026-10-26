@@ -14,6 +14,26 @@ pub fn mode_words(mode: &str) -> String {
     })
 }
 pub const OFFLINE_WORDS: &str = "pacer not running · pacer serve";
+/// The service owns this fact; older snapshots must not imply an open mode.
+pub fn policy_words(policy: &serde_json::Value, compact: bool) -> String {
+    if policy.is_null() {
+        return if compact {
+            "policy:unknown"
+        } else {
+            "policy: unknown"
+        }
+        .into();
+    }
+    let mode = policy["mode"].as_str().unwrap_or("unknown");
+    let count = &policy["plugins"];
+    if compact {
+        format!("policy:{mode}/{count}")
+    } else if mode == "closed" {
+        format!("policy: closed ({count} plugins)")
+    } else {
+        format!("policy: {mode}")
+    }
+}
 pub fn compact_verdict_words(verdict: &str) -> &str {
     match verdict {
         "out" | "EXHAUSTED" => "out",
