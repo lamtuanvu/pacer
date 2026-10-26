@@ -146,7 +146,7 @@ async function runStage(authority: CallAuthority, state: State, pin: Pin, timeou
   let abort: (() => void) | undefined;
   let published = false, size = 0, stderrSize = 0;
   const hash = createHash("sha256");
-  let failure: CoreError | undefined, exited = false, closedPipe = false;
+  let failure: CoreError | undefined, exited = false, closedPipe = false, terminationSignaled = false;
   let resetPipeTimer: (() => void) | undefined;
   try {
     const stageDir = lstatSync(dir);
@@ -169,7 +169,11 @@ async function runStage(authority: CallAuthority, state: State, pin: Pin, timeou
     };
     const stop = () => {
       if (exited || child?.exitCode !== null || !child?.pid) { if (exited) retainedPipes(); return; }
-      try { process.kill(process.platform === "win32" ? child.pid : -child.pid, "SIGKILL"); }
+      if (terminationSignaled) return;
+      try {
+        process.kill(process.platform === "win32" ? child.pid : -child.pid, "SIGKILL");
+        terminationSignaled = true;
+      }
       catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "ESRCH" && !exited && child?.exitCode === null) {
           const uncertain = new CoreError("plugin_unavailable", "bundle termination failed; cleanup unverified");

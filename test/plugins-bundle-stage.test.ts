@@ -264,6 +264,50 @@ test("missing frame, nonzero exit and owner cancellation never publish a bundle"
   expect(readdirSync(join(f.ctx.pacerHome, "transfers"))).toEqual([]);
 });
 
+test("owner revoke does not signal the same bundle process group twice before exit", async () => {
+  const f = fixture(home => `printf '__PACER_BEGIN__\\n'; touch '${join(home, "started")}'; sleep 5`);
+  const pending = stageBundle(f.owner, { argv: f.issued.argv, timeoutMs: 1000, maxBytes: 16 });
+  const settled = pending.then(() => false, () => true);
+  const until = Date.now() + 1000;
+  while (!existsSync(join(f.ctx.home, "started")) && Date.now() < until) await Bun.sleep(10);
+  expect(existsSync(join(f.ctx.home, "started"))).toBe(true);
+  const originalKill = process.kill;
+  let groupSignals = 0;
+  process.kill = ((pid: number, signal?: NodeJS.Signals | number) => {
+    if (pid < 0 && signal === "SIGKILL" && ++groupSignals > 1)
+      throw Object.assign(new Error("group already signaled"), { code: "EPERM" });
+    return originalKill(pid, signal);
+  }) as typeof process.kill;
+  try {
+    await f.owner.revoke();
+    expect(groupSignals).toBe(1);
+    expect(await settled).toBe(true);
+    expect(readdirSync(join(f.ctx.pacerHome, "transfers"))).toEqual([]);
+  } finally { process.kill = originalKill; }
+});
+
+test("failed first bundle group signal retains cleanup uncertainty", async () => {
+  const f = fixture(home => `printf '__PACER_BEGIN__\\n'; touch '${join(home, "started")}'; sleep 5`);
+  const pending = stageBundle(f.owner, { argv: f.issued.argv, timeoutMs: 1000, maxBytes: 16 });
+  const settled = pending.then(() => false, () => true);
+  const until = Date.now() + 1000;
+  while (!existsSync(join(f.ctx.home, "started")) && Date.now() < until) await Bun.sleep(10);
+  expect(existsSync(join(f.ctx.home, "started"))).toBe(true);
+  const originalKill = process.kill;
+  let groupSignals = 0;
+  process.kill = ((pid: number, signal?: NodeJS.Signals | number) => {
+    if (pid < 0 && signal === "SIGKILL" && ++groupSignals === 1)
+      throw Object.assign(new Error("group signal refused"), { code: "EPERM" });
+    return originalKill(pid, signal);
+  }) as typeof process.kill;
+  try {
+    await expect(f.owner.revoke()).rejects.toMatchObject({ code: "plugin_unavailable" });
+    expect(groupSignals).toBeGreaterThanOrEqual(1);
+    expect(await settled).toBe(true);
+    expect(readdirSync(join(f.ctx.pacerHome, "transfers"))).toEqual([]);
+  } finally { process.kill = originalKill; }
+});
+
 test("host generation change cancels an in-flight binary stage promptly", async () => {
   const f = fixture("printf '__PACER_BEGIN__\\n'; sleep 5; printf abc");
   const pending = stageBundle(f.owner, { argv: f.issued.argv, timeoutMs: 1000, maxBytes: 16 });
