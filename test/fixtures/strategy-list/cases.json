@@ -1,0 +1,34 @@
+[
+  {
+    "id": "default-only",
+    "defaultYaml": "# Main work\nplanner: codex\naccounts: {personal: {kind: codex}}\nrouting: [{default: [codex]}]\n"
+  },
+  {
+    "id": "named-inactive",
+    "defaultYaml": "# pacer starter strategy: edit me\nplanner: codex\naccounts: {personal: {kind: codex}}\nrouting: [{default: [codex]}]\n",
+    "named": {
+      "research": "# Research mode\nplanner: codex\naccounts: {personal: {kind: codex}}\npacing: {policy: even, planner_reserve: 25}\nrouting: [{default: [codex]}]\n"
+    }
+  },
+  {
+    "id": "named-active",
+    "defaultYaml": "# Main work\nplanner: codex\naccounts: {personal: {kind: codex}}\nrouting: [{default: [codex]}]\n",
+    "named": {
+      "research": "# Research mode\nplanner: codex\naccounts: {personal: {kind: codex}}\npacing: {policy: even, planner_reserve: 25}\nrouting: [{default: [codex]}]\n"
+    },
+    "active": "research"
+  },
+  {
+    "id": "invalid-named",
+    "defaultYaml": "planner: codex\naccounts: {personal: {kind: codex}}\nrouting: [{default: [codex]}]\n",
+    "named": { "broken": "planner: [bad]\n" }
+  },
+  {
+    "id": "pacing-first",
+    "defaultYaml": "planner: claude-code\naccounts: {personal: {kind: claude}, work: {kind: codex}}\npacing: {policy: even, order: [codex, claude-code], planner_reserve: 20, fill_threshold: 80}\nrouting: [{default: [codex, claude-code]}]\n"
+  },
+  {
+    "id": "legacy-opencode",
+    "defaultYaml": "planner: opencode\nproviders: {local: {via: opencode, model: ollama/qwen3, usage: unmetered}}\n"
+  }
+]

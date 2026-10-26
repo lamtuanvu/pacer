@@ -10,11 +10,13 @@ fn goldens() -> Vec<Value> {
 }
 
 #[test]
-fn basic_strategy_normalization_matches_typescript() {
+fn all_valid_oracle_strategies_normalize_like_typescript() {
     let selected = [
         "current-basic",
         "current-pacing",
         "current-host",
+        "current-execution",
+        "current-host-advanced",
         "legacy-basic",
         "legacy-reversed",
         "legacy-opencode",
@@ -32,5 +34,26 @@ fn basic_strategy_normalization_matches_typescript() {
         } else {
             assert_eq!(actual, None, "{}", case["id"]);
         }
+    }
+}
+
+#[test]
+fn unsupported_execution_and_host_limits_stay_with_typescript() {
+    let base =
+        "planner: codex\naccounts: {personal: {kind: codex}}\nrouting: [{default: [codex]}]\n";
+    for field in [
+        "execution: {local_max_tasks: 0}\n",
+        "execution: {local_max_tasks: 17}\n",
+        "execution: {local_max_tasks: 2.5}\n",
+        "execution: {other: true}\n",
+        "hosts: {devbox: {ssh: dev-ssh, max_tasks: 0}}\n",
+        "hosts: {devbox: {ssh: dev-ssh, max_tasks: 17}}\n",
+        "hosts: {devbox: {ssh: dev-ssh, max_tasks: 2.5}}\n",
+    ] {
+        assert_eq!(
+            pacer_config::strategy_load::normalize_basic(&format!("{base}{field}"), "default"),
+            None,
+            "{field}"
+        );
     }
 }

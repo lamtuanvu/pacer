@@ -17,6 +17,7 @@ pub const NATIVE_OPS: &[&str] = &[
     "repo.add",
     "repo.remove",
     "routing.get",
+    "strategy.list",
 ];
 
 pub struct Dispatcher {
@@ -28,6 +29,7 @@ impl Dispatcher {
         ops.extend_from_slice(pacer_config::repo_ops());
         ops.extend_from_slice(pacer_config::repo_add_ops());
         ops.extend_from_slice(pacer_config::routing_ops());
+        ops.extend_from_slice(pacer_config::strategy_list_ops());
         ops.extend_from_slice(pacer_config::host_suggest_ops());
         #[cfg(feature = "test-ops")]
         ops.push(NativeOp {
@@ -57,6 +59,7 @@ impl Dispatcher {
     pub fn needs_core_parser(&self, ctx: &Ctx, name: &str) -> bool {
         (matches!(name, "repo.add" | "repo.remove") && pacer_config::requires_core_repo_parser(ctx))
             || (name == "routing.get" && pacer_config::requires_core_routing_parser(ctx))
+            || (name == "strategy.list" && pacer_config::requires_core_strategy_list_parser(ctx))
             || (name == "host.suggest" && pacer_config::requires_core_host_suggest_parser(ctx))
             || (matches!(name, "notifications.get" | "notifications.set")
                 && pacer_config::requires_core_parser(ctx))
@@ -178,7 +181,8 @@ mod registry_tests {
                 "notifications.set",
                 "repo.add",
                 "repo.remove",
-                "routing.get"
+                "routing.get",
+                "strategy.list"
             ]
         );
         #[cfg(not(feature = "test-ops"))]
@@ -190,6 +194,39 @@ mod registry_tests {
             assert!(Dispatcher::new("").names().contains(name));
             assert!(!Dispatcher::new(name).names().contains(name));
         }
+    }
+    #[tokio::test]
+    async fn strategy_list_selects_only_when_every_file_is_supported() {
+        let dir = tempfile::tempdir().unwrap();
+        let ctx = Ctx::with(
+            dir.path().join("home"),
+            dir.path().join("pacer"),
+            HashMap::new(),
+            0.0,
+        );
+        fs::create_dir_all(ctx.pacer_home.join("strategies")).unwrap();
+        let yaml =
+            "planner: codex\naccounts: {personal: {kind: codex}}\nrouting: [{default: [codex]}]\n";
+        fs::write(ctx.pacer_home.join("strategy.yaml"), yaml).unwrap();
+        let dispatcher = Dispatcher::new("");
+        assert!(!dispatcher.needs_core_parser(&ctx, "strategy.list"));
+        let result = dispatcher
+            .call(&ctx, "strategy.list", json!({}))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(result[0]["name"], "default");
+        fs::write(
+            ctx.pacer_home.join("strategies/broken.yaml"),
+            "planner: [bad]\n",
+        )
+        .unwrap();
+        assert!(dispatcher.needs_core_parser(&ctx, "strategy.list"));
+        assert!(
+            !Dispatcher::new("strategy.list")
+                .names()
+                .contains(&"strategy.list")
+        );
     }
     #[test]
     fn notification_write_keeps_javascript_number_and_key_cases_with_core() {

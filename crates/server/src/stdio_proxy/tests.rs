@@ -4,7 +4,9 @@ use super::*;
 #[test]
 fn work_grant_scopes_all_native_operations_to_the_core() {
     let mut env = HashMap::new();
-    assert_eq!(stdio_dispatcher(&env).names(), vec!["test.echo"]);
+    let names = stdio_dispatcher(&env).names();
+    assert!(names.contains(&"strategy.list"));
+    assert!(names.contains(&"test.echo"));
     env.insert("PACER_WORK_GRANT".to_owned(), "test-only-grant".to_owned());
     assert!(stdio_dispatcher(&env).names().is_empty());
 }

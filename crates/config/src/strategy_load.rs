@@ -47,7 +47,7 @@ fn simple_hosts(root: &Mapping) -> Option<JsonMap<String, Json>> {
             return None;
         }
         let config = map(value)?;
-        if !only(config, &["ssh"]) {
+        if !only(config, &["ssh", "max_tasks"]) {
             return None;
         }
         let ssh = get(config, "ssh")?.as_str()?;
@@ -58,10 +58,19 @@ fn simple_hosts(root: &Mapping) -> Option<JsonMap<String, Json>> {
         {
             return None;
         }
+        let max_tasks = if let Some(raw) = get(config, "max_tasks") {
+            let value = raw.as_i64()?;
+            if !(1..=16).contains(&value) {
+                return None;
+            }
+            value
+        } else {
+            2
+        };
         hosts.insert(
             alias.to_owned(),
             json!({
-                "alias":alias,"ssh":ssh,"repos":{},"maxTasks":2,"accounts":{},"paused":false
+                "alias":alias,"ssh":ssh,"repos":{},"maxTasks":max_tasks,"accounts":{},"paused":false
             }),
         );
     }
@@ -86,11 +95,26 @@ pub fn normalize_basic(text: &str, name: &str) -> Option<Json> {
             "pacing",
             "routing",
             "hosts",
+            "execution",
         ],
     ) {
         return None;
     }
     let hosts = simple_hosts(root)?;
+    let mut execution = JsonMap::new();
+    if let Some(raw) = get(root, "execution") {
+        let config = map(raw)?;
+        if !only(config, &["local_max_tasks"]) {
+            return None;
+        }
+        if let Some(raw) = get(config, "local_max_tasks") {
+            let value = raw.as_i64()?;
+            if !(1..=16).contains(&value) {
+                return None;
+            }
+            execution.insert("local_max_tasks".to_owned(), json!(value));
+        }
+    }
     let planner = get(root, "planner")?.as_str()?;
     let legacy = get(root, "providers").is_some();
     if !["codex", "claude-code", "opencode"].contains(&planner)
@@ -323,6 +347,6 @@ pub fn normalize_basic(text: &str, name: &str) -> Option<Json> {
         "pacing":{"policy":policy,"order":order,"plannerReserve":planner_reserve,
             "aheadThreshold":10,"behindThreshold":-10,"accounts":"spread","fillThreshold":fill_threshold},
         "routing":[{"kinds":null,"executors":executors}],"taskRetentionDays":14,
-        "plugins":{"disabled":[],"installed":{},"config":{}},"execution":{},"classifier":{}
+        "plugins":{"disabled":[],"installed":{},"config":{}},"execution":execution,"classifier":{}
     }))
 }
