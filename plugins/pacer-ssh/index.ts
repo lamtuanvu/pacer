@@ -2,7 +2,7 @@
 import { randomUUID } from "node:crypto";
 import { PluginError, serve, type Handler } from "@pacer/plugin";
 import { manifest } from "./manifest";
-import { bundleOutArgv, checkRepoArgv, preflightArgv, probeArgv, probePayload, questionArgv, setIdentityArgv } from "./probe";
+import { bundleOutArgv, checkRepoArgv, preflightArgv, probeArgv, probePayload, questionArgv, setIdentityArgv, usageArgv } from "./probe";
 
 export { manifest } from "./manifest";
 
@@ -71,7 +71,8 @@ export const handlers: Record<string, Handler> = {
     const identity = input?.script === "SET_IDENTITY" && Array.isArray(args) && args.length === 3 &&
       typeof input.completionNonce === "string";
     const question = input?.script === "QUESTION" && Array.isArray(args) && args.length === 1;
-    if (!validSession(input?.session) || (!probe && !repoCheck && !preflight && !identity && !question) ||
+    const usage = input?.script === "CODEX_USAGE" && Array.isArray(args) && args.length <= 1;
+    if (!validSession(input?.session) || (!probe && !repoCheck && !preflight && !identity && !question && !usage) ||
       (identity ? !/^[a-f0-9-]{36}$/.test(input.completionNonce as string) : input.completionNonce !== undefined) ||
       input.stdin !== undefined || !Number.isSafeInteger(input.timeoutMs) ||
       (input.timeoutMs as number) < 1 || (input.timeoutMs as number) > 120_000 ||
@@ -81,7 +82,8 @@ export const handlers: Record<string, Handler> = {
     if (signal.aborted) fail("capability_denied", "SSH operation cancelled");
     let argv: string[];
     try {
-      argv = probe ? probeArgv(session.sshTarget, session.controlPath) : question ?
+      argv = probe ? probeArgv(session.sshTarget, session.controlPath) : usage ?
+        usageArgv(session.sshTarget, session.controlPath, args as string[]) : question ?
         questionArgv(session.sshTarget, session.controlPath, args as string[]) : preflight ?
         preflightArgv(session.sshTarget, session.controlPath, args as string[]) : identity ?
         setIdentityArgv(session.sshTarget, session.controlPath, args as string[], input.completionNonce as string) :

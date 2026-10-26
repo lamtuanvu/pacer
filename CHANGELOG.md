@@ -16,6 +16,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Changed
 
+- Read configured remote Codex usage through the bundled remote caller and fixed SSH provider with a one-use account/host grant. Plugin refusal produces no direct SSH retry; previously cached readings remain available.
 - Receive remote task questions through one-use host-issued `remoteCaller` reads; keep the accepted text durable and ignore the remote question file at preflight only while its exact content matches.
 - Receive committed SSH task results through the bundled remote caller and host-issued, verified bundle; import its immutable bytes and compare-and-swap the local branch without a direct host fetch fallback.
 - Run planner integration install, uninstall, consent preview, detection and checks through `pacer-planners`. The host retains exact file/process admission, manifest v1, schema1 file recovery and lock/journal settlement; disabled plugins have no installer fallback. Negotiated planner transactions prepare data without claiming a durable child commit.

@@ -4254,6 +4254,52 @@
       ],
       "additionalProperties": false
     },
+    "remoteCaller.usageRead.params": {
+      "type": "object",
+      "properties": {
+        "alias": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$"
+        },
+        "home": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        }
+      },
+      "required": [
+        "alias"
+      ],
+      "additionalProperties": false
+    },
+    "remoteCaller.usageRead.result": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "stdout": {
+          "type": "string",
+          "maxLength": 524288
+        },
+        "stderr": {
+          "type": "string",
+          "maxLength": 524288
+        },
+        "timedOut": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "code",
+        "stdout",
+        "stderr",
+        "timedOut"
+      ],
+      "additionalProperties": false
+    },
     "executor.available.params": {
       "type": "object",
       "properties": {

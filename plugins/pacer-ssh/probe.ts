@@ -66,6 +66,20 @@ export const QUESTION_SCRIPT = `file="$1/.pacer-question"
 [ "$(wc -c < "$file")" -le 4000 ] || { echo "question exceeds 1000 characters" >&2; exit 1; }
 cat "$file"`;
 
+/** Fixed read-only Codex session-log probe; parity with the legacy script is tested. */
+export const CODEX_USAGE_SCRIPT = `home="\${1:-$HOME/.codex}"
+case "$home" in '~/'*) home="$HOME/\${home#??}" ;; esac
+[ -d "$home/sessions" ] || exit 0
+while IFS= read -r -d '' file; do
+  mtime=$(stat -c %Y "$file" 2>/dev/null) || mtime=$(stat -f %m "$file") || continue
+  printf '%s %s\\n' "$mtime" "$file"
+done < <(find "$home/sessions" -type f -name 'rollout-*.jsonl' -print0) |
+sort -rn | head -n 15 | while read -r mtime file; do
+  tail -c 4000000 "$file" | while IFS= read -r line; do
+    case "$line" in *\'"rate_limits"\'*) printf '%s\\n' "$line";; esac
+  done || true
+done`;
+
 const shq = (value: string) => /^[A-Za-z0-9_\\/.:=@%+-]+$/.test(value)
   ? value : `'${value.replace(/'/g, "'\\''")}'`;
 
@@ -132,6 +146,15 @@ export function questionArgv(sshTarget: string, controlPath: string, args: reado
     args[0].length > 4096 || /[\u0000-\u001f\u007f]/.test(args[0]))
     throw Error("invalid host-issued question tuple");
   return issuedArgv(sshTarget, controlPath, QUESTION_SCRIPT, [...args]);
+}
+
+export function usageArgv(sshTarget: string, controlPath: string, args: readonly string[]): string[] {
+  if (args.length > 1 || (args.length === 1 &&
+    (typeof args[0] !== "string" || args[0].length > 4096 ||
+      !(args[0].startsWith("/") || args[0].startsWith("~/")) ||
+      /[\u0000-\u001f\u007f]/.test(args[0]))))
+    throw Error("invalid host-issued Codex usage home");
+  return issuedArgv(sshTarget, controlPath, CODEX_USAGE_SCRIPT, [...args]);
 }
 
 /** Login-shell chatter is not part of the fixed script's output. */

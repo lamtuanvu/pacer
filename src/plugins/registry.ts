@@ -44,6 +44,7 @@ import { validateRemotePreflight } from "./remote-preflight";
 import { consumeConfiguredHostIdentity, validateConfiguredHostIdentity,
   type ConfiguredHostIdentityGrant } from "./host-identity-issuer";
 import { consumePersistedQuestion, validatePersistedQuestion, type PersistedQuestionGrant } from "./question-issuer";
+import { consumeConfiguredRemoteUsage, validateConfiguredRemoteUsage, type ConfiguredRemoteUsageGrant } from "./remote-usage-issuer";
 import { z } from "zod";
 
 const HOST_CHECK_ISSUER = Symbol("host-check-issuer");
@@ -51,6 +52,7 @@ const HOST_FETCH_ISSUER = Symbol("host-fetch-issuer");
 const HOST_CALL_FETCH_ISSUER = Symbol("host-call-fetch-issuer");
 const HOST_CALL_IDENTITY_ISSUER = Symbol("host-call-identity-issuer");
 const HOST_CALL_QUESTION_ISSUER = Symbol("host-call-question-issuer");
+const HOST_CALL_USAGE_ISSUER = Symbol("host-call-usage-issuer");
 const HOST_PROVIDER_MUTATION_ISSUER = Symbol("host-provider-mutation-issuer");
 const stagedFetchResult = z.object({ handle: z.string().regex(/^[a-f0-9-]{36}$/),
   bytes: z.number().int().nonnegative().max(50 * 1024 * 1024), sha256: z.string().regex(/^[a-f0-9]{64}$/) }).strict();
@@ -59,7 +61,7 @@ interface HostFetchAdmission { grant: PersistedFetchGrant; process: PluginProces
   claim: (authority: CallAuthority, staged: StagedFetchResult) => void | Promise<void> }
 interface HostCallerFetchAdmission { grant: PersistedFetchGrant;
   claim: (caller: CallAuthority, ticket: ClaimedBundleTicket) => void | Promise<void> }
-export interface PluginCallOptions { plannerResources?: PlannerResources; credentialBindings?: readonly CredentialBinding[]; classifierConfig?: ClassifierConfig; resources?: CallResources; accountHome?: string | null; deadlineMs?: number; signal?: AbortSignal; onProgress?: (event: unknown) => void; /** Internal host-lease binding: never restart or substitute this provider. */ expectedProcess?: PluginProcess; [HOST_CHECK_ISSUER]?: true; [HOST_FETCH_ISSUER]?: HostFetchAdmission; [HOST_CALL_FETCH_ISSUER]?: HostCallerFetchAdmission; [HOST_CALL_IDENTITY_ISSUER]?: ConfiguredHostIdentityGrant; [HOST_CALL_QUESTION_ISSUER]?: PersistedQuestionGrant; [HOST_PROVIDER_MUTATION_ISSUER]?: true }
+export interface PluginCallOptions { plannerResources?: PlannerResources; credentialBindings?: readonly CredentialBinding[]; classifierConfig?: ClassifierConfig; resources?: CallResources; accountHome?: string | null; deadlineMs?: number; signal?: AbortSignal; onProgress?: (event: unknown) => void; /** Internal host-lease binding: never restart or substitute this provider. */ expectedProcess?: PluginProcess; [HOST_CHECK_ISSUER]?: true; [HOST_FETCH_ISSUER]?: HostFetchAdmission; [HOST_CALL_FETCH_ISSUER]?: HostCallerFetchAdmission; [HOST_CALL_IDENTITY_ISSUER]?: ConfiguredHostIdentityGrant; [HOST_CALL_QUESTION_ISSUER]?: PersistedQuestionGrant; [HOST_CALL_USAGE_ISSUER]?: ConfiguredRemoteUsageGrant; [HOST_PROVIDER_MUTATION_ISSUER]?: true }
 export interface RegistryDeps { bundled: BundledPlugin[]; spawnBundled: (ctx: Ctx, id: string) => SpawnSpec; spawn?: typeof nodeSpawn; sleep?: (ms: number) => Promise<void>; eventPumpMs?:number }
 export interface PluginInfo { id: string; version: string; publisher: string; tier: "free" | "commercial"; bundled: boolean; enabled: boolean; state: PluginState; contributes: string[]; capabilities: { name: string; scopes?: string[] }[]; grant: PluginGrant | null; error: string | null; pid: number | null }
 export interface DoctorReport { id: string; ok: boolean; state: PluginState; served: string[]; protocol: { host: string; plugin: string | null }; pid: number | null; restarts: number; error: string | null; needs: string | null }
@@ -93,6 +95,7 @@ export class PluginRegistry {
   private readonly hostCallerFetch = new WeakMap<CallAuthority, HostCallerFetchAdmission>();
   private readonly hostCallerIdentity = new WeakMap<CallAuthority, ConfiguredHostIdentityGrant>();
   private readonly hostCallerQuestion = new WeakMap<CallAuthority, PersistedQuestionGrant>();
+  private readonly hostCallerUsage = new WeakMap<CallAuthority, ConfiguredRemoteUsageGrant>();
   private readonly retiredProcesses=new Set<Promise<void>>();
   private readonly observationAdmissions=new WeakSet<CallAuthority>();
   private eventTimer:ReturnType<typeof setInterval>|undefined;
@@ -217,6 +220,20 @@ export class PluginRegistry {
         args: [...grant.resource.args] }] }, [HOST_CALL_QUESTION_ISSUER]: grant });
   }
 
+  /** Host-only: bind one configured passive usage read to a distinct hosts caller. */
+  async callWithIssuedHostUsage<T>(ctx: Ctx, id: string, method: string, params: unknown,
+    grant: ConfiguredRemoteUsageGrant, signal?: AbortSignal): Promise<T> {
+    validateConfiguredRemoteUsage(ctx, grant);
+    const caller = this.findEntry(ctx, id);
+    if (method !== "remoteCaller.usageRead" || grant.resource.script !== "CODEX_USAGE" ||
+      !caller.manifest?.capabilities.some(cap => cap.name === "hosts") || caller.manifest.contributes.hostRunner)
+      throw new CoreError("capability_denied", "remote usage requires a distinct hosts caller");
+    consumeConfiguredRemoteUsage(ctx, grant);
+    return this.call<T>(ctx, id, method, params, { signal, deadlineMs: 90_000,
+      resources: { reads: [], commands: [], stores: [], hosts: [{ ...grant.resource,
+        args: [...grant.resource.args] }] }, [HOST_CALL_USAGE_ISSUER]: grant });
+  }
+
   private async callBrokerHostFetch(ctx: Ctx, caller: CallAuthority, binding: HostFetchBinding,
     grant: PersistedFetchGrant, timeoutMs: number, maxBytes: number, deadlineAt: number,
     signal: AbortSignal): Promise<{ result: HostFetchResult; ticket: ClaimedBundleTicket }> {
@@ -328,6 +345,14 @@ export class PluginRegistry {
         await validateConfiguredHostIdentity(ctx, grant);
         return result;
       }
+      if (request.script === "CODEX_USAGE") {
+        const grant = this.hostCallerUsage.get(authority);
+        if (!grant) throw new CoreError("capability_denied", "remote usage has no configured grant");
+        validateConfiguredRemoteUsage(ctx, grant);
+        const result = await this.hostLeases.run(authority, request);
+        validateConfiguredRemoteUsage(ctx, grant);
+        return result;
+      }
       return this.hostLeases.run(authority, request);
     }
     if (method === "capability.hosts.close") return this.hostLeases.close(authority, params as { session: string });
@@ -385,7 +410,8 @@ export class PluginRegistry {
             const identity = parsed.data.script === "SET_IDENTITY" && parsed.data.args.length === 3 &&
               parsed.data.args.every(arg => arg.length > 0) && !!parsed.data.completionNonce;
             const question = parsed.data.script === "QUESTION" && parsed.data.args.length === 1;
-            if ((!probe && !repoCheck && !preflight && !identity && !question) || parsed.data.stdin !== undefined ||
+            const usage = parsed.data.script === "CODEX_USAGE" && parsed.data.args.length <= 1;
+            if ((!probe && !repoCheck && !preflight && !identity && !question && !usage) || parsed.data.stdin !== undefined ||
               (!identity && parsed.data.completionNonce !== undefined) || parsed.data.maxBytes > 65_536)
               throw new CoreError("capability_denied", "host operation is not issued for this caller");
             const timeoutMs = Math.min(parsed.data.timeoutMs, Math.max(1, Math.floor(deadlineMs)));
@@ -396,7 +422,7 @@ export class PluginRegistry {
               (currentDirectoryEntry.mode & 0o7777) !== (controlDirectoryEntry.mode & 0o7777))
               throw new CoreError("capability_denied", "SSH control directory changed during provider session");
             const argv = sshArgv(ctx, host, probe ? SCRIPTS.PROBE : preflight ? SCRIPTS.PREFLIGHT :
-              identity ? SCRIPTS.SET_IDENTITY : question ? SCRIPTS.QUESTION : SCRIPTS.CHECK_REPO, parsed.data.args,
+              identity ? SCRIPTS.SET_IDENTITY : question ? SCRIPTS.QUESTION : usage ? SCRIPTS.CODEX_USAGE : SCRIPTS.CHECK_REPO, parsed.data.args,
               identity ? parsed.data.completionNonce : undefined);
             const issuedDirectoryEntry = lstatSync(controlDirectory);
             if (!argv.includes(`ControlPath=${controlPath}`) ||
@@ -781,6 +807,8 @@ export class PluginRegistry {
       throw new CoreError("capability_denied", "host identity resource requires host-owned issuance");
     if (options.resources?.hosts?.some(resource => resource.script === "QUESTION") && !options[HOST_CALL_QUESTION_ISSUER])
       throw new CoreError("capability_denied", "host question resource requires host-owned issuance");
+    if (options.resources?.hosts?.some(resource => resource.script === "CODEX_USAGE") && !options[HOST_CALL_USAGE_ISSUER])
+      throw new CoreError("capability_denied", "remote usage resource requires host-owned issuance");
     const startedAt = Date.now();
     const credentialBindings = options.credentialBindings?.map(({ ref, resolve }) => ({ ref, resolve }));
     const e = this.findEntry(ctx, id);
@@ -854,6 +882,8 @@ export class PluginRegistry {
           if (hostIdentity) this.hostCallerIdentity.set(authority, hostIdentity);
           const hostQuestion = options[HOST_CALL_QUESTION_ISSUER];
           if (hostQuestion) this.hostCallerQuestion.set(authority, hostQuestion);
+          const hostUsage = options[HOST_CALL_USAGE_ISSUER];
+          if (hostUsage) this.hostCallerUsage.set(authority, hostUsage);
         }
         try {
           if (authority) {
