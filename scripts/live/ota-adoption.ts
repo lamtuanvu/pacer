@@ -1,6 +1,6 @@
 import { readFixtureBundleMetadata } from "./ota-bundle-metadata";
 /** Fixed live attached-service scenarios. Every update/adoption write crosses the guarded public API. */
-import { constants, closeSync, openSync, realpathSync } from "node:fs";
+import { constants, closeSync, openSync } from "node:fs";
 import { join } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { HttpClient } from "../../src/api/http-client";
@@ -11,7 +11,7 @@ import { ownProcessIdentity, processIdentity, sameProcess, type ProcessIdentity 
 import { readinessProofSchema } from "../../src/update/desktop/native-record";
 import { readAdoption } from "../../src/update/desktop/adoption-store";
 import { makeCtx } from "../../src/ctx";
-import { healthy, loadSession, record } from "./core";
+import { healthy, loadSession, record, sourceServiceMatchesExecutable } from "./core";
 import { recordOtaEvent } from "./ota-evidence";
 import { assertFixtureLayoutScenario, initialFixtureVersion, readOtaRecord, updateOtaDriverRecord, type OtaOptions } from "./ota";
 import { ATTACHED_SCENARIOS, newExercise } from "./ota-exercise-record";
@@ -36,7 +36,7 @@ export async function runAttachedExercise(id: string, scenario: string, options:
   const before = await inspectFixtureJobs(state);
   if (before.desktops.length || before.jobs.some(job => job.loaded || job.state !== "reserved")) throw Error("Fixture registration is already active or uncertain");
   const source = enumerateNativeProcesses().find(item => sameProcess(item.process, session.serviceIdentity!));
-  if (!source || source.executable !== realpathSync(process.execPath) || !await healthy(session)) throw Error("Source service identity or guarded ports changed");
+  if (!source || !sourceServiceMatchesExecutable(source.executable, session) || !await healthy(session)) throw Error("Source service identity or guarded ports changed");
   state = updateOtaDriverRecord(id, state, { exercise: null, runtime: { schema: 1, driver, sourceService: session.serviceIdentity, desktop: null, state: "starting", request: null } }, options);
   if (!sameProcess(processIdentity(session.pid), session.serviceIdentity)) throw Error("Source service changed before handoff");
   process.kill(session.pid, "SIGTERM");

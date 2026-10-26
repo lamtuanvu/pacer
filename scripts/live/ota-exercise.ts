@@ -8,7 +8,7 @@ import type { SnapshotV3 } from "../../src/api/read-model/types";
 import type { UpdateStatus } from "../../src/update/desktop/types";
 import { enumerateNativeProcesses } from "../../src/update/desktop/native-os";
 import { ownProcessIdentity, processIdentity, sameProcess, type ProcessIdentity } from "../../src/update/desktop/process-identity";
-import { healthy, loadSession, record } from "./core";
+import { healthy, loadSession, record, sourceServiceMatchesExecutable } from "./core";
 import { recordOtaEvent } from "./ota-evidence";
 import { assertFixtureLayoutScenario, readOtaRecord, resumeOtaStartup, updateOtaDriverRecord, type OtaOptions } from "./ota";
 import { MANAGED_SCENARIOS, newExercise, resumableStartup } from "./ota-exercise-record";
@@ -51,7 +51,7 @@ export async function runManagedExercise(id: string, scenario: string, options: 
   } else {
     if (before.jobs.some(job => job.loaded || job.state !== "reserved")) throw Error("Fixture registration is already active or uncertain");
     const source = enumerateNativeProcesses().find(item => sameProcess(item.process, session.serviceIdentity!));
-    if (!source || source.executable !== realpathSync(process.execPath) || !await healthy(session)) throw Error("Source service identity or guarded ports changed");
+    if (!source || !sourceServiceMatchesExecutable(source.executable, session) || !await healthy(session)) throw Error("Source service identity or guarded ports changed");
     state = updateOtaDriverRecord(id, state, { exercise: null, runtime: { schema: 1, driver, sourceService: session.serviceIdentity, desktop: null, state: "starting", request: null } }, options);
     // Exact recorded incarnation is rechecked immediately before this one signal.
     if (!sameProcess(processIdentity(session.pid), session.serviceIdentity)) throw Error("Source service changed before handoff");
