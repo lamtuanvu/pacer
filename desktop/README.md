@@ -185,6 +185,7 @@ directly. The window is transparent, frameless, always on top, 340 px wide and
 120–520 px tall, anchored below the icon. If the icon rectangle is unavailable,
 it opens at the top centre of the monitor. Linux uses this fallback and adds
 Show popover to the tray menu because appindicators may not emit left clicks.
+The rounded tray panel keeps its height when More opens; its menu overlays the panel above the action bar.
 Blur and Esc hide it. The native menu offers Open pacer, Pause 1h / Resume,
 Quit, plus Show popover on Linux. Pause calls
 `delegation.pause` with `{for:"1h"}`; while `snapshot.pause` is present it offers

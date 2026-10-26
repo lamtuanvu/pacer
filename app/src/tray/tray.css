@@ -1,8 +1,8 @@
 *{box-sizing:border-box}
-/* Root provides the background canvas */
-:root{height:100%;background:var(--surface-page)}
+/* The host window stays transparent outside the rounded body. */
+:root{height:100%;background:transparent}
 /* Body clips all content to rounded shape so transparent corners look like a true rounded window */
-body{margin:0;width:var(--size-340);max-width:100vw;min-height:100%;background:transparent;border-radius:var(--radius-xl);overflow:hidden;color:var(--ink);font-family:var(--font-sans);font-size:var(--type-body-size);line-height:var(--type-body-line);font-variant-numeric:tabular-nums}
+body{margin:0;width:var(--size-340);max-width:100vw;min-height:100%;background:var(--surface-page);border-radius:var(--radius-xl);overflow:hidden;color:var(--ink);font-family:var(--font-sans);font-size:var(--type-body-size);line-height:var(--type-body-line);font-variant-numeric:tabular-nums}
 .tray{width:100%;max-height:var(--size-520);overflow-y:auto;position:relative}
 button,a{-webkit-tap-highlight-color:transparent;font-family:inherit;font-size:inherit;line-height:inherit;font-weight:inherit;color:inherit}
 button{cursor:pointer}button:disabled{cursor:default;opacity:.5}
@@ -46,13 +46,14 @@ a:focus-visible,button:focus-visible{outline:var(--stroke-focus) solid var(--foc
 .tray-footer{display:flex;align-items:center;gap:var(--space-1\.5);padding:var(--space-2) var(--space-2\.5)}
 
 
-.tray-menu{width:var(--size-200);margin:0 var(--space-2\.5) var(--space-2) auto;max-height:var(--size-340);overflow-y:auto;padding:var(--space-1);border:1px solid var(--line);border-radius:var(--radius-md);background:var(--surface-page)}
+.tray-menu{position:absolute;right:var(--space-2\.5);bottom:calc(100% + var(--space-1));z-index:var(--layer-overlay);width:var(--size-200);max-height:min(var(--size-340),calc(100dvh - var(--size-48)));overflow-y:auto;padding:var(--space-1);border:1px solid var(--line);border-radius:var(--radius-md);background:var(--surface-page);box-shadow:var(--shadow-popover)}
 
 
 .tray-strategies{padding-left:var(--space-3)}.tray-strategies [aria-pressed=true]{font-weight:var(--type-body-strong-weight)}
 .tray-notice,.tray-error{padding:var(--space-1\.5) var(--space-3);margin:0;font-size:var(--type-caption-size);color:var(--ink-secondary)}.tray-error{color:var(--bad-fg);overflow-wrap:anywhere}
 
-.tray-footer{position:sticky;bottom:0;z-index:var(--layer-base);background:var(--surface-page)}
+.tray-actions{position:sticky;bottom:0;z-index:var(--layer-overlay)}
+.tray-footer{background:var(--surface-page)}
 .tray-action__label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 .tray-dot--unknown{background:var(--surface-page);box-shadow:var(--shadow-status-outline)}
