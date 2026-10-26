@@ -41,6 +41,14 @@ ancestor=0
 git merge-base --is-ancestor "$base" "$branch" && ancestor=1
 printf 'ancestor=%s\\n' "$ancestor"
 status=$(git -c core.quotePath=true status --porcelain --untracked-files=all) || exit 1
+if [ -n "$4" ] && [ -n "$5" ] && [ -f .pacer-question ]; then
+  question_hash=$(git hash-object -- .pacer-question) || exit 1
+  case "\${#question_hash}" in 40) expected_hash="$4" ;; 64) expected_hash="$5" ;; *) expected_hash="" ;; esac
+  if [ -n "$expected_hash" ] && [ "$question_hash" = "$expected_hash" ] &&
+    [ "$(git hash-object -- .pacer-question)" = "$expected_hash" ]; then
+    status=$(printf '%s\\n' "$status" | sed '/^?? \\.pacer-question$/d')
+  fi
+fi
 printf 'dirty=%s\\n' "$(printf '%s\\n' "$status" | sed '/^$/d' | wc -l | tr -d ' ')"
 printf 'dirty_files=%s\\n' "$(printf '%s\\n' "$status" | sed '/^$/d;s/^...//' | head -n 20 | paste -sd ',' -)"
 printf 'commits=%s\\n' "$(git rev-list --count "$base..$branch")"
@@ -52,6 +60,11 @@ printf 'head=%s\\n' "$(git rev-parse "$branch^{commit}")"`;
 export const SET_IDENTITY_SCRIPT = `path="$1"
 case "$path" in '~/'*) path="$HOME/\${path#??}" ;; esac
 git -C "$path" config --local user.name "$2" && git -C "$path" config --local user.email "$3"`;
+
+export const QUESTION_SCRIPT = `file="$1/.pacer-question"
+[ -f "$file" ] || exit 0
+[ "$(wc -c < "$file")" -le 4000 ] || { echo "question exceeds 1000 characters" >&2; exit 1; }
+cat "$file"`;
 
 const shq = (value: string) => /^[A-Za-z0-9_\\/.:=@%+-]+$/.test(value)
   ? value : `'${value.replace(/'/g, "'\\''")}'`;
@@ -93,11 +106,13 @@ export function bundleOutArgv(sshTarget: string, controlPath: string, args: read
 }
 
 export function preflightArgv(sshTarget: string, controlPath: string, args: readonly string[]): string[] {
-  if (args.length !== 3 || typeof args[0] !== "string" || !args[0].startsWith("/") ||
+  if (![3, 5].includes(args.length) || typeof args[0] !== "string" || !args[0].startsWith("/") ||
     args[0].length > 4096 || /[\u0000-\u001f\u007f]/.test(args[0]) ||
     typeof args[1] !== "string" || !/^[a-f0-9]{40,64}$/.test(args[1]) ||
     typeof args[2] !== "string" || !/^pacer\/[A-Za-z0-9._/-]+$/.test(args[2]) ||
-    args[2].includes("..") || args[2].includes("//"))
+    args[2].includes("..") || args[2].includes("//") ||
+    (args.length === 5 && (typeof args[3] !== "string" || !/^[a-f0-9]{40}$/.test(args[3]) ||
+      typeof args[4] !== "string" || !/^[a-f0-9]{64}$/.test(args[4]))))
     throw Error("invalid host-issued preflight tuple");
   return issuedArgv(sshTarget, controlPath, PREFLIGHT_SCRIPT, [...args]);
 }
@@ -110,6 +125,13 @@ export function setIdentityArgv(sshTarget: string, controlPath: string, args: re
     !/^[a-f0-9-]{36}$/.test(completionNonce))
     throw Error("invalid host-issued identity tuple");
   return issuedArgv(sshTarget, controlPath, SET_IDENTITY_SCRIPT, [...args], completionNonce);
+}
+
+export function questionArgv(sshTarget: string, controlPath: string, args: readonly string[]): string[] {
+  if (args.length !== 1 || typeof args[0] !== "string" || !args[0].startsWith("/") ||
+    args[0].length > 4096 || /[\u0000-\u001f\u007f]/.test(args[0]))
+    throw Error("invalid host-issued question tuple");
+  return issuedArgv(sshTarget, controlPath, QUESTION_SCRIPT, [...args]);
 }
 
 /** Login-shell chatter is not part of the fixed script's output. */

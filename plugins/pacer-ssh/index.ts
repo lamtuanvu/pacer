@@ -2,7 +2,7 @@
 import { randomUUID } from "node:crypto";
 import { PluginError, serve, type Handler } from "@pacer/plugin";
 import { manifest } from "./manifest";
-import { bundleOutArgv, checkRepoArgv, preflightArgv, probeArgv, probePayload, setIdentityArgv } from "./probe";
+import { bundleOutArgv, checkRepoArgv, preflightArgv, probeArgv, probePayload, questionArgv, setIdentityArgv } from "./probe";
 
 export { manifest } from "./manifest";
 
@@ -67,10 +67,11 @@ export const handlers: Record<string, Handler> = {
     const repoCheck = input?.script === "CHECK_REPO" && Array.isArray(args) && args.length === 2 &&
       typeof args[0] === "string" && args[0].length > 0 && !args[0].includes("\0") &&
       args[1] === "check";
-    const preflight = input?.script === "PREFLIGHT" && Array.isArray(args) && args.length === 3;
+    const preflight = input?.script === "PREFLIGHT" && Array.isArray(args) && [3, 5].includes(args.length);
     const identity = input?.script === "SET_IDENTITY" && Array.isArray(args) && args.length === 3 &&
       typeof input.completionNonce === "string";
-    if (!validSession(input?.session) || (!probe && !repoCheck && !preflight && !identity) ||
+    const question = input?.script === "QUESTION" && Array.isArray(args) && args.length === 1;
+    if (!validSession(input?.session) || (!probe && !repoCheck && !preflight && !identity && !question) ||
       (identity ? !/^[a-f0-9-]{36}$/.test(input.completionNonce as string) : input.completionNonce !== undefined) ||
       input.stdin !== undefined || !Number.isSafeInteger(input.timeoutMs) ||
       (input.timeoutMs as number) < 1 || (input.timeoutMs as number) > 120_000 ||
@@ -80,7 +81,8 @@ export const handlers: Record<string, Handler> = {
     if (signal.aborted) fail("capability_denied", "SSH operation cancelled");
     let argv: string[];
     try {
-      argv = probe ? probeArgv(session.sshTarget, session.controlPath) : preflight ?
+      argv = probe ? probeArgv(session.sshTarget, session.controlPath) : question ?
+        questionArgv(session.sshTarget, session.controlPath, args as string[]) : preflight ?
         preflightArgv(session.sshTarget, session.controlPath, args as string[]) : identity ?
         setIdentityArgv(session.sshTarget, session.controlPath, args as string[], input.completionNonce as string) :
         checkRepoArgv(session.sshTarget, session.controlPath, (args as string[])[0]!);

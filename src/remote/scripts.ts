@@ -77,7 +77,10 @@ printf 'worktree=%s\\nbranch=%s\\n' "$worktree" "$remote_branch"`,
 [ -f "$file" ] || exit 0
 [ "$(wc -c < "$file")" -le 4000 ] || { echo "question exceeds 1000 characters" >&2; exit 1; }
 cat "$file"`,
-  QUESTION_CLEAR: `rm -f -- "$1/.pacer-question"`,
+  // Preserve the fixed script ID for protocol compatibility, but never unlink
+  // a question after acceptance: another writer may have replaced the file.
+  QUESTION_CLEAR: `echo 'question clear is retired' >&2
+exit 1`,
   PREFLIGHT: `cd "$1" || exit 1
 base="$2"; branch="$3"
 case "$branch" in pacer/*) ;; *) branch="pacer/$branch" ;; esac
@@ -85,6 +88,14 @@ ancestor=0
 git merge-base --is-ancestor "$base" "$branch" && ancestor=1
 printf 'ancestor=%s\\n' "$ancestor"
 status=$(git -c core.quotePath=true status --porcelain --untracked-files=all) || exit 1
+if [ -n "$4" ] && [ -n "$5" ] && [ -f .pacer-question ]; then
+  question_hash=$(git hash-object -- .pacer-question) || exit 1
+  case "\${#question_hash}" in 40) expected_hash="$4" ;; 64) expected_hash="$5" ;; *) expected_hash="" ;; esac
+  if [ -n "$expected_hash" ] && [ "$question_hash" = "$expected_hash" ] &&
+    [ "$(git hash-object -- .pacer-question)" = "$expected_hash" ]; then
+    status=$(printf '%s\\n' "$status" | sed '/^?? \\.pacer-question$/d')
+  fi
+fi
 printf 'dirty=%s\\n' "$(printf '%s\\n' "$status" | sed '/^$/d' | wc -l | tr -d ' ')"
 printf 'dirty_files=%s\\n' "$(printf '%s\\n' "$status" | sed '/^$/d;s/^...//' | head -n 20 | paste -sd ',' -)"
 printf 'commits=%s\\n' "$(git rev-list --count "$base..$branch")"
