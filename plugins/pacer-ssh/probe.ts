@@ -320,6 +320,12 @@ export function binaryCheckArgv(sshTarget: string, controlPath: string, args: re
   return issuedArgv(sshTarget, controlPath, BINARY_SCRIPT, [...args]);
 }
 
+export function binaryUploadArgv(sshTarget: string, controlPath: string, args: readonly string[], completionNonce: string): string[] {
+  if (args.length !== 2 || !/^[a-f0-9]{64}$/.test(args[0] ?? "") || args[1] !== "upload" ||
+    !/^[a-f0-9-]{36}$/.test(completionNonce)) throw Error("invalid host-issued binary upload");
+  return issuedArgv(sshTarget, controlPath, BINARY_SCRIPT, [...args], completionNonce);
+}
+
 export function bundleOutArgv(sshTarget: string, controlPath: string, args: readonly string[]): string[] {
   if (args.length !== 3 || typeof args[0] !== "string" || !args[0].startsWith("/") ||
     args[0].length > 4096 || /[\u0000-\u001f\u007f]/.test(args[0]) ||

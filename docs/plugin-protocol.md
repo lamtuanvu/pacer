@@ -4210,6 +4210,105 @@ Result:
 }
 ```
 
+### `hostRunner.upload`
+
+Run one host-issued fixed binary upload with private bounded stdin.
+
+Deadline: 310000 ms.
+
+Params:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "session": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{16,128}$"
+    },
+    "script": {
+      "type": "string",
+      "const": "BINARY"
+    },
+    "args": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        {
+          "type": "string",
+          "const": "upload"
+        }
+      ],
+      "items": false,
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "timeoutMs": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 300000
+    },
+    "maxBytes": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 4096
+    },
+    "completionNonce": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    }
+  },
+  "required": [
+    "session",
+    "script",
+    "args",
+    "timeoutMs",
+    "maxBytes",
+    "completionNonce"
+  ],
+  "additionalProperties": false
+}
+```
+
+Result:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "code": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255
+    },
+    "stdout": {
+      "type": "string",
+      "maxLength": 4096
+    },
+    "stderr": {
+      "type": "string",
+      "maxLength": 4096
+    },
+    "timedOut": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "code",
+    "stdout",
+    "stderr",
+    "timedOut"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### `hostRunner.stream`
 
 Stage a fixed-script byte stream; progress framing is reserved for a later authority patch.

@@ -114,6 +114,12 @@ pacer polls every five seconds and mirrors output locally, so the normal task
 logs and progress views work. Restarting pacer resumes the recorded remote run.
 The agent is instructed to commit on its task branch and leave a clean worktree.
 
+If the selected agent needs a local runtime binary, pacer uploads it through the
+bundled SSH host runner's fixed command. The upload is limited to 128 MiB and
+verified against its SHA-256 hash on the host. A disabled provider, changed task
+or missing completion receipt stops the attempt without retrying direct SSH;
+inspect the host before retrying an uncertain upload.
+
 Before returning results, pacer requires:
 
 - The task branch descends from the recorded base.

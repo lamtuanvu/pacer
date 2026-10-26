@@ -54,6 +54,7 @@ import { consumeConfiguredHostReport, validateConfiguredHostReport, type Configu
 import { consumeConfiguredHostReadFrom, validateConfiguredHostReadFrom, type ConfiguredHostReadFromGrant } from "./host-read-from-issuer";
 import { consumeConfiguredHostSessionSocket, validateConfiguredHostSessionSocket, type ConfiguredHostSessionSocketGrant } from "./host-session-socket-issuer";
 import { consumeConfiguredHostBinaryCheck, validateConfiguredHostBinaryCheck, type ConfiguredHostBinaryCheckGrant } from "./host-binary-check-issuer";
+import { consumeConfiguredHostBinaryUpload, validateConfiguredHostBinaryUpload, validateConfiguredHostBinaryUploadState, type ConfiguredHostBinaryUploadGrant } from "./host-binary-upload-issuer";
 import { beginWorkSync, finishWorkSync } from "../update/desktop/admission";
 import { z } from "zod";
 
@@ -69,6 +70,7 @@ const HOST_REPORT_ISSUER = Symbol("host-report-issuer");
 const HOST_READ_FROM_ISSUER = Symbol("host-read-from-issuer");
 const HOST_SESSION_SOCKET_ISSUER = Symbol("host-session-socket-issuer");
 const HOST_BINARY_CHECK_ISSUER = Symbol("host-binary-check-issuer");
+const HOST_BINARY_UPLOAD_ISSUER = Symbol("host-binary-upload-issuer");
 const stagedFetchResult = z.object({ handle: z.string().regex(/^[a-f0-9-]{36}$/),
   bytes: z.number().int().nonnegative().max(50 * 1024 * 1024), sha256: z.string().regex(/^[a-f0-9]{64}$/) }).strict();
 type StagedFetchResult = z.infer<typeof stagedFetchResult>;
@@ -76,7 +78,7 @@ interface HostFetchAdmission { grant: PersistedFetchGrant; process: PluginProces
   claim: (authority: CallAuthority, staged: StagedFetchResult) => void | Promise<void> }
 interface HostCallerFetchAdmission { grant: PersistedFetchGrant;
   claim: (caller: CallAuthority, ticket: ClaimedBundleTicket) => void | Promise<void> }
-export interface PluginCallOptions { plannerResources?: PlannerResources; credentialBindings?: readonly CredentialBinding[]; classifierConfig?: ClassifierConfig; resources?: CallResources; accountHome?: string | null; deadlineMs?: number; signal?: AbortSignal; onProgress?: (event: unknown) => void; /** Internal host-lease binding: never restart or substitute this provider. */ expectedProcess?: PluginProcess; [HOST_CHECK_ISSUER]?: true; [HOST_FETCH_ISSUER]?: HostFetchAdmission; [HOST_CALL_FETCH_ISSUER]?: HostCallerFetchAdmission; [HOST_CALL_IDENTITY_ISSUER]?: ConfiguredHostIdentityGrant; [HOST_CALL_QUESTION_ISSUER]?: PersistedQuestionGrant; [HOST_CALL_USAGE_ISSUER]?: ConfiguredRemoteUsageGrant; [HOST_PROVIDER_MUTATION_ISSUER]?: true; [HOST_REPORT_ISSUER]?: true; [HOST_READ_FROM_ISSUER]?: true; [HOST_SESSION_SOCKET_ISSUER]?: true; [HOST_BINARY_CHECK_ISSUER]?: true }
+export interface PluginCallOptions { plannerResources?: PlannerResources; credentialBindings?: readonly CredentialBinding[]; classifierConfig?: ClassifierConfig; resources?: CallResources; accountHome?: string | null; deadlineMs?: number; signal?: AbortSignal; onProgress?: (event: unknown) => void; /** Internal host-lease binding: never restart or substitute this provider. */ expectedProcess?: PluginProcess; [HOST_CHECK_ISSUER]?: true; [HOST_FETCH_ISSUER]?: HostFetchAdmission; [HOST_CALL_FETCH_ISSUER]?: HostCallerFetchAdmission; [HOST_CALL_IDENTITY_ISSUER]?: ConfiguredHostIdentityGrant; [HOST_CALL_QUESTION_ISSUER]?: PersistedQuestionGrant; [HOST_CALL_USAGE_ISSUER]?: ConfiguredRemoteUsageGrant; [HOST_PROVIDER_MUTATION_ISSUER]?: true; [HOST_REPORT_ISSUER]?: true; [HOST_READ_FROM_ISSUER]?: true; [HOST_SESSION_SOCKET_ISSUER]?: true; [HOST_BINARY_CHECK_ISSUER]?: true; [HOST_BINARY_UPLOAD_ISSUER]?: true }
 export interface RegistryDeps { bundled: BundledPlugin[]; spawnBundled: (ctx: Ctx, id: string) => SpawnSpec; spawn?: typeof nodeSpawn; sleep?: (ms: number) => Promise<void>; eventPumpMs?:number }
 export interface PluginInfo { id: string; version: string; publisher: string; tier: "free" | "commercial"; bundled: boolean; enabled: boolean; state: PluginState; contributes: string[]; capabilities: { name: string; scopes?: string[] }[]; grant: PluginGrant | null; error: string | null; pid: number | null }
 export interface DoctorReport { id: string; ok: boolean; state: PluginState; served: string[]; protocol: { host: string; plugin: string | null }; pid: number | null; restarts: number; error: string | null; needs: string | null }
@@ -467,6 +469,81 @@ export class PluginRegistry {
         finishWorkSync(ctx, nonce);
         await validateConfiguredHostPrepare(ctx, grant);
         if (!active()) throw new CoreError("capability_denied", "configured prepare host changed after completion");
+        return { ...result, stdout: result.stdout.slice(0, -receipt.length) };
+      } catch (error) {
+        if (!started) finishWorkSync(ctx, nonce);
+        throw error;
+      }
+    } finally {
+      clearInterval(watch); signal?.removeEventListener("abort", cancel);
+      if (session) await this.call(ctx, provider.id, "hostRunner.close", { session },
+        { deadlineMs: 5000, expectedProcess: process }).catch(() => {});
+    }
+  }
+
+  /** Host-only one-use binary upload with an exact, bounded stdin snapshot. */
+  async uploadConfiguredHostBinary(ctx: Ctx, grant: ConfiguredHostBinaryUploadGrant, signal?: AbortSignal): Promise<{ code: number; stdout: string; stderr: string; timedOut: boolean }> {
+    const input = consumeConfiguredHostBinaryUpload(ctx, grant);
+    const { alias, args, hostFingerprint } = grant.resource;
+    const host = loadStrategy(ctx).hosts[alias];
+    if (!host || JSON.stringify(host) !== hostFingerprint)
+      throw new CoreError("capability_denied", "configured binary upload host changed");
+    const providers = this.findAll(ctx, "hostRunner", contribution =>
+      Array.isArray(contribution.kinds) && contribution.kinds.length === 1 && contribution.kinds[0] === "ssh");
+    if (providers.length !== 1 || providers[0] !== "pacer-ssh")
+      throw new CoreError("plugin_unavailable", "bundled SSH host runner provider is required");
+    const provider = this.entries.get(providers[0]!)!;
+    await this.call(ctx, provider.id, "diagnostic.ping", {}, { deadlineMs: 5000, signal });
+    const process = provider.process, generation = this.hostGeneration(ctx, provider);
+    if (!process?.alive || !provider.served.includes("hostRunner"))
+      throw new CoreError("plugin_unavailable", "SSH host runner provider is not ready");
+    const directory = controlDir(ctx), original = lstatSync(directory);
+    if (!original.isDirectory() || (original.mode & 0o077) !== 0 ||
+      (globalThis.process.getuid && original.uid !== globalThis.process.getuid()))
+      throw new CoreError("capability_denied", "SSH control directory is not private");
+    const controlPath = join(directory, "cm-%C"), timeoutMs = grant.resource.timeoutMs;
+    const active = () => {
+      try { validateConfiguredHostBinaryUploadState(ctx, grant); } catch { return false; }
+      const current = loadStrategy(ctx).hosts[alias], now = lstatSync(directory);
+      return current && !current.paused && JSON.stringify(current) === hostFingerprint &&
+        provider.process === process && process.alive && this.hostGeneration(ctx, provider) === generation &&
+        now.isDirectory() && now.dev === original.dev && now.ino === original.ino &&
+        now.uid === original.uid && (now.mode & 0o7777) === (original.mode & 0o7777);
+    };
+    if (!active()) throw new CoreError("capability_denied", "configured binary upload snapshot changed");
+    const controller = new AbortController();
+    const cancel = () => controller.abort(new CoreError("capability_denied", "configured binary upload retired"));
+    signal?.addEventListener("abort", cancel, { once: true });
+    const watch = setInterval(() => { try { if (!active()) cancel(); } catch { cancel(); } }, 100);
+    watch.unref();
+    let session: string | undefined;
+    try {
+      const opened = await this.call<{ session: string }>(ctx, provider.id, "hostRunner.open",
+        { alias, sshTarget: host.ssh, controlPath },
+        { deadlineMs: 10_000, signal: controller.signal, expectedProcess: process });
+      session = opened.session;
+      validateConfiguredHostBinaryUpload(ctx, grant);
+      if (controller.signal.aborted || !active()) throw new CoreError("capability_denied", "configured binary upload retired");
+      const nonce = beginWorkSync(ctx, { kind: "operation", id: randomUUID(), label: `Remote binary upload operation on ${alias}` });
+      let started = false;
+      try {
+        const argv = sshArgv(ctx, host, SCRIPTS.BINARY, [...args], nonce);
+        if (!argv.includes(`ControlPath=${controlPath}`) || !active())
+          throw new CoreError("capability_denied", "configured binary upload SSH path changed");
+        started = true;
+        const result = await this.call<{ code: number; stdout: string; stderr: string; timedOut: boolean }>(
+          ctx, provider.id, "hostRunner.upload",
+          { session, script: "BINARY", args: [...args], timeoutMs, maxBytes: grant.resource.maxBytes, completionNonce: nonce },
+          { deadlineMs: timeoutMs + 10_000, signal: controller.signal, expectedProcess: process,
+            resources: { reads: [], commands: [{ argv, timeoutMs, mode: "binary-upload", input,
+              inputSha256: createHash("sha256").update(input).digest("hex") }], stores: [] },
+            [HOST_BINARY_UPLOAD_ISSUER]: true });
+        const receipt = `\n__PACER_DONE__=${nonce}\n`;
+        if (result.timedOut || result.code === 255 || !result.stdout.endsWith(receipt))
+          throw new CoreError("plugin_refused", "remote binary upload completion is unverified");
+        finishWorkSync(ctx, nonce);
+        validateConfiguredHostBinaryUpload(ctx, grant);
+        if (!active()) throw new CoreError("capability_denied", "configured binary upload host changed after completion");
         return { ...result, stdout: result.stdout.slice(0, -receipt.length) };
       } catch (error) {
         if (!started) finishWorkSync(ctx, nonce);
@@ -1385,6 +1462,11 @@ export class PluginRegistry {
     if (method === "hostRunner.run" && (params as { script?: string } | null)?.script === "BINARY" &&
       !options[HOST_BINARY_CHECK_ISSUER])
       throw new CoreError("capability_denied", "remote binary check requires host-owned issuance");
+    if (method === "hostRunner.upload" && !options[HOST_BINARY_UPLOAD_ISSUER])
+      throw new CoreError("capability_denied", "binary upload requires host-owned issuance");
+    if (options.resources?.commands.some(command => command.mode === "binary-upload") &&
+      (!options[HOST_BINARY_UPLOAD_ISSUER] || method !== "hostRunner.upload"))
+      throw new CoreError("capability_denied", "binary upload input requires host-owned issuance");
     if (options.resources?.commands.some(command => command.mode === "prepare-bundle") &&
       (!options[HOST_PROVIDER_MUTATION_ISSUER] || method !== "hostRunner.run" ||
         (params as { script?: string } | null)?.script !== "PREPARE"))
@@ -1513,7 +1595,7 @@ export class PluginRegistry {
             if(hostRunner && (method === "hostRunner.stream" || method === "hostRunner.fetch") &&
               (output.data as {bytes:number}).bytes > (input as {maxBytes:number}).maxBytes)
               throw new CoreError("plugin_refused", "host runner exceeded the requested byte limit");
-            if(method === "hostRunner.run" &&
+            if((method === "hostRunner.run" || method === "hostRunner.upload") &&
               Buffer.byteLength((output.data as {stdout:string;stderr:string}).stdout) + Buffer.byteLength((output.data as {stdout:string;stderr:string}).stderr) > (input as {maxBytes:number}).maxBytes)
               throw new CoreError("plugin_refused", "host runner exceeded the requested byte limit");
             return output.data as T;

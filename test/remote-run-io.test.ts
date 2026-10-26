@@ -12,6 +12,7 @@ import { issueConfiguredHostReport, consumeConfiguredHostReport } from "../src/p
 import { issueConfiguredHostReadFrom, consumeConfiguredHostReadFrom } from "../src/plugins/host-read-from-issuer";
 import { issueConfiguredHostSessionSocket, consumeConfiguredHostSessionSocket } from "../src/plugins/host-session-socket-issuer";
 import { issueConfiguredHostBinaryCheck, consumeConfiguredHostBinaryCheck } from "../src/plugins/host-binary-check-issuer";
+import { issueConfiguredHostBinaryUpload, consumeConfiguredHostBinaryUpload } from "../src/plugins/host-binary-upload-issuer";
 import { pluginRegistry } from "../src/plugins";
 
 const host = { alias: "box", ssh: "box-ssh", repos: {}, maxTasks: 2, accounts: {} };
@@ -182,6 +183,41 @@ test("disabled SSH provider refuses BINARY check without direct SSH fallback", a
   const grant = issueConfiguredHostBinaryCheck(ctx, "box", remote, local, "a".repeat(64));
   await expect(registry.checkConfiguredHostBinary(ctx, grant)).rejects.toMatchObject({ code: "plugin_unavailable" });
   expect(existsSync(log) ? readFileSync(log, "utf8") : "").toBe(before);
+});
+
+test("BINARY upload grant binds one persisted run and exact private bytes", async () => {
+  const { ctx, remote, local, log } = setup();
+  const bytes = randomBytes(8193), registry = pluginRegistry(ctx);
+  const hash = new Bun.CryptoHasher("sha256").update(bytes).digest("hex");
+  await expect(registry.call(ctx, "pacer-ssh", "hostRunner.upload", {
+    session: "a".repeat(32), script: "BINARY", args: [hash, "upload"],
+    timeoutMs: 300_000, maxBytes: 4096, completionNonce: "a".repeat(8) + "-aaaa-4aaa-aaaa-aaaaaaaaaaaa",
+  })).rejects.toMatchObject({ code: "capability_denied" });
+  const grant = issueConfiguredHostBinaryUpload(ctx, "box", remote, local, bytes);
+  bytes.fill(0);
+  expect(Buffer.from(consumeConfiguredHostBinaryUpload(ctx, grant))).not.toEqual(bytes);
+  expect(() => consumeConfiguredHostBinaryUpload(ctx, grant)).toThrow();
+  const stale = issueConfiguredHostBinaryUpload(ctx, "box", remote, local, randomBytes(32));
+  const taskId = remote.split("/").at(-2)!;
+  updateTask(ctx, taskId, task => { task.state = "queued"; });
+  expect(() => consumeConfiguredHostBinaryUpload(ctx, stale)).toThrow();
+  expect(existsSync(log) ? readFileSync(log, "utf8") : "").not.toContain(hash);
+});
+
+test("disabled SSH provider refuses BINARY upload without direct SSH fallback", async () => {
+  const { ctx, remote, local, log } = setup();
+  const registry = pluginRegistry(ctx);
+  await registry.disable(ctx, "pacer-ssh");
+  const before = existsSync(log) ? readFileSync(log, "utf8") : "";
+  const grant = issueConfiguredHostBinaryUpload(ctx, "box", remote, local, randomBytes(32));
+  await expect(registry.uploadConfiguredHostBinary(ctx, grant)).rejects.toMatchObject({ code: "plugin_unavailable" });
+  expect(existsSync(log) ? readFileSync(log, "utf8") : "").toBe(before);
+});
+
+test("BINARY upload refuses bytes beyond its 128 MiB cap", () => {
+  const { ctx, remote, local } = setup();
+  expect(() => issueConfiguredHostBinaryUpload(ctx, "box", remote, local,
+    new Uint8Array(128 * 1024 * 1024 + 1))).toThrow();
 });
 async function exited(io: RemoteRunIO): Promise<RunState> {
   const end = Date.now() + 8000;
@@ -562,11 +598,56 @@ test("release upload is content addressed, host verified, reused and repaired",a
   await ensureRemoteBinary(ctx,host,remote,local,{binary});
   expect(readFileSync(installed)).toEqual(bytes);
   for(const dir of dirs)expect(statSync(dir).mode&0o777).toBe(0o700);
-  const run=ctx.run;
-  ctx.run=(argv,ms,o)=>run(argv,ms,o?.stdin?{...o,stdin:Buffer.from("bad upload").toString("base64")}:o);
+  // The broker owns upload stdin, so corrupt it at the fake SSH transport boundary.
+  const ssh=ctx.which("ssh")!;
+  writeFileSync(ssh,readFileSync(ssh,"utf8").replace('"$@"','"$@" </dev/null'),{mode:0o755});
   writeFileSync(installed,"corrupt again");
   await expect(ensureRemoteBinary(ctx,host,remote,local,{binary})).rejects.toThrow("hash");
 });
+
+test("lost binary upload receipt stays unverified after the remote file is written", async () => {
+  const { ctx, home, remote, local, log } = setup();
+  const { ensureRemoteBinary } = await import("../src/remote/runtime");
+  const binary = join(tmpDir(), "pacer"); writeFileSync(binary, "receipt fixture");
+  const hash = new Bun.CryptoHasher("sha256").update(readFileSync(binary)).digest("hex");
+  const ssh = ctx.which("ssh")!, source = readFileSync(ssh, "utf8");
+  const command = `exec ${JSON.stringify(join(import.meta.dir, "fixtures", "bin", "ssh"))} "$@"`;
+  expect(source).toContain(command);
+  const fakeSsh = command.slice(5);
+  writeFileSync(ssh, source.replace(command, `for arg in "$@"; do last="$arg"; done
+case "$last" in
+  *" upload") ${fakeSsh} | sed '/__PACER_DONE__/d' ;;
+  *) exec ${fakeSsh} ;;
+esac`), { mode: 0o755 });
+  await expect(ensureRemoteBinary(ctx, host, remote, local, { binary }))
+    .rejects.toThrow("completion is unverified");
+  expect(readFileSync(join(home, ".pacer-remote", "bin", hash, "pacer"))).toEqual(readFileSync(binary));
+  expect(readFileSync(log, "utf8")).toContain("upload");
+});
+
+test("persisted run drift cancels an in-flight binary upload before its remote write", async () => {
+  const { ctx, home, remote, local } = setup();
+  const { ensureRemoteBinary } = await import("../src/remote/runtime");
+  const binary = join(tmpDir(), "pacer"); writeFileSync(binary, "drift fixture");
+  const hash = new Bun.CryptoHasher("sha256").update(readFileSync(binary)).digest("hex");
+  const marker = join(home, "upload-started"), ssh = ctx.which("ssh")!;
+  const source = readFileSync(ssh, "utf8");
+  const command = `exec ${JSON.stringify(join(import.meta.dir, "fixtures", "bin", "ssh"))} "$@"`;
+  expect(source).toContain(command);
+  const fakeSsh = command.slice(5);
+  writeFileSync(ssh, source.replace(command, `for arg in "$@"; do last="$arg"; done
+case "$last" in
+  *" upload") printf ready > ${JSON.stringify(marker)}; sleep 2; exec ${fakeSsh} ;;
+  *) exec ${fakeSsh} ;;
+esac`), { mode: 0o755 });
+  const pending = ensureRemoteBinary(ctx, host, remote, local, { binary });
+  for (let i = 0; i < 100 && !existsSync(marker); i++) await Bun.sleep(20);
+  expect(existsSync(marker)).toBe(true);
+  const taskId = remote.split("/").at(-2)!;
+  updateTask(ctx, taskId, task => { task.state = "queued"; });
+  await expect(pending).rejects.toThrow();
+  expect(existsSync(join(home, ".pacer-remote", "bin", hash, "pacer"))).toBe(false);
+}, 10000);
 
 test("timed-out or malformed binary cache checks never trigger direct upload", async () => {
   const { ctx, remote, local } = setup();
