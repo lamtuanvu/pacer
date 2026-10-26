@@ -1,3 +1,4 @@
+import {enableReviewed} from "./fixtures/plugin-consent";
 import { expect, test } from "bun:test";
 import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -69,7 +70,7 @@ test("registry host claim runs before provider authority is revoked", async () =
   f.ctx.env.PATH = `${dirname(process.execPath)}:/usr/bin:/bin`;
   const registry = new PluginRegistry({ bundled: [], spawnBundled: () => { throw Error("no bundled provider"); }, eventPumpMs: 0 });
   try {
-    await registry.enable(f.ctx, "fx-host-runner", true);
+    await enableReviewed(registry, f.ctx, "fx-host-runner");
     const badGrant = issuePersistedFetch(f.ctx, f.taskId, 1);
     await expect(registry.callIssuedHostFetch(f.ctx, "fx-host-runner", badGrant,
       { session: "s".repeat(32), script: "BUNDLE_OUT", args: ["/remote/other", "a".repeat(40), `pacer/${f.taskId}`],
@@ -102,7 +103,7 @@ test("registry refuses a provider's public filename as an unclaimed staged resul
   f.ctx.env.PATH = `${dirname(process.execPath)}:/usr/bin:/bin`;
   const registry = new PluginRegistry({ bundled: [], spawnBundled: () => { throw Error("no bundled provider"); }, eventPumpMs: 0 });
   try {
-    await registry.enable(f.ctx, "fx-host-runner", true);
+    await enableReviewed(registry, f.ctx, "fx-host-runner");
     const grant = issuePersistedFetch(f.ctx, f.taskId, 1);
     let claimed = false;
     await expect(registry.callIssuedHostFetch(f.ctx, "fx-host-runner", grant,
@@ -123,7 +124,7 @@ test("task revision retirement during provider fetch prevents the host claim", a
   f.ctx.env.PATH = `${dirname(process.execPath)}:/usr/bin:/bin`;
   const registry = new PluginRegistry({ bundled: [], spawnBundled: () => { throw Error("no bundled provider"); }, eventPumpMs: 0 });
   try {
-    await registry.enable(f.ctx, "fx-host-runner", true);
+    await enableReviewed(registry, f.ctx, "fx-host-runner");
     const grant = issuePersistedFetch(f.ctx, f.taskId, 1);
     let claimed = false;
     const pending = registry.callIssuedHostFetch(f.ctx, "fx-host-runner", grant,
@@ -153,7 +154,7 @@ test("provider configuration retirement during an async claim prevents success",
   f.ctx.env.PATH = `${dirname(process.execPath)}:/usr/bin:/bin`;
   const registry = new PluginRegistry({ bundled: [], spawnBundled: () => { throw Error("no bundled provider"); }, eventPumpMs: 0 });
   try {
-    await registry.enable(f.ctx, "fx-host-runner", true);
+    await enableReviewed(registry, f.ctx, "fx-host-runner");
     const grant = issuePersistedFetch(f.ctx, f.taskId, 1);
     await expect(registry.callIssuedHostFetch(f.ctx, "fx-host-runner", grant,
       { session: "s".repeat(32), script: "BUNDLE_OUT", args: grant.resource.args, timeoutMs: 5000, maxBytes: 16 },

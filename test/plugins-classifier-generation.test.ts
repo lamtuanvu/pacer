@@ -7,6 +7,7 @@ import { PluginRegistry } from '../src/plugins/registry';
 import { validateClassifier } from '../src/config/classifier';
 import type { CallAuthority } from '../src/plugins/authority';
 import { fakeCtx } from './helpers';
+import {fixtureConsent} from './fixtures/plugin-consent';
 
 const roots: string[] = [];
 const registries: PluginRegistry[] = [];
@@ -161,6 +162,7 @@ plugins:
     pacer-classify:
       version: 0.2.0
       capabilities: [net.http, secrets.resolve, config.get, log]
+      consent: ${fixtureConsent(installed)}
   config:
     pacer-classify:
       genericOwned: true

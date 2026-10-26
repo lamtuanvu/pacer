@@ -1,3 +1,4 @@
+import {enableReviewed} from "./fixtures/plugin-consent";
 import { expect, test } from "bun:test";
 import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -39,7 +40,7 @@ test("host-owned identity grant pins one SSH effect and hides its completion rec
     const ctx = fakeCtx({ home, pacerHome, run: realRun,
       env: { PATH: `${bin}:${dirname(process.execPath)}:/usr/bin:/bin` },
       which: name => name === "ssh" ? ssh : null });
-    await registry.enable(ctx, "pacer-ssh", true);
+    await enableReviewed(registry, ctx, "pacer-ssh");
     await expect(registry.call(ctx, "host-broker-caller", "diagnostic.ping", { mode: "identity" }))
       .rejects.toMatchObject({ code: "capability_denied" });
     const grant = await issueConfiguredHostIdentity(ctx, "box", repo);

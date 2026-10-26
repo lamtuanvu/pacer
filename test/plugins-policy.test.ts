@@ -6,6 +6,7 @@ import {fakeCtx} from "./helpers";
 import {pluginRegistry,shutdownPlugins} from "../src/plugins";
 import {applyPolicy,policySummary} from "../src/plugins/policy";
 import {readActivity} from "../src/activity/log";
+import {fixtureConsent} from "./fixtures/plugin-consent";
 
 const homes:ReturnType<typeof fakeCtx>[]=[];
 afterEach(async()=>{await Promise.all(homes.splice(0).map(ctx=>shutdownPlugins(ctx)));});
@@ -15,11 +16,12 @@ function fixture(mode="open") {
   mkdirSync(ctx.pacerHome,{recursive:true});
   let starts=0;
   const registry=pluginRegistry(ctx,{bundled:[],spawnBundled:()=>{throw Error("no bundles");},sleep:async()=>{},spawn:((...args:Parameters<typeof spawn>)=>{starts++;return spawn(...args);}) as typeof spawn});
-  const configure=(nextMode=mode,extra:Record<string,unknown>={})=>writeFileSync(join(ctx.pacerHome,"strategy.yaml"),JSON.stringify({planner:"claude-code",providers:{"claude-code":{}},plugins:{policy:{mode:nextMode},installed:{"fx-policy":{version:"1.0.0",capabilities:[]}},...extra}}));
+  const manifest={id:"fx-policy",version:"1.0.0",publisher:"test",host:"^1",entry:"main.ts",capabilities:[],contributes:{policy:{}}};
+  const configure=(nextMode=mode,extra:Record<string,unknown>={})=>writeFileSync(join(ctx.pacerHome,"strategy.yaml"),JSON.stringify({planner:"claude-code",providers:{"claude-code":{}},plugins:{policy:{mode:nextMode},installed:{"fx-policy":{version:"1.0.0",capabilities:[],consent:fixtureConsent(manifest)}},...extra}}));
   configure();
   const install=(verdict:unknown={verdict:"allow"},delay=0)=>{
     const dir=join(ctx.pacerHome,"plugins","fx-policy");mkdirSync(dir,{recursive:true});
-    writeFileSync(join(dir,"pacer-plugin.json"),JSON.stringify({id:"fx-policy",version:"1.0.0",publisher:"test",host:"^1",entry:"main.ts",capabilities:[],contributes:{policy:{}}}));
+    writeFileSync(join(dir,"pacer-plugin.json"),JSON.stringify(manifest));
     writeFileSync(join(dir,"settings.json"),JSON.stringify({verdict,delay}));
     writeFileSync(join(dir,"main.ts"),`#!${process.execPath}\nimport {readFileSync,appendFileSync} from "node:fs";\nfor await(const line of console) {const r=JSON.parse(line); if(!r.id)continue;let result;if(r.method==="plugin.hello")result={protocol:r.params.protocol,id:"fx-policy",version:"1.0.0",contributes:["policy"]};else if(r.method==="policy.before"){appendFileSync("calls.jsonl",JSON.stringify(r.params)+"\\n");const s=JSON.parse(readFileSync("settings.json","utf8"));await Bun.sleep(s.delay);result=s.verdict;}else result={ok:true};console.log(JSON.stringify({jsonrpc:"2.0",id:r.id,result}));}\n`);
     chmodSync(join(dir,"main.ts"),0o755);return dir;

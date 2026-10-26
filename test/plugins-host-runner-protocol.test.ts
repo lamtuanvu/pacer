@@ -1,3 +1,4 @@
+import {enableReviewed} from "./fixtures/plugin-consent";
 import {expect,test} from "bun:test";
 import {existsSync,mkdirSync,mkdtempSync,readFileSync,rmSync,symlinkSync,writeFileSync} from "node:fs";
 import {tmpdir} from "node:os";
@@ -46,7 +47,7 @@ test("installed fake runner validates input and every result without SSH",async(
   const folder=installFixture("host-runner",join(ctx.pacerHome,"plugins"));
   const registry=new PluginRegistry({bundled:[],spawnBundled:()=>{throw Error("no bundle");},eventPumpMs:0});
   try{
-    await registry.enable(ctx,"fx-host-runner",true);
+    await enableReviewed(registry, ctx, "fx-host-runner");
     expect(registry.list(ctx)[0]?.pid).toBeNull();
     const doctor=(await registry.doctor(ctx,"fx-host-runner"))[0];expect(doctor?.ok).toBe(true);expect(doctor?.served).toContain("hostRunner");
     const args:Record<string,unknown>={

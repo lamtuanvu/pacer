@@ -1,3 +1,4 @@
+import {enableReviewed} from "./fixtures/plugin-consent";
 import { expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -21,7 +22,7 @@ test("host broker forwards a fixed script through one selected provider and reti
   const registry = new PluginRegistry({ bundled: [{ manifest, main: async () => ({ handlers: {} }) }],
     spawnBundled: () => ({ argv: [process.execPath, join(import.meta.dir, "fixtures", "host-broker", "caller.ts")], cwd: home, env: {} }), eventPumpMs: 0 });
   try {
-    await registry.enable(ctx, "fx-host-runner", true);
+    await enableReviewed(registry, ctx, "fx-host-runner");
     const result = await registry.call<{ output: string; session: string }>(ctx, "host-broker-caller", "diagnostic.ping", {});
     expect(result.output).toBe("");
     expect(result.session).toMatch(/^[A-Za-z0-9_-]{16,128}$/);
@@ -32,7 +33,7 @@ test("host broker forwards a fixed script through one selected provider and reti
     const provider = (registry as unknown as { entries: Map<string, { process?: PluginProcess }> })
       .entries.get("fx-host-runner")!.process!;
     await registry.disable(ctx, "fx-host-runner");
-    await registry.enable(ctx, "fx-host-runner", true);
+    await enableReviewed(registry, ctx, "fx-host-runner");
     await expect(registry.call(ctx, "fx-host-runner", "hostRunner.open",
       { alias: "box", sshTarget: "ssh-fixture" }, { deadlineMs: 1000, expectedProcess: provider }))
       .rejects.toMatchObject({ code: "capability_denied" });

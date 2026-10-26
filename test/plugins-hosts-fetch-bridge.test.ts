@@ -1,3 +1,4 @@
+import {enableReviewed} from "./fixtures/plugin-consent";
 import { expect, test } from "bun:test";
 import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync,
   symlinkSync, writeFileSync } from "node:fs";
@@ -71,7 +72,7 @@ case "$*" in
 esac
 `);
     chmodSync(f.fakeSsh, 0o755);
-    await f.registry.enable(f.ctx, "pacer-ssh", true);
+    await enableReviewed(f.registry, f.ctx, "pacer-ssh");
     const grant = issuePersistedFetch(f.ctx, f.taskId, 1, 1024 * 1024, 5000);
     let publishedPath = "";
     const response = await f.registry.callWithIssuedHostFetch<{ fetched: { ok: true } }>(f.ctx,
@@ -112,7 +113,7 @@ esac
 test("dirty remote preflight refuses bundle staging before the fetch effect", async () => {
   const f = fixture(undefined, `ancestor=1\\ndirty=1\\ncommits=1\\nhead=${"b".repeat(40)}\\n`);
   try {
-    await f.registry.enable(f.ctx, "pacer-ssh", true);
+    await enableReviewed(f.registry, f.ctx, "pacer-ssh");
     const grant = issuePersistedFetch(f.ctx, f.taskId, 1, 16, 5000);
     let claimed = false;
     await expect(f.registry.callWithIssuedHostFetch(f.ctx, "host-broker-caller", "diagnostic.ping",
@@ -128,7 +129,7 @@ test("dirty remote preflight refuses bundle staging before the fetch effect", as
 test("caller fetch requires a host-attached grant and claims the private stage before provider revoke", async () => {
   const f = fixture();
   try {
-    await f.registry.enable(f.ctx, "pacer-ssh", true);
+    await enableReviewed(f.registry, f.ctx, "pacer-ssh");
     await expect(f.registry.call(f.ctx, "host-broker-caller", "diagnostic.ping", { mode: "fetch" }))
       .rejects.toMatchObject({ code: "capability_denied" });
     expect(existsSync(join(f.home, "ssh-argv.log"))).toBe(false);
@@ -156,7 +157,7 @@ test("caller fetch requires a host-attached grant and claims the private stage b
 test("a failed host claim cleans the transferred private stage", async () => {
   const f = fixture();
   try {
-    await f.registry.enable(f.ctx, "pacer-ssh", true);
+    await enableReviewed(f.registry, f.ctx, "pacer-ssh");
     const grant = issuePersistedFetch(f.ctx, f.taskId, 1, 16, 5000);
     let stagePath = "";
     await expect(f.registry.callWithIssuedHostFetch(f.ctx, "host-broker-caller", "diagnostic.ping",
@@ -173,7 +174,7 @@ test("a failed host claim cleans the transferred private stage", async () => {
 test("a task revision during an asynchronous host claim prevents success and cleans the stage", async () => {
   const f = fixture();
   try {
-    await f.registry.enable(f.ctx, "pacer-ssh", true);
+    await enableReviewed(f.registry, f.ctx, "pacer-ssh");
     const grant = issuePersistedFetch(f.ctx, f.taskId, 1, 16, 5000);
     let stagePath = "";
     await expect(f.registry.callWithIssuedHostFetch(f.ctx, "host-broker-caller", "diagnostic.ping",
@@ -190,7 +191,7 @@ test("a task revision during an asynchronous host claim prevents success and cle
 test("provider generation retirement during an asynchronous host claim prevents success", async () => {
   const f = fixture();
   try {
-    await f.registry.enable(f.ctx, "pacer-ssh", true);
+    await enableReviewed(f.registry, f.ctx, "pacer-ssh");
     const grant = issuePersistedFetch(f.ctx, f.taskId, 1, 16, 5000);
     let stagePath = "";
     await expect(f.registry.callWithIssuedHostFetch(f.ctx, "host-broker-caller", "diagnostic.ping",
@@ -208,7 +209,7 @@ test("provider generation retirement during an asynchronous host claim prevents 
 test("caller cancellation during provider fetch returns no private claim", async () => {
   const f = fixture("sleep 2\nprintf '__PACER_BEGIN__\\nabc'");
   try {
-    await f.registry.enable(f.ctx, "pacer-ssh", true);
+    await enableReviewed(f.registry, f.ctx, "pacer-ssh");
     const grant = issuePersistedFetch(f.ctx, f.taskId, 1, 16, 5000);
     const cancel = new AbortController();
     let claimed = false;
@@ -229,7 +230,7 @@ test("caller cancellation during provider fetch returns no private claim", async
 test("caller cannot inject task, path, provider or SSH arguments into the fetch envelope", async () => {
   const f = fixture();
   try {
-    await f.registry.enable(f.ctx, "pacer-ssh", true);
+    await enableReviewed(f.registry, f.ctx, "pacer-ssh");
     const grant = issuePersistedFetch(f.ctx, f.taskId, 1, 16, 5000);
     for (const extra of [{ taskId: f.taskId }, { alias: "other" }, { sshTarget: "other" },
       { argv: ["ssh", "other"] }, { remoteWorktree: "/remote/other" }]) {

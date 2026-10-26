@@ -1,3 +1,4 @@
+import {enableReviewed} from "./fixtures/plugin-consent";
 import { expect, test } from "bun:test";
 import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -150,7 +151,7 @@ test("installed SSH provider stages BUNDLE_OUT bytes for the live host owner", a
     which: name => name === "ssh" ? fakeSsh : null, now: Date.now() / 1000 });
   const registry = new PluginRegistry({ bundled: [], spawnBundled: () => { throw Error("no bundled provider"); }, eventPumpMs: 0 });
   try {
-    await registry.enable(ctx, "pacer-ssh", true);
+    await enableReviewed(registry, ctx, "pacer-ssh");
     const task = createTask(ctx, { brief: { goal: "fetch", repo: home }, kind: null, requestedExecutor: null, timeoutS: 60 });
     updateTask(ctx, task.id, record => { record.run = { dir: join(pacerHome, "runs", task.id),
       attempt: 1, executor: "codex", startedAt: ctx.now, mode: "new", workdir: "/remote/worktree",
@@ -271,7 +272,7 @@ test("installed SSH reference provider uses only an issued probe through a fake 
   const registry = new PluginRegistry({ bundled: [{ manifest: callerManifest, main: async () => ({ handlers: {} }) }],
     spawnBundled: () => ({ argv: [process.execPath, join(import.meta.dir, "fixtures", "host-broker", "caller.ts")], cwd: home, env: {} }), eventPumpMs: 0 });
   try {
-    await registry.enable(ctx, "pacer-ssh", true);
+    await enableReviewed(registry, ctx, "pacer-ssh");
     const result = await registry.call<{ output: string }>(ctx, "host-broker-caller", "diagnostic.ping", {});
     expect(result.output).toBe("os=Fake\narch=test\n");
     const log = readFileSync(join(home, "ssh-argv.log"), "utf8");
@@ -310,7 +311,7 @@ test("host issues one exact check command to the installed provider", async () =
     which: name => name === "ssh" ? fakeSsh : null, now: Date.now() / 1000 });
   const registry = new PluginRegistry({ bundled: [], spawnBundled: () => { throw Error("no bundled caller"); }, eventPumpMs: 0 });
   try {
-    await registry.enable(ctx, "pacer-ssh", true);
+    await enableReviewed(registry, ctx, "pacer-ssh");
     await expect(registry.checkConfiguredHost(ctx, "box", "~/other"))
       .rejects.toMatchObject({ code: "capability_denied" });
     expect(existsSync(join(home, "ssh-calls.log"))).toBe(false);

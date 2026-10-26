@@ -1,3 +1,4 @@
+import {enableReviewed} from "./fixtures/plugin-consent";
 import {expect,test} from 'bun:test';
 import {mkdirSync,mkdtempSync,rmSync,symlinkSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
@@ -17,7 +18,7 @@ for(const change of ['grant','manifest','remove'] as const)test(`installed obser
  try{
   expect((await registry.doctor(ctx,'fx-observations'))[0]).toMatchObject({ok:false,state:'needs_grant',pid:null});
   expect((await registry.enable(ctx,'fx-observations',false)).state).toBe('needs_grant');
-  await registry.enable(ctx,'fx-observations',true);expect(registry.list(ctx)[0]?.pid).toBeNull();
+  await enableReviewed(registry, ctx, 'fx-observations');expect(registry.list(ctx)[0]?.pid).toBeNull();
   expect((await registry.doctor(ctx,'fx-observations'))[0]?.ok).toBe(true);
   const entry=(registry as any).entries.get('fx-observations'),owner=entry.readOwner;
   expect(owner).toBeDefined();owner.assertGranted('tasks.read');

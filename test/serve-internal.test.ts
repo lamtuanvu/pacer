@@ -5,6 +5,7 @@ import { main } from "../src/cli";
 import { startServer } from "../src/serve/http";
 import { fakeCtx } from "./helpers";
 import { executorEnv } from "../src/exec/process";
+import {fixtureConsent} from "./fixtures/plugin-consent";
 
 test("internal mode trusts only the internal token and keeps the bearer/cookie distinction", async () => {
   const ctx = fakeCtx({ now: Date.now() / 1000 });
@@ -56,10 +57,11 @@ test("internal core exits when its supervising stdin pipe closes", async () => {
   const ctx = fakeCtx();
   const pluginDir = join(ctx.pacerHome, "plugins", "fx-stubborn");
   mkdirSync(pluginDir, { recursive: true });
-  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders:\n  codex: {}\nplugins:\n  installed:\n    fx-stubborn:\n      version: 1.0.0\n      capabilities: []\n");
-  writeFileSync(join(pluginDir, "pacer-plugin.json"), JSON.stringify({
+  const manifest={
     id: "fx-stubborn", version: "1.0.0", publisher: "test", host: "^1", entry: "main.ts", capabilities: [],
-  }));
+  };
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), JSON.stringify({planner:"claude-code",providers:{codex:{}},plugins:{installed:{"fx-stubborn":{version:"1.0.0",capabilities:[],consent:fixtureConsent(manifest)}}}}));
+  writeFileSync(join(pluginDir, "pacer-plugin.json"), JSON.stringify(manifest));
   writeFileSync(join(pluginDir, "main.ts"), `#!/usr/bin/env bun
 import { createInterface } from "node:readline";
 process.on("SIGTERM", () => {});
