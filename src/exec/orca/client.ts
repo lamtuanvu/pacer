@@ -1,5 +1,7 @@
 import type { RunFn } from "../../types";
 import { isObj } from "../../util";
+import { sanitizedOrcaEnv } from "../../orca/env";
+export { sanitizedOrcaEnv };
 
 export interface OrcaError { code: string; message: string }
 export type OrcaReply<T> = { ok: true; result: T } | { ok: false; error: OrcaError };
@@ -93,15 +95,6 @@ export function isReady(r: OrcaReply<StatusResult>): boolean {
 
 export function isLiveTerminal(r: OrcaReply<{ terminal?: TerminalRow }>): boolean {
   return r.ok && r.result.terminal?.connected === true && r.result.terminal?.writable === true;
-}
-
-/** Remove caller attestation: pacer owns its coordinator identity. */
-export function sanitizedOrcaEnv(source: Record<string,string|undefined> = process.env): Record<string,string|undefined> {
-  const env = {...source}, named = source.ORCA_AGENT_SESSION_ID_ENV;
-  for (const key of Object.keys(env)) {
-    if (["ORCA_AGENT_SESSION_ID","ORCA_AGENT_SESSION_ID_ENV","ORCA_TERMINAL_HANDLE","ORCA_PANE_KEY","ORCA_TAB_ID","ORCA_WORKTREE_ID","ORCA_AGENT_LAUNCH_TOKEN",named].includes(key) || key.startsWith("ORCA_AGENT_HOOK_") || key.startsWith("ORCA_SESSION_")) delete env[key];
-  }
-  return env;
 }
 
 /** Every orca CLI call pacer makes. `run` is injectable (Ctx.run), so tests answer from recorded receipts. */

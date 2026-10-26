@@ -1,7 +1,7 @@
 import { statSync } from "node:fs";
 import { join } from "node:path";
 import { orcaUserDataDir } from "../link/paths";
-import { sanitizedOrcaEnv } from "../exec/orca/client";
+import { sanitizedOrcaEnv } from "./env";
 import type { Ctx } from "../types";
 import { isObj, toNum } from "../util";
 
