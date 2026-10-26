@@ -3,6 +3,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "n
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { issueConfiguredHostPrepare, consumeConfiguredHostPrepare } from "../src/plugins/host-prepare-issuer";
+import { issueConfiguredHostAttemptPreflight, consumeConfiguredHostAttemptPreflight } from "../src/plugins/host-attempt-preflight-issuer";
 import { pluginRegistry } from "../src/plugins";
 import { runAttempt, resumeAttempt } from "../src/exec/direct";
 import { loadStrategy } from "../src/config/strategy";
@@ -204,6 +205,89 @@ test("a second remote attempt reuses a branch left at base", async () => {
   const second = await runAttempt(f.ctx, f.cfg, readTask(f.ctx, f.task.id)!);
   expect(second.exec.code).toBe(0);
   expect(readTask(f.ctx, f.task.id)!.run).toHaveProperty("remoteBranch", `pacer/${f.task.id}`);
+}, 60000);
+
+test("post-exit PREFLIGHT is one-use and bound to the persisted run", async () => {
+  const f = await setup();
+  expect((await runAttempt(f.ctx, f.cfg, f.task)).exec.code).toBe(0);
+  const run = readTask(f.ctx, f.task.id)!.run!;
+  await expect(pluginRegistry(f.ctx).call(f.ctx, "pacer-ssh", "hostRunner.run", {
+    session: "a".repeat(32), script: "PREFLIGHT",
+    args: [run.remoteWorktree, run.baseSha, run.remoteBranch], timeoutMs: 60_000, maxBytes: 65_536,
+  })).rejects.toMatchObject({ code: "capability_denied" });
+  const grant = issueConfiguredHostAttemptPreflight(f.ctx, f.task.id, run.attempt);
+  consumeConfiguredHostAttemptPreflight(f.ctx, grant);
+  expect(() => consumeConfiguredHostAttemptPreflight(f.ctx, grant)).toThrow();
+  const stale = issueConfiguredHostAttemptPreflight(f.ctx, f.task.id, run.attempt);
+  updateTask(f.ctx, f.task.id, t => { t.state = "queued"; });
+  expect(() => consumeConfiguredHostAttemptPreflight(f.ctx, stale)).toThrow();
+  expect(() => issueConfiguredHostAttemptPreflight(f.ctx, f.task.id, run.attempt + 1)).toThrow();
+}, 60000);
+
+test("a failed executor with committed work uses brokered post-exit PREFLIGHT", async () => {
+  const f = await setup(), program = join(f.hostHome, "bin/codex");
+  writeFileSync(program, readFileSync(program, "utf8").replace("echo done", "exit 9"), { mode: 0o755 });
+  const original = f.ctx.run;
+  let directPreflight = 0;
+  f.ctx.run = (argv, ms, options) => {
+    if (argv.some(arg => arg.includes("git merge-base --is-ancestor"))) directPreflight++;
+    return original(argv, ms, options);
+  };
+  const result = await runAttempt(f.ctx, f.cfg, f.task);
+  expect(result.exec.code).toBe(9);
+  expect(result.worktree).toBeDefined();
+  expect(directPreflight).toBe(0);
+}, 60000);
+
+test("timed-out post-exit PREFLIGHT does not transfer committed work", async () => {
+  const f = await setup(), program = join(f.hostHome, "bin/codex");
+  writeFileSync(program, readFileSync(program, "utf8").replace("echo done", "exit 9"), { mode: 0o755 });
+  const registry = pluginRegistry(f.ctx);
+  const original = registry.preflightConfiguredHostAttempt.bind(registry);
+  registry.preflightConfiguredHostAttempt = async () => ({ code: 0, stdout: "commits=1\n", stderr: "", timedOut: true });
+  try {
+    const result = await runAttempt(f.ctx, f.cfg, f.task);
+    expect(result.exec.code).toBe(9);
+    expect(result.report).not.toStartWith("ran on box; fetched");
+    expect(await f.git("-C", f.repo, "for-each-ref", `refs/heads/pacer/${f.task.id}`)).toBe("");
+  } finally { registry.preflightConfiguredHostAttempt = original; }
+}, 60000);
+
+test("duplicate post-exit PREFLIGHT facts cannot authorize transfer", async () => {
+  const f = await setup(), program = join(f.hostHome, "bin/codex");
+  writeFileSync(program, readFileSync(program, "utf8").replace("echo done", "exit 9"), { mode: 0o755 });
+  const registry = pluginRegistry(f.ctx), original = registry.preflightConfiguredHostAttempt.bind(registry);
+  registry.preflightConfiguredHostAttempt = async () => ({ code: 0,
+    stdout: "commits=1\ncommits=0\n", stderr: "", timedOut: false });
+  try {
+    const result = await runAttempt(f.ctx, f.cfg, f.task);
+    expect(result.exec.code).toBe(9);
+    expect(result.report).not.toStartWith("ran on box; fetched");
+    expect(await f.git("-C", f.repo, "for-each-ref", `refs/heads/pacer/${f.task.id}`)).toBe("");
+  } finally { registry.preflightConfiguredHostAttempt = original; }
+}, 60000);
+
+test("disabled SSH provider refuses post-exit PREFLIGHT without direct SSH fallback", async () => {
+  const f = await setup(), program = join(f.hostHome, "bin/codex");
+  writeFileSync(program, readFileSync(program, "utf8").replace("echo done", "exit 9"), { mode: 0o755 });
+  const registry = pluginRegistry(f.ctx);
+  const original = registry.preflightConfiguredHostAttempt.bind(registry);
+  registry.preflightConfiguredHostAttempt = async (ctx, grant) => {
+    await registry.disable(ctx, "pacer-ssh");
+    return original(ctx, grant);
+  };
+  const run = f.ctx.run;
+  let direct = 0;
+  f.ctx.run = (argv, ms, options) => {
+    if (argv.some(arg => arg.includes("git merge-base --is-ancestor"))) direct++;
+    return run(argv, ms, options);
+  };
+  try {
+    const result = await runAttempt(f.ctx, f.cfg, f.task);
+    expect(result.exec.code).not.toBe(0);
+    expect(result.report).not.toStartWith("ran on box; fetched");
+    expect(direct).toBe(0);
+  } finally { registry.preflightConfiguredHostAttempt = original; }
 }, 60000);
 
 test("PTY strategy records remote attempts with the configured local recording cap", async()=>{

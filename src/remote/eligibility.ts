@@ -80,7 +80,7 @@ async function reachable(ctx: Ctx, host: HostCfg): Promise<boolean> {
 export async function remoteExclusion(
   ctx: Ctx, s: Strategy, runnerId: string,
   task?: { repo: string; placement: "current" | "new" },
-  deps: { reachable?: (h: HostCfg) => Promise<boolean>; running?: (alias: string) => number; skipSlots?: boolean } = {},
+  deps: { reachable?: (h: HostCfg) => Promise<boolean>; running?: (alias: string) => number; skipSlots?: boolean; currentTaskId?: string } = {},
 ): Promise<string | null> {
   const alias = resolveRunner(s, runnerId)?.host;
   if (!alias) return null;
@@ -94,7 +94,7 @@ export async function remoteExclusion(
   if (!key || !Object.hasOwn(host.repos, key)) return `repo not set up on ${alias} (add hosts.${alias}.repos.${key ?? "<key>"})`;
   if (task.placement === "current") return "remote runners need a new worktree";
   if (deps.skipSlots) return null;
-  const use = slotUse(listTasksWhere(ctx, { states: ["running"] }));
+  const use = slotUse(listTasksWhere(ctx, { states: ["running"] }).filter(t => t.id !== deps.currentTaskId));
   if (deps.running) use.byHost[alias] = deps.running(alias);
   return slotBlock(s, runnerId, use);
 }
