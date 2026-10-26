@@ -277,6 +277,14 @@ if [ -f "$D/session.sock.path" ]; then path=$(cat "$D/session.sock.path"); else 
 [ -S "$path" ] || exit 1
 printf '%s' "$path"`;
 
+/** Fixed full-session socket bridge; parity with SCRIPTS.SESSION_PIPE is checked. */
+export const SESSION_PIPE_SCRIPT = `# socket exec pipe: use the uploaded runtime, without extra host dependencies.
+D="$1"
+case "$D" in '~/'*) D="$HOME/\${D#??}" ;; esac
+binary=$(cat "$D/session.binary") || exit 1
+if [ -f "$D/session.sock.path" ]; then path=$(cat "$D/session.sock.path"); else path="$D/session.sock"; fi
+exec "$binary" _session "socket:$path"`;
+
 export const QUESTION_SCRIPT = `file="$1/.pacer-question"
 [ -f "$file" ] || exit 0
 [ "$(wc -c < "$file")" -le 4000 ] || { echo "question exceeds 1000 characters" >&2; exit 1; }
@@ -415,6 +423,14 @@ export function sessionSocketArgv(sshTarget: string, controlPath: string, args: 
     args[0].length > 4096 || /[\u0000-\u001f\u007f]/.test(args[0]))
     throw Error("invalid host-issued session run directory");
   return issuedArgv(sshTarget, controlPath, SESSION_SOCKET_SCRIPT, [...args]);
+}
+
+export function sessionPipeArgv(sshTarget: string, controlPath: string, args: readonly string[]): string[] {
+  if (args.length !== 1 || typeof args[0] !== "string" ||
+    !/^\/.+\/\.pacer-remote\/runs\/t-\d{8}-\d{6}-[0-9a-f]{4}\/[1-9][0-9]*$/.test(args[0]) ||
+    args[0].length > 4096 || /[\u0000-\u001f\u007f]/.test(args[0]))
+    throw Error("invalid host-issued session pipe directory");
+  return issuedArgv(sshTarget, controlPath, SESSION_PIPE_SCRIPT, [...args]);
 }
 
 export function binaryCheckArgv(sshTarget: string, controlPath: string, args: readonly string[]): string[] {

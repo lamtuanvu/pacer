@@ -15,7 +15,7 @@ test("host clone grant pins one fixed SSH effect and preserves uncertain complet
   const providerDir = join(pacerHome, "plugins", "pacer-ssh"), ssh = join(bin, "ssh"), log = join(home, "ssh-argv.log");
   mkdirSync(providerDir, { recursive: true }); mkdirSync(bin, { recursive: true });
   symlinkSync(join(import.meta.dir, "..", "node_modules"), join(home, "node_modules"), "dir");
-  for (const file of ["index.ts", "manifest.ts", "probe.ts", "pacer-plugin.json"])
+  for (const file of ["index.ts", "manifest.ts", "probe.ts", "session-stream.ts", "pacer-plugin.json"])
     copyFileSync(join(import.meta.dir, "..", "plugins", "pacer-ssh", file), join(providerDir, file));
   chmodSync(join(providerDir, "index.ts"), 0o755);
   const successfulSsh = `#!/bin/sh\nprintf '%s\\n' "$*" >> '${log}'\nnonce=$(printf '%s' "$*" | sed -n 's/.*__PACER_DONE__=\\([a-f0-9-]*\\).*/\\1/p')\nprintf '__PACER_BEGIN__\\n\\n__PACER_DONE__=%s\\n' "$nonce"\n`;

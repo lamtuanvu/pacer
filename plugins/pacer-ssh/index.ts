@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { PluginError, serve, type Handler } from "@pacer/plugin";
 import { manifest } from "./manifest";
 import { binaryCheckArgv, binaryUploadArgv, bundleOutArgv, checkHomeArgv, checkRepoArgv, cleanArgv, cloneRepoArgv, preflightArgv, prepareArgv, probeArgv, probePayload, questionArgv, readFromArgv, reportArgv, sessionFilesArgv, sessionSocketArgv, setIdentityArgv, startArgv, stopArgv, usageArgv } from "./probe";
+import { streamSession } from "./session-stream";
 
 export { manifest } from "./manifest";
 
@@ -187,6 +188,13 @@ export const handlers: Record<string, Handler> = {
     if (Buffer.byteLength(stdout!) + Buffer.byteLength(inline.stderr) > (input.maxBytes as number))
       fail("too_large", "SSH binary upload output exceeds the issued bound");
     return { code: result.code, stdout: stdout!, stderr: inline.stderr, timedOut: false };
+  },
+  "hostRunner.stream": async (raw, host, signal) => {
+    const input = raw as Record<string, unknown>;
+    const sessionId = input?.session;
+    if (!validSession(sessionId)) fail("capability_denied", "unknown provider SSH session");
+    const session = sessions.get(sessionId as string) ?? fail("capability_denied", "unknown provider SSH session");
+    return streamSession(input, host, signal, session);
   },
   "hostRunner.close": async raw => {
     const input = raw as Record<string, unknown>;

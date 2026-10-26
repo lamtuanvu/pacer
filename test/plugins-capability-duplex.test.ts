@@ -25,6 +25,10 @@ test("a stream-owned duplex SSH child uses exact argv and bounded simultaneous b
     expect(opened.handle).toMatch(/^[0-9a-f-]{36}$/);
     for (let i = 0; i < 100 && !existsSync(pidFile); i++) await Bun.sleep(10);
     expect(existsSync(pidFile)).toBe(true);
+    for (let i = 0; i < 3; i++)
+      await expect(call("capability.process.duplex.read", { handle: opened.handle,
+        length: 65_536, timeoutMs: 1000, pollMs: 10 }))
+        .resolves.toEqual({ base64: "", eof: false });
     const read = call("capability.process.duplex.read", { handle: opened.handle, length: 65_536, timeoutMs: 5000 });
     await expect(call("capability.process.duplex.read", { handle: opened.handle, length: 1, timeoutMs: 5000 }))
       .rejects.toMatchObject({ code: "conflict" });
@@ -48,7 +52,8 @@ test("a stream-owned duplex SSH child uses exact argv and bounded simultaneous b
     expect(received.eof).toBe(false);
     await expect(call("capability.process.duplex.write", { handle: opened.handle,
       base64: Buffer.alloc(65_537).toString("base64"), timeoutMs: 5000 })).rejects.toMatchObject({ code: "invalid_input" });
-    await expect(call("capability.process.duplex.close", { handle: opened.handle })).resolves.toEqual({ ok: true });
+    await expect(call("capability.process.duplex.close", { handle: opened.handle }))
+      .resolves.toMatchObject({ ok: true, terminated: true });
     const pid = Number(readFileSync(pidFile, "utf8"));
     for (let i = 0; i < 100; i++) {
       try { process.kill(pid, 0); } catch { break; }
@@ -85,7 +90,7 @@ test("a failed SSH launch cannot certify cleanup before process close", async ()
     const { handle } = await answerCapability(ctx, plugin, "capability.process.duplex.open",
       { argv, timeoutMs: 1000 }, authority) as { handle: string };
     await expect(answerCapability(ctx, plugin, "capability.process.duplex.close", { handle }, authority))
-      .resolves.toEqual({ ok: true });
+      .resolves.toMatchObject({ ok: true });
   } finally { await authority.revoke(); }
 });
 
@@ -110,6 +115,31 @@ test("a timed-out duplex read reaps its SSH child and retires the handle", async
       .rejects.toMatchObject({ code: "capability_denied" });
     const pid = Number(readFileSync(pidFile, "utf8"));
     expect(() => process.kill(pid, 0)).toThrow();
+  } finally { await authority.revoke(); }
+});
+
+for (const code of [0, 7]) test(`graceful SSH stream close preserves actual exit ${code}`, async () => {
+  const dir = tmpDir(), ssh = join(dir, "ssh");
+  writeFileSync(ssh, `#!/bin/sh\nprintf '__PACER_BEGIN__\\nbody'\nexit ${code}\n`, { mode: 0o755 });
+  const ctx = fakeCtx({ env: { ...process.env, HOME: dir }, which: name => name === "ssh" ? ssh : null });
+  const argv = ["ssh", "unused"];
+  const authority = createCallAuthority(ctx,
+    { reads: [], commands: [{ argv, timeoutMs: 1000, mode: "session-duplex" }], stores: [] },
+    { deadlineMs: Date.now() + 5000, grants: ["process.spawn"] });
+  prepareSpawnAuthority(authority);
+  const plugin = { id: "pacer-ssh", manifest: { capabilities: [{ name: "process.spawn", scopes: ["ssh"] }] } } as Parameters<typeof answerCapability>[1];
+  const call = (method: string, params: unknown) => answerCapability(ctx, plugin, method, params, authority);
+  try {
+    const { handle } = await call("capability.process.duplex.open", { argv, timeoutMs: 1000 }) as { handle: string };
+    let output = "";
+    for (;;) {
+      const result = await call("capability.process.duplex.read", { handle, length: 65_536, timeoutMs: 1000 }) as { base64: string; eof: boolean };
+      output += Buffer.from(result.base64, "base64").toString();
+      if (result.eof) break;
+    }
+    expect(output).toBe("__PACER_BEGIN__\nbody");
+    const receipt = await call("capability.process.duplex.close", { handle, graceful: true });
+    expect(receipt).toEqual({ ok: true, code, signal: null, terminated: false });
   } finally { await authority.revoke(); }
 });
 
@@ -229,7 +259,7 @@ test("an exited leader does not strand a pipe-holding process-group descendant",
     expect(existsSync(childFile)).toBe(true);
     descendant = Number(readFileSync(childFile, "utf8"));
     await expect(answerCapability(ctx, plugin, "capability.process.duplex.close", { handle }, authority))
-      .resolves.toEqual({ ok: true });
+      .resolves.toMatchObject({ ok: true, terminated: true });
     expect(readFileSync(terminatedFile, "utf8")).toBe("terminated");
   } finally {
     if (descendant) { try { process.kill(descendant, "SIGKILL"); } catch {} }
