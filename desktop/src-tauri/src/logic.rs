@@ -666,6 +666,11 @@ pub fn command_authorized(label: &str, expected: &str, url: &Url, origin: Option
         && local_origin(url)
             .as_deref()
             .is_some_and(|o| Some(o) == origin)
+        && match expected {
+            "main" => service_navigation(url, origin),
+            "tray" => url.path() == "/app/tray.html",
+            _ => false,
+        }
 }
 
 pub fn tray_height(height: f64) -> Option<f64> {
@@ -697,7 +702,13 @@ pub fn main_navigation(url: &Url, current: Option<&Url>, origin: Option<&str>) -
             && url.host_str() == Some("localhost")
             && matches!(url.path(), "/" | "/index.html")
     };
-    if shell_page(url) || service_navigation(url, origin) {
+    // WebKit sends subframe navigations through the window policy callback. A
+    // plugin's static document may load only while the main service page owns
+    // this window; it is still sandboxed by the response and iframe policies.
+    let plugin_surface = url.path().starts_with("/app/plugins/")
+        && local_origin(url).as_deref() == origin
+        && current.is_some_and(|page| service_navigation(page, origin));
+    if shell_page(url) || service_navigation(url, origin) || plugin_surface {
         Navigation::Allow
     } else if (matches!(
         url.as_str(),
@@ -1502,6 +1513,23 @@ mod tests {
             ),
             Navigation::Block
         );
+    }
+
+    #[test]
+    fn plugin_surface_navigation_requires_an_active_service_page() {
+        let origin = Some("http://127.0.0.1:7432");
+        let service = Url::parse("http://127.0.0.1:7432/app/").unwrap();
+        let shell = Url::parse("tauri://localhost/index.html").unwrap();
+        let surface = Url::parse("http://127.0.0.1:7432/app/plugins/example/").unwrap();
+        assert_eq!(main_navigation(&surface, Some(&service), origin), Navigation::Allow);
+        assert_eq!(main_navigation(&surface, Some(&shell), origin), Navigation::Block);
+        assert_eq!(main_navigation(&surface, None, origin), Navigation::Block);
+        assert_eq!(main_navigation(&surface, Some(&service), None), Navigation::Block);
+        let foreign = Url::parse("http://127.0.0.1:7433/app/plugins/example/").unwrap();
+        assert_eq!(main_navigation(&foreign, Some(&service), origin), Navigation::Block);
+        assert!(command_authorized("main", "main", &service, origin));
+        assert!(!command_authorized("main", "main", &surface, origin));
+        assert!(!command_authorized("tray", "tray", &surface, origin));
     }
 
     #[test]

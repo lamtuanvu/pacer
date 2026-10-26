@@ -21,6 +21,12 @@ to `/app/tray.html` on that origin. Recovery destroys it before signing in again
 No plugin commands are exposed to either page. Recovery actions use intercepted
 navigation from the bundled recovery page, not an extra IPC command.
 
+The main window permits `/app/plugins/` static-resource navigations only while
+its current top-level document is the authenticated service app. WebKit reports
+iframe navigations through the window policy callback. The plugin response and
+iframe both sandbox the document without same-origin access; native IPC commands
+still require the main `/app/` page or the tray's `/app/tray.html` document.
+
 First-run actions use `tauri://localhost/action/<name>` sentinels: `begin`,
 `consent?path=0|1`, `use-app`, `keep-mine`, `relink`, and `download`. Rust cancels
 these navigations and accepts actions only from the bundled `tauri://localhost/`
