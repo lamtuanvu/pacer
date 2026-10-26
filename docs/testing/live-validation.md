@@ -65,6 +65,14 @@ For the named read-only `strategy.show` selector, run
 paths with fixed `{ "name": "research" }` params. The fixture does not expose
 arbitrary YAML, names or operations to callers.
 
+For the bounded `strategy.use` write selector, run
+`bun run live stdio-strategy-use --id <rust-sandbox-id>`. It creates separate
+owned probe homes for fixed named and default activations, checks active file
+bytes and mode plus alert/activity/config event order, and compares native
+selection with a forced core sentinel and the real core. The command accepts
+no caller-supplied operation, strategy name or YAML. Generic stdio remains
+refused by D3.
+
 Paired startup sends the listener and helper channel together in one descriptor-transfer frame. Root retains the helper channel’s sender duplicate until Core receives both descriptors, repeats the existing trust checks and acknowledges receipt. The bounded acknowledgement does not establish application readiness. Failure or generation retirement closes the pending channels; after acknowledgement, Root releases the duplicate so genuine Core EOF remains observable.
 
 Root also directly parents the original immutable recovery helper. Its private helper-control channel accepts only bounded fixed helper requests, with role, hash, manifest/journal and static/dynamic image verification; it is not an API or environment selector. Root writes the existing bootstrap and invokes fixed `--ota-pipe`; paired mode never falls back to Core spawning an old helper. Evidence must show the old helper's unchanged bytes and actual Root parent, alongside original desktop/helper kernel audit identity.
