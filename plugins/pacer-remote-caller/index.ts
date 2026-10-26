@@ -7,6 +7,21 @@ export const manifest: PluginManifest = {
 };
 
 export const handlers: Record<string, Handler> = {
+  "remoteCaller.fetch": async (raw, host) => {
+    const request = raw as { alias: string; timeoutMs: number; maxBytes: number };
+    const opened = await host.hosts!.open(request.alias);
+    let failed = false;
+    try {
+      return await host.hosts!.fetch({ session: opened.session,
+        timeoutMs: request.timeoutMs, maxBytes: request.maxBytes });
+    } catch (error) { failed = true; throw error; }
+    finally {
+      // A retired lease may refuse close after a failed fetch. Preserve the
+      // original failure so the caller can report the actual transfer error.
+      if (failed) await host.hosts!.close(opened.session).catch(() => {});
+      else await host.hosts!.close(opened.session);
+    }
+  },
   "remoteCaller.identity": async (raw, host) => {
     const request = raw as { alias: string; path: string; name: string; email: string };
     const opened = await host.hosts!.open(request.alias);

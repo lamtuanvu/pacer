@@ -7,7 +7,7 @@ import { prepareBundleStageAuthority, stageBundle, resolveStagedBundle,
   transferStagedBundleOwnership } from "../src/plugins/bundle-stage";
 import { issuePersistedFetch } from "../src/plugins/fetch-issuer";
 import { finalizeClaimedPublication, prepareClaimedBundle, publishPreparedBundle,
-  withFinalizedClaimedBundleInput } from "../src/plugins/claimed-bundle";
+  removeConsumedClaimedBundle, withFinalizedClaimedBundleInput } from "../src/plugins/claimed-bundle";
 import { writeNative } from "../src/plugins/write-native";
 import { createTask, updateTask } from "../src/tasks/store";
 import { fakeCtx, realRun, tmpDir } from "./helpers";
@@ -140,6 +140,31 @@ test("macOS Git fetch cannot consume a bundle through stdin directly", async () 
     expect(fetched.code).not.toBe(0);
     await expect(f.git("-C", f.repo, "rev-parse", `${f.head}^{commit}`)).rejects.toThrow();
   });
+});
+
+test("successful consumption removes only the pinned private publication", async () => {
+  const f = await fixture();
+  const publication = publishPreparedBundle(f.caller,
+    await prepareClaimedBundle(f.caller, f.ticket, f.grant));
+  finalizeClaimedPublication(f.caller, f.ticket);
+  await withFinalizedClaimedBundleInput(f.caller, f.ticket, f.grant, async input => {
+    expect(input.size).toBeGreaterThan(0);
+  });
+  removeConsumedClaimedBundle(f.caller, f.ticket, f.grant);
+  expect(existsSync(publication.path)).toBe(false);
+  expect(() => removeConsumedClaimedBundle(f.caller, f.ticket, f.grant)).toThrow();
+
+  const replaced = await fixture();
+  const published = publishPreparedBundle(replaced.caller,
+    await prepareClaimedBundle(replaced.caller, replaced.ticket, replaced.grant));
+  finalizeClaimedPublication(replaced.caller, replaced.ticket);
+  await withFinalizedClaimedBundleInput(replaced.caller, replaced.ticket, replaced.grant,
+    async () => {});
+  renameSync(published.path, `${published.path}.moved`);
+  writeFileSync(published.path, "replacement", { mode: 0o600 });
+  expect(() => removeConsumedClaimedBundle(replaced.caller, replaced.ticket, replaced.grant))
+    .toThrow();
+  expect(readFileSync(published.path, "utf8")).toBe("replacement");
 });
 
 test("finalized input rechecks the persisted run and consumes once on consumer failure", async () => {
