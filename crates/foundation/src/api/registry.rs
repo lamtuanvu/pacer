@@ -11,6 +11,7 @@ use crate::{
 pub type OpFuture<'a> = Pin<Box<dyn Future<Output = Result<Value, CoreError>> + Send + 'a>>;
 
 /// A native operation contributes only a name and a typed call boundary.
+#[derive(Clone, Copy)]
 pub struct NativeOp {
     pub name: &'static str,
     pub call: for<'a> fn(&'a Ctx, Value) -> OpFuture<'a>,
@@ -22,23 +23,23 @@ pub fn params<T: DeserializeOwned>(value: Value) -> Result<T, CoreError> {
 }
 
 /// A startup snapshot of operations still owned by Rust.
-pub struct Registry<'a> {
-    ops: BTreeMap<&'static str, &'a NativeOp>,
+pub struct Registry {
+    ops: BTreeMap<&'static str, NativeOp>,
 }
 
-impl<'a> Registry<'a> {
-    pub fn new(ops: &'a [NativeOp], forward: &str) -> Self {
+impl Registry {
+    pub fn new(ops: &[NativeOp], forward: &str) -> Self {
         let forced: Vec<&str> = forward.split(',').map(str::trim).collect();
         let ops = ops
             .iter()
             .filter(|op| !forced.contains(&"*") && !forced.contains(&op.name))
-            .map(|op| (op.name, op))
+            .map(|op| (op.name, *op))
             .collect();
         Self { ops }
     }
 
     pub fn get(&self, name: &str) -> Option<&NativeOp> {
-        self.ops.get(name).copied()
+        self.ops.get(name)
     }
 
     pub fn names(&self) -> Vec<&'static str> {

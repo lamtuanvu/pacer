@@ -157,10 +157,37 @@ fn forwards_http_sse_limits_and_recovers_core() {
     }
     let expected = Command::new(&bun).current_dir(&repo).args(["--eval", "import {helloBody} from './src/api/protocol'; console.log(JSON.stringify(helloBody()))"]).output().unwrap();
     assert!(expected.status.success());
+    let expected_text = String::from_utf8_lossy(&expected.stdout).trim().to_owned();
+    let mut advertised: serde_json::Value = serde_json::from_str(&expected_text).unwrap();
+    let expected_text = if cfg!(feature = "test-ops") {
+        let ops = advertised["ops"].as_array_mut().unwrap();
+        ops.push(serde_json::json!("test.echo"));
+        ops.sort_by_key(|v| v.as_str().unwrap().to_owned());
+        advertised.to_string()
+    } else {
+        expected_text
+    };
     assert_eq!(
         String::from_utf8_lossy(&request(&server, "/v3/hello", &[]).stdout),
-        format!("{}\n200", String::from_utf8_lossy(&expected.stdout).trim())
+        format!("{expected_text}\n200")
     );
+    let unknown = request(&server, "/v3/ops/not.an.op", &["--data", "{}"]);
+    let unknown = String::from_utf8_lossy(&unknown.stdout);
+    let (body, status) = unknown.rsplit_once('\n').unwrap();
+    assert_eq!(status, "404");
+    let error: serde_json::Value = serde_json::from_str(body).unwrap();
+    let hint = error["error"]["hint"]
+        .as_str()
+        .unwrap()
+        .strip_prefix("operations: ")
+        .unwrap();
+    let names: Vec<_> = advertised["ops"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap())
+        .collect();
+    assert_eq!(hint.split(", ").collect::<Vec<_>>(), names);
     let ws_fixture = r#"
 import {createTask} from './src/tasks/store';
 import {createServer} from 'node:net';

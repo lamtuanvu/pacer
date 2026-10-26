@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { request } from "node:http";
 import { createServer, type Socket } from "node:net";
 import { tmpDir } from "./helpers";
-import { atomicWrite, down, environmentScript, freePort, healthy, loadSession, readEvidence, record, renderReport, run, pacerArgv, sandboxEnv, saveSession, sessions, shellQuote, up, validId, type Session } from "../scripts/live/core";
+import { atomicWrite, down, environmentScript, freePort, healthy, loadSession, readEvidence, record, renderReport, run, pacerArgv, validateFrontDoor, frontDoorBuild, sandboxEnv, saveSession, sessions, shellQuote, up, validId, type Session } from "../scripts/live/core";
 import { resolveRepoInput } from "../src/core/repos";
 import { seedUi } from "../scripts/live/seed";
 import { makeCtx } from "../src/ctx";
@@ -60,7 +60,7 @@ test("sandbox environment keeps HOME and auth references but overrides pacer sta
 test("the rust front door runs the Rust binary and points it at the checkout core", () => {
   const session = { ...fixture(), frontDoor: "rust" as const };
   const core = [process.execPath, join(import.meta.dir, "..", "src", "cli.ts")];
-  expect(pacerArgv(session)).toEqual([join(import.meta.dir, "..", "target", "debug", "pacer")]);
+  expect(pacerArgv(session)).toEqual([join(session.root, "bin/pacer-rust")]);
   expect(pacerArgv({})).toEqual(core);
   expect(JSON.parse(sandboxEnv(session, {}).PACER_CORE_ARGV!)).toEqual(core);
   expect(environmentScript(session)).toContain("export PACER_CORE_ARGV=");
@@ -505,3 +505,24 @@ test.skipIf(!canBind)("proxy preserves refused WebSocket handshake statuses, hea
     }
   } finally { proxy.stop(true); for (const socket of sockets) socket.destroy(); upstream.close(); }
 }, 30000);
+
+test("test-only native front door requires its exact explicit mode", () => {
+  expect(() => validateFrontDoor("rust-test-ops")).not.toThrow();
+  expect(() => validateFrontDoor("test-ops")).toThrow();
+  expect(() => validateFrontDoor("rust-test-ops --features arbitrary")).toThrow();
+  const session = { ...fixture(), frontDoor: "rust-test-ops" as const };
+  expect(pacerArgv(session)[0]).toBe(join(session.root, "bin/pacer-test-ops"));
+  expect(sandboxEnv(session).PACER_CORE_ARGV).toBeDefined();
+});
+
+test("Rust harness modes build and snapshot separate fixed Cargo targets", () => {
+  const normal=frontDoorBuild("rust"), synthetic=frontDoorBuild("rust-test-ops");
+  expect(normal.executable).not.toBe(synthetic.executable);
+  for(const build of [normal,synthetic]) {
+    const index=build.argv.indexOf("--target-dir");
+    expect(index).toBeGreaterThan(0);
+    expect(build.executable).toBe(join(build.argv[index+1],"debug/pacer"));
+  }
+  expect(normal.argv).not.toContain("--features");
+  expect(synthetic.argv.slice(-2)).toEqual(["--features","test-ops"]);
+});

@@ -1,32 +1,164 @@
-use pacer_foundation::ctx::Ctx;
-use serde_json::{Value, json};
+//! Startup-selected native operations. Unknown names retain core ownership.
+pub use pacer_foundation::api::error::CoreError as ApiError;
+use pacer_foundation::{
+    Ctx,
+    api::{
+        error::CoreError,
+        registry::{NativeOp, Registry},
+    },
+};
+use serde_json::Value;
 
+/// No domain has migrated in this preparation change.
 pub const NATIVE_OPS: &[&str] = &[];
 
-#[derive(Debug, Clone)]
-pub struct ApiError {
-    pub code: String,
-    pub message: String,
-    pub hint: Option<String>,
-    pub data: Option<Value>,
+pub struct Dispatcher {
+    registry: Registry,
 }
-
-impl ApiError {
-    /// Match protocol.ts rpcError: operation data is deliberately omitted.
-    pub fn to_rpc(&self) -> Value {
-        let code = match self.code.as_str() {
-            "unknown_op" => -32601,
-            "invalid_input" => -32602,
-            _ => -32000,
-        };
-        let mut data = json!({"code": self.code});
-        if let Some(hint) = self.hint.as_ref().filter(|hint| !hint.is_empty()) {
-            data["hint"] = json!(hint);
+impl Dispatcher {
+    pub fn new(forward: &str) -> Self {
+        let mut ops: Vec<NativeOp> = Vec::new();
+        #[cfg(feature = "test-ops")]
+        ops.push(NativeOp {
+            name: "test.echo",
+            call: |_, params| Box::pin(async move { Ok(params) }),
+        });
+        // Registry deliberately uses last-wins; assembled domain lists must instead
+        // reject collisions when domain registrations are introduced.
+        ops.sort_by_key(|op| op.name);
+        Self {
+            registry: Registry::new(&ops, forward),
         }
-        json!({"code": code, "message": self.message, "data": data})
+    }
+    /// Read once per transport startup; never consult environment per request.
+    pub fn startup() -> Self {
+        let forward = std::env::var("PACER_FORWARD_OPS").unwrap_or_default();
+        if !forward.trim().is_empty() {
+            eprintln!("pacer: PACER_FORWARD_OPS={forward}");
+        }
+        Self::new(&forward)
+    }
+    pub fn names(&self) -> Vec<&'static str> {
+        self.registry.names()
+    }
+    /// Merge selected native names with the actual core hello advertisement.
+    pub fn decorate_hello(&self, hello: &mut Value) {
+        if self.names().is_empty() {
+            return;
+        }
+        if let Some(ops) = hello.get_mut("ops").and_then(Value::as_array_mut) {
+            let names: std::collections::BTreeSet<String> = ops
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .chain(self.names().into_iter().map(str::to_owned))
+                .collect();
+            *ops = names.into_iter().map(Value::String).collect();
+        }
+    }
+    /// Core unknown-op hints use the same current opNames source as hello.
+    pub fn decorate_hint(&self, hint: &mut Value) {
+        if self.names().is_empty() {
+            return;
+        }
+        if let Some(names) = hint
+            .as_str()
+            .and_then(|hint| hint.strip_prefix("operations: "))
+        {
+            let names: std::collections::BTreeSet<&str> =
+                names.split(", ").chain(self.names()).collect();
+            *hint = Value::String(format!(
+                "operations: {}",
+                names.into_iter().collect::<Vec<_>>().join(", ")
+            ));
+        }
+    }
+    pub async fn call(
+        &self,
+        ctx: &Ctx,
+        name: &str,
+        params: Value,
+    ) -> Option<Result<Value, CoreError>> {
+        let op = self.registry.get(name)?;
+        Some((op.call)(ctx, params).await)
+    }
+}
+#[cfg(test)]
+pub(crate) fn error_dispatcher() -> Dispatcher {
+    use pacer_foundation::api::error::Code;
+    Dispatcher {
+        registry: Registry::new(
+            &[NativeOp {
+                name: "test.error",
+                call: |_, params| {
+                    Box::pin(async move {
+                        let code: Code = serde_json::from_value(params)
+                            .map_err(|_| CoreError::new(Code::InvalidInput, "invalid code"))?;
+                        let mut error = CoreError::new(code, "message").hint("retry");
+                        error.data = Some(Box::new(serde_json::Map::from_iter([(
+                            "detail".into(),
+                            Value::Bool(true),
+                        )])));
+                        Err(error)
+                    })
+                },
+            }],
+            "",
+        ),
     }
 }
 
-pub fn call_native(_ctx: &Ctx, _op: &str, _params: &Value) -> Option<Result<Value, ApiError>> {
-    None
+#[cfg(test)]
+pub(crate) fn slow_dispatcher() -> Dispatcher {
+    Dispatcher {
+        registry: Registry::new(
+            &[NativeOp {
+                name: "test.slow",
+                call: |_, params| {
+                    Box::pin(async move {
+                        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                        if params == Value::Bool(false) {
+                            Err(CoreError::new(
+                                pacer_foundation::api::error::Code::Conflict,
+                                "slow error",
+                            ))
+                        } else {
+                            Ok(params)
+                        }
+                    })
+                },
+            }],
+            "",
+        ),
+    }
+}
+
+#[cfg(test)]
+mod registry_tests {
+    use super::*;
+    use serde_json::json;
+    #[tokio::test]
+    async fn dispatcher_respects_startup_forwarding() {
+        let dispatcher = Dispatcher::new("test.echo");
+        assert!(
+            dispatcher
+                .call(&Ctx::from_env(), "test.echo", json!({}))
+                .await
+                .is_none()
+        );
+        assert!(Dispatcher::new("*").names().is_empty());
+        assert!(NATIVE_OPS.is_empty());
+        #[cfg(not(feature = "test-ops"))]
+        assert!(Dispatcher::new("").names().is_empty());
+    }
+    #[cfg(feature = "test-ops")]
+    #[tokio::test]
+    async fn explicit_test_feature_dispatches_echo() {
+        assert_eq!(
+            Dispatcher::new("")
+                .call(&Ctx::from_env(), "test.echo", json!({"ok":true}))
+                .await,
+            Some(Ok(json!({"ok":true})))
+        );
+    }
 }
