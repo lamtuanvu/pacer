@@ -1,0 +1,102 @@
+[
+  {
+    "id": "default-only",
+    "defaultYaml": "# Main work\nplanner: codex\naccounts: {personal: {kind: codex}}\nrouting: [{default: [codex]}]\n",
+    "result": [
+      {
+        "name": "default",
+        "active": true,
+        "summary": "Configured executors, Codex keeps 15%",
+        "description": "Main work"
+      }
+    ]
+  },
+  {
+    "id": "named-inactive",
+    "defaultYaml": "# pacer starter strategy: edit me\nplanner: codex\naccounts: {personal: {kind: codex}}\nrouting: [{default: [codex]}]\n",
+    "named": {
+      "research": "# Research mode\nplanner: codex\naccounts: {personal: {kind: codex}}\npacing: {policy: even, planner_reserve: 25}\nrouting: [{default: [codex]}]\n"
+    },
+    "result": [
+      {
+        "name": "default",
+        "active": true,
+        "summary": "Configured executors, Codex keeps 15%",
+        "description": ""
+      },
+      {
+        "name": "research",
+        "active": false,
+        "summary": "Configured executors, Codex keeps 25%; even policy",
+        "description": "Research mode"
+      }
+    ]
+  },
+  {
+    "id": "named-active",
+    "defaultYaml": "# Main work\nplanner: codex\naccounts: {personal: {kind: codex}}\nrouting: [{default: [codex]}]\n",
+    "named": {
+      "research": "# Research mode\nplanner: codex\naccounts: {personal: {kind: codex}}\npacing: {policy: even, planner_reserve: 25}\nrouting: [{default: [codex]}]\n"
+    },
+    "active": "research",
+    "result": [
+      {
+        "name": "default",
+        "active": false,
+        "summary": "Configured executors, Codex keeps 15%",
+        "description": "Main work"
+      },
+      {
+        "name": "research",
+        "active": true,
+        "summary": "Configured executors, Codex keeps 25%; even policy",
+        "description": "Research mode"
+      }
+    ]
+  },
+  {
+    "id": "invalid-named",
+    "defaultYaml": "planner: codex\naccounts: {personal: {kind: codex}}\nrouting: [{default: [codex]}]\n",
+    "named": {
+      "broken": "planner: [bad]\n"
+    },
+    "result": [
+      {
+        "name": "default",
+        "active": true,
+        "summary": "Configured executors, Codex keeps 15%",
+        "description": ""
+      },
+      {
+        "name": "broken",
+        "active": false,
+        "summary": "Invalid or missing strategy",
+        "description": ""
+      }
+    ]
+  },
+  {
+    "id": "pacing-first",
+    "defaultYaml": "planner: claude-code\naccounts: {personal: {kind: claude}, work: {kind: codex}}\npacing: {policy: even, order: [codex, claude-code], planner_reserve: 20, fill_threshold: 80}\nrouting: [{default: [codex, claude-code]}]\n",
+    "result": [
+      {
+        "name": "default",
+        "active": true,
+        "summary": "Codex first, Claude keeps 20%; even policy",
+        "description": ""
+      }
+    ]
+  },
+  {
+    "id": "legacy-opencode",
+    "defaultYaml": "planner: opencode\nproviders: {local: {via: opencode, model: ollama/qwen3, usage: unmetered}}\n",
+    "result": [
+      {
+        "name": "default",
+        "active": true,
+        "summary": "Configured executors, OpenCode keeps 15%",
+        "description": ""
+      }
+    ]
+  }
+]
