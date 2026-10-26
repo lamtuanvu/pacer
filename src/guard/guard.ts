@@ -6,8 +6,9 @@ import type { DecisionHooks, GuardInput } from "../classify/hooks";
 import { displayName, type Status } from "../engine/status";
 import type { Ctx } from "../types";
 import { isObj } from "../util";
-import { authorizeEnforcementToken } from "../dispatch/enforcement-token";
-import { appendWorkEvent } from "../dispatch/store";
+import { HttpClient } from "../api/http-client";
+import { DEFAULT_PORT } from "../serve/constants";
+import { writeFileSync } from "node:fs";
 
 export const GUARD_PLANNERS = ["claude-code", "codex", "cursor"] as const;
 const ALLOW_TYPES = ["Explore", "Plan", "claude-code-guide", "statusline-setup",
@@ -101,12 +102,21 @@ export async function runGuard(ctx: Ctx, planner: string, stdin: string, deps: G
   if (!(GUARD_PLANNERS as readonly string[]).includes(planner)) return "";
   if (ctx.env.PACER_ROLE === "executor" && ctx.env.PACER_ENFORCEMENT_MODE === "strict") {
     const reason = "pacer: native subagents are blocked for this managed attempt. Request child work with `pacer dispatch child --goal ... --request-id ...`.";
+    if(ctx.env.PACER_CANARY_MARKER){
+      try {writeFileSync(ctx.env.PACER_CANARY_MARKER, "native-child.denied", {flag:"wx",mode:0o600});}
+      catch { /* A canary marker must not change the deny result. */ }
+    }
     try {
       const token=ctx.env.PACER_ENFORCEMENT_TOKEN??"";
-      const attempt=authorizeEnforcementToken(ctx,token);
-      try { appendWorkEvent(ctx,attempt.taskId,"native-child.denied",{agent:planner,attempt:attempt.attempt}); }
-      catch { /* Logging cannot turn a denial into an allow. */ }
-    } catch { /* Missing or invalid enforcement identity also denies. */ }
+      if(!/^pet_[0-9a-f]{64}$/.test(token))throw Error("Invalid enforcement identity");
+      const client=new HttpClient(`http://127.0.0.1:${ctx.env.PACER_PORT??DEFAULT_PORT}`,token,{protocol:3,timeoutMs:1500});
+      try {await client.call("dispatch.enforcement.denied",{agent:planner});}
+      finally {client.close();}
+    } catch {
+      const marker=ctx.env.PACER_GUARD_FAILURE_MARKER;
+      if(marker)try{writeFileSync(marker,"guard-report-failed",{flag:"wx",mode:0o600});}catch{}
+      // Missing or invalid enforcement identity also denies.
+    }
     return renderGuard(planner,{allow:false,reason});
   }
   const allow: GuardDecision = { allow: true };

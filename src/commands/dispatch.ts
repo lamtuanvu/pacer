@@ -6,7 +6,7 @@ import { commandArgs } from "./accounts";
 import type { Command, Result } from "./types";
 import type { Ctx } from "../types";
 
-const USAGE = "usage: pacer dispatch preview|submit|child|list|tree|events|wait|review|retry|answer|stop|dependencies|waive|models|refresh|analytics|learning-reset ... [--json]";
+const USAGE = "usage: pacer dispatch preview|submit|child|list|tree|events|wait|review|retry|answer|stop|dependencies|waive|models|refresh|analytics|enforcement|probe|learning-reset ... [--json]";
 export async function dispatchCmd(args: string[], ctx: Ctx): Promise<Result> {
   try {
     const sub=args[0];
@@ -44,6 +44,10 @@ export async function dispatchCmd(args: string[], ctx: Ctx): Promise<Result> {
         case "models":case "refresh":case "analytics":
           op=`dispatch.${sub}`;params=sub==="refresh"?{runner:flags.executor,force:!!flags.force}:sub==="analytics"?{repo:flags.repo,kind:flags.kind}:{};
           break;
+        case "enforcement":case "probe":
+          if(!flags.repo||sub==="probe"&&!flags.executor)throw Error(USAGE);
+          op=sub==="probe"?"dispatch.enforcement.probe":"dispatch.enforcement";
+          params={repo:resolve(String(flags.repo)),...(sub==="probe"?{runner:flags.executor}:{})};break;
         case "list":
           op="dispatch.list";params={relation:flags.relation,state:flags.state,before:flags.before};break;
         case "dependencies":
@@ -99,4 +103,4 @@ export async function dispatchCmd(args: string[], ctx: Ctx): Promise<Result> {
     return {code: 0, out: lines.join("\n"), err: ""};
   } catch (e) { return {code: 2, out: "", err: `pacer: ${e instanceof Error ? e.message : String(e)}`}; }
 }
-export const COMMANDS: Command[] = [{name: "dispatch", usage: "dispatch preview|submit|child|list|tree|events|wait|review|retry|answer|stop|dependencies|waive|models|refresh|analytics|learning-reset    select models and manage scoped work", run: dispatchCmd}];
+export const COMMANDS: Command[] = [{name: "dispatch", usage: "dispatch preview|submit|child|list|tree|events|wait|review|retry|answer|stop|dependencies|waive|models|refresh|analytics|enforcement|probe|learning-reset    select models and manage scoped work", run: dispatchCmd}];

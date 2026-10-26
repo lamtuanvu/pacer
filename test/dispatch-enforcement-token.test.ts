@@ -4,6 +4,7 @@ import { createTask, updateTask } from "../src/tasks/store";
 import { registerWork } from "../src/dispatch/work";
 import { dispatchDatabase } from "../src/dispatch/store";
 import { authorizeEnforcementToken, issueEnforcementToken, revokeEnforcementTokens } from "../src/dispatch/enforcement-token";
+import { execProcess } from "../src/exec/process";
 
 function runningWithoutDelegation() {
   const ctx=fakeCtx(),task=createTask(ctx,{brief:{goal:"work",repo:tmpDir()},kind:"feature",requestedExecutor:null,timeoutS:600});
@@ -31,4 +32,11 @@ test("enforcement identity expires, revokes, and never authorizes another attemp
   const next=issueEnforcementToken(ctx,task.id,1);
   updateTask(ctx,task.id,t=>{t.state="stopped";});
   expect(()=>authorizeEnforcementToken(ctx,next)).toThrow();
+});
+test("a work grant does not prevent the strict native guard command from running",async()=>{
+  const ctx=fakeCtx();
+  const result=await execProcess({argv:[process.execPath,"src/cli.ts","guard","--planner","claude-code"],cwd:process.cwd(),stdin:"{}",env:{...process.env,PACER_HOME:ctx.pacerHome,PACER_ROLE:"executor",PACER_WORK_GRANT:"pwg_"+"0".repeat(64),PACER_ENFORCEMENT_MODE:"strict",PACER_ENFORCEMENT_TOKEN:"pet_"+"0".repeat(64)},timeoutMs:10000});
+  expect(result.code).toBe(0);
+  expect(result.stdout).toContain("native subagents are blocked");
+  expect(result.stderr).not.toContain("work grants only allow");
 });

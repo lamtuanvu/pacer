@@ -1,6 +1,7 @@
 import { eligibility } from "./fixtures/eligibility";
 import { expect, test } from "bun:test";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { guardEventId } from "../src/classify/state";
 import { readLabels } from "../src/tasks/labels";
 import { defaultHooks, type GuardOpinion } from "../src/classify/hooks";
@@ -193,9 +194,11 @@ test("strict executor guards deny native child calls across hook formats",async(
 });
 
 test("strict executor guards fail closed on missing identity and malformed hook input",async()=>{
-  const ctx=fakeCtx({env:{PACER_ROLE:"executor",PACER_ENFORCEMENT_MODE:"strict"}});
+  const marker=join(tmpDir(),"report-failed");
+  const ctx=fakeCtx({env:{PACER_ROLE:"executor",PACER_ENFORCEMENT_MODE:"strict",PACER_GUARD_FAILURE_MARKER:marker}});
   for(const raw of ["bad json",JSON.stringify({tool_name:"Agent",tool_input:{}})]){
     const result=JSON.parse(await runGuard(ctx,"claude-code",raw));
     expect(result.hookSpecificOutput.permissionDecision).toBe("deny");
   }
+  expect(readFileSync(marker,"utf8")).toBe("guard-report-failed");
 });

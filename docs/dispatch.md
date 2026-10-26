@@ -14,6 +14,8 @@ pacer dispatch wait --id TASK_ID --timeout 15 --json
 pacer dispatch review --id TASK_ID --accept
 pacer dispatch retry --id TASK_ID --request-id retry-1 --expect-rev REV --feedback 'Address the failed check'
 pacer dispatch answer --id TASK_ID --request-id answer-1 --expect-rev REV --text 'Use the blue variant'
+pacer dispatch enforcement --repo . --json
+pacer dispatch probe --repo . --executor codex --json
 ```
 
 `dispatch.preview` is read only. It uses cached observations and makes no reservation. `dispatch.submit` creates a root, and the runner evaluates eligibility again immediately before launch. The response, work tree, and timeline distinguish declared, requested, and observed model identity. An executor-default model stays unresolved until supported execution evidence identifies it.
@@ -23,6 +25,14 @@ An executor may run `pacer dispatch child --goal '...' --request-id UNIQUE_ID` o
 `dispatch.dependencies --id TASK_ID --depends-on CHILD_ID --expect-rev REV` sets same-root dependencies. A rejected dependency can be waived by the work owner with `dispatch waive --id TASK_ID --dependency CHILD_ID --reason '...' --expect-rev REV`. Both operations leave timeline evidence. `dispatch.review` uses the displayed revision; a competing change returns a conflict. The CLI fetches the latest revision when it is omitted. Direct API callers must supply `expect_rev`.
 
 `dispatch.retry` and `dispatch.answer` requeue the same managed task and keep its root, parent, policy, worktree, dependencies and prior attempts. Use one stable `request-id` for each intended retry; replaying it does not launch a second attempt. An answer adds the question and answer to the brief and normally keeps the asking executor. Earlier independent reviews remain in attempt history. Managed work defaults to at most three cumulative attempts per task (`maxAttempts` is configurable); accepted, archived, expired or active work cannot be retried. A child may retry its own child through a valid grant, but cannot retry itself.
+
+## Native subagent control
+
+New managed work uses strict delegation enforcement. Pacer admits a local executor only after a canary has observed a native subagent call and its matching denied tool result for the selected account, CLI version, launch mode and repository. A missing or stale certificate queues the work with an exclusion reason. Conversation and interactive launches, remote hosts and Orca remain ineligible until their exact launch paths can be verified. Existing managed tasks saved before strict enforcement retain their cooperative policy.
+
+Open **Settings → Dispatcher → Native subagent control** or run `pacer dispatch enforcement --repo .` to inspect each executor. `pacer dispatch probe --repo . --executor RUNNER` starts a background check that may use account quota; its response includes a job ID for `pacer api call job.get`. The app follows that job automatically. Connect that executor's native Pacer integration before probing. Claude Code currently has a certifying native tool-result observer. Codex, Cursor and permission-only adapters remain uncertified until a host-observed probe proves child startup was prevented. Project-level native control overrides are also left uncertified until they can be probed in the exact launch environment.
+
+Strict executor attempts get an enforcement identity for the native guard. They get a separate child work grant only when delegation is allowed. The guard denies native subagent calls and reports the denial to the service through an operation limited to that attempt. It directs the executor to `dispatch.child`; Pacer selects and records an authorized child. This is admission-time control of supported native subagent tools. It cannot prevent an executor from starting another AI CLI or calling a provider API through an unrestricted shell.
 
 ## Configure the choice ladder
 

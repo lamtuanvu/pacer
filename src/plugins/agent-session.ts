@@ -5,6 +5,7 @@ import { CoreError } from "../core/errors";
 import type {
   AgentIdentityInput, AgentIdentityPlan, AgentVersion,
   AgentSessionCapabilities,
+  AgentDelegationControl,
   AgentSessionPrepare,
   AgentSessionLaunch,
   AgentAttachmentInput,
@@ -32,6 +33,8 @@ async function call<T>(ctx: Ctx, method: string, input: unknown): Promise<T> {
 }
 export const agentSessionCapabilities = (ctx: Ctx, input: AgentVersion) =>
   call<AgentSessionCapabilities>(ctx, "agentSession.capabilities", input);
+export const agentDelegationControl = (ctx: Ctx, input: AgentVersion) =>
+  call<AgentDelegationControl>(ctx, "agentSession.delegationControl", input);
 export const prepareAgentSession = (ctx: Ctx, input: AgentSessionPrepare) =>
   call<AgentSessionLaunch>(ctx, "agentSession.prepare", input);
 export const prepareAgentAttachment = (ctx: Ctx, input: AgentAttachmentInput) =>

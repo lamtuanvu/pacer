@@ -9,6 +9,7 @@ export function dispatchDatabase(ctx: Ctx) {
     CREATE INDEX IF NOT EXISTS work_root ON work_nodes(root_id);
     CREATE TABLE IF NOT EXISTS work_grants(hash TEXT PRIMARY KEY, task_id TEXT NOT NULL, attempt INTEGER NOT NULL, expires REAL NOT NULL, revoked INTEGER NOT NULL DEFAULT 0);
     CREATE TABLE IF NOT EXISTS enforcement_tokens(hash TEXT PRIMARY KEY, task_id TEXT NOT NULL, attempt INTEGER NOT NULL, expires REAL NOT NULL, revoked INTEGER NOT NULL DEFAULT 0);
+    CREATE TABLE IF NOT EXISTS enforcement_certificates(target TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, probed_at REAL NOT NULL, expires REAL NOT NULL, evidence TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS work_events(seq INTEGER PRIMARY KEY AUTOINCREMENT, root_id TEXT NOT NULL, task_id TEXT NOT NULL, at REAL NOT NULL, kind TEXT NOT NULL, data TEXT NOT NULL);
     CREATE INDEX IF NOT EXISTS work_event_root ON work_events(root_id,seq);
     CREATE TABLE IF NOT EXISTS work_decisions(task_id TEXT NOT NULL, attempt INTEGER NOT NULL, data TEXT NOT NULL, PRIMARY KEY(task_id,attempt));
@@ -53,4 +54,10 @@ export function boundedJson(value: unknown): string {
 export function appendWorkEvent(ctx: Ctx, taskId: string, kind: string, data: unknown): void {
   const db = dispatchDatabase(ctx);
   db.query(`INSERT INTO work_events(root_id,task_id,at,kind,data) SELECT root_id,task_id,?,?,? FROM work_nodes WHERE task_id=?`).run(ctx.now, kind, boundedJson(data), taskId);
+}
+export function updateWorkDecision(ctx:Ctx,taskId:string,attempt:number,patch:Record<string,unknown>):void {
+  const db=dispatchDatabase(ctx);
+  const row=db.query<{data:string},[string,number]>("SELECT data FROM work_decisions WHERE task_id=? AND attempt=?").get(taskId,attempt);
+  if(!row)throw new CoreError("conflict","Dispatch decision is missing for this attempt");
+  db.query("UPDATE work_decisions SET data=? WHERE task_id=? AND attempt=?").run(boundedJson({...JSON.parse(row.data),...patch}),taskId,attempt);
 }

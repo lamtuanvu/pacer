@@ -75,6 +75,7 @@ export function jobKindCopy(kind: string): string {
     'host.repo.setup': 'Repository setup',
     'host.clean': 'Host cleanup',
     'update.apply': 'pacer update',
+    'enforcement.probe': 'Native subagent control check',
   };
   return labels[kind] ?? plainProgressLabel(kind);
 }

@@ -1259,6 +1259,625 @@ pub struct AgentSessionCapabilitiesResult {
     pub reason: ::std::option::Option<::std::string::String>,
     pub resume: bool,
 }
+///`AgentSessionDelegationControlParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "agent",
+///    "version"
+///  ],
+///  "properties": {
+///    "agent": {
+///      "type": "string",
+///      "maxLength": 64,
+///      "minLength": 1
+///    },
+///    "apiHelp": {
+///      "type": "string",
+///      "maxLength": 100000
+///    },
+///    "help": {
+///      "type": "string",
+///      "maxLength": 100000
+///    },
+///    "resumeHelp": {
+///      "type": "string",
+///      "maxLength": 100000
+///    },
+///    "version": {
+///      "type": "string",
+///      "maxLength": 128,
+///      "minLength": 1
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct AgentSessionDelegationControlParams {
+    pub agent: AgentSessionDelegationControlParamsAgent,
+    #[serde(
+        rename = "apiHelp",
+        default,
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub api_help: ::std::option::Option<AgentSessionDelegationControlParamsApiHelp>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub help: ::std::option::Option<AgentSessionDelegationControlParamsHelp>,
+    #[serde(
+        rename = "resumeHelp",
+        default,
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub resume_help: ::std::option::Option<AgentSessionDelegationControlParamsResumeHelp>,
+    pub version: AgentSessionDelegationControlParamsVersion,
+}
+///`AgentSessionDelegationControlParamsAgent`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 64,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AgentSessionDelegationControlParamsAgent(::std::string::String);
+impl ::std::ops::Deref for AgentSessionDelegationControlParamsAgent {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AgentSessionDelegationControlParamsAgent> for ::std::string::String {
+    fn from(value: AgentSessionDelegationControlParamsAgent) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AgentSessionDelegationControlParamsAgent {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 64usize {
+            return Err("longer than 64 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AgentSessionDelegationControlParamsAgent {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AgentSessionDelegationControlParamsAgent {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`AgentSessionDelegationControlParamsApiHelp`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 100000
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AgentSessionDelegationControlParamsApiHelp(::std::string::String);
+impl ::std::ops::Deref for AgentSessionDelegationControlParamsApiHelp {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AgentSessionDelegationControlParamsApiHelp> for ::std::string::String {
+    fn from(value: AgentSessionDelegationControlParamsApiHelp) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AgentSessionDelegationControlParamsApiHelp {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 100000usize {
+            return Err("longer than 100000 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AgentSessionDelegationControlParamsApiHelp {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AgentSessionDelegationControlParamsApiHelp {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`AgentSessionDelegationControlParamsHelp`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 100000
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AgentSessionDelegationControlParamsHelp(::std::string::String);
+impl ::std::ops::Deref for AgentSessionDelegationControlParamsHelp {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AgentSessionDelegationControlParamsHelp> for ::std::string::String {
+    fn from(value: AgentSessionDelegationControlParamsHelp) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AgentSessionDelegationControlParamsHelp {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 100000usize {
+            return Err("longer than 100000 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AgentSessionDelegationControlParamsHelp {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AgentSessionDelegationControlParamsHelp {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`AgentSessionDelegationControlParamsResumeHelp`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 100000
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AgentSessionDelegationControlParamsResumeHelp(::std::string::String);
+impl ::std::ops::Deref for AgentSessionDelegationControlParamsResumeHelp {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AgentSessionDelegationControlParamsResumeHelp> for ::std::string::String {
+    fn from(value: AgentSessionDelegationControlParamsResumeHelp) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AgentSessionDelegationControlParamsResumeHelp {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 100000usize {
+            return Err("longer than 100000 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AgentSessionDelegationControlParamsResumeHelp {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AgentSessionDelegationControlParamsResumeHelp {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`AgentSessionDelegationControlParamsVersion`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 128,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AgentSessionDelegationControlParamsVersion(::std::string::String);
+impl ::std::ops::Deref for AgentSessionDelegationControlParamsVersion {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AgentSessionDelegationControlParamsVersion> for ::std::string::String {
+    fn from(value: AgentSessionDelegationControlParamsVersion) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AgentSessionDelegationControlParamsVersion {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 128usize {
+            return Err("longer than 128 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AgentSessionDelegationControlParamsVersion {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AgentSessionDelegationControlParamsVersion {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`AgentSessionDelegationControlResult`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "oneOf": [
+///    {
+///      "type": "object",
+///      "required": [
+///        "entryPoints",
+///        "mechanism"
+///      ],
+///      "properties": {
+///        "entryPoints": {
+///          "type": "array",
+///          "items": {
+///            "type": "string",
+///            "maxLength": 64,
+///            "minLength": 1
+///          },
+///          "maxItems": 8,
+///          "minItems": 1
+///        },
+///        "mechanism": {
+///          "type": "string",
+///          "const": "hook"
+///        }
+///      },
+///      "additionalProperties": false
+///    },
+///    {
+///      "type": "object",
+///      "required": [
+///        "entryPoints",
+///        "mechanism",
+///        "permissionAction"
+///      ],
+///      "properties": {
+///        "entryPoints": {
+///          "type": "array",
+///          "items": {
+///            "type": "string",
+///            "maxLength": 64,
+///            "minLength": 1
+///          },
+///          "maxItems": 8,
+///          "minItems": 1
+///        },
+///        "mechanism": {
+///          "type": "string",
+///          "const": "permission"
+///        },
+///        "permissionAction": {
+///          "type": "string",
+///          "maxLength": 64,
+///          "minLength": 1
+///        }
+///      },
+///      "additionalProperties": false
+///    },
+///    {
+///      "type": "object",
+///      "required": [
+///        "entryPoints",
+///        "mechanism",
+///        "reason"
+///      ],
+///      "properties": {
+///        "entryPoints": {
+///          "type": "array",
+///          "items": {
+///            "type": "string"
+///          },
+///          "maxItems": 0,
+///          "minItems": 0
+///        },
+///        "mechanism": {
+///          "type": "string",
+///          "const": "unsupported"
+///        },
+///        "reason": {
+///          "type": "string",
+///          "maxLength": 500,
+///          "minLength": 1
+///        }
+///      },
+///      "additionalProperties": false
+///    }
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(tag = "mechanism", deny_unknown_fields)]
+pub enum AgentSessionDelegationControlResult {
+    #[serde(rename = "hook")]
+    Hook {
+        #[serde(rename = "entryPoints")]
+        entry_points: ::std::vec::Vec<AgentSessionDelegationControlResultEntryPointsItem>,
+    },
+    #[serde(rename = "permission")]
+    Permission {
+        #[serde(rename = "entryPoints")]
+        entry_points: ::std::vec::Vec<AgentSessionDelegationControlResultEntryPointsItem>,
+        #[serde(rename = "permissionAction")]
+        permission_action: AgentSessionDelegationControlResultPermissionAction,
+    },
+    #[serde(rename = "unsupported")]
+    Unsupported {
+        #[serde(rename = "entryPoints")]
+        entry_points: ::std::vec::Vec<::std::string::String>,
+        reason: AgentSessionDelegationControlResultReason,
+    },
+}
+impl ::std::convert::From<&Self> for AgentSessionDelegationControlResult {
+    fn from(value: &AgentSessionDelegationControlResult) -> Self {
+        value.clone()
+    }
+}
+///`AgentSessionDelegationControlResultEntryPointsItem`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 64,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AgentSessionDelegationControlResultEntryPointsItem(::std::string::String);
+impl ::std::ops::Deref for AgentSessionDelegationControlResultEntryPointsItem {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AgentSessionDelegationControlResultEntryPointsItem>
+    for ::std::string::String
+{
+    fn from(value: AgentSessionDelegationControlResultEntryPointsItem) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AgentSessionDelegationControlResultEntryPointsItem {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 64usize {
+            return Err("longer than 64 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AgentSessionDelegationControlResultEntryPointsItem {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AgentSessionDelegationControlResultEntryPointsItem {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`AgentSessionDelegationControlResultPermissionAction`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 64,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AgentSessionDelegationControlResultPermissionAction(::std::string::String);
+impl ::std::ops::Deref for AgentSessionDelegationControlResultPermissionAction {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AgentSessionDelegationControlResultPermissionAction>
+    for ::std::string::String
+{
+    fn from(value: AgentSessionDelegationControlResultPermissionAction) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AgentSessionDelegationControlResultPermissionAction {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 64usize {
+            return Err("longer than 64 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AgentSessionDelegationControlResultPermissionAction {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AgentSessionDelegationControlResultPermissionAction {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`AgentSessionDelegationControlResultReason`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 500,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AgentSessionDelegationControlResultReason(::std::string::String);
+impl ::std::ops::Deref for AgentSessionDelegationControlResultReason {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AgentSessionDelegationControlResultReason> for ::std::string::String {
+    fn from(value: AgentSessionDelegationControlResultReason) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AgentSessionDelegationControlResultReason {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 500usize {
+            return Err("longer than 500 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AgentSessionDelegationControlResultReason {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AgentSessionDelegationControlResultReason {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
 ///`AgentSessionIdentityParams`
 ///
 /// <details><summary>JSON schema</summary>
