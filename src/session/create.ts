@@ -10,7 +10,7 @@ import {
   taskDatabase,
   updateTask,
 } from "../tasks/store";
-import { launchTaskRunner, spawnRunner, type SpawnRunner } from "../tasks/api";
+import { admissionCtx, prepareDelegate, launchTaskRunner, spawnRunner, type SpawnRunner } from "../tasks/api";
 import { claimAttachments } from "../attachments/claims";
 import { prepareSession } from "./capabilities";
 import { isExecutorSession } from "../install/role";
@@ -123,8 +123,43 @@ export async function createConversation(
       return withLock(ctx, "session-create", async () => {
         const duplicate = existing();
         if (duplicate) return duplicate;
+        let currentPreparation=preparation;
+        const baseForNew=()=>input.workspace.mode==="new"?input.workspace.base:currentPreparation.base;
+        const canMapCurrent=()=>{
+          const path=realpathSync(input.workspace.mode==="current"?input.workspace.path:currentPreparation.repo.path);
+          return currentPreparation.checkouts.some(tree=>realpathSync(tree.path)===path)
+            && !listTasksWhere(ctx,{states:["queued","running"]}).some(task=>(task.placement?.requested==="current"||task.placement?.mode==="current")&&realpathSync(task.brief.repo)===path);
+        };
+        const admission=await prepareDelegate(admissionCtx(ctx),{
+          brief:{goal:input.request,repo},kind:null,executor:input.executor,worktree:input.workspace.mode,
+          timeoutMin:60,repoRef:preparation.repo,repoValidated:true,
+          admissionContext:()=>JSON.stringify({preparation:currentPreparation,owners:listTasksWhere(ctx,{states:["queued","running"]}).filter(task=>task.interactionMode==="conversation").map(task=>[task.id,task.rev,task.brief.repo,task.placement])}),
+        },deps.spawnRunner??spawnRunner,undefined,()=>"conversation",candidate=>{
+          if(candidate.kind!==null || !candidate.executor) return false;
+          const executor=currentPreparation.executors.find(executor=>executor.id===candidate.executor);
+          if(!executor?.available || !executor.capabilities.interactive) return false;
+          if(candidate.worktree==="current") return canMapCurrent();
+          if(candidate.worktree==="new") return /^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(baseForNew())&&!baseForNew().includes("..");
+          return false; // auto has no explicit conversation workspace representation.
+        });
+        if(admission.policies) currentPreparation=await (deps.prepare??prepareSession)(admissionCtx(ctx),{repo:input.repo,executor:admission.input.executor??undefined});
+        const authorizedExecutor=admission.input.executor!;
+        const authorizedPlacement=admission.input.worktree as "current"|"new";
+        let authorizedBase:string|undefined;
+        if(authorizedPlacement==="current") {
+          if(!canMapCurrent()) throw new CoreError("conflict","Conversation checkout changed during admission");
+          repo=input.workspace.mode==="current"?input.workspace.path:currentPreparation.repo.path;
+          baseSha=undefined;
+        } else {
+          authorizedBase=baseForNew();
+          const resolved=await ctx.run(["git","-C",repo,"rev-parse","--verify",`${authorizedBase}^{commit}`],5000);
+          if(resolved.code||!/^[a-f0-9]{40,64}$/.test(resolved.stdout.trim())) throw new CoreError("conflict","Conversation base changed during admission");
+          baseSha=resolved.stdout.trim();
+        }
+        return admission.consume(({revalidate})=>{
+        revalidate();
         if (
-          input.workspace.mode === "current" &&
+          authorizedPlacement === "current" &&
           listTasksWhere(ctx, { states: ["queued", "running"] }).some(
             (t) =>
               (t.placement?.requested === "current" ||
@@ -143,7 +178,7 @@ export async function createConversation(
               ...(baseSha ? { base: baseSha } : {}),
             },
             kind: null,
-            requestedExecutor: input.executor,
+            requestedExecutor: authorizedExecutor,
             timeoutS: 3600,
             interactionMode: "conversation",
             conversation: { activity: "starting" },
@@ -151,14 +186,11 @@ export async function createConversation(
             requestId: input.request_id,
             source: "ui",
             repo: preparation.repo,
-            placement: { requested: input.workspace.mode },
+            placement: { requested: authorizedPlacement },
             ...(baseSha
               ? {
                   baseSha,
-                  baseBranch:
-                    input.workspace.mode === "new"
-                      ? input.workspace.base
-                      : undefined,
+                  baseBranch: authorizedBase,
                 }
               : {}),
           },
@@ -183,7 +215,7 @@ export async function createConversation(
             t.conversation = { activity: "ended", endReason: "failure" };
             t.result = {
               status: "failed",
-              executor: input.executor,
+              executor: authorizedExecutor,
               model: null,
               files: "",
               report: String(error),
@@ -192,6 +224,7 @@ export async function createConversation(
           });
         }
         return { task_id: task.id, state: readTask(ctx, task.id)!.state };
+        });
       });
     },
   );

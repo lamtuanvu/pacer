@@ -12,7 +12,7 @@ export class HostSession {
   readonly stderr: string[] = [];
   constructor(private readonly argv: string[], private readonly env: Record<string, string | undefined>) {}
 
-  async start(): Promise<this> {
+  async start(options:{subscribe?:boolean}={}): Promise<this> {
     this.child = spawn(this.argv[0]!, [...this.argv.slice(1), "api", "--stdio"], { env: this.env, stdio: ["pipe", "pipe", "pipe"] });
     let buf = "";
     this.child.stdout.setEncoding("utf8");
@@ -21,7 +21,7 @@ export class HostSession {
     this.child.stderr.on("data", (c: string) => this.stderr.push(c));
     this.child.on("exit", () => { for (const p of this.pending.values()) p.reject(new HostError("internal", "host exited")); this.pending.clear(); });
     await this.call("hello", { protocol: 3 });
-    await this.call("subscribe", { since: 0 });
+    if(options.subscribe!==false)await this.call("subscribe", { since: 0 });
     return this;
   }
 
@@ -54,4 +54,14 @@ export class HostSession {
     const timer = setTimeout(() => this.child.kill("SIGKILL"), 10_000);
     await exited; clearTimeout(timer);
   }
+}
+
+/** Fixture-side canonical publisher: cases stay independent of host implementation/registry.
+ * This writes only the existing private fixture outbox, never runs the service pump. */
+export async function publishTaskFixtureEvent(home:string,id:string):Promise<void> {
+  const [{publish},{taskData},{readTask},{join}]=await Promise.all([import('../src/link/publish'),import('../src/link/pump'),import('../src/tasks/store'),import('node:path')]);
+  const ctx:import('../src/types').Ctx={home,pacerHome:join(home,'.pacer'),now:Date.now()/1000,env:{HOME:home,PACER_HOME:join(home,'.pacer')},which:()=>null,run:async()=>{throw Error('fixture event publisher cannot execute commands');}};
+  const task=readTask(ctx,id);if(!task)throw Error('fixture task missing');
+  const report=await publish(ctx,[{type:'task',data:taskData(task)}]);
+  if(report.errors.length)throw Error('fixture task event publication failed');
 }

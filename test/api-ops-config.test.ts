@@ -123,6 +123,8 @@ test("cookie config-set restricts terminal presets while bearer and CLI allow te
   const {startServer}=await import("../src/serve/http");
   const {createCode}=await import("../src/serve/app-auth");
   const ctx=await configured();
+  // Keep unrelated usage lifecycle events out of this config authorization fixture.
+  await Bun.write(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders: {claude-code: {usage: reactive}, codex: {usage: reactive}}\npacing: {policy: priority}\nrouting: [{default: [codex]}]\n");
   const server = startServer(() => ctx, { port: 0, pumpMs: 0 });
   const origin = `http://127.0.0.1:${server.port}`;
   const request = (path: string, init: RequestInit = {}) => fetch(origin + path, init);
@@ -146,7 +148,7 @@ test("cookie config-set restricts terminal presets while bearer and CLI allow te
     expect(loadStrategy(ctx).terminal?.open).toBe("foot {cmd}");
     await config.set(ctx,"terminal.open","alacritty -e {cmd}");
     expect(loadStrategy(ctx).terminal?.open).toBe("alacritty -e {cmd}");
-  } finally {server.stop();}
+  } finally {await server.stop();}
 });
 
 test("machine parallel tasks validates whole numbers 1..16, preserves invalid edits and provides undo", async () => {

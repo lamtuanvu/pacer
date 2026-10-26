@@ -1,10 +1,9 @@
 import type { AccountCfg } from "../config/accounts";
-import { chmodSync, existsSync, mkdirSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { readJson } from "../fsutil";
 import type { Ctx, UsageReading } from "../types";
-import { isObj, parseTs, toNum } from "../util";
+import { isObj, parseTs } from "../util";
 
 /** Capture public quota telemetry emitted by Claude itself, never its credentials. */
 export function captureClaudeStreamUsage(ctx: Ctx, account: AccountCfg, stdout: string): boolean {
@@ -84,24 +83,7 @@ export function claudeCachePaths(ctx: Ctx, account?: AccountCfg): string[] {
   ];
 }
 
+/** Compatibility reader: all interpretation and I/O live in the plugin. */
 export async function readClaude(ctx: Ctx, account?: AccountCfg): Promise<UsageReading> {
-  const candidates = claudeCachePaths(ctx, account).filter(p => existsSync(p))
-    .map(p => readJson<Record<string, unknown>>(p)).filter(isObj);
-  const data = candidates.filter(d => { const at = parseTs(d.captured_at); return at === null || at <= ctx.now; })
-    .sort((a, b) => (parseTs(b.captured_at) ?? -Infinity) - (parseTs(a.captured_at) ?? -Infinity))[0];
-  if (!isObj(data)) {
-    return { windows: [], capturedAt: null, stale: false, error: "no Claude rate-limit data yet (the Claude Code status line writes it)" };
-  }
-  const wk = isObj(data.seven_day) ? data.seven_day : {};
-  const fh = isObj(data.five_hour) ? data.five_hour : {};
-  const capturedAt = parseTs(data.captured_at);
-  return {
-    source: data.source === "session-log" ? "session-log" : "status-line",
-    capturedAt,
-    stale: false,
-    windows: [
-      { name: "weekly", usedPct: toNum(wk.used_percentage), resetsAt: parseTs(wk.resets_at), lengthS: 7 * 86400, paced: true },
-      { name: "5h", usedPct: toNum(fh.used_percentage), resetsAt: parseTs(fh.resets_at), lengthS: 5 * 3600, paced: false },
-    ],
-  };
+  return (await import("./plugin-readers")).readQuotaPlugin(ctx, "claude-code", account);
 }

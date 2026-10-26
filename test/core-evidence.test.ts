@@ -56,7 +56,7 @@ test("removing and recreating the same account retires old observations and in-f
   const scope = accountEvidenceScope(loadStrategy(ctx).accounts.spare);
   const old = { ...emptyEvidence(), availability: [evidenceFact(scope, "execution", ctx.now - 1, ctx.now + 600, "authentication_failed", "unavailable" as const)] };
   const first = await mergeEvidence(ctx, scope, old);
-  remove(ctx, "spare");
+  await remove(ctx, "spare");
   writeFileSync(join(ctx.pacerHome, "strategy.yaml"), strategy);
   const recreated = await mergeEvidence(ctx, scope, old);
   expect(recreated.revision).toBeGreaterThan(first.revision);

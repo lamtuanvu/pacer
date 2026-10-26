@@ -70,9 +70,15 @@ export async function handleV2(req: Request, deps: { getCtx: () => Ctx; opDeps?:
       catch { return errorResponse({ code: "invalid_input", message: "body is not JSON" }); }
       const label=req.headers.get("X-Pacer-Client")??"";
       const client=/^[a-z][a-z0-9:-]{0,31}\/[0-9A-Za-z.+-]{1,32}$/.test(label)?label:undefined;
+      const base = deps.getCtx(), parent = base.operation;
+      const operation = {
+        signal: parent ? AbortSignal.any([parent.signal, req.signal]) : req.signal,
+        ...(parent?.deadline !== undefined ? { deadline: parent.deadline } : {}),
+      };
+      const requestCtx: Ctx = { ...base, operation };
       const result = pathname === "/v2/ops/routing.status" && !deps.getCtx().env.PACER_WORK_GRANT && deps.status && (params === null || (typeof params === "object" && !Array.isArray(params)))
         ? await deps.status()
-        : await (version===3?callOp:callV2Op)(deps.getCtx(), pathname.slice("/v2/ops/".length), params, {...deps.opDeps,client});
+        : await (version===3?callOp:callV2Op)(requestCtx, pathname.slice("/v2/ops/".length), params, {...deps.opDeps,client});
       return Response.json({ result });
     }
     if (req.method !== "GET") return errorResponse({ code: "invalid_input", message: "method not allowed" }, 405);

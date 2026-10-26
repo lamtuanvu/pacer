@@ -1,9 +1,12 @@
+import { afterEach as afterUsageFixture } from "bun:test";
+import { fakeCtx, cleanupUsageFixtures } from "./usage-plugin-fixtures";
+afterUsageFixture(cleanupUsageFixtures);
 import { expect, test } from "bun:test";
 import { validateStrategy } from "../src/config/strategy";
 import { readUsage } from "../src/usage/index";
 import { markExhausted } from "../src/usage/reactive";
 import type { RunFn } from "../src/types";
-import { fakeCtx } from "./helpers";
+
 
 const STATS = JSON.stringify({
   models: [

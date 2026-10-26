@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { rulesClassifier } from "../src/classify/rules";
+import { rulesClassifier as pluginRules } from "../plugins/pacer-classify/rules";
+const rulesClassifier = { ...pluginRules, ask: (state: string, question: Parameters<typeof pluginRules.ask>[1]) => pluginRules.ask(state, question, 3000) };
 import { QUESTIONS } from "../src/classify/state";
 import type { DecisionName } from "../src/classify/types";
 

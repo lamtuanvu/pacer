@@ -5,9 +5,13 @@ import {accountCmd, runnerCmd} from "../src/commands/accounts";
 import {main} from "../src/cli";
 import {loadStrategy} from "../src/config/strategy";
 import {fakeCtx} from "./helpers";
+import {shutdownPlugins} from "../src/plugins";
+import {registerFixtureCleanup} from "./fixture-cleanup";
 
 export function commandCtx() {
   const ctx = fakeCtx(); mkdirSync(ctx.pacerHome, {recursive:true});
+  const pacerHome = ctx.pacerHome;
+  registerFixtureCleanup(() => shutdownPlugins({pacerHome}));
   writeFileSync(join(ctx.pacerHome,"strategy.yaml"), '# keep layout\naccounts:\n  personal: {kind: claude}\n  codex: {kind: codex}\n  spare: {kind: endpoint, usage: unmetered}\nplanner: claude-code\nrouting:\n  - default: [codex]\npacing: {order: [codex], policy: priority}\n');
   return ctx;
 }
@@ -168,6 +172,7 @@ test("runner add accepts a declared host and refuses an unknown one", async () =
   const refused = await runnerCmd(["add", "codex@nowhere"], ctx).catch((e) => ({ code: 2, out: "", err: String(e) }));
   expect(refused.code).not.toBe(0);
   expect(refused.err).toContain("unknown host nowhere (hosts: box)");
-  expect((await runnerCmd(["add", "codex@box"], ctx)).code).toBe(0);
+  const added = await runnerCmd(["add", "codex@box"], ctx);
+  expect(added.code, added.err).toBe(0);
   expect(loadStrategy(ctx).runners["codex@box"]).toMatchObject({ agent: "codex", host: "box" });
 });

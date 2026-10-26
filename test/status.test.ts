@@ -1,5 +1,5 @@
 import { withLoginIndicators } from "./helpers";
-import { expect, test } from "bun:test";
+import { afterEach, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { validateStrategy } from "../src/config/strategy";
@@ -7,6 +7,9 @@ import { binaryFor, computeStatus, displayName } from "../src/engine/status";
 import { claudeCachePaths } from "../src/usage/claude";
 import type { RunFn } from "../src/types";
 import { fakeCtx, localTs } from "./helpers";
+import { fakeCtx as fakeUsageCtx, cleanupUsageFixtures } from "./usage-plugin-fixtures";
+
+afterEach(cleanupUsageFixtures);
 
 const s = validateStrategy({
   planner: "claude-code",
@@ -29,7 +32,7 @@ const run: RunFn = async (argv) => argv[0] === "arkcli"
   : { code: 127, stdout: "", stderr: "missing" };
 
 test("assembles verdicts, planner mode and the default executor ranking", async () => {
-  const ctx = withLoginIndicators(fakeCtx({ now, run }));
+  const ctx = withLoginIndicators(fakeUsageCtx({ now, run }));
   const claude = claudeCachePaths(ctx)[0];
   mkdirSync(dirname(claude), { recursive: true });
   await Bun.write(claude, JSON.stringify({
@@ -48,7 +51,7 @@ test("assembles verdicts, planner mode and the default executor ranking", async 
 });
 
 test("broken sources degrade to UNKNOWN and the status still renders", async () => {
-  const ctx = withLoginIndicators(fakeCtx({ now, run: async () => ({ code: 127, stdout: "", stderr: "arkcli: not found" }) }));
+  const ctx = withLoginIndicators(fakeUsageCtx({ now, run: async () => ({ code: 127, stdout: "", stderr: "arkcli: not found" }) }));
   const st = await computeStatus(ctx, s, { profile: null });
   const by = Object.fromEntries(st.providers.map((p) => [p.id, p]));
   expect(by["claude-code"].verdict).toBe("UNKNOWN");

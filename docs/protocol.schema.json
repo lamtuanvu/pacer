@@ -451,6 +451,7 @@
           "items": {
             "type": "string",
             "enum": [
+              "policy",
               "plugin_state",
               "task_started",
               "task_settled",

@@ -24,9 +24,9 @@ async function configured() {
 
 test("delegate then review records exact texts, newest first, with repo key", async () => {
   const ctx = await configured();
-  const task = tasks.delegate(ctx, { brief: { goal: "Add SSH keepalive", repo: ctx.home }, executor: "codex" }, () => 1);
+  const task = (await tasks.delegate(ctx, { brief: { goal: "Add SSH keepalive", repo: ctx.home }, executor: "codex" }, () => 1));
   updateTask(ctx, task.id, t => { t.state = "done"; });
-  tasks.review(ctx, task.id, { accepted: true });
+  await tasks.review(ctx, task.id, { accepted: true });
   expect(readActivity(ctx, {}).entries).toMatchObject([
     { kind: "verdict", text: "Accepted “Add SSH keepalive”", taskId: task.id, repo: repoFor(ctx, ctx.home).key },
     { kind: "task_started", text: "Delegated “Add SSH keepalive” to Codex", taskId: task.id },
@@ -109,7 +109,7 @@ test("activity.list validates filters and pages the log", async () => {
 
 test("pump logs settle, mode, executor and account changes once", async () => {
   const ctx = await configured();
-  const task = tasks.delegate(ctx, { brief: { goal: "Add SSH keepalive", repo: ctx.home }, executor: "codex" }, () => 1);
+  const task = (await tasks.delegate(ctx, { brief: { goal: "Add SSH keepalive", repo: ctx.home }, executor: "codex" }, () => 1));
   const deps: PumpDeps = { status: async c => status(c.now), tasks: () => [tasks.get(ctx, task.id)], publish };
   await pumpOnce(ctx, deps);
   updateTask(ctx, task.id, t => { t.state = "done"; t.executor = "codex"; });
@@ -133,10 +133,10 @@ test("pump logs settle, mode, executor and account changes once", async () => {
 
 test("retry, stop, dismiss and rejected reviews log their successful actions", async () => {
   const ctx = await configured();
-  const original = tasks.delegate(ctx, { brief: { goal: "Fix parser", repo: ctx.home }, executor: "codex" }, () => 1);
+  const original = (await tasks.delegate(ctx, { brief: { goal: "Fix parser", repo: ctx.home }, executor: "codex" }, () => 1));
   updateTask(ctx, original.id, t => { t.state = "failed"; });
   const result = await tasks.retry(ctx, original.id, { executor: "codex" }, {
-    delegate: (c, input) => tasks.delegate(c, input, () => 1),
+    delegate: async (c, input) => (await tasks.delegate(c, input, () => 1)),
   });
   expect(readActivity(ctx, { kinds: ["retry"] }).entries).toHaveLength(1);
   // Calling core.delegate as the retry dependency must not duplicate task_started.
@@ -144,7 +144,7 @@ test("retry, stop, dismiss and rejected reviews log their successful actions", a
   tasks.stop(ctx, result.retry.id);
   tasks.stop(ctx, result.retry.id);
   expect(readActivity(ctx, { kinds: ["task_settled"] }).entries.map(e => e.text)).toEqual(["Stopped “Fix parser”"]);
-  tasks.review(ctx, original.id, { accepted: false });
+  await tasks.review(ctx, original.id, { accepted: false });
   tasks.dismiss(ctx, [original.id, "unknown"]);
   expect(readActivity(ctx, { kinds: ["verdict"] }).entries.map(e => e.text)).toEqual(["Dismissed “Fix parser”", "Rejected “Fix parser”"]);
 });

@@ -1,8 +1,9 @@
-import { afterAll } from "bun:test";
+import { afterAll, afterEach } from "bun:test";
 import { mkdtempSync, rmSync, realpathSync } from "node:fs";
 import { tmpdir, userInfo } from "node:os";
 import { join, resolve, dirname, basename } from "node:path";
 import { cleanupTestTmp } from "./helpers";
+import { cleanupFixtureResources } from "./fixture-cleanup";
 
 // Tests must never touch the real ~/.pacer or agent configs. HOME and PACER_HOME point
 // at a throwaway folder for the whole run, so a test that forgets to isolate itself (or
@@ -32,6 +33,9 @@ process.env.RUSTUP_HOME ??= join(toolchainHome, ".rustup");
 const isolatedHome = mkdtempSync(join(tmpdir(), "pacer-test-home-"));
 process.env.HOME = isolatedHome;
 process.env.PACER_HOME = join(isolatedHome, ".pacer");
+
+// Preload hooks apply across files; hooks in cached imported helpers do not.
+afterEach(cleanupFixtureResources);
 
 // Global teardown for the whole `bun test` run (preloaded via bunfig.toml).
 // Removing a large run root (release fixtures) can outlast the default 5 s hook limit under disk load.

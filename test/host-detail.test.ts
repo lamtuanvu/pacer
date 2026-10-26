@@ -11,9 +11,13 @@ import { remoteExclusion } from "../src/remote/eligibility";
 import * as hosts from "../src/remote/hosts";
 import { createTask, updateTask } from "../src/tasks/store";
 import { fakeCtx } from "./helpers";
+import { shutdownPlugins } from "../src/plugins";
+import { registerFixtureCleanup } from "./fixture-cleanup";
 
 function fixture() {
   const ctx = fakeCtx();
+  const pacerHome = ctx.pacerHome;
+  registerFixtureCleanup(() => shutdownPlugins({ pacerHome }));
   mkdirSync(ctx.pacerHome, { recursive: true });
   writeFileSync(join(ctx.pacerHome, "strategy.yaml"), stringify({
     accounts: { claude: { kind: "claude" }, codex: { kind: "codex" } }, planner: "claude-code",

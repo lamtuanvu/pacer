@@ -1,3 +1,9 @@
+import {EventCallbacks,EVENT_TYPES,isPolicyEvent} from "./event-callbacks";
+export {POLICY_OBSERVATIONS_FEATURE} from "./policy";
+import {POLICY_OBSERVATIONS_FEATURE,type ObservationClient,type PolicyEvent} from "./policy";
+export type {PolicyBeforeParams,PolicyDecision,PolicyVerdict,PolicyEventType,PolicyTaskState,PolicyTask,PolicyEvent,ObservationClient} from "./policy";
+import { createFileSystem } from "./fs";
+import { createHttp, type Request as HttpRequest, type Response as HttpResponse } from "./http";
 export type { AgentIdentityInput, AgentIdentityPlan, AttachmentMetadata, AttachmentRef, AgentVersion, AgentSessionCapabilities, AgentSessionPrepare, AgentSessionLaunch, AgentAttachmentInput, AgentAttachmentDelivery } from "./agent-session";
 
 export interface PluginManifest {
@@ -6,8 +12,11 @@ export interface PluginManifest {
   capabilities?: { name: string; scopes?: string[] }[];
   entry?: string; reentrant?: boolean; tier?: "free" | "commercial";
 }
-export interface Hello { protocol: string; pacer: string; manifest: PluginManifest; config: Record<string, unknown>; grants: string[] }
-export interface HostClient {
+export interface Hello { features?: string[]; protocol: string; pacer: string; manifest: PluginManifest; config: Record<string, unknown>; grants: string[] }
+export interface HostClient extends ObservationClient {
+  fs: ReturnType<typeof createFileSystem>;
+  http(request:HttpRequest):Promise<HttpResponse>;
+  secrets: { present(ref:string):Promise<boolean> };
   call<T = unknown>(method: string, params?: unknown): Promise<T>;
   log(level: "debug" | "info" | "warn" | "error", message: string): Promise<void>;
   config(): Promise<Record<string, unknown>>;
@@ -15,6 +24,8 @@ export interface HostClient {
 export type Handler = (params: unknown, host: HostClient, signal: AbortSignal) => unknown | Promise<unknown>;
 export interface ServeOptions {
   manifest: PluginManifest;
+  /** Future API notifications begin after the first owned diagnostic/policy call subscribes. */
+  onEvent?: (event:PolicyEvent,host:ObservationClient)=>void|Promise<void>;
   handlers?: Record<string, Handler>;
   /** Extension points to claim at handshake; defaults to the manifest's `contributes` keys. */
   contributes?: string[];
@@ -23,52 +34,118 @@ export interface ServeOptions {
   now?: () => number;
 }
 
+type ErrorReason = "credential_reflection";
+const errorReason = (code: unknown, reason: unknown): ErrorReason | undefined =>
+  code === "capability_denied" && reason === "credential_reflection" ? reason : undefined;
+
 /** An error with a code the host can map (invalid_input, not_allowed, …). */
 export class PluginError extends Error {
-  constructor(public readonly code: string, message: string, public readonly hint?: string) { super(message); this.name = "PluginError"; }
+  readonly reason?: ErrorReason;
+  constructor(public readonly code: string, message: string, public readonly hint?: string, reason?: ErrorReason) {
+    super(message);
+    this.name = "PluginError";
+    this.reason = errorReason(code, reason);
+  }
 }
 
-export const PROTOCOL = "1.0.0";
+export const PROTOCOL = "1.5.0";
 const HELLO = "plugin.hello", CANCEL = "$/cancel";
 type Json = Record<string, unknown>;
 
 /** Newline-delimited text from a byte stream, for stdin. */
 export async function* stdinLines(stream: AsyncIterable<Buffer | string> = process.stdin): AsyncGenerator<string> {
   let rest = "";
+  const decoder = new TextDecoder("utf-8", { ignoreBOM: true });
   for await (const chunk of stream) {
-    rest += typeof chunk === "string" ? chunk : chunk.toString("utf8");
+    // Preserve scalar boundaries across byte chunks and the old raw BOM semantics.
+    rest += typeof chunk === "string" ? decoder.decode() + chunk : decoder.decode(chunk, { stream: true });
     let i: number;
     while ((i = rest.indexOf("\n")) !== -1) { yield rest.slice(0, i); rest = rest.slice(i + 1); }
   }
+  rest += decoder.decode();
   if (rest) yield rest;
 }
 
 /** Serve the plugin until the input ends. Resolves after every in-flight handler settles. */
 export async function serve(o: ServeOptions): Promise<void> {
+
   const write = o.write ?? ((line: string) => { process.stdout.write(line); });
   const now = o.now ?? (() => Date.now() / 1000);
-  const send = (m: Json) => write(`${JSON.stringify({ jsonrpc: "2.0", ...m })}\n`);
-  const pending = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
+  const send = (m: Json) => {
+    const line = `${JSON.stringify({ jsonrpc: "2.0", ...m })}\n`;
+    if (Buffer.byteLength(line) > 1048576) throw new PluginError("too_large", "plugin complete frame exceeds limit");
+    write(line);
+  };
+  const pending = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void; dispose: () => void }>();
   const inflight = new Map<string | number, AbortController>();
   const tasks = new Set<Promise<void>>();
   let nextId = 1, startedAt: number | null = null, hello: Hello | null = null;
 
-  const host: HostClient = {
-    call<T>(method: string, params: unknown = {}) {
+  let negotiatedFeatures = new Set<string>();
+  let readOwner:string|undefined;
+  let subscribing:Promise<void>|undefined;
+  const observationScope=new AbortController();
+  let failObservations!:(error:unknown)=>void;
+  const observationFailure=new Promise<never>((_resolve,reject)=>{failObservations=reject;});
+  void observationFailure.catch(()=>{});
+  const callbacks=new EventCallbacks(async event=>{
+    if(!readOwner||observationScope.signal.aborted)return;
+    const host=hostFor({readOwner},observationScope.signal);
+    const client:ObservationClient={tasks:host.tasks,events:host.events,log:host.log,config:host.config};
+    await o.onEvent?.(event,client);
+  },()=>{observationScope.abort();readOwner=undefined;failObservations(new PluginError("plugin_unavailable","event callback queue cannot deliver reset"));});
+
+
+  function hostFor(metadata?: unknown, signal?: AbortSignal): HostClient {
+    const candidate=metadata&&typeof metadata==="object"&&!Array.isArray(metadata)?metadata as Json:undefined;
+    if(candidate&&candidate.capabilityCall!==undefined&&candidate.readOwner!==undefined)throw new PluginError("capability_denied","mixed authority metadata");
+    const meta=candidate&&(typeof candidate.capabilityCall==="string"||typeof candidate.readOwner==="string")?candidate:undefined;
+    const observed=typeof meta?.readOwner==="string";
+    const call = <T>(method: string, params: unknown = {}, cleanup = false, ambient = false): Promise<T> => {
+      if (!cleanup && signal?.aborted) return Promise.reject(new PluginError("plugin_unavailable", "owning plugin call ended"));
       const id = `p${nextId++}`;
+      const envelope = { jsonrpc: "2.0", id, method, params, ...(!ambient&&meta ? { _meta: meta } : {}) };
+      if (Buffer.byteLength(JSON.stringify(envelope)+"\n") > 1048576) return Promise.reject(new PluginError("invalid_input", "HTTP complete frame exceeds limit"));
       return new Promise<T>((resolve, reject) => {
-        pending.set(id, { resolve: v => resolve(v as T), reject });
-        send({ id, method, params });
+        const cancel = () => {
+          const waiting = pending.get(id); if (!waiting) return;
+          pending.delete(id); waiting.dispose();
+          reject(new PluginError("plugin_unavailable", "owning plugin call ended"));
+        };
+        const dispose = () => signal?.removeEventListener("abort", cancel);
+        pending.set(id, { resolve: value => resolve(value as T), reject, dispose });
+        if (!cleanup) signal?.addEventListener("abort", cancel, { once: true });
+        send({ id, method, params, ...(!ambient&&meta ? { _meta: meta } : {}) });
       });
-    },
-    async log(level, message) { await host.call("capability.log", { level, message }); },
-    async config() { return (await host.call<{ config: Record<string, unknown> }>("capability.config.get", {})).config; },
-  };
+    };
+    const observations=()=>{if(!negotiatedFeatures.has(POLICY_OBSERVATIONS_FEATURE))throw new PluginError("plugin_unavailable","policy observation transport not negotiated");};
+    return {
+      tasks: {
+        async read(id){observations();return (await call<{task:import("./policy").PolicyTask}>("capability.tasks.read",{id})).task;},
+        async list(options={}){observations();return (await call<{tasks:import("./policy").PolicyTask[]}>("capability.tasks.list",options)).tasks;},
+      },
+      events: {async subscribe(types){observations();const result=await call<{ok:true;readOwner:string}>("capability.events.subscribe",{types});if(result.ok!==true||typeof result.readOwner!=="string"||!result.readOwner.length||result.readOwner.length>256)throw new PluginError("plugin_refused","invalid read owner acknowledgement");readOwner=result.readOwner;}},
+      call,
+      fs: createFileSystem({call,cleanupCall:(method,params)=>call(method,params,true),signal,
+        negotiated:()=>negotiatedFeatures.has("fileWriteChunks"),
+        fits:(method,params)=>Buffer.byteLength(JSON.stringify({jsonrpc:"2.0",id:`p${nextId}`,method,params,...(meta?{_meta:meta}:{})})+"\n")<=1048576}),
+      http: createHttp({call, cleanupCall:(method,params)=>call(method,params,true), signal,
+        negotiated:()=>negotiatedFeatures.has("httpBodyChunks"),
+        fits:(method,params)=>Buffer.byteLength(JSON.stringify({jsonrpc:"2.0",id:`p${nextId}`,method,params,...(meta?{_meta:meta}:{})})+"\n")<=1048576}),
+      secrets: { async present(ref) { return (await call<{present:boolean}>("capability.secrets.resolve",{ref})).present; } },
+      async log(level, message) { await call("capability.log", { level, message },false,observed); },
+      async config() { return (await call<{ config: Record<string, unknown> }>("capability.config.get", {},false,observed)).config; },
+    };
+  }
   const builtin: Record<string, Handler> = {
     "diagnostic.ping": () => ({ ok: true, uptimeS: startedAt === null ? 0 : Math.max(0, now() - startedAt) }),
   };
   const errorBody = (e: unknown) => e instanceof PluginError
-    ? { code: -32000, message: e.message, data: { code: e.code, ...(e.hint ? { hint: e.hint } : {}) } }
+    ? { code: -32000, message: e.message, data: {
+      code: e.code,
+      ...(e.hint ? { hint: e.hint } : {}),
+      ...(errorReason(e.code, e.reason) ? { reason: e.reason } : {}),
+    } }
     : { code: -32000, message: e instanceof Error ? e.message : String(e), data: { code: "internal" } };
 
   const handle = async (line: string) => {
@@ -77,37 +154,87 @@ export async function serve(o: ServeOptions): Promise<void> {
     if (!m || typeof m !== "object" || Array.isArray(m)) return;
     const r = m as Json;
     if (r.jsonrpc !== "2.0") return;
+    if(r.method==="$/event"&&r.id===undefined) {
+      if(negotiatedFeatures.has(POLICY_OBSERVATIONS_FEATURE)&&readOwner&&isPolicyEvent(r.params))callbacks.push(r.params);
+      return;
+    }
+
     if (typeof r.method === "string") {
       const id = r.id as string | number | undefined;
       if (r.method === CANCEL) { const p = r.params as Json | undefined; inflight.get(p?.id as string | number)?.abort(); return; }
       if (id === undefined || id === null) return;
       if (r.method === HELLO) {
         hello = r.params as Hello; startedAt = now();
-        send({ id, result: { protocol: PROTOCOL, id: o.manifest.id, version: o.manifest.version, contributes: o.contributes ?? Object.keys(o.manifest.contributes ?? {}) } });
+        const [major, minor] = hello.protocol.split(".").map(Number);
+        const offered = Array.isArray(hello.features) ? hello.features : [];
+        const features = major === 1 && Number.isInteger(minor)
+          ? offered.filter(feature => feature === "chunkedResults" && minor >= 1
+            || feature === "httpBodyChunks" && minor >= 2
+            || feature === "fileWriteChunks" && minor >= 4
+            || feature === "plannerInstallTransactions" && minor >= 4
+            || feature === POLICY_OBSERVATIONS_FEATURE && minor >= 5) : [];
+        negotiatedFeatures = new Set(features);
+        send({ id, result: { protocol: PROTOCOL, id: o.manifest.id, version: o.manifest.version, contributes: o.contributes ?? Object.keys(o.manifest.contributes ?? {}), ...(features.length ? { features } : {}) } });
         return;
       }
       if (!hello) { send({ id, error: { code: -32000, message: "plugin.hello must come first", data: { code: "plugin_refused" } } }); return; }
       const handler = o.handlers?.[r.method] ?? builtin[r.method];
       if (!handler) { send({ id, error: { code: -32601, message: `unknown method ${r.method}`, data: { code: "unknown_op" } } }); return; }
       const controller = new AbortController(); inflight.set(id, controller);
-      try { send({ id, result: await handler(r.params ?? {}, host, controller.signal) }); }
+      try {
+        const host = hostFor(r._meta, controller.signal);
+        const result = await handler(r.params ?? {}, host, controller.signal);
+        if(o.onEvent&&["diagnostic.ping","policy.before"].includes(r.method)&&!readOwner) {
+          if(!host||!r._meta||typeof (r._meta as Json).capabilityCall!=="string")throw new PluginError("capability_denied","observations need an actual owning host call");
+          if(!subscribing)subscribing=host.events.subscribe([...EVENT_TYPES]).finally(()=>{subscribing=undefined;});
+          await subscribing;
+        }
+        const scoped = r.method === "usage.read" || !!(r._meta && typeof r._meta === "object"
+          && typeof (r._meta as Json).capabilityCall === "string");
+        if (scoped && controller.signal.aborted) throw new PluginError("plugin_unavailable", "owning plugin call ended");
+        const chunked = (r.method === "usage.read" || ((r.method === "planner.install" || r.method === "planner.uninstall") && negotiatedFeatures.has("plannerInstallTransactions"))) && typeof id === "number" && hello.protocol.startsWith("1.")
+          && Number(hello.protocol.split(".")[1]) >= 1 && Array.isArray(hello.features) && hello.features.includes("chunkedResults");
+        const bytes = chunked ? Buffer.from(JSON.stringify(result)) : undefined;
+        if (bytes && bytes.length > 768 * 1024) {
+          for (let offset = 0; offset < bytes.length; offset += 262144) {
+            if (controller.signal.aborted) throw new PluginError("plugin_unavailable", "owning plugin call ended");
+            const part = bytes.subarray(offset, offset + 262144);
+            const ack = await host.call<{ bytes: number }>("$/resultChunk", { request: id, offset, base64: part.toString("base64") });
+            if (ack.bytes !== offset + part.length) throw new PluginError("plugin_refused", "incomplete result chunk acknowledgement");
+          }
+          if (controller.signal.aborted) throw new PluginError("plugin_unavailable", "owning plugin call ended");
+          send({ id, result: { _chunkedResult: { bytes: bytes.length } } });
+        } else send({ id, result });
+      }
       catch (e) { send({ id, error: errorBody(e) }); }
-      finally { inflight.delete(id); }
+      finally { inflight.delete(id); controller.abort(); }
       return;
     }
     if (typeof r.id !== "string") return;
     const p = pending.get(r.id); if (!p) return;
-    pending.delete(r.id);
-    if (r.error) { const err = r.error as { message?: string; data?: { code?: string; hint?: string } }; p.reject(new PluginError(err.data?.code ?? "internal", err.message ?? "host error", err.data?.hint)); }
-    else p.resolve(r.result);
+    pending.delete(r.id); p.dispose();
+    if (r.error) {
+      const err = r.error as { message?: string; data?: { code?: string; hint?: string; reason?: unknown } };
+      p.reject(new PluginError(
+        err.data?.code ?? "internal", err.message ?? "host error", err.data?.hint,
+        errorReason(err.data?.code, err.data?.reason),
+      ));
+    } else p.resolve(r.result);
   };
 
   try {
-    for await (const line of o.input ?? stdinLines()) { const t = handle(line); tasks.add(t); void t.finally(() => tasks.delete(t)); }
+    const input=(o.input??stdinLines())[Symbol.asyncIterator]();
+    try {for(;;){const next=await Promise.race([input.next(),observationFailure]);if(next.done)break;const t=handle(next.value);tasks.add(t);void t.then(()=>tasks.delete(t),()=>tasks.delete(t));}}
+    finally {const returned=input.return?.();if(returned)void Promise.resolve(returned).catch(()=>{}); }
   } finally {
-    for (const p of pending.values()) p.reject(new PluginError("plugin_unavailable", "host closed the connection"));
+    callbacks.close();observationScope.abort();readOwner=undefined;
+    for (const p of pending.values()) { p.dispose(); p.reject(new PluginError("plugin_unavailable", "host closed the connection")); }
     pending.clear();
     for (const c of inflight.values()) c.abort();
     await Promise.all(tasks);
   }
 }
+
+export { createUsageReaderIO } from "./usage";
+export type { UsageKind, UsageSource, UsageWindow, UsageReading, RunResult, EvidenceScope, Evidence, SpendingSignals, AccountEvidence,
+  FileInfo, Cursor, Cached, ReaderIO, ReaderContext, MeteredConfig } from "./usage";

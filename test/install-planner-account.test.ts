@@ -1,3 +1,4 @@
+import { withClaudeCommandFixture } from "./planner-command-fixtures";
 import { expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -5,7 +6,7 @@ import { installPlanner } from "../src/install";
 import { uninstallPlanner } from "../src/install/uninstall";
 import { readManifest } from "../src/install/manifest";
 import { setupCmd } from "../src/commands/setup";
-import { fakeCtx } from "./helpers";
+import { fakeCtx } from "./install-plugin-fixtures";
 import { PACER } from "./install-helpers";
 
 export function accountCtx(agent = "claude-code") {
@@ -61,6 +62,7 @@ test("Orca planner integration uses only an existing derived account folder", as
 test("Claude MCP install and manifest uninstall commands use the recorded account environment", async () => {
   const ctx = accountCtx(); const environments: (Record<string, string | undefined> | undefined)[] = [];
   ctx.run = async (_, __, options) => {environments.push(options?.env); return {code: 0, stdout: "", stderr: ""};};
+  withClaudeCommandFixture(ctx);
   await installPlanner({ctx, pacerArgv: PACER, mcp: true}, {agent: "claude-code", account: "work"});
   await uninstallPlanner(ctx, {agent: "claude-code", account: "work"});
   expect(environments.length).toBeGreaterThan(2);

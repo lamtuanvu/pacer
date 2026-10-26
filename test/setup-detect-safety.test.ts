@@ -4,7 +4,8 @@ import { basename, join } from "node:path";
 import { detect } from "../src/install/init";
 import { detectAgents } from "../src/install/detection";
 import { check, init } from "../src/core/setup";
-import { fakeCtx } from "./helpers";
+import { fakeCtx } from "./install-plugin-fixtures";
+import {withVersionFixtures} from "./planner-detect-fixtures";
 
 // IDE/OS launchers, plus Ollama whose list command can auto-open its macOS app.
 const GUI_LAUNCHERS = new Set(["cursor", "agy", "antigravity", "orca", "code", "code-insiders", "open", "ollama"]);
@@ -19,10 +20,11 @@ for (const headlessCursor of [false, true]) {
         return { code: 0, stdout: argv[0] === "lms" ? "[]" : "1.2.3", stderr: "" };
       },
     });
+    withVersionFixtures(ctx);
     const request = spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ models: [] }));
     try {
       const tools = await detect(ctx);
-      expect(tools.clis.cursor).toBe("/fake/cursor");
+      expect(tools.clis.cursor).toBe(ctx.which("cursor"));
       expect(tools.clis.agy).toBe("/fake/agy");
       await init(ctx, "claude-code");
       await check(ctx, { snapshotProbe: false });
@@ -30,7 +32,7 @@ for (const headlessCursor of [false, true]) {
       const agents = await detectAgents(ctx);
       expect(agents.find(a => a.agent === "cursor")).toMatchObject({
         found: true,
-        path: headlessCursor ? "/fake/cursor-agent" : "/fake/cursor",
+        path: ctx.which(headlessCursor?"cursor-agent":"cursor"),
         version: headlessCursor ? "1.2.3" : null,
       });
       expect(calls.filter(argv => GUI_LAUNCHERS.has(basename(argv[0])))).toEqual([]);

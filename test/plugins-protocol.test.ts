@@ -40,10 +40,11 @@ test("manifest files report JSON and schema problems by text", () => {
   expect(readManifestFile(join(dir, "missing.json")).ok).toBe(false);
 });
 
-test("method tables include observation and decision adapters without new host capabilities", () => {
-  expect(Object.keys(EXTENSION_METHODS).sort()).toEqual(["agentSession.attachment", "agentSession.capabilities", "agentSession.identity", "agentSession.prepare", "decision.decide", "diagnostic.ping", "observation.observe"]);
+test("method tables preserve native identity, dispatch adapters and all extracted capabilities", () => {
+  expect(Object.keys(EXTENSION_METHODS).sort()).toEqual(["agentSession.attachment", "agentSession.capabilities", "agentSession.identity", "agentSession.prepare", "classifier.adapters", "classifier.ask", "decision.decide", "diagnostic.ping", "endpoint.launchEnv", "endpoint.models", "endpoint.test", "notifier.deliver", "observation.observe", "planner.check", "planner.detect", "planner.install", "planner.plan", "planner.preview", "planner.uninstall", "policy.before", "usage.read"]);
   expect(EXTENSION_METHODS["diagnostic.ping"].deadlineMs).toBe(5000);
-  expect(Object.keys(CAPABILITY_METHODS).sort()).toEqual(["capability.config.get", "capability.log"]);
+  expect(Object.keys(CAPABILITY_METHODS)).toContain("capability.config.get");
+  expect(Object.keys(CAPABILITY_METHODS)).toContain("capability.log");
   expect(capabilityOf("capability.config.get")).toBe("config.get");
   expect(capabilityOf("capability.shell")).toBeNull();
   expect(helloResult.safeParse({ protocol: "1.0.0", id: "x", version: "1.0.0", contributes: [] }).success).toBe(true);

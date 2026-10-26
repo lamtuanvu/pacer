@@ -3,10 +3,10 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fakeCtx } from "./helpers";
 import { PACER, snapshot } from "./install-helpers";
-import { installOpencode, opencodeConfigPath, opencodeDir } from "../src/install/opencode";
+import { installOpencode, opencodeConfigPath, opencodeDir } from "./install-plugin-adapter";
 import { parseJsonc } from "../src/install/jsonc";
 import { readManifest } from "../src/install/manifest";
-import { uninstallPlanner } from "../src/install/uninstall";
+import { uninstallPlanner } from "./install-plugin-adapter";
 
 const agents = "# My instructions\n\n<!-- context7 -->\nKeep using context7.\n<!-- /context7 -->\n";
 const config = '{\n\t// Keep this comment\n\t"mcp": {"context7": {"type": "remote", "url": "https://example.com/mcp"},},\n\t"theme": "dark",\n}\n';

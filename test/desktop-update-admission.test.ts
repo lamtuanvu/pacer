@@ -113,7 +113,7 @@ test("reservation prevents delegate and direct runner before mutations or execut
   const ctx = context();
   await reserveIdle(ctx, "tx-a");
   let spawned = 0;
-  expect(() => delegate(ctx, { brief: { goal: "Work", repo: ctx.home } }, () => { spawned++; return 1; }, queueStrategy())).toThrow("maintenance");
+  await expect(delegate(ctx, { brief: { goal: "Work", repo: ctx.home } }, () => { spawned++; return 1; }, queueStrategy())).rejects.toThrow("maintenance");
   expect(listTasks(ctx, Infinity)).toHaveLength(0);
   const record = task(ctx);
   await expect(runTask(ctx, record.id, queueDeps())).rejects.toThrow("maintenance");
@@ -226,7 +226,7 @@ test("malformed or unsupported task and operation records never establish idle",
 
 test("invalid delegation releases its unused pre-admission", async () => {
   const ctx = context();
-  expect(() => delegate(ctx, { brief: { goal: "", repo: ctx.home } }, () => 1, queueStrategy())).toThrow();
+  await expect(delegate(ctx, { brief: { goal: "", repo: ctx.home } }, () => 1, queueStrategy())).rejects.toThrow();
   expect((await reserveIdle(ctx, "tx-a")).reserved).toBe(true);
 });
 

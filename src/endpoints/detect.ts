@@ -4,7 +4,7 @@ import { opencodeConfigPath } from "../install/opencode";
 import type { Ctx } from "../types";
 import { isObj } from "../util";
 import type { Catalog } from "./catalog";
-import { discoverModels } from "./models";
+import { discoverEndpointModels } from "../plugins/endpoint-adapter";
 import { classify, type UsageClass } from "./recommend";
 
 export type CandidateGroup = "signed_in" | "local" | "catalog";
@@ -45,11 +45,11 @@ export async function opencodeModelIds(ctx: Ctx, provider: string): Promise<stri
 function addedBy(accounts: Record<string, AccountCfg>, provider: string, baseUrl?: string): string | null {
   return Object.values(accounts).find(a => (a.source === "opencode" && a.provider === provider) || (!!baseUrl && a.connection?.base_url === baseUrl))?.name ?? null;
 }
-export async function detectCandidates(ctx: Ctx, deps: { fetch?: typeof fetch; catalog: Catalog | null; accounts: Record<string, AccountCfg> }): Promise<Detection> {
+export async function detectCandidates(ctx: Ctx, deps: { discover?: typeof discoverEndpointModels; catalog: Catalog | null; accounts: Record<string, AccountCfg> }): Promise<Detection> {
   const notes: string[] = [], candidates: Candidate[] = [];
   const opencode = ctx.which("opencode") !== null;
   const catalog = deps.catalog;
-  const local = Promise.all(LOCAL_SERVERS.map(async s => ({ s, r: await discoverModels({ baseUrl: s.base_url, key: null, fetch: deps.fetch, timeoutMs: 1000 }) })));
+  const local = Promise.all(LOCAL_SERVERS.map(async s => ({ s, r: await (deps.discover ?? discoverEndpointModels)(ctx, { baseUrl: s.base_url, key: null, timeoutMs: 1000 }) })));
   if (!opencode) notes.push("Install OpenCode to use providers you have signed in to or connect new ones.");
   const signed = opencode ? await signedInProviders(ctx) : [];
   if (signed === null) notes.push("Could not read OpenCode sign-ins; showing other options.");

@@ -4,14 +4,14 @@ import { join } from "node:path";
 import { loadStrategy, MissingStrategyError, type ProviderCfg } from "../config/strategy";
 import type { RunnerCfg } from "../config/accounts";
 import type { Ctx } from "../types";
-import { readKey } from "../endpoints/keys";
-import { endpointKeyEnv, writeOpencodeConfig } from "../endpoints/opencode-config";
+import { endpointKeyEnv, readKey } from "../endpoints/keys";
+import { endpointLaunchSettings } from "../plugins/endpoint-adapter";
 import { orcaAccountHome } from "../orca/accounts";
 import { ensureManagedClaudeStatusLine } from "../install/claude-managed-telemetry";
 
 /** Resolve account settings and read endpoint credentials only when launching a child. */
 export async function runnerEnv(ctx: Ctx, runner: RunnerCfg, probe = false): Promise<Record<string, string>> {
-  const account = loadStrategy(ctx).accounts[runner.account];
+  const strategy = loadStrategy(ctx), account = strategy.accounts[runner.account];
   if (!account) throw new Error(`account not configured: ${runner.account}`);
   if (account.kind === "claude" && !probe) {
     try { ensureManagedClaudeStatusLine(ctx, account); }
@@ -34,7 +34,8 @@ export async function runnerEnv(ctx: Ctx, runner: RunnerCfg, probe = false): Pro
     if (probe) return opencodeEnv;
     const key = await readKey(ctx, account.name, account.connection.key);
     if (account.connection.key !== "none" && !key) throw Error(`Key missing for endpoint ${account.name}`);
-    return {...opencodeEnv, OPENCODE_CONFIG: writeOpencodeConfig(ctx), ...(key ? {[endpointKeyEnv(account.name)]: key} : {})};
+    const settings = await endpointLaunchSettings(ctx, strategy.accounts, account.name);
+    return {...opencodeEnv, ...settings.env, ...(key ? {[endpointKeyEnv(account.name)]: key} : {})};
   }
   if (account.source === "default" || account.source === "endpoint" || account.source === "opencode") return opencodeEnv;
   if (account.kind !== "claude" && account.kind !== "codex") return {};

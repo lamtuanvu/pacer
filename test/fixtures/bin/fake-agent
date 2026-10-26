@@ -15,15 +15,17 @@ while [ "$#" -gt 0 ]; do
   shift
 done
 if [ -n "$resume" ]; then
+  parent=$$
+  watcher=
+  # The readiness marker lets tests finish immediately; install signal handlers first.
+  trap 'kill "$watcher" 2>/dev/null; exit 0' USR1
+  trap 'kill "$watcher" 2>/dev/null; exit 143' TERM INT HUP
   printf '%s' "$session" > resumed-id.txt
   pwd > resumed-cwd.txt
   echo 'RESUMED CONTEXT'
   if [ -n "$PACER_FAKE_RESUME_FAIL" ]; then echo 'invalid session id' >&2; exit 2; fi
-  parent=$$
   (while [ ! -f finish-session ]; do sleep 1; done; kill -USR1 "$parent") &
   watcher=$!
-  trap 'kill "$watcher" 2>/dev/null; exit 0' USR1
-  trap 'kill "$watcher" 2>/dev/null; exit 143' TERM INT HUP
   read -r line
   kill "$watcher" 2>/dev/null
   exit 0

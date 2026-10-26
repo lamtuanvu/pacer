@@ -14,7 +14,7 @@ import { accountSignIn } from "../usage/signin";
 import { openInTerminal, type TerminalDeps, type TerminalOptions } from "../terminal/open";
 import { readAccountUsage } from "../usage";
 import { CoreError, toCoreError } from "./errors";
-import { writeOpencodeConfig } from "../endpoints/opencode-config";
+import { writeEndpointConfig } from "../plugins/endpoint-adapter";
 import { endpointRow } from "../endpoints/row";
 import type { Ctx } from "../types";
 
@@ -57,13 +57,13 @@ function sameSettings(path: string, expected: string): boolean {
 function settingsConflict() {
   return new CoreError("conflict", "Your settings changed while they were being updated. Try again.");
 }
-export function applyEdit(ctx: Ctx, change: Parameters<typeof editStrategy>[1]): string {
+export async function applyEdit(ctx: Ctx, change: Parameters<typeof editStrategy>[1]): Promise<string> {
   const result = editStrategy(strategyPath(ctx), change);
   if (!result.ok) {
     if (result.error.includes("changed during edit")) throw settingsConflict();
     throw new CoreError("invalid_input", result.error, "Check the strategy values and retry.");
   }
-  writeOpencodeConfig(ctx);
+  await writeEndpointConfig(ctx, loadStrategy(ctx).accounts);
   return result.diff;
 }
 /** A delete-home operation must never remove a shared, default, or symlinked folder. */
@@ -153,10 +153,10 @@ export async function add(ctx: Ctx, options: AddOptions) {
       value.home=folder;
     }
     // Validate before creating a folder; the edit writes no bytes on refusal.
-    const diff=edit(doc=>doc.addMappingEntry('accounts',name,value));
+    const diff=await edit(doc=>doc.addMappingEntry('accounts',name,value));
     if (folder) {
       try { mkdirSync(folder,{recursive:true,mode:0o700}); chmodSync(folder,0o700); }
-      catch(e) {applyEdit(ctx,doc=>doc.removeMappingEntry('accounts',name)); throw e;}
+      catch(e) {await applyEdit(ctx,doc=>doc.removeMappingEntry('accounts',name)); throw e;}
     }
     const account = loadStrategy(ctx).accounts[name];
     if (folder && account.kind === "claude") {
@@ -170,13 +170,13 @@ export async function add(ctx: Ctx, options: AddOptions) {
   }
 }
 
-export function remove(ctx: Ctx, name: string, {deleteHome = false}: {deleteHome?: boolean} = {}) {
+export async function remove(ctx: Ctx, name: string, {deleteHome = false}: {deleteHome?: boolean} = {}) {
   try {
     const {strategy: s, migrated, edit} = ensureAccounts(ctx);
     const a = s.accounts[name]; if (!a) throw Error(`unknown account: ${name}`);
     if (s.planner.account === name || Object.values(s.runners).some(r => r.account === name)) throw new CoreError("conflict", `account ${name} is in use`, "Remove its runners and change the planner first.");
     const folder = deleteHome ? deletionHome(ctx, s, name) : null;
-    const diff = edit(doc => doc.removeMappingEntry('accounts', name));
+    const diff = await edit(doc => doc.removeMappingEntry('accounts', name));
     retireEvidence(ctx, accountEvidenceScope(a, s.hosts));
     if (folder) rmSync(folder, {recursive: true, force: true});
     return {removed: true as const, diff, ...(migrated ? {migrated} : {})};

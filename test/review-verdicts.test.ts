@@ -17,7 +17,12 @@ function fixture(state: "done" | "running" | "queued" = "done") {
     t.state = state;
     if (state === "done") t.result = { status: "done", executor: "codex#codex", model: null, files: "", report: "", backend: "direct" };
   });
-  const delegate = (c: typeof ctx, input: DelegateInput) => createTask(c, { brief: input.brief, kind: input.kind ?? null, requestedExecutor: input.executor ?? null, timeoutS: 60 });
+  // This unit fixture replaces creation only; consume the trusted commit discipline.
+  // Actual policy/constructor boundaries are exercised by plugins-policy-review-gates.
+  const delegate = (c: typeof ctx, input: DelegateInput) => {
+    const create=()=>createTask(c,{brief:input.brief,kind:input.kind??null,requestedExecutor:input.executor??null,timeoutS:60});
+    return input.commitWith?input.commitWith(create):create();
+  };
   return { ctx, task, delegate };
 }
 

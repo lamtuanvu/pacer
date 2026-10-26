@@ -1,0 +1,256 @@
+{
+  "schema": 1,
+  "agent": "claude-code",
+  "now": 1700000000,
+  "pacerArgv": [
+    "pacer"
+  ],
+  "before": {
+    "$HOME/.claude/rules/model-delegation.md": {
+      "text": "# Legacy instructions\n",
+      "mode": 384
+    },
+    "$HOME/.claude/scripts/budget/subagent_guard.py": {
+      "text": "#!/usr/bin/env python3\nprint(\"legacy fixture\")\n",
+      "mode": 448
+    },
+    "$HOME/.claude/settings.json": {
+      "text": "{\n  \"theme\": \"dark\",\n  \"statusLine\": {\n    \"type\": \"command\",\n    \"command\": \"~/.claude/statusline.sh\"\n  },\n  \"hooks\": {\n    \"SessionStart\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"other-start\"\n          }\n        ]\n      },\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"~/.claude/scripts/budget/budget-status --hook\",\n            \"timeout\": 15\n          }\n        ]\n      }\n    ],\n    \"PreToolUse\": [\n      {\n        \"matcher\": \"Read\",\n        \"hooks\": [\n          {\n            \"command\": \"other-read\"\n          }\n        ]\n      },\n      {\n        \"matcher\": \"Agent|Task\",\n        \"hooks\": [\n          {\n            \"command\": \"~/.claude/scripts/budget/subagent_guard.py\",\n            \"timeout\": 15\n          }\n        ]\n      }\n    ]\n  }\n}\n",
+      "mode": 384
+    },
+    "$HOME/.claude/statusline.sh": {
+      "text": "#!/bin/sh\ninput=$(cat)\n# Persist Claude's rate-limit windows for ~/.claude/scripts/budget/budget-status\nif true; then\n  echo legacy\nfi\necho mine\nexit 0\n",
+      "mode": 448
+    },
+    "$HOME/unrelated.txt": {
+      "text": "Unrelated fixture content: 界\n",
+      "mode": 384
+    }
+  },
+  "after": {
+    "$HOME/.claude/rules/model-delegation.md.pacer-bak-20231115-051320": {
+      "text": "# Legacy instructions\n",
+      "mode": 384
+    },
+    "$HOME/.claude/rules/pacer.md": {
+      "text": "This applies only when you are the planner pacer is configured for; if pacer started you as an executor (PACER_ROLE=executor), ignore it.\n# pacer delegation policy (Claude Code is the planner)\n\nYour role: plan, decide and review; delegate execution.\n\nThe budget block arrives at session start. Read it before choosing work or an executor.\n\n## Modes\n\n| Mode | How to work |\n| --- | --- |\n| strict/emergency | Delegate execution to available executors; reserve planner budget for decisions and review. |\n| normal | Delegate substantial execution work; keep planning and review with the planner. |\n| relaxed | You may execute directly or delegate when useful. |\n\n## Delegation workflow\n\nUse the installed `pacer` skill for CLI routing, brief files, waiting and review.\nRun `pacer route <kind> --json`, then `pacer delegate --brief-file <path|-> --json`.\nReview the diff and run acceptance before `pacer review <id> --accept|--reject`.\n\n## Subagents\n\n**Claude-model subagents (general-purpose, Sonnet, Haiku, …) count as you doing the work**.\nA hook blocks them for execution work unless the mode is `relaxed`, no executor is available, or `PACER=off`. Read-only helpers and reviewers stay allowed.\n\n## Review and completion\n\nReview each delegated result and verify before reporting done. Check the changes and run the acceptance command; then run `pacer review <id> --accept|--reject [--kind <k>]` to record your verdict and any corrected kind tag.\n\nWhen a human decision is needed, use `pacer task request-review <id> --note \"<specific concern>\"` (or MCP task_request_review) instead of recording a verdict you have not reached. Successful execution alone never means acceptance. A completed run without a verdict stays in history and does not require a second human acknowledgment.\n\nEscape hatch: set `PACER=off` to disable pacing and delegation enforcement for the session.\n",
+      "mode": 384
+    },
+    "$HOME/.claude/scripts/budget/subagent_guard.py.pacer-bak-20231115-051320": {
+      "text": "#!/usr/bin/env python3\nprint(\"legacy fixture\")\n",
+      "mode": 448
+    },
+    "$HOME/.claude/settings.json": {
+      "text": "{\n  \"theme\": \"dark\",\n  \"statusLine\": {\n    \"type\": \"command\",\n    \"command\": \"~/.claude/statusline.sh\"\n  },\n  \"hooks\": {\n    \"SessionStart\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"other-start\"\n          }\n        ]\n      },\n      {\n        \"hooks\": [\n          {\n            \"command\": \"pacer status --hook claude-code\",\n            \"timeout\": 15,\n            \"type\": \"command\",\n            \"statusMessage\": \"Checking subscription budgets\"\n          }\n        ]\n      }\n    ],\n    \"PreToolUse\": [\n      {\n        \"matcher\": \"Read\",\n        \"hooks\": [\n          {\n            \"command\": \"other-read\"\n          }\n        ]\n      },\n      {\n        \"matcher\": \"Agent|Task\",\n        \"hooks\": [\n          {\n            \"command\": \"pacer guard --planner claude-code\",\n            \"timeout\": 15,\n            \"type\": \"command\"\n          }\n        ]\n      }\n    ]\n  }\n}\n",
+      "mode": 384
+    },
+    "$HOME/.claude/settings.json.pacer-bak-20231115-051320": {
+      "text": "{\n  \"theme\": \"dark\",\n  \"statusLine\": {\n    \"type\": \"command\",\n    \"command\": \"~/.claude/statusline.sh\"\n  },\n  \"hooks\": {\n    \"SessionStart\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"other-start\"\n          }\n        ]\n      },\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"~/.claude/scripts/budget/budget-status --hook\",\n            \"timeout\": 15\n          }\n        ]\n      }\n    ],\n    \"PreToolUse\": [\n      {\n        \"matcher\": \"Read\",\n        \"hooks\": [\n          {\n            \"command\": \"other-read\"\n          }\n        ]\n      },\n      {\n        \"matcher\": \"Agent|Task\",\n        \"hooks\": [\n          {\n            \"command\": \"~/.claude/scripts/budget/subagent_guard.py\",\n            \"timeout\": 15\n          }\n        ]\n      }\n    ]\n  }\n}\n",
+      "mode": 384
+    },
+    "$HOME/.claude/skills/pacer/SKILL.md": {
+      "text": "---\nname: pacer\ndescription: Route and delegate work by subscription budget, answer budget and pace questions, and wait on or review delegated tasks.\n---\n\n# pacer\n\nUse the pacer CLI as the primary interface; MCP is an optional adapter.\nExecutors (PACER_ROLE=executor) must complete their assigned task directly and must not delegate.\n\n1. Run `pacer status --json` and read the planner mode and budget.\n2. Run `pacer route <kind> --json` to choose an available executor.\n3. Write a brief JSON file, then run `pacer delegate --brief-file brief.json --json`.\n   To avoid shell quoting, pipe the JSON to `pacer delegate --brief-file - --json`.\n4. Use the returned `id` with `pacer watch <id> --json` to stream output and state changes until settled.\n   It emits one JSON event per line (default timeout 600 seconds, max 3000). Exit 0 means settled,\n   not necessarily successful; inspect the final state. Exit 2 means timeout or error; check the final event.\n   Watch again after a timeout; Ctrl-C stops watching without stopping the task.\n   Use `pacer wait <id> --json` for completion only, or `pacer tasks <id> --json` for a snapshot.\n   Use these commands instead of polling private task files or tailing executor logs.\n5. Review the diff and run acceptance yourself, then `pacer review <id> --accept --json`\n   or `pacer review <id> --reject --json`; optionally correct `--kind <kind>`.\n\nUse `pacer stop <id> --json` to cancel and `pacer dismiss <id...>` to hide settled cards.\nIf an executor hits a provider limit, run `pacer report-limit <provider>` so routing skips it.\n\n## Brief fields\n\nJSON object: `goal` (required string), `repo` (absolute path, defaults to cwd),\n`kind`, `scope`, `acceptance` (verification command), `constraints`, `context`,\n`executor`, `timeout_min` (1–240), `worktree` (current/new/auto),\n`worktree_reason` (one line, max 200 characters).\nCommand-line flags override file fields. Give a kind tag and a concrete acceptance command.\n\nChoose current for uncommitted work, read-only research/review, installed dependencies/build\noutput, or a small follow-up there. Choose new when another task or the user is editing there,\nfor parallel tasks on the same repo, or exploratory/risky work. Give a worktree_reason;\nomit the choice to let pacer decide (auto).\n\nStrict/emergency: delegate execution and reserve planner budget for decisions/review.\nNormal: delegate substantial execution. Relaxed: execute directly or delegate when useful.\nReview and verify before reporting completion; the worker's report is evidence to check.\n",
+      "mode": 384
+    },
+    "$HOME/.claude/statusline.sh": {
+      "text": "#!/bin/sh\ninput=$(cat)\necho mine\n# >>> pacer >>>\nprintf '%s' \"$input\" | pacer statusline 2>/dev/null\n# <<< pacer <<<\n\nexit 0\n",
+      "mode": 448
+    },
+    "$HOME/.claude/statusline.sh.pacer-bak-20231115-051320": {
+      "text": "#!/bin/sh\ninput=$(cat)\n# Persist Claude's rate-limit windows for ~/.claude/scripts/budget/budget-status\nif true; then\n  echo legacy\nfi\necho mine\nexit 0\n",
+      "mode": 448
+    },
+    "$HOME/unrelated.txt": {
+      "text": "Unrelated fixture content: 界\n",
+      "mode": 384
+    }
+  },
+  "manifest": {
+    "version": 1,
+    "planners": {
+      "claude-code": {
+        "planner": "claude-code",
+        "installedAt": 1700000000,
+        "pacerArgv": [
+          "pacer"
+        ],
+        "files": [
+          {
+            "path": "$HOME/.claude/scripts/budget/subagent_guard.py",
+            "action": "moved",
+            "backup": "$HOME/.claude/scripts/budget/subagent_guard.py.pacer-bak-20231115-051320",
+            "undo": []
+          },
+          {
+            "path": "$HOME/.claude/rules/model-delegation.md",
+            "action": "moved",
+            "backup": "$HOME/.claude/rules/model-delegation.md.pacer-bak-20231115-051320",
+            "undo": []
+          },
+          {
+            "path": "$HOME/.claude/skills/pacer/SKILL.md",
+            "action": "created",
+            "exact": true,
+            "undo": [],
+            "afterHash": "379e5010a584c82752b7eceb7a326f3b9523d8d3b2cdf5f33c409a3622e5d85c",
+            "managed": {
+              "schema": 1,
+              "hash": "379e5010a584c82752b7eceb7a326f3b9523d8d3b2cdf5f33c409a3622e5d85c"
+            }
+          },
+          {
+            "path": "$HOME/.claude/rules/pacer.md",
+            "action": "created",
+            "exact": true,
+            "undo": [],
+            "afterHash": "079cbbbc6298d8abf2264b657d6ff3cacfee7d798267a4374e8540398c1b413e",
+            "managed": {
+              "schema": 1,
+              "hash": "079cbbbc6298d8abf2264b657d6ff3cacfee7d798267a4374e8540398c1b413e"
+            }
+          },
+          {
+            "path": "$HOME/.claude/settings.json",
+            "action": "edited",
+            "backup": "$HOME/.claude/settings.json.pacer-bak-20231115-051320",
+            "exact": true,
+            "undo": [
+              {
+                "kind": "hooks",
+                "format": "claude",
+                "commands": [
+                  "pacer status --hook claude-code",
+                  "pacer guard --planner claude-code"
+                ],
+                "restore": [
+                  {
+                    "event": "SessionStart",
+                    "hook": {
+                      "type": "command",
+                      "command": "~/.claude/scripts/budget/budget-status --hook",
+                      "timeout": 15
+                    }
+                  },
+                  {
+                    "event": "PreToolUse",
+                    "matcher": "Agent|Task",
+                    "hook": {
+                      "command": "~/.claude/scripts/budget/subagent_guard.py",
+                      "timeout": 15
+                    }
+                  }
+                ]
+              }
+            ],
+            "afterHash": "0a9e654646884c43b0eba338a710f753f12f81303f0be8194ad9662ee24a6ffb",
+            "managed": {
+              "schema": 1,
+              "hash": "b4d284ddc28ace4bc0b22d1b4620c6d394fbe6cea5cd7dbccba9efb6ffd86bbc"
+            }
+          },
+          {
+            "path": "$HOME/.claude/statusline.sh",
+            "action": "edited",
+            "backup": "$HOME/.claude/statusline.sh.pacer-bak-20231115-051320",
+            "exact": true,
+            "undo": [
+              {
+                "kind": "block",
+                "style": "hash",
+                "restore": [
+                  {
+                    "text": "# Persist Claude's rate-limit windows for ~/.claude/scripts/budget/budget-status\nif true; then\n  echo legacy\nfi\n",
+                    "anchor": "input=$(cat)\n",
+                    "spacing": "",
+                    "atMarker": false
+                  }
+                ]
+              }
+            ],
+            "afterHash": "41d52b2bf01efbf911fe1f09e61b61a8906cd6fb3ccef30b37640201f20e11af",
+            "managed": {
+              "schema": 1,
+              "hash": "89e95f920184431a7a21dcd03f442d529262d6776496cb3cd208ad967b7fa134"
+            }
+          }
+        ],
+        "commands": [
+          {
+            "undo": [
+              "/fixture/bin/claude",
+              "mcp",
+              "remove",
+              "-s",
+              "user",
+              "pacer"
+            ]
+          }
+        ],
+        "notes": [
+          "registered MCP server pacer (/fixture/bin/claude mcp add -s user pacer -- pacer mcp)"
+        ],
+        "mcp": true
+      }
+    }
+  },
+  "installCalls": [
+    [
+      "/fixture/bin/claude",
+      "mcp",
+      "remove",
+      "-s",
+      "user",
+      "pacer"
+    ],
+    [
+      "/fixture/bin/claude",
+      "mcp",
+      "add",
+      "-s",
+      "user",
+      "pacer",
+      "--",
+      "pacer",
+      "mcp"
+    ]
+  ],
+  "uninstall": {
+    "report": {
+      "planner": "claude-code",
+      "restored": [
+        "$HOME/.claude/statusline.sh",
+        "$HOME/.claude/settings.json",
+        "$HOME/.claude/rules/model-delegation.md",
+        "$HOME/.claude/scripts/budget/subagent_guard.py"
+      ],
+      "removed": [
+        "$HOME/.claude/rules/pacer.md",
+        "$HOME/.claude/skills/pacer/SKILL.md"
+      ],
+      "reverted": [],
+      "notes": [
+        "removed MCP server pacer (/fixture/bin/claude mcp remove -s user pacer)"
+      ]
+    },
+    "calls": [
+      [
+        "/fixture/bin/claude",
+        "mcp",
+        "get",
+        "pacer"
+      ],
+      [
+        "/fixture/bin/claude",
+        "mcp",
+        "remove",
+        "-s",
+        "user",
+        "pacer"
+      ]
+    ]
+  },
+  "unrelatedEdit": {
+    "path": "$HOME/.claude/statusline.sh",
+    "append": "\n# User edit after install\n"
+  }
+}

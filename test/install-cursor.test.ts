@@ -2,12 +2,12 @@ import { expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Status } from "../src/engine/status";
-import { installCursor } from "../src/install/cursor";
+import { installCursor } from "./install-plugin-adapter";
 import { getMember, setMember } from "../src/install/jsonc";
 import { policyText } from "../src/install/policy";
 import { sessionStart } from "../src/install/session";
-import { runInstall } from "../src/install/txn";
-import { uninstallPlanner } from "../src/install/uninstall";
+import { runInstall } from "./install-plugin-adapter";
+import { uninstallPlanner } from "./install-plugin-adapter";
 import { fakeCtx } from "./helpers";
 import { PACER, snapshot } from "./install-helpers";
 
@@ -88,7 +88,7 @@ test("Cursor uninstall drops only a parent created by pacer after user edits", a
 
 const st: Status = { generatedAt: 0, strategy: "test", planner: "cursor", mode: "normal", disabled: false, paused: null, modeHold: null,
   calendarPace: true, providers: [], executors: { ranked: [], excluded: [] } };
-const BUDGET = "Subscription budget status (pacer):\nMode: NORMAL - Cursor usage not measured yet.\nNo executor available. Cursor does the work; keep it lean.\nPace clock: calendar (not enough activity history yet)";
+const BUDGET = "Subscription budget status (pacer):\npolicy: unknown\nMode: NORMAL - Cursor usage not measured yet.\nNo executor available. Cursor does the work; keep it lean.\nPace clock: calendar (not enough activity history yet)";
 
 test("Cursor session start wraps policy and budget in additional_context JSON", async () => {
   const output = await sessionStart(fakeCtx(), "cursor", { status: async () => st });

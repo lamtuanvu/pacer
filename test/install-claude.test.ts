@@ -3,10 +3,10 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fakeCtx } from "./helpers";
 import { PACER, recordingRun, snapshot } from "./install-helpers";
-import { runInstall } from "../src/install/txn";
+import { runInstall } from "./install-plugin-adapter";
 import { applyUndo, readManifest } from "../src/install/manifest";
-import { uninstallPlanner } from "../src/install/uninstall";
-import { editStatuslineScript, installClaude, resolveScript } from "../src/install/claude";
+import { uninstallPlanner } from "./install-plugin-adapter";
+import { editStatuslineScript, installClaude, resolveScript } from "./install-plugin-adapter";
 
 function legacyHome() {
   const calls: string[][] = [];

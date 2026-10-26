@@ -10,7 +10,7 @@ export function get(ctx: Ctx) {
   const s = loadStrategy(ctx);
   return {rules: s.routing.map(r => ({...(r.kinds ? {kinds: r.kinds} : {}), executors: r.executors})), available: Object.keys(s.runners)};
 }
-export function set(ctx: Ctx, rules: Rule[]) {
+export async function set(ctx: Ctx, rules: Rule[]) {
   const s = loadStrategy(ctx);
   if (!rules.length || rules.at(-1)!.kinds !== undefined || rules.slice(0, -1).some(r => r.kinds === undefined)) {
     throw new CoreError("invalid_input", "the default routing rule must be last", "End the rules with one rule without kinds.");
@@ -19,7 +19,7 @@ export function set(ctx: Ctx, rules: Rule[]) {
     if (!resolveRunner(s, id)) throw new CoreError("invalid_input", `unknown executor ${id}`, `available: ${Object.keys(s.runners).join(", ")}`);
   }
   const values = rules.map(r => r.kinds ? {kinds: r.kinds, executors: r.executors} : {default: r.executors});
-  const diff = applyEdit(ctx, doc => {
+  const diff = await applyEdit(ctx, doc => {
     // Update lists in existing rules first, retaining their nodes and comments.
     const old = doc.getIn(["routing"]);
     if (isSeq(old)) {

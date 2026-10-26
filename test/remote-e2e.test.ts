@@ -47,7 +47,7 @@ async function setup(wait = false) {
       return { files: "PROMPT.txt" };
     },
   };
-  const task = tasks.delegate(ctx, { brief: { goal: "Create and commit PROMPT.txt", repo, base: "main" }, executor: "codex@box", worktree: "new" }, () => undefined);
+  const task = (await tasks.delegate(ctx, { brief: { goal: "Create and commit PROMPT.txt", repo, base: "main" }, executor: "codex@box", worktree: "new" }, () => undefined));
   return { ctx, task, deps, git, hostHome, checkout, repo, sshLog: join(root, "ssh.log") };
 }
 
@@ -112,7 +112,7 @@ test("stopping a remote task kills it on the host", async () => {
 test("clean removes the remote worktree and run dir after review", async () => {
   const f = await setup(), t = await runTask(f.ctx, f.task.id, f.deps);
   expect(t.state).toBe("done");
-  tasks.review(f.ctx, t.id, { accepted: true });
+  await tasks.review(f.ctx, t.id, { accepted: true });
   expect((await tasks.clean(f.ctx, { dryRun: true })).removed).toContain(t.id);
   expect(existsSync(t.run!.remoteWorktree!)).toBe(true);
   expect((await tasks.clean(f.ctx)).removed).toContain(t.id);
@@ -128,7 +128,7 @@ test("clean keeps the remote branch when transfer was refused", async () => {
   await f.git("-C", f.checkout, "config", "user.email", "foreign@example.invalid");
   const t = await runTask(f.ctx, f.task.id, f.deps);
   expect(t.state).toBe("partial");
-  tasks.review(f.ctx, t.id, { accepted: false });
+  await tasks.review(f.ctx, t.id, { accepted: false });
   expect((await tasks.clean(f.ctx)).removed).toContain(t.id);
   expect(existsSync(t.run!.remoteWorktree!)).toBe(false);
   expect(existsSync(t.run!.remoteDir!)).toBe(false);
@@ -142,7 +142,7 @@ for (const hostOnly of [false, true]) test(`clean ${hostOnly ? "host" : "core"} 
   const head = await f.git("-C", f.repo, "rev-parse", `pacer/${t.id}`);
   expect(t.run).toHaveProperty("transferredHead", head);
   await f.git("-C", f.repo, "update-ref", `refs/heads/pacer/${t.id}`, t.run!.baseSha!);
-  tasks.review(f.ctx, t.id, { accepted: true });
+  await tasks.review(f.ctx, t.id, { accepted: true });
   const result = hostOnly ? await hostClean(f.ctx, "box") : await tasks.clean(f.ctx, { force: true });
   expect(result.removed).toContain(t.id);
   expect(await f.git("-C", f.checkout, "rev-parse", `pacer/${t.id}`)).toBe(head);

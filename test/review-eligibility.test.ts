@@ -1,6 +1,9 @@
+import { afterEach as afterUsageFixture } from "bun:test";
+import { fakeCtx, cleanupUsageFixtures } from "./usage-plugin-fixtures";
+afterUsageFixture(cleanupUsageFixtures);
 import { test, expect } from 'bun:test';
 import { eligibility } from './fixtures/eligibility';
-import { fakeCtx } from './helpers';
+
 import { validateStrategy } from '../src/config/strategy';
 import { defaultHooks } from '../src/classify/hooks';
 import { runTask } from '../src/tasks/runner';

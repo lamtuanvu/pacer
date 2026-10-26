@@ -22,7 +22,7 @@ test("cached snapshots recheck bearer, cookies, revocation and cross-site restri
     clearSessions(ctx);
     expect((await get({ Cookie: cookie })).status).toBe(401);
     expect((await get({ Authorization: `Bearer ${server.token}` })).status).toBe(200);
-  } finally { server.stop(); }
+  } finally { await server.stop(); }
 });
 
 test("cached routing status preserves cookie write guards and body validation", async () => {
@@ -34,8 +34,16 @@ test("cached routing status preserves cookie write guards and body validation", 
   const post = (body = "{}", headers: Record<string, string> = { Authorization: `Bearer ${server.token}` }) =>
     fetch(origin + "/v3/ops/routing.status", { method: "POST", body, headers });
   try {
-    await Bun.sleep(100);
-    expect((await post()).status).toBe(200);
+    // Wait for the service-owned status cache, not an assumed startup duration.
+    const readyBy = Date.now() + 5_000;
+    let ready = await post();
+    while (ready.status === 500 && Date.now() < readyBy) {
+      const body = await ready.clone().json();
+      if (body.error?.code !== "internal" || body.error?.message !== "status is warming up") break;
+      await Bun.sleep(10);
+      ready = await post();
+    }
+    expect(ready.status).toBe(200);
     const cookie = `pacer_session=${createSession(ctx)}`;
     expect((await post("{}", { Cookie: cookie })).status).toBe(403);
     expect((await post("{}", { Cookie: cookie, Origin: "http://evil.test", "X-Pacer-Client": "app" })).status).toBe(403);
@@ -47,5 +55,5 @@ test("cached routing status preserves cookie write guards and body validation", 
     const large = await post(JSON.stringify({ data: "x".repeat(256 * 1024) }));
     expect(large.status).toBe(413);
     expect(await large.json()).toMatchObject({ error: { code: "too_large" } });
-  } finally { server.stop(); }
-});
+  } finally { await server.stop(); }
+}, 10_000);

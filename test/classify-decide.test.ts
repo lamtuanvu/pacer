@@ -1,3 +1,4 @@
+import { shutdownPlugins } from "../src/plugins";
 import { describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -5,7 +6,8 @@ import { validateClassifier } from "../src/config/classifier";
 import { decide, TimeoutError, withTimeout } from "../src/classify/decide";
 import { appendDecision, decisionsFile, loggedState, newDecisionId, readDecisions } from "../src/classify/log";
 import { buildAdapters, type AdapterSet } from "../src/classify/registry";
-import { rulesClassifier } from "../src/classify/rules";
+import { rulesClassifier as pluginRules } from "../plugins/pacer-classify/rules";
+const rulesClassifier = { ...pluginRules, ask: (state: string, question: import("../src/classify/types").Question) => pluginRules.ask(state, question, 3000) };
 import { QUESTIONS } from "../src/classify/state";
 import type { Answer, Classifier, DecisionEntry } from "../src/classify/types";
 import { fakeCtx } from "./helpers";
@@ -136,17 +138,23 @@ describe("classifier decide", () => {
     writeFileSync(join(ctx.pacerHome, "secrets"), "TYPESAFE_API_KEY=test-key");
     chmodSync(join(ctx.pacerHome, "secrets"), 0o644);
     const config = cfg({ default: "jev" });
-    const set = buildAdapters(ctx, config, 10);
-    expect(await decide(ctx, config, set, input)).toMatchObject({ adapter: "rules", fallback: true });
-    expect(readDecisions(ctx)[0].fallback_reason).toContain("chmod 600");
+    const set = buildAdapters(ctx, config, 3000);
+    try {
+      expect(await decide(ctx, config, set, input)).toMatchObject({ adapter: "rules", fallback: true });
+      expect(readDecisions(ctx)[0].fallback_reason).toContain("secret reference could not be resolved");
+      expect(JSON.stringify(readDecisions(ctx))).not.toContain("test-key");
+    } finally { await shutdownPlugins(ctx); }
   });
 
-  test("local adapter keyEnv is resolved eagerly in the registry", () => {
+  test("local adapter secret is resolved by the host at call time", async () => {
     const ctx = fakeCtx();
     mkdirSync(ctx.pacerHome, { recursive: true });
     writeFileSync(join(ctx.pacerHome, "secrets"), "LOCAL_KEY=private-token");
     chmodSync(join(ctx.pacerHome, "secrets"), 0o644);
-    expect(() => buildAdapters(ctx, cfg({ adapters: { ollama: { key_env: "LOCAL_KEY" } } }), 10)).toThrow("chmod 600");
+    const set = buildAdapters(ctx, cfg({ adapters: { ollama: { key_env: "LOCAL_KEY" } } }), 3000);
+    try {
+      await expect(set.ollama.ask(input.state, input.question)).rejects.toMatchObject({ code: "capability_denied" });
+    } finally { await shutdownPlugins(ctx); }
   });
 
   test("logged errors scrub bearer tokens, sk keys, long hex/base64 and cap text", async () => {

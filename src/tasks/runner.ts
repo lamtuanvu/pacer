@@ -1,3 +1,4 @@
+import { authorizeRoute } from "./policy-route";
 import { getWork, pendingChildren, issueWorkGrant, revokeWorkGrants } from "../dispatch/work";
 import { resolveTaskDispatch, reserveDispatch, releaseDispatch, selectedDispatchModel } from "../dispatch/runtime";
 import {dispatchSettingsHash} from "../dispatch/learning";
@@ -45,7 +46,7 @@ import { resolveRunner } from "../config/runner-id";
 import { markAuthFailed, attemptAuthError } from "../usage/auth";
 import { markExhausted } from "../usage/reactive";
 import { usageRefreshCapability } from "../usage";
-import { listTasksWhere, readTask, updateTask } from "./store";
+import { listTasksWhere, readTask, updateTask, withTaskLock } from "./store";
 import { resolvePlacement, TERMINAL_STATES, type AttemptUsage, type RoutingNote, type TaskRecord, type TaskResult, type Verification } from "./types";
 
 export const MAX_ATTEMPTS = 3;
@@ -110,18 +111,20 @@ const stopped = (ctx: Ctx, id: string) => readTask(ctx, id)?.state === "stopped"
 
 /** Run a delegated task to completion: pick executors, fall back on limits, verify, record the result. */
 export async function runTask(ctx: Ctx, id: string, deps: RunnerDeps = DEFAULTS): Promise<TaskRecord> {
+  const {operation:_requestLifetime,...taskCtx}=ctx;ctx=taskCtx;
   const inherited = ctx.env.PACER_ADMISSION_TASK === id ? ctx.env.PACER_ADMISSION_LEASE : undefined;
   const lease = inherited ?? beginWorkSync(ctx, { kind: "task", id, label: `Task ${id}` });
-  claimWorkSync(ctx, lease);
+  const newlyClaimedLease=claimWorkSync(ctx, lease);
   const env = { ...ctx.env }; delete env.PACER_ADMISSION_LEASE; delete env.PACER_ADMISSION_TASK;
   ctx = { ...ctx, env };
   const startedAt = Date.now();
+  const ownership={claimed:false};
   try {
-    return await runTaskOnce(ctx, id, deps);
+    return await runTaskOnce(ctx, id, deps, ownership);
   } finally {
-    finishWorkSync(ctx, lease);
+    if(!inherited||newlyClaimedLease||ownership.claimed) finishWorkSync(ctx, lease);
     const current=readTask(ctx,id);
-    if (getWork(ctx,id) && (current?.runnerPid===process.pid || TERMINAL_STATES.includes(current?.state??"queued"))) {
+    if (ownership.claimed && getWork(ctx,id) && (current?.runnerPid===process.pid || TERMINAL_STATES.includes(current?.state??"queued"))) {
       releaseDispatch(ctx,id); revokeWorkGrants(ctx,id);
     }
     if (TERMINAL_STATES.includes(readTask(ctx, id)?.state ?? "queued")) {
@@ -132,7 +135,7 @@ export async function runTask(ctx: Ctx, id: string, deps: RunnerDeps = DEFAULTS)
   }
 }
 
-async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<TaskRecord> {
+async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{claimed:boolean}): Promise<TaskRecord> {
   let started = false;
   const initial=readTask(ctx,id);
   if(!initial)throw Error(`unknown task ${id}`);
@@ -142,17 +145,23 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
   };
   let duplicate:string|undefined;
   let task=await withLock(ctx,`brief-${createHash("sha256").update(key(initial)).digest("hex")}`,async()=>{
-    return withLock(ctx, "slots", async () => updateTask(ctx,id,t=>{
-      const resumable = t.state === "running" && !!t.run && t.run.attempt > t.attempts.length && !(!!t.runnerPid && pidAlive(t.runnerPid));
-      const dispatched = t.state === "running" && !t.attemptStartedAt && !t.run && (!t.runnerPid || t.runnerPid === process.pid || !pidAlive(t.runnerPid));
-      if(t.state!=="queued" && !resumable && !dispatched)return;
-      if(t.state === "queued" && t.runnerPid && pidAlive(t.runnerPid) && !t.queue)return;
-      if(!t.force && t.state==="queued")duplicate=listTasksWhere(ctx, { states: ["queued", "running"] }).find(other=>other.id!==id&&(other.state==="running" || (other.state==="queued" && !other.queue))&&!!other.runnerPid&&pidAlive(other.runnerPid)&&key(other)===key(t))?.id;
-      if(duplicate)return;
-      started=true;t.runnerPid=process.pid;delete t.queue;
-      if (dispatched) t.attemptStartedAt = Date.now()/1000;
+    return withLock(ctx, "slots", async () => withTaskLock(ctx,id,()=>{
+      const current=readTask(ctx,id);
+      if(!current) throw new Error(`unknown task ${id}`);
+      const resumable = current.state === "running" && !!current.run && current.run.attempt > current.attempts.length && !(!!current.runnerPid && pidAlive(current.runnerPid));
+      const dispatched = current.state === "running" && !current.attemptStartedAt && !current.run && (!current.runnerPid || current.runnerPid === process.pid || !pidAlive(current.runnerPid));
+      if(current.state!=="queued" && !resumable && !dispatched) return current;
+      if(current.state === "queued" && current.runnerPid && pidAlive(current.runnerPid) && !current.queue) return current;
+      if(!current.force && current.state==="queued") duplicate=listTasksWhere(ctx,{states:["queued","running"]}).find(other=>other.id!==id&&(other.state==="running"||(other.state==="queued"&&!other.queue))&&!!other.runnerPid&&pidAlive(other.runnerPid)&&key(other)===key(current))?.id;
+      if(duplicate) return current;
+      started=true;
+      return updateTask(ctx,id,t=>{
+        t.runnerPid=process.pid;delete t.queue;
+        if(dispatched) t.attemptStartedAt=Date.now()/1000;
+      });
     }));
   });
+  ownership.claimed=started;
   if(duplicate)return finish(ctx,id,{status:"failed",executor:null,model:null,files:"",report:`same brief is already active in ${duplicate}; use --force only when concurrent work is intended`,backend:"direct"});
   if (!started) {
     return TERMINAL_STATES.includes(task.state)
@@ -168,6 +177,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
     const kind = await safe(() => hooks.taskKind(ctx, task), task.kind);
     const tried = new Set<string>();
     const triedCandidates = new Set<string>();
+    const policyExcluded = new Map<string,string>();
     let excluded: Excluded[] = [];
     const remoteSkipped = new Map<string, string>();
     let lastLimitReport: string | undefined;
@@ -193,6 +203,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
       let applicableIds: string[] = [];
       let decision: DispatchPreview | undefined;
       let dispatchCandidates: Candidate[] = [];
+      let routeAdmission: Awaited<ReturnType<typeof authorizeRoute>> | undefined;
       const work = getWork(ctx,id);
       let byId: Record<string, Status["providers"][number]> = {};
       if (resuming) {
@@ -224,7 +235,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
         const ranking = rankExecutors(kind, s, byId, conversationSelection ?? (selection && {executors: selection.executors, order: "configured"}),
           {includePlanner: !!work?.options.allowDelegation || task.interactionMode === "conversation"});
         if (work) {
-          decision = await resolveTaskDispatch({...ctx,now},task,s,st,triedCandidates);
+          decision = await resolveTaskDispatch({...ctx,now},task,s,st,triedCandidates,new Set(policyExcluded.keys()));
           if (decision.proposal?.state === "ranked") {
             const ids = decision.proposal.choices.map(c=>c.id);
             dispatchCandidates = ids.flatMap(candidateId=>{const c=decision!.request.candidates.find(c=>c.id===candidateId);return c?[c]:[];});
@@ -254,13 +265,29 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
           ranking.ranked = eligible;
         }
         excluded = ranking.excluded;
+        ranking.ranked=ranking.ranked.filter(candidate=>!policyExcluded.has(candidate.id));
+        for(const [id,plugin] of policyExcluded) excluded.push({id,reason:`excluded by plugin ${plugin}`});
         const rankedIds = ranking.ranked.map(e => e.id);
         const req = task.requestedExecutor;
         const requested = req && !tried.has(req) && rankedIds.includes(req);
         const f = requested ? rankedIds : await safe(() => hooks.filterExecutors(ctx, task, rankedIds, s), rankedIds);
-        const allowed = Array.isArray(f) ? rankedIds.filter(x => f.includes(x)) : rankedIds;
+        let allowed = (Array.isArray(f) ? rankedIds.filter(x => f.includes(x)) : rankedIds).filter(id=>!tried.has(id));
+        routeAdmission=await authorizeRoute({...ctx,now:Date.now()/1000},id,allowed,{
+          strategy:current=>deps.loadStrategy(current),contextFingerprint:()=>JSON.stringify({tried:[...tried],triedCandidates:[...triedCandidates]}),
+        });
+        allowed=routeAdmission.candidates;
+        for(const [candidate,plugin] of Object.entries(routeAdmission.excludedBy)) {
+          policyExcluded.set(candidate,plugin);excluded.push({id:candidate,reason:`excluded by plugin ${plugin}`});
+        }
+        dispatchCandidates=dispatchCandidates.filter(candidate=>allowed.includes(candidate.runner)&&!policyExcluded.has(candidate.runner));
+        if(req&&!tried.has(req)&&!allowed.includes(req)&&policyExcluded.has(req)) requestedUnavailable=`excluded by plugin ${policyExcluded.get(req)}`;
+        // A model engine may offer only its next choice. Re-run normal routing
+        // with the cumulative runner exclusions before reserving anything.
+        // Every repeat removes at least one current candidate; no policy-count cap.
+        if(work&&Object.keys(routeAdmission.excludedBy).length) {i--;continue;}
         let policyChanged = false;
         await withLock(ctx, "slots", () => withLock(ctx, PROJECT_STRATEGIES_LOCK, async () => {
+          routeAdmission!.revalidate();
           requirePolicyIdentity(ctx, repo);
           if (projectRevision(readProjectStrategies(ctx), repo.key) !== snapshot.rev) { policyChanged = true; return; }
           if (stopped(ctx, id)) return;
@@ -282,6 +309,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
           const paused = readPause(ctx);
           if (task.interactionMode === "conversation" && req && !ids.includes(req) && !full.has(req)) {
             task = updateTask(ctx, id, t => {
+              routeAdmission!.revalidate();
               t.state = "queued";
               t.queue = {reason: "waiting_retry", detail: excluded.find(e => e.id === req)?.reason ?? "Selected executor is unavailable", since: initial.queue?.since ?? now, position: 1};
               delete t.runnerPid; delete t.executor; delete t.attemptStartedAt;
@@ -299,6 +327,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
           if (work && !pick && !paused) {
             const expired=work.options.expiresAt!==undefined&&work.options.expiresAt<=now;
             task=updateTask(ctx,id,t=>{
+              routeAdmission!.revalidate();
               if(expired||decision?.recommendedAction==="fail"){t.state="failed";t.result={status:"failed",executor:null,model:null,files:"",report:expired?"Work expired in queue":"No dispatch candidate satisfies policy",backend:"direct"};delete t.queue;}
               else {t.state="queued";t.queue={reason:"waiting_retry",detail:"Waiting for dispatch capacity or dependencies",since:initial.queue?.since??now,position:1,nextAt:now+30};}
               delete t.runnerPid;delete t.executor;delete t.attemptStartedAt;
@@ -306,6 +335,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
           }
           if (paused || (req && !tried.has(req) && full.has(req)) || (!pick && [...full].some(e => !tried.has(e)))) {
             task = updateTask(ctx, id, t => {
+              routeAdmission!.revalidate();
               const waiting = listTasksWhere(ctx, { states: ["queued"] }).filter(x => x.id !== id && x.queue && x.createdAt <= t.createdAt);
               t.state = "queued";
               const blockedExecutor = req && full.has(req) ? req : [...full].find(e => !tried.has(e));
@@ -322,9 +352,11 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
           if (req && !requested && !requestedUnavailable) requestedUnavailable = excluded.find(e => e.id === req)?.reason ?? "not in the routing list";
           const fallback = req && pick && pick !== req && requestedUnavailable ? { requested: req, reason: requestedUnavailable, executor: pick } : undefined;
           if (pick) task = updateTask(ctx, id, t => {
+            routeAdmission!.revalidate();
             t.state = "running"; t.executor = pick; t.attemptStartedAt = now; delete t.queue; delete t.run;
             if (fallback) t.executorFallback = fallback;
           });
+          if(pick) routeAdmission!.checkpoint(task);
         }));
         if (policyChanged) {
           if (++policyChanges > 20) throw new Error("Project policy keeps changing; retry once editing is complete");
@@ -386,9 +418,11 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
       const usageAtStart = resuming ? task.pendingAttempt?.usageAtStart : usage(startStatus);
       if (resuming) routing = task.pendingAttempt?.routing;
       task = updateTask(ctx, id, t => {
+        if(!resuming) routeAdmission!.revalidate();
         t.pendingAttempt = { routing, usageAtStart };
         t.executor = pick; t.backend = attemptedBackend; t.attemptStartedAt = resuming ? t.attemptStartedAt ?? resuming.startedAt : Date.now() / 1000;
       });
+      if(!resuming) routeAdmission!.checkpoint(task);
       const before = resuming ? null : await repoFingerprint(ctx, task.brief.repo);
       if (!resuming) {
         const launchCtx = { ...ctx, now: Date.now() / 1000 };
@@ -413,14 +447,16 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
           if (++policyChanges > 20) throw new CoreError("conflict", "Executor eligibility keeps changing; retry the task");
           i--; continue;
         }
+        const refreshedDispatch=work?await resolveTaskDispatch(launchCtx,task,currentStrategy,prepared.status,triedCandidates,new Set(policyExcluded.keys())):undefined;
         const valid = await withLock(ctx, "slots", () => withLock(ctx, PROJECT_STRATEGIES_LOCK, async () => {
+          routeAdmission!.revalidate();
           if (policySnapshot && projectRevision(readProjectStrategies(ctx), policySnapshot.repoKey) !== policySnapshot.rev) return false;
           const latest = deps.loadStrategy(ctx);
           if (JSON.stringify(latest) !== JSON.stringify(currentStrategy)) return false;
           if(work){
-            const fresh=await resolveTaskDispatch(launchCtx,task,currentStrategy,prepared.status,triedCandidates);
+            const fresh=refreshedDispatch!;
             const original=dispatchCandidates.find(c=>c.runner===pick);
-            const selected=fresh.request.candidates.find(c=>c.id===original?.id&&fresh.proposal?.state==="ranked"&&fresh.proposal.choices.some(choice=>choice.id===c.id));
+            const selected=fresh.request.candidates.find(c=>!policyExcluded.has(c.runner)&&routeAdmission!.candidates.includes(c.runner)&&c.id===original?.id&&fresh.proposal?.state==="ranked"&&fresh.proposal.choices.some(choice=>choice.id===c.id));
             const stillEligible=!!selected;
             if(!selected||!stillEligible||!reserveDispatch(launchCtx,id,selected,fresh))return false;
           }
@@ -434,7 +470,18 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
         routing = { ...routing!, eligibility: prepared.decision,
           ...(prepared.decision.state === "uncertain" ? { fallback: "uncertain" as const } : {}),
           why: candidate.reason };
-        task = updateTask(ctx, id, t => { t.pendingAttempt = { routing, usageAtStart }; });
+        task = await withLock(ctx, "slots", () => withLock(ctx, PROJECT_STRATEGIES_LOCK, async () => {
+          routeAdmission!.revalidate();
+          if(policySnapshot && projectRevision(readProjectStrategies(ctx),policySnapshot.repoKey)!==policySnapshot.rev)
+            throw new CoreError("conflict","Project policy changed before route commit");
+          if(JSON.stringify(deps.loadStrategy(ctx))!==JSON.stringify(currentStrategy))
+            throw new CoreError("conflict","Strategy changed before route commit");
+          return updateTask(ctx,id,t=>{
+            routeAdmission!.revalidate();
+            t.pendingAttempt={routing,usageAtStart};
+          });
+        }));
+        routeAdmission!.checkpoint(task);
       }
       tried.add(pick);
       const selectedCandidate = dispatchCandidates.find(c=>c.runner===pick);

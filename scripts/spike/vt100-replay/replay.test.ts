@@ -45,3 +45,28 @@ test("source preservation and checkpoint parity are separate comparisons", async
   expect((await compareReplay(restored,source.replay)).differences).toEqual([]);
   expect((await compareReplay(source,source.replay)).differences).toContain("cursorY");
 });
+
+test("state comparison detects a lost hidden cursor without browser evidence", async () => {
+  const sample = {id:"hidden-cursor",tags:["cursor"],data:"hello\x1b[?25l",chunkSizes:[1,2,3]};
+  const source = await reference(sample);
+  expect((await compareReplay(source, "hello")).differences).toContain("cursorVisible");
+  expect((await compareReplay(source, sample.data)).differences).toEqual([]);
+});
+
+test("prospective reference export restores origin cursor and hidden cursor while retaining actual defects", async () => {
+  const corpus = await loadCorpus();
+  for (const id of ["scroll-region-origin", "alternate-active", "full-screen-redraw"]) {
+    const source = await reference(corpus.streams.find(stream => stream.id === id)!);
+    expect((await compareReplay(source, source.replay)).differences.length).toBeGreaterThan(0);
+    expect((await compareReplay(source, source.prospectiveReplay)).differences).toEqual([]);
+  }
+});
+
+
+test("prospective reference retains source state across the full synthetic corpus", async () => {
+  const corpus = await loadCorpus();
+  for (const stream of corpus.streams) {
+    const source = await reference(stream);
+    expect((await compareReplay(source, source.prospectiveReplay)).differences).toEqual([]);
+  }
+});

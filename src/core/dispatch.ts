@@ -21,7 +21,7 @@ export interface DispatchDependencies {
   status?: (ctx: Ctx, strategy: Strategy) => Promise<Status>;
   adapters?: readonly ObservationAdapter[];
   engine?: DecisionEngine;
-  taskId?: string; includePlanner?: boolean; excludeCandidates?: ReadonlySet<string>;
+  taskId?: string; includePlanner?: boolean; excludeCandidates?: ReadonlySet<string>; excludeRunners?: ReadonlySet<string>;
   difficulty?: "simple"|"standard"|"complex";
 }
 
@@ -54,7 +54,7 @@ export async function previewDispatch(ctx: Ctx, input: unknown, deps: DispatchDe
   ];
   const observations: Observation[] = [...storedObservations(ctx),...await collectObservations(ctx, deps.adapters ?? [statusObservationAdapter(status)], scopes, config.timeoutMs)];
   const task = {kind: brief.kind ?? null, difficulty:deps.difficulty??"standard",requirements: brief.requirements, preferences: brief.preferences, provenance: "request" as const, ...(brief.model ? {model: brief.model} : {})};
-  const inventory = buildModelInventory(strategy, observations, ctx.now).filter(m => allowed.has(m.runner));
+  const inventory = buildModelInventory(strategy, observations, ctx.now).filter(m => allowed.has(m.runner)&&!deps.excludeRunners?.has(m.runner));
   const built = buildCandidates(strategy, task, inventory, observations, ctx.now);
   const strategyHash = decisionHash({dispatch: config, inventory, project: selection?.references ?? null});
   const observationRevision = decisionHash(observations);

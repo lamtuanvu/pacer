@@ -1,3 +1,6 @@
+import { afterEach as afterUsageFixture } from "bun:test";
+import { fakeCtx, cleanupUsageFixtures } from "./usage-plugin-fixtures";
+afterUsageFixture(cleanupUsageFixtures);
 import { accountEvidenceScope } from "../src/evidence/scope";
 import { expect, test } from "bun:test";
 import { appendFileSync, mkdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
@@ -8,7 +11,7 @@ import { loadStrategy } from "../src/config/strategy";
 import { check } from "../src/remote/hosts";
 import { cachedRemoteUsage, probeCodexUsage } from "../src/remote/usage";
 import { readAccountUsage } from "../src/usage";
-import { fakeCtx, fakeSshEnv, realRun, tmpDir } from "./helpers";
+import { fakeSshEnv, realRun, tmpDir } from "./helpers";
 
 function session(home: string, at: number, used: number, file = "rollout-test.jsonl") {
   const dir = join(home, "sessions", "2026", "10");

@@ -1,3 +1,4 @@
+import { readPluginUsage } from "../plugins/usage-broker";
 import { accountEvidenceScope } from "../evidence/scope";
 import { statusTimer } from "./trace";
 import type { AccountCfg, RunnerCfg } from "../config/accounts";
@@ -10,7 +11,7 @@ import { recordAuthReading } from "./auth";
 import { cachedRemoteUsage } from "../remote/usage";
 
 async function base(ctx: Ctx, cfg: ProviderCfg, account?: AccountCfg, refresh = false): Promise<UsageReading> {
-  return usageAdapter(cfg).read(ctx, cfg, account, refresh);
+  return readPluginUsage(ctx, cfg, account, refresh);
 }
 
 const sources = new Map<string, {at:number; value?:UsageReading; pending?:Promise<UsageReading>; refreshing?:boolean}>();

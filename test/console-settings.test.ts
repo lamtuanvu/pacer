@@ -1,4 +1,7 @@
-import {expect,test} from 'bun:test';
+import {afterEach,expect,test} from 'bun:test';
+import {shutdownPlugins} from '../src/plugins';
+import {discoveryFromFetch} from './endpoint-discovery-fixtures';
+import {endpointTestFromSpawn} from './fixtures/endpoint-test-fixtures';
 import {mkdirSync,readFileSync,writeFileSync} from 'node:fs';
 import {join} from 'node:path';
 import {fakeCtx} from './helpers';
@@ -6,8 +9,14 @@ import {consoleCommands,type ConsoleDeps} from '../src/console/console';
 import {type CmdData} from '../src/link/envelope';
 import {loadStrategy} from '../src/config/strategy';
 
+const contexts:ReturnType<typeof fakeCtx>[]=[];
+afterEach(async()=>{await Promise.all(contexts.splice(0).map(ctx=>shutdownPlugins(ctx)));});
 function harness() {
  const ctx=fakeCtx({env:{PACER_BIN:'pacer'}}); mkdirSync(ctx.pacerHome,{recursive:true});
+ const bin=join(ctx.home,'current-source-bin');mkdirSync(bin,{mode:0o700});
+ const quote=(value:string)=>"'"+value.replaceAll("'","'\"'\"'")+"'";
+ writeFileSync(join(bin,'pacer'),`#!/bin/sh\nexec ${quote(process.execPath)} ${quote(join(import.meta.dir,'../src/cli.ts'))} "$@"\n`,{mode:0o700});
+ ctx.env={...ctx.env,PATH:`${bin}:/usr/bin:/bin`,HOME:ctx.home,PACER_HOME:ctx.pacerHome};contexts.push(ctx);
  const path=join(ctx.pacerHome,'strategy.yaml');
  writeFileSync(path,'# keep\naccounts: {personal: {kind: claude}, codex: {kind: codex}, spare: {kind: endpoint, usage: unmetered, model: local/test}}\nplanner: claude-code\nrouting: [{default: [codex, opencode#spare]}]\npacing: {policy: priority}\n');
  let output=''; const calls:string[][]=[];
@@ -70,13 +79,13 @@ test('interactive endpoint add collects usage settings for the shared validator'
   prompt:async question=>{questions.push(question);expect(answers.length).toBeGreaterThan(0);return answers.shift()!;},
   promptSecret:async question=>{expect(question).toContain('hidden');hidden++;return key;},
   print:()=>{},
-  // Rejects the OpenCode-picker's catalog and local-probe lookups (models.dev, 127.0.0.1:11434/1234) before
-  // the endpoint-under-test assertions below, so picker detection never trips them or inflates `discovered`.
-  fetch:async(url,init)=>{
+  // Picker detection remains isolated from the endpoint's explicit transport.
+  fetch:async()=>{throw Error('blocked in tests');},
+  discover:discoveryFromFetch(async(url,init)=>{
    if(/models\.dev|127\.0\.0\.1:(11434|1234)/.test(String(url)))throw Error('blocked in tests');
    discovered++;expect(String(url)).toBe('http://endpoint.invalid/v1/models');expect((init!.headers as Record<string,string>).Authorization).toBe(`Bearer ${key}`);return Response.json({data:[{id:'model-a',context_length:128000,max_output_tokens:16000}]});
-  },
-  spawn:async spec=>{tested++;expect(spec.env.PACER_KEY_METERED_API).toBe(key);writeFileSync(join(spec.cwd,'hello.txt'),'ok');return {code:0,stdout:'',stderr:'',timedOut:false};},
+  }),
+  endpointTest:endpointTestFromSpawn(async spec=>{tested++;expect(spec.env.PACER_KEY_METERED_API).toBe(key);writeFileSync(join(spec.cwd,'hello.txt'),'ok');return {code:0,stdout:'',stderr:'',timedOut:false};}),
  });
  expect(r.code).toBe(0);expect(r.out).toContain('Ready: opencode#metered-api');
  expect([hidden,discovered,tested]).toEqual([1,1,1]);expect(answers).toEqual([]);

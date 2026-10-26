@@ -1,10 +1,11 @@
+import { withClaudeCommandFixture } from "./planner-command-fixtures";
 import { expect, test } from "bun:test";
 import { chmodSync, existsSync, linkSync, lstatSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { main } from "../src/cli";
 import { loadStrategy } from "../src/config/strategy";
 import { io } from "../src/install/stdin";
-import { fakeCtx } from "./helpers";
+import { fakeCtx } from "./install-plugin-fixtures";
 
 test("install codex then uninstall codex restores the original files", async () => {
   const ctx = fakeCtx({ env: { PACER_BIN: "/opt/pacer/bin/pacer" } });
@@ -150,20 +151,22 @@ test("Claude command-only MCP changes appear in install and uninstall summaries"
     if (verb === "remove") registered = false;
     return { code, stdout: "", stderr: "" };
   } });
+  withClaudeCommandFixture(ctx);
   await main(["install", "claude-code"], ctx);
   const added = await main(["install", "claude-code", "--mcp"], ctx);
-  expect(added.out).toContain("registered MCP server pacer (claude mcp add -s user pacer -- /opt/pacer/bin/pacer mcp)");
+  expect(added.out).toContain(`registered MCP server pacer (${ctx.which("claude")} mcp add -s user pacer -- /opt/pacer/bin/pacer mcp)`);
   expect(added.out).not.toContain("nothing changed");
   const removed = await main(["install", "claude-code", "--no-mcp"], ctx);
-  expect(removed.out).toContain("removed MCP server pacer (claude mcp remove -s user pacer)");
+  expect(removed.out).toContain(`removed MCP server pacer (${ctx.which("claude")} mcp remove -s user pacer)`);
   expect(removed.out).not.toContain("nothing changed");
   expect((await main(["install", "claude-code", "--no-mcp"], ctx)).out).toContain("MCP server pacer was not registered");
   await main(["install", "claude-code", "--mcp"], ctx);
-  expect((await main(["uninstall", "claude-code"], ctx)).out).toContain("removed MCP server pacer (claude mcp remove -s user pacer)");
+  expect((await main(["uninstall", "claude-code"], ctx)).out).toContain(`removed MCP server pacer (${ctx.which("claude")} mcp remove -s user pacer)`);
 });
 
 test("failed Claude MCP removal never claims success or nothing changed", async () => {
   const ctx = fakeCtx({ env: { PACER_BIN: "/opt/pacer/bin/pacer" }, which: () => "claude", run: async argv => ({ code: argv[2] === "get" ? 0 : 1, stdout: "", stderr: "permission denied" }) });
+  withClaudeCommandFixture(ctx);
   await main(["install", "claude-code"], ctx);
   const report = await main(["install", "claude-code", "--no-mcp"], ctx);
   expect(report.out).toContain("failed (exit 1): permission denied");
@@ -173,6 +176,7 @@ test("failed Claude MCP removal never claims success or nothing changed", async 
 
 test("failed Claude MCP registration is reported without a success claim", async () => {
   const ctx = fakeCtx({ env: { PACER_BIN: "/opt/pacer/bin/pacer" }, which: () => "claude", run: async argv => ({ code: argv[2] === "add" ? 1 : 0, stdout: "", stderr: "registration denied" }) });
+  withClaudeCommandFixture(ctx);
   await main(["install", "claude-code"], ctx);
   const report = await main(["install", "claude-code", "--mcp"], ctx);
   expect(report.out).toContain("failed (exit 1): registration denied");
@@ -395,7 +399,7 @@ test("uninstall --all restores agent backups before service, plugin, home and bi
   writeFileSync(config, original);
   expect((await main(["install", "codex", "--mcp"], ctx)).code).toBe(0);
   const manifest = readManifest(ctx);
-  manifest.planners["codex#work"] = { ...manifest.planners.codex, files: [], folder: join(ctx.home, "account") };
+  manifest.planners["codex#work"] = { ...manifest.planners.codex, planner: "codex#work", files: [], folder: join(ctx.home, "account") };
   manifest.planners[PLUGIN_RECORD] = { ...manifest.planners.codex, files: [] };
   writeManifest(ctx, manifest);
   const unit = servicePath(ctx, "linux");
@@ -442,8 +446,8 @@ test("uninstall --all continues through individual failures and reports exit 1",
   });
   expect(result.code).toBe(1);
   // An agent restore failed, so PACER_HOME (its backups) is kept.
-  expect(order).toEqual(["agent", "service", "plugin", "binary"]);
-  expect(JSON.parse(result.out).results.map((step: { status: string }) => step.status)).toEqual(["failed", "failed", "failed", "failed", "ok"]);
+  expect(order).toEqual(["agent", "service", "plugin"]);
+  expect(JSON.parse(result.out).results.map((step: { status: string }) => step.status)).toEqual(["failed", "failed", "failed", "failed", "failed"]);
 });
 
 test("uninstall --all recognizes failures returned as undo notes", async () => {

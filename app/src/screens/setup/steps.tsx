@@ -1,3 +1,4 @@
+import type { TargetedKeyboardEvent } from 'preact';
 import type { RunnerRow } from '../../../../src/core/runners';
 import type { ProviderStatus } from '../../../../src/engine/rank';
 import type { TaskDetail } from '../../../../src/core/task-detail';
@@ -28,6 +29,15 @@ export function PlannerChoices({ options, selected, select, signedIn = [] }: {
     </label>)}
   </fieldset>;
 }
+function scrollPreviewOnArrow(event: TargetedKeyboardEvent<HTMLPreElement>) {
+  if ((event.key !== 'ArrowRight' && event.key !== 'ArrowLeft') || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+  const region = event.currentTarget;
+  if (region.scrollWidth <= region.clientWidth) return;
+  event.preventDefault();
+  const step = Math.max(40, Math.floor(region.clientWidth / 3));
+  region.scrollLeft += event.key === 'ArrowRight' ? step : -step;
+}
+
 export function ConnectChanges({ planner, preview }: { planner: string; preview: AgentPreview }) {
   const has = (pattern: RegExp) => preview.files.some(path => pattern.test(path));
   const additions = [has(/skills\//) && 'A pacer skill', has(/rules\//) && 'a short delegation rule'].filter(Boolean).join(' and ');
@@ -40,9 +50,9 @@ export function ConnectChanges({ planner, preview }: { planner: string; preview:
         {typeof preview.detail === 'string' && preview.detail.includes('left alone') && ' Your status line stays as it is.'}</dd>
     </dl>
     <Disclosure summary="Show the files">
-      <pre>{preview.files.join('\n')}</pre>
-      {preview.detail && <pre>{typeof preview.detail === 'string' ? preview.detail : JSON.stringify(preview.detail, null, 2)}</pre>}
-      <p>To undo</p><pre>{preview.undo}</pre>
+      <pre className="pc-code-scroll" tabIndex={0} onKeyDown={scrollPreviewOnArrow}>{preview.files.join('\n')}</pre>
+      {preview.detail && <pre className="pc-code-scroll" tabIndex={0} onKeyDown={scrollPreviewOnArrow}>{typeof preview.detail === 'string' ? preview.detail : JSON.stringify(preview.detail, null, 2)}</pre>}
+      <p>To undo</p><pre className="pc-code-scroll" tabIndex={0} onKeyDown={scrollPreviewOnArrow}>{preview.undo}</pre>
     </Disclosure>
   </section>;
 }

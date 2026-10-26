@@ -14,7 +14,7 @@ import { loadStrategy } from "../config/strategy";
 import { spawnRunner, type taskStop } from "../tasks/api";
 import { readTask } from "../tasks/store";
 export interface ConsoleDeps {
-  delegate(ctx: Ctx, input: DelegateInput): TaskRecord;
+  delegate(ctx: Ctx, input: DelegateInput): Promise<TaskRecord>;
   readTask?: typeof readTask;
   taskStop?: typeof taskStop;
   configuredExecutors?(ctx: Ctx): string[];

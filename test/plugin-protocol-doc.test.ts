@@ -11,6 +11,6 @@ test("docs/plugin-protocol.md and the JSON Schema are generated and fresh: run `
   expect(readFileSync(join(import.meta.dir, "..", "docs", "plugin-protocol.md"), "utf8")).toBe(doc);
   const schema = pluginProtocolSchema() as { $defs: Record<string, unknown>; title: string };
   expect(schema.title).toBe(`pacer plugin protocol ${PLUGIN_PROTOCOL_VERSION}`);
-  for (const key of ["manifest", "helloParams", "helloResult", "diagnostic.ping.params", "diagnostic.ping.result", "capability.log.params"]) expect(schema.$defs[key]).toBeDefined();
+  for (const key of ["callMetadata", "manifest", "helloParams", "helloResult", "diagnostic.ping.params", "diagnostic.ping.result", "capability.log.params"]) expect(schema.$defs[key]).toBeDefined();
   expect(readFileSync(join(import.meta.dir, "..", "docs", "plugin-protocol.schema.json"), "utf8")).toBe(`${JSON.stringify(schema, null, 2)}\n`);
 });

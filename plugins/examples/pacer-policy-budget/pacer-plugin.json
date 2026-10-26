@@ -1,0 +1,16 @@
+{
+  "id": "pacer-policy-budget",
+  "version": "0.1.0",
+  "publisher": "pacer",
+  "host": "^1.5",
+  "entry": "dist/main.js",
+  "contributes": { "policy": {} },
+  "capabilities": [
+    { "name": "tasks.read" },
+    { "name": "events.subscribe" },
+    { "name": "config.get" },
+    { "name": "log" }
+  ],
+  "reentrant": false,
+  "tier": "free"
+}

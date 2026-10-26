@@ -14,6 +14,7 @@ import { taskStatus, taskStop } from "../src/tasks/api";
 import { checkSetup } from "../src/setup/check";
 import { handleV2 } from "../src/api/http";
 import { computeStatus } from "../src/engine/status";
+import { shutdownPlugins } from "../src/plugins";
 import { refusal } from "../scripts/live/guard";
 import { desktopExecutable } from "../scripts/live/surfaces";
 import { main } from "../scripts/live/cli";
@@ -320,48 +321,51 @@ test("UI seed writes only sandbox home and supplies safe task fixtures and accou
   session.seed = "ui";
   const env = sandboxEnv(session);
   expect(env.HOME).toBe(join(session.root, "home"));
-  const ctx = makeCtx({ env, which: bin => Bun.which(bin, { PATH: env.PATH }), run: async argv => {
+  // fixture() does not install bin/pacer; use the real source plugin runner here.
+  const ctx = makeCtx({ env: { ...env, PACER_BIN: undefined }, which: bin => Bun.which(bin, { PATH: env.PATH }), run: async argv => {
     const child = Bun.spawnSync(argv, { env });
     return { code: child.exitCode, stdout: child.stdout.toString(), stderr: child.stderr.toString() };
   } });
-  const tasks = listTasks(ctx, Infinity);
-  expect(tasks).toHaveLength(5);
-  for (const task of tasks) expect((await resolveRepoInput(ctx, task.repo!.key)).path).toBe(task.repo!.path);
-  expect(new Set(tasks.map(task => task.state))).toEqual(new Set(["done", "failed", "partial", "running"]));
-  expect(tasks.filter(task => task.state === "done" && !task.review)).toHaveLength(1);
-  expect(tasks.filter(task => task.review?.accepted)).toHaveLength(1);
-  const failed = tasks.find(task => task.state === "failed")!;
-  expect(existsSync(failed.worktree!)).toBe(false);
-  const running = tasks.find(task => task.state === "running")!;
-  expect(running.childPid).toBeUndefined();
-  expect(running.run).toBeUndefined();
-  expect(taskStatus({ ...ctx, now: ctx.now + 3600 }, running.id)?.state).toBe("running");
+  try {
+    const tasks = listTasks(ctx, Infinity);
+    expect(tasks).toHaveLength(5);
+    for (const task of tasks) expect((await resolveRepoInput(ctx, task.repo!.key)).path).toBe(task.repo!.path);
+    expect(new Set(tasks.map(task => task.state))).toEqual(new Set(["done", "failed", "partial", "running"]));
+    expect(tasks.filter(task => task.state === "done" && !task.review)).toHaveLength(1);
+    expect(tasks.filter(task => task.review?.accepted)).toHaveLength(1);
+    const failed = tasks.find(task => task.state === "failed")!;
+    expect(existsSync(failed.worktree!)).toBe(false);
+    const running = tasks.find(task => task.state === "running")!;
+    expect(running.childPid).toBeUndefined();
+    expect(running.run).toBeUndefined();
+    expect(taskStatus({ ...ctx, now: ctx.now + 3600 }, running.id)?.state).toBe("running");
 
-  const status = await computeStatus(ctx, loadStrategy(ctx));
-  expect(status.accounts).toHaveLength(2);
-  expect(status.accounts!.every(account => account.usedPct !== null)).toBe(true);
-  const setup = await checkSetup(ctx, { snapshotProbe: false, status });
-  expect(setup.complete).toBe(true);
-  expect(setup.ready).toBe(true);
-  const response = await handleV2(new Request("http://127.0.0.1/v3/snapshot"), { getCtx: () => ctx });
-  expect(response.status).toBe(200);
-  const { snapshot } = await response.json();
-  expect(snapshot.setup.complete).toBe(true);
-  expect(snapshot.setup.ready).toBe(true);
-  expect(snapshot.tasks).toHaveLength(5);
-  expect(snapshot.attention.some((item: {kind: string}) => item.kind === "review")).toBe(true);
-  for (const task of tasks) {
-    const detail = await handleV2(new Request("http://127.0.0.1/v3/ops/task.get", { method: "POST", body: JSON.stringify({ id: task.id }) }), { getCtx: () => ctx });
-    expect(detail.status).toBe(200);
-    expect((await detail.json()).result.id).toBe(task.id);
-  }
-  expect(taskStop(ctx, running.id)?.state).toBe("stopped");
-  for (const argv of [["launchctl", "bootstrap", "gui/0"], ["systemctl", "--user", "restart", "pacer-serve.service"], ["codex", "exec", "sample"]]) {
-    const child = Bun.spawnSync(argv, { env });
-    expect(child.exitCode).toBe(3);
-    expect(child.stderr.toString()).toContain("D3");
-  }
-  expect(JSON.parse(readFileSync(join(ctx.pacerHome, "state/attention.json"), "utf8"))[`failed:${failed.id}`]).toHaveProperty("since");
+    const status = await computeStatus(ctx, loadStrategy(ctx));
+    expect(status.accounts).toHaveLength(2);
+    expect(status.accounts!.every(account => account.usedPct !== null)).toBe(true);
+    const setup = await checkSetup(ctx, { snapshotProbe: false, status });
+    expect(setup.complete).toBe(true);
+    expect(setup.ready).toBe(true);
+    const response = await handleV2(new Request("http://127.0.0.1/v3/snapshot"), { getCtx: () => ctx });
+    expect(response.status).toBe(200);
+    const { snapshot } = await response.json();
+    expect(snapshot.setup.complete).toBe(true);
+    expect(snapshot.setup.ready).toBe(true);
+    expect(snapshot.tasks).toHaveLength(5);
+    expect(snapshot.attention.some((item: {kind: string}) => item.kind === "review")).toBe(true);
+    for (const task of tasks) {
+      const detail = await handleV2(new Request("http://127.0.0.1/v3/ops/task.get", { method: "POST", body: JSON.stringify({ id: task.id }) }), { getCtx: () => ctx });
+      expect(detail.status).toBe(200);
+      expect((await detail.json()).result.id).toBe(task.id);
+    }
+    expect(taskStop(ctx, running.id)?.state).toBe("stopped");
+    for (const argv of [["launchctl", "bootstrap", "gui/0"], ["systemctl", "--user", "restart", "pacer-serve.service"], ["codex", "exec", "sample"]]) {
+      const child = Bun.spawnSync(argv, { env });
+      expect(child.exitCode).toBe(3);
+      expect(child.stderr.toString()).toContain("D3");
+    }
+    expect(JSON.parse(readFileSync(join(ctx.pacerHome, "state/attention.json"), "utf8"))[`failed:${failed.id}`]).toHaveProperty("since");
+  } finally { await shutdownPlugins(ctx); }
 });
 
 test("unknown seeds fail before creating a sandbox", async () => {
@@ -382,7 +386,14 @@ test.skipIf(!canBind)("seeded service exposes setup-complete snapshots and task 
     const headers = { Authorization: `Bearer ${token}` };
     const response = await fetch(`${base}/v3/snapshot`, { headers });
     expect(response.status).toBe(200);
-    const { snapshot } = await response.json();
+    let { snapshot } = await response.json();
+    const readyBy = Date.now() + 10_000;
+    while (snapshot.service.starting && Date.now() < readyBy) {
+      await Bun.sleep(25);
+      const next = await fetch(`${base}/v3/snapshot`, { headers });
+      snapshot = (await next.json()).snapshot;
+    }
+    expect(snapshot.service.starting).not.toBe(true);
     expect(snapshot.setup.complete).toBe(true);
     expect(snapshot.setup.ready).toBe(true);
     expect(snapshot.tasks).toHaveLength(5);

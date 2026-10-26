@@ -1,3 +1,4 @@
+import { policyWords, type PolicySummary } from "../view-model/words";
 import { eligibilityPresentation } from "../view-model/eligibility";
 import { pauseLine } from "../core/pause";
 import type { Mode } from "../engine/mode";
@@ -26,7 +27,7 @@ function fmtWindow(w: WindowStatus): string {
   return `${s} ${w.verdict}`;
 }
 
-export function renderText(st: Status): string {
+export function renderText(st: Status, policy: PolicySummary | undefined = st.policy): string {
   const lines = accountGroups(st.providers).flatMap(group => [...(group.account ? [`Account ${group.account}`] : []), ...group.rows.map((p) => {
     const name = runnerLabel(p);
     if (p.eligibility) {
@@ -47,6 +48,7 @@ export function renderText(st: Status): string {
   const guidance = !provider || provider.verdict === "UNKNOWN"
     ? `${planner} usage not measured yet${st.planner === "claude-code" || provider?.agent === "claude-code" ? " (waiting for the first status-line update)" : ""}.${st.executors.ranked.length ? " Delegate substantial execution work." : ""}`
     : modeGuidance(st.mode, planner);
+  lines.push(policyWords(policy));
   lines.push(`Mode: ${st.mode.toUpperCase()} - ${guidance}`);
   const ex = st.executors;
   const excluded = ex.excluded.filter((e) => e.reason !== "planner").map((e) => `${e.id}: ${e.reason}`);
