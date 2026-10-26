@@ -187,8 +187,19 @@ mod tests {
     fn rpc_errors_match_typescript() {
         for (code, number) in [
             ("unknown_op", -32601),
+            ("unknown_task", -32000),
             ("invalid_input", -32602),
+            ("unknown_executor", -32000),
             ("conflict", -32000),
+            ("not_allowed", -32000),
+            ("not_found", -32000),
+            ("too_large", -32000),
+            ("internal", -32000),
+            ("plugin_timeout", -32000),
+            ("plugin_unavailable", -32000),
+            ("plugin_refused", -32000),
+            ("capability_denied", -32000),
+            ("unknown_plugin", -32000),
         ] {
             for hint in [None, Some(""), Some("retry")] {
                 let error = ApiError {
