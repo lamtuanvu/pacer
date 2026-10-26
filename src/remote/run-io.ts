@@ -18,6 +18,7 @@ import { runRemote } from "./ssh";
 import { pluginRegistry } from "../plugins";
 import { issueConfiguredHostStop } from "../plugins/host-stop-issuer";
 import { issueConfiguredHostReport } from "../plugins/host-report-issuer";
+import { issueConfiguredHostReadFrom } from "../plugins/host-read-from-issuer";
 
 const fields = (text: string) => Object.fromEntries(text.trim().split("\n").map(line => {
   const i = line.indexOf("="); return [line.slice(0, i), line.slice(i + 1)];
@@ -49,6 +50,15 @@ export class RemoteRunIO implements RunIO {
     const result = await runRemote(this.ctx, this.host, script, args, { stdin });
     if (result.code === 255) throw new Unreachable(`host ${this.host.alias} unreachable`);
     if (result.code !== 0) throw new Error(result.stderr || `remote command exited ${result.code}`);
+    return result;
+  }
+
+  private async readFrom(stream: "stdout" | "stderr" | "session.raw", offset: number, length: number): Promise<RunResult> {
+    const grant = issueConfiguredHostReadFrom(this.ctx, this.host.alias, this.remoteDir,
+      this.localDir, stream, offset, length);
+    const result = await pluginRegistry(this.ctx).readFromConfiguredHost(this.ctx, grant);
+    if (result.code === 255) throw new Unreachable(`host ${this.host.alias} unreachable`);
+    if (result.code !== 0 || result.timedOut) throw new Error(result.stderr || `remote read exited ${result.code}`);
     return result;
   }
 
@@ -135,7 +145,7 @@ export class RemoteRunIO implements RunIO {
         const recording = this.recording!;
         let budget = 4*1024*1024;
         while (!this.viewer?.active && total > recording.offset && budget > 0) {
-          const chunk = await this.run(SCRIPTS.READ_FROM, [this.remoteDir,"session.raw",String(recording.offset),String(Math.min(262144,budget)),"hex"]);
+          const chunk = await this.readFrom("session.raw", recording.offset, Math.min(262144,budget));
           const raw = Buffer.from(chunk.stdout,"hex");
           if (!raw.length) break;
           budget -= raw.length;
@@ -156,7 +166,7 @@ export class RemoteRunIO implements RunIO {
       const file = join(this.localDir, stream), total = number(report[key]) ?? 0;
       let budget = 4*1024*1024;
       while (total > size(file) && budget > 0) {
-        const chunk = await this.run(SCRIPTS.READ_FROM, [this.remoteDir, stream, String(size(file)), String(Math.min(262144,budget)), "hex"]);
+        const chunk = await this.readFrom(stream, size(file), Math.min(262144,budget));
         const bytes = Buffer.from(chunk.stdout,"hex");
         if (!bytes.length) break;
         appendFileSync(file, bytes);

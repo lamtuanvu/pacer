@@ -2,7 +2,7 @@
 import { randomUUID } from "node:crypto";
 import { PluginError, serve, type Handler } from "@pacer/plugin";
 import { manifest } from "./manifest";
-import { bundleOutArgv, checkHomeArgv, checkRepoArgv, cleanArgv, cloneRepoArgv, preflightArgv, prepareArgv, probeArgv, probePayload, questionArgv, reportArgv, setIdentityArgv, stopArgv, usageArgv } from "./probe";
+import { bundleOutArgv, checkHomeArgv, checkRepoArgv, cleanArgv, cloneRepoArgv, preflightArgv, prepareArgv, probeArgv, probePayload, questionArgv, readFromArgv, reportArgv, setIdentityArgv, stopArgv, usageArgv } from "./probe";
 
 export { manifest } from "./manifest";
 
@@ -87,15 +87,17 @@ export const handlers: Record<string, Handler> = {
     const prepare = input?.script === "PREPARE" && Array.isArray(args) && args.length === 6 &&
       typeof input.completionNonce === "string";
     const report = input?.script === "REPORT" && Array.isArray(args) && args.length === 1;
+    const readFrom = input?.script === "READ_FROM" && Array.isArray(args) && args.length === 5;
     const stop = input?.script === "STOP" && Array.isArray(args) && args.length === 2 &&
       typeof input.completionNonce === "string";
     const question = input?.script === "QUESTION" && Array.isArray(args) && args.length === 1;
     const usage = input?.script === "CODEX_USAGE" && Array.isArray(args) && args.length <= 1;
-    if (!validSession(input?.session) || (!probe && !repoCheck && !preflight && !identity && !clone && !clean && !stop && !prepare && !report && !question && !usage) ||
+    if (!validSession(input?.session) || (!probe && !repoCheck && !preflight && !identity && !clone && !clean && !stop && !prepare && !report && !readFrom && !question && !usage) ||
       (identity || clone || clean || stop || prepare ? !/^[a-f0-9-]{36}$/.test(input.completionNonce as string) : input.completionNonce !== undefined) ||
       input.stdin !== undefined || !Number.isSafeInteger(input.timeoutMs) ||
       (input.timeoutMs as number) < 1 || (input.timeoutMs as number) > 120_000 ||
-      !Number.isSafeInteger(input.maxBytes) || (input.maxBytes as number) < 1 || (input.maxBytes as number) > 65_536)
+      !Number.isSafeInteger(input.maxBytes) || (input.maxBytes as number) < 1 ||
+      (input.maxBytes as number) > (readFrom ? 524_288 : 65_536))
       fail("capability_denied", "host operation is not issued for this provider");
     const session = sessions.get(input.session as string) ?? fail("capability_denied", "unknown provider SSH session");
     if (signal.aborted) fail("capability_denied", "SSH operation cancelled");
@@ -108,7 +110,8 @@ export const handlers: Record<string, Handler> = {
         setIdentityArgv(session.sshTarget, session.controlPath, args as string[], input.completionNonce as string) : stop ?
         stopArgv(session.sshTarget, session.controlPath, args as string[], input.completionNonce as string) : prepare ?
         prepareArgv(session.sshTarget, session.controlPath, args as string[], input.completionNonce as string) : report ?
-        reportArgv(session.sshTarget, session.controlPath, args as string[]) : clean ?
+        reportArgv(session.sshTarget, session.controlPath, args as string[]) : readFrom ?
+        readFromArgv(session.sshTarget, session.controlPath, args as string[]) : clean ?
         cleanArgv(session.sshTarget, session.controlPath, args as string[], input.completionNonce as string) : clone ?
         cloneRepoArgv(session.sshTarget, session.controlPath, args as string[], input.completionNonce as string) :
         checkRepoArgv(session.sshTarget, session.controlPath, (args as string[])[0]!);
