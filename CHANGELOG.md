@@ -16,6 +16,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Changed
 
+- Install remote agent binaries through the bundled SSH host runner using a one-use, hash-bound upload. Uploads over 128 MiB are refused; a missing completion receipt stops the attempt without a direct SSH retry.
 - Stop persisted remote task runs through the bundled SSH host runner's fixed STOP script with a one-use grant. A missing completion receipt leaves that stop operation unsettled even if a later stop succeeds; there is no direct SSH fallback.
 - Clean eligible remote task worktrees through the bundled SSH host runner with a one-use task grant and completion receipt. Disabled providers and ambiguous completion do not trigger a direct SSH retry.
 - Run consented remote checkout clones through the bundled SSH host runner with a one-use configured grant and completion receipt. Missing receipts leave the operation unsettled and never trigger a direct SSH retry.

@@ -43,6 +43,15 @@ export const HOST_RUNNER_METHODS = {
       /** Host-only mutation receipt; caller capability schema omits this field. */
       completionNonce: z.string().uuid().optional() }).strict(),
     result: z.object({ code: exitCode, stdout: z.string().max(524_288), stderr: z.string().max(524_288), timedOut: z.boolean() }).strict(), deadlineMs: 120_000 },
+  "hostRunner.upload": { description: "Run one host-issued fixed binary upload with private bounded stdin.",
+    params: z.object({ session: hostRunnerSession, script: z.literal("BINARY"),
+      // A homogeneous bounded array keeps generated Rust wire types constructible;
+      // the refinement and fixed provider guard still pin the hash/action pair.
+      args: z.array(z.string().max(64)).length(2).refine(args =>
+        /^[a-f0-9]{64}$/.test(args[0] ?? "") && args[1] === "upload"),
+      timeoutMs: z.number().int().positive().max(300_000), maxBytes: z.number().int().positive().max(4096),
+      completionNonce: z.string().uuid() }).strict(),
+    result: z.object({ code: exitCode, stdout: z.string().max(4096), stderr: z.string().max(4096), timedOut: z.boolean() }).strict(), deadlineMs: 310_000 },
   "hostRunner.stream": { description: "Stage a fixed-script byte stream; progress framing is reserved for a later authority patch.",
     params: request.extend({ maxBytes: z.number().int().positive().max(50 * 1024 * 1024) }).strict(),
     result: z.object({ code: exitCode, bytes: byteCount }).strict(), deadlineMs: 120_000 },

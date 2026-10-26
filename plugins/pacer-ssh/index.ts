@@ -2,7 +2,7 @@
 import { randomUUID } from "node:crypto";
 import { PluginError, serve, type Handler } from "@pacer/plugin";
 import { manifest } from "./manifest";
-import { binaryCheckArgv, bundleOutArgv, checkHomeArgv, checkRepoArgv, cleanArgv, cloneRepoArgv, preflightArgv, prepareArgv, probeArgv, probePayload, questionArgv, readFromArgv, reportArgv, sessionSocketArgv, setIdentityArgv, stopArgv, usageArgv } from "./probe";
+import { binaryCheckArgv, binaryUploadArgv, bundleOutArgv, checkHomeArgv, checkRepoArgv, cleanArgv, cloneRepoArgv, preflightArgv, prepareArgv, probeArgv, probePayload, questionArgv, readFromArgv, reportArgv, sessionSocketArgv, setIdentityArgv, stopArgv, usageArgv } from "./probe";
 
 export { manifest } from "./manifest";
 
@@ -156,6 +156,32 @@ export const handlers: Record<string, Handler> = {
       !/^[a-f0-9]{64}$/.test(result.sha256))
       fail("plugin_refused", "bundle stage returned invalid metadata");
     return { handle: result.handle, bytes: result.bytes, sha256: result.sha256 };
+  },
+  "hostRunner.upload": async (raw, host, signal) => {
+    const input = raw as Record<string, unknown>;
+    if (!validSession(input?.session) || input.script !== "BINARY" ||
+      !Array.isArray(input.args) || input.args.length !== 2 || input.args[1] !== "upload" ||
+      input.stdin !== undefined || typeof input.completionNonce !== "string" ||
+      !Number.isSafeInteger(input.timeoutMs) || (input.timeoutMs as number) < 1 || (input.timeoutMs as number) > 300_000 ||
+      !Number.isSafeInteger(input.maxBytes) || (input.maxBytes as number) < 1 || (input.maxBytes as number) > 4096)
+      fail("capability_denied", "binary upload is not issued for this provider");
+    const session = sessions.get(input.session as string) ?? fail("capability_denied", "unknown provider SSH session");
+    if (signal.aborted) fail("capability_denied", "SSH binary upload cancelled");
+    let argv: string[];
+    try { argv = binaryUploadArgv(session.sshTarget, session.controlPath, input.args as string[], input.completionNonce as string); }
+    catch { fail("capability_denied", "invalid host-issued binary upload"); }
+    const result = await host.call<SpawnResult>("capability.process.spawn", { argv: argv!, timeoutMs: input.timeoutMs });
+    if (signal.aborted) fail("capability_denied", "SSH binary upload cancelled");
+    if ("output" in result) fail("too_large", "SSH binary upload output exceeds the inline bound");
+    const inline = result as Extract<SpawnResult, { stdout: string }>;
+    if (result.code === 255) fail("plugin_unavailable", "SSH binary upload connection failed");
+    if (result.timedOut) return { code: result.code, stdout: "", stderr: inline.stderr, timedOut: true };
+    let stdout: string;
+    try { stdout = probePayload(inline.stdout); }
+    catch { fail("plugin_refused", "SSH binary upload returned no payload frame"); }
+    if (Buffer.byteLength(stdout!) + Buffer.byteLength(inline.stderr) > (input.maxBytes as number))
+      fail("too_large", "SSH binary upload output exceeds the issued bound");
+    return { code: result.code, stdout: stdout!, stderr: inline.stderr, timedOut: false };
   },
   "hostRunner.close": async raw => {
     const input = raw as Record<string, unknown>;

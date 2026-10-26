@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { binaryCheckArgv, BINARY_SCRIPT, checkHomeArgv, checkRepoArgv, cleanArgv, CLEAN_SCRIPT, cloneRepoArgv, CHECK_REPO_SCRIPT, preflightArgv, PREFLIGHT_SCRIPT, prepareArgv, PREPARE_SCRIPT, probeArgv, PROBE_SCRIPT, readFromArgv, READ_FROM_SCRIPT, reportArgv, REPORT_SCRIPT, sessionSocketArgv, SESSION_SOCKET_SCRIPT, stopArgv, STOP_SCRIPT,
+import { binaryCheckArgv, binaryUploadArgv, BINARY_SCRIPT, checkHomeArgv, checkRepoArgv, cleanArgv, CLEAN_SCRIPT, cloneRepoArgv, CHECK_REPO_SCRIPT, preflightArgv, PREFLIGHT_SCRIPT, prepareArgv, PREPARE_SCRIPT, probeArgv, PROBE_SCRIPT, readFromArgv, READ_FROM_SCRIPT, reportArgv, REPORT_SCRIPT, sessionSocketArgv, SESSION_SOCKET_SCRIPT, stopArgv, STOP_SCRIPT,
   questionArgv, QUESTION_SCRIPT, usageArgv, CODEX_USAGE_SCRIPT,
   setIdentityArgv, SET_IDENTITY_SCRIPT } from "../plugins/pacer-ssh/probe";
 import { SCRIPTS } from "../src/remote/scripts";
@@ -186,6 +186,17 @@ test("SSH binary check pins the content-addressed read-only action", () => {
       arg.startsWith("ControlPath=") ? "ControlPath=/tmp/private/cm-%C" : arg));
   expect(() => binaryCheckArgv(host.ssh, "/tmp/private/cm-%C", [hash, "upload"])).toThrow();
   expect(() => binaryCheckArgv(host.ssh, "/tmp/private/cm-%C", ["bad", "check"])).toThrow();
+});
+
+test("SSH binary upload pins the fixed script, exact hash, action and completion receipt", () => {
+  const ctx = fakeCtx(), host = { alias: "box", ssh: "box", repos: {}, accounts: {}, maxTasks: 1 };
+  const hash = "a".repeat(64), nonce = "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa";
+  expect(binaryUploadArgv(host.ssh, "/tmp/private/cm-%C", [hash, "upload"], nonce))
+    .toEqual(sshArgv(ctx, host, SCRIPTS.BINARY, [hash, "upload"], nonce).map(arg =>
+      arg.startsWith("ControlPath=") ? "ControlPath=/tmp/private/cm-%C" : arg));
+  expect(() => binaryUploadArgv(host.ssh, "/tmp/private/cm-%C", [hash, "check"], nonce)).toThrow();
+  expect(() => binaryUploadArgv(host.ssh, "/tmp/private/cm-%C", ["bad", "upload"], nonce)).toThrow();
+  expect(() => binaryUploadArgv(host.ssh, "/tmp/private/cm-%C", [hash, "upload"], "bad")).toThrow();
 });
 
 test("SSH reference provider builds the exact fixed BUNDLE_OUT argv", async () => {

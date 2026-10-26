@@ -9,9 +9,9 @@ import {EXTENSION_METHODS,hostRunnerContribution,manifestSchema} from "../src/pl
 import {HOST_RUNNER_SCRIPTS} from "../src/plugins/host-runner-protocol";
 import {SCRIPTS} from "../src/remote/scripts";
 
-const methods=["hostRunner.check","hostRunner.open","hostRunner.run","hostRunner.stream","hostRunner.fetch","hostRunner.close"];
+const methods=["hostRunner.check","hostRunner.open","hostRunner.run","hostRunner.upload","hostRunner.stream","hostRunner.fetch","hostRunner.close"];
 const request={session:"s".repeat(32),script:"PROBE",args:[],timeoutMs:1000};
-test("fixed host-runner scripts and six bounded method contracts",()=>{
+test("fixed host-runner scripts and seven bounded method contracts",()=>{
   expect(Object.keys(SCRIPTS).sort()).toEqual([...HOST_RUNNER_SCRIPTS].sort());
   expect(hostRunnerContribution.safeParse({kinds:["ssh"]}).success).toBe(true);
   expect(hostRunnerContribution.safeParse({kinds:["ssh","shell"]}).success).toBe(false);
@@ -35,6 +35,15 @@ test("fixed host-runner scripts and six bounded method contracts",()=>{
   const run=EXTENSION_METHODS["hostRunner.run"].params;
   for(const bad of [{...request,script:"$(id)",maxBytes:1},{...request,args:["a\0b"],maxBytes:1},{...request,timeoutMs:0,maxBytes:1},{...request,maxBytes:0}])expect(run.safeParse(bad).success).toBe(false);
   expect(run.safeParse({...request,maxBytes:1024}).success).toBe(true);
+  const upload=EXTENSION_METHODS["hostRunner.upload"].params;
+  const mutation={session:"s".repeat(32),script:"BINARY",args:["a".repeat(64),"upload"],timeoutMs:300_000,maxBytes:4096,completionNonce:"aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa"};
+  expect(upload.safeParse(mutation).success).toBe(true);
+  expect(upload.safeParse({...mutation,stdin:"bytes"}).success).toBe(false);
+  expect(upload.safeParse({...mutation,timeoutMs:300_001}).success).toBe(false);
+  expect(upload.safeParse({...mutation,args:["a".repeat(64),"check"]}).success).toBe(false);
+  expect(upload.safeParse({...mutation,args:["bad","upload"]}).success).toBe(false);
+  expect(upload.safeParse({...mutation,args:["a".repeat(64),"upload","extra"]}).success).toBe(false);
+  expect(run.safeParse({...request,maxBytes:1024,timeoutMs:300_000}).success).toBe(false);
   expect(EXTENSION_METHODS["hostRunner.fetch"].result.safeParse({name:"/tmp/out.bundle",bytes:1,sha256:"a".repeat(64)}).success).toBe(false);
 });
 
@@ -68,7 +77,11 @@ test("installed fake runner validates input and every result without SSH",async(
     };
     await expect(registry.call(ctx,"fx-host-runner","hostRunner.check",args["hostRunner.check"]))
       .rejects.toMatchObject({code:"capability_denied"});
-    for(const method of methods.filter(method=>method!=="hostRunner.check"&&method!=="hostRunner.fetch"))
+    await expect(registry.call(ctx,"fx-host-runner","hostRunner.upload",{
+      session:request.session,script:"BINARY",args:["a".repeat(64),"upload"],timeoutMs:1000,maxBytes:4096,
+      completionNonce:"aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa",
+    })).rejects.toMatchObject({code:"capability_denied"});
+    for(const method of methods.filter(method=>method!=="hostRunner.check"&&method!=="hostRunner.fetch"&&method!=="hostRunner.upload"))
       await expect(registry.call(ctx,"fx-host-runner",method,args[method])).resolves.toBeDefined();
     await expect(registry.call(ctx,"fx-host-runner","hostRunner.fetch",args["hostRunner.fetch"]))
       .rejects.toMatchObject({code:"capability_denied"});
