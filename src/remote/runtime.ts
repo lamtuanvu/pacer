@@ -4,8 +4,7 @@ import { fetchBytes, fetchText, releaseFetch } from "../update/fetch";
 import { currentVersion } from "../update/version";
 import type { HostCfg } from "../config/hosts";
 import type { Ctx } from "../types";
-import { SCRIPTS } from "./scripts";
-import { runRemote } from "./ssh";
+import { issueConfiguredHostRuntimeProbe } from "../plugins/host-runtime-probe-issuer";
 import { issueConfiguredHostBinaryCheck } from "../plugins/host-binary-check-issuer";
 import { issueConfiguredHostBinaryUpload } from "../plugins/host-binary-upload-issuer";
 import { pluginRegistry } from "../plugins";
@@ -19,8 +18,9 @@ export function remotePlatform(os: string, arch: string): Platform {
 /** A local release file may be supplied by callers packaging their own release. */
 export async function ensureRemoteBinary(ctx: Ctx, host: HostCfg, remoteDir: string,
   localDir: string, options: {binary?:string} = {}): Promise<string> {
-  const probe = await runRemote(ctx,host,SCRIPTS.PROBE,[]);
-  if (probe.code) throw Error(probe.stderr || "remote platform probe failed");
+  const probeGrant = issueConfiguredHostRuntimeProbe(ctx, host.alias, remoteDir, localDir);
+  const probe = await pluginRegistry(ctx).probeConfiguredHostRuntime(ctx, probeGrant);
+  if (probe.code || probe.timedOut) throw Error(probe.stderr || "remote platform probe failed");
   const facts = Object.fromEntries(probe.stdout.trim().split("\n").map(line=>{const i=line.indexOf("=");return [line.slice(0,i),line.slice(i+1)];}));
   const platform = remotePlatform(facts.os,facts.arch);
   if (platform.os === "linux") {
