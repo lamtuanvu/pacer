@@ -8222,6 +8222,215 @@ Result:
 }
 ```
 
+### `capability.process.duplex.open`
+
+Open one host-issued fixed SSH session child with private duplex pipes.
+
+Params:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "argv": {
+      "minItems": 1,
+      "maxItems": 32,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 4096
+      }
+    },
+    "timeoutMs": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 60000
+    }
+  },
+  "required": [
+    "argv",
+    "timeoutMs"
+  ],
+  "additionalProperties": false
+}
+```
+
+Result:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "handle": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"
+    }
+  },
+  "required": [
+    "handle"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `capability.process.duplex.read`
+
+Read one bounded chunk from the call-owned SSH session stdout.
+
+Params:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "handle": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"
+    },
+    "length": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 65536
+    },
+    "timeoutMs": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 60000
+    }
+  },
+  "required": [
+    "handle",
+    "length",
+    "timeoutMs"
+  ],
+  "additionalProperties": false
+}
+```
+
+Result:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "base64": {
+      "type": "string",
+      "maxLength": 87384
+    },
+    "eof": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "base64",
+    "eof"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `capability.process.duplex.write`
+
+Write one bounded chunk to the call-owned SSH session stdin.
+
+Params:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "handle": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"
+    },
+    "base64": {
+      "type": "string",
+      "minLength": 4,
+      "maxLength": 87384,
+      "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+    },
+    "timeoutMs": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 60000
+    }
+  },
+  "required": [
+    "handle",
+    "base64",
+    "timeoutMs"
+  ],
+  "additionalProperties": false
+}
+```
+
+Result:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "bytes": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 65536
+    }
+  },
+  "required": [
+    "bytes"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `capability.process.duplex.close`
+
+Terminate and reap this call's SSH session child.
+
+Params:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "handle": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"
+    }
+  },
+  "required": [
+    "handle"
+  ],
+  "additionalProperties": false
+}
+```
+
+Result:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "ok": {
+      "type": "boolean",
+      "const": true
+    }
+  },
+  "required": [
+    "ok"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### `capability.usage.state.begin`
 
 Lease an opaque host-fixed provider cache or account-projected cursor store.

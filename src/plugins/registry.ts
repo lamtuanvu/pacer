@@ -76,6 +76,7 @@ const HOST_ATTEMPT_PREFLIGHT_ISSUER = Symbol("host-attempt-preflight-issuer");
 const HOST_CALL_PREFLIGHT_ISSUER = Symbol("host-call-preflight-issuer");
 const HOST_READ_FROM_ISSUER = Symbol("host-read-from-issuer");
 const HOST_SESSION_SOCKET_ISSUER = Symbol("host-session-socket-issuer");
+const HOST_SESSION_STREAM_ISSUER = Symbol("host-session-stream-issuer");
 const HOST_BINARY_CHECK_ISSUER = Symbol("host-binary-check-issuer");
 const HOST_RUNTIME_PROBE_ISSUER = Symbol("host-runtime-probe-issuer");
 const HOST_CALL_PROBE_ISSUER = Symbol("host-call-probe-issuer");
@@ -87,7 +88,7 @@ interface HostFetchAdmission { grant: PersistedFetchGrant; process: PluginProces
   claim: (authority: CallAuthority, staged: StagedFetchResult) => void | Promise<void> }
 interface HostCallerFetchAdmission { grant: PersistedFetchGrant;
   claim: (caller: CallAuthority, ticket: ClaimedBundleTicket) => void | Promise<void> }
-export interface PluginCallOptions { plannerResources?: PlannerResources; credentialBindings?: readonly CredentialBinding[]; classifierConfig?: ClassifierConfig; resources?: CallResources; accountHome?: string | null; deadlineMs?: number; signal?: AbortSignal; onProgress?: (event: unknown) => void; /** Internal host-lease binding: never restart or substitute this provider. */ expectedProcess?: PluginProcess; [HOST_CHECK_ISSUER]?: true; [HOST_FETCH_ISSUER]?: HostFetchAdmission; [HOST_CALL_FETCH_ISSUER]?: HostCallerFetchAdmission; [HOST_CALL_IDENTITY_ISSUER]?: ConfiguredHostIdentityGrant; [HOST_CALL_QUESTION_ISSUER]?: PersistedQuestionGrant; [HOST_CALL_USAGE_ISSUER]?: ConfiguredRemoteUsageGrant; [HOST_CALL_PROBE_ISSUER]?: true; [HOST_PROVIDER_MUTATION_ISSUER]?: true; [HOST_REPORT_ISSUER]?: true; [HOST_SESSION_FILES_ISSUER]?: true; [HOST_ATTEMPT_PREFLIGHT_ISSUER]?: true; [HOST_CALL_PREFLIGHT_ISSUER]?: true; [HOST_READ_FROM_ISSUER]?: true; [HOST_SESSION_SOCKET_ISSUER]?: true; [HOST_BINARY_CHECK_ISSUER]?: true; [HOST_RUNTIME_PROBE_ISSUER]?: true; [HOST_BINARY_UPLOAD_ISSUER]?: true }
+export interface PluginCallOptions { plannerResources?: PlannerResources; credentialBindings?: readonly CredentialBinding[]; classifierConfig?: ClassifierConfig; resources?: CallResources; accountHome?: string | null; deadlineMs?: number; signal?: AbortSignal; onProgress?: (event: unknown) => void; /** Internal host-lease binding: never restart or substitute this provider. */ expectedProcess?: PluginProcess; [HOST_CHECK_ISSUER]?: true; [HOST_FETCH_ISSUER]?: HostFetchAdmission; [HOST_CALL_FETCH_ISSUER]?: HostCallerFetchAdmission; [HOST_CALL_IDENTITY_ISSUER]?: ConfiguredHostIdentityGrant; [HOST_CALL_QUESTION_ISSUER]?: PersistedQuestionGrant; [HOST_CALL_USAGE_ISSUER]?: ConfiguredRemoteUsageGrant; [HOST_CALL_PROBE_ISSUER]?: true; [HOST_PROVIDER_MUTATION_ISSUER]?: true; [HOST_REPORT_ISSUER]?: true; [HOST_SESSION_FILES_ISSUER]?: true; [HOST_ATTEMPT_PREFLIGHT_ISSUER]?: true; [HOST_CALL_PREFLIGHT_ISSUER]?: true; [HOST_READ_FROM_ISSUER]?: true; [HOST_SESSION_SOCKET_ISSUER]?: true; [HOST_SESSION_STREAM_ISSUER]?: true; [HOST_BINARY_CHECK_ISSUER]?: true; [HOST_RUNTIME_PROBE_ISSUER]?: true; [HOST_BINARY_UPLOAD_ISSUER]?: true }
 export interface RegistryDeps { bundled: BundledPlugin[]; spawnBundled: (ctx: Ctx, id: string) => SpawnSpec; spawn?: typeof nodeSpawn; sleep?: (ms: number) => Promise<void>; eventPumpMs?:number }
 export interface PluginInfo { id: string; version: string; publisher: string; tier: "free" | "commercial"; bundled: boolean; enabled: boolean; state: PluginState; contributes: string[]; capabilities: { name: string; scopes?: string[] }[]; grant: PluginGrant | null; error: string | null; pid: number | null }
 export interface DoctorReport { id: string; ok: boolean; state: PluginState; served: string[]; protocol: { host: string; plugin: string | null }; pid: number | null; restarts: number; error: string | null; needs: string | null }
@@ -1755,6 +1756,9 @@ export class PluginRegistry {
       (!options[HOST_PROVIDER_MUTATION_ISSUER] || method !== "hostRunner.run" ||
         (params as { script?: string } | null)?.script !== "START"))
       throw new CoreError("capability_denied", "remote start input requires host-owned issuance");
+    if (options.resources?.commands.some(command => command.mode === "session-duplex") &&
+      (method !== "hostRunner.stream" || !options[HOST_SESSION_STREAM_ISSUER]))
+      throw new CoreError("capability_denied", "remote session duplex requires host-owned issuance");
     if (options.resources?.hosts?.some(resource => resource.script === "SET_IDENTITY") && !options[HOST_CALL_IDENTITY_ISSUER])
       throw new CoreError("capability_denied", "host identity resource requires host-owned issuance");
     if (options.resources?.hosts?.some(resource => resource.script === "QUESTION") && !options[HOST_CALL_QUESTION_ISSUER])

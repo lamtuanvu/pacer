@@ -3921,6 +3921,595 @@ pub struct CapabilityPlannerRunResultVariant1Output {
     pub stderr: ::std::string::String,
     pub stdout: ::std::string::String,
 }
+///`CapabilityProcessDuplexCloseParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "handle"
+///  ],
+///  "properties": {
+///    "handle": {
+///      "type": "string",
+///      "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct CapabilityProcessDuplexCloseParams {
+    pub handle: CapabilityProcessDuplexCloseParamsHandle,
+}
+///`CapabilityProcessDuplexCloseParamsHandle`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct CapabilityProcessDuplexCloseParamsHandle(::std::string::String);
+impl ::std::ops::Deref for CapabilityProcessDuplexCloseParamsHandle {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<CapabilityProcessDuplexCloseParamsHandle> for ::std::string::String {
+    fn from(value: CapabilityProcessDuplexCloseParamsHandle) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for CapabilityProcessDuplexCloseParamsHandle {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_12(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for CapabilityProcessDuplexCloseParamsHandle {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for CapabilityProcessDuplexCloseParamsHandle {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`CapabilityProcessDuplexCloseResult`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "ok"
+///  ],
+///  "properties": {
+///    "ok": {
+///      "type": "boolean",
+///      "const": true
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct CapabilityProcessDuplexCloseResult {
+    pub ok: bool,
+}
+///`CapabilityProcessDuplexOpenParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "argv",
+///    "timeoutMs"
+///  ],
+///  "properties": {
+///    "argv": {
+///      "type": "array",
+///      "items": {
+///        "type": "string",
+///        "maxLength": 4096
+///      },
+///      "maxItems": 32,
+///      "minItems": 1
+///    },
+///    "timeoutMs": {
+///      "type": "integer",
+///      "maximum": 60000.0,
+///      "exclusiveMinimum": 0.0
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct CapabilityProcessDuplexOpenParams {
+    pub argv: ::std::vec::Vec<CapabilityProcessDuplexOpenParamsArgvItem>,
+    #[serde(rename = "timeoutMs")]
+    pub timeout_ms: ::std::num::NonZeroU64,
+}
+///`CapabilityProcessDuplexOpenParamsArgvItem`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 4096
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct CapabilityProcessDuplexOpenParamsArgvItem(::std::string::String);
+impl ::std::ops::Deref for CapabilityProcessDuplexOpenParamsArgvItem {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<CapabilityProcessDuplexOpenParamsArgvItem> for ::std::string::String {
+    fn from(value: CapabilityProcessDuplexOpenParamsArgvItem) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for CapabilityProcessDuplexOpenParamsArgvItem {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_6(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for CapabilityProcessDuplexOpenParamsArgvItem {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for CapabilityProcessDuplexOpenParamsArgvItem {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`CapabilityProcessDuplexOpenResult`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "handle"
+///  ],
+///  "properties": {
+///    "handle": {
+///      "type": "string",
+///      "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct CapabilityProcessDuplexOpenResult {
+    pub handle: CapabilityProcessDuplexOpenResultHandle,
+}
+///`CapabilityProcessDuplexOpenResultHandle`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct CapabilityProcessDuplexOpenResultHandle(::std::string::String);
+impl ::std::ops::Deref for CapabilityProcessDuplexOpenResultHandle {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<CapabilityProcessDuplexOpenResultHandle> for ::std::string::String {
+    fn from(value: CapabilityProcessDuplexOpenResultHandle) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for CapabilityProcessDuplexOpenResultHandle {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_12(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for CapabilityProcessDuplexOpenResultHandle {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for CapabilityProcessDuplexOpenResultHandle {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`CapabilityProcessDuplexReadParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "handle",
+///    "length",
+///    "timeoutMs"
+///  ],
+///  "properties": {
+///    "handle": {
+///      "type": "string",
+///      "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"
+///    },
+///    "length": {
+///      "type": "integer",
+///      "maximum": 65536.0,
+///      "exclusiveMinimum": 0.0
+///    },
+///    "timeoutMs": {
+///      "type": "integer",
+///      "maximum": 60000.0,
+///      "exclusiveMinimum": 0.0
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct CapabilityProcessDuplexReadParams {
+    pub handle: CapabilityProcessDuplexReadParamsHandle,
+    pub length: ::std::num::NonZeroU64,
+    #[serde(rename = "timeoutMs")]
+    pub timeout_ms: ::std::num::NonZeroU64,
+}
+///`CapabilityProcessDuplexReadParamsHandle`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct CapabilityProcessDuplexReadParamsHandle(::std::string::String);
+impl ::std::ops::Deref for CapabilityProcessDuplexReadParamsHandle {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<CapabilityProcessDuplexReadParamsHandle> for ::std::string::String {
+    fn from(value: CapabilityProcessDuplexReadParamsHandle) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for CapabilityProcessDuplexReadParamsHandle {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_12(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for CapabilityProcessDuplexReadParamsHandle {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for CapabilityProcessDuplexReadParamsHandle {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`CapabilityProcessDuplexReadResult`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "base64",
+///    "eof"
+///  ],
+///  "properties": {
+///    "base64": {
+///      "type": "string",
+///      "maxLength": 87384
+///    },
+///    "eof": {
+///      "type": "boolean"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct CapabilityProcessDuplexReadResult {
+    pub base64: CapabilityProcessDuplexReadResultBase64,
+    pub eof: bool,
+}
+///`CapabilityProcessDuplexReadResultBase64`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 87384
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct CapabilityProcessDuplexReadResultBase64(::std::string::String);
+impl ::std::ops::Deref for CapabilityProcessDuplexReadResultBase64 {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<CapabilityProcessDuplexReadResultBase64> for ::std::string::String {
+    fn from(value: CapabilityProcessDuplexReadResultBase64) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for CapabilityProcessDuplexReadResultBase64 {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 87384usize {
+            return Err("longer than 87384 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for CapabilityProcessDuplexReadResultBase64 {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for CapabilityProcessDuplexReadResultBase64 {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`CapabilityProcessDuplexWriteParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "base64",
+///    "handle",
+///    "timeoutMs"
+///  ],
+///  "properties": {
+///    "base64": {
+///      "type": "string",
+///      "maxLength": 87384,
+///      "minLength": 4,
+///      "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+///    },
+///    "handle": {
+///      "type": "string",
+///      "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"
+///    },
+///    "timeoutMs": {
+///      "type": "integer",
+///      "maximum": 60000.0,
+///      "exclusiveMinimum": 0.0
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct CapabilityProcessDuplexWriteParams {
+    pub base64: CapabilityProcessDuplexWriteParamsBase64,
+    pub handle: CapabilityProcessDuplexWriteParamsHandle,
+    #[serde(rename = "timeoutMs")]
+    pub timeout_ms: ::std::num::NonZeroU64,
+}
+///`CapabilityProcessDuplexWriteParamsBase64`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 87384,
+///  "minLength": 4,
+///  "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct CapabilityProcessDuplexWriteParamsBase64(::std::string::String);
+impl ::std::ops::Deref for CapabilityProcessDuplexWriteParamsBase64 {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<CapabilityProcessDuplexWriteParamsBase64> for ::std::string::String {
+    fn from(value: CapabilityProcessDuplexWriteParamsBase64) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for CapabilityProcessDuplexWriteParamsBase64 {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 87384usize {
+            return Err("longer than 87384 characters".into());
+        }
+        if value.chars().count() < 4usize {
+            return Err("shorter than 4 characters".into());
+        }
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| {
+                ::regress::Regex::new(
+                    "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+                )
+                .unwrap()
+            });
+        if PATTERN.find(value).is_none() {
+            return Err(
+                "doesn't match pattern \"^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$\""
+                    .into(),
+            );
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for CapabilityProcessDuplexWriteParamsBase64 {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for CapabilityProcessDuplexWriteParamsBase64 {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`CapabilityProcessDuplexWriteParamsHandle`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct CapabilityProcessDuplexWriteParamsHandle(::std::string::String);
+impl ::std::ops::Deref for CapabilityProcessDuplexWriteParamsHandle {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<CapabilityProcessDuplexWriteParamsHandle> for ::std::string::String {
+    fn from(value: CapabilityProcessDuplexWriteParamsHandle) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for CapabilityProcessDuplexWriteParamsHandle {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_12(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for CapabilityProcessDuplexWriteParamsHandle {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for CapabilityProcessDuplexWriteParamsHandle {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`CapabilityProcessDuplexWriteResult`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "bytes"
+///  ],
+///  "properties": {
+///    "bytes": {
+///      "type": "integer",
+///      "maximum": 65536.0,
+///      "exclusiveMinimum": 0.0
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct CapabilityProcessDuplexWriteResult {
+    pub bytes: ::std::num::NonZeroU64,
+}
 ///`CapabilityProcessOutputChunkParams`
 ///
 /// <details><summary>JSON schema</summary>
@@ -4774,20 +5363,7 @@ impl ::std::convert::From<CapabilityProcessStageBundleResultHandle> for ::std::s
 impl ::std::str::FromStr for CapabilityProcessStageBundleResultHandle {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
-            ::std::sync::LazyLock::new(|| {
-                ::regress::Regex::new(
-                    "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$",
-                )
-                .unwrap()
-            });
-        if PATTERN.find(value).is_none() {
-            return Err(
-                "doesn't match pattern \"^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$\""
-                    .into(),
-            );
-        }
-        Ok(Self(value.to_string()))
+        validate_string_12(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityProcessStageBundleResultHandle {
@@ -9828,7 +10404,7 @@ impl ::std::convert::From<HelloParamsManifestId> for ::std::string::String {
 impl ::std::str::FromStr for HelloParamsManifestId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_13(value, Self)
+        validate_string_14(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for HelloParamsManifestId {
@@ -11145,7 +11721,7 @@ impl ::std::convert::From<ManifestId> for ::std::string::String {
 impl ::std::str::FromStr for ManifestId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_13(value, Self)
+        validate_string_14(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for ManifestId {
@@ -17387,7 +17963,7 @@ impl ::std::convert::From<RemoteCallerFetchParamsAlias> for ::std::string::Strin
 impl ::std::str::FromStr for RemoteCallerFetchParamsAlias {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_12(value, Self)
+        validate_string_13(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for RemoteCallerFetchParamsAlias {
@@ -17503,7 +18079,7 @@ impl ::std::convert::From<RemoteCallerIdentityParamsAlias> for ::std::string::St
 impl ::std::str::FromStr for RemoteCallerIdentityParamsAlias {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_12(value, Self)
+        validate_string_13(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for RemoteCallerIdentityParamsAlias {
@@ -17852,7 +18428,7 @@ impl ::std::convert::From<RemoteCallerQuestionReadParamsAlias> for ::std::string
 impl ::std::str::FromStr for RemoteCallerQuestionReadParamsAlias {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_12(value, Self)
+        validate_string_13(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for RemoteCallerQuestionReadParamsAlias {
@@ -18102,7 +18678,7 @@ impl ::std::convert::From<RemoteCallerReachabilityParamsAlias> for ::std::string
 impl ::std::str::FromStr for RemoteCallerReachabilityParamsAlias {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_12(value, Self)
+        validate_string_13(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for RemoteCallerReachabilityParamsAlias {
@@ -18203,7 +18779,7 @@ impl ::std::convert::From<RemoteCallerUsageReadParamsAlias> for ::std::string::S
 impl ::std::str::FromStr for RemoteCallerUsageReadParamsAlias {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_12(value, Self)
+        validate_string_13(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for RemoteCallerUsageReadParamsAlias {
@@ -21514,6 +22090,24 @@ fn validate_string_12<T>(
     value: &str,
     construct: impl FnOnce(::std::string::String) -> T,
 ) -> ::std::result::Result<T, self::error::ConversionError> {
+    static PATTERN: ::std::sync::LazyLock<::regress::Regex> = ::std::sync::LazyLock::new(|| {
+        ::regress::Regex::new(
+            "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$",
+        )
+        .unwrap()
+    });
+    if PATTERN.find(value).is_none() {
+        return Err(
+            "doesn't match pattern \"^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$\""
+                .into(),
+        );
+    }
+    Ok(construct(value.to_string()))
+}
+fn validate_string_13<T>(
+    value: &str,
+    construct: impl FnOnce(::std::string::String) -> T,
+) -> ::std::result::Result<T, self::error::ConversionError> {
     static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
         ::std::sync::LazyLock::new(|| ::regress::Regex::new("^[a-z0-9][a-z0-9-]*$").unwrap());
     if PATTERN.find(value).is_none() {
@@ -21521,7 +22115,7 @@ fn validate_string_12<T>(
     }
     Ok(construct(value.to_string()))
 }
-fn validate_string_13<T>(
+fn validate_string_14<T>(
     value: &str,
     construct: impl FnOnce(::std::string::String) -> T,
 ) -> ::std::result::Result<T, self::error::ConversionError> {

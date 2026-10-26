@@ -17,7 +17,7 @@ const CODEX_LIVE_REQUEST = [
 interface Pin {
   argv: readonly string[];
   timeoutMs: number;
-  mode?: "codex-live" | "prepare-bundle" | "binary-upload" | "start-input";
+  mode?: "codex-live" | "prepare-bundle" | "binary-upload" | "start-input" | "session-duplex";
   input?: Uint8Array;
   selected: string | null;
   canonical?: string;
@@ -32,7 +32,7 @@ interface Pin {
     secretEnv: Readonly<Record<string, string>>;
   };
 }
-interface State { pins: Pin[]; busy: boolean; liveUsed: boolean; prepareUsed: boolean; uploadUsed: boolean; startUsed: boolean; output: Map<string, Buffer>; cleanupFailure?: Error }
+interface State { pins: Pin[]; busy: boolean; liveUsed: boolean; prepareUsed: boolean; uploadUsed: boolean; startUsed: boolean; sessionUsed: boolean; output: Map<string, Buffer>; cleanupFailure?: Error }
 const states = new WeakMap<CallAuthority, State>();
 const deny = (message: string): never => { throw new CoreError("capability_denied", message); };
 const invalid = (message: string): never => { throw new CoreError("invalid_input", message); };
@@ -66,6 +66,11 @@ export function prepareSpawnAuthority(authority: CallAuthority): void {
         command.secretEnv !== undefined || command.timeoutMs > 300_000)
         deny("remote binary upload input was not issued by the host");
       pin.input = Uint8Array.from(command.input!);
+    } else if (command.mode === "session-duplex") {
+      if (command.argv[0] !== "ssh" || command.input !== undefined || command.inputSha256 !== undefined ||
+        command.cwd !== undefined || command.env !== undefined ||
+        command.secretEnv !== undefined || command.timeoutMs > 60_000)
+        deny("remote session stream was not issued by the host");
     } else if (command.input !== undefined || command.inputSha256 !== undefined) {
       deny("provider input requires host-issued remote mutation");
     }
@@ -100,7 +105,7 @@ export function prepareSpawnAuthority(authority: CallAuthority): void {
     }
     return pin;
   });
-  const state: State = { pins, busy: false, liveUsed: false, prepareUsed: false, uploadUsed: false, startUsed: false, output: new Map() };
+  const state: State = { pins, busy: false, liveUsed: false, prepareUsed: false, uploadUsed: false, startUsed: false, sessionUsed: false, output: new Map() };
   states.set(authority, state);
   authority.onRevoke(() => { state.output.clear(); });
 }
@@ -112,6 +117,25 @@ function stateOf(authority: CallAuthority): State {
 /** Private owner cleanup: retiring output never grants or renews process authority. */
 export function discardSpawnOutput(authority: CallAuthority): void {
   states.get(authority)?.output.clear();
+}
+
+/** Claim one exact host-issued SSH command for a private duplex process, not ordinary spawn. */
+export function claimSessionDuplexPin(authority: CallAuthority, declaredScopes: readonly string[],
+  argv: string[], timeoutMs: number): { executable: string; env: NodeJS.ProcessEnv; release: () => void } {
+  const state = stateOf(authority);
+  if (!declaredScopes.includes("ssh") || !Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 60_000 ||
+    !Array.isArray(argv) || state.sessionUsed || state.busy)
+    deny("remote session stream is not issued for this call");
+  const pin = state.pins.find(candidate => candidate.mode === "session-duplex" &&
+    JSON.stringify(candidate.argv) === JSON.stringify(argv) && timeoutMs <= candidate.timeoutMs);
+  if (!pin) return deny("remote session SSH command is unavailable");
+  if (!pin.selected || !pin.canonical) return deny("remote session SSH command is unavailable");
+  validatePin(pin);
+  authority.assertActive();
+  state.sessionUsed = true;
+  state.busy = true;
+  return { executable: pin.canonical, env: authority.ctx.env,
+    release: () => { state.busy = false; } };
 }
 
 export async function readSpawnOutput(authority: CallAuthority, params: Record<string, unknown>): Promise<{ base64: string }> {
@@ -130,7 +154,7 @@ export async function answerSpawn(authority: CallAuthority, declaredScopes: read
   if (!Array.isArray(argv) || argv.length < 1 || argv.length > 32 || argv.some(arg => typeof arg !== "string" || arg.length > 4096 || arg.includes("\0")) || !Number.isSafeInteger(timeoutMs) || (timeoutMs as number) <= 0) invalid("invalid provider command");
   const args = argv as string[];
   if (!declaredScopes.includes(args[0]!) || args[0] === "*" || isAbsolute(args[0]!)) deny("provider command is not declared");
-  const candidates = state.pins.filter(pin => JSON.stringify(pin.argv) === JSON.stringify(argv));
+  const candidates = state.pins.filter(pin => pin.mode !== "session-duplex" && JSON.stringify(pin.argv) === JSON.stringify(argv));
   if (!candidates.length) deny("provider command is not owned by this call");
   if (candidates.every(pin => !pin.context) && (Object.hasOwn(params, "env") || Object.hasOwn(params, "cwd"))) invalid("provider env and cwd overrides are unavailable");
   const pin = candidates.find(candidate => (candidate.mode === "codex-live"
