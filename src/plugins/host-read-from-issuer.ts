@@ -26,7 +26,7 @@ function snapshot(ctx: Ctx, alias: string, remoteDir: string, localDir: string,
   if (!match || !isAbsolute(remoteDir) || !isAbsolute(localDir) ||
     normalize(remoteDir) !== remoteDir || normalize(localDir) !== localDir ||
     [remoteDir, localDir].some(value => value.length > 4096 || /[\u0000-\u001f\u007f]/.test(value)) ||
-    !["stdout", "stderr", "session.raw"].includes(stream) ||
+    !["stdout", "stderr", "session.raw", "session.log", "session.log.1", "session.ckpt", "session.state"].includes(stream) ||
     !Number.isSafeInteger(offset) || offset < 0 ||
     !Number.isSafeInteger(length) || length < 1 || length > 262_144 ||
     !Number.isSafeInteger(offset + length)) return deny();
@@ -34,13 +34,13 @@ function snapshot(ctx: Ctx, alias: string, remoteDir: string, localDir: string,
   if (!task || !run || run.host !== alias || run.mode !== "new" ||
     run.remoteDir !== remoteDir || run.dir !== localDir || run.attempt !== Number(match[3])) return deny();
   const host = loadStrategy(ctx).hosts[alias];
-  if (!host) return deny();
+  if (!host || (["session.log", "session.log.1", "session.ckpt", "session.state"].includes(stream) && host.session !== "full")) return deny();
   return { taskId, task, host, args: [remoteDir, stream, String(offset), String(length), "hex"] };
 }
 
 /** Grant exactly one bounded hex range of the persisted remote run. */
 export function issueConfiguredHostReadFrom(ctx: Ctx, alias: string, remoteDir: string,
-  localDir: string, stream: "stdout" | "stderr" | "session.raw",
+  localDir: string, stream: "stdout" | "stderr" | "session.raw" | "session.log" | "session.log.1" | "session.ckpt" | "session.state",
   offset: number, length: number): ConfiguredHostReadFromGrant {
   const current = snapshot(ctx, alias, remoteDir, localDir, stream, offset, length);
   const hostFingerprint = JSON.stringify(current.host);

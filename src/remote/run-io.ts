@@ -1,6 +1,6 @@
 import { beginWorkSync, attachRunEvidenceSync, finishWorkSync, reconcileAdmissionSync } from "../update/desktop/admission";
 import { createHash } from "node:crypto";
-import { appendFileSync, readFileSync, mkdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, readFileSync, mkdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { HostCfg } from "../config/hosts";
 import { type RunIO, Unreachable } from "../supervisor/io";
@@ -19,6 +19,7 @@ import { pluginRegistry } from "../plugins";
 import { issueConfiguredHostStop } from "../plugins/host-stop-issuer";
 import { issueConfiguredHostReport } from "../plugins/host-report-issuer";
 import { issueConfiguredHostReadFrom } from "../plugins/host-read-from-issuer";
+import { mirrorSessionFiles, recoverSessionFiles, type SessionFilesSnapshot } from "./session-files";
 
 const fields = (text: string) => Object.fromEntries(text.trim().split("\n").map(line => {
   const i = line.indexOf("="); return [line.slice(0, i), line.slice(i + 1)];
@@ -35,7 +36,7 @@ export function ptyWrapper(wrapper: string): string {
 /** SSH access to a detached wrapper, with a local file record for existing log readers. */
 export class RemoteRunIO implements RunIO {
   private session?: RemoteSession;
-  private sessionFiles: Record<string,string> = {};
+  private sessionFiles?: SessionFilesSnapshot;
   private recording?: RemoteRecording;
   private viewer?: RemoteViewer;
   private queue: Promise<unknown> = Promise.resolve();
@@ -74,6 +75,7 @@ export class RemoteRunIO implements RunIO {
       lease = beginWorkSync(this.ctx, { kind: "session", id: createHash("sha256").update(`${this.host.alias}:${this.remoteDir}`).digest("hex"), label: `Remote session on ${this.host.alias}` });
       attachRunEvidenceSync(this.ctx, lease, this.localDir, { host: this.host.alias, dir: this.remoteDir });
       mkdirSync(this.localDir, { recursive: true });
+      recoverSessionFiles(this.localDir);
       writeFileSync(join(this.localDir, "admission.json"), JSON.stringify({ lease, host: this.host.alias, remoteDir: this.remoteDir }), { mode: 0o600 });
       if (full) sent = true; // Binary staging can also outlive a lost SSH response.
       const binary = full ? await ensureRemoteBinary(this.ctx,this.host,this.remoteDir,this.localDir,this.runtime) : undefined;
@@ -86,7 +88,8 @@ export class RemoteRunIO implements RunIO {
       const pid = number(started.pid);
       if (pid === null) return { error: "remote start did not return a pid" };
       mkdirSync(this.localDir, { recursive: true });
-      for (const file of ["pid", "started", "exit", "stdout", "stderr", "session.log", "session.log.1", "session.ckpt", "session.json", "session.remote.json", "session.remote-full"]) rmSync(join(this.localDir, file), { force: true });
+      for (const file of ["pid", "started", "exit", "stdout", "stderr", "session.log", "session.log.1", "session.ckpt", "session.state", "session.json", "session.remote.json", "session.remote-full"]) rmSync(join(this.localDir, file), { force: true });
+      this.sessionFiles = undefined;
       writeFileSync(join(this.localDir, "pid"), String(pid));
       if (full) writeFileSync(join(this.localDir,"session.remote-full"),this.host.alias,{mode:0o600});
       if (mode === "pty") writeFileSync(join(this.localDir,"session.json"), JSON.stringify({capBytes: options.capBytes ?? (execution?.sessionLogMb ?? 8)*1024*1024}), {mode:0o600});
@@ -111,20 +114,12 @@ export class RemoteRunIO implements RunIO {
     let pending = report.session === "full";
     const full = report.session === "builtin";
     if (full) {
-      let files:Record<string,string>;
-      try {files=fields((await this.run(SCRIPTS.SESSION_FILES,[this.remoteDir,String(size(join(this.localDir,"session.log"))),this.sessionFiles["session.log.inode"]??"",this.sessionFiles["session.ckpt.sum"]??"",this.sessionFiles["session.log.1.sum"]??""])).stdout);}
-      catch(e){throw e instanceof Unreachable ? e : new Unreachable(`host ${this.host.alias}: session recording unavailable`);}
-      for (const name of ["session.ckpt","session.log.1","session.log","session.state"]) {
-        if (!(name in files)) continue;
-        if (!files[`${name}.sum`]) {rmSync(join(this.localDir,name),{force:true});continue;}
-        if (name === "session.log" && Number(files["session.log.offset"]) > 0) {
-          if(files[name]) appendFileSync(join(this.localDir,name),Buffer.from(files[name],"hex"));
-        } else {
-          writeFileSync(join(this.localDir,`${name}.tmp`),Buffer.from(files[name],"hex"),{mode:0o600});
-          renameSync(join(this.localDir,`${name}.tmp`),join(this.localDir,name));
-        }
+      try {
+        const mirrored = await this.serial(() => mirrorSessionFiles(this.ctx, this.host, this.remoteDir, this.localDir, this.sessionFiles));
+        if (mirrored.snapshot) this.sessionFiles = mirrored.snapshot;
+        if (mirrored.pending) pending = true;
       }
-      this.sessionFiles=files;
+      catch(e){throw e instanceof Unreachable ? e : new Unreachable(`host ${this.host.alias}: session recording unavailable`);}
       writeFileSync(join(this.localDir,"session.remote-full"),this.host.alias,{mode:0o600});
       if(number(report.exit)===null) {
         this.session ??= new RemoteSession(this.ctx,this.host,this.remoteDir,this.localDir);
