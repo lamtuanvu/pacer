@@ -17792,6 +17792,263 @@ impl<'de> ::serde::Deserialize<'de> for RemoteCallerIdentityResultStdout {
         deserialize_validated_string(deserializer)
     }
 }
+///`RemoteCallerQuestionReadParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "alias",
+///    "path"
+///  ],
+///  "properties": {
+///    "alias": {
+///      "type": "string",
+///      "pattern": "^[a-z0-9][a-z0-9-]*$"
+///    },
+///    "path": {
+///      "type": "string",
+///      "maxLength": 4096,
+///      "minLength": 1
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct RemoteCallerQuestionReadParams {
+    pub alias: RemoteCallerQuestionReadParamsAlias,
+    pub path: RemoteCallerQuestionReadParamsPath,
+}
+///`RemoteCallerQuestionReadParamsAlias`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "pattern": "^[a-z0-9][a-z0-9-]*$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct RemoteCallerQuestionReadParamsAlias(::std::string::String);
+impl ::std::ops::Deref for RemoteCallerQuestionReadParamsAlias {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<RemoteCallerQuestionReadParamsAlias> for ::std::string::String {
+    fn from(value: RemoteCallerQuestionReadParamsAlias) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for RemoteCallerQuestionReadParamsAlias {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_12(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for RemoteCallerQuestionReadParamsAlias {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for RemoteCallerQuestionReadParamsAlias {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`RemoteCallerQuestionReadParamsPath`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 4096,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct RemoteCallerQuestionReadParamsPath(::std::string::String);
+impl ::std::ops::Deref for RemoteCallerQuestionReadParamsPath {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<RemoteCallerQuestionReadParamsPath> for ::std::string::String {
+    fn from(value: RemoteCallerQuestionReadParamsPath) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for RemoteCallerQuestionReadParamsPath {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_7(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for RemoteCallerQuestionReadParamsPath {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for RemoteCallerQuestionReadParamsPath {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`RemoteCallerQuestionReadResult`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "code",
+///    "stderr",
+///    "stdout",
+///    "timedOut"
+///  ],
+///  "properties": {
+///    "code": {
+///      "type": "integer",
+///      "maximum": 255.0,
+///      "minimum": 0.0
+///    },
+///    "stderr": {
+///      "type": "string",
+///      "maxLength": 524288
+///    },
+///    "stdout": {
+///      "type": "string",
+///      "maxLength": 524288
+///    },
+///    "timedOut": {
+///      "type": "boolean"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct RemoteCallerQuestionReadResult {
+    pub code: u8,
+    pub stderr: RemoteCallerQuestionReadResultStderr,
+    pub stdout: RemoteCallerQuestionReadResultStdout,
+    #[serde(rename = "timedOut")]
+    pub timed_out: bool,
+}
+///`RemoteCallerQuestionReadResultStderr`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 524288
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct RemoteCallerQuestionReadResultStderr(::std::string::String);
+impl ::std::ops::Deref for RemoteCallerQuestionReadResultStderr {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<RemoteCallerQuestionReadResultStderr> for ::std::string::String {
+    fn from(value: RemoteCallerQuestionReadResultStderr) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for RemoteCallerQuestionReadResultStderr {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_8(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for RemoteCallerQuestionReadResultStderr {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for RemoteCallerQuestionReadResultStderr {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`RemoteCallerQuestionReadResultStdout`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 524288
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct RemoteCallerQuestionReadResultStdout(::std::string::String);
+impl ::std::ops::Deref for RemoteCallerQuestionReadResultStdout {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<RemoteCallerQuestionReadResultStdout> for ::std::string::String {
+    fn from(value: RemoteCallerQuestionReadResultStdout) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for RemoteCallerQuestionReadResultStdout {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_8(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for RemoteCallerQuestionReadResultStdout {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for RemoteCallerQuestionReadResultStdout {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
 ///`ResultChunkAck`
 ///
 /// <details><summary>JSON schema</summary>
