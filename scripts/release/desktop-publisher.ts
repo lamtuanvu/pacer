@@ -22,7 +22,7 @@ export function githubDesktopPublisher(version: string, token: string): DesktopP
     return value;
   }
   const assetName = (name: string) => {
-    if (!new RegExp(`^(desktop-pacer-${version.replaceAll(".", "\\.")}-darwin-(aarch64|x86_64)\\.app\\.tar\\.gz(\\.sig)?|desktop-release-${version.replaceAll(".", "\\.")}\\.json)$`).test(name)) throw Error("Unowned desktop asset name");
+    if (!new RegExp(`^(desktop-pacer-${version.replaceAll(".", "\\.")}-darwin-(aarch64|x86_64)(\\.app\\.tar\\.gz(\\.sig)?|\\.dmg)|desktop-release-${version.replaceAll(".", "\\.")}\\.json)$`).test(name)) throw Error("Unowned desktop asset name");
   };
   return {
     mode: "production",

@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpDir } from "./helpers";
 import { signStagedDesktop, signingConfig } from "../scripts/release/desktop-sign";
@@ -48,7 +48,7 @@ test("complete app is marked production before inside-out signing, notarized, st
   await signStagedDesktop({ root: "/fixture/root", stage: f.stage, out: tmpDir(), version: "1.2.3", arch: "aarch64", config: f.config }, f.run);
   expect(JSON.parse(readFileSync(join(f.app, "Contents/Resources/pacer-release.json"), "utf8")).fixture).toBe(false);
   const commands = f.calls.map(a => a.join(" "));
-  const signs = f.calls.filter(a => a[0] === "/usr/bin/codesign" && a.includes("--sign"));
+  const allSigns = f.calls.filter(a => a[0] === "/usr/bin/codesign" && a.includes("--sign")), signs = allSigns.slice(0, -1);
   expect(signs.map(a => a.at(-1))).toEqual([join(f.app, "Contents/Frameworks/libpacer-native.dylib"), join(f.app, "Contents/Resources/pacer"), join(f.app, "Contents/Resources/pacer-update-helper"), f.app]);
   expect(signs.every(a => a.includes("--timestamp") && a.includes("runtime") && !a.includes("--deep"))).toBe(true);
   const entitlements = readFileSync(signs[1][signs[1].indexOf("--entitlements") + 1], "utf8");
@@ -68,6 +68,29 @@ test("complete app is marked production before inside-out signing, notarized, st
   expect(staple).toBeGreaterThan(notary); expect(archive).toBeGreaterThan(staple); expect(artifactSign).toBeGreaterThan(archive);
   expect(f.calls[artifactSign]).toContain("--app-version"); expect(f.calls[artifactSign]).toContain("1.2.3");
   expect(commands.join("\n")).not.toContain("--private-key ");
+  // The disk image is built from the stapled app after the update archive, then signed, notarized and stapled.
+  const image = f.calls.findIndex(a => a[0] === "/usr/bin/hdiutil" && a[1] === "create"), path = f.calls[image].at(-1)!;
+  expect(path.endsWith("/desktop-pacer-1.2.3-darwin-aarch64.dmg")).toBe(true);
+  expect(image).toBeGreaterThan(artifactSign);
+  expect(f.calls[image]).toContain("UDZO");
+  expect(f.calls.findIndex(a => a[0] === "/usr/bin/ditto" && a[2]?.endsWith("disk-image/pacer.app"))).toBeLessThan(image);
+  expect(readlinkSync(join(f.stage, "disk-image/Applications"))).toBe("/Applications");
+  expect(allSigns.at(-1)).toEqual(["/usr/bin/codesign", "--force", "--sign", f.config.identity, "--keychain", f.config.keychain, "--identifier", "dev.pacer.desktop.disk-image", "--timestamp", path]);
+  const after = commands.slice(commands.indexOf(allSigns.at(-1)!.join(" ")));
+  expect(after.slice(1)).toEqual([expect.stringContaining(`notarytool submit ${path}`), `/usr/bin/xcrun stapler staple ${path}`, `/usr/bin/xcrun stapler validate ${path}`, `/usr/sbin/spctl --assess --type open --context context:primary-signature ${path}`]);
+});
+
+test("a transient disk image failure is retried and a persistent one fails the build", async () => {
+  for (const failures of [2, 3]) {
+    const f = selfFixture(); let seen = 0;
+    const sign = signStagedDesktop({ root: "/fixture", stage: f.stage, out: tmpDir(), version: "1.2.3", arch: "aarch64", config: f.config }, async argv => {
+      if (argv[0] === "/usr/bin/hdiutil" && ++seen <= failures) throw Error("Resource busy");
+      return f.run(argv);
+    });
+    if (failures === 3) await expect(sign).rejects.toThrow("Resource busy");
+    else await sign;
+    expect(seen).toBe(3);
+  }
 });
 
 test("native permission helper is validated and signed before its containing app", async () => {
@@ -82,7 +105,7 @@ test("native permission helper is validated and signed before its containing app
       expect(f.calls).toEqual([]);
     } else {
       await sign();
-      const signs = f.calls.filter(a => a[0] === "/usr/bin/codesign" && a.includes("--sign"));
+      const signs = f.calls.filter(a => a[0] === "/usr/bin/codesign" && a.includes("--sign") && !a.includes("dev.pacer.desktop.disk-image"));
       expect(signs.at(-2)?.at(-1)).toBe(helper);
       expect(signs.at(-2)).toContain("dev.pacer.permission-setup");
       expect(signs.at(-2)).not.toContain("--entitlements");
@@ -111,7 +134,7 @@ test("paired signing verifies core trust and signs the Bun core before the Rust 
       expect(f.calls.some(a => a[0] === "/usr/bin/codesign")).toBe(false);
     } else {
       await sign();
-      const signs = f.calls.filter(a => a[0] === "/usr/bin/codesign" && a.includes("--sign"));
+      const signs = f.calls.filter(a => a[0] === "/usr/bin/codesign" && a.includes("--sign") && !a.includes("dev.pacer.desktop.disk-image"));
       expect(signs.map(a => a.at(-1))).toEqual([join(f.app, "Contents/Frameworks/libpacer-native.dylib"), core, join(resources, "pacer"), join(resources, "pacer-update-helper"), f.app]);
       expect(signs[1]).toContain("--entitlements");
       expect(signs[2]).not.toContain("--entitlements");
@@ -183,7 +206,9 @@ test("self-signed release signs every component with the pinned certificate, wit
   const f = selfFixture();
   await signStagedDesktop({ root: "/fixture/root", stage: f.stage, out: tmpDir(), version: "1.2.3", arch: "aarch64", config: f.config }, f.run);
   const signs = f.calls.filter(a => a[0] === "/usr/bin/codesign" && a.includes("--sign"));
+  // The interim disk image stays unsigned.
   expect(signs.map(a => a.at(-1))).toEqual([join(f.app, "Contents/Frameworks/libpacer-native.dylib"), join(f.app, "Contents/Resources/pacer"), join(f.app, "Contents/Resources/pacer-update-helper"), f.app]);
+  expect(f.calls.some(a => a[0] === "/usr/bin/hdiutil" && a[1] === "create")).toBe(true);
   for (const sign of signs) {
     expect(sign[sign.indexOf("--sign") + 1]).toBe(CERT);
     expect(sign).toContain("--timestamp=none");

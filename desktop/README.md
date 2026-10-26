@@ -8,10 +8,11 @@ from the tray to exit; the Dock icon or Open pacer restores the window.
 ## Download and set up
 
 [Download pacer for Mac](https://github.com/lamtuanvu/pacer/releases/latest).
-Choose `pacer-<version>-darwin-arm64-unsigned.dmg` for Apple silicon or
-`pacer-<version>-darwin-x64-unsigned.dmg` for Intel and drag pacer into Applications.
-
-The app is not yet signed. On first open, Control-click pacer in Applications and choose Open.
+Choose `desktop-pacer-<version>-darwin-aarch64.dmg` for Apple silicon or
+`desktop-pacer-<version>-darwin-x86_64.dmg` for Intel. Open it and drag pacer
+into Applications. The app is signed with pacer's own certificate until pacer has
+an Apple Developer ID, so approve the first launch once in System Settings ›
+Privacy & Security › **Open Anyway**. Later versions install from Settings › Updates.
 
 **Welcome** opens one consent screen for the background service and the terminal
 link at `~/.local/bin/pacer`. If the directory is missing from PATH, an optional
@@ -48,10 +49,10 @@ CARGO_NET_OFFLINE=true bunx --no-install tauri build --bundles dmg --no-sign
 
 Offline builds require the locked crates and Bun packages to be cached first.
 The app is at `src-tauri/target/release/bundle/macos/pacer.app` and the disk image
-is under `src-tauri/target/release/bundle/dmg/`. The release workflow stages the
-matching CLI artifact with `TAURI_TARGET_TRIPLE=<triple> ./scripts/stage-cli.sh <cli>`,
-builds with `--target <triple> --bundles dmg --no-sign`, and publishes a versioned
-`-unsigned.dmg` for each architecture with checksums and provenance. The manual
+is under `src-tauri/target/release/bundle/dmg/`. Releases do not use Tauri's disk
+image: the release workflow signs the complete app, then publishes it as the
+`.app.tar.gz` update package and a `.dmg` built from the same signed app (see
+[distribution](../docs/distribution.md)). The manual
 `desktop.yml` workflow fetches the locked dependencies, tests and builds offline,
 then uploads a zipped unsigned app. It does not publish a release. This build
 is also available for owner testing; signing and notarization are separate work.
@@ -92,6 +93,14 @@ Tauri exit and schedules an `open -n <bundle>` helper from the exit event. The h
 the replacement bundle.
 The main window keeps its visibility and route; the tray reconnects to the
 service and restores its current status. Replacing or updating the app also replaces its bundled CLI.
+
+If an independently installed service is still running an older release, the
+desktop shows the live service and app versions before loading its screens.
+**Continue current work** opens that service's older UI with a visible version
+notice. Finish active tasks before updating the standalone service; its older
+update action can restart immediately. See [Desktop updates](../docs/desktop-updates.md#desktop-is-newer-than-the-running-service)
+for the one-time upgrade steps. The desktop never restarts a live service merely
+because the CLI file on disk has changed.
 
 ### Linux
 

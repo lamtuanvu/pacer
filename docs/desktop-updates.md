@@ -28,6 +28,28 @@ by desktop updates. An explicit legacy-service bootstrap is being designed to
 transfer a supported service safely; the connection diagnostic alone does not
 perform that transfer or grant update authority.
 
+### Desktop is newer than the running service
+
+The desktop window loads its screens from the running service. If that service is
+older, the desktop shows both live versions before opening those screens. Choose
+**Continue current work** to use the older screens for now; new controls such as
+Dispatcher appear only after the service itself runs the newer release. The
+desktop checks the live service response, not just a CLI file on disk.
+
+For a separately installed older service, finish running tasks and terminal
+sessions before using that installation's update method. Its legacy updater may
+restart the service immediately. The old **Settings → Updates** button does not
+wait for active work. Update the CLI with its original installer (`pacer update`,
+`brew upgrade pacer`, or `npm install -g @lamtuanvu/pacer@latest` as appropriate),
+then run `pacer service restart` after work has finished. Quit and reopen the
+desktop; confirm the running service version shown there matches the desktop
+version. A CLI version shown by `pacer --version` alone does not prove that the
+already-running service has restarted.
+
+Once service adoption is validated and available, a compatible service can use
+the managed update transaction described below. The desktop never starts a
+legacy service update automatically.
+
 ## Updating
 
 Open **Settings → Updates** while the desktop is connected. Pacer checks daily

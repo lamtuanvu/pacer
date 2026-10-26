@@ -32,10 +32,10 @@ A planner can spend its subscription too quickly while other coding agents have 
 ## Install
 
 [Download pacer for Mac](https://github.com/lamtuanvu/pacer/releases/latest).
-Choose the `darwin-arm64-unsigned.dmg` for Apple silicon or
-`darwin-x64-unsigned.dmg` for Intel, then drag pacer into Applications.
-
-The app is not yet signed. On first open, Control-click pacer in Applications and choose Open.
+Choose the matching `desktop-pacer-<version>-darwin-<arch>.dmg`: `aarch64` for
+Apple silicon or `x86_64` for Intel. Open it and drag pacer into Applications.
+On first launch, approve it once as described in
+[macOS desktop app](#macos-desktop-app).
 
 Welcome leads to one consent screen for the background service and the terminal
 link at `~/.local/bin/pacer`. If needed, an optional checkbox adds
@@ -78,7 +78,7 @@ pacer --version
 
 Desktop releases are signed with the project's own code-signing certificate until pacer has an Apple Developer ID, so macOS blocks the first launch:
 
-1. Download `desktop-pacer-<version>-darwin-<arch>.app.tar.gz` from [GitHub Releases](https://github.com/lamtuanvu/pacer/releases), extract it and move `pacer.app` to `/Applications`.
+1. Download `desktop-pacer-<version>-darwin-<arch>.dmg` from [GitHub Releases](https://github.com/lamtuanvu/pacer/releases), open it and drag `pacer.app` to Applications. The `.app.tar.gz` beside it contains the same app; it is the in-app update package.
 2. Open the app once. When macOS says it cannot verify the developer, open **System Settings › Privacy & Security** and choose **Open Anyway**.
 
 Alternatively, from a terminal: `xattr -dr com.apple.quarantine /Applications/pacer.app`.
