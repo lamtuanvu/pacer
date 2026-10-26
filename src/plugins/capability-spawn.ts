@@ -6,6 +6,7 @@ import { CoreError } from "../core/errors";
 import type { CallAuthority } from "./authority";
 import { resolveBoundCredential } from "./credential-bindings";
 import { secretReference } from "./http-protocol";
+import { writeOwnerBytes } from "./capability-write";
 
 const MAX_OUTPUT = 1048576, MAX_CHUNK = 262144;
 const CODEX_LIVE_ARGV = ["codex", "-s", "read-only", "-a", "never", "app-server"];
@@ -31,6 +32,7 @@ interface Pin {
     env: Readonly<Record<string, string>>;
     secretEnv: Readonly<Record<string, string>>;
   };
+  capture?: { stdout: string; stderr: string };
 }
 interface State { pins: Pin[]; busy: boolean; liveUsed: boolean; output: Map<string, Buffer>; cleanupFailure?: Error }
 const states = new WeakMap<CallAuthority, State>();
@@ -45,7 +47,7 @@ export function prepareSpawnAuthority(authority: CallAuthority): void {
   const pins = authority.resources.commands.map(command => {
     const selected = authority.ctx.which(command.argv[0]!);
     const pin: Pin = { argv: command.argv, timeoutMs: command.timeoutMs, selected, mode: command.mode,
-      stdin: command.stdin };
+      stdin: command.stdin, capture: command.capture };
     if (command.stdin !== undefined && (typeof command.stdin !== "string" ||
       Buffer.byteLength(command.stdin, "utf8") > 262144)) invalid("invalid issued provider stdin");
     if (command.mode === "codex-live" &&
@@ -276,6 +278,11 @@ async function run(authority: CallAuthority, state: State, pin: Pin, argv: strin
   const stdout = Buffer.concat(parts[0]!), stderr = Buffer.concat(parts[1]!);
   if (secrets.some(secret => stdout.includes(Buffer.from(secret)) || stderr.includes(Buffer.from(secret)))) {
     throw new CoreError("capability_denied", "provider output exposed an injected credential", undefined, { reason: "credential_reflection" });
+  }
+  if (pin.capture) {
+    const scopes = ["${PACER_HOME}/runs/**"];
+    await writeOwnerBytes(authority, scopes, pin.capture.stdout, stdout, 0o600);
+    await writeOwnerBytes(authority, scopes, pin.capture.stderr, stderr, 0o600);
   }
   const inline = { code, stdout: stdout.toString("utf8"), stderr: stderr.toString("utf8"), timedOut };
   const inlineFits = Buffer.byteLength(JSON.stringify(inline)) <= 768 * 1024;

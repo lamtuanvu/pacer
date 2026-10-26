@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fakeCtx } from "./helpers";
@@ -25,13 +25,25 @@ test("owned direct plugin call executes only the exact host-issued local process
     spawnBundled: () => ({ argv: [process.execPath, join(import.meta.dir, "../plugins/pacer-exec-direct/index.ts")], cwd: home, env: ctx.env }) });
   try {
     const marker = join(home, "effect.txt");
-    const argv = ["bun", "-e", `await Bun.write(${JSON.stringify(marker)}, "ran")`];
+    const argv = ["bun", "-e", `await Bun.write(${JSON.stringify(marker)}, "ran"); process.stdout.write("owned stdout\\n"); process.stderr.write("owned stderr\\n")`];
     const result = await runOwnedExecutorAttempt(ctx, registry, "pacer-exec-direct", task.id, "codex", home,
       { argv, cwd: home, timeoutMs: 5000 });
     expect(result).toEqual({ status: "done", exitCode: 0, report: "local process exited successfully" });
     expect(readFileSync(marker, "utf8")).toBe("ran");
     expect(readTask(ctx, task.id)?.run?.attempt).toBe(1);
     expect(existsSync(join(pacerHome, "runs", task.id, "1"))).toBe(true);
+    expect(readFileSync(join(pacerHome, "runs", task.id, "1", "stdout"), "utf8")).toBe("owned stdout\n");
+    expect(readFileSync(join(pacerHome, "runs", task.id, "1", "stderr"), "utf8")).toBe("owned stderr\n");
+    expect(statSync(join(pacerHome, "runs", task.id, "1", "stdout")).mode & 0o777).toBe(0o600);
+    const binaryTask = createTask(ctx, { brief: { goal: "binary output", repo: home }, kind: null,
+      requestedExecutor: "codex", timeoutS: 60 });
+    updateTask(ctx, binaryTask.id, t => { t.state = "running"; t.executor = "codex"; });
+    const binary = Buffer.from([0xff, 0x00, 0xfe, 0x0a]);
+    const binaryResult = await runOwnedExecutorAttempt(ctx, registry, "pacer-exec-direct", binaryTask.id,
+      "codex", home, { argv: ["bun", "-e", `process.stdout.write(Buffer.from([255, 0, 254, 10]))`],
+        cwd: home, timeoutMs: 5000 });
+    expect(binaryResult.status).toBe("done");
+    expect(readFileSync(join(pacerHome, "runs", binaryTask.id, "1", "stdout"))).toEqual(binary);
     const longTask = createTask(ctx, { brief: { goal: "long task allowance", repo: home }, kind: null,
       requestedExecutor: "codex", timeoutS: 1800 });
     updateTask(ctx, longTask.id, t => { t.state = "running"; t.executor = "codex"; });
@@ -94,13 +106,32 @@ test("owned direct plugin call executes only the exact host-issued local process
         cwd: home, timeoutMs: 5000 })).rejects.toMatchObject({ code: "conflict" });
     expect(existsSync(replacedMarker)).toBe(false);
 
+    const swappedTask = createTask(ctx, { brief: { goal: "run directory swap", repo: home }, kind: null,
+      requestedExecutor: "codex", timeoutS: 60 });
+    updateTask(ctx, swappedTask.id, t => { t.state = "running"; t.executor = "codex"; });
+    const swappedMarker = join(home, "swapped.txt");
+    const swappingCaller = { call: (callCtx: typeof ctx, pluginId: string, method: "executor.run",
+      params: unknown, options: Parameters<typeof registry.call>[4]) => {
+      const dir = readTask(ctx, swappedTask.id)!.run!.dir;
+      renameSync(dir, `${dir}-original`);
+      mkdirSync(dir, { mode: 0o700 });
+      return registry.call(callCtx, pluginId, method, params, options);
+    } };
+    await expect(runOwnedExecutorAttempt(ctx, swappingCaller, "pacer-exec-direct", swappedTask.id,
+      "codex", home, { argv: ["bun", "-e", `await Bun.write(${JSON.stringify(swappedMarker)}, "bad")`],
+        cwd: home, timeoutMs: 5000 })).rejects.toMatchObject({ code: "capability_denied" });
+    expect(existsSync(swappedMarker)).toBe(false);
+    expect(existsSync(join(pacerHome, "runs", swappedTask.id, "1", "stdout"))).toBe(false);
+
     const largeTask = createTask(ctx, { brief: { goal: "large output", repo: home }, kind: null,
       requestedExecutor: "codex", timeoutS: 60 });
     updateTask(ctx, largeTask.id, t => { t.state = "running"; t.executor = "codex"; });
     const large = await runOwnedExecutorAttempt(ctx, registry, "pacer-exec-direct", largeTask.id,
       "codex", home, { argv: ["bun", "-e",
-        'process.stdout.write("x".repeat(800000)); process.stderr.write("bounded stderr"); process.exit(3)'],
+        'await new Promise(resolve => process.stdout.write("x".repeat(800000), resolve)); process.stderr.write("bounded stderr"); process.exit(3)'],
       cwd: home, timeoutMs: 5000 });
     expect(large).toEqual({ status: "failed", exitCode: 3, report: "local process exited 3: bounded stderr" });
+    expect(readFileSync(join(pacerHome, "runs", largeTask.id, "1", "stdout"), "utf8")).toBe("x".repeat(800000));
+    expect(readFileSync(join(pacerHome, "runs", largeTask.id, "1", "stderr"), "utf8")).toBe("bounded stderr");
   } finally { await registry.shutdown(); rmSync(home, { recursive: true, force: true }); }
 });

@@ -9,7 +9,8 @@ export interface CallResources {
   secretAliases?: Record<string, string>;
   /** Exact hostnames derived only from validated host configuration/grants. */
   http?: { hosts: string[] };
-  writes?: { path: string; root?: string; kind: "file" | "directory"; operations: ("write" | "mkdir" | "remove")[] }[];
+  writes?: { path: string; root?: string; rootIdentity?: { dev: number; ino: number };
+    kind: "file" | "directory"; operations: ("write" | "mkdir" | "remove")[] }[];
   reads: { path: string; kind: "file" | "codex-logs" }[];
   commands: {
     argv: string[];
@@ -19,6 +20,8 @@ export interface CallResources {
     cwd?: string;
     env?: Record<string, string>;
     secretEnv?: Record<string, string>;
+    /** Host-only run files receiving the bounded child output; never selected by plugin RPC params. */
+    capture?: { stdout: string; stderr: string };
     /** Host-only fixed interactive exchange; never selected by plugin RPC params. */
     mode?: "codex-live";
   }[];
@@ -71,6 +74,7 @@ export class CallAuthority {
       Object.freeze(value.argv);
       if (value.env) Object.freeze(value.env);
       if (value.secretEnv) Object.freeze(value.secretEnv);
+      if (value.capture) Object.freeze(value.capture);
     }
     for (const list of [this.resources.reads, this.resources.commands, this.resources.stores]) {
       for (const value of list) Object.freeze(value);
@@ -87,7 +91,11 @@ export class CallAuthority {
       Object.freeze(this.resources.bundleStages);
     }
     if (this.resources.writes) {
-      for (const resource of this.resources.writes) { Object.freeze(resource.operations); Object.freeze(resource); }
+      for (const resource of this.resources.writes) {
+        Object.freeze(resource.operations);
+        if (resource.rootIdentity) Object.freeze(resource.rootIdentity);
+        Object.freeze(resource);
+      }
       Object.freeze(this.resources.writes);
     }
     if (this.resources.http) { Object.freeze(this.resources.http.hosts); Object.freeze(this.resources.http); }

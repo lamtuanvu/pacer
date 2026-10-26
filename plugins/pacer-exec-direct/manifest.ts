@@ -4,6 +4,9 @@ import type { PluginManifest } from "@pacer/plugin";
 export const manifest = {
   id: "pacer-exec-direct", version: "0.1.0", publisher: "pacer", host: "^1.5",
   contributes: { executor: { backends: ["direct"] } },
-  capabilities: [{ name: "process.spawn", scopes: ["bun", "codex", "claude", "cursor-agent", "agy", "opencode"] }],
+  capabilities: [
+    { name: "process.spawn", scopes: ["bun", "codex", "claude", "cursor-agent", "agy", "opencode"] },
+    { name: "fs.write", scopes: ["${PACER_HOME}/runs/**"] },
+  ],
   reentrant: true, tier: "free",
 } satisfies PluginManifest;

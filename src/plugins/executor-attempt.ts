@@ -37,7 +37,8 @@ function privateDirectory(path: string, fd: number): void {
     throw new CoreError("conflict", "executor run directory is not private or changed");
 }
 
-function claimRunDirectory(ctx: Ctx, taskId: string, attempt: number): string {
+function claimRunDirectory(ctx: Ctx, taskId: string, attempt: number):
+  { path: string; identity: { dev: number; ino: number } } {
   if (!/^[A-Za-z0-9_-]{1,128}$/.test(taskId))
     throw new CoreError("invalid_input", "invalid executor task id");
   const native = writeNative();
@@ -72,7 +73,8 @@ function claimRunDirectory(ctx: Ctx, taskId: string, attempt: number): string {
     privateDirectory(runs, runsFd);
     privateDirectory(taskDir, taskFd);
     privateDirectory(attemptDir, opened[opened.length - 1]!);
-    return attemptDir;
+    const claimed = fstatSync(opened[opened.length - 1]!);
+    return { path: attemptDir, identity: { dev: claimed.dev, ino: claimed.ino } };
   } finally {
     for (const fd of opened.reverse()) closeSync(fd);
   }
@@ -88,13 +90,16 @@ export async function runOwnedExecutorAttempt(ctx: Ctx, caller: ExecutorCaller, 
     !Number.isSafeInteger(effect.timeoutMs) || effect.timeoutMs < 1 || effect.timeoutMs > MAX_PROCESS_SPAWN_MS ||
     (effect.stdin !== undefined && (typeof effect.stdin !== "string" || Buffer.byteLength(effect.stdin, "utf8") > 262144))))
     throw new CoreError("invalid_input", "invalid executor effect");
+  let runIdentity: { dev: number; ino: number };
   const owner = withTaskLock(ctx, taskId, (): RunRef => {
     const task = readTask(ctx, taskId);
     if (!task) throw new CoreError("unknown_task", `unknown task ${taskId}`);
     if (task.state !== "running" || task.run || task.executor !== executor)
       throw new CoreError("conflict", "executor task is no longer available for this attempt");
     const attempt = task.attempts.length + 1;
-    const dir = claimRunDirectory(ctx, taskId, attempt);
+    const claim = claimRunDirectory(ctx, taskId, attempt);
+    const dir = claim.path;
+    runIdentity = claim.identity;
     const run: RunRef = { dir, attempt, executor, startedAt: Date.now() / 1000,
       mode: "current", workdir, logFile: join(dir, "stdout") };
     updateTask(ctx, taskId, current => { current.run = run; });
@@ -127,8 +132,13 @@ export async function runOwnedExecutorAttempt(ctx: Ctx, caller: ExecutorCaller, 
     { onProgress: event => applyExecutorProgress(ctx, taskId, owner.attempt, event, owner),
       ...(effect ? { deadlineMs: effect.timeoutMs + 5000,
         spawnAdmission,
-        resources: { reads: [], stores: [], commands: [{ argv: effect.argv, cwd: effect.cwd,
-          env: {}, timeoutMs: effect.timeoutMs, ...(effect.stdin === undefined ? {} : { stdin: effect.stdin }) }] } } : {}) });
+        resources: { reads: [], stores: [], writes: ["stdout", "stderr"].map(name => ({
+          path: join(owner.dir, name), root: owner.dir, rootIdentity: runIdentity,
+          kind: "file" as const, operations: ["write" as const],
+        })), commands: [{ argv: effect.argv, cwd: effect.cwd,
+          env: {}, timeoutMs: effect.timeoutMs,
+          capture: { stdout: join(owner.dir, "stdout"), stderr: join(owner.dir, "stderr") },
+          ...(effect.stdin === undefined ? {} : { stdin: effect.stdin }) }] } } : {}) });
   } finally {
     if (spawnedPid) withTaskLock(ctx, taskId, () => {
       const current = readTask(ctx, taskId);
