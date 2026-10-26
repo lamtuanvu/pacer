@@ -15,14 +15,27 @@ import { resolvePlacement, type RunRef, type TaskRecord } from "../tasks/types";
 import type { Ctx } from "../types";
 import { remoteExclusion } from "./eligibility";
 import { RemoteRunIO } from "./run-io";
-import { SCRIPTS } from "./scripts";
 import { receiveQuestion, transferBack } from "./transfer";
-import { runRemote } from "./ssh";
 import { pluginRegistry } from "../plugins";
 import { issueConfiguredHostPrepare } from "../plugins/host-prepare-issuer";
+import { issueConfiguredHostAttemptPreflight } from "../plugins/host-attempt-preflight-issuer";
 import { probeCodexUsage } from "./usage";
 
 const MAX_BUNDLE = 50 * 1024 * 1024;
+const PREFLIGHT_FACTS = ["ancestor", "dirty", "dirty_files", "commits", "emails", "signoffs", "head"];
+
+/** This check only decides whether a failed run has commits worth transferring. */
+function hasCommittedWork(stdout: string): boolean {
+  const facts = new Map<string, string>();
+  for (const line of stdout.trimEnd().split("\n")) {
+    const at = line.indexOf("=");
+    if (at < 1 || facts.has(line.slice(0, at))) return false;
+    facts.set(line.slice(0, at), line.slice(at + 1));
+  }
+  if (facts.size !== PREFLIGHT_FACTS.length || PREFLIGHT_FACTS.some(key => !facts.has(key))) return false;
+  const count = facts.get("commits")!;
+  return /^[1-9]\d*$/.test(count) && Number.isSafeInteger(Number(count));
+}
 
 /** Preserve binary git bundles across RunFn's text-only output boundary. */
 async function baseBundle(ctx: Ctx, repo: string, taskId: string, baseSha: string): Promise<Uint8Array> {
@@ -60,7 +73,7 @@ export async function runRemoteAttempt(ctx: Ctx, cfg: ProviderCfg, task: TaskRec
     const git = await gitInfo(ctx.run, task.brief.repo);
     if ("error" in git) return failed(git.error);
     const placement = resolvePlacement(task, ex.worktree, false, git.dirty);
-    const excluded = await remoteExclusion(ctx, s, cfg.id, { repo: task.brief.repo, placement: placement.mode });
+    const excluded = await remoteExclusion(ctx, s, cfg.id, { repo: task.brief.repo, placement: placement.mode }, { currentTaskId: task.id });
     if (excluded) return failed(excluded);
     const resolvedBase = await resolveWorktreeBase(ctx, git.top, task.brief, ex.baseBranch);
     if ("error" in resolvedBase) return failed(resolvedBase.error);
@@ -119,9 +132,12 @@ export async function runRemoteAttempt(ctx: Ctx, cfg: ProviderCfg, task: TaskRec
     await receiveQuestion(ctx,task,host,run);
     if (result.exec.timedOut) return result;
     if (result.exec.code !== 0) {
-      const preflight = await runRemote(ctx, host, SCRIPTS.PREFLIGHT, [worktree, baseSha, remoteBranch]);
-      const commits = Number(preflight.stdout.match(/^commits=(\d+)$/m)?.[1] ?? 0);
-      if (preflight.code || commits === 0) return result;
+      const preflightGrant = issueConfiguredHostAttemptPreflight(ctx, task.id, attempt);
+      if (preflightGrant.resource.alias !== host.alias ||
+        JSON.stringify(preflightGrant.resource.args) !== JSON.stringify([worktree, baseSha, remoteBranch]))
+        return failed("remote preflight snapshot changed");
+      const preflight = await registry.preflightConfiguredHostAttempt(ctx, preflightGrant);
+      if (preflight.code || preflight.timedOut || !hasCommittedWork(preflight.stdout)) return result;
     }
     const transfer = await transferBack(ctx, task, host, run);
     if (!transfer.ok) {
