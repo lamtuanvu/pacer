@@ -2,6 +2,7 @@ import type { Command } from "./types";
 import type { Draft, JSONValue } from "../strategy/service";
 import * as service from "../strategy/service";
 import { build } from "../strategy/launcher";
+import { withLock } from "../core/lock";
 export function parseStrategyArgs(args:string[]) {
   const pos:string[]=[], opts:Record<string,string>={}, set:Record<string,JSONValue>={}, unset:string[]=[]; let overwrite=false, activeOk=false;
   for(let i=0;i<args.length;i++) {
@@ -23,9 +24,9 @@ export const COMMANDS:Command[]=[{name:"strategy",usage:"strategy list|show|prev
       case "list":result=service.list(ctx);break;
       case "show":result=service.show(ctx,name??"");break;
       case "preview":result=await service.preview(ctx,draft);break;
-      case "save":result=service.save(ctx,name??"",draft,opts.reason??"",{overwrite,activeOk,who:"user"});break;
-      case "use":result={name,path:await service.use(ctx,name??"")};break;
-      case "rm":result=service.remove(ctx,name??"");break;
+      case "save":result=await withLock(ctx,"strategy",async()=>service.save(ctx,name??"",draft,opts.reason??"",{overwrite,activeOk,who:"user"}));break;
+      case "use":result=await withLock(ctx,"strategy",async()=>({name,path:await service.use(ctx,name??"")}));break;
+      case "rm":result=await withLock(ctx,"strategy",async()=>service.remove(ctx,name??""));break;
       case "build":result=await build(ctx,{agent:opts.agent,from:opts.from,brief:opts.brief});break;
       default:throw new Error("usage: pacer strategy list|show <name>|preview --from <name> --set k=v|save <name> --from <name> --set k=v --reason <text>|use <name>|rm <name>|build");
     }
