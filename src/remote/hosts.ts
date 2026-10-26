@@ -22,6 +22,7 @@ import { probeCodexUsage } from "./usage";
 import { pluginRegistry } from "../plugins";
 import { issueConfiguredHostIdentity } from "../plugins/host-identity-issuer";
 import { issueConfiguredHostClone, type ConfiguredHostCloneSnapshot } from "../plugins/host-clone-issuer";
+import { issueConfiguredHostClean } from "../plugins/host-clean-issuer";
 
 export interface HostFacts {
   os: string | null;
@@ -347,7 +348,8 @@ export async function clean(ctx: Ctx, alias: string, o: { dryRun?: boolean } = {
       if (!checkout || !t.run.remoteWorktree || !t.run.remoteDir) {
         kept.push({ id: t.id, reason: "remote cleanup needs a configured host, checkout and run" }); continue;
       }
-      const r = await runRemote(ctx, host, SCRIPTS.CLEAN, [t.run.remoteWorktree, t.run.remoteDir, checkout, t.id, received ? (t.run.remoteBranch ?? `pacer/${t.id}`) : ""]);
+      const grant = await issueConfiguredHostClean(ctx, alias, t.id, received);
+      const r = await pluginRegistry(ctx).cleanConfiguredHost(ctx, grant);
       if (r.code) kept.push({ id: t.id, reason: "remote cleanup failed" });
       else removed.push(t.id);
     } catch { kept.push({ id: t.id, reason: "remote cleanup failed" }); }

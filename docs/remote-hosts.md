@@ -172,7 +172,10 @@ Cleanup reports removed and kept task IDs. It deletes a remote task branch only
 when the corresponding local branch exists, preserving branches whose results
 have not returned. Cleanup removes the host worktree and run files, so recover
 uncommitted files or needed logs before cleaning. `pacer clean` also handles
-remote resources for eligible tasks.
+remote resources for eligible tasks. Cleanup uses the bundled SSH host runner's
+fixed command for each task. A disabled provider or missing completion receipt
+keeps the task in the report without retrying direct SSH; check the host before
+requesting cleanup again.
 
 ## Security
 
