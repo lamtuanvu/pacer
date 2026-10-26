@@ -1,12 +1,13 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, statSync, existsSync, mkdirSync, writeFileSync, realpathSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, statSync, existsSync, mkdirSync, writeFileSync, realpathSync, chmodSync, symlinkSync, renameSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { applyStageEdits, overlayPublishedBaseline } from "../scripts/live/ota-baseline-request-stages";
 import { createBaselineRequestRecorder } from "../src/update/desktop/fixture-request-stage";
 import { main as liveMain } from "../scripts/live/cli";
-import { buildOtaFixtures } from "../scripts/live/ota-build";
+import { buildOtaFixtures, fixturePairedFrontDoorTarget } from "../scripts/live/ota-build";
+import { assertExternalCargoTargetIdentity, validateExternalCargoTarget } from "../scripts/live/ota-external-cargo-target";
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -78,6 +79,47 @@ test("request stage recorder ignores unknown stages and caps its record", () => 
 });
 
 test("diagnostic baseline variant is restricted to paired Standard build", async () => {
-  await expect(buildOtaFixtures("unused", "cert", "paired", "Background", true)).rejects.toThrow("Baseline request stages require paired Standard layout");
+  await expect(buildOtaFixtures("unused", "cert", "paired", false, "Background", true)).rejects.toThrow("Baseline request stages require paired Standard layout");
+  await expect(buildOtaFixtures("unused", "cert", "paired", false, "Standard", false, "/tmp/pacer-live-cargo-unused")).rejects.toThrow("External Cargo target requires baseline request stages");
   await expect(liveMain(["ota", "cleanup", "--id", "unused", "--baseline-request-stages"])).rejects.toThrow("Baseline request stages require OTA build");
+  await expect(liveMain(["ota", "cleanup", "--id", "unused", "--cargo-target-dir", "/tmp/pacer-live-cargo-unused"])).rejects.toThrow("Unsupported OTA option");
+});
+
+test("external Cargo target must be an existing empty private owned directory on a different device", () => {
+  const root = temp();
+  const parent = join(root, ".work");
+  const target = join(parent, "pacer-live-cargo-unit");
+  mkdirSync(parent, { mode: 0o700 });
+  mkdirSync(target, { mode: 0o700 });
+  const device = statSync(root).dev;
+  expect(() => validateExternalCargoTarget(target, "unit", device)).toThrow("different filesystem");
+  const identity = validateExternalCargoTarget(target, "unit", device + 1);
+  expect(identity.path).toBe(target);
+  expect(() => assertExternalCargoTargetIdentity(identity)).not.toThrow();
+  writeFileSync(join(target, "occupied"), "x");
+  expect(() => validateExternalCargoTarget(target, "unit", device + 1)).toThrow("empty");
+});
+
+test("external Cargo target refuses symlinks, shared modes and replacement", () => {
+  const root = temp();
+  const parent = join(root, ".work");
+  const target = join(parent, "pacer-live-cargo-unit");
+  mkdirSync(parent, { mode: 0o700 });
+  mkdirSync(target, { mode: 0o700 });
+  const otherDevice = statSync(root).dev + 1;
+  chmodSync(parent, 0o755);
+  expect(() => validateExternalCargoTarget(target, "unit", otherDevice)).toThrow("private");
+  chmodSync(parent, 0o700);
+  const identity = validateExternalCargoTarget(target, "unit", otherDevice);
+  renameSync(target, target + "-old");
+  mkdirSync(target, { mode: 0o700 });
+  expect(() => assertExternalCargoTargetIdentity(identity)).toThrow("identity changed");
+  rmSync(target, { recursive: true });
+  symlinkSync(target + "-old", target);
+  expect(() => validateExternalCargoTarget(target, "unit", otherDevice)).toThrow("canonical");
+});
+
+test("paired Rust front door uses isolated external Cargo subdirectory when requested", () => {
+  expect(fixturePairedFrontDoorTarget("/tmp/lease/candidate", undefined)).toBe("/tmp/lease/candidate/rust-target");
+  expect(fixturePairedFrontDoorTarget("/tmp/lease/candidate", "/tmp/owned/pacer-live-cargo-unit")).toBe("/tmp/owned/pacer-live-cargo-unit/front-door");
 });
