@@ -1,5 +1,5 @@
 import { checkDraftPath } from "./paths";
-import { existsSync, linkSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, constants, existsSync, fchmodSync, fstatSync, linkSync, lstatSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { loadStrategy, useStrategy, validateStrategy, StrategyError, type Strategy } from "../config/strategy";
@@ -66,16 +66,30 @@ export async function preview(ctx:Ctx,draft:Draft) {
   } catch(e) {return {ok:false,errors:e instanceof StrategyError ? e.problems : [String((e as Error).message)],yaml,summary:"",ranking,routing:{current:current.routing,draft:[]}};}
 }
 const line=(text:string)=>text.replace(/[\r\n\x00-\x1f]/g," ");
+function assertNamedFile(path:string):void {
+  const stat=lstatSync(path,{throwIfNoEntry:false});
+  if(stat?.isSymbolicLink()) throw new Error("strategy file is a symbolic link");
+  if(stat&&!stat.isFile()) throw new Error("strategy file is not a regular file");
+}
+function privateStrategiesDir(path:string):void {
+  mkdirSync(path,{recursive:true,mode:0o700});
+  let fd:number;
+  try {fd=openSync(path,constants.O_RDONLY|constants.O_DIRECTORY|constants.O_NOFOLLOW);}
+  catch(e) {if(lstatSync(path,{throwIfNoEntry:false})?.isSymbolicLink()) throw new Error("strategies directory is a symbolic link");throw e;}
+  try {if(!fstatSync(fd).isDirectory()) throw new Error("strategies path is not a directory");fchmodSync(fd,0o700);}
+  finally {closeSync(fd);}
+}
 export function save(ctx:Ctx,name:string,draft:Draft,reason:string,opts:{overwrite?:boolean;activeOk?:boolean;who?:string}={}) {
   checkName(name,true); if(!reason.trim()) throw new Error("a save reason is required");
   const {yaml,strategy}=materialize(ctx,draft), path=join(ctx.pacerHome,"strategies",`${name}.yaml`);
+  assertNamedFile(path);
   if(existsSync(path)&&!opts.overwrite) throw new Error(`strategy "${name}" already exists; use overwrite:true to replace it`);
   if(existsSync(path)&&loadStrategy(ctx).name===name&&!opts.activeOk) throw new Error(`strategy "${name}" is active; overwriting changes live routing; use activeOk:true to approve`);
-  mkdirSync(join(ctx.pacerHome,"strategies"),{recursive:true});
+  privateStrategiesDir(join(ctx.pacerHome,"strategies"));
   const who=line(opts.who??ctx.env.PACER_AGENT??ctx.env.ORCA_AGENT??"agent");
   const content=`# ${line(draft.description??summarize(strategy))}\n# created by ${who} on ${new Date(ctx.now*1000).toISOString()}: ${line(reason)}\n${yaml}`;
   const tmp=`${path}.${randomBytes(4).toString("hex")}.tmp`;
-  try {writeFileSync(tmp,content,{flag:"wx"}); if(existsSync(path)&&!opts.overwrite) throw new Error(`strategy "${name}" already exists`); if(opts.overwrite) renameSync(tmp,path); else linkSync(tmp,path);} finally {rmSync(tmp,{force:true});}
+  try {writeFileSync(tmp,content,{flag:"wx",mode:0o600}); assertNamedFile(path); if(existsSync(path)&&!opts.overwrite) throw new Error(`strategy "${name}" already exists`); if(opts.overwrite) renameSync(tmp,path); else linkSync(tmp,path);} finally {rmSync(tmp,{force:true});}
   return {name,path,summary:summarize(strategy),active:loadStrategy(ctx).name===name};
 }
 export async function use(ctx:Ctx,name:string):Promise<string> {
