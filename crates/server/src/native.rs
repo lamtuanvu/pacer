@@ -10,7 +10,12 @@ use pacer_foundation::{
 use serde_json::Value;
 
 /// Production operations currently selected by the native registry.
-pub const NATIVE_OPS: &[&str] = &["notifications.get", "notifications.set", "repo.remove"];
+pub const NATIVE_OPS: &[&str] = &[
+    "notifications.get",
+    "notifications.set",
+    "repo.add",
+    "repo.remove",
+];
 
 pub struct Dispatcher {
     registry: Registry,
@@ -19,6 +24,7 @@ impl Dispatcher {
     pub fn new(forward: &str) -> Self {
         let mut ops: Vec<NativeOp> = pacer_config::ops().to_vec();
         ops.extend_from_slice(pacer_config::repo_ops());
+        ops.extend_from_slice(pacer_config::repo_add_ops());
         #[cfg(feature = "test-ops")]
         ops.push(NativeOp {
             name: "test.echo",
@@ -45,7 +51,7 @@ impl Dispatcher {
     /// Some legacy JSON is accepted by JavaScript but not serde_json. Forward
     /// that request before consuming it so its parsing and file behavior stay exact.
     pub fn needs_core_parser(&self, ctx: &Ctx, name: &str) -> bool {
-        (name == "repo.remove" && pacer_config::requires_core_repo_parser(ctx))
+        (matches!(name, "repo.add" | "repo.remove") && pacer_config::requires_core_repo_parser(ctx))
             || (matches!(name, "notifications.get" | "notifications.set")
                 && pacer_config::requires_core_parser(ctx))
             || (name == "notifications.set" && pacer_config::requires_core_set_parser(ctx))
@@ -147,7 +153,7 @@ pub(crate) fn slow_dispatcher() -> Dispatcher {
 mod registry_tests {
     use super::*;
     use serde_json::json;
-    use std::{collections::HashMap, fs};
+    use std::{collections::HashMap, fs, process::Command};
     #[tokio::test]
     async fn dispatcher_respects_startup_forwarding() {
         let dispatcher = Dispatcher::new("test.echo");
@@ -160,7 +166,12 @@ mod registry_tests {
         assert!(Dispatcher::new("*").names().is_empty());
         assert_eq!(
             NATIVE_OPS,
-            &["notifications.get", "notifications.set", "repo.remove"]
+            &[
+                "notifications.get",
+                "notifications.set",
+                "repo.add",
+                "repo.remove"
+            ]
         );
         #[cfg(not(feature = "test-ops"))]
         assert_eq!(Dispatcher::new("").names(), NATIVE_OPS);
@@ -224,6 +235,55 @@ mod registry_tests {
             fs::read_to_string(ctx.pacer_home.join("state/repos.json")).unwrap(),
             "{}"
         );
+    }
+    #[test]
+    fn repo_add_selects_core_for_unsupported_registry_json() {
+        let dir = tempfile::tempdir().unwrap();
+        let ctx = Ctx::with(
+            dir.path().into(),
+            dir.path().join("pacer"),
+            HashMap::new(),
+            0.0,
+        );
+        let dispatcher = Dispatcher::new("");
+        assert!(!dispatcher.needs_core_parser(&ctx, "repo.add"));
+        fs::create_dir_all(ctx.pacer_home.join("state")).unwrap();
+        fs::write(
+            ctx.pacer_home.join("state/repos.json"),
+            r#"{"/repo":{"key":"\ud800"}}"#,
+        )
+        .unwrap();
+        assert!(dispatcher.needs_core_parser(&ctx, "repo.add"));
+        assert!(!Dispatcher::new("repo.add").names().contains(&"repo.add"));
+    }
+    #[tokio::test]
+    async fn fractional_timestamp_keeps_two_public_repo_add_calls_native() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("repo");
+        fs::create_dir(&path).unwrap();
+        assert!(
+            Command::new("git")
+                .arg("-C")
+                .arg(&path)
+                .args(["init", "-q", "-b", "main"])
+                .status()
+                .unwrap()
+                .success()
+        );
+        let ctx = Ctx::with(
+            dir.path().join("home"),
+            dir.path().join("pacer"),
+            HashMap::new(),
+            1_793_042_681.555,
+        );
+        let dispatcher = Dispatcher::new("");
+        let params = json!({"path":path});
+        for _ in 0..2 {
+            assert!(!dispatcher.needs_core_parser(&ctx, "repo.add"));
+            let result = dispatcher.call(&ctx, "repo.add", params.clone()).await;
+            assert!(matches!(result, Some(Ok(_))), "{result:?}");
+        }
+        assert!(!dispatcher.needs_core_parser(&ctx, "repo.add"));
     }
     #[cfg(feature = "test-ops")]
     #[tokio::test]

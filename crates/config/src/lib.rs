@@ -14,7 +14,9 @@ use std::{
     fs, io,
     path::{Path, PathBuf},
 };
+mod repo_add;
 mod repos;
+pub use repo_add::{add_repo, ops as repo_add_ops};
 pub use repos::{ops as repo_ops, remove_repo, requires_core_repo_parser};
 
 const LEVELS: [&str; 3] = ["off", "important", "all"];

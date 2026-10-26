@@ -1,0 +1,17 @@
+{
+  "remote": {
+    "key": "github.com/acme/api",
+    "label": "acme/api",
+    "repos": "{\"$MAIN\":{\"key\":\"github.com/acme/api\",\"path\":\"$MAIN\",\"lastUsed\":12345}}",
+    "aliases": null
+  },
+  "linked": {
+    "key": "github.com/acme/api",
+    "label": "acme/api",
+    "repos": "{\"$MAIN\":{\"key\":\"github.com/acme/api\",\"path\":\"$MAIN\",\"lastUsed\":12345}}",
+    "aliases": "{\"$LINKED\":\"$MAIN\"}"
+  },
+  "fractional": {
+    "repos": "{\"$MAIN\":{\"key\":\"github.com/acme/api\",\"path\":\"$MAIN\",\"lastUsed\":1793042681.555}}"
+  }
+}
