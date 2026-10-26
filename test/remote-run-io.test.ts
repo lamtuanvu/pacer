@@ -15,6 +15,7 @@ import { issueConfiguredHostReadFrom, consumeConfiguredHostReadFrom } from "../s
 import { issueConfiguredHostSessionSocket, consumeConfiguredHostSessionSocket } from "../src/plugins/host-session-socket-issuer";
 import { issueConfiguredHostBinaryCheck, consumeConfiguredHostBinaryCheck } from "../src/plugins/host-binary-check-issuer";
 import { issueConfiguredHostBinaryUpload, consumeConfiguredHostBinaryUpload } from "../src/plugins/host-binary-upload-issuer";
+import { issueConfiguredHostStart, consumeConfiguredHostStart } from "../src/plugins/host-start-issuer";
 import { issueConfiguredHostRuntimeProbe, consumeConfiguredHostRuntimeProbe } from "../src/plugins/host-runtime-probe-issuer";
 import { pluginRegistry } from "../src/plugins";
 
@@ -365,6 +366,101 @@ test("disabled SSH provider refuses BINARY upload without direct SSH fallback", 
   expect(existsSync(log) ? readFileSync(log, "utf8") : "").toBe(before);
 });
 
+test("START grant binds the persisted run and private input exactly once", () => {
+  const { ctx, remote, local, home } = setup();
+  const args = [remote, home, "pipe", "PACER_ROLE=executor", "--", "sh", "-c", "cat"];
+  const grant = issueConfiguredHostStart(ctx, "box", remote, local, args, Buffer.from("wrapper\n__PACER_STDIN__\nprompt"));
+  expect(grant.resource.script).toBe("START");
+  expect(Buffer.from(consumeConfiguredHostStart(ctx, grant)).toString()).toBe("wrapper\n__PACER_STDIN__\nprompt");
+  expect(() => consumeConfiguredHostStart(ctx, grant)).toThrow();
+  const stale = issueConfiguredHostStart(ctx, "box", remote, local, args, Buffer.from("wrapper\n__PACER_STDIN__\ninput"));
+  updateTask(ctx, remote.split("/").at(-2)!, task => { task.state = "queued"; });
+  expect(() => consumeConfiguredHostStart(ctx, stale)).toThrow();
+});
+
+test("START refuses private stdin beyond its 50 MiB bound before SSH", () => {
+  const { ctx, remote, local, home, log } = setup();
+  const args = [remote, home, "pipe", "--", "sh", "-c", "cat"];
+  const large = Buffer.alloc(50 * 1024 * 1024 + 1, 0x61);
+  Buffer.from("__PACER_STDIN__\n").copy(large, 0);
+  expect(() => issueConfiguredHostStart(ctx, "box", remote, local, args, large)).toThrow();
+  expect(existsSync(log) ? readFileSync(log, "utf8") : "").toBe("");
+});
+
+test("unissued START and private start-input process mode are denied", async () => {
+  const { ctx, remote, home, log } = setup();
+  const registry = pluginRegistry(ctx);
+  const params = { session: "a".repeat(32), script: "START", args: [remote, home, "pipe", "--", "sh", "-c", "cat"],
+    timeoutMs: 60_000, maxBytes: 65_536, completionNonce: "a".repeat(8) + "-" + "b".repeat(4) + "-" + "c".repeat(4) + "-" + "d".repeat(4) + "-" + "e".repeat(12) };
+  await expect(registry.call(ctx, "pacer-ssh", "hostRunner.run", params)).rejects.toMatchObject({ code: "capability_denied" });
+  await expect(registry.call(ctx, "pacer-ssh", "hostRunner.run", params, {
+    resources: { reads: [], stores: [], commands: [{ argv: ["ssh", "--", "box-ssh"], timeoutMs: 60_000,
+      mode: "start-input", input: Buffer.from("private"), inputSha256: "0".repeat(64) }] },
+  })).rejects.toMatchObject({ code: "capability_denied" });
+  expect(existsSync(log) ? readFileSync(log, "utf8") : "").toBe("");
+});
+
+test("lost START receipt leaves its launch uncertain without retrying SSH", async () => {
+  const { ctx, io, remote, home, log } = setup();
+  const marker = join(home, "start-attempts");
+  const ssh = ctx.which("ssh")!, source = readFileSync(ssh, "utf8");
+  const command = `exec ${JSON.stringify(join(import.meta.dir, "fixtures", "bin", "ssh"))} "$@"`;
+  expect(source).toContain(command);
+  const fakeSsh = command.slice(5);
+  writeFileSync(ssh, source.replace(command, `for arg in "$@"; do last="$arg"; done
+case "$last" in
+  *"start.error"*) printf x >> ${JSON.stringify(marker)}; ${fakeSsh} | sed '/__PACER_DONE__/d' ;;
+  *) exec ${fakeSsh} ;;
+esac`), { mode: 0o755 });
+  expect(await io.start(["sh", "-c", "echo one"], home, {}, "prompt")).toHaveProperty("error");
+  expect(existsSync(join(remote, "pid"))).toBe(true);
+  expect(readFileSync(marker, "utf8")).toBe("x");
+  expect(readFileSync(log, "utf8")).toContain("start.error");
+});
+
+test("persisted run drift cancels START before its remote write", async () => {
+  const { ctx, io, remote, home } = setup();
+  const marker = join(home, "start-held"), ssh = ctx.which("ssh")!, source = readFileSync(ssh, "utf8");
+  const command = `exec ${JSON.stringify(join(import.meta.dir, "fixtures", "bin", "ssh"))} "$@"`;
+  expect(source).toContain(command);
+  writeFileSync(ssh, source.replace(command, `for arg in "$@"; do last="$arg"; done
+case "$last" in
+  *"start.error"*) printf held > ${JSON.stringify(marker)}; sleep 2 ;;
+esac
+${command}`), { mode: 0o755 });
+  const started = io.start(["sh", "-c", "echo should-not-run"], home, {}, "prompt");
+  for (let attempt = 0; attempt < 100 && !existsSync(marker); attempt++) await Bun.sleep(20);
+  expect(existsSync(marker)).toBe(true);
+  updateTask(ctx, remote.split("/").at(-2)!, task => { task.state = "queued"; });
+  expect(await started).toHaveProperty("error");
+  expect(existsSync(join(remote, "pid"))).toBe(false);
+}, 10_000);
+
+test("START SSH child uses the sandbox context environment", async () => {
+  const { ctx, io, home } = setup();
+  ctx.env.HOME = join(home, "sandbox-context-home");
+  mkdirSync(ctx.env.HOME, { recursive: true });
+  const marker = join(home, "start-context-home"), ssh = ctx.which("ssh")!, source = readFileSync(ssh, "utf8");
+  const command = `exec ${JSON.stringify(join(import.meta.dir, "fixtures", "bin", "ssh"))} "$@"`;
+  expect(source).toContain(command);
+  expect(ctx.env.HOME).not.toBe(process.env.HOME);
+  writeFileSync(ssh, source.replace(command, `for arg in "$@"; do last="$arg"; done
+case "$last" in
+  *"start.error"*) printf '%s' "$HOME" > ${JSON.stringify(marker)} ;;
+esac
+${command}`), { mode: 0o755 });
+  expect(await io.start(["sh", "-c", "exit 0"], home, {}, "prompt")).toHaveProperty("pid");
+  expect(readFileSync(marker, "utf8")).toBe(ctx.env.HOME);
+});
+
+test("disabled SSH provider refuses START without direct SSH fallback", async () => {
+  const { ctx, io, home, log } = setup();
+  await pluginRegistry(ctx).disable(ctx, "pacer-ssh");
+  const before = existsSync(log) ? readFileSync(log, "utf8") : "";
+  expect(await io.start(["sh", "-c", "exit 0"], home, {}, "prompt")).toHaveProperty("error");
+  expect(existsSync(log) ? readFileSync(log, "utf8") : "").toBe(before);
+});
+
 test("BINARY upload refuses bytes beyond its 128 MiB cap", () => {
   const { ctx, remote, local } = setup();
   expect(() => issueConfiguredHostBinaryUpload(ctx, "box", remote, local,
@@ -398,6 +494,14 @@ test("the prompt reaches the host agent unchanged", async () => {
   expect(readFileSync(log, "utf8")).not.toContain("hostile-brief");
   expect(existsSync(join(home, "pwned"))).toBe(false);
 }, 10000);
+
+test("START streams a prompt beyond the public text RPC limit through private stdin", async () => {
+  const { io, home, local } = setup();
+  const prompt = "x".repeat(70_000) + "\nprivate tail ' ";
+  expect(await io.start(["sh", "-c", "cat"], home, {}, prompt)).toHaveProperty("pid");
+  expect((await exited(io)).exit).toBe(0);
+  expect(readFileSync(join(local, "stdout"), "utf8")).toBe(prompt);
+}, 10_000);
 
 test.skipIf(!canInspectProcesses())("stop terminates the remote process group", async () => {
   const { io, home, remote } = setup();
@@ -1283,16 +1387,18 @@ test("recording publication rolls back a failed second replacement and recovers 
 
 test("START rejects a binary tampered with after upload",async()=>{
   const {ctx,home,remote,local}=setup();
+  enableFull(ctx);
   const binary=join(tmpDir(),"pacer"),marker=join(home,"tampered-executed");
   writeFileSync(binary,"#!/bin/sh\nexit 0\n",{mode:0o755});
-  const run=ctx.run;
-  ctx.run=async(argv,ms,o)=>{
-    if(argv.at(-1)?.includes('mode="$3"; shift 3')){
-      const hash=new Bun.CryptoHasher("sha256").update(readFileSync(binary)).digest("hex");
-      writeFileSync(join(home,".pacer-remote/bin",hash,"pacer"),`#!/bin/sh\ntouch '${marker}'\n`);
-    }
-    return run(argv,ms,o);
-  };
+  const hash=new Bun.CryptoHasher("sha256").update(readFileSync(binary)).digest("hex");
+  const ssh=ctx.which("ssh")!, source=readFileSync(ssh,"utf8");
+  const command=`exec ${JSON.stringify(join(import.meta.dir,"fixtures","bin","ssh"))} "$@"`;
+  expect(source).toContain(command);
+  writeFileSync(ssh,source.replace(command,`for arg in "$@"; do last="$arg"; done
+case "$last" in
+  *"start.error"*) printf '%s\\n' '#!/bin/sh' 'touch ${marker}' > ${JSON.stringify(join(home,".pacer-remote/bin",hash,"pacer"))} ;;
+esac
+${command}`),{mode:0o755});
   const io=new RemoteRunIO(ctx,{...host,session:"full"},remote,local,{binary});
   const began=Date.now(),result=await io.start(["true"],home,{},"");
   expect(result).toEqual({error:"remote start refused: runtime binary failed its hash check"});

@@ -183,6 +183,61 @@ $file.sum=$sum
 done
 exit 1`;
 
+/** Fixed remote launch program; parity with SCRIPTS.START is tested. */
+export const START_SCRIPT = `D="$1"; cwd="$2"; mode="$3"; shift 3
+case "$D" in '~/'*) D="$HOME/\${D#??}" ;; esac
+case "$cwd" in '~/'*) cwd="$HOME/\${cwd#??}" ;; esac
+umask 077
+mkdir -p "$D" || exit 1
+chmod 700 "$D"
+printf '%s' "$mode" > "$D/session.host"
+rm -f "$D/start.error" "$D/pid" "$D/pid.tmp" "$D/child" "$D/started" "$D/exit" "$D/exit.tmp" "$D/stdout" "$D/stderr" "$D/session.raw" "$D/session.log" "$D/session.log.1" "$D/session.ckpt" "$D/session.state" "$D/session.sock.path"
+# Read only the wrapper as lines; cat preserves every byte of the remaining prompt.
+: > "$D/run.sh"
+while IFS= read -r line; do
+  [ "$line" = '__PACER_STDIN__' ] && break
+  printf '%s\\n' "$line" >> "$D/run.sh"
+done
+cat > "$D/stdin"
+chmod 700 "$D/run.sh"
+chmod 600 "$D/stdin"
+if [ "$mode" = full ]; then mv "$D/run.sh" "$D/session.json" || exit 1; fi
+cd "$cwd" || exit 1
+setsid nohup env -i HOME="$HOME" PATH="$PATH" bash -c '
+D="$1"; mode="$2"; shift 2
+if [ "$mode" = full ]; then binary="$1"; shift; fi
+while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do
+  pair="$1"; key=\${pair%%=*}; value=\${pair#*=}
+  case "$value" in "~/"*) value="$HOME/\${value#??}" ;; esac
+  export "$key=$value"
+  shift
+done
+shift
+if [ "$mode" = full ]; then
+  hash=\${binary%/pacer}; hash=\${hash##*/}
+  # A refusal is written down so START reports it at once instead of waiting for a pid.
+  [[ "$hash" =~ ^[a-f0-9]{64}$ ]] || { printf "invalid runtime path" > "$D/start.error"; exit 1; }
+  if command -v sha256sum >/dev/null; then actual=$(sha256sum "$binary"); else actual=$(shasum -a 256 "$binary"); fi
+  [ "\${actual%% *}" = "$hash" ] || { printf "runtime binary failed its hash check" > "$D/start.error"; exit 1; }
+  printf "%s" "$binary" > "$D/session.binary"
+  exec "$binary" _session "$D"
+fi
+if [ "$mode" = pty ]; then
+  command=""
+  for arg in "$@"; do printf -v quoted "%q" "$arg"; command="$command $quoted"; done
+  printf -v input "%q" "$D/stdin"
+  command="$command < $input"
+  export TERM=xterm-256color SHELL="$BASH"
+  exec sh "$D/run.sh" "$D" script -qfec "$command" "$D/session.raw"
+fi
+exec sh "$D/run.sh" "$D" "$@"
+' pacer "$D" "$mode" "$@" </dev/null >/dev/null 2>&1 &
+n=0
+while [ ! -s "$D/pid" ] && [ ! -s "$D/start.error" ] && [ "$n" -lt 50 ]; do sleep 0.1; n=$((n + 1)); done
+if [ -s "$D/start.error" ]; then printf 'error=%s\\n' "$(cat "$D/start.error")"; exit 0; fi
+[ -s "$D/pid" ] || exit 1
+printf 'pid=%s\\n' "$(cat "$D/pid")"`;
+
 /** Fixed bounded run-output reader; parity with SCRIPTS.READ_FROM is tested. */
 export const READ_FROM_SCRIPT = `D="$1"
 case "$D" in '~/'*) D="$HOME/\${D#??}" ;; esac
@@ -304,6 +359,18 @@ export function stopArgv(sshTarget: string, controlPath: string, args: readonly 
     !/^(?:[1-9]|[1-5][0-9]|60)$/.test(args[1] ?? "") ||
     !/^[a-f0-9-]{36}$/.test(completionNonce)) throw Error("invalid host-issued stop tuple");
   return issuedArgv(sshTarget, controlPath, STOP_SCRIPT, [...args], completionNonce);
+}
+
+export function startArgv(sshTarget: string, controlPath: string, args: readonly string[], completionNonce: string): string[] {
+  if (args.length < 6 || args.length > 25 || args.some(value => typeof value !== "string" ||
+    value.length > 1024 || /[\u0000-\u001f\u007f]/.test(value)) ||
+    !/^\/.+\/\.pacer-remote\/runs\/t-\d{8}-\d{6}-[0-9a-f]{4}\/[1-9][0-9]*$/.test(args[0]!) ||
+    !args[1]!.startsWith("/") || !["full", "pty", "pipe"].includes(args[2]!) ||
+    (args[2] === "full" && !/^\/.+\/\.pacer-remote\/bin\/[a-f0-9]{64}\/pacer$/.test(args[3]!)) ||
+    args.indexOf("--") < (args[2] === "full" ? 4 : 3) || args.indexOf("--") >= args.length - 1 ||
+    args.slice(args[2] === "full" ? 4 : 3, args.indexOf("--")).some(value => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(value)) ||
+    !/^[a-f0-9-]{36}$/.test(completionNonce)) throw Error("invalid host-issued start tuple");
+  return issuedArgv(sshTarget, controlPath, START_SCRIPT, [...args], completionNonce);
 }
 
 export function prepareArgv(sshTarget: string, controlPath: string, args: readonly string[], completionNonce: string): string[] {
