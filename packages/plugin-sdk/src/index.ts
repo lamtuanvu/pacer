@@ -63,6 +63,17 @@ export const PROTOCOL = "1.5.0";
 const HELLO = "plugin.hello", CANCEL = "$/cancel";
 type Json = Record<string, unknown>;
 
+function streamDuplexDeadline(method: string, params: unknown, owner?: { method: string; id: number }): number | undefined {
+  if (owner?.method !== "hostRunner.stream") return undefined;
+  if (method === "capability.process.duplex.open") return 10_000;
+  if (method === "capability.process.duplex.close") return 5_000;
+  if (method !== "capability.process.duplex.read" && method !== "capability.process.duplex.write") return undefined;
+  const requested = params && typeof params === "object" && !Array.isArray(params)
+    ? (params as Record<string, unknown>).timeoutMs : undefined;
+  return typeof requested === "number" && Number.isSafeInteger(requested) && requested > 0
+    ? Math.min(requested + 5_000, 65_000) : 65_000;
+}
+
 /** Newline-delimited text from a byte stream, for stdin. */
 export async function* stdinLines(stream: AsyncIterable<Buffer | string> = process.stdin): AsyncGenerator<string> {
   let rest = "";
@@ -121,14 +132,24 @@ export async function serve(o: ServeOptions): Promise<void> {
       const envelope = { jsonrpc: "2.0", id, method, params, ...(!ambient&&meta ? { _meta: meta } : {}) };
       if (Buffer.byteLength(JSON.stringify(envelope)+"\n") > 1048576) return Promise.reject(new PluginError("invalid_input", "HTTP complete frame exceeds limit"));
       return new Promise<T>((resolve, reject) => {
+        let timer: ReturnType<typeof setTimeout> | undefined;
         const cancel = () => {
           const waiting = pending.get(id); if (!waiting) return;
           pending.delete(id); waiting.dispose();
           reject(new PluginError("plugin_unavailable", "owning plugin call ended"));
         };
-        const dispose = () => signal?.removeEventListener("abort", cancel);
+        const dispose = () => { signal?.removeEventListener("abort", cancel); if (timer) clearTimeout(timer); };
         pending.set(id, { resolve: value => resolve(value as T), reject, dispose });
         if (!cleanup) signal?.addEventListener("abort", cancel, { once: true });
+        const deadline = streamDuplexDeadline(method, params, request);
+        if (deadline !== undefined) {
+          timer = setTimeout(() => {
+            const waiting = pending.get(id); if (!waiting) return;
+            pending.delete(id); waiting.dispose();
+            reject(new PluginError("plugin_timeout", `${method} response passed its ${deadline} ms deadline`));
+          }, deadline);
+          timer.unref();
+        }
         send({ id, method, params, ...(!ambient&&meta ? { _meta: meta } : {}) });
       });
     };
