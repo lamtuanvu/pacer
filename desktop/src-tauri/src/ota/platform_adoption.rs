@@ -129,10 +129,92 @@ fn resulting_installation_id(
     .map_err(|_| OtaError::Invalid)?;
     Ok(digest(&bytes))
 }
+fn prove_managed_recovery_launch(
+    m: &AdoptionManifest,
+    journal: &journal::AdoptionJournal,
+    current: Option<&ProcessIdentity>,
+) -> Result<(), OtaError> {
+    ensure(
+        journal.state == journal::AdoptionState::Restoring
+            && journal.authorization.is_some()
+            && journal.verification_proof.is_none(),
+    )?;
+    let launched = journal
+        .steps
+        .iter()
+        .find_map(|step| match (&step.action, &step.evidence) {
+            (
+                AdoptionAction::LaunchService {
+                    branch: control::AdoptionBranch::Managed,
+                    launch_id,
+                },
+                Some(AdoptionEvidence::Launched {
+                    branch: control::AdoptionBranch::Managed,
+                    launch,
+                }),
+            ) if launch_id == &m.managed_launch_id
+                && launch.process.boot_id == step.intent_boot_id =>
+            {
+                Some(&launch.process)
+            }
+            _ => None,
+        })
+        .ok_or(OtaError::Identity)?;
+    if let Some(current) = current {
+        ensure(launched == current)?;
+    }
+    Ok(())
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn managed_recovery_requires_the_exact_completed_launch_incarnation() {
+        let m = journal::tests::manifest();
+        let (_temp, _store, mut j) = journal::tests::initialized();
+        j.state = journal::AdoptionState::Restoring;
+        j.authorization = Some(ota::Authorization {
+            binding: m.binding.clone(),
+            kind: crate::ota::wire::AuthorizationKind::AuthorizeInstall,
+            reservation_id: m.transaction_id().into(),
+            journal_sha256: j.manifest_sha256.clone(),
+        });
+        let process = ProcessIdentity {
+            pid: 903,
+            boot_id: m.source.boot_id.clone(),
+            birth: "one:9".into(),
+        };
+        let launch = ota::LaunchEvidence {
+            role: ota::ProcessRole::Service,
+            release: ota::Release::Candidate,
+            launch_id: m.managed_launch_id.clone(),
+            process: process.clone(),
+            native_session_id: m.managed_launch_id.clone(),
+            version: m.source.target.version.clone(),
+        };
+        assert!(prove_managed_recovery_launch(&m, &j, Some(&process)).is_err());
+        j.steps.push(journal::AdoptionStep {
+            action: AdoptionAction::LaunchService {
+                branch: control::AdoptionBranch::Managed,
+                launch_id: m.managed_launch_id.clone(),
+            },
+            intent_revision: j.revision + 1,
+            intent_boot_id: process.boot_id.clone(),
+            evidence: Some(AdoptionEvidence::Launched {
+                branch: control::AdoptionBranch::Managed,
+                launch,
+            }),
+        });
+        assert!(prove_managed_recovery_launch(&m, &j, Some(&process)).is_ok());
+        let reused = ProcessIdentity {
+            birth: "two:9".into(),
+            ..process.clone()
+        };
+        assert!(prove_managed_recovery_launch(&m, &j, Some(&reused)).is_err());
+        j.steps.last_mut().unwrap().intent_boot_id = "other-boot".into();
+        assert!(prove_managed_recovery_launch(&m, &j, Some(&process)).is_err());
+    }
     #[test]
     fn adoption_rewrites_only_proven_executable_and_preserves_supported_registration() {
         let original = r#"<?xml version="1.0"?><plist version="1.0"><dict><key>Label</key><string>com.pacer.serve</string><key>ProgramArguments</key><array><string>/tmp/attached/pacer</string><string>serve</string></array><key>EnvironmentVariables</key><dict><key>HOME</key><string>/tmp/home</string><key>PACER_HOME</key><string>/tmp/home</string></dict><key>KeepAlive</key><true/><key>RunAtLoad</key><true/><key>ThrottleInterval</key><integer>27</integer><key>ProcessType</key><string>Background</string><key>StandardOutPath</key><string>/tmp/home/log</string></dict></plist>"#;
@@ -774,6 +856,40 @@ impl AdoptionPlatform for NativeAdoptionPlatform {
             })
         })
     }
+    fn observe_managed_recovery<'a>(
+        &'a self,
+        m: &'a AdoptionManifest,
+    ) -> PlatformFuture<'a, Option<AdoptionObservation>> {
+        Box::pin(async move {
+            let journal = self.snapshot(m)?;
+            let held = ota::recovery_authority::verify_adoption(
+                Path::new(&m.source.target.pacer_home),
+                m,
+                &journal,
+            )?;
+            let (_, branch) = self.current_job(m)?;
+            if branch != control::AdoptionBranch::Managed {
+                return Ok(None);
+            }
+            let service = self.current_service(m)?.map(|(process, _)| process);
+            if service.is_none() && !journal.steps.iter().any(|step| matches!(
+                (&step.action, &step.evidence),
+                (
+                    AdoptionAction::LaunchService { branch: control::AdoptionBranch::Managed, .. },
+                    Some(AdoptionEvidence::Launched { branch: control::AdoptionBranch::Managed, .. })
+                )
+            )) {
+                return Ok(None);
+            }
+            prove_managed_recovery_launch(m, &journal, service.as_ref())?;
+            Ok(Some(AdoptionObservation {
+                registration: RegistrationObservation::Managed,
+                reservation_held: held,
+                recovery_job_armed: self.recovery_loaded(m)?.is_some(),
+                service,
+            }))
+        })
+    }
     fn inspect_action<'a>(
         &'a self,
         m: &'a AdoptionManifest,
@@ -936,12 +1052,19 @@ impl AdoptionPlatform for NativeAdoptionPlatform {
                 P::StopService { process } => {
                     let (p, e) = self.current_service(m)?.ok_or(OtaError::Unavailable)?;
                     ensure(p == *process)?;
-                    self.checked_context(m, &p, &e)?;
-                    control::suppress_adoption_lifecycle(
-                        &self.endpoint(&p, &e),
-                        &m.binding,
-                        &self.trust,
-                    )?;
+                    let journal = self.require_effect(m, action)?;
+                    if self.current_job(m)?.1 == control::AdoptionBranch::Managed
+                        && journal.state == journal::AdoptionState::Restoring
+                    {
+                        prove_managed_recovery_launch(m, &journal, Some(&p))?;
+                    } else {
+                        self.checked_context(m, &p, &e)?;
+                        control::suppress_adoption_lifecycle(
+                            &self.endpoint(&p, &e),
+                            &m.binding,
+                            &self.trust,
+                        )?;
+                    }
                     self.require_effect(m, action)?;
                     let job = self.current_job(m)?.0;
                     job.stop_exact(&self.trust, process).await?;

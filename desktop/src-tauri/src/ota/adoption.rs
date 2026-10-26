@@ -162,6 +162,14 @@ pub trait AdoptionPlatform {
         &'a self,
         manifest: &'a AdoptionManifest,
     ) -> PlatformFuture<'a, AdoptionObservation>;
+    /// Recovery-only observation of a journal-proven managed launch. Native
+    /// implementations may establish this without asking an unresponsive Core.
+    fn observe_managed_recovery<'a>(
+        &'a self,
+        _manifest: &'a AdoptionManifest,
+    ) -> PlatformFuture<'a, Option<AdoptionObservation>> {
+        Box::pin(async { Ok(None) })
+    }
     fn inspect_action<'a>(
         &'a self,
         manifest: &'a AdoptionManifest,
