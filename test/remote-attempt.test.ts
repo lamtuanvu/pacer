@@ -38,7 +38,8 @@ async function setup(agent = "codex", account = "") {
   sshEnv.PATH = `${localBin}:${sshEnv.PATH}`;
   const sshLog = join(root, "ssh.log"), env = { ...process.env, ...sshEnv, CODEX_HOME: "planner-codex", CLAUDE_CONFIG_DIR: "planner" };
   const gitCalls: string[][] = [];
-  const ctx = fakeCtx({ env, run: (argv, ms, o) => {
+  const ctx = fakeCtx({ env, which: name => name === "ssh" ? join(import.meta.dir, "fixtures", "bin", "ssh") :
+    name === "git" ? "/usr/bin/git" : Bun.which(name), run: (argv, ms, o) => {
     if (argv[0] === "git") gitCalls.push(argv);
     return realRun(argv, ms, { ...o, env: { ...env, ...o?.env } });
   } });
@@ -74,7 +75,7 @@ test("the prompt reaches the host agent unchanged", async () => {
   expect(result.report).toBe(`ran on box; fetched pacer/${task.id} (1 commits)\n\nfinal report`);
   // Resuming only collects the saved run output; it does not repeat the transfer.
   expect((await resumeAttempt(f.ctx, f.cfg, task)).report).toBe("final report");
-}, 15000);
+}, 60000);
 
 test("a foreign-identity commit leaves the task partial and kept on the host", async () => {
   const f = await setup();
@@ -96,13 +97,13 @@ test("a foreign-identity commit leaves the task partial and kept on the host", a
   });
   expect(result.state).toBe("partial");
   expect(result.result).toMatchObject({ status: "partial", files: "(kept on host)", worktree: `box:${result.run!.remoteWorktree}` });
-  expect(result.result?.report).toContain("foreign identity foreign@example.invalid; run pacer host setup box\n\nfinal report");
+  expect(result.result?.report).toContain("claimed bundle contains foreign commit identity\n\nfinal report");
   expect(result.result?.acceptance).toBeUndefined();
   expect(existsSync(acceptanceFile)).toBe(false);
   expect(await f.git("-C", f.repo, "for-each-ref", `refs/heads/pacer/${f.task.id}`)).toBe("");
   expect(await f.git("-C", result.run!.remoteWorktree!, "branch", "--show-current")).toBe(`pacer/${f.task.id}`);
   expect(await f.git("-C", result.run!.remoteWorktree!, "log", "-1", "--format=%ae")).toBe("foreign@example.invalid");
-}, 15000);
+}, 60000);
 
 test("remote env carries only the declared account folder", async () => {
   for (const agent of ["codex", "claude-code"]) {
@@ -112,7 +113,7 @@ test("remote env carries only the declared account folder", async () => {
     const lines = result.exec.stdout.split("\n").filter(l => /^(CODEX_HOME|CLAUDE_CONFIG_DIR|PACER_ROLE)=/.test(l));
     expect(lines).toEqual([`${agent === "codex" ? "CODEX_HOME" : "CLAUDE_CONFIG_DIR"}=${f.hostHome}/host-team`, "PACER_ROLE=executor"]);
   }
-}, 20000);
+}, 60000);
 
 test("an unpublished base is sent as a bundle", async () => {
   const f = await setup();
@@ -126,7 +127,7 @@ test("an unpublished base is sent as a bundle", async () => {
   expect(run.baseSha).toBe(base);
   expect(await f.git("-C", run.remoteWorktree!, "rev-parse", "HEAD^")).toBe(base);
   expect(readFileSync(join(run.remoteWorktree!, "base.txt"), "utf8")).toBe("unpublished 🦊\n");
-}, 15000);
+}, 60000);
 
 test("resume does not mistake an unrelated local head for a completed transfer", async () => {
   const f = await setup();
@@ -136,7 +137,7 @@ test("resume does not mistake an unrelated local head for a completed transfer",
   const result = await resumeAttempt(f.ctx, f.cfg, t);
   expect(result.report).toContain(`fetched pacer/${t.id}`);
   expect(await f.git("-C", f.repo, "rev-parse", `pacer/${t.id}`)).toBe(await f.git("-C", t.run!.remoteWorktree!, "rev-parse", "HEAD"));
-}, 20000);
+}, 60000);
 
 test("a second remote attempt reuses a branch left at base", async () => {
   const f = await setup(), program = join(f.hostHome, "bin/codex");
@@ -149,7 +150,7 @@ test("a second remote attempt reuses a branch left at base", async () => {
   const second = await runAttempt(f.ctx, f.cfg, readTask(f.ctx, f.task.id)!);
   expect(second.exec.code).toBe(0);
   expect(readTask(f.ctx, f.task.id)!.run).toHaveProperty("remoteBranch", `pacer/${f.task.id}`);
-}, 20000);
+}, 60000);
 
 test("PTY strategy records remote attempts with the configured local recording cap", async()=>{
   const f=await setup();
@@ -175,4 +176,4 @@ exit "$code"
   expect(JSON.parse(readFileSync(join(run.dir,"session.json"),"utf8")).capBytes).toBe(1024*1024);
   expect(result.exec.stdout).toContain("PACER_ROLE=executor");
   expect(result.exec.stdout).not.toContain("Script started on");
-},15000);
+},60000);

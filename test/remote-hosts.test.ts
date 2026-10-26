@@ -6,10 +6,12 @@ import * as hosts from "../src/remote/hosts";
 import { main } from "../src/cli";
 import { callOp } from "../src/api/ops";
 import { fakeCtx, fakeSshEnv, gitRepo, realRun, tmpDir } from "./helpers";
+import { pluginRegistry, shutdownPlugins } from "../src/plugins";
 
 async function fixture() {
   const repo = gitRepo(), checkout = gitRepo(), home = tmpDir();
   const ctx = fakeCtx({ env: fakeSshEnv(home, join(home, "ssh.log")) });
+  ctx.which = name => name === "ssh" ? join(import.meta.dir, "fixtures", "bin", "ssh") : null;
   ctx.run = (argv, ms, o) => realRun(argv, ms, { ...o, env: { ...ctx.env, ...o?.env } });
   const git = async (dir: string, ...args: string[]) => {
     const r = await ctx.run(["git", "-C", dir, ...args], 10000);
@@ -74,6 +76,27 @@ test("setup sets the repo-local identity only after confirmation", async () => {
   expect((await hosts.confirmSetup(ctx, "box", repo, async q => { questions.push(q); return true; })).ok).toBe(true);
   expect(questions.join("\n")).toContain("identity");
   expect(await git(checkout, "config", "--local", "user.name")).toBe("Test User");
+});
+
+test("host setup sends identity only through the issued plugin caller", async () => {
+  const { ctx, repo, checkout, git } = await fixture();
+  await git(checkout, "config", "--local", "user.name", "Other");
+  const original = ctx.run;
+  ctx.run = (argv, timeoutMs, options) => {
+    if (argv[0] === "ssh" && argv.at(-1)?.includes("__PACER_DONE__="))
+      throw Error("host SSH identity bypass");
+    return original(argv, timeoutMs, options);
+  };
+  try {
+    const result = await hosts.setup(ctx, "box", repo, { clone: false, consent: true });
+    expect(result.ok).toBe(true);
+    expect(await git(checkout, "config", "--local", "user.name")).toBe("Test User");
+    await git(checkout, "config", "--local", "user.name", "Other");
+    await pluginRegistry(ctx).disable(ctx, "pacer-remote-caller");
+    await expect(hosts.setup(ctx, "box", repo, { clone: false, consent: true }))
+      .rejects.toMatchObject({ code: "plugin_unavailable" });
+    expect(await git(checkout, "config", "--local", "user.name")).toBe("Other");
+  } finally { await shutdownPlugins(ctx); }
 });
 
 test("host CLI exit codes and read-only ops", async () => {

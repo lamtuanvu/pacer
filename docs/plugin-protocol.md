@@ -12,6 +12,10 @@ Protocol 1.1 adds optional top-level `_meta: { capabilityCall }` correlation on 
 
 Protocol 1.5 adds policy/task/event contracts and mutually negotiated `policyObservations` for the host and TypeScript SDK. Task reads require declared and granted `tasks.read` plus a current owning call or process-generation read owner. The exclusive `_meta: { readOwner }` arm permits only task reads and subscription management; mixed, foreign or retired owners never fall back to unowned/effect capability handling. Existing peers/capabilityCall correlation remain supported; peers without this feature cannot use the observation methods. Rust SDK observation helpers are not implemented: the standalone policy protocol crate supplies contracts, not SDK runtime support.
 
+The staged `executor` point currently defines only `contributes.executor.backends: ["direct"]` and `executor.available`. Availability receives a credential-free strategy name and has a 10 s host deadline. This contract has fake conformance coverage but no production caller; run, stop, resume, session state, task patching and executor effects require a separately reviewed owner-bound contract.
+
+The `hostRunner` point names only fixed SSH script IDs and uses bounded arguments, results and finite deadlines. The `hosts` capability defines `open`, `run`, `fetch` and `close` with host-owned broker sessions. Callers supply only a configured alias and fixed script input; the host derives the SSH target and selects the provider. Host setup identity and committed-task transfer use the bundled `remoteCaller` with one-use host-issued grants. Other production SSH paths still require caller cutover.
+
 Peers explicitly negotiate `chunkedResults` in hello features. For a large usage result, the plugin sends sequential `$/resultChunk` requests containing the original numeric request id, contiguous byte offset and at most 256 KiB of base64 JSON bytes, with the original call metadata. It waits for each `{ bytes }` acknowledgement, then replies to the original request with `{ _chunkedResult: { bytes } }`. The host resolves only after exact-length complete JSON assembly under the original authority/deadline. Legacy peers keep ordinary replies; chunks never renew authority.
 
 SDKs: `@pacer/plugin` (TypeScript) and `pacer-plugin` (Rust).
@@ -44,30 +48,150 @@ SDKs: `@pacer/plugin` (TypeScript) and `pacer-plugin` (Rust).
     "contributes": {
       "default": {},
       "type": "object",
-      "propertyNames": {
-        "type": "string",
-        "enum": [
-          "diagnostic",
-          "agentSession",
-          "observation",
-          "decision",
-          "usage",
-          "classifier",
-          "notifier",
-          "endpoint",
-          "planner",
-          "policy"
-        ]
-      },
-      "additionalProperties": {
-        "type": "object",
-        "propertyNames": {
-          "type": "string"
+      "properties": {
+        "diagnostic": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema0"
+          }
         },
-        "additionalProperties": {
-          "$ref": "#/$defs/__schema0"
+        "agentSession": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema0"
+          }
+        },
+        "observation": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema0"
+          }
+        },
+        "decision": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema0"
+          }
+        },
+        "usage": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema0"
+          }
+        },
+        "classifier": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema0"
+          }
+        },
+        "notifier": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema0"
+          }
+        },
+        "endpoint": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema0"
+          }
+        },
+        "planner": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema0"
+          }
+        },
+        "policy": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema0"
+          }
+        },
+        "hostRunner": {
+          "type": "object",
+          "properties": {
+            "kinds": {
+              "type": "array",
+              "prefixItems": [
+                {
+                  "type": "string",
+                  "const": "ssh"
+                }
+              ],
+              "items": false,
+              "minItems": 1,
+              "maxItems": 1
+            }
+          },
+          "required": [
+            "kinds"
+          ],
+          "additionalProperties": false
+        },
+        "remoteCaller": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema0"
+          }
+        },
+        "executor": {
+          "type": "object",
+          "properties": {
+            "backends": {
+              "type": "array",
+              "prefixItems": [
+                {
+                  "type": "string",
+                  "const": "direct"
+                }
+              ],
+              "items": false,
+              "minItems": 1,
+              "maxItems": 1
+            }
+          },
+          "required": [
+            "backends"
+          ],
+          "additionalProperties": false
         }
-      }
+      },
+      "additionalProperties": false
     },
     "capabilities": {
       "default": [],
@@ -88,7 +212,8 @@ SDKs: `@pacer/plugin` (TypeScript) and `pacer-plugin` (Rust).
               "config.get",
               "entitlement.report",
               "log",
-              "usage.state"
+              "usage.state",
+              "hosts"
             ]
           },
           "scopes": {
@@ -169,7 +294,7 @@ SDKs: `@pacer/plugin` (TypeScript) and `pacer-plugin` (Rust).
 }
 ```
 
-Extension points: `diagnostic`, `agentSession`, `observation`, `decision`, `usage`, `classifier`, `notifier`, `endpoint`, `planner`, `policy` (every plugin serves `diagnostic`). Capabilities: `tasks.read`, `events.subscribe`, `process.spawn`, `fs.read`, `fs.write`, `net.http`, `secrets.resolve`, `config.get`, `entitlement.report`, `log`, `usage.state`.
+Extension points: `diagnostic`, `agentSession`, `observation`, `decision`, `usage`, `classifier`, `notifier`, `endpoint`, `planner`, `policy`, `hostRunner`, `remoteCaller`, `executor` (every plugin serves `diagnostic`). Capabilities: `tasks.read`, `events.subscribe`, `process.spawn`, `fs.read`, `fs.write`, `net.http`, `secrets.resolve`, `config.get`, `entitlement.report`, `log`, `usage.state`, `hosts`.
 
 ## Lifecycle
 
@@ -230,30 +355,150 @@ Params:
         "contributes": {
           "default": {},
           "type": "object",
-          "propertyNames": {
-            "type": "string",
-            "enum": [
-              "diagnostic",
-              "agentSession",
-              "observation",
-              "decision",
-              "usage",
-              "classifier",
-              "notifier",
-              "endpoint",
-              "planner",
-              "policy"
-            ]
-          },
-          "additionalProperties": {
-            "type": "object",
-            "propertyNames": {
-              "type": "string"
+          "properties": {
+            "diagnostic": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/__schema0"
+              }
             },
-            "additionalProperties": {
-              "$ref": "#/$defs/__schema0"
+            "agentSession": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/__schema0"
+              }
+            },
+            "observation": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/__schema0"
+              }
+            },
+            "decision": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/__schema0"
+              }
+            },
+            "usage": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/__schema0"
+              }
+            },
+            "classifier": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/__schema0"
+              }
+            },
+            "notifier": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/__schema0"
+              }
+            },
+            "endpoint": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/__schema0"
+              }
+            },
+            "planner": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/__schema0"
+              }
+            },
+            "policy": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/__schema0"
+              }
+            },
+            "hostRunner": {
+              "type": "object",
+              "properties": {
+                "kinds": {
+                  "type": "array",
+                  "prefixItems": [
+                    {
+                      "type": "string",
+                      "const": "ssh"
+                    }
+                  ],
+                  "items": false,
+                  "minItems": 1,
+                  "maxItems": 1
+                }
+              },
+              "required": [
+                "kinds"
+              ],
+              "additionalProperties": false
+            },
+            "remoteCaller": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/__schema0"
+              }
+            },
+            "executor": {
+              "type": "object",
+              "properties": {
+                "backends": {
+                  "type": "array",
+                  "prefixItems": [
+                    {
+                      "type": "string",
+                      "const": "direct"
+                    }
+                  ],
+                  "items": false,
+                  "minItems": 1,
+                  "maxItems": 1
+                }
+              },
+              "required": [
+                "backends"
+              ],
+              "additionalProperties": false
             }
-          }
+          },
+          "additionalProperties": false
         },
         "capabilities": {
           "default": [],
@@ -274,7 +519,8 @@ Params:
                   "config.get",
                   "entitlement.report",
                   "log",
-                  "usage.state"
+                  "usage.state",
+                  "hosts"
                 ]
               },
               "scopes": {
@@ -353,7 +599,8 @@ Params:
           "config.get",
           "entitlement.report",
           "log",
-          "usage.state"
+          "usage.state",
+          "hosts"
         ]
       }
     }
@@ -3696,6 +3943,704 @@ Result:
 }
 ```
 
+### `hostRunner.check`
+
+Check a configured SSH host without opening a persistent session.
+
+Deadline: 60000 ms.
+
+Params:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "alias": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
+    },
+    "repo": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "sshTarget": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._@][A-Za-z0-9._@-]*$"
+    },
+    "controlPath": {
+      "type": "string",
+      "maxLength": 512,
+      "pattern": "^\\/[^\\u0000-\\u001f]*\\/cm-%C$"
+    }
+  },
+  "required": [
+    "alias"
+  ],
+  "additionalProperties": false
+}
+```
+
+Result:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "ok": {
+      "type": "boolean"
+    },
+    "checks": {
+      "maxItems": 64,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 4096
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "detail": {
+            "type": "string",
+            "maxLength": 4096
+          }
+        },
+        "required": [
+          "name",
+          "ok",
+          "detail"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "facts": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "maxLength": 64
+      },
+      "additionalProperties": {
+        "type": "string",
+        "maxLength": 256
+      }
+    }
+  },
+  "required": [
+    "ok",
+    "checks"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `hostRunner.open`
+
+Open a host-issued SSH target snapshot and return an opaque provider session.
+
+Deadline: 30000 ms.
+
+Params:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "alias": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
+    },
+    "sshTarget": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._@][A-Za-z0-9._@-]*$"
+    },
+    "controlPath": {
+      "type": "string",
+      "maxLength": 512,
+      "pattern": "^\\/[^\\u0000-\\u001f]*\\/cm-%C$"
+    }
+  },
+  "required": [
+    "alias",
+    "sshTarget"
+  ],
+  "additionalProperties": false
+}
+```
+
+Result:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "session": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{16,128}$"
+    }
+  },
+  "required": [
+    "session"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `hostRunner.run`
+
+Run a fixed script with bounded arguments and text output.
+
+Deadline: 120000 ms.
+
+Params:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "session": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{16,128}$"
+    },
+    "script": {
+      "type": "string",
+      "enum": [
+        "CODEX_USAGE",
+        "PROBE",
+        "CHECK_REPO",
+        "SET_IDENTITY",
+        "ECHO_STDIN",
+        "PREPARE",
+        "QUESTION",
+        "QUESTION_CLEAR",
+        "PREFLIGHT",
+        "BUNDLE_OUT",
+        "CLEAN",
+        "BINARY",
+        "SESSION_FILES",
+        "SESSION_PIPE",
+        "SESSION_SOCKET",
+        "START",
+        "REPORT",
+        "READ_FROM",
+        "FOLLOW",
+        "STOP"
+      ]
+    },
+    "args": {
+      "maxItems": 32,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 4096
+      }
+    },
+    "timeoutMs": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 120000
+    },
+    "stdin": {
+      "type": "string",
+      "maxLength": 65536
+    },
+    "maxBytes": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 524288
+    },
+    "completionNonce": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    }
+  },
+  "required": [
+    "session",
+    "script",
+    "args",
+    "timeoutMs",
+    "maxBytes"
+  ],
+  "additionalProperties": false
+}
+```
+
+Result:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "code": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255
+    },
+    "stdout": {
+      "type": "string",
+      "maxLength": 524288
+    },
+    "stderr": {
+      "type": "string",
+      "maxLength": 524288
+    },
+    "timedOut": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "code",
+    "stdout",
+    "stderr",
+    "timedOut"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `hostRunner.stream`
+
+Stage a fixed-script byte stream; progress framing is reserved for a later authority patch.
+
+Deadline: 120000 ms.
+
+Params:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "session": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{16,128}$"
+    },
+    "script": {
+      "type": "string",
+      "enum": [
+        "CODEX_USAGE",
+        "PROBE",
+        "CHECK_REPO",
+        "SET_IDENTITY",
+        "ECHO_STDIN",
+        "PREPARE",
+        "QUESTION",
+        "QUESTION_CLEAR",
+        "PREFLIGHT",
+        "BUNDLE_OUT",
+        "CLEAN",
+        "BINARY",
+        "SESSION_FILES",
+        "SESSION_PIPE",
+        "SESSION_SOCKET",
+        "START",
+        "REPORT",
+        "READ_FROM",
+        "FOLLOW",
+        "STOP"
+      ]
+    },
+    "args": {
+      "maxItems": 32,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 4096
+      }
+    },
+    "timeoutMs": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 120000
+    },
+    "maxBytes": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 52428800
+    }
+  },
+  "required": [
+    "session",
+    "script",
+    "args",
+    "timeoutMs",
+    "maxBytes"
+  ],
+  "additionalProperties": false
+}
+```
+
+Result:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "code": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255
+    },
+    "bytes": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 52428800
+    }
+  },
+  "required": [
+    "code",
+    "bytes"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `hostRunner.fetch`
+
+Stage a fixed-script bundle fetch; the host later resolves the safe artifact name.
+
+Deadline: 120000 ms.
+
+Params:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "session": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{16,128}$"
+    },
+    "script": {
+      "type": "string",
+      "enum": [
+        "CODEX_USAGE",
+        "PROBE",
+        "CHECK_REPO",
+        "SET_IDENTITY",
+        "ECHO_STDIN",
+        "PREPARE",
+        "QUESTION",
+        "QUESTION_CLEAR",
+        "PREFLIGHT",
+        "BUNDLE_OUT",
+        "CLEAN",
+        "BINARY",
+        "SESSION_FILES",
+        "SESSION_PIPE",
+        "SESSION_SOCKET",
+        "START",
+        "REPORT",
+        "READ_FROM",
+        "FOLLOW",
+        "STOP"
+      ]
+    },
+    "args": {
+      "maxItems": 32,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 4096
+      }
+    },
+    "timeoutMs": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 120000
+    },
+    "maxBytes": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 52428800
+    }
+  },
+  "required": [
+    "session",
+    "script",
+    "args",
+    "timeoutMs",
+    "maxBytes"
+  ],
+  "additionalProperties": false
+}
+```
+
+Result:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}\\.bundle$"
+    },
+    "bytes": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 52428800
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    }
+  },
+  "required": [
+    "name",
+    "bytes",
+    "sha256"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `hostRunner.close`
+
+Close an owned host session.
+
+Deadline: 10000 ms.
+
+Params:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "session": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{16,128}$"
+    }
+  },
+  "required": [
+    "session"
+  ],
+  "additionalProperties": false
+}
+```
+
+Result:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "ok": {
+      "type": "boolean",
+      "const": true
+    }
+  },
+  "required": [
+    "ok"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `remoteCaller.fetch`
+
+Receive one host-issued persisted task bundle through an owned host session.
+
+Deadline: 120000 ms.
+
+Params:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "alias": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
+    },
+    "timeoutMs": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 60000
+    },
+    "maxBytes": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 52428800
+    }
+  },
+  "required": [
+    "alias",
+    "timeoutMs",
+    "maxBytes"
+  ],
+  "additionalProperties": false
+}
+```
+
+Result:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "ok": {
+      "type": "boolean",
+      "const": true
+    }
+  },
+  "required": [
+    "ok"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `remoteCaller.identity`
+
+Apply one configured repository identity through an owned host session.
+
+Deadline: 60000 ms.
+
+Params:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "alias": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "email": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    }
+  },
+  "required": [
+    "alias",
+    "path",
+    "name",
+    "email"
+  ],
+  "additionalProperties": false
+}
+```
+
+Result:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "code": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255
+    },
+    "stdout": {
+      "type": "string",
+      "maxLength": 524288
+    },
+    "stderr": {
+      "type": "string",
+      "maxLength": 524288
+    },
+    "timedOut": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "code",
+    "stdout",
+    "stderr",
+    "timedOut"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `executor.available`
+
+Report availability for a host-selected direct backend using a credential-free strategy name; staged only, with no production caller.
+
+Deadline: 10000 ms.
+
+Params:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "strategy": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "strategy"
+  ],
+  "additionalProperties": false
+}
+```
+
+Result:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "available": {
+      "type": "boolean"
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024
+    }
+  },
+  "required": [
+    "available"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### `classifier.adapters`
 
 Adapters this plugin serves; external adapters leave the machine.
@@ -5639,6 +6584,252 @@ Result:
 
 Answered only when the manifest declares the capability and, for installed plugins, the grant covers it.
 
+### `capability.hosts.open`
+
+Open an owner-bound broker session for a configured host alias.
+
+Params:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "alias": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
+    }
+  },
+  "required": [
+    "alias"
+  ],
+  "additionalProperties": false
+}
+```
+
+Result:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "session": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{16,128}$"
+    }
+  },
+  "required": [
+    "session"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `capability.hosts.run`
+
+Run one fixed script through an owned broker session with bounded text output.
+
+Params:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "session": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{16,128}$"
+    },
+    "script": {
+      "type": "string",
+      "enum": [
+        "CODEX_USAGE",
+        "PROBE",
+        "CHECK_REPO",
+        "SET_IDENTITY",
+        "ECHO_STDIN",
+        "PREPARE",
+        "QUESTION",
+        "QUESTION_CLEAR",
+        "PREFLIGHT",
+        "BUNDLE_OUT",
+        "CLEAN",
+        "BINARY",
+        "SESSION_FILES",
+        "SESSION_PIPE",
+        "SESSION_SOCKET",
+        "START",
+        "REPORT",
+        "READ_FROM",
+        "FOLLOW",
+        "STOP"
+      ]
+    },
+    "args": {
+      "maxItems": 32,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 4096
+      }
+    },
+    "timeoutMs": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 120000
+    },
+    "stdin": {
+      "type": "string",
+      "maxLength": 65536
+    },
+    "maxBytes": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 524288
+    }
+  },
+  "required": [
+    "session",
+    "script",
+    "args",
+    "timeoutMs",
+    "maxBytes"
+  ],
+  "additionalProperties": false
+}
+```
+
+Result:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "code": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255
+    },
+    "stdout": {
+      "type": "string",
+      "maxLength": 524288
+    },
+    "stderr": {
+      "type": "string",
+      "maxLength": 524288
+    },
+    "timedOut": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "code",
+    "stdout",
+    "stderr",
+    "timedOut"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `capability.hosts.fetch`
+
+Claim one host-issued bundle stage in an owned broker session without returning a path or handle.
+
+Params:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "session": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{16,128}$"
+    },
+    "timeoutMs": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 60000
+    },
+    "maxBytes": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 52428800
+    }
+  },
+  "required": [
+    "session",
+    "timeoutMs",
+    "maxBytes"
+  ],
+  "additionalProperties": false
+}
+```
+
+Result:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "ok": {
+      "type": "boolean",
+      "const": true
+    }
+  },
+  "required": [
+    "ok"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `capability.hosts.close`
+
+Close an owned broker session.
+
+Params:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "session": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{16,128}$"
+    }
+  },
+  "required": [
+    "session"
+  ],
+  "additionalProperties": false
+}
+```
+
+Result:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "ok": {
+      "type": "boolean",
+      "const": true
+    }
+  },
+  "required": [
+    "ok"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### `capability.planner.run`
 
 Run one dynamically admitted command under the trusted host install purpose; captures undo before spawn.
@@ -6688,6 +7879,76 @@ Result:
   },
   "required": [
     "base64"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `capability.process.stageBundle`
+
+Stage one host-issued fixed SSH BUNDLE_OUT binary stream under an owner-bound opaque handle.
+
+Params:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "argv": {
+      "minItems": 1,
+      "maxItems": 32,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 4096
+      }
+    },
+    "timeoutMs": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 60000
+    },
+    "maxBytes": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 52428800
+    }
+  },
+  "required": [
+    "argv",
+    "timeoutMs",
+    "maxBytes"
+  ],
+  "additionalProperties": false
+}
+```
+
+Result:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "handle": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"
+    },
+    "bytes": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 52428800
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    }
+  },
+  "required": [
+    "handle",
+    "bytes",
+    "sha256"
   ],
   "additionalProperties": false
 }

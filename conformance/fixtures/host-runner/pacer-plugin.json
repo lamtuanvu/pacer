@@ -1,0 +1,1 @@
+{"id":"fx-host-runner","version":"1.0.0","publisher":"pacer-conformance","host":"^1.5","entry":"main.ts","contributes":{"hostRunner":{"kinds":["ssh"]}},"capabilities":[]}

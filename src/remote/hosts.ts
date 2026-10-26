@@ -19,6 +19,8 @@ import { SCRIPTS } from "./scripts";
 import { runRemote } from "./ssh";
 import { transferred } from "./transfer";
 import { probeCodexUsage } from "./usage";
+import { pluginRegistry } from "../plugins";
+import { issueConfiguredHostIdentity } from "../plugins/host-identity-issuer";
 
 export interface HostFacts {
   os: string | null;
@@ -255,7 +257,12 @@ export async function setup(ctx: Ctx, alias: string, repo: string, o: SetupOptio
   if (o.identity !== false) {
     o.steps?.start("Set identity");
     if (!local.name || !local.email) throw new CoreError("invalid_input", "local repo needs user.name and user.email");
-    const set = await runRemote(ctx, host, SCRIPTS.SET_IDENTITY, [path, local.name, local.email]);
+    const grant = await issueConfiguredHostIdentity(ctx, alias, repo);
+    const registry = pluginRegistry(ctx), caller = registry.find(ctx, "remoteCaller", () => true);
+    if (caller !== "pacer-remote-caller") throw new CoreError("plugin_unavailable", "bundled remote caller plugin is unavailable");
+    const set = await registry.callWithIssuedHostIdentity<{
+      code: number; stdout: string; stderr: string; timedOut: boolean }>(ctx, caller,
+      "remoteCaller.identity", { alias, path, name: local.name, email: local.email }, grant);
     if (set.code) throw new CoreError("invalid_input", `identity setup failed on ${alias}`);
     o.steps?.pass("Set identity");
   } else o.steps?.skip("Set identity");

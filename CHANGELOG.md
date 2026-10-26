@@ -6,12 +6,17 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
+- Add a host-only, one-use finalized bundle input that rechecks the persisted run and private publication, then supplies an immutable bounded byte snapshot for safe downstream Git consumption.
+- Stage the direct executor manifest and bounded availability contract with a fake conformance plugin; no attempt runner or production backend is switched yet.
+- Add a scoped `hosts.open/run/close` plugin capability with caller-owned broker sessions, configured SSH aliases and fixed-script fake-provider forwarding; production SSH callers are not yet migrated.
+- Define a bounded, staged plugin host-runner wire contract and fake conformance fixture; remote SSH execution remains on the existing adapter.
 - Record private, bounded OTA request-stage diagnostics in live validation evidence while preserving fixture authorization and HTTP behavior.
 - Add plugin policy checks for delegation, executor routing and task review, with bounded task observations, event subscriptions, failure modes and policy status across API, CLI, TUI and app surfaces.
 - Expose pure planner integration editing and undo helpers through `@pacer/plugin/install`, including JSONC-preserving edits, managed blocks and hook records.
 
 ### Changed
 
+- Receive committed SSH task results through the bundled remote caller and host-issued, verified bundle; import its immutable bytes and compare-and-swap the local branch without a direct host fetch fallback.
 - Run planner integration install, uninstall, consent preview, detection and checks through `pacer-planners`. The host retains exact file/process admission, manifest v1, schema1 file recovery and lock/journal settlement; disabled plugins have no installer fallback. Negotiated planner transactions prepare data without claiming a durable child commit.
 - Run OpenAI-compatible model discovery, managed OpenCode configuration and fixed endpoint tests through the bundled `pacer-endpoints` plugin. Keys remain host-owned; protocol 1.4 adds bounded file writes and exact process contexts with bound credential references. Account edits await configuration rendering, and disabled endpoint plugins have no built-in fallback.
 - OS notification delivery moves to the bundled `pacer-notify` plugin behind exact per-message spawn authority; the host retains levels, client preference and delivery ledger. Plugin protocol 1.3 adds `notifier.deliver`.
@@ -57,6 +62,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Changed
 
+- Route `pacer host setup` repository identity updates through the bundled remote caller and SSH provider with a one-use host-issued grant. Setup reports a plugin error if either required plugin is disabled.
 - Settings → Dispatcher now contains saved global profiles and executor eligibility, including repository overrides. Former Routing and Strategies links redirect there.
 
 - Open tasks in a split workspace with a task navigator and a larger session pane. Keep task details compact, make each list row one navigation target, and use the main Tasks route for returning to the list.

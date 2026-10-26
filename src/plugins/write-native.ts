@@ -24,6 +24,7 @@ export interface WriteNative {
   ): number;
   mkdirAt(fd: number, name: string | Uint8Array, mode: number): void;
   renameAt(from: number, old: string, to: number, name: string): void;
+  linkAt(from: number, old: string, to: number, name: string): void;
   unlinkAt(fd: number, name: string | Uint8Array, directory: boolean): void;
   entries(fd: number): Iterable<Buffer>;
 }
@@ -66,6 +67,7 @@ export function writeNative(): WriteNative {
     openat: { args: [F.i32, F.ptr, F.i32, F.u32], returns: F.i32 },
     mkdirat: { args: [F.i32, F.ptr, F.u32], returns: F.i32 },
     renameat: { args: [F.i32, F.ptr, F.i32, F.ptr], returns: F.i32 },
+    linkat: { args: [F.i32, F.ptr, F.i32, F.ptr, F.i32], returns: F.i32 },
     unlinkat: { args: [F.i32, F.ptr, F.i32], returns: F.i32 },
     dup: { args: [F.i32], returns: F.i32 },
     fdopendir: { args: [F.i32], returns: F.ptr },
@@ -96,6 +98,10 @@ export function writeNative(): WriteNative {
       const a = cstr(old),
         b = cstr(name);
       checked(sys.renameat(from, ptr(a), to, ptr(b)));
+    },
+    linkAt(from, old, to, name) {
+      const a = cstr(old), b = cstr(name);
+      checked(sys.linkat(from, ptr(a), to, ptr(b), 0));
     },
     unlinkAt(fd, name, directory) {
       const bytes = cstr(name);

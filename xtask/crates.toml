@@ -33,6 +33,9 @@ generated = true
 [crates.pacer-plugin-agent-protocol]
 layer = 0
 generated = true
+[crates.pacer-plugin-hosts-protocol]
+layer = 0
+generated = true
 [crates.pacer-plugin-protocol]
 layer = 0
 generated = true

@@ -4,7 +4,12 @@ import {POLICY_OBSERVATIONS_FEATURE,type ObservationClient,type PolicyEvent} fro
 export type {PolicyBeforeParams,PolicyDecision,PolicyVerdict,PolicyEventType,PolicyTaskState,PolicyTask,PolicyEvent,ObservationClient} from "./policy";
 import { createFileSystem } from "./fs";
 import { createHttp, type Request as HttpRequest, type Response as HttpResponse } from "./http";
+import { createHosts } from "./hosts";
+export type { HostFetchInput } from "./hosts";
 export type { AgentIdentityInput, AgentIdentityPlan, AttachmentMetadata, AttachmentRef, AgentVersion, AgentSessionCapabilities, AgentSessionPrepare, AgentSessionLaunch, AgentAttachmentInput, AgentAttachmentDelivery } from "./agent-session";
+export type {HostRunnerScript,HostRunnerSession,HostRunnerRequest,HostRunnerRunInput,HostRunnerRunResult,HostRunnerFetchResult} from "./host-runner";
+export { executorAvailableHandler } from "./executor";
+export type { ExecutorAvailableInput, ExecutorAvailableResult, ExecutorAvailableHandler } from "./executor";
 
 export interface PluginManifest {
   id: string; version: string; publisher: string; host: string;
@@ -15,6 +20,8 @@ export interface PluginManifest {
 export interface Hello { features?: string[]; protocol: string; pacer: string; manifest: PluginManifest; config: Record<string, unknown>; grants: string[] }
 export interface HostClient extends ObservationClient {
   fs: ReturnType<typeof createFileSystem>;
+  /** Present in the current SDK runtime; optional for older mock/SDK clients. */
+  hosts?: ReturnType<typeof createHosts>;
   http(request:HttpRequest):Promise<HttpResponse>;
   secrets: { present(ref:string):Promise<boolean> };
   call<T = unknown>(method: string, params?: unknown): Promise<T>;
@@ -129,6 +136,7 @@ export async function serve(o: ServeOptions): Promise<void> {
       fs: createFileSystem({call,cleanupCall:(method,params)=>call(method,params,true),signal,
         negotiated:()=>negotiatedFeatures.has("fileWriteChunks"),
         fits:(method,params)=>Buffer.byteLength(JSON.stringify({jsonrpc:"2.0",id:`p${nextId}`,method,params,...(meta?{_meta:meta}:{})})+"\n")<=1048576}),
+      hosts: createHosts(call),
       http: createHttp({call, cleanupCall:(method,params)=>call(method,params,true), signal,
         negotiated:()=>negotiatedFeatures.has("httpBodyChunks"),
         fits:(method,params)=>Buffer.byteLength(JSON.stringify({jsonrpc:"2.0",id:`p${nextId}`,method,params,...(meta?{_meta:meta}:{})})+"\n")<=1048576}),

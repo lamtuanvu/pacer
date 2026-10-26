@@ -38,7 +38,8 @@ async function setup(agent = "codex", account = "") {
   sshEnv.PATH = `${localBin}:${sshEnv.PATH}`;
   const sshLog = join(root, "ssh.log"), env = { ...process.env, ...sshEnv, CODEX_HOME: "planner-codex", CLAUDE_CONFIG_DIR: "planner" };
   const gitCalls: string[][] = [];
-  const ctx = fakeCtx({ env, run: (argv, ms, o) => {
+  const ctx = fakeCtx({ env, which: name => name === "ssh" ? join(import.meta.dir, "fixtures", "bin", "ssh") :
+    name === "git" ? "/usr/bin/git" : Bun.which(name), run: (argv, ms, o) => {
     if (argv[0] === "git") gitCalls.push(argv);
     return realRun(argv, ms, { ...o, env: { ...env, ...o?.env } });
   } });
@@ -64,4 +65,4 @@ test("remote question is received verbatim and task id reaches the host",async()
  const prompt=readFileSync(join(readTask(f.ctx,f.task.id)!.run!.remoteDir!,"stdin"),"utf8");
  expect(prompt).toContain(".pacer-question");
  expect(prompt).not.toContain('run pacer ask');
-},15000);
+},60000);

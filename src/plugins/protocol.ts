@@ -1,4 +1,10 @@
 import {POLICY_METHODS,POLICY_CAPABILITY_METHODS,POLICY_METHOD_CAPABILITY} from "./policy-protocol";
+import {HOST_RUNNER_METHODS,hostRunnerContribution} from "./host-runner-protocol";
+import { EXECUTOR_METHODS, executorContribution } from "./executor-protocol";
+import { HOSTS_METHODS, HOSTS_METHOD_CAPABILITY } from "./hosts-protocol";
+import { REMOTE_CALLER_METHODS } from "./remote-caller-protocol";
+export {HOST_RUNNER_SCRIPTS,hostRunnerAlias,hostRunnerSession,hostRunnerScript,hostRunnerContribution} from "./host-runner-protocol";
+export { executorContribution, executorAvailableParams, executorAvailableResult } from "./executor-protocol";
 export {POLICY_DECISIONS,POLICY_EVENT_TYPES,POLICY_TASK_STATES,POLICY_OBSERVATIONS_FEATURE,pluginMetadata,readOwnerMetadata,policyBeforeParams,policyVerdict,policyEvent} from "./policy-protocol";
 import { z } from "zod";
 import { PLANNER_METHODS, PLANNER_CAPABILITY_METHODS, PLANNER_METHOD_CAPABILITY } from "./planner-protocol";
@@ -22,21 +28,38 @@ import { observationMethodSchema, observationScopeSchema, observationSchema, dec
 export const PLUGIN_PROTOCOL_VERSION = "1.5.0";
 export const PLUGIN_PROTOCOL_MAJOR = 1;
 
-export const EXTENSION_POINTS = ["diagnostic", "agentSession", "observation", "decision", "usage", "classifier", "notifier", "endpoint", "planner", "policy"] as const;
+export const EXTENSION_POINTS = ["diagnostic", "agentSession", "observation", "decision", "usage", "classifier", "notifier", "endpoint", "planner", "policy", "hostRunner", "remoteCaller", "executor"] as const;
 export type ExtensionPoint = (typeof EXTENSION_POINTS)[number];
 
-export const CAPABILITIES = ["tasks.read", "events.subscribe", "process.spawn", "fs.read", "fs.write", "net.http", "secrets.resolve", "config.get", "entitlement.report", "log", "usage.state"] as const;
+export const CAPABILITIES = ["tasks.read", "events.subscribe", "process.spawn", "fs.read", "fs.write", "net.http", "secrets.resolve", "config.get", "entitlement.report", "log", "usage.state", "hosts"] as const;
 export type Capability = (typeof CAPABILITIES)[number];
 
 export const PLUGIN_ID = /^[a-z0-9][a-z0-9-]{1,63}$/;
 const SEMVER_RANGE = /^(\^|~|>=)?\d+(\.\d+){0,2}$|^\*$/;
+const genericContribution = z.record(z.string(), z.json());
+/** Keep the published manifest schema as strict as runtime validation. */
+export const manifestContributes = z.object({
+  diagnostic: genericContribution.optional(),
+  agentSession: genericContribution.optional(),
+  observation: genericContribution.optional(),
+  decision: genericContribution.optional(),
+  usage: genericContribution.optional(),
+  classifier: genericContribution.optional(),
+  notifier: genericContribution.optional(),
+  endpoint: genericContribution.optional(),
+  planner: genericContribution.optional(),
+  policy: genericContribution.optional(),
+  hostRunner: hostRunnerContribution.optional(),
+  remoteCaller: genericContribution.optional(),
+  executor: executorContribution.optional(),
+}).strict();
 
 export const manifestSchema = z.object({
   id: z.string().regex(PLUGIN_ID, "id is 2-64 lowercase letters, digits and hyphens"),
   version: z.string().refine(isVersion, "version is semver (MAJOR.MINOR.PATCH)"),
   publisher: z.string().min(1).max(128),
   host: z.string().regex(SEMVER_RANGE, "host is a semver range such as ^1 or ^1.2.0"),
-  contributes: z.partialRecord(z.enum(EXTENSION_POINTS), z.record(z.string(), z.json())).default({}),
+  contributes: manifestContributes.default({}),
   capabilities: z.array(z.object({ name: z.enum(CAPABILITIES), scopes: z.array(z.string().min(1)).optional() })).default([]),
   entry: z.string().min(1).optional(),
   reentrant: z.boolean().default(false),
@@ -83,6 +106,9 @@ export const EXTENSION_METHODS: Record<string, MethodDef> = {
       z.object({kind: z.literal("command"), argv: z.array(z.string()).min(1), idPath: z.array(z.string()).min(1).max(8)})]), deadlineMs: 5000}),
   ...PLANNER_METHODS,
   ...POLICY_METHODS,
+  ...HOST_RUNNER_METHODS,
+  ...REMOTE_CALLER_METHODS,
+  ...EXECUTOR_METHODS,
   ...CLASSIFIER_METHODS,
   ...NOTIFIER_METHODS,
   ...ENDPOINT_METHODS,
@@ -95,6 +121,7 @@ export const EXTENSION_METHODS: Record<string, MethodDef> = {
 
 /** Plugin → host. Keys are `capability.<name>`; answered only when the manifest declares the capability. */
 export const CAPABILITY_METHODS: Record<string, MethodDef> = {
+  ...HOSTS_METHODS,
   ...PLANNER_CAPABILITY_METHODS,
   ...POLICY_CAPABILITY_METHODS,
   ...SCOPED_CAPABILITY_METHODS,
@@ -104,7 +131,7 @@ export const CAPABILITY_METHODS: Record<string, MethodDef> = {
   "capability.config.get": method({ description: "The plugin's own config slice (plugins.config.<id> in the strategy file).", params: z.object({}), result: z.object({ config: z.record(z.string(), z.json()) }), deadlineMs: 1000 }),
 };
 
-export const METHOD_CAPABILITY: Readonly<Record<string, Capability>> = { ...POLICY_METHOD_CAPABILITY, ...PLANNER_METHOD_CAPABILITY, ...SCOPED_METHOD_CAPABILITY, ...FS_WRITE_METHOD_CAPABILITY, ...HTTP_METHOD_CAPABILITY };
+export const METHOD_CAPABILITY: Readonly<Record<string, Capability>> = { ...HOSTS_METHOD_CAPABILITY, ...POLICY_METHOD_CAPABILITY, ...PLANNER_METHOD_CAPABILITY, ...SCOPED_METHOD_CAPABILITY, ...FS_WRITE_METHOD_CAPABILITY, ...HTTP_METHOD_CAPABILITY };
 
 export function capabilityOf(method: string): Capability | null {
   if (Object.hasOwn(METHOD_CAPABILITY, method)) return METHOD_CAPABILITY[method]!;
