@@ -143,7 +143,8 @@ the planner window resets, or an explicit future timestamp; `mode.release` ends 
 
 **Settings → This machine → Preferred terminal** chooses the app used by
 **Open in terminal** and other local terminal actions. The choice is stored as
-`terminal.open`; `auto` detects a terminal. Existing `terminal.app` choices
+`terminal.open`; `auto` detects a terminal, including iTerm when macOS reports
+`TERM_PROGRAM=iTerm.app`. Existing `terminal.app` choices
 remain in effect until a preferred terminal is chosen. The CLI can also set a
 custom argv template with `pacer config set terminal.open '<template with {cmd}>'`.
 Automatic terminal opening tries Orca, the chosen terminal app, then tmux. On a
