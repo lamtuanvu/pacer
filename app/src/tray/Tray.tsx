@@ -139,22 +139,24 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
       })}</section>
     </>}
     {error && <p role="alert" className="tray-error">{error}</p>}
-    <nav className="tray-footer" aria-label="pacer actions">
-      <ButtonLink variant="primary" href={appHref("/")} onClick={navigate("/")}>Delegate <Kbd>⌘D</Kbd></ButtonLink>
-      <ButtonLink href={appHref("/")} onClick={navigate("/")}>Open pacer <Kbd>⌘O</Kbd></ButtonLink>
-      <span className="tray-grow" />
-      <IconButton variant="quiet" type="button" title={pauseLabel} aria-label={pauseLabel} disabled={!snapshot || busy || sessionEnded} onClick={() => act(() => api.call(snapshot?.pause ? "delegation.resume" : "delegation.pause", snapshot?.pause ? {} : { for: "1h" }))}>{snapshot?.pause ? "▶" : "⏸"}</IconButton>
-      <IconButton ref={moreButton} variant="quiet" type="button" title="Strategy, launch at login, quit" aria-label="More" aria-expanded={menuOpen} aria-controls="tray-menu" onClick={() => { setMenuOpen(!menuOpen); setStrategiesOpen(false); }}>⋯</IconButton>
-    </nav>
-    {menuOpen && <nav id="tray-menu" className="tray-menu" aria-label="More actions">
-      <Button variant="quiet" type="button" aria-expanded={strategiesOpen} aria-controls="tray-strategies" onClick={() => setStrategiesOpen(!strategiesOpen)}>Switch strategy <span aria-hidden="true">{strategiesOpen ? "▾" : "▸"}</span></Button>
-      {strategiesOpen && <div id="tray-strategies" className="tray-strategies">{snapshot?.strategies?.length ? snapshot.strategies.map(strategy => {
-        const name = typeof strategy === "string" ? strategy : strategy.name;
-        const active = typeof strategy !== "string" ? strategy.active : snapshot.budget?.strategy === name;
-        return <Button key={name} type="button" disabled={busy || sessionEnded} aria-pressed={active} onClick={() => act(async () => { await api.call("strategy.use", { name }); setStrategiesOpen(false); setMenuOpen(false); })}>{name}{active && <span aria-label="Active">✓</span>}</Button>;
-      }) : <span className="tray-notice">No strategies available</span>}</div>}
-      <TextAction className="pc-text-action" href={appHref("/settings/general")} onClick={navigate("/settings/general")}>Launch at login</TextAction>
-      {ipc.desktop && <Button variant="quiet" type="button" onClick={() => act(ipc.quit)}>Quit<Kbd>⌘Q</Kbd></Button>}
-    </nav>}
+    <div className="tray-actions">
+      <nav className="tray-footer" aria-label="pacer actions">
+        <ButtonLink variant="primary" href={appHref("/")} onClick={navigate("/")}>Delegate <Kbd>⌘D</Kbd></ButtonLink>
+        <ButtonLink href={appHref("/")} onClick={navigate("/")}>Open pacer <Kbd>⌘O</Kbd></ButtonLink>
+        <span className="tray-grow" />
+        <IconButton variant="quiet" type="button" title={pauseLabel} aria-label={pauseLabel} disabled={!snapshot || busy || sessionEnded} onClick={() => act(() => api.call(snapshot?.pause ? "delegation.resume" : "delegation.pause", snapshot?.pause ? {} : { for: "1h" }))}>{snapshot?.pause ? "▶" : "⏸"}</IconButton>
+        <IconButton ref={moreButton} variant="quiet" type="button" title="Strategy, launch at login, quit" aria-label="More" aria-expanded={menuOpen} aria-controls="tray-menu" onClick={() => { setMenuOpen(!menuOpen); setStrategiesOpen(false); }}>⋯</IconButton>
+      </nav>
+      {menuOpen && <nav id="tray-menu" className="tray-menu" aria-label="More actions">
+        <Button variant="quiet" type="button" aria-expanded={strategiesOpen} aria-controls="tray-strategies" onClick={() => setStrategiesOpen(!strategiesOpen)}>Switch strategy <span aria-hidden="true">{strategiesOpen ? "▾" : "▸"}</span></Button>
+        {strategiesOpen && <div id="tray-strategies" className="tray-strategies">{snapshot?.strategies?.length ? snapshot.strategies.map(strategy => {
+          const name = typeof strategy === "string" ? strategy : strategy.name;
+          const active = typeof strategy !== "string" ? strategy.active : snapshot.budget?.strategy === name;
+          return <Button key={name} type="button" disabled={busy || sessionEnded} aria-pressed={active} onClick={() => act(async () => { await api.call("strategy.use", { name }); setStrategiesOpen(false); setMenuOpen(false); })}>{name}{active && <span aria-label="Active">✓</span>}</Button>;
+        }) : <span className="tray-notice">No strategies available</span>}</div>}
+        <TextAction className="pc-text-action" href={appHref("/settings/general")} onClick={navigate("/settings/general")}>Launch at login</TextAction>
+        {ipc.desktop && <Button variant="quiet" type="button" onClick={() => act(ipc.quit)}>Quit<Kbd>⌘Q</Kbd></Button>}
+      </nav>}
+    </div>
   </main></DensityProvider>;
 }

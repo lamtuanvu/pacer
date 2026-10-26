@@ -19,6 +19,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 - Release a finished conversation's runner ownership so a failed session can resume once its terminal has stopped. Explain disk-full failures and provide an attach command when a terminal viewer cannot open.
 - Use the preferred terminal selected in This machine for session viewers and other local terminal actions, while preserving existing terminal.app preferences.
+- Round the tray panel corners and overlay its More menu without growing the panel.
 - Reopening a running Pacer task from the Tasks list now takes control of an unheld live terminal, including interactive conversations, while preserving explicit takeover when another viewer holds it.
 - Keep legacy connected Claude settings usable after unrelated settings edits when pacer's hooks are intact; show the recorded failure reason on a failed interactive session.
 - Honor protocol v3 for in-process clients and retain executor role restrictions when generic CLI calls use a planner-owned service. Explicit service selection never retries refused calls locally.
