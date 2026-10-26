@@ -49,7 +49,7 @@ export function TaskResultView({ task, verdict, changes, question, onChanges, em
       </section>
     </div></div><aside className="pc-page-columns__aside">
       <section className="pc-action-panel"><SectionHeading>Next step</SectionHeading>
-        {question ?? (openReview || problem ? <><p>{task.reviewRequest?.note ?? (task.acceptance.state === "failed" ? "Inspect the failed checks before continuing." : task.state === "partial" ? "Inspect the incomplete work before continuing." : "Inspect the failure and retry when ready.")}</p>{verdict}</> : <><p className="muted">{task.acceptance.state === "failed" ? "Inspect the failed checks before deciding how to continue." : task.state === "partial" ? "Inspect the incomplete work before continuing." : task.review ? "This result has a recorded verdict." : "No acknowledgment required."}</p>{verdict && <Disclosure className="pc-disclosure" summary="Optional verdict">{verdict}</Disclosure>}</>)}
+        {task.work ? <p>Use the Work tab for decisions and history.</p> : question ?? (openReview || problem ? <><p>{task.reviewRequest?.note ?? (task.acceptance.state === "failed" ? "Inspect the failed checks before continuing." : task.state === "partial" ? "Inspect the incomplete work before continuing." : "Inspect the failure and retry when ready.")}</p>{verdict}</> : <><p className="muted">{task.acceptance.state === "failed" ? "Inspect the failed checks before deciding how to continue." : task.state === "partial" ? "Inspect the incomplete work before continuing." : task.review ? "This result has a recorded verdict." : "No acknowledgment required."}</p>{verdict && <Disclosure className="pc-disclosure" summary="Optional verdict">{verdict}</Disclosure>}</>)}
       </section>
       <section className="pc-section"><SectionHeading>Delivery</SectionHeading><p className="muted">Integration not recorded</p>{task.branch && <code className="pc-code-scroll">{task.branch}</code>}<p className="muted">Accepting records a verdict. Integrate changes separately.</p></section>
     </aside></div>
@@ -97,16 +97,22 @@ function TaskResultLoaded({ task, reload }: { task: TaskDetail; reload: () => vo
       reload();
     } finally { inFlight.current=false;setPending(false); }
   }
-  const canReview = !["queued", "running"].includes(task.state) && state.features.ops.has("task.review") && !task.review && !task.resolved && !task.dismissed && !task.retriedBy;
+  const canReview = legacyReviewAvailable(task,state.features.ops.has("task.review"));
   const panel = canReview ? <VerdictPanel recovery={task.acceptance.state === "failed" || ["partial","failed","limit"].includes(task.state)} task={task} note={note} kind={kind} executor={executor} noteFor={noteFor} pending={pending} noteRef={noteRef}
     onNote={setNote} onKind={setKind} onExecutor={setExecutor} onOpenNote={v=>{setNoteFor(v);queueMicrotask(()=>noteRef.current?.focus());}} onCancel={()=>setNoteFor(null)} onSubmit={v=>void submit(v)} /> : undefined;
-  const isQuestion = task.state === "needs_input" && task.question && task.question.answer === undefined && !task.retriedBy && !task.dismissed;
+  const isQuestion = legacyQuestionPending(task);
   const question = isQuestion ? <><p>{task.question!.text}</p><Field label="Your answer"><TextArea value={answer} rows={4} onInput={e=>setAnswer(e.currentTarget.value)} /></Field><Button variant="primary" busy={pending} disabled={!answer.trim()} onClick={async()=>{
     if(inFlight.current)return;inFlight.current=true;setPending(true);
     try { const result=await runner.run(`answer:${task.id}`,{label:"Answer",op:"task.answer",params:{id:task.id,text:answer,expect_rev:task.rev}});setMessage(result.status==="error"||result.status==="handled"?result.message:"Answer sent.");reload(); }
     finally {inFlight.current=false;setPending(false);}
   }}>Send answer</Button></> : undefined;
   return <><TaskResultView embedded task={task} verdict={panel} question={question} onChanges={()=>void loadChanges()} changes={loadingChanges ? <LoadingState label="Loading changes…"/> : changesError ? <p role="status">{changesError}</p> : changes ? <ResultChanges {...changes}/> : undefined}/><p role="status" aria-live="polite">{message}</p></>;
+}
+export function legacyQuestionPending(task: TaskDetail): boolean {
+  return !task.work && task.state === "needs_input" && !!task.question && task.question.answer === undefined && !task.retriedBy && !task.dismissed;
+}
+export function legacyReviewAvailable(task: TaskDetail, supportsReview: boolean): boolean {
+  return !task.work && !["queued", "running"].includes(task.state) && supportsReview && !task.review && !task.resolved && !task.dismissed && !task.retriedBy;
 }
 export function TaskHeading({ task }: { task: TaskDetail }) {
   const title = task.title?.trim() || task.fullTitle?.trim() || task.goal;

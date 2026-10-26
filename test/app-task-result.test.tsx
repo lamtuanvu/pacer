@@ -74,10 +74,27 @@ test("task workspace keeps route navigation and four task views", async () => {
 test("dispatched task adds Work to the split workspace views", async () => {
  const {TaskDetailFrame} = await import("../app/src/screens/TaskResult");
  const dispatched={...task,work:{} as TaskDetail["work"]};
- const html=renderToString(<TaskDetailFrame task={dispatched} query={{}} tab="work" onTab={()=>{}}><p>Dispatch history</p></TaskDetailFrame>);
+ const html=renderToString(<TaskDetailFrame task={dispatched} query={{repo:null,scope:null}} tab="work" onTab={()=>{}}><p>Dispatch history</p></TaskDetailFrame>);
  expect(html).toContain('id="task-t-0412-work-tab" role="tab" aria-selected="true"');
  expect(html).toContain('role="tabpanel" id="task-t-0412-work-panel" aria-labelledby="task-t-0412-work-tab"');
  expect(html).toContain('Dispatch history');
+});
+
+test("managed questions stay in Work rather than invoking the legacy answer action", async () => {
+ const {legacyQuestionPending}=await import("../app/src/screens/TaskResult");
+ const needsInput={...task,state:"needs_input" as const,question:{text:"Which format?",at:1}};
+ expect(legacyQuestionPending(needsInput)).toBe(true);
+ expect(legacyQuestionPending({...needsInput,work:{} as TaskDetail["work"]})).toBe(false);
+});
+
+test("managed results direct review to Work instead of legacy verdict actions", async () => {
+ const {legacyReviewAvailable}=await import("../app/src/screens/TaskResult");
+ const managed={...task,state:"done" as const,work:{} as TaskDetail["work"],reviewRequest:{note:"Review children",at:1}};
+ expect(legacyReviewAvailable({...managed,work:undefined},true)).toBe(true);
+ expect(legacyReviewAvailable(managed,true)).toBe(false);
+ const html=renderToString(<TaskResultView task={managed} verdict={<button>Accept</button>}/>);
+ expect(html).toContain("Use the Work tab for decisions and history.");
+ expect(html).not.toContain("<button>Accept</button>");
 });
 
 test("active task summaries never claim that execution ended", () => {
