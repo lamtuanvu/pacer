@@ -8533,6 +8533,93 @@ impl ::std::default::Default for LimitsCheckParams {
         Self {}
     }
 }
+///`LimitsRefreshParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "properties": {
+///    "account": {
+///      "type": "string",
+///      "maxLength": 128,
+///      "minLength": 1
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct LimitsRefreshParams {
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub account: ::std::option::Option<LimitsRefreshParamsAccount>,
+}
+impl ::std::default::Default for LimitsRefreshParams {
+    fn default() -> Self {
+        Self {
+            account: Default::default(),
+        }
+    }
+}
+///`LimitsRefreshParamsAccount`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 128,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct LimitsRefreshParamsAccount(::std::string::String);
+impl ::std::ops::Deref for LimitsRefreshParamsAccount {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<LimitsRefreshParamsAccount> for ::std::string::String {
+    fn from(value: LimitsRefreshParamsAccount) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for LimitsRefreshParamsAccount {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 128usize {
+            return Err("longer than 128 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for LimitsRefreshParamsAccount {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for LimitsRefreshParamsAccount {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
 ///`LimitsReportParams`
 ///
 /// <details><summary>JSON schema</summary>
