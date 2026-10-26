@@ -988,6 +988,7 @@ dependencies = [
  "regress",
  "serde",
  "serde_json",
+ "uuid",
 ]
 
 [[package]]
