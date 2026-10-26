@@ -915,6 +915,7 @@ version = "0.0.0"
 dependencies = [
  "pacer-foundation",
  "pacer-store",
+ "rustix",
  "serde_json",
  "serde_yaml",
  "sha2",

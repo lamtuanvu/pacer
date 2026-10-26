@@ -49,6 +49,37 @@ fn runner_name(name: &str) -> bool {
             byte.is_ascii_lowercase() || byte.is_ascii_digit() || (i > 0 && byte == b'-')
         })
 }
+fn ssh_name(name: &str) -> bool {
+    name.bytes().enumerate().all(|(i, byte)| {
+        byte.is_ascii_alphanumeric()
+            || matches!(byte, b'.' | b'_' | b'@')
+            || (i > 0 && byte == b'-')
+    }) && !name.is_empty()
+}
+
+fn configured_ssh(root: &Mapping) -> Option<Vec<String>> {
+    let Some(hosts) = get(root, "hosts") else {
+        return Some(Vec::new());
+    };
+    let hosts = mapping(hosts)?;
+    let mut used = Vec::new();
+    for (alias, value) in hosts {
+        let alias = alias.as_str()?;
+        if alias == "local" || !runner_name(alias) {
+            return None;
+        }
+        let value = mapping(value)?;
+        if !only(value, &["ssh"]) {
+            return None;
+        }
+        let ssh = get(value, "ssh")?.as_str()?;
+        if !ssh_name(ssh) {
+            return None;
+        }
+        used.push(ssh.to_owned());
+    }
+    Some(used)
+}
 
 fn strategy_path(ctx: &Ctx) -> Option<PathBuf> {
     let active = ctx.pacer_home.join("active");
@@ -126,9 +157,10 @@ fn canonical_runner(
 
 fn model(value: &Yaml) -> Option<Value> {
     let root = mapping(value)?;
-    if !only(root, &["accounts", "planner", "routing", "pacing"]) {
+    if !only(root, &["accounts", "planner", "routing", "pacing", "hosts"]) {
         return None;
     }
+    configured_ssh(root)?;
     let accounts = mapping(get(root, "accounts")?)?;
     if accounts.is_empty() {
         return None;
@@ -234,6 +266,12 @@ fn model(value: &Yaml) -> Option<Value> {
 
 fn load(ctx: &Ctx) -> Option<Value> {
     model(&read_strategy(ctx)?)
+}
+
+pub(crate) fn host_targets(ctx: &Ctx) -> Option<Vec<String>> {
+    let yaml = read_strategy(ctx)?;
+    model(&yaml)?;
+    configured_ssh(mapping(&yaml)?)
 }
 
 /// True when this strategy needs Bun's broader YAML and validation semantics.
