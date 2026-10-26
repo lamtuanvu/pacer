@@ -2,9 +2,6 @@ import { desktopUpdateIndicator } from "../../../src/view-model/updates";
 import { SETTINGS_PAGES } from '../settings-pages';
 import { Icon, type IconName } from '../ds/icons';
 import { AppLink } from "../navigation";
-import { useResource } from "../screens/settings/shared";
-import type { RoutingRules } from "../model/executors";
-import type { StrategyRow } from "../model/strategy";
 import type { ClientSnapshot } from "../../../src/view-model/snapshot";
 import type { Counts } from "../../../src/api/read-model/types";
 import { routes, type Route, type RouteTarget } from "../router";
@@ -28,6 +25,5 @@ export function SettingsPanel({ route, counts, snapshot, badges = {} }: { route:
 }
 
 export function SettingsPanelData({ route, counts, snapshot }: { route: Route; counts: Counts | null; snapshot?: ClientSnapshot | null }) {
-  const routing = useResource<RoutingRules>("routing.get"), strategies = useResource<StrategyRow[]>("strategy.list");
-  return <SettingsPanel route={route} counts={counts} snapshot={snapshot} badges={{routing:routing.data ? `${routing.data.rules.length} ${routing.data.rules.length === 1 ? "rule" : "rules"}` : "",strategies:strategies.data?.length ?? ""}} />;
+  return <SettingsPanel route={route} counts={counts} snapshot={snapshot} />;
 }

@@ -12,7 +12,7 @@ export function actionRoute(action: Action): string {
   if (typeof route === "string" && /^#?\//.test(route)) return route.replace(/^#/, "");
   if ((view === "task" || view === "session" || view === "review") && typeof id === "string") return `/tasks/${encodeURIComponent(id)}`;
   if (view === "settings" && typeof section === "string") return settingsPath(section);
-  return ({ overview: "/", home: "/", delegate: "/", settings: "/settings", executors: "/settings/executors", accounts: "/settings/accounts", hosts: "/settings/hosts", setup: "/", tasks: "/tasks", strategy: "/settings/strategies" } as Record<string, string>)[String(view)] ?? "/";
+  return ({ overview: "/", home: "/", delegate: "/", settings: "/settings", executors: "/settings/executors", accounts: "/settings/accounts", hosts: "/settings/hosts", setup: "/", tasks: "/tasks", strategy: "/settings/dispatcher" } as Record<string, string>)[String(view)] ?? "/";
 }
 export const primaryAction = (actions: Action[]) => actions.find(a => a.style === "primary") ?? actions[0];
 /** Compact capacity values never invent an unknown usage percentage. */

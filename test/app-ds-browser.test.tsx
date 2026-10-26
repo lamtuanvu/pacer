@@ -54,11 +54,11 @@ browserTest('Dialog keyboard order includes native disclosure summaries and resp
   } finally { await browser.close(); }
 });
 
-browserTest('Strategies rows keep their bottom border when operation feedback follows them', async () => {
+browserTest('Saved profile rows keep their bottom border when operation feedback follows them', async () => {
   const state = { ...initialState(), snapshot: { executors: [], accounts: [], hosts: [], repos: [] } } as any;
   const api = { call: async () => ({}), hello: async () => ({}), snapshot: async () => ({}) } as any;
   const markup = renderToString(<TaskContext.Provider value={{ state, api }}>
-    <SettingsGeneral section="strategies" initialData={settings} />
+    <SettingsGeneral section="dispatcher" initialData={settings} />
   </TaskContext.Provider>);
   const styles = await Promise.all(['app/src/ds/tokens.css', 'app/src/ds/components.css', 'app/src/screens/settings/settings.css']
     .map(path => Bun.file(path).text()));
@@ -66,7 +66,7 @@ browserTest('Strategies rows keep their bottom border when operation feedback fo
   try {
     const page = await browser.newPage({ viewport: { width: 375, height: 700 } });
     await page.setContent(`<style>${styles.join('\n')}</style><div class="u3-general-sections">${markup}</div>`);
-    const rows = page.locator('#strategies .u3-setting');
+    const rows = page.locator('#saved-profiles .u3-setting');
     expect(await rows.count()).toBe(2);
     const last = rows.last();
     expect(await last.evaluate(node => node.nextElementSibling?.classList.contains('u3-feedback'))).toBe(true);

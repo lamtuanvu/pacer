@@ -48,7 +48,7 @@ export function StrategyQuickAccessPopup({
     strategies.data?.[0] ?? {
       name: "default",
       active: true,
-      summary: "Global strategy",
+      summary: "Global profile",
     };
 
   const context = routingContext(
@@ -94,7 +94,7 @@ export function StrategyQuickAccessPopup({
       onClick={onBackdropClick}
       role="dialog"
       aria-modal="true"
-      aria-label="Routing & Strategy"
+      aria-label="Dispatcher"
     >
       <div
         className="pc-strategy-popup"
@@ -102,7 +102,7 @@ export function StrategyQuickAccessPopup({
       >
         {/* Header */}
         <div className="pc-strategy-popup__header">
-          <SectionHeading>Routing & Strategy</SectionHeading>
+          <SectionHeading>Dispatcher</SectionHeading>
           <Button variant="quiet" onClick={close} aria-label="Close">
             ✕
           </Button>
@@ -143,7 +143,7 @@ export function StrategyQuickAccessPopup({
         {/* Strategy switcher section */}
         <div className="pc-strategy-popup__section">
           <span className="u3-muted pc-strategy-popup__section-label">
-            Global Strategy
+            Saved profiles
           </span>
           <div className="pc-strategy-popup__strategies">
             {allStrategies.length > 0 ? (
@@ -174,7 +174,7 @@ export function StrategyQuickAccessPopup({
                 </Button>
               ))
             ) : (
-              <span className="u3-muted">Loading strategies…</span>
+              <span className="u3-muted">Loading profiles…</span>
             )}
           </div>
         </div>
@@ -188,22 +188,13 @@ export function StrategyQuickAccessPopup({
             ref={el => {
               if (!firstFocusRef.current && el) firstFocusRef.current = el;
             }}
-            to={routes.settings("routing")}
+            to={routes.settings("dispatcher")}
             query={route.query}
             onClick={close}
             className="pc-text-action"
           >
             <Icon name="routing" />
-            Edit Routing Rules
-          </AppLink>
-          <AppLink
-            to={routes.settings("strategies")}
-            query={route.query}
-            onClick={close}
-            className="pc-text-action"
-          >
-            <Icon name="layers" />
-            Manage Strategies
+            Open Dispatcher settings
           </AppLink>
         </div>
 
@@ -237,8 +228,8 @@ export function StrategyQuickAccess({
 
   // Tooltip text
   const tooltipText = hasRepoContext
-    ? `Routing & Strategy · repo context: ${query.repo}`
-    : "Routing & Strategy";
+    ? `Dispatcher · repo context: ${query.repo}`
+    : "Dispatcher";
 
   return (
     <>
