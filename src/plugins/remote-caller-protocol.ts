@@ -25,4 +25,11 @@ export const REMOTE_CALLER_METHODS = {
     result: HOST_RUNNER_METHODS["hostRunner.run"].result,
     deadlineMs: 40_000,
   },
+  "remoteCaller.usageRead": {
+    description: "Read one configured Codex account's remote usage with a one-use host grant.",
+    params: z.object({ alias: hostRunnerAlias,
+      home: z.string().min(1).max(4096).refine(value => !/[\u0000-\u001f\u007f]/.test(value)).optional() }).strict(),
+    result: HOST_RUNNER_METHODS["hostRunner.run"].result,
+    deadlineMs: 90_000,
+  },
 } as const;
