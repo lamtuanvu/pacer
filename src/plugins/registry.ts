@@ -54,6 +54,7 @@ import { consumeConfiguredHostReport, validateConfiguredHostReport, type Configu
 import { consumeConfiguredHostReadFrom, validateConfiguredHostReadFrom, type ConfiguredHostReadFromGrant } from "./host-read-from-issuer";
 import { consumeConfiguredHostSessionSocket, validateConfiguredHostSessionSocket, type ConfiguredHostSessionSocketGrant } from "./host-session-socket-issuer";
 import { consumeConfiguredHostBinaryCheck, validateConfiguredHostBinaryCheck, type ConfiguredHostBinaryCheckGrant } from "./host-binary-check-issuer";
+import { consumeConfiguredHostRuntimeProbe, validateConfiguredHostRuntimeProbe, type ConfiguredHostRuntimeProbeGrant } from "./host-runtime-probe-issuer";
 import { consumeConfiguredHostBinaryUpload, validateConfiguredHostBinaryUpload, validateConfiguredHostBinaryUploadState, type ConfiguredHostBinaryUploadGrant } from "./host-binary-upload-issuer";
 import { beginWorkSync, finishWorkSync } from "../update/desktop/admission";
 import { z } from "zod";
@@ -70,6 +71,8 @@ const HOST_REPORT_ISSUER = Symbol("host-report-issuer");
 const HOST_READ_FROM_ISSUER = Symbol("host-read-from-issuer");
 const HOST_SESSION_SOCKET_ISSUER = Symbol("host-session-socket-issuer");
 const HOST_BINARY_CHECK_ISSUER = Symbol("host-binary-check-issuer");
+const HOST_RUNTIME_PROBE_ISSUER = Symbol("host-runtime-probe-issuer");
+const HOST_CALL_PROBE_ISSUER = Symbol("host-call-probe-issuer");
 const HOST_BINARY_UPLOAD_ISSUER = Symbol("host-binary-upload-issuer");
 const stagedFetchResult = z.object({ handle: z.string().regex(/^[a-f0-9-]{36}$/),
   bytes: z.number().int().nonnegative().max(50 * 1024 * 1024), sha256: z.string().regex(/^[a-f0-9]{64}$/) }).strict();
@@ -78,7 +81,7 @@ interface HostFetchAdmission { grant: PersistedFetchGrant; process: PluginProces
   claim: (authority: CallAuthority, staged: StagedFetchResult) => void | Promise<void> }
 interface HostCallerFetchAdmission { grant: PersistedFetchGrant;
   claim: (caller: CallAuthority, ticket: ClaimedBundleTicket) => void | Promise<void> }
-export interface PluginCallOptions { plannerResources?: PlannerResources; credentialBindings?: readonly CredentialBinding[]; classifierConfig?: ClassifierConfig; resources?: CallResources; accountHome?: string | null; deadlineMs?: number; signal?: AbortSignal; onProgress?: (event: unknown) => void; /** Internal host-lease binding: never restart or substitute this provider. */ expectedProcess?: PluginProcess; [HOST_CHECK_ISSUER]?: true; [HOST_FETCH_ISSUER]?: HostFetchAdmission; [HOST_CALL_FETCH_ISSUER]?: HostCallerFetchAdmission; [HOST_CALL_IDENTITY_ISSUER]?: ConfiguredHostIdentityGrant; [HOST_CALL_QUESTION_ISSUER]?: PersistedQuestionGrant; [HOST_CALL_USAGE_ISSUER]?: ConfiguredRemoteUsageGrant; [HOST_PROVIDER_MUTATION_ISSUER]?: true; [HOST_REPORT_ISSUER]?: true; [HOST_READ_FROM_ISSUER]?: true; [HOST_SESSION_SOCKET_ISSUER]?: true; [HOST_BINARY_CHECK_ISSUER]?: true; [HOST_BINARY_UPLOAD_ISSUER]?: true }
+export interface PluginCallOptions { plannerResources?: PlannerResources; credentialBindings?: readonly CredentialBinding[]; classifierConfig?: ClassifierConfig; resources?: CallResources; accountHome?: string | null; deadlineMs?: number; signal?: AbortSignal; onProgress?: (event: unknown) => void; /** Internal host-lease binding: never restart or substitute this provider. */ expectedProcess?: PluginProcess; [HOST_CHECK_ISSUER]?: true; [HOST_FETCH_ISSUER]?: HostFetchAdmission; [HOST_CALL_FETCH_ISSUER]?: HostCallerFetchAdmission; [HOST_CALL_IDENTITY_ISSUER]?: ConfiguredHostIdentityGrant; [HOST_CALL_QUESTION_ISSUER]?: PersistedQuestionGrant; [HOST_CALL_USAGE_ISSUER]?: ConfiguredRemoteUsageGrant; [HOST_CALL_PROBE_ISSUER]?: true; [HOST_PROVIDER_MUTATION_ISSUER]?: true; [HOST_REPORT_ISSUER]?: true; [HOST_READ_FROM_ISSUER]?: true; [HOST_SESSION_SOCKET_ISSUER]?: true; [HOST_BINARY_CHECK_ISSUER]?: true; [HOST_RUNTIME_PROBE_ISSUER]?: true; [HOST_BINARY_UPLOAD_ISSUER]?: true }
 export interface RegistryDeps { bundled: BundledPlugin[]; spawnBundled: (ctx: Ctx, id: string) => SpawnSpec; spawn?: typeof nodeSpawn; sleep?: (ms: number) => Promise<void>; eventPumpMs?:number }
 export interface PluginInfo { id: string; version: string; publisher: string; tier: "free" | "commercial"; bundled: boolean; enabled: boolean; state: PluginState; contributes: string[]; capabilities: { name: string; scopes?: string[] }[]; grant: PluginGrant | null; error: string | null; pid: number | null }
 export interface DoctorReport { id: string; ok: boolean; state: PluginState; served: string[]; protocol: { host: string; plugin: string | null }; pid: number | null; restarts: number; error: string | null; needs: string | null }
@@ -739,6 +742,67 @@ export class PluginRegistry {
     }
   }
 
+  /** Probe the platform of one persisted remote run through the bundled provider. */
+  async probeConfiguredHostRuntime(ctx: Ctx, grant: ConfiguredHostRuntimeProbeGrant, signal?: AbortSignal): Promise<{ code: number; stdout: string; stderr: string; timedOut: boolean }> {
+    consumeConfiguredHostRuntimeProbe(ctx, grant);
+    const { alias, hostFingerprint, timeoutMs, maxBytes } = grant.resource;
+    const host = loadStrategy(ctx).hosts[alias];
+    if (!host || JSON.stringify(host) !== hostFingerprint)
+      throw new CoreError("capability_denied", "configured runtime probe host changed");
+    const providers = this.findAll(ctx, "hostRunner", contribution =>
+      Array.isArray(contribution.kinds) && contribution.kinds.length === 1 && contribution.kinds[0] === "ssh");
+    if (providers.length !== 1 || providers[0] !== "pacer-ssh")
+      throw new CoreError("plugin_unavailable", "bundled SSH host runner provider is required");
+    const provider = this.entries.get(providers[0]!)!;
+    await this.call(ctx, provider.id, "diagnostic.ping", {}, { deadlineMs: 5000, signal });
+    const process = provider.process, generation = this.hostGeneration(ctx, provider);
+    if (!process?.alive || !provider.served.includes("hostRunner"))
+      throw new CoreError("plugin_unavailable", "SSH host runner provider is not ready");
+    const directory = controlDir(ctx), original = lstatSync(directory);
+    if (!original.isDirectory() || (original.mode & 0o077) !== 0 ||
+      (globalThis.process.getuid && original.uid !== globalThis.process.getuid()))
+      throw new CoreError("capability_denied", "SSH control directory is not private");
+    const controlPath = join(directory, "cm-%C");
+    const active = () => {
+      try { validateConfiguredHostRuntimeProbe(ctx, grant); } catch { return false; }
+      const current = loadStrategy(ctx).hosts[alias], now = lstatSync(directory);
+      return current && JSON.stringify(current) === hostFingerprint &&
+        provider.process === process && process.alive && this.hostGeneration(ctx, provider) === generation &&
+        now.isDirectory() && now.dev === original.dev && now.ino === original.ino &&
+        now.uid === original.uid && (now.mode & 0o7777) === (original.mode & 0o7777);
+    };
+    if (!active()) throw new CoreError("capability_denied", "configured runtime probe snapshot changed");
+    const controller = new AbortController();
+    const cancel = () => controller.abort(new CoreError("capability_denied", "configured runtime probe retired"));
+    signal?.addEventListener("abort", cancel, { once: true });
+    const watch = setInterval(() => { try { if (!active()) cancel(); } catch { cancel(); } }, 100);
+    watch.unref();
+    let session: string | undefined;
+    try {
+      const opened = await this.call<{ session: string }>(ctx, provider.id, "hostRunner.open",
+        { alias, sshTarget: host.ssh, controlPath },
+        { deadlineMs: 10_000, signal: controller.signal, expectedProcess: process });
+      session = opened.session;
+      validateConfiguredHostRuntimeProbe(ctx, grant);
+      if (controller.signal.aborted || !active()) throw new CoreError("capability_denied", "configured runtime probe retired");
+      const argv = sshArgv(ctx, host, SCRIPTS.PROBE, []);
+      if (!argv.includes(`ControlPath=${controlPath}`) || !active())
+        throw new CoreError("capability_denied", "configured runtime probe SSH path changed");
+      const result = await this.call<{ code: number; stdout: string; stderr: string; timedOut: boolean }>(
+        ctx, provider.id, "hostRunner.run",
+        { session, script: "PROBE", args: [], timeoutMs, maxBytes },
+        { deadlineMs: timeoutMs + 10_000, signal: controller.signal, expectedProcess: process,
+          resources: { reads: [], commands: [{ argv, timeoutMs }], stores: [] }, [HOST_RUNTIME_PROBE_ISSUER]: true });
+      validateConfiguredHostRuntimeProbe(ctx, grant);
+      if (!active()) throw new CoreError("capability_denied", "configured runtime probe host changed after observation");
+      return result;
+    } finally {
+      clearInterval(watch); signal?.removeEventListener("abort", cancel);
+      if (session) await this.call(ctx, provider.id, "hostRunner.close", { session },
+        { deadlineMs: 5000, expectedProcess: process }).catch(() => {});
+    }
+  }
+
   /** Check one content-addressed binary for one persisted remote run through the bundled provider. */
   async checkConfiguredHostBinary(ctx: Ctx, grant: ConfiguredHostBinaryCheckGrant, signal?: AbortSignal): Promise<{ code: number; stdout: string; stderr: string; timedOut: boolean }> {
     consumeConfiguredHostBinaryCheck(ctx, grant);
@@ -1078,6 +1142,8 @@ export class PluginRegistry {
           }
           const output = await this.call(ctx, provider.id, providerMethod, input,
             { deadlineMs, signal, expectedProcess: process, resources,
+              ...(providerMethod === "hostRunner.run" && (input as { script?: string }).script === "PROBE" ?
+                { [HOST_CALL_PROBE_ISSUER]: true } : {}),
               ...(providerMethod === "hostRunner.run" && (input as { script?: string }).script === "SET_IDENTITY" ?
                 { [HOST_PROVIDER_MUTATION_ISSUER]: true } : {}) });
           if (provider.process !== process || !process.alive ||
@@ -1459,6 +1525,9 @@ export class PluginRegistry {
     if (method === "hostRunner.run" && (params as { script?: string } | null)?.script === "SESSION_SOCKET" &&
       !options[HOST_SESSION_SOCKET_ISSUER])
       throw new CoreError("capability_denied", "remote session socket requires host-owned issuance");
+    if (method === "hostRunner.run" && (params as { script?: string } | null)?.script === "PROBE" &&
+      !options[HOST_RUNTIME_PROBE_ISSUER] && !options[HOST_CALL_PROBE_ISSUER])
+      throw new CoreError("capability_denied", "remote runtime probe requires host-owned issuance");
     if (method === "hostRunner.run" && (params as { script?: string } | null)?.script === "BINARY" &&
       !options[HOST_BINARY_CHECK_ISSUER])
       throw new CoreError("capability_denied", "remote binary check requires host-owned issuance");

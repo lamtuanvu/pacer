@@ -16,6 +16,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Changed
 
+- Probe the remote platform for full-session binary setup through the bundled SSH host runner with a one-use persisted-run grant. A disabled or failing provider stops startup without a direct SSH retry.
 - Install remote agent binaries through the bundled SSH host runner using a one-use, hash-bound upload. Uploads over 128 MiB are refused; a missing completion receipt stops the attempt without a direct SSH retry.
 - Stop persisted remote task runs through the bundled SSH host runner's fixed STOP script with a one-use grant. A missing completion receipt leaves that stop operation unsettled even if a later stop succeeds; there is no direct SSH fallback.
 - Clean eligible remote task worktrees through the bundled SSH host runner with a one-use task grant and completion receipt. Disabled providers and ambiguous completion do not trigger a direct SSH retry.
