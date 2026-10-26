@@ -85,7 +85,7 @@ fn recreate_link(home: &Path, bundled: &Path, config: &Path) -> Result<(), Strin
 }
 
 // Inspect the loaded job, not a plist that may have changed since launchd loaded it.
-#[cfg(any(target_os = "macos", test))]
+#[cfg(test)]
 fn loaded_job_matches(text: &str, binary: &Path, home: &Path, port: u16, default_home: &Path) -> bool {
     if logic::foreign_owner(
         &logic::launchd_environment(text),
@@ -106,33 +106,6 @@ fn loaded_job_matches(text: &str, binary: &Path, home: &Path, port: u16, default
     match (std::fs::canonicalize(argument), std::fs::canonicalize(binary)) {
         (Ok(job), Ok(cli)) => job == cli,
         _ => false,
-    }
-}
-
-async fn service_uses_cli(cli: &Cli) -> bool {
-    #[cfg(target_os = "macos")]
-    {
-        let Ok(home) = required_home(std::env::var_os("HOME").as_deref()) else {
-            return false;
-        };
-        let Ok(args) = launchctl_args("print") else {
-            return false;
-        };
-        match manager_output("launchctl", &args).await {
-            Ok(output) if output.status.success() => loaded_job_matches(
-                &String::from_utf8_lossy(&output.stdout),
-                &cli.binary,
-                &cli.pacer_home,
-                service_port(),
-                &home.join(".pacer"),
-            ),
-            _ => false,
-        }
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = cli;
-        false // No launchd ProgramArguments identity is available on this platform.
     }
 }
 
@@ -638,18 +611,34 @@ async fn connected(app: &AppHandle, cli: &Cli, first_run: &mut FirstRun) -> Resu
     desktop_log!("pacer lifecycle: exchanging local service session");
     let session = Session::connect(cli, &web_auth).await?;
     first_run.signed_in = true;
-    let version = first_run.installed_version(cli).await;
-    let consented = app.path().app_config_dir().is_ok_and(|config| consent_choice(&config).0);
-    let waiting = app.state::<Shell>().waiting.lock().unwrap().is_some() || privacy_prompt();
-    if first_run.version_recovery.restart(
-        version.as_deref(),
+    let accepted = app.state::<Shell>().old_service_ack.lock().unwrap().clone();
+    let gate = logic::service_gate(
+        env!("CARGO_PKG_VERSION"),
         session.service_version.as_deref(),
-        consented,
-        !waiting && service_uses_cli(cli).await,
+        accepted.as_deref(),
+    );
+    if gate != logic::ServiceGate::Open {
+        let page = if gate == logic::ServiceGate::ExplainOlder {
+            "outdatedService"
+        } else {
+            "unverifiedService"
+        };
+        let mut detail = logic::diagnosis(page, None);
+        *app.state::<Shell>().pending_service_key.lock().unwrap() =
+            Some(session.service_version.clone().unwrap_or_default());
+        detail.installed = Some(logic::display_service_release(
+            session.service_version.as_deref(),
+        ));
+        detail.version = Some(env!("CARGO_PKG_VERSION").into());
+        crate::diagnostic_recovery(app, &detail);
+        return Err(page.into());
+    }
+    if matches!(
+        logic::service_release(env!("CARGO_PKG_VERSION"), session.service_version.as_deref()),
+        logic::ServiceRelease::Matched | logic::ServiceRelease::Newer
     ) {
-        // Let the lifecycle owner restart outside the health-monitor select: stopping
-        // the service must not cancel the CLI before it has started it again.
-        return Err("versionMismatch".into());
+        *app.state::<Shell>().old_service_ack.lock().unwrap() = None;
+        *app.state::<Shell>().pending_service_key.lock().unwrap() = None;
     }
 
     let snapshot = wait_for_snapshot(app, &session).await?;
@@ -923,7 +912,6 @@ struct FirstRun {
     version: Option<(PathBuf, Option<std::time::SystemTime>, Option<String>)>,
     reinstall: bool,
     signed_in: bool,
-    version_recovery: logic::VersionRecovery,
 }
 
 enum OnboardingGate {
@@ -1136,6 +1124,24 @@ impl FirstRun {
                         self.fail(error);
                     }
                 }
+                logic::ShellAction::ContinueOldService => {
+                    let service_version = app
+                        .state::<Shell>()
+                        .diagnosis
+                        .lock()
+                        .unwrap()
+                        .as_ref()
+                        .filter(|d| matches!(d.page, "outdatedService" | "unverifiedService"))
+                        .and_then(|_| {
+                            app.state::<Shell>()
+                                .pending_service_key
+                                .lock()
+                                .unwrap()
+                                .clone()
+                        });
+                    *app.state::<Shell>().old_service_ack.lock().unwrap() = service_version;
+                    *app.state::<Shell>().diagnosis.lock().unwrap() = None;
+                }
             }
             // Re-read consent and CLI preference after the action, before any service operation.
             if self.error.is_none() && action != logic::ShellAction::Begin {
@@ -1234,7 +1240,22 @@ pub async fn run(app: AppHandle) {
     let mut previous = String::new();
     let mut first_run = FirstRun::default();
     loop {
-        tokio::time::sleep(attempts.delay(std::time::Instant::now())).await;
+        let waiting_for_service_choice = app
+            .state::<Shell>()
+            .diagnosis
+            .lock()
+            .unwrap()
+            .as_ref()
+            .is_some_and(|d| matches!(d.page, "outdatedService" | "unverifiedService"));
+        let delay = logic::connection_retry_delay(
+            attempts.delay(std::time::Instant::now()),
+            waiting_for_service_choice,
+        );
+        let shell = app.state::<Shell>();
+        tokio::select! {
+            _ = tokio::time::sleep(delay) => {},
+            _ = shell.wake.notified() => {},
+        }
         attempts.started(std::time::Instant::now());
         let _ = tokio::time::timeout(Duration::ZERO, app.state::<Shell>().expired.notified()).await;
         if app.state::<Shell>().retry.swap(false, Ordering::SeqCst) {
@@ -1318,7 +1339,18 @@ pub async fn run(app: AppHandle) {
             ),
             _ => logic::diagnosis(page, None),
         };
-        crate::diagnostic_recovery(&app, &detail);
+        let holding_version_page = page == "starting"
+            && probe == logic::HealthProbe::Ready
+            && app
+                .state::<Shell>()
+                .diagnosis
+                .lock()
+                .unwrap()
+                .as_ref()
+                .is_some_and(|d| matches!(d.page, "outdatedService" | "unverifiedService"));
+        if !holding_version_page {
+            crate::diagnostic_recovery(&app, &detail);
+        }
         if matches!(page, "install" | "foreign") || (permission && cli.is_none()) {
             // Nothing this shell may do: no CLI to install with, or the job serves another pacer.
             continue;
@@ -1361,12 +1393,8 @@ pub async fn run(app: AppHandle) {
                         result = monitor_health(&probe_client) => result,
                     };
                     if let Err(error) = result {
-                        if error == "versionMismatch" {
-                            desktop_log!("pacer lifecycle: CLI/service version mismatch; restarting the matching service once this launch");
-                            if let Err(error) = cli.run(&["service", "restart"]).await {
-                                desktop_log!("pacer lifecycle: version mismatch restart failed: {error}");
-                            }
-                            crate::recovery(&app, "starting");
+                        if matches!(error.as_str(), "outdatedService" | "unverifiedService") {
+                            desktop_log!("pacer lifecycle: live service release needs user review; waiting for choice");
                             continue;
                         }
                         app.state::<Shell>()
