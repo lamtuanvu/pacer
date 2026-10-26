@@ -53,6 +53,15 @@ test("confirmed missing subscription is unavailable but malformed and transient 
     expect((await readByteplus(ctx)).availability?.state).toBe(state);
   }
 });
+test("Ark CLI authentication failure inside a successful usage response is not a missing subscription", async () => {
+  const ctx = fakeCtx({ run: async () => ({ code: 0, stdout: JSON.stringify({ items: [{
+    product: "coding-plan", subscribed: false,
+    error: "GetCodingPlanUsage requires BytePlus Ark SSO STS, please run `arkcli auth login`: refresh_token is invalid",
+  }] }), stderr: "" }) });
+  const reading = await readByteplus(ctx);
+  expect(reading.availability).toMatchObject({ state: "unknown", reason: "authentication_failed" });
+  expect(reading.error).toBe("Ark CLI sign-in required. Run arkcli auth login.");
+});
 test("explicit refresh bypasses the provider response cache without renewing a failed observation", async () => {
   let subscribed = true;
   const ctx = fakeCtx({ run: async () => ({ code: 0, stdout: subscribed ? ARK : JSON.stringify({ items: [{ product: "coding-plan", subscribed: false }] }), stderr: "" }) });

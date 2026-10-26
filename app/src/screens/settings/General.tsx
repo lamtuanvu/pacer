@@ -8,7 +8,7 @@ import { LazyDispatcher } from "./LazyDispatcher";
 import { withQuery, type RouteQuery } from "../../router";
 import { DensityContext } from "../../ds/Density";
 import { SETTINGS_PAGES } from "../../settings-pages";
-import { Page } from "../../ds/Page";
+import { Page, Stack } from "../../ds/Page";
 import { Icon } from "../../ds/icons";
 import { DiagnosticsSection } from "./Diagnostics";
 import { ProjectStrategies } from "./ProjectStrategies";
@@ -41,7 +41,7 @@ import type { ExecutorRow } from "../../../../src/api/read-model/types";
 import { Pill } from "../../ds/Pill";
 import { AgentMark } from "../../ds/AgentMark";
 import { Button, ButtonLink, TextAction } from "../../ds/Button";
-import type { Account } from "../../model/accounts";
+import { arkcliRefreshMessage, arkcliSignInRequired, type Account } from "../../model/accounts";
 import type { ConfigData, StrategyRow } from "../../model/strategy";
 import type { RoutingRules, Rule } from "../../model/executors";
 import type { AgentPreview } from "../../model/settings";
@@ -385,10 +385,22 @@ function PlannerConsent({
 export function AccountsSection({ initialData }: { initialData?: Account[] }) {
   const query = useResource<Account[]>("account.list", {}, initialData),
     action = useOperation(query.reload),
-    { state } = useTaskContext();
+    { state, api } = useTaskContext();
   const [adding, setAdding] = useState(false),
     [name, setName] = useState(""),
-    [kind, setKind] = useState("codex");
+    [kind, setKind] = useState("codex"),
+    [refreshing, setRefreshing] = useState(false),
+    [refreshStatus, setRefreshStatus] = useState<{ account: string; message: string }>();
+  const refreshArkcli = async (account: string) => {
+    setRefreshing(true); setRefreshStatus(undefined);
+    try {
+      const result = await api.call<{ accounts: { account: string; outcome: string; error?: string | null }[] }>("limits.refresh", { account });
+      setRefreshStatus({ account, message: arkcliRefreshMessage(result, account) });
+      query.reload();
+    } catch (error) {
+      setRefreshStatus({ account, message: error instanceof Error ? error.message : "Usage could not be refreshed." });
+    } finally { setRefreshing(false); }
+  };
   return (
     <Section
       id="accounts"
@@ -491,6 +503,16 @@ export function AccountsSection({ initialData }: { initialData?: Account[] }) {
                       </code>
                     </td>
                     <td data-label="Actions">
+                      {arkcliSignInRequired(account) && (
+                        <Disclosure className="pc-disclosure" summary={<>Fix Ark CLI sign-in<span className="sr-only"> for {account.name}</span></>}>
+                          <Stack space="compact">
+                            <p>Sign in to BytePlus in a terminal, then refresh usage here.</p>
+                            <div><code>arkcli auth login</code></div>
+                            <div><Button size="sm" busy={refreshing} disabled={refreshing || !state.connected} onClick={() => void refreshArkcli(account.name)}>Refresh usage</Button></div>
+                            {refreshStatus?.account === account.name && <p role="status">{refreshStatus.message}</p>}
+                          </Stack>
+                        </Disclosure>
+                      )}
                       {accountNeedsSignIn(readiness) && (
                         <Disclosure
                           className="pc-disclosure"

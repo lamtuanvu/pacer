@@ -111,6 +111,10 @@ OpenCode quota accounts for `coding-plan`, `byteplus-coding-plan` and
 `volcengine-coding-plan` use ArkCLI automatically. Existing quota accounts with
 no explicit usage source also select that reader when loaded; no re-add is needed.
 ArkCLI must be installed and signed in to the matching plan account.
+If Settings › Accounts reports an Ark CLI sign-in error, run `arkcli auth login`
+in a terminal and complete BytePlus sign-in in the browser. Then choose **Refresh
+usage** for that account. An expired Ark CLI login does not mean the plan
+subscription is missing, and OpenCode's provider sign-in is separate.
 
 ### Endpoints at your own URL
 
