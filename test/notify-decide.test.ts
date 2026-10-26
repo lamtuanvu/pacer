@@ -10,6 +10,13 @@ import { fakeCtx } from "./helpers";
 
 const item = (extra: Partial<AttentionItem> = {}): AttentionItem => ({ id:"failed:t-1",kind:"failed",severity:"problem",repo:null,taskId:"t-1",title:'Failed "task"\\\n',detail:"Try again",raisedAt:100,since:100,actions:[],notify:"important",...extra });
 
+test("dispatch reads and migrates notification settings while holding its delivery lock", async () => {
+ const ctx=fakeCtx();
+ expect(await dispatchNotifications(ctx,[])).toEqual([]);
+ expect(readJson<{notifications:string}>(join(ctx.pacerHome,"settings.json"))?.notifications).toBe("important");
+ expect(readJson(join(ctx.pacerHome,"state/notified.json"))).toEqual({});
+});
+
 test("levels filter attention and keys include since with at most two actions", () => {
  const failed=item({actions:[1,2,3].map(n=>({label:`Action ${n}`,op:"task.retry",params:{}}))}), setup=item({id:"setup",kind:"setup",notify:"all",taskId:undefined});
  expect(toNotify([setup,failed],"off",{})).toEqual([]);

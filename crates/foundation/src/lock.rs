@@ -41,13 +41,33 @@ fn lock_path(ctx: &Ctx, name: &str) -> Result<PathBuf, LockError> {
         return Err(LockError::InvalidName);
     }
     let dir = ctx.pacer_home.join("orca");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+        fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(&dir)?;
+        if fs::symlink_metadata(&dir)?.file_type().is_symlink() {
+            return Err(io::Error::other("lock directory is a symlink").into());
+        }
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o700))?;
+    }
+    #[cfg(not(unix))]
     fs::create_dir_all(&dir)?;
     Ok(dir.join(format!("{name}.lock")))
 }
 
 fn try_acquire(file: &PathBuf, stale: Duration) -> Result<Option<Guard>, LockError> {
     loop {
-        match OpenOptions::new().write(true).create_new(true).open(file) {
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        match options.open(file) {
             Ok(_) => return Ok(Some(Guard(file.clone()))),
             Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
                 match fs::metadata(file) {
@@ -121,6 +141,50 @@ mod tests {
             Default::default(),
             0.0,
         )
+    }
+    #[cfg(unix)]
+    #[test]
+    fn lock_directory_and_file_are_private() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let ctx = ctx(&dir);
+        with_lock(&ctx, "link", LockOptions::default(), || {
+            assert_eq!(
+                fs::metadata(ctx.pacer_home.join("orca/link.lock"))
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o600
+            );
+        })
+        .unwrap();
+        assert_eq!(
+            fs::metadata(ctx.pacer_home.join("orca"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700
+        );
+    }
+    #[cfg(unix)]
+    #[test]
+    fn rejects_symlinked_lock_directory_without_chmodding_target() {
+        use std::os::unix::fs::{PermissionsExt, symlink};
+        let dir = tempfile::tempdir().unwrap();
+        let ctx = ctx(&dir);
+        let target = dir.path().join("outside");
+        fs::create_dir_all(&target).unwrap();
+        fs::set_permissions(&target, fs::Permissions::from_mode(0o755)).unwrap();
+        fs::create_dir_all(&ctx.pacer_home).unwrap();
+        symlink(&target, ctx.pacer_home.join("orca")).unwrap();
+        assert!(with_lock(&ctx, "notifications", LockOptions::default(), || ()).is_err());
+        assert_eq!(
+            fs::metadata(&target).unwrap().permissions().mode() & 0o777,
+            0o755
+        );
+        assert!(!target.join("notifications.lock").exists());
     }
     #[test]
     fn refuses_path_names() {

@@ -7,6 +7,7 @@ use pacer_foundation::{
         registry::NativeOp,
     },
     fsutil::{read_json, write_private},
+    lock::{LockOptions, with_lock},
 };
 use serde_json::{Map, Value, json};
 use std::{
@@ -52,6 +53,30 @@ pub fn requires_core_parser(ctx: &Ctx) -> bool {
         .is_some_and(|bytes| serde_json::from_slice::<Value>(&bytes).is_err())
 }
 
+/// Object-spread key ordering and JavaScript number rounding differ from
+/// serde_json for a few otherwise valid settings files. Keep those writes with
+/// the TypeScript core until the native JSON compatibility reader is complete.
+pub fn requires_core_set_parser(ctx: &Ctx) -> bool {
+    fn incompatible(value: &Value) -> bool {
+        match value {
+            Value::Number(number) => number
+                .as_i64()
+                .is_none_or(|value| value.unsigned_abs() > 9_007_199_254_740_991),
+            Value::Array(items) => items.iter().any(incompatible),
+            Value::Object(map) => map.iter().any(|(key, value)| {
+                key.parse::<u32>()
+                    .is_ok_and(|index| index < u32::MAX && index.to_string() == *key)
+                    || incompatible(value)
+            }),
+            _ => false,
+        }
+    }
+    fs::read(ctx.pacer_home.join("settings.json"))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+        .is_some_and(|settings| incompatible(&settings))
+}
+
 fn legacy_settings(ctx: &Ctx) -> PathBuf {
     let orca = ctx
         .env
@@ -83,7 +108,7 @@ fn legacy_settings(ctx: &Ctx) -> PathBuf {
     orca.join("plugins-data/lamtuanvu.pacer/settings.json")
 }
 
-fn notification_level(ctx: &Ctx) -> Result<Value, CoreError> {
+fn notification_level_unlocked(ctx: &Ctx) -> Result<Value, CoreError> {
     let path = ctx.pacer_home.join("settings.json");
     let settings = read_json::<Value>(&path).unwrap_or_else(|| json!({}));
     if let Some(level) = settings
@@ -124,6 +149,49 @@ fn notification_level(ctx: &Ctx) -> Result<Value, CoreError> {
     Ok(json!({"level":level}))
 }
 
+fn notification_level(ctx: &Ctx) -> Result<Value, CoreError> {
+    with_lock(ctx, "notification-settings", LockOptions::default(), || {
+        notification_level_unlocked(ctx)
+    })
+    .map_err(|error| CoreError::new(Code::InvalidInput, error.to_string()))?
+}
+
+fn write_notification_level(ctx: &Ctx, level: &str) -> Result<(), CoreError> {
+    let path = ctx.pacer_home.join("settings.json");
+    let settings = read_json::<Value>(&path);
+    if let Some(Value::String(text)) = settings.as_ref() {
+        write_string_spread(&path, text, level)
+            .map_err(|error| CoreError::new(Code::InvalidInput, error.to_string()))?;
+    } else {
+        let mut merged = match settings {
+            Some(Value::Object(map)) => map,
+            Some(Value::Array(items)) => Map::from_iter(
+                items
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, value)| (index.to_string(), value)),
+            ),
+            _ => Map::new(),
+        };
+        merged.insert("notifications".into(), json!(level));
+        let bytes = serde_json::to_vec(&merged)
+            .map_err(|error| CoreError::new(Code::InvalidInput, error.to_string()))?;
+        write_private(&path, &bytes)
+            .map_err(|error| CoreError::new(Code::InvalidInput, error.to_string()))?;
+    }
+    Ok(())
+}
+
+fn set_notification_level(ctx: &Ctx, level: &str) -> Result<Value, CoreError> {
+    with_lock(ctx, "notification-settings", LockOptions::default(), || {
+        write_notification_level(ctx, level)
+    })
+    .map_err(|error| CoreError::new(Code::InvalidInput, error.to_string()))??;
+    pacer_store::record_config_change(ctx)
+        .map_err(|error| CoreError::new(Code::InvalidInput, error.to_string()))?;
+    Ok(json!({"level":level}))
+}
+
 fn get(ctx: &Ctx, params: Value) -> pacer_foundation::api::registry::OpFuture<'_> {
     Box::pin(async move {
         if !params.is_object() && !params.is_null() {
@@ -143,11 +211,46 @@ fn get(ctx: &Ctx, params: Value) -> pacer_foundation::api::registry::OpFuture<'_
     })
 }
 
+fn set(ctx: &Ctx, params: Value) -> pacer_foundation::api::registry::OpFuture<'_> {
+    Box::pin(async move {
+        if !params.is_object() && !params.is_null() {
+            let received = match params {
+                Value::Array(_) => "array",
+                Value::String(_) => "string",
+                Value::Number(_) => "number",
+                Value::Bool(_) => "boolean",
+                _ => "unknown",
+            };
+            return Err(CoreError::new(
+                Code::InvalidInput,
+                format!("params: Invalid input: expected object, received {received}"),
+            ));
+        }
+        let level = params
+            .get("level")
+            .and_then(Value::as_str)
+            .filter(|level| LEVELS.contains(level))
+            .ok_or_else(|| {
+                CoreError::new(
+                    Code::InvalidInput,
+                    "level: Invalid option: expected one of \"off\"|\"important\"|\"all\"",
+                )
+            })?;
+        set_notification_level(ctx, level)
+    })
+}
+
 pub fn ops() -> &'static [NativeOp] {
-    &[NativeOp {
-        name: "notifications.get",
-        call: get,
-    }]
+    &[
+        NativeOp {
+            name: "notifications.get",
+            call: get,
+        },
+        NativeOp {
+            name: "notifications.set",
+            call: set,
+        },
+    ]
 }
 
 #[cfg(test)]

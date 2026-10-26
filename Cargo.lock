@@ -914,6 +914,7 @@ name = "pacer-config"
 version = "0.0.0"
 dependencies = [
  "pacer-foundation",
+ "pacer-store",
  "serde_json",
  "tempfile",
  "tokio",
@@ -1012,6 +1013,17 @@ dependencies = [
  "serde",
  "serde_json",
  "uuid",
+]
+
+[[package]]
+name = "pacer-store"
+version = "0.0.0"
+dependencies = [
+ "getrandom 0.4.3",
+ "libc",
+ "pacer-foundation",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]
