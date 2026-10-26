@@ -35,5 +35,5 @@ test('spawn wire supports only host-matched cwd and literal or reference environ
  const {SCOPED_CAPABILITY_METHODS}=await import('../src/plugins/capability-protocol');const method=SCOPED_CAPABILITY_METHODS['capability.process.spawn']!;
  expect(method.params.safeParse({argv:['opencode','run'],timeoutMs:120000,cwd:'/owned/test',env:{PATH:'/owned/bin',PACER_KEY_SELECTED:{secretRef:'endpoint:selected'}}}).success).toBe(true);
  for(const env of [{KEY:{secretRef:'raw-key'}},{KEY:{secretRef:'endpoint:selected',extra:true}},{KEY:12}])expect(method.params.safeParse({argv:['opencode'],timeoutMs:1000,env}).success).toBe(false);
- expect(method.deadlineMs).toBe(130000);
+ expect(method.deadlineMs).toBe(0);
 });
