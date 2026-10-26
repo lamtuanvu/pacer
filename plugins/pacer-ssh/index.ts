@@ -54,10 +54,11 @@ export const handlers: Record<string, Handler> = {
         facts: Object.fromEntries(Object.entries(facts).filter(([key, value]) =>
           ["os", "arch", "glibc", "git", "setsid", "script", "tail", "codex", "claude"].includes(key) && value.length <= 256)) };
     }
-    const ok = result.code === 0 && !result.timedOut && facts.exists === "1" && facts.git === "1";
+    const completed = result.code === 0 && !result.timedOut;
+    const ok = completed && facts.exists === "1" && facts.git === "1";
     return { ok, checks: [{ name: "checkout", ok, detail: ok ? "" : "checkout unavailable" }],
-      facts: Object.fromEntries(Object.entries(facts).filter(([key, value]) =>
-        ["exists", "git", "origin", "name", "email"].includes(key) && value.length <= 256)) };
+      facts: completed ? Object.fromEntries(Object.entries(facts).filter(([key, value]) =>
+        ["exists", "git", "origin", "name", "email"].includes(key) && value.length <= 256)) : {} };
   },
   "hostRunner.open": async (raw, _host, signal) => {
     const input = raw as Record<string, unknown>;

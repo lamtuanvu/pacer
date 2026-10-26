@@ -129,6 +129,21 @@ test("host checks never retry direct SSH after the provider is disabled mid-chec
   expect(checked.checks.find(c => c.name === "checkout github.com/o/r")).toMatchObject({ ok: false });
 });
 
+test("setup and consent prechecks use only the issued read-only checkout command", async () => {
+  const { ctx, repo, log } = await fixture();
+  const run = ctx.run;
+  ctx.run = (argv, timeoutMs, options) => {
+    if (argv[0] === "ssh" && argv.at(-1)?.endsWith(" check")) throw Error("direct setup SSH precheck");
+    return run(argv, timeoutMs, options);
+  };
+  expect(await hosts.setup(ctx, "box", repo, { consent: true, clone: true, identity: false })).toMatchObject({ ok: true });
+  expect(await hosts.confirmSetup(ctx, "box", repo, async () => false)).toMatchObject({ ok: true });
+  expect(readFileSync(log, "utf8")).toContain("BatchMode=yes");
+  await pluginRegistry(ctx).disable(ctx, "pacer-ssh");
+  await expect(hosts.setup(ctx, "box", repo, { consent: true, clone: true, identity: false }))
+    .rejects.toMatchObject({ code: "invalid_input" });
+});
+
 test("a paused host can still be diagnosed without admitting new work", async () => {
   const { ctx, repo } = await fixture();
   await hosts.set(ctx, "box", { paused: true });
