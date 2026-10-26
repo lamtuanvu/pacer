@@ -93,6 +93,14 @@ the replacement bundle.
 The main window keeps its visibility and route; the tray reconnects to the
 service and restores its current status. Replacing or updating the app also replaces its bundled CLI.
 
+If an independently installed service is still running an older release, the
+desktop shows the live service and app versions before loading its screens.
+**Continue current work** opens that service's older UI with a visible version
+notice. Finish active tasks before updating the standalone service; its older
+update action can restart immediately. See [Desktop updates](../docs/desktop-updates.md#desktop-is-newer-than-the-running-service)
+for the one-time upgrade steps. The desktop never restarts a live service merely
+because the CLI file on disk has changed.
+
 ### Linux
 
 Requires Rust 1.99.0, Bun ≥ 1.4.2 and a desktop session with WebKitGTK 4.1 and an

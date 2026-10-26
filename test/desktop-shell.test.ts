@@ -71,6 +71,27 @@ test("consent detection preview and incompatible installs have no recovery butto
   }
 });
 
+test("older live service explains missing screens and keeps current work reachable", () => {
+  const page = shell("?state=outdatedService&installed=0.9.0&version=0.10.0");
+  expect(page.element("h1").textContent).toBe("Your service needs an update");
+  expect(page.element("#message").textContent).toContain("new Dispatcher controls are unavailable");
+  expect(page.element("#live-service-version").textContent).toBe("0.9.0");
+  expect(page.element("#desktop-release-version").textContent).toBe("0.10.0");
+  expect(page.element("#outdated-service").hidden).toBe(false);
+  expect(page.element("#continue-old-service").href).toBe("tauri://localhost/action/continue-old-service");
+  expect(page.element("#service-update-guide").hidden).toBe(false);
+  expect(page.element("#spinner").hidden).toBe(true);
+  page.render({page:"starting"});
+  expect(page.element("#outdated-service").hidden).toBe(true);
+});
+
+test("missing service release is never presented as current", () => {
+  const page = shell("?state=unverifiedService&version=0.10.0");
+  expect(page.element("h1").textContent).toBe("Check the service version");
+  expect(page.element("#live-service-version").textContent).toBe("Unknown");
+  expect(page.element("#outdated-service").hidden).toBe(false);
+});
+
 test("shell uses the server page's current design tokens", () => {
   const tokens = readFileSync(new URL("../app/src/ds/tokens.css", import.meta.url), "utf8");
   const css = readFileSync(new URL("../desktop/ui/shell.css", import.meta.url), "utf8");

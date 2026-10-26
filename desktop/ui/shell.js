@@ -16,6 +16,8 @@ const pages = {
   foreign: ['Another pacer is running', 'The background service belongs to the pacer folder {path}, and this app uses a different one.'],
   foreignPort: ['Another pacer is running', 'The background service for the pacer folder {path} runs on port {port}, and this app uses port {appPort}.'],
   oldService: ['Update pacer', 'This service uses an older protocol. Install a newer version of pacer.'],
+  outdatedService: ['Your service needs an update', "The running service supplies this app's screens. Until it is updated, new Dispatcher controls are unavailable."],
+  unverifiedService: ['Check the service version', "The desktop could not verify the running service's release. Its screens may differ from this app's version."],
   oldApp: ['Update the pacer app', 'This service uses a newer protocol. Install a newer desktop app.'],
   protocol: ['Unable to connect', 'The local service returned an incompatible response. Install a compatible version of pacer.'],
 };
@@ -61,9 +63,13 @@ function updateConsentLink() {
 pathChoice.addEventListener('change', updateConsentLink);
 function renderShell(detail) {
   const permission = detail.page === 'permission' || detail.prompt;
-  for (const page of ['welcome', 'consent', 'existing', 'incomplete', 'relink', 'foreign']) {
-    document.querySelector(`#${page}`).hidden = permission || detail.page !== page;
+  for (const page of ['welcome', 'consent', 'existing', 'incomplete', 'relink', 'foreign', 'outdated-service']) {
+    document.querySelector(`#${page}`).hidden = permission || (page === 'outdated-service'
+      ? !['outdatedService', 'unverifiedService'].includes(detail.page) : detail.page !== page);
   }
+  document.querySelector('#live-service-version').textContent = detail.installed || 'Unknown';
+  document.querySelector('#desktop-release-version').textContent = detail.version || 'Unknown';
+  document.querySelector('#service-update-guide').hidden = compact || !['outdatedService', 'unverifiedService'].includes(detail.page);
   const showPath = !permission && detail.page === 'consent' && detail.onPath === false && Boolean(detail.rc);
   const nextRc = showPath ? detail.rc : null;
   if (!showPath || consentRc !== nextRc) pathChoice.checked = false;

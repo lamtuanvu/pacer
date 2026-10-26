@@ -70,6 +70,17 @@ export PATH="$HOME/.local/bin:$PATH"
       <pre><code>pacer service uninstall</code></pre>
       <p class="note">To keep the other service instead, quit this app and use pacer from a terminal.</p>
     </section>
+    <section id="outdated-service" hidden>
+      <dl class="install-details">
+        <dt>Desktop app</dt><dd id="desktop-release-version"></dd>
+        <dt>Running service</dt><dd id="live-service-version"></dd>
+      </dl>
+      <p class="note">Finish your active tasks before updating this service. An older updater may restart it immediately and interrupt work.</p>
+      <div class="actions">
+        <a id="continue-old-service" class="button primary" href="tauri://localhost/action/continue-old-service">Continue current work</a>
+        <a id="service-update-guide" class="button" href="https://github.com/lamtuanvu/pacer/blob/main/docs/desktop-updates.md">How to update the service</a>
+      </div>
+    </section>
     <section id="incomplete" hidden>
       <div class="actions"><a id="download" class="button primary" href="tauri://localhost/action/download">Download pacer</a></div>
     </section>

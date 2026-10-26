@@ -66,9 +66,12 @@ struct Shell {
     retry: AtomicBool,
     relink_dismissed: AtomicBool,
     shell_action: Mutex<Option<logic::ShellAction>>,
+    old_service_ack: Mutex<Option<String>>,
+    pending_service_key: Mutex<Option<String>>,
     onboarding_page: Mutex<Option<logic::Onboarding>>,
     session: Mutex<Option<client::Session>>,
     expired: tokio::sync::Notify,
+    wake: tokio::sync::Notify,
     actions: Mutex<std::collections::HashMap<String, Value>>,
 }
 impl Default for Shell {
@@ -94,9 +97,12 @@ impl Default for Shell {
             retry: AtomicBool::new(false),
             relink_dismissed: AtomicBool::new(false),
             shell_action: Mutex::new(None),
+            old_service_ack: Mutex::new(None),
+            pending_service_key: Mutex::new(None),
             onboarding_page: Mutex::new(None),
             session: Mutex::new(None),
             expired: tokio::sync::Notify::new(),
+            wake: tokio::sync::Notify::new(),
             actions: Mutex::new(std::collections::HashMap::new()),
         }
     }
@@ -236,6 +242,41 @@ fn check_main_document(window: &WebviewWindow, url: &Url) {
         }
     }
     let _ = window.eval(CHECK_SESSION_PAGE);
+}
+
+fn show_service_version_notice(window: &WebviewWindow, raw_version: &str) {
+    let label = if logic::service_release(env!("CARGO_PKG_VERSION"), Some(raw_version))
+        == logic::ServiceRelease::Older
+    {
+        format!("Service {} is older than this app · New controls are unavailable", logic::display_service_release(Some(raw_version)))
+    } else {
+        "Service version unverified · New controls may be unavailable".into()
+    };
+    let label = serde_json::to_string(&label).unwrap();
+    let script = format!(r#"(() => {{
+        const root = document.getElementById('app');
+        if (!root) return;
+        const ensure = () => {{
+            const work = root.querySelector('.pc-work');
+            const liveRegion = work?.querySelector('.pc-live-region');
+            if (!liveRegion) return;
+            let notice = document.getElementById('pacer-native-service-version');
+            if (!notice) {{
+                notice = document.createElement('div');
+                notice.id = 'pacer-native-service-version';
+                notice.className = 'connection-bar';
+                notice.setAttribute('role', 'status');
+                notice.style.cssText = 'position:sticky;top:0;z-index:var(--layer-sticky)';
+            }}
+            const topBar = work.querySelector(':scope > .pc-topbar');
+            notice.style.top = topBar ? `${{topBar.getBoundingClientRect().height}}px` : '0';
+            if (notice.textContent !== {label}) notice.textContent = {label};
+            if (notice.parentElement !== work || notice.nextElementSibling !== liveRegion) work.insertBefore(notice, liveRegion);
+        }};
+        ensure();
+        new MutationObserver(ensure).observe(root, {{childList:true,subtree:true}});
+    }})()"#);
+    let _ = window.eval(&script);
 }
 
 #[tauri::command]
@@ -493,13 +534,16 @@ fn shell_action(app: &AppHandle, url: &Url, current: Option<&Url>) -> bool {
     }
     let bundled = logic::bundled_shell(current);
     if let Some(action) = logic::shell_action_url(url) {
-        if bundled {
+        if bundled && (action != logic::ShellAction::ContinueOldService
+            || app.state::<Shell>().diagnosis.lock().unwrap().as_ref()
+                .is_some_and(|d| matches!(d.page, "outdatedService" | "unverifiedService"))) {
             // The lifecycle loop is the sole owner of setup and service mutations.
             app.state::<Shell>()
                 .shell_action
                 .lock()
                 .unwrap()
                 .get_or_insert(action);
+            app.state::<Shell>().wake.notify_one();
         }
         return true;
     }
@@ -555,6 +599,9 @@ fn render_diagnosis(app: &AppHandle) {
 }
 fn recovery(app: &AppHandle, state: &str) {
     let shell = app.state::<Shell>();
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.set_title("pacer");
+    }
     let had_origin = shell.origin.lock().unwrap().take().is_some();
     if had_origin {
         if let Some(window) = app.get_webview_window("tray") {
@@ -574,6 +621,8 @@ fn recovery(app: &AppHandle, state: &str) {
             let value = logic::diagnosis(
                 match state {
                     "oldService" => "oldService",
+                    "outdatedService" => "outdatedService",
+                    "unverifiedService" => "unverifiedService",
                     "oldApp" => "oldApp",
                     "protocol" => "protocol",
                     "permission" => "permission",
@@ -609,6 +658,8 @@ fn recovery(app: &AppHandle, state: &str) {
         "permission" => "macOS needs your permission",
         "oldApp" => "Update the pacer app",
         "oldService" => "Update pacer",
+        "outdatedService" => "Update the pacer service",
+        "unverifiedService" => "Check the pacer service version",
         "install" => "pacer needs its command-line tool",
         "welcome" => "Welcome to pacer",
         "consent" => "Set up pacer",
@@ -738,9 +789,16 @@ fn activate(app: &AppHandle, origin: &str, mut auth: Url) -> Result<(), String> 
     *shell.origin.lock().unwrap() = Some(origin.into());
     shell.recovery.lock().unwrap().clear();
     auth.set_fragment(Some(shell.route.lock().unwrap().trim_start_matches('#')));
-    app.get_webview_window("main")
-        .ok_or("Missing window")?
-        .navigate(auth)
+    let window = app.get_webview_window("main").ok_or("Missing window")?;
+    if let Some(version) = shell.old_service_ack.lock().unwrap().as_deref() {
+        let label = if logic::service_release(env!("CARGO_PKG_VERSION"), Some(version)) == logic::ServiceRelease::Older {
+            format!("older service {}", logic::display_service_release(Some(version)))
+        } else { "service version unverified".into() };
+        let _ = window.set_title(&format!("pacer — {label}"));
+    } else {
+        let _ = window.set_title("pacer");
+    }
+    window.navigate(auth)
         .map_err(|_| "Unable to load the desktop sign-in page".into())
 }
 fn set_error_dot(app: &AppHandle, error: bool) {
@@ -777,6 +835,13 @@ fn render_tray(app: &AppHandle, model: TrayModel) -> tauri::Result<()> {
     };
     let menu = Menu::new(app)?;
     let online = app.state::<Shell>().session.lock().unwrap().is_some();
+    let old_service = app.state::<Shell>().old_service_ack.lock().unwrap().clone();
+    if let Some(version) = &old_service {
+        let label = if logic::service_release(env!("CARGO_PKG_VERSION"), Some(version)) == logic::ServiceRelease::Older {
+            format!("Service {} needs an update", logic::display_service_release(Some(version)))
+        } else { "Service version unverified".into() };
+        menu.append(&MenuItem::with_id(app, "old-service", &label, false, None::<&str>)?)?;
+    }
     app.state::<Shell>()
         .actions
         .lock()
@@ -802,7 +867,12 @@ fn render_tray(app: &AppHandle, model: TrayModel) -> tauri::Result<()> {
         None::<&str>,
     )?)?;
     tray.set_title(Some(&model.title))?;
-    tray.set_tooltip(Some(&model.tooltip))?;
+    let tooltip = old_service
+        .map(|version| if logic::service_release(env!("CARGO_PKG_VERSION"), Some(&version)) == logic::ServiceRelease::Older {
+            format!("pacer — service {} needs an update", logic::display_service_release(Some(&version)))
+        } else { "pacer — service version unverified".into() })
+        .unwrap_or(model.tooltip);
+    tray.set_tooltip(Some(&tooltip))?;
     if app.state::<Shell>().tray_alert.swap(model.alert, Ordering::SeqCst) != model.alert {
         set_error_dot(app, model.alert);
     }
@@ -1170,6 +1240,9 @@ fn main() {
                         let origin = app.state::<Shell>().origin.lock().unwrap().clone();
                         if let Some(origin) = origin {
                             if logic::local_origin(payload.url()).as_deref() == Some(&origin) {
+                                if let Some(version) = app.state::<Shell>().old_service_ack.lock().unwrap().clone() {
+                                    show_service_version_notice(&window, &version);
+                                }
                                 let handle = app.clone();
                                 let _ = app.run_on_main_thread(move || {
                                     if handle.state::<Shell>().origin.lock().unwrap().as_deref()
