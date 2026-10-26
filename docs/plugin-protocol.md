@@ -8485,6 +8485,11 @@ Params:
       "type": "integer",
       "exclusiveMinimum": 0,
       "maximum": 60000
+    },
+    "pollMs": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 1000
     }
   },
   "required": [
@@ -8589,6 +8594,9 @@ Params:
     "handle": {
       "type": "string",
       "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"
+    },
+    "graceful": {
+      "type": "boolean"
     }
   },
   "required": [
@@ -8608,10 +8616,39 @@ Result:
     "ok": {
       "type": "boolean",
       "const": true
+    },
+    "code": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "signal": {
+      "anyOf": [
+        {
+          "type": "string",
+          "maxLength": 32
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "terminated": {
+      "type": "boolean"
     }
   },
   "required": [
-    "ok"
+    "ok",
+    "code",
+    "signal",
+    "terminated"
   ],
   "additionalProperties": false
 }
