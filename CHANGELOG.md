@@ -4,6 +4,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Added
+
+- macOS desktop releases include a `.dmg` for first installs: open it and drag pacer into Applications. It holds the same signed app as the `.app.tar.gz` update package; release validation checks that the two match.
+
 ## [0.10.0] - 2026-10-26
 
 ### Added
