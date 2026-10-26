@@ -397,10 +397,18 @@ export class HostLeaseBroker {
       authority.assertGranted("hosts");
       return { handle: result.handle, bytes: result.bytes, sha256: result.sha256 };
     } catch (error) {
-      controller.abort(error instanceof Error ? error : denied("host fetch retired"));
+      // A nested provider deadline may reject just after this fetch's absolute
+      // deadline while its timer callback is still queued on a busy event loop.
+      // Preserve the host-owned timeout instead of leaking that transport's
+      // generic cancellation reason; unrelated failures retain their cause.
+      const expired = !authority.signal.aborted && Date.now() >= deadlineAt &&
+        error instanceof CoreError && (error.code === "plugin_timeout" ||
+          (error.code === "plugin_unavailable" && error.message === "owning plugin call ended"))
+        ? new CoreError("plugin_timeout", "host fetch expired") : undefined;
+      controller.abort(expired ?? (error instanceof Error ? error : denied("host fetch retired")));
       if (produced) await discard(produced).catch(() => {});
       await this.retire(lease);
-      throw error;
+      throw expired ?? error;
     } finally {
       clearTimeout(timer);
       authority.signal.removeEventListener("abort", cancel);
