@@ -243,10 +243,11 @@ export class HostLeaseBroker {
     const identity = parsed.data.script === "SET_IDENTITY" && parsed.data.args.length === 3 &&
       parsed.data.args.every(arg => arg.length > 0);
     const question = parsed.data.script === "QUESTION" && parsed.data.args.length === 1;
-    if ((!probe && !repoCheck && !identity && !question) || parsed.data.stdin !== undefined ||
+    const usage = parsed.data.script === "CODEX_USAGE" && parsed.data.args.length <= 1;
+    if ((!probe && !repoCheck && !identity && !question && !usage) || parsed.data.stdin !== undefined ||
       parsed.data.completionNonce !== undefined || parsed.data.maxBytes > 65_536)
       throw denied("host operation is not issued for this caller");
-    if (repoCheck || identity || question) authority.consumeHostOperation({
+    if (repoCheck || identity || question || usage) authority.consumeHostOperation({
       alias: lease.alias, hostFingerprint: lease.hostFingerprint, script: parsed.data.script,
       args: parsed.data.args, timeoutMs: parsed.data.timeoutMs, maxBytes: parsed.data.maxBytes,
     });

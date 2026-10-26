@@ -37,6 +37,18 @@ export const handlers: Record<string, Handler> = {
       args: [request.path], timeoutMs: 20_000, maxBytes: 8192 }); }
     finally { await host.hosts!.close(opened.session); }
   },
+  "remoteCaller.usageRead": async (raw, host) => {
+    const request = raw as { alias: string; home?: string };
+    const opened = await host.hosts!.open(request.alias);
+    let failed = false;
+    try { return await host.hosts!.run({ session: opened.session, script: "CODEX_USAGE",
+      args: request.home ? [request.home] : [], timeoutMs: 60_000, maxBytes: 65_536 }); }
+    catch (error) { failed = true; throw error; }
+    finally {
+      if (failed) await host.hosts!.close(opened.session).catch(() => {});
+      else await host.hosts!.close(opened.session);
+    }
+  },
 };
 
 if (import.meta.main) await serve({ manifest, handlers });

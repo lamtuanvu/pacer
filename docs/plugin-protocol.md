@@ -4648,6 +4648,70 @@ Result:
 }
 ```
 
+### `remoteCaller.usageRead`
+
+Read one configured Codex account's remote usage with a one-use host grant.
+
+Deadline: 90000 ms.
+
+Params:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "alias": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
+    },
+    "home": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    }
+  },
+  "required": [
+    "alias"
+  ],
+  "additionalProperties": false
+}
+```
+
+Result:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "code": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255
+    },
+    "stdout": {
+      "type": "string",
+      "maxLength": 524288
+    },
+    "stderr": {
+      "type": "string",
+      "maxLength": 524288
+    },
+    "timedOut": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "code",
+    "stdout",
+    "stderr",
+    "timedOut"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### `executor.available`
 
 Report availability for a host-selected direct backend using a credential-free strategy name; staged only, with no production caller.

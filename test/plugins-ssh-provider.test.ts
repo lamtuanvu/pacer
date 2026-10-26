@@ -3,7 +3,7 @@ import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSy
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { checkRepoArgv, CHECK_REPO_SCRIPT, preflightArgv, PREFLIGHT_SCRIPT, probeArgv, PROBE_SCRIPT,
-  questionArgv, QUESTION_SCRIPT,
+  questionArgv, QUESTION_SCRIPT, usageArgv, CODEX_USAGE_SCRIPT,
   setIdentityArgv, SET_IDENTITY_SCRIPT } from "../plugins/pacer-ssh/probe";
 import { SCRIPTS } from "../src/remote/scripts";
 import { controlDir, sshArgv } from "../src/remote/ssh";
@@ -35,6 +35,18 @@ test("SSH question read is fixed and bounded", () => {
   expect(QUESTION_SCRIPT).toBe(SCRIPTS.QUESTION);
   expect(questionArgv(host.ssh, controlPath, [path])).toEqual(sshArgv(ctx, host, SCRIPTS.QUESTION, [path]));
   expect(() => questionArgv(host.ssh, controlPath, ["../other"])).toThrow();
+});
+
+test("SSH usage read pins the fixed script and rejects unbounded homes", () => {
+  const home = tmpDir(), ctx = fakeCtx({ home, pacerHome: join(home, ".pacer") });
+  mkdirSync(ctx.pacerHome, { recursive: true });
+  const host = { alias: "box", ssh: "ssh-fixture", repos: {}, accounts: {}, maxTasks: 1 };
+  const controlPath = join(controlDir(ctx), "cm-%C");
+  expect(CODEX_USAGE_SCRIPT).toBe(SCRIPTS.CODEX_USAGE);
+  expect(usageArgv(host.ssh, controlPath, ["~/.codex-team"])).toEqual(
+    sshArgv(ctx, host, SCRIPTS.CODEX_USAGE, ["~/.codex-team"]));
+  expect(() => usageArgv(host.ssh, controlPath, ["other"])).toThrow();
+  expect(() => usageArgv(host.ssh, controlPath, ["~/safe", "~/other"])).toThrow();
 });
 
 test("accepted question is clean in a SHA-256 Git worktree and changed bytes remain dirty", async () => {
