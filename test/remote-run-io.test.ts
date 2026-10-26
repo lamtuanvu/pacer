@@ -13,6 +13,7 @@ import { issueConfiguredHostReadFrom, consumeConfiguredHostReadFrom } from "../s
 import { issueConfiguredHostSessionSocket, consumeConfiguredHostSessionSocket } from "../src/plugins/host-session-socket-issuer";
 import { issueConfiguredHostBinaryCheck, consumeConfiguredHostBinaryCheck } from "../src/plugins/host-binary-check-issuer";
 import { issueConfiguredHostBinaryUpload, consumeConfiguredHostBinaryUpload } from "../src/plugins/host-binary-upload-issuer";
+import { issueConfiguredHostRuntimeProbe, consumeConfiguredHostRuntimeProbe } from "../src/plugins/host-runtime-probe-issuer";
 import { pluginRegistry } from "../src/plugins";
 
 const host = { alias: "box", ssh: "box-ssh", repos: {}, maxTasks: 2, accounts: {} };
@@ -174,6 +175,105 @@ test("BINARY check is issued only for one persisted run and exact content hash",
   expect(() => issueConfiguredHostBinaryCheck(ctx, "box", remote, local, "bad")).toThrow();
   expect(() => issueConfiguredHostBinaryCheck(ctx, "box", remote, join(home, "wrong"), hash)).toThrow();
 });
+
+test("runtime PROBE is one-use and bound to the persisted run", async () => {
+  const { ctx, home, remote, local } = setup();
+  await expect(pluginRegistry(ctx).call(ctx, "pacer-ssh", "hostRunner.run", {
+    session: "a".repeat(32), script: "PROBE", args: [], timeoutMs: 60_000, maxBytes: 4096,
+  })).rejects.toMatchObject({ code: "capability_denied" });
+  const grant = issueConfiguredHostRuntimeProbe(ctx, "box", remote, local);
+  consumeConfiguredHostRuntimeProbe(ctx, grant);
+  expect(() => consumeConfiguredHostRuntimeProbe(ctx, grant)).toThrow();
+  const stale = issueConfiguredHostRuntimeProbe(ctx, "box", remote, local);
+  const taskId = remote.split("/").at(-2)!;
+  updateTask(ctx, taskId, task => { task.state = "queued"; });
+  expect(() => consumeConfiguredHostRuntimeProbe(ctx, stale)).toThrow();
+  expect(() => issueConfiguredHostRuntimeProbe(ctx, "box", remote, join(home, "wrong"))).toThrow();
+});
+
+test("disabled SSH provider refuses runtime PROBE without direct fallback", async () => {
+  const { ctx, remote, local, log } = setup();
+  const { ensureRemoteBinary } = await import("../src/remote/runtime");
+  const registry = pluginRegistry(ctx);
+  await registry.disable(ctx, "pacer-ssh");
+  const before = existsSync(log) ? readFileSync(log, "utf8") : "";
+  const grant = issueConfiguredHostRuntimeProbe(ctx, "box", remote, local);
+  await expect(registry.probeConfiguredHostRuntime(ctx, grant)).rejects.toMatchObject({ code: "plugin_unavailable" });
+  const binary = join(tmpDir(), "pacer"); writeFileSync(binary, "probe fixture");
+  await expect(ensureRemoteBinary(ctx, host, remote, local, { binary })).rejects.toMatchObject({ code: "plugin_unavailable" });
+  expect(existsSync(log) ? readFileSync(log, "utf8") : "").toBe(before);
+});
+
+test("remote runtime PROBE uses bundled SSH without a direct fallback", async () => {
+  const { ctx, remote, local, log } = setup();
+  const { ensureRemoteBinary } = await import("../src/remote/runtime");
+  const binary = join(tmpDir(), "pacer"); writeFileSync(binary, "probe fixture");
+  const original = ctx.run;
+  let direct = 0;
+  ctx.run = (argv, ms, options) => {
+    if (argv[0] === "ssh") direct++;
+    return original(argv, ms, options);
+  };
+  await ensureRemoteBinary(ctx, host, remote, local, { binary });
+  expect(direct).toBe(0);
+  expect(readFileSync(log, "utf8")).toContain("getconf GNU_LIBC_VERSION");
+});
+
+test("malformed runtime PROBE result cannot advance to binary operations", async () => {
+  const { ctx, remote, local, log } = setup();
+  const { ensureRemoteBinary } = await import("../src/remote/runtime");
+  const binary = join(tmpDir(), "pacer"); writeFileSync(binary, "probe fixture");
+  const registry = pluginRegistry(ctx), probe = registry.probeConfiguredHostRuntime.bind(registry);
+  registry.probeConfiguredHostRuntime = async () => ({ code: 0, stdout: "os=Linux\n", stderr: "", timedOut: false });
+  try {
+    await expect(ensureRemoteBinary(ctx, host, remote, local, { binary })).rejects.toThrow();
+    expect(existsSync(log) ? readFileSync(log, "utf8") : "").toBe("");
+  } finally { registry.probeConfiguredHostRuntime = probe; }
+});
+
+test("timed-out runtime PROBE cannot advance to binary operations", async () => {
+  const { ctx, home, remote, local } = setup();
+  const { ensureRemoteBinary } = await import("../src/remote/runtime");
+  const binary = join(tmpDir(), "pacer"); writeFileSync(binary, "probe fixture");
+  const registry = pluginRegistry(ctx);
+  const probe = registry.probeConfiguredHostRuntime.bind(registry);
+  const check = registry.checkConfiguredHostBinary.bind(registry);
+  const upload = registry.uploadConfiguredHostBinary.bind(registry);
+  let later = 0;
+  registry.probeConfiguredHostRuntime = async () => ({ code: 0,
+    stdout: `os=Linux\narch=x86_64\nglibc=2.36\nhome=${home}\n`, stderr: "", timedOut: true });
+  registry.checkConfiguredHostBinary = async () => { later++; return { code: 1, stdout: "", stderr: "", timedOut: false }; };
+  registry.uploadConfiguredHostBinary = async () => { later++; return { code: 0, stdout: "", stderr: "", timedOut: false }; };
+  try {
+    await expect(ensureRemoteBinary(ctx, host, remote, local, { binary })).rejects.toThrow();
+    expect(later).toBe(0);
+  } finally {
+    registry.probeConfiguredHostRuntime = probe;
+    registry.checkConfiguredHostBinary = check;
+    registry.uploadConfiguredHostBinary = upload;
+  }
+});
+
+test("persisted run drift cancels an in-flight runtime PROBE", async () => {
+  const { ctx, home, remote, local } = setup();
+  const registry = pluginRegistry(ctx), grant = issueConfiguredHostRuntimeProbe(ctx, "box", remote, local);
+  const marker = join(home, "probe-started"), ssh = ctx.which("ssh")!;
+  const source = readFileSync(ssh, "utf8");
+  const command = `exec ${JSON.stringify(join(import.meta.dir, "fixtures", "bin", "ssh"))} "$@"`;
+  expect(source).toContain(command);
+  const fakeSsh = command.slice(5);
+  writeFileSync(ssh, source.replace(command, `for arg in "$@"; do last="$arg"; done
+case "$last" in
+  *"getconf GNU_LIBC_VERSION"*) printf ready > ${JSON.stringify(marker)}; sleep 2; exec ${fakeSsh} ;;
+  *) exec ${fakeSsh} ;;
+esac`), { mode: 0o755 });
+  const pending = registry.probeConfiguredHostRuntime(ctx, grant);
+  for (let i = 0; i < 100 && !existsSync(marker); i++) await Bun.sleep(20);
+  expect(existsSync(marker)).toBe(true);
+  const taskId = remote.split("/").at(-2)!;
+  updateTask(ctx, taskId, task => { task.state = "queued"; });
+  await expect(pending).rejects.toThrow();
+}, 10000);
 
 test("disabled SSH provider refuses BINARY check without direct SSH fallback", async () => {
   const { ctx, remote, local, log } = setup();

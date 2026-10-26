@@ -119,6 +119,9 @@ bundled SSH host runner's fixed command. The upload is limited to 128 MiB and
 verified against its SHA-256 hash on the host. A disabled provider, changed task
 or missing completion receipt stops the attempt without retrying direct SSH;
 inspect the host before retrying an uncertain upload.
+The preceding platform probe also uses that bundled runner for the exact
+persisted task run. If the provider cannot report the host platform, binary
+setup stops without retrying the probe through direct SSH.
 
 Before returning results, pacer requires:
 
