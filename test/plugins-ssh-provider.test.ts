@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { checkHomeArgv, checkRepoArgv, cleanArgv, CLEAN_SCRIPT, cloneRepoArgv, CHECK_REPO_SCRIPT, preflightArgv, PREFLIGHT_SCRIPT, prepareArgv, PREPARE_SCRIPT, probeArgv, PROBE_SCRIPT, reportArgv, REPORT_SCRIPT, stopArgv, STOP_SCRIPT,
+import { checkHomeArgv, checkRepoArgv, cleanArgv, CLEAN_SCRIPT, cloneRepoArgv, CHECK_REPO_SCRIPT, preflightArgv, PREFLIGHT_SCRIPT, prepareArgv, PREPARE_SCRIPT, probeArgv, PROBE_SCRIPT, readFromArgv, READ_FROM_SCRIPT, reportArgv, REPORT_SCRIPT, stopArgv, STOP_SCRIPT,
   questionArgv, QUESTION_SCRIPT, usageArgv, CODEX_USAGE_SCRIPT,
   setIdentityArgv, SET_IDENTITY_SCRIPT } from "../plugins/pacer-ssh/probe";
 import { SCRIPTS } from "../src/remote/scripts";
@@ -150,6 +150,20 @@ test("SSH report argv uses only the fixed persisted-run REPORT script", () => {
       arg.startsWith("ControlPath=") ? "ControlPath=/tmp/private/cm-%C" : arg));
   expect(() => reportArgv(host.ssh, "/tmp/private/cm-%C", ["../other"])).toThrow();
   expect(() => reportArgv(host.ssh, "/tmp/private/cm-%C", ["/remote/run\nwhoami"])).toThrow();
+});
+
+test("SSH output reader pins the fixed hex range and rejects path or size expansion", () => {
+  const ctx = fakeCtx(), host = { alias: "box", ssh: "box", repos: {}, accounts: {}, maxTasks: 1 };
+  const args = ["/remote/.pacer-remote/runs/t-20261026-120000-abcd/1", "session.raw", "0", "262144", "hex"];
+  expect(READ_FROM_SCRIPT).toBe(SCRIPTS.READ_FROM);
+  expect(readFromArgv(host.ssh, "/tmp/private/cm-%C", args))
+    .toEqual(sshArgv(ctx, host, SCRIPTS.READ_FROM, args).map(arg =>
+      arg.startsWith("ControlPath=") ? "ControlPath=/tmp/private/cm-%C" : arg));
+  for (const bad of [
+    ["../run", ...args.slice(1)], [args[0]!, "../../secret", ...args.slice(2)],
+    [...args.slice(0, 3), "262145", "hex"], [...args.slice(0, 4), "text"],
+    [args[0]!, "stdout", 0 as unknown as string, "1", "hex"],
+  ]) expect(() => readFromArgv(host.ssh, "/tmp/private/cm-%C", bad)).toThrow();
 });
 
 test("SSH reference provider builds the exact fixed BUNDLE_OUT argv", async () => {
@@ -352,6 +366,7 @@ test("SSH provider rejects unissued operations and foreign sessions before spawn
   const request = { session: opened.session, script: "PROBE", args: [], timeoutMs: 1000, maxBytes: 1024 };
   for (const invalid of [
     { ...request, script: "CLEAN" }, { ...request, script: "REPORT", args: ["~/run"] },
+    { ...request, script: "READ_FROM", args: ["/run", "secrets", "0", "1", "hex"] },
     { ...request, args: ["--anything"] },
     { ...request, script: "PREPARE", args: ["~/repo", "repo-12345678", "t-20261026-120000-abcd", "a".repeat(40), "main", "1"] },
     { ...request, script: "CHECK_REPO", args: ["~/repo", "clone"] },

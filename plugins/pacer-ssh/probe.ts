@@ -153,6 +153,17 @@ for stream in stdout stderr session.raw; do
   printf '%s=%s\\n%sm=%s\\n' "$key" "$bytes" "$key" "$stamp"
 done`;
 
+/** Fixed bounded run-output reader; parity with SCRIPTS.READ_FROM is tested. */
+export const READ_FROM_SCRIPT = `D="$1"
+case "$D" in '~/'*) D="$HOME/\${D#??}" ;; esac
+[ -f "$D/$2" ] || exit 0
+# Hex mode preserves arbitrary bytes across the text-only RunFn boundary.
+if [ "\${5:-}" = "hex" ]; then
+  tail -c +"$(($3 + 1))" "$D/$2" | head -c "$4" | od -An -v -tx1 | tr -d ' \n'
+else
+  tail -c +"$(($3 + 1))" "$D/$2" | head -c "$4"
+fi`;
+
 export const QUESTION_SCRIPT = `file="$1/.pacer-question"
 [ -f "$file" ] || exit 0
 [ "$(wc -c < "$file")" -le 4000 ] || { echo "question exceeds 1000 characters" >&2; exit 1; }
@@ -254,6 +265,18 @@ export function reportArgv(sshTarget: string, controlPath: string, args: readonl
     args[0].length > 4096 || /[\u0000-\u001f\u007f]/.test(args[0]))
     throw Error("invalid host-issued report directory");
   return issuedArgv(sshTarget, controlPath, REPORT_SCRIPT, [...args]);
+}
+
+export function readFromArgv(sshTarget: string, controlPath: string, args: readonly string[]): string[] {
+  if (args.length !== 5 || args.some(value => typeof value !== "string") ||
+    !args[0]!.startsWith("/") ||
+    args[0].length > 4096 || /[\u0000-\u001f\u007f]/.test(args[0]) ||
+    !["stdout", "stderr", "session.raw"].includes(args[1]!) ||
+    !/^(?:0|[1-9][0-9]*)$/.test(args[2]!) || !Number.isSafeInteger(Number(args[2])) ||
+    !/^[1-9][0-9]*$/.test(args[3]!) || Number(args[3]) > 262_144 ||
+    !Number.isSafeInteger(Number(args[2]) + Number(args[3])) || args[4] !== "hex")
+    throw Error("invalid host-issued output range");
+  return issuedArgv(sshTarget, controlPath, READ_FROM_SCRIPT, [...args]);
 }
 
 export function bundleOutArgv(sshTarget: string, controlPath: string, args: readonly string[]): string[] {

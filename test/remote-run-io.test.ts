@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, symlinkSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { randomBytes } from "node:crypto";
 import { RemoteRunIO } from "../src/remote/run-io";
 import { Unreachable, type RunIO } from "../src/supervisor/io";
 import { readRun, type RunState } from "../src/supervisor/run";
@@ -8,6 +9,7 @@ import { supervise } from "../src/supervisor/supervise";
 import { fakeCtx, fakeSshEnv, realRun, tmpDir } from "./helpers";
 import { createTask, updateTask } from "../src/tasks/store";
 import { issueConfiguredHostReport, consumeConfiguredHostReport } from "../src/plugins/host-report-issuer";
+import { issueConfiguredHostReadFrom, consumeConfiguredHostReadFrom } from "../src/plugins/host-read-from-issuer";
 import { pluginRegistry } from "../src/plugins";
 
 const host = { alias: "box", ssh: "box-ssh", repos: {}, maxTasks: 2, accounts: {} };
@@ -65,6 +67,49 @@ test("disabled SSH provider leaves REPORT unreachable without direct SSH fallbac
   const before = existsSync(log) ? readFileSync(log, "utf8") : "";
   await expect(io.read()).rejects.toBeInstanceOf(Unreachable);
   expect(existsSync(log) ? readFileSync(log, "utf8") : "").toBe(before);
+});
+
+test("READ_FROM grants bind one persisted stream range and preserve the 256 KiB binary chunk", async () => {
+  const { ctx, remote, local } = setup();
+  mkdirSync(remote, { recursive: true });
+  const bytes = randomBytes(262_144);
+  writeFileSync(join(remote, "stdout"), bytes);
+  await expect(pluginRegistry(ctx).call(ctx, "pacer-ssh", "hostRunner.run", {
+    session: "a".repeat(32), script: "READ_FROM", args: [remote, "stdout", "0", "262144", "hex"],
+    timeoutMs: 60_000, maxBytes: 524_288,
+  })).rejects.toMatchObject({ code: "capability_denied" });
+  const grant = issueConfiguredHostReadFrom(ctx, "box", remote, local, "stdout", 0, 262_144);
+  const result = await pluginRegistry(ctx).readFromConfiguredHost(ctx, grant);
+  expect(result.code).toBe(0);
+  expect(Buffer.from(result.stdout, "hex")).toEqual(bytes);
+  await expect(pluginRegistry(ctx).readFromConfiguredHost(ctx, grant))
+    .rejects.toMatchObject({ code: "capability_denied" });
+  const stale = issueConfiguredHostReadFrom(ctx, "box", remote, local, "stdout", 1, 1);
+  const taskId = remote.split("/").at(-2)!;
+  updateTask(ctx, taskId, task => { task.state = "queued"; });
+  expect(() => consumeConfiguredHostReadFrom(ctx, stale)).toThrow();
+  expect(() => issueConfiguredHostReadFrom(ctx, "box", remote, local, "../../secret" as never, 0, 1)).toThrow();
+  expect(() => issueConfiguredHostReadFrom(ctx, "box", remote, local, "stdout", 0, 262_145)).toThrow();
+}, 30000);
+
+test("disabled SSH provider refuses READ_FROM without direct SSH fallback", async () => {
+  const { ctx, remote, local, log } = setup();
+  const registry = pluginRegistry(ctx);
+  await registry.disable(ctx, "pacer-ssh");
+  const before = existsSync(log) ? readFileSync(log, "utf8") : "";
+  const grant = issueConfiguredHostReadFrom(ctx, "box", remote, local, "stderr", 0, 1);
+  await expect(registry.readFromConfiguredHost(ctx, grant)).rejects.toMatchObject({ code: "plugin_unavailable" });
+  expect(existsSync(log) ? readFileSync(log, "utf8") : "").toBe(before);
+});
+
+test("READ_FROM refuses malformed or over-range provider hex", async () => {
+  const { ctx, remote, local, home } = setup();
+  const ssh = join(home, "bin", "ssh"), registry = pluginRegistry(ctx);
+  for (const hex of ["a0z", "a0a0"]) {
+    writeFileSync(ssh, `#!/bin/sh\nprintf '__PACER_BEGIN__\\n${hex}'\n`, { mode: 0o755 });
+    const grant = issueConfiguredHostReadFrom(ctx, "box", remote, local, "stdout", 0, 1);
+    await expect(registry.readFromConfiguredHost(ctx, grant)).rejects.toMatchObject({ code: "plugin_refused" });
+  }
 });
 async function exited(io: RemoteRunIO): Promise<RunState> {
   const end = Date.now() + 8000;
@@ -315,7 +360,7 @@ function canInspectProcesses(): boolean {
 
 
 test("mirror drains up to 4 MiB each poll and resumes the persisted raw cursor", async () => {
-  const {io,ctx,remote,local}=setup();
+  const {io,ctx,remote,local,log}=setup();
   mkdirSync(remote,{recursive:true});
   writeFileSync(join(remote,"session.host"),"pty");
   writeFileSync(join(remote,"session.raw"),'Script started on date [COMMAND="agent"]\n'+"line\n".repeat(900000));
@@ -324,10 +369,11 @@ test("mirror drains up to 4 MiB each poll and resumes the persisted raw cursor",
   const first=readFileSync(join(local,"stdout"));
   expect(first.length).toBeGreaterThan(4*1024*1024-100);
   expect(first.length).toBeLessThanOrEqual(4*1024*1024);
-  const run=ctx.run; const offsets:number[]=[];
-  ctx.run=async(argv,ms,o)=>{if(argv.at(-1)?.includes("# Hex mode")) offsets.push(Number(argv.at(-1)!.match(/session.raw[\' ]+(\d+)/)?.[1]));return run(argv,ms,o);};
+  const before = readFileSync(log, "utf8").length;
   const resumed=new RemoteRunIO(ctx,host,remote,local);
   expect((await resumed.read()).exit).toBe(0);
+  const offsets = [...readFileSync(log, "utf8").slice(before).matchAll(/session\.raw\s+(\d+)\s+\d+\s+hex/g)]
+    .map(match => Number(match[1]));
   expect(offsets[0]).toBeGreaterThan(4*1024*1024-100);
   expect(readFileSync(join(local,"stdout"),"utf8")).toBe("line\n".repeat(900000));
 },30000);
