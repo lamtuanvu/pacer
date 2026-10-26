@@ -4,6 +4,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-26
+
 ### Added
 
 - A dedicated Settings → Dispatcher page shows the default planner, active decision ladder, model choices, and a read-only task preview. Its editor validates and activates a new named strategy. Routing and project strategy precedence are explained in the UI.
