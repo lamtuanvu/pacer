@@ -17,6 +17,7 @@ import { SCRIPTS } from "./scripts";
 import { runRemote } from "./ssh";
 import { pluginRegistry } from "../plugins";
 import { issueConfiguredHostStop } from "../plugins/host-stop-issuer";
+import { issueConfiguredHostReport } from "../plugins/host-report-issuer";
 
 const fields = (text: string) => Object.fromEntries(text.trim().split("\n").map(line => {
   const i = line.indexOf("="); return [line.slice(0, i), line.slice(i + 1)];
@@ -86,7 +87,13 @@ export class RemoteRunIO implements RunIO {
   async read(): Promise<RunState> {
     let report: Record<string, string>;
     // Any failed observation (lost connection or a failing remote command) is retried by supervise until its grace ends.
-    try { report = fields((await this.run(SCRIPTS.REPORT, [this.remoteDir])).stdout); }
+    try {
+      const grant = issueConfiguredHostReport(this.ctx, this.host.alias, this.remoteDir, this.localDir);
+      const result = await pluginRegistry(this.ctx).reportConfiguredHost(this.ctx, grant);
+      if (result.code === 255) throw new Unreachable(`host ${this.host.alias} unreachable`);
+      if (result.code !== 0 || result.timedOut) throw new Error(result.stderr || `remote report exited ${result.code}`);
+      report = fields(result.stdout);
+    }
     catch (e) { throw e instanceof Unreachable ? e : new Unreachable(`host ${this.host.alias}: ${e instanceof Error ? e.message : String(e)}`); }
     mkdirSync(this.localDir, { recursive: true });
     // REPORT reads the launch marker before exit; _session can publish its

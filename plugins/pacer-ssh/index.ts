@@ -2,7 +2,7 @@
 import { randomUUID } from "node:crypto";
 import { PluginError, serve, type Handler } from "@pacer/plugin";
 import { manifest } from "./manifest";
-import { bundleOutArgv, checkHomeArgv, checkRepoArgv, cleanArgv, cloneRepoArgv, preflightArgv, prepareArgv, probeArgv, probePayload, questionArgv, setIdentityArgv, stopArgv, usageArgv } from "./probe";
+import { bundleOutArgv, checkHomeArgv, checkRepoArgv, cleanArgv, cloneRepoArgv, preflightArgv, prepareArgv, probeArgv, probePayload, questionArgv, reportArgv, setIdentityArgv, stopArgv, usageArgv } from "./probe";
 
 export { manifest } from "./manifest";
 
@@ -86,11 +86,12 @@ export const handlers: Record<string, Handler> = {
       typeof input.completionNonce === "string";
     const prepare = input?.script === "PREPARE" && Array.isArray(args) && args.length === 6 &&
       typeof input.completionNonce === "string";
+    const report = input?.script === "REPORT" && Array.isArray(args) && args.length === 1;
     const stop = input?.script === "STOP" && Array.isArray(args) && args.length === 2 &&
       typeof input.completionNonce === "string";
     const question = input?.script === "QUESTION" && Array.isArray(args) && args.length === 1;
     const usage = input?.script === "CODEX_USAGE" && Array.isArray(args) && args.length <= 1;
-    if (!validSession(input?.session) || (!probe && !repoCheck && !preflight && !identity && !clone && !clean && !stop && !prepare && !question && !usage) ||
+    if (!validSession(input?.session) || (!probe && !repoCheck && !preflight && !identity && !clone && !clean && !stop && !prepare && !report && !question && !usage) ||
       (identity || clone || clean || stop || prepare ? !/^[a-f0-9-]{36}$/.test(input.completionNonce as string) : input.completionNonce !== undefined) ||
       input.stdin !== undefined || !Number.isSafeInteger(input.timeoutMs) ||
       (input.timeoutMs as number) < 1 || (input.timeoutMs as number) > 120_000 ||
@@ -106,7 +107,8 @@ export const handlers: Record<string, Handler> = {
         preflightArgv(session.sshTarget, session.controlPath, args as string[]) : identity ?
         setIdentityArgv(session.sshTarget, session.controlPath, args as string[], input.completionNonce as string) : stop ?
         stopArgv(session.sshTarget, session.controlPath, args as string[], input.completionNonce as string) : prepare ?
-        prepareArgv(session.sshTarget, session.controlPath, args as string[], input.completionNonce as string) : clean ?
+        prepareArgv(session.sshTarget, session.controlPath, args as string[], input.completionNonce as string) : report ?
+        reportArgv(session.sshTarget, session.controlPath, args as string[]) : clean ?
         cleanArgv(session.sshTarget, session.controlPath, args as string[], input.completionNonce as string) : clone ?
         cloneRepoArgv(session.sshTarget, session.controlPath, args as string[], input.completionNonce as string) :
         checkRepoArgv(session.sshTarget, session.controlPath, (args as string[])[0]!);

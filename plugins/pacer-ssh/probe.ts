@@ -133,6 +133,26 @@ else
 fi
 printf 'worktree=%s\\nbranch=%s\\n' "$worktree" "$remote_branch"`;
 
+/** Fixed persisted-run observation program; parity with SCRIPTS.REPORT is tested. */
+export const REPORT_SCRIPT = `D="$1"
+case "$D" in '~/'*) D="$HOME/\${D#??}" ;; esac
+printf 'admission_complete=%s\\n' "$(cat "$D/admission.complete" 2>/dev/null)"
+printf 'session=%s\\n' "$(cat "$D/session.host" 2>/dev/null)"
+pid=$(cat "$D/pid" 2>/dev/null); alive=0
+if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+  case "$(ps -o args= -p "$pid")" in *"$D/run.sh"*|*"_session $D") alive=1 ;; esac
+fi
+printf 'pid=%s\\nalive=%s\\nexit=%s\\nstarted=%s\\n' "$pid" "$alive" "$(cat "$D/exit" 2>/dev/null)" "$(cat "$D/started" 2>/dev/null)"
+for stream in stdout stderr session.raw; do
+  bytes=0; stamp=''
+  if [ -f "$D/$stream" ]; then
+    bytes=$(wc -c < "$D/$stream" | tr -d ' ')
+    stamp=$(stat -c %Y "$D/$stream" 2>/dev/null) || stamp=$(stat -f %m "$D/$stream" 2>/dev/null)
+  fi
+  case "$stream" in stdout) key=out ;; stderr) key=err ;; session.raw) key=raw ;; esac
+  printf '%s=%s\\n%sm=%s\\n' "$key" "$bytes" "$key" "$stamp"
+done`;
+
 export const QUESTION_SCRIPT = `file="$1/.pacer-question"
 [ -f "$file" ] || exit 0
 [ "$(wc -c < "$file")" -le 4000 ] || { echo "question exceeds 1000 characters" >&2; exit 1; }
@@ -227,6 +247,13 @@ export function prepareArgv(sshTarget: string, controlPath: string, args: readon
     !/^[1-9][0-9]*$/.test(args[5]!) || !/^[a-f0-9-]{36}$/.test(completionNonce))
     throw Error("invalid host-issued prepare tuple");
   return issuedArgv(sshTarget, controlPath, PREPARE_SCRIPT, [...args], completionNonce);
+}
+
+export function reportArgv(sshTarget: string, controlPath: string, args: readonly string[]): string[] {
+  if (args.length !== 1 || typeof args[0] !== "string" || !args[0].startsWith("/") ||
+    args[0].length > 4096 || /[\u0000-\u001f\u007f]/.test(args[0]))
+    throw Error("invalid host-issued report directory");
+  return issuedArgv(sshTarget, controlPath, REPORT_SCRIPT, [...args]);
 }
 
 export function bundleOutArgv(sshTarget: string, controlPath: string, args: readonly string[]): string[] {
