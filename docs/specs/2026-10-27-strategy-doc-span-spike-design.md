@@ -18,6 +18,12 @@ The functions match TypeScript `after` bytes for **15 of 26** `setIn`/`setScalar
 
 The remaining 11 `setIn`/`setScalar` classes, plus the other 41 oracle cases, are **UNVERIFIED in Rust**. They include block map insertion, nested maps, missing parents, multiline/block scalars, list edits, deletion, rename, `replaceNode`, comments on moved nodes and `getIn`. All configuration write operations remain with TypeScript until the editor covers every class they need and their validation, locks, activity and outbox behavior pass parity and live checks. No TypeScript behavior was changed for this spike.
 
+## Strategy read-model checkpoint
+
+The TypeScript parse/validation oracle at `test/fixtures/strategy-load/` records 16 synthetic cases: eight valid normalized strategies, seven ordered `StrategyError` problem lists and one YAML syntax error. It calls `Bun.YAML.parse` and `validateStrategy` with a literal `$HOME` path. Active-file selection, missing-file errors and migration are not covered yet.
+
+`pacer_config::strategy_load::normalize_basic` matches the complete normalized JSON for five valid current-account cases, including defaults, explicit pacing, quoted/flow YAML, CRLF and an active strategy name. It rejects the other eleven cases before returning a Rust result: legacy providers, hosts, YAML aliases, invalid schema and syntax errors all remain TypeScript-owned. The prototype is read-only, makes no file reads or writes, and is not registered as an operation. It does not yet reproduce validation error messages or the full `Strategy` schema.
+
 ## Next gate
 
 Extend the emitter and node range model against the oracle, then port strategy load/validation/migration. A native write selector must reject unsupported document/edit shapes before taking the strategy lock and must repeat its compatibility check inside that lock. Only after byte and handler parity may Plan 2 writers move from the forward table.

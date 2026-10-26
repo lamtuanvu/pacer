@@ -1,0 +1,18 @@
+[
+  {"id":"current-basic","yaml":"planner: codex\naccounts:\n  personal: {kind: codex}\nrouting:\n  - default: [codex]\n"},
+  {"id":"current-pacing","yaml":"planner: claude-code\naccounts: {personal: {kind: claude}, work: {kind: codex}}\npacing: {policy: even, order: [codex, claude-code], planner_reserve: 20, fill_threshold: 80}\nrouting: [{default: [codex, claude-code]}]\n"},
+  {"id":"current-host","yaml":"planner: codex\naccounts: {personal: {kind: codex}}\nhosts: {devbox: {ssh: dev-ssh}}\nrouting: [{default: [codex]}]\n"},
+  {"id":"legacy-basic","yaml":"planner: codex\nproviders: {codex: {usage: quota}, cursor: {usage: reactive}}\nrouting: [{default: [codex, cursor]}]\n"},
+  {"id":"legacy-opencode","yaml":"planner: opencode\nproviders: {local: {via: opencode, model: ollama/qwen3, usage: unmetered}}\n"},
+  {"id":"active-name","name":"offline","yaml":"planner: codex\naccounts: {personal: {kind: codex}}\nrouting: [{default: [codex]}]\n"},
+  {"id":"flow-and-comments","yaml":"# example\nplanner: 'codex' # keep\naccounts: {personal: {kind: codex}}\nrouting: [{default: [codex]}] # keep\n"},
+  {"id":"crlf","yaml":"planner: codex\r\naccounts: {personal: {kind: codex}}\r\nrouting: [{default: [codex]}]\r\n"},
+  {"id":"yaml-alias","yaml":"planner: codex\naccounts: {personal: &base {kind: codex}, backup: *base}\nrouting: [{default: [codex]}]\n"},
+  {"id":"invalid-top","yaml":"- item\n"},
+  {"id":"invalid-planner","yaml":"planner: gemini\naccounts: {personal: {kind: codex}}\n"},
+  {"id":"invalid-accounts","yaml":"planner: codex\naccounts: {}\n"},
+  {"id":"invalid-pacing","yaml":"planner: codex\naccounts: {personal: {kind: codex}}\npacing: {policy: fastest, planner_reserve: 101, fill_threshold: 20}\n"},
+  {"id":"invalid-routing","yaml":"planner: codex\naccounts: {personal: {kind: codex}}\nrouting: [{kinds: [dance], executors: [nobody]}]\n"},
+  {"id":"invalid-plugins","yaml":"planner: codex\naccounts: {personal: {kind: codex}}\nplugins: {disabled: [bad!]}\n"},
+  {"id":"yaml-syntax","yaml":"planner: [unclosed\n"}
+]

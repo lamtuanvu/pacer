@@ -19,6 +19,7 @@ mod host_suggest;
 mod repo_add;
 mod repos;
 mod routing;
+pub mod strategy_load;
 pub use host_suggest::{host_suggest, ops as host_suggest_ops, requires_core_host_suggest_parser};
 pub use repo_add::{add_repo, ops as repo_add_ops};
 pub use repos::{ops as repo_ops, remove_repo, requires_core_repo_parser};
