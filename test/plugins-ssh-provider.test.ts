@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { binaryCheckArgv, binaryUploadArgv, BINARY_SCRIPT, checkHomeArgv, checkRepoArgv, cleanArgv, CLEAN_SCRIPT, cloneRepoArgv, CHECK_REPO_SCRIPT, preflightArgv, PREFLIGHT_SCRIPT, prepareArgv, PREPARE_SCRIPT, probeArgv, PROBE_SCRIPT, readFromArgv, READ_FROM_SCRIPT, reportArgv, REPORT_SCRIPT, sessionFilesArgv, SESSION_FILES_SCRIPT, sessionSocketArgv, SESSION_SOCKET_SCRIPT, startArgv, START_SCRIPT, stopArgv, STOP_SCRIPT,
+import { binaryCheckArgv, binaryUploadArgv, BINARY_SCRIPT, checkHomeArgv, checkRepoArgv, cleanArgv, CLEAN_SCRIPT, cloneRepoArgv, CHECK_REPO_SCRIPT, preflightArgv, PREFLIGHT_SCRIPT, prepareArgv, PREPARE_SCRIPT, probeArgv, PROBE_SCRIPT, readFromArgv, READ_FROM_SCRIPT, reportArgv, REPORT_SCRIPT, sessionFilesArgv, SESSION_FILES_SCRIPT, sessionSocketArgv, SESSION_SOCKET_SCRIPT, sessionPipeArgv, SESSION_PIPE_SCRIPT, startArgv, START_SCRIPT, stopArgv, STOP_SCRIPT,
   questionArgv, QUESTION_SCRIPT, usageArgv, CODEX_USAGE_SCRIPT,
   setIdentityArgv, SET_IDENTITY_SCRIPT } from "../plugins/pacer-ssh/probe";
 import { SCRIPTS } from "../src/remote/scripts";
@@ -25,6 +25,17 @@ test("SSH reference provider emits exactly the host-issued read-only probe comma
   const controlPath = join(controlDir(ctx), "cm-%C");
   expect(PROBE_SCRIPT).toBe(SCRIPTS.PROBE);
   expect(probeArgv(host.ssh, controlPath)).toEqual(sshArgv(ctx, host, SCRIPTS.PROBE, []));
+});
+
+test("SSH full-session pipe uses only the fixed host-issued run", () => {
+  const home = tmpDir(), ctx = fakeCtx({ home, pacerHome: join(home, ".pacer") });
+  mkdirSync(ctx.pacerHome, { recursive: true });
+  const host = { alias: "box", ssh: "ssh-fixture", repos: {}, accounts: {}, maxTasks: 1 };
+  const controlPath = join(controlDir(ctx), "cm-%C");
+  const args = [join(home, ".pacer-remote/runs/t-20261027-010000-abcd/1")];
+  expect(SESSION_PIPE_SCRIPT).toBe(SCRIPTS.SESSION_PIPE);
+  expect(sessionPipeArgv(host.ssh, controlPath, args)).toEqual(sshArgv(ctx, host, SCRIPTS.SESSION_PIPE, args));
+  expect(() => sessionPipeArgv(host.ssh, controlPath, ["/tmp/foreign"])).toThrow();
 });
 
 test("SSH START uses only the fixed launch script and host-issued tuple", () => {
@@ -362,7 +373,7 @@ test("installed SSH provider stages BUNDLE_OUT bytes for the live host owner", a
   mkdirSync(providerDir, { recursive: true }); mkdirSync(bin, { recursive: true });
   symlinkSync(join(import.meta.dir, "..", "node_modules"), join(home, "node_modules"), "dir");
   const source = join(import.meta.dir, "..", "plugins", "pacer-ssh");
-  for (const file of ["index.ts", "manifest.ts", "probe.ts", "pacer-plugin.json"])
+  for (const file of ["index.ts", "manifest.ts", "probe.ts", "session-stream.ts", "pacer-plugin.json"])
     copyFileSync(join(source, file), join(providerDir, file));
   chmodSync(join(providerDir, "index.ts"), 0o755);
   writeFileSync(fakeSsh, `#!/bin/sh\nprintf '%s\\n' "$*" >> '${join(home, "ssh-argv.log")}'\nprintf '__PACER_BEGIN__\\nabc'\n`);
@@ -500,7 +511,7 @@ test("installed SSH reference provider uses only an issued probe through a fake 
   mkdirSync(bin, { recursive: true });
   symlinkSync(join(import.meta.dir, "..", "node_modules"), join(home, "node_modules"), "dir");
   const source = join(import.meta.dir, "..", "plugins", "pacer-ssh");
-  for (const file of ["index.ts", "manifest.ts", "probe.ts", "pacer-plugin.json"])
+  for (const file of ["index.ts", "manifest.ts", "probe.ts", "session-stream.ts", "pacer-plugin.json"])
     copyFileSync(join(source, file), join(providerDir, file));
   chmodSync(join(providerDir, "index.ts"), 0o755);
   writeFileSync(fakeSsh, `#!/bin/sh\nprintf 'called\\n' >> '${join(home, "ssh-calls.log")}'\nprintf '%s\\n' "$*" >> '${join(home, "ssh-argv.log")}'\nprintf '__PACER_BEGIN__\\nos=Fake\\narch=test\\n'\n`);
@@ -542,7 +553,7 @@ test("host issues one exact check command to the installed provider", async () =
   mkdirSync(providerDir, { recursive: true }); mkdirSync(bin, { recursive: true });
   symlinkSync(join(import.meta.dir, "..", "node_modules"), join(home, "node_modules"), "dir");
   const source = join(import.meta.dir, "..", "plugins", "pacer-ssh");
-  for (const file of ["index.ts", "manifest.ts", "probe.ts", "pacer-plugin.json"])
+  for (const file of ["index.ts", "manifest.ts", "probe.ts", "session-stream.ts", "pacer-plugin.json"])
     copyFileSync(join(source, file), join(providerDir, file));
   chmodSync(join(providerDir, "index.ts"), 0o755);
   writeFileSync(fakeSsh, `#!/bin/sh\nprintf 'called\\n' >> '${join(home, "ssh-calls.log")}'\nprintf '%s\\n' "$*" >> '${join(home, "ssh-argv.log")}'\n[ -f '${join(home, "pause-check")}' ] && sleep 5\nprintf '__PACER_BEGIN__\\nexists=1\\ngit=1\\n'\n`);
