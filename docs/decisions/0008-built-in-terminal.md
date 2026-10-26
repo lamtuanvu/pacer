@@ -14,6 +14,8 @@ Pacer's app can show agent sessions, but general shell commands and several sett
 
 Each creation has a request ID reserved before spawn. A repeat request reuses the record or reports a conflicting payload. The API never accepts arbitrary command text or argv for actions; users type commands into an authenticated shell stream. Terminal files are private, and executor work grants cannot manage or attach to these terminals.
 
+The Rust client schema generator emits terminal and host-terminal operation types into the `pacer-terminal-protocol` area crate. This keeps the core generated client crate within CRATE-3's 10,000-line limit.
+
 ## Consequences
 
 Terminal processes survive closing an app window and reconnect through the service. Closing a live tab stops its PTY after confirmation. Service lifetime, registry cleanup and terminal limits become service responsibilities. Configured-host SSH uses a noninteractive, time-bounded connection recipe in the app; remote login behavior needs separately authorized live validation.
