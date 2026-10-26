@@ -177,7 +177,7 @@ The outbox retains the last 1000 entries. If a positive resume cursor predates t
 
 Long operations share a job per (kind, target): host.check, runner.check, host.repo.setup, host.clean and update.apply. In the daemon they return immediately; without it the operation waits for completion. job.get, job.list and job.cancel expose progress. Jobs contain id, kind, target, state, steps, startedAt, endedAt and optional error; states are running/passed/failed/cancelled. Completed jobs expire after 24 hours. Every state or step change publishes a job entity event to API clients, without channel notifications. Orphaned running jobs fail on service recovery.
 
-Sign-in, strategy builds and host terminals use fixed commands. Automatic terminal selection tries Orca, the configured terminal.app (Terminal by default on macOS), tmux, then returns a copyable command with opened:false. Explicit targets are orca, terminal and tmux. Account signedIn:false reflects an authentication failure and clears after a successful fresh usage read. runner.check tests the CLI, sign-in, usage and a scratch task without using a user repository.
+Sign-in, strategy builds and host terminals use fixed commands. Automatic terminal selection tries Orca, the configured terminal.open preset (falling back to legacy terminal.app on macOS), tmux, then returns a copyable command with opened:false. Explicit targets are orca, terminal and tmux. Account signedIn:false reflects an authentication failure and clears after a successful fresh usage read. runner.check tests the CLI, sign-in, usage and a scratch task without using a user repository.
 
 ## Remote hosts
 

@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { renderToString } from "preact-render-to-string";
 import { AttachmentDelivery } from "../app/src/screens/session/Attachments";
-import { Conversation, ConversationHeader } from "../app/src/screens/session/Conversation";
+import { Conversation, ConversationHeader, TerminalOpenFallback } from "../app/src/screens/session/Conversation";
 import { TaskContext } from "../app/src/screens/task-shared";
 
 test("later attachment reference requires an explicit copy step and user submission", () => {
@@ -42,4 +42,22 @@ test("other failed conversations keep technical errors behind a disclosure", () 
   expect(html).toContain('<details');
   expect(html).toContain("spawn failed at /tmp/private/file");
  } finally {globalThis.location=previousLocation;}
+});
+
+test("disk-full conversation explains recovery without hiding its technical error", () => {
+ const previousLocation=globalThis.location;
+ globalThis.location={hash:""} as Location;
+ try {
+  const task={id:"task-3",state:"failed",fullTitle:"Start agent",goal:"Start agent",repo:{label:"project"},branch:null,executor:"codex",summary:"pacer runner error: ENOSPC: no space left on device",brief:{goal:"Start agent"}};
+  const state={snapshot:{executors:[]},invalidations:{},activity:[],connected:false};
+  const html=renderToString(<TaskContext.Provider value={{api:{} as never,state:state as never}}><Conversation task={task as never} onReload={()=>{}}/></TaskContext.Provider>);
+  expect(html).toContain("Free space on this machine");
+  expect(html).toContain("ENOSPC");
+ } finally {globalThis.location=previousLocation;}
+});
+
+test("unopened terminal shows a copyable attach command", () => {
+ const html=renderToString(<TerminalOpenFallback command="pacer attach t-1"/>);
+ expect(html).toContain("Terminal did not open");
+ expect(html).toContain("pacer attach t-1");
 });

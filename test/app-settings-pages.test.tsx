@@ -35,12 +35,19 @@ test('This machine is a reachable settings page with one current icon navigation
   const route = resolveRoute('#/settings/machine') as Route;
   expect(route).toMatchObject({ name: 'settings', section: 'machine' });
   expect(render('machine')).toContain('Parallel tasks on this machine');
+  expect(render('machine')).toContain('Preferred terminal');
   const html = renderToString(<SettingsPanel route={route} counts={null}/>);
   expect(html).toContain('href="#/settings/machine"');
   expect(html.match(/aria-current="page"/g)).toHaveLength(1);
   const items = [...html.matchAll(/<a\b[^>]*class="[^"]*pc-panel__item[^>]*>[\s\S]*?<\/a>/g)];
   expect(items.length).toBeGreaterThan(10);
   for (const [item] of items) expect(item).toContain('<svg');
+});
+test('terminal picker shows Linux automatic and an existing custom template', () => {
+  const linux={...settings,config:{...settings.config,keys:{...settings.config.keys,'terminal.open':{value:''},'terminal.app':{value:'Terminal'}},terminalChoices:[{value:'auto',label:'Automatic'},{value:'kitty',label:'Kitty'}]}};
+  expect(renderToString(<TaskContext.Provider value={{state,api:{} as any}}><SettingsGeneral section="machine" initialData={linux}/></TaskContext.Provider>)).toContain('Automatic');
+  const custom={...linux,config:{...linux.config,keys:{...linux.config.keys,'terminal.open':{value:'kitty -e {cmd}'}}}};
+  expect(renderToString(<TaskContext.Provider value={{state,api:{} as any}}><SettingsGeneral section="machine" initialData={custom}/></TaskContext.Provider>)).toContain('Custom terminal');
 });
 
 test('General page destinations preserve scope in the href for native link actions', () => {
