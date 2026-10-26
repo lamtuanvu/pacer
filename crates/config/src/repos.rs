@@ -39,6 +39,34 @@ fn js_compatible(value: &Value) -> bool {
     }
 }
 
+// Date.now()/1000 yields a millisecond-derived fractional second. For this
+// bounded range, JSON.stringify and serde_json both emit the same plain decimal
+// bytes. Keep legacy/exotic number forms on the core-owned path.
+fn js_compatible_last_used(value: &Value) -> bool {
+    if js_compatible(value) {
+        return true;
+    }
+    let Some(seconds) = value.as_f64() else {
+        return false;
+    };
+    if !seconds.is_finite() || !(1_000_000_000.0..10_000_000_000.0).contains(&seconds) {
+        return false;
+    }
+    let millis = (seconds * 1000.0).round() as u64;
+    if millis as f64 / 1000.0 != seconds {
+        return false;
+    }
+    let fraction = millis % 1000;
+    let canonical = if fraction == 0 {
+        (millis / 1000).to_string()
+    } else {
+        format!("{}.{fraction:03}", millis / 1000)
+            .trim_end_matches('0')
+            .to_owned()
+    };
+    serde_json::to_string(value).is_ok_and(|encoded| encoded == canonical)
+}
+
 /// Retain JS-owned parsing for legacy or unusual registries until their exact
 /// JSON.stringify behavior is ported. Missing files follow the core's `{}` default.
 pub fn requires_core_repo_parser(ctx: &Ctx) -> bool {
@@ -61,9 +89,6 @@ pub fn requires_core_repo_parser(ctx: &Ctx) -> bool {
         let Some(map) = value.as_object() else {
             return true;
         };
-        if !js_compatible(&value) {
-            return true;
-        }
         if path == &repos
             && map.values().any(|entry| {
                 let Some(object) = entry.as_object() else {
@@ -73,8 +98,18 @@ pub fn requires_core_repo_parser(ctx: &Ctx) -> bool {
                     || !object.get("key").is_some_and(Value::is_string)
                     || !object.get("path").is_some_and(Value::is_string)
                     || !object.get("lastUsed").is_some_and(Value::is_number)
+                    || !object.get("lastUsed").is_some_and(js_compatible_last_used)
             })
         {
+            return true;
+        }
+        if map.keys().any(|key| {
+            key.parse::<u32>()
+                .is_ok_and(|n| n < u32::MAX && n.to_string() == *key)
+        }) {
+            return true;
+        }
+        if path == &aliases && !js_compatible(&value) {
             return true;
         }
         if path == &aliases && map.values().any(|value| !value.is_string()) {
