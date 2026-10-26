@@ -362,7 +362,10 @@
                   "prefixItems": [
                     {
                       "type": "string",
-                      "const": "direct"
+                      "enum": [
+                        "direct",
+                        "orca"
+                      ]
                     }
                   ],
                   "items": false,
@@ -635,7 +638,10 @@
                       "prefixItems": [
                         {
                           "type": "string",
-                          "const": "direct"
+                          "enum": [
+                            "direct",
+                            "orca"
+                          ]
                         }
                       ],
                       "items": false,
@@ -4244,6 +4250,37 @@
       },
       "required": [
         "available"
+      ],
+      "additionalProperties": false
+    },
+    "executor.sessionState.params": {
+      "type": "object",
+      "properties": {
+        "taskId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      },
+      "required": [
+        "taskId"
+      ],
+      "additionalProperties": false
+    },
+    "executor.sessionState.result": {
+      "type": "object",
+      "properties": {
+        "live": {
+          "type": "boolean"
+        },
+        "handle": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      },
+      "required": [
+        "live"
       ],
       "additionalProperties": false
     },

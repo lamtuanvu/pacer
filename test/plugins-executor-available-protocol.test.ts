@@ -18,11 +18,12 @@ test("staged executor manifest and availability contract are exact and protocol 
   expect(SDK_PROTOCOL).toBe(PLUGIN_PROTOCOL_VERSION);
   expect(EXTENSION_POINTS).toContain("executor");
   expect(executorContribution.safeParse({ backends: ["direct"] }).success).toBe(true);
-  for (const contribution of [{ backends: ["orca"] }, { backends: ["direct", "orca"] },
+  for (const contribution of [{ backends: ["direct", "orca"] },
     { backends: ["direct"], command: "sh" }, { backends: ["direct"], credentials: {} }]) {
     expect(manifestSchema.safeParse(manifest({ executor: contribution })).success).toBe(false);
   }
   expect(manifestSchema.safeParse(manifest({ executor: { backends: ["direct"] } })).success).toBe(true);
+  expect(manifestSchema.safeParse(manifest({ executor: { backends: ["orca"] } })).success).toBe(true);
   expect(manifestSchema.safeParse(manifest({ hostRunner: { kinds: ["ssh"] } })).success).toBe(true);
   expect(available.deadlineMs).toBe(10_000);
   expect(available.params.safeParse({ strategy: { name: "default" } }).success).toBe(true);
@@ -35,7 +36,7 @@ test("staged executor manifest and availability contract are exact and protocol 
   expect(available.result.safeParse({ available: true, reason: "x".repeat(1025) }).success).toBe(false);
   const published = JSON.parse(readFileSync(join(import.meta.dir, "..", "docs", "plugin-protocol.schema.json"), "utf8"));
   expect(published.version).toBe("1.5.0");
-  expect(published.$defs.manifest.properties.contributes.properties.executor.properties.backends.prefixItems[0].const).toBe("direct");
+  expect(published.$defs.manifest.properties.contributes.properties.executor.properties.backends.prefixItems[0].enum).toEqual(["direct", "orca"]);
   expect(published.$defs["executor.available.params"].properties.strategy.properties.name.maxLength).toBe(128);
   expect(published.$defs["executor.available.result"].additionalProperties).toBe(false);
   expect(published.$defs["hostRunner.check.params"]).toBeDefined();

@@ -766,13 +766,13 @@ export class PluginRegistry {
     if (!Number.isFinite(requested) || requested < 0) throw new CoreError("invalid_input", "plugin deadline must be non-negative");
     const boundedObservation=["diagnostic.ping","policy.before"].includes(method)&&e.manifest!.capabilities.some(c=>c.name==="tasks.read"||c.name==="events.subscribe");
     const hostRunner = method.startsWith("hostRunner.");
-    const executorAvailable = method === "executor.available";
-    if((hostRunner || executorAvailable) && requested === 0) throw new CoreError("invalid_input", "staged plugin calls require a finite deadline");
-    const duration = method === "usage.read" || boundedObservation || hostRunner || executorAvailable ? requested === 0 ? def.deadlineMs : Math.min(requested, def.deadlineMs) : requested;
+    const executorMethod = method.startsWith("executor.");
+    if((hostRunner || executorMethod) && requested === 0) throw new CoreError("invalid_input", "staged plugin calls require a finite deadline");
+    const duration = method === "usage.read" || boundedObservation || hostRunner || executorMethod ? requested === 0 ? def.deadlineMs : Math.min(requested, def.deadlineMs) : requested;
     if ((options.resources || credentialBindings !== undefined || (classifier && method === "classifier.ask")) && duration === 0) throw new CoreError("invalid_input", "scoped capabilities require a finite deadline");
     const deadlineAt = duration === 0 ? Infinity : startedAt + duration;
-    const parsed = method === "usage.read" || hostRunner || executorAvailable || (classifier && method === "classifier.ask") ? def.params.safeParse(params) : null;
-    if (parsed && !parsed.success) throw new CoreError("invalid_input", hostRunner ? "invalid host runner params" : executorAvailable ? "invalid executor availability params" : method === "usage.read" ? "invalid usage reader params" : "invalid classifier params");
+    const parsed = method === "usage.read" || hostRunner || executorMethod || (classifier && method === "classifier.ask") ? def.params.safeParse(params) : null;
+    if (parsed && !parsed.success) throw new CoreError("invalid_input", hostRunner ? "invalid host runner params" : executorMethod ? "invalid executor params" : method === "usage.read" ? "invalid usage reader params" : "invalid classifier params");
     let input = parsed?.success ? parsed.data : params;
     let resources = options.resources;
     if (classifier && method === "classifier.ask") {
@@ -859,9 +859,9 @@ export class PluginRegistry {
               throw new CoreError("capability_denied", "host fetch provider generation retired during claim");
             return undefined as T;
           }
-          if (method === "usage.read" || hostRunner || executorAvailable) {
+          if (method === "usage.read" || hostRunner || executorMethod) {
             const output = def.result.safeParse(result);
-            if (!output.success) throw new CoreError("plugin_refused", hostRunner ? "host runner returned an invalid result" : executorAvailable ? "executor returned an invalid availability result" : "usage reader returned an invalid reading");
+            if (!output.success) throw new CoreError("plugin_refused", hostRunner ? "host runner returned an invalid result" : executorMethod ? "executor returned an invalid result" : "usage reader returned an invalid reading");
             if(hostRunner && (method === "hostRunner.stream" || method === "hostRunner.fetch") &&
               (output.data as {bytes:number}).bytes > (input as {maxBytes:number}).maxBytes)
               throw new CoreError("plugin_refused", "host runner exceeded the requested byte limit");

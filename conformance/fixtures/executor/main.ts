@@ -8,4 +8,5 @@ await serve({ manifest, input: stdinLines(), handlers: {
   ...executorAvailableHandler((_input, _signal) => fixture.malformed
     ? { available: true, reason: "fixture", unsafe: "unexpected" } as { available: boolean; reason: string }
     : { available: fixture.available, ...(!fixture.available ? { reason: "fixture unavailable" } : {}) }),
+  "executor.sessionState": () => ({ live: false }),
 } });
