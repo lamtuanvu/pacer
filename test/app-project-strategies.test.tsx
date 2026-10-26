@@ -11,7 +11,7 @@ const api = {call:async()=>view} as any;
 const render = (s=state,initial=view) => renderToString(<TaskContext.Provider value={{state:s,api}}><ProjectStrategies initialData={initial}/></TaskContext.Provider>);
 test("editor names keyboard reorder controls and distinguishes saved project order", () => {
   const html=render();
-  for(const copy of ["Project strategies","Project order","Move Cursor · team · local down","Move Codex · personal · local up","Save project strategy","Use global strategy"]) expect(html).toContain(copy);
+  for(const copy of ["Project overrides","Project order","Move Cursor · team · local down","Move Codex · personal · local up","Save project override","Use global rules"]) expect(html).toContain(copy);
   expect(html).toContain("pc-choice-picker"); expect(html).toContain("pc-btn");
 });
 test("older services hide project settings and disconnected editors explain disabled saving", () => {

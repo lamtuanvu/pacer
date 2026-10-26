@@ -83,16 +83,18 @@ test("shortcut help lists registered shortcuts with keys", () => {
   expect(html).toContain("Review");
 });
 
-test("settings counts are neutral while executor and host status badges use their tones", () => {
+test("settings shows one Dispatcher destination while executor and host status badges use their tones", () => {
   const html = renderToString(<SettingsPanel route={at('#/settings')} counts={snap.counts!}
     snapshot={{ ...snap, accounts: Array.from({ length: 6 }, () => snap.accounts![0]!), executors: [{ ...snap.executors![0]!, state: 'down' }], hosts: [{ ...snap.hosts![0]!, state: 'needs_setup' }] }}
     badges={{ strategies: 6, routing: '1 rule' }} />);
   expect(html).toMatch(/Accounts<span[^>]*class="pc-rail__badge pc-rail__badge--neutral"[^>]*>6</);
-  expect(html).toMatch(/Strategies<span[^>]*class="pc-rail__badge pc-rail__badge--neutral"[^>]*>6</);
+  expect(html).toContain('Dispatcher');
+  expect(html).not.toContain('>Strategies<');
+  expect(html).not.toContain('>Routing<');
   expect(html).toMatch(/pc-rail__badge--bad"[^>]*>1</);
   expect(html).toContain("1 need attention; 0 blocked");
   expect(html).toMatch(/pc-rail__badge--warn"[^>]*>1 needs setup</);
-  expect(html).toContain('>1 rule</span>');
+  expect(html).not.toContain('>1 rule</span>');
 });
 
 test("retired and unknown hashes select Overview in the shell", () => {

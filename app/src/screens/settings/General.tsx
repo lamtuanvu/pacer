@@ -3,6 +3,7 @@ export { HostsSection } from "./HostsSection";
 import { ExecutorsSection } from "./Executors";
 export { ExecutorsSection } from "./Executors";
 import { UpdatesSection } from "./Updates";
+import { LazyDispatcher } from "./LazyDispatcher";
 
 import { withQuery, type RouteQuery } from "../../router";
 import { DensityContext } from "../../ds/Density";
@@ -82,6 +83,7 @@ export function SettingsGeneral({
   initialData?: SettingsData;
   query?: RouteQuery;
 }) {
+  const [dispatchRevision, setDispatchRevision] = useState(0);
   let content: ComponentChildren;
   switch (section) {
     case "planner":
@@ -96,11 +98,11 @@ export function SettingsGeneral({
     case "machine":
       content = <MachineSection initialData={initialData.config} />;
       break;
-    case "routing":
-      content = <RoutingSection initialData={initialData.routing} />;
-      break;
-    case "strategies":
-      content = <StrategiesSection initialData={initialData.strategies} />;
+    case "dispatcher":
+      content = <LazyDispatcher key={dispatchRevision} query={query}>
+        <StrategiesSection initialData={initialData.strategies} onActivated={() => setDispatchRevision(value => value + 1)} />
+        <RoutingSection initialData={initialData.routing} />
+      </LazyDispatcher>;
       break;
     case "updates":
       content = <UpdatesSection initialData={initialData.updates} />;
@@ -624,24 +626,21 @@ function RoutingSection({ initialData }: { initialData?: RoutingRules }) {
   // Show active strategy in detail
   const activeStrategy = strategiesQuery.data?.find((s) => s.active);
   const strategyLabel = activeStrategy
-    ? `Global routing rules from strategy: ${activeStrategy.name}${activeStrategy.summary ? ` · ${activeStrategy.summary}` : ""}`
-    : "Which executors a kind of task may use, in order. First match wins.";
+    ? `Global rules from profile: ${activeStrategy.name}${activeStrategy.summary ? ` · ${activeStrategy.summary}` : ""}`
+    : "Choose the executors eligible for a task. First matching rule wins.";
 
   return (
     <Section
-      id="routing"
-      title="Routing"
+      id="executor-eligibility"
+      title="Executor eligibility"
       detail={strategyLabel}
       actions={
         <>
-          {activeStrategy && (
-            <TextAction href="#/settings/strategies">View strategies</TextAction>
-          )}
-          {activeStrategy && " "}
           <Button onClick={() => setAdding((v) => !v)}>Add rule</Button>
         </>
       }
     >
+      <p>These global rules choose executors by task kind. A project override supplies its own executor list for that repository. The decision engine above then ranks eligible accounts and models.</p>
       <ResourceState resource={query}>
         {query.data?.rules.length === 0 ? (
           <p>No routing rules yet.</p>
@@ -727,24 +726,23 @@ function RoutingSection({ initialData }: { initialData?: RoutingRules }) {
     </Section>
   );
 }
-function StrategiesSection({ initialData }: { initialData?: StrategyRow[] }) {
+function StrategiesSection({ initialData, onActivated }: { initialData?: StrategyRow[]; onActivated?: () => void }) {
   const query = useResource("strategy.list", {}, initialData),
     action = useOperation(query.reload);
   const [building, setBuilding] = useState(false),
     [brief, setBrief] = useState("");
   return (
     <Section
-      id="strategies"
-      title="Strategies"
-      detail="Saved routing and pacing settings. Switch anytime."
+      id="saved-profiles"
+      title="Saved profiles"
+      detail="Each profile saves global planner, pacing, eligibility and dispatcher settings. Switch anytime."
       actions={
         <>
-          <TextAction href="#/settings/routing">Edit routing rules</TextAction>{" "}
           <Button onClick={() => setBuilding((v) => !v)}>New from a brief</Button>
         </>
       }
     >
-      <ResourceState resource={query} empty="No strategies yet.">
+      <ResourceState resource={query} empty="No saved profiles yet.">
         {query.data?.map((strategy) => (
           <div className="u3-setting" key={strategy.name}>
             <strong>{strategy.name}</strong>
@@ -756,7 +754,7 @@ function StrategiesSection({ initialData }: { initialData?: StrategyRow[] }) {
                 <Button
                   disabled={action.busy}
                   onClick={() =>
-                    void action.run("strategy.use", { name: strategy.name })
+                    void action.run("strategy.use", { name: strategy.name }, onActivated)
                   }
                 >
                   Use

@@ -3,7 +3,7 @@ import { listWork, setWorkDependencies, waiveWorkDependency, workOptionsSchema }
 import { listDispatchModels, refreshObservations } from "../dispatch/refresh";
 import { dispatchAnalytics, resetLearning, recordWorkReview } from "../dispatch/learning";
 import { getWork } from "../dispatch/work";
-import { previewInputSchema } from "../dispatch/types";
+import { dispatchConfigSchema, previewInputSchema } from "../dispatch/types";
 import { clientControlOps } from "./ops-client-control";
 import pkg from "../../package.json";
 import { PROTOCOL_VERSION } from "./protocol";
@@ -424,6 +424,7 @@ export const OPS: Record<string, OpDef> = {
   "limits.check": op({ description: "Provider limits, freshness and usage sources.", params: z.object({}), handler: (ctx) => core.limits.check(ctx) }),
   "limits.report": op({ description: "Mark a provider's account exhausted until unix seconds or its cooldown.", params: z.object({ provider: id, until: z.number().optional() }), handler: (ctx, p) => core.limits.report(ctx, p.provider, p.until) }),
   "routing.status": op({ description: "Current budget and routing status.", params: z.object({}), handler: (ctx) => core.routing.status(ctx) }),
+  "dispatch.config.get": op({description:"Read the active planner and effective dispatcher configuration, including built-in defaults.",params:z.object({}),handler:ctx=>{const current=loadStrategy(ctx);return {strategy:current.name,planner:current.planner.agent,plannerAccount:current.planner.account,source:current.dispatch?"strategy":"built-in",config:current.dispatch??dispatchConfigSchema.parse({})};}}),
   "dispatch.preview": op({ description: "Preview account/model dispatch using cached observations and the replaceable decision engine. Does not reserve capacity or launch work.", params: previewInputSchema, handler: (ctx, p) => core.dispatch.previewDispatch(ctx, p) }),
   "dispatch.submit": op({ description: "Submit a root work item to the dispatcher.", params: z.object({goal:z.string().min(1).max(20000),repo:z.string().min(1).max(4096),title:z.string().max(500).optional(),kind:id.optional(),acceptance:z.string().max(20000).optional(),context:z.string().max(20000).optional(),constraints:z.string().max(20000).optional(),executor:id.optional(),requestId:id.optional(),options:workOptionsSchema.partial().optional()}),handler:async(ctx,p,deps)=>summarizeTask(await submitWork(ctx,p,deps.spawnRunner??spawnRunner)) }),
   "dispatch.child": op({ description: "Delegate a scoped child work item using the current attempt's grant and an idempotency key.", params: z.object({goal:z.string().min(1).max(20000),title:z.string().max(500).optional(),kind:id.optional(),acceptance:z.string().max(20000).optional(),context:z.string().max(20000).optional(),constraints:z.string().max(20000).optional(),executor:id.optional(),requestId:id,options:workOptionsSchema.partial().optional()}),handler:async(ctx,p,deps)=>summarizeTask(await delegateChild(ctx,p,deps.spawnRunner??spawnRunner)) }),

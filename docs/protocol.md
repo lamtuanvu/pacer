@@ -2220,6 +2220,21 @@ Params JSON Schema:
 }
 ```
 
+### `dispatch.config.get`
+
+Read the active planner and effective dispatcher configuration, including built-in defaults.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}
+```
+
 ### `dispatch.dependencies`
 
 Set same-root dependencies with a revision check.

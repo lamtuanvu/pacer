@@ -57,10 +57,10 @@ function ProjectStrategyPicker({
   }, [repo, choices.size]);
   return (
     <div className="pc-card pc-project-strategies">
-      <SectionHeading>Project strategies</SectionHeading>
+      <SectionHeading>Project overrides</SectionHeading>
       <p className="u3-muted">
         Choose which executors may work on a repository, in order. This
-        overrides global routing and stays in place when you switch strategies.
+        overrides global eligibility rules and stays in place when you switch profiles.
       </p>
       <ErrorMessage error={policies.error} />
       {choices.size ? (
@@ -152,8 +152,8 @@ function ProjectStrategyEditor({
       <div ref={editor} onFocusCapture={rememberControl}>
         <p role="status">
           {query.error
-            ? "Project strategy could not be loaded."
-            : "Loading project strategy…"}
+            ? "Project override could not be loaded."
+            : "Loading project override…"}
         </p>
         <ErrorMessage error={query.error} />
         {query.error && <Button onClick={query.reload}>Try again</Button>}
@@ -170,7 +170,7 @@ function ProjectStrategyEditor({
     >
       <p>
         <strong>
-          {view.executors ? "Project order" : "Using global strategy"}
+          {view.executors ? "Project order" : "Using global rules"}
         </strong>
         {dirty ? " · Unsaved changes" : " · Saved"}
       </p>
@@ -275,7 +275,7 @@ function ProjectStrategyEditor({
       )}
       {!draft.executors.length && (
         <p role="status">
-          Add at least one executor to save a project order. Use global strategy
+          Add at least one executor to save a project order. Use global rules
           to remove an override.
         </p>
       )}
@@ -294,7 +294,7 @@ function ProjectStrategyEditor({
             )
           }
         >
-          Save project strategy
+          Save project override
         </Button>
         {view.executors && (
           <Button
@@ -307,7 +307,7 @@ function ProjectStrategyEditor({
               )
             }
           >
-            Use global strategy
+            Use global rules
           </Button>
         )}
         {(dirty || action.error || query.error) && (
@@ -323,7 +323,7 @@ function ProjectStrategyEditor({
           </Button>
         )}
       </div>
-      {action.busy && <p role="status">Saving project strategy…</p>}
+      {action.busy && <p role="status">Saving project override…</p>}
       <Feedback action={action} />
     </div>
   );

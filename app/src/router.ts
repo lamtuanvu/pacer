@@ -19,7 +19,7 @@ export type RouteTarget =
   | { name: "settings"; section?: string; query?: TargetQuery }
   | { name: "hosts"; alias?: string; query?: TargetQuery }
   | { name: "add-executor"; host?: string; query?: TargetQuery };
-export const SETTINGS_SECTIONS = ["planner", "accounts", "executors", "machine", "routing", "strategies", "updates", "notifications", "appearance", "diagnostics"] as const;
+export const SETTINGS_SECTIONS = ["planner", "accounts", "executors", "machine", "dispatcher", "updates", "notifications", "appearance", "diagnostics"] as const;
 const EMPTY_QUERY: RouteQuery = { repo: null, scope: null };
 const withTargetQuery = <T extends RouteTarget>(target: T, query?: TargetQuery): T => query ? { ...target, query } : target;
 export const routes = {
@@ -79,6 +79,7 @@ export function primaryFor(route: Route): PrimaryRoute {
 /** Map service settings sections to Settings; setup item ids open Overview. */
 export function settingsPath(section: unknown): string {
   if (typeof section !== "string") return "/settings";
+  if (section === "routing" || section === "strategies") return "/settings/dispatcher";
   return (SETTINGS_SECTIONS as readonly string[]).includes(section) ? `/settings/${section}` : "/";
 }
 
@@ -101,6 +102,7 @@ export function resolveRoute(hash: string, setupComplete: boolean | null = true,
   const [path = "/", search = ""] = raw.split("?");
   const params = new URLSearchParams(search);
   const query: RouteQuery = { repo: params.get("repo"), scope: params.get("scope") };
+  if (path === "/settings/routing" || path === "/settings/strategies") return {redirect:withQuery("#/settings/dispatcher",query)};
   const route = match(path);
   const settingsArea = route.name === "settings" || route.name === "hosts" || route.name === "add-executor";
   const interactiveArea = interactiveEntry && (route.name === "start" || route.name === "sessions");

@@ -1646,6 +1646,25 @@ impl<'de> ::serde::Deserialize<'de> for DispatchChildParamsTitle {
             })
     }
 }
+///`DispatchConfigGetParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct DispatchConfigGetParams {}
+impl ::std::default::Default for DispatchConfigGetParams {
+    fn default() -> Self {
+        Self {}
+    }
+}
 ///`DispatchDependenciesParams`
 ///
 /// <details><summary>JSON schema</summary>

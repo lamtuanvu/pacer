@@ -3,7 +3,7 @@ type Schema = { [key:string]: Schema | null };
 const leaves=(keys:readonly string[]):Schema=>Object.fromEntries(keys.map(k=>[k,null]));
 const provider:Schema={...leaves(["via","model","usage","allow_paid","cooldown","quota_source"]),budget:leaves(["weekly_tokens"])};
 const schema:Schema={
-  planner:null, providers:{"*":provider},
+  planner:null, providers:{"*":provider}, dispatch:null,
   pacing:leaves(["policy","order","planner_reserve","ahead_threshold","behind_threshold"]),
   routing:null, execution:leaves(["backend","worktree","base_branch"]),
   classifier:{...leaves(["default","shadow","shadow_external","timeout_ms","log_state"]),

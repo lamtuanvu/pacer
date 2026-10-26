@@ -135,8 +135,8 @@ All registry operations have discoverable input schemas; inspect before calling.
 | Service install/status/remove and bootstrap recovery | desktop first-run/recovery; TUI setup | `service install/status/uninstall`, `setup`; installer/update commands | Real environment authorization; health/setup checks; OS prompts remain user-owned |
 | Accounts add/edit/adopt/models/test/sign-in/remove | app Accounts/AddExecutor; TUI Accounts | `account.*`, `executor.setup.*`; account CLI | New keys supplied by reference/file/stdin; readiness/job/status |
 | Runner add/remove/order/block/settings | app Executors/setup; TUI Executors | `runner.*` | Revision when offered; settings/readiness/snapshot |
-| Routing, global/project executor policies | app Routing/Projects; TUI Settings | `routing.get/set/route`, `project.strategy.*` | Repo identity, revisions; ranking/eligibility |
-| Strategies list/show/preview/save/use/remove/build | app Strategies; TUI Strategies | `strategy.*` | Preview and user-requested save/switch; selected/ranking/job or session |
+| Routing, global/project executor policies | app Dispatcher/Executor eligibility; TUI Settings | `routing.get/set/route`, `project.strategy.*` | Repo identity, revisions; ranking/eligibility |
+| Strategies list/show/preview/save/use/remove/build | app Dispatcher/Saved profiles; TUI Strategies | `strategy.*` | Preview and user-requested save/switch; selected/ranking/job or session |
 | Configuration, terminal target and planner reserve | app General; TUI General | `config.get/set` | Valid key/value; undo and snapshot; planner integration choice |
 | Notifications | app Settings; TUI Notifications | `notifications.get/set` | Same level/source; re-read |
 | Diagnostics and repairs | app Diagnostics; TUI setup | `doctor.run`, discovered action operations | Read checks, preview repair, invoke authorized operation, recheck |

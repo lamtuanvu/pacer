@@ -1,5 +1,6 @@
 import { desktopStatus } from "./fixtures/desktop-update/status";
 import { SettingsPanel } from '../app/src/shell/SettingsPanel';
+import { StrategyQuickAccessPopup } from '../app/src/shell/StrategyQuickAccess';
 import { expect, test } from 'bun:test';
 import { canAddRoutingRule } from '../app/src/screens/settings/General';
 import { clock } from "../src/view-model/format";
@@ -15,6 +16,18 @@ test('a routing rule requires a current executor choice', () => {
  expect(canAddRoutingRule('', ['codex'])).toBe(false);
  expect(canAddRoutingRule('removed', ['codex'])).toBe(false);
  expect(canAddRoutingRule('codex', ['codex'])).toBe(true);
+});
+test('Dispatcher owns saved profiles and executor eligibility', () => {
+ const html=render(<SettingsGeneral section="dispatcher" initialData={settings}/>);
+ expect(html).toContain('Saved profiles');
+ expect(html).toContain('Executor eligibility');
+ expect(html).toContain('Rule 1 task kinds');
+});
+test('rail quick access has one Dispatcher settings link',()=>{
+ const html=render(<StrategyQuickAccessPopup route={{name:"settings",section:"dispatcher",query:{repo:null,scope:null}}} close={()=>{}}/>);
+ expect(html).toContain('Open Dispatcher settings');
+ expect(html).not.toContain('Edit Routing Rules');
+ expect(html).not.toContain('Manage Strategies');
 });
 test('Planner uses the actual planner agent without mounting other settings',()=>{
  const html=render(<SettingsGeneral section="planner" initialData={settings}/>);
@@ -34,8 +47,8 @@ test('executor and update checkboxes keep their labels inline', () => {
 test('all General sections provide loading and empty states',()=>{
  expect(render(<SettingsGeneral section="planner"/>)).toContain('Loading');
  const empty={...state,snapshot:{...state.snapshot,executors:[],hosts:[]}};
- const html=["accounts","executors","routing","strategies"].map(section=>render(<SettingsGeneral section={section} initialData={{...settings,accounts:[],strategies:[],routing:{rules:[],available:[]}}}/>,empty)).join("")+render(<RemoteHosts/>,empty);
- for(const word of ['No accounts','No executors','No remote hosts','No routing rules','No strategies'])expect(html).toContain(word);
+ const html=["accounts","executors","dispatcher"].map(section=>render(<SettingsGeneral section={section} initialData={{...settings,accounts:[],strategies:[],routing:{rules:[],available:[]}}}/>,empty)).join("")+render(<RemoteHosts/>,empty);
+ for(const word of ['No accounts','No executors','No remote hosts','No routing rules','No saved profiles'])expect(html).toContain(word);
 });
 test('wizard has four board steps and never claims ready before a passed check',()=>{
  const html=render(<AddExecutor/>);for(const word of ['Agent','Account','Where','Model &amp; checks','Executor id'])expect(html).toContain(word);
@@ -130,12 +143,12 @@ test('multiple accounts always shows the threshold beside Spread and Fill, disab
  }
 });
 
-test('settings navigation pluralises rule counts',()=>{
- for(const count of [1,3]) {
-  const rules=Array.from({length:count},()=>settings.routing.rules[0]!);
-  const html=renderToString(<SettingsPanel route={{name:"settings",section:"routing",query:{repo:null,scope:null}}} counts={null} badges={{routing:`${rules.length} ${rules.length===1?"rule":"rules"}`}}/>);
-  expect(html).toContain(`>${count} ${count===1?'rule':'rules'}</span>`);
- }
+test('settings navigation gives assignment policy one destination',()=>{
+ const html=renderToString(<SettingsPanel route={{name:"settings",section:"dispatcher",query:{repo:null,scope:null}}} counts={null}/>);
+ expect(html).toContain('aria-current="page"');
+ expect(html).toContain('Dispatcher');
+ expect(html).not.toContain('>Routing<');
+ expect(html).not.toContain('>Strategies<');
 });
 
 test('settings feedback explains automatic migration in plain language',async()=>{
