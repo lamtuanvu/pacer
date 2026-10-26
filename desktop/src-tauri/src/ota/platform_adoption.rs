@@ -78,13 +78,18 @@ fn replacement_registration(bytes: &[u8], old: &str, new: &str) -> Result<Vec<u8
     )?;
     let mut value =
         plist::Value::from_reader(std::io::Cursor::new(bytes)).map_err(|_| OtaError::Invalid)?;
-    let args = value
-        .as_dictionary_mut()
-        .ok_or(OtaError::Invalid)?
+    let managed = value.as_dictionary_mut().ok_or(OtaError::Invalid)?;
+    let args = managed
         .get_mut("ProgramArguments")
         .and_then(plist::Value::as_array_mut)
         .ok_or(OtaError::Invalid)?;
     args[0] = new.into();
+    // The original plist is stored byte-for-byte for restoration. An older
+    // Background job can throttle the paired Core's disk access during startup;
+    // change only the candidate's explicitly recognized launch priority.
+    if managed.get("ProcessType").and_then(plist::Value::as_string) == Some("Background") {
+        managed.insert("ProcessType".into(), "Standard".into());
+    }
     let mut output = Vec::new();
     value
         .to_writer_xml(&mut output)
@@ -216,10 +221,12 @@ mod tests {
         assert!(prove_managed_recovery_launch(&m, &j, Some(&process)).is_err());
     }
     #[test]
-    fn adoption_rewrites_only_proven_executable_and_preserves_supported_registration() {
+    fn adoption_rewrites_only_proven_executable_and_managed_launch_priority() {
         let original = r#"<?xml version="1.0"?><plist version="1.0"><dict><key>Label</key><string>com.pacer.serve</string><key>ProgramArguments</key><array><string>/tmp/attached/pacer</string><string>serve</string></array><key>EnvironmentVariables</key><dict><key>HOME</key><string>/tmp/home</string><key>PACER_HOME</key><string>/tmp/home</string></dict><key>KeepAlive</key><true/><key>RunAtLoad</key><true/><key>ThrottleInterval</key><integer>27</integer><key>ProcessType</key><string>Background</string><key>StandardOutPath</key><string>/tmp/home/log</string></dict></plist>"#;
+        let old_bytes = original.as_bytes().to_vec();
+        let old_hash = digest(&old_bytes);
         let bytes = replacement_registration(
-            original.as_bytes(),
+            &old_bytes,
             "/tmp/attached/pacer",
             "/tmp/current.app/Contents/Resources/pacer",
         )
@@ -233,9 +240,37 @@ mod tests {
             .unwrap()
             .as_array_mut()
             .unwrap()[0] = "/tmp/current.app/Contents/Resources/pacer".into();
+        expected
+            .as_dictionary_mut()
+            .unwrap()
+            .insert("ProcessType".into(), "Standard".into());
         assert_eq!(
             plist::Value::from_reader(std::io::Cursor::new(&bytes)).unwrap(),
             expected
+        );
+        assert_eq!(old_bytes, original.as_bytes());
+        assert_eq!(digest(&old_bytes), old_hash);
+        assert_ne!(digest(&bytes), old_hash);
+        // Reversing the executable alone would retain Standard. Recovery must
+        // use the separately retained original bytes and their original hash.
+        let reversed = replacement_registration(
+            &bytes,
+            "/tmp/current.app/Contents/Resources/pacer",
+            "/tmp/attached/pacer",
+        )
+        .unwrap();
+        assert_ne!(reversed, old_bytes);
+        let target = journal::tests::manifest().source.target;
+        let managed_binary = "/tmp/current.app/Contents/Resources/pacer";
+        let managed_id = resulting_installation_id(
+            &target,
+            managed_binary,
+            std::str::from_utf8(&bytes).unwrap(),
+        )
+        .unwrap();
+        assert_ne!(
+            managed_id,
+            resulting_installation_id(&target, managed_binary, original).unwrap()
         );
         assert!(replacement_registration(original.as_bytes(), "/tmp/other", "/tmp/new").is_err());
         let mut redirected = original.replace(
@@ -254,6 +289,30 @@ mod tests {
             replacement_registration(redirected.as_bytes(), "/tmp/attached/pacer", "/tmp/new")
                 .is_err()
         );
+    }
+    #[test]
+    fn managed_replacement_keeps_non_background_process_types() {
+        for priority in ["Standard", "Interactive"] {
+            let original = format!(
+                r#"<?xml version="1.0"?><plist version="1.0"><dict><key>Label</key><string>com.pacer.serve</string><key>ProgramArguments</key><array><string>/tmp/attached/pacer</string><string>serve</string></array><key>EnvironmentVariables</key><dict><key>HOME</key><string>/tmp/home</string></dict><key>KeepAlive</key><true/><key>RunAtLoad</key><true/><key>ProcessType</key><string>{priority}</string></dict></plist>"#
+            );
+            let changed = replacement_registration(
+                original.as_bytes(),
+                "/tmp/attached/pacer",
+                "/tmp/current.app/Contents/Resources/pacer",
+            )
+            .unwrap();
+            let parsed = plist::Value::from_reader(std::io::Cursor::new(changed)).unwrap();
+            assert_eq!(
+                parsed
+                    .as_dictionary()
+                    .unwrap()
+                    .get("ProcessType")
+                    .unwrap()
+                    .as_string(),
+                Some(priority)
+            );
+        }
     }
     #[test]
     fn adoption_result_id_matches_ordered_typescript_identity_contract() {
