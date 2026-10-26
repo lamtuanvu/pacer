@@ -3,15 +3,16 @@ import { clock } from "../../../src/view-model/time";
 import { useDialogs } from "../ds/useDialogs";
 import type { ComponentChildren } from 'preact';
 import { useEffect, useRef, useState } from "preact/hooks";
+import { createPortal } from "preact/compat";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { Button } from "../ds/Button";
 import { SessionClient, type SessionState } from "./client";
 import { filesFromPaste } from "../model/attachments";
 import { terminalDocument } from "./document";
-export interface TerminalViewProps { id:string; url?:string; label?:string; cols?:number; rows?:number; control?:boolean; resize?:boolean; live?:boolean; controller?:string|null; driving?:boolean; takeRequested?:boolean; onTakeSent?:()=>void; takeover?:ComponentChildren; conversation?:boolean; onFiles?:(files:File[])=>void }
+export interface TerminalViewProps { id:string; url?:string; label?:string; cols?:number; rows?:number; control?:boolean; resize?:boolean; live?:boolean; controller?:string|null; driving?:boolean; takeRequested?:boolean; onTakeSent?:()=>void; takeover?:ComponentChildren; conversation?:boolean; onFiles?:(files:File[])=>void; footer?:HTMLElement|null }
 /** Loaded only by import(). The shell may disable its shortcuts when data-session-control is true. */
-export function TerminalView({id,url,label='pacer app',cols=120,rows=40,control=false,resize=true,live=true,controller=null,driving=false,takeRequested=false,onTakeSent,takeover,conversation=false,onFiles}:TerminalViewProps){
+export function TerminalView({id,url,label='pacer app',cols=120,rows=40,control=false,resize=true,live=true,controller=null,driving=false,takeRequested=false,onTakeSent,takeover,conversation=false,onFiles,footer}:TerminalViewProps){
  const dialogs=useDialogs();
  const mount=useRef<HTMLDivElement>(null),pane=useRef<HTMLDivElement>(null),client=useRef<SessionClient>();
  const [state,setState]=useState<SessionState>({status:'connecting',you:false,controller,cols,rows,viewers:0});
@@ -30,6 +31,8 @@ export function TerminalView({id,url,label='pacer app',cols=120,rows=40,control=
   let resizeTimer:ReturnType<typeof setTimeout>|undefined;
   const scale=()=>{
    if(!mount.current||!pane.current)return;
+   // A hidden pane (another tab is open) measures 0×0; fitting it would shrink the agent's PTY.
+   if(!pane.current.clientWidth||!pane.current.clientHeight)return;
    if(client.current?.state.you){mount.current.style.transform='';mount.current.style.width='100%';mount.current.style.height='100%';if(resize){fit.fit();client.current.resize(term.cols,term.rows);}return;}
    // PTY geometry is authoritative for viewers. Scale instead of reflowing it.
    mount.current.style.width=`${term.cols*term.options.fontSize!*0.61}px`;mount.current.style.height=`${term.rows*term.options.fontSize!*1.2}px`;
@@ -38,31 +41,48 @@ export function TerminalView({id,url,label='pacer app',cols=120,rows=40,control=
   };
   const connection=new SessionClient({url:endpoint.href,label,cols,rows,control:control&&live,autoControl:!takeRequested,onSnapshot:s=>{term.reset();term.resize(s.cols,s.rows);term.write(s.scrollbackAnsi);term.write(s.screenAnsi,scale);},onOutput:bytes=>term.write(bytes),onState:s=>{setState(s);term.options.disableStdin=!s.you;if(term.cols!==s.cols||term.rows!==s.rows)term.resize(s.cols,s.rows);if(s.status==='exited')setExitAt(clock(Date.now()/1000,Date.now()/1000));if(s.you!==lastYou||s.cols!==lastCols||s.rows!==lastRows){lastYou=s.you;lastCols=s.cols;lastRows=s.rows;scale();}}});
   client.current=connection;
-  term.attachCustomKeyEventHandler(event=>{if(connection.state.you&&event.ctrlKey&&event.code==='BracketRight'){if(event.type==='keydown')connection.release();event.preventDefault();event.stopPropagation();return false;}return true;});
+  term.attachCustomKeyEventHandler(event=>{if(connection.state.you&&event.ctrlKey&&event.code==='BracketRight'){if(event.type==='keydown')connection.release();event.preventDefault();event.stopPropagation();return false;}
+   // A watcher's keys never reach the agent; let Tab move focus out of the terminal.
+   if(!connection.state.you&&event.key==='Tab')return false;
+   return true;});
   const input=term.onData(data=>connection.input(data));
   const resizer=new ResizeObserver(()=>{clearTimeout(resizeTimer);resizeTimer=setTimeout(scale,150);});resizer.observe(pane.current);
   connection.connect();scale();
   return ()=>{clearTimeout(resizeTimer);resizer.disconnect();observer.disconnect();media.removeEventListener('change',applyTheme);input.dispose();connection.dispose();term.dispose();client.current=undefined;terminal.current=undefined;};
  },[id,url,label,control,resize,live,generation]);
  useEffect(()=>{if(terminal.current)terminal.current.options.screenReaderMode=reader;},[reader]);
- useEffect(()=>{if(state.you)terminal.current?.focus();},[state.you]);
+ // Focus on the next frame, after the control state renders.
+ useEffect(()=>{if(!state.you)return;const frame=requestAnimationFrame(()=>terminal.current?.focus());return ()=>cancelAnimationFrame(frame);},[state.you]);
  useEffect(()=>{if(takeRequested&&!taken.current&&state.status==='live'){taken.current=true;void client.current?.take(message=>dialogs.confirm(message,'Take control','Take control')).then(()=>onTakeSent?.()).catch(e=>setError(String(e)));}},[takeRequested,state.status]);
  const mode=state.status==='exited'?`Exited with code ${state.code ?? 'unknown'}${state.signal?` (${state.signal})`:''}${exitAt?` at ${exitAt}`:''}`:state.you?'You have control':state.status==='live'?'Watching · read-only':state.status==='resyncing'?'Refreshing snapshot…':state.status==='error'?'Session error':state.status==='reconnecting'?'Reconnecting…':'Connecting…';
- return <section className="pc-terminal-view" data-session-control={state.you?'true':'false'} onKeyDown={e=>{if(state.you)e.stopPropagation();}}
+ const hint=state.you?'Keystrokes go to the agent. Ctrl-] to release.':conversation?'Nothing you type reaches the agent. Closing this window leaves your conversation running.':'Nothing you type reaches the agent.';
+ const readerToggle=<label><Checkbox checked={reader} onChange={e=>setReader(e.currentTarget.checked)}/> Screen reader</label>;
+ const toggleControl=()=>{if(state.you)client.current?.release();else{void client.current?.take(message=>dialogs.confirm(message,'Take control','Take control')).catch(e=>setError(String(e)));}};
+ const reconnect=()=>setGeneration(n=>n+1);
+ return <section className={`pc-terminal-view${footer?' pc-terminal-view--fill':''}`} data-session-control={state.you?'true':'false'} onKeyDown={e=>{if(state.you)e.stopPropagation();}}
   onPasteCapture={event=>{if(!onFiles)return;const files=filesFromPaste(event);if(files.length){event.preventDefault();event.stopPropagation();const text=event.clipboardData?.getData('text/plain');if(text&&state.you)terminal.current?.paste(text);onFiles(files);}}}
   onDragOver={event=>{if(onFiles)event.preventDefault();}} onDrop={event=>{if(onFiles){event.preventDefault();onFiles(Array.from(event.dataTransfer?.files??[]));}}}>
   {dialogs.dialog}
-  <div className={`pc-terminal-frame${state.you?' pc-terminal-frame--control':''}`}><div className="pc-terminal-pane" ref={pane}><div ref={mount} className="pc-terminal-mount"/></div>
-   <div className="pc-terminal-strip"><strong role="status" aria-live="polite">{mode}</strong><span>{state.you?'Keystrokes go to the agent. Ctrl-] to release.':'Nothing you type reaches the agent.'}</span><span>{state.cols}×{state.rows}</span><label><Checkbox  checked={reader} onChange={e=>setReader(e.currentTarget.checked)}/> Screen reader</label></div>
+  <div className={`pc-terminal-frame${state.you?' pc-terminal-frame--control':''}${footer?' pc-terminal-frame--fill':''}`}><div className="pc-terminal-pane" ref={pane}><div ref={mount} className="pc-terminal-mount"/></div>
+   {!footer&&<div className="pc-terminal-strip"><strong role="status" aria-live="polite">{mode}</strong><span>{hint}</span><span>{state.cols}×{state.rows}</span>{readerToggle}</div>}
   </div>
+  {footer?createPortal(<div className={`pc-session-control${state.you?' pc-session-control--driving':''}`}>
+   <strong className="pc-session-control__mode" role="status" aria-live="polite"><span className="pc-session-control__dot" aria-hidden="true"/><span className="pc-session-control__label" title={mode}>{mode}</span></strong>
+   <span className="pc-session-control__hint" title={hint}>{hint}</span>
+   {state.message&&<span role="status">{state.message}</span>}{error&&<span role="alert">{error}</span>}
+   <span className="grow"/>
+   {control&&live&&state.status==='live'&&<Button size="sm" aria-pressed={state.you} title={hint} onClick={toggleControl}>{state.you?'Release control':'Take control'}</Button>}
+   {state.status==='error'&&<Button size="sm" onClick={reconnect}>Reconnect</Button>}
+   <span className="pc-session-control__size">{state.cols}×{state.rows}</span>{readerToggle}
+  </div>,footer):<>
   {state.message&&<p role="status">{state.message}</p>}{error&&<p role="alert">{error}</p>}
-  <TerminalControls control={control} live={live} driving={driving} conversation={conversation} state={state} takeover={takeover} onControl={()=>{if(state.you)client.current?.release();else void client.current?.take(message=>dialogs.confirm(message,'Take control','Take control')).catch(e=>setError(String(e)));}} onReconnect={()=>setGeneration(n=>n+1)}/>
-
+  <TerminalControls control={control} live={live} driving={driving} state={state} takeover={takeover} onControl={toggleControl} onReconnect={reconnect}/>
+  </>}
  </section>;
 }
-export function TerminalControls({control,live,driving,conversation=false,state,takeover,onControl,onReconnect}:{control:boolean;live:boolean;driving?:boolean;conversation?:boolean;state:SessionState;takeover?:ComponentChildren;onControl:()=>void;onReconnect?:()=>void}){
+export function TerminalControls({control,live,driving,state,takeover,onControl,onReconnect}:{control:boolean;live:boolean;driving?:boolean;state:SessionState;takeover?:ComponentChildren;onControl:()=>void;onReconnect?:()=>void}){
  return <div className="pc-session-row">{control&&live&&state.status==='live'&&<Button aria-pressed={state.you} onClick={onControl}>{state.you?(driving?'Hand back':'Release control'):'Take control'}</Button>}
   {takeover}{state.status==='error'&&<Button onClick={onReconnect}>Reconnect</Button>}
-  <span className="pc-session-muted">{conversation?'Closing this window leaves your conversation running.':driving?'Ends this session and sends the task to review':state.you?'Other viewers stay read-only while you hold control.':'Only for agents running interactively. pacer pauses its idle timer while you type.'}</span></div>;
+  <span className="pc-session-muted">{driving?'Ends this session and sends the task to review':state.you?'Other viewers stay read-only while you hold control.':'Only for agents running interactively. pacer pauses its idle timer while you type.'}</span></div>;
 }
 export default TerminalView;

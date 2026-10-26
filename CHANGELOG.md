@@ -4,6 +4,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Changed
+
+- Let a conversation's session UI fill the task workspace between a slim action row and a pinned control footer, and stop calling it a terminal. The footer shows who is driving, Take/Release control, size and the screen reader toggle; files stay with the session. A hidden or collapsed pane no longer resizes the agent's terminal, and Tab no longer traps focus in a watched terminal.
+
 ## [0.10.0] - 2026-10-26
 
 ### Added
