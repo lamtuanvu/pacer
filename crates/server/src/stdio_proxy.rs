@@ -127,6 +127,7 @@ async fn forward_input<
             && let Some(request) = request
             && let Some(method) = request.get("method").and_then(Value::as_str)
             && dispatcher.names().contains(&method)
+            && !dispatcher.needs_core_parser(ctx, method)
         {
             let method = method.to_owned();
             let ctx = ctx.at_now();

@@ -910,6 +910,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "pacer-config"
+version = "0.0.0"
+dependencies = [
+ "pacer-foundation",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "pacer-dispatch-protocol"
 version = "0.0.0"
 dependencies = [
@@ -981,6 +991,7 @@ dependencies = [
  "hyper-util",
  "libproc",
  "nix",
+ "pacer-config",
  "pacer-foundation",
  "rand",
  "security-framework",

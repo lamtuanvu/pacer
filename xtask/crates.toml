@@ -29,6 +29,8 @@ layer = 0
 generated = true
 [crates.pacer-foundation]
 layer = 1
+[crates.pacer-config]
+layer = 3
 [crates.pacer-server]
 layer = 8
 heavy = ["axum", "hyper"]
