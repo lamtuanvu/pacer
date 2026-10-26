@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdirSync, readFileSync, readdirSync, statSync, utimesSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { openInTerminal, type TerminalDeps } from "../src/terminal/open";
+import { detectTerminal } from "../src/session/targets";
 import * as config from "../src/core/config";
 import { fakeCtx, realRun } from "./helpers";
 import { reserveIdle } from "../src/update/desktop/admission";
@@ -20,7 +21,9 @@ test("macOS uses Terminal with a private quoted script", async () => {
   expect(statSync(script).mode & 0o777).toBe(0o700);
 });
 test("an unset preference detects the same macOS terminal as session viewers", async () => {
-  const ctx=fakeCtx({env:{TERM_PROGRAM:"iTerm"}}), d=deps();
+  const ctx=fakeCtx({env:{TERM_PROGRAM:"iTerm.app",DISPLAY:":0"}}), d=deps();
+  expect(detectTerminal(ctx,"linux")).toBe("iterm");
+  expect(detectTerminal(fakeCtx({env:{TERM_PROGRAM:"iTerm"}}),"darwin")).toBe("iterm");
   await openInTerminal(ctx,{argv:["codex","login"],title:"Login",target:"terminal"},d.deps);
   expect(d.calls[0]?.slice(0,3)).toEqual(["open","-a","iTerm"]);
 });
