@@ -17,7 +17,10 @@ export interface CallResources {
     env?: Record<string, string>;
     secretEnv?: Record<string, string>;
     /** Host-only fixed interactive exchange; never selected by plugin RPC params. */
-    mode?: "codex-live";
+    mode?: "codex-live" | "prepare-bundle";
+    /** Host-only PREPARE input, never provided through the plugin RPC. */
+    input?: Uint8Array;
+    inputSha256?: string;
   }[];
   /** Exact, one-use host operations issued by the owning service call, never by a plugin RPC. */
   hosts?: HostOperationResource[];
