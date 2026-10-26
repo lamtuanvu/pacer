@@ -36,6 +36,7 @@ struct Listener {
     ctx: Ctx,
     port: u16,
     token: String,
+    dispatcher: crate::native::Dispatcher,
 }
 async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Response {
     // Session expiry is checked against the time of this request, never the start-up time.
@@ -64,6 +65,10 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
         auth::Decision::AppAuth => auth::AuthKind::Bearer,
         auth::Decision::Forward { auth } => auth,
     };
+    let req = match native_ops::handle(req, &state.dispatcher, &ctx, auth).await {
+        Ok(response) => return response,
+        Err(request) => request,
+    };
     let Some(target) = state.core.target().await else {
         return proxy::unavailable(req.uri().path().starts_with("/app/"));
     };
@@ -77,7 +82,10 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
     {
         return ws::bridge(req, target, auth).await;
     }
-    proxy::forward(req, target, auth).await
+    let hello = req.method() == "GET" && req.uri().path() == "/v3/hello";
+    let operation = req.uri().path().starts_with("/v3/ops/");
+    let response = proxy::forward(req, target, auth).await;
+    native_ops::decorate(response, &state.dispatcher, hello, operation).await
 }
 async fn shutdown_signal() {
     let term = async {
@@ -129,6 +137,7 @@ pub async fn run_serve(
         ctx,
         port,
         token,
+        dispatcher: crate::native::Dispatcher::startup(),
     });
     let app = Router::new()
         .fallback(any(handle))
@@ -178,3 +187,5 @@ pub fn run_serve_blocking(
         }
     }
 }
+
+mod native_ops;

@@ -34,9 +34,22 @@ The service and D8 guard proxy run detached from this checkout on two different 
 
 ### M1 runtime and artifact layout
 
-To validate the development Rust front door, add `--front-door rust` to `up`. The harness builds `target/debug/pacer` and uses it for the service and guarded CLI calls, with `PACER_CORE_ARGV` pointing at this checkout's `src/cli.ts` through Bun. The recorded service PID is Root, bound to `innerPort`; its supervised `serve --internal` core uses another private ephemeral HTTP port. The D8 proxy remains the public sandbox endpoint. Both processes write to `logs/serve.log`. This development mode does not prove compiled sibling resolution, release packaging or signed native authority.
+To validate the development Rust front door, add `--front-door rust` to `up`. The harness builds into the fixed `.work/live-build/rust/` Cargo target, snapshots it into the sandbox’s `bin/`, and uses that copy for the service and guarded CLI calls, with `PACER_CORE_ARGV` pointing at this checkout's `src/cli.ts` through Bun. The recorded service PID is Root, bound to `innerPort`; its supervised `serve --internal` core uses another private ephemeral HTTP port. The D8 proxy remains the public sandbox endpoint. Both processes write to `logs/serve.log`. This development mode does not prove compiled sibling resolution, release packaging or signed native authority.
 
 Validate compiled paired artifacts separately with the fixed repair/pair and native OTA modes below. A signed paired native app retains Root as the public native listener owner and transfers a duplicate to its verified core; the core accepts peers with their genuine kernel audit metadata. Logical service evidence names Root and records the actual core separately. Record the exact source fingerprint, both binary hashes/versions, signing scope, exercised surfaces and every FAIL/UNVERIFIED case. Keep complete app bundles intact; never repair one executable inside a signed app.
+
+For synthetic dispatcher validation only, `--front-door rust-test-ops` builds the
+same workspace binary with the fixed, non-default `test-ops` feature and snapshots
+it under the sandbox's `bin/`. Its fixed Cargo target is
+`.work/live-build/rust-test-ops/`; an inherited `CARGO_TARGET_DIR` cannot redirect
+either mode. Opposite-mode builds cannot replace each other’s artifact. This mode enables `test.echo` over authenticated
+v3 HTTP and stdio after an acknowledged protocol 3 hello. D3/D8 guards and the
+public proxy still apply. It is never a release artifact or domain migration
+proof. Default `rust` builds exclude the operation. `PACER_FORWARD_OPS` is sampled
+once at each transport startup; use a separate sandbox to validate forced HTTP
+forwarding. Stdio hello notifications and frames above the bounded 1 MiB native
+selector remain core-owned during coexistence; this adds no public request cap.
+M3 retirement must resolve those paths before removing the core.
 
 Paired startup sends the listener and helper channel together in one descriptor-transfer frame. Root retains the helper channel’s sender duplicate until Core receives both descriptors, repeats the existing trust checks and acknowledges receipt. The bounded acknowledgement does not establish application readiness. Failure or generation retirement closes the pending channels; after acknowledgement, Root releases the duplicate so genuine Core EOF remains observable.
 

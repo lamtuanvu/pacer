@@ -10,7 +10,7 @@ import { exerciseRepair } from "./core-repair";
 import { CONTROL_COMMANDS, controlMain } from "./control/cli";
 
 const usage = `usage: bun run live <command> [--id <id>]
-  up [--repo-template <dir>] [--seed ui] [--front-door rust]
+  up [--repo-template <dir>] [--seed ui] [--front-door rust|rust-test-ops]
                                   start isolated service and disposable repo; ui seeds sample data
   ota prepare --from-app <path> --to-app <path>
                                   copy disposable OTA bundles (requires --id)
