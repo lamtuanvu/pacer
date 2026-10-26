@@ -3964,6 +3964,10 @@ Params:
       "type": "string",
       "pattern": "\\S"
     },
+    "home": {
+      "type": "string",
+      "pattern": "\\S"
+    },
     "sshTarget": {
       "type": "string",
       "pattern": "^[A-Za-z0-9._@][A-Za-z0-9._@-]*$"

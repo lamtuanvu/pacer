@@ -16,6 +16,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Changed
 
+- Check configured remote account folders, checkouts and repository identity through the bundled SSH host runner's fixed read-only script. Plugin refusal does not retry these checks through direct SSH.
 - Run the initial `pacer host check` SSH and tool diagnostic through the bundled SSH host runner. Disabled or failing plugins report the host unreachable; paused hosts remain diagnosable.
 - Check remote runner reachability through the bundled remote caller and fixed SSH provider. A disabled or failing plugin reports the host unreachable without trying direct SSH.
 - Read configured remote Codex usage through the bundled remote caller and fixed SSH provider with a one-use account/host grant. Plugin refusal produces no direct SSH retry; previously cached readings remain available.

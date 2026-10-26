@@ -2,7 +2,7 @@
 import { randomUUID } from "node:crypto";
 import { PluginError, serve, type Handler } from "@pacer/plugin";
 import { manifest } from "./manifest";
-import { bundleOutArgv, checkRepoArgv, preflightArgv, probeArgv, probePayload, questionArgv, setIdentityArgv, usageArgv } from "./probe";
+import { bundleOutArgv, checkHomeArgv, checkRepoArgv, preflightArgv, probeArgv, probePayload, questionArgv, setIdentityArgv, usageArgv } from "./probe";
 
 export { manifest } from "./manifest";
 
@@ -22,13 +22,16 @@ export const handlers: Record<string, Handler> = {
     const input = raw as Record<string, unknown>;
     if (signal.aborted || typeof input?.alias !== "string" || !/^[a-z0-9][a-z0-9-]*$/.test(input.alias) ||
       !validTarget(input.sshTarget) || !validControlPath(input.controlPath) ||
-      (input.repo !== undefined && (typeof input.repo !== "string" || !input.repo.trim() || input.repo.includes("\0"))))
+      (input.repo !== undefined && (typeof input.repo !== "string" || !input.repo.trim() || input.repo.includes("\0"))) ||
+      (input.home !== undefined && (typeof input.home !== "string" || !input.home.trim() || input.home.includes("\0"))) ||
+      (input.repo !== undefined && input.home !== undefined))
       fail("capability_denied", "host check has no issued SSH snapshot");
     const repo = input.repo as string | undefined, sshTarget = input.sshTarget as string,
-      controlPath = input.controlPath as string;
+      home = input.home as string | undefined, controlPath = input.controlPath as string;
     const result = await host.call<SpawnResult>("capability.process.spawn", {
-      argv: repo === undefined ? probeArgv(sshTarget, controlPath) :
-        checkRepoArgv(sshTarget, controlPath, repo), timeoutMs: 50_000,
+      argv: home !== undefined ? checkHomeArgv(sshTarget, controlPath, home) :
+        repo !== undefined ? checkRepoArgv(sshTarget, controlPath, repo) :
+          probeArgv(sshTarget, controlPath), timeoutMs: 50_000,
     });
     if (signal.aborted) fail("capability_denied", "SSH check cancelled");
     if ("output" in result) fail("too_large", "SSH check output exceeds the inline bound");
@@ -41,6 +44,10 @@ export const handlers: Record<string, Handler> = {
       fail("too_large", "SSH check output exceeds the issued bound");
     const facts = Object.fromEntries(stdout!.split("\n").filter(line => line.includes("=")).map(line =>
       [line.slice(0, line.indexOf("=")), line.slice(line.indexOf("=") + 1)]));
+    if (home !== undefined) {
+      const ok = result.code === 0 && !result.timedOut;
+      return { ok, checks: [{ name: "account home", ok, detail: ok ? "" : "missing account home" }] };
+    }
     if (repo === undefined) {
       const ok = result.code === 0 && !result.timedOut;
       return { ok, checks: [{ name: "ssh", ok, detail: ok ? "" : "unreachable" }],
@@ -48,7 +55,9 @@ export const handlers: Record<string, Handler> = {
           ["os", "arch", "glibc", "git", "setsid", "script", "tail", "codex", "claude"].includes(key) && value.length <= 256)) };
     }
     const ok = result.code === 0 && !result.timedOut && facts.exists === "1" && facts.git === "1";
-    return { ok, checks: [{ name: "checkout", ok, detail: ok ? "" : "checkout unavailable" }] };
+    return { ok, checks: [{ name: "checkout", ok, detail: ok ? "" : "checkout unavailable" }],
+      facts: Object.fromEntries(Object.entries(facts).filter(([key, value]) =>
+        ["exists", "git", "origin", "name", "email"].includes(key) && value.length <= 256)) };
   },
   "hostRunner.open": async (raw, _host, signal) => {
     const input = raw as Record<string, unknown>;

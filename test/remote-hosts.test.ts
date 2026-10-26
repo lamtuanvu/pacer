@@ -82,6 +82,53 @@ test("host diagnostics use the issued SSH provider for connectivity and tool fac
   expect(readFileSync(log, "utf8")).toBe(before);
 });
 
+test("checkout and identity diagnostics use the issued SSH provider without direct retry", async () => {
+  const { ctx, repo, log } = await fixture();
+  const run = ctx.run;
+  ctx.run = (argv, timeoutMs, options) => {
+    if (argv[0] === "ssh" && argv.at(-1)?.endsWith(" check"))
+      throw Error("direct checkout SSH bypass");
+    return run(argv, timeoutMs, options);
+  };
+  const checked = await hosts.check(ctx, "box", { repo });
+  expect(checked).toMatchObject({ ok: true });
+  expect(checked.checks.find(c => c.name === "checkout github.com/o/r")).toMatchObject({ ok: true });
+  expect(checked.checks.find(c => c.name === "identity github.com/o/r")).toMatchObject({ ok: true });
+  expect(JSON.stringify(checked)).not.toContain("@example.test");
+  expect(readFileSync(log, "utf8")).toContain("BatchMode=yes");
+});
+
+test("account-home diagnostics use the issued SSH provider without direct retry", async () => {
+  const { ctx, repo } = await fixture();
+  const run = ctx.run;
+  ctx.run = (argv, timeoutMs, options) => {
+    if (argv[0] === "ssh" && argv.at(-1)?.endsWith(" home"))
+      throw Error("direct account-home SSH bypass");
+    return run(argv, timeoutMs, options);
+  };
+  const checked = await hosts.check(ctx, "box", { repo });
+  expect(checked.checks.find(c => c.name === "account homes")).toMatchObject({ ok: true });
+});
+
+test("host checks never retry direct SSH after the provider is disabled mid-check", async () => {
+  const { ctx, repo } = await fixture();
+  const run = ctx.run;
+  ctx.run = (argv, timeoutMs, options) => {
+    if (argv[0] === "ssh") throw Error("direct SSH retry");
+    return run(argv, timeoutMs, options);
+  };
+  const registry = pluginRegistry(ctx), check = registry.checkConfiguredHost.bind(registry);
+  registry.checkConfiguredHost = async (...args) => {
+    const result = await check(...args);
+    if (args[2] === undefined) await registry.disable(ctx, "pacer-ssh");
+    return result;
+  };
+  const checked = await hosts.check(ctx, "box", { repo });
+  expect(checked.checks.find(c => c.name === "ssh")).toMatchObject({ ok: true });
+  expect(checked.checks.find(c => c.name === "account homes")).toMatchObject({ ok: false });
+  expect(checked.checks.find(c => c.name === "checkout github.com/o/r")).toMatchObject({ ok: false });
+});
+
 test("a paused host can still be diagnosed without admitting new work", async () => {
   const { ctx, repo } = await fixture();
   await hosts.set(ctx, "box", { paused: true });

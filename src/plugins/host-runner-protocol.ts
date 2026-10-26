@@ -29,8 +29,9 @@ const exitCode = z.number().int().min(0).max(255);
 export const HOST_RUNNER_METHODS = {
   "hostRunner.check": { description: "Check a configured SSH host without opening a persistent session.",
     // Additive transport fields: only the host registry may issue these snapshots.
+    // `home` selects only the fixed directory-existence arm of CHECK_REPO.
     // Legacy alias/repo params remain schema-valid but the reference provider rejects them.
-    params: z.object({ alias: hostRunnerAlias, repo: configuredRepoPath.optional(),
+    params: z.object({ alias: hostRunnerAlias, repo: configuredRepoPath.optional(), home: configuredRepoPath.optional(),
       sshTarget: hostRunnerSshTarget.optional(), controlPath: hostRunnerControlPath.optional() }).strict(),
     result: z.object({ ok: z.boolean(), checks: z.array(z.object({ name: text, ok: z.boolean(), detail: text }).strict()).max(64),
       facts: z.record(z.string().max(64), z.string().max(256)).optional() }).strict(), deadlineMs: 60_000 },
