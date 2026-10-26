@@ -17,7 +17,7 @@ const CODEX_LIVE_REQUEST = [
 interface Pin {
   argv: readonly string[];
   timeoutMs: number;
-  mode?: "codex-live" | "prepare-bundle" | "binary-upload";
+  mode?: "codex-live" | "prepare-bundle" | "binary-upload" | "start-input";
   input?: Uint8Array;
   selected: string | null;
   canonical?: string;
@@ -32,7 +32,7 @@ interface Pin {
     secretEnv: Readonly<Record<string, string>>;
   };
 }
-interface State { pins: Pin[]; busy: boolean; liveUsed: boolean; prepareUsed: boolean; uploadUsed: boolean; output: Map<string, Buffer>; cleanupFailure?: Error }
+interface State { pins: Pin[]; busy: boolean; liveUsed: boolean; prepareUsed: boolean; uploadUsed: boolean; startUsed: boolean; output: Map<string, Buffer>; cleanupFailure?: Error }
 const states = new WeakMap<CallAuthority, State>();
 const deny = (message: string): never => { throw new CoreError("capability_denied", message); };
 const invalid = (message: string): never => { throw new CoreError("invalid_input", message); };
@@ -51,6 +51,13 @@ export function prepareSpawnAuthority(authority: CallAuthority): void {
         command.argv[0] !== "ssh" || command.cwd !== undefined || command.env !== undefined ||
         command.secretEnv !== undefined || command.timeoutMs > 60_000)
         deny("remote prepare input was not issued by the host");
+      pin.input = Uint8Array.from(command.input!);
+    } else if (command.mode === "start-input") {
+      if (!(command.input instanceof Uint8Array) || command.input.length < 1 || command.input.length > 50 * 1024 * 1024 ||
+        command.inputSha256 !== createHash("sha256").update(command.input).digest("hex") ||
+        command.argv[0] !== "ssh" || command.cwd !== undefined || command.env !== undefined ||
+        command.secretEnv !== undefined || command.timeoutMs > 60_000)
+        deny("remote start input was not issued by the host");
       pin.input = Uint8Array.from(command.input!);
     } else if (command.mode === "binary-upload") {
       if (!(command.input instanceof Uint8Array) || command.input.length < 1 || command.input.length > 128 * 1024 * 1024 ||
@@ -93,7 +100,7 @@ export function prepareSpawnAuthority(authority: CallAuthority): void {
     }
     return pin;
   });
-  const state: State = { pins, busy: false, liveUsed: false, prepareUsed: false, uploadUsed: false, output: new Map() };
+  const state: State = { pins, busy: false, liveUsed: false, prepareUsed: false, uploadUsed: false, startUsed: false, output: new Map() };
   states.set(authority, state);
   authority.onRevoke(() => { state.output.clear(); });
 }
@@ -137,6 +144,10 @@ export async function answerSpawn(authority: CallAuthority, declaredScopes: read
   if (pin.mode === "prepare-bundle") {
     if (state.prepareUsed) deny("remote prepare command already used by this call");
     state.prepareUsed = true;
+  }
+  if (pin.mode === "start-input") {
+    if (state.startUsed) deny("remote start command already used by this call");
+    state.startUsed = true;
   }
   if (pin.mode === "binary-upload") {
     if (state.uploadUsed) deny("remote binary upload command already used by this call");
@@ -229,15 +240,15 @@ async function run(authority: CallAuthority, state: State, pin: Pin, argv: strin
     authority.assertActive();
     validatePin(pin);
     child = spawn(pin.canonical!, argv.slice(1), {
-      stdio: [pin.mode === "codex-live" || pin.mode === "prepare-bundle" || pin.mode === "binary-upload" ? "pipe" : "ignore", "pipe", "pipe"], detached: process.platform !== "win32",
-      ...(pin.mode === "prepare-bundle" || pin.mode === "binary-upload" ? { env: authority.ctx.env } : env === undefined ? {} : { env }),
+      stdio: [pin.mode === "codex-live" || pin.mode === "prepare-bundle" || pin.mode === "binary-upload" || pin.mode === "start-input" ? "pipe" : "ignore", "pipe", "pipe"], detached: process.platform !== "win32",
+      ...(pin.mode === "prepare-bundle" || pin.mode === "binary-upload" || pin.mode === "start-input" ? { env: authority.ctx.env } : env === undefined ? {} : { env }),
       ...(pin.context?.cwd ? { cwd: pin.context.canonicalCwd } : {}),
     });
     if (pin.mode === "codex-live") {
       child.stdin?.on("error", () => { failure ??= new CoreError("plugin_unavailable", "Codex usage request input failed"); stop(); });
       child.stdin?.write(CODEX_LIVE_REQUEST);
     }
-    if (pin.mode === "prepare-bundle" || pin.mode === "binary-upload") {
+    if (pin.mode === "prepare-bundle" || pin.mode === "binary-upload" || pin.mode === "start-input") {
       child.stdin?.on("error", () => { failure ??= new CoreError("plugin_unavailable", "remote host input failed"); stop(); });
       // A bounded host-owned buffer is streamed in chunks to honor pipe backpressure.
       void (async () => {

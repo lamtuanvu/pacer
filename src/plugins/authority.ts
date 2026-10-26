@@ -17,7 +17,7 @@ export interface CallResources {
     env?: Record<string, string>;
     secretEnv?: Record<string, string>;
     /** Host-only fixed interactive exchange; never selected by plugin RPC params. */
-    mode?: "codex-live" | "prepare-bundle" | "binary-upload";
+    mode?: "codex-live" | "prepare-bundle" | "binary-upload" | "start-input";
     /** Host-only bounded input, never provided through the plugin RPC. */
     input?: Uint8Array;
     inputSha256?: string;

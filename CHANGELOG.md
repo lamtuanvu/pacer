@@ -16,6 +16,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Changed
 
+- Start persisted remote runs through a one-use bundled SSH plugin grant with private stdin and a completion receipt. Launch input over 50 MiB is refused; uncertain starts do not retry through direct SSH.
 - Mirror full-session remote recordings through bounded, one-use SSH plugin reads. A changed or incomplete recording snapshot pauses that poll, and publication failures restore the prior local files without retrying direct SSH.
 - Check a remote attempt's committed work after a failed executor exit through the bundled SSH host runner. A disabled or uncertain provider stops that transfer decision without a direct SSH retry.
 - Probe the remote platform for full-session binary setup through the bundled SSH host runner with a one-use persisted-run grant. A disabled or failing provider stops startup without a direct SSH retry.

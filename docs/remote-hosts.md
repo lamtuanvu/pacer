@@ -132,6 +132,12 @@ The preceding platform probe also uses that bundled runner for the exact
 persisted task run. If the provider cannot report the host platform, binary
 setup stops without retrying the probe through direct SSH.
 
+Remote launch uses the bundled SSH runner's fixed START command and a one-use
+grant for the persisted task run. The wrapper and prompt travel over a private
+stdin channel, capped at 50 MiB, and are absent from plugin JSON. If a start
+times out or its completion receipt is missing, pacer leaves that launch
+uncertain and does not try direct SSH or start it again automatically.
+
 Before returning results, pacer requires:
 
 - The task branch descends from the recorded base.

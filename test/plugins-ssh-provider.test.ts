@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { binaryCheckArgv, binaryUploadArgv, BINARY_SCRIPT, checkHomeArgv, checkRepoArgv, cleanArgv, CLEAN_SCRIPT, cloneRepoArgv, CHECK_REPO_SCRIPT, preflightArgv, PREFLIGHT_SCRIPT, prepareArgv, PREPARE_SCRIPT, probeArgv, PROBE_SCRIPT, readFromArgv, READ_FROM_SCRIPT, reportArgv, REPORT_SCRIPT, sessionFilesArgv, SESSION_FILES_SCRIPT, sessionSocketArgv, SESSION_SOCKET_SCRIPT, stopArgv, STOP_SCRIPT,
+import { binaryCheckArgv, binaryUploadArgv, BINARY_SCRIPT, checkHomeArgv, checkRepoArgv, cleanArgv, CLEAN_SCRIPT, cloneRepoArgv, CHECK_REPO_SCRIPT, preflightArgv, PREFLIGHT_SCRIPT, prepareArgv, PREPARE_SCRIPT, probeArgv, PROBE_SCRIPT, readFromArgv, READ_FROM_SCRIPT, reportArgv, REPORT_SCRIPT, sessionFilesArgv, SESSION_FILES_SCRIPT, sessionSocketArgv, SESSION_SOCKET_SCRIPT, startArgv, START_SCRIPT, stopArgv, STOP_SCRIPT,
   questionArgv, QUESTION_SCRIPT, usageArgv, CODEX_USAGE_SCRIPT,
   setIdentityArgv, SET_IDENTITY_SCRIPT } from "../plugins/pacer-ssh/probe";
 import { SCRIPTS } from "../src/remote/scripts";
@@ -25,6 +25,18 @@ test("SSH reference provider emits exactly the host-issued read-only probe comma
   const controlPath = join(controlDir(ctx), "cm-%C");
   expect(PROBE_SCRIPT).toBe(SCRIPTS.PROBE);
   expect(probeArgv(host.ssh, controlPath)).toEqual(sshArgv(ctx, host, SCRIPTS.PROBE, []));
+});
+
+test("SSH START uses only the fixed launch script and host-issued tuple", () => {
+  const home = tmpDir(), ctx = fakeCtx({ home, pacerHome: join(home, ".pacer") });
+  mkdirSync(ctx.pacerHome, { recursive: true });
+  const host = { alias: "box", ssh: "ssh-fixture", repos: {}, accounts: {}, maxTasks: 1 };
+  const controlPath = join(controlDir(ctx), "cm-%C"), nonce = "a".repeat(8) + "-" + "b".repeat(4) + "-" + "c".repeat(4) + "-" + "d".repeat(4) + "-" + "e".repeat(12);
+  const args = [join(home, ".pacer-remote/runs/t-20261027-010000-abcd/1"), home, "pipe", "PACER_ROLE=executor", "--", "sh", "-c", "cat"];
+  expect(START_SCRIPT).toBe(SCRIPTS.START);
+  expect(startArgv(host.ssh, controlPath, args, nonce)).toEqual(sshArgv(ctx, host, SCRIPTS.START, args, nonce));
+  expect(() => startArgv(host.ssh, controlPath, ["/tmp/foreign", ...args.slice(1)], nonce)).toThrow();
+  expect(() => startArgv(host.ssh, controlPath, args, "not-a-nonce")).toThrow();
 });
 
 test("SSH session metadata is fixed, bounded, and contains no recording bytes", async () => {
