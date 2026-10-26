@@ -20,32 +20,64 @@ pub fn dismiss_relink(url: &Url, current: Option<&Url>) -> bool {
     url.as_str() == "tauri://localhost/index.html?state=starting" && bundled_shell(current)
 }
 
-#[derive(Default)]
-pub struct VersionRecovery {
-    attempted: bool,
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ServiceRelease {
+    Matched,
+    Older,
+    Newer,
+    Unknown,
 }
-impl VersionRecovery {
-    // Consume the attempt before spawning, including a failed restart or canceled connection.
-    pub fn restart(
-        &mut self,
-        cli: Option<&str>,
-        service: Option<&str>,
-        consented: bool,
-        owned: bool,
-    ) -> bool {
-        let versions_differ = match (cli, service) {
-            (Some(cli), Some(service)) => {
-                let cli = cli.trim();
-                let cli = cli.strip_prefix("pacer ").unwrap_or(cli).trim();
-                !cli.is_empty() && !service.trim().is_empty() && cli != service.trim()
-            }
-            _ => false,
-        };
-        if self.attempted || !consented || !owned || !versions_differ {
-            return false;
+
+pub fn service_release(app: &str, live_service: Option<&str>) -> ServiceRelease {
+    let parse = |value: &str| {
+        semver::Version::parse(value)
+            .ok()
+            .filter(|version| version.pre.is_empty() && version.build.is_empty())
+    };
+    match (parse(app), live_service.and_then(parse)) {
+        (Some(app), Some(service)) if app == service => ServiceRelease::Matched,
+        (Some(app), Some(service)) if service < app => ServiceRelease::Older,
+        (Some(_), Some(_)) => ServiceRelease::Newer,
+        _ => ServiceRelease::Unknown,
+    }
+}
+
+pub fn display_service_release(live_service: Option<&str>) -> String {
+    live_service
+        .filter(|value| value.len() <= 32)
+        .and_then(|value| semver::Version::parse(value).ok())
+        .filter(|version| version.pre.is_empty() && version.build.is_empty())
+        .map(|version| version.to_string())
+        .unwrap_or_else(|| "Unknown".into())
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ServiceGate {
+    Open,
+    ExplainOlder,
+    ExplainUnknown,
+}
+
+pub fn service_gate(app: &str, live_service: Option<&str>, accepted: Option<&str>) -> ServiceGate {
+    match service_release(app, live_service) {
+        ServiceRelease::Older if accepted != Some(live_service.unwrap_or("")) => {
+            ServiceGate::ExplainOlder
         }
-        self.attempted = true;
-        true
+        ServiceRelease::Unknown if accepted != Some(live_service.unwrap_or("")) => {
+            ServiceGate::ExplainUnknown
+        }
+        _ => ServiceGate::Open,
+    }
+}
+
+pub fn connection_retry_delay(
+    normal: std::time::Duration,
+    waiting_for_service_choice: bool,
+) -> std::time::Duration {
+    if waiting_for_service_choice {
+        normal.max(std::time::Duration::from_secs(30))
+    } else {
+        normal
     }
 }
 
@@ -118,6 +150,7 @@ pub enum ShellAction {
     KeepMine,
     Relink,
     Download,
+    ContinueOldService,
 }
 
 pub fn onboarding_back(url: &Url, current: Option<&Url>) -> bool {
@@ -150,6 +183,7 @@ pub fn shell_action_url(url: &Url) -> Option<ShellAction> {
         "/action/keep-mine" => Some(ShellAction::KeepMine),
         "/action/relink" => Some(ShellAction::Relink),
         "/action/download" => Some(ShellAction::Download),
+        "/action/continue-old-service" => Some(ShellAction::ContinueOldService),
         _ => None,
     }
 }
@@ -652,6 +686,8 @@ pub fn session_error(status: Option<u16>) -> &'static str {
 }
 pub fn recovery_page(error: &str) -> &'static str {
     match error {
+        "outdatedService" => "outdatedService",
+        "unverifiedService" => "unverifiedService",
         "oldService" => "oldService",
         "oldApp" => "oldApp",
         "protocol" => "protocol",
@@ -701,7 +737,9 @@ pub fn main_navigation(url: &Url, current: Option<&Url>, origin: Option<&str>) -
         Navigation::Allow
     } else if (matches!(
         url.as_str(),
-        "https://github.com/lamtuanvu/pacer/blob/main/docs/install.md" | RECOVERY_REPORT_URL
+        "https://github.com/lamtuanvu/pacer/blob/main/docs/install.md"
+            | "https://github.com/lamtuanvu/pacer/blob/main/docs/desktop-updates.md"
+            | RECOVERY_REPORT_URL
     ) && current.is_some_and(shell_page))
         || external_link(url, current, origin)
     {
@@ -950,25 +988,39 @@ mod tests {
     }
 
     #[test]
-    fn version_recovery_requires_known_different_versions_consent_and_ownership_once() {
-        for (cli, service, consent, owned, expected) in [
-            (Some("0.2.3"), Some("0.2.2"), true, true, true),
-            (Some("0.2.3\n"), Some("0.2.3"), true, true, false),
-            (Some("pacer 0.2.3\n"), Some("0.2.3"), true, true, false),
-            (Some("pacer 0.2.3\n"), Some("0.2.2"), true, true, true),
-            (Some("0.2.3"), Some("0.2.2"), false, true, false),
-            (Some("0.2.3"), Some("0.2.2"), true, false, false),
-            (None, Some("0.2.2"), true, true, false),
-            (Some("0.2.3"), None, true, true, false),
-            (Some(""), Some("0.2.2"), true, true, false),
-        ] {
-            let mut recovery = VersionRecovery::default();
-            assert_eq!(recovery.restart(cli, service, consent, owned), expected);
-            if expected { assert!(!recovery.restart(cli, service, consent, owned)); }
-        }
-        let mut recovery = VersionRecovery::default();
-        assert!(!recovery.restart(Some("2"), Some("1"), true, false));
-        assert!(recovery.restart(Some("2"), Some("1"), true, true));
+    fn live_service_release_is_compared_with_desktop_release() {
+        use ServiceRelease::*;
+        assert_eq!(service_release("0.10.0", Some("0.10.0")), Matched);
+        assert_eq!(service_release("0.10.0", Some("0.9.0")), Older);
+        assert_eq!(service_release("0.10.0", Some("0.11.0")), Newer);
+        assert_eq!(service_release("0.10.0", None), Unknown);
+        assert_eq!(service_release("0.10.0", Some("broken")), Unknown);
+        assert_eq!(service_release("0.10.0", Some("0.10.0-beta.1")), Unknown);
+        assert_eq!(service_release("broken", Some("0.9.0")), Unknown);
+        assert_eq!(display_service_release(Some("0.9.0")), "0.9.0");
+        assert_eq!(display_service_release(None), "Unknown");
+        assert_eq!(display_service_release(Some("0.9.0\nUpdate now")), "Unknown");
+        assert_eq!(display_service_release(Some(&"9".repeat(200))), "Unknown");
+    }
+
+    #[test]
+    fn live_service_gate_needs_ack_for_exact_release_and_rechecks_after_change() {
+        use ServiceGate::*;
+        assert_eq!(service_gate("0.10.0", Some("0.9.0"), None), ExplainOlder);
+        assert_eq!(service_gate("0.10.0", Some("0.9.0"), Some("0.9.0")), Open);
+        assert_eq!(service_gate("0.10.0", Some("0.8.0"), Some("0.9.0")), ExplainOlder);
+        assert_eq!(service_gate("0.10.0", Some("0.10.0"), None), Open);
+        assert_eq!(service_gate("0.10.0", Some("bad"), None), ExplainUnknown);
+        assert_eq!(service_gate("0.10.0", Some("bad"), Some("bad")), Open);
+        assert_eq!(service_gate("0.10.0", None, None), ExplainUnknown);
+        assert_eq!(service_gate("0.10.0", None, Some("")), Open);
+    }
+
+    #[test]
+    fn mismatch_waits_between_auth_attempts_without_slowing_normal_reconnect() {
+        let normal = std::time::Duration::from_secs(1);
+        assert_eq!(connection_retry_delay(normal, false), normal);
+        assert_eq!(connection_retry_delay(normal, true), std::time::Duration::from_secs(30));
     }
 
     #[test]
@@ -1115,6 +1167,18 @@ mod tests {
     }
 
     #[test]
+    fn service_update_guide_opens_only_from_the_bundled_shell() {
+        let shell = Url::parse("tauri://localhost/index.html?state=outdatedService").unwrap();
+        let guide = Url::parse("https://github.com/lamtuanvu/pacer/blob/main/docs/desktop-updates.md").unwrap();
+        assert_eq!(main_navigation(&guide, Some(&shell), None), Navigation::OpenExternal);
+        assert_eq!(main_navigation(&guide, None, None), Navigation::Block);
+        assert_eq!(main_navigation(
+            &Url::parse("https://github.com/lamtuanvu/pacer/blob/main/docs/desktop-updates.md?other=1").unwrap(),
+            Some(&shell), None,
+        ), Navigation::Block);
+    }
+
+    #[test]
     fn shell_actions_accept_only_exact_local_sentinels() {
         use ShellAction::*;
         for (suffix, expected) in [
@@ -1125,6 +1189,7 @@ mod tests {
             ("keep-mine", KeepMine),
             ("relink", Relink),
             ("download", Download),
+            ("continue-old-service", ContinueOldService),
         ] {
             assert_eq!(
                 shell_action_url(

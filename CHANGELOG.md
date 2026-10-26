@@ -7,6 +7,11 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 ### Added
 
 - Record private, bounded OTA request-stage diagnostics in live validation evidence while preserving fixture authorization and HTTP behavior.
+- macOS desktop releases include a `.dmg` for first installs: open it and drag pacer into Applications. It holds the same signed app as the `.app.tar.gz` update package; release validation checks that the two match.
+
+### Changed
+
+- Let a conversation's session UI fill the task workspace between a slim action row and a pinned control footer, and stop calling it a terminal. The footer shows who is driving, Take/Release control, size and the screen reader toggle; files stay with the session. A hidden or collapsed pane no longer resizes the agent's terminal, and Tab no longer traps focus in a watched terminal.
 
 ### Fixed
 
@@ -16,6 +21,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - Restore the documented live UI control commands and retain OTA event traces as context without counting them as unverified behavior checks.
 - Wait for a remote session's recording-mode handoff before reporting a fast exit, preserving native recordings and pipe-fallback output.
 - Keep paired desktop helper channels alive through authenticated startup by acknowledging descriptor receipt before Root releases its duplicate; transfer both startup descriptors together and retain them until Core confirms receipt.
+- The desktop shows the live service version before loading older service screens and no longer restarts a mismatched service automatically.
 
 ## [0.10.0] - 2026-10-26
 

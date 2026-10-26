@@ -17,6 +17,9 @@ test("GitHub feed promotion uses exact old commit CAS and immutable asset creati
     await publisher.createAsset("desktop-pacer-1.2.3-darwin-aarch64.app.tar.gz", new Uint8Array([1]));
     expect(requests.at(-1)!.url).toBe("https://uploads.github.com/repos/lamtuanvu/pacer/releases/1/assets?name=desktop-pacer-1.2.3-darwin-aarch64.app.tar.gz");
     expect(requests.at(-1)!.method).toBe("POST");
+    await publisher.createAsset("desktop-pacer-1.2.3-darwin-aarch64.dmg", new Uint8Array([1]));
+    expect(requests.at(-1)!.url).toBe("https://uploads.github.com/repos/lamtuanvu/pacer/releases/1/assets?name=desktop-pacer-1.2.3-darwin-aarch64.dmg");
+    await expect(publisher.createAsset("desktop-pacer-1.2.3-darwin-aarch64.dmg.sig", new Uint8Array([1]))).rejects.toThrow("Unowned");
     await expect(publisher.createAsset("pacer-darwin-arm64", new Uint8Array([1]))).rejects.toThrow("Unowned");
     expect(requests.some(r => r.method === "DELETE" || r.method === "PATCH")).toBe(false);
   } finally { globalThis.fetch = fetchBefore; }
