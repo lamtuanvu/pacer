@@ -1,8 +1,11 @@
 import { expect, test } from "bun:test";
 import { renderToString } from "preact-render-to-string";
 import { AttachmentDelivery } from "../app/src/screens/session/Attachments";
-import { Conversation, ConversationHeader, TerminalOpenFallback } from "../app/src/screens/session/Conversation";
+import { Conversation, ConversationActions, TerminalOpenFallback } from "../app/src/screens/session/Conversation";
+import { SessionView } from "../app/src/screens/session/SessionView";
 import { TaskContext } from "../app/src/screens/task-shared";
+import { initialState } from "../app/src/data/store";
+import type { TaskDetail } from "../src/core/task-detail";
 
 test("later attachment reference requires an explicit copy step and user submission", () => {
  const html=renderToString(<AttachmentDelivery name="image.png" text='Use "image.png" at "/tmp/private/image".' onCopy={()=>{}}/>);
@@ -10,10 +13,10 @@ test("later attachment reference requires an explicit copy step and user submiss
  expect(html).toContain("Paste into the agent’s input, then submit when ready.");
  expect(html).not.toContain("Send message");
 });
-test("conversation shell exposes native session identity and end action without delegated review",()=>{
- const html=renderToString(<ConversationHeader title="Build a page" repo="project" branch="pacer/task" executor="Codex · work" active busy={false} onEnd={()=>{}}/>);
- expect(html).toContain("project");expect(html).toContain("Codex · work");expect(html).toContain("End session");
- expect(html).not.toContain("Take over");expect(html).not.toContain("Review");
+test("conversation actions offer end without delegated review",()=>{
+ const html=renderToString(<ConversationActions active busy={false} canOpen canResume={false} filesOpen={false} onFiles={()=>{}} onOpen={()=>{}} onResume={()=>{}} onEnd={()=>{}}/>);
+ expect(html).toContain("End session");expect(html).toContain("Open in terminal");expect(html).toContain('aria-expanded="false"');
+ expect(html).not.toContain("Take over");expect(html).not.toContain("Review");expect(html).not.toContain("Resume conversation");
 });
 
 test("failed conversation shows its recorded launch error", () => {
@@ -60,4 +63,24 @@ test("unopened terminal shows a copyable attach command", () => {
  const html=renderToString(<TerminalOpenFallback command="pacer attach t-1"/>);
  expect(html).toContain("Terminal did not open");
  expect(html).toContain("pacer attach t-1");
+});
+test("conversation fills the workspace panel between its actions and a pinned control footer",()=>{
+ const api={hello:async()=>({}) as never,snapshot:async()=>({}) as never,call:async<T,>()=>({}) as T};
+ const task={id:"t-1",state:"running",executor:"codex",goal:"Build a page",fullTitle:"Build a page",repo:{label:"project"},branch:"pacer/task",brief:{goal:"Build a page"}} as unknown as TaskDetail;
+ Object.defineProperty(globalThis,"location",{configurable:true,value:new URL("http://localhost/app/#/tasks/t-1")});
+ let html="";
+ try{html=renderToString(<TaskContext.Provider value={{state:initialState(),api}}><Conversation task={task} onReload={()=>{}}/></TaskContext.Provider>);}
+ finally{delete (globalThis as {location?:unknown}).location;}
+ expect(html).not.toContain('role="tablist"');expect(html).not.toContain(">Terminal<");
+ expect(html).toContain('class="pc-conversation-footer"');expect(html).toContain('aria-label="Session control"');
+ expect(html.indexOf("pc-conversation-actions")).toBeLessThan(html.indexOf("pc-conversation-body"));
+ expect(html.indexOf("pc-conversation-body")).toBeLessThan(html.indexOf("pc-conversation-footer"));
+ expect(html).toContain("Starting the session…");expect(html).toContain("End session");
+});
+test("session view explains queued and ended sessions without naming the renderer",()=>{
+ const props={active:false,footer:null,takeRequested:false,onTakeSent:()=>{},onFiles:()=>{}};
+ const queued=renderToString(<SessionView {...props} active task={{id:"t",state:"queued"} as unknown as TaskDetail}/>);
+ expect(queued).toContain("Your session is queued. It opens when your executor is ready.");
+ const ended=renderToString(<SessionView {...props} task={{id:"t",state:"done"} as unknown as TaskDetail}/>);
+ expect(ended).toContain("The agent process ended.");expect(queued+ended).not.toContain("terminal");
 });
