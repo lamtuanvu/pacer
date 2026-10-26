@@ -48,6 +48,33 @@ async fn unnegotiated_invalid_and_oversized_frames_are_transparent() {
     assert_eq!(core, input);
     assert!(out.into_inner().is_empty());
 }
+#[tokio::test]
+async fn surrogate_bearing_settings_keep_stdio_request_with_core() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::write(
+        home.join("settings.json"),
+        r#"{"0":"\ud83d","1":"\ude00","notifications":"important"}"#,
+    )
+    .unwrap();
+    let ctx = Ctx::with(dir.path().to_path_buf(), home, HashMap::new(), 0.0);
+    let dispatcher = Dispatcher::new("");
+    let input = b"{\"jsonrpc\":\"2.0\",\"method\":\"notifications.get\",\"id\":1,\"params\":{}}\n";
+    let mut core = Vec::new();
+    let out = Mutex::new(Vec::new());
+    let state = Mutex::new(Negotiation {
+        native: true,
+        previous: true,
+        pending: None,
+        settled: None,
+    });
+    forward_input(&input[..], &mut core, &out, &ctx, &dispatcher, &state)
+        .await
+        .unwrap();
+    assert_eq!(core, input);
+    assert!(out.into_inner().is_empty());
+}
 #[cfg(feature = "test-ops")]
 #[tokio::test]
 async fn acknowledged_native_and_forward_escape() {

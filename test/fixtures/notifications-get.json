@@ -1,0 +1,57 @@
+[
+  {
+    "name": "default",
+    "result": {
+      "level": "important"
+    },
+    "after": "{\"notifications\":\"important\"}"
+  },
+  {
+    "name": "existing",
+    "settings": "{\"notifications\":\"all\",\"other\":1}\n",
+    "result": {
+      "level": "all"
+    },
+    "after": "{\"notifications\":\"all\",\"other\":1}\n"
+  },
+  {
+    "name": "legacy",
+    "legacy": "{\"notifications\":\"off\"}",
+    "result": {
+      "level": "off"
+    },
+    "after": "{\"notifications\":\"off\"}"
+  },
+  {
+    "name": "invalid",
+    "settings": "{\"other\":1,\"notifications\":\"invalid\"}",
+    "result": {
+      "level": "important"
+    },
+    "after": "{\"other\":1,\"notifications\":\"important\"}"
+  },
+  {
+    "name": "malformed",
+    "settings": "{",
+    "result": {
+      "level": "important"
+    },
+    "after": "{\"notifications\":\"important\"}"
+  },
+  {
+    "name": "null",
+    "settings": "null",
+    "result": {
+      "level": "important"
+    },
+    "after": "{\"notifications\":\"important\"}"
+  },
+  {
+    "name": "string-unicode",
+    "settings": "\"😀\"",
+    "result": {
+      "level": "important"
+    },
+    "after": "{\"0\":\"\\ud83d\",\"1\":\"\\ude00\",\"notifications\":\"important\"}"
+  }
+]

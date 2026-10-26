@@ -38,6 +38,17 @@ struct Listener {
     token: String,
     dispatcher: crate::native::Dispatcher,
 }
+fn native_request_ctx(mut ctx: Ctx) -> Ctx {
+    // The listener must not carry a work grant or internal native authority into
+    // public calls. Native config reads still need the core's location overrides.
+    ctx.env.retain(|key, _| {
+        matches!(
+            key.as_str(),
+            "PACER_ORCA_USER_DATA" | "XDG_CONFIG_HOME" | "APPDATA"
+        )
+    });
+    ctx
+}
 async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Response {
     // Session expiry is checked against the time of this request, never the start-up time.
     let ctx = state.ctx.at_now();
@@ -107,8 +118,7 @@ pub async fn run_serve(
 ) -> io::Result<()> {
     let mut ctx = Ctx::from_env();
     let token = auth::ensure_token(&ctx)?;
-    // Requests clone the context; the listener needs only the pacer home.
-    ctx.env.clear();
+    ctx = native_request_ctx(ctx);
     let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, port)).await?;
     let port = listener.local_addr()?.port();
     // The internal HTTP listener binds independently. Its desktop integration
@@ -189,3 +199,28 @@ pub fn run_serve_blocking(
 }
 
 mod native_ops;
+
+#[cfg(test)]
+mod request_context_tests {
+    use super::*;
+
+    #[test]
+    fn native_requests_keep_config_locations_without_runtime_authority() {
+        let mut ctx = Ctx::from_env();
+        ctx.env.clear();
+        ctx.env
+            .insert("PACER_ORCA_USER_DATA".into(), "fixture-orca".into());
+        ctx.env
+            .insert("XDG_CONFIG_HOME".into(), "fixture-xdg".into());
+        ctx.env.insert("APPDATA".into(), "fixture-appdata".into());
+        ctx.env
+            .insert("PACER_WORK_GRANT".into(), "forbidden-grant".into());
+        ctx.env
+            .insert("PACER_INTERNAL_NATIVE_BOOTSTRAP".into(), "forbidden".into());
+        let ctx = native_request_ctx(ctx);
+        assert_eq!(ctx.env.len(), 3);
+        assert_eq!(ctx.env["PACER_ORCA_USER_DATA"], "fixture-orca");
+        assert_eq!(ctx.env["XDG_CONFIG_HOME"], "fixture-xdg");
+        assert_eq!(ctx.env["APPDATA"], "fixture-appdata");
+    }
+}

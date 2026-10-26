@@ -9,15 +9,15 @@ use pacer_foundation::{
 };
 use serde_json::Value;
 
-/// No domain has migrated in this preparation change.
-pub const NATIVE_OPS: &[&str] = &[];
+/// Production operations currently selected by the native registry.
+pub const NATIVE_OPS: &[&str] = &["notifications.get"];
 
 pub struct Dispatcher {
     registry: Registry,
 }
 impl Dispatcher {
     pub fn new(forward: &str) -> Self {
-        let mut ops: Vec<NativeOp> = Vec::new();
+        let mut ops: Vec<NativeOp> = pacer_config::ops().to_vec();
         #[cfg(feature = "test-ops")]
         ops.push(NativeOp {
             name: "test.echo",
@@ -40,6 +40,11 @@ impl Dispatcher {
     }
     pub fn names(&self) -> Vec<&'static str> {
         self.registry.names()
+    }
+    /// Some legacy JSON is accepted by JavaScript but not serde_json. Forward
+    /// that request before consuming it so its parsing and file behavior stay exact.
+    pub fn needs_core_parser(&self, ctx: &Ctx, name: &str) -> bool {
+        name == "notifications.get" && pacer_config::requires_core_parser(ctx)
     }
     /// Merge selected native names with the actual core hello advertisement.
     pub fn decorate_hello(&self, hello: &mut Value) {
@@ -147,9 +152,18 @@ mod registry_tests {
                 .is_none()
         );
         assert!(Dispatcher::new("*").names().is_empty());
-        assert!(NATIVE_OPS.is_empty());
+        assert_eq!(NATIVE_OPS, &["notifications.get"]);
         #[cfg(not(feature = "test-ops"))]
-        assert!(Dispatcher::new("").names().is_empty());
+        assert_eq!(Dispatcher::new("").names(), NATIVE_OPS);
+    }
+    #[test]
+    fn notification_read_is_native_unless_explicitly_forwarded() {
+        assert!(Dispatcher::new("").names().contains(&"notifications.get"));
+        assert!(
+            !Dispatcher::new("notifications.get")
+                .names()
+                .contains(&"notifications.get")
+        );
     }
     #[cfg(feature = "test-ops")]
     #[tokio::test]

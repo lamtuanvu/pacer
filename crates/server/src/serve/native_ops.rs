@@ -1,15 +1,18 @@
 //! Called only after the public listener's authentication decision.
 use crate::native::Dispatcher;
 use axum::{
-    body::{Body, to_bytes},
+    body::{Body, Bytes, to_bytes},
     http::{Request, StatusCode},
     response::{IntoResponse, Response},
 };
+use futures_util::{StreamExt, stream};
 use pacer_foundation::{
     Ctx,
     api::error::{Code, CoreError},
 };
 use serde_json::{Value, json};
+
+const MAX_DISCOVERY_BYTES: usize = 1024 * 1024;
 
 fn response(status: u16, body: Value) -> Response {
     (
@@ -42,7 +45,7 @@ pub async fn handle(
     let Some(name) = req.uri().path().strip_prefix("/v3/ops/") else {
         return Err(req);
     };
-    if !dispatcher.names().contains(&name) {
+    if !dispatcher.names().contains(&name) || dispatcher.needs_core_parser(ctx, name) {
         return Err(req);
     }
     let name = name.to_owned();
@@ -109,10 +112,35 @@ pub async fn decorate(
         return response;
     }
     let (mut parts, body) = response.into_parts();
-    let bytes = match to_bytes(body, usize::MAX).await {
-        Ok(bytes) => bytes,
-        Err(_) => return StatusCode::BAD_GATEWAY.into_response(),
-    };
+    let mut source = body.into_data_stream();
+    let mut captured: Vec<Result<Bytes, axum::Error>> = Vec::new();
+    let mut size = 0usize;
+    while let Some(frame) = source.next().await {
+        match frame {
+            Ok(bytes) => {
+                size = size.saturating_add(bytes.len());
+                captured.push(Ok(bytes));
+                if size > MAX_DISCOVERY_BYTES {
+                    return Response::from_parts(
+                        parts,
+                        Body::from_stream(stream::iter(captured).chain(source)),
+                    );
+                }
+            }
+            Err(error) => {
+                captured.push(Err(error));
+                return Response::from_parts(
+                    parts,
+                    Body::from_stream(stream::iter(captured).chain(source)),
+                );
+            }
+        }
+    }
+    let bytes: Vec<u8> = captured
+        .into_iter()
+        .filter_map(Result::ok)
+        .flat_map(|bytes| bytes.to_vec())
+        .collect();
     if let Ok(mut value) = serde_json::from_slice::<Value>(&bytes) {
         if hello {
             dispatcher.decorate_hello(&mut value);
@@ -173,6 +201,39 @@ mod tests {
             .await
             .is_err()
         );
+    }
+    #[tokio::test]
+    async fn surrogate_bearing_settings_keep_http_request_with_core() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("home");
+        std::fs::create_dir_all(&home).unwrap();
+        let settings = home.join("settings.json");
+        let content = r#"{"0":"\ud83d","1":"\ude00","notifications":"important"}"#;
+        std::fs::write(&settings, content).unwrap();
+        let ctx = Ctx::with(
+            dir.path().to_path_buf(),
+            home,
+            std::collections::HashMap::new(),
+            0.0,
+        );
+        let dispatcher = crate::native::Dispatcher::new("");
+        let request = Request::builder()
+            .method("POST")
+            .uri("/v3/ops/notifications.get")
+            .body(Body::from("{}"))
+            .unwrap();
+        let returned = handle(
+            request,
+            &dispatcher,
+            &ctx,
+            crate::serve::auth::AuthKind::Bearer,
+        )
+        .await
+        .err()
+        .unwrap();
+        assert_eq!(returned.uri().path(), "/v3/ops/notifications.get");
+        assert_eq!(to_bytes(returned.into_body(), 8).await.unwrap(), "{}");
+        assert_eq!(std::fs::read_to_string(settings).unwrap(), content);
     }
     #[cfg(feature = "test-ops")]
     #[tokio::test]
@@ -310,5 +371,30 @@ mod tests {
                 json!({"error":{"code":code,"message":"message","hint":"retry","data":{"detail":true}}})
             );
         }
+    }
+    #[tokio::test]
+    async fn discovery_decoration_preserves_large_forwarded_bodies() {
+        let dispatcher = crate::native::Dispatcher::new("");
+        let payload = "x".repeat(MAX_DISCOVERY_BYTES + 1);
+        let original = Response::builder()
+            .status(StatusCode::OK)
+            .header("content-length", payload.len())
+            .body(Body::from_stream(stream::iter([
+                Ok::<_, std::io::Error>(Bytes::copy_from_slice(&payload.as_bytes()[..17])),
+                Ok(Bytes::copy_from_slice(&payload.as_bytes()[17..])),
+            ])))
+            .unwrap();
+        let decorated = decorate(original, &dispatcher, true, false).await;
+        assert_eq!(decorated.status(), StatusCode::OK);
+        assert_eq!(
+            decorated.headers()["content-length"],
+            payload.len().to_string()
+        );
+        assert_eq!(
+            to_bytes(decorated.into_body(), MAX_DISCOVERY_BYTES + 2)
+                .await
+                .unwrap(),
+            payload.as_bytes()
+        );
     }
 }
