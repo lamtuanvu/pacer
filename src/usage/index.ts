@@ -33,7 +33,7 @@ async function cachedBase(ctx:Ctx,cfg:ProviderCfg,account?:AccountCfg, refresh =
     try {
       const value=await Promise.race([base(ctx,cfg,account,refresh),new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(Error(`usage source ${source} timed out`)),10000);})]);
       if (account) recordAuthReading(ctx, account.name, value, accountEvidenceScope(account, hosts));
-      entry.value = value.error && hit?.value?.windows.length
+      entry.value = value.availability ? value : value.error && hit?.value?.windows.length
         ? { ...hit.value, stale: true, error: value.error }
         : hit?.value?.capturedAt != null && (value.capturedAt == null || value.capturedAt < hit.value.capturedAt)
           ? hit.value : value;
