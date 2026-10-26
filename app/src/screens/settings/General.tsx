@@ -3,6 +3,7 @@ export { HostsSection } from "./HostsSection";
 import { ExecutorsSection } from "./Executors";
 export { ExecutorsSection } from "./Executors";
 import { UpdatesSection } from "./Updates";
+import { LazyDispatcher } from "./LazyDispatcher";
 
 import { withQuery, type RouteQuery } from "../../router";
 import { DensityContext } from "../../ds/Density";
@@ -101,6 +102,9 @@ export function SettingsGeneral({
       break;
     case "strategies":
       content = <StrategiesSection initialData={initialData.strategies} />;
+      break;
+    case "dispatcher":
+      content = <LazyDispatcher query={query} />;
       break;
     case "updates":
       content = <UpdatesSection initialData={initialData.updates} />;
@@ -642,6 +646,7 @@ function RoutingSection({ initialData }: { initialData?: RoutingRules }) {
         </>
       }
     >
+      <p>These rules choose executors by task kind when a repository has no project strategy. A project strategy supplies its own executor list. The <TextAction href="#/settings/dispatcher">dispatcher</TextAction> then ranks eligible account and model choices from that list.</p>
       <ResourceState resource={query}>
         {query.data?.rules.length === 0 ? (
           <p>No routing rules yet.</p>
@@ -736,9 +741,10 @@ function StrategiesSection({ initialData }: { initialData?: StrategyRow[] }) {
     <Section
       id="strategies"
       title="Strategies"
-      detail="Saved routing and pacing settings. Switch anytime."
+      detail="Saved routing, pacing and dispatcher settings. Switch anytime."
       actions={
         <>
+          <TextAction href="#/settings/dispatcher">View dispatcher</TextAction>{" "}
           <TextAction href="#/settings/routing">Edit routing rules</TextAction>{" "}
           <Button onClick={() => setBuilding((v) => !v)}>New from a brief</Button>
         </>
@@ -766,6 +772,7 @@ function StrategiesSection({ initialData }: { initialData?: StrategyRow[] }) {
           </div>
         ))}
       </ResourceState>
+      <p className="u3-muted">The dispatcher chooses an executor and model for each work attempt. <TextAction href="#/settings/dispatcher">View its planner, ladder and preview</TextAction></p>
       {building && (
         <form
           className="pc-card"

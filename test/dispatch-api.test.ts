@@ -25,6 +25,16 @@ test("preview operation is read-only, leaves legacy delegation guarded, and retu
   expect(direct.request.task.kind).toBe("architecture");
   await expect(callOp(ctx, "dispatch.preview", {...input, requirements: {minTier: "magic"}})).rejects.toMatchObject({code: "invalid_input"});
 });
+test("dispatcher settings report the effective ladder and planner role", async () => {
+  const ctx = dispatchCtx();
+  const builtIn = await callOp(ctx, "dispatch.config.get", {});
+  expect(builtIn).toMatchObject({strategy: "default", planner: "claude-code", plannerAccount: "claude-code", source: "built-in", config: {engine: "ladder", steps: [{id: "capable-with-headroom"}, {id: "usable-fallback"}]}});
+  const draft = {from: "default", set: {dispatch: {steps: [{id: "specialist", match: {kind: "architecture"}, capacity: "comfortable", rank: ["task-fit", "spare-capacity"]}]}}};
+  expect(await callOp(ctx, "strategy.preview", {draft})).toMatchObject({ok: true});
+  await callOp(ctx, "strategy.save", {name: "specialist", draft, reason: "Configure dispatcher"});
+  await callOp(ctx, "strategy.use", {name: "specialist"});
+  expect(await callOp(ctx, "dispatch.config.get", {})).toMatchObject({strategy: "specialist", planner: "claude-code", plannerAccount: "claude-code", source: "strategy", config: {steps: [{id: "specialist"}]}});
+});
 test("MCP preview uses the same core decision contract", async () => {
   const ctx = dispatchCtx(), input = {repo: tmpDir(), goal: "Check"};
   const server = createMcpServer(() => ctx);

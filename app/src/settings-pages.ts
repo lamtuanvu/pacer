@@ -9,6 +9,7 @@ export const SETTINGS_PAGES: readonly { id: string; label: string; icon: IconNam
   { id: 'machine', label: 'This machine', icon: 'hosts' },
   { id: 'hosts', label: 'Remote hosts', icon: 'servers' },
   { id: 'routing', label: 'Routing', icon: 'routing' },
+  { id: 'dispatcher', label: 'Dispatcher', icon: 'routing' },
   { id: 'strategies', label: 'Strategies', icon: 'layers' },
   { id: 'updates', label: 'Updates', icon: 'download' },
   { id: 'notifications', label: 'Notifications', icon: 'bell' },

@@ -51,7 +51,7 @@ command under Sign out; run it in a terminal.
 | Accounts & budgets | Inspect usage windows, resets, freshness, sign-in state and endpoint details; add or remove accounts. |
 | Strategy | Switch strategies, edit pacing, preview the ranking, save a named strategy or remove an inactive non-default strategy. |
 | Hosts | Add, check and remove remote hosts. |
-| Settings | Change the planner, notifications and integrations; check and apply updates, inspect versions and find the sign-out command. |
+| Settings | Change the planner, notifications and integrations; inspect the Dispatcher ladder, model choices and task preview; check and apply updates, inspect versions and find the sign-out command. |
 
 Headless runs in the Session view show “This run is headless — Take over to work
 in it live” with a prominent **Take over** button. Watch-elsewhere options and the

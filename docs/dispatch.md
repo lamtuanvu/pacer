@@ -26,6 +26,8 @@ An executor may run `pacer dispatch child --goal '...' --request-id UNIQUE_ID` o
 
 ## Configure the choice ladder
 
+In the app, open **Settings → Dispatcher** to see the default session planner and account, the active ladder, allowed model choices, and a read-only task preview. **Edit decision ladder** changes the ordered steps and saves them as a new named strategy before activation. The default ladder favors a capable model with spare capacity, then tries a usable fallback. A saved strategy holds global routing, pacing, and dispatch settings. **Settings → Routing** chooses the executor list for a task kind when no project strategy is selected; a selected project strategy supplies the list for its repository. The dispatcher ranks eligible account/model choices from that list. Any local executor holding a valid work grant can ask Pacer to delegate child work; the configured planner is the default for new sessions.
+
 ```yaml
 planner: claude-code
 accounts:

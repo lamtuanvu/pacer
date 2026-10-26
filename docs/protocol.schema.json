@@ -1566,6 +1566,11 @@
       ],
       "additionalProperties": false
     },
+    "DispatchConfigGetParams": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
     "DispatchDependenciesParams": {
       "type": "object",
       "properties": {

@@ -19,7 +19,7 @@ export type RouteTarget =
   | { name: "settings"; section?: string; query?: TargetQuery }
   | { name: "hosts"; alias?: string; query?: TargetQuery }
   | { name: "add-executor"; host?: string; query?: TargetQuery };
-export const SETTINGS_SECTIONS = ["planner", "accounts", "executors", "machine", "routing", "strategies", "updates", "notifications", "appearance", "diagnostics"] as const;
+export const SETTINGS_SECTIONS = ["planner", "accounts", "executors", "machine", "routing", "dispatcher", "strategies", "updates", "notifications", "appearance", "diagnostics"] as const;
 const EMPTY_QUERY: RouteQuery = { repo: null, scope: null };
 const withTargetQuery = <T extends RouteTarget>(target: T, query?: TargetQuery): T => query ? { ...target, query } : target;
 export const routes = {
