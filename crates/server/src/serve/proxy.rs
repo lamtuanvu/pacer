@@ -51,6 +51,7 @@ pub fn headers(
             AuthKind::Bearer => "bearer",
             AuthKind::Cookie => "cookie",
             AuthKind::Task => "task",
+            AuthKind::Surface => "surface",
         }
         .parse()?,
     );

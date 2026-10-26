@@ -6,10 +6,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
-- Stage the `surface` manifest contract with a bounded prefix and safe relative directory. Static serving awaits browser origin isolation and race-safe file access.
+- Serve enabled, granted plugin surfaces through opaque-origin CSP sandbox documents and static-only scoped URLs, with descriptor-anchored file reads. The Settings screen and TUI summary remain in progress.
 - Add a host-only, one-use finalized bundle input that rechecks the persisted run and private publication, then supplies an immutable bounded byte snapshot for safe downstream Git consumption.
 - Stage the direct executor manifest and bounded availability contract with a fake conformance plugin; no attempt runner or production backend is switched yet.
-- Add a scoped `hosts.open/run/close` plugin capability with caller-owned broker sessions, configured SSH aliases and fixed-script fake-provider forwarding; production SSH callers are not yet migrated.
+- Add scoped `hosts.open/run/fetch/close` plugin capabilities with caller-owned broker sessions, configured SSH aliases and fixed-script fake-provider forwarding; host setup identity and committed-task transfer use the bundled remote caller while other SSH paths still await cutover.
 - Define a bounded, staged plugin host-runner wire contract and fake conformance fixture; remote SSH execution remains on the existing adapter.
 - Record private, bounded OTA request-stage diagnostics in live validation evidence while preserving fixture authorization and HTTP behavior.
 - Add plugin policy checks for delegation, executor routing and task review, with bounded task observations, event subscriptions, failure modes and policy status across API, CLI, TUI and app surfaces.

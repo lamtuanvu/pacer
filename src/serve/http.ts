@@ -19,6 +19,7 @@ import { sessionWebSocket, upgradeSession, type SessionWS } from "./session-ws";
 import { randomBytes } from "node:crypto";
 import { checkSession, safeEqual } from "./app-auth";
 import { appPage, appRoute } from "./app-routes";
+import { serveSurface, validSurfaceTicket } from "./surfaces";
 import { handleV2 } from "../api/http";
 import type { OpDeps } from "../api/ops";
 import { existsSync, mkdirSync, readFileSync, writeFileSync, watch } from "node:fs";
@@ -138,8 +139,11 @@ export function startServer(
           return new Response("unauthorized\n", { status: 401 });
         }
         const authKind = req.headers.get("x-pacer-auth") ?? "bearer";
-        if (authKind !== "bearer" && authKind !== "cookie" && authKind !== "task") return new Response("forbidden\n", { status: 403 });
+        if (authKind !== "bearer" && authKind !== "cookie" && authKind !== "task" && authKind !== "surface") return new Response("forbidden\n", { status: 403 });
         bearer = authKind === "bearer";
+        if (authKind === "surface" &&
+          (!(req.method === "GET" || req.method === "HEAD") || !validSurfaceTicket(getCtx(), pathname, token)))
+          return new Response("forbidden\n", { status: 403 });
         if (authKind === "task") {
           const forwarded = req.headers.get("x-pacer-work-grant") ?? "";
           workGrant = forwarded.startsWith("Bearer ") ? forwarded.slice(7) : undefined;
@@ -163,7 +167,9 @@ export function startServer(
           if (req.method !== "POST" || !pathname.startsWith("/v3/ops/")) return new Response("forbidden\n", { status: 403 });
           workGrant = candidate;
         }
-        if (!bearer && !workGrant) {
+        const surfaceTicket = (req.method === "GET" || req.method === "HEAD") &&
+          validSurfaceTicket(getCtx(), pathname, token);
+        if (!bearer && !workGrant && !surfaceTicket) {
           const value = (req.headers.get("cookie") ?? "").split(";").map(c => c.trim()).find(c => c.startsWith("pacer_session="))?.slice("pacer_session=".length);
           if (!(app || /^\/v[23]\//.test(pathname)) || !value || !checkSession(getCtx(), value)) {
             return app ? appPage("Session ended. Run `pacer open`.", 401) : new Response("unauthorized\n", { status: 401 });
@@ -182,6 +188,7 @@ export function startServer(
         try { authorizeWorkGrant(requestCtx(), workGrant); }
         catch { return new Response("forbidden\n", { status: 403 }); }
       }
+      if (pathname.startsWith("/app/plugins/")) return serveSurface(getCtx(), req, pathname, token);
       if (app) return appRoute(req, getCtx());
       const attachmentResponse = await attachmentRoute(req, getCtx());
       if (attachmentResponse) return attachmentResponse;
