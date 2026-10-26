@@ -7,6 +7,7 @@ import { list, signin } from "../src/core/accounts";
 import { loadStrategy } from "../src/config/strategy";
 import { readAccountUsage } from "../src/usage";
 import * as codex from "../src/usage/codex";
+import * as codexLive from "../src/usage/codex-live";
 import { markAuthFailed, readAuthFailures } from "../src/usage/auth";
 import { fakeCtx } from "./helpers";
 
@@ -91,6 +92,7 @@ test("account.signin supports headless fallback, validates targets and refuses e
 test("a cached successful reading cannot erase a newer attempt's auth failure", async () => {
   const ctx = configured();
   const read = spyOn(codex, "readCodex").mockResolvedValue({windows: [], capturedAt: ctx.now, stale: false});
+  const live = spyOn(codexLive, "readCodexLive").mockResolvedValue({windows: [], capturedAt: ctx.now, stale: false});
   const account = loadStrategy(ctx).accounts.codex;
   await readAccountUsage(ctx, account, []);
   ctx.now += 1;
@@ -98,9 +100,10 @@ test("a cached successful reading cannot erase a newer attempt's auth failure", 
   expect((await list(ctx)).find(a => a.name === "codex")?.signedIn).toBe(false);
   expect(read).toHaveBeenCalledTimes(1);
   await readAccountUsage(ctx, account, [], true);
-  expect(read).toHaveBeenCalledTimes(2);
+  expect(read).toHaveBeenCalledTimes(1);
+  expect(live).toHaveBeenCalledTimes(1);
   expect(readAuthFailures(ctx).codex).toBe(ctx.now);
-  ctx.now += 1; read.mockResolvedValue({windows: [], capturedAt: ctx.now, stale: false});
+  ctx.now += 1; live.mockResolvedValue({windows: [], capturedAt: ctx.now, stale: false});
   await readAccountUsage(ctx, account, [], true);
   expect(readAuthFailures(ctx)).toEqual({});
 });

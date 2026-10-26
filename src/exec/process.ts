@@ -18,6 +18,8 @@ export interface ExecSpec {
   argv: string[];
   cwd: string;
   stdin?: string;
+  /** Keep JSON-RPC stdin open until stdout contains this response id. */
+  stdinUntilResponseId?: number;
   env: Record<string, string | undefined>;
   timeoutMs: number;
   logFile?: string;
@@ -45,7 +47,7 @@ function spawn(spec: ExecSpec) {
     // Tools that resolve paths from $PWD (OpenCode does) must see the child's
     // directory, not the parent's.
     env: { ...(spec.env ?? process.env), PWD: spec.cwd },
-    stdin: spec.stdin !== undefined ? new Blob([spec.stdin]) : "ignore",
+    stdin: spec.stdinUntilResponseId !== undefined ? "pipe" : spec.stdin !== undefined ? new Blob([spec.stdin]) : "ignore",
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -87,6 +89,10 @@ export async function execProcess(spec: ExecSpec): Promise<ExecResult> {
   try {
     if (spec.stdoutFile) stdoutFd = openSync(spec.stdoutFile, "w", 0o600);
     proc = spawn(spec);
+    if (spec.stdinUntilResponseId !== undefined && spec.stdin !== undefined && typeof proc.stdin === "object") {
+      proc.stdin.write(spec.stdin);
+      proc.stdin.flush();
+    }
   } catch (e) {
     if (stdoutFd !== undefined) closeSync(stdoutFd);
     const r = { code: 127, stdout: "", stderr: String(e), timedOut: false };
@@ -121,7 +127,22 @@ export async function execProcess(spec: ExecSpec): Promise<ExecResult> {
 
   let stdoutBytes = 0, stdoutOverflow = false, stdoutError = "";
   const chunks: Uint8Array[] = [];
-  const out = startReading(proc.stdout, spec.stdoutFile || spec.maxStdoutBytes !== undefined ? (value) => {
+  const responseDecoder = new TextDecoder();
+  let responseBuffer = "";
+  const out = startReading(proc.stdout, spec.stdoutFile || spec.maxStdoutBytes !== undefined || spec.stdinUntilResponseId !== undefined ? (value) => {
+    if (spec.stdinUntilResponseId !== undefined && typeof proc.stdin === "object") {
+      responseBuffer += responseDecoder.decode(value, { stream: true });
+      for (;;) {
+        const lineEnd = responseBuffer.indexOf("\n");
+        if (lineEnd < 0) break;
+        const line = responseBuffer.slice(0, lineEnd);
+        responseBuffer = responseBuffer.slice(lineEnd + 1);
+        try {
+          if (JSON.parse(line)?.id === spec.stdinUntilResponseId) { proc.stdin.end(); break; }
+        } catch { /* Other stdout lines do not finish the request. */ }
+      }
+      if (responseBuffer.length > 64_000) responseBuffer = responseBuffer.slice(-64_000);
+    }
     if (stdoutOverflow || stdoutError) return;
     stdoutBytes += value.length;
     if (spec.maxStdoutBytes !== undefined && stdoutBytes > spec.maxStdoutBytes) {

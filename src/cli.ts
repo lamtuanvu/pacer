@@ -13,6 +13,7 @@ import { uninstallAll } from "./install/uninstall-all";
 import type { ClientSnapshot } from "./view-model/snapshot";
 import { registeredRepo, resolveRepoInput } from "./core/repos";
 import { callOp } from "./api/ops";
+import { connectClient } from "./api/client";
 import { reportCommand, reportDestination, agentHook } from "./session/reports";
 import { openSession, sessionInfo } from "./session/service";
 import { takeoverTask } from "./session/takeover";
@@ -88,7 +89,7 @@ const USAGE = `usage: pacer <command>
   ask "<question>" record one question and stop the delegated task
   report-limit <provider> [--until <unix-seconds>] record an executor limit
   host list [--json] | check <alias> [--repo <path>] [--json] | setup <alias> [--repo <path>] | clean <alias> [--json]
-  limits check [--json]                          where each account's usage comes from, its age and freshness
+  limits check [--json] | refresh [account] [--json]  inspect or refresh account usage
   mcp                                            run the MCP server on stdio
   api list|describe <op>|call <op> [--json]       discover and invoke protocol v3 operations
   api --stdio                                    JSON-RPC (v2 default, v3 negotiation)
@@ -479,7 +480,17 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
     }
     case "limits": {
       const { opts, pos } = parseFlags(rest, ["json"]);
-      if (pos[0] !== "check") return { code: 2, out: "", err: "usage: pacer limits check [--json]" };
+      if (pos[0] === "refresh" && pos.length <= 2) {
+        let client: Awaited<ReturnType<typeof connectClient>> | undefined;
+        try {
+          client = await connectClient(ctx, { protocol: 3, allowFallback: false });
+          const result = await client.call<{ accounts: { account: string; outcome: string; error: string | null }[] }>("limits.refresh", pos[1] ? { account: pos[1] } : {});
+          return { code: 0, out: opts.json ? JSON.stringify(result, null, 2)
+            : result.accounts.map(row => `${row.account}: ${row.outcome}${row.error ? ` · ${row.error}` : ""}`).join("\n"), err: "" };
+        } catch (error) { return { code: 1, out: "", err: explain(error) }; }
+        finally { client?.close(); }
+      }
+      if (pos[0] !== "check" || pos.length !== 1) return { code: 2, out: "", err: "usage: pacer limits check [--json] | refresh [account] [--json]" };
       try {
         const rows = await core.limits.check(ctx);
         if (opts.json) return { code: 0, out: JSON.stringify(rows, null, 1), err: "" };

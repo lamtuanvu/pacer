@@ -26,6 +26,7 @@ import { loadStrategy } from "../config/strategy";
 import { computeStatus, type Status } from "../engine/status";
 import type { Ctx } from "../types";
 import { currentSnapshot, invalidateConsoleCache, refreshConsoleTerminals } from "../link/store";
+import { refreshAllUsage } from "../usage/refresh";
 import { defaultPumpDeps, pumpOnce } from "../link/pump";
 
 
@@ -76,7 +77,7 @@ export function startServer(
   let stopped = false;
   let listener: ReturnType<typeof startHealthListener> | undefined;
   const refreshStatus = () => {
-    if(statusPending || stopped)return;
+    if(statusPending || stopped)return statusPending;
     statusPending = Promise.resolve().then(async()=>{
       const ctx=getCtx();
       const next=await computeStatus(ctx,loadStrategy(ctx));
@@ -84,6 +85,11 @@ export function startServer(
         cachedStatus = next; statusError = null;
       }
     }).catch(e=>{if(!stopped)statusError=e instanceof Error?e.message:String(e);}).finally(()=>{statusPending=null;});
+    return statusPending;
+  };
+  const refreshStatusAfterPending = async () => {
+    if (statusPending) await statusPending;
+    await refreshStatus();
   };
   const status = async () => {
     // A cold start rebuilds the activity profile from agent logs, which can take seconds.
@@ -181,7 +187,7 @@ export function startServer(
       if (captureResponse) return captureResponse;
       if (sessionRoute) return upgradeSession(req, server, getCtx(), sessionRoute[1]!);
       if (/^\/v[23]\//.test(pathname)) {
-        const response=await handleV2(req, { getCtx: requestCtx, opDeps: {...opts.opDeps, snapshotProbe:false, terminalPresetsOnly: !bearer}, tailMs, status, snapshot: () => readCache.get() });
+        const response=await handleV2(req, { getCtx: requestCtx, opDeps: {...opts.opDeps, usageRefreshDone: refreshStatusAfterPending, snapshotProbe:false, terminalPresetsOnly: !bearer}, tailMs, status, snapshot: () => readCache.get() });
         response.headers.set("X-Pacer","1");
         return response;
       }
@@ -247,6 +253,14 @@ export function startServer(
       .finally(() => { supervising = false; });
   };
   const supervisorTimer = setInterval(supervise, 5000);
+  const refreshUsage = () => {
+    if (stopped) return;
+    void refreshAllUsage({ ...getCtx(), now: Date.now() / 1000 }, true)
+      .then(refreshStatusAfterPending)
+      .catch(error => { if (!stopped) console.error(`pacer: usage refresh failed: ${String(error)}`); });
+  };
+  const usageStart = setTimeout(refreshUsage, 1000);
+  const usageTimer = setInterval(refreshUsage, 15 * 60_000);
   const snapshotTimer=setInterval(refreshSnapshot,2000);
   const statusTimer=setInterval(refreshStatus,60000);
   const observationTimer=pumpMs>0?setInterval(()=>{if(!stopped)void refreshObservations(getCtx()).catch(()=>{});},60000):undefined;
@@ -263,6 +277,8 @@ export function startServer(
     clearTimeout(retentionStart);
     clearInterval(retentionTimer);
     clearInterval(supervisorTimer);
+    clearTimeout(usageStart);
+    clearInterval(usageTimer);
     clearInterval(pumpTimer);
     clearInterval(snapshotTimer);
     clearInterval(statusTimer);

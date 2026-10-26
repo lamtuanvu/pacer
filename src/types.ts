@@ -30,7 +30,7 @@ export interface UsageReading {
 }
 
 export interface RunResult { timedOut?: boolean; code: number; stdout: string; stderr: string }
-export type RunFn = (argv: string[], timeoutMs: number, options?: { env?: Record<string, string | undefined>; stdin?: string }) => Promise<RunResult>;
+export type RunFn = (argv: string[], timeoutMs: number, options?: { env?: Record<string, string | undefined>; stdin?: string; stdinUntilResponseId?: number }) => Promise<RunResult>;
 
 export interface Ctx {
   readOnly?: boolean; // Suppress cache writes for strategy previews.

@@ -3428,6 +3428,27 @@ Params JSON Schema:
 }
 ```
 
+### `limits.refresh`
+
+Refresh configured account usage from each provider's available source without starting an agent turn.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "account": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    }
+  },
+  "additionalProperties": false
+}
+```
+
 ### `limits.report`
 
 Mark a provider's account exhausted until unix seconds or its cooldown.

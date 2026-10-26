@@ -10,7 +10,7 @@ import { UsageMeter } from "../ds/UsageMeter";
 import { Button } from "../ds/Button";
 import { PopoverDialog } from "../ds/Dialog";
 import type { Account } from "../model/accounts";
-import { useQuery } from "../screens/task-shared";
+import { useQuery, useTaskContext } from "../screens/task-shared";
 import type { KeyRegistry, Shortcut } from "../keys/registry";
 import type { Route } from "../router";
 
@@ -89,10 +89,30 @@ export function StatusBar({ route, snapshot, registry }: { route: Route; snapsho
   </footer>;
 }
 
-function UsagePopover({ close, now }: { close: () => void; now: number }) {
+export function UsagePopover({ close, now }: { close: () => void; now: number }) {
+  const { api } = useTaskContext();
   const query = useQuery<Account[]>("account.list", {});
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState<unknown>();
+  const [refreshMessage, setRefreshMessage] = useState("");
+  async function refresh() {
+    if (refreshing) return;
+    setRefreshing(true);
+    setRefreshError(undefined);
+    setRefreshMessage("");
+    try {
+      const result = await api.call<{ accounts: { outcome: string }[] }>("limits.refresh", {});
+      const updated = result.accounts.filter(account => account.outcome === "updated").length;
+      const failed = result.accounts.filter(account => account.outcome === "failed").length;
+      setRefreshMessage(failed ? `${updated} updated; ${failed} could not be refreshed.` : updated ? `${updated} account${updated === 1 ? "" : "s"} updated.` : "No new usage reported.");
+      query.reload();
+    } catch (error) { setRefreshError(error); }
+    finally { setRefreshing(false); }
+  }
   return <>
-    <div className="pc-usage-popover__head"><strong>Usage</strong><span className="grow" /><Button size="sm" onClick={query.reload} busy={query.loading}>Reload</Button><Button size="sm" onClick={close}>Close</Button></div>
+    <div className="pc-usage-popover__head"><strong>Usage</strong><span className="grow" /><Button size="sm" onClick={refresh} busy={refreshing}>Refresh usage</Button><Button size="sm" onClick={close}>Close</Button></div>
+    {refreshError && <p role="alert">Could not refresh usage. Try again.</p>}
+    {refreshMessage && <p role="status">{refreshMessage}</p>}
     {query.error && <p role="alert">Could not load usage. Try refreshing.</p>}
     {query.loading && !query.data && <p className="muted">Loading usage…</p>}
     {query.data && <UsageDetails accounts={query.data} now={now} />}
