@@ -21,6 +21,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - Restore the documented live UI control commands and retain OTA event traces as context without counting them as unverified behavior checks.
 - Wait for a remote session's recording-mode handoff before reporting a fast exit, preserving native recordings and pipe-fallback output.
 - Keep paired desktop helper channels alive through authenticated startup by acknowledging descriptor receipt before Root releases its duplicate; transfer both startup descriptors together and retain them until Core confirms receipt.
+- Show Ark CLI authentication failures as unknown subscription status instead of no active subscription, with sign-in and refresh guidance in Settings › Accounts.
 - The desktop shows the live service version before loading older service screens and no longer restarts a mismatched service automatically.
 
 ## [0.10.0] - 2026-10-26
