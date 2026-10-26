@@ -574,6 +574,16 @@ export class PluginRegistry {
     }));
   }
 
+  /** Resolve one granted installed surface; ambiguous prefixes never select a winner. */
+  surface(ctx: Ctx, prefix: string): { pluginId: string; dir: string; folder: string } | null {
+    this.refresh(ctx);
+    const matches = [...this.entries.values()].filter(entry => !entry.bundled && entry.dir &&
+      ENABLED.has(entry.state) && entry.manifest?.contributes.surface?.prefix === prefix);
+    if (matches.length !== 1) return null;
+    const entry = matches[0]!;
+    return { pluginId: entry.id, dir: entry.manifest!.contributes.surface!.dir, folder: entry.dir! };
+  }
+
   /** Deterministic enabled contribution selection; canonical bundles precede installed providers. */
   find(ctx: Ctx, point: keyof PluginManifest["contributes"], predicate: (contribution: Record<string, unknown>) => boolean): string | null {
     this.refresh(ctx);

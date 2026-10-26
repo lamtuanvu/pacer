@@ -109,7 +109,7 @@ Same extension point, `contributes.executor.backends: ["orca"]`. Moves `src/exec
 
 ## 11. Surfaces
 
-Extension point `surface`. A plugin declares `contributes.surface: { prefix, dir }` and the host serves the folder's static files at `/app/plugins/<prefix>/` under the app's auth and CSP, with the plugin's manifest id as the only allowed script origin. No host call is needed in phase 1. The web app gains Settings → Plugins: the list with state, tier, capabilities, grant prompts, enable, disable, remove, doctor and entitlement status, built on the `plugin.*` operations and the `plugin` event. The TUI gains a one-line plugin summary in `pacer status`. Orca panel and desktop are unchanged.
+Extension point `surface`. A plugin declares `contributes.surface: { prefix, dir }`. The authenticated entry at `/app/plugins/<prefix>/` redirects to a scoped static URL; its HTML carries CSP `sandbox allow-scripts` without `allow-same-origin`, giving plugin scripts an opaque origin with no app API or cookie authority. Descriptor-relative file opens refuse symlink and path replacement attacks. [ADR 0010](../decisions/0010-sandboxed-plugin-surfaces.md) replaces the original same-origin script design. No host call is needed in phase 1. The web app gains Settings → Plugins: the list with state, tier, capabilities, grant prompts, enable, disable, remove, doctor and entitlement status, built on the `plugin.*` operations and the `plugin` event. The TUI gains a one-line plugin summary in `pacer status`. Orca panel and desktop are unchanged.
 
 ## 12. Distribution
 

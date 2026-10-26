@@ -17,6 +17,7 @@ pub enum AuthKind {
     Bearer,
     Cookie,
     Task,
+    Surface,
 }
 
 pub enum Decision {
@@ -95,6 +96,51 @@ fn normalized(path: &str) -> bool {
         .all(|(i, segment)| !matches!(*segment, "." | "..") && (!segment.is_empty() || i == last))
 }
 
+/** The core verifies the HMAC; the front door forwards only bounded static ticket paths. */
+fn surface_ticket_path(path: &str) -> bool {
+    if path.len() > 512 {
+        return false;
+    }
+    let mut parts = path.split('/');
+    if parts.next() != Some("") || parts.next() != Some("app") || parts.next() != Some("plugins") {
+        return false;
+    }
+    let Some(prefix) = parts.next() else {
+        return false;
+    };
+    if prefix.is_empty()
+        || prefix.len() > 32
+        || !prefix
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+        || parts.next() != Some("_s")
+    {
+        return false;
+    }
+    let Some(ticket) = parts.next() else {
+        return false;
+    };
+    let fields: Vec<&str> = ticket.split('.').collect();
+    if fields.len() != 4
+        || fields[0] != "s1"
+        || fields[1].is_empty()
+        || fields[1].len() > 16
+        || !fields[1]
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
+        || fields[2].len() != 32
+        || fields[3].len() != 64
+        || !fields[2..].iter().all(|field| {
+            field
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        })
+    {
+        return false;
+    }
+    parts.next().is_some()
+}
+
 pub fn classify<B>(req: &Request<B>, port: u16, token: &str, ctx: &Ctx) -> Decision {
     let header = |name: &str| {
         req.headers()
@@ -133,6 +179,11 @@ pub fn classify<B>(req: &Request<B>, port: u16, token: &str, ctx: &Ctx) -> Decis
     }
     if path == "/app/auth" {
         return Decision::AppAuth;
+    }
+    if (req.method() == "GET" || req.method() == "HEAD") && surface_ticket_path(path) {
+        return Decision::Forward {
+            auth: AuthKind::Surface,
+        };
     }
     if safe_equal(
         header("authorization").unwrap_or(""),

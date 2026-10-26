@@ -46,6 +46,41 @@ fn rejection_content_types_match_the_bun_public_listener() {
     }
 }
 
+#[test]
+fn surface_ticket_forwarding_is_limited_to_static_reads() {
+    let (_dir, ctx) = fixture();
+    let ticket = format!("s1.t123.{}.{}", "a".repeat(32), "b".repeat(64));
+    let path = format!("/app/plugins/fx/_s/{ticket}/index.html");
+    for method in ["GET", "HEAD"] {
+        let req = Request::builder()
+            .method(method)
+            .uri(&path)
+            .header("host", "127.0.0.1:4317")
+            .header("sec-fetch-site", "cross-site")
+            .body(())
+            .unwrap();
+        assert!(matches!(
+            auth::classify(&req, 4317, "token", &ctx),
+            Decision::Forward {
+                auth: AuthKind::Surface
+            }
+        ));
+    }
+    for (method, path) in [
+        ("POST", path.as_str()),
+        ("GET", "/v3/ops/plugin.list"),
+        ("GET", "/app/plugins/fx/_s/invalid/index.html"),
+    ] {
+        let req = Request::builder()
+            .method(method)
+            .uri(path)
+            .header("host", "127.0.0.1:4317")
+            .body(())
+            .unwrap();
+        assert_eq!(status_of(auth::classify(&req, 4317, "token", &ctx)), 401);
+    }
+}
+
 #[tokio::test]
 async fn committed_auth_goldens() {
     let (_dir, ctx) = fixture();
