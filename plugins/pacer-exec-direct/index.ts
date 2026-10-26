@@ -18,7 +18,7 @@ const spawnResult = z.object({
 }).refine(value => value.stderr !== undefined || value.output !== undefined);
 
 export const handlers = {
-  "executor.available": () => ({ available: true }),
+  "executor.available": () => ({ available: false, reason: "Direct attempt dispatch is not yet routed to this plugin" }),
   "executor.run": async (params, host, signal) => {
     const parsed = input.safeParse(params);
     if (!parsed.success) throw new PluginError("invalid_input", "direct process effect is required");

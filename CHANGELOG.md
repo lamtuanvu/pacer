@@ -6,6 +6,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
+- Bundle the staged direct executor reference plugin so `plugin list` and `plugin doctor` can inspect its production process. It reports unavailable for task dispatch until detached run, stop and recovery ownership are implemented; delegated tasks still use the existing direct backend.
 - Add a host-only, one-use finalized bundle input that rechecks the persisted run and private publication, then supplies an immutable bounded byte snapshot for safe downstream Git consumption.
 - Stage the direct executor manifest and bounded availability, run, stop and progress contracts with a fake conformance plugin and owner-bound host progress updates; no attempt runner or production backend is switched yet.
 - Add a scoped `hosts.open/run/close` plugin capability with caller-owned broker sessions, configured SSH aliases and fixed-script fake-provider forwarding; production SSH callers are not yet migrated.
