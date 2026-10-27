@@ -28,23 +28,23 @@ browserTest('sortable_keyboard_reorder keeps focus on the moved item and announc
   const page = await browser.newPage();
   try {
     await page.goto(server.url.href);
-    await page.getByRole('button', { name: 'Move Codex down' }).focus();
+    await page.getByRole('button', { name: 'Move down: Codex' }).focus();
     await page.keyboard.press('Enter');
     expect(await order(page)).toBe('claude,codex,opencode,cursor');
-    expect(await focusedLabel(page)).toBe('Move Codex down');
+    expect(await focusedLabel(page)).toBe('Move down: Codex');
     expect(await announcement(page)).toBe('Codex moved to position 2 of 4.');
     await page.keyboard.press('Space');
     await page.keyboard.press('Space');
     expect(await order(page)).toBe('claude,opencode,cursor,codex');
     // Move down no longer exists at the end, so focus moves to the item's other move control.
-    expect(await focusedLabel(page)).toBe('Move Codex up');
+    expect(await focusedLabel(page)).toBe('Move up: Codex');
     expect(await announcement(page)).toBe('Codex moved to position 4 of 4.');
     await page.keyboard.press('Enter');
     expect(await order(page)).toBe('claude,opencode,codex,cursor');
-    expect(await focusedLabel(page)).toBe('Move Codex up');
-    await page.getByRole('button', { name: 'Remove OpenCode' }).click();
+    expect(await focusedLabel(page)).toBe('Move up: Codex');
+    await page.getByRole('button', { name: 'Remove: OpenCode' }).click();
     expect(await order(page)).toBe('claude,codex,cursor');
-    expect(await focusedLabel(page)).toBe('Remove Codex');
+    expect(await focusedLabel(page)).toBe('Remove: Codex');
     expect(await announcement(page)).toBe('OpenCode removed.');
   } finally { await page.close(); }
 });
@@ -70,7 +70,7 @@ browserTest('save bar counts changes and discard restores the saved order', asyn
   try {
     await page.goto(server.url.href);
     expect(await page.getByRole('button', { name: 'Discard' }).count()).toBe(0);
-    await page.getByRole('button', { name: 'Move Claude Code up' }).click();
+    await page.getByRole('button', { name: 'Move up: Claude Code' }).click();
     expect(await page.locator('.pc-save-bar').textContent()).toContain('1 unsaved change');
     expect(await page.locator('.pc-save-bar .pc-btn--primary').count()).toBe(1);
     await page.getByRole('button', { name: 'Discard' }).click();
@@ -83,13 +83,88 @@ browserTest('narrow layout keeps rows and the save bar inside the viewport', asy
   const page = await browser.newPage({ viewport: { width: 375, height: 720 } });
   try {
     await page.goto(server.url.href);
-    await page.getByRole('button', { name: 'Move Codex down' }).click();
+    await page.getByRole('button', { name: 'Move down: Codex' }).click();
     for (const selector of ['.pc-sortable__item', '.pc-save-bar']) {
       const box = (await page.locator(selector).first().boundingBox())!;
       expect(box.x).toBeGreaterThanOrEqual(0);
       expect(box.x + box.width).toBeLessThanOrEqual(375);
     }
-    const move = (await page.getByRole('button', { name: 'Move Codex down' }).boundingBox())!;
+    const move = (await page.getByRole('button', { name: 'Move down: Codex' }).boundingBox())!;
     expect(move.height).toBeGreaterThanOrEqual(44);
+  } finally { await page.close(); }
+});
+
+const active = (page: Page) => page.evaluate(() => {
+  const node = document.activeElement as HTMLElement | null;
+  return node?.getAttribute('aria-label') ?? (node?.dataset.executorPool !== undefined ? 'pool' : node?.textContent ?? node?.tagName);
+});
+
+browserTest('a clean save bar takes no space and is not a landmark', async () => {
+  const page = await browser.newPage();
+  try {
+    await page.goto(server.url.href);
+    const bar = page.locator('.pc-save-bar');
+    const box = (await bar.boundingBox())!;
+    expect(box.width).toBeLessThanOrEqual(1);
+    expect(box.height).toBeLessThanOrEqual(1);
+    expect(await bar.getAttribute('role')).toBeNull();
+    await page.getByRole('button', { name: 'Move down: Codex' }).click();
+    expect(await bar.getAttribute('role')).toBe('region');
+    expect((await bar.boundingBox())!.height).toBeGreaterThan(20);
+  } finally { await page.close(); }
+});
+
+browserTest('focus stays in place after adding from the pool, removing the last executor and removing a rule', async () => {
+  const page = await browser.newPage();
+  try {
+    await page.goto(`${server.url.href}#setup`);
+    const pool = page.getByRole('group', { name: 'Add to Executors for Task kinds: tests' });
+    await pool.getByRole('button', { name: 'Add Claude Code' }).focus();
+    await page.keyboard.press('Enter');
+    expect(await active(page)).toBe('Add OpenCode');
+    await page.keyboard.press('Enter');
+    expect(await active(page)).toBe('Add to Executors for Task kinds: tests');
+    // Removing the only executor of a rule keeps focus on that (now empty) list.
+    await page.getByRole('button', { name: 'Remove: Claude Code' }).last().click();
+    expect(await active(page)).toBe('Executors for Everything else, in priority order');
+    expect(await page.getByText('Add at least one executor to this rule.').count()).toBe(1);
+    await page.getByRole('button', { name: 'Remove rule: Task kinds: tests' }).click();
+    expect(await active(page)).toBe('Add task-kind rule');
+    await page.getByRole('button', { name: 'Add task-kind rule' }).click();
+    expect(await page.evaluate(() => (document.activeElement as HTMLElement).hasAttribute('data-rule-kinds'))).toBe(true);
+  } finally { await page.close(); }
+});
+
+browserTest('a failed ladder save after saved rules keeps the error and the unsaved ladder draft', async () => {
+  const page = await browser.newPage();
+  try {
+    await page.goto(`${server.url.href}#setup-fail`);
+    await page.getByRole('group', { name: 'Add to Executors for Everything else' }).getByRole('button', { name: 'Add Codex' }).click();
+    await page.getByRole('button', { name: 'Move up: Usable fallback' }).click();
+    await page.getByLabel('Profile name').fill('night');
+    await page.getByLabel('Reason for change').fill('cheaper');
+    expect(await page.locator('.pc-save-bar').textContent()).toContain('3 unsaved changes');
+    await page.getByRole('button', { name: 'Validate and save' }).click();
+    await page.getByText('Saved executor rules. name taken').waitFor();
+    expect(await page.getByTestId('calls').textContent()).toBe('routing.set,dispatch.config.get,strategy.preview,strategy.save');
+    // The rules saved and were reloaded; the ladder change, its name and reason are kept for a retry.
+    await page.locator('.pc-save-bar', { hasText: '2 unsaved changes' }).waitFor({ timeout: 3000 });
+    expect(await page.getByLabel('Profile name').inputValue()).toBe('night');
+    expect(await page.locator('#decision-ladder .pc-sortable__label').first().textContent()).toBe('Usable fallback');
+  } finally { await page.close(); }
+});
+
+browserTest('a change from another client keeps the draft, says so, and Discard loads the saved settings', async () => {
+  const page = await browser.newPage();
+  try {
+    await page.goto(`${server.url.href}#setup`);
+    await page.getByRole('group', { name: 'Add to Executors for Everything else' }).getByRole('button', { name: 'Add Codex' }).click();
+    await page.locator('#other-client').click();
+    await page.getByText('Another client changed these settings.').waitFor();
+    const everything = page.locator('[aria-label="Executors for Everything else, in priority order"] .pc-sortable__label');
+    expect(await everything.allTextContents()).toEqual(['Claude Code', 'Codex']);
+    await page.getByRole('button', { name: 'Discard' }).click();
+    expect(await everything.allTextContents()).toEqual(['Codex']);
+    expect(await page.getByText('Another client changed these settings.').count()).toBe(0);
   } finally { await page.close(); }
 });

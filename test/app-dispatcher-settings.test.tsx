@@ -15,8 +15,7 @@ test("dispatcher settings explain the active planner and built-in ladder", () =>
   expect(html).toContain("claude1");
   expect(html).toContain("Any executor");
   expect(html).toContain("built-in");
-  expect(html).toContain("Project override");
-  expect(html).toContain("Global eligibility rules");
+  expect(html).toContain("a repository's own order, else the global rules, then ranks with the ladder");
   // The ladder itself is shown once, in the guided setup's step 3 (UI-15).
   expect(html).not.toContain("Usable fallback");
   const ladder=renderToString(<DispatcherLadderFields config={dispatchConfigSchema.parse({})} onChange={()=>{}}/>);

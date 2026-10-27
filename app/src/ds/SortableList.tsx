@@ -13,6 +13,20 @@ export function moveKey<T>(keys: readonly T[], from: number, to: number): T[] {
 }
 export const positionAnnouncement = (label: string, index: number, total: number) => `${label} moved to position ${index + 1} of ${total}.`;
 
+/** Stable keys for a list whose entries have no identity of their own; callers splice them alongside the data. */
+export function useStableKeys(count: number) {
+  const keys = useRef<string[]>([]), next = useRef(0);
+  while (keys.current.length < count) keys.current.push(`k${next.current++}`);
+  if (keys.current.length > count) keys.current = keys.current.slice(0, count);
+  return keys;
+}
+/** Runs a focus lookup after the next render, for controls that disappear or move when used. */
+export function useFocusAfterRender() {
+  const pending = useRef<(() => HTMLElement | null | undefined) | null>(null);
+  useLayoutEffect(() => { const find = pending.current; if (!find) return; pending.current = null; find()?.focus(); });
+  return (find: () => HTMLElement | null | undefined) => { pending.current = find; };
+}
+
 export interface SortableItem { key: string; label: string; detail?: ComponentChildren }
 type Control = "up" | "down" | "remove";
 interface Drag { key: string; from: number; over: number; pointer: number }
@@ -30,34 +44,29 @@ export function SortableList({ label, items, onReorder, onRemove, disabled, rend
   renderExtra?: (item: SortableItem, index: number) => ComponentChildren;
 }) {
   const list = useRef<HTMLOListElement>(null);
-  const pending = useRef<{ key: string; controls: Control[] } | null>(null);
+  const focusAfter = useFocusAfterRender();
   const dragRef = useRef<Drag | null>(null);
   const [drag, setDrag] = useState<Drag | null>(null);
   const [announcement, setAnnouncement] = useState("");
   const keys = items.map(item => item.key);
 
-  useLayoutEffect(() => {
-    const target = pending.current;
-    if (!target || !list.current) return;
-    pending.current = null;
-    const row = [...list.current.children].find(child => (child as HTMLElement).dataset.sortableKey === target.key);
-    const control = target.controls.map(name => row?.querySelector<HTMLButtonElement>(`[data-sortable-control="${name}"]`)).find(Boolean);
-    (control ?? list.current).focus();
+  const focusControl = (key: string, controls: Control[]) => focusAfter(() => {
+    const row = [...(list.current?.children ?? [])].find(child => (child as HTMLElement).dataset.sortableKey === key);
+    return controls.map(name => row?.querySelector<HTMLButtonElement>(`[data-sortable-control="${name}"]`)).find(Boolean) ?? list.current;
   });
 
   const move = (index: number, to: number, controls: Control[]) => {
     const item = items[index];
     if (!item || to < 0 || to >= items.length) return;
-    pending.current = { key: item.key, controls };
+    focusControl(item.key, controls);
     setAnnouncement(positionAnnouncement(item.label, to, items.length));
     onReorder(moveKey(keys, index, to));
   };
   const remove = (index: number) => {
     const item = items[index]!, neighbour = items[index + 1] ?? items[index - 1];
-    pending.current = neighbour ? { key: neighbour.key, controls: ["remove", "down", "up"] } : null;
+    if (neighbour) focusControl(neighbour.key, ["remove", "down", "up"]); else focusAfter(() => list.current);
     setAnnouncement(`${item.label} removed.`);
     onRemove?.(item.key);
-    if (!neighbour) requestAnimationFrame(() => list.current?.focus());
   };
 
   const finalIndex = (state: Drag, clientY: number) => {
@@ -99,15 +108,15 @@ export function SortableList({ label, items, onReorder, onRemove, disabled, rend
           {items.length > 1 && <span className="pc-sortable__handle" aria-hidden="true" title="Drag to reorder"
             onPointerDown={event => startDrag(event, index)} onPointerMove={moveDrag}
             onPointerUp={event => endDrag(event, true)} onPointerCancel={event => endDrag(event, false)}>
-            <svg viewBox="0 0 10 16" focusable="false"><circle cx="3" cy="3" r="1.5" /><circle cx="7" cy="3" r="1.5" /><circle cx="3" cy="8" r="1.5" /><circle cx="7" cy="8" r="1.5" /><circle cx="3" cy="13" r="1.5" /><circle cx="7" cy="13" r="1.5" /></svg>
+            <svg viewBox="0 0 10 16" focusable="false"><path d="M2 2h2v2H2zm4 0h2v2H6zM2 7h2v2H2zm4 0h2v2H6zM2 12h2v2H2zm4 0h2v2H6z" /></svg>
           </span>}
           <div className="pc-sortable__content"><strong className="pc-sortable__label" title={item.label}>{item.label}</strong>{item.detail}</div>
           <div className="pc-sortable__actions">
-            {index > 0 && <Button size="sm" data-sortable-control="up" aria-label={`Move ${item.label} up`} disabled={disabled}
+            {index > 0 && <Button size="sm" data-sortable-control="up" aria-label={`Move up: ${item.label}`} disabled={disabled}
               onClick={() => move(index, index - 1, ["up", "down"])}>Move up</Button>}
-            {index < items.length - 1 && <Button size="sm" data-sortable-control="down" aria-label={`Move ${item.label} down`} disabled={disabled}
+            {index < items.length - 1 && <Button size="sm" data-sortable-control="down" aria-label={`Move down: ${item.label}`} disabled={disabled}
               onClick={() => move(index, index + 1, ["down", "up"])}>Move down</Button>}
-            {onRemove && <Button size="sm" variant="quiet" data-sortable-control="remove" aria-label={`Remove ${item.label}`} disabled={disabled}
+            {onRemove && <Button size="sm" variant="quiet" data-sortable-control="remove" aria-label={`Remove: ${item.label}`} disabled={disabled}
               onClick={() => remove(index)}>Remove</Button>}
           </div>
         </div>

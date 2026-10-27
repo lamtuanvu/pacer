@@ -2,8 +2,8 @@ import type { DispatchConfig, DispatchPreview, ModelRecord } from "../../../../s
 import { executorLabel } from "../../../../src/view-model/words";
 import type { RouteQuery } from "../../router";
 import type { BrowserApi } from "../../data/api";
-import { useEffect, useRef, useState } from "preact/hooks";
-import { SortableList } from "../../ds/SortableList";
+import { useEffect, useState } from "preact/hooks";
+import { SortableList, useStableKeys } from "../../ds/SortableList";
 import { DispatcherGuidedSetup, SavedSetups } from "./DispatcherSetup";
 import { Button, TextAction } from "../../ds/Button";
 import { Checkbox, Disclosure, Field, TextInput } from "../../ds/Controls";
@@ -83,15 +83,13 @@ const optionalList=(value:string)=>{const items=splitList(value);return items.le
 export const candidateRestriction=(candidate: LadderStep["candidates"], field:"executors"|"models", value:string):LadderStep["candidates"]=>({...candidate,[field]:optionalList(value)});
 const rankLabel=(value:string)=>rankOptions.find(option=>option.value===value)?.label??"Other criterion";
 type LadderStep=DispatchConfig["steps"][number];
-/** Steps keep stable keys across renames and moves so focus follows the moved step. */
-function useStepKeys(count:number){
-  const keys=useRef<string[]>([]),next=useRef(0);
-  while(keys.current.length<count)keys.current.push(`step-key-${next.current++}`);
-  if(keys.current.length>count)keys.current=keys.current.slice(0,count);
-  return keys;
-}
+const listFields:[string,string,(step:LadderStep)=>string[]|undefined,(step:LadderStep,value:string)=>LadderStep][]=[
+  ["Only these executors","Optional hard restriction. Use executor IDs separated by commas.",step=>step.candidates.executors,(step,value)=>({...step,candidates:candidateRestriction(step.candidates,"executors",value)})],
+  ["Only these models","Optional hard restriction. Model IDs must already be allowed by the strategy.",step=>step.candidates.models,(step,value)=>({...step,candidates:candidateRestriction(step.candidates,"models",value)})],
+  ["Prefer these models","A preference ranks eligible models but does not exclude others.",step=>step.prefer.models,(step,value)=>({...step,prefer:{...step.prefer,models:splitList(value)}})],
+];
 export function DispatcherLadderFields({config,onChange,disabled}:{config:DispatchConfig;onChange:(config:DispatchConfig)=>void;disabled?:boolean}) {
-  const keys=useStepKeys(config.steps.length);
+  const keys=useStableKeys(config.steps.length);
   const patch=(index:number,change:(step:LadderStep)=>LadderStep)=>onChange({...config,steps:config.steps.map((step,at)=>at===index?change(step):step)});
   const reorder=(order:string[])=>{const byKey=new Map(keys.current.map((key,at)=>[key,config.steps[at]!]));keys.current=order;onChange({...config,steps:order.map(key=>byKey.get(key)!)});};
   const remove=(key:string)=>{const at=keys.current.indexOf(key);if(at<0)return;keys.current=keys.current.filter(item=>item!==key);onChange({...config,steps:config.steps.filter((_,index)=>index!==at)});};
@@ -107,9 +105,7 @@ export function DispatcherLadderFields({config,onChange,disabled}:{config:Dispat
       <Field label="Capacity needed"><ChoicePicker value={step.capacity} disabled={disabled} options={capacityOptions} onValueChange={value=>patch(index,item=>({...item,capacity:value as LadderStep["capacity"]}))}/></Field>
       <Field label="Minimum model tier"><ChoicePicker value={step.require.minTier??""} disabled={disabled} options={tierOptions} onValueChange={value=>patch(index,item=>({...item,require:{...item.require,minTier:value?value as NonNullable<LadderStep["require"]["minTier"]>:undefined}}))}/></Field>
       <Checkbox label="Model must support tools" disabled={disabled} checked={step.require.tools===true} onChange={event=>patch(index,item=>({...item,require:{...item.require,tools:event.currentTarget.checked?true:undefined}}))}/>
-      <Field label="Only these executors" help="Optional hard restriction. Use executor IDs separated by commas."><TextInput value={step.candidates.executors?.join(", ")??""} disabled={disabled} onInput={event=>patch(index,item=>({...item,candidates:candidateRestriction(item.candidates,"executors",event.currentTarget.value)}))}/></Field>
-      <Field label="Only these models" help="Optional hard restriction. Model IDs must already be allowed by the strategy."><TextInput value={step.candidates.models?.join(", ")??""} disabled={disabled} onInput={event=>patch(index,item=>({...item,candidates:candidateRestriction(item.candidates,"models",event.currentTarget.value)}))}/></Field>
-      <Field label="Prefer these models" help="A preference ranks eligible models but does not exclude others."><TextInput value={step.prefer.models.join(", ")} disabled={disabled} onInput={event=>patch(index,item=>({...item,prefer:{...item.prefer,models:splitList(event.currentTarget.value)}}))}/></Field>
+      {listFields.map(([label,help,read,write])=><Field key={label} label={label} help={help}><TextInput value={read(step)?.join(", ")??""} disabled={disabled} onInput={event=>{const value=event.currentTarget.value;patch(index,item=>write(item,value));}}/></Field>)}
       <Field label="Rank first by"><ChoicePicker value={step.rank[0]} disabled={disabled} options={rankOptions} onValueChange={value=>patch(index,item=>({...item,rank:[value as LadderStep["rank"][number],...item.rank.filter(rank=>rank!==value)]}))}/></Field>
     </div></Disclosure>;}}/>
     <div><Button disabled={disabled} onClick={add}>Add ladder step</Button></div>
@@ -123,15 +119,7 @@ export function DispatcherOverview({view}:{view:DispatcherConfigView}) {
       <div className="pc-card">
         <SectionHeading>Who plans work</SectionHeading>
         <p><strong>{executorLabel(view.planner)}</strong> on account <strong>{view.plannerAccount}</strong> is the default planner for a new session. Any executor with a valid work grant can plan child work by asking Pacer to delegate it. Pacer still chooses the child's executor and model.</p>
-      </div>
-      <div className="pc-card">
-        <SectionHeading>How a choice is made</SectionHeading>
-        <ol>
-          <li><strong>Project override</strong> limits executors for a repository when one is selected.</li>
-          <li><strong>Global eligibility rules</strong> choose the executor list by task kind when no project override is selected.</li>
-          <li><strong>Dispatcher decision engine</strong> ranks eligible accounts and models from that list. The default engine uses the first matching ladder step.</li>
-        </ol>
-        <p>Active setup <strong>{view.strategy}</strong> uses {view.source === "built-in" ? "built-in defaults" : "saved configuration"} and {view.config.engine==="ladder"?"the ordered ladder":`the plugin ${view.config.engine.slice(7)}`}. Change it in the guided setup below.</p>
+        <p>The active setup uses {view.source === "built-in" ? "built-in defaults" : "saved configuration"} and {view.config.engine==="ladder"?"the ordered ladder":`the plugin ${view.config.engine.replace(/^plugin:/,"")}`}. Pacer uses a repository's own order, else the global rules, then ranks with the ladder.</p>
       </div>
     </div>
   </Section>;
@@ -219,7 +207,7 @@ function DispatcherPreviewForm({query}:{query:RouteQuery}) {
       {repos.length?<Field label="Repository"><ChoicePicker value={repo} searchable options={repos.map(item=>({value:item.key,label:item.label}))} onValueChange={setRepo}/></Field>:<p>Choose a repository from the repository picker before previewing.</p>}
       <Field label="Task"><TextInput value={goal} maxLength={8000} placeholder="What work should Pacer assign?" onInput={event=>setGoal(event.currentTarget.value)}/></Field>
       <Field label="Task kind" help="Optional. Use this to check a specialist step."><TextInput value={kind} maxLength={256} placeholder="For example, architecture" onInput={event=>setKind(event.currentTarget.value)}/></Field>
-      <Field label="Minimum model tier"><ChoicePicker value={tier} options={[{value:"",label:"Any tier"},{value:"small",label:"Small"},{value:"medium",label:"Medium"},{value:"frontier",label:"Frontier"}]} onValueChange={setTier}/></Field>
+      <Field label="Minimum model tier"><ChoicePicker value={tier} options={tierOptions} onValueChange={setTier}/></Field>
       <Checkbox label="Needs tools" checked={tools} onChange={event=>setTools(event.currentTarget.checked)}/>
       <div><Button type="submit" variant="primary" busy={busy} disabled={!repo||!goal.trim()}>Preview selection</Button></div>
     </form>

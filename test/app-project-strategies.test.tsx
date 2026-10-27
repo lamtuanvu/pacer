@@ -13,15 +13,16 @@ const config = {strategy:"default",planner:"codex",plannerAccount:"work",source:
 const render = (s=state,initial=view) => renderToString(<TaskContext.Provider value={{state:s,api}}><SetupEditor view={config} eligibility={{kind:"project",repo:initial.repo.key,repoLabel:initial.repo.label,view:initial}} onSaved={()=>{}} onDirtyChange={()=>{}}/></TaskContext.Provider>);
 test("editor names keyboard reorder controls and distinguishes saved project order", () => {
   const html=render();
-  for(const copy of ["acme/repo uses its own executor order","Move Cursor · team · local down","Move Codex · personal · local up","Use global rules","Allowed executors for acme/repo, in priority order"]) expect(html).toContain(copy);
+  for(const copy of ["Executor order for acme/repo","Move down: Cursor · team · local","Move up: Codex · personal · local","Use global rules","Allowed executors for acme/repo, in priority order"]) expect(html).toContain(copy);
   expect(html).not.toContain("unsaved change");
   const inherited=render(state,{...view,rev:0,executors:null as any});
-  expect(inherited).toContain("acme/repo uses the global rules");
+  expect(inherited).toContain("Add executors to give this repository its own order");
   expect(inherited).toContain("Add Cursor · team · local");
   expect(inherited).not.toContain(">Use global rules<");
 });
 test("disconnected editors explain why saving is unavailable", () => {
   const html=render({...state,connected:false});
+  expect(html).toContain("Reconnect to save");
   expect(html).toContain("disabled");
 });
 test("draft order is immutable and forbidden repository selections are cleared", () => {

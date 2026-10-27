@@ -1,4 +1,5 @@
 import type { ComponentChildren } from "preact";
+import { useId } from "preact/hooks";
 import { Button } from "./Button";
 import { classNames } from "./classNames";
 
@@ -21,16 +22,18 @@ export function SaveBar({ count, onSave, onDiscard, busy, saveLabel = "Save chan
   /** Errors or extra status for the pending save. */
   children?: ComponentChildren;
 }) {
-  const dirty = count > 0;
-  return <div className={classNames("pc-save-bar", !dirty && !notice && !children && "pc-save-bar--clean")} role="region" aria-label="Unsaved changes">
+  const dirty = count > 0, reasonId = useId();
+  const clean = !dirty && !notice && !children;
+  // While clean the bar is visually hidden and is not a landmark; its status stays mounted to announce.
+  return <div className={classNames("pc-save-bar", clean && "pc-save-bar--clean")} role={clean ? undefined : "region"} aria-label={clean ? undefined : "Unsaved changes"}>
     <div className="pc-save-bar__summary">
-      <p className="pc-save-bar__count" role="status" aria-live="polite">{dirty ? unsavedCopy(count) : notice ?? ""}</p>
-      {dirty && blockedReason && <p className="pc-save-bar__reason">{blockedReason}</p>}
+      <p className="pc-save-bar__count" role="status" aria-live="polite">{busy ? "Saving…" : dirty ? unsavedCopy(count) : notice ?? ""}</p>
+      {dirty && blockedReason && <p className="pc-save-bar__reason" id={reasonId}>{blockedReason}</p>}
       {children}
     </div>
     {dirty && <div className="pc-save-bar__actions">
       <Button onClick={onDiscard} disabled={busy}>Discard</Button>
-      <Button variant="primary" onClick={onSave} busy={busy} disabled={!!blockedReason}>{saveLabel}</Button>
+      <Button variant="primary" onClick={onSave} busy={busy} disabled={!!blockedReason} aria-describedby={blockedReason ? reasonId : undefined}>{saveLabel}</Button>
     </div>}
   </div>;
 }

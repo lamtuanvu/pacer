@@ -3,7 +3,7 @@ import { renderToString } from "preact-render-to-string";
 import { dispatchConfigSchema } from "../src/dispatch/types";
 import { SortableList } from "../app/src/ds/SortableList";
 import { SaveBar } from "../app/src/ds/SaveBar";
-import { countSetupChanges, discardSetup, ladderChanges, moveKey, orderChanges, positionAnnouncement, ruleChanges } from "../app/src/model/dispatcher-setup";
+import { countSetupChanges, discardSetup, ladderChanges, moveKey, orderChanges, PartialSaveError, positionAnnouncement, reconcileSetup, ruleChanges, saveSetup, type SetupDraft } from "../app/src/model/dispatcher-setup";
 import { SavedSetups, SetupEditor } from "../app/src/screens/settings/DispatcherSetup";
 import { TaskContext } from "../app/src/screens/task-shared";
 import { initialState } from "../app/src/data/store";
@@ -18,12 +18,12 @@ test("sortable_keyboard_reorder", () => {
   expect(positionAnnouncement("Codex", 1, 3)).toBe("Codex moved to position 2 of 3.");
   const html = renderToString(<SortableList label="Allowed executors" items={items} onReorder={() => {}} onRemove={() => {}} />);
   expect(html).toContain('aria-label="Allowed executors"');
-  expect(html).toContain('aria-label="Move Codex down"');
-  expect(html).toContain('aria-label="Move OpenCode up"');
-  expect(html).toContain('aria-label="Remove Claude Code"');
+  expect(html).toContain('aria-label="Move down: Codex"');
+  expect(html).toContain('aria-label="Move up: OpenCode"');
+  expect(html).toContain('aria-label="Remove: Claude Code"');
   // The first item cannot move up and the last cannot move down: those controls are left out (UI-13).
-  expect(html).not.toContain('aria-label="Move Codex up"');
-  expect(html).not.toContain('aria-label="Move OpenCode down"');
+  expect(html).not.toContain('aria-label="Move up: Codex"');
+  expect(html).not.toContain('aria-label="Move down: OpenCode"');
   expect(html).toContain('aria-live="polite"');
   expect(html).toContain("pc-sortable__handle");
   expect(html).not.toContain("<select");
@@ -31,8 +31,8 @@ test("sortable_keyboard_reorder", () => {
 
 test("sortable list without a remove handler offers no remove control", () => {
   const html = renderToString(<SortableList label="Ladder steps" items={items} onReorder={() => {}} />);
-  expect(html).not.toContain("Remove Codex");
-  expect(html).toContain("Move Codex down");
+  expect(html).not.toContain("Remove: Codex");
+  expect(html).toContain("Move down: Codex");
 });
 
 test("save_bar_counts_changes", () => {
@@ -86,7 +86,7 @@ const wrap = (node: preact.ComponentChildren) => renderToString(<TaskContext.Pro
 
 test("guided setup shows who may work as sortable lists beside the executor pool", () => {
   const html = wrap(<SetupEditor view={view} eligibility={{ kind: "global", rules: routing.rules, available: routing.available }} onSaved={() => {}} onDirtyChange={() => {}} />);
-  for (const copy of ["Who may do the work", "Choice ladder", "Task kinds: tests", "Everything else", "Move Claude Code down", "Move Codex up", "Add OpenCode", "Capable model with spare capacity", "Move Capable model with spare capacity down"]) expect(html).toContain(copy);
+  for (const copy of ["Who may do the work", "Choice ladder", "Task kinds: tests", "Everything else", "Move down: Claude Code", "Move up: Codex", "Add OpenCode", "Capable model with spare capacity", "Move down: Capable model with spare capacity"]) expect(html).toContain(copy);
   expect(html).not.toContain("unsaved change");
   expect(html.match(/pc-btn--primary/g) ?? []).toHaveLength(0);
 });
@@ -98,4 +98,91 @@ test("saved setups are marked with an identicon and switch only through an expli
   expect(html).toContain("Use night");
   expect(html).not.toContain("Use default");
   expect(html).toContain("Active");
+});
+
+const base = dispatchConfigSchema.parse({});
+const reordered = { ...base, steps: [...base.steps].reverse() };
+const globalSetup = (saved: any[], draft: any[], ladder = base, savedLadder = base): SetupDraft => ({ eligibility: { kind: "global", saved, draft }, savedLadder, ladder, strategy: "default" });
+
+test("reconcile adopts our own save and clean parts, and keeps a conflicting draft", () => {
+  const saved = [{ executors: ["codex"] }], draft = [{ executors: ["codex", "cursor"] }];
+  // Our own routing save: the new saved rules equal the draft; the unsaved ladder draft survives.
+  const own = reconcileSetup(globalSetup(saved, draft, reordered), globalSetup(draft, draft));
+  expect(own.conflict).toBe(false);
+  expect(own.setup.eligibility.saved).toEqual(draft);
+  expect(ladderChanges(own.setup.savedLadder, own.setup.ladder)).toBe(2);
+  // A clean part follows the new saved value.
+  const clean = reconcileSetup(globalSetup(saved, saved), globalSetup([{ executors: ["cursor"] }], [{ executors: ["cursor"] }]));
+  expect(clean.setup.eligibility.draft).toEqual([{ executors: ["cursor"] }]);
+  expect(clean.conflict).toBe(false);
+  // Another client changed rules we are editing: keep the draft and its base, report a conflict.
+  const other = reconcileSetup(globalSetup(saved, draft), globalSetup([{ executors: ["claude-code"] }], [{ executors: ["claude-code"] }]));
+  expect(other.conflict).toBe(true);
+  expect(other.setup.eligibility.draft).toEqual(draft);
+  expect(other.setup.eligibility.saved).toEqual(saved);
+  // The ladder changed elsewhere while we edit it.
+  const ladder = reconcileSetup(globalSetup(saved, saved, reordered), { ...globalSetup(saved, saved), savedLadder: { ...base, reservePct: 9 }, ladder: { ...base, reservePct: 9 }, strategy: "night" });
+  expect(ladder.conflict).toBe(true);
+  expect(ladder.setup.ladder).toEqual(reordered);
+  expect(ladder.setup.strategy).toBe("default");
+});
+
+test("reconcile keeps a project draft when only the revision moved", () => {
+  const current: SetupDraft = { eligibility: { kind: "project", saved: ["codex"], draft: ["cursor"], rev: 2 }, savedLadder: base, ladder: base, strategy: "default" };
+  const merged = reconcileSetup(current, { ...current, eligibility: { kind: "project", saved: ["codex"], draft: ["codex"], rev: 3 } });
+  expect(merged.conflict).toBe(false);
+  expect(merged.setup.eligibility).toEqual({ kind: "project", saved: ["codex"], draft: ["cursor"], rev: 3 });
+});
+
+function recorder(fail?: (op: string) => unknown) {
+  const calls: [string, any][] = [];
+  const call = async <T,>(op: string, params: unknown): Promise<T> => {
+    calls.push([op, params]);
+    const failure = fail?.(op); if (failure) throw failure;
+    if (op === "dispatch.config.get") return { strategy: "default", config: base } as T;
+    if (op === "strategy.preview") return { ok: true, errors: [] } as T;
+    return {} as T;
+  };
+  return { calls, call };
+}
+const profile = { name: "night", reason: " cheaper " };
+
+test("save sequence writes eligibility first, then validates, saves and activates the ladder", async () => {
+  const { calls, call } = recorder();
+  const done = await saveSetup({ call, setup: globalSetup([{ executors: ["codex"] }], [{ executors: ["cursor"] }], reordered), profile });
+  expect(calls.map(([op]) => op)).toEqual(["routing.set", "dispatch.config.get", "strategy.preview", "strategy.save", "strategy.use"]);
+  expect(calls[0]![1]).toEqual({ rules: [{ executors: ["cursor"] }] });
+  expect(calls[3]![1]).toEqual({ name: "night", draft: { from: "default", set: { dispatch: reordered } }, reason: "cheaper" });
+  expect(done).toEqual(["executor rules", "profile night, now active"]);
+  const unchanged = recorder();
+  expect(await saveSetup({ call: unchanged.call, setup: globalSetup([], []), profile })).toEqual([]);
+  expect(unchanged.calls).toEqual([]);
+});
+
+test("project orders save with their revision and an empty order removes the override", async () => {
+  const project = (draft: string[]): SetupDraft => ({ eligibility: { kind: "project", saved: ["codex"], draft, rev: 4 }, savedLadder: base, ladder: base, strategy: "default" });
+  const set = recorder();
+  await saveSetup({ call: set.call, setup: project(["cursor", "codex"]), repo: { key: "local:a", label: "acme" }, profile });
+  expect(set.calls).toEqual([["project.strategy.set", { repo: "local:a", executors: ["cursor", "codex"], expect_rev: 4 }]]);
+  const remove = recorder();
+  expect(await saveSetup({ call: remove.call, setup: project([]), repo: { key: "local:a", label: "acme" }, profile })).toEqual(["removal of the project order; acme now uses the global rules"]);
+  expect(remove.calls).toEqual([["project.strategy.remove", { repo: "local:a", expect_rev: 4 }]]);
+  const conflict = recorder(op => op === "project.strategy.set" && new Error("Project strategy changed"));
+  await expect(saveSetup({ call: conflict.call, setup: project(["cursor"]), repo: { key: "local:a", label: "acme" }, profile })).rejects.toThrow("Project strategy changed");
+});
+
+test("a ladder failure after saved rules reports what saved; stale profiles and invalid ladders stop before saving", async () => {
+  const partial = recorder(op => op === "strategy.save" && new Error("name taken"));
+  const failure = await saveSetup({ call: partial.call, setup: globalSetup([{ executors: ["codex"] }], [{ executors: ["cursor"] }], reordered), profile }).catch(error => error);
+  expect(failure).toBeInstanceOf(PartialSaveError);
+  expect(failure.message).toBe("Saved executor rules. name taken");
+  expect(failure.done).toEqual(["executor rules"]);
+  const activation = recorder(op => op === "strategy.use" && new Error("busy"));
+  await expect(saveSetup({ call: activation.call, setup: globalSetup([], [], reordered), profile })).rejects.toThrow("Saved night, but it could not be activated: busy");
+  const stale = recorder();
+  await expect(saveSetup({ call: stale.call, setup: { ...globalSetup([], [], reordered), strategy: "night" }, profile })).rejects.toThrow("changed in another client");
+  expect(stale.calls.map(([op]) => op)).toEqual(["dispatch.config.get"]);
+  const invalid: typeof stale = { calls: [], call: async <T,>(op: string): Promise<T> => { invalid.calls.push([op, {}]); return (op === "dispatch.config.get" ? { strategy: "default", config: base } : { ok: false, errors: ["Step ids must be unique."] }) as T; } };
+  await expect(saveSetup({ call: invalid.call, setup: globalSetup([], [], reordered), profile })).rejects.toThrow("Step ids must be unique.");
+  expect(invalid.calls.map(([op]) => op)).not.toContain("strategy.save");
 });
