@@ -1,5 +1,13 @@
 import { expect, test } from "bun:test";
-import { capabilities, prepare, attachment } from "../plugins/agent-session/index";
+import { capabilities, prepare, attachment, delegationControl } from "../plugins/agent-session/index";
+
+test("delegation adapters describe native blocking paths without certifying them",()=>{
+  expect(delegationControl({agent:"claude-code",version:"2.1.281"})).toMatchObject({mechanism:"hook",entryPoints:["Agent","Task"]});
+  expect(delegationControl({agent:"codex",version:"0.164.0"})).toMatchObject({mechanism:"hook",entryPoints:["spawn_agent"]});
+  expect(delegationControl({agent:"cursor",version:"2026.01.28"})).toMatchObject({mechanism:"hook",entryPoints:["subagentStart"]});
+  expect(delegationControl({agent:"opencode",version:"2.1.2"})).toMatchObject({mechanism:"permission",entryPoints:["subagent"],permissionAction:"subagent"});
+  expect(delegationControl({agent:"unknown",version:"1"})).toMatchObject({mechanism:"unsupported"});
+});
 
 const base = {request: '--dangerous $(echo hi)\n日本語', workspace: "/tmp/repo", runDir: "/tmp/run", attachments: [], permissionPolicy: "native" as const};
 const image = {id: "image", name: "screen.png", mime: "image/png", size: 1, path: "/tmp/files/image with spaces"};

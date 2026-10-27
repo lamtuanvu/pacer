@@ -1522,6 +1522,14 @@
                 "complex"
               ]
             },
+            "delegationEnforcement": {
+              "default": "strict",
+              "type": "string",
+              "enum": [
+                "strict",
+                "cooperative"
+              ]
+            },
             "allowDelegation": {
               "default": false,
               "type": "boolean"
@@ -1640,6 +1648,57 @@
         "dependency",
         "reason",
         "expect_rev"
+      ],
+      "additionalProperties": false
+    },
+    "DispatchEnforcementParams": {
+      "type": "object",
+      "properties": {
+        "repo": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        }
+      },
+      "required": [
+        "repo"
+      ],
+      "additionalProperties": false
+    },
+    "DispatchEnforcementDeniedParams": {
+      "type": "object",
+      "properties": {
+        "agent": {
+          "type": "string",
+          "enum": [
+            "claude-code",
+            "codex",
+            "cursor"
+          ]
+        }
+      },
+      "required": [
+        "agent"
+      ],
+      "additionalProperties": false
+    },
+    "DispatchEnforcementProbeParams": {
+      "type": "object",
+      "properties": {
+        "repo": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "runner": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      },
+      "required": [
+        "repo",
+        "runner"
       ],
       "additionalProperties": false
     },
@@ -1810,6 +1869,13 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 256
+        },
+        "delegationEnforcement": {
+          "type": "string",
+          "enum": [
+            "strict",
+            "cooperative"
+          ]
         }
       },
       "required": [
@@ -2032,6 +2098,14 @@
                 "simple",
                 "standard",
                 "complex"
+              ]
+            },
+            "delegationEnforcement": {
+              "default": "strict",
+              "type": "string",
+              "enum": [
+                "strict",
+                "cooperative"
               ]
             },
             "allowDelegation": {

@@ -8,6 +8,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { listTasksWhere } from "../src/tasks/store";
 import { fakeCtx, tmpDir } from "./helpers";
+import { getJob } from "../src/jobs/registry";
 
 export function dispatchCtx() {
   const ctx = fakeCtx(); mkdirSync(ctx.pacerHome, {recursive: true});
@@ -35,6 +36,16 @@ test("dispatcher settings report the effective ladder and planner role", async (
   await callOp(ctx, "strategy.use", {name: "specialist"});
   expect(await callOp(ctx, "dispatch.config.get", {})).toMatchObject({strategy: "specialist", planner: "claude-code", plannerAccount: "claude-code", source: "strategy", config: {steps: [{id: "specialist"}]}});
 });
+test("native control diagnostics identify uncertified runners and probes run as jobs",async()=>{
+  const ctx=dispatchCtx(),repo=tmpDir();
+  const reading=await callOp(ctx,"dispatch.enforcement",{repo}) as {runners:{runner:string;state:string;probeSupported:boolean}[]};
+  expect(reading.runners.some(item=>item.runner==="codex"&&item.state==="uncertified")).toBe(true);
+  expect(reading.runners.find(item=>item.runner==="codex")?.probeSupported).toBe(false);
+  const started=await callOp(ctx,"dispatch.enforcement.probe",{repo,runner:"codex"}) as {job:{id:string}};
+  expect(started.job.id).toMatch(/^[0-9a-f-]{36}$/);
+  for(let attempt=0;attempt<30&&getJob(ctx,started.job.id).state==="running";attempt++)await Bun.sleep(10);
+  expect(getJob(ctx,started.job.id).state).toBe("failed");
+});
 test("MCP preview uses the same core decision contract", async () => {
   const ctx = dispatchCtx(), input = {repo: tmpDir(), goal: "Check"};
   const server = createMcpServer(() => ctx);
@@ -49,7 +60,7 @@ test("preview chooses a declared capable model and preserves shared pool account
   const {validateStrategy} = await import("../src/config/strategy");
   const ctx = dispatchCtx();
   const strategy = validateStrategy({planner: "claude-code", accounts: {"claude-code": {kind: "claude"}, codex: {kind: "codex"}}, runners: {codex: {models: [{id: "provider/small", tier: "small"}, {id: "provider/deep", tier: "frontier", tools: true}]}}}, "test");
-  const result = await previewDispatch(ctx, {repo: tmpDir(), goal: "Debug", requirements: {minTier: "medium", tools: true}}, {
+  const result = await previewDispatch(ctx, {repo: tmpDir(), goal: "Debug", requirements: {minTier: "medium", tools: true}, delegationEnforcement:"cooperative"}, {
     strategy,
     status: async () => ({generatedAt: ctx.now, strategy: "test", planner: "claude-code", mode: "normal", disabled: false, calendarPace: false, providers: [{id: "codex", usage: "quota", windows: [{name: "weekly", usedPct: 25, resetsAt: ctx.now + 3600, lengthS: 604800, paced: true, verdict: "ON_PACE"}], binding: null, verdict: "ON_PACE", installed: true, stale: false}], accounts: [{name: "codex", kind: "codex", verdict: "ON_PACE", usedPct: 25, pacePct: null, resetsAt: ctx.now + 3600, window: "weekly", stale: false, source: null, capturedAt: ctx.now, runners: ["codex"], spendUsd: null}], executors: {ranked: [], excluded: []}}),
   });
@@ -58,6 +69,13 @@ test("preview chooses a declared capable model and preserves shared pool account
   expect(result.request.candidates[0].binding).toEqual({kind: "exact", id: "provider/deep"});
   expect(result.request.candidates[0].headroom).toBe(75);
   expect(result.excluded.some(e => e.reason === "Task requirements not satisfied")).toBe(true);
+});
+test("new-work preview excludes a capable executor without native control certification", async () => {
+  const {validateStrategy}=await import("../src/config/strategy");
+  const ctx=dispatchCtx(),strategy=validateStrategy({planner:"claude-code",accounts:{"claude-code":{kind:"claude"},codex:{kind:"codex",usage:"unmetered"}},runners:{codex:{models:[{id:"provider/deep",tier:"frontier"}]}}},"test");
+  const result=await previewDispatch(ctx,{repo:tmpDir(),goal:"Debug"},{strategy,status:async()=>({generatedAt:ctx.now,strategy:"test",planner:"claude-code",mode:"normal",disabled:false,calendarPace:false,providers:[{id:"codex",usage:"unmetered",windows:[],binding:null,verdict:"OK",installed:true,stale:false}],executors:{ranked:[],excluded:[]}})});
+  expect(result.request.candidates).toEqual([]);
+  expect(result.excluded.some(item=>item.id==="codex")).toBe(true);
 });
 test("cold remote preview never probes SSH or writes reachability cache", async () => {
   const {validateStrategy} = await import("../src/config/strategy");
@@ -68,7 +86,7 @@ test("cold remote preview never probes SSH or writes reachability cache", async 
   strategy.hosts.remote = {alias: "remote", ssh: "remote", repos: {}, maxTasks: 2, accounts: {}};
   strategy.runners = {"codex@remote": {...strategy.runners.codex, id: "codex@remote", host: "remote"}};
   strategy.routing = [{kinds: null, executors: ["codex@remote"]}];
-  const result = await previewDispatch(ctx, {repo: tmpDir(), goal: "check"}, {strategy, status: async () => ({generatedAt: ctx.now, strategy: "test", planner: "claude-code", mode: "normal", disabled: false, calendarPace: false, providers: [{id: "codex@remote", usage: "unmetered", windows: [], binding: null, verdict: "OK", installed: true, stale: false}], executors: {ranked: [], excluded: []}})});
+  const result = await previewDispatch(ctx, {repo: tmpDir(), goal: "check", delegationEnforcement:"cooperative"}, {strategy, status: async () => ({generatedAt: ctx.now, strategy: "test", planner: "claude-code", mode: "normal", disabled: false, calendarPace: false, providers: [{id: "codex@remote", usage: "unmetered", windows: [], binding: null, verdict: "OK", installed: true, stale: false}], executors: {ranked: [], excluded: []}})});
   expect(ssh).toBe(0);
   expect(existsSync(join(ctx.pacerHome, "cache/hosts.json"))).toBe(false);
   expect(result.request.candidates).toEqual([]);
@@ -78,7 +96,7 @@ test("core requests model-specific observations without leaking capabilities to 
   const {validateStrategy} = await import("../src/config/strategy");
   const ctx = dispatchCtx();
   const strategy = validateStrategy({planner: "claude-code", accounts: {"claude-code": {kind: "claude"}, codex: {kind: "codex"}}, runners: {codex: {models: [{id: "provider/a"}, {id: "provider/b"}]}}}, "test");
-  const result = await previewDispatch(ctx, {repo: tmpDir(), goal: "Check", requirements: {tools: true}}, {
+  const result = await previewDispatch(ctx, {repo: tmpDir(), goal: "Check", requirements: {tools: true}, delegationEnforcement:"cooperative"}, {
     strategy,
     status: async () => ({generatedAt: ctx.now, strategy: "test", planner: "claude-code", mode: "normal", disabled: false, calendarPace: false, providers: [{id: "codex", usage: "quota", windows: [], binding: null, verdict: "OK", installed: true, stale: false}], executors: {ranked: [], excluded: []}}),
     adapters: [{id: "capabilities", methods: ["capabilities"], async observe(c, scope, method) {
