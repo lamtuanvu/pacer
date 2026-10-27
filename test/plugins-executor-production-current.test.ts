@@ -22,6 +22,8 @@ import { retryWork } from "../src/core/work";
 import { realRun } from "./helpers";
 import { eligibility } from "./fixtures/eligibility";
 import { defaultHooks } from "../src/classify/hooks";
+import { writeReport } from "../src/session/reports";
+import { inspectOwnedExecutorRun } from "../src/plugins/executor-run-state";
 import { fakeCtx } from "./helpers";
 
 function fixture() {
@@ -80,6 +82,215 @@ test("local interactive owner preserves the session files and fails a wrapper ex
     expect(out.report).toContain("without an explicit completion report");
   } finally { cleanup(); }
 });
+
+test("local conversation launches through the owned provider and keeps native identity", async () => {
+  const { ctx, task, cfg, cleanup } = fixture();
+  const executable = ctx.which("codex")!;
+  const nativeId = "12345678-1234-1234-1234-123456789abc";
+  writeFileSync(executable, `#!/bin/sh\nif [ "$1" = --version ]; then echo codex-cli 0.162.1; exit 0; fi\nif [ "$1" = --help ] || [ "$2" = --help ]; then echo '--config --cd --sandbox --add-dir --model --image --dangerously-bypass-hook-trust --no-daemon'; exit 0; fi\nprintf '%s' '${nativeId}' > "$PACER_RUN_DIR/agent-session-id"\nsleep 1\n`, { mode: 0o700 });
+  try {
+    const current = updateTask(ctx, task.id, record => {
+      record.interactionMode = "conversation";
+      record.conversation = { activity: "starting" };
+      record.placement = { requested: "current" };
+    });
+    const out = await runOwnedDirectCurrent({ ...ctx, run: realRun },
+      { ...cfg, session: "interactive" }, current);
+    expect(out.exec.code).toBe(0);
+    const persisted = readTask(ctx, task.id)!;
+    expect(persisted.run).toMatchObject({ interactionMode: "conversation", session: "interactive",
+      agentSession: { id: nativeId } });
+    expect(persisted.conversation?.agentSessionId).toBe(nativeId);
+    expect(persisted.executorExitReceipt?.exitCode).toBe(0);
+    const run = persisted.run!;
+    const wrapperStart = Number(readFileSync(join(run.dir, "started"), "utf8"));
+    const wrapperPid = Number(readFileSync(join(run.dir, "pid"), "utf8"));
+    expect(run.wrapperStartedAt).toBe(wrapperStart);
+    expect(run.wrapperPid).toBe(wrapperPid);
+    expect(wrapperStart).toBeGreaterThan(run.startedAt);
+    expect(run.startedAt).not.toBe(wrapperStart);
+    writeFileSync(join(run.dir, "started"), String(wrapperStart + 1), { mode: 0o600 });
+    expect(() => inspectOwnedExecutorRun(ctx, task.id, 1, true)).toThrow();
+    writeFileSync(join(run.dir, "started"), String(wrapperStart), { mode: 0o600 });
+    writeFileSync(join(run.dir, "pid"), String(wrapperPid + 1), { mode: 0o600 });
+    expect(() => inspectOwnedExecutorRun(ctx, task.id, 1, true)).toThrow();
+  } finally { cleanup(); }
+});
+
+test("local conversation waits beyond fifteen seconds for its first native ID without a second start", async () => {
+  const { ctx, task, cfg, cleanup } = fixture();
+  const executable = ctx.which("codex")!;
+  writeFileSync(executable, '#!/bin/sh\nif [ "$1" = --version ]; then echo codex-cli 0.162.1; exit 0; fi\nif [ "$1" = --help ] || [ "$2" = --help ]; then echo "--config --cd --sandbox --add-dir --model --image --dangerously-bypass-hook-trust --no-daemon"; exit 0; fi\nsleep 16\nprintf "%s" "12345678-1234-1234-1234-123456789abc" > "$PACER_RUN_DIR/agent-session-id"\n', { mode: 0o700 });
+  try {
+    const current = updateTask(ctx, task.id, record => {
+      record.interactionMode = "conversation";
+      record.conversation = { activity: "starting" };
+      record.placement = { requested: "current" };
+    });
+    const before = Date.now();
+    const out = await runOwnedDirectCurrent({ ...ctx, run: realRun },
+      { ...cfg, session: "interactive" }, current);
+    expect(Date.now() - before).toBeGreaterThan(15_000);
+    expect(out.exec.code).toBe(0);
+    expect(readTask(ctx, task.id)?.run?.agentSession?.id)
+      .toBe("12345678-1234-1234-1234-123456789abc");
+    expect(readTask(ctx, task.id)?.attempts).toHaveLength(0);
+  } finally { cleanup(); }
+}, 30_000);
+
+test("a conversation wrapper that exits without a native ID settles failed from the same run", async () => {
+  const { ctx, task, cfg, cleanup } = fixture();
+  const executable = ctx.which("codex")!;
+  writeFileSync(executable, '#!/bin/sh\nif [ "$1" = --version ]; then echo codex-cli 0.162.1; exit 0; fi\nif [ "$1" = --help ] || [ "$2" = --help ]; then echo "--config --cd --sandbox --add-dir --model --image --dangerously-bypass-hook-trust --no-daemon"; exit 0; fi\nexit 0\n', { mode: 0o700 });
+  try {
+    const current = updateTask(ctx, task.id, record => {
+      record.interactionMode = "conversation";
+      record.conversation = { activity: "starting" };
+      record.placement = { requested: "current" };
+    });
+    const out = await runOwnedDirectCurrent({ ...ctx, run: realRun },
+      { ...cfg, session: "interactive" }, current);
+    expect(out.exec.code).toBe(1);
+    expect(out.report).toContain("native identity");
+    expect(readTask(ctx, task.id)?.executorExitReceipt?.exitCode).toBe(0);
+    expect(readTask(ctx, task.id)?.run?.agentSession).toBeUndefined();
+  } finally { cleanup(); }
+});
+
+test("two conversation turn reports cannot settle the owned wrapper before recorded exit", async () => {
+  const { ctx, task, cfg, cleanup } = fixture();
+  const executable = ctx.which("codex")!;
+  writeFileSync(executable, '#!/bin/sh\nif [ "$1" = --version ]; then echo codex-cli 0.162.1; exit 0; fi\nif [ "$1" = --help ] || [ "$2" = --help ]; then echo "--config --cd --sandbox --add-dir --model --image --dangerously-bypass-hook-trust --no-daemon"; exit 0; fi\nprintf "%s" "12345678-1234-1234-1234-123456789abc" > "$PACER_RUN_DIR/agent-session-id"\nfor i in $(seq 1 100); do [ -f "$PACER_RUN_DIR/allow-exit" ] && exit 0; sleep 0.1; done\nexit 7\n', { mode: 0o700 });
+  let dir: string | undefined;
+  let running: ReturnType<typeof runOwnedDirectCurrent> | undefined;
+  try {
+    const current = updateTask(ctx, task.id, record => {
+      record.interactionMode = "conversation";
+      record.conversation = { activity: "starting" };
+      record.placement = { requested: "current" };
+    });
+    let result: string | undefined;
+    running = runOwnedDirectCurrent({ ...ctx, run: realRun },
+      { ...cfg, session: "interactive" }, current).then(value => {
+        result = `success ${value.exec.code}`;
+        return value;
+      }, error => { result = `error ${String(error)}`; throw error; });
+    for (let i = 0; i < 100 && !dir; i++) {
+      dir = readTask(ctx, task.id)?.run?.dir;
+      if (!dir) await Bun.sleep(20);
+    }
+    expect(dir).toBeDefined();
+    writeReport(dir!, "done", "First turn");
+    await Bun.sleep(300);
+    expect(result).toBeUndefined();
+    expect(readTask(ctx, task.id)?.executorExitReceipt).toBeUndefined();
+    writeReport(dir!, "running", "Second turn");
+    writeReport(dir!, "done", "Second turn complete");
+    await Bun.sleep(300);
+    expect(result).toBeUndefined();
+    writeFileSync(join(dir!, "allow-exit"), "1", { mode: 0o600 });
+    const out = await running;
+    expect(out.exec.code).toBe(0);
+    expect(readTask(ctx, task.id)?.executorReportReceipt).toBeUndefined();
+  } finally {
+    if (dir && existsSync(dir)) writeFileSync(join(dir, "allow-exit"), "1", { mode: 0o600 });
+    await running?.catch(() => {});
+    cleanup();
+  }
+});
+
+test("task runner sends a local conversation through the owned provider", async () => {
+  const { ctx, task, cleanup } = fixture();
+  const executable = ctx.which("codex")!;
+  writeFileSync(executable, '#!/bin/sh\nif [ "$1" = --version ]; then echo codex-cli 0.162.1; exit 0; fi\nif [ "$1" = --help ] || [ "$2" = --help ]; then echo "--config --cd --sandbox --add-dir --model --image --dangerously-bypass-hook-trust --no-daemon"; exit 0; fi\nprintf "%s" "12345678-1234-1234-1234-123456789abc" > "$PACER_RUN_DIR/agent-session-id"\nprintf "conversation turn complete\\n"\n', { mode: 0o700 });
+  try {
+    Bun.spawnSync(["git", "init", "-q", "-b", "main"], { cwd: task.brief.repo });
+    Bun.spawnSync(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+      "commit", "-q", "--allow-empty", "-m", "init"], { cwd: task.brief.repo });
+    updateTask(ctx, task.id, current => {
+      current.state = "queued";
+      delete current.executor;
+      delete current.executorProvider;
+      current.interactionMode = "conversation";
+      current.conversation = { activity: "starting" };
+      current.placement = { requested: "current" };
+      current.timeoutS = 3600;
+    });
+    const deps = {
+      loadStrategy,
+      computeStatus: async () => ({ generatedAt: ctx.now, strategy: "default", planner: "claude-code",
+        mode: "normal" as const, disabled: false, calendarPace: true, accounts: [],
+        providers: ["claude-code", "codex"].map(id => ({ id, eligibility: eligibility(), usage: "quota" as const, windows: [],
+          binding: null, verdict: "ON_PACE" as const, installed: true, stale: false })),
+        executors: { ranked: [], excluded: [] } }),
+      hooks: { ...defaultHooks, taskKind: async () => "research" },
+      verifyRepo: async () => ({ files: "(no changes)" }),
+    };
+    const result = await runTask({ ...ctx, run: realRun }, task.id, deps);
+    expect(result.executorProvider).toBe("pacer-exec-direct");
+    expect(result.run?.interactionMode).toBe("conversation");
+    expect(result.run?.agentSession?.id).toBe("12345678-1234-1234-1234-123456789abc");
+    expect(result.attempts).toHaveLength(1);
+    await pluginRegistry(ctx).disable(ctx, "pacer-exec-direct");
+    const blocked = createTask(ctx, { brief: { goal: "second conversation", repo: task.brief.repo },
+      kind: null, requestedExecutor: "codex", timeoutS: 30, placement: { requested: "current" },
+      interactionMode: "conversation" });
+    const denied = await runTask({ ...ctx, run: realRun }, blocked.id, deps);
+    expect(denied.run).toBeUndefined();
+    expect(denied.executorProvider).toBe("pacer-exec-direct");
+  } finally { cleanup(); }
+});
+
+test("stopping an owned conversation does not label expected revocation lost-contact", async () => {
+  const { ctx, task, cleanup } = fixture();
+  const executable = ctx.which("codex")!;
+  writeFileSync(executable, '#!/bin/sh\nif [ "$1" = --version ]; then echo codex-cli 0.162.1; exit 0; fi\nif [ "$1" = --help ] || [ "$2" = --help ]; then echo "--config --cd --sandbox --add-dir --model --image --dangerously-bypass-hook-trust --no-daemon"; exit 0; fi\nprintf "%s" "12345678-1234-1234-1234-123456789abc" > "$PACER_RUN_DIR/agent-session-id"\nwhile :; do sleep 0.1; done\n', { mode: 0o700 });
+  let running: ReturnType<typeof runTask> | undefined;
+  try {
+    Bun.spawnSync(["git", "init", "-q", "-b", "main"], { cwd: task.brief.repo });
+    Bun.spawnSync(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+      "commit", "-q", "--allow-empty", "-m", "init"], { cwd: task.brief.repo });
+    updateTask(ctx, task.id, current => {
+      current.state = "queued";
+      delete current.executor;
+      delete current.executorProvider;
+      current.interactionMode = "conversation";
+      current.conversation = { activity: "starting" };
+      current.placement = { requested: "current" };
+      current.timeoutS = 3600;
+    });
+    running = runTask({ ...ctx, run: realRun }, task.id, {
+      loadStrategy,
+      computeStatus: async () => ({ generatedAt: ctx.now, strategy: "default", planner: "claude-code",
+        mode: "normal", disabled: false, calendarPace: true, accounts: [],
+        providers: ["claude-code", "codex"].map(id => ({ id, eligibility: eligibility(), usage: "quota" as const, windows: [],
+          binding: null, verdict: "ON_PACE" as const, installed: true, stale: false })),
+        executors: { ranked: [], excluded: [] } }),
+      hooks: { ...defaultHooks, taskKind: async () => "research" },
+      verifyRepo: async () => ({ files: "(no changes)" }),
+    });
+    for (let i = 0; i < 100 && !readTask(ctx, task.id)?.run?.agentSession; i++) await Bun.sleep(50);
+    expect(readTask(ctx, task.id)?.run?.agentSession?.id)
+      .toBe("12345678-1234-1234-1234-123456789abc");
+    expect(taskStop(ctx, task.id)?.stopPending).toBeDefined();
+    await running;
+    expect(readTask(ctx, task.id)?.progress?.phase).not.toBe("lost-contact");
+    let settled = await superviseTask(ctx, task.id, () => undefined);
+    for (let i = 0; i < 20 && settled?.state === "running"; i++) {
+      await Bun.sleep(50);
+      settled = await superviseTask(ctx, task.id, () => undefined);
+    }
+    expect(settled?.state).toBe("stopped");
+    expect(settled?.progress?.phase).not.toBe("lost-contact");
+  } finally {
+    if (readTask(ctx, task.id)?.state === "running") {
+      taskStop(ctx, task.id);
+      await superviseTask(ctx, task.id, () => undefined);
+    }
+    await running?.catch(() => {});
+    cleanup();
+  }
+}, 15_000);
 
 test("task runner routes an admitted current attempt through the bundled provider", async () => {
   const { ctx, task, cleanup } = fixture();

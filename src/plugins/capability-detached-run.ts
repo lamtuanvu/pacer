@@ -47,6 +47,7 @@ export function answerDetachedRun(authority: CallAuthority, declaredScopes: read
       !task.executorProvider || task.startIntent?.attempt === grant.attempt ||
       task.run.attempt !== grant.attempt || task.run.dir !== grant.dir || task.run.executor !== task.executor ||
       task.run.session !== grant.session ||
+      task.run.interactionMode !== grant.interactionMode ||
       task.attempts.length + 1 !== grant.attempt ||
       grant.dir !== join(authority.ctx.pacerHome, "runs", grant.taskId, String(grant.attempt))) return deny();
     try {
@@ -74,7 +75,7 @@ export function answerDetachedRun(authority: CallAuthority, declaredScopes: read
     }
     const result = startRun({ dir: grant.dir, argv: [grant.executable, ...grant.argv.slice(1)], cwd: grant.cwd,
       env: { PATH: authority.ctx.env.PATH ?? "/usr/bin:/bin", ...grant.env, HOME: authority.ctx.home },
-      stdin: grant.stdin, session: grant.session ?? "pipe" });
+      stdin: grant.stdin, session: grant.session ?? "pipe", interactionMode: grant.interactionMode });
     if ("error" in result) throw new CoreError("plugin_unavailable", "detached wrapper launch uncertain; inspect run directory");
     updateTask(authority.ctx, grant.taskId, current => { current.childPid = result.pid; });
     return result;

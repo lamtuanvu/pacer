@@ -13,6 +13,7 @@ test("conversation pending result binds task, attempt, start and native owner be
   const dir = join(ctx.pacerHome, "runs", task.id, "1");
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   writeFileSync(join(dir, "started"), "100", { mode: 0o600 });
+  writeFileSync(join(dir, "pid"), "123", { mode: 0o600 });
   writeFileSync(join(dir, "exit"), "0", { mode: 0o600 });
   updateTask(ctx, task.id, current => {
     current.state = "running";
@@ -23,6 +24,7 @@ test("conversation pending result binds task, attempt, start and native owner be
       agentSession: { id: "native-fixture", source: "assigned" },
       mode: "current", workdir: repo, logFile: join(dir, "stdout") };
     current.startIntent = { attempt: 1, providerId: "pacer-exec-direct", dir };
+    current.childPid = 123;
   });
   const running = { status: "running", taskId: task.id, attempt: 1, startedAt: 100 };
   expect(() => validateOwnedConversationPending(ctx, "pacer-exec-direct", task.id, 1, running))
@@ -50,6 +52,9 @@ test("conversation pending result binds task, attempt, start and native owner be
   expect(() => validateOwnedConversationPending(ctx, "pacer-exec-direct", task.id, 1, running))
     .toThrow();
   writeFileSync(join(dir, "started"), "100", { mode: 0o600 });
+  writeFileSync(join(dir, "pid"), "124", { mode: 0o600 });
+  expect(() => validateOwnedConversationPending(ctx, "pacer-exec-direct", task.id, 1, running))
+    .toThrow();
   updateTask(ctx, task.id, current => {
     current.conversation = { activity: "working", agentSessionId: "native-fixture" };
     current.interactionMode = undefined;

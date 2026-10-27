@@ -158,8 +158,11 @@ export function discoverOwnedConversationIdentity(ctx: Ctx, taskId: string,
     intent.workdir !== run.workdir || task.startIntent?.dir !== run.dir ||
     task.startIntent.providerId !== providerId || task.startIntent.attempt !== attempt)
     throw new CoreError("conflict", "conversation identity has no owned wrapper");
-  const observed = inspectOwnedExecutorRun(ctx, taskId, attempt);
-  if (observed.dir !== run.dir || observed.startedAt !== run.startedAt)
+  const observed = inspectOwnedExecutorRun(ctx, taskId, attempt, true);
+  if (observed.startedAt === null || observed.pid === null) return undefined;
+  const bound = readTask(ctx, taskId)?.run;
+  if (observed.dir !== run.dir || observed.startedAt !== bound?.wrapperStartedAt ||
+    observed.pid !== bound.wrapperPid)
     throw new CoreError("conflict", "conversation native identity wrapper changed");
   if (intent.id && intent.source) return { id: intent.id, source: intent.source };
   const hook = firstBytes(join(run.dir, "agent-session-id"))?.trim();
@@ -173,7 +176,8 @@ export function discoverOwnedConversationIdentity(ctx: Ctx, taskId: string,
     if (!current || !owner || current.state !== "running" || current.stopPending ||
       current.executorProvider !== providerId || current.attempts.length + 1 !== attempt ||
       owner.dir !== run.dir || owner.startedAt !== run.startedAt ||
-      readRun(owner.dir).startedAt !== run.startedAt ||
+      readRun(owner.dir).startedAt !== owner.wrapperStartedAt ||
+      readRun(owner.dir).pid !== owner.wrapperPid ||
       pending?.kind !== "header" || pending.attempt !== attempt ||
       pending.providerId !== providerId || pending.executor !== owner.executor ||
       pending.workdir !== owner.workdir || pending.id && pending.id !== id ||

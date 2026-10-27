@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { admitOwnedConversationIdentity, discoverOwnedConversationIdentity } from "../src/plugins/executor-conversation-identity";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
@@ -121,6 +121,7 @@ test("header-only identity permits the first claim without inventing a native ID
   const dir = join(ctx.pacerHome, "runs", taskId, "1");
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   writeFileSync(join(dir, "started"), "100", { mode: 0o600 });
+  writeFileSync(join(dir, "pid"), "123", { mode: 0o600 });
   writeFileSync(join(dir, "stdout"), "startup without identity", { mode: 0o600 });
   updateTask(ctx, taskId, task => {
     task.run = { dir, attempt: 1, executor: "codex", startedAt: 100,
@@ -128,6 +129,10 @@ test("header-only identity permits the first claim without inventing a native ID
       workdir, logFile: join(dir, "stdout") };
     task.startIntent = { attempt: 1, providerId: "pacer-exec-direct", dir };
   });
+  // A crash after process start but before host PID publication cannot bind
+  // an agent-writable marker as if it were host authority.
+  expect(() => discoverOwnedConversationIdentity(ctx, taskId, "pacer-exec-direct", 1)).toThrow();
+  updateTask(ctx, taskId, task => { task.childPid = 123; });
   expect(discoverOwnedConversationIdentity(ctx, taskId, "pacer-exec-direct", 1)).toBeUndefined();
   const id = "12345678-1234-1234-1234-123456789abc";
   writeFileSync(join(dir, "stdout"), `session id: ${id}\n`, { mode: 0o600 });
@@ -136,6 +141,14 @@ test("header-only identity permits the first claim without inventing a native ID
   expect(readTask(ctx, taskId)?.run?.agentSession?.id).toBe(id);
   expect(readTask(ctx, taskId)?.conversation?.agentSessionId).toBe(id);
   writeFileSync(join(dir, "started"), "101", { mode: 0o600 });
+  expect(() => discoverOwnedConversationIdentity(ctx, taskId, "pacer-exec-direct", 1)).toThrow();
+  writeFileSync(join(dir, "started"), "100", { mode: 0o600 });
+  writeFileSync(join(dir, "pid"), "124", { mode: 0o600 });
+  expect(() => discoverOwnedConversationIdentity(ctx, taskId, "pacer-exec-direct", 1)).toThrow();
+  writeFileSync(join(dir, "pid"), "123", { mode: 0o600 });
+  unlinkSync(join(dir, "started"));
+  writeFileSync(join(dir, "foreign-start"), "100", { mode: 0o600 });
+  symlinkSync(join(dir, "foreign-start"), join(dir, "started"));
   expect(() => discoverOwnedConversationIdentity(ctx, taskId, "pacer-exec-direct", 1)).toThrow();
 });
 

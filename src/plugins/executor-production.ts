@@ -9,6 +9,10 @@ import { validateExecution } from "../config/execution";
 import { launchFor, providerEnv } from "../exec/launch";
 import { executorEnv } from "../exec/process";
 import { planInteractive, requireCodexInteractive } from "../session/reports";
+import { probeAgentSession } from "../session/agent-probe";
+import { conversationActivity } from "../session/conversation";
+import { attachmentDirectory } from "../attachments/store";
+import { resolveAttachments } from "../attachments/claims";
 import { buildPrompt } from "../exec/prompt";
 import { resolveWorktreeBase, taskWorktreePath } from "../supervisor/worktree";
 import { readRun } from "../supervisor/run";
@@ -20,6 +24,10 @@ import type { TaskRecord } from "../tasks/types";
 import type { Ctx } from "../types";
 import { pluginRegistry } from "./index";
 import { executorAttemptOutcome } from "./executor-protocol";
+import { executorConversationRunning } from "./executor-protocol";
+import { agentSessionCapabilities, prepareAgentSession } from "./agent-session";
+import { admitOwnedConversationIdentity, discoverOwnedConversationIdentity } from "./executor-conversation-identity";
+import { validateOwnedConversationPending } from "./executor-conversation-pending";
 import { inspectOwnedExecutorRun } from "./executor-run-state";
 import { issueOwnedWorktreeGrant } from "./executor-worktree";
 import { admitOwnedRemotePrepare } from "./executor-remote-prepare";
@@ -48,6 +56,60 @@ function ownedLastMessage(taskId: string, run: NonNullable<TaskRecord["run"]>): 
     readSync(fd, bytes, 0, size, stat.size - size);
     return bytes.toString("utf8").trim() || undefined;
   } finally { closeSync(fd); }
+}
+
+function failWithoutConversationIdentity(out: { report: string; exec: { code: number };
+  attempt: { exitCode: number } }, task: TaskRecord | null): void {
+  if (task?.interactionMode !== "conversation" || task.run?.agentSession?.id) return;
+  out.report = "Conversation exited without a verified native identity; start a new session";
+  out.exec.code = out.exec.code || 1;
+  out.attempt.exitCode = out.exec.code;
+}
+
+/** Each provider observation is finite; only the already-started wrapper may be polled again. */
+async function observeConversationUntilExit(ctx: Ctx, cfg: ProviderCfg, taskId: string,
+  attempt: number, first: unknown, caller: ExecutorCaller): Promise<unknown> {
+  let raw = first;
+  while (executorConversationRunning.safeParse(raw).success) {
+    let exitedWithoutIdentity = false;
+    while (!readTask(ctx, taskId)?.run?.agentSession) {
+      const found = discoverOwnedConversationIdentity(ctx, taskId, "pacer-exec-direct", attempt);
+      if (found) break;
+      const pending = inspectOwnedExecutorRun(ctx, taskId, attempt, true);
+      if (pending.state === "exited") { exitedWithoutIdentity = true; break; }
+      if (pending.state !== "running")
+        throw new CoreError("plugin_unavailable", "conversation native identity was not verified before wrapper loss");
+      await Bun.sleep(200);
+    }
+    if (!exitedWithoutIdentity)
+      validateOwnedConversationPending(ctx, "pacer-exec-direct", taskId, attempt, raw);
+    const task = readTask(ctx, taskId), run = task?.run;
+    if (!task || !run || task.stopPending || task.executor !== cfg.id ||
+      task.executorProvider !== "pacer-exec-direct" || run.attempt !== attempt)
+      throw new CoreError("conflict", "conversation owner changed during observation");
+    const activity = conversationActivity(readRun(run.dir));
+    if (task.conversation?.activity !== activity) updateTask(ctx, taskId, value => {
+      value.conversation = { ...value.conversation!, activity };
+    });
+    const dir = lstatSync(run.dir);
+    if (!dir.isDirectory() || (dir.mode & 0o077) !== 0 ||
+      (process.getuid?.() !== undefined && dir.uid !== process.getuid()))
+      throw new CoreError("conflict", "conversation run directory changed");
+    await Bun.sleep(200);
+    const observed = inspectOwnedExecutorRun(ctx, taskId, attempt);
+    const resources: CallResources = { reads: [], commands: [], stores: [],
+      executorObserve: { taskId, attempt, providerId: "pacer-exec-direct", executor: cfg.id,
+        workdir: run.workdir, dir: run.dir, dirIdentity: { dev: dir.dev, ino: dir.ino },
+        startedAt: run.startedAt } };
+    raw = await caller.call(ctx, "pacer-exec-direct", "executor.run", {
+      task: { id: taskId, rev: observed.task.rev }, attempt, runDir: 1,
+      owned: { placement: run.mode, session: "conversation", timeoutMs: 5000,
+        executor: cfg.id, model: cfg.model ?? null,
+        resume: { startedAt: run.startedAt, logFile: run.logFile,
+          ...(run.mode === "new" ? { worktree: run.workdir } : {}) } },
+    }, { resources, onProgress: () => {}, deadlineMs: 15_000 });
+  }
+  return raw;
 }
 
 async function admittedDefaultBase(ctx: Ctx, task: TaskRecord, providerId: string,
@@ -96,7 +158,7 @@ async function admittedDefaultBase(ctx: Ctx, task: TaskRecord, providerId: strin
   return resolved.sha;
 }
 
-/** A selected local noninteractive attempt, with placement owned by the same plugin call. */
+/** A selected local attempt, with placement and native session authority owned by the host. */
 async function runOwnedDirect(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord,
   placement: "current" | "new", caller: ExecutorCaller): Promise<AttemptOutcome> {
   const providerId = "pacer-exec-direct";
@@ -119,16 +181,18 @@ async function runOwnedDirect(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord,
     });
   }
   const current = readTask(ctx, task.id);
+  const conversation = task.interactionMode === "conversation";
   if (!current || current.state !== "running" || current.stopPending || current.run ||
     current.executorProvider !== providerId || current.executor !== cfg.id ||
     current.attempts.length !== task.attempts.length ||
-    current.brief.repo !== task.brief.repo || task.interactionMode === "conversation" ||
+    current.brief.repo !== task.brief.repo || conversation && cfg.session !== "interactive" ||
     parseRunnerId(cfg.id)?.host ||
     current.worktreeIntent && (placement !== "new" ||
       current.worktreeIntent.providerId !== providerId ||
       current.worktreeIntent.attempt !== current.attempts.length + 1) ||
     current.worktree && (placement !== "new" || !current.retryOf && current.attempts.length === 0) ||
-    !Number.isSafeInteger(task.timeoutS) || task.timeoutS < 1 || task.timeoutS > 1800)
+    !Number.isSafeInteger(task.timeoutS) || task.timeoutS < 1 ||
+    task.timeoutS > (conversation ? 3600 : 1800))
     throw new CoreError("capability_denied", "direct executor route is not an owned local attempt");
   const strategy = loadStrategy(ctx), execution = validateExecution(strategy.execution);
   const attempt = current.attempts.length + 1, dir = join(ctx.pacerHome, "runs", task.id, String(attempt));
@@ -160,13 +224,31 @@ async function runOwnedDirect(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord,
     workdir = worktreeGrant.workdir;
   }
   const interactive = cfg.session === "interactive";
-  const prompt = buildPrompt(placement === "new" ? { ...task.brief,
+  const agent = parseRunnerId(cfg.id)?.agent ?? cfg.id;
+  const env = executorEnv(ctx.env, await providerEnv(ctx, cfg), task.id);
+  const prompt = conversation ? task.brief.goal : buildPrompt(placement === "new" ? { ...task.brief,
     repo: task.worktree ? `${workdir} (the task worktree; keep its current branch; do not edit ${task.brief.repo} itself)` :
       `${workdir} (a new git worktree of ${task.brief.repo} on branch pacer/${task.id}; do not edit ${task.brief.repo} itself)` }
     : task.brief, task.id, !!ctx.env.PACER_WORK_GRANT);
-  const instructions = interactive ? `\n\nInteractive pacer session: completion requires running pacer report --task ${task.id} --outcome done --summary "<result>" (or --outcome failed). Before asking the user, run pacer report --status needs-input --summary "<question>"; when resuming use --status running. Do not infer completion from the terminal. PACER_RUN_DIR identifies this attempt. You may write a longer Markdown result to $PACER_TRANSCRIPT_REPORT.\n` : "";
-  const baseLaunch = launchFor(cfg, prompt + instructions, workdir, dir, task.id);
-  const agent = parseRunnerId(cfg.id)?.agent ?? cfg.id;
+  const instructions = interactive && !conversation ? `\n\nInteractive pacer session: completion requires running pacer report --task ${task.id} --outcome done --summary "<result>" (or --outcome failed). Before asking the user, run pacer report --status needs-input --summary "<question>"; when resuming use --status running. Do not infer completion from the terminal. PACER_RUN_DIR identifies this attempt. You may write a longer Markdown result to $PACER_TRANSCRIPT_REPORT.\n` : "";
+  let baseLaunch;
+  if (conversation) {
+    const probe = await probeAgentSession(ctx, agent, env);
+    if (probe.reason) throw new CoreError("plugin_unavailable", probe.reason);
+    const capabilities = await agentSessionCapabilities(ctx, probe);
+    if (!capabilities.interactive) throw new CoreError("plugin_unavailable", capabilities.reason ?? "native sessions unavailable");
+    const priorId = current.conversation?.agentSessionId;
+    const identity = await admitOwnedConversationIdentity(ctx, task.id, providerId, cfg.id,
+      { ...probe, taskId: task.id, ...(cfg.model ? { model: cfg.model } : {}) }, workdir, env);
+    baseLaunch = await prepareAgentSession(ctx, { ...probe, request: prompt,
+      workspace: workdir, runDir: dir,
+      ...(task.sessionDraftId ? { attachmentDir: attachmentDirectory(ctx, task.sessionDraftId) } : {}),
+      attachments: resolveAttachments(ctx, task.id), permissionPolicy: "native",
+      ...(priorId ? { sessionId: priorId } : identity ? { newSessionId: identity.id } : {}),
+      ...(cfg.model ? { model: cfg.model } : {}) });
+    if (baseLaunch.reporting)
+      throw new CoreError("plugin_unavailable", "native reporting artifact needs an owned claim grant");
+  } else baseLaunch = launchFor(cfg, prompt + instructions, workdir, dir, task.id);
   const planned = interactive ? planInteractive(agent, dir, baseLaunch) :
     { launch: baseLaunch, files: [] as ReturnType<typeof planInteractive>["files"] };
   const launch = planned.launch;
@@ -179,7 +261,6 @@ async function runOwnedDirect(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord,
   const executable = realpathSync(selected), stat = statSync(executable);
   if (!stat.isFile() || !(stat.mode & 0o111))
     throw new CoreError("plugin_unavailable", "executor binary is not executable");
-  const env = executorEnv(ctx.env, await providerEnv(ctx, cfg), task.id);
   if (interactive) {
     if (agent === "codex") await requireCodexInteractive(ctx, env);
     env.PACER_HOME = ctx.pacerHome;
@@ -199,13 +280,15 @@ async function runOwnedDirect(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord,
         executableIdentity: { dev: stat.dev, ino: stat.ino, size: stat.size,
           mtimeMs: stat.mtimeMs, mode: stat.mode }, env: cleanEnv,
         ...(launch.stdin === undefined ? {} : { stdin: launch.stdin }),
-        ...(interactive ? { session: "interactive" as const, files: planned.files } : {}) } } };
-  const raw = await caller.call(ctx, providerId, "executor.run",
+        ...(interactive ? { session: "interactive" as const, files: planned.files } : {}),
+        ...(conversation ? { interactionMode: "conversation" as const } : {}) } } };
+  let raw = await caller.call(ctx, providerId, "executor.run",
     { task: { id: task.id, rev: admitted.rev }, attempt, runDir: 1,
-      owned: { placement, timeoutMs: task.timeoutS * 1000,
-        ...(interactive ? { session: "interactive" as const } : {}),
+      owned: { placement, timeoutMs: conversation ? 5000 : task.timeoutS * 1000,
+        ...(interactive ? { session: conversation ? "conversation" as const : "interactive" as const } : {}),
         executor: cfg.id, model: cfg.model ?? null } },
-    { resources, onProgress: () => {}, deadlineMs: task.timeoutS * 1000 + 10_000 });
+    { resources, onProgress: () => {}, deadlineMs: conversation ? 15_000 : task.timeoutS * 1000 + 10_000 });
+  if (conversation) raw = await observeConversationUntilExit(ctx, cfg, task.id, attempt, raw, caller);
   const parsed = executorAttemptOutcome.safeParse(raw);
   if (!parsed.success) throw new CoreError("plugin_refused", "direct executor returned an invalid attempt outcome");
   const out = parsed.data;
@@ -217,7 +300,7 @@ async function runOwnedDirect(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord,
     completion.startedAt === latest?.run?.startedAt && completion.exitCode === durable.exitCode &&
     report?.status === completion.status && report.summary === completion.summary &&
     report.at === completion.at;
-  const logicalCode = interactive ? validCompletion ? completion.status === "done" ? 0 : 1
+  const logicalCode = conversation ? durable.exitCode : interactive ? validCompletion ? completion.status === "done" ? 0 : 1
     : report?.status === "done" || report?.status === "failed" ? null
       : durable.exitCode === 0 ? 1 : durable.exitCode : durable.exitCode;
   if (!latest || latest.stopPending || latest.executorProvider !== providerId || latest.run?.workdir !== workdir ||
@@ -246,6 +329,7 @@ async function runOwnedDirect(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord,
     });
   });
   out.report = ownedLastMessage(task.id, latest.run) ?? out.report;
+  if (conversation) failWithoutConversationIdentity(out, readTask(ctx, task.id));
   if (!interactive) out.attempt.limitHit = detectLimit(cfg.id, { code: durable.exitCode!,
     ...readOutput(durable.dir), timedOut: false });
   return out as AttemptOutcome;
@@ -371,9 +455,11 @@ export async function runOwnedDirectRemote(ctx: Ctx, cfg: ProviderCfg, task: Tas
 export async function resumeOwnedDirect(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord,
   caller: ExecutorCaller = pluginRegistry(ctx)): Promise<AttemptOutcome> {
   const providerId = "pacer-exec-direct", run = task.run;
+  const conversation = task.interactionMode === "conversation";
   if (!run || task.state !== "running" || task.stopPending || task.executorProvider !== providerId ||
     run.host || run.executor !== cfg.id || task.executor !== cfg.id ||
     run.session !== (cfg.session === "interactive" ? "interactive" : undefined) ||
+    run.interactionMode !== task.interactionMode ||
     run.attempt !== task.attempts.length + 1 || task.startIntent?.attempt !== run.attempt ||
     task.startIntent.providerId !== providerId || task.startIntent.dir !== run.dir)
     throw new CoreError("capability_denied", "executor resume is not bound to an owned local run");
@@ -385,15 +471,16 @@ export async function resumeOwnedDirect(ctx: Ctx, cfg: ProviderCfg, task: TaskRe
     executorObserve: { taskId: task.id, attempt: run.attempt, providerId,
       executor: cfg.id, workdir: run.workdir, dir: run.dir,
       dirIdentity: { dev: dir.dev, ino: dir.ino }, startedAt: run.startedAt } };
-  const raw = await caller.call(ctx, providerId, "executor.run", {
+  let raw = await caller.call(ctx, providerId, "executor.run", {
     task: { id: task.id, rev: observed.task.rev }, attempt: run.attempt, runDir: 1,
-    owned: { placement: run.mode, timeoutMs: task.timeoutS * 1000,
-      ...(run.session === "interactive" ? { session: "interactive" as const } : {}),
+    owned: { placement: run.mode, timeoutMs: conversation ? 5000 : task.timeoutS * 1000,
+      ...(run.session === "interactive" ? { session: conversation ? "conversation" as const : "interactive" as const } : {}),
       executor: cfg.id, model: cfg.model ?? null,
       resume: { startedAt: run.startedAt, logFile: run.logFile,
         ...(run.mode === "new" ? { worktree: run.workdir } : {}) } },
-  }, { resources, onProgress: () => {}, deadlineMs: Math.max(5_000,
+  }, { resources, onProgress: () => {}, deadlineMs: conversation ? 15_000 : Math.max(5_000,
     run.startedAt * 1000 + task.timeoutS * 1000 - Date.now() + 10_000) });
+  if (conversation) raw = await observeConversationUntilExit(ctx, cfg, task.id, run.attempt, raw, caller);
   const parsed = executorAttemptOutcome.safeParse(raw);
   if (!parsed.success) throw new CoreError("plugin_refused", "executor resume returned an invalid attempt outcome");
   const out = parsed.data, durable = inspectOwnedExecutorRun(ctx, task.id, run.attempt);
@@ -404,7 +491,7 @@ export async function resumeOwnedDirect(ctx: Ctx, cfg: ProviderCfg, task: TaskRe
     completion.startedAt === run.startedAt && completion.exitCode === durable.exitCode &&
     report?.status === completion.status && report.summary === completion.summary &&
     report.at === completion.at;
-  const logicalCode = run.session === "interactive" ? validCompletion ?
+  const logicalCode = conversation ? durable.exitCode : run.session === "interactive" ? validCompletion ?
     completion.status === "done" ? 0 : 1 :
     report?.status === "done" || report?.status === "failed" ? null :
       durable.exitCode === 0 ? 1 : durable.exitCode : durable.exitCode;
@@ -429,6 +516,7 @@ export async function resumeOwnedDirect(ctx: Ctx, cfg: ProviderCfg, task: TaskRe
     });
   });
   out.report = ownedLastMessage(task.id, run) ?? out.report;
+  if (conversation) failWithoutConversationIdentity(out, readTask(ctx, task.id));
   if (run.session !== "interactive") out.attempt.limitHit = detectLimit(cfg.id, { code: durable.exitCode!,
     ...readOutput(durable.dir), timedOut: false });
   return out as AttemptOutcome;

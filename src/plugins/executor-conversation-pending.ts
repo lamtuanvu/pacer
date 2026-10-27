@@ -19,7 +19,9 @@ export function validateOwnedConversationPending(ctx: Ctx, providerId: string,
     task.startIntent.dir !== run.dir ||
     !run.agentSession?.id || task.conversation?.agentSessionId !== run.agentSession.id)
     throw new CoreError("conflict", "executor conversation observation changed owner");
-  const observed = inspectOwnedExecutorRun(ctx, taskId, attempt);
-  if (observed.dir !== run.dir || observed.startedAt !== run.startedAt || observed.state === "uncertain")
+  const observed = inspectOwnedExecutorRun(ctx, taskId, attempt, true);
+  const bound = readTask(ctx, taskId)?.run;
+  if (observed.dir !== run.dir || observed.startedAt !== bound?.wrapperStartedAt ||
+    observed.pid !== bound.wrapperPid || observed.state === "uncertain")
     throw new CoreError("conflict", "executor conversation observation has no verified run");
 }

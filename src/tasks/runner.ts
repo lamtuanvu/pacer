@@ -441,7 +441,8 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
       const backend = resuming || deps.runAttempt ? null : task.interactionMode === "conversation" || work?.options.allowDelegation ? directBackend : await selectBackend(ctx, s, undefined, pick);
       attemptedBackend = backend?.id ?? "direct";
       const localOwnerCandidate = !resuming && !deps.runAttempt && backend?.id === "direct" &&
-        ctx.env.PACER_BACKEND !== "orca" && task.interactionMode !== "conversation" &&
+        ctx.env.PACER_BACKEND !== "orca" &&
+        (task.interactionMode !== "conversation" || resolveRunner(s, pick)?.agent === "codex") &&
         !resolveRunner(s, pick)?.host &&
         (!task.worktree || !!task.retryOf || task.attempts.length > 0);
       const localGit = localOwnerCandidate ? await gitInfo(ctx.run, task.brief.repo).catch(() => ({ error: "git unavailable" })) : null;
@@ -551,19 +552,24 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
       let out: AttemptOutcome;
       try {
         if (owned) {
+          const ownedCfg = task.interactionMode === "conversation" ? { ...cfg, session: "interactive" as const } : cfg;
           if (!ownedResume) task = updateTask(ctx, id, current => {
             current.executorProvider = "pacer-exec-direct";
             if (localPlacement) current.placement = { requested: current.placement?.requested ?? "auto",
               ...current.placement, mode: localPlacement.mode, why: localPlacement.why };
           });
           out = await (ownedRemote ? runOwnedDirectRemote(executionCtx, cfg, task)
-            : ownedResume ? resumeOwnedDirect(executionCtx, cfg, task)
-              : ownedNew ? runOwnedDirectNew(executionCtx, cfg, task)
-              : runOwnedDirectCurrent(executionCtx, cfg, task));
+            : ownedResume ? resumeOwnedDirect(executionCtx, ownedCfg, task)
+              : ownedNew ? runOwnedDirectNew(executionCtx, ownedCfg, task)
+              : runOwnedDirectCurrent(executionCtx, ownedCfg, task));
         } else out = resuming ? await resumeAttempt(executionCtx, cfg, task) : await (deps.runAttempt ?? backend!.runAttempt)(executionCtx, cfg, task, onSpawn);
       } catch (error) {
         const latest = readTask(ctx, id);
         if (owned && latest && TERMINAL_STATES.includes(latest.state)) return latest;
+        if (owned && latest?.stopPending && latest.executorProvider === "pacer-exec-direct" && latest.run)
+          return updateTask(ctx, id, current => {
+            if (current.runnerPid === process.pid) delete current.runnerPid;
+          });
         if (owned && latest?.executorProvider === "pacer-exec-direct" &&
           (latest.run || latest.runClaim || latest.worktreeIntent || latest.baseFetchIntent ||
             latest.remotePrepareIntent || latest.startIntent)) {

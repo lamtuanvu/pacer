@@ -17,6 +17,7 @@ export interface CallResources {
     launch: { argv: string[]; cwd: string; executable: string;
       executableIdentity: { dev: number; ino: number; size: number; mtimeMs: number; mode: number };
       env: Record<string, string>; stdin?: string; session?: "interactive";
+      interactionMode?: "conversation";
       files?: { name: "report-hook.sh" | "claude-settings.json"; content: string; mode: number }[] } };
   /** Restart may observe only the exact already-persisted wrapper; it cannot start one. */
   executorObserve?: { taskId: string; attempt: number; providerId: string; executor: string;
@@ -44,7 +45,7 @@ export interface CallResources {
     dirIdentity: { dev: number; ino: number }; argv: string[]; cwd: string;
     executable: string; executableIdentity: { dev: number; ino: number; size: number; mtimeMs: number; mode: number };
     cwdIdentity: { dev: number; ino: number }; env: Record<string, string>; stdin?: string;
-    session?: "interactive";
+    session?: "interactive"; interactionMode?: "conversation";
     files?: { name: "report-hook.sh" | "claude-settings.json"; content: string; mode: number }[] };
   /** Host-issued secret-reference aliases; names only, never credential values. */
   secretAliases?: Record<string, string>;
@@ -335,6 +336,7 @@ export class CallAuthority {
       grant.cwd !== realpathSync(issued.launch.cwd) || grant.executable !== issued.launch.executable ||
       JSON.stringify(grant.argv) !== JSON.stringify(issued.launch.argv) ||
       grant.session !== issued.launch.session ||
+      grant.interactionMode !== issued.launch.interactionMode ||
       JSON.stringify(grant.files) !== JSON.stringify(issued.launch.files))
       throw new CoreError("capability_denied", "executor launch was not derived from this run claim");
     this.claimedDetachedRun = Object.freeze({ ...grant, argv: Object.freeze([...grant.argv]) as string[],

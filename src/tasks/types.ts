@@ -105,6 +105,9 @@ export interface RunRef {
   session?: "interactive";
   takeover?: boolean;
   agentSession?: {id: string; source: "header" | "assigned" | "lookup"};
+  /** Wrapper-owned clock/PID, bound after the one-use start; distinct from host claim time. */
+  wrapperStartedAt?: number;
+  wrapperPid?: number;
   host?: string;
   remoteDir?: string;
   remoteWorktree?: string;

@@ -111,6 +111,20 @@ test("pending stop and provider swap refuse run claim without a new effect", asy
   }
 });
 
+test("a host claim cannot promote an ordinary task into conversation mode", async () => {
+  const { ctx, task, resource, manifest, cleanup } = fixture();
+  const authority = createCallAuthority(ctx, { reads: [], commands: [], stores: [],
+    executorClaim: { ...resource, launch: { ...resource.launch, session: "interactive",
+      interactionMode: "conversation" } } },
+  { deadlineMs: Date.now() + 10_000, grants: ["process.spawn"] });
+  try {
+    await expect(answerCapability(ctx, { id: manifest.id, manifest },
+      "capability.process.claimRun", { taskId: task.id, attempt: 1 }, authority))
+      .rejects.toMatchObject({ code: "capability_denied" });
+    expect(readTask(ctx, task.id)?.run).toBeUndefined();
+  } finally { await authority.revoke(); cleanup(); }
+});
+
 test("run claim binds one start and a lost start receipt cannot authorize another launch", async () => {
   const { ctx, task, resource, manifest, call, cleanup } = fixture();
   const authority = createCallAuthority(ctx, { reads: [], commands: [], stores: [], executorClaim: resource },

@@ -13,7 +13,10 @@ export async function answerExecutorClaim(authority: CallAuthority,
     dir: string; workdir: string; startedAt: number; logFile: string }> {
   const grant = authority.consumeExecutorClaim(params.taskId, params.attempt);
   const ctx = authority.ctx;
-  const existing = readTask(ctx, grant.taskId)?.run;
+  const owner = readTask(ctx, grant.taskId);
+  if (!owner || grant.launch.interactionMode !==
+    (owner.interactionMode === "conversation" ? "conversation" : undefined)) return deny();
+  const existing = owner.run;
   if (!existing) {
     try { await publishOwnedExecutorRun(ctx, grant.providerId, grant.taskId, grant.executor, grant.workdir,
       grant.launch.session); }
@@ -33,6 +36,7 @@ export async function answerExecutorClaim(authority: CallAuthority,
       run.dir !== dir || run.workdir !== grant.workdir || run.host ||
       run.session !== grant.launch.session ||
       run.interactionMode !== task.interactionMode ||
+      grant.launch.interactionMode !== (task.interactionMode === "conversation" ? "conversation" : undefined) ||
       (task.interactionMode === "conversation" &&
         (run.agentSession?.id !== task.nativeIdentityIntent?.id ||
           run.agentSession?.source !== task.nativeIdentityIntent?.source)) ||
@@ -60,6 +64,7 @@ export async function answerExecutorClaim(authority: CallAuthority,
         cwdIdentity: { dev: cwd.dev, ino: cwd.ino }, env: launch.env,
         ...(launch.stdin === undefined ? {} : { stdin: launch.stdin }),
         ...(launch.session === undefined ? {} : { session: launch.session }),
+        ...(launch.interactionMode === undefined ? {} : { interactionMode: launch.interactionMode }),
         ...(launch.files === undefined ? {} : { files: launch.files }) });
     } catch { return deny(); }
     authority.assertActive();
