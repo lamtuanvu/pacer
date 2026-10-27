@@ -3,7 +3,7 @@ import { useRef, useState } from "preact/hooks";
 import type { TaskDetail } from "../../../src/core/task-detail";
 import type { ApiTask } from "../../../src/api/read-model/types";
 import { executorLabel, taskOutcome, taskStatus } from "../../../src/view-model/words";
-import { running } from "../../../src/view-model/selectors";
+import { scopedTaskTree, taskTree } from "../../../src/view-model/task-tree";
 import { clock } from "../../../src/view-model/time";
 import { Button, TextAction } from "../ds/Button";
 import { Disclosure, Field, TextArea } from "../ds/Controls";
@@ -11,7 +11,7 @@ import { EmptyState, LoadingState, Tabs } from "../ds/Patterns";
 import { SectionHeading } from "../ds/SectionHeading";
 import { useActions } from "../data/action-context";
 import { withQuery, type RouteQuery } from "../router";
-import { SessionRoute, sessionDetail, sessionRow } from "./session/controller";
+import { SessionRoute } from "./session/controller";
 import { TaskNavigator } from "./session/TaskNavigator";
 import { useQuery, useTaskContext } from "./task-shared";
 import { VerdictPanel } from "./review/VerdictPanel";
@@ -140,10 +140,12 @@ export function TaskRoute({ id, query }: { id: string; query: RouteQuery }) {
   const task = useQuery<TaskDetail>("task.get", {id});
   const history = useQuery<{tasks:ApiTask[]}>("task.list",{all:true,limit:20,...(query.repo?{repo:query.repo}:{})});
   if (!task.data) return task.error ? <EmptyState title="Could not load task" description="Try refreshing the page."/> : <LoadingState label="Loading task…"/>;
-  const rows=[...new Map([...(history.data?.tasks??[]),...(state.snapshot?.tasks??[])].map(item=>[item.id,item])).values()].filter(item=>!query.repo||item.repo?.key===query.repo);
-  const currentRunning=state.snapshot?running(state.snapshot,{repo:query.repo||null}).map(sessionRow):[];
-  const recent=rows.filter(item=>!['running','queued'].includes(item.state)).sort((a,b)=>b.updatedAt-a.updatedAt).map(sessionRow);
-  const navigator=<TaskNavigator selectedId={id} selectedTask={sessionDetail(task.data)} running={currentRunning} recent={recent} query={withQuery('',query)}/>;
+  // The selected task joins the tree with its parent link, so a subtask opens under its root.
+  const selected={...task.data,parentId:task.data.work?.parentId??null};
+  const extra=[...(history.data?.tasks??[]),selected];
+  const now=Date.now()/1000;
+  const nodes=state.snapshot?scopedTaskTree(state.snapshot,{repo:query.repo||null},{now,extra}):taskTree({tasks:extra.filter(item=>!query.repo||item.repo?.key===query.repo||item.id===id)},{now});
+  const navigator=<TaskNavigator selectedId={id} nodes={nodes} query={withQuery('',query)}/>;
   const tab = selection?.id === id ? selection.tab : (["queued", "running"].includes(task.data.state) ? "session" : "result");
   return <TaskDetailFrame task={task.data} query={query} tab={tab} onTab={value=>setSelection({id,tab:value})} navigator={navigator}>
     {tab === "work" ? <LazyWork id={id}/> : tab === "result" ? <TaskResultLoaded key={id} task={task.data} reload={task.reload}/> : <SessionRoute id={id} embedded view={tab === "changes" ? "changes" : tab === "brief" ? "brief" : "terminal"}/>}
