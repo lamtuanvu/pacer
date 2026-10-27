@@ -45,14 +45,20 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 /** Tint, pill colour and words come from one vocabulary status, so they never disagree (UI-10). */
 const fromStatus = (status: Status): { level: TaskAttention; label: string } => ({ level: status.tone === "bad" ? "bad" : "warn", label: status.label });
+/** Within one tint, Needs you's own order breaks ties: blocked, then problems, then decisions. */
+const urgency: Record<AttentionItem["severity"], number> = { blocked: 0, problem: 1, decide: 2 };
+const calm = 3;
 /**
  * With a Needs you list (a snapshot), attention comes only from it, so a resolved, snoozed or decided item never tints a card.
  * Without one (history or work pages fetched alone), the task's own state is the only evidence.
  */
-function ownAttention(task: TreeTask, items: AttentionItem[] | undefined, tasks: TreeTask[]): { level: TaskAttention; label?: string } {
+function ownAttention(task: TreeTask, items: AttentionItem[] | undefined, tasks: TreeTask[]): { level: TaskAttention; label?: string; urgency?: number } {
   if (items) {
-    const item = items.filter(i => i.taskId === task.id).sort((a, b) => Number(a.severity === "decide") - Number(b.severity === "decide"))[0];
-    return item ? fromStatus(attentionStatus(item, tasks)) : { level: "none" };
+    const item = items.filter(i => i.taskId === task.id).sort((a, b) => urgency[a.severity] - urgency[b.severity])[0];
+    if (!item) return { level: "none" };
+    // A task's own status can be calm (a stuck run still reads "Editing"); then the item's kind supplies the words.
+    const own = attentionStatus(item, tasks);
+    return { ...fromStatus(own.tone === "warn" || own.tone === "bad" ? own : attentionStatus(item)), urgency: urgency[item.severity] };
   }
   if (task.resolved || task.dismissed || task.retriedBy || task.review) return { level: "none" };
   const status = taskStatus(task);
@@ -76,9 +82,11 @@ function meta(task: TreeTask, now: number): TaskMetaItem[] {
   return items;
 }
 
-/** Roots are ordered attention first (problems before decisions), then running and queued work, then the rest by recency. */
-function order(a: TaskNodeView & { at: number; queued: boolean }, b: TaskNodeView & { at: number; queued: boolean }): number {
+type Sortable = TaskNodeView & { at: number; queued: boolean; urgency: number };
+/** Roots are ordered attention first (bad, then warn; Needs you severity within each), then running and queued work, then the rest by recency. */
+function order(a: Sortable, b: Sortable): number {
   return rank[b.attention] - rank[a.attention]
+    || a.urgency - b.urgency
     || Number(b.active) - Number(a.active)
     || Number(a.queued) - Number(b.queued)
     || b.at - a.at;
@@ -93,7 +101,7 @@ export function taskTree(snapshot: TreeSnapshot, opts: { now: number; extra?: Tr
   }
   const tasks = [...byId.values()];
   const items = snapshot.attention;
-  type Built = TaskNodeView & { at: number; queued: boolean };
+  type Built = Sortable;
   const built = new Map<string, Built>();
   for (const task of tasks) {
     const status = taskStatus(task);
@@ -108,8 +116,10 @@ export function taskTree(snapshot: TreeSnapshot, opts: { now: number; extra?: Tr
       ...(task.host ? { host: { name: task.host, kind: "remote" as const } } : task.host === null && task.state !== "queued" ? { host: { name: localHostWords, kind: "local" as const } } : {}),
       ...(branch ? { branch } : {}), agents: task.executor ? [markAgent(task.executor)] : [], ...(tokens ? { tokens } : {}),
       meta: meta(task, opts.now), children: [], at: task.updatedAt, queued: task.state === "queued",
+      urgency: attention.level === "none" ? calm : attention.urgency ?? urgency.problem,
     });
   }
+  const strip = ({ at: _at, queued: _queued, urgency: _urgency, ...view }: Sortable): TaskNodeView => view;
   const roots: Built[] = [];
   for (const task of tasks) {
     const node = built.get(task.id)!;
@@ -121,23 +131,23 @@ export function taskTree(snapshot: TreeSnapshot, opts: { now: number; extra?: Tr
       roots.push(node);
     }
   }
-  const finish = (node: Built, seen: Set<string>): TaskNodeView => {
+  const finish = (node: Built, seen: Set<string>): Sortable => {
     seen.add(node.id);
-    const children = (node.children as Built[]).filter(child => !seen.has(child.id)).sort(order).map(child => finish(child, seen));
-    let attention = node.attention, attentionLabel = node.attentionLabel;
+    const children = (node.children as Built[]).filter(child => !seen.has(child.id)).map(child => finish(child, seen)).sort(order);
+    let attention = node.attention, attentionLabel = node.attentionLabel, nodeUrgency = node.urgency;
     const agents = [...node.agents];
     for (const child of children) {
       // A worse subtask lends its words along with its tint, so a collapsed card never shows colour alone (UI-2).
       if (rank[child.attention] > rank[attention]) { attention = child.attention; attentionLabel = child.attentionLabel && subtaskAttentionWords(child.attentionLabel.replace(/^Subtask: /, "")); }
+      if (child.attention === attention) nodeUrgency = Math.min(nodeUrgency, child.urgency);
       for (const agent of child.agents) if (!agents.includes(agent)) agents.push(agent);
     }
-    const { at: _at, queued: _queued, attentionLabel: _label, ...view } = node;
-    return { ...view, attention, ...(attentionLabel ? { attentionLabel } : {}), agents, children };
+    const { attentionLabel: _label, ...rest } = node;
+    return { ...rest, attention, ...(attentionLabel ? { attentionLabel } : {}), agents, children: children.map(strip), urgency: nodeUrgency };
   };
   // Roll attention up before ordering roots, so a root with a failing child sorts with the problems.
   const seen = new Set<string>();
-  const finished = roots.map(root => ({ view: finish(root, seen), at: root.at, queued: root.queued }));
-  return finished.sort((a, b) => order({ ...a.view, at: a.at, queued: a.queued }, { ...b.view, at: b.at, queued: b.queued })).map(item => item.view);
+  return roots.map(root => finish(root, seen)).sort(order).map(strip);
 }
 
 /**
