@@ -164,6 +164,8 @@ test("shows the unsupported reason instead of a schedule when probing cannot run
   }]};
   const html=renderToString(<DispatcherEnforcementRows reading={reading} canProbe={false} probing={null} onProbe={()=>{}} onConsent={()=>{}}/>);
   expect(html).toContain("Verification is not available");
+  // The reason belongs on one line only; it used to render twice.
+  expect(html.split("Verification is not available").length-1).toBe(1);
   expect(html).not.toContain("next eligible");
   expect(html).not.toContain("probes today");
   expect(html).not.toContain("consent");

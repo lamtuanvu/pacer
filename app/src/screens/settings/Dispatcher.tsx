@@ -112,8 +112,9 @@ export function DispatcherEnforcementRows({reading,canProbe,probing,onProbe,onCo
         {item.reason?` · ${nativeControlReasonCopy(item.reason,item.probeSupported)}`:""}
       </div>
       {item.probeSupported?<CertificationSchedule item={item}/>:null}
-      {!item.probeSupported&&item.unsupportedReason?
-        <div className="u3-muted">{nativeControlReasonCopy(item.unsupportedReason,false)}{item.state!=="certified"?<> · <TextAction href="#/settings/executors">View executor setup</TextAction>, then refresh status.</>:null}</div>
+      {/* The reason is already on the line above; repeating it only adds noise. */}
+      {!item.probeSupported&&item.state!=="certified"?
+        <div className="u3-muted"><TextAction href="#/settings/executors">View executor setup</TextAction>, then refresh status.</div>
       :null}
       <ConsentControl item={item} onConsent={onConsent}/>
     </div>
