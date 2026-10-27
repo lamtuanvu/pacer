@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { stringify } from "yaml";
 import { callOp } from "../src/api/ops";
@@ -8,22 +8,25 @@ import { createTask, updateTask } from "../src/tasks/store";
 import { fakeCtx } from "./helpers";
 
 function fixture() {
-  const ctx = fakeCtx(), ssh: string[][] = [];
+  const ctx = fakeCtx();
+  const sshPath = join(ctx.home, "ssh-fixture");
+  const sshLog = join(ctx.home, "ssh-argv.log");
+  writeFileSync(sshPath, `#!/bin/sh\nprintf '%s\\0' "$*" >> '${sshLog}'\nnonce=$(printf '%s' "$*" | sed -n 's/.*__PACER_DONE__=\\([a-f0-9-]*\\).*/\\1/p')\nprintf '__PACER_BEGIN__\\n\\n__PACER_DONE__=%s\\n' "$nonce"\n`);
+  chmodSync(sshPath, 0o700);
+  ctx.which = name => name === "ssh" ? sshPath : null;
+  const ssh = () => existsSync(sshLog) ? readFileSync(sshLog, "utf8").split("\0").filter(Boolean) : [];
   mkdirSync(ctx.pacerHome, { recursive: true });
   writeFileSync(join(ctx.pacerHome, "strategy.yaml"), stringify({
     accounts: { claude: { kind: "claude" }, codex: { kind: "codex" } }, planner: "claude-code",
     hosts: { devbox: { ssh: "devbox", repos: { "github.com/o/r": "~/src/r" } } },
     routing: [{ default: ["codex"] }],
   }));
-  ctx.run = async argv => {
-    if (argv[0] === "ssh") ssh.push(argv);
-    return { code: 0, stderr: "", stdout: argv.includes("get-url") ? "https://github.com/o/r.git" : argv.includes("rev-parse") ? "abc123" : "" };
-  };
+  ctx.run = async argv => ({ code: 0, stderr: "", stdout: argv.includes("get-url") ? "https://github.com/o/r.git" : argv.includes("rev-parse") ? "abc123" : "" });
   const task = (state: "done" | "running", received: boolean) => {
     const t = createTask(ctx, { brief: { goal: "cleanup", repo: ctx.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
     updateTask(ctx, t.id, t => {
       t.state = state; t.review = { accepted: true, at: ctx.now, kind: null, note: null };
-      t.run = { host: "devbox", mode: "new", remoteWorktree: `~/.pacer-remote/worktrees/${t.id}`, remoteDir: `~/.pacer-remote/runs/${t.id}/1`, remoteBranch: `pacer/${t.id}`, transferredHead: received ? "abc123" : undefined,
+      t.run = { host: "devbox", mode: "new", remoteWorktree: `/home/fixture/.pacer-remote/worktrees/fixture-tag/${t.id}-1`, remoteDir: `/home/fixture/.pacer-remote/runs/${t.id}/1`, remoteBranch: `pacer/${t.id}`, transferredHead: received ? "abc123" : undefined,
         workdir: "unused", dir: "unused", attempt: 1, executor: "codex@devbox", startedAt: 1, logFile: "unused" };
     });
     return t.id;
@@ -41,12 +44,12 @@ test("cleanup dry run includes removable, active and untransferred branches with
     { branch: `pacer/${kept}`, state: "done", fate: "kept" },
   ]));
   expect(result.worktrees).toHaveLength(3);
-  expect(ssh).toEqual([]);
+  expect(ssh()).toEqual([]);
   const { job } = await callOp(ctx, "host.clean", { alias: "devbox" }) as { job: Job };
   expect(job.state).toBe("passed");
-  expect(ssh).toHaveLength(2);
-  expect(ssh.every(a => !a.at(-1)!.includes(`pacer/${running}`))).toBe(true);
-  expect(ssh.find(a => a.at(-1)!.includes(kept))?.at(-1)).toEndWith("''");
+  expect(ssh()).toHaveLength(2);
+  expect(ssh().every(a => !a.includes(`pacer/${running}`))).toBe(true);
+  expect(ssh().find(a => a.includes(kept))).toEndWith("''");
 });
 
 test("host terminal sends SSH argv to the terminal opener", async () => {
@@ -67,9 +70,9 @@ test("host removal names a disabled configured executor reference", async () => 
 });
 
 test("cleanup job reports remote removal failures", async () => {
-  const { ctx, task } = fixture(), run = ctx.run;
+  const { ctx, task } = fixture();
   task("done", true);
-  ctx.run = async (...args) => args[0][0] === "ssh" ? { code: 255, stdout: "", stderr: "unreachable" } : run(...args);
+  writeFileSync(ctx.which("ssh")!, "#!/bin/sh\nprintf '__PACER_BEGIN__\\n'\nexit 255\n");
   const { job } = await callOp(ctx, "host.clean", { alias: "devbox" }) as { job: Job };
   expect(job.state).toBe("failed");
   expect(job.steps[0]).toMatchObject({ state: "failed", detail: expect.stringContaining("remote cleanup failed") });
