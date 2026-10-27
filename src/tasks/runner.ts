@@ -2,6 +2,8 @@ import { getWork, pendingChildren, issueWorkGrant, revokeWorkGrants } from "../d
 import { issueEnforcementToken, revokeEnforcementTokens } from "../dispatch/enforcement-token";
 import { certificateEvidence, enforcementExclusion, resolveEnforcementTarget } from "../dispatch/enforcement";
 import { appendWorkEvent, dispatchDatabase, updateWorkDecision } from "../dispatch/store";
+import { extractAttemptTokens } from "../tokens/extract";
+import { attemptUsageText, recordAttemptUsage } from "../tokens/store";
 import { resolveTaskDispatch, reserveDispatch, releaseDispatch, selectedDispatchModel } from "../dispatch/runtime";
 import {dispatchSettingsHash} from "../dispatch/learning";
 import type { Candidate, DispatchPreview } from "../dispatch/types";
@@ -536,8 +538,12 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
       const refreshAccounts = s.accounts[account] && usageRefreshCapability(s.accounts[account]) !== "unavailable" ? [account] : [];
       out.attempt.usageAtEnd = usage(await safe(() => deps.computeStatus({ ...ctx, now: Date.now() / 1000 }, s, {refreshAccounts}), undefined));
       attemptedBackend = out.backend ?? attemptedBackend;
+      out.attempt.tokens = extractAttemptTokens({ executor: pick, log: attemptUsageText(ctx, id, task.attempts.length + 1, pick, out.attempt.log),
+        exitCode: out.attempt.exitCode, timedOut: out.attempt.timedOut, takeover, now: out.attempt.endedAt });
       task = updateTask(ctx, id, (t) => {
         t.attempts.push(out.attempt);
+        // Same transaction as the attempt; an index failure must not lose the attempt itself.
+        try { recordAttemptUsage(ctx, t, t.attempts.length, out.attempt.tokens!, authAccount); } catch { /* the record keeps the numbers */ }
         delete t.pendingAttempt;
         t.backend = attemptedBackend;
         delete t.childPid;
