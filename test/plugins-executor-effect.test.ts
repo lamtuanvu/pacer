@@ -20,7 +20,7 @@ test("owned direct plugin call executes only the exact host-issued local process
     which: binary => binary === "bun" ? process.execPath : null });
   const task = createTask(ctx, { brief: { goal: "fixture", repo: home }, kind: null,
     requestedExecutor: "codex", timeoutS: 60 });
-  updateTask(ctx, task.id, t => { t.state = "running"; t.executor = "codex"; });
+  updateTask(ctx, task.id, t => { t.state = "running"; t.executor = "codex"; t.executorProvider = "pacer-exec-direct"; });
   const registry = new PluginRegistry({ bundled: [{ manifest: manifestSchema.parse(manifest), main: () => import("../plugins/pacer-exec-direct/index") }],
     spawnBundled: () => ({ argv: [process.execPath, join(import.meta.dir, "../plugins/pacer-exec-direct/index.ts")], cwd: home, env: ctx.env }) });
   try {
@@ -37,7 +37,7 @@ test("owned direct plugin call executes only the exact host-issued local process
     expect(statSync(join(pacerHome, "runs", task.id, "1", "stdout")).mode & 0o777).toBe(0o600);
     const binaryTask = createTask(ctx, { brief: { goal: "binary output", repo: home }, kind: null,
       requestedExecutor: "codex", timeoutS: 60 });
-    updateTask(ctx, binaryTask.id, t => { t.state = "running"; t.executor = "codex"; });
+    updateTask(ctx, binaryTask.id, t => { t.state = "running"; t.executor = "codex"; t.executorProvider = "pacer-exec-direct"; });
     const binary = Buffer.from([0xff, 0x00, 0xfe, 0x0a]);
     const binaryResult = await runOwnedExecutorAttempt(ctx, registry, "pacer-exec-direct", binaryTask.id,
       "codex", home, { argv: ["bun", "-e", `process.stdout.write(Buffer.from([255, 0, 254, 10]))`],
@@ -46,7 +46,7 @@ test("owned direct plugin call executes only the exact host-issued local process
     expect(readFileSync(join(pacerHome, "runs", binaryTask.id, "1", "stdout"))).toEqual(binary);
     const longTask = createTask(ctx, { brief: { goal: "long task allowance", repo: home }, kind: null,
       requestedExecutor: "codex", timeoutS: 1800 });
-    updateTask(ctx, longTask.id, t => { t.state = "running"; t.executor = "codex"; });
+    updateTask(ctx, longTask.id, t => { t.state = "running"; t.executor = "codex"; t.executorProvider = "pacer-exec-direct"; });
     const longMarker = join(home, "long-allowance.txt");
     const longArgv = ["bun", "-e", `await Bun.write(${JSON.stringify(longMarker)}, "allowed")`];
     const longResult = await runOwnedExecutorAttempt(ctx, registry, "pacer-exec-direct", longTask.id,
@@ -55,14 +55,14 @@ test("owned direct plugin call executes only the exact host-issued local process
     expect(readFileSync(longMarker, "utf8")).toBe("allowed");
     const overLimit = createTask(ctx, { brief: { goal: "over ceiling", repo: home }, kind: null,
       requestedExecutor: "codex", timeoutS: 1800 });
-    updateTask(ctx, overLimit.id, t => { t.state = "running"; t.executor = "codex"; });
+    updateTask(ctx, overLimit.id, t => { t.state = "running"; t.executor = "codex"; t.executorProvider = "pacer-exec-direct"; });
     await expect(runOwnedExecutorAttempt(ctx, registry, "pacer-exec-direct", overLimit.id,
       "codex", home, { argv: longArgv, cwd: home, timeoutMs: 1_800_001 }))
       .rejects.toMatchObject({ code: "invalid_input" });
     expect(readTask(ctx, overLimit.id)?.run).toBeUndefined();
     const stdinTask = createTask(ctx, { brief: { goal: "stdin", repo: home }, kind: null,
       requestedExecutor: "codex", timeoutS: 60 });
-    updateTask(ctx, stdinTask.id, t => { t.state = "running"; t.executor = "codex"; });
+    updateTask(ctx, stdinTask.id, t => { t.state = "running"; t.executor = "codex"; t.executorProvider = "pacer-exec-direct"; });
     const stdinMarker = join(home, "stdin.txt");
     const stdinResult = await runOwnedExecutorAttempt(ctx, registry, "pacer-exec-direct", stdinTask.id,
       "codex", home, { argv: ["bun", "-e", `await Bun.write(${JSON.stringify(stdinMarker)}, await Bun.stdin.text())`],
@@ -72,7 +72,7 @@ test("owned direct plugin call executes only the exact host-issued local process
     expect(readTask(ctx, stdinTask.id)?.childPid).toBeUndefined();
     const secretTask = createTask(ctx, { brief: { goal: "bound endpoint launch", repo: home }, kind: null,
       requestedExecutor: "codex", timeoutS: 60 });
-    updateTask(ctx, secretTask.id, t => { t.state = "running"; t.executor = "codex"; });
+    updateTask(ctx, secretTask.id, t => { t.state = "running"; t.executor = "codex"; t.executorProvider = "pacer-exec-direct"; });
     const secretMarker = join(home, "secret-launch.txt"), secret = "owned-endpoint-key-fixture";
     let reads = 0;
     const secretResult = await runOwnedExecutorAttempt(ctx, registry, "pacer-exec-direct", secretTask.id,
@@ -92,7 +92,7 @@ test("owned direct plugin call executes only the exact host-issued local process
     expect(JSON.stringify(secretResult)).not.toContain(secret.slice(4, 12));
     const unboundTask = createTask(ctx, { brief: { goal: "unbound endpoint", repo: home }, kind: null,
       requestedExecutor: "codex", timeoutS: 60 });
-    updateTask(ctx, unboundTask.id, t => { t.state = "running"; t.executor = "codex"; });
+    updateTask(ctx, unboundTask.id, t => { t.state = "running"; t.executor = "codex"; t.executorProvider = "pacer-exec-direct"; });
     await expect(runOwnedExecutorAttempt(ctx, registry, "pacer-exec-direct", unboundTask.id,
       "codex", home, { argv: ["bun", "-e", "process.stdout.write('bad')"], cwd: home,
         timeoutMs: 5000, secretEnv: { PACER_KEY_FIXTURE: "endpoint:fixture" } }))
@@ -100,7 +100,7 @@ test("owned direct plugin call executes only the exact host-issued local process
     expect(readTask(ctx, unboundTask.id)?.run).toBeUndefined();
     const tamperedTask = createTask(ctx, { brief: { goal: "tampered launch", repo: home }, kind: null,
       requestedExecutor: "codex", timeoutS: 60 });
-    updateTask(ctx, tamperedTask.id, t => { t.state = "running"; t.executor = "codex"; });
+    updateTask(ctx, tamperedTask.id, t => { t.state = "running"; t.executor = "codex"; t.executorProvider = "pacer-exec-direct"; });
     const tamperedMarker = join(home, "tampered.txt");
     const tamperedCaller = { call: (callCtx: typeof ctx, pluginId: string, method: "executor.run",
       params: unknown, options: Parameters<typeof registry.call>[4]) => {
@@ -128,7 +128,7 @@ test("owned direct plugin call executes only the exact host-issued local process
 
     const stoppedTask = createTask(ctx, { brief: { goal: "stop race", repo: home }, kind: null,
       requestedExecutor: "codex", timeoutS: 60 });
-    updateTask(ctx, stoppedTask.id, t => { t.state = "running"; t.executor = "codex"; });
+    updateTask(ctx, stoppedTask.id, t => { t.state = "running"; t.executor = "codex"; t.executorProvider = "pacer-exec-direct"; });
     const racedMarker = join(home, "raced.txt");
     const stoppingCaller = { call: (callCtx: typeof ctx, pluginId: string, method: "executor.run",
       params: unknown, options: Parameters<typeof registry.call>[4]) => {
@@ -142,7 +142,7 @@ test("owned direct plugin call executes only the exact host-issued local process
 
     const replacedTask = createTask(ctx, { brief: { goal: "owner race", repo: home }, kind: null,
       requestedExecutor: "codex", timeoutS: 60 });
-    updateTask(ctx, replacedTask.id, t => { t.state = "running"; t.executor = "codex"; });
+    updateTask(ctx, replacedTask.id, t => { t.state = "running"; t.executor = "codex"; t.executorProvider = "pacer-exec-direct"; });
     const replacedMarker = join(home, "replaced.txt");
     const replacingCaller = { call: (callCtx: typeof ctx, pluginId: string, method: "executor.run",
       params: unknown, options: Parameters<typeof registry.call>[4]) => {
@@ -156,7 +156,7 @@ test("owned direct plugin call executes only the exact host-issued local process
 
     const swappedTask = createTask(ctx, { brief: { goal: "run directory swap", repo: home }, kind: null,
       requestedExecutor: "codex", timeoutS: 60 });
-    updateTask(ctx, swappedTask.id, t => { t.state = "running"; t.executor = "codex"; });
+    updateTask(ctx, swappedTask.id, t => { t.state = "running"; t.executor = "codex"; t.executorProvider = "pacer-exec-direct"; });
     const swappedMarker = join(home, "swapped.txt");
     const swappingCaller = { call: (callCtx: typeof ctx, pluginId: string, method: "executor.run",
       params: unknown, options: Parameters<typeof registry.call>[4]) => {
@@ -173,7 +173,7 @@ test("owned direct plugin call executes only the exact host-issued local process
 
     const largeTask = createTask(ctx, { brief: { goal: "large output", repo: home }, kind: null,
       requestedExecutor: "codex", timeoutS: 60 });
-    updateTask(ctx, largeTask.id, t => { t.state = "running"; t.executor = "codex"; });
+    updateTask(ctx, largeTask.id, t => { t.state = "running"; t.executor = "codex"; t.executorProvider = "pacer-exec-direct"; });
     const large = await runOwnedExecutorAttempt(ctx, registry, "pacer-exec-direct", largeTask.id,
       "codex", home, { argv: ["bun", "-e",
         'await new Promise(resolve => process.stdout.write("x".repeat(800000), resolve)); process.stderr.write("bounded stderr"); process.exit(3)'],

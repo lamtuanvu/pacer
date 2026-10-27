@@ -138,7 +138,8 @@ export function stop(ctx: Ctx, id: string): TaskRecord {
   const before = readTask(ctx, id);
   const t = taskStop(ctx, id);
   if (!t) throw unknown(id);
-  if (before && !TERMINAL_STATES.includes(before.state)) taskActivity(ctx, t, "task_settled", `Stopped “${taskTitle(t)}”`);
+  if (before && !TERMINAL_STATES.includes(before.state) && TERMINAL_STATES.includes(t.state))
+    taskActivity(ctx, t, "task_settled", `Stopped “${taskTitle(t)}”`);
   return t;
 }
 

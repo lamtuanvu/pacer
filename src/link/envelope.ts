@@ -8,7 +8,7 @@ export interface ProviderLine { eligibility?: import("../evidence/types").Eligib
 export interface BudgetData { generatedAt: number; strategy: string; planner: string; mode: string; providers: ProviderLine[]; ranked: { id: string; verdict: string }[] }
 export interface SessionData { host:"builtin"|"orca"|"none"; live:boolean; controller:string|null; viewers:number }
 export type AcceptanceState = "passed" | "failed" | "none" | "pending" | "running";
-export interface TaskData { interactionMode?: import("../tasks/types").InteractionMode; conversation?: import("../tasks/types").ConversationState; reviewRequest?: { note: string; at: number }; acceptanceState?: AcceptanceState; title?: string; session?:SessionData; progress?: { phase: string; lastOutputAt: number | null; files: number; commits: number; logBytes: number }; terminalPresent?: boolean; resolved?: string; review?: {accepted:boolean;kind:string|null;note:string|null;at:number}; id: string; state: string; goal: string; executor: string | null; backend: string | null; worktree: string | null; updatedAt: number; dismissed?: boolean; retryOf?: string; retriedBy?: string; brokenExecutor?: string; brokenReason?: string; attemptStartedAt?: number; runnerAlive?: boolean; placement?: {mode:"current"|"new";why:string} }
+export interface TaskData { interactionMode?: import("../tasks/types").InteractionMode; conversation?: import("../tasks/types").ConversationState; stopPending?: import("../tasks/types").TaskRecord["stopPending"]; reviewRequest?: { note: string; at: number }; acceptanceState?: AcceptanceState; title?: string; session?:SessionData; progress?: { phase: string; lastOutputAt: number | null; files: number; commits: number; logBytes: number }; terminalPresent?: boolean; resolved?: string; review?: {accepted:boolean;kind:string|null;note:string|null;at:number}; id: string; state: string; goal: string; executor: string | null; backend: string | null; worktree: string | null; updatedAt: number; dismissed?: boolean; retryOf?: string; retriedBy?: string; brokenExecutor?: string; brokenReason?: string; attemptStartedAt?: number; runnerAlive?: boolean; placement?: {mode:"current"|"new";why:string} }
 export interface ModeData { mode: string; previous: string | null; strategy: string; at: number }
 export interface AlertData { key: string; level: Level; title: string; body: string; at: number; error?: string; notification?: NotificationData }
 export interface ConfigData { area: string; at: number }
@@ -51,6 +51,13 @@ function parseTask(d: unknown): TaskData | null {
       },
     } : {}),
     ...(isObj(d.placement) && ["current","new"].includes(String(d.placement.mode)) && typeof d.placement.why==="string" ? {placement:{mode:d.placement.mode as "current"|"new",why:d.placement.why.slice(0,240)}} : {}),
+    ...(isObj(d.stopPending) && Number.isSafeInteger(d.stopPending.attempt) && (d.stopPending.attempt as number) > 0 &&
+      num(d.stopPending.requestedAt) !== null && optStr(d.stopPending.providerId, 128) &&
+      Number.isSafeInteger(d.stopPending.graceMs) && (d.stopPending.graceMs as number) >= 0 &&
+      (d.stopPending.graceMs as number) <= 25_000 ? {stopPending: {
+        attempt: d.stopPending.attempt as number, requestedAt: num(d.stopPending.requestedAt)!,
+        providerId: optStr(d.stopPending.providerId, 128)!, graceMs: d.stopPending.graceMs as number,
+      }} : {}),
     ...(isObj(d.session) && ["builtin","orca","none"].includes(String(d.session.host)) && typeof d.session.live==='boolean' && num(d.session.viewers)!==null
       ? {session:{host:d.session.host as SessionData['host'],live:d.session.live,controller:optStr(d.session.controller,64),viewers:Math.max(0,Math.min(99,Math.floor(num(d.session.viewers)!)))}} : {}),
     ...(typeof d.terminalPresent==="boolean"?{terminalPresent:d.terminalPresent}:{}),

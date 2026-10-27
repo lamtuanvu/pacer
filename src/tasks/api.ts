@@ -64,6 +64,7 @@ export function parseDelegateBrief(raw: unknown, defaultRepo: string): DelegateI
 }
 export function summarizeTask(t: TaskRecord): Record<string, unknown> {
   return { ...(t.archived ? {archived:true, archive_path:t.archivePath} : {}), task_id:t.id, title:taskTitle(t), goal:clip(t.brief.goal, LIMITS.goal), state:t.state, kind:t.kind, requested_executor:t.requestedExecutor, ...(t.executorFallback ? {executor_fallback:t.executorFallback} : {}), placement:t.placement??null, queue:t.queue??null,
+    ...(t.stopPending ? {stop_pending:t.stopPending} : {}),
     attempts:t.attempts.map(a=>({executor:a.executor,exit_code:a.exitCode,limit_hit:a.limitHit,timed_out:a.timedOut,log:a.log})),
     ...(t.question ? {question:t.question} : {}),
     ...(t.reviewRequest ? {reviewRequest:t.reviewRequest} : {}),
@@ -328,15 +329,94 @@ export async function superviseTask(ctx: Ctx, id: string, spawn: SpawnRunner = s
 async function superviseTaskRecord(ctx: Ctx, t: TaskRecord, spawn: SpawnRunner, stopped: () => boolean = () => false): Promise<TaskRecord> {
   if (!["queued", "running"].includes(t.state)) return t;
   const id = t.id;
+  if (t.state === "running" && t.executorProvider && t.stopPending && t.run &&
+    !t.run.host && !t.startIntent) {
+    return withTaskLock(ctx, id, () => {
+      const latest = readTask(ctx, id);
+      if (!latest || latest.state !== "running" || !latest.stopPending ||
+        latest.startIntent || !latest.run || latest.run.dir !== t.run!.dir ||
+        latest.run.attempt !== t.stopPending!.attempt || latest.childPid ||
+        existsSync(`${latest.run.dir}/pid`) || existsSync(`${latest.run.dir}/exit`)) return latest ?? t;
+      return updateTask(ctx, id, current => {
+        const deadline = current.stopPending?.reason === "deadline";
+        delete current.stopPending;
+        delete current.runClaim;
+        delete current.run;
+        delete current.runnerPid;
+        current.state = deadline ? "failed" : "stopped";
+        current.result = { status: deadline ? "failed" : "stopped", executor: current.executor ?? null,
+          model: null, files: "", report: deadline ? "executor deadline reached before launch" :
+            "stopped before an executor ran", backend: "direct" };
+      });
+    });
+  }
+  if (t.state === "running" && t.executorProvider && t.stopPending && t.run && !t.run.host) {
+    try {
+      const { inspectOwnedExecutorRun } = await import("../plugins/executor-run-state");
+      const { stopOwnedExecutorAttempt } = await import("../plugins/executor-stop");
+      const { pluginRegistry } = await import("../plugins");
+      const intent = t.stopPending, owner = t.executorProvider, run = t.run;
+      let observed = inspectOwnedExecutorRun(ctx, id, run.attempt);
+      if (observed.state === "running") {
+        await stopOwnedExecutorAttempt(ctx, pluginRegistry(ctx), owner, id, run.attempt, intent.graceMs);
+        observed = inspectOwnedExecutorRun(ctx, id, run.attempt);
+      }
+      if (observed.state === "exited" && observed.exitCode !== null) {
+        return withTaskLock(ctx, id, () => {
+          const latest = readTask(ctx, id);
+          if (!latest || latest.state !== "running" || latest.executorProvider !== owner ||
+            latest.stopPending?.requestedAt !== intent.requestedAt ||
+            latest.stopPending.attempt !== run.attempt || latest.run?.dir !== run.dir ||
+            latest.run.startedAt !== run.startedAt || latest.attempts.length + 1 !== run.attempt)
+            return latest ?? t;
+          const checked = inspectOwnedExecutorRun(ctx, id, run.attempt);
+          if (checked.state !== "exited" || checked.exitCode !== observed.exitCode) return latest;
+          return updateTask(ctx, id, current => {
+            const deadline = current.stopPending?.reason === "deadline";
+            current.executorExitReceipt = { attempt: run.attempt, providerId: owner,
+              dir: run.dir, startedAt: run.startedAt, exitCode: checked.exitCode! };
+            current.attempts.push({ executor: run.executor, model: null,
+              startedAt: run.startedAt, endedAt: Date.now() / 1000,
+              exitCode: checked.exitCode!, timedOut: deadline, limitHit: false, log: run.logFile });
+            delete current.stopPending;
+            delete current.pendingAttempt;
+            delete current.childPid;
+            delete current.runnerPid;
+            current.state = deadline ? "failed" : "stopped";
+            current.result = { status: deadline ? "failed" : "stopped", executor: run.executor, model: null,
+              files: "", report: deadline ? "Executor deadline reached; wrapper exit verified" :
+                "Executor exited after stop was requested", backend: "direct" };
+          });
+        });
+      }
+    } catch { /* Preserve the pending intent for the next bounded reconciliation. */ }
+    return readTask(ctx, id) ?? t;
+  }
   const run = t.run, current = run && run.attempt > t.attempts.length;
   const deadRun = t.state === "running" && current && !alive(t.runnerPid);
+  const preparedOwnedRun = t.state === "running" && t.executorProvider === "pacer-exec-direct" &&
+    !t.run && !t.stopPending && !alive(t.runnerPid) &&
+    (!!t.worktreeIntent || !!t.runClaim || !!t.baseFetchIntent?.sha);
   const r = deadRun && !run.host ? await readRunLiveness(run.dir) : null;
   if (stopped()) return t;
   return withTaskLock(ctx, id, () => {
     // Repository IO yields; an independent runner may have settled meanwhile.
     const latest = readTask(ctx, id);
     if (!latest || latest.rev !== t.rev) return latest ?? t;
-    if (deadRun && (run.host || (r && (r.alive || r.exit !== null)))) {
+    if (latest.stopPending && latest.executorProvider && latest.state === "running" &&
+      !latest.run && !latest.childPid && !alive(latest.runnerPid)) {
+      return updateTask(ctx, id, current => {
+        if (!current.stopPending || current.run || current.childPid) return;
+        const deadline = current.stopPending.reason === "deadline";
+        delete current.stopPending;
+        delete current.runClaim;
+        current.state = deadline ? "failed" : "stopped";
+        current.result = { status: deadline ? "failed" : "stopped", executor: current.executor ?? null, model: null,
+          files: "", report: deadline ? "executor deadline reached before launch" :
+            "stopped before an executor ran", backend: "direct" };
+      });
+    }
+    if (preparedOwnedRun || deadRun && (run.host || (r && (r.alive || r.exit !== null)))) {
       if (!t.resumeSpawnedAt || ctx.now - t.resumeSpawnedAt >= 60) {
         let lease: string;
         try { lease = beginWorkSync(ctx, { kind: "task", id, label: `Recovering task ${id}` }); }
@@ -346,6 +426,7 @@ async function superviseTaskRecord(ctx: Ctx, t: TaskRecord, spawn: SpawnRunner, 
       }
       return readTask(ctx, id)!;
     }
+    if (latest.stopPending && latest.executorProvider && deadRun) return latest;
     const neverStarted = !t.queue && ["queued", "running"].includes(t.state) && !t.attemptStartedAt && !t.attempts.length && !alive(t.runnerPid) && ctx.now - t.createdAt > 600;
     if (neverStarted || (t.state === "running" && (t.attempts.length > 0 || t.attemptStartedAt !== undefined || ctx.now - t.createdAt > 600) && !alive(t.runnerPid))) {
       return updateTask(ctx, id, (x) => {
@@ -387,6 +468,11 @@ export function taskStop(ctx: Ctx, id: string): TaskRecord | null {
   const updated = withTaskLock(ctx, id, () => {
     const t = readTask(ctx, id);
     if (!t) return null;
+    if (t.stopPending) return t;
+    if (t.executorProvider && t.state === "running") return updateTask(ctx, id, current => {
+      current.stopPending = { attempt: current.run?.attempt ?? current.attempts.length + 1,
+        requestedAt: Date.now() / 1000, providerId: t.executorProvider!, graceMs: 5000, reason: "user" };
+    });
     if (t.state === "needs_input") return updateTask(ctx, id, x => {
       x.state = "stopped";
       if (x.result) x.result.status = "stopped";

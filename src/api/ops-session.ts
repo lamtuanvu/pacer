@@ -67,7 +67,8 @@ export const sessionOps: Record<string, OpDef> = {
           "conflict",
           "Session changed; refresh and try again",
         );
-      taskStop(ctx, p.id);
+      const stopped = taskStop(ctx, p.id);
+      if (stopped?.stopPending) return stopped;
       return updateTask(ctx, p.id, (t) => {
         t.conversation = {
           ...t.conversation,

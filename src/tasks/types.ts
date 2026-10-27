@@ -123,6 +123,23 @@ export interface RunRef {
 export interface ReviewRequest { note: string; at: number }
 
 export interface TaskRecord {
+  /** Host-authorized origin fetch is journaled before effect; unresolved outcomes cannot be retried. */
+  baseFetchIntent?: { attempt: number; providerId: string; repoTop: string;
+    originHash: string; base?: string; sha?: string };
+  /** Exact local attempt directory claimed before creation and cleared with the durable run reference. */
+  runClaim?: { attempt: number; providerId: string; executor: string; workdir: string; dir: string };
+  /** A wrapper start may have reached the OS; never authorize a second start for this attempt. */
+  startIntent?: { attempt: number; providerId: string; dir: string };
+  /** Host-verified exit of the exact provider-owned run, safe across later task revision changes. */
+  executorExitReceipt?: { attempt: number; providerId: string; dir: string; startedAt: number; exitCode: number };
+  /** Durable exact placement claimed before an executor-owned Git worktree effect. */
+  worktreeIntent?: { attempt: number; providerId: string; repoTop: string; repoMain: string;
+    path: string; workdir: string; branch: string; baseSha: string };
+  /** Persisted owner of a plugin-backed direct attempt, including before its run directory exists. */
+  executorProvider?: string;
+  /** A stop request is not terminal until the exact executor exit is verified. */
+  stopPending?: { attempt: number; requestedAt: number; providerId: string; graceMs: number;
+    reason?: "user" | "deadline" };
   sessionDraftId?: string;
   interactionMode?: InteractionMode;
   conversation?: ConversationState;

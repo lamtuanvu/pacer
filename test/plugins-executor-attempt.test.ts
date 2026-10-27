@@ -1,5 +1,5 @@
 import { expect, spyOn, test } from "bun:test";
-import { chmodSync, lstatSync, mkdirSync, mkdtempSync, renameSync, rmSync, symlinkSync } from "node:fs";
+import { chmodSync, lstatSync, mkdirSync, mkdtempSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fakeCtx } from "./helpers";
@@ -15,7 +15,7 @@ function fixture() {
   const ctx = fakeCtx({ home, pacerHome, now: Date.now() / 1000 });
   const task = createTask(ctx, { brief: { goal: "fixture", repo: home }, kind: null,
     requestedExecutor: "codex", timeoutS: 60 });
-  const running = updateTask(ctx, task.id, t => { t.state = "running"; t.executor = "codex"; });
+  const running = updateTask(ctx, task.id, t => { t.state = "running"; t.executor = "codex"; t.executorProvider = "fx-executor"; });
   return { home, ctx, task: running, cleanup: () => rmSync(home, { recursive: true, force: true }) };
 }
 
@@ -66,8 +66,52 @@ test("host refuses symlinked, permissive, and stale attempt directories before p
         "fx-executor", task.id, "codex", home)).rejects.toBeInstanceOf(CoreError);
       expect(called).toBe(false);
       expect(readTask(ctx, task.id)?.run).toBeUndefined();
+      if (bad === "stale") {
+        expect(readTask(ctx, task.id)?.runClaim).toBeUndefined();
+        await expect(runOwnedExecutorAttempt(ctx, { call: async () => { called = true; return {}; } },
+          "fx-executor", task.id, "codex", home)).rejects.toMatchObject({ code: "conflict" });
+        expect(called).toBe(false);
+      }
     } finally { cleanup(); }
   }
+});
+
+test("host recovers only its journaled empty attempt directory after a pre-publication crash", async () => {
+  const { home, ctx, task, cleanup } = fixture();
+  const dir = join(ctx.pacerHome, "runs", task.id, "1");
+  try {
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    updateTask(ctx, task.id, current => {
+      current.runClaim = { attempt: 1, providerId: "fx-executor", executor: "codex", workdir: home, dir };
+    });
+    let called = false;
+    await runOwnedExecutorAttempt(ctx, { call: async () => {
+      called = true;
+      return { status: "done", exitCode: 0, report: "recovered" };
+    } }, "fx-executor", task.id, "codex", home);
+    expect(called).toBe(true);
+    expect(readTask(ctx, task.id)?.run?.dir).toBe(dir);
+    expect(readTask(ctx, task.id)?.runClaim).toBeUndefined();
+  } finally { cleanup(); }
+});
+
+test("host refuses a journaled attempt directory containing an unbound process marker", async () => {
+  const { home, ctx, task, cleanup } = fixture();
+  const dir = join(ctx.pacerHome, "runs", task.id, "1");
+  try {
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    writeFileSync(join(dir, "pid"), "42\n", { mode: 0o600 });
+    updateTask(ctx, task.id, current => {
+      current.runClaim = { attempt: 1, providerId: "fx-executor", executor: "codex", workdir: home, dir };
+    });
+    let called = false;
+    await expect(runOwnedExecutorAttempt(ctx, { call: async () => {
+      called = true;
+      return { status: "done", exitCode: 0, report: "unsafe" };
+    } }, "fx-executor", task.id, "codex", home)).rejects.toMatchObject({ code: "conflict" });
+    expect(called).toBe(false);
+    expect(readTask(ctx, task.id)?.run).toBeUndefined();
+  } finally { cleanup(); }
 });
 
 test("host rejects a stale result after another owner changes the active attempt", async () => {

@@ -6,10 +6,12 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
+- Add plugin protocol 1.6 worktree consent and host-issued task placement methods. The bundled direct executor may inspect and resolve a local base, then create or recover one journaled task-owned worktree.
+- Add plugin protocol 1.7 host-issued local run claims. An exact task-owned directory and one-use start grant are published before the provider can launch; lost claim replies recover only an empty, unstarted run.
 - Split generated Rust executor and process capability types into the independent `pacer-plugin-exec-protocol` area, retaining the SDK type facade and keeping each generated crate within its size limit.
-- Bundle the staged direct executor reference plugin for `plugin list` and `plugin doctor`; it remains unavailable for production task dispatch while attempt ownership and recovery are completed.
-- Stage a one-use, host-issued stop for a persisted local executor wrapper. A changed owner or missing exit receipt refuses completion without retrying another process path; production task stopping still uses its existing route.
-- Stage read-only direct executor session inspection for an exact persisted local wrapper. A one-use host grant refuses stale or unissued reads, and the result distinguishes running, exited and uncertain; production resume and session routing still use their existing paths.
+- Bundle the direct executor reference plugin for `plugin list` and `plugin doctor`; selected local noninteractive direct attempts now use its host-issued process and worktree authority.
+- Route provider-owned local stops through a one-use host-issued grant for the persisted wrapper. A changed owner or missing exit receipt keeps the stop pending; deadline stops settle failed only after verified exit.
+- Resume provider-owned local attempts through a read-only host grant for the exact persisted wrapper. A lost result cannot start a second process; running, exited and uncertain remain distinct.
 - Route interactive full-session remote viewers through a one-use, persisted-run SSH plugin stream with bounded acknowledged input and output. Viewer detach or provider refusal closes the connection without direct SSH forwarding or exec fallback.
 - Add a host-only, one-use finalized bundle input that rechecks the persisted run and private publication, then supplies an immutable bounded byte snapshot for safe downstream Git consumption.
 - Stage the direct executor manifest and bounded availability, run, stop and progress contracts with a fake conformance plugin and owner-bound host progress updates; no attempt runner or production backend is switched yet.
@@ -21,6 +23,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Changed
 
+- Route local current and task-owned worktree attempts, including automatic child placement and same-owner retry reuse, through the bundled direct executor. The host journals default-origin fetch before placement and refuses an unresolved fetch or provider result without a built-in retry. Interactive and remote executor orchestration remain under extraction.
 - Stream an attached remote PTY viewer through bounded, one-use SSH plugin reads. Detach cancels the pending read, reconnect resumes from the committed cursor, and a refused read never falls back to direct SSH. Empty polls add about 200 ms plus SSH round-trip latency.
 - Start persisted remote runs through a one-use bundled SSH plugin grant with private stdin and a completion receipt. Launch input over 50 MiB is refused; uncertain starts do not retry through direct SSH.
 - Mirror full-session remote recordings through bounded, one-use SSH plugin reads. A changed or incomplete recording snapshot pauses that poll, and publication failures restore the prior local files without retrying direct SSH.

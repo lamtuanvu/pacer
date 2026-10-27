@@ -18,9 +18,72 @@ const spawnResult = z.object({
   output: z.object({ stdout: z.string().uuid(), stderr: z.string().uuid() }).optional(),
 }).refine(value => value.stderr !== undefined || value.output !== undefined);
 
+const ownedInput = z.object({
+  task: z.object({ id: z.string(), rev: z.number().int().positive() }).strict(),
+  attempt: z.number().int().positive(), runDir: z.literal(1),
+  owned: z.object({ placement: z.enum(["current", "new"]),
+    timeoutMs: z.number().int().positive().max(30 * 60 * 1000),
+    executor: z.string().min(1).max(256), model: z.string().max(256).nullable(),
+    resume: z.object({ startedAt: z.number().finite(), logFile: z.string().min(1).max(4096),
+      worktree: z.string().min(1).max(4096).optional() }).strict().optional() }).strict(),
+}).strict();
+
+async function runOwned(params: z.infer<typeof ownedInput>, host: Parameters<Handler>[1], signal: AbortSignal) {
+  const { task, attempt, owned } = params;
+  let worktree: string | undefined = owned.resume?.worktree;
+  if (!owned.resume && owned.placement === "new") {
+    const base = await host.call<{ base: string; sha: string }>("capability.worktree.resolveBase",
+      { taskId: task.id, attempt });
+    if (signal.aborted) throw new PluginError("plugin_unavailable", "executor placement was cancelled");
+    const placed = await host.call<{ workdir: string }>("capability.worktree.createOrReuse",
+      { taskId: task.id, attempt, baseSha: base.sha });
+    worktree = placed.workdir;
+  }
+  if (signal.aborted) throw new PluginError("plugin_unavailable", "executor claim was cancelled");
+  let startedAt = owned.resume?.startedAt, logFile = owned.resume?.logFile;
+  if (!owned.resume) {
+    const claim = await host.call<{ task: { id: string; rev: number }; attempt: number; runDir: 1;
+      dir: string; workdir: string; startedAt: number; logFile: string }>(
+      "capability.process.claimRun", { taskId: task.id, attempt });
+    if (worktree && claim.workdir !== worktree)
+      throw new PluginError("capability_denied", "executor worktree changed after placement");
+    startedAt = claim.startedAt;
+    logFile = claim.logFile;
+    if (signal.aborted) throw new PluginError("plugin_unavailable", "executor start was cancelled");
+    await host.call("capability.process.startRun", { task: claim.task, attempt, runDir: 1 });
+  }
+  const deadline = owned.resume ? owned.resume.startedAt * 1000 + owned.timeoutMs : Date.now() + owned.timeoutMs;
+  let uncertainSince: number | null = null;
+  for (;;) {
+    if (signal.aborted) throw new PluginError("plugin_unavailable", "executor run was cancelled; inspect the persisted wrapper");
+    const state = await host.call<{ state: "running" | "exited" | "uncertain"; exitCode: number | null }>(
+      "capability.process.pollRun", { taskId: task.id, attempt });
+    if (state.state === "exited" && state.exitCode !== null) {
+      const encoded = await host.call<{ stdoutBase64: string; stderrBase64: string }>(
+        "capability.process.readRunOutput", { taskId: task.id, attempt });
+      const stdout = Buffer.from(encoded.stdoutBase64, "base64").toString("utf8");
+      const stderr = Buffer.from(encoded.stderrBase64, "base64").toString("utf8");
+      const report = (stdout.trim() || stderr.trim()).slice(-4000);
+      return { backend: "direct", report, exec: { code: state.exitCode, stdout, stderr, timedOut: false },
+        attempt: { executor: owned.executor, model: owned.model,
+          startedAt: startedAt!, endedAt: Date.now() / 1000,
+          exitCode: state.exitCode, timedOut: false, limitHit: false, log: logFile! },
+        ...(worktree ? { worktree } : {}) };
+    }
+    uncertainSince = state.state === "uncertain" ? uncertainSince ?? Date.now() : null;
+    if (uncertainSince !== null && Date.now() - uncertainSince >= 5000)
+      throw new PluginError("plugin_unavailable", "executor wrapper state is uncertain; replacement launch refused");
+    if (Date.now() >= deadline)
+      throw new PluginError("plugin_timeout", "executor deadline reached; persisted wrapper requires stop reconciliation");
+    await Bun.sleep(200);
+  }
+}
+
 export const handlers = {
-  "executor.available": () => ({ available: false, reason: "Direct attempt dispatch is not yet routed to this plugin" }),
+  "executor.available": () => ({ available: true }),
   "executor.run": async (params, host, signal) => {
+    const owned = ownedInput.safeParse(params);
+    if (owned.success) return runOwned(owned.data, host, signal);
     const parsed = input.safeParse(params);
     if (!parsed.success) throw new PluginError("invalid_input", "direct process effect is required");
     if (signal.aborted) throw new PluginError("plugin_unavailable", "executor call was cancelled");

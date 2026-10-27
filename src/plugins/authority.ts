@@ -1,17 +1,37 @@
 import { scheduleDeadline } from "../deadline";
 import { randomUUID } from "node:crypto";
+import { realpathSync } from "node:fs";
 import type { ChildProcess } from "node:child_process";
 import { CoreError } from "../core/errors";
 import type { Ctx } from "../types";
 
 export interface CallResources {
+  /** Host-selected local run publication after placement, never derived from plugin params. */
+  executorClaim?: { taskId: string; attempt: number; providerId: string; executor: string; workdir: string;
+    launch: { argv: string[]; cwd: string; executable: string;
+      executableIdentity: { dev: number; ino: number; size: number; mtimeMs: number; mode: number };
+      env: Record<string, string>; stdin?: string } };
+  /** Restart may observe only the exact already-persisted wrapper; it cannot start one. */
+  executorObserve?: { taskId: string; attempt: number; providerId: string; executor: string;
+    workdir: string; dir: string; dirIdentity: { dev: number; ino: number }; startedAt: number };
+  /** Exact host-issued local Git placement; the plugin never selects a path or argv. */
+  worktree?: { taskId: string; rev: number; attempt: number; providerId: string;
+    homePath: string; homeReal: string; homeIdentity: { dev: number; ino: number };
+    homeTargetIdentity: { dev: number; ino: number };
+    repoSource: string; repoSourceReal: string; repoSourceIdentity: { dev: number; ino: number };
+    repoTop: string; repoMain: string; repoCommon: string;
+    repoTopIdentity: { dev: number; ino: number }; repoMainIdentity: { dev: number; ino: number };
+    repoCommonIdentity: { dev: number; ino: number }; sub: string; dirty: boolean; busy: boolean;
+    baseRepo: string; reusedWorkdir?: string;
+    base: string; baseSha: string; path: string; workdir: string; branch: string };
   /** One exact persisted detached wrapper read, issued by the service only. */
   detachedInspect?: { taskId: string; rev: number; attempt: number; dir: string;
     dirIdentity: { dev: number; ino: number }; startedAt: number; executor: string };
   /** One exact persisted detached wrapper stop, issued by the service only. */
   detachedStop?: { taskId: string; rev: number; attempt: number; dir: string;
     dirIdentity: { dev: number; ino: number }; pid: number; startedAt: number;
-    executor: string; graceMs: number };
+    executor: string; graceMs: number;
+    stopIntent?: { requestedAt: number; providerId: string } };
   /** One exact task-owned detached wrapper launch, issued by the service only. */
   detachedRun?: { taskId: string; rev: number; attempt: number; dir: string;
     dirIdentity: { dev: number; ino: number }; argv: string[]; cwd: string;
@@ -48,6 +68,8 @@ export interface CallResources {
   bundleStages?: BundleStageResource[];
   stores: { id: string; path: string; kind: "cache" | "cursors"; version?: number; root?: string }[];
 }
+type ClaimedRun = NonNullable<CallResources["detachedRun"]> &
+  { providerId: string; executor: string; startedAt: number; workdir: string };
 export interface HostOperationResource {
   alias: string;
   hostFingerprint: string;
@@ -85,6 +107,9 @@ export class CallAuthority {
   private detachedRunUsed = false;
   private detachedStopUsed = false;
   private detachedInspectUsed = false;
+  private worktreeCreateUsed = false;
+  private executorClaimUsed = false;
+  private claimedDetachedRun?: ClaimedRun;
   private readonly detach: () => void;
 
   constructor(readonly ctx: Ctx, resources: CallResources, readonly deadlineMs: number, parent?: AbortSignal, grants: readonly string[] = [], readonly accountHome: string | null = null,
@@ -131,11 +156,32 @@ export class CallAuthority {
     }
     if (this.resources.detachedStop) {
       Object.freeze(this.resources.detachedStop.dirIdentity);
+      if (this.resources.detachedStop.stopIntent) Object.freeze(this.resources.detachedStop.stopIntent);
       Object.freeze(this.resources.detachedStop);
     }
     if (this.resources.detachedInspect) {
       Object.freeze(this.resources.detachedInspect.dirIdentity);
       Object.freeze(this.resources.detachedInspect);
+    }
+    if (this.resources.worktree) {
+      Object.freeze(this.resources.worktree.homeIdentity);
+      Object.freeze(this.resources.worktree.homeTargetIdentity);
+      Object.freeze(this.resources.worktree.repoSourceIdentity);
+      Object.freeze(this.resources.worktree.repoTopIdentity);
+      Object.freeze(this.resources.worktree.repoMainIdentity);
+      Object.freeze(this.resources.worktree.repoCommonIdentity);
+      Object.freeze(this.resources.worktree);
+    }
+    if (this.resources.executorClaim) {
+      Object.freeze(this.resources.executorClaim.launch.argv);
+      Object.freeze(this.resources.executorClaim.launch.executableIdentity);
+      Object.freeze(this.resources.executorClaim.launch.env);
+      Object.freeze(this.resources.executorClaim.launch);
+      Object.freeze(this.resources.executorClaim);
+    }
+    if (this.resources.executorObserve) {
+      Object.freeze(this.resources.executorObserve.dirIdentity);
+      Object.freeze(this.resources.executorObserve);
     }
     Object.freeze(this.resources);
     const cancel = () => { void this.revoke().catch(() => {}); };
@@ -174,7 +220,7 @@ export class CallAuthority {
   }
   consumeDetachedRun(taskId: string, rev: number, attempt: number): NonNullable<CallResources["detachedRun"]> {
     this.assertGranted("process.spawn");
-    const grant = this.resources.detachedRun;
+    const grant = this.resources.detachedRun ?? this.claimedDetachedRun;
     if (!grant || this.detachedRunUsed || grant.taskId !== taskId || grant.rev !== rev || grant.attempt !== attempt)
       throw new CoreError("capability_denied", "detached run is not issued for this call");
     this.detachedRunUsed = true;
@@ -195,6 +241,61 @@ export class CallAuthority {
     if (!grant || this.detachedInspectUsed || grant.taskId !== taskId || grant.attempt !== attempt)
       throw new CoreError("capability_denied", "detached inspection is not issued for this call");
     this.detachedInspectUsed = true;
+    return grant;
+  }
+  worktreeGrant(taskId: string, attempt: number): NonNullable<CallResources["worktree"]> {
+    this.assertGranted("worktree");
+    const grant = this.resources.worktree;
+    if (!grant || grant.taskId !== taskId || grant.attempt !== attempt)
+      throw new CoreError("capability_denied", "worktree placement is not issued for this call");
+    return grant;
+  }
+  consumeWorktreeCreate(taskId: string, attempt: number, baseSha: string): NonNullable<CallResources["worktree"]> {
+    const grant = this.worktreeGrant(taskId, attempt);
+    if (this.worktreeCreateUsed || grant.baseSha !== baseSha)
+      throw new CoreError("capability_denied", "worktree effect is not issued for this call");
+    this.worktreeCreateUsed = true;
+    return grant;
+  }
+  consumeExecutorClaim(taskId: string, attempt: number): NonNullable<CallResources["executorClaim"]> {
+    this.assertGranted("process.spawn");
+    const grant = this.resources.executorClaim;
+    if (!grant || this.executorClaimUsed || grant.taskId !== taskId || grant.attempt !== attempt)
+      throw new CoreError("capability_denied", "executor run claim is not issued for this call");
+    if (this.resources.worktree && !this.worktreeCreateUsed)
+      throw new CoreError("capability_denied", "executor worktree effect has not completed");
+    this.executorClaimUsed = true;
+    return grant;
+  }
+  /** Host-only continuation after an exact durable run claim; never accepts a provider-supplied command. */
+  bindClaimedDetachedRun(grant: ClaimedRun): void {
+    this.assertGranted("process.spawn");
+    const issued = this.resources.executorClaim;
+    if (!this.executorClaimUsed || !issued || this.claimedDetachedRun || this.resources.detachedRun ||
+      grant.taskId !== issued.taskId || grant.attempt !== issued.attempt ||
+      grant.providerId !== issued.providerId || grant.executor !== issued.executor ||
+      grant.workdir !== issued.workdir ||
+      grant.cwd !== realpathSync(issued.launch.cwd) || grant.executable !== issued.launch.executable ||
+      JSON.stringify(grant.argv) !== JSON.stringify(issued.launch.argv))
+      throw new CoreError("capability_denied", "executor launch was not derived from this run claim");
+    this.claimedDetachedRun = Object.freeze({ ...grant, argv: Object.freeze([...grant.argv]) as string[],
+      env: Object.freeze({ ...grant.env }), dirIdentity: Object.freeze({ ...grant.dirIdentity }),
+      executableIdentity: Object.freeze({ ...grant.executableIdentity }),
+      cwdIdentity: Object.freeze({ ...grant.cwdIdentity }) });
+  }
+  claimedRun(taskId: string, attempt: number): ClaimedRun {
+    this.assertGranted("process.spawn");
+    const grant = this.claimedDetachedRun;
+    if (!grant || grant.taskId !== taskId || grant.attempt !== attempt)
+      throw new CoreError("capability_denied", "run observation is not issued for this call");
+    return grant;
+  }
+  observedRun(taskId: string, attempt: number) {
+    this.assertGranted("process.spawn");
+    const claim = this.claimedDetachedRun, resume = this.resources.executorObserve;
+    const grant = claim ?? resume;
+    if (!grant || grant.taskId !== taskId || grant.attempt !== attempt ||
+      (resume && claim)) throw new CoreError("capability_denied", "run observation is not issued for this call");
     return grant;
   }
   onRevoke(cleanup: () => void | Promise<void>): () => void {

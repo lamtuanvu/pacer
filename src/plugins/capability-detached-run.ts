@@ -16,7 +16,8 @@ export function answerDetachedRun(authority: CallAuthority, declaredScopes: read
   return withTaskLock(authority.ctx, grant.taskId, () => {
     authority.assertActive();
     const task = readTask(authority.ctx, grant.taskId);
-    if (!task || task.rev !== grant.rev || task.state !== "running" || !task.run || task.run.host ||
+    if (!task || task.rev !== grant.rev || task.state !== "running" || task.stopPending || !task.run || task.run.host ||
+      !task.executorProvider || task.startIntent?.attempt === grant.attempt ||
       task.run.attempt !== grant.attempt || task.run.dir !== grant.dir || task.run.executor !== task.executor ||
       task.attempts.length + 1 !== grant.attempt ||
       grant.dir !== join(authority.ctx.pacerHome, "runs", grant.taskId, String(grant.attempt))) return deny();
@@ -33,6 +34,9 @@ export function answerDetachedRun(authority: CallAuthority, declaredScopes: read
         !cwd.isDirectory() || cwd.dev !== grant.cwdIdentity.dev || cwd.ino !== grant.cwdIdentity.ino ||
         realpathSync(grant.cwd) !== grant.cwd) return deny();
     } catch { return deny(); }
+    updateTask(authority.ctx, grant.taskId, current => {
+      current.startIntent = { attempt: grant.attempt, providerId: current.executorProvider!, dir: grant.dir };
+    });
     const result = startRun({ dir: grant.dir, argv: [grant.executable, ...grant.argv.slice(1)], cwd: grant.cwd,
       env: { PATH: authority.ctx.env.PATH ?? "/usr/bin:/bin", ...grant.env, HOME: authority.ctx.home },
       stdin: grant.stdin, session: "pipe" });

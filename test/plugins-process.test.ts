@@ -21,7 +21,7 @@ const codeOf = async (x: Promise<unknown>) => { try { await x; return "no error"
 
 test("handshake, ping, stderr capture and terminate", async () => {
   const s = start("good", async m => (m === "capability.config.get" ? { config: {} } : {}));
-  expect(await s.hello()).toMatchObject({ id: "fx-good", protocol: "1.5.0" });
+  expect(await s.hello()).toMatchObject({ id: "fx-good", protocol: "1.7.0" });
   expect(await s.p.request("diagnostic.ping", {}, 5000)).toMatchObject({ ok: true });
   const end = Date.now() + 2000; while (!s.stderr.length && Date.now() < end) await Bun.sleep(10);
   expect(s.stderr[0]).toContain("fx-good: ping 1");

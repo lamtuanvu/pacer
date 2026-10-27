@@ -15,7 +15,11 @@ export async function answerDetachedStop(authority: CallAuthority, params: {
   const active = (effect?: "signal" | "write") => withTaskLock(authority.ctx, grant.taskId, () => {
     authority.assertActive();
     const task = readTask(authority.ctx, grant.taskId);
-    if (!task || task.rev !== grant.rev || task.state !== "running" || !task.run || task.run.host ||
+    if (!task || (grant.stopIntent ? task.executorProvider !== grant.stopIntent.providerId ||
+      !task.stopPending || task.stopPending.providerId !== grant.stopIntent.providerId ||
+      task.stopPending.requestedAt !== grant.stopIntent.requestedAt ||
+      task.stopPending.attempt !== grant.attempt || task.stopPending.graceMs !== grant.graceMs
+      : task.rev !== grant.rev) || task.state !== "running" || !task.run || task.run.host ||
       task.run.attempt !== grant.attempt || task.run.dir !== grant.dir ||
       task.run.startedAt !== grant.startedAt || task.run.executor !== grant.executor ||
       task.executor !== grant.executor || task.attempts.length + 1 !== grant.attempt ||

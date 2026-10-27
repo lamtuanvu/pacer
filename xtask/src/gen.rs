@@ -125,8 +125,8 @@ fn generate_area(schema_path: &Path, area: &str) -> Result<String, String> {
             let agent = name.starts_with("agentSession.");
             let dispatch = name.starts_with("observation.") || name.starts_with("decision.");
             let hosts = name.starts_with("hostRunner.") || name.starts_with("capability.hosts.");
-            let execution =
-                name.starts_with("executor.") || name.starts_with("capability.process.");
+            let execution = name.starts_with("executor.") ||
+                name.starts_with("capability.process.") || name.starts_with("capability.worktree.");
             match area {
                 "plugin-agent-protocol" => agent,
                 "plugin-dispatch-protocol" => dispatch,
