@@ -3,6 +3,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { CoreError } from "../core/errors";
 import type { CallAuthority } from "./authority";
 import { claimSessionDuplexPin } from "./capability-spawn";
+import { readDuplexChunk } from "./duplex-read";
 
 interface Connection {
   handle: string;
@@ -126,27 +127,8 @@ async function read(authority: CallAuthority, connection: Connection, length: nu
   if (connection.reading) throw new CoreError("conflict", "SSH duplex read is already pending");
   connection.reading = true;
   try {
-    return await bounded(authority, connection, timeoutMs, signal => new Promise<{ base64: string; eof: boolean }>((resolve, reject) => {
-      const stream = connection.child.stdout;
-      const cleanup = () => { if (poll) clearTimeout(poll); stream.off("readable", take); stream.off("end", ended); stream.off("close", ended); stream.off("error", failed); signal.removeEventListener("abort", cancelled); };
-      const done = (result: { base64: string; eof: boolean }) => { cleanup(); resolve(result); };
-      const failed = () => { cleanup(); reject(new CoreError("plugin_unavailable", "SSH duplex output failed")); };
-      const cancelled = () => { cleanup(); reject(signal.reason); };
-      const ended = () => done({ base64: "", eof: true });
-      const poll = pollMs ? setTimeout(() => done({ base64: "", eof: false }), pollMs) : undefined;
-      poll?.unref();
-      const take = () => {
-        const available = Math.min(length, stream.readableLength);
-        if (available > 0) {
-          const bytes = stream.read(available) as Buffer | null;
-          if (bytes) { done({ base64: bytes.toString("base64"), eof: false }); return; }
-        }
-        if (stream.readableEnded || connection.closed) ended();
-      };
-      stream.on("readable", take); stream.once("end", ended); stream.once("close", ended); stream.once("error", failed);
-      signal.addEventListener("abort", cancelled, { once: true });
-      if (signal.aborted) cancelled(); else take();
-    }));
+    return await bounded(authority, connection, timeoutMs, signal =>
+      readDuplexChunk(connection.child.stdout, length, signal, pollMs, () => connection.closed));
   } catch (error) {
     await close(authority, connection);
     throw error instanceof CoreError ? error : new CoreError("plugin_unavailable", "SSH duplex output failed");
