@@ -5,6 +5,19 @@ import type {
 } from "@pacer/plugin";
 import { PluginError } from "@pacer/plugin";
 
+/** A candidate native control path; the host must probe it before certification. */
+export function delegationControl(input: AgentVersion) {
+  switch (input.agent) {
+    case "claude-code": return {mechanism:"hook" as const,entryPoints:["Agent","Task"]};
+    case "codex": return {mechanism:"hook" as const,entryPoints:["spawn_agent"]};
+    case "cursor": return {mechanism:"hook" as const,entryPoints:["subagentStart"]};
+    case "opencode": return /^2\./.test(input.version)
+      ? {mechanism:"permission" as const,entryPoints:["subagent"],permissionAction:"subagent"}
+      : {mechanism:"permission" as const,entryPoints:["task"],permissionAction:"task"};
+    default: return {mechanism:"unsupported" as const,entryPoints:[],reason:`No native subagent control adapter for ${input.agent}`};
+  }
+}
+
 /** Inspect actual option tokens, not substrings such as --model-provider. */
 function hasOption(help: string, option: string): boolean {
   return new RegExp(`(?:^|[\\s,])${option}(?=[\\s,=<]|$)`).test(help);
@@ -94,6 +107,7 @@ export function identity(input: AgentIdentityInput): AgentIdentityPlan {
 }
 
 export const handlers = {
+  "agentSession.delegationControl": (input: unknown) => delegationControl(input as AgentVersion),
   "agentSession.identity": (input: unknown) => identity(input as AgentIdentityInput),
   "agentSession.capabilities": (input: unknown) => capabilities(input as AgentVersion),
   "agentSession.prepare": (input: unknown) => prepare(input as AgentSessionPrepare),

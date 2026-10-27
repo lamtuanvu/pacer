@@ -24,6 +24,24 @@ function stepTitle(id:string):string {return stepNames[id]??id.replaceAll("-"," 
 function capacityLabel(value:string):string {return value==="comfortable"?"Spare capacity":value==="usable"?"Some capacity":"Unknown capacity allowed";}
 function modelLabel(model:Pick<ModelRecord,"binding">):string {return model.binding.kind==="exact"?model.binding.id:"Agent default";}
 export interface DispatcherInventory {models:ModelRecord[];advertised:{runner:string;account:string;model:{id:string};authorized:boolean}[];observedAt:number|null}
+interface EnforcementReading {repo:string;scope:string;runners:{runner:string;account:string;agent:string;version:string|null;probeSupported:boolean;state:"certified"|"uncertified"|"stale";reason?:string;probedAt?:number;expiresAt?:number}[]}
+const enforcementStateCopy={certified:"Verified",uncertified:"Needs verification",stale:"Verification expired"};
+function nativeControlReasonCopy(reason:string,probeSupported=true):string {
+  if(reason.includes("no resolvable configuration folder"))return "Connect this account before verification";
+  if(!probeSupported||reason.includes("interactive launches")||reason.includes("conversation launches")||reason.includes("Project-level native control overrides"))return "Verification is not available for this executor yet";
+  if(reason.includes("not been verified")||reason.includes("is unverified"))return "Run verification before assigning managed work";
+  if(reason.includes("verification expired"))return "Run verification again";
+  if(reason.includes("configuration changed"))return "Executor settings changed; run verification again";
+  if(reason.includes("tool-result observation")||reason.includes("no native tool-result observer")||reason.includes("does not yet have a host-observed canary"))return "Verification is not available for this executor yet";
+  return "This executor cannot be verified in its current setup";
+}
+export function scopedEnforcementReading(reading:EnforcementReading|undefined,repo:string,repos:readonly {key:string;path:string}[]):EnforcementReading|undefined {
+  const path=repos.find(item=>item.key===repo)?.path??repo;
+  return reading?.repo===path?reading:undefined;
+}
+export function DispatcherEnforcementRows({reading,canProbe,probing,onProbe}:{reading:EnforcementReading;canProbe:boolean;probing:string|null;onProbe:(runner:string)=>void}){
+  return <>{reading.runners.map(item=><div className="u3-setting" key={item.runner}><div><strong>{executorLabel(item.runner)}</strong><div className="u3-muted">Account {item.account} · {item.version??"version unknown"} · {!item.probeSupported&&item.state!=="certified"?"Unavailable":enforcementStateCopy[item.state]}{item.reason?` · ${nativeControlReasonCopy(item.reason,item.probeSupported)}`:""}{!item.probeSupported&&item.state!=="certified"?<> · <TextAction href="#/settings/executors">View executor setup</TextAction>, then refresh status.</>:null}</div></div>{canProbe&&item.probeSupported&&item.state!=="certified"?<Button size="sm" busy={probing===item.runner} disabled={!!probing} onClick={()=>onProbe(item.runner)}>Verify control</Button>:null}</div>)}</>;
+}
 
 export function DispatcherModelInventory({inventory}:{inventory:DispatcherInventory}) {
   return <div className="pc-card">
@@ -39,7 +57,8 @@ function excludedCopy(reason:string):string {
   if(reason==="Quota exhausted")return "Account capacity is exhausted";
   if(reason==="Runner not healthy")return "Executor health check failed";
   if(reason==="Different pinned model")return "A different model was requested";
-  return "Not eligible for this task";
+  if(reason.startsWith("Native subagent control")||reason.includes("native control"))return nativeControlReasonCopy(reason);
+  return "This executor is not eligible for this task";
 }
 export function DispatcherPreviewResult({preview}:{preview:DispatchPreview}) {
   const proposal=preview.proposal;
@@ -47,7 +66,7 @@ export function DispatcherPreviewResult({preview}:{preview:DispatchPreview}) {
   return <div className="pc-card" role="status" aria-live="polite">
     <SectionHeading>Preview result</SectionHeading>
     {preview.validation!=="valid"?<p>{preview.validation==="timeout"?"The decision engine timed out.":"The decision engine returned an invalid choice."} Pacer {preview.recommendedAction==="queue"?"would queue this work.":"cannot select an executor."}</p>:proposal?.state==="ranked"&&top?<><p><strong>{executorLabel(top.executor)}</strong> · {modelLabel(top)} · {top.headroom===null?"Capacity unknown":`${Math.round(top.headroom)}% spare capacity`}</p><p>Matched step: {stepTitle(proposal.step)}. {top.actualModel?`Observed model ${top.actualModel}.`:"Exact model unknown."}</p>{proposal.choices.length>1&&<p>{proposal.choices.length-1} other eligible choice{proposal.choices.length===2?"":"s"}.</p>}</>:<p>{preview.recommendedAction==="queue"?"No eligible choice now. Pacer would queue this work.":"No eligible choice is available."}</p>}
-    {!!preview.excluded.length&&<div><strong>Not considered</strong><ul>{preview.excluded.map((item,index)=><li key={`${item.id}:${index}`}>{excludedCopy(item.reason)}</li>)}</ul></div>}
+    {!!preview.excluded.length&&<div><strong>Not considered</strong><ul>{preview.excluded.map((item,index)=><li key={`${item.id}:${index}`}>{executorLabel(item.id)}: {excludedCopy(item.reason)}</li>)}</ul></div>}
     {!!preview.uncertainty.length&&<p className="u3-muted">Some model or capacity readings are unknown. This preview uses cached readings and does not reserve an executor; the actual choice may change.</p>}
   </div>;
 }
@@ -175,6 +194,7 @@ function DispatcherContent({query,children}:{query:RouteQuery;children?:Componen
     {children}
     <DispatcherEditor key={config.data.strategy} view={config.data} call={api.call.bind(api)} onActivated={name=>{setActivationNotice(`${name} is active. Future dispatch decisions use this ladder.`);config.reload();models.reload();}}/>
     {activationNotice&&<p role="status" aria-live="polite">{activationNotice}</p>}
+    {state.features.ops.has("dispatch.enforcement")?<DispatcherEnforcement query={query}/>:<Section id="native-control" title="Native subagent control"><p>Update the service to inspect managed delegation enforcement.</p></Section>}
     <Section id="model-choices" title="Model choices" actions={state.features.ops.has("dispatch.refresh")?<Button busy={refreshing} onClick={()=>void refresh()}>Refresh readings</Button>:undefined}>
       <DispatcherReadError error={models.error&&models.data?models.error:undefined} reload={models.reload} subject="model choices"/>
       {models.data?<DispatcherModelInventory inventory={models.data}/>:<p role={models.error?"alert":undefined}>{models.error?"Model choices could not be loaded.":"Loading model choices…"}</p>}
@@ -182,6 +202,47 @@ function DispatcherContent({query,children}:{query:RouteQuery;children?:Componen
     </Section>
     {state.features.ops.has("dispatch.preview")&&<DispatcherPreviewForm query={query}/>}
   </>:<><Section id="dispatcher" title="Dispatcher"><p role={config.error?"alert":undefined}>{config.error?"Dispatcher settings could not be loaded.":"Loading dispatcher settings…"}</p></Section>{children}</>;
+}
+
+function DispatcherEnforcement({query}:{query:RouteQuery}){
+  const {state,api}=useTaskContext();
+  const repos=state.snapshot?.repos??[];
+  const [repo,setRepo]=useState(query.repo??repos[0]?.key??"");
+  const reading=useResource<EnforcementReading>("dispatch.enforcement",repo?{repo}:{repo:"."});
+  const currentReading=scopedEnforcementReading(reading.data,repo,repos);
+  const [probing,setProbing]=useState<string|null>(null),[probeError,setProbeError]=useState<unknown>(),[probeNotice,setProbeNotice]=useState("");
+  useEffect(()=>{if(!repo&&repos.length)setRepo(repos[0]!.key);},[repo,repos.length]);
+  const probe=async(runner:string)=>{
+    if(probing||!repo)return;
+    setProbing(runner);setProbeError(undefined);setProbeNotice("");
+    try{
+      const started=await api.call<{job:{id:string}}>("dispatch.enforcement.probe",{repo,runner});
+      setProbeNotice(`${executorLabel(runner)}: checking native child blocking…`);
+      const deadline=Date.now()+300000;
+      for(;;){
+        const job=await api.call<{state:string;error?:{message:string}}>("job.get",{id:started.job.id});
+        if(job.state!=="running"){
+          setProbeNotice(job.state==="passed"?`${executorLabel(runner)}: native child blocking verified.`:`${executorLabel(runner)}: verification could not complete. Review executor setup and try again.`);
+          reading.reload();break;
+        }
+        if(Date.now()>deadline)throw new Error("Control verification is still running. Refresh the status to see its result.");
+        await new Promise(resolve=>setTimeout(resolve,1500));
+      }
+    }
+    catch{setProbeError(new Error("Verification could not complete. Review executor setup and try again."));}finally{setProbing(null);}
+  };
+  return <Section id="native-control" title="Native subagent control" detail="Pacer checks native child blocking before admitting strict managed work.">
+    <div className="pc-card pc-stack pc-stack--normal">
+      <p>New managed work requires verified native subagent control. Executors can ask Pacer to delegate child work; Pacer selects and records it. This check covers supported native subagent tools when work starts, not arbitrary AI commands run through a shell.</p>
+      {repos.length?<Field label="Repository"><ChoicePicker value={repo} searchable options={repos.map(item=>({value:item.key,label:item.label}))} onValueChange={setRepo}/></Field>:<p>Select a repository to inspect its executor controls.</p>}
+      <div><Button size="sm" onClick={()=>reading.reload()} disabled={!repo}>Refresh status</Button></div>
+      <DispatcherReadError error={reading.error&&currentReading?reading.error:undefined} reload={reading.reload} subject="native subagent control"/>
+      {currentReading&&<DispatcherEnforcementRows reading={currentReading} canProbe={state.features.ops.has("dispatch.enforcement.probe")&&!!repo} probing={probing} onProbe={runner=>void probe(runner)}/>}
+      {!currentReading&&<p role={reading.error?"alert":undefined}>{reading.error?"Native control status could not be loaded.":"Loading native control status…"}</p>}
+      <p className="u3-muted">Verification starts the selected agent in a disposable repository and may use account quota.</p>
+      {probeNotice&&<p role="status">{probeNotice}</p>}<ErrorMessage error={probeError}/>
+    </div>
+  </Section>;
 }
 
 function DispatcherPreviewForm({query}:{query:RouteQuery}) {

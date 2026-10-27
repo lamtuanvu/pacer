@@ -2174,6 +2174,14 @@ Params JSON Schema:
             "complex"
           ]
         },
+        "delegationEnforcement": {
+          "default": "strict",
+          "type": "string",
+          "enum": [
+            "strict",
+            "cooperative"
+          ]
+        },
         "allowDelegation": {
           "default": false,
           "type": "boolean"
@@ -2322,6 +2330,87 @@ Params JSON Schema:
     "dependency",
     "reason",
     "expect_rev"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `dispatch.enforcement`
+
+Read native subagent control certification and exclusion reasons for a repository.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "repo": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    }
+  },
+  "required": [
+    "repo"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `dispatch.enforcement.denied`
+
+Record a native child denial for the authenticated strict attempt.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "agent": {
+      "type": "string",
+      "enum": [
+        "claude-code",
+        "codex",
+        "cursor"
+      ]
+    }
+  },
+  "required": [
+    "agent"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `dispatch.enforcement.probe`
+
+Start a quota-using native subagent control canary for one local executor and repository.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "repo": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "runner": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    }
+  },
+  "required": [
+    "repo",
+    "runner"
   ],
   "additionalProperties": false
 }
@@ -2542,6 +2631,13 @@ Params JSON Schema:
       "type": "string",
       "minLength": 1,
       "maxLength": 256
+    },
+    "delegationEnforcement": {
+      "type": "string",
+      "enum": [
+        "strict",
+        "cooperative"
+      ]
     }
   },
   "required": [
@@ -2814,6 +2910,14 @@ Params JSON Schema:
             "simple",
             "standard",
             "complex"
+          ]
+        },
+        "delegationEnforcement": {
+          "default": "strict",
+          "type": "string",
+          "enum": [
+            "strict",
+            "cooperative"
           ]
         },
         "allowDelegation": {

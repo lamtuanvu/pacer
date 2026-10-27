@@ -20,6 +20,34 @@ fn fixture() -> (tempfile::TempDir, Ctx) {
     (dir, ctx)
 }
 
+#[test]
+fn enforcement_identity_only_reaches_its_denial_operation() {
+    let (_dir, ctx) = fixture();
+    let token = auth::ensure_token(&ctx).unwrap();
+    let identity = format!("pet_{}", "a".repeat(64));
+    for (method, path, forwarded) in [
+        ("POST", "/v3/ops/dispatch.enforcement.denied", true),
+        ("POST", "/v3/ops/dispatch.child", false),
+        ("GET", "/v3/ops/dispatch.enforcement.denied", false),
+        ("GET", "/v3/snapshot", false),
+    ] {
+        let req = Request::builder()
+            .method(method)
+            .uri(path)
+            .header("host", "127.0.0.1:4317")
+            .header("authorization", format!("Bearer {identity}"))
+            .body(())
+            .unwrap();
+        match auth::classify(&req, 4317, &token, &ctx) {
+            Decision::Forward {
+                auth: AuthKind::Task,
+            } if forwarded => {}
+            Decision::Reject(response) if !forwarded => assert_eq!(response.status().as_u16(), 403),
+            _ => panic!("unexpected enforcement identity route: {method} {path}"),
+        }
+    }
+}
+
 #[tokio::test]
 async fn committed_auth_goldens() {
     let (_dir, ctx) = fixture();

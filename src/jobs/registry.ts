@@ -11,7 +11,7 @@ import type { Ctx } from "../types";
 
 export interface Job {
   id: string;
-  kind: "host.check" | "runner.check" | "host.repo.setup" | "host.clean" | "update.apply";
+  kind: "host.check" | "runner.check" | "host.repo.setup" | "host.clean" | "update.apply" | "enforcement.probe";
   target: string;
   state: "running" | "passed" | "failed" | "cancelled";
   steps: { name: string; state: "pending" | "running" | "passed" | "failed" | "skipped"; detail?: string }[];

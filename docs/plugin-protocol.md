@@ -1896,6 +1896,142 @@ Result:
 }
 ```
 
+### `agentSession.delegationControl`
+
+Describe a candidate native subagent blocking path; the host must probe before certification.
+
+Deadline: 5000 ms.
+
+Params:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "agent": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "help": {
+      "type": "string",
+      "maxLength": 100000
+    },
+    "resumeHelp": {
+      "type": "string",
+      "maxLength": 100000
+    },
+    "apiHelp": {
+      "type": "string",
+      "maxLength": 100000
+    }
+  },
+  "required": [
+    "agent",
+    "version"
+  ],
+  "additionalProperties": false
+}
+```
+
+Result:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "mechanism": {
+          "type": "string",
+          "const": "hook"
+        },
+        "entryPoints": {
+          "minItems": 1,
+          "maxItems": 8,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        }
+      },
+      "required": [
+        "mechanism",
+        "entryPoints"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "mechanism": {
+          "type": "string",
+          "const": "permission"
+        },
+        "entryPoints": {
+          "minItems": 1,
+          "maxItems": 8,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "permissionAction": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        }
+      },
+      "required": [
+        "mechanism",
+        "entryPoints",
+        "permissionAction"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "mechanism": {
+          "type": "string",
+          "const": "unsupported"
+        },
+        "entryPoints": {
+          "minItems": 0,
+          "maxItems": 0,
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        }
+      },
+      "required": [
+        "mechanism",
+        "entryPoints",
+        "reason"
+      ],
+      "additionalProperties": false
+    }
+  ]
+}
+```
+
 ### `agentSession.prepare`
 
 Prepare an interactive argument vector without credentials or spawning.

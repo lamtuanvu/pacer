@@ -2,13 +2,32 @@ import { expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { fakeCtx, gitRepo, realRun, tmpDir } from "./helpers";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
-import { registerWork, workTree, workTotals, listWork, issueWorkGrant, authorizeWorkGrant, revokeWorkGrants, setWorkDependencies, waiveWorkDependency, pendingChildren, pendingDependencies, workEvents,beginChildWait,endChildWait } from "../src/dispatch/work";
+import { registerWork, getWork, workOptionsSchema, workTree, workTotals, listWork, issueWorkGrant, authorizeWorkGrant, revokeWorkGrants, setWorkDependencies, waiveWorkDependency, pendingChildren, pendingDependencies, workEvents,beginChildWait,endChildWait } from "../src/dispatch/work";
 import {scopedWorkEvents} from "../src/core/work";
 import {appendWorkEvent,dispatchDatabase} from "../src/dispatch/store";
 import {main} from "../src/cli";
 import {retryWork,answerWork,reviewWork} from "../src/core/work";
 
 function root() {const ctx=fakeCtx();const task=createTask(ctx,{brief:{goal:"root",repo:tmpDir()},kind:"feature",requestedExecutor:null,timeoutS:600});registerWork(ctx,task.id,{allowDelegation:true});return {ctx,task};}
+test("new managed work is strict and a child cannot weaken enforcement",()=>{
+ const {ctx,task}=root();
+ expect(getWork(ctx,task.id)?.options.delegationEnforcement).toBe("strict");
+ updateTask(ctx,task.id,t=>{t.state="running";});
+ const child=createTask(ctx,{brief:{goal:"child",repo:task.brief.repo},kind:"debug",requestedExecutor:null,timeoutS:60});
+ expect(()=>registerWork(ctx,child.id,{delegationEnforcement:"cooperative"},task.id)).toThrow();
+ expect(registerWork(ctx,child.id,{},task.id).options.delegationEnforcement).toBe("strict");
+});
+test("old managed records retain cooperative enforcement",()=>{
+ const {ctx,task}=root(),db=dispatchDatabase(ctx);
+ const legacy=workOptionsSchema.parse({allowDelegation:true}) as Record<string,unknown>;
+ delete legacy.delegationEnforcement;
+ db.query("UPDATE work_nodes SET options=? WHERE task_id=?").run(JSON.stringify(legacy),task.id);
+ expect(getWork(ctx,task.id)?.options.delegationEnforcement).toBe("cooperative");
+});
+test("new roots cannot opt out of strict enforcement",()=>{
+ const ctx=fakeCtx(),task=createTask(ctx,{brief:{goal:"root",repo:tmpDir()},kind:"feature",requestedExecutor:null,timeoutS:600});
+ expect(()=>registerWork(ctx,task.id,{delegationEnforcement:"cooperative"})).toThrow();
+});
 test("work grant is attempt-bound and never stored in plaintext",()=>{
  const {ctx,task}=root();updateTask(ctx,task.id,t=>{t.state="running";});
  const token=issueWorkGrant(ctx,task.id,1); expect(authorizeWorkGrant(ctx,token).taskId).toBe(task.id);

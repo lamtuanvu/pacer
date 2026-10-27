@@ -37,6 +37,7 @@ import { type SuperviseEnd, supervise } from "../supervisor/supervise";
 import { receiveQuestion, transferBack, transferred } from "../remote/transfer";
 import { taskWorktreePath, createTaskWorktree, resolveWorktreeBase } from "../supervisor/worktree";
 import { gitFingerprint, idleSeconds, nextProgress } from "../supervisor/progress";
+import { strictClaudeLaunch } from "../dispatch/enforcement";
 
 export const REPORT_CHARS = 4000;
 
@@ -411,6 +412,7 @@ async function runAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, 
         ...(task.conversation?.agentSessionId ? {sessionId: task.conversation.agentSessionId} : agentSession ? {newSessionId: agentSession.id} : {}), ...(cfg.model ? {model: cfg.model} : {})});
       materializeAgentReporting(rdir, launch, env);
     } else launch = launchFor(cfg, prompt + instructions, workdir, rdir, task.id, agentSession?.id, "error" in git ? task.brief.repo : git.main);
+    if(env.PACER_ENFORCEMENT_MODE==="strict"&&agent==="claude-code")launch={...launch,argv:strictClaudeLaunch(ctx,launch.argv,rdir)};
     if (interactive) {
       const agent = parseRunnerId(cfg.id)?.agent ?? cfg.id;
       if (agent === "codex" && !conversation) await requireCodexInteractive(ctx, env);

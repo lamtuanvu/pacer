@@ -8,13 +8,15 @@ import { decisionHash, ladderEngine, runDecision, type DecisionEngine } from "..
 import { computeStatus, type Status } from "../engine/status";
 import { rankExecutors } from "../engine/rank";
 import { slotBlock, slotUse } from "../engine/slots";
-import { listTasksWhere } from "../tasks/store";
+import { listTasksWhere, readTask } from "../tasks/store";
 import { readHostReachability, remoteExclusion } from "../remote/eligibility";
 import { projectSnapshot, resolvePolicyRepoInput } from "./project-policy";
 import { CoreError } from "./errors";
 import { pluginDecisionEngine } from "../dispatch/plugin-adapters";
 import { storedObservations } from "../dispatch/refresh";
 import { applyLearnedFit } from "../dispatch/learning";
+import { getWork } from "../dispatch/work";
+import { enforcementExclusion } from "../dispatch/enforcement";
 
 export interface DispatchDependencies {
   strategy?: Strategy;
@@ -37,14 +39,16 @@ export async function previewDispatch(ctx: Ctx, input: unknown, deps: DispatchDe
   const status = await (deps.status ?? ((c, s) => computeStatus({ ...c, readOnly: true }, s, {cacheOnly: true})))(ctx, strategy);
   const existing = rankExecutors(brief.kind ?? null, strategy, Object.fromEntries(status.providers.map(p => [p.id, p])), selection && {executors: selection.executors, order: "configured"}, {includePlanner:deps.includePlanner});
   const excluded: DispatchPreview["excluded"] = existing.excluded.map(e => ({id: e.id, reason: e.reason}));
+  const strict = deps.taskId ? getWork(ctx,deps.taskId)?.options.delegationEnforcement === "strict" : brief.delegationEnforcement !== "cooperative";
   const use = slotUse(listTasksWhere(ctx, {states: ["running"], all: true}).filter(t=>t.id!==deps.taskId));
   const allowed = new Set<string>();
   for (const runner of existing.ranked) {
     const host = strategy.runners[runner.id].host;
     const cached = host ? readHostReachability(ctx, strategy.hosts[host]) : null;
     const unknownHost = host && (!cached || cached.at > ctx.now || ctx.now - cached.at >= 60);
-    const reason = deps.includePlanner && host ? "scoped child delegation requires local grant transport" : slotBlock(strategy, runner.id, use) ?? (unknownHost ? `host ${host} reachability unknown (cached preview)` : await remoteExclusion({ ...ctx, readOnly: true }, strategy, runner.id, {repo: repo.path, placement: "new"}, {reachable: async () => cached?.reachable === true, skipSlots: true}));
-    if (reason) excluded.push({id: runner.id, reason});
+    const reason = strict ? await enforcementExclusion(ctx,strategy,runner.id,repo.path,deps.taskId?readTask(ctx,deps.taskId)?.interactionMode==="conversation":false) : null;
+    const otherReason = deps.includePlanner && host ? "scoped child delegation requires local grant transport" : slotBlock(strategy, runner.id, use) ?? (unknownHost ? `host ${host} reachability unknown (cached preview)` : await remoteExclusion({ ...ctx, readOnly: true }, strategy, runner.id, {repo: repo.path, placement: "new"}, {reachable: async () => cached?.reachable === true, skipSlots: true}));
+    if (reason || otherReason) excluded.push({id: runner.id, reason: reason ?? otherReason!});
     else allowed.add(runner.id);
   }
   const declaredInventory = buildModelInventory(strategy, [], ctx.now).filter(m => allowed.has(m.runner));

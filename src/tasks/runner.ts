@@ -1,4 +1,7 @@
 import { getWork, pendingChildren, issueWorkGrant, revokeWorkGrants } from "../dispatch/work";
+import { issueEnforcementToken, revokeEnforcementTokens } from "../dispatch/enforcement-token";
+import { certificateEvidence, enforcementExclusion, resolveEnforcementTarget } from "../dispatch/enforcement";
+import { appendWorkEvent, dispatchDatabase, updateWorkDecision } from "../dispatch/store";
 import { resolveTaskDispatch, reserveDispatch, releaseDispatch, selectedDispatchModel } from "../dispatch/runtime";
 import {dispatchSettingsHash} from "../dispatch/learning";
 import type { Candidate, DispatchPreview } from "../dispatch/types";
@@ -21,7 +24,8 @@ import { readPause } from "../core/pause";
 import { drainQueue } from "./drain";
 import { type SpawnRunner } from "./api";
 import { createHash } from "node:crypto";
-import { appendFileSync, existsSync, readFileSync, realpathSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { join } from "node:path";
 import { gitInfo, realpathSafe } from "../core/git";
 import { worktreeUnchanged } from "../supervisor/worktree";
 import { withLock } from "../core/lock";
@@ -122,7 +126,7 @@ export async function runTask(ctx: Ctx, id: string, deps: RunnerDeps = DEFAULTS)
     finishWorkSync(ctx, lease);
     const current=readTask(ctx,id);
     if (getWork(ctx,id) && (current?.runnerPid===process.pid || TERMINAL_STATES.includes(current?.state??"queued"))) {
-      releaseDispatch(ctx,id); revokeWorkGrants(ctx,id);
+      releaseDispatch(ctx,id); revokeWorkGrants(ctx,id); revokeEnforcementTokens(ctx,id);
     }
     if (TERMINAL_STATES.includes(readTask(ctx, id)?.state ?? "queued")) {
       await drainQueue({...ctx, now: ctx.now + (Date.now() - startedAt)/1000}, deps.spawnRunner, {
@@ -298,9 +302,12 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
           }
           if (work && !pick && !paused) {
             const expired=work.options.expiresAt!==undefined&&work.options.expiresAt<=now;
+            const exclusion=decision?.excluded.find(e=>e.id===task.requestedExecutor)
+              ??decision?.excluded.find(e=>e.reason.includes("Native subagent control"))
+              ??decision?.excluded[0];
             task=updateTask(ctx,id,t=>{
               if(expired||decision?.recommendedAction==="fail"){t.state="failed";t.result={status:"failed",executor:null,model:null,files:"",report:expired?"Work expired in queue":"No dispatch candidate satisfies policy",backend:"direct"};delete t.queue;}
-              else {t.state="queued";t.queue={reason:"waiting_retry",detail:"Waiting for dispatch capacity or dependencies",since:initial.queue?.since??now,position:1,nextAt:now+30};}
+              else {t.state="queued";t.queue={reason:"waiting_retry",detail:exclusion?`${exclusion.id}: ${exclusion.reason}`:"Waiting for dispatch capacity or dependencies",since:initial.queue?.since??now,position:1,nextAt:now+30};}
               delete t.runnerPid;delete t.executor;delete t.attemptStartedAt;
             });return;
           }
@@ -373,7 +380,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
         const selectedRunner = resolveRunner(s, pick);
         if (selectedRunner) await ensureRunnerIntegration(ctx, selectedRunner);
       }
-      const backend = resuming || deps.runAttempt ? null : task.interactionMode === "conversation" || work?.options.allowDelegation ? directBackend : await selectBackend(ctx, s, undefined, pick);
+      const backend = resuming || deps.runAttempt ? null : task.interactionMode === "conversation" || work?.options.delegationEnforcement === "strict" ? directBackend : await selectBackend(ctx, s, undefined, pick);
       attemptedBackend = backend?.id ?? "direct";
       const account = resolveRunner(s, pick)?.account ?? pick;
       const usage = (st: Status | undefined): AttemptUsage => {
@@ -436,11 +443,33 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
           why: candidate.reason };
         task = updateTask(ctx, id, t => { t.pendingAttempt = { routing, usageAtStart }; });
       }
+      if(work?.options.delegationEnforcement==="strict"){
+        const checkedCtx={...ctx,now:Date.now()/1000};
+        const checkedRepo=task.repo?.path??task.brief.repo;
+        let reason=await enforcementExclusion(checkedCtx,s,pick,checkedRepo,task.interactionMode==="conversation");
+        let evidence:ReturnType<typeof certificateEvidence>|undefined;
+        if(!reason)try{evidence=certificateEvidence(checkedCtx,await resolveEnforcementTarget(checkedCtx,s,pick,checkedRepo));}
+        catch(error){reason=error instanceof Error?error.message:"Native subagent control is unverified";}
+        if(reason){
+          releaseDispatch(ctx,id);
+          task=updateTask(ctx,id,t=>{t.state="queued";t.queue={reason:"waiting_retry",detail:`Native subagent control unverified for ${pick}: ${reason}`,since:t.queue?.since??Date.now()/1000,position:1,nextAt:Date.now()/1000+30};delete t.runnerPid;delete t.executor;delete t.attemptStartedAt;delete t.run;});
+          return task;
+        }
+        const attempt=task.attempts.length+1;
+        updateWorkDecision(checkedCtx,id,attempt,{enforcement:evidence});
+        appendWorkEvent(checkedCtx,id,"enforcement.checked",{attempt,runner:pick,state:"certified",certificate:evidence});
+      }
       tried.add(pick);
       const selectedCandidate = dispatchCandidates.find(c=>c.runner===pick);
       if(selectedCandidate)triedCandidates.add(selectedCandidate.id);
       let executionCtx=ctx;
-      if(work?.options.allowDelegation){const token=issueWorkGrant({...ctx,now:Date.now()/1000},id,task.attempts.length+1);executionCtx={...ctx,env:{...ctx.env,PACER_WORK_GRANT:token}};}
+      if(work?.options.delegationEnforcement==="strict"){
+        const token=issueEnforcementToken({...ctx,now:Date.now()/1000},id,task.attempts.length+1);
+        const markerDir=join(ctx.pacerHome,"guard-failures");mkdirSync(markerDir,{recursive:true,mode:0o700});
+        const marker=join(markerDir,`${id}-${task.attempts.length+1}`);rmSync(marker,{force:true});
+        executionCtx={...executionCtx,env:{...executionCtx.env,PACER_ENFORCEMENT_MODE:"strict",PACER_ENFORCEMENT_TOKEN:token,PACER_GUARD_FAILURE_MARKER:marker}};
+      }
+      if(work?.options.allowDelegation){const token=issueWorkGrant({...ctx,now:Date.now()/1000},id,task.attempts.length+1);executionCtx={...executionCtx,env:{...executionCtx.env,PACER_WORK_GRANT:token}};}
 
       let out: AttemptOutcome;
       try {
@@ -453,6 +482,15 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
           exec: { code, stdout: "", stderr: String(error), timedOut: false },
           attempt: { executor: pick, model: cfg.model, startedAt: task.attemptStartedAt!, endedAt: Date.now()/1000, exitCode: code, timedOut: false, limitHit: false, log: "" },
         };
+      }
+      const failureMarker=executionCtx.env.PACER_GUARD_FAILURE_MARKER;
+      if(work?.options.delegationEnforcement==="strict"&&failureMarker&&existsSync(failureMarker)){
+        rmSync(failureMarker,{force:true});
+        const attempt=task.attempts.length+1,loss={at:Date.now()/1000,reason:"Native guard could not report its denial to the service"};
+        const row=dispatchDatabase(ctx).query<{data:string},[string,number]>("SELECT data FROM work_decisions WHERE task_id=? AND attempt=?").get(id,attempt);
+        const enforcement=row?(JSON.parse(row.data) as {enforcement?:Record<string,unknown>}).enforcement:undefined;
+        updateWorkDecision(ctx,id,attempt,{enforcement:{...enforcement,loss}});
+        appendWorkEvent({...ctx,now:loss.at},id,"enforcement.lost",{attempt,runner:pick,reason:loss.reason});
       }
       if (remoteSkipped.size) {
         const note = [...remoteSkipped].map(([id, reason]) => `skipped ${id}: ${reason}`).join("\n");
@@ -491,7 +529,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
         const reason = brokenReason(out.exec, duration, unchanged);
         if (reason) out.attempt.brokenReason = reason;
       }
-      if(work){releaseDispatch(ctx,id);revokeWorkGrants(ctx,id);}
+      if(work){releaseDispatch(ctx,id);revokeWorkGrants(ctx,id);revokeEnforcementTokens(ctx,id);}
       if(work)out.attempt.dispatchSettingsHash=dispatchSettingsHash(s,pick);
       out.attempt.routing = routing;
       out.attempt.usageAtStart = usageAtStart;

@@ -8,6 +8,8 @@ export function dispatchDatabase(ctx: Ctx) {
     CREATE TABLE IF NOT EXISTS work_nodes(task_id TEXT PRIMARY KEY, parent_id TEXT, root_id TEXT NOT NULL, depth INTEGER NOT NULL, options TEXT NOT NULL, dependencies TEXT NOT NULL DEFAULT '[]');
     CREATE INDEX IF NOT EXISTS work_root ON work_nodes(root_id);
     CREATE TABLE IF NOT EXISTS work_grants(hash TEXT PRIMARY KEY, task_id TEXT NOT NULL, attempt INTEGER NOT NULL, expires REAL NOT NULL, revoked INTEGER NOT NULL DEFAULT 0);
+    CREATE TABLE IF NOT EXISTS enforcement_tokens(hash TEXT PRIMARY KEY, task_id TEXT NOT NULL, attempt INTEGER NOT NULL, expires REAL NOT NULL, revoked INTEGER NOT NULL DEFAULT 0);
+    CREATE TABLE IF NOT EXISTS enforcement_certificates(target TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, probed_at REAL NOT NULL, expires REAL NOT NULL, evidence TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS work_events(seq INTEGER PRIMARY KEY AUTOINCREMENT, root_id TEXT NOT NULL, task_id TEXT NOT NULL, at REAL NOT NULL, kind TEXT NOT NULL, data TEXT NOT NULL);
     CREATE INDEX IF NOT EXISTS work_event_root ON work_events(root_id,seq);
     CREATE TABLE IF NOT EXISTS work_decisions(task_id TEXT NOT NULL, attempt INTEGER NOT NULL, data TEXT NOT NULL, PRIMARY KEY(task_id,attempt));
@@ -24,6 +26,7 @@ export function dispatchDatabase(ctx: Ctx) {
       INSERT INTO work_events(root_id,task_id,at,kind,data) SELECT root_id,NEW.id,NEW.updated_at,'task.changed',json_object('state',NEW.state,'rev',NEW.rev) FROM work_nodes WHERE task_id=NEW.id;
       DELETE FROM work_reservations WHERE task_id=NEW.id AND NEW.state NOT IN ('running');
       UPDATE work_grants SET revoked=1 WHERE task_id=NEW.id AND NEW.state NOT IN ('running');
+      UPDATE enforcement_tokens SET revoked=1 WHERE task_id=NEW.id AND NEW.state NOT IN ('running');
       UPDATE work_waits SET total_seconds=total_seconds+CASE WHEN started_at IS NULL THEN 0 ELSE max(0,NEW.updated_at-started_at) END,started_at=NULL,refs=0 WHERE task_id=NEW.id AND NEW.state IN ('done','partial','failed','limit','stopped','needs_input');
     END;
     CREATE TRIGGER IF NOT EXISTS work_capacity_open AFTER UPDATE ON tasks WHEN EXISTS(SELECT 1 FROM work_nodes WHERE task_id=NEW.id) AND NEW.state='queued' AND json_extract(NEW.record,'$.queue.reason')='no_slot' BEGIN
@@ -51,4 +54,10 @@ export function boundedJson(value: unknown): string {
 export function appendWorkEvent(ctx: Ctx, taskId: string, kind: string, data: unknown): void {
   const db = dispatchDatabase(ctx);
   db.query(`INSERT INTO work_events(root_id,task_id,at,kind,data) SELECT root_id,task_id,?,?,? FROM work_nodes WHERE task_id=?`).run(ctx.now, kind, boundedJson(data), taskId);
+}
+export function updateWorkDecision(ctx:Ctx,taskId:string,attempt:number,patch:Record<string,unknown>):void {
+  const db=dispatchDatabase(ctx);
+  const row=db.query<{data:string},[string,number]>("SELECT data FROM work_decisions WHERE task_id=? AND attempt=?").get(taskId,attempt);
+  if(!row)throw new CoreError("conflict","Dispatch decision is missing for this attempt");
+  db.query("UPDATE work_decisions SET data=? WHERE task_id=? AND attempt=?").run(boundedJson({...JSON.parse(row.data),...patch}),taskId,attempt);
 }

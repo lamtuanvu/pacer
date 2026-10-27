@@ -4,6 +4,10 @@ import { listDispatchModels, refreshObservations } from "../dispatch/refresh";
 import { dispatchAnalytics, resetLearning, recordWorkReview } from "../dispatch/learning";
 import { getWork } from "../dispatch/work";
 import { dispatchConfigSchema, previewInputSchema } from "../dispatch/types";
+import { enforcementDiagnostics, probeNativeControl } from "../dispatch/enforcement";
+import { authorizeEnforcementToken } from "../dispatch/enforcement-token";
+import { appendWorkEvent, dispatchDatabase, updateWorkDecision } from "../dispatch/store";
+import { enforcementExclusion } from "../dispatch/enforcement";
 import { clientControlOps } from "./ops-client-control";
 import pkg from "../../package.json";
 import { PROTOCOL_VERSION } from "./protocol";
@@ -441,6 +445,23 @@ export const OPS: Record<string, OpDef> = {
   "limits.report": op({ description: "Mark a provider's account exhausted until unix seconds or its cooldown.", params: z.object({ provider: id, until: z.number().optional() }), handler: (ctx, p) => core.limits.report(ctx, p.provider, p.until) }),
   "routing.status": op({ description: "Current budget and routing status.", params: z.object({}), handler: (ctx) => core.routing.status(ctx) }),
   "dispatch.config.get": op({description:"Read the active planner and effective dispatcher configuration, including built-in defaults.",params:z.object({}),handler:ctx=>{const current=loadStrategy(ctx);return {strategy:current.name,planner:current.planner.agent,plannerAccount:current.planner.account,source:current.dispatch?"strategy":"built-in",config:current.dispatch??dispatchConfigSchema.parse({})};}}),
+  "dispatch.enforcement": op({description:"Read native subagent control certification and exclusion reasons for a repository.",params:z.object({repo:z.string().min(1).max(4096)}),handler:async(ctx,p)=>{const repo=await resolvePolicyRepoInput(ctx,p.repo);return enforcementDiagnostics(ctx,loadStrategy(ctx),repo.path);}}),
+  "dispatch.enforcement.probe": op({description:"Start a quota-using native subagent control canary for one local executor and repository.",params:z.object({repo:z.string().min(1).max(4096),runner:id}),handler:async(ctx,p)=>{const repo=await resolvePolicyRepoInput(ctx,p.repo);const chosen=loadStrategy(ctx);const job=await startJob(ctx,"enforcement.probe",`${p.runner}:${repo.path}`,["Probe native child control"],async step=>{step.start("Probe native child control");const result=await probeNativeControl({...ctx,now:Date.now()/1000},chosen,p.runner,repo.path);if(result.state!=="certified")throw new CoreError("not_allowed",result.reason??"Native child blocking was not observed");step.pass("Probe native child control","Native child blocking verified");});return{job};}}),
+  "dispatch.enforcement.denied": op({description:"Record a native child denial for the authenticated strict attempt.",params:z.object({agent:z.enum(["claude-code","codex","cursor"])}),handler:async(ctx,p)=>{
+    const attempt=authorizeEnforcementToken(ctx,ctx.env.PACER_ENFORCEMENT_TOKEN??"");
+    appendWorkEvent(ctx,attempt.taskId,"native-child.denied",{agent:p.agent,attempt:attempt.attempt});
+    const task=readTask(ctx,attempt.taskId);
+    if(task?.executor){
+      const reason=await enforcementExclusion(ctx,loadStrategy(ctx),task.executor,task.repo?.path??task.brief.repo);
+      if(reason){
+        const row=dispatchDatabase(ctx).query<{data:string},[string,number]>("SELECT data FROM work_decisions WHERE task_id=? AND attempt=?").get(attempt.taskId,attempt.attempt);
+        const existing=row?(JSON.parse(row.data) as {enforcement?:Record<string,unknown>}).enforcement:undefined;
+        updateWorkDecision(ctx,attempt.taskId,attempt.attempt,{enforcement:{...existing,loss:{at:ctx.now,reason}}});
+        appendWorkEvent(ctx,attempt.taskId,"enforcement.lost",{attempt:attempt.attempt,runner:task.executor,reason});
+      }
+    }
+    return{recorded:true};
+  }}),
   "dispatch.preview": op({ description: "Preview account/model dispatch using cached observations and the replaceable decision engine. Does not reserve capacity or launch work.", params: previewInputSchema, handler: (ctx, p) => core.dispatch.previewDispatch(ctx, p) }),
   "dispatch.submit": op({ description: "Submit a root work item to the dispatcher.", params: z.object({goal:z.string().min(1).max(20000),repo:z.string().min(1).max(4096),title:z.string().max(500).optional(),kind:id.optional(),acceptance:z.string().max(20000).optional(),context:z.string().max(20000).optional(),constraints:z.string().max(20000).optional(),executor:id.optional(),requestId:id.optional(),options:workOptionsSchema.partial().optional()}),handler:async(ctx,p,deps)=>summarizeTask(await submitWork(ctx,p,deps.spawnRunner??spawnRunner)) }),
   "dispatch.child": op({ description: "Delegate a scoped child work item using the current attempt's grant and an idempotency key.", params: z.object({goal:z.string().min(1).max(20000),title:z.string().max(500).optional(),kind:id.optional(),acceptance:z.string().max(20000).optional(),context:z.string().max(20000).optional(),constraints:z.string().max(20000).optional(),executor:id.optional(),requestId:id,options:workOptionsSchema.partial().optional()}),handler:async(ctx,p,deps)=>summarizeTask(await delegateChild(ctx,p,deps.spawnRunner??spawnRunner)) }),

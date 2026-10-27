@@ -62,6 +62,7 @@ export const candidateSchema = modelRecordSchema.extend({
 export const previewInputSchema = z.object({
   repo: z.string().min(1).max(4096), goal: z.string().min(1).max(8000), kind: name.optional(),
   requirements: requirementsSchema.default({}), preferences: preferencesSchema.default({ models: [], strengths: [] }), model: name.optional(),
+  delegationEnforcement: z.enum(["strict","cooperative"]).optional(),
 }).strict();
 export const decisionRequestSchema = z.object({
   schemaVersion: z.literal(1), requestId: name, now: z.number().finite(), deadline: z.number().finite(),

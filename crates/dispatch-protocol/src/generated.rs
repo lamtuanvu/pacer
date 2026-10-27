@@ -384,6 +384,14 @@ impl<'de> ::serde::Deserialize<'de> for DispatchAnswerParamsText {
 ///          "default": false,
 ///          "type": "boolean"
 ///        },
+///        "delegationEnforcement": {
+///          "default": "strict",
+///          "type": "string",
+///          "enum": [
+///            "strict",
+///            "cooperative"
+///          ]
+///        },
 ///        "difficulty": {
 ///          "default": "standard",
 ///          "type": "string",
@@ -874,6 +882,14 @@ impl<'de> ::serde::Deserialize<'de> for DispatchChildParamsKind {
 ///      "default": false,
 ///      "type": "boolean"
 ///    },
+///    "delegationEnforcement": {
+///      "default": "strict",
+///      "type": "string",
+///      "enum": [
+///        "strict",
+///        "cooperative"
+///      ]
+///    },
 ///    "difficulty": {
 ///      "default": "standard",
 ///      "type": "string",
@@ -1000,6 +1016,11 @@ impl<'de> ::serde::Deserialize<'de> for DispatchChildParamsKind {
 pub struct DispatchChildParamsOptions {
     #[serde(rename = "allowDelegation", default)]
     pub allow_delegation: bool,
+    #[serde(
+        rename = "delegationEnforcement",
+        default = "defaults::dispatch_child_params_options_delegation_enforcement"
+    )]
+    pub delegation_enforcement: DispatchChildParamsOptionsDelegationEnforcement,
     #[serde(default = "defaults::dispatch_child_params_options_difficulty")]
     pub difficulty: DispatchChildParamsOptionsDifficulty,
     #[serde(
@@ -1049,6 +1070,8 @@ impl ::std::default::Default for DispatchChildParamsOptions {
     fn default() -> Self {
         Self {
             allow_delegation: Default::default(),
+            delegation_enforcement: defaults::dispatch_child_params_options_delegation_enforcement(
+            ),
             difficulty: defaults::dispatch_child_params_options_difficulty(),
             estimate_pct: Default::default(),
             expires_at: Default::default(),
@@ -1062,6 +1085,73 @@ impl ::std::default::Default for DispatchChildParamsOptions {
             priority: Default::default(),
             requirements: Default::default(),
         }
+    }
+}
+///`DispatchChildParamsOptionsDelegationEnforcement`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "default": "strict",
+///  "type": "string",
+///  "enum": [
+///    "strict",
+///    "cooperative"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum DispatchChildParamsOptionsDelegationEnforcement {
+    #[serde(rename = "strict")]
+    Strict,
+    #[serde(rename = "cooperative")]
+    Cooperative,
+}
+impl ::std::convert::From<&Self> for DispatchChildParamsOptionsDelegationEnforcement {
+    fn from(value: &DispatchChildParamsOptionsDelegationEnforcement) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for DispatchChildParamsOptionsDelegationEnforcement {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Strict => f.write_str("strict"),
+            Self::Cooperative => f.write_str("cooperative"),
+        }
+    }
+}
+impl ::std::str::FromStr for DispatchChildParamsOptionsDelegationEnforcement {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "strict" => Ok(Self::Strict),
+            "cooperative" => Ok(Self::Cooperative),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for DispatchChildParamsOptionsDelegationEnforcement {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::default::Default for DispatchChildParamsOptionsDelegationEnforcement {
+    fn default() -> Self {
+        DispatchChildParamsOptionsDelegationEnforcement::Strict
     }
 }
 ///`DispatchChildParamsOptionsDifficulty`
@@ -2036,6 +2126,328 @@ impl<'de> ::serde::Deserialize<'de> for DispatchDependenciesWaiveParamsReason {
             })
     }
 }
+///`DispatchEnforcementDeniedParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "agent"
+///  ],
+///  "properties": {
+///    "agent": {
+///      "type": "string",
+///      "enum": [
+///        "claude-code",
+///        "codex",
+///        "cursor"
+///      ]
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct DispatchEnforcementDeniedParams {
+    pub agent: DispatchEnforcementDeniedParamsAgent,
+}
+///`DispatchEnforcementDeniedParamsAgent`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "enum": [
+///    "claude-code",
+///    "codex",
+///    "cursor"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum DispatchEnforcementDeniedParamsAgent {
+    #[serde(rename = "claude-code")]
+    ClaudeCode,
+    #[serde(rename = "codex")]
+    Codex,
+    #[serde(rename = "cursor")]
+    Cursor,
+}
+impl ::std::convert::From<&Self> for DispatchEnforcementDeniedParamsAgent {
+    fn from(value: &DispatchEnforcementDeniedParamsAgent) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for DispatchEnforcementDeniedParamsAgent {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::ClaudeCode => f.write_str("claude-code"),
+            Self::Codex => f.write_str("codex"),
+            Self::Cursor => f.write_str("cursor"),
+        }
+    }
+}
+impl ::std::str::FromStr for DispatchEnforcementDeniedParamsAgent {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "claude-code" => Ok(Self::ClaudeCode),
+            "codex" => Ok(Self::Codex),
+            "cursor" => Ok(Self::Cursor),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for DispatchEnforcementDeniedParamsAgent {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`DispatchEnforcementParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "repo"
+///  ],
+///  "properties": {
+///    "repo": {
+///      "type": "string",
+///      "maxLength": 4096,
+///      "minLength": 1
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct DispatchEnforcementParams {
+    pub repo: DispatchEnforcementParamsRepo,
+}
+///`DispatchEnforcementParamsRepo`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 4096,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct DispatchEnforcementParamsRepo(::std::string::String);
+impl ::std::ops::Deref for DispatchEnforcementParamsRepo {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<DispatchEnforcementParamsRepo> for ::std::string::String {
+    fn from(value: DispatchEnforcementParamsRepo) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for DispatchEnforcementParamsRepo {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 4096usize {
+            return Err("longer than 4096 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for DispatchEnforcementParamsRepo {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for DispatchEnforcementParamsRepo {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`DispatchEnforcementProbeParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "repo",
+///    "runner"
+///  ],
+///  "properties": {
+///    "repo": {
+///      "type": "string",
+///      "maxLength": 4096,
+///      "minLength": 1
+///    },
+///    "runner": {
+///      "type": "string",
+///      "maxLength": 128,
+///      "minLength": 1
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct DispatchEnforcementProbeParams {
+    pub repo: DispatchEnforcementProbeParamsRepo,
+    pub runner: DispatchEnforcementProbeParamsRunner,
+}
+///`DispatchEnforcementProbeParamsRepo`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 4096,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct DispatchEnforcementProbeParamsRepo(::std::string::String);
+impl ::std::ops::Deref for DispatchEnforcementProbeParamsRepo {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<DispatchEnforcementProbeParamsRepo> for ::std::string::String {
+    fn from(value: DispatchEnforcementProbeParamsRepo) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for DispatchEnforcementProbeParamsRepo {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 4096usize {
+            return Err("longer than 4096 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for DispatchEnforcementProbeParamsRepo {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for DispatchEnforcementProbeParamsRepo {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`DispatchEnforcementProbeParamsRunner`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 128,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct DispatchEnforcementProbeParamsRunner(::std::string::String);
+impl ::std::ops::Deref for DispatchEnforcementProbeParamsRunner {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<DispatchEnforcementProbeParamsRunner> for ::std::string::String {
+    fn from(value: DispatchEnforcementProbeParamsRunner) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for DispatchEnforcementProbeParamsRunner {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 128usize {
+            return Err("longer than 128 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for DispatchEnforcementProbeParamsRunner {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for DispatchEnforcementProbeParamsRunner {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
 ///`DispatchEventsParams`
 ///
 /// <details><summary>JSON schema</summary>
@@ -2585,6 +2997,13 @@ impl ::std::default::Default for DispatchModelsParams {
 ///    "requirements"
 ///  ],
 ///  "properties": {
+///    "delegationEnforcement": {
+///      "type": "string",
+///      "enum": [
+///        "strict",
+///        "cooperative"
+///      ]
+///    },
 ///    "goal": {
 ///      "type": "string",
 ///      "maxLength": 8000,
@@ -2670,6 +3089,12 @@ impl ::std::default::Default for DispatchModelsParams {
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct DispatchPreviewParams {
+    #[serde(
+        rename = "delegationEnforcement",
+        default,
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub delegation_enforcement: ::std::option::Option<DispatchPreviewParamsDelegationEnforcement>,
     pub goal: DispatchPreviewParamsGoal,
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub kind: ::std::option::Option<DispatchPreviewParamsKind>,
@@ -2678,6 +3103,67 @@ pub struct DispatchPreviewParams {
     pub preferences: DispatchPreviewParamsPreferences,
     pub repo: DispatchPreviewParamsRepo,
     pub requirements: DispatchPreviewParamsRequirements,
+}
+///`DispatchPreviewParamsDelegationEnforcement`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "enum": [
+///    "strict",
+///    "cooperative"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum DispatchPreviewParamsDelegationEnforcement {
+    #[serde(rename = "strict")]
+    Strict,
+    #[serde(rename = "cooperative")]
+    Cooperative,
+}
+impl ::std::convert::From<&Self> for DispatchPreviewParamsDelegationEnforcement {
+    fn from(value: &DispatchPreviewParamsDelegationEnforcement) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for DispatchPreviewParamsDelegationEnforcement {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Strict => f.write_str("strict"),
+            Self::Cooperative => f.write_str("cooperative"),
+        }
+    }
+}
+impl ::std::str::FromStr for DispatchPreviewParamsDelegationEnforcement {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "strict" => Ok(Self::Strict),
+            "cooperative" => Ok(Self::Cooperative),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for DispatchPreviewParamsDelegationEnforcement {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
 }
 ///`DispatchPreviewParamsGoal`
 ///
@@ -3780,6 +4266,14 @@ impl<'de> ::serde::Deserialize<'de> for DispatchStopParamsId {
 ///          "default": false,
 ///          "type": "boolean"
 ///        },
+///        "delegationEnforcement": {
+///          "default": "strict",
+///          "type": "string",
+///          "enum": [
+///            "strict",
+///            "cooperative"
+///          ]
+///        },
 ///        "difficulty": {
 ///          "default": "standard",
 ///          "type": "string",
@@ -4280,6 +4774,14 @@ impl<'de> ::serde::Deserialize<'de> for DispatchSubmitParamsKind {
 ///      "default": false,
 ///      "type": "boolean"
 ///    },
+///    "delegationEnforcement": {
+///      "default": "strict",
+///      "type": "string",
+///      "enum": [
+///        "strict",
+///        "cooperative"
+///      ]
+///    },
 ///    "difficulty": {
 ///      "default": "standard",
 ///      "type": "string",
@@ -4406,6 +4908,11 @@ impl<'de> ::serde::Deserialize<'de> for DispatchSubmitParamsKind {
 pub struct DispatchSubmitParamsOptions {
     #[serde(rename = "allowDelegation", default)]
     pub allow_delegation: bool,
+    #[serde(
+        rename = "delegationEnforcement",
+        default = "defaults::dispatch_submit_params_options_delegation_enforcement"
+    )]
+    pub delegation_enforcement: DispatchSubmitParamsOptionsDelegationEnforcement,
     #[serde(default = "defaults::dispatch_submit_params_options_difficulty")]
     pub difficulty: DispatchSubmitParamsOptionsDifficulty,
     #[serde(
@@ -4455,6 +4962,8 @@ impl ::std::default::Default for DispatchSubmitParamsOptions {
     fn default() -> Self {
         Self {
             allow_delegation: Default::default(),
+            delegation_enforcement: defaults::dispatch_submit_params_options_delegation_enforcement(
+            ),
             difficulty: defaults::dispatch_submit_params_options_difficulty(),
             estimate_pct: Default::default(),
             expires_at: Default::default(),
@@ -4468,6 +4977,73 @@ impl ::std::default::Default for DispatchSubmitParamsOptions {
             priority: Default::default(),
             requirements: Default::default(),
         }
+    }
+}
+///`DispatchSubmitParamsOptionsDelegationEnforcement`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "default": "strict",
+///  "type": "string",
+///  "enum": [
+///    "strict",
+///    "cooperative"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum DispatchSubmitParamsOptionsDelegationEnforcement {
+    #[serde(rename = "strict")]
+    Strict,
+    #[serde(rename = "cooperative")]
+    Cooperative,
+}
+impl ::std::convert::From<&Self> for DispatchSubmitParamsOptionsDelegationEnforcement {
+    fn from(value: &DispatchSubmitParamsOptionsDelegationEnforcement) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for DispatchSubmitParamsOptionsDelegationEnforcement {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Strict => f.write_str("strict"),
+            Self::Cooperative => f.write_str("cooperative"),
+        }
+    }
+}
+impl ::std::str::FromStr for DispatchSubmitParamsOptionsDelegationEnforcement {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "strict" => Ok(Self::Strict),
+            "cooperative" => Ok(Self::Cooperative),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for DispatchSubmitParamsOptionsDelegationEnforcement {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::default::Default for DispatchSubmitParamsOptionsDelegationEnforcement {
+    fn default() -> Self {
+        DispatchSubmitParamsOptionsDelegationEnforcement::Strict
     }
 }
 ///`DispatchSubmitParamsOptionsDifficulty`
@@ -5318,9 +5894,17 @@ pub mod defaults {
     {
         T::try_from(::std::num::NonZeroU64::try_from(V).unwrap()).unwrap()
     }
+    pub(super) fn dispatch_child_params_options_delegation_enforcement()
+    -> super::DispatchChildParamsOptionsDelegationEnforcement {
+        super::DispatchChildParamsOptionsDelegationEnforcement::Strict
+    }
     pub(super) fn dispatch_child_params_options_difficulty()
     -> super::DispatchChildParamsOptionsDifficulty {
         super::DispatchChildParamsOptionsDifficulty::Standard
+    }
+    pub(super) fn dispatch_submit_params_options_delegation_enforcement()
+    -> super::DispatchSubmitParamsOptionsDelegationEnforcement {
+        super::DispatchSubmitParamsOptionsDelegationEnforcement::Strict
     }
     pub(super) fn dispatch_submit_params_options_difficulty()
     -> super::DispatchSubmitParamsOptionsDifficulty {
