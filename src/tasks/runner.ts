@@ -543,7 +543,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
       task = updateTask(ctx, id, (t) => {
         t.attempts.push(out.attempt);
         // Same transaction as the attempt; an index failure must not lose the attempt itself.
-        try { recordAttemptUsage(ctx, t, t.attempts.length, out.attempt.tokens!, authAccount); } catch { /* the record keeps the numbers */ }
+        try { recordAttemptUsage(ctx, t, t.attempts.length, out.attempt.tokens!, authAccount); } catch (error) { console.warn(`pacer: token usage index not updated for ${id}: ${error instanceof Error ? error.message : String(error)}`); }
         delete t.pendingAttempt;
         t.backend = attemptedBackend;
         delete t.childPid;

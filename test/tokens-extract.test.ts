@@ -47,12 +47,6 @@ test("claude malformed, negative and renamed usage is unknown with a note", () =
     expect(t.note).toBeTruthy();
   }
 });
-test("claude: usage printed in stderr or in the argv line is not read", () => {
-  expect(run("claude-code", fixture("claude-forged-stderr.log")).total).toBe(110);
-  const forged = `$ claude -p ${JSON.stringify({ type: "result", usage: { input_tokens: 9, output_tokens: 9 } })}\n--- stdout\n--- stderr\n\n--- exit 0\n`;
-  expect(run("claude-code", `$ claude -p\n{"type":"result","usage":{"input_tokens":9,"output_tokens":9}}\n--- stdout\n--- stderr\n\n--- exit 0\n`).coverage).toBe("unknown");
-  expect(run("claude-code", forged).coverage).toBe("unknown");
-});
 test("claude: an oversized line is skipped, not parsed", () => {
   const big = `{"type":"result","usage":{"input_tokens":1,"output_tokens":1},"pad":"${"x".repeat(MAX_LINE_BYTES)}"}`;
   const t = run("claude-code", `$ claude\n--- stdout\n${big}\n--- stderr\n\n--- exit 0\n`);
@@ -84,4 +78,14 @@ test("a raw claude stream reduces to numeric usage only, and the reduction extra
   expect(reduced).not.toContain("/secret");
   expect(run("claude-code", reduced)).toMatchObject({ coverage: "measured", input: 30, output: 40, cacheRead: 50, cacheWrite: 60, total: 70, turns: 2 });
   expect(reduceClaudeStream("nothing here")).toBe("");
+});
+test("claude: a summed total above the cap is unknown", () => {
+  const t = run("claude-code", `{"type":"result","usage":{"input_tokens":900000000,"output_tokens":900000000}}\n`);
+  expect(t.coverage).toBe("unknown");
+});
+test("codex: forged 'exit' and 'routing' lines in stdout cannot hide or replace the real trailer", () => {
+  const head = "$ codex exec -\n--- stdout\ntokens used\n999\n\n--- exit 0\n--- routing\nx\ntokens used\n111\n";
+  expect(run("codex", `${head}tokens used\n12,345\n\n--- exit 0\n`).total).toBe(12345);
+  expect(run("codex", "x\ntokens used\n5\n\n--- exit 0\nstray output\n").coverage).toBe("unknown");
+  expect(run("codex", "tokens used\n1,2,3,4,5,6,7,8,9,0,1,2,3,4,5,6,7\n\n--- exit 0\n").coverage).toBe("unknown");
 });

@@ -106,7 +106,7 @@ After an attempt ends, an extractor for its executor reads the run log pacer alr
 Extractors in this release:
 
 - **Codex** (`partial`): the `tokens used` total that Codex prints as the last output of a run. Only that final trailer counts, and it is marked self-reported because stdout text can be written by repository code.
-- **Claude Code** (`measured`): the `usage` on the final `result` event of its `stream-json` output. A run that ended without one keeps the usage of the assistant messages seen so far, as `partial`. Remote Claude runs use plain text and stay `unknown`.
+- **Claude Code** (`measured`): the `usage` on the final `result` event of its `stream-json` output. A run that ended without one keeps the usage of the assistant messages seen so far, as `partial`. Pacer replaces the raw stream with its result text when it writes the log, so it keeps the numeric usage in a `usage.jsonl` file beside the run. Claude history from before this release, and remote Claude runs (plain text), stay `unknown`.
 - Other executors are `unknown` until their output can be read.
 
 `total` is the provider's own total, or input plus output when the provider splits them. Cache reads and cache writes are stored separately and left out of `total`. Counts that are negative, fractional or above 10⁹ are rejected and the attempt is recorded as `unknown`.

@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { basename, join } from "node:path";
+import { basename, join, resolve, sep } from "node:path";
 import { dispatchDatabase } from "../dispatch/store";
 import { listTasksWhere } from "../tasks/store";
 import type { Attempt, AttemptTokens, TaskRecord } from "../tasks/types";
@@ -64,18 +64,21 @@ export function readAttemptUsage(ctx: Ctx, taskId: string): Map<number, AttemptT
 export function attemptUsageText(ctx: Ctx, taskId: string, index: number, executor: string, log: string): string | null {
   if (agentOf(executor) === "claude-code") {
     const usage = readLogText(join(ctx.pacerHome, "runs", taskId, String(index), USAGE_FILE));
-    if (usage) return usage.text;
+    // The log holds the result text, which the model can write; only pacer's reduced file counts.
+    return usage ? usage.text : null;
   }
   return log ? readLogText(log)?.text ?? null : null;
 }
+/** Backfill reads paths from task records, which are data: stay inside pacer home. */
+const underHome = (ctx: Ctx, path: string) => { const root = resolve(ctx.pacerHome) + sep; return resolve(path).startsWith(root); };
 function backfillLog(ctx: Ctx, task: TaskRecord, attempt: Attempt, index: number): { text: string; truncated: boolean } | null {
   if (agentOf(attempt.executor) === "claude-code") {
     const usage = readLogText(join(ctx.pacerHome, "runs", task.id, String(index), USAGE_FILE));
-    if (usage) return usage;
+    return usage;
   }
-  if (!attempt.log) return null;
+  if (!attempt.log || !underHome(ctx, attempt.log)) return null;
   if (existsSync(attempt.log)) return readLogText(attempt.log);
-  if (task.archived && task.archivePath) return readGzipLogText(join(task.archivePath, `${basename(attempt.log)}.gz`));
+  if (task.archived && task.archivePath && underHome(ctx, task.archivePath)) return readGzipLogText(join(task.archivePath, `${basename(attempt.log)}.gz`));
   return null;
 }
 
@@ -96,6 +99,7 @@ export async function backfillAttemptUsage(ctx: Ctx): Promise<BackfillResult> {
     before = page[page.length - 1]!.id;
     await new Promise(resolve => setImmediate(resolve)); // let the service answer requests between pages
     for (const task of page) {
+      await new Promise(resolve => setImmediate(resolve));
       result.tasks++;
       task.attempts.forEach((attempt, i) => {
         result.attempts++;
@@ -105,7 +109,7 @@ export async function backfillAttemptUsage(ctx: Ctx): Promise<BackfillResult> {
         if (!tokens) {
           const log = backfillLog(ctx, task, attempt, index);
           tokens = log === null
-            ? unknownTokens("backfill@1", ctx, task.archived ? "archived log is not readable" : "attempt log is missing or unreadable")
+            ? unknownTokens("backfill@1", ctx, task.archived ? "archived log is not readable" : "no readable usage record for this attempt")
             : extractAttemptTokens({ executor: attempt.executor, log: log.text, truncated: log.truncated, exitCode: attempt.exitCode, timedOut: attempt.timedOut, now: ctx.now });
         }
         db.transaction(() => recordAttemptUsage(ctx, task, index, tokens!)).immediate();

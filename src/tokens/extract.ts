@@ -1,4 +1,4 @@
-import { closeSync, fstatSync, openSync, readSync } from "node:fs";
+import { closeSync, fstatSync, lstatSync, openSync, readSync } from "node:fs";
 import { gunzipSync } from "node:zlib";
 import { parseRunnerId } from "../config/runner-id";
 import type { AttemptTokens } from "../tasks/types";
@@ -53,6 +53,7 @@ function count(value: unknown): number | null | "bad" {
 export function readLogText(path: string): { text: string; truncated: boolean } | null {
   let fd: number | undefined;
   try {
+    if (!lstatSync(path).isFile()) return null; // never open a FIFO, device or symlink
     fd = openSync(path, "r");
     const size = fstatSync(fd).size;
     const length = Math.min(size, MAX_LOG_BYTES), buffer = Buffer.alloc(length);
@@ -71,6 +72,7 @@ export function readGzipLogText(path: string): { text: string; truncated: boolea
 function readLogBytes(path: string): Buffer | null {
   let fd: number | undefined;
   try {
+    if (!lstatSync(path).isFile()) return null;
     fd = openSync(path, "r");
     const size = fstatSync(fd).size;
     if (size > MAX_LOG_BYTES) return null;
@@ -87,23 +89,34 @@ function readLogBytes(path: string): Buffer | null {
  * "--- exit" line. Only that trailer counts: it must be followed by nothing but blank lines, the exit line
  * and pacer's own routing note. The number is stdout text, so it is labelled self-reported.
  */
-const CODEX_TRAILER = /(?:^|\n)tokens used\n([0-9][0-9,]{0,15})\n(?:[ \t]*\n)*--- exit[^\n]*(?:\n|$)(?:\s*--- routing\n[\s\S]*)?$/;
+function codexTrailer(tail: string): string | null {
+  const lines = tail.split("\n");
+  let exit = -1;
+  for (let i = lines.length - 1; i >= 0; i--) if (/^--- exit( |$)/.test(lines[i]!)) { exit = i; break; }
+  if (exit < 0) return null;
+  const after = lines.slice(exit + 1).join("\n").trimStart();
+  if (after && !after.startsWith("--- routing\n") && after !== "--- routing") return null;
+  let i = exit - 1;
+  while (i >= 0 && lines[i]!.trim() === "") i--;
+  return i >= 1 && lines[i - 1] === "tokens used" && /^[0-9][0-9,]{0,15}$/.test(lines[i]!) ? lines[i]! : null;
+}
 export const codexTextExtractor: TokenExtractor = {
   id: "codex-text@1", agents: ["codex"],
   extract(input) {
     const id = this.id;
     if (input.takeover) return unknownTokens(id, input, "interactive takeover is not attributed to the executor");
     if (input.log === null || !input.log.trim()) return unknownTokens(id, input, "attempt log is empty or unreadable");
-    const match = CODEX_TRAILER.exec(input.log.slice(-TRAILER_WINDOW));
-    if (!match) return unknownTokens(id, input, "no final token total in the log");
-    const total = Number(match[1]!.replace(/,/g, ""));
+    const digits = codexTrailer(input.log.slice(-TRAILER_WINDOW));
+    if (!digits) return unknownTokens(id, input, "no final token total in the log");
+    const total = Number(digits.replace(/,/g, ""));
     if (!Number.isSafeInteger(total) || total > MAX_TOKENS) return unknownTokens(id, input, "token total is out of range");
     return record(id, input, { coverage: "partial", source: "executor-text", selfReported: true, total, note: "total only; no input/output split" });
   },
 };
 
 /**
- * Claude Code's stream-json run: the final `result` event carries the usage of the whole run. A run
+ * Claude Code's stream-json run. The input is the reduced usage file pacer writes (see reduceClaudeStream),
+ * never the log: the log holds result text the model can write. The final `result` event carries the usage of the whole run. A run
  * that ended without one keeps the usage of the assistant messages seen so far, as a lower bound.
  */
 interface ClaudeUsage { input: number | null; output: number | null; cacheRead: number | null; cacheWrite: number | null }
@@ -115,12 +128,6 @@ function claudeUsage(raw: unknown): ClaudeUsage | "bad" | null {
   const usage = { input, output, cacheRead, cacheWrite } as ClaudeUsage;
   return Object.values(usage).every(v => v === null) ? null : usage;
 }
-function stdoutSection(log: string): string {
-  const start = log.indexOf("\n--- stdout\n");
-  if (start < 0) return log;
-  const from = start + "\n--- stdout\n".length, end = log.indexOf("\n--- stderr\n", from);
-  return end < 0 ? log.slice(from) : log.slice(from, end);
-}
 export const claudeStreamJsonExtractor: TokenExtractor = {
   id: "claude-stream-json@1", agents: ["claude-code"],
   extract(input) {
@@ -129,7 +136,7 @@ export const claudeStreamJsonExtractor: TokenExtractor = {
     if (input.log === null || !input.log.trim()) return unknownTokens(id, input, "attempt log is empty or unreadable", "executor-json");
     let result: { usage: ClaudeUsage; turns: number | null } | undefined, bad = false, events = 0, overlong = 0;
     const messages = new Map<string, ClaudeUsage>();
-    for (const line of stdoutSection(input.log).split("\n")) {
+    for (const line of input.log.split("\n")) {
       if (!line.startsWith("{")) continue;
       if (line.length > MAX_LINE_BYTES) { overlong++; continue; }
       if (++events > MAX_EVENTS) break;
@@ -145,15 +152,17 @@ export const claudeStreamJsonExtractor: TokenExtractor = {
         const message = event.message as { id?: unknown; usage?: unknown } | undefined;
         const usage = claudeUsage(message?.usage);
         if (usage === "bad") { bad = true; continue; }
-        if (usage && typeof message?.id === "string" && message.id.length <= 128) {
+        if (usage && typeof message?.id === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(message.id)) {
           const seen = messages.get(message.id);
           const max = (a: number | null, b: number | null) => a === null ? b : b === null ? a : Math.max(a, b);
           messages.set(message.id, seen ? { input: max(seen.input, usage.input), output: max(seen.output, usage.output), cacheRead: max(seen.cacheRead, usage.cacheRead), cacheWrite: max(seen.cacheWrite, usage.cacheWrite) } : usage);
         }
       }
     }
+    const over = (u: ClaudeUsage) => u.input !== null && u.output !== null && u.input + u.output > MAX_TOKENS;
     const fromParts = (u: ClaudeUsage): Pick<AttemptTokens, "input" | "output" | "cacheRead" | "cacheWrite" | "total"> =>
       ({ input: u.input, output: u.output, cacheRead: u.cacheRead, cacheWrite: u.cacheWrite, total: u.input === null || u.output === null ? null : u.input + u.output });
+    if (result && over(result.usage)) return unknownTokens(id, input, "usage total is out of range", "executor-json");
     if (result) {
       const fields = fromParts(result.usage);
       const complete = fields.total !== null && !input.truncated;
@@ -163,11 +172,12 @@ export const claudeStreamJsonExtractor: TokenExtractor = {
     if (messages.size) {
       const sum = (key: keyof ClaudeUsage) => { let t: number | null = null; for (const m of messages.values()) if (m[key] !== null) t = (t ?? 0) + m[key]!; return t; };
       const parts: ClaudeUsage = { input: sum("input"), output: sum("output"), cacheRead: sum("cacheRead"), cacheWrite: sum("cacheWrite") };
+      if (over(parts)) return unknownTokens(id, input, "usage total is out of range", "executor-json");
       const ended = input.timedOut ? "timed out" : "ended";
       return record(id, input, { coverage: "partial", source: "executor-json", ...fromParts(parts), turns: messages.size,
         note: `attempt ${ended} before a final result event; sum of messages seen, a lower bound` });
     }
-    const why = bad ? "usage fields were negative, non-integer or out of range" : overlong ? "usage events were over the line limit" : "no usage event in the log";
+    const why = bad ? "usage fields were negative, non-integer or out of range" : overlong ? "usage events were over the line limit" : "no usable usage event (missing or out of range)";
     return unknownTokens(id, input, why, "executor-json");
   },
 };
@@ -194,7 +204,7 @@ export function reduceClaudeStream(raw: string): string {
     if (event.type === "result") {
       const turns = count(event.num_turns);
       out.push(JSON.stringify({ type: "result", ...(typeof turns === "number" ? { num_turns: turns } : {}), usage: numbers }));
-    } else if (event.type === "assistant" && typeof message?.id === "string" && message.id.length <= 128) {
+    } else if (event.type === "assistant" && typeof message?.id === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(message.id)) {
       out.push(JSON.stringify({ type: "assistant", message: { id: message.id, usage: numbers } }));
     }
   }
