@@ -4,6 +4,9 @@ import { Session, type SessionData } from '../app/src/screens/session/Session';
 import { SessionsList } from '../app/src/screens/session/SessionsList';
 import { conversationChanges, sessionChangeText } from '../app/src/screens/session/controller';
 import fixture from './fixtures/ui/session.json';
+import { taskTree, type TreeTask } from '../src/view-model/task-tree';
+
+const node=(task:Partial<TreeTask>&{id:string;state:string})=>taskTree({tasks:[{goal:'Fix the flaky retry test',executor:'codex',backend:null,worktree:null,updatedAt:1799999000,host:null,...task} as TreeTask]},{now:1800000000})[0]!;
 
 // Extract text for assertions without decoding entities into < or >.
 function textContent(html: string): string {
@@ -36,7 +39,7 @@ test('task Changes uses the v3 patch field and embedded views do not point to hi
  expect(html).toContain('diff --git a/example b/example');expect(html).not.toContain('aria-labelledby="session-t-0415-changes-tab"');expect(html).not.toContain('Session access');
 });
 test('loading, errors and empty resources are explicit',()=>{expect(renderToString(<Session loading/>)).toContain('Loading session');expect(renderToString(<Session error="Offline"/>)).toContain('Offline');expect(renderToString(<Session/>)).toContain('Session not found');const html=renderToString(<Session data={{...data,timeline:{error:'Timeline unavailable'},doneWhen:{},brief:{loading:true}}} initialTab="brief"/>);expect(html).toContain('Timeline unavailable');expect(html).toContain('No done-when command');expect(html).toContain('Loading brief');});
-test('Sessions list opens tasks with one row target',()=>{const html=renderToString(<SessionsList running={{data:[data]}} recent={{data:[{...data,id:'t-ended',state:'done'}]}}/>);expect(html).toContain('Running');expect(html).toContain('Completed');expect(html).toContain('href="#/tasks/t-0415"');expect(html).not.toContain('View result');expect(html).toContain('#/tasks/t-ended');expect(renderToString(<SessionsList running={{loading:true}} recent={{error:'Unavailable'}}/>)).toContain('Unavailable');expect(renderToString(<SessionsList/>)).toContain('No running sessions');});
+test('Sessions list opens tasks with one row target',()=>{const html=renderToString(<SessionsList running={{data:[node({id:'t-0415',state:'running'})]}} recent={{data:[node({id:'t-ended',state:'done'})]}}/>);expect(html).toContain('Running');expect(html).toContain('Completed');expect(html).toContain('href="#/tasks/t-0415"');expect(html).not.toContain('View result');expect(html).toContain('#/tasks/t-ended');expect(renderToString(<SessionsList running={{loading:true}} recent={{error:'Unavailable'}}/>)).toContain('Unavailable');expect(renderToString(<SessionsList/>)).toContain('No running sessions');});
 
 test('read-only terminal exposes size, accessible status and screen reader toggle; control capability gates take',async()=>{
  const { TerminalView, TerminalControls }=await import('../app/src/term/term');
@@ -54,12 +57,13 @@ test('unavailable attach targets, retry states and resource empties use service 
  expect(html).not.toContain('>Open in Orca terminal');expect(html).not.toContain('>Open in my terminal');expect(html).toContain('>Stop and retry…</button>');expect(html).toContain('No timeline events yet.');expect(html).toContain('Command unavailable');
 });
 
-test('Sessions list uses short titles and ended outcomes or diffstats, reserving pending for running',()=>{
- const ended={...data,id:'ended',title:'Short title',goal:'Long instructions that belong in Brief',state:'failed',phase:undefined,changesSummary:undefined};
- const html=renderToString(<SessionsList running={{data:[]}} recent={{data:[ended,{...ended,id:'diff',changesSummary:'3 files · +12 −4'}]}}/>);
+test('Sessions list uses short titles and measured diffstats, with no placeholder for missing changes',()=>{
+ const ended={id:'ended',title:'Short title',goal:'Long instructions that belong in Brief',state:'failed'};
+ const html=renderToString(<SessionsList running={{data:[]}} recent={{data:[node(ended),node({...ended,id:'diff',diffstat:{files:3,added:12,removed:4}})]}}/>);
  expect(html).toContain('Short title');expect(html).not.toContain(ended.goal);expect(html).toContain('Failed');expect(html).toContain('3 files · +12 −4');expect(html).not.toContain('Changes and output pending');
- expect(renderToString(<SessionsList running={{data:[{...data,changesSummary:undefined}]}}/>)).toContain('Changes and output pending');
+ expect(renderToString(<SessionsList running={{data:[node({id:'r',state:'running'})]}}/>)).not.toContain('Changes and output pending');
 });
+
 test('takeover stays visible with the service refusal reason',()=>{
  const html=renderToString(<Session data={{...data,session:{...data.session!,host:'none',takeover:{available:false,reason:'No agent session id'}}}}/>);
  expect(html).toMatch(/disabled[^>]*title="No agent session id"|title="No agent session id"[^>]*disabled/);
@@ -85,21 +89,20 @@ test('takeover startup and timeout keep progress and retry visible',()=>{
 
 test('ended Sessions rows show their state once and retain a known diffstat at either width', () => {
  for (const narrow of [false, true]) {
-  const ended = { ...data, state: 'done', phase: undefined, changesSummary: undefined };
+  const ended = node({ id: 'ended', state: 'done' });
   const html = renderToString(<div className={narrow ? 'pc-app--narrow' : 'pc-app'}><SessionsList recent={{data:[ended]}}/></div>);
-  expect(html.match(/pc-pill--good[^>]*>[\s\S]*?Completed<\/span>/g)).toHaveLength(1);
-  expect(html).not.toContain('Changes and output pending');
-  const withDiff = renderToString(<SessionsList recent={{data:[{...ended,changesSummary:'3 files · +12 −4'}]}}/>);
+  expect(html.slice(html.indexOf('<article')).match(/>Completed</g)).toHaveLength(1);
+  const withDiff = renderToString(<SessionsList recent={{data:[node({ id: 'ended', state: 'done', diffstat:{files:3,added:12,removed:4} })]}}/>);
   expect(withDiff).toContain('3 files · +12 −4');
-  expect(withDiff.match(/pc-pill--good[^>]*>[\s\S]*?Completed<\/span>/g)).toHaveLength(1);
+  expect(withDiff.slice(withDiff.indexOf('<article')).match(/>Completed</g)).toHaveLength(1);
  }
 });
 
-test('Sessions pills override their default top alignment for running and ended rows', async () => {
- const html = renderToString(<SessionsList running={{data:[data]}} recent={{data:[{...data,id:'ended',state:'done'}]}}/>);
- expect(html.match(/class="pc-sessions-rows"/g)).toHaveLength(2);
- const css = await Bun.file(new URL('../app/src/screens/session/session.css', import.meta.url)).text();
- expect(css).toMatch(/\.pc-sessions-rows \.pc-pill\s*\{[^}]*align-self:center/);
+test('Sessions list renders running and ended work as labelled task trees', () => {
+ const html = renderToString(<SessionsList running={{data:[node({id:'r',state:'running'})]}} recent={{data:[node({id:'ended',state:'done'})]}}/>);
+ expect(html).toContain('aria-label="Running tasks"');
+ expect(html).toContain('aria-label="Completed tasks"');
+ expect(html.match(/pc-task-node--regular/g)).toHaveLength(2);
 });
 
 test('headless sessions explain the run and offer one prominent takeover action without watch options', () => {
@@ -175,9 +178,9 @@ test('running headless takeover occupies its own area outside the explanatory se
  expect(html).toContain('Stop and retry…');
 });
 
-test('ended row link covers its row and preserves route query and accessible title', async () => {
- const html=renderToString(<SessionsList recent={{data:[{...data,id:'ended task',state:'done',title:'Finished task'}]}} query="repo=project"/>);
- expect(html).toContain('pc-task-list-row');
+test('ended task link preserves route query and accessible title', async () => {
+ const html=renderToString(<SessionsList recent={{data:[node({id:'ended task',state:'done',title:'Finished task'})]}} query="repo=project"/>);
+ expect(html).toContain('pc-task-node__title');
  expect(html).toContain('title="Finished task"');
  expect(html).toContain('href="#/tasks/ended%20task?repo=project"');
  expect(html).not.toContain('View result');

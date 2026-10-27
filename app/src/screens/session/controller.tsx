@@ -9,7 +9,7 @@ import type { ClientTask } from '../../../../src/view-model/snapshot';
 import type { SessionInfo } from '../../../../src/session/service';
 import { markAgent } from "../../../../src/view-model/agents";
 import { clock } from "../../../../src/view-model/time";
-import { running } from "../../../../src/view-model/selectors";
+import { scopedTaskTree, taskTree } from "../../../../src/view-model/task-tree";
 import { withQuery, type RouteQuery } from "../../router";
 import { keys } from "../../keys/instance";
 import { useActions } from "../../data/action-context";
@@ -18,11 +18,15 @@ import { Session } from "./Session";
 import { onPageScroll, pageScrollY, scrollPageTo } from "../../shell/page-scroll";
 import { takeoverSession, type TakeoverState } from "./takeover";
 import { SessionsList } from "./SessionsList";
-import { WorkList } from "./WorkList";
+import { LazyWorkList } from "./LazyWorkList";
 import { Tabs } from "../../ds/Patterns";
 import { Cluster, Page } from "../../ds/Page";
 import { Conversation } from "./Conversation";
 import type { SessionData, Action } from './types';
+/** Before the first snapshot arrives, history alone still renders, with the same descriptor. */
+function scopedHistory(history:ApiTask[],repo:string|null){
+ return taskTree({tasks:history.filter(t=>!repo||t.repo?.key===repo)},{now:Date.now()/1000}).filter(node=>!node.active);
+}
 export function sessionRow(task:ClientTask):SessionData {
  return {id:task.id,title:task.fullTitle ?? task.title,goal:task.goal,state:task.state,reviewRequest:task.reviewRequest,review:task.review,resolved:task.resolved,dismissed:task.dismissed,retriedBy:task.retriedBy,executor:task.executor,agent:markAgent(task.executor??'unknown'),repo:task.repo?.label??'Repository unknown',machine:task.host,
  phase:task.progress?.phase,elapsed:sessionTime(task,Date.now()/1000),
@@ -75,12 +79,10 @@ export function Sessions({query}:{query:RouteQuery}) {
   });
   return () => cancelAnimationFrame(frame);
  }, [snapshot, page.loading, history]);
- const recent=[...new Map([...history,...(snapshot?.tasks.filter(t=>!query.repo||t.repo?.key===query.repo)??[])].map(t=>[t.id,t])).values()]
-  .filter(t=>!['running','queued'].includes(t.state)).sort((a,b)=>b.updatedAt-a.updatedAt);
- const resource=(data:SessionData[]|undefined)=>({data,loading:!snapshot});
+ const nodes=snapshot?scopedTaskTree(snapshot,{repo:query.repo||null},{now:Date.now()/1000,extra:history}):undefined;
  return <Page width="full" className="pc-page-body">{snapshot&&<RepoFilter snapshot={snapshot} query={query}/>}<Tabs label="Task list" id="task-list" value={listMode} options={[{value:"all",label:"All tasks"},{value:"work",label:"Dispatched work"}]} onChange={setListMode}/>
  <div role="tabpanel" id={`task-list-${listMode}-panel`} aria-labelledby={`task-list-${listMode}-tab`}>
- {listMode==="work"?<WorkList key={query.repo??""} query={query}/>:<><SessionsList running={resource(snapshot?running(snapshot,{repo:query.repo||null}).map(sessionRow):undefined)} recent={{data:recent.map(sessionRow),loading:page.loading&&!history.length,error:page.error?'Could not load task history.':undefined}} query={withQuery('',query)}/>
+ {listMode==="work"?<LazyWorkList key={query.repo??""} query={query}/>:<><SessionsList running={{data:nodes?.filter(node=>node.active),loading:!snapshot}} recent={{data:nodes?.filter(node=>!node.active)??(history.length?scopedHistory(history,query.repo||null):[]),loading:page.loading&&!history.length,error:page.error?'Could not load task history.':undefined}} query={withQuery('',query)}/>
  {(page.data?.next||page.error)&&<Cluster>
   {page.data?.next&&<Button busy={page.loading} onClick={()=>setCursor(page.data!.next!)}>Load older tasks</Button>}
   {page.error&&<Button onClick={page.reload}>Try again</Button>}
