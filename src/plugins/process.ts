@@ -140,9 +140,11 @@ export class PluginProcess {
         const pending = typeof params?.id === "number" ? this.pending.get(params.id) : undefined;
         if (!pending?.stream && params?.event && typeof params.event === "object" && !Array.isArray(params.event)) {
           const streamId = (params.event as { streamId?: unknown }).streamId;
-          const owning = [...this.pending.entries()].find(([, candidate]) => candidate.stream?.streamId === streamId);
-          if (owning) this.rejectPending(owning[0], owning[1], new CoreError("plugin_refused", "stream progress has the wrong request ID"));
-          return;
+          const owning = [...this.pending.entries()].find(([, candidate]) => candidate.stream !== undefined && candidate.stream.streamId === streamId);
+          if (owning) {
+            this.rejectPending(owning[0], owning[1], new CoreError("plugin_refused", "stream progress has the wrong request ID"));
+            return;
+          }
         }
         if (pending?.stream) {
           this.receiveStreamProgress(params!.id as number, pending, params?.event);
