@@ -26,6 +26,9 @@
 .pc-file-viewer__path{flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink-secondary);font-family:var(--font-mono);font-size:var(--type-caption-size)}
 .pc-file-viewer__caption,.pc-file-viewer__count,.pc-file-viewer__notice{margin:0;color:var(--ink-secondary);font-size:var(--type-caption-size);line-height:var(--type-caption-line)}
 .pc-file-viewer__panel{display:flex;flex-direction:column;gap:var(--space-2);min-width:0;min-height:0;overflow:auto}
+/* The panel scrolls, so rings inside it are inset to stay visible; the panel itself is focusable for keyboard scrolling. */
+.pc-file-viewer__panel .pc-file-viewer__source:focus-visible{outline-offset:calc(-1 * var(--stroke-focus))}
+.pc-file-viewer__panel:focus-visible{outline:var(--stroke-focus) solid var(--focus);outline-offset:var(--stroke-focus)}
 .pc-file-viewer__search{display:flex;align-items:center;gap:var(--space-1);flex-wrap:wrap;padding:var(--space-1) var(--space-2);border:1px solid var(--line);border-radius:var(--radius-md);background:var(--surface-lane)}
 .pc-file-viewer__search .pc-input{flex:1 1 var(--size-176);min-width:0}
 .pc-file-viewer__count{min-width:var(--size-80);font-variant-numeric:tabular-nums}

@@ -218,3 +218,20 @@ browserTest("a short sheet scrolls the HTML preview panel instead of drawing it 
   expect(await viewer.locator(".pc-file-viewer__panel").evaluate(element=>getComputedStyle(element).overflowY)).toBe("auto");
  }finally{await page.close()}
 },30_000);
+
+browserTest("inside the scrolling panel the source focus ring stays visible and the preview panel takes keyboard focus",async()=>{
+ const page=await browser.newPage({viewport:{width:375,height:640}});page.setDefaultTimeout(5000);
+ try{
+  const viewer=await open(page,375,"README.md");
+  await viewer.getByRole("tab",{name:"Source"}).focus();
+  await page.keyboard.press("Tab");
+  const ring=await viewer.locator(".pc-file-viewer__source").evaluate(element=>{
+   const panel=element.closest(".pc-file-viewer__panel")!.getBoundingClientRect(),box=element.getBoundingClientRect(),style=getComputedStyle(element);
+   const grow=parseFloat(style.outlineOffset)+parseFloat(style.outlineWidth);
+   return {visible:element.matches(":focus-visible"),inside:box.left-grow>=panel.left-0.5&&box.right+grow<=panel.right+0.5&&box.bottom+grow<=panel.bottom+0.5};
+  });
+  expect(ring).toEqual({visible:true,inside:true});
+  await viewer.getByRole("tab",{name:"Preview"}).click();
+  await expect(viewer.getByRole("tabpanel").getAttribute("tabindex")).resolves.toBe("0");
+ }finally{await page.close()}
+},30_000);

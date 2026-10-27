@@ -379,7 +379,7 @@ export function FileViewer({ file, reference, error, loading = false, onClose, o
     {skeleton && <div className="pc-file-viewer__skeleton" aria-hidden="true">{Array.from({ length: 8 }, (_, index) => <span key={index}/>)}</div>}
   </div> : canPreview ? <>
     <Tabs label="File view" id={id} value={tab} onChange={value => setTab(value as "source" | "preview")} options={[{ value: "source", label: "Source" }, { value: "preview", label: "Preview" }]}/>
-    <div id={`${id}-${tab}-panel`} role="tabpanel" aria-labelledby={`${id}-${tab}-tab`} className="pc-file-viewer__panel">
+    <div id={`${id}-${tab}-panel`} role="tabpanel" aria-labelledby={`${id}-${tab}-tab`} className="pc-file-viewer__panel" tabIndex={tab === "preview" ? 0 : undefined}>
       <p className="pc-file-viewer__caption">{caption}</p>
       {tab === "source" ? sourceView : preview}
     </div>
