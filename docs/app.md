@@ -60,6 +60,11 @@ Opening a running task in the app takes control of its live Pacer terminal when
 no other viewer holds control. If another viewer is driving, the app opens in
 watching mode and offers **Take control** with a confirmation. Releasing control
 keeps the current view read-only until you take control again.
+Links in the built-in terminal open web pages or workspace files. Code opens at
+the linked line; Markdown and HTML provide Source and Preview. HTML preview is
+static and isolated from the app. Ctrl/⌘-click follows links while you control
+the terminal; watching viewers can click directly. The terminal stays connected
+behind the file viewer.
 
 Account sign-in still happens in a terminal: the app shows the command to copy
 and refreshes the sign-in state. Setup explains the login service inline; **Install service** confirms that consent. Connecting an agent, or changing the planner with integrations, shows
