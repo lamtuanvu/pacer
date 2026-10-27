@@ -22,7 +22,7 @@ export function LinkedTerminal({ attempt, readFile, ...terminal }: TerminalViewP
   const load = () => {
     if (View) return;
     setLoadFailed(false);
-    void import("./FileViewer").then(module => setView(() => module.FileViewer)).catch(() => setLoadFailed(true));
+    void import("./FileViewer").then(module => { if (typeof module.FileViewer !== "function") throw Error(); setView(() => module.FileViewer); }).catch(() => setLoadFailed(true));
   };
   const close = () => {
     requestSeq.current++; setViewing(null);
@@ -47,7 +47,7 @@ export function LinkedTerminal({ attempt, readFile, ...terminal }: TerminalViewP
       <div className="pc-linked-terminal__term"><LazyTerminal {...terminal} onOpenFile={(path, line, column) => { void open(path, line, column); }}/></div>
       {viewing && <div className="pc-linked-terminal__viewer">
         {View ? <View key={viewing.reference} {...viewing} onClose={close} onRefresh={() => { void open(viewing.reference); }} onOpenFile={path => { void open(path); }}/>
-          : loadFailed ? <div role="alert">Could not load the file viewer. <Button size="sm" onClick={load}>Try again</Button> <Button size="sm" variant="quiet" onClick={close}>Back to terminal</Button></div>
+          : loadFailed ? <div><p role="alert">Could not load the file viewer.</p><Button size="sm" onClick={load}>Try again</Button> <Button size="sm" variant="quiet" onClick={close}>Back to terminal</Button></div>
           : <p role="status">Opening file…</p>}
       </div>}
     </div>

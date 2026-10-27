@@ -46,7 +46,8 @@ export function fileGlyph(path: string): string {
   if (["ts", "tsx", "mts", "cts"].includes(ext)) return "TS";
   if (["js", "jsx", "mjs", "cjs"].includes(ext)) return "JS";
   if (["md", "markdown"].includes(ext)) return "MD";
-  if (!ext || ext === "txt" || !languages[ext]) return "TXT";
+  if (!ext || ext === "txt") return "TXT";
+  if (!languages[ext]) return "FILE";
   return "</>";
 }
 export function formatSize(bytes: number): string {
@@ -67,8 +68,16 @@ export function findMatches(lines: readonly string[], query: string, matchCase: 
   const needle = matchCase ? query : query.toLocaleLowerCase();
   const matches: SearchMatch[] = [];
   lines.forEach((text, index) => {
-    const haystack = matchCase ? text : text.toLocaleLowerCase();
-    for (let at = haystack.indexOf(needle); at >= 0; at = haystack.indexOf(needle, at + needle.length)) matches.push({ line: index + 1, start: at });
+    const lowered = matchCase ? text : text.toLocaleLowerCase();
+    if (lowered.length === text.length) {
+      for (let at = lowered.indexOf(needle); at >= 0; at = lowered.indexOf(needle, at + query.length)) matches.push({ line: index + 1, start: at });
+      return;
+    }
+    // Lower-casing changed the length (for example "İ"), so compare slices of the original text to keep offsets exact.
+    for (let at = 0; at + query.length <= text.length;) {
+      if (text.slice(at, at + query.length).toLocaleLowerCase() === needle) { matches.push({ line: index + 1, start: at }); at += query.length; }
+      else at++;
+    }
   });
   return matches;
 }
@@ -90,6 +99,7 @@ export function describeFileError(error: FileError, path: string): ErrorState {
     : /too large/i.test(message) ? "too_large"
     : /binary|utf-8/i.test(message) ? "invalid_input"
     : /attempt has changed/i.test(message) ? "conflict" : error.code;
+  if (code === "not_found" && /workspace is unavailable/i.test(message)) return { glyph: "missing", title: "Workspace unavailable", body: "This session's workspace is no longer available; it may have been removed or cleaned up.", copy: true, retry: true };
   if (code === "not_found") return { glyph: "missing", title: "This file isn't in the workspace", body: `${path} may have been moved, deleted or not written yet.`, copy: true, retry: true };
   if (code === "not_allowed" && /outside the session workspace/i.test(message)) return { glyph: "outside", title: "Outside this workspace", body: "pacer only opens files inside the session workspace.", copy: true, retry: false };
   if (code === "too_large") return { glyph: "large", title: "Too large to preview", body: `pacer previews files up to ${PREVIEW_LIMIT_BYTES / 1024} KB.`, copy: true, retry: false };
@@ -137,14 +147,14 @@ const plural = (count: number, word: string) => `${count} ${word}${count === 1 ?
 export function HtmlPreview({ file }: { file: SessionFileResult }) {
   const blocked = useMemo(() => blockedResources(file.text), [file.text]);
   const scripts = blocked.filter(item => item.kind === "script").length;
-  const requests = blocked.filter(item => item.kind !== "script" && !item.local).length;
+  const requests = blocked.filter(item => item.kind !== "script" && !item.local && !item.inline).length;
   return <>
     <div className="pc-file-viewer__banner pc-file-viewer__banner--info" role="note" aria-label="Preview is isolated from pacer">
       <strong>Preview is isolated from pacer</strong>
-      <span>Scripts don't run and nothing loads from the network. {plural(scripts, "script")} and {plural(requests, "external request")} were blocked.</span>
+      <span>Scripts don't run, inline styles aren't applied and nothing loads from the network. {plural(scripts, "script")} and {plural(requests, "external request")} were blocked.</span>
       <BlockedList items={blocked}/>
     </div>
-    <iframe className="pc-file-viewer__preview" title={`Preview of ${file.path}`} sandbox="" referrerPolicy="no-referrer" srcDoc={htmlPreviewDocument(file.text)}/>
+    <iframe className="pc-file-viewer__preview" title={`Preview of ${file.path}`} sandbox="" tabIndex={-1} referrerPolicy="no-referrer" srcDoc={htmlPreviewDocument(file.text)}/>
   </>;
 }
 
@@ -185,6 +195,15 @@ export function FileViewer({ file, reference, error, loading = false, onClose, o
   const searchButton = useRef<HTMLButtonElement>(null);
   const menuButton = useRef<HTMLButtonElement>(null);
   const errorPanel = useRef<HTMLDivElement>(null);
+  const actionsRef = useRef<HTMLDivElement>(null);
+  const copyTimer = useRef<ReturnType<typeof setTimeout>>();
+  useEffect(() => () => clearTimeout(copyTimer.current), []);
+  useEffect(() => {
+    if (!menuOpen) return;
+    const outside = (event: PointerEvent) => { if (!actionsRef.current?.contains(event.target as Node)) setMenuOpen(false); };
+    document.addEventListener("pointerdown", outside);
+    return () => document.removeEventListener("pointerdown", outside);
+  }, [menuOpen]);
 
   useLayoutEffect(() => {
     const host = root.current?.closest<HTMLElement>(".pc-linked-terminal") ?? root.current?.parentElement;
@@ -196,14 +215,19 @@ export function FileViewer({ file, reference, error, loading = false, onClose, o
     return () => observer.disconnect();
   }, []);
   useLayoutEffect(() => { heading.current?.focus(); }, []);
-  useLayoutEffect(() => { if (error) errorPanel.current?.focus(); }, [error]);
+  useLayoutEffect(() => {
+    if (error) errorPanel.current?.focus();
+    // Retry or Refresh can remove the focused control; keep focus inside the viewer.
+    else if (!document.activeElement || document.activeElement === document.body) heading.current?.focus();
+  }, [error, file]);
   useEffect(() => {
     if (file || error) { setSkeleton(false); return; }
     const timer = setTimeout(() => setSkeleton(true), 150);
     return () => clearTimeout(timer);
   }, [file, error]);
   // Layout effects run before the next input event, so a reset never undoes a choice the user just made.
-  const identity = file ? `${file.path}\n${file.modified}\n${file.line ?? ""}\n${file.column ?? ""}` : "";
+  // A refresh of the same location (only `modified` changes) keeps the chosen tab and page.
+  const identity = file ? `${file.path}\n${file.line ?? ""}\n${file.column ?? ""}` : "";
   const shownIdentity = useRef(identity);
   useLayoutEffect(() => {
     if (shownIdentity.current === identity) return;
@@ -248,7 +272,7 @@ export function FileViewer({ file, reference, error, loading = false, onClose, o
     if (match) match.scrollIntoView({ block: "center", inline: "nearest" });
     else if (selected.current) selected.current.scrollIntoView({ block: "center" });
     else if (source.current) source.current.scrollTop = 0;
-  }, [tab, active?.line, active?.start, start, file?.path]);
+  }, [tab, active?.line, active?.start, start, file?.path, layout]);
 
   const step = (delta: number) => {
     if (!matches.length) return;
@@ -273,9 +297,12 @@ export function FileViewer({ file, reference, error, loading = false, onClose, o
   };
   const copyPath = () => {
     closeMenu();
+    setCopyStatus("");
+    clearTimeout(copyTimer.current);
     void (async () => {
       try { await navigator.clipboard.writeText(path); setCopyStatus("Path copied"); }
       catch { setCopyStatus("Could not copy path"); }
+      copyTimer.current = setTimeout(() => setCopyStatus(""), 3000);
     })();
   };
   const onKeyDown = (event: JSX.TargetedKeyboardEvent<HTMLElement>) => {
@@ -338,9 +365,9 @@ export function FileViewer({ file, reference, error, loading = false, onClose, o
       }} dangerouslySetInnerHTML={{ __html: markdown ?? "Preparing preview…" }}/>
   </> : null;
 
-  const body = failure ? <div className="pc-file-viewer__state" tabIndex={-1} ref={errorPanel} role="status" aria-live="polite">
+  const body = failure ? <div className="pc-file-viewer__state" tabIndex={-1} ref={errorPanel} role="group" aria-labelledby={`${id}-state-title`}>
     <span className={`pc-file-viewer__state-icon pc-file-viewer__state-icon--${failure.glyph === "changed" ? "info" : failure.glyph === "missing" ? "warn" : "bad"}`}><Glyph name={failure.glyph}/></span>
-    <strong className="pc-file-viewer__state-title">{failure.title}</strong>
+    <strong id={`${id}-state-title`} className="pc-file-viewer__state-title">{failure.title}</strong>
     <p>{failure.body}</p>
     {(failure.copy || failure.retry) && <div className="pc-file-viewer__state-actions">
       {failure.retry && <Button size="sm" onClick={onRefresh}>Retry</Button>}
@@ -357,7 +384,8 @@ export function FileViewer({ file, reference, error, loading = false, onClose, o
     </div>
   </> : sourceView;
 
-  const actions = <div className="pc-file-viewer__actions">
+  const actions = <div className="pc-file-viewer__actions" ref={actionsRef}
+    onFocusOut={event => { if (menuOpen && !event.currentTarget.contains(event.relatedTarget as Node | null)) setMenuOpen(false); }}>
     {search}
     {sheet ? <>
       <IconButton ref={menuButton} size="sm" variant="quiet" aria-label="More file actions" aria-expanded={menuOpen} aria-controls={`${id}-more`} onClick={() => setMenuOpen(open => !open)}><Glyph name="more"/></IconButton>
@@ -373,7 +401,7 @@ export function FileViewer({ file, reference, error, loading = false, onClose, o
         {sheet && back}
         {sheet && actions}
         <div className="pc-file-viewer__title" ref={heading} tabIndex={-1}>
-          <span className="pc-file-viewer__glyph" aria-hidden="true">{fileGlyph(path)}</span>
+          <span className="pc-file-viewer__glyph" aria-hidden="true">{failure?.glyph === "binary" ? "BIN" : fileGlyph(path)}</span>
           <strong title={path}>{name}</strong>
           <Pill>Read-only</Pill>
         </div>
@@ -391,8 +419,10 @@ export function FileViewer({ file, reference, error, loading = false, onClose, o
         onInput={event => setQuery(event.currentTarget.value)}
         onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); step(event.shiftKey ? -1 : 1); } }}/>
       <span className="pc-file-viewer__count" role="status" aria-live="polite">{query ? matches.length ? `${Math.min(current, matches.length - 1) + 1} of ${matches.length}` : "No matches" : ""}</span>
-      <IconButton size="sm" variant="quiet" aria-label="Previous match" disabled={!matches.length} onClick={() => step(-1)}><Glyph name="up"/></IconButton>
-      <IconButton size="sm" variant="quiet" aria-label="Next match" disabled={!matches.length} onClick={() => step(1)}><Glyph name="down"/></IconButton>
+      {query && <>
+        <IconButton size="sm" variant="quiet" aria-label="Previous match" disabled={!matches.length} onClick={() => step(-1)}><Glyph name="up"/></IconButton>
+        <IconButton size="sm" variant="quiet" aria-label="Next match" disabled={!matches.length} onClick={() => step(1)}><Glyph name="down"/></IconButton>
+      </>}
       <Button size="sm" variant="quiet" aria-pressed={matchCase} onClick={() => setMatchCase(value => !value)}>Match case</Button>
       <IconButton size="sm" variant="quiet" aria-label="Close search" onClick={closeSearch}><Glyph name="close"/></IconButton>
     </div>}

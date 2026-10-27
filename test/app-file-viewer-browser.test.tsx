@@ -13,11 +13,18 @@ export const LazyTerminal = props => h("div", { "data-stub-terminal": "" },
   ...[["src/big.ts", 2500], ["README.md"], ["public/index.html"], ["src/gone.ts", 4]].map(([path, line]) =>
     h("button", { type: "button", onClick: () => props.onOpenFile(path, line) }, "Open " + path)));`;
 
+// Viewer import wrapper: with ?failViewer the lazy module resolves without a component until the test enables it.
+const viewerWrapper=`import { FileViewer as Real } from ${JSON.stringify(`${process.cwd()}/app/src/screens/session/FileViewer.tsx`)};
+export let FileViewer = location.search.includes("failViewer") ? undefined : Real;
+globalThis.enableViewer = () => { FileViewer = Real; };`;
+
 beforeAll(async()=>{
  if(!browserPath)return;
  const built=await Bun.build({entrypoints:["test/fixtures/ui/file-viewer-browser.tsx"],target:"browser",plugins:[{name:"stub-pty-view",setup(builder){
   builder.onResolve({filter:/term\/LazyTerminal$/},()=>({path:"stub",namespace:"terminal-stub"}));
   builder.onLoad({filter:/.*/,namespace:"terminal-stub"},()=>({contents:stubTerminal,loader:"js",resolveDir:process.cwd()}));
+  builder.onResolve({filter:/^\.\/FileViewer$/},args=>args.importer.endsWith("LinkedTerminal.tsx")?{path:"wrapper",namespace:"viewer-wrapper"}:undefined);
+  builder.onLoad({filter:/.*/,namespace:"viewer-wrapper"},()=>({contents:viewerWrapper,loader:"js",resolveDir:process.cwd()}));
  }}]});
  if(!built.success)throw new AggregateError(built.logs);
  const script=await built.outputs[0]!.text();
@@ -27,9 +34,9 @@ beforeAll(async()=>{
 });
 afterAll(async()=>{await browser?.close();server?.stop(true)});
 
-async function open(page:Page,width:number,path:string){
+async function open(page:Page,width:number,path:string,query=""){
  const errors:string[]=[];page.on("pageerror",error=>errors.push(error.message));
- await page.goto(`${server.url}`);
+ await page.goto(`${server.url}${query}`);
  await page.waitForFunction(()=>(globalThis as any).fileViewerTest).catch(()=>{throw new Error(errors.join("\n")||"fixture did not start")});
  await page.evaluate(value=>(globalThis as any).fileViewerTest.setWidth(value),width);
  await page.getByRole("button",{name:`Open ${path}`}).click();
@@ -124,5 +131,73 @@ browserTest("Markdown and HTML open on Source; HTML preview shows the isolation 
   await viewer.getByText("This file isn't in the workspace").waitFor();
   await expect(viewer.getByRole("button",{name:"Retry"}).count()).resolves.toBe(1);
   await expect(viewer.getByRole("button",{name:"Back to terminal"}).count()).resolves.toBe(1);
+ }finally{await page.close()}
+},30_000);
+
+const fixture=(page:Page,code:string)=>page.evaluate(`globalThis.fileViewerTest.${code}`);
+
+browserTest("Retry keeps focus in the viewer; Escape then returns to the terminal",async()=>{
+ const page=await browser.newPage({viewport:{width:1440,height:900}});page.setDefaultTimeout(5000);
+ try{
+  const viewer=await open(page,900,"src/gone.ts");
+  await viewer.getByText("This file isn't in the workspace").waitFor();
+  await fixture(page,'addFile("src/gone.ts")');
+  await viewer.getByRole("button",{name:"Retry"}).click();
+  await viewer.getByText("restored").waitFor();
+  expect(await page.evaluate(()=>document.activeElement?.classList.contains("pc-file-viewer__title"))).toBe(true);
+  await page.keyboard.press("Escape");
+  await viewer.waitFor({state:"detached"});
+  await page.waitForFunction(()=>document.activeElement?.classList.contains("xterm-helper-textarea"));
+ }finally{await page.close()}
+},30_000);
+
+browserTest("the latest link wins when reads finish out of order",async()=>{
+ const page=await browser.newPage({viewport:{width:1440,height:900}});page.setDefaultTimeout(5000);
+ try{
+  const viewer=await open(page,1200,"README.md");
+  await fixture(page,"defer(true)");
+  await page.getByRole("button",{name:"Open public/index.html"}).click();
+  await page.getByRole("button",{name:"Open src/big.ts"}).click();
+  await page.waitForFunction(()=>(globalThis as any).fileViewerTest.pending().length===2);
+  await fixture(page,'resolve("src/big.ts")');
+  await viewer.getByText("line 2500 needle").waitFor();
+  await fixture(page,'resolve("public/index.html")');
+  await page.waitForTimeout(200);
+  expect(await viewer.getAttribute("aria-label")).toBe("File viewer: src/big.ts");
+  await expect(viewer.getByRole("tab").count()).resolves.toBe(0);
+ }finally{await page.close()}
+},30_000);
+
+browserTest("a new attempt clears the viewer; the terminal node survives open and close",async()=>{
+ const page=await browser.newPage({viewport:{width:1440,height:900}});page.setDefaultTimeout(5000);
+ try{
+  const viewer=await open(page,900,"README.md");
+  // Tag the terminal node; a remount would lose the tag.
+  await page.evaluate(()=>{(document.querySelector("[data-stub-terminal]") as any).__mark="same";});
+  await viewer.getByRole("button",{name:"Back to terminal"}).click();
+  await viewer.waitFor({state:"detached"});
+  await page.getByRole("button",{name:"Open README.md"}).click();
+  await viewer.getByText("Body text.").waitFor();
+  await viewer.getByRole("button",{name:"Back to terminal"}).click();
+  await viewer.waitFor({state:"detached"});
+  expect(await page.evaluate(()=>(document.querySelector("[data-stub-terminal]") as any).__mark)).toBe("same");
+  await page.getByRole("button",{name:"Open README.md"}).click();
+  await viewer.getByText("Body text.").waitFor();
+  await fixture(page,"setAttempt(2)");
+  await viewer.waitFor({state:"detached"});
+  expect(await page.locator("[data-stub-terminal]").isVisible()).toBe(true);
+  expect(await page.evaluate(()=>(document.querySelector("[data-stub-terminal]") as any).__mark)).toBe("same");
+ }finally{await page.close()}
+},30_000);
+
+browserTest("a failed viewer load offers Try again, which recovers",async()=>{
+ const page=await browser.newPage({viewport:{width:1440,height:900}});page.setDefaultTimeout(5000);
+ try{
+  await open(page,900,"README.md","?failViewer");
+  await page.getByRole("alert").filter({hasText:"Could not load the file viewer."}).waitFor();
+  await page.evaluate(()=>(globalThis as any).enableViewer());
+  await page.getByRole("button",{name:"Try again"}).click();
+  await page.getByRole("region",{name:/^File viewer:/}).getByText("Body text.").waitFor();
+  await expect(page.getByRole("alert").count()).resolves.toBe(0);
  }finally{await page.close()}
 },30_000);

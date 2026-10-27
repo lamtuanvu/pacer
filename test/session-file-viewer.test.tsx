@@ -5,7 +5,7 @@ import {
   FileViewer, HtmlPreview, PAGE_LINES, PREVIEW_LIMIT_BYTES, describeFileError, fileGlyph, findMatches, formatSize,
   languageName, pageOfLine, parseReference, resolvePreviewReference, splitLines, viewerLayout,
 } from "../app/src/screens/session/FileViewer";
-import { blockedResources } from "../app/src/screens/session/preview-html";
+import { INLINE_STYLES, blockedResources } from "../app/src/screens/session/preview-html";
 import { renderMarkdownPreview, htmlPreviewDocument } from "../app/src/screens/session/preview";
 
 const file = { path: "src/main.ts", kind: "code" as const, text: "first\nsecond\n", size: 13, modified: "v1", line: 2 };
@@ -62,7 +62,8 @@ test("HTML preview is sandboxed and names what it blocked", () => {
   expect(html).toMatch(/<iframe[^>]*\ssandbox(?:\s|>|="")/);
   expect(html).toContain('role="note"');
   expect(html).toContain("Preview is isolated from pacer");
-  expect(html).toContain("Scripts don't run and nothing loads from the network. 2 scripts and 1 external request were blocked.");
+  expect(html).toContain("Scripts don't run, inline styles aren't applied and nothing loads from the network. 2 scripts and 1 external request were blocked.");
+  expect(html).toMatch(/<iframe[^>]*tabindex="-1"/i);
   expect(html).toContain("inline script");
   expect(html).toContain("local asset not loaded");
   expect(htmlPreviewDocument("<script>alert(1)</script>")).toContain("default-src 'none'");
@@ -95,8 +96,28 @@ test("blocked-resource scanner covers scripts, links, media, frames and CSS", ()
     { kind: "style", address: "theme.css", local: true },
     { kind: "img", address: "https://img.example/bg.png", local: false },
     { kind: "img", address: "//img.example/inline.png", local: false },
+    { kind: "style", address: INLINE_STYLES, local: false, inline: true },
   ]);
   expect(blockedResources("<h1>Plain</h1>")).toEqual([]);
+});
+
+test("blocked-resource scanner covers srcset, poster, audio, embed and object, and ignores src text inside other values", () => {
+  const source = `<img srcset="https://img.example/a-1x.png 1x, img/a-2x.png 2x" alt="x src=https://fake.example/no.png">
+    <picture><source srcset="https://img.example/wide.webp 800w"></picture>
+    <video poster="https://img.example/poster.jpg" src="clips/v.mp4"></video><audio src="https://media.example/a.mp3"></audio>
+    <embed src="https://embed.example/e.swf"><object data="docs/file.pdf"></object>
+    <a title='data-src="https://fake.example/x" src=https://fake.example/y' href="#">x</a><p data-note="a > b src=https://fake.example/z">t</p>`;
+  expect(blockedResources(source)).toEqual([
+    { kind: "img", address: "https://img.example/a-1x.png", local: false },
+    { kind: "img", address: "img/a-2x.png", local: true },
+    { kind: "img", address: "https://img.example/wide.webp", local: false },
+    { kind: "img", address: "clips/v.mp4", local: true },
+    { kind: "img", address: "https://img.example/poster.jpg", local: false },
+    { kind: "img", address: "https://media.example/a.mp3", local: false },
+    { kind: "frame", address: "https://embed.example/e.swf", local: false },
+    { kind: "frame", address: "docs/file.pdf", local: true },
+  ]);
+  expect(blockedResources('<p style="color:red">x</p>')).toEqual([{ kind: "style", address: INLINE_STYLES, local: false, inline: true }]);
 });
 
 test("server errors map to titled states with only actions that can work", () => {
@@ -113,6 +134,8 @@ test("server errors map to titled states with only actions that can work", () =>
     expect(describeFileError({ code: "invalid_input", message }, path)).toMatchObject({ title: "pacer can't show this file", body: "It's a binary file or isn't UTF-8 text." });
   expect(describeFileError({ code: "conflict", message: "This session attempt has changed; refresh it" }, path))
     .toEqual({ glyph: "changed", title: "This session changed", body: "The agent's attempt moved on. Refresh the session.", copy: false, retry: false });
+  expect(describeFileError({ code: "not_found", message: "Session workspace is unavailable" }, path))
+    .toMatchObject({ title: "Workspace unavailable", body: "This session's workspace is no longer available; it may have been removed or cleaned up." });
   // Without a typed code (for example a proxy error), the message still selects the state.
   expect(describeFileError({ code: "internal", message: "File no longer exists in this session workspace" }, path).title).toBe("This file isn't in the workspace");
   expect(describeFileError({ code: "internal", message: "File is not UTF-8 text" }, path).title).toBe("pacer can't show this file");
@@ -136,6 +159,10 @@ test("errors keep the header and Back to terminal; Retry appears only for missin
   expect(missing).not.toContain('aria-label="Refresh"');
   const changed = renderToString(<FileViewer reference="src/a.ts" error={{ code: "conflict", message: "This session attempt has changed; refresh it" }} onClose={noop} onRefresh={noop} />);
   expect(changed).toContain("This session changed");
+  expect(changed).toMatch(/role="group" aria-labelledby="([^"]+)"[\s\S]*id="\1"[^>]*>This session changed/);
+  expect(changed).not.toMatch(/pc-file-viewer__state"[^>]*aria-live/);
+  const binary = renderToString(<FileViewer reference="bin/app" error={{ code: "invalid_input", message: "Binary files cannot be previewed" }} onClose={noop} onRefresh={noop} />);
+  expect(binary).toContain('class="pc-file-viewer__glyph">BIN</span>');
   expect(changed).not.toContain(">Retry<");
   expect(changed).not.toContain(">Copy path<");
 });
@@ -155,13 +182,17 @@ test("search counts every match across the file and pages follow the match", () 
   expect(findMatches(lines, "alpha", true)).toEqual([{ line: 1, start: 6 }]);
   expect(findMatches(lines, "", false)).toEqual([]);
   expect(findMatches(["aaaa"], "aa", false)).toEqual([{ line: 1, start: 0 }, { line: 1, start: 2 }]);
+  // "İ" lower-cases to two code units; offsets must still point into the original line.
+  const turkish = "İİ abc ABC";
+  expect(findMatches([turkish], "abc", false)).toEqual([{ line: 1, start: 3 }, { line: 1, start: 7 }]);
+  expect(turkish.slice(7, 10)).toBe("ABC");
   expect(pageOfLine(1)).toBe(0);
   expect(pageOfLine(PAGE_LINES)).toBe(0);
   expect(pageOfLine(PAGE_LINES + 1)).toBe(1);
 });
 
 test("file descriptors: glyph, language, size, lines, reference and layout", () => {
-  expect(["a.ts", "a.md", "a.html", "a.css", "notes.txt", "Makefile"].map(fileGlyph)).toEqual(["TS", "MD", "</>", "</>", "TXT", "TXT"]);
+  expect(["a.ts", "a.md", "a.html", "a.css", "notes.txt", "Makefile", "data.xyz", "photo.png"].map(fileGlyph)).toEqual(["TS", "MD", "</>", "</>", "TXT", "TXT", "FILE", "FILE"]);
   expect(languageName("a.tsx")).toBe("TypeScript");
   expect(languageName("README")).toBe("Plain text");
   expect(formatSize(13)).toBe("0.1 KB");
@@ -180,6 +211,9 @@ test("Markdown preview escapes raw HTML and restricts unsafe links", () => {
   expect(rendered).toContain("&lt;script&gt;");
   expect(rendered).not.toContain("href=\"javascript:");
   expect(rendered).toContain('class="pc-inline-link"');
+  const image = renderMarkdownPreview('![Build graph](https://img.example/g.png "t")');
+  expect(image).toContain('<span class="pc-file-viewer__image" title="https://img.example/g.png">Image not loaded: Build graph</span>');
+  expect(image).not.toContain("<img");
 });
 
 test("Markdown file links resolve from the viewed document and ignore fragments and schemes", () => {

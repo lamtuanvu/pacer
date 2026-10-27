@@ -1,4 +1,5 @@
 import {render} from "preact";
+import {useState} from "preact/hooks";
 import {LinkedTerminal} from "../../../app/src/screens/session/LinkedTerminal";
 import type {SessionFileRequest,SessionFileResult} from "../../../src/session/files";
 
@@ -9,13 +10,29 @@ const files:Record<string,Omit<SessionFileResult,"line"|"column">>={
  "README.md":{path:"README.md",kind:"markdown",text:"# Readme title\n\nBody text.\n",size:26,modified:"v1"},
  "public/index.html":{path:"public/index.html",kind:"html",text:'<script src="https://cdn.example/a.js"></script><h1>Page</h1>',size:60,modified:"v1"},
 };
+// With `deferred`, reads wait until the test resolves them by path, so responses can arrive out of order.
+let deferred=false;
+const pending=new Map<string,()=>void>();
 async function readFile({reference}:SessionFileRequest):Promise<SessionFileResult>{
  const location=/:(\d+)(?::(\d+))?$/.exec(reference);
  const path=location?reference.slice(0,location.index):reference;
+ if(deferred)await new Promise<void>(resolve=>pending.set(path,resolve));
  const file=files[path];
  if(!file)throw Object.assign(new Error("File no longer exists in this session workspace"),{code:"not_found"});
  return {...file,...(location?{line:Number(location[1])}:{})};
 }
+let setAttempt:(attempt:number)=>void=()=>{};
+function App(){
+ const [attempt,set]=useState(1);setAttempt=set;
+ return <LinkedTerminal id="t-files" attempt={attempt} readFile={readFile}/>;
+}
 const host=document.getElementById("root")!;
-(globalThis as Record<string,unknown>).fileViewerTest={setWidth:(width:number)=>{host.style.width=`${width}px`;}};
-render(<LinkedTerminal id="t-files" attempt={1} readFile={readFile}/>,host);
+(globalThis as Record<string,unknown>).fileViewerTest={
+ setWidth:(width:number)=>{host.style.width=`${width}px`;},
+ defer:(value:boolean)=>{deferred=value;},
+ resolve:(path:string)=>{pending.get(path)?.();pending.delete(path);},
+ pending:()=>[...pending.keys()],
+ setAttempt:(attempt:number)=>setAttempt(attempt),
+ addFile:(path:string)=>{files[path]={path,kind:"code",text:"restored\n",size:9,modified:"v2"};},
+};
+render(<App/>,host);
