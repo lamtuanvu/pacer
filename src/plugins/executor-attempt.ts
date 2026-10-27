@@ -91,7 +91,8 @@ export function claimRunDirectory(ctx: Ctx, taskId: string, attempt: number, rec
 
 /** Persist the exact run owner before any provider process effect. */
 export async function publishOwnedExecutorRun(ctx: Ctx, pluginId: string, taskId: string,
-  executor: string, workdir: string): Promise<{ owner: RunRef; runIdentity: { dev: number; ino: number } }> {
+  executor: string, workdir: string, session?: "interactive"):
+  Promise<{ owner: RunRef; runIdentity: { dev: number; ino: number } }> {
   if (!isAbsolute(workdir)) throw new CoreError("invalid_input", "executor workdir must be absolute");
   let runIdentity: { dev: number; ino: number };
   let isolated = false;
@@ -110,7 +111,8 @@ export async function publishOwnedExecutorRun(ctx: Ctx, pluginId: string, taskId
     if (!isolated && task.worktreeIntent)
       throw new CoreError("conflict", "in-place run conflicts with pending worktree intent");
     const dir = join(ctx.pacerHome, "runs", taskId, String(attempt));
-    const expected = { attempt, providerId: pluginId, executor, workdir, dir };
+    const expected = { attempt, providerId: pluginId, executor, workdir, dir,
+      ...(session ? { session } : {}) };
     const recover = task.runClaim !== undefined;
     if (recover && JSON.stringify(task.runClaim) !== JSON.stringify(expected))
       throw new CoreError("conflict", "executor run claim changed before dispatch");
@@ -123,6 +125,7 @@ export async function publishOwnedExecutorRun(ctx: Ctx, pluginId: string, taskId
     if (claim.path !== dir) throw new CoreError("conflict", "executor run directory changed");
     runIdentity = claim.identity;
     const run: RunRef = { dir, attempt, executor, startedAt: Date.now() / 1000,
+      ...(session ? { session } : {}),
       mode: isolated ? "new" : "current", workdir, logFile: join(dir, "stdout") };
     updateTask(ctx, taskId, current => {
       if (JSON.stringify(current.runClaim) !== JSON.stringify(expected))

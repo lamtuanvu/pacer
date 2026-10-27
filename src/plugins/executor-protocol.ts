@@ -38,6 +38,7 @@ export const executorEffectRunResult = z.discriminatedUnion("status", [
 export const executorOwnedRunParams = z.object({
   task: z.object({ id: taskId, rev: positive }).strict(), attempt: positive, runDir: z.literal(1),
   owned: z.object({ placement: z.enum(["current", "new"]), timeoutMs: z.number().int().positive().max(MAX_PROCESS_SPAWN_MS),
+    session: z.literal("interactive").optional(),
     executor: z.string().min(1).max(256), model: z.string().max(256).nullable(),
     resume: z.object({ startedAt: z.number().finite(), logFile: z.string().min(1).max(4096),
       worktree: z.string().min(1).max(4096).optional() }).strict().optional() }).strict(),

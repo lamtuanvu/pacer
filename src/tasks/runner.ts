@@ -442,7 +442,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
       attemptedBackend = backend?.id ?? "direct";
       const localOwnerCandidate = !resuming && !deps.runAttempt && backend?.id === "direct" &&
         ctx.env.PACER_BACKEND !== "orca" && task.interactionMode !== "conversation" &&
-        cfg.session !== "interactive" && !resolveRunner(s, pick)?.host &&
+        !resolveRunner(s, pick)?.host &&
         (!task.worktree || !!task.retryOf || task.attempts.length > 0);
       const localGit = localOwnerCandidate ? await gitInfo(ctx.run, task.brief.repo).catch(() => ({ error: "git unavailable" })) : null;
       const localTop = localGit && !("error" in localGit) ? realpathSafe(localGit.top) : realpathSafe(task.brief.repo);

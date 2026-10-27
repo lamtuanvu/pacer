@@ -22,6 +22,7 @@ const ownedInput = z.object({
   task: z.object({ id: z.string(), rev: z.number().int().positive() }).strict(),
   attempt: z.number().int().positive(), runDir: z.literal(1),
   owned: z.object({ placement: z.enum(["current", "new"]),
+    session: z.literal("interactive").optional(),
     timeoutMs: z.number().int().positive().max(30 * 60 * 1000),
     executor: z.string().min(1).max(256), model: z.string().max(256).nullable(),
     resume: z.object({ startedAt: z.number().finite(), logFile: z.string().min(1).max(4096),
@@ -106,20 +107,43 @@ async function runOwned(params: z.infer<typeof ownedInput>, host: Parameters<Han
   }
   const deadline = owned.resume ? owned.resume.startedAt * 1000 + owned.timeoutMs : Date.now() + owned.timeoutMs;
   let uncertainSince: number | null = null;
+  let completed: { status: "done" | "failed"; summary: string; at: number; exitCode: number } | null = null;
   for (;;) {
     if (signal.aborted) throw new PluginError("plugin_unavailable", "executor run was cancelled; inspect the persisted wrapper");
-    const state = await host.call<{ state: "running" | "exited" | "uncertain"; exitCode: number | null }>(
+    const state = await host.call<{ state: "running" | "exited" | "uncertain"; exitCode: number | null;
+      interactive?: boolean; report?: { status: string; summary: string; at: number } | null }>(
       "capability.process.pollRun", { taskId: task.id, attempt });
+    if (owned.session === "interactive" && state.interactive !== true)
+      throw new PluginError("plugin_refused", "interactive run observation has no session proof");
+    if (owned.session === "interactive" && !completed &&
+      (state.report?.status === "done" || state.report?.status === "failed")) {
+      const receipt = await host.call<{ status: "done" | "failed"; summary: string;
+        at: number; exitCode: number }>("capability.process.completeReportedRun", { taskId: task.id, attempt });
+      if (receipt.status !== state.report.status || receipt.summary !== state.report.summary ||
+        receipt.at !== state.report.at)
+        throw new PluginError("plugin_refused", "interactive report completion changed");
+      completed = receipt;
+      continue;
+    }
     if (state.state === "exited" && state.exitCode !== null) {
+      if (completed && state.exitCode !== completed.exitCode)
+        throw new PluginError("plugin_refused", "interactive exit changed after completion");
       const encoded = await host.call<{ stdoutBase64: string; stderrBase64: string }>(
         "capability.process.readRunOutput", { taskId: task.id, attempt });
       const stdout = Buffer.from(encoded.stdoutBase64, "base64").toString("utf8");
       const stderr = Buffer.from(encoded.stderrBase64, "base64").toString("utf8");
-      const report = (stdout.trim() || stderr.trim()).slice(-4000);
-      return { backend: "direct", report, exec: { code: state.exitCode, stdout, stderr, timedOut: false },
+      const report = completed?.summary ?? (owned.session === "interactive"
+        ? `Interactive session exited without an explicit completion report${state.report?.summary ? `\n\n${state.report.summary.slice(-4000)}` : ""}`
+        : (stdout.trim() || stderr.trim()).slice(-4000));
+      if (owned.session === "interactive" && !completed &&
+        (state.report?.status === "done" || state.report?.status === "failed"))
+        throw new PluginError("plugin_refused", "interactive completion has no host receipt");
+      const code = owned.session === "interactive"
+        ? completed ? completed.status === "done" ? 0 : 1 : state.exitCode || 1 : state.exitCode;
+      return { backend: "direct", report, exec: { code, stdout, stderr, timedOut: false },
         attempt: { executor: owned.executor, model: owned.model,
           startedAt: startedAt!, endedAt: Date.now() / 1000,
-          exitCode: state.exitCode, timedOut: false, limitHit: false, log: logFile! },
+          exitCode: code, timedOut: false, limitHit: false, log: logFile! },
         ...(worktree ? { worktree } : {}) };
     }
     uncertainSince = state.state === "uncertain" ? uncertainSince ?? Date.now() : null;

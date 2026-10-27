@@ -102,6 +102,7 @@ export function resolvePlacement(task: Pick<TaskRecord,"kind"|"brief"|"placement
 
 export interface RunRef {
   interactionMode?: InteractionMode;
+  session?: "interactive";
   takeover?: boolean;
   agentSession?: {id: string; source: "header" | "assigned" | "lookup"};
   host?: string;
@@ -128,11 +129,15 @@ export interface TaskRecord {
     originHash: string; base?: string; sha?: string };
   /** Exact local attempt directory claimed before creation and cleared with the durable run reference. */
   runClaim?: { attempt: number; providerId: string; executor: string; workdir: string; dir: string;
+    session?: "interactive";
     host?: string; remoteDir?: string; remoteBranch?: string; baseSha?: string };
   /** A wrapper start may have reached the OS; never authorize a second start for this attempt. */
   startIntent?: { attempt: number; providerId: string; dir: string };
   /** Host-verified exit of the exact provider-owned run, safe across later task revision changes. */
   executorExitReceipt?: { attempt: number; providerId: string; dir: string; startedAt: number; exitCode: number };
+  /** Exact terminal interactive report reaped by the host before logical settlement. */
+  executorReportReceipt?: { attempt: number; providerId: string; dir: string; startedAt: number;
+    status: "done" | "failed"; summary: string; at: number; exitCode: number };
   /** Durable exact placement claimed before an executor-owned Git worktree effect. */
   worktreeIntent?: { attempt: number; providerId: string; repoTop: string; repoMain: string;
     path: string; workdir: string; branch: string; baseSha: string };

@@ -16,7 +16,8 @@ export interface CallResources {
   executorClaim?: { taskId: string; attempt: number; providerId: string; executor: string; workdir: string;
     launch: { argv: string[]; cwd: string; executable: string;
       executableIdentity: { dev: number; ino: number; size: number; mtimeMs: number; mode: number };
-      env: Record<string, string>; stdin?: string } };
+      env: Record<string, string>; stdin?: string; session?: "interactive";
+      files?: { name: "report-hook.sh" | "claude-settings.json"; content: string; mode: number }[] } };
   /** Restart may observe only the exact already-persisted wrapper; it cannot start one. */
   executorObserve?: { taskId: string; attempt: number; providerId: string; executor: string;
     workdir: string; dir: string; dirIdentity: { dev: number; ino: number }; startedAt: number };
@@ -42,7 +43,9 @@ export interface CallResources {
   detachedRun?: { taskId: string; rev: number; attempt: number; dir: string;
     dirIdentity: { dev: number; ino: number }; argv: string[]; cwd: string;
     executable: string; executableIdentity: { dev: number; ino: number; size: number; mtimeMs: number; mode: number };
-    cwdIdentity: { dev: number; ino: number }; env: Record<string, string>; stdin?: string };
+    cwdIdentity: { dev: number; ino: number }; env: Record<string, string>; stdin?: string;
+    session?: "interactive";
+    files?: { name: "report-hook.sh" | "claude-settings.json"; content: string; mode: number }[] };
   /** Host-issued secret-reference aliases; names only, never credential values. */
   secretAliases?: Record<string, string>;
   /** Exact hostnames derived only from validated host configuration/grants. */
@@ -115,6 +118,7 @@ export class CallAuthority {
   private detachedInspectUsed = false;
   private worktreeCreateUsed = false;
   private executorClaimUsed = false;
+  private executorCompleteUsed = false;
   private remotePrepareUsed = false;
   private remoteStopUsed = false;
   private remoteTransferUsed = false;
@@ -329,7 +333,9 @@ export class CallAuthority {
       grant.providerId !== issued.providerId || grant.executor !== issued.executor ||
       grant.workdir !== issued.workdir ||
       grant.cwd !== realpathSync(issued.launch.cwd) || grant.executable !== issued.launch.executable ||
-      JSON.stringify(grant.argv) !== JSON.stringify(issued.launch.argv))
+      JSON.stringify(grant.argv) !== JSON.stringify(issued.launch.argv) ||
+      grant.session !== issued.launch.session ||
+      JSON.stringify(grant.files) !== JSON.stringify(issued.launch.files))
       throw new CoreError("capability_denied", "executor launch was not derived from this run claim");
     this.claimedDetachedRun = Object.freeze({ ...grant, argv: Object.freeze([...grant.argv]) as string[],
       env: Object.freeze({ ...grant.env }), dirIdentity: Object.freeze({ ...grant.dirIdentity }),
@@ -349,6 +355,13 @@ export class CallAuthority {
     const grant = claim ?? resume;
     if (!grant || grant.taskId !== taskId || grant.attempt !== attempt ||
       (resume && claim)) throw new CoreError("capability_denied", "run observation is not issued for this call");
+    return grant;
+  }
+  consumeExecutorComplete(taskId: string, attempt: number) {
+    const grant = this.observedRun(taskId, attempt);
+    if (this.executorCompleteUsed)
+      throw new CoreError("capability_denied", "interactive completion is already used for this call");
+    this.executorCompleteUsed = true;
     return grant;
   }
   onRevoke(cleanup: () => void | Promise<void>): () => void {

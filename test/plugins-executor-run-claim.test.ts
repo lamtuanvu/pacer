@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createCallAuthority } from "../src/plugins/authority";
@@ -7,6 +7,7 @@ import { answerCapability } from "../src/plugins/host";
 import { CAPABILITY_METHODS, capabilityOf, manifestSchema } from "../src/plugins/protocol";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
 import { stopRun } from "../src/supervisor/run";
+import { writeReport } from "../src/session/reports";
 import { fakeCtx, gitRepo, realRun, tmpDir } from "./helpers";
 import { issueOwnedWorktreeGrant } from "../src/plugins/executor-worktree";
 
@@ -159,6 +160,128 @@ test("run claim binds one start and a lost start receipt cannot authorize anothe
     const dir = readTask(ctx, task.id)?.run?.dir;
     if (dir) await stopRun(dir, { graceMs: 1000 });
     cleanup();
+  }
+});
+
+test("host-issued interactive claim starts a session but the provider cannot upgrade a pipe grant", async () => {
+  for (const session of ["pipe", "interactive"] as const) {
+    const { ctx, task, resource, manifest, cleanup } = fixture();
+    const authority = createCallAuthority(ctx, { reads: [], commands: [], stores: [],
+      executorClaim: { ...resource, launch: { ...resource.launch,
+        ...(session === "interactive" ? { session, files: [{ name: "report-hook.sh" as const,
+          content: "#!/bin/sh\nexit 0\n", mode: 0o700 }] } : {}) } } },
+    { deadlineMs: Date.now() + 10_000, grants: ["process.spawn"] });
+    try {
+      const claim = await answerCapability(ctx, { id: manifest.id, manifest },
+        "capability.process.claimRun", { taskId: task.id, attempt: 1 }, authority) as
+        { task: { id: string; rev: number }; attempt: number; runDir: 1 };
+      await expect(answerCapability(ctx, { id: manifest.id, manifest },
+        "capability.process.startRun", { task: claim.task, attempt: 1, runDir: 1,
+          session: "interactive" }, authority)).rejects.toMatchObject({ code: "invalid_input" });
+      expect(readTask(ctx, task.id)?.startIntent).toBeUndefined();
+      expect(await answerCapability(ctx, { id: manifest.id, manifest },
+        "capability.process.startRun", { task: claim.task, attempt: 1, runDir: 1 }, authority))
+        .toHaveProperty("pid");
+      const dir = readTask(ctx, task.id)!.run!.dir;
+      expect(existsSync(join(dir, "interactive.json"))).toBe(session === "interactive");
+      expect(existsSync(join(dir, "session.json"))).toBe(session === "interactive");
+      if (session === "interactive")
+        expect(readFileSync(join(dir, "report-hook.sh"), "utf8")).toBe("#!/bin/sh\nexit 0\n");
+      await expect(answerCapability(ctx, { id: manifest.id, manifest },
+        "capability.process.startRun", { task: claim.task, attempt: 1, runDir: 1 }, authority))
+        .rejects.toMatchObject({ code: "capability_denied" });
+    } finally {
+      await authority.revoke();
+      const dir = readTask(ctx, task.id)?.run?.dir;
+      if (dir) await stopRun(dir, { graceMs: 1000 });
+      cleanup();
+    }
+  }
+});
+
+test("interactive artifact publication never replaces a preexisting hook", async () => {
+  const { ctx, task, resource, manifest, cleanup } = fixture();
+  const authority = createCallAuthority(ctx, { reads: [], commands: [], stores: [],
+    executorClaim: { ...resource, launch: { ...resource.launch, session: "interactive",
+      files: [{ name: "report-hook.sh", content: "#!/bin/sh\nexit 0\n", mode: 0o700 }] } } },
+  { deadlineMs: Date.now() + 10_000, grants: ["process.spawn"] });
+  try {
+    const claim = await answerCapability(ctx, { id: manifest.id, manifest },
+      "capability.process.claimRun", { taskId: task.id, attempt: 1 }, authority) as
+      { task: { id: string; rev: number }; attempt: number; runDir: 1 };
+    const dir = readTask(ctx, task.id)!.run!.dir;
+    writeFileSync(join(dir, "report-hook.sh"), "foreign", { mode: 0o600, flag: "wx" });
+    await expect(answerCapability(ctx, { id: manifest.id, manifest },
+      "capability.process.startRun", { task: claim.task, attempt: 1, runDir: 1 }, authority))
+      .rejects.toMatchObject({ code: "capability_denied" });
+    expect(readFileSync(join(dir, "report-hook.sh"), "utf8")).toBe("foreign");
+    expect(existsSync(join(dir, "pid"))).toBe(false);
+    expect(readTask(ctx, task.id)?.startIntent).toMatchObject({ attempt: 1 });
+  } finally { await authority.revoke(); cleanup(); }
+});
+
+test("reported interactive completion requires the exact live report and reaped run", async () => {
+  const { ctx, task, resource, manifest, cleanup } = fixture();
+  const authority = createCallAuthority(ctx, { reads: [], commands: [], stores: [],
+    executorClaim: { ...resource, launch: { ...resource.launch,
+      argv: ["bun", "-e", "setTimeout(() => {}, 30000)"], session: "interactive" } } },
+  { deadlineMs: Date.now() + 15_000, grants: ["process.spawn"] });
+  const call = (method: string, params: unknown) => answerCapability(ctx,
+    { id: manifest.id, manifest }, method, params, authority);
+  try {
+    const claim = await call("capability.process.claimRun", { taskId: task.id, attempt: 1 }) as
+      { task: { id: string; rev: number }; attempt: number; runDir: 1 };
+    await call("capability.process.startRun", { task: claim.task, attempt: 1, runDir: 1 });
+    const dir = readTask(ctx, task.id)!.run!.dir;
+    await expect(call("capability.process.completeReportedRun", { taskId: task.id, attempt: 1 }))
+      .rejects.toMatchObject({ code: "capability_denied" });
+    writeReport(dir, "done", "fixture complete");
+    const result = await call("capability.process.completeReportedRun", { taskId: task.id,
+      attempt: 1 }) as { status: string; summary: string; exitCode: number };
+    expect(result).toMatchObject({ status: "done", summary: "fixture complete" });
+    expect(Number.isInteger(result.exitCode)).toBe(true);
+    expect((await call("capability.process.pollRun", { taskId: task.id,
+      attempt: 1 }) as { state: string }).state).toBe("exited");
+    await expect(call("capability.process.completeReportedRun", { taskId: task.id, attempt: 1 }))
+      .rejects.toMatchObject({ code: "capability_denied" });
+  } finally {
+    await authority.revoke();
+    const dir = readTask(ctx, task.id)?.run?.dir;
+    if (dir) await stopRun(dir, { graceMs: 1000 });
+    cleanup();
+  }
+});
+
+test("interactive completion refuses a pipe run and a changed owner before signaling", async () => {
+  for (const change of ["pipe", "provider", "stop"] as const) {
+    const { ctx, task, resource, manifest, cleanup } = fixture();
+    const authority = createCallAuthority(ctx, { reads: [], commands: [], stores: [],
+      executorClaim: { ...resource, launch: { ...resource.launch,
+        argv: ["bun", "-e", "setTimeout(() => {}, 30000)"],
+        ...(change === "pipe" ? {} : { session: "interactive" as const }) } } },
+    { deadlineMs: Date.now() + 15_000, grants: ["process.spawn"] });
+    const call = (method: string, params: unknown) => answerCapability(ctx,
+      { id: manifest.id, manifest }, method, params, authority);
+    try {
+      const claim = await call("capability.process.claimRun", { taskId: task.id, attempt: 1 }) as
+        { task: { id: string; rev: number }; attempt: number; runDir: 1 };
+      await call("capability.process.startRun", { task: claim.task, attempt: 1, runDir: 1 });
+      const dir = readTask(ctx, task.id)!.run!.dir;
+      writeReport(dir, "done", "must not settle");
+      if (change === "provider") updateTask(ctx, task.id, current => { current.executorProvider = "foreign"; });
+      if (change === "stop") updateTask(ctx, task.id, current => {
+        current.stopPending = { attempt: 1, requestedAt: Date.now() / 1000,
+          providerId: manifest.id, graceMs: 5000 };
+      });
+      await expect(call("capability.process.completeReportedRun", { taskId: task.id, attempt: 1 }))
+        .rejects.toMatchObject({ code: "capability_denied" });
+      expect(readTask(ctx, task.id)?.executorReportReceipt).toBeUndefined();
+    } finally {
+      await authority.revoke();
+      const dir = readTask(ctx, task.id)?.run?.dir;
+      if (dir) await stopRun(dir, { graceMs: 1000 });
+      cleanup();
+    }
   }
 });
 

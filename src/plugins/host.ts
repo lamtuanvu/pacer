@@ -18,6 +18,7 @@ import { stageBundle } from "./bundle-stage";
 import { answerWorktree } from "./executor-worktree";
 import { answerExecutorClaim } from "./executor-run-claim";
 import { answerExecutorPoll, answerExecutorOutput } from "./executor-run-observe";
+import { answerExecutorReportedCompletion } from "./executor-run-complete";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { CoreError } from "../core/errors";
@@ -125,6 +126,8 @@ export async function answerCapability(ctx: Ctx, plugin: { id: string; manifest:
         ? Promise.resolve(answerExecutorPoll(authority, parsed.data as { taskId: string; attempt: number }))
       : method === "capability.process.readRunOutput"
         ? Promise.resolve(answerExecutorOutput(authority, parsed.data as { taskId: string; attempt: number }))
+      : method === "capability.process.completeReportedRun"
+        ? answerExecutorReportedCompletion(authority, parsed.data as { taskId: string; attempt: number })
       : answerSpawn(authority, scopes, parsed.data as Record<string, unknown>));
   if (authority && name === "usage.state") return scoped(() => answerUsageState(authority,
     method.slice("capability.usage.state.".length) as Parameters<typeof answerUsageState>[1], parsed.data as Record<string, unknown>));

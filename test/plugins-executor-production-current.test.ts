@@ -62,6 +62,24 @@ test("bundled direct provider owns a real current checkout wrapper and full outc
   } finally { cleanup(); }
 });
 
+test("local interactive owner preserves the session files and fails a wrapper exit without report", async () => {
+  const { ctx, task, cfg, cleanup } = fixture();
+  const executable = ctx.which("codex")!;
+  writeFileSync(executable, "#!/bin/sh\nif [ \"$1\" = --version ]; then echo codex-cli 0.162.1; exit 0; fi\nexit 0\n",
+    { mode: 0o700 });
+  try {
+    const out = await runOwnedDirectCurrent({ ...ctx, run: realRun },
+      { ...cfg, session: "interactive" }, task);
+    expect(out.exec.code).toBe(1);
+    const run = readTask(ctx, task.id)!.run!;
+    expect(run.session).toBe("interactive");
+    expect(existsSync(join(run.dir, "interactive.json"))).toBe(true);
+    expect(existsSync(join(run.dir, "session.json"))).toBe(true);
+    expect(existsSync(join(run.dir, "report-hook.sh"))).toBe(true);
+    expect(out.report).toContain("without an explicit completion report");
+  } finally { cleanup(); }
+});
+
 test("task runner routes an admitted current attempt through the bundled provider", async () => {
   const { ctx, task, cleanup } = fixture();
   try {
@@ -88,6 +106,40 @@ test("task runner routes an admitted current attempt through the bundled provide
     expect(result.executorProvider).toBe("pacer-exec-direct");
     expect(result.attempts).toHaveLength(1);
     expect(result.result?.report).toContain("owned provider result");
+  } finally { cleanup(); }
+});
+
+test("task runner selects the bundled provider for a local interactive session", async () => {
+  const { ctx, task, cleanup } = fixture();
+  const executable = ctx.which("codex")!;
+  writeFileSync(executable, "#!/bin/sh\nif [ \"$1\" = --version ]; then echo codex-cli 0.162.1; exit 0; fi\nexit 0\n",
+    { mode: 0o700 });
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"),
+    "accounts:\n  claude: {kind: claude}\n  codex: {kind: codex}\nplanner: {agent: claude-code, account: claude}\nrunners:\n  codex: {agent: codex, account: codex, session: interactive}\nrouting:\n  - default: [codex]\nexecution: {worktree: current}\n",
+    { mode: 0o600 });
+  try {
+    Bun.spawnSync(["git", "init", "-q", "-b", "main"], { cwd: task.brief.repo });
+    Bun.spawnSync(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+      "commit", "-q", "--allow-empty", "-m", "init"], { cwd: task.brief.repo });
+    updateTask(ctx, task.id, current => {
+      current.state = "queued";
+      delete current.executor;
+      delete current.executorProvider;
+    });
+    const result = await runTask({ ...ctx, run: realRun }, task.id, {
+      loadStrategy,
+      computeStatus: async () => ({ generatedAt: ctx.now, strategy: "default", planner: "claude-code",
+        mode: "normal", disabled: false, calendarPace: true, accounts: [],
+        providers: ["claude-code", "codex"].map(id => ({ id, eligibility: eligibility(), usage: "quota" as const,
+          windows: [], binding: null, verdict: "ON_PACE" as const, installed: true, stale: false })),
+        executors: { ranked: [], excluded: [] } }),
+      hooks: { ...defaultHooks, taskKind: async () => "research" },
+      verifyRepo: async () => ({ files: "(no changes)" }),
+    });
+    expect(result.executorProvider).toBe("pacer-exec-direct");
+    expect(result.run?.session).toBe("interactive");
+    expect(result.attempts).toHaveLength(1);
+    expect(result.attempts[0]?.exitCode).toBe(1);
   } finally { cleanup(); }
 });
 
@@ -238,6 +290,51 @@ test("lost provider reply reattaches to the exact wrapper without a second launc
     expect(recovered.report).toContain("resumed output");
     expect(readFileSync(join(task.brief.repo, "launch-count"), "utf8")).toBe("x");
     expect(readTask(ctx, task.id)?.executorExitReceipt?.attempt).toBe(1);
+  } finally { cleanup(); }
+});
+
+test("lost interactive completion reply recovers the same reported attempt", async () => {
+  const { ctx, task, cfg, cleanup } = fixture();
+  const executable = ctx.which("codex")!;
+  writeFileSync(executable, "#!/bin/sh\nif [ \"$1\" = --version ]; then echo codex-cli 0.162.1; exit 0; fi\nprintf x >> launch-count\nprintf '%s' '{\"status\":\"done\",\"summary\":\"owned done\",\"at\":101}' > \"$PACER_RUN_DIR/report.json\"\nsleep 30\n",
+    { mode: 0o700 });
+  const runtime = { ...ctx, run: realRun }, interactive = { ...cfg, session: "interactive" as const };
+  const registry = pluginRegistry(runtime);
+  const lostReply = { call: async (...args: Parameters<typeof registry.call>) => {
+    await registry.call(...args);
+    throw Error("interactive reply lost after completion");
+  } };
+  try {
+    await expect(runOwnedDirectCurrent(runtime, interactive, task, lostReply))
+      .rejects.toThrow("interactive reply lost after completion");
+    const persisted = readTask(ctx, task.id)!;
+    expect(persisted.executorReportReceipt).toMatchObject({ status: "done", attempt: 1 });
+    const recovered = await resumeOwnedDirect(runtime, interactive, persisted);
+    expect(recovered.exec.code).toBe(0);
+    expect(recovered.report).toBe("owned done");
+    expect(readFileSync(join(task.brief.repo, "launch-count"), "utf8")).toBe("x");
+  } finally { cleanup(); }
+});
+
+test("a pending stop after interactive provider completion refuses success settlement", async () => {
+  const { ctx, task, cfg, cleanup } = fixture();
+  writeFileSync(ctx.which("codex")!,
+    "#!/bin/sh\nif [ \"$1\" = --version ]; then echo codex-cli 0.162.1; exit 0; fi\nprintf '%s' '{\"status\":\"done\",\"summary\":\"owned done\",\"at\":101}' > \"$PACER_RUN_DIR/report.json\"\nsleep 30\n",
+    { mode: 0o700 });
+  const runtime = { ...ctx, run: realRun }, registry = pluginRegistry(runtime);
+  const stopAfterReply = { call: async (...args: Parameters<typeof registry.call>) => {
+    const result = await registry.call(...args);
+    updateTask(ctx, task.id, current => {
+      current.stopPending = { attempt: 1, requestedAt: Date.now() / 1000,
+        providerId: "pacer-exec-direct", graceMs: 5000 };
+    });
+    return result;
+  } };
+  try {
+    await expect(runOwnedDirectCurrent(runtime, { ...cfg, session: "interactive" }, task,
+      stopAfterReply)).rejects.toMatchObject({ code: "conflict" });
+    expect(readTask(ctx, task.id)?.stopPending).toMatchObject({ attempt: 1 });
+    expect(readTask(ctx, task.id)?.executorExitReceipt).toBeUndefined();
   } finally { cleanup(); }
 });
 

@@ -357,6 +357,249 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityProcessClaimRunResultWorkdir {
         deserialize_validated_string(deserializer)
     }
 }
+///`CapabilityProcessCompleteReportedRunParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "attempt",
+///    "taskId"
+///  ],
+///  "properties": {
+///    "attempt": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "exclusiveMinimum": 0.0
+///    },
+///    "taskId": {
+///      "type": "string",
+///      "pattern": "^t-[A-Za-z0-9_-]{1,120}$"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct CapabilityProcessCompleteReportedRunParams {
+    pub attempt: ::std::num::NonZeroU64,
+    #[serde(rename = "taskId")]
+    pub task_id: CapabilityProcessCompleteReportedRunParamsTaskId,
+}
+///`CapabilityProcessCompleteReportedRunParamsTaskId`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "pattern": "^t-[A-Za-z0-9_-]{1,120}$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct CapabilityProcessCompleteReportedRunParamsTaskId(::std::string::String);
+impl ::std::ops::Deref for CapabilityProcessCompleteReportedRunParamsTaskId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<CapabilityProcessCompleteReportedRunParamsTaskId>
+    for ::std::string::String
+{
+    fn from(value: CapabilityProcessCompleteReportedRunParamsTaskId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for CapabilityProcessCompleteReportedRunParamsTaskId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_12(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for CapabilityProcessCompleteReportedRunParamsTaskId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for CapabilityProcessCompleteReportedRunParamsTaskId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`CapabilityProcessCompleteReportedRunResult`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "at",
+///    "exitCode",
+///    "status",
+///    "summary"
+///  ],
+///  "properties": {
+///    "at": {
+///      "type": "number"
+///    },
+///    "exitCode": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "minimum": -9007199254740991.0
+///    },
+///    "status": {
+///      "type": "string",
+///      "enum": [
+///        "done",
+///        "failed"
+///      ]
+///    },
+///    "summary": {
+///      "type": "string",
+///      "maxLength": 16000,
+///      "minLength": 1
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct CapabilityProcessCompleteReportedRunResult {
+    pub at: f64,
+    #[serde(rename = "exitCode")]
+    pub exit_code: i64,
+    pub status: CapabilityProcessCompleteReportedRunResultStatus,
+    pub summary: CapabilityProcessCompleteReportedRunResultSummary,
+}
+///`CapabilityProcessCompleteReportedRunResultStatus`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "enum": [
+///    "done",
+///    "failed"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum CapabilityProcessCompleteReportedRunResultStatus {
+    #[serde(rename = "done")]
+    Done,
+    #[serde(rename = "failed")]
+    Failed,
+}
+impl ::std::convert::From<&Self> for CapabilityProcessCompleteReportedRunResultStatus {
+    fn from(value: &CapabilityProcessCompleteReportedRunResultStatus) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for CapabilityProcessCompleteReportedRunResultStatus {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Done => f.write_str("done"),
+            Self::Failed => f.write_str("failed"),
+        }
+    }
+}
+impl ::std::str::FromStr for CapabilityProcessCompleteReportedRunResultStatus {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "done" => Ok(Self::Done),
+            "failed" => Ok(Self::Failed),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for CapabilityProcessCompleteReportedRunResultStatus {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`CapabilityProcessCompleteReportedRunResultSummary`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 16000,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct CapabilityProcessCompleteReportedRunResultSummary(::std::string::String);
+impl ::std::ops::Deref for CapabilityProcessCompleteReportedRunResultSummary {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<CapabilityProcessCompleteReportedRunResultSummary>
+    for ::std::string::String
+{
+    fn from(value: CapabilityProcessCompleteReportedRunResultSummary) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for CapabilityProcessCompleteReportedRunResultSummary {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 16000usize {
+            return Err("longer than 16000 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for CapabilityProcessCompleteReportedRunResultSummary {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for CapabilityProcessCompleteReportedRunResultSummary {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
 ///`CapabilityProcessDuplexCloseParams`
 ///
 /// <details><summary>JSON schema</summary>
@@ -4396,6 +4639,10 @@ impl<'de> ::serde::Deserialize<'de> for ExecutorAvailableResultReason {
 ///              },
 ///              "additionalProperties": false
 ///            },
+///            "session": {
+///              "type": "string",
+///              "const": "interactive"
+///            },
 ///            "timeoutMs": {
 ///              "type": "integer",
 ///              "maximum": 1800000.0,
@@ -5061,6 +5308,10 @@ impl<'de> ::serde::Deserialize<'de> for ExecutorRunParamsVariant0TaskId {
 ///      },
 ///      "additionalProperties": false
 ///    },
+///    "session": {
+///      "type": "string",
+///      "const": "interactive"
+///    },
 ///    "timeoutMs": {
 ///      "type": "integer",
 ///      "maximum": 1800000.0,
@@ -5079,6 +5330,8 @@ pub struct ExecutorRunParamsVariant1Owned {
     pub placement: ExecutorRunParamsVariant1OwnedPlacement,
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub resume: ::std::option::Option<ExecutorRunParamsVariant1OwnedResume>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub session: ::std::option::Option<::std::string::String>,
     #[serde(rename = "timeoutMs")]
     pub timeout_ms: ::std::num::NonZeroU64,
 }

@@ -5255,6 +5255,10 @@ Params:
               "exclusiveMinimum": 0,
               "maximum": 1800000
             },
+            "session": {
+              "type": "string",
+              "const": "interactive"
+            },
             "executor": {
               "type": "string",
               "minLength": 1,
@@ -9962,6 +9966,73 @@ Result:
   "required": [
     "stdoutBase64",
     "stderrBase64"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `capability.process.completeReportedRun`
+
+Verify a terminal interactive report and reap the exact host-issued wrapper.
+
+Params:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "taskId": {
+      "type": "string",
+      "pattern": "^t-[A-Za-z0-9_-]{1,120}$"
+    },
+    "attempt": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "taskId",
+    "attempt"
+  ],
+  "additionalProperties": false
+}
+```
+
+Result:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": [
+        "done",
+        "failed"
+      ]
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 16000
+    },
+    "at": {
+      "type": "number"
+    },
+    "exitCode": {
+      "type": "integer",
+      "minimum": -9007199254740991,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "status",
+    "summary",
+    "at",
+    "exitCode"
   ],
   "additionalProperties": false
 }

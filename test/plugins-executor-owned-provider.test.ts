@@ -79,6 +79,66 @@ test("provider recovery reads the exact prior run without claiming or starting",
   expect(methods).toEqual(["capability.process.pollRun", "capability.process.readRunOutput"]);
 });
 
+test("interactive provider settles only a host-reaped terminal report", async () => {
+  const methods: string[] = [];
+  let polls = 0;
+  const host = { call: async (method: string) => {
+    methods.push(method);
+    if (method === "capability.process.claimRun") return { task: { id: "t-fixture", rev: 3 },
+      attempt: 1, runDir: 1, dir: "/tmp/owned/1", workdir: "/tmp/repo",
+      startedAt: 100, logFile: "/tmp/owned/1/stdout" };
+    if (method === "capability.process.startRun") return { pid: 42 };
+    if (method === "capability.process.pollRun") return ++polls === 1
+      ? { state: "running", exitCode: null, interactive: true,
+        report: { status: "done", summary: "reported complete", at: 101 } }
+      : { state: "exited", exitCode: 143, interactive: true,
+        report: { status: "done", summary: "reported complete", at: 101 } };
+    if (method === "capability.process.completeReportedRun") return {
+      status: "done", summary: "reported complete", at: 101, exitCode: 143 };
+    if (method === "capability.process.readRunOutput") return { stdoutBase64: "", stderrBase64: "" };
+    throw Error(`unexpected ${method}`);
+  } };
+  const result = await handlers["executor.run"]({ ...params,
+    owned: { ...params.owned, session: "interactive" } }, host as any, new AbortController().signal);
+  expect(result).toMatchObject({ report: "reported complete", exec: { code: 0 },
+    attempt: { exitCode: 0 } });
+  expect(methods).toEqual(["capability.process.claimRun", "capability.process.startRun",
+    "capability.process.pollRun", "capability.process.completeReportedRun",
+    "capability.process.pollRun", "capability.process.readRunOutput"]);
+});
+
+test("interactive wrapper exit without a completion report is verified failure", async () => {
+  const methods: string[] = [];
+  const host = { call: async (method: string) => {
+    methods.push(method);
+    if (method === "capability.process.pollRun") return {
+      state: "exited", exitCode: 0, interactive: true, report: null };
+    if (method === "capability.process.readRunOutput") return {
+      stdoutBase64: "", stderrBase64: "" };
+    throw Error(`unexpected ${method}`);
+  } };
+  const result = await handlers["executor.run"]({ ...params, owned: { ...params.owned,
+    session: "interactive", resume: { startedAt: 100, logFile: "/tmp/owned/1/stdout" } } },
+  host as any, new AbortController().signal);
+  expect(result).toMatchObject({ exec: { code: 1 }, attempt: { exitCode: 1 } });
+  expect(methods).toEqual(["capability.process.pollRun", "capability.process.readRunOutput"]);
+});
+
+test("interactive exit after needs-input preserves the question but cannot complete", async () => {
+  const host = { call: async (method: string) => {
+    if (method === "capability.process.pollRun") return { state: "exited", exitCode: 0,
+      interactive: true, report: { status: "needs-input", summary: "Approve access", at: 101 } };
+    if (method === "capability.process.readRunOutput") return { stdoutBase64: "", stderrBase64: "" };
+    throw Error(`unexpected ${method}`);
+  } };
+  const result = await handlers["executor.run"]({ ...params, owned: { ...params.owned,
+    session: "interactive", resume: { startedAt: 100, logFile: "/tmp/owned/1/stdout" } } },
+  host as any, new AbortController().signal);
+  expect(result).toMatchObject({ exec: { code: 1 }, attempt: { exitCode: 1 } });
+  expect(result.report).toContain("without an explicit completion report");
+  expect(result.report).toContain("Approve access");
+});
+
 test("remote provider owns placement, claim, start, observation and full pipe outcome", async () => {
   const methods: string[] = [];
   const host = { call: async (method: string) => {

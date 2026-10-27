@@ -8,8 +8,10 @@ import { parseRunnerId, resolveRunner } from "../config/runner-id";
 import { validateExecution } from "../config/execution";
 import { launchFor, providerEnv } from "../exec/launch";
 import { executorEnv } from "../exec/process";
+import { planInteractive, requireCodexInteractive } from "../session/reports";
 import { buildPrompt } from "../exec/prompt";
 import { resolveWorktreeBase, taskWorktreePath } from "../supervisor/worktree";
+import { readRun } from "../supervisor/run";
 import type { AttemptOutcome } from "../exec/direct";
 import { listTasksWhere, readTask, updateTask, withTaskLock } from "../tasks/store";
 import type { TaskRecord } from "../tasks/types";
@@ -99,7 +101,7 @@ async function runOwnedDirect(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord,
     current.executorProvider !== providerId || current.executor !== cfg.id ||
     current.attempts.length !== task.attempts.length ||
     current.brief.repo !== task.brief.repo || task.interactionMode === "conversation" ||
-    cfg.session === "interactive" || parseRunnerId(cfg.id)?.host ||
+    parseRunnerId(cfg.id)?.host ||
     current.worktreeIntent && (placement !== "new" ||
       current.worktreeIntent.providerId !== providerId ||
       current.worktreeIntent.attempt !== current.attempts.length + 1) ||
@@ -135,11 +137,17 @@ async function runOwnedDirect(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord,
     worktreeGrant = await issueOwnedWorktreeGrant(ctx, task.id, providerId, attempt, base);
     workdir = worktreeGrant.workdir;
   }
+  const interactive = cfg.session === "interactive";
   const prompt = buildPrompt(placement === "new" ? { ...task.brief,
     repo: task.worktree ? `${workdir} (the task worktree; keep its current branch; do not edit ${task.brief.repo} itself)` :
       `${workdir} (a new git worktree of ${task.brief.repo} on branch pacer/${task.id}; do not edit ${task.brief.repo} itself)` }
     : task.brief, task.id, !!ctx.env.PACER_WORK_GRANT);
-  const launch = launchFor(cfg, prompt, workdir, dir, task.id);
+  const instructions = interactive ? `\n\nInteractive pacer session: completion requires running pacer report --task ${task.id} --outcome done --summary "<result>" (or --outcome failed). Before asking the user, run pacer report --status needs-input --summary "<question>"; when resuming use --status running. Do not infer completion from the terminal. PACER_RUN_DIR identifies this attempt. You may write a longer Markdown result to $PACER_TRANSCRIPT_REPORT.\n` : "";
+  const baseLaunch = launchFor(cfg, prompt + instructions, workdir, dir, task.id);
+  const agent = parseRunnerId(cfg.id)?.agent ?? cfg.id;
+  const planned = interactive ? planInteractive(agent, dir, baseLaunch) :
+    { launch: baseLaunch, files: [] as ReturnType<typeof planInteractive>["files"] };
+  const launch = planned.launch;
   if (launch.argv.length < 1 || launch.argv.length > 32 ||
     launch.argv.some(arg => !arg || Buffer.byteLength(arg, "utf8") > 4096 || arg.includes("\0")) ||
     launch.stdin !== undefined && Buffer.byteLength(launch.stdin, "utf8") > 262144)
@@ -150,6 +158,12 @@ async function runOwnedDirect(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord,
   if (!stat.isFile() || !(stat.mode & 0o111))
     throw new CoreError("plugin_unavailable", "executor binary is not executable");
   const env = executorEnv(ctx.env, await providerEnv(ctx, cfg), task.id);
+  if (interactive) {
+    if (agent === "codex") await requireCodexInteractive(ctx, env);
+    env.PACER_HOME = ctx.pacerHome;
+    env.PACER_RUN_DIR = dir;
+    env.PACER_TRANSCRIPT_REPORT = join(dir, "transcript-report.md");
+  }
   const cleanEnv = Object.fromEntries(Object.entries(env).filter((entry): entry is [string, string] => entry[1] !== undefined));
   const admitted = readTask(ctx, task.id);
   if (!admitted || admitted.state !== "running" || admitted.stopPending ||
@@ -162,19 +176,32 @@ async function runOwnedDirect(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord,
       workdir, launch: { argv: launch.argv, cwd: workdir, executable,
         executableIdentity: { dev: stat.dev, ino: stat.ino, size: stat.size,
           mtimeMs: stat.mtimeMs, mode: stat.mode }, env: cleanEnv,
-        ...(launch.stdin === undefined ? {} : { stdin: launch.stdin }) } } };
+        ...(launch.stdin === undefined ? {} : { stdin: launch.stdin }),
+        ...(interactive ? { session: "interactive" as const, files: planned.files } : {}) } } };
   const raw = await caller.call(ctx, providerId, "executor.run",
     { task: { id: task.id, rev: admitted.rev }, attempt, runDir: 1,
       owned: { placement, timeoutMs: task.timeoutS * 1000,
+        ...(interactive ? { session: "interactive" as const } : {}),
         executor: cfg.id, model: cfg.model ?? null } },
     { resources, onProgress: () => {}, deadlineMs: task.timeoutS * 1000 + 10_000 });
   const parsed = executorAttemptOutcome.safeParse(raw);
   if (!parsed.success) throw new CoreError("plugin_refused", "direct executor returned an invalid attempt outcome");
   const out = parsed.data;
   const durable = inspectOwnedExecutorRun(ctx, task.id, attempt), latest = readTask(ctx, task.id);
-  if (!latest || latest.executorProvider !== providerId || latest.run?.workdir !== workdir ||
+  const report = interactive ? readRun(durable.dir).report : null;
+  const completion = latest?.executorReportReceipt;
+  const validCompletion = !!completion && completion.attempt === attempt &&
+    completion.providerId === providerId && completion.dir === durable.dir &&
+    completion.startedAt === latest?.run?.startedAt && completion.exitCode === durable.exitCode &&
+    report?.status === completion.status && report.summary === completion.summary &&
+    report.at === completion.at;
+  const logicalCode = interactive ? validCompletion ? completion.status === "done" ? 0 : 1
+    : report?.status === "done" || report?.status === "failed" ? null
+      : durable.exitCode === 0 ? 1 : durable.exitCode : durable.exitCode;
+  if (!latest || latest.stopPending || latest.executorProvider !== providerId || latest.run?.workdir !== workdir ||
     latest.startIntent?.attempt !== attempt || latest.startIntent.providerId !== providerId ||
-    durable.state !== "exited" || durable.exitCode !== out.exec.code ||
+    latest.run.session !== (interactive ? "interactive" : undefined) ||
+    durable.state !== "exited" || logicalCode === null || logicalCode !== out.exec.code ||
     out.attempt.executor !== cfg.id || out.attempt.model !== (cfg.model ?? null) ||
     out.attempt.exitCode !== out.exec.code || out.attempt.timedOut !== out.exec.timedOut ||
     out.attempt.startedAt !== latest.run.startedAt || out.attempt.log !== latest.run.logFile ||
@@ -183,7 +210,7 @@ async function runOwnedDirect(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord,
     throw new CoreError("conflict", "direct executor outcome is not bound to its persisted run");
   withTaskLock(ctx, task.id, () => {
     const owned = readTask(ctx, task.id);
-    if (!owned || owned.state !== "running" || owned.executorProvider !== providerId ||
+    if (!owned || owned.state !== "running" || owned.stopPending || owned.executorProvider !== providerId ||
       owned.run?.dir !== durable.dir || owned.run?.startedAt !== latest.run!.startedAt ||
       owned.startIntent?.attempt !== attempt || owned.startIntent.providerId !== providerId)
       throw new CoreError("conflict", "direct executor owner changed before exit receipt");
@@ -193,7 +220,7 @@ async function runOwnedDirect(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord,
       throw new CoreError("conflict", "direct executor exit changed before receipt");
     updateTask(ctx, task.id, current => {
       current.executorExitReceipt = { attempt, providerId, dir: durable.dir,
-        startedAt: owned.run!.startedAt, exitCode: durable.exitCode! };
+        startedAt: owned.run!.startedAt, exitCode: out.exec.code };
     });
   });
   return out as AttemptOutcome;
@@ -321,6 +348,7 @@ export async function resumeOwnedDirect(ctx: Ctx, cfg: ProviderCfg, task: TaskRe
   const providerId = "pacer-exec-direct", run = task.run;
   if (!run || task.state !== "running" || task.stopPending || task.executorProvider !== providerId ||
     run.host || run.executor !== cfg.id || task.executor !== cfg.id ||
+    run.session !== (cfg.session === "interactive" ? "interactive" : undefined) ||
     run.attempt !== task.attempts.length + 1 || task.startIntent?.attempt !== run.attempt ||
     task.startIntent.providerId !== providerId || task.startIntent.dir !== run.dir)
     throw new CoreError("capability_denied", "executor resume is not bound to an owned local run");
@@ -335,6 +363,7 @@ export async function resumeOwnedDirect(ctx: Ctx, cfg: ProviderCfg, task: TaskRe
   const raw = await caller.call(ctx, providerId, "executor.run", {
     task: { id: task.id, rev: observed.task.rev }, attempt: run.attempt, runDir: 1,
     owned: { placement: run.mode, timeoutMs: task.timeoutS * 1000,
+      ...(run.session === "interactive" ? { session: "interactive" as const } : {}),
       executor: cfg.id, model: cfg.model ?? null,
       resume: { startedAt: run.startedAt, logFile: run.logFile,
         ...(run.mode === "new" ? { worktree: run.workdir } : {}) } },
@@ -343,7 +372,18 @@ export async function resumeOwnedDirect(ctx: Ctx, cfg: ProviderCfg, task: TaskRe
   const parsed = executorAttemptOutcome.safeParse(raw);
   if (!parsed.success) throw new CoreError("plugin_refused", "executor resume returned an invalid attempt outcome");
   const out = parsed.data, durable = inspectOwnedExecutorRun(ctx, task.id, run.attempt);
-  if (durable.state !== "exited" || durable.exitCode !== out.exec.code ||
+  const report = run.session === "interactive" ? readRun(run.dir).report : null;
+  const completion = readTask(ctx, task.id)?.executorReportReceipt;
+  const validCompletion = !!completion && completion.attempt === run.attempt &&
+    completion.providerId === providerId && completion.dir === run.dir &&
+    completion.startedAt === run.startedAt && completion.exitCode === durable.exitCode &&
+    report?.status === completion.status && report.summary === completion.summary &&
+    report.at === completion.at;
+  const logicalCode = run.session === "interactive" ? validCompletion ?
+    completion.status === "done" ? 0 : 1 :
+    report?.status === "done" || report?.status === "failed" ? null :
+      durable.exitCode === 0 ? 1 : durable.exitCode : durable.exitCode;
+  if (durable.state !== "exited" || logicalCode === null || logicalCode !== out.exec.code ||
     out.attempt.executor !== cfg.id || out.attempt.model !== (cfg.model ?? null) ||
     out.attempt.exitCode !== out.exec.code || out.attempt.timedOut !== out.exec.timedOut ||
     out.attempt.startedAt !== run.startedAt || out.attempt.log !== run.logFile ||
@@ -360,7 +400,7 @@ export async function resumeOwnedDirect(ctx: Ctx, cfg: ProviderCfg, task: TaskRe
       throw new CoreError("conflict", "executor resume exit changed before receipt");
     updateTask(ctx, task.id, current => {
       current.executorExitReceipt = { attempt: run.attempt, providerId,
-        dir: run.dir, startedAt: run.startedAt, exitCode: checked.exitCode! };
+        dir: run.dir, startedAt: run.startedAt, exitCode: out.exec.code };
     });
   });
   return out as AttemptOutcome;

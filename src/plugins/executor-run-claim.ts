@@ -15,7 +15,8 @@ export async function answerExecutorClaim(authority: CallAuthority,
   const ctx = authority.ctx;
   const existing = readTask(ctx, grant.taskId)?.run;
   if (!existing) {
-    try { await publishOwnedExecutorRun(ctx, grant.providerId, grant.taskId, grant.executor, grant.workdir); }
+    try { await publishOwnedExecutorRun(ctx, grant.providerId, grant.taskId, grant.executor, grant.workdir,
+      grant.launch.session); }
     catch (error) {
       if (error instanceof CoreError && error.code === "conflict") return deny();
       throw error;
@@ -30,6 +31,7 @@ export async function answerExecutorClaim(authority: CallAuthority,
       task.attempts.length + 1 !== grant.attempt || !run ||
       run.attempt !== grant.attempt || run.executor !== grant.executor ||
       run.dir !== dir || run.workdir !== grant.workdir || run.host ||
+      run.session !== grant.launch.session ||
       task.worktreeIntent || task.runClaim || task.startIntent?.attempt === grant.attempt) return deny();
     try {
       const stat = lstatSync(dir);
@@ -52,7 +54,9 @@ export async function answerExecutorClaim(authority: CallAuthority,
         dir, dirIdentity: { dev: stat.dev, ino: stat.ino }, argv: launch.argv, cwd: realpathSync(launch.cwd),
         executable: launch.executable, executableIdentity: launch.executableIdentity,
         cwdIdentity: { dev: cwd.dev, ino: cwd.ino }, env: launch.env,
-        ...(launch.stdin === undefined ? {} : { stdin: launch.stdin }) });
+        ...(launch.stdin === undefined ? {} : { stdin: launch.stdin }),
+        ...(launch.session === undefined ? {} : { session: launch.session }),
+        ...(launch.files === undefined ? {} : { files: launch.files }) });
     } catch { return deny(); }
     authority.assertActive();
     return { task: { id: grant.taskId, rev: task.rev }, attempt: grant.attempt, runDir: 1,
