@@ -7,6 +7,7 @@ import { Disclosure } from "../../ds/Controls";
 import { Pill } from "../../ds/Pill";
 import { SectionHeading } from "../../ds/SectionHeading";
 import { ErrorMessage, useTaskContext } from "../task-shared";
+import { SettingRow } from "../../ds/SettingRow";
 import { Section, time, useOperation } from "./shared";
 
 export interface DoctorReport { checkedAt: number; checks: Check[]; planner?: string; repairAvailable?: boolean }
@@ -85,9 +86,13 @@ export function DiagnosticsSection() {
     if (!result) setPreview(undefined);
     setProgress(result ? "Repair applied and checks refreshed. Review any remaining issues." : "Repair or recheck failed. Review the error and run checks again.");
   }
-  return <Section id="diagnostics" title="Diagnostics" detail="Check setup and repair supported integrations."
-    actions={<Button variant="primary" disabled={action.busy} aria-describedby={action.busy ? "diagnostics-progress" : undefined}
-      onClick={() => void runChecks()}>{action.busy ? "Working…" : "Run checks"}</Button>}>
+  const issues = report && diagnosticGroups(report.checks).issueCount;
+  return <Section id="diagnostics" title="Diagnostics">
+    <SettingRow label="Setup checks" description="Check setup and repair supported integrations."
+      status={issues === undefined ? undefined : { tone: issues ? "warn" : "good", label: issues ? `${issues} ${issues === 1 ? "issue" : "issues"}` : "No issues" }}>
+      <Button variant="primary" disabled={action.busy} aria-describedby={action.busy ? "diagnostics-progress" : undefined}
+        onClick={() => void runChecks()}>{action.busy ? "Working…" : "Run checks"}</Button>
+    </SettingRow>
     {!report && <p>Configuration and fixture tests do not prove hook invocation. It stays unverified until observed in Claude.</p>}
     <div role="status" aria-live="polite" id="diagnostics-progress">{progress}</div>
     <ErrorMessage error={action.error}/>

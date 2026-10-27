@@ -41,7 +41,7 @@ test("settings panel lists general, hosts with a problem count, and add executor
   expect(html).toContain('href="#/settings/hosts"');
   expect(html).toContain('href="#/settings/add-executor"');
   expect(html).toContain("Remote hosts");
-  expect(html).toMatch(/pc-rail__badge[^>]*>1 needs setup</);
+  expect(html).toMatch(/pc-settings-nav__badge[^>]*>1 needs setup</);
 });
 
 test("layout has landmarks, a skip link, and the settings panel only in settings", () => {
@@ -85,15 +85,14 @@ test("shortcut help lists registered shortcuts with keys", () => {
 
 test("settings shows one Dispatcher destination while executor and host status badges use their tones", () => {
   const html = renderToString(<SettingsPanel route={at('#/settings')} counts={snap.counts!}
-    snapshot={{ ...snap, accounts: Array.from({ length: 6 }, () => snap.accounts![0]!), executors: [{ ...snap.executors![0]!, state: 'down' }], hosts: [{ ...snap.hosts![0]!, state: 'needs_setup' }] }}
-    badges={{ strategies: 6, routing: '1 rule' }} />);
-  expect(html).toMatch(/Accounts<span[^>]*class="pc-rail__badge pc-rail__badge--neutral"[^>]*>6</);
+    snapshot={{ ...snap, accounts: Array.from({ length: 6 }, () => snap.accounts![0]!), executors: [{ ...snap.executors![0]!, state: 'down' }], hosts: [{ ...snap.hosts![0]!, state: 'needs_setup' }] }} />);
+  expect(html).toMatch(/Accounts<span[^>]*class="pc-settings-nav__badge pc-settings-nav__badge--neutral"[^>]*><span aria-hidden="true">6<\/span><span class="sr-only">6 accounts</);
   expect(html).toContain('Dispatcher');
   expect(html).not.toContain('>Strategies<');
   expect(html).not.toContain('>Routing<');
-  expect(html).toMatch(/pc-rail__badge--bad"[^>]*>1</);
+  expect(html).toMatch(/pc-settings-nav__badge--bad"[^>]*><span aria-hidden="true">1</);
   expect(html).toContain("1 need attention; 0 blocked");
-  expect(html).toMatch(/pc-rail__badge--warn"[^>]*>1 needs setup</);
+  expect(html).toMatch(/pc-settings-nav__badge--warn"[^>]*>1 needs setup</);
   expect(html).not.toContain('>1 rule</span>');
 });
 

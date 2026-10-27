@@ -7,7 +7,8 @@ import { LazyDispatcher } from "./LazyDispatcher";
 
 import { withQuery, type RouteQuery } from "../../router";
 import { DensityContext } from "../../ds/Density";
-import { SETTINGS_PAGES } from "../../settings-pages";
+import { SETTINGS_GROUPS, SETTINGS_PAGES, settingsAttention, settingsPageId } from "../../settings-pages";
+import { SettingRow } from "../../ds/SettingRow";
 import { Page, Stack } from "../../ds/Page";
 import { Icon } from "../../ds/icons";
 import { DiagnosticsSection } from "./Diagnostics";
@@ -104,16 +105,11 @@ export function SettingsGeneral({
         <RoutingSection initialData={initialData.routing} />
       </LazyDispatcher>;
       break;
+    case "app":
     case "updates":
-      content = <UpdatesSection initialData={initialData.updates} />;
-      break;
     case "notifications":
-      content = (
-        <NotificationsSection initialData={initialData.notifications} />
-      );
-      break;
     case "appearance":
-      content = <AppearanceSection />;
+      content = <AppPreferences section={section} initialData={initialData} />;
       break;
     case "diagnostics":
       content = <DiagnosticsSection />;
@@ -124,7 +120,7 @@ export function SettingsGeneral({
   return (
     <DensityContext.Provider value="settings">
       <SettingsPageContext.Provider
-        value={section === "planner" ? "pacing" : (section ?? null)}
+        value={section === "planner" ? "pacing" : section ? settingsPageId(section) : null}
       >
         <Page width="full" className="u3-settings u3-settings-page">
           <div className="u3-general-sections">{content}</div>
@@ -139,50 +135,49 @@ export function SettingsGeneral({
   );
 }
 
+/** Overview: every settings page by menu group, with the same attention the menu shows. */
 function GeneralOverview({ query }: { query: RouteQuery }) {
+  const { state } = useTaskContext();
+  const attention = settingsAttention(state.snapshot);
   return (
-    <Section
-      id="general"
-      title="Preferences"
-      detail="Manage how pacer plans, delegates, and keeps you informed."
-    >
-      <div className="u3-settings-links">
-        {SETTINGS_PAGES.filter(
-          (page) => page.id && page.id !== "add-executor",
-        ).map((page) => (
-          <TextAction
-            key={page.id}
-            href={withQuery(`#/settings/${page.id}`, query)}
-            className="u3-settings-link"
-          >
-            <Icon name={page.icon} />
-            {page.label}
-          </TextAction>
-        ))}
-      </div>
-    </Section>
+    <>
+      {SETTINGS_GROUPS.map((group) => (
+        <Section key={group.id} id={`overview-${group.id}`} title={group.label}>
+          {SETTINGS_PAGES.filter((page) => page.group === group.id && page.description).map((page) => {
+            const status = attention[page.id];
+            return (
+              <SettingRow
+                key={page.id}
+                label={<><Icon name={page.icon} />{page.label}</>}
+                description={page.description}
+                status={status && status.tone !== "neutral" ? { tone: status.tone, label: status.label } : undefined}
+              >
+                <ButtonLink size="sm" href={withQuery(`#/settings/${page.id}`, query)}>
+                  Open<span className="sr-only"> {page.label}</span>
+                </ButtonLink>
+              </SettingRow>
+            );
+          })}
+        </Section>
+      ))}
+    </>
   );
 }
 
-function Setting({
-  label,
-  help,
-  children,
-}: {
-  label: string;
-  help: string;
-  children: ComponentChildren;
-}) {
+/** Updates, notifications and appearance share one page; their old deep links scroll to their section. */
+function AppPreferences({ section, initialData }: { section: string; initialData: SettingsData }) {
+  useEffect(() => {
+    if (section !== "app") document.getElementById(section)?.scrollIntoView({ block: "start" });
+  }, [section]);
   return (
-    <div className="u3-setting">
-      <div>
-        <strong>{label}</strong>
-        <div className="u3-muted">{help}</div>
-      </div>
-      <div>{children}</div>
-    </div>
+    <>
+      <UpdatesSection initialData={initialData.updates} />
+      <NotificationsSection initialData={initialData.notifications} />
+      <AppearanceSection />
+    </>
   );
 }
+
 export function PlannerPacing({ initialData }: { initialData?: ConfigData }) {
   const query = useResource("config.get", {}, initialData),
     action = useOperation(query.reload),
@@ -193,11 +188,11 @@ export function PlannerPacing({ initialData }: { initialData?: ConfigData }) {
   const save = (key: string, value: string | number) =>
     void action.run("config.set", { key, value });
   return (
-    <Section id="pacing" title="Planner & pacing">
+    <Section id="pacing" title="Budget & pacing">
       <ResourceState resource={query}>
         {config && (
           <>
-            <Setting label="Planner" help="Plans and reviews; paced weekly">
+            <SettingRow label="Planner" description="Plans and reviews; paced weekly">
               <div className="u3-agent">
                 <AgentMark
                   agent={
@@ -220,8 +215,8 @@ export function PlannerPacing({ initialData }: { initialData?: ConfigData }) {
               >
                 Review integration changes
               </Button>
-            </Setting>
-            <Setting label="Policy" help="How work spreads across executors">
+            </SettingRow>
+            <SettingRow label="Policy" description="How work spreads across executors">
               <Segment
                 label="Pacing policy"
                 value={value("pacing.policy")}
@@ -239,10 +234,10 @@ export function PlannerPacing({ initialData }: { initialData?: ConfigData }) {
                   ? "Use the order on the Executors page; skip one only when it’s out of quota or ahead of pace."
                   : "pacer applies this policy on the next routing decision."}
               </p>
-            </Setting>
-            <Setting
+            </SettingRow>
+            <SettingRow
               label="Planner reserve"
-              help="Kept back for planning and review"
+              description="Kept back for planning and review"
             >
               <div className="u3-reserve">
                 <Range
@@ -263,10 +258,10 @@ export function PlannerPacing({ initialData }: { initialData?: ConfigData }) {
                 <output>{value("pacing.planner_reserve")}%</output>
                 <span className="u3-muted">0–50%</span>
               </div>
-            </Setting>
-            <Setting
+            </SettingRow>
+            <SettingRow
               label="Multiple accounts"
-              help="When one agent has several"
+              description="When one agent has several"
             >
               <div className="u3-accounts-mode">
                 <Segment
@@ -300,7 +295,7 @@ export function PlannerPacing({ initialData }: { initialData?: ConfigData }) {
                   <span>% used</span>
                 </label>
               </div>
-            </Setting>
+            </SettingRow>
           </>
         )}
       </ResourceState>
@@ -846,18 +841,19 @@ function NotificationsSection({
   return (
     <Section id="notifications" title="Notifications">
       <ResourceState resource={query}>
-        <Segment
-          label="Notifications"
-          value={query.data?.level ?? ""}
-          disabled={action.busy}
-          options={[
-            { value: "off", label: "Off" },
-            { value: "important", label: "Important" },
-            { value: "all", label: "All" },
-          ]}
-          onChange={(level) => void action.run("notifications.set", { level })}
-        />
-        <p className="u3-muted">Failures, stuck tasks and reviews</p>
+        <SettingRow label="Notify me about" description="Failures, stuck tasks and reviews">
+          <Segment
+            label="Notifications"
+            value={query.data?.level ?? ""}
+            disabled={action.busy}
+            options={[
+              { value: "off", label: "Off" },
+              { value: "important", label: "Important" },
+              { value: "all", label: "All" },
+            ]}
+            onChange={(level) => void action.run("notifications.set", { level })}
+          />
+        </SettingRow>
       </ResourceState>
       <Feedback action={action} />
     </Section>
@@ -885,7 +881,8 @@ function AppearanceSection() {
     return () => window.removeEventListener("storage", sync);
   }, []);
   return (
-    <Section id="appearance" title="Appearance" detail="Stored on this device.">
+    <Section id="appearance" title="Appearance">
+      <SettingRow label="Theme" description="Stored on this device.">
       <Segment
         label="Appearance"
         value={theme}
@@ -906,6 +903,7 @@ function AppearanceSection() {
           }
         }}
       />
+      </SettingRow>
       <p role="status">{message}</p>
     </Section>
   );

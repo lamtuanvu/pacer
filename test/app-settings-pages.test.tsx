@@ -39,8 +39,8 @@ test('This machine is a reachable settings page with one current icon navigation
   const html = renderToString(<SettingsPanel route={route} counts={null}/>);
   expect(html).toContain('href="#/settings/machine"');
   expect(html.match(/aria-current="page"/g)).toHaveLength(1);
-  const items = [...html.matchAll(/<a\b[^>]*class="[^"]*pc-panel__item[^>]*>[\s\S]*?<\/a>/g)];
-  expect(items.length).toBeGreaterThan(10);
+  const items = [...html.matchAll(/<a\b[^>]*class="[^"]*pc-settings-nav__item[^>]*>[\s\S]*?<\/a>/g)];
+  expect(items.length).toBe(10);
   for (const [item] of items) expect(item).toContain('<svg');
 });
 test('terminal picker shows Linux automatic and an existing custom template', () => {

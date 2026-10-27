@@ -39,10 +39,12 @@ test('Planner uses the actual planner agent without mounting other settings',()=
 test('executor and update checkboxes keep their labels inline', () => {
  const html = render(<SettingsGeneral section="executors" initialData={settings}/>) + render(<SettingsGeneral section="updates" initialData={settings}/>);
  const labels = [...html.matchAll(/<label class="pc-checkbox">([\s\S]*?)<\/label>/g)];
- expect(labels).toHaveLength(2);
+ expect(labels).toHaveLength(1);
  for (const [, body] of labels) { expect(body).toMatch(/class="[^"]*pc-checkbox__input[^"]*"/); expect(body).toContain('type="checkbox"'); }
  expect(labels[0]![1]).toContain('Enabled');
- expect(labels[1]![1]).toContain('Check for updates');
+ // The update preference is a SettingRow: its label names the checkbox.
+ const id = /<label[^>]*for="([^"]+)"[^>]*>Check for updates<\/label>/.exec(html)?.[1];
+ expect(html).toMatch(new RegExp(`<input(?=[^>]*type="checkbox")(?=[^>]*id="${id}")`));
 });
 test('all General sections provide loading and empty states',()=>{
  expect(render(<SettingsGeneral section="planner"/>)).toContain('Loading');
@@ -284,9 +286,9 @@ test('paged Updates keeps OTA controls, service identity and navigation status t
  expect(html).not.toContain('Update service and restart');
  expect(html).not.toContain('Pacing policy');
  const panel=renderToString(<SettingsPanel route={{name:'settings',section:'updates',query:{repo:null,scope:null}}} counts={null} snapshot={updated.snapshot}/>);
- expect(panel).toContain('aria-label="Update ready"');
+ expect(panel).toContain('<span class="sr-only">Update ready</span>');
  expect(panel).toContain('>↑</span>');
- expect(panel).toContain('pc-rail__badge--info');
+ expect(panel).toContain('pc-settings-nav__badge--info');
  expect(panel).toContain('title="Update ready"');
  expect(panel.match(/aria-current="page"/g)).toHaveLength(1);
 });

@@ -12,6 +12,7 @@ import { DesktopUpdateConnection } from "./DesktopUpdateConnection";
 import { desktopHost, readDesktopVersion, readDesktopUpdateConnection, type DesktopUpdateConnection as Connection } from "../../data/desktop";
 import { updateModel } from "../../model/settings";
 import { desktopUpdateModel } from "../../../../src/view-model/updates";
+import { SettingRow } from "../../ds/SettingRow";
 import { Feedback, ResourceState, Section, time, useOperation, useResource } from "./shared";
 
 /** Offers a line break after each `/`, so long paths wrap between segments rather than mid-name. */
@@ -141,25 +142,30 @@ function LegacyUpdatesSection({initialData}: {initialData?: UpdateReport}) {
     return () => { active = false; clearInterval(timer); };
   }, [native]);
   const service = updateModel(query.data, false);
-  return <Section id="updates" title="Updates" actions={
-    <Button busy={action.busy} onClick={() => void action.run('update.check', {force:true})}>Check now</Button>
-  }>
+  return <Section id="updates" title="Updates">
     {dialogs.dialog}
     {native && <>
       <p>Desktop app{desktop.version ? ` ${desktop.version}` : ""}</p>
       <DesktopUpdateConnection connection={connection}/>
       <Disclosure summary="Manual desktop update options"><DesktopVersionRow {...desktop} report={query.data}/></Disclosure>
     </>}
-    <ResourceState resource={query}>{query.data && <>
-      <p role="status">Service {query.data.current} · {service.label}</p>
-      {query.data.error && <p role="status">{query.data.error}</p>}
-      {service.canUpdate && <Button busy={action.busy} onClick={async () => {
-        if (await dialogs.confirm('Update the service and restart it? The desktop app is updated separately.', 'Update service', 'Update service and restart')) {
-          void action.run('update.apply', {});
-        }
-      }}>Update service and restart</Button>}
-    </>}</ResourceState>
-    <label className="pc-checkbox"><span>Check for updates <small className="u3-muted">Once a day, in the background</small></span><Checkbox className="pc-checkbox__input" aria-label="Check for updates" checked={config.data?.keys.update_check?.value !== false} disabled={!config.data || action.busy} onChange={e => void action.run('config.set', {key:'update_check',value:e.currentTarget.checked})}/></label>
+    <SettingRow label="Service">
+      <ResourceState resource={query}>{query.data && <>
+        <p role="status">Service {query.data.current} · {service.label}</p>
+        {query.data.error && <p role="status">{query.data.error}</p>}
+      </>}</ResourceState>
+      <div className="u3-actions">
+        <Button busy={action.busy} onClick={() => void action.run('update.check', {force:true})}>Check now</Button>
+        {service.canUpdate && <Button busy={action.busy} onClick={async () => {
+          if (await dialogs.confirm('Update the service and restart it? The desktop app is updated separately.', 'Update service', 'Update service and restart')) {
+            void action.run('update.apply', {});
+          }
+        }}>Update service and restart</Button>}
+      </div>
+    </SettingRow>
+    <SettingRow label="Check for updates" description="Once a day, in the background">
+      <Checkbox className="pc-checkbox__input" checked={config.data?.keys.update_check?.value !== false} disabled={!config.data || action.busy} onChange={e => void action.run('config.set', {key:'update_check',value:e.currentTarget.checked})}/>
+    </SettingRow>
     <ResourceState resource={config}><span/></ResourceState>
     <Feedback action={action}/>
   </Section>;

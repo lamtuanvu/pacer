@@ -11,6 +11,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - Strict native subagent control for new managed work: Pacer excludes uncertified executors before dispatch, checks again before launch, and exposes certification status and a quota-using canary in Dispatcher and the CLI. Existing managed tasks retain cooperative behavior.
 - Open HTTP(S), local file and source-location links from the built-in session terminal. A read-only viewer shows code, Markdown and an isolated static HTML preview without disconnecting the session.
 
+### Changed
+
+- Group the Settings menu into Dispatch and App. Overview lists every settings page with its status, Budget & pacing replaces Planner & pacing, and App preferences holds Updates, Notifications and Appearance on one page; their old links still open the right section. Settings rows share one layout with the new `SettingRow` and `SettingsNav` design system components.
+
 ## [0.11.0] - 2026-10-26
 
 ### Added

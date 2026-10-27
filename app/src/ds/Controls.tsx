@@ -17,16 +17,18 @@ export const TextArea = forwardRef<HTMLTextAreaElement, JSX.TextareaHTMLAttribut
   return <textarea {...props} ref={ref} className={classes('pc-input', 'pc-textarea', `pc-control--${density}`, className)} />;
 });
 type FieldNode = VNode<{ id?: string; children?: ComponentChildren; 'aria-describedby'?: string; 'aria-invalid'?: boolean }>;
-function findControl(children: ComponentChildren): FieldNode | undefined {
+/** `skip` names elements not searched, e.g. a control's own native label. */
+export function findControl(children: ComponentChildren, skip: readonly string[] = []): FieldNode | undefined {
   for (const child of toChildArray(children)) {
     if (!isValidElement(child)) continue;
     const node = child as FieldNode;
     if ([TextInput, TextArea, ChoicePicker, Checkbox, Switch, Range].includes(node.type as never)) return node;
-    const nested = findControl(node.props.children);
+    if (typeof node.type === 'string' && skip.includes(node.type)) continue;
+    const nested = findControl(node.props.children, skip);
     if (nested) return nested;
   }
 }
-function connectControl(children: ComponentChildren, target: FieldNode, attributes: Partial<FieldNode['props']>): ComponentChildren {
+export function connectControl(children: ComponentChildren, target: FieldNode, attributes: Partial<FieldNode['props']>): ComponentChildren {
   return toChildArray(children).map(child => {
     if (!isValidElement(child)) return child;
     const node = child as FieldNode;
