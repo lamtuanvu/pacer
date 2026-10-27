@@ -111,7 +111,7 @@ export function certificateEvidence(ctx:Ctx,target:EnforcementTarget){
   return {policy:"strict" as const,adapter:target.agent,version:target.version,account:target.account,
     fingerprint:enforcementFingerprint(target),entryPoints:evidence?.entries??[],probedAt:status.probedAt!,expiresAt:status.expiresAt!};
 }
-function probeSupportReason(target:EnforcementTarget,repo:string):string|null {
+export function probeSupportReason(target:EnforcementTarget,repo:string):string|null {
   if(target.launchMode==="interactive")return "Native child blocking for interactive launches has not been verified";
   if(target.agent==="codex")return "Native subagent control: Codex tool-result observation is not implemented for this CLI version";
   if(target.agent==="cursor")return "Cursor has not proven that subagentStart denial prevents child startup";

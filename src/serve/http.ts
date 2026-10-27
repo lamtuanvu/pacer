@@ -30,7 +30,7 @@ import type { Ctx } from "../types";
 import { currentSnapshot, invalidateConsoleCache, refreshConsoleTerminals } from "../link/store";
 import { refreshAllUsage } from "../usage/refresh";
 import { defaultPumpDeps, pumpOnce } from "../link/pump";
-
+import { tick as certificationTick } from "../dispatch/certification-schedule";
 
 import { DEFAULT_PORT } from "./constants";
 export { DEFAULT_PORT } from "./constants";
@@ -268,6 +268,15 @@ export function startServer(
       .finally(() => { supervising = false; });
   };
   const supervisorTimer = setInterval(supervise, 5000);
+  let certifying = false;
+  const certify = () => {
+    if (stopped || certifying) return;
+    certifying = true;
+    void certificationTick(getCtx())
+      .catch(error => { if (!stopped) console.warn(`pacer: certification probe tick failed: ${String(error)}`); })
+      .finally(() => { certifying = false; });
+  };
+  const certificationTimer = setInterval(certify, 10 * 60_000);
   const refreshUsage = () => {
     if (stopped) return;
     void refreshAllUsage({ ...getCtx(), now: Date.now() / 1000 }, true)
@@ -292,6 +301,7 @@ export function startServer(
     clearTimeout(retentionStart);
     clearInterval(retentionTimer);
     clearInterval(supervisorTimer);
+    clearInterval(certificationTimer);
     clearTimeout(usageStart);
     clearInterval(usageTimer);
     clearInterval(pumpTimer);

@@ -1,0 +1,290 @@
+import { expect, test, describe } from "bun:test";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { fakeCtx, tmpDir } from "./helpers";
+import type { Ctx } from "../src/types";
+import type { Strategy } from "../src/config/strategy";
+import type { CertificateStatus } from "../src/dispatch/enforcement";
+import type { Status } from "../src/engine/status";
+
+// Import the module under test
+import { tick, readScheduleState, type TickDeps } from "../src/dispatch/certification-schedule";
+
+/**
+ * Set up ctx.which and ctx.run so resolveEnforcementTarget works.
+ * Returns a repo path that can be used.
+ */
+function setupEnforcementContext(ctx: Ctx): string {
+  // Create a fake claude binary
+  const binary = join(ctx.home, "claude");
+  writeFileSync(binary, "#!/usr/bin/env echo fake claude");
+
+  // Make ctx.which find it
+  const originalWhich = ctx.which;
+  ctx.which = (name: string) => {
+    if (name === "claude") return binary;
+    return originalWhich(name);
+  };
+
+  // Make ctx.run return a plausible version
+  const originalRun = ctx.run;
+  ctx.run = async (argv: string[], timeoutMs: number, options?: { env?: Record<string, string | undefined>; stdin?: string; stdinUntilResponseId?: number }) => {
+    if (argv[0] === binary) {
+      return { code: 0, stdout: "2.1.281 (Claude Code)\n", stderr: "" };
+    }
+    return originalRun(argv, timeoutMs, options);
+  };
+
+  // Use a temp dir as repo (no .claude/settings.local.json)
+  const repo = tmpDir();
+  return repo;
+}
+
+function writeStrategyYaml(ctx: Ctx, extra: string = ""): void {
+  const strategyPath = join(ctx.pacerHome, "strategy.yaml");
+  mkdirSync(ctx.pacerHome, { recursive: true });
+  writeFileSync(strategyPath, `
+planner: claude-code
+providers:
+  claude-code: {}
+routing:
+  - default: [claude-code]
+pacing:
+  planner_probe: auto
+${extra}
+`);
+}
+
+function testStatus(usedPct: number | null): Status {
+  return {
+    generatedAt: Date.now() / 1000,
+    strategy: "test",
+    planner: "claude-code",
+    mode: "normal",
+    disabled: false,
+    calendarPace: false,
+    providers: [],
+    executors: { ranked: [], excluded: [] },
+    accounts: [
+      {
+        name: "claude-code",
+        kind: "claude",
+        verdict: "OK",
+        usedPct,
+        pacePct: null,
+        resetsAt: null,
+        window: null,
+        stale: false,
+        source: null,
+        capturedAt: null,
+        runners: ["claude-code"],
+        spendUsd: null,
+      },
+    ],
+  } as Status;
+}
+
+function certifiedStatus(): CertificateStatus {
+  return { state: "certified", probedAt: Date.now() / 1000, expiresAt: Date.now() / 1000 + 86400 };
+}
+
+function uncertifiedStatus(): CertificateStatus {
+  return { state: "uncertified", reason: "not verified" };
+}
+
+describe("certification tick", () => {
+  test("starts a probe job when the decision says to", async () => {
+    const ctx = fakeCtx();
+    const repo = setupEnforcementContext(ctx);
+    writeStrategyYaml(ctx);
+    let probeCalled = false;
+
+    const deps: TickDeps = {
+      repo,
+      probe: async (): Promise<CertificateStatus> => {
+        probeCalled = true;
+        return certifiedStatus();
+      },
+      status: async (): Promise<Status> => {
+        return testStatus(40); // 40% used = 60% headroom > 25% reserve
+      },
+    };
+
+    await tick(ctx, deps);
+
+    expect(probeCalled).toBe(true);
+  });
+
+  test("records cost as the observed usage delta", async () => {
+    const ctx = fakeCtx();
+    const repo = setupEnforcementContext(ctx);
+    writeStrategyYaml(ctx);
+    let beforeUsed = 40;
+    let afterUsed = 43;
+
+    const deps: TickDeps = {
+      repo,
+      probe: async (): Promise<CertificateStatus> => {
+        return certifiedStatus();
+      },
+      status: async (): Promise<Status> => {
+        // Return beforeUsed first call, afterUsed second call
+        const used = beforeUsed;
+        beforeUsed = afterUsed;
+        return testStatus(used);
+      },
+    };
+
+    await tick(ctx, deps);
+
+    // Check that lastCostPct is 3 (43 - 40)
+    const state = readScheduleState(ctx);
+    const attempts = Object.values(state.attempts);
+    expect(attempts.length).toBeGreaterThan(0);
+    expect(attempts[0].lastCostPct).toBe(3);
+  });
+
+  test("does nothing when the decision declines", async () => {
+    const ctx = fakeCtx();
+    const repo = setupEnforcementContext(ctx);
+    // Write strategy with planner_probe: off
+    writeStrategyYaml(ctx, `
+pacing:
+  planner_probe: off
+`);
+    let probeCalled = false;
+
+    const deps: TickDeps = {
+      repo,
+      probe: async (): Promise<CertificateStatus> => {
+        probeCalled = true;
+        return certifiedStatus();
+      },
+      status: async (): Promise<Status> => {
+        return testStatus(40);
+      },
+    };
+
+    await tick(ctx, deps);
+
+    expect(probeCalled).toBe(false);
+  });
+
+  test("a failed probe increments backoff", async () => {
+    const ctx = fakeCtx();
+    const repo = setupEnforcementContext(ctx);
+    writeStrategyYaml(ctx);
+
+    const deps: TickDeps = {
+      repo,
+      probe: async (): Promise<CertificateStatus> => {
+        return uncertifiedStatus();
+      },
+      status: async (): Promise<Status> => {
+        return testStatus(40);
+      },
+    };
+
+    await tick(ctx, deps);
+
+    const state = readScheduleState(ctx);
+    const attempts = Object.values(state.attempts);
+    expect(attempts.length).toBeGreaterThan(0);
+    expect(attempts[0].failures).toBe(1);
+  });
+
+  test("returns instead of hanging when the probe throws", async () => {
+    const ctx = fakeCtx();
+    const repo = setupEnforcementContext(ctx);
+    writeStrategyYaml(ctx);
+
+    const deps: TickDeps = {
+      repo,
+      probe: async (): Promise<CertificateStatus> => { throw new Error("launch failed"); },
+      status: async (): Promise<Status> => testStatus(40),
+    };
+
+    // A thrown probe must still settle the completion the tick awaits, or the
+    // service's re-entrancy flag stays set and certification stops for good.
+    const stalled = Symbol("stalled");
+    const raced = await Promise.race([
+      tick(ctx, deps).then(() => "returned"),
+      new Promise(resolve => setTimeout(() => resolve(stalled), 2000)),
+    ]);
+    expect(raced).toBe("returned");
+    expect(Object.values(readScheduleState(ctx).attempts)[0]?.failures).toBe(1);
+  });
+
+  test("never throws when the strategy is missing", async () => {
+    const ctx = fakeCtx();
+    // Note: no strategy file written
+    let probeCalled = false;
+
+    const deps: TickDeps = {
+      probe: async (): Promise<CertificateStatus> => {
+        probeCalled = true;
+        return certifiedStatus();
+      },
+      status: async (): Promise<Status> => {
+        return testStatus(40);
+      },
+    };
+
+    // Should not throw even with no strategy file
+    await tick(ctx, deps);
+
+    expect(probeCalled).toBe(false);
+  });
+
+  test("an already-running job is not a failure", async () => {
+    const { startJob } = await import("../src/jobs/registry");
+    const ctx = fakeCtx();
+    const repo = setupEnforcementContext(ctx);
+    writeStrategyYaml(ctx);
+    let firstProbeStarted = false;
+    let secondProbeCalled = false;
+
+    // Start a job first that will be detected as running
+    const jobPromise = startJob(
+      ctx,
+      "enforcement.probe",
+      `claude-code:${repo}`,
+      ["Test step"],
+      async (step) => {
+        firstProbeStarted = true;
+        // Wait a bit so the second tick can detect this as running
+        await Bun.sleep(50);
+        step.pass("Test step", "done");
+      },
+    );
+
+    // Run tick while the job above is still running
+    const deps: TickDeps = {
+      repo,
+      probe: async (): Promise<CertificateStatus> => {
+        secondProbeCalled = true;
+        return certifiedStatus();
+      },
+      status: async (): Promise<Status> => {
+        return testStatus(40);
+      },
+    };
+
+    await tick(ctx, deps);
+
+    // Wait for first job to complete
+    await jobPromise;
+
+    // Second probe should NOT have been called (dedupe)
+    expect(secondProbeCalled).toBe(false);
+    expect(firstProbeStarted).toBe(true);
+
+    // Most importantly: backoff counter should NOT have increased
+    const state = readScheduleState(ctx);
+    const attempts = Object.values(state.attempts);
+    // Either no attempts recorded (because dedupe returned early), or if recorded, failures=0
+    if (attempts.length > 0) {
+      expect(attempts[0].failures).toBe(0);
+    }
+  });
+});

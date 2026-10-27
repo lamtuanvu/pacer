@@ -1,7 +1,21 @@
 import { join } from "node:path";
+import { cwd } from "node:process";
 import { readJson, writeJsonAtomic } from "../fsutil";
 import type { Ctx } from "../types";
-import type { CertificateStatus } from "./enforcement";
+import type { Strategy } from "../config/strategy";
+import { loadStrategy, MissingStrategyError } from "../config/strategy";
+import { isPlannerRunner } from "../config/runner-id";
+import { listRepos } from "../core/repos";
+import { computeStatus, type Status } from "../engine/status";
+import { startJob, listJobs } from "../jobs/registry";
+import {
+  resolveEnforcementTarget,
+  certificateStatus,
+  probeSupportReason,
+  probeNativeControl,
+  type EnforcementTarget,
+  type CertificateStatus,
+} from "./enforcement";
 
 export const MAX_PROBES_PER_DAY = 2;
 export const BACKOFF_BASE_S = 900;
@@ -108,4 +122,227 @@ export function recordProbeOutcome(
     lastCostPct: outcome.costPct,
   };
   return { consent: { ...state.consent }, attempts: { ...state.attempts, [key]: updated } };
+}
+
+/**
+ * Dependencies for the certification tick. Inject fakes in tests to avoid
+ * spending real account quota or launching real agents.
+ */
+export interface TickDeps {
+  /**
+   * Override the probe function. Default calls probeNativeControl,
+   * which spends real quota and launches a real agent.
+   */
+  probe?: (ctx: Ctx, strategy: Strategy, runner: string, repo: string) => Promise<CertificateStatus>;
+  /**
+   * Override the status function. Default calls computeStatus.
+   */
+  status?: (ctx: Ctx, strategy: Strategy) => Promise<Status>;
+  /**
+   * Override the active repository. Default uses listRepos or cwd().
+   * Useful in tests to avoid repo-specific control files affecting the result.
+   */
+  repo?: string;
+}
+
+function findPlannerRunner(s: Strategy): { id: string; account: string } | null {
+  for (const [id, runner] of Object.entries(s.runners)) {
+    if (isPlannerRunner(s, runner)) {
+      return { id, account: runner.account };
+    }
+  }
+  return null;
+}
+
+function isListedForRouting(s: Strategy, runnerId: string): boolean {
+  for (const rule of s.routing) {
+    if (rule.executors.includes(runnerId)) return true;
+  }
+  return false;
+}
+
+function getActiveRepo(ctx: Ctx): string {
+  const repos = listRepos(ctx);
+  if (repos.length > 0) return repos[0].path;
+  return cwd();
+}
+
+/**
+ * Returns the maximum usedPct across all of the planner account's non-stale
+ * windows that carry a usedPct reading. Minimum headroom = maximum usedPct.
+ * Returns null if no window has a usable reading.
+ */
+function plannerAccountUsedPct(status: Status, plannerAccount: string): number | null {
+  const account = status.accounts?.find(a => a.name === plannerAccount);
+  if (!account) return null;
+
+  // Find providers belonging to this account and collect their window usedPct
+  let maxUsed: number | null = null;
+
+  // Check the account's binding window (existing behavior)
+  if (account.usedPct !== null) {
+    maxUsed = account.usedPct;
+  }
+
+  // Check all provider windows for this account
+  for (const provider of status.providers) {
+    if (provider.account !== plannerAccount) continue;
+    for (const window of provider.windows) {
+      if (window.stale || window.usedPct === null) continue;
+      if (maxUsed === null || window.usedPct > maxUsed) {
+        maxUsed = window.usedPct;
+      }
+    }
+  }
+
+  return maxUsed;
+}
+
+/**
+ * Enforcement key: (runner, account, launchMode) matches how certificates
+ * are keyed in the enforcement store.
+ */
+function enforcementKey(target: EnforcementTarget): string {
+  return JSON.stringify([target.runner, target.account, target.launchMode]);
+}
+
+/**
+ * Run one certification tick: decide whether to probe, run the probe if
+ * warranted, record the outcome. Never throws.
+ *
+ * startJob returns immediately when a job daemon is registered (http service),
+ * so we cannot rely on job.state after startJob returns. We capture the
+ * result inside the run callback using a deferred promise, then await that
+ * promise for the real completion.
+ */
+export async function tick(ctx: Ctx, deps: TickDeps = {}): Promise<void> {
+  try {
+    let strategy: Strategy;
+    try {
+      strategy = loadStrategy(ctx);
+    } catch (e) {
+      if (e instanceof MissingStrategyError) return;
+      throw e;
+    }
+
+    const planner = findPlannerRunner(strategy);
+    if (!planner) return;
+    const runnerId = planner.id;
+    const plannerAccount = planner.account;
+
+    const repo = deps.repo ?? getActiveRepo(ctx);
+
+    let target: EnforcementTarget;
+    let unsupportedReason: string | null;
+    let certificate: CertificateStatus;
+    try {
+      target = await resolveEnforcementTarget(ctx, strategy, runnerId, repo);
+      unsupportedReason = probeSupportReason(target, repo);
+      certificate = certificateStatus(ctx, target);
+    } catch {
+      return;
+    }
+
+    const probeFn = deps.probe ?? probeNativeControl;
+    const statusFn = deps.status ?? ((c: Ctx, s: Strategy) => computeStatus(c, s));
+
+    const statusBefore = await statusFn(ctx, strategy);
+    const usedPctBefore = plannerAccountUsedPct(statusBefore, plannerAccount);
+    const headroomPct = usedPctBefore !== null ? 100 - usedPctBefore : null;
+
+    const state = readScheduleState(ctx);
+    const key = enforcementKey(target);
+
+    const inputs: ProbeInputs = {
+      key,
+      account: target.account,
+      runner: target.runner,
+      repo,
+      certificate,
+      unsupportedReason,
+      headroomPct,
+      reserveHeadroomPct: strategy.pacing.plannerReserveHeadroom,
+      mode: strategy.pacing.plannerProbe,
+      // pacing.planner_executes belongs to the planner-candidacy subsystem.
+      // true is the interim value until that subsystem ships.
+      plannerExecutes: true,
+      listedForRouting: isListedForRouting(strategy, runnerId),
+    };
+
+    const decision = decideProbe(inputs, state, ctx.now);
+    if (!decision.probe) {
+      return;
+    }
+
+    const jobKind = "enforcement.probe" as const;
+    const jobTarget = `${runnerId}:${repo}`;
+
+    // Check for existing running job BEFORE starting
+    const existingRunning = listJobs(ctx, { target: jobTarget })
+      .find(j => j.kind === jobKind && j.state === "running");
+
+    let certResult: CertificateStatus;
+    let usedPctAfter: number | null = null;
+
+    if (existingRunning) {
+      // Dedupe: a probe is already running for this (runner, repo).
+      // Do not record an outcome, do not increment backoff.
+      return;
+    }
+
+    // Deferred promise to capture the probe result from inside the callback.
+    // Needed because startJob returns immediately when a daemon is registered.
+    let probeSettle: (result: CertificateStatus) => void;
+    const probeComplete = new Promise<CertificateStatus>(resolve => {
+      probeSettle = resolve;
+    });
+
+    const job = await startJob(
+      ctx,
+      jobKind,
+      jobTarget,
+      ["Probe native child control"],
+      async (step) => {
+        step.start("Probe native child control");
+        // Settle on every path: a throw that left this pending would hang the
+        // await below, and with it the service's re-entrancy flag, for good.
+        let result: CertificateStatus;
+        try {
+          result = await probeFn(ctx, strategy, runnerId, repo);
+        } catch (e) {
+          result = { state: "uncertified", reason: e instanceof Error ? e.message : String(e) };
+        }
+        probeSettle(result);
+        if (result.state !== "certified") {
+          throw new Error(result.reason ?? "Native child blocking was not observed");
+        }
+        step.pass("Probe native child control", "Native child blocking verified");
+      },
+    );
+
+    // Await the actual probe completion through our deferred promise
+    certResult = await probeComplete;
+
+    // Read status AFTER probe completes for accurate cost measurement
+    const statusAfter = await statusFn(ctx, strategy);
+    usedPctAfter = plannerAccountUsedPct(statusAfter, plannerAccount);
+
+    // Calculate cost: delta in usedPct. Null if either reading was unavailable.
+    let costPct: number | null = null;
+    if (usedPctBefore !== null && usedPctAfter !== null) {
+      costPct = usedPctAfter - usedPctBefore;
+    }
+
+    // Record outcome and persist state
+    const outcome = {
+      certified: certResult.state === "certified",
+      costPct,
+    };
+    const updatedState = recordProbeOutcome(state, key, repo, outcome, ctx.now);
+    writeScheduleState(ctx, updatedState);
+
+  } catch {
+    // tick() never throws
+    return;
+  }
 }
