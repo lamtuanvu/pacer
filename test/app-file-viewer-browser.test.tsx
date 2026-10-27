@@ -205,3 +205,16 @@ browserTest("a failed viewer load offers Try again, which recovers",async()=>{
   await expect(page.getByRole("alert").count()).resolves.toBe(0);
  }finally{await page.close()}
 },30_000);
+
+browserTest("a short sheet scrolls the HTML preview panel instead of drawing it over the footer",async()=>{
+ const page=await browser.newPage({viewport:{width:375,height:640}});page.setDefaultTimeout(5000);
+ try{
+  const viewer=await open(page,375,"public/index.html");
+  await viewer.getByRole("tab",{name:"Preview"}).click();
+  await viewer.getByRole("note",{name:"Preview is isolated from pacer"}).waitFor();
+  const panel=await viewer.locator(".pc-file-viewer__panel").boundingBox();
+  const foot=await viewer.locator(".pc-file-viewer__foot").boundingBox();
+  expect(panel!.y+panel!.height).toBeLessThanOrEqual(foot!.y+1);
+  expect(await viewer.locator(".pc-file-viewer__panel").evaluate(element=>getComputedStyle(element).overflowY)).toBe("auto");
+ }finally{await page.close()}
+},30_000);
