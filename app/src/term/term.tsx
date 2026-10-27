@@ -48,6 +48,8 @@ export function TerminalView({id,url,label='pacer app',cols=120,rows=40,control=
   term.attachCustomKeyEventHandler(event=>{if(connection.state.you&&event.ctrlKey&&event.code==='BracketRight'){if(event.type==='keydown')connection.release();event.preventDefault();event.stopPropagation();return false;}
    // A watcher's keys never reach the agent; let Tab move focus out of the terminal.
    if(!connection.state.you&&event.key==='Tab')return false;
+   // Nothing a watcher types reaches the agent, so Ctrl combinations go to the app's shortcuts instead of being consumed here.
+   if(!connection.state.you&&event.ctrlKey)return false;
    return true;});
   const input=term.onData(data=>connection.input(data));
   const resizer=new ResizeObserver(()=>{clearTimeout(resizeTimer);resizeTimer=setTimeout(scale,150);});resizer.observe(pane.current);
