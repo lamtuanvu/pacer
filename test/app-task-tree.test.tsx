@@ -202,6 +202,9 @@ browserTest('compact_density_fits_272px', async () => {
       expect(await title.evaluate(n => n.scrollWidth > n.clientWidth)).toBe(true);
       expect(await page.locator('.pc-task-node__branch').evaluate(n => getComputedStyle(n).whiteSpace)).toBe('nowrap');
       expect(await page.locator('.pc-task-node__child-title').first().evaluate(n => getComputedStyle(n).textOverflow)).toBe('ellipsis');
+      // A child's status words never clip; its title gives way instead.
+      for (const label of await page.locator('.pc-task-node__child .pc-status-dot__label').all())
+        expect(await label.evaluate(n => n.scrollWidth <= n.clientWidth)).toBe(true);
       // Compact keeps the desktop control height.
       expect(await page.locator('.pc-task-node__toggle').evaluate(n => n.getBoundingClientRect().height)).toBeLessThanOrEqual(32);
     } finally { await page.close(); }
