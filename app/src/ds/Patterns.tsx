@@ -2,7 +2,7 @@ import { classNames as classes } from "./classNames";
 // Beautiful UI TextRow, SegmentedControl, TaskRows, ApprovalCard and LoadingState adaptations.
 // Pinned source map: docs/design-system.md. Domain state and actions stay with consumers.
 import type { ComponentChildren, JSX } from 'preact';
-import { Button, type ButtonProps } from "./Button";
+import { Button, ButtonLink, type ButtonProps } from "./Button";
 import { useDensity } from "./Density";
 import { SectionHeading } from "./SectionHeading";
 export { ActionPanel, Cluster, DisclosurePanel, Page, PageBody, PageColumns, PageHeader, Section, Stack } from "./Page";
@@ -78,6 +78,13 @@ export function Tabs({ label, id, value, options, onChange }: {
         document.getElementById(`${id}-${target.value}-tab`)?.focus();
       }}>{option.label}</Button>)}
   </div>;
+}
+
+/** Tabs that are pages: links in a labelled nav, the current one marked with aria-current="page". */
+export function NavTabs({ label, items }: { label: string; items: readonly { href: string; label: ComponentChildren; current?: boolean }[] }) {
+  return <nav aria-label={label} className="pc-tabs pc-tabs--nav">
+    {items.map(item => <ButtonLink key={item.href} href={item.href} size="sm" aria-current={item.current ? "page" : undefined}>{item.label}</ButtonLink>)}
+  </nav>;
 }
 
 export function Card({ children, className, ...props }: JSX.HTMLAttributes<HTMLElement>) {

@@ -1,0 +1,112 @@
+import { useState } from "preact/hooks";
+import { clock } from "../../../../src/view-model/time";
+import { spendCopy } from "../../../../src/view-model/copy";
+import { accountNeedsSignIn, accountStatus, executorLabel, paceStatus } from "../../../../src/view-model/words";
+import { accountUsageFreshness } from "../../../../src/view-model/capacity";
+import type { AccountSummary } from "../../../../src/api/read-model/types";
+import { Disclosure, TextInput } from "../../ds/Controls";
+import { ChoicePicker } from "../../ds/ChoicePicker";
+import { StatusPill } from "../../ds/StatusPill";
+import { UsageMeter } from "../../ds/UsageMeter";
+import { AgentMark } from "../../ds/AgentMark";
+import { Stack } from "../../ds/Page";
+import { Button, TextAction } from "../../ds/Button";
+import { arkcliRefreshMessage, arkcliSignInRequired, type Account } from "../../model/accounts";
+import { useTaskContext } from "../task-shared";
+import { AgentsIntro } from "./Executors";
+import { Feedback, Field, ResourceState, Section, useOperation, useResource } from "./shared";
+
+const agentOf = (account: Account, summary?: AccountSummary) => summary?.agent ?? (account.kind === "claude" ? "claude-code" : account.kind === "endpoint" ? "opencode" : account.kind);
+
+/** Usage in words; a missing reading says so rather than showing zero. */
+export function accountUsageWords(summary?: AccountSummary): string {
+  if (!summary) return "Usage unknown";
+  const spend = spendCopy(summary.spendUsdWeek, summary.capUsdWeek);
+  if (spend) return spend;
+  if (summary.usedPct == null) return "No usage reported";
+  const window = summary.window === "weekly" || summary.window === "week" ? "week" : summary.window ?? "window";
+  return `${Math.round(summary.usedPct)}% of ${window}${summary.resetsAt ? ` · resets ${clock(summary.resetsAt, Date.now() / 1000)}` : ""}`;
+}
+
+export function AccountsSection({ initialData }: { initialData?: Account[] }) {
+  const query = useResource<Account[]>("account.list", {}, initialData),
+    action = useOperation(query.reload),
+    { state, api } = useTaskContext();
+  const [adding, setAdding] = useState(false), [name, setName] = useState(""), [kind, setKind] = useState("codex"),
+    [refreshing, setRefreshing] = useState(""), [refreshStatus, setRefreshStatus] = useState<{ account: string; message: string }>();
+  const refresh = async (account: string) => {
+    setRefreshing(account); setRefreshStatus(undefined);
+    try {
+      const result = await api.call<{ accounts: { account: string; outcome: string; error?: string | null }[] }>("limits.refresh", { account });
+      setRefreshStatus({ account, message: arkcliRefreshMessage(result, account) });
+      query.reload();
+    } catch (error) {
+      setRefreshStatus({ account, message: error instanceof Error ? error.message : "Usage could not be refreshed." });
+    } finally { setRefreshing(""); }
+  };
+  const refreshButton = (account: string) => <Button size="sm" variant="quiet" busy={refreshing === account} disabled={!!refreshing || !state.connected} onClick={() => void refresh(account)}>Refresh usage<span className="sr-only"> for {account}</span></Button>;
+  return (
+    <Section id="accounts" title="Accounts" detail="Where quota comes from. An executor uses one account."
+      actions={<>
+        <Button onClick={() => void action.run("account.signin", { interactive: "account-add-orca" })}>Link an Orca account</Button>
+        <Button variant="primary" aria-expanded={adding} onClick={() => setAdding(v => !v)}>Add account</Button>
+      </>}>
+      <AgentsIntro tab="accounts" />
+      <ResourceState resource={query} empty="No accounts yet. Add an account to get started.">
+        <div className="u3-table-wrap">
+          <table>
+            <thead><tr>{["Account", "Quota", "Status", "Used by"].map(v => <th key={v}>{v}</th>)}</tr></thead>
+            <tbody>
+              {query.data?.map(account => {
+                const summary = state.snapshot?.accounts?.find(a => a.name === account.name),
+                  readiness = { ...account, signedIn: summary?.signedIn ?? account.signedIn },
+                  freshness = summary && accountUsageFreshness(summary), users = summary?.executors ?? account.runners ?? [];
+                return (
+                  <tr key={account.name}>
+                    <td data-label="Account">
+                      <div className="u3-agent"><AgentMark agent={agentOf(account, summary)} />
+                        <div><strong>{account.name}</strong>
+                          <div className="u3-muted">{account.kind === "endpoint" ? "Model endpoint" : executorLabel(agentOf(account))}{(summary?.source ?? account.source) && ` · ${summary?.source ?? account.source}`}</div></div></div>
+                    </td>
+                    <td data-label="Quota">
+                      {summary?.usedPct != null && <UsageMeter used={summary.usedPct} pace={summary.pacePct} tone={paceStatus(summary.verdict).tone} size="row" text="none" label={`${account.name} usage`} stale={!!freshness} />}
+                      <div className="u3-muted">{accountUsageWords(summary)}{freshness && ` · ${freshness}`}</div>
+                    </td>
+                    <td data-label="Status">
+                      <StatusPill status={accountStatus(readiness)} />
+                      {arkcliSignInRequired(account) ? (
+                        <Disclosure className="pc-disclosure" summary={<>Fix Ark CLI sign-in<span className="sr-only"> for {account.name}</span></>}>
+                          <Stack space="compact"><p>Sign in to BytePlus in a terminal, then refresh usage here.</p><div><code>arkcli auth login</code></div><div>{refreshButton(account.name)}</div></Stack>
+                        </Disclosure>
+                      ) : accountNeedsSignIn(readiness) ? (
+                        <Disclosure className="pc-disclosure" summary={<>Fix sign-in<span className="sr-only"> for {account.name}</span></>}>
+                          {account.signin_command && <code>{account.signin_command}</code>}
+                          <Button size="sm" disabled={action.busy} onClick={() => void action.run("account.signin", { name: account.name })}>Sign in</Button>
+                        </Disclosure>
+                      ) : null}
+                      {refreshStatus?.account === account.name && <p role="status">{refreshStatus.message}</p>}
+                    </td>
+                    <td data-label="Used by">
+                      {users.length ? <div className="u3-chips">{users.map(id => <span className="u3-chip" key={id} title={id}><AgentMark agent={id.split(/[#@]/)[0]!} size={16} />{executorLabel(id)}</span>)}</div> : <span className="u3-muted">Not used</span>}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </ResourceState>
+      {adding && (
+        <form className="pc-card" onSubmit={e => { e.preventDefault(); void action.run("account.add", { name, kind }, () => { setAdding(false); setName(""); }); }}>
+          <div className="u3-settings-grid">
+            <Field label="Account name"><TextInput value={name} required pattern="[a-z0-9][a-z0-9-]*" onInput={e => setName(e.currentTarget.value)} /></Field>
+            <Field label="Agent"><ChoicePicker value={kind} options={[{ value: "codex", label: "Codex" }, { value: "claude", label: "Claude Code" }]} onValueChange={setKind} /></Field>
+          </div>
+          <Button type="submit" disabled={action.busy}>Create account</Button>
+          <p><TextAction href="#/settings/add-executor">Connect an API endpoint through Add agent</TextAction></p>
+        </form>
+      )}
+      <Feedback action={action} />
+    </Section>
+  );
+}

@@ -7,7 +7,7 @@ import { clock } from "../src/view-model/format";
 import { renderToString } from 'preact-render-to-string';
 import { TaskContext } from '../app/src/screens/task-shared';
 import { initialState } from '../app/src/data/store';
-import { SettingsGeneral, AddExecutor, RemoteHosts, HostDetail, JobProgress, executorId, executorReady, performOperation } from '../app/src/screens/settings/index';
+import { SettingsGeneral, AddExecutor, MachineSection, HostDetail, JobProgress, executorId, executorReady, performOperation } from '../app/src/screens/settings/index';
 import { settings, host, executor, job } from './fixtures/ui/settings';
 const state = {...initialState(),snapshot:{executors:[executor],accounts:[],hosts:[{...host,executors:[executor.id],repos:1}],planner:{agent:'codex',runner:'codex#team',advice:'Keep planning'},repos:[]} as any};
 const api = {call:async()=>({}),hello:async()=>({}),snapshot:async()=>({})} as any;
@@ -36,13 +36,12 @@ test('Planner uses the actual planner agent without mounting other settings',()=
  expect(html).not.toContain('Link Orca account');
  expect((html.match(/pc-btn--primary/g)||[]).length).toBeLessThanOrEqual(1);
 });
-test('executor and update checkboxes keep their labels inline', () => {
- const html = render(<SettingsGeneral section="executors" initialData={settings}/>) + render(<SettingsGeneral section="updates" initialData={settings}/>);
- const labels = [...html.matchAll(/<label class="pc-checkbox">([\s\S]*?)<\/label>/g)];
+test('the update checkbox keeps its label inline', () => {
+ const html = render(<SettingsGeneral section="updates" initialData={settings}/>);
+ const labels = [...html.matchAll(/<label class="pc-checkbox pc-checkbox--bare">([\s\S]*?)<\/label>/g)];
  // The update row's checkbox sits in a bare hit-area label; SettingRow's own label names it.
  expect(labels).toHaveLength(1);
  for (const [, body] of labels) { expect(body).toMatch(/class="[^"]*pc-checkbox__input[^"]*"/); expect(body).toContain('type="checkbox"'); }
- expect(labels[0]![1]).toContain('Enabled');
  // The update preference is a SettingRow: its label names the checkbox.
  const id = /<label[^>]*for="([^"]+)"[^>]*>Check for updates<\/label>/.exec(html)?.[1];
  expect(html).toMatch(new RegExp(`<input(?=[^>]*type="checkbox")(?=[^>]*id="${id}")`));
@@ -50,11 +49,11 @@ test('executor and update checkboxes keep their labels inline', () => {
 test('all General sections provide loading and empty states',()=>{
  expect(render(<SettingsGeneral section="planner"/>)).toContain('Loading');
  const empty={...state,snapshot:{...state.snapshot,executors:[],hosts:[]}};
- const html=["accounts","executors","dispatcher"].map(section=>render(<SettingsGeneral section={section} initialData={{...settings,accounts:[],strategies:[],routing:{rules:[],available:[]}}}/>,empty)).join("")+render(<RemoteHosts/>,empty);
- for(const word of ['No accounts','No executors','No remote hosts','No routing rules','No saved profiles'])expect(html).toContain(word);
+ const html=["accounts","executors","dispatcher"].map(section=>render(<SettingsGeneral section={section} initialData={{...settings,accounts:[],strategies:[],routing:{rules:[],available:[]}}}/>,empty)).join("")+render(<SettingsGeneral section="machine" initialData={settings}/>,empty);
+ for(const word of ['No accounts','No executors','No routing rules','No saved profiles'])expect(html).toContain(word);
 });
 test('wizard has four board steps and never claims ready before a passed check',()=>{
- const html=render(<AddExecutor/>);for(const word of ['Agent','Account','Where','Model &amp; checks','Executor id'])expect(html).toContain(word);
+ const html=render(<AddExecutor/>);for(const word of ['Agent','Account','Where it runs','Model and test'])expect(html).toContain(word);
  expect(html).not.toContain('is ready');
  expect(executorId({agent:'codex',account:'team',host:'devbox'})).toBe(executor.id);
  expect(executorReady(job)).toBe(false);expect(executorReady({...job,state:'passed'})).toBe(true);expect(executorReady({...job,state:'failed'})).toBe(false);
@@ -66,8 +65,8 @@ test('host board includes management sections, facts and service supplied branch
  expect(html).toContain('aria-label="Codex"');expect(html).toContain('disabled');expect(html).not.toContain('Full sessions');
 });
 test('host list and detail expose loading and empty states',()=>{
- expect(render(<RemoteHosts/>)).toContain('devbox');expect(render(<HostDetail alias="missing"/>)).toContain('Loading');
- expect(render(<RemoteHosts/>,{...state,snapshot:{...state.snapshot,hosts:[]}})).toContain('No remote hosts');
+ expect(render(<SettingsGeneral section="machine" initialData={settings}/>)).toContain('devbox');expect(render(<HostDetail alias="missing"/>)).toContain('Loading');
+ expect(render(<SettingsGeneral section="machine" initialData={settings}/>,{...state,snapshot:{...state.snapshot,hosts:[]}})).toContain('Add a remote host');
 });
 test('job progress uses service words and steps, including error hints',()=>{
  const html=renderToString(<JobProgress job={{...job,state:'failed',error:{code:'bad',message:'Check failed',hint:'Sign in on host'}}}/>);
@@ -106,9 +105,9 @@ test('standalone screens bundle for the browser with their CSP compatible styles
 test('restored executor draft resumes checks and Ready follows a passed job only',()=>{
  const initialDraft={step:'4',agent:'codex',account:'team',host:'devbox',createdId:executor.id,jobId:job.id};
  const draw=(stateValue:'running'|'failed'|'passed')=>render(<AddExecutor initialDraft={initialDraft}/>,{...state,jobs:{[job.id]:{...job,state:stateValue}}});
- expect(draw('running')).toContain('Running checks');expect(draw('running')).not.toContain('is ready');
- expect(draw('failed')).toContain('Run checks again');expect(draw('failed')).not.toContain('is ready');
- expect(draw('passed')).toContain(`${executor.id} is ready`);expect(draw('passed')).toContain('>OK</a>');
+ expect(draw('running')).toContain('Running test task');expect(draw('running')).not.toContain('is ready');
+ expect(draw('failed')).toContain('Run test task again');expect(draw('failed')).not.toContain('is ready');
+ expect(draw('passed')).toContain(`${executor.id} is ready`);expect(draw('passed')).toContain('>Open agents</a>');
 });
 test('new endpoint form includes URL, key source and model limits',()=>{
  // The URL form sits behind the OpenCode provider picker's "Use a URL instead".
@@ -118,7 +117,7 @@ test('new endpoint form includes URL, key source and model limits',()=>{
 test('the shipped app.js, which includes the Settings screens, stays within the 60 KB gzip budget (UI-3)',async()=>{
  const {APP_JS_BUDGET,buildApp}=await import('../app/build');
  const app=(await buildApp()).find(file=>file.path==='app.js')!;
- expect(app.text).toContain('Remote hosts');
+ expect(app.text).toContain('Loading settings');
  expect(Bun.gzipSync(app.text).byteLength).toBeLessThan(APP_JS_BUDGET);
 });
 test('a passed host connection check cannot make an executor Ready',()=>{
@@ -186,12 +185,12 @@ test('General exposes named parallel tasks controls and shared capacity notes',(
  expect(planner).not.toContain('Parallel tasks for '+executor.id);
 });
 test('settings pages leave their page title to the shell and inline links are underlined', () => {
- for (const child of [<SettingsGeneral initialData={settings}/>, <AddExecutor/>, <RemoteHosts/>, <HostDetail alias="devbox" initialData={host}/>]) {
+ for (const child of [<SettingsGeneral initialData={settings}/>, <AddExecutor/>, <SettingsGeneral section="machine" initialData={settings}/>, <HostDetail alias="devbox" initialData={host}/>]) {
   expect(render(child)).not.toContain('<h1');
  }
  const emptyState = {...state,snapshot:{...state.snapshot,hosts:[]}};
- expect(render(<RemoteHosts/>, emptyState)).not.toContain('>Remote hosts</h2>');
- expect(render(<SettingsGeneral initialData={settings}/>, emptyState)).toContain('href="#/settings/hosts"');
+ expect(render(<SettingsGeneral section="machine" initialData={settings}/>, emptyState)).not.toContain('>Machines</h2>');
+ expect(render(<SettingsGeneral initialData={settings}/>, emptyState)).toContain('href="#/settings/machine"');
 });
 
 test('Settings and host executors share uncertainty; retained account usage is historical',()=>{
@@ -273,11 +272,9 @@ test('eligible executors retain recent task failures separately from their passe
  expect(html).toContain('Eligible');
  expect(html).toContain('Recent task failures');
  expect(html).toContain('2 recent failures');
- expect(html).toContain('Passed');
  expect(html).not.toContain('Failing');
  const failedCheck=render(<SettingsGeneral section="executors" initialData={settings}/>,{...state,snapshot:{...state.snapshot,at:1000,executors:[{...row,lastCheck:{at:1000,passed:false,detail:'test task failed'}}]}}).split('<tbody>')[1]!.split('</tbody>')[0]!;
  expect(failedCheck).toContain('Failing');
- expect(failedCheck).toContain('Failed');
  expect(failedCheck).not.toContain('Recent task failures');
 });
 
@@ -301,8 +298,8 @@ test('paged Updates keeps OTA controls, service identity and navigation status t
 test('completed executor setup offers OK and another executor', () => {
  const initialDraft={step:'4',agent:'claude-code',account:'team',createdId:executor.id,jobId:job.id};
  const html=render(<AddExecutor initialDraft={initialDraft}/>,{...state,jobs:{[job.id]:{...job,state:'passed'}}});
- expect(html).toContain('Add another executor');
- expect(html).toContain('>OK</a>');
+ expect(html).toContain('Add another agent');
+ expect(html).toContain('>Open agents</a>');
  expect(html).not.toContain('Cancel');
  expect(html).not.toContain('check before Ready');
  expect((html.match(/pc-btn--primary/g)||[]).length).toBe(1);
@@ -317,7 +314,7 @@ test('adding another executor clears all previous choices and returns to agent s
  const oldVNode=options.vnode;
  let startAnother:(()=>void)|undefined;
  Object.defineProperty(globalThis,'sessionStorage',{configurable:true,value:{getItem:(key:string)=>saved.get(key)??null,setItem:(key:string,value:string)=>saved.set(key,value),removeItem:(key:string)=>saved.delete(key)}});
- options.vnode=node=>{oldVNode?.(node);if(node.type==='button'&&(node.props as any).children==='Add another executor')startAnother=(node.props as any).onClick;};
+ options.vnode=node=>{oldVNode?.(node);if(node.type==='button'&&(node.props as any).children==='Add another agent')startAnother=(node.props as any).onClick;};
  try {
   render(<AddExecutor/>,{...state,jobs:{[job.id]:{...job,state:'passed'}}});
   expect(startAnother).toBeDefined();
@@ -325,7 +322,7 @@ test('adding another executor clears all previous choices and returns to agent s
   const html=render(<AddExecutor/>);
   expect(html).toContain('Which agent?');
   expect(html).not.toContain('is ready');
-  expect(JSON.parse(saved.get(key)!)).toEqual({step:'1',agent:'codex',host:'',account:'',model:'',rank:'',createdId:'',jobId:''});
+  expect(JSON.parse(saved.get(key)!)).toEqual({step:'1',agent:'codex',account:'',host:'',maxTasks:'1',model:'',kinds:'',createdId:'',jobId:''});
  } finally {
   options.vnode=oldVNode;
   if(oldStorage)Object.defineProperty(globalThis,'sessionStorage',oldStorage);else Reflect.deleteProperty(globalThis,'sessionStorage');
@@ -342,7 +339,7 @@ test('OK clears completed executor state before returning to the executor list',
  let finish:(()=>void)|undefined;
  let href:string|undefined;
  Object.defineProperty(globalThis,'sessionStorage',{configurable:true,value:{getItem:(key:string)=>saved.get(key)??null,setItem:(key:string,value:string)=>saved.set(key,value),removeItem:(key:string)=>saved.delete(key)}});
- options.vnode=node=>{oldVNode?.(node);if(node.type==='a'&&(node.props as any).children==='OK'){finish=(node.props as any).onClick;href=(node.props as any).href;}};
+ options.vnode=node=>{oldVNode?.(node);if(node.type==='a'&&(node.props as any).children==='Open agents'){finish=(node.props as any).onClick;href=(node.props as any).href;}};
  try {
   render(<AddExecutor/>,{...state,jobs:{[job.id]:{...job,state:'passed'}}});
   expect(finish).toBeDefined();

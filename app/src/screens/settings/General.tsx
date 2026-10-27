@@ -1,7 +1,10 @@
-import { HostsSection } from "./HostsSection";
-export { HostsSection } from "./HostsSection";
 import { ExecutorsSection } from "./Executors";
 export { ExecutorsSection } from "./Executors";
+import { AccountsSection } from "./Accounts";
+export { AccountsSection } from "./Accounts";
+import { MachineSection } from "./Machines";
+import { AddExecutor } from "./AddExecutor";
+import { HostDetail } from "./Hosts";
 import { UpdatesSection } from "./Updates";
 import { LazyDispatcher } from "./LazyDispatcher";
 
@@ -9,40 +12,22 @@ import { withQuery, type RouteQuery } from "../../router";
 import { DensityContext } from "../../ds/Density";
 import { SETTINGS_GROUPS, SETTINGS_PAGES, settingsAttention, settingsPageId } from "../../settings-pages";
 import { SettingRow } from "../../ds/SettingRow";
-import { Page, Stack } from "../../ds/Page";
+import { Page } from "../../ds/Page";
 import { Icon } from "../../ds/icons";
 import { DiagnosticsSection } from "./Diagnostics";
 import { ProjectStrategies } from "./ProjectStrategies";
 import {
-  Checkbox,
-  Disclosure,
   Range,
   TextArea,
   TextInput,
 } from "../../ds/Controls";
 import { ChoicePicker } from "../../ds/ChoicePicker";
-import { clock } from "../../../../src/view-model/time";
-import { spendCopy } from "../../../../src/view-model/copy";
-import { useDialogs } from "../../ds/useDialogs";
-import {
-  accountNeedsSignIn,
-  accountStatus,
-  executorLabel,
-} from "../../../../src/view-model/words";
-import { StatusPill } from "../../ds/StatusPill";
-import {
-  accountUsageFreshness,
-  capacityNote,
-  executorEligibility,
-} from "../../../../src/view-model/capacity";
 import { applyTheme, THEME_KEY, type ThemeChoice } from "../../theme";
 import { useEffect, useState } from "preact/hooks";
 import type { ComponentChildren } from "preact";
-import type { ExecutorRow } from "../../../../src/api/read-model/types";
-import { Pill } from "../../ds/Pill";
 import { AgentMark } from "../../ds/AgentMark";
-import { Button, ButtonLink, TextAction } from "../../ds/Button";
-import { arkcliRefreshMessage, arkcliSignInRequired, type Account } from "../../model/accounts";
+import { Button, ButtonLink } from "../../ds/Button";
+import type { Account } from "../../model/accounts";
 import type { ConfigData, StrategyRow } from "../../model/strategy";
 import type { RoutingRules, Rule } from "../../model/executors";
 import type { AgentPreview } from "../../model/settings";
@@ -75,16 +60,21 @@ export interface SettingsData {
   };
 }
 /** Pages whose changes reach routing; Overview, App preferences and Diagnostics do not. */
-const DISPATCH_NOTE = new Set(["planner", "accounts", "machine", "dispatcher"]);
+const DISPATCH_NOTE = new Set(["planner", "accounts", "machine", "hosts", "dispatcher"]);
 /** Mount only the selected editor: inactive pages must not fetch or run effects. */
 export function SettingsGeneral({
   section,
   initialData = {},
   query = { repo: null, scope: null },
+  host,
+  alias,
 }: {
   section?: string;
   initialData?: SettingsData;
   query?: RouteQuery;
+  /** Add agent prefills this host; host detail shows this alias. */
+  host?: string;
+  alias?: string;
 }) {
   const [dispatchRevision, setDispatchRevision] = useState(0);
   let content: ComponentChildren;
@@ -99,7 +89,12 @@ export function SettingsGeneral({
       content = <ExecutorsSection />;
       break;
     case "machine":
+    case "hosts":
+      if (alias) return <DensityContext.Provider value="settings"><HostDetail key={alias} alias={alias} /></DensityContext.Provider>;
       content = <MachineSection initialData={initialData.config} />;
+      break;
+    case "add-executor":
+      content = <AddExecutor host={host} />;
       break;
     case "dispatcher":
       content = <LazyDispatcher key={dispatchRevision} query={query}>
@@ -122,7 +117,7 @@ export function SettingsGeneral({
   return (
     <DensityContext.Provider value="settings">
       <SettingsPageContext.Provider
-        value={section === "planner" ? "pacing" : section ? settingsPageId(section) : null}
+        value={section === "planner" ? "pacing" : section === "accounts" ? section : section ? settingsPageId(section) : null}
       >
         <Page width="full" className="u3-settings u3-settings-page">
           <div className="u3-general-sections">{content}</div>
@@ -390,274 +385,6 @@ function PlannerConsent({
         <Feedback action={action} />
       </div>
     </Dialog>
-  );
-}
-export function AccountsSection({ initialData }: { initialData?: Account[] }) {
-  const query = useResource<Account[]>("account.list", {}, initialData),
-    action = useOperation(query.reload),
-    { state, api } = useTaskContext();
-  const [adding, setAdding] = useState(false),
-    [name, setName] = useState(""),
-    [kind, setKind] = useState("codex"),
-    [refreshing, setRefreshing] = useState(false),
-    [refreshStatus, setRefreshStatus] = useState<{ account: string; message: string }>();
-  const refreshArkcli = async (account: string) => {
-    setRefreshing(true); setRefreshStatus(undefined);
-    try {
-      const result = await api.call<{ accounts: { account: string; outcome: string; error?: string | null }[] }>("limits.refresh", { account });
-      setRefreshStatus({ account, message: arkcliRefreshMessage(result, account) });
-      query.reload();
-    } catch (error) {
-      setRefreshStatus({ account, message: error instanceof Error ? error.message : "Usage could not be refreshed." });
-    } finally { setRefreshing(false); }
-  };
-  return (
-    <Section
-      id="accounts"
-      title="Accounts"
-      detail="Where quota comes from. An executor uses one account."
-      actions={
-        <>
-          <Button
-            onClick={() =>
-              void action.run("account.signin", {
-                interactive: "account-add-orca",
-              })
-            }
-          >
-            Link Orca account
-          </Button>
-          <Button onClick={() => setAdding((v) => !v)}>Add account</Button>
-        </>
-      }
-    >
-      <ResourceState
-        resource={query}
-        empty="No accounts yet. Add an account to get started."
-      >
-        <div className="u3-table-wrap">
-          <table>
-            <thead>
-              <tr>
-                {[
-                  "Account",
-                  "Kind",
-                  "Source",
-                  "Usage",
-                  "Status",
-                  "Used by",
-                  "",
-                ].map((v) => (
-                  <th key={v}>{v}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {query.data?.map((account) => {
-                const summary = state.snapshot?.accounts?.find(
-                    (a) => a.name === account.name,
-                  ),
-                  readiness = {
-                    ...account,
-                    signedIn: summary?.signedIn ?? account.signedIn,
-                  };
-                return (
-                  <tr key={account.name}>
-                    <td data-label="Account">
-                      <div className="u3-agent">
-                        <AgentMark
-                          agent={
-                            summary?.agent ??
-                            (account.kind === "claude"
-                              ? "claude-code"
-                              : account.kind === "endpoint"
-                                ? "opencode"
-                                : account.kind)
-                          }
-                        />
-                        <strong>{account.name}</strong>
-                      </div>
-                    </td>
-                    <td data-label="Kind">
-                      {account.kind === "endpoint"
-                        ? "Model endpoint"
-                        : executorLabel(
-                            account.kind === "claude"
-                              ? "claude-code"
-                              : account.kind,
-                          )}
-                    </td>
-                    <td data-label="Source">
-                      {summary?.source ?? account.source ?? "Unknown source"}
-                    </td>
-                    <td data-label="Usage">
-                      {spendCopy(summary?.spendUsdWeek, summary?.capUsdWeek) ??
-                        (summary?.usedPct != null
-                          ? `${Math.round(summary.usedPct)}% of ${summary.window === "weekly" || summary.window === "week" ? "week" : (summary.window ?? "window")}${summary.resetsAt ? ` · resets ${clock(summary.resetsAt, Date.now() / 1000)}` : ""}`
-                          : "Usage unknown")}
-                      {summary && accountUsageFreshness(summary) && (
-                        <small className="u3-muted">
-                          {" "}
-                          · {accountUsageFreshness(summary)}
-                        </small>
-                      )}
-                    </td>
-                    <td data-label="Status">
-                      <StatusPill status={accountStatus(readiness)} />
-                    </td>
-                    <td data-label="Used by">
-                      <code>
-                        {(summary?.executors ?? account.runners ?? []).join(
-                          ", ",
-                        ) || "Not used"}
-                      </code>
-                    </td>
-                    <td data-label="Actions">
-                      {arkcliSignInRequired(account) && (
-                        <Disclosure className="pc-disclosure" summary={<>Fix Ark CLI sign-in<span className="sr-only"> for {account.name}</span></>}>
-                          <Stack space="compact">
-                            <p>Sign in to BytePlus in a terminal, then refresh usage here.</p>
-                            <div><code>arkcli auth login</code></div>
-                            <div><Button size="sm" busy={refreshing} disabled={refreshing || !state.connected} onClick={() => void refreshArkcli(account.name)}>Refresh usage</Button></div>
-                            {refreshStatus?.account === account.name && <p role="status">{refreshStatus.message}</p>}
-                          </Stack>
-                        </Disclosure>
-                      )}
-                      {accountNeedsSignIn(readiness) && (
-                        <Disclosure
-                          className="pc-disclosure"
-                          summary={
-                            <>
-                              Fix sign-in
-                              <span className="sr-only">
-                                {" "}
-                                for {account.name}
-                              </span>
-                            </>
-                          }
-                        >
-                          {account.signin_command && (
-                            <code>{account.signin_command}</code>
-                          )}
-                          <Button
-                            size="sm"
-                            disabled={action.busy}
-                            onClick={() =>
-                              void action.run("account.signin", {
-                                name: account.name,
-                              })
-                            }
-                          >
-                            Sign in
-                          </Button>
-                        </Disclosure>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </ResourceState>
-      {adding && (
-        <form
-          className="pc-card"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void action.run("account.add", { name, kind }, () => {
-              setAdding(false);
-              setName("");
-            });
-          }}
-        >
-          <div className="u3-settings-grid">
-            <Field label="Account name">
-              <TextInput
-                value={name}
-                required
-                pattern="[a-z0-9][a-z0-9-]*"
-                onInput={(e) => setName(e.currentTarget.value)}
-              />
-            </Field>
-            <Field label="Agent">
-              <ChoicePicker
-                value={kind}
-                options={[{ value: "codex", label: "Codex" }, { value: "claude", label: "Claude Code" }]}
-                onValueChange={setKind}
-              />
-            </Field>
-          </div>
-          <Button type="submit" disabled={action.busy}>
-            Create account
-          </Button>
-          <p>
-            <TextAction
-              className="pc-text-action"
-              href="#/settings/add-executor"
-            >
-              Connect an API endpoint through Add executor
-            </TextAction>
-          </p>
-        </form>
-      )}
-      <Feedback action={action} />
-    </Section>
-  );
-}
-export function MachineSection({ initialData }: { initialData?: ConfigData }) {
-  const query = useResource("config.get", {}, initialData),
-    action = useOperation(query.reload);
-  const value = query.data?.keys["execution.local_max_tasks"]?.value;
-  const terminal = String(query.data?.keys["terminal.open"]?.value ?? "");
-  const legacy = String(query.data?.keys["terminal.app"]?.value ?? "Terminal");
-  const choices = query.data?.terminalChoices ?? [
-    {value:"auto",label:"Automatic"},{value:"terminal-app",label:"Terminal"},
-    {value:"iterm",label:"iTerm"},{value:"ghostty",label:"Ghostty"},
-  ];
-  const legacyPreset = query.data?.keys["terminal.app"]?.source === "default"
-    ? undefined
-    : ({Terminal:"terminal-app",iTerm:"iterm",Ghostty:"ghostty"} as Record<string,string>)[legacy];
-  const selectedTerminal = terminal || (legacyPreset && choices.some(choice => choice.value === legacyPreset) ? legacyPreset : "auto");
-  const terminalChoices = choices.some(choice => choice.value === selectedTerminal)
-    ? choices
-    : [...choices, {value:selectedTerminal,label:"Custom terminal (CLI)",disabled:true,reason:"Configured from the CLI"}];
-  return (
-    <Section id="machine" title="This machine">
-      <ResourceState resource={query}>
-        <Field
-          label="Parallel tasks on this machine"
-          help="Shared by all executors that run on this machine."
-        >
-          <TextInput
-            type="number"
-            min="1"
-            max="16"
-            step="1"
-            required
-            value={String(value ?? 2)}
-            disabled={action.busy}
-            onChange={(e) => {
-              if (e.currentTarget.validity.valid)
-                void action.run("config.set", {
-                  key: "execution.local_max_tasks",
-                  value: Number(e.currentTarget.value),
-                });
-            }}
-          />
-        </Field>
-        <Field label="Preferred terminal" help="Used when opening sessions and other terminal actions on this machine.">
-          <ChoicePicker
-            aria-label="Preferred terminal"
-            value={selectedTerminal}
-            options={terminalChoices}
-            disabled={action.busy}
-            onValueChange={(choice) => void action.run("config.set", {key:"terminal.open",value:choice})}
-          />
-        </Field>
-      </ResourceState>
-      <Feedback action={action} />
-    </Section>
   );
 }
 export function canAddRoutingRule(executor: string, available: readonly string[]): boolean {

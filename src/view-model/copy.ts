@@ -87,6 +87,17 @@ export function jobStateCopy(state: string): string {
   return labels[state] ?? plainProgressLabel(state);
 }
 
+/** Host check steps in plain words; checkout and identity steps name their repository. */
+export function hostCheckStepCopy(name: string): string {
+  const labels: Record<string, string> = {
+    ssh: 'Connects with your SSH key, no password prompt', git: 'git 2.30 or newer', glibc: 'Linux C library 2.17 or newer',
+    setsid: 'Can start background sessions', script: 'Can record sessions', tail: 'Can follow session output',
+    codex: 'Codex CLI', claude: 'Claude Code CLI', 'account homes': 'Account folders exist',
+  };
+  const repo = /^(checkout|identity) (.+)$/.exec(name);
+  return repo ? `${repo[1] === 'checkout' ? 'Checkout of' : 'Git identity for'} ${repo[2]}` : labels[name] ?? plainProgressLabel(name);
+}
+
 /** How an endpoint account is billed, as a short pill (shared by setup screens). */
 export type UsageKind = "quota" | "metered" | "unmetered";
 export const USAGE_KIND_WORDS: Record<UsageKind, { label: string; tone: "good" | "neutral" }> = {

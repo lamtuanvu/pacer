@@ -84,7 +84,7 @@ const navOrder = (html: string) => [...html.matchAll(/<a\b[^>]*href="([^"]+)"/g)
 test('settings panel groups pages and keeps a stable keyboard order', () => {
   const html = renderToString(<SettingsPanel route={{ name: 'settings', query }} counts={null} />);
   expect(navOrder(html)).toEqual([
-    '#/settings', '#/settings/executors', '#/settings/add-executor', '#/settings/accounts', '#/settings/dispatcher', '#/settings/planner', '#/settings/machine', '#/settings/hosts',
+    '#/settings', '#/settings/executors', '#/settings/dispatcher', '#/settings/planner', '#/settings/machine',
     '#/settings/app', '#/settings/diagnostics',
   ]);
   expect(html).not.toMatch(/tabindex="[1-9]/);
@@ -127,7 +127,7 @@ test('Overview groups every page with its description and attention status', () 
   const down = { ...executor, state: 'down' };
   const html = render(<SettingsGeneral initialData={settings} />, { ...state, snapshot: { ...state.snapshot, executors: [down] } });
   for (const group of ['Dispatch', 'App']) expect(html).toMatch(new RegExp(`<h2[^>]*>${group}</h2>`));
-  for (const href of ['#/settings/executors', '#/settings/accounts', '#/settings/dispatcher', '#/settings/planner', '#/settings/machine', '#/settings/hosts', '#/settings/app', '#/settings/diagnostics']) expect(html).toContain(`href="${href}"`);
+  for (const href of ['#/settings/executors', '#/settings/dispatcher', '#/settings/planner', '#/settings/machine', '#/settings/app', '#/settings/diagnostics']) expect(html).toContain(`href="${href}"`);
   expect(html).not.toContain('href="#/settings/updates"');
   expect(html).toContain('1 needs attention');
   expect(html).toContain('pc-pill--bad');
@@ -209,8 +209,8 @@ test('menu and Overview show the same executor and host attention', () => {
   const menu = renderToString(<SettingsPanel route={{ name: 'settings', query }} counts={null} snapshot={snapshot} />);
   const overview = render(<SettingsGeneral initialData={settings} />, { ...state, snapshot });
   for (const words of ['1 blocked', '1 needs setup']) { expect(menu).toContain(words); expect(overview).toContain(words); }
-  expect(menu).toContain('2 accounts');
-  // Neutral counts belong to the menu; Overview statuses are attention only.
+  // Counts that are not attention belong to the page itself (the Accounts tab), not the menu or Overview.
+  expect(menu).not.toContain('2 accounts');
   expect(overview).not.toContain('2 accounts');
 });
 

@@ -3,7 +3,7 @@ import type { ComponentType } from 'preact';
 import type { RouteQuery } from '../../router';
 import { Button } from '../../ds/Button';
 import { Alert } from '../../ds/Alert';
-type Props = {section?:string;query:RouteQuery};
+type Props = {section?:string;query:RouteQuery;host?:string;alias?:string};
 /** Editors load on demand; overview and running work do not pay their bundle cost. */
 export function LazySettings(props:Props) {
   const [View,setView]=useState<ComponentType<Props>|null>(null),[error,setError]=useState(false),[attempt,retry]=useState(0);

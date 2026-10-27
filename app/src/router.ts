@@ -75,7 +75,7 @@ export function titleFor(route: Route): string {
   if (route.name === "terminal") return "Terminal";
   if (route.name === "hosts" && route.alias) return "Host";
   if (route.name === "settings") return settingsPageTitle(route.section);
-  return route.name === "overview" ? "Overview" : route.name === "review" ? "Needs you" : route.name === "sessions" ? "Tasks" : route.name === "hosts" ? "Remote hosts" : route.name === "add-executor" ? "Add executor" : route.name === "setup" ? "Set up pacer" : "pacer";
+  return route.name === "overview" ? "Overview" : route.name === "review" ? "Needs you" : route.name === "sessions" ? "Tasks" : route.name === "hosts" ? "Machines" : route.name === "add-executor" ? "Add an agent" : route.name === "setup" ? "Set up pacer" : "pacer";
 }
 export function primaryFor(route: Route): PrimaryRoute {
   if (route.name === "start") return "start";

@@ -14,19 +14,16 @@ export const SETTINGS_GROUPS: readonly { id: SettingsGroupId; label: string }[] 
 /** One navigation catalog for the settings menu, the Overview page and shell page titles, in menu order. */
 export const SETTINGS_PAGES: readonly SettingsPage[] = [
   { id: '', label: 'Overview', icon: 'sliders', group: 'dispatch' },
-  { id: 'executors', label: 'Executors', icon: 'executors', group: 'dispatch', description: 'Agents that take delegated work, their order and limits.' },
-  { id: 'add-executor', label: 'Add executor', icon: 'plus', group: 'dispatch' },
-  { id: 'accounts', label: 'Accounts', icon: 'accounts', group: 'dispatch', description: 'Sign-ins and usage for each agent account.' },
+  { id: 'executors', label: 'Agents', icon: 'executors', group: 'dispatch', description: 'Who executes, the accounts they use and their limits.' },
   { id: 'dispatcher', label: 'Dispatcher', icon: 'routing', group: 'dispatch', description: 'Saved profiles and the rules that choose an executor.' },
   { id: 'planner', label: 'Budget & pacing', icon: 'gauge', group: 'dispatch', description: 'The planner, how work spreads and the reserve kept for planning.' },
-  { id: 'machine', label: 'This machine', icon: 'hosts', group: 'dispatch', description: 'Parallel tasks and the terminal used on this machine.' },
-  { id: 'hosts', label: 'Remote hosts', icon: 'servers', group: 'dispatch', description: 'SSH hosts that can run executors.' },
+  { id: 'machine', label: 'Machines', icon: 'hosts', group: 'dispatch', description: 'This machine and the SSH hosts that run tasks.' },
   { id: 'app', label: 'App preferences', icon: 'palette', group: 'app', description: 'Updates, notifications and appearance.' },
   { id: 'diagnostics', label: 'Diagnostics', icon: 'diagnostics', group: 'app', description: 'Check setup and repair supported integrations.' },
 ];
 
-/** Sections that are now part of another page; their deep links keep working. */
-const SETTINGS_PAGE_OF: Readonly<Record<string, string>> = { updates: 'app', notifications: 'app', appearance: 'app' };
+/** Sections that are now part of another page (one of its tabs or flows); their deep links keep working. */
+const SETTINGS_PAGE_OF: Readonly<Record<string, string>> = { updates: 'app', notifications: 'app', appearance: 'app', accounts: 'executors', 'add-executor': 'executors', hosts: 'machine' };
 
 export function settingsPageId(section = ''): string {
   return SETTINGS_PAGE_OF[section] ?? section;
@@ -52,8 +49,7 @@ export function settingsAttention(snapshot?: ClientSnapshot | null, counts?: Cou
   const result: Partial<Record<string, SettingsAttention>> = {};
   const executorWords = [down && `${down} ${down === 1 ? 'needs' : 'need'} attention`, blocked && `${blocked} blocked`].filter(Boolean).join(', ');
   if (executorWords) result.executors = { text: String(down + blocked), label: executorWords, tone: 'bad' };
-  if (snapshot?.accounts?.length) result.accounts = { text: String(snapshot.accounts.length), label: `${snapshot.accounts.length} ${snapshot.accounts.length === 1 ? 'account' : 'accounts'}`, tone: 'neutral' };
-  if (hosts) result.hosts = { text: `${hosts} ${hosts === 1 ? 'needs' : 'need'} setup`, label: `${hosts} ${hosts === 1 ? 'needs' : 'need'} setup`, tone: 'warn' };
+  if (hosts) result.machine = { text: `${hosts} ${hosts === 1 ? 'needs' : 'need'} setup`, label: `${hosts} ${hosts === 1 ? 'needs' : 'need'} setup`, tone: 'warn' };
   if (update?.glyph) result.app = { text: update.glyph, label: update.label, tone: (['bad', 'warn', 'info'] as const).find(tone => tone === update.tone) ?? 'neutral' };
   return result;
 }

@@ -1,12 +1,10 @@
-import { ChoiceCard } from "../../ds/Patterns";
+import { ChoiceCard, FilterChip, TextRow } from "../../ds/Patterns";
 import { TextInput } from "../../ds/Controls";
 import { ChoicePicker } from "../../ds/ChoicePicker";
-import { executorIdHelp } from "../../../../src/view-model/copy";
-import {
-  accountNeedsSignIn,
-  accountStatus,
-} from "../../../../src/view-model/words";
+import { accountNeedsSignIn, accountStatus } from "../../../../src/view-model/words";
 import { SectionHeading } from "../../ds/SectionHeading";
+import { SettingRow } from "../../ds/SettingRow";
+import { CheckList, Stepper } from "../../ds/Stepper";
 import { useState, useEffect } from "preact/hooks";
 import type { AgentDetection } from "../../../../src/install/detection";
 import type { Job } from "../../../../src/api/read-model/types";
@@ -14,493 +12,125 @@ import { Pill } from "../../ds/Pill";
 import { AgentMark } from "../../ds/AgentMark";
 import { Button, ButtonLink, TextAction } from "../../ds/Button";
 import type { Account } from "../../model/accounts";
-import { agents } from "../../model/wizard";
+import { AGENT_KINDS, REMOTE_AGENTS, accountRequired, agentStepProblem, agents, blankAgentDraft, furthestAgentStep, type AgentDraft } from "../../model/wizard";
 import { useDraft, useTaskContext } from "../task-shared";
 import { OpencodeSetup } from "./OpencodeSetup";
-import {
-  Feedback,
-  Field,
-  latestJob,
-  ResourceState,
-  Segment,
-  useOperation,
-  useResource,
-  words,
-  JobProgress,
-} from "./shared";
-import { Page } from "../../ds/Page";
-export const executorId = ({
-  agent,
-  account,
-  host,
-}: {
-  agent: string;
-  account: string;
-  host: string;
-}) =>
+import { Feedback, Field, latestJob, ResourceState, Segment, useOperation, useResource, words } from "./shared";
+export const executorId = ({ agent, account, host }: { agent: string; account: string; host: string }) =>
   `${agent}${account ? `#${account}` : ""}${host && host !== "local" ? `@${host}` : ""}`;
 export const executorReady = (job: Job | undefined, target?: string) =>
-  job?.kind === "runner.check" &&
-  job.state === "passed" &&
-  (!target || job.target === target);
-const blank = {
-  step: "1",
-  agent: "codex",
-  account: "",
-  host: "",
-  model: "",
-  rank: "",
-  createdId: "",
-  jobId: "",
-};
-export function AddExecutor({
-  host: prefillHost = "",
-  initialDraft = {},
-  initialAccounts,
-  initialUrlForm = false,
-}: {
-  host?: string;
-  initialDraft?: Partial<typeof blank>;
-  initialAccounts?: Account[];
-  initialUrlForm?: boolean;
+  job?.kind === "runner.check" && job.state === "passed" && (!target || job.target === target);
+const TITLES = ["Agent", "Account", "Where it runs", "Model and test"];
+/** Add an agent in four gated steps; it is Ready only after its test task passes. */
+export function AddExecutor({ host: prefillHost = "", initialDraft = {}, initialAccounts, initialDetection, initialUrlForm = false }: {
+  host?: string; initialDraft?: Partial<AgentDraft>; initialAccounts?: Account[]; initialDetection?: AgentDetection[]; initialUrlForm?: boolean;
 }) {
   const { state, api } = useTaskContext(),
-    [draft, setDraft, clearDraft] = useDraft("pacer.settings.add-executor", {
-      ...blank,
-      host: prefillHost,
-      ...initialDraft,
-    });
+    [draft, setDraft, clearDraft] = useDraft("pacer.settings.add-executor", { ...blankAgentDraft, host: prefillHost, ...initialDraft });
   const accounts = useResource<Account[]>("account.list", {}, initialAccounts),
-    detected = useResource<AgentDetection[]>(
-      "agent.detect",
-      draft.host ? { host: draft.host } : {},
-    );
-  const action = useOperation(),
-    [error, setError] = useState(""),
-    [resumed, setResumed] = useState<Job>(),
-    [urlForm, setUrlForm] = useState(initialUrlForm);
-  const [resumeError, setResumeError] = useState("");
-  const patch = (key: keyof typeof blank, value: string) => {
-    setDraft((d) => ({ ...d, [key]: value }));
-    setError("");
-  };
-  const step = Number(draft.step),
-    job =
-      action.job ??
-      (draft.jobId ? latestJob(state.jobs[draft.jobId], resumed) : undefined),
-    ready = !!draft.createdId && executorReady(job, draft.createdId);
-  const compatible =
-    accounts.data?.filter((a) =>
-      draft.agent === "opencode"
-        ? a.kind === "endpoint"
-        : draft.agent === "claude-code"
-          ? a.kind === "claude"
-          : a.kind === draft.agent,
-    ) ?? [];
-  const generated = executorId(draft),
-    remoteAllowed = ["codex", "claude-code"].includes(draft.agent),
-    locked = !!draft.createdId;
-  // On the OpenCode provider picker, "Add executor" creates the account and moves on, so it is the step's one primary action.
-  const picker =
-    step === 2 &&
-    draft.agent === "opencode" &&
-    !urlForm &&
-    !draft.account &&
-    !locked;
-  // A restored draft resumes the original job rather than creating a second executor.
-  useResumeJob(
-    draft.jobId,
-    action.job ?? state.jobs[draft.jobId],
-    api.call,
-    setResumed,
-    setResumeError,
-  );
+    detected = useResource<AgentDetection[]>("agent.detect", {}, initialDetection);
+  const action = useOperation(), [resumed, setResumed] = useState<Job>(), [urlForm, setUrlForm] = useState(initialUrlForm), [resumeError, setResumeError] = useState("");
+  const patch = (patch: Partial<AgentDraft>) => setDraft(d => ({ ...d, ...patch }));
+  const job = action.job ?? (draft.jobId ? latestJob(state.jobs[draft.jobId], resumed) : undefined),
+    ready = !!draft.createdId && executorReady(job, draft.createdId), locked = !!draft.createdId;
+  const facts = { installed: detected.data?.find(a => a.agent === draft.agent)?.found ?? null, hosts: state.snapshot?.hosts?.map(h => h.alias) ?? [] };
+  const furthest = furthestAgentStep(draft, facts), step = Math.min(Number(draft.step) || 1, furthest), problem = agentStepProblem(step, draft, facts);
+  const compatible = accounts.data?.filter(a => draft.agent === "opencode" ? a.kind === "endpoint" : draft.agent === "claude-code" ? a.kind === "claude" : a.kind === draft.agent) ?? [];
+  const name = agents.find(a => a.id === draft.agent)?.name ?? draft.agent, kinds = draft.kinds ? draft.kinds.split(",") : [];
+  // On the OpenCode provider picker, adding the provider creates the account and its executor, so it is the step's one primary action.
+  const picker = step === 2 && draft.agent === "opencode" && !urlForm && !draft.account && !locked;
+  useResumeJob(draft.jobId, action.job ?? state.jobs[draft.jobId], api.call, setResumed, setResumeError);
   async function finish() {
-    if (draft.createdId) {
-      const r = await action.run("runner.check", { id: draft.createdId });
-      if (r?.jobId) patch("jobId", r.jobId);
-      return;
-    }
-    const r = await action.run("runner.add", {
-      agent: draft.agent,
-      ...(draft.account ? { account: draft.account } : {}),
-      ...(draft.host ? { host: draft.host } : {}),
-      ...(draft.model ? { model: draft.model } : {}),
-      ...(draft.rank ? { rank: Number(draft.rank) } : {}),
-      test: true,
-    });
-    if (r) {
-      const data = r.data as { id: string };
-      setDraft((d) => ({ ...d, createdId: data.id, jobId: r.jobId ?? "" }));
-    }
+    if (draft.createdId) { const r = await action.run("runner.check", { id: draft.createdId }); if (r?.jobId) patch({ jobId: r.jobId }); return; }
+    const r = await action.run("runner.add", { agent: draft.agent, ...(draft.account ? { account: draft.account } : {}), ...(draft.host ? { host: draft.host } : {}),
+      ...(draft.model ? { model: draft.model } : {}), ...(kinds.length ? { kinds } : {}), max_tasks: Number(draft.maxTasks), test: true });
+    if (r) patch({ createdId: (r.data as { id: string }).id, jobId: r.jobId ?? "" });
   }
-  function addAnotherExecutor() {
-    action.clear();
-    setResumed(undefined);
-    setResumeError("");
-    setError("");
-    setUrlForm(false);
-    setDraft({ ...blank });
-  }
-  function next() {
-    if (
-      step === 2 &&
-      ["codex", "claude-code", "opencode"].includes(draft.agent) &&
-      !draft.account
-    ) {
-      setError("Choose or create an account.");
-      return;
-    }
-    if (step === 3 && draft.host && !remoteAllowed) {
-      setError("Only Codex and Claude Code can run remotely.");
-      return;
-    }
-    patch("step", String(Math.min(4, step + 1)));
-  }
+  const values = [name, draft.account || (accountRequired(draft.agent) ? "" : "Its own sign-in"), `${draft.host || "This machine"} · ${draft.maxTasks} parallel`, ready ? "Ready" : job ? "Test task run" : "Not tested yet"];
   return (
-    <Page width="full" className="u3-settings">
-      <p className="u3-muted">
-        An agent, the account it bills to, and where it runs.
-      </p>
-      <div className="u3-wizard">
-        <aside>
-          <ol className="u3-steps" aria-label="Progress">
-            {["Agent", "Account", "Where", "Model & checks"].map((label, i) => (
-              <li
-                key={label}
-                aria-current={step === i + 1 ? "step" : undefined}
-              >
-                {i + 1} · {label}
-                <div className="u3-muted">
-                  {
-                    [
-                      agents.find((a) => a.id === draft.agent)?.name,
-                      draft.account || "Choose an account",
-                      draft.host ? `${draft.host} over SSH` : "This machine",
-                      "Test task, then Ready",
-                    ][i]
-                  }
-                </div>
-              </li>
-            ))}
-          </ol>
-          <div className="u3-section">
-            <SectionHeading as="h3">Executor id</SectionHeading>
-            <div className="u3-agent">
-              <AgentMark agent={draft.agent} />
-              <code>{draft.createdId || generated}</code>
-            </div>
-            <p className="u3-muted">{executorIdHelp(!!draft.createdId)}</p>
-          </div>
-        </aside>
-        <div className="pc-card">
-          {step === 1 && (
-            <>
-              <SectionHeading>Which agent?</SectionHeading>
-              <p className="u3-muted">
-                pacer finds each agent’s CLI on this machine. Missing ones show
-                how to install.
-              </p>
-              <ResourceState resource={detected}>
-                <span />
-              </ResourceState>
-              <div className="u3-choices">
-                {agents.map((agent) => {
-                  const found = detected.data?.find(
-                    (a) => a.agent === agent.id,
-                  );
-                  return (
-                    <ChoiceCard
-                      className="u3-choice"
-                      key={agent.id}
-                      disabled={locked}
-                      aria-pressed={draft.agent === agent.id}
-                      onClick={() =>
-                        setDraft((d) => ({
-                          ...d,
-                          agent: agent.id,
-                          account: "",
-                          host: ["codex", "claude-code"].includes(agent.id)
-                            ? d.host
-                            : "",
-                        }))
-                      }
-                    >
-                      <AgentMark agent={agent.id} />
-                      <div>
-                        <strong>{agent.name}</strong>
-                        <div className="u3-muted">{agent.tagline}</div>
-                        <Pill tone={found?.found ? "good" : "neutral"}>
-                          {found
-                            ? found.found
-                              ? `Found ${found.version ?? ""}`
-                              : "Not installed"
-                            : "Installation unknown"}
-                        </Pill>
-                        {found && !found.found && (
-                          <code>{found.install_hint}</code>
-                        )}
-                      </div>
-                    </ChoiceCard>
-                  );
-                })}
-              </div>
-            </>
-          )}
-          {step === 2 && (
-            <>
-              <SectionHeading>Which account pays for it?</SectionHeading>
-              <p className="u3-muted">
-                Two executors can share an account; they share its quota.
-              </p>
-              <ResourceState
-                resource={accounts}
-                empty="No accounts yet. Add an account below."
-              >
-                <div className="u3-choices">
-                  {compatible.map((account) => (
-                    <ChoiceCard
-                      className="u3-choice"
-                      key={account.name}
-                      disabled={locked}
-                      aria-pressed={draft.account === account.name}
-                      onClick={() => patch("account", account.name)}
-                    >
-                      <AgentMark agent={draft.agent} />
-                      <div>
-                        <strong>{account.name}</strong>
-                        <div className="u3-muted">
-                          {account.source ?? account.kind} ·{" "}
-                          {accountStatus(account).label}
-                        </div>
-                      </div>
-                    </ChoiceCard>
-                  ))}
-                </div>
-                {!compatible.length && <p>No accounts for this agent yet.</p>}
-              </ResourceState>
-              {!locked &&
-                (draft.agent === "opencode" && !urlForm ? (
-                  // The OpenCode account and its executor are created together; step 4 then runs the test task as the check.
-                  <OpencodeSetup
-                    onUseUrl={() => setUrlForm(true)}
-                    onCreated={(name) => {
-                      setDraft((d) => ({
-                        ...d,
-                        account: name,
-                        createdId: `opencode#${name}`,
-                        step: "4",
-                      }));
-                      accounts.reload();
-                    }}
-                  />
-                ) : (
-                  <>
-                    {draft.agent === "opencode" && (
-                      <p>
-                        <Button
-                          variant="quiet"
-                          size="sm"
-                          onClick={() => setUrlForm(false)}
-                        >
-                          Back to providers
-                        </Button>
-                      </p>
-                    )}
-                    <WizardAccount
-                      agent={draft.agent}
-                      onCreated={(name) => {
-                        patch("account", name);
-                        accounts.reload();
-                      }}
-                    />
-                  </>
-                ))}
-              {draft.account &&
-                accountNeedsSignIn(
-                  accounts.data?.find((a) => a.name === draft.account) ?? {
-                    kind: "endpoint",
-                  },
-                ) && (
-                  <Button
-                    disabled={action.busy}
-                    onClick={() =>
-                      void action.run("account.signin", { name: draft.account })
-                    }
-                  >
-                    Sign in to {draft.account}
-                  </Button>
-                )}
-            </>
-          )}
-          {step === 3 && (
-            <>
-              <SectionHeading>Where does it run?</SectionHeading>
-              <p className="u3-muted">
-                A remote executor works in its own checkout over SSH and sends
-                the branch back.
-              </p>
-              <Segment
-                label="Where it runs"
-                value={draft.host ? "remote" : "local"}
-                disabled={locked}
-                options={[
-                  { value: "local", label: "This machine" },
-                  { value: "remote", label: "Remote over SSH" },
-                ]}
-                onChange={(v) => {
-                  if (v === "remote" && !remoteAllowed) {
-                    setError("Only Codex and Claude Code can run remotely.");
-                    return;
-                  }
-                  patch(
-                    "host",
-                    v === "local"
-                      ? ""
-                      : (state.snapshot?.hosts?.[0]?.alias ?? "new"),
-                  );
-                }}
-              />
-              {draft.host && (
-                <>
-                  <Field label="Remote host">
-                    <ChoicePicker
-                      disabled={locked}
-                      value={draft.host}
-                      placeholder="Choose a host"
-                      options={state.snapshot?.hosts?.map((host) => ({ value: host.alias, label: `${host.alias} · ${words(host.state)}` })) ?? []}
-                      onValueChange={(value) => patch("host", value)}
-                    />
-                  </Field>
-                  <Button
-                    disabled={action.busy || draft.host === "new"}
-                    onClick={() =>
-                      void action.run("host.check", { alias: draft.host })
-                    }
-                  >
-                    Test connection
-                  </Button>
-                  <p>
-                    <TextAction
-                      className="pc-text-action"
-                      href="#/settings/hosts"
-                    >
-                      New host
-                    </TextAction>
-                  </p>
-                </>
-              )}
-              <p className="u3-muted">
-                The planner always runs on this machine.
-              </p>
-            </>
-          )}
-          {step === 4 && (
-            <>
-              <SectionHeading>Model and checks</SectionHeading>
-              <p className="u3-muted">
-                pacer only marks it Ready after a small test task passes.
-              </p>
-              <div className="u3-settings-grid">
-                <Field label="Model">
-                  <TextInput
-                    disabled={locked}
-                    value={draft.model}
-                    placeholder="Agent default"
-                    onInput={(e) => patch("model", e.currentTarget.value)}
-                  />
-                </Field>
-                <Field label="Priority">
-                  <ChoicePicker
-                    value={draft.rank}
-                    disabled={locked}
-                    options={[{ value: "", label: "Last — used when others are busy" }, { value: "0", label: "First" }, ...(
-                      state.snapshot?.executors
-                      ?.filter((e) => e.rank !== "planner")
-                      .map((e, i) => ({ value: String(i + 1), label: `After ${e.id}` })) ?? [])]}
-                    onValueChange={(value) => patch("rank", value)}
-                  />
-                </Field>
-              </div>
-              <p>Task kinds: Added to “everything else”. Edit routing later.</p>
-              {!job && <p>CLI, sign-in, usage and test task: Not checked</p>}
-              {ready && (
-                <div className="u3-progress">
-                  <strong>{draft.createdId || generated} is ready</strong>
-                  <p>Test task passed. Ready for new work.</p>
-                </div>
-              )}
-              {!ready && (
-                <Button
-                  variant="primary"
-                  disabled={action.busy || job?.state === "running"}
-                  onClick={() => void finish()}
-                >
-                  {action.busy || job?.state === "running"
-                    ? "Running checks…"
-                    : locked
-                      ? job
-                        ? "Run checks again"
-                        : "Run test task"
-                      : "Add executor and run test task"}
-                </Button>
-              )}
-              {ready && (
-                <div className="u3-actions">
-                  <ButtonLink
-                    variant="primary"
-                    href="#/settings/executors"
-                    onClick={clearDraft}
-                  >
-                    OK
-                  </ButtonLink>
-                  <Button onClick={addAnotherExecutor}>
-                    Add another executor
-                  </Button>
-                </div>
-              )}
-            </>
-          )}
-          {error && <p role="alert">{error}</p>}
-          {resumeError && <p role="status">{resumeError}</p>}
-          <Feedback action={action} />
-          {job && !action.job && <JobProgress job={job} />}
-          {!ready && (
-            <div className="u3-footer">
-              <TextAction
-                className="pc-text-action"
-                href="#/settings/executors"
-              >
-                Cancel
-              </TextAction>
-              <span className="u3-muted">
-                Step {step} of 4 ·{" "}
-                {locked
-                  ? "Executor added; check before Ready"
-                  : "Draft kept for this session"}
-              </span>
-              {step > 1 && !locked && (
-                <Button
-                  disabled={action.busy}
-                  onClick={() => patch("step", String(step - 1))}
-                >
-                  Back
-                </Button>
-              )}
-              {step < 4 && !picker && (
-                <Button
-                  variant="primary"
-                  disabled={action.busy || draft.host === "new"}
-                  onClick={next}
-                >
-                  Continue
-                </Button>
-              )}
-            </div>
-          )}
+    <div className="u3-wizard">
+      <Stepper label="Add agent steps" onSelect={id => patch({ step: id })} steps={TITLES.map((title, i) => ({
+        id: String(i + 1), title, reachable: i + 1 <= furthest && (!locked || i === 3),
+        state: i === 3 && ready ? "done" : i + 1 === step ? "current" : i + 1 < furthest ? "done" : "todo",
+        detail: i + 1 <= furthest ? values[i] || "Not set" : "Not set",
+      }))} />
+      <section className="pc-card" aria-labelledby="agent-step-heading">
+        {step === 1 && <>
+          <SectionHeading id="agent-step-heading">Which agent?</SectionHeading>
+          <p className="u3-muted">pacer looks for each agent’s CLI on this machine.</p>
+          <ResourceState resource={detected}><span /></ResourceState>
+          <div className="u3-choices">{agents.map(agent => {
+            const found = detected.data?.find(a => a.agent === agent.id);
+            return <ChoiceCard key={agent.id} aria-pressed={draft.agent === agent.id}
+              onClick={() => patch({ agent: agent.id, account: "", host: REMOTE_AGENTS.includes(agent.id) ? draft.host : "" })}>
+              <AgentMark agent={agent.id} /><div><strong>{agent.name}</strong><div className="u3-muted">{agent.tagline}</div>
+                {found && <Pill tone={found.found ? "good" : "neutral"}>{found.found ? `Found${found.version ? ` ${found.version}` : ""}` : "Not installed"}</Pill>}</div>
+            </ChoiceCard>;
+          })}</div>
+          {facts.installed === false && <p>Install it with <code>{detected.data?.find(a => a.agent === draft.agent)?.install_hint}</code></p>}
+        </>}
+        {step === 2 && <>
+          <SectionHeading id="agent-step-heading">Which account pays for it?</SectionHeading>
+          {!accountRequired(draft.agent) ? <p>{name} uses its own signed-in account. pacer reads its usage from there.</p> : <>
+            <p className="u3-muted">Two executors can share an account; they share its quota.</p>
+            <ResourceState resource={accounts} empty="No accounts yet. Add one below.">
+              {compatible.length ? <div className="u3-choices">{compatible.map(account => <ChoiceCard key={account.name} aria-pressed={draft.account === account.name} onClick={() => patch({ account: account.name })}>
+                <AgentMark agent={draft.agent} /><div><strong>{account.name}</strong><div className="u3-muted">{account.source ?? account.kind} · {accountStatus(account).label}</div></div>
+              </ChoiceCard>)}</div> : <p>No accounts for this agent yet.</p>}
+            </ResourceState>
+            {draft.agent === "opencode" && !urlForm
+              // The OpenCode account and its executor are created together; step 4 then runs the test task as the check.
+              ? <OpencodeSetup onUseUrl={() => setUrlForm(true)} onCreated={account => { patch({ account, createdId: `opencode#${account}`, step: "4" }); accounts.reload(); }} />
+              : <>{draft.agent === "opencode" && <p><Button variant="quiet" size="sm" onClick={() => setUrlForm(false)}>Back to providers</Button></p>}
+                <WizardAccount agent={draft.agent} onCreated={account => { patch({ account }); accounts.reload(); }} /></>}
+            {draft.account && accountNeedsSignIn(accounts.data?.find(a => a.name === draft.account) ?? { kind: "endpoint" }) &&
+              <Button disabled={action.busy} onClick={() => void action.run("account.signin", { name: draft.account })}>Sign in to {draft.account}</Button>}
+          </>}
+        </>}
+        {step === 3 && <>
+          <SectionHeading id="agent-step-heading">Where does it run?</SectionHeading>
+          <p className="u3-muted">Tasks run in their own worktree on that machine. The planner always runs here.</p>
+          {REMOTE_AGENTS.includes(draft.agent)
+            ? <SettingRow label="Runs on"><Segment label="Runs on" value={draft.host ? "remote" : "local"}
+                options={[{ value: "local", label: "This machine" }, { value: "remote", label: "A remote host" }]}
+                onChange={v => patch({ host: v === "local" ? "" : facts.hosts[0] ?? "-" })} /></SettingRow>
+            : <p>{name} runs on this machine. Only Codex and Claude Code can run on a remote host.</p>}
+          {draft.host && (facts.hosts.length
+            ? <SettingRow label="Remote host"><ChoicePicker value={draft.host} placeholder="Choose a host" options={state.snapshot!.hosts!.map(h => ({ value: h.alias, label: `${h.alias} · ${words(h.state)}` }))} onValueChange={host => patch({ host })} /></SettingRow>
+            : <p>No remote hosts yet. <TextAction href="#/settings/machine">Add one in Machines</TextAction></p>)}
+          <SettingRow label="Parallel tasks" description="1–16; the machine’s own limit still applies.">
+            <TextInput type="number" min="1" max="16" step="1" required value={draft.maxTasks} onInput={e => patch({ maxTasks: e.currentTarget.value })} />
+          </SettingRow>
+        </>}
+        {step === 4 && <>
+          <SectionHeading id="agent-step-heading">Model, then a test task</SectionHeading>
+          <p className="u3-muted">The agent is Ready only after a real task passes.</p>
+          <SettingRow label="Model"><TextInput disabled={locked} value={draft.model} placeholder="Agent default" onInput={e => patch({ model: e.currentTarget.value })} /></SettingRow>
+          <SettingRow label="Good at" description={kinds.length ? "Added to these task kinds’ routing rules." : "Added to the rule for everything else."}>
+            <div className="u3-actions" role="group" aria-label="Good at">{AGENT_KINDS.map(([kind, label]) => <FilterChip key={kind} disabled={locked} selected={kinds.includes(kind)}
+              onClick={() => patch({ kinds: (kinds.includes(kind) ? kinds.filter(k => k !== kind) : [...kinds, kind]).join(",") })}>{label}</FilterChip>)}</div>
+          </SettingRow>
+          <TextRow label="Executor id" value={<code>{draft.createdId || executorId(draft)}</code>} />
+          {job ? <CheckList label="Test task" items={job.steps.map(s => ({ id: s.name, label: s.name, state: s.state, note: s.detail }))} /> : <p className="u3-muted">Creates a scratch worktree, asks the agent for a small change, then checks the result.</p>}
+          {job?.error && <p role="alert">{job.error.message}{job.error.hint && ` · ${job.error.hint}`}</p>}
+          {ready && <p role="status"><strong>{draft.createdId} is ready.</strong> Test task passed.</p>}
+        </>}
+        {resumeError && <p role="status">{resumeError}</p>}
+        <Feedback action={action} />
+        <div className="u3-footer">
+          <span className="u3-muted">{problem ?? `Step ${step} of 4 · ${locked ? "Agent added; test before Ready" : "Draft kept for this session"}`}</span>
+          {ready ? <>
+            <Button onClick={() => { action.clear(); setResumed(undefined); setResumeError(""); setUrlForm(false); setDraft({ ...blankAgentDraft }); }}>Add another agent</Button>
+            <ButtonLink variant="primary" href="#/settings/executors" onClick={clearDraft}>Open agents</ButtonLink>
+          </> : <>
+            <TextAction href="#/settings/executors">Cancel</TextAction>
+            {step > 1 && !locked && <Button disabled={action.busy} onClick={() => patch({ step: String(step - 1) })}>Back</Button>}
+            {step < 4 ? !picker && <Button variant="primary" disabled={action.busy || !!problem} onClick={() => patch({ step: String(step + 1) })}>Continue</Button>
+              : <Button variant="primary" busy={action.busy || job?.state === "running"} onClick={() => void finish()}>{job?.state === "running" ? "Running test task…" : locked ? job ? "Run test task again" : "Run test task" : "Add agent and run test task"}</Button>}
+          </>}
         </div>
-      </div>
-    </Page>
+      </section>
+    </div>
   );
 }
 import type { BrowserApi } from "../../data/api";

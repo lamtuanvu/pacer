@@ -34,13 +34,14 @@ test("rail badges hide without counts or at zero, and the gear shows open setup"
   expect(renderToString(<Rail route={at("#/")} counts={{ ...snap.counts!, setupOpen: 2 }} />)).toContain("pc-rail__dot");
 });
 
-test("settings panel lists general, hosts with a problem count, and add executor", () => {
+test("settings panel lists general and Machines with a problem count", () => {
   const html = renderToString(<SettingsPanel route={at("#/settings")} counts={snap.counts!} />);
   expect(html).toContain("<aside");
   expect(html).toContain('href="#/settings"');
-  expect(html).toContain('href="#/settings/hosts"');
-  expect(html).toContain('href="#/settings/add-executor"');
-  expect(html).toContain("Remote hosts");
+  expect(html).toContain('href="#/settings/machine"');
+  expect(html).toContain("Machines");
+  // Accounts, host detail and Add agent are part of Agents and Machines, not separate menu pages.
+  for (const gone of ["/settings/hosts", "/settings/add-executor", "/settings/accounts"]) expect(html).not.toContain(`href="#${gone}"`);
   expect(html).toMatch(/pc-settings-nav__badge[^>]*>1 needs setup</);
 });
 
@@ -86,7 +87,7 @@ test("shortcut help lists registered shortcuts with keys", () => {
 test("settings shows one Dispatcher destination while executor and host status badges use their tones", () => {
   const html = renderToString(<SettingsPanel route={at('#/settings')} counts={snap.counts!}
     snapshot={{ ...snap, accounts: Array.from({ length: 6 }, () => snap.accounts![0]!), executors: [{ ...snap.executors![0]!, state: 'down' }], hosts: [{ ...snap.hosts![0]!, state: 'needs_setup' }] }} />);
-  expect(html).toMatch(/Accounts<span[^>]*class="pc-settings-nav__badge pc-settings-nav__badge--neutral"[^>]*><span aria-hidden="true">6<\/span><span class="sr-only">6 accounts</);
+  expect(html).not.toContain("6 accounts");
   expect(html).toContain('Dispatcher');
   expect(html).not.toContain('>Strategies<');
   expect(html).not.toContain('>Routing<');

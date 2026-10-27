@@ -467,3 +467,30 @@ a.pc-btn{text-decoration:none}
 .pc-settings-nav__badge--warn{background:var(--warn-bg);color:var(--warn-fg)}
 .pc-settings-nav__badge--info{background:var(--info-bg);color:var(--info-fg)}
 .pc-settings-nav__badge--good{background:var(--good-bg);color:var(--good-fg)}
+
+/* NavTabs: page tabs as links; the current page gets the selected tab underline. */
+.pc-tabs--nav [aria-current=page]{color:var(--ink);border-bottom-color:var(--ink)}
+
+/* Stepper: wizard progress. The mark carries the step number or a check; the current step is shaded and named by aria-current. */
+.pc-stepper{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:var(--space-1);min-width:0}
+.pc-stepper__step{display:flex;align-items:flex-start;gap:var(--space-2);width:100%;min-height:var(--size-44);padding:var(--space-2);border-radius:var(--radius-md);text-align:left;color:var(--ink-secondary);box-sizing:border-box}
+.pc-stepper .pc-btn.pc-stepper__step{justify-content:flex-start;height:auto}
+.pc-stepper__step--current{background:var(--surface-lane);color:var(--ink)}
+.pc-stepper__mark{display:inline-flex;flex:none;align-items:center;justify-content:center;width:var(--size-24);height:var(--size-24);border-radius:var(--radius-full);background:var(--surface-lane);color:var(--ink-secondary);font-size:var(--type-caption-size);font-weight:var(--type-label-weight)}
+.pc-stepper__step--current .pc-stepper__mark{background:var(--ink);color:var(--ink-on-ink)}
+.pc-stepper__step--done .pc-stepper__mark{background:var(--good-bg);color:var(--good-fg)}
+.pc-stepper__text{display:flex;flex-direction:column;min-width:0}
+.pc-stepper__title{font-weight:var(--type-body-strong-weight);color:inherit}
+.pc-stepper__detail{font-size:var(--type-caption-size);line-height:var(--type-caption-line);font-weight:var(--type-body-weight);color:var(--ink-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media(max-width:700px){.pc-stepper{flex-direction:row;overflow-x:auto}.pc-stepper>li{flex:1 0 var(--size-120)}}
+
+/* CheckList: a live check list with a glyph, words and an optional note per row. */
+.pc-check-list{list-style:none;margin:0;padding:var(--space-2) var(--space-3);display:flex;flex-direction:column;gap:var(--space-1);border:1px solid var(--line);border-radius:var(--radius-md);background:var(--surface-card)}
+.pc-check-list__item{display:flex;align-items:baseline;gap:var(--space-2);min-width:0}
+.pc-check-list__glyph{flex:none;width:var(--size-16);font-weight:var(--type-label-weight);color:var(--ink-muted)}
+.pc-check-list__item--passed .pc-check-list__glyph{color:var(--good-fg)}
+.pc-check-list__item--failed .pc-check-list__glyph{color:var(--bad-fg)}
+.pc-check-list__item--running .pc-check-list__glyph{color:var(--info-fg)}
+.pc-check-list__item--pending,.pc-check-list__item--skipped{color:var(--ink-secondary)}
+.pc-check-list__label{flex:1;min-width:0;overflow-wrap:anywhere}
+.pc-check-list__note{flex:none;font-size:var(--type-caption-size);color:var(--ink-secondary)}
