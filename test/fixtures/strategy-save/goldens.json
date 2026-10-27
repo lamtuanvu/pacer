@@ -1,0 +1,367 @@
+[
+  {
+    "id": "create-default",
+    "name": "new-plan",
+    "draft": {
+      "from": "default"
+    },
+    "reason": "Copy base",
+    "overwrite": false,
+    "initial": {
+      "defaultYaml": "# Base\nplanner: codex\naccounts: {personal: {kind: codex}}\nrouting: [{default: [codex]}]\n",
+      "researchYaml": "# Research\nplanner: codex\naccounts: {personal: {kind: codex}}\npacing: {policy: even, planner_reserve: 25}\nrouting: [{default: [codex]}]\n",
+      "active": "default"
+    },
+    "outcome": {
+      "result": {
+        "name": "new-plan",
+        "path": "$PACER_HOME/strategies/new-plan.yaml"
+      }
+    },
+    "saved": "# Configured executors, Codex keeps 15%\n# created by agent on 2023-11-14T22:13:20.000Z: Copy base\nplanner: codex\naccounts: \n  personal: \n    kind: codex\nrouting: \n  - default: \n      - codex\n",
+    "modes": {
+      "strategies": 448,
+      "saved": 384
+    },
+    "activity": [
+      {
+        "kind": "config",
+        "level": "info",
+        "text": "Configuration changed · strategy",
+        "id": "<activity-id>",
+        "at": 1700000000
+      }
+    ],
+    "outbox": [
+      {
+        "seq": 1,
+        "at": 1700000000,
+        "envelope": {
+          "type": "entity",
+          "data": {
+            "kind": "activity",
+            "id": "<activity-id>",
+            "value": {
+              "kind": "config",
+              "level": "info",
+              "text": "Configuration changed · strategy",
+              "id": "<activity-id>",
+              "at": 1700000000
+            }
+          }
+        }
+      },
+      {
+        "seq": 2,
+        "at": 1700000000,
+        "envelope": {
+          "type": "config",
+          "data": {
+            "area": "strategy",
+            "at": 1700000000
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "create-edited",
+    "name": "edited",
+    "draft": {
+      "from": "default",
+      "description": "Edited plan",
+      "set": {
+        "pacing.policy": "even",
+        "pacing.planner_reserve": 25,
+        "routing": [
+          {
+            "default": [
+              "codex"
+            ]
+          }
+        ]
+      }
+    },
+    "reason": "Approved",
+    "overwrite": false,
+    "initial": {
+      "defaultYaml": "# Base\nplanner: codex\naccounts: {personal: {kind: codex}}\nrouting: [{default: [codex]}]\n",
+      "researchYaml": "# Research\nplanner: codex\naccounts: {personal: {kind: codex}}\npacing: {policy: even, planner_reserve: 25}\nrouting: [{default: [codex]}]\n",
+      "active": "default"
+    },
+    "outcome": {
+      "result": {
+        "name": "edited",
+        "path": "$PACER_HOME/strategies/edited.yaml"
+      }
+    },
+    "saved": "# Edited plan\n# created by agent on 2023-11-14T22:13:20.000Z: Approved\nplanner: codex\naccounts: \n  personal: \n    kind: codex\nrouting: \n  - default: \n      - codex\npacing: \n  policy: even\n  planner_reserve: 25\n",
+    "modes": {
+      "strategies": 448,
+      "saved": 384
+    },
+    "activity": [
+      {
+        "kind": "config",
+        "level": "info",
+        "text": "Configuration changed · strategy",
+        "id": "<activity-id>",
+        "at": 1700000000
+      }
+    ],
+    "outbox": [
+      {
+        "seq": 1,
+        "at": 1700000000,
+        "envelope": {
+          "type": "entity",
+          "data": {
+            "kind": "activity",
+            "id": "<activity-id>",
+            "value": {
+              "kind": "config",
+              "level": "info",
+              "text": "Configuration changed · strategy",
+              "id": "<activity-id>",
+              "at": 1700000000
+            }
+          }
+        }
+      },
+      {
+        "seq": 2,
+        "at": 1700000000,
+        "envelope": {
+          "type": "config",
+          "data": {
+            "area": "strategy",
+            "at": 1700000000
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "create-from-named",
+    "name": "copy",
+    "draft": {
+      "from": "research",
+      "set": {
+        "pacing.planner_reserve": 30
+      }
+    },
+    "reason": "Copy research",
+    "overwrite": false,
+    "initial": {
+      "defaultYaml": "# Base\nplanner: codex\naccounts: {personal: {kind: codex}}\nrouting: [{default: [codex]}]\n",
+      "researchYaml": "# Research\nplanner: codex\naccounts: {personal: {kind: codex}}\npacing: {policy: even, planner_reserve: 25}\nrouting: [{default: [codex]}]\n",
+      "active": "default"
+    },
+    "outcome": {
+      "result": {
+        "name": "copy",
+        "path": "$PACER_HOME/strategies/copy.yaml"
+      }
+    },
+    "saved": "# Configured executors, Codex keeps 30%; even policy\n# created by agent on 2023-11-14T22:13:20.000Z: Copy research\nplanner: codex\naccounts: \n  personal: \n    kind: codex\npacing: \n  policy: even\n  planner_reserve: 30\nrouting: \n  - default: \n      - codex\n",
+    "modes": {
+      "strategies": 448,
+      "saved": 384
+    },
+    "activity": [
+      {
+        "kind": "config",
+        "level": "info",
+        "text": "Configuration changed · strategy",
+        "id": "<activity-id>",
+        "at": 1700000000
+      }
+    ],
+    "outbox": [
+      {
+        "seq": 1,
+        "at": 1700000000,
+        "envelope": {
+          "type": "entity",
+          "data": {
+            "kind": "activity",
+            "id": "<activity-id>",
+            "value": {
+              "kind": "config",
+              "level": "info",
+              "text": "Configuration changed · strategy",
+              "id": "<activity-id>",
+              "at": 1700000000
+            }
+          }
+        }
+      },
+      {
+        "seq": 2,
+        "at": 1700000000,
+        "envelope": {
+          "type": "config",
+          "data": {
+            "area": "strategy",
+            "at": 1700000000
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "overwrite",
+    "name": "research",
+    "draft": {
+      "from": "default",
+      "set": {
+        "pacing.planner_reserve": 30
+      }
+    },
+    "reason": "Replace",
+    "overwrite": true,
+    "initial": {
+      "defaultYaml": "# Base\nplanner: codex\naccounts: {personal: {kind: codex}}\nrouting: [{default: [codex]}]\n",
+      "researchYaml": "# Research\nplanner: codex\naccounts: {personal: {kind: codex}}\npacing: {policy: even, planner_reserve: 25}\nrouting: [{default: [codex]}]\n",
+      "active": "default"
+    },
+    "outcome": {
+      "result": {
+        "name": "research",
+        "path": "$PACER_HOME/strategies/research.yaml"
+      }
+    },
+    "saved": "# Configured executors, Codex keeps 30%\n# created by agent on 2023-11-14T22:13:20.000Z: Replace\nplanner: codex\naccounts: \n  personal: \n    kind: codex\nrouting: \n  - default: \n      - codex\npacing: \n  planner_reserve: 30\n",
+    "modes": {
+      "strategies": 448,
+      "saved": 384
+    },
+    "activity": [
+      {
+        "kind": "config",
+        "level": "info",
+        "text": "Configuration changed · strategy",
+        "id": "<activity-id>",
+        "at": 1700000000
+      }
+    ],
+    "outbox": [
+      {
+        "seq": 1,
+        "at": 1700000000,
+        "envelope": {
+          "type": "entity",
+          "data": {
+            "kind": "activity",
+            "id": "<activity-id>",
+            "value": {
+              "kind": "config",
+              "level": "info",
+              "text": "Configuration changed · strategy",
+              "id": "<activity-id>",
+              "at": 1700000000
+            }
+          }
+        }
+      },
+      {
+        "seq": 2,
+        "at": 1700000000,
+        "envelope": {
+          "type": "config",
+          "data": {
+            "area": "strategy",
+            "at": 1700000000
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "duplicate",
+    "name": "research",
+    "draft": {
+      "from": "default"
+    },
+    "reason": "Duplicate",
+    "overwrite": false,
+    "initial": {
+      "defaultYaml": "# Base\nplanner: codex\naccounts: {personal: {kind: codex}}\nrouting: [{default: [codex]}]\n",
+      "researchYaml": "# Research\nplanner: codex\naccounts: {personal: {kind: codex}}\npacing: {policy: even, planner_reserve: 25}\nrouting: [{default: [codex]}]\n",
+      "active": "default"
+    },
+    "outcome": {
+      "error": {
+        "code": "invalid_input",
+        "message": "strategy \"research\" already exists; use overwrite:true to replace it",
+        "hint": "Use strategy.list to choose a strategy and strategy.preview to validate a draft."
+      }
+    },
+    "saved": "# Research\nplanner: codex\naccounts: {personal: {kind: codex}}\npacing: {policy: even, planner_reserve: 25}\nrouting: [{default: [codex]}]\n",
+    "modes": {
+      "strategies": 448,
+      "saved": 420
+    },
+    "activity": [],
+    "outbox": []
+  },
+  {
+    "id": "active-overwrite",
+    "name": "research",
+    "draft": {
+      "from": "default"
+    },
+    "reason": "Active",
+    "overwrite": true,
+    "initial": {
+      "defaultYaml": "# Base\nplanner: codex\naccounts: {personal: {kind: codex}}\nrouting: [{default: [codex]}]\n",
+      "researchYaml": "# Research\nplanner: codex\naccounts: {personal: {kind: codex}}\npacing: {policy: even, planner_reserve: 25}\nrouting: [{default: [codex]}]\n",
+      "active": "research"
+    },
+    "outcome": {
+      "error": {
+        "code": "invalid_input",
+        "message": "strategy \"research\" is active; overwriting changes live routing; use activeOk:true to approve",
+        "hint": "Use strategy.list to choose a strategy and strategy.preview to validate a draft."
+      }
+    },
+    "saved": "# Research\nplanner: codex\naccounts: {personal: {kind: codex}}\npacing: {policy: even, planner_reserve: 25}\nrouting: [{default: [codex]}]\n",
+    "modes": {
+      "strategies": 448,
+      "saved": 420
+    },
+    "activity": [],
+    "outbox": []
+  },
+  {
+    "id": "invalid-draft",
+    "name": "invalid",
+    "draft": {
+      "from": "default",
+      "set": {
+        "pacing.policy": "bad"
+      }
+    },
+    "reason": "Invalid",
+    "overwrite": false,
+    "initial": {
+      "defaultYaml": "# Base\nplanner: codex\naccounts: {personal: {kind: codex}}\nrouting: [{default: [codex]}]\n",
+      "researchYaml": "# Research\nplanner: codex\naccounts: {personal: {kind: codex}}\npacing: {policy: even, planner_reserve: 25}\nrouting: [{default: [codex]}]\n",
+      "active": "default"
+    },
+    "outcome": {
+      "error": {
+        "code": "invalid_input",
+        "message": "invalid strategy draft:\n  - pacing.policy must be one of priority, even, burn-before-reset, cheapest-first (got \"bad\")",
+        "hint": "Use strategy.list to choose a strategy and strategy.preview to validate a draft."
+      }
+    },
+    "saved": null,
+    "modes": {
+      "strategies": 448,
+      "saved": null
+    },
+    "activity": [],
+    "outbox": []
+  }
+]

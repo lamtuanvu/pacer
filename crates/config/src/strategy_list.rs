@@ -19,7 +19,7 @@ const MAX_STRATEGY_BYTES: u64 = 256 * 1024;
 const MAX_ACTIVE_BYTES: u64 = 4096;
 const MAX_STRATEGIES: usize = 128;
 
-fn read_regular(dir: impl AsFd, name: &str, max: u64) -> Option<String> {
+pub(crate) fn read_regular(dir: impl AsFd, name: &str, max: u64) -> Option<String> {
     let fd = openat(
         dir,
         name,
@@ -74,7 +74,7 @@ fn active_name(pacer: &impl AsFd) -> Option<String> {
     }
 }
 
-fn valid_name(name: &str) -> bool {
+pub(crate) fn valid_name(name: &str) -> bool {
     name.len() <= 40
         && name.bytes().enumerate().all(|(index, byte)| {
             byte.is_ascii_lowercase() || byte.is_ascii_digit() || (index > 0 && byte == b'-')
@@ -119,7 +119,7 @@ fn display_name(id: &str) -> Option<&'static str> {
     }
 }
 
-fn summary(strategy: &Value) -> Option<String> {
+pub(crate) fn summary(strategy: &Value) -> Option<String> {
     let planner = strategy.pointer("/planner/agent")?.as_str()?;
     let order = strategy.pointer("/pacing/order")?.as_array()?;
     let first = order
