@@ -3,7 +3,7 @@ import { renderToString } from 'preact-render-to-string';
 import { Stepper, CheckList } from '../app/src/ds/Stepper';
 import { SettingsGeneral, AddExecutor } from '../app/src/screens/settings/index';
 import { accountUsageWords } from '../app/src/screens/settings/Accounts';
-import { hostNameFrom, hostNameProblem, checkItems } from '../app/src/screens/settings/Machines';
+import { AddHost, hostNameFrom, hostNameProblem, checkItems } from '../app/src/screens/settings/Machines';
 import { AGENT_KINDS, agentStepProblem, blankAgentDraft, furthestAgentStep } from '../app/src/model/wizard';
 import { TaskContext } from '../app/src/screens/task-shared';
 import { initialState } from '../app/src/data/store';
@@ -127,4 +127,11 @@ test('Machines page offers the guided add and lists no hosts that pacer does not
   const noMachine = render(<SettingsGeneral section="machine" initialData={settings} />, withState({ hosts: [] }));
   expect(noMachine).not.toContain('Running ');
   expect(noMachine).not.toContain('Executors here');
+});
+
+test('Add remote host with no SSH aliases explains where they come from and offers no check that cannot work', () => {
+  const html = render(<AddHost initialAliases={[]} />);
+  expect(html).toContain('No new hosts in your SSH config');
+  expect(html).not.toContain('Connect and check');
+  expect(html).not.toContain('Pick a host from your SSH config first.');
 });

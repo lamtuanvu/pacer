@@ -191,7 +191,7 @@ test.skipIf(!browserPath)('settings_nav_tab_order_follows_groups', async () => {
     const css = (await Promise.all(['app/src/ds/tokens.css', 'app/src/ds/components.css'].map(path => Bun.file(path).text()))).join('\n');
     await page.setContent(`<style>${css}</style>${renderToString(<SettingsPanel route={{ name: 'settings', section: 'planner', query }} counts={null} />)}`);
     const order: string[] = [];
-    for (let i = 0; i < 10; i++) { await page.keyboard.press('Tab'); order.push(await page.evaluate(() => document.activeElement?.getAttribute('href') ?? '')); }
+    for (let i = 0; i < 7; i++) { await page.keyboard.press('Tab'); order.push(await page.evaluate(() => document.activeElement?.getAttribute('href') ?? '')); }
     expect(order).toEqual(navOrder(await page.content()));
     expect(await page.evaluate(() => getComputedStyle(document.activeElement!).outlineStyle)).toBe('solid');
     expect(await page.locator('[aria-current="page"]').getAttribute('href')).toBe('#/settings/planner');

@@ -68,6 +68,7 @@ export function AddHost({ initialAliases }: { initialAliases?: string[] }) {
   const [ssh, setSsh] = useState(""), [name, setName] = useState(""), [added, setAdded] = useState("");
   const taken = state.snapshot?.hosts?.map(h => h.alias).filter(alias => alias !== added) ?? [];
   const problem = !ssh ? "Pick a host from your SSH config first." : hostNameProblem(name, taken);
+  const none = aliases.data?.length === 0 && !added;
   const job = check.job, passed = job?.state === "passed" && job.target === added;
   const connect = async () => {
     if (problem) return;
@@ -77,10 +78,11 @@ export function AddHost({ initialAliases }: { initialAliases?: string[] }) {
   return <Card aria-labelledby="add-host">
     <SectionHeading as="h3" id="add-host">Add a remote host</SectionHeading>
     <p className="u3-muted">Runs Codex or Claude Code on another machine over SSH.</p>
+    {none ? <p>No new hosts in your SSH config. Add a <code>Host</code> entry to <code>~/.ssh/config</code>, then open this page again.</p> : <>
     <fieldset className="u3-fieldset" disabled={!!added}>
       <legend>1 · Pick a host from your SSH config</legend>
       <p className="u3-muted">Aliases from <code>~/.ssh/config</code> that pacer doesn’t use yet. It must connect without a password prompt.</p>
-      <ResourceState resource={aliases} empty="No new hosts in your SSH config. Add a Host entry there, then come back.">
+      <ResourceState resource={aliases}>
         <div className="u3-choices u3-choices--compact">{aliases.data?.map(alias => <ChoiceCard key={alias} aria-pressed={ssh === alias} onClick={() => { setSsh(alias); setName(hostNameFrom(alias)); }}><code>{alias}</code></ChoiceCard>)}</div>
       </ResourceState>
     </fieldset>
@@ -95,6 +97,7 @@ export function AddHost({ initialAliases }: { initialAliases?: string[] }) {
     {passed && <><p role="status">{added} is connected. Next, map the repositories it should work on and add its executors.</p>
       <div className="u3-actions"><ButtonLink variant="primary" href={`#/settings/hosts/${encodeURIComponent(added)}`}>Map repositories</ButtonLink><ButtonLink href={`#/settings/add-executor?host=${encodeURIComponent(added)}`}>Add an agent here</ButtonLink></div></>}
     <Feedback action={add} />
+    </>}
   </Card>;
 }
 
