@@ -40,7 +40,7 @@ pub(crate) fn read_regular(dir: impl AsFd, name: &str, max: u64) -> Option<Strin
     String::from_utf8(bytes).ok()
 }
 
-fn active_name(pacer: &impl AsFd) -> Option<String> {
+pub(crate) fn active_name(pacer: &impl AsFd) -> Option<String> {
     let fd = match openat(
         pacer,
         "active",

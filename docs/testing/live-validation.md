@@ -87,6 +87,14 @@ OpenCode cache, private modes and activity/config events, then compares native
 selection with a forced core sentinel and the real core. It accepts no
 caller-supplied operation, rules or YAML. Generic stdio remains refused by D3.
 
+For the bounded `runner.reorder` and `runner.set` write selectors, run
+`bun run live stdio-runner-config --id <rust-sandbox-id>`. It uses separate
+owned homes for fixed reorder and disable requests, checks exact YAML,
+OpenCode cache, private modes and activity/config events, then compares
+native selection with a forced core sentinel and the real core. It accepts no
+caller-supplied operation, runner id, parameters or YAML. Generic stdio
+remains refused by D3.
+
 Paired startup sends the listener and helper channel together in one descriptor-transfer frame. Root retains the helper channel’s sender duplicate until Core receives both descriptors, repeats the existing trust checks and acknowledges receipt. The bounded acknowledgement does not establish application readiness. Failure or generation retirement closes the pending channels; after acknowledgement, Root releases the duplicate so genuine Core EOF remains observable.
 
 Root also directly parents the original immutable recovery helper. Its private helper-control channel accepts only bounded fixed helper requests, with role, hash, manifest/journal and static/dynamic image verification; it is not an API or environment selector. Root writes the existing bootstrap and invokes fixed `--ota-pipe`; paired mode never falls back to Core spawning an old helper. Evidence must show the old helper's unchanged bytes and actual Root parent, alongside original desktop/helper kernel audit identity.

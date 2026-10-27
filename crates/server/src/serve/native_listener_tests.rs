@@ -26,6 +26,19 @@ fn owns_socket_and_exact_owner_record() {
     assert!(!path.with_extension("sock.owner").exists());
 }
 #[test]
+fn binding_does_not_change_the_process_mask_for_other_directories() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("native.sock");
+    let parent = std::fs::File::open(directory.path()).unwrap();
+    let listener = bind_private_with(&parent, &path, || {
+        let concurrent = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(concurrent.path().join("child")).unwrap();
+    })
+    .unwrap();
+    assert_eq!(path.symlink_metadata().unwrap().mode() & 0o777, 0o600);
+    drop(listener);
+}
+#[test]
 fn never_removes_replacement_socket_or_owner() {
     let directory = tempfile::tempdir().unwrap();
     std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
