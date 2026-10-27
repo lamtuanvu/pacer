@@ -70,12 +70,19 @@ export function SessionRoute({id, result, work}:{id:string; result?:ComponentChi
  changes:{data:diff.data?sessionChangeText(diff.data):undefined,loading:diff.loading,error:message(diff.error)}}:undefined;
  const handler=useRef(()=>{});handler.current=()=>{if(stop)void invoke(stop).catch(error=>setShortcutError(message(error)??'Action failed'));};
  useEffect(()=>stop?keys.register({keys:'s',label:'Stop session',scope:'sessions',run:()=>handler.current()}):undefined,[!!stop]);
+ const openPanel=(tab:SessionPanelTab)=>{setPanelTab(tab);if(frame?.details&&!frame.details.open)frame.details.toggle();};
+ const t=task.data,unsettled=!!t&&!active&&!t.review&&!t.resolved&&!t.dismissed&&!t.retriedBy;
+ // One next step per state, in the panel that holds it; a closed panel must not hide it (UI-13, UI-14).
+ const next:{label:string;tab:SessionPanelTab}|undefined=!t||!unsettled?undefined
+  :t.work?(t.reviewRequest||t.state==='needs_input'?{label:'Review in Work',tab:'work'}:undefined)
+  :t.state==='needs_input'&&t.question&&t.question.answer===undefined?{label:'Answer question',tab:'details'}
+  :t.reviewRequest||t.acceptance.state==='failed'||['partial','failed','limit'].includes(t.state)?{label:'Review result',tab:'details'}:undefined;
  const slots:SessionSlots|undefined=task.data&&{
-  title:actions=><SessionTitle status={taskStatus(task.data!)} live={active} facts={[sessionTime(task.data!,Date.now()/1000),task.data!.repo.label]} actions={actions}/>,
+  title:actions=><SessionTitle status={taskStatus(task.data!)} live={active} facts={[sessionTime(task.data!,Date.now()/1000),task.data!.repo.label]} actions={actions} next={next&&{...next,open:openPanel}}/>,
   panel:(details,files)=><SessionPanel id={id} tab={panelTab} onTab={setPanelTab} work={work}
    changes={<><WorktreeChanges diff={diff.data} loading={diff.loading} error={diff.error?'Could not load changes. The worktree may have been removed.':undefined}/>{files}</>}
    details={<div className="pc-stack pc-stack--section">{result}{details}{data&&<Brief data={data}/>}</div>}/>,
-  showChanges:()=>{setPanelTab('changes');if(frame?.details&&!frame.details.open)frame.details.toggle();},
+  showChanges:()=>openPanel('changes'),
  };
  if(task.data?.interactionMode==='conversation')return <Conversation key={id} task={task.data} session={session.data} slots={slots} onReload={()=>{task.reload();session.reload();}}/>;
  return <>{dialogs.dialog}{shortcutError&&<p role="status">{shortcutError}</p>}<Session embedded view="terminal" slots={slots} key={id} onTakeSent={()=>setTakeRequested(false)} onTakeover={()=>void takeOver()} takeoverBusy={takeoverBusy} takeoverStarting={takeoverStarting} takeoverError={takeoverError} takeRequested={takeRequested} data={data} loading={task.loading} error={message(task.error)} onAction={invoke} onAttach={async(_,target)=>{const key=`attach:${id}:${target}`;const outcome=await runner.run(key,{label:'Open viewer',op:'task.attach',params:{id,target}});if(outcome.status==='error'||outcome.status==='handled')throw new Error(outcome.message);return runner.result(key) as {opened:boolean;command?:string};}} onReload={task.reload}/></>;

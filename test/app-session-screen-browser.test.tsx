@@ -142,3 +142,81 @@ browserTest("narrow_session_keeps_details_in_page", async () => withBrowser(asyn
   expect(await page.evaluate(() => document.scrollingElement!.scrollWidth <= document.scrollingElement!.clientWidth)).toBe(true);
   await page.close();
 }), 20_000);
+
+const callsOf = (page: Page, op: string) => page.evaluate(op => (window as any).CALLS.filter((call: { op: string }) => call.op === op), op);
+
+browserTest("closed_panel_keeps_next_step_reachable", async () => withBrowser(async browser => {
+  const page = await openSession(browser, "ended");
+  const actions = page.getByRole("banner").getByRole("group", { name: "Session actions" });
+  // Open panel: the next step is in the panel, so the title bar offers nothing extra.
+  await expect(actions.getByRole("button", { name: "Review result" }).count()).resolves.toBe(0);
+  await page.getByRole("button", { name: "Hide session details" }).click();
+  const next = actions.getByRole("button", { name: "Review result" });
+  await expect(next.getAttribute("class")).resolves.toContain("pc-btn--primary");
+  // Keyboard activation reopens the panel on Details, where the verdict actions are.
+  await next.focus();
+  await page.keyboard.press("Enter");
+  const panel = page.getByRole("complementary", { name: "Session details" });
+  await panel.waitFor();
+  await expect(panel.getByRole("tab", { name: "Details" }).getAttribute("aria-selected")).resolves.toBe("true");
+  await expect(panel.getByRole("button", { name: "Mark accepted" }).isVisible()).resolves.toBe(true);
+  await expect(actions.getByRole("button", { name: "Review result" }).count()).resolves.toBe(0);
+  // A running session has no next step to surface, even with the panel closed.
+  const running = await openSession(browser, "supervised");
+  await running.getByRole("button", { name: "Hide session details" }).click();
+  await expect(running.getByRole("banner").getByRole("button", { name: "Review result" }).count()).resolves.toBe(0);
+  await page.close(); await running.close();
+}), 30_000);
+
+browserTest("stop_shortcut_confirms_and_only_exists_while_running", async () => withBrowser(async browser => {
+  const page = await openSession(browser, "supervised");
+  await page.locator("#main-content").focus();
+  await page.keyboard.press("s");
+  const dialog = page.getByRole("dialog");
+  await dialog.waitFor();
+  await expect(dialog.innerText()).resolves.toContain("Stop this session and its executor?");
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await dialog.waitFor({ state: "detached" });
+  expect(await callsOf(page, "task.stop")).toHaveLength(0);
+  await page.keyboard.press("s");
+  await dialog.waitFor();
+  await dialog.getByRole("button", { name: "Stop" }).click();
+  await page.waitForFunction(() => (window as any).CALLS.some((call: { op: string }) => call.op === "task.stop"));
+  // Ended: the shortcut is gone with the action (UI-13).
+  await page.getByRole("button", { name: "End session" }).waitFor({ state: "detached" });
+  await page.locator("#main-content").focus();
+  await page.keyboard.press("s");
+  await page.waitForTimeout(150);
+  await expect(page.getByRole("dialog").count()).resolves.toBe(0);
+  await page.close();
+}), 30_000);
+
+browserTest("retry_asks_for_an_executor_and_sends_the_current_revision", async () => withBrowser(async browser => {
+  const page = await openSession(browser, "ended");
+  const panel = page.getByRole("complementary", { name: "Session details" });
+  await panel.getByRole("button", { name: "Retry session…" }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.waitFor();
+  // The unavailable executor is offered with its reason, never selectable as the default.
+  await dialog.getByRole("button", { name: "Retry", exact: true }).click();
+  await page.waitForFunction(() => (window as any).CALLS.some((call: { op: string }) => call.op === "task.retry"));
+  const [call] = await callsOf(page, "task.retry");
+  expect(call.params).toMatchObject({ id: "t-0412", executor: "codex", expect_rev: 3 });
+  // Retry opens the new attempt's task.
+  await page.waitForFunction(() => location.hash.includes("t-retried"));
+  await page.close();
+}), 30_000);
+
+browserTest("takeover_starts_from_the_page_and_ended_sessions_offer_none", async () => withBrowser(async browser => {
+  const page = await openSession(browser, "supervised");
+  const take = page.getByRole("main").getByRole("button", { name: "Take over" });
+  await expect(take.isEnabled()).resolves.toBe(true);
+  await take.focus();
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(() => (window as any).CALLS.some((call: { op: string }) => call.op === "task.takeover"));
+  expect(await callsOf(page, "task.takeover")).toHaveLength(1);
+  await page.close();
+  const ended = await openSession(browser, "ended");
+  await expect(ended.getByRole("button", { name: "Take over" }).count()).resolves.toBe(0);
+  await ended.close();
+}), 30_000);

@@ -22,7 +22,7 @@ const task = () => ({ ...detail, state, interactionMode: scenario === "conversat
   conversation: scenario === "conversation" ? { agentSessionId: "agent-1", activity: "working" } : undefined,
   attemptStartedAt: detail.startedAt, title: "Run demo-stages flow with WebGL enabled and report every console error" });
 const session = { host: scenario === "conversation" ? "builtin" : "none", targets: ["terminal"], live: running, cols: 80, rows: 24, controller: null,
-  capabilities: { control: true, resize: true }, takeover: { available: false, reason: "Already interactive" }, attach: { ws: "/v3/x", cli: "pacer attach t-0412" }, machine: "devbox" };
+  capabilities: { control: true, resize: true }, takeover: { available: scenario !== "conversation", reason: "Already interactive" }, attach: { ws: "/v3/x", cli: "pacer attach t-0412" }, machine: "devbox" };
 const diff = { patch: "diff --git a/src/example.ts b/src/example.ts\n--- a/src/example.ts\n+++ b/src/example.ts\n@@ -1 +1 @@\n-old\n+new\n",
   untracked: ["reports/frames/stage-2.png"], truncated: false,
   files: [{ path: "src/example.ts", status: "modified", added: 3, removed: 1 }, { path: "reports/a/very/long/path/that/keeps/going/demo-stages-frames.md", status: "modified", added: 64, removed: 0 }] };
@@ -33,6 +33,8 @@ const api = { async call(op: string, params: unknown) {
   if (op === "task.diff") return diff;
   if (op === "task.list") return { tasks: [], next: null };
   if (op === "session.context") return { draftId: "draft-1", attachments: [], rev: 1 };
+  if (op === "task.takeover") return { state: "driving" };
+  if (op === "task.retry") { state = "queued"; return { retry: { task_id: "t-retried" } }; }
   if (op === "session.end" || op === "task.stop") { state = "done"; return { ok: true }; }
   if (op === "account.list") return [];
   return {};

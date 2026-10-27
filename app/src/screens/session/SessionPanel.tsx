@@ -1,7 +1,7 @@
 import type { ComponentChildren } from "preact";
 import { useEffect, useRef } from "preact/hooks";
 import type { Status } from "../../../../src/view-model/words";
-import { IconButton } from "../../ds/Button";
+import { Button, IconButton } from "../../ds/Button";
 import { PanelTabs } from "../../ds/PanelTabs";
 import { DisclosurePanel } from "../../ds/Page";
 import { EmptyState, LoadingState } from "../../ds/Patterns";
@@ -15,7 +15,11 @@ export interface ChangedFile { path: string; added: number; removed: number; sta
 export interface TaskDiff { patch: string; untracked: string[]; truncated: boolean; files?: ChangedFile[]; note?: string }
 
 /** Title-bar facts and actions for a task's session: status, elapsed time, repository, the details toggle, then actions. */
-export function SessionTitle({ status, live, facts, actions }: { status: Status; live: boolean; facts: string[]; actions?: ComponentChildren }) {
+export function SessionTitle({ status, live, facts, actions, next }: {
+  status: Status; live: boolean; facts: string[]; actions?: ComponentChildren;
+  /** The task's next step, which lives in the right panel. While that panel is closed it stays reachable here. */
+  next?: { label: string; tab: SessionPanelTab; open: (tab: SessionPanelTab) => void };
+}) {
   const details = useFrame()?.details;
   const name = `${details?.open ? "Hide" : "Show"} session details`;
   // An action that can no longer work disappears (End session once ended); focus then stays in the group.
@@ -30,6 +34,7 @@ export function SessionTitle({ status, live, facts, actions }: { status: Status;
       onFocusOut={event => { if (event.relatedTarget) within.current = group.current!.contains(event.relatedTarget as Node); }}>
       {details && <IconButton size="sm" variant="quiet" icon="panel-right" aria-label={name} title={`${name} (Ctrl+Shift+B)`} aria-keyshortcuts="Control+Shift+B"
         aria-expanded={details.open} aria-controls={details.open ? RIGHT_PANEL_ID : undefined} onClick={details.toggle} />}
+      {next && details && !details.open && <Button size="sm" variant="primary" onClick={() => next.open(next.tab)}>{next.label}</Button>}
       {actions}
     </div>
   </>;
