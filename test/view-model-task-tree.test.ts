@@ -232,3 +232,19 @@ test("orphan_subtask_says_so", () => {
   expect(find(nodes, "t-0403")!.meta[0]).toEqual({ icon: "routing", text: "Subtask" });
   expect(find(nodes, "t-0405")!.meta.some(item => item.text === "Subtask")).toBe(false);
 });
+
+test("stuck_run_gets_attention_words_not_its_calm_status", () => {
+  const snap = snapshot();
+  snap.attention!.push({ ...snap.attention!.find(item => item.id === "review:t-0412")!, id: "stuck:t-0420", kind: "stuck", severity: "blocked", taskId: "t-0420" });
+  const nodes = taskTree(snap, { now });
+  const stuck = find(nodes, "t-0420")!;
+  expect(stuck.state.label).toBe("Editing");
+  expect(stuck.attention).toBe("warn");
+  expect(stuck.attentionLabel).toBe("Idle");
+  // The pill is hidden only when it repeats the status, so a tint without its own words cannot occur.
+  for (const node of walk(nodes)) if (node.attention !== "none" && node.attentionLabel === node.state.label) expect(node.state.tone).toBe(node.attention);
+  // Blocked work sorts ahead of review decisions that share its tint.
+  const ids = nodes.map(node => node.id);
+  expect(ids.indexOf("t-0420")).toBeLessThan(ids.indexOf("t-0415"));
+  expect(ids.indexOf("t-0409")).toBeLessThan(ids.indexOf("t-0420"));
+});
