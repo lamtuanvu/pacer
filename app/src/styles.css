@@ -99,6 +99,9 @@ fieldset{border:1px solid var(--line);border-radius:var(--radius-sm);display:fle
 /* Compact desktop chrome; narrow screens retain their touch layout. */
 .pc-app{display:flex;flex-direction:column;min-height:100vh}
 .pc-app--with-status{padding-bottom:var(--size-32)}
+/* A sticky SaveBar clears the fixed status bar and the narrow bottom navigation that the shell owns. */
+.pc-app--with-status .pc-save-bar{bottom:var(--size-32)}
+.pc-app--narrow .pc-save-bar{bottom:calc(var(--size-56) + env(safe-area-inset-bottom))}
 html[data-pacer-native-titlebar] .pc-traffic{min-width:var(--size-64)}
 html[data-pacer-native-titlebar] .pc-traffic__btn{display:none}
 .pc-body{display:flex;flex:1;min-height:0}

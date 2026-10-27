@@ -2,7 +2,8 @@ import { desktopStatus } from "./fixtures/desktop-update/status";
 import { SettingsPanel } from '../app/src/shell/SettingsPanel';
 import { StrategyQuickAccessPopup } from '../app/src/shell/StrategyQuickAccess';
 import { expect, test } from 'bun:test';
-import { canAddRoutingRule } from '../app/src/screens/settings/General';
+import { SavedSetups, SetupEditor } from '../app/src/screens/settings/DispatcherSetup';
+import { dispatchConfigSchema } from '../src/dispatch/types';
 import { clock } from "../src/view-model/format";
 import { renderToString } from 'preact-render-to-string';
 import { TaskContext } from '../app/src/screens/task-shared';
@@ -12,16 +13,18 @@ import { settings, host, executor, job } from './fixtures/ui/settings';
 const state = {...initialState(),snapshot:{executors:[executor],accounts:[],hosts:[{...host,executors:[executor.id],repos:1}],planner:{agent:'codex',runner:'codex#team',advice:'Keep planning'},repos:[]} as any};
 const api = {call:async()=>({}),hello:async()=>({}),snapshot:async()=>({})} as any;
 const render = (child:any,s=state) => renderToString(<TaskContext.Provider value={{state:s,api}}>{child}</TaskContext.Provider>);
-test('a routing rule requires a current executor choice', () => {
- expect(canAddRoutingRule('', ['codex'])).toBe(false);
- expect(canAddRoutingRule('removed', ['codex'])).toBe(false);
- expect(canAddRoutingRule('codex', ['codex'])).toBe(true);
-});
-test('Dispatcher owns saved profiles and executor eligibility', () => {
- const html=render(<SettingsGeneral section="dispatcher" initialData={settings}/>);
- expect(html).toContain('Saved profiles');
- expect(html).toContain('Executor eligibility');
+test('the executor pool offers only executors that are not already in a rule', () => {
+ const view={strategy:'default',planner:'codex',plannerAccount:'work',source:'built-in' as const,config:dispatchConfigSchema.parse({})};
+ const html=render(<SetupEditor view={view} eligibility={{kind:'global',rules:[{kinds:['tests'],executors:['codex']},{executors:['codex']}],available:['codex','cursor']}} onSaved={()=>{}} onDirtyChange={()=>{}}/>);
+ expect(html).toContain('Add Cursor');
+ expect(html).not.toContain('Add Codex');
  expect(html).toContain('Rule 1 task kinds');
+});
+test('Dispatcher owns saved setups and executor eligibility', () => {
+ expect(render(<SettingsGeneral section="dispatcher" initialData={settings}/>)).toContain('Loading dispatcher');
+ const html=render(<SavedSetups initialData={settings.strategies}/>);
+ expect(html).toContain('Saved setups');
+ expect(html).toContain('id="saved-profiles"');
 });
 test('rail quick access has one Dispatcher settings link',()=>{
  const html=render(<StrategyQuickAccessPopup route={{name:"settings",section:"dispatcher",query:{repo:null,scope:null}}} close={()=>{}}/>);
@@ -47,8 +50,8 @@ test('executor and update checkboxes keep their labels inline', () => {
 test('all General sections provide loading and empty states',()=>{
  expect(render(<SettingsGeneral section="planner"/>)).toContain('Loading');
  const empty={...state,snapshot:{...state.snapshot,executors:[],hosts:[]}};
- const html=["accounts","executors","dispatcher"].map(section=>render(<SettingsGeneral section={section} initialData={{...settings,accounts:[],strategies:[],routing:{rules:[],available:[]}}}/>,empty)).join("")+render(<RemoteHosts/>,empty);
- for(const word of ['No accounts','No executors','No remote hosts','No routing rules','No saved profiles'])expect(html).toContain(word);
+ const html=["accounts","executors","dispatcher"].map(section=>render(<SettingsGeneral section={section} initialData={{...settings,accounts:[],strategies:[],routing:{rules:[],available:[]}}}/>,empty)).join("")+render(<RemoteHosts/>,empty)+render(<SavedSetups initialData={[]}/>,empty);
+ for(const word of ['No accounts','No executors','No remote hosts','Loading dispatcher','No saved setups'])expect(html).toContain(word);
 });
 test('wizard has four board steps and never claims ready before a passed check',()=>{
  const html=render(<AddExecutor/>);for(const word of ['Agent','Account','Where','Model &amp; checks','Executor id'])expect(html).toContain(word);

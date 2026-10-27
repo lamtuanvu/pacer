@@ -2,7 +2,8 @@ import { expect, test } from "bun:test";
 import { renderToString } from "preact-render-to-string";
 import { dispatchConfigSchema } from "../src/dispatch/types";
 import { SETTINGS_PAGES } from "../app/src/settings-pages";
-import { DispatcherOverview, DispatcherModelInventory, DispatcherPreviewResult, DispatcherLadderFields, DispatcherEditor, DispatcherReadError, DispatcherSection, DispatcherEnforcementRows, scopedEnforcementReading, candidateRestriction } from "../app/src/screens/settings/Dispatcher";
+import { DispatcherOverview, DispatcherModelInventory, DispatcherPreviewResult, DispatcherLadderFields, DispatcherReadError, DispatcherSection, DispatcherEnforcementRows, scopedEnforcementReading, candidateRestriction } from "../app/src/screens/settings/Dispatcher";
+import { SetupEditor } from "../app/src/screens/settings/DispatcherSetup";
 import { TaskContext } from "../app/src/screens/task-shared";
 import { initialState } from "../app/src/data/store";
 
@@ -14,19 +15,24 @@ test("dispatcher settings explain the active planner and built-in ladder", () =>
   expect(html).toContain("claude1");
   expect(html).toContain("Any executor");
   expect(html).toContain("built-in");
-  expect(html).toContain("Capable model with spare capacity");
-  expect(html).toContain("Usable fallback");
   expect(html).toContain("Project override");
   expect(html).toContain("Global eligibility rules");
-  expect(html).toContain("Rank by Task fit, Spare capacity");
-  expect(html).not.toContain("task-fit");
+  // The ladder itself is shown once, in the guided setup's step 3 (UI-15).
+  expect(html).not.toContain("Usable fallback");
+  const ladder=renderToString(<DispatcherLadderFields config={dispatchConfigSchema.parse({})} onChange={()=>{}}/>);
+  expect(ladder).toContain("Capable model with spare capacity");
+  expect(ladder).toContain("Usable fallback");
+  expect(ladder).toContain("Rank by Task fit, Spare capacity");
+  expect(ladder).not.toContain("task-fit");
 });
 test("plugin strategy does not present inactive ladder as the active decision engine", () => {
   const config=dispatchConfigSchema.parse({engine:"plugin:custom-choice",engineFallback:"queue"});
   const html=renderToString(<DispatcherOverview view={{strategy:"custom",planner:"codex",plannerAccount:"work",source:"strategy",config}}/>);
   expect(html).toContain("plugin custom-choice");
-  expect(html).toContain("If the plugin cannot decide, Pacer queues the work");
   expect(html).not.toContain("Capable model with spare capacity");
+  const setup=renderToString(<TaskContext.Provider value={{state:{...initialState(),connected:true},api:{call:async()=>({})}} as any}><SetupEditor view={{strategy:"custom",planner:"codex",plannerAccount:"work",source:"strategy",config}} eligibility={{kind:"global",rules:[{executors:["codex"]}],available:["codex"]}} onSaved={()=>{}} onDirtyChange={()=>{}}/></TaskContext.Provider>);
+  expect(setup).toContain("If the plugin cannot decide, Pacer queues the work");
+  expect(setup).not.toContain("Capable model with spare capacity");
 });
 test("older services explain the missing dispatcher capability without calling it", () => {
   let calls=0;
@@ -43,13 +49,6 @@ test("ladder setup exposes ordered steps, restrictions, capacity and fallback", 
   expect(html).toContain("Minimum model tier");
   expect(html).toContain("Spare capacity threshold");
   expect(html).toContain("When no step matches");
-});
-test("ladder editor saves a new strategy before activation", () => {
-  const html=renderToString(<DispatcherEditor view={{strategy:"default",planner:"claude-code",plannerAccount:"claude1",source:"built-in",config:dispatchConfigSchema.parse({})}} onActivated={()=>{}} call={async<T,>()=>undefined as T}/>);
-  expect(html).toContain("Save and use a new profile");
-  expect(html).toContain("Profile name");
-  expect(html).toContain("Reason for change");
-  expect(html).toContain("Validate and activate");
 });
 test("clearing an optional candidate restriction restores unrestricted matching", () => {
   const narrowed=candidateRestriction({},"models","provider/deep");

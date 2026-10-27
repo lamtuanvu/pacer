@@ -2,8 +2,9 @@ import type { DispatchConfig, DispatchPreview, ModelRecord } from "../../../../s
 import { executorLabel } from "../../../../src/view-model/words";
 import type { RouteQuery } from "../../router";
 import type { BrowserApi } from "../../data/api";
-import type { ComponentChildren } from "preact";
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
+import { SortableList } from "../../ds/SortableList";
+import { DispatcherGuidedSetup, SavedSetups } from "./DispatcherSetup";
 import { Button, TextAction } from "../../ds/Button";
 import { Checkbox, Disclosure, Field, TextInput } from "../../ds/Controls";
 import { ChoicePicker } from "../../ds/ChoicePicker";
@@ -82,72 +83,41 @@ const optionalList=(value:string)=>{const items=splitList(value);return items.le
 export const candidateRestriction=(candidate: LadderStep["candidates"], field:"executors"|"models", value:string):LadderStep["candidates"]=>({...candidate,[field]:optionalList(value)});
 const rankLabel=(value:string)=>rankOptions.find(option=>option.value===value)?.label??"Other criterion";
 type LadderStep=DispatchConfig["steps"][number];
-export function DispatcherLadderFields({config,onChange}:{config:DispatchConfig;onChange:(config:DispatchConfig)=>void}) {
+/** Steps keep stable keys across renames and moves so focus follows the moved step. */
+function useStepKeys(count:number){
+  const keys=useRef<string[]>([]),next=useRef(0);
+  while(keys.current.length<count)keys.current.push(`step-key-${next.current++}`);
+  if(keys.current.length>count)keys.current=keys.current.slice(0,count);
+  return keys;
+}
+export function DispatcherLadderFields({config,onChange,disabled}:{config:DispatchConfig;onChange:(config:DispatchConfig)=>void;disabled?:boolean}) {
+  const keys=useStepKeys(config.steps.length);
   const patch=(index:number,change:(step:LadderStep)=>LadderStep)=>onChange({...config,steps:config.steps.map((step,at)=>at===index?change(step):step)});
-  const reorder=(index:number,direction:-1|1)=>{const steps=[...config.steps],next=index+direction;[steps[index],steps[next]]=[steps[next]!,steps[index]!];onChange({...config,steps});};
+  const reorder=(order:string[])=>{const byKey=new Map(keys.current.map((key,at)=>[key,config.steps[at]!]));keys.current=order;onChange({...config,steps:order.map(key=>byKey.get(key)!)});};
+  const remove=(key:string)=>{const at=keys.current.indexOf(key);if(at<0)return;keys.current=keys.current.filter(item=>item!==key);onChange({...config,steps:config.steps.filter((_,index)=>index!==at)});};
   const add=()=>{let number=config.steps.length+1;while(config.steps.some(step=>step.id===`step-${number}`))number++;onChange({...config,steps:[...config.steps,{id:`step-${number}`,match:{},require:{},prefer:{models:[],strengths:[]},candidates:{},capacity:"comfortable",rank:["task-fit","spare-capacity"]}]});};
   return <div className="pc-stack pc-stack--section">
-    <Field label="Spare capacity threshold" help="A step requiring spare capacity uses this percentage as its minimum."><TextInput type="number" min="0" max="100" value={String(config.comfortablePct)} onInput={event=>onChange({...config,comfortablePct:Number(event.currentTarget.value)})}/></Field>
-    <Field label="Keep capacity in reserve" help="Percentage Pacer leaves unused when selecting a model."><TextInput type="number" min="0" max="100" value={String(config.reservePct)} onInput={event=>onChange({...config,reservePct:Number(event.currentTarget.value)})}/></Field>
-    {config.steps.map((step,index)=><div className="pc-card pc-stack pc-stack--normal" key={index}>
-      <div className="u3-row"><strong>Step {index+1}: {stepTitle(step.id)}</strong><div className="u3-actions">{index>0&&<Button size="sm" onClick={()=>reorder(index,-1)}>Move up</Button>}{index<config.steps.length-1&&<Button size="sm" onClick={()=>reorder(index,1)}>Move down</Button>}{config.steps.length>1&&<Button size="sm" onClick={()=>onChange({...config,steps:config.steps.filter((_,at)=>at!==index)})}>Remove</Button>}</div></div>
-      <Field label={`Step ${index+1} name`}><TextInput value={step.id} maxLength={256} onInput={event=>patch(index,item=>({...item,id:event.currentTarget.value}))}/></Field>
-      <Field label="Task kind" help="Optional. Leave empty to match any task kind."><TextInput value={step.match.kind??""} onInput={event=>patch(index,item=>({...item,match:event.currentTarget.value.trim()?{kind:event.currentTarget.value.trim()}:{}}))}/></Field>
-      <Field label="Capacity needed"><ChoicePicker value={step.capacity} options={capacityOptions} onValueChange={value=>patch(index,item=>({...item,capacity:value as LadderStep["capacity"]}))}/></Field>
-      <Field label="Minimum model tier"><ChoicePicker value={step.require.minTier??""} options={tierOptions} onValueChange={value=>patch(index,item=>({...item,require:{...item.require,minTier:value?value as NonNullable<LadderStep["require"]["minTier"]>:undefined}}))}/></Field>
-      <Checkbox label="Model must support tools" checked={step.require.tools===true} onChange={event=>patch(index,item=>({...item,require:{...item.require,tools:event.currentTarget.checked?true:undefined}}))}/>
-      <Field label="Only these executors" help="Optional hard restriction. Use executor IDs separated by commas."><TextInput value={step.candidates.executors?.join(", ")??""} onInput={event=>patch(index,item=>({...item,candidates:candidateRestriction(item.candidates,"executors",event.currentTarget.value)}))}/></Field>
-      <Field label="Only these models" help="Optional hard restriction. Model IDs must already be allowed by the strategy."><TextInput value={step.candidates.models?.join(", ")??""} onInput={event=>patch(index,item=>({...item,candidates:candidateRestriction(item.candidates,"models",event.currentTarget.value)}))}/></Field>
-      <Field label="Prefer these models" help="A preference ranks eligible models but does not exclude others."><TextInput value={step.prefer.models.join(", ")} onInput={event=>patch(index,item=>({...item,prefer:{...item.prefer,models:splitList(event.currentTarget.value)}}))}/></Field>
-      <Field label="Rank first by"><ChoicePicker value={step.rank[0]} options={rankOptions} onValueChange={value=>patch(index,item=>({...item,rank:[value as LadderStep["rank"][number],...item.rank.filter(rank=>rank!==value)]}))}/></Field>
-    </div>)}
-    <div><Button onClick={add}>Add ladder step</Button></div>
-    <Field label="When no step matches"><ChoicePicker value={config.onNoMatch} options={[{value:"queue",label:"Queue the work"},{value:"fail",label:"Report no eligible choice"}]} onValueChange={value=>onChange({...config,onNoMatch:value as DispatchConfig["onNoMatch"]})}/></Field>
+    <Field label="Spare capacity threshold" help="A step requiring spare capacity uses this percentage as its minimum."><TextInput type="number" min="0" max="100" disabled={disabled} value={String(config.comfortablePct)} onInput={event=>onChange({...config,comfortablePct:Number(event.currentTarget.value)})}/></Field>
+    <Field label="Keep capacity in reserve" help="Percentage Pacer leaves unused when selecting a model."><TextInput type="number" min="0" max="100" disabled={disabled} value={String(config.reservePct)} onInput={event=>onChange({...config,reservePct:Number(event.currentTarget.value)})}/></Field>
+    <SortableList label="Ladder steps, first match wins" disabled={disabled} onReorder={reorder} onRemove={config.steps.length>1?remove:undefined}
+      items={config.steps.map((step,index)=>({key:keys.current[index]!,label:stepTitle(step.id),detail:<span className="u3-muted">Step {index+1} · {capacityLabel(step.capacity)}{step.match.kind?` · ${step.match.kind} tasks`:" · any task kind"} · Rank by {step.rank.map(rankLabel).join(", ")}</span>}))}
+      renderExtra={(_,index)=>{const step=config.steps[index]!;return <Disclosure className="pc-disclosure-panel" summary={`Edit step ${index+1}`}><div className="pc-disclosure-panel__body pc-stack pc-stack--normal">
+      <Field label={`Step ${index+1} name`}><TextInput value={step.id} maxLength={256} disabled={disabled} onInput={event=>patch(index,item=>({...item,id:event.currentTarget.value}))}/></Field>
+      <Field label="Task kind" help="Optional. Leave empty to match any task kind."><TextInput value={step.match.kind??""} disabled={disabled} onInput={event=>patch(index,item=>({...item,match:event.currentTarget.value.trim()?{kind:event.currentTarget.value.trim()}:{}}))}/></Field>
+      <Field label="Capacity needed"><ChoicePicker value={step.capacity} disabled={disabled} options={capacityOptions} onValueChange={value=>patch(index,item=>({...item,capacity:value as LadderStep["capacity"]}))}/></Field>
+      <Field label="Minimum model tier"><ChoicePicker value={step.require.minTier??""} disabled={disabled} options={tierOptions} onValueChange={value=>patch(index,item=>({...item,require:{...item.require,minTier:value?value as NonNullable<LadderStep["require"]["minTier"]>:undefined}}))}/></Field>
+      <Checkbox label="Model must support tools" disabled={disabled} checked={step.require.tools===true} onChange={event=>patch(index,item=>({...item,require:{...item.require,tools:event.currentTarget.checked?true:undefined}}))}/>
+      <Field label="Only these executors" help="Optional hard restriction. Use executor IDs separated by commas."><TextInput value={step.candidates.executors?.join(", ")??""} disabled={disabled} onInput={event=>patch(index,item=>({...item,candidates:candidateRestriction(item.candidates,"executors",event.currentTarget.value)}))}/></Field>
+      <Field label="Only these models" help="Optional hard restriction. Model IDs must already be allowed by the strategy."><TextInput value={step.candidates.models?.join(", ")??""} disabled={disabled} onInput={event=>patch(index,item=>({...item,candidates:candidateRestriction(item.candidates,"models",event.currentTarget.value)}))}/></Field>
+      <Field label="Prefer these models" help="A preference ranks eligible models but does not exclude others."><TextInput value={step.prefer.models.join(", ")} disabled={disabled} onInput={event=>patch(index,item=>({...item,prefer:{...item.prefer,models:splitList(event.currentTarget.value)}}))}/></Field>
+      <Field label="Rank first by"><ChoicePicker value={step.rank[0]} disabled={disabled} options={rankOptions} onValueChange={value=>patch(index,item=>({...item,rank:[value as LadderStep["rank"][number],...item.rank.filter(rank=>rank!==value)]}))}/></Field>
+    </div></Disclosure>;}}/>
+    <div><Button disabled={disabled} onClick={add}>Add ladder step</Button></div>
+    <Field label="When no step matches"><ChoicePicker value={config.onNoMatch} disabled={disabled} options={[{value:"queue",label:"Queue the work"},{value:"fail",label:"Report no eligible choice"}]} onValueChange={value=>onChange({...config,onNoMatch:value as DispatchConfig["onNoMatch"]})}/></Field>
   </div>;
 }
 
-export function DispatcherEditor({view,onActivated,call}:{view:DispatcherConfigView;onActivated:(name:string)=>void;call:BrowserApi["call"]}) {
-  const [draft,setDraft]=useState<DispatchConfig>(()=>structuredClone(view.config));
-  const [name,setName]=useState(""),[reason,setReason]=useState(""),[busy,setBusy]=useState(false),[error,setError]=useState(""),[notice,setNotice]=useState("");
-  const changed=JSON.stringify(draft)!==JSON.stringify(view.config);
-  const save=async(event:Event)=>{
-    event.preventDefault();if(busy||!changed)return;
-    setBusy(true);setError("");setNotice("");
-    try{
-      if(!/^[a-z0-9][a-z0-9-]{0,39}$/.test(name)||name==="default")throw new Error("Choose a new profile name using lowercase letters, numbers or hyphens.");
-      if(!reason.trim())throw new Error("Explain why you are changing the dispatcher.");
-      const latest=await call<DispatcherConfigView>("dispatch.config.get",{});
-      if(latest.strategy!==view.strategy||JSON.stringify(latest.config)!==JSON.stringify(view.config))throw new Error("The active profile changed in another client. Reload this page before saving.");
-      const strategyDraft={from:view.strategy,set:{dispatch:draft}};
-      const validation=await call<{ok:boolean;errors:string[]}>("strategy.preview",{draft:strategyDraft});
-      if(!validation.ok)throw new Error(validation.errors.join(" ")||"The ladder needs changes before it can be saved.");
-      await call("strategy.save",{name,draft:strategyDraft,reason:reason.trim()});
-      setNotice(`Saved ${name}. Activating it…`);
-      try{await call("strategy.use",{name});onActivated(name);}
-      catch(failure){throw new Error(`Saved ${name}, but activation failed: ${failure instanceof Error?failure.message:String(failure)}`);}
-    }catch(failure){setError(failure instanceof Error?failure.message:String(failure));}
-    finally{setBusy(false);}
-  };
-  return <Disclosure className="pc-disclosure-panel" summary="Edit decision ladder">
-    <div className="pc-disclosure-panel__body">
-      {view.config.engine!=="ladder"?<p>This profile uses a plugin decision engine. Edit its plugin configuration in the strategy file; the ladder shown here is not active.</p>:<form className="pc-stack pc-stack--section" onSubmit={event=>void save(event)}>
-        <p>Change the steps, validate them, then save as a new profile. The current profile remains active until the new one is saved and activated.</p>
-        <DispatcherLadderFields config={draft} onChange={setDraft}/>
-        <div className="pc-card pc-stack pc-stack--normal">
-          <SectionHeading>Save and use a new profile</SectionHeading>
-          <Field label="Profile name" help="Lowercase letters, numbers and hyphens. The default profile stays unchanged."><TextInput value={name} maxLength={40} onInput={event=>setName(event.currentTarget.value)}/></Field>
-          <Field label="Reason for change"><TextInput value={reason} maxLength={500} onInput={event=>setReason(event.currentTarget.value)}/></Field>
-          {!changed&&<p className="u3-muted">Change at least one ladder setting before saving.</p>}
-          <div><Button type="submit" variant="primary" busy={busy} disabled={!changed||!name||!reason.trim()}>Validate and activate</Button></div>
-          {notice&&<p role="status" aria-live="polite">{notice}</p>}{error&&<p role="alert">{error}</p>}
-        </div>
-      </form>}
-    </div>
-  </Disclosure>;
-}
-
 export function DispatcherOverview({view}:{view:DispatcherConfigView}) {
-  const ladderActive=view.config.engine==="ladder",ladderFallback=view.config.engineFallback==="ladder";
   return <Section id="dispatcher" title="Dispatcher" detail="See who plans work and how Pacer chooses an executor and model.">
     <div className="pc-stack pc-stack--section">
       <div className="pc-card">
@@ -161,47 +131,39 @@ export function DispatcherOverview({view}:{view:DispatcherConfigView}) {
           <li><strong>Global eligibility rules</strong> choose the executor list by task kind when no project override is selected.</li>
           <li><strong>Dispatcher decision engine</strong> ranks eligible accounts and models from that list. The default engine uses the first matching ladder step.</li>
         </ol>
-        <p>Manage saved profiles and executor eligibility below.</p>
-      </div>
-      <div className="pc-card">
-        <SectionHeading>{ladderActive?"Decision ladder":"Decision engine"}</SectionHeading>
-        <p>Active profile: <strong>{view.strategy}</strong> · {view.source === "built-in" ? "built-in defaults" : "saved configuration"} · {ladderActive?"ordered ladder":`plugin ${view.config.engine.slice(7)}`}</p>
-        {!ladderActive&&<p>{ladderFallback?"If the plugin cannot decide, Pacer uses this fallback ladder.":"If the plugin cannot decide, Pacer queues the work."}</p>}
-        {(ladderActive||ladderFallback)&&<><ol>{view.config.steps.map(step=><li key={step.id}><strong>{stepTitle(step.id)}</strong> · {capacityLabel(step.capacity)}{step.match.kind?` · ${step.match.kind} tasks`:" · any task kind"}<br/><span className="u3-muted">Rank by {step.rank.map(rankLabel).join(", ")}</span></li>)}</ol>
-        <p>If no step matches, Pacer {view.config.onNoMatch === "queue" ? "queues the work" : "reports that no eligible executor is available"}.</p></>}
+        <p>Active setup <strong>{view.strategy}</strong> uses {view.source === "built-in" ? "built-in defaults" : "saved configuration"} and {view.config.engine==="ladder"?"the ordered ladder":`the plugin ${view.config.engine.slice(7)}`}. Change it in the guided setup below.</p>
       </div>
     </div>
   </Section>;
 }
 
-export function DispatcherSection({query,children}:{query:RouteQuery;children?:ComponentChildren}) {
+export function DispatcherSection({query}:{query:RouteQuery}) {
   const {state}=useTaskContext();
-  if(!state.features.ops.has("dispatch.config.get"))return <><Section id="dispatcher" title="Dispatcher"><p>This service does not support dispatcher settings yet. Update the service to view the decision ladder.</p></Section>{children}</>;
-  return <DispatcherContent query={query}>{children}</DispatcherContent>;
+  if(!state.features.ops.has("dispatch.config.get"))return <><Section id="dispatcher" title="Dispatcher"><p>This service does not support dispatcher settings yet. Update the service to view the decision ladder.</p></Section><SavedSetups/></>;
+  return <DispatcherContent query={query}/>;
 }
 export function DispatcherReadError({error,reload,subject}:{error:unknown;reload:()=>void;subject:string}){
   if(!error)return null;
   return <div className="pc-stack pc-stack--compact"><p>Could not refresh {subject}. Showing the last loaded reading.</p><ErrorMessage error={error}/><div><Button onClick={reload}>Try again</Button></div></div>;
 }
-function DispatcherContent({query,children}:{query:RouteQuery;children?:ComponentChildren}){
+function DispatcherContent({query}:{query:RouteQuery}){
   const {state,api}=useTaskContext();
   const config=useResource<DispatcherConfigView>("dispatch.config.get");
   const models=useResource<DispatcherInventory>("dispatch.models");
+  const [setupsRevision,setSetupsRevision]=useState(0);
   const [refreshing,setRefreshing]=useState(false),[refreshError,setRefreshError]=useState<unknown>();
-  const [activationNotice,setActivationNotice]=useState("");
   const refresh=async()=>{setRefreshing(true);setRefreshError(undefined);try{await api.call("dispatch.refresh",{});models.reload();}catch(error){setRefreshError(error);}finally{setRefreshing(false);}};
   return config.data?<><DispatcherReadError error={config.error} reload={config.reload} subject="dispatcher settings"/><DispatcherOverview view={config.data}/>
-    {children}
-    <DispatcherEditor key={config.data.strategy} view={config.data} call={api.call.bind(api)} onActivated={name=>{setActivationNotice(`${name} is active. Future dispatch decisions use this ladder.`);config.reload();models.reload();}}/>
-    {activationNotice&&<p role="status" aria-live="polite">{activationNotice}</p>}
+    <SavedSetups key={setupsRevision} onActivated={()=>{config.reload();models.reload();}}/>
+    <DispatcherGuidedSetup view={config.data} onSaved={()=>{config.reload();models.reload();setSetupsRevision(value=>value+1);}}/>
+    {state.features.ops.has("dispatch.preview")&&<DispatcherPreviewForm query={query}/>}
     {state.features.ops.has("dispatch.enforcement")?<DispatcherEnforcement query={query}/>:<Section id="native-control" title="Native subagent control"><p>Update the service to inspect managed delegation enforcement.</p></Section>}
     <Section id="model-choices" title="Model choices" actions={state.features.ops.has("dispatch.refresh")?<Button busy={refreshing} onClick={()=>void refresh()}>Refresh readings</Button>:undefined}>
       <DispatcherReadError error={models.error&&models.data?models.error:undefined} reload={models.reload} subject="model choices"/>
       {models.data?<DispatcherModelInventory inventory={models.data}/>:<p role={models.error?"alert":undefined}>{models.error?"Model choices could not be loaded.":"Loading model choices…"}</p>}
       <ErrorMessage error={refreshError}/>
     </Section>
-    {state.features.ops.has("dispatch.preview")&&<DispatcherPreviewForm query={query}/>}
-  </>:<><Section id="dispatcher" title="Dispatcher"><p role={config.error?"alert":undefined}>{config.error?"Dispatcher settings could not be loaded.":"Loading dispatcher settings…"}</p></Section>{children}</>;
+  </>:<><Section id="dispatcher" title="Dispatcher"><p role={config.error?"alert":undefined}>{config.error?"Dispatcher settings could not be loaded.":"Loading dispatcher settings…"}</p></Section><SavedSetups/></>;
 }
 
 function DispatcherEnforcement({query}:{query:RouteQuery}){
@@ -252,7 +214,7 @@ function DispatcherPreviewForm({query}:{query:RouteQuery}) {
   const [busy,setBusy]=useState(false),[error,setError]=useState<unknown>(),[result,setResult]=useState<DispatchPreview>();
   useEffect(()=>{if(!repo&&repos.length)setRepo(repos[0]!.key);},[repo,repos.length]);
   const submit=async(event:Event)=>{event.preventDefault();if(!repo||!goal.trim()||busy)return;setBusy(true);setError(undefined);setResult(undefined);try{setResult(await api.call<DispatchPreview>("dispatch.preview",{repo,goal:goal.trim(),...(kind.trim()?{kind:kind.trim()}:{}),requirements:{...(tier?{minTier:tier}:{}),...(tools?{tools:true}:{})}}));}catch(failure){setError(failure);}finally{setBusy(false);}};
-  return <Section id="dispatch-preview" title="Try a task" detail="Preview a choice using recent readings. This does not start work or reserve capacity.">
+  return <Section id="dispatch-preview" title="4. Try a task" detail="Preview a choice using saved settings and recent readings. This does not start work or reserve capacity.">
     <form className="pc-card pc-stack pc-stack--normal" onSubmit={event=>void submit(event)}>
       {repos.length?<Field label="Repository"><ChoicePicker value={repo} searchable options={repos.map(item=>({value:item.key,label:item.label}))} onValueChange={setRepo}/></Field>:<p>Choose a repository from the repository picker before previewing.</p>}
       <Field label="Task"><TextInput value={goal} maxLength={8000} placeholder="What work should Pacer assign?" onInput={event=>setGoal(event.currentTarget.value)}/></Field>
