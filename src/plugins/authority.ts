@@ -18,7 +18,8 @@ export interface CallResources {
       executableIdentity: { dev: number; ino: number; size: number; mtimeMs: number; mode: number };
       env: Record<string, string>; stdin?: string; session?: "interactive";
       interactionMode?: "conversation";
-      files?: { name: "report-hook.sh" | "claude-settings.json"; content: string; mode: number }[] } };
+      files?: { name: "report-hook.sh" | "claude-settings.json" | "opencode-report-plugin";
+        content: string; mode: number; sourceSha256?: string }[] } };
   /** Restart may observe only the exact already-persisted wrapper; it cannot start one. */
   executorObserve?: { taskId: string; attempt: number; providerId: string; executor: string;
     workdir: string; dir: string; dirIdentity: { dev: number; ino: number }; startedAt: number };
@@ -46,7 +47,8 @@ export interface CallResources {
     executable: string; executableIdentity: { dev: number; ino: number; size: number; mtimeMs: number; mode: number };
     cwdIdentity: { dev: number; ino: number }; env: Record<string, string>; stdin?: string;
     session?: "interactive"; interactionMode?: "conversation";
-    files?: { name: "report-hook.sh" | "claude-settings.json"; content: string; mode: number }[] };
+    files?: { name: "report-hook.sh" | "claude-settings.json" | "opencode-report-plugin";
+      content: string; mode: number; sourceSha256?: string }[] };
   /** Host-issued secret-reference aliases; names only, never credential values. */
   secretAliases?: Record<string, string>;
   /** Exact hostnames derived only from validated host configuration/grants. */

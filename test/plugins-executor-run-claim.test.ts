@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createHash } from "node:crypto";
 import { createCallAuthority } from "../src/plugins/authority";
 import { answerCapability } from "../src/plugins/host";
 import { CAPABILITY_METHODS, capabilityOf, manifestSchema } from "../src/plugins/protocol";
@@ -10,6 +11,7 @@ import { stopRun } from "../src/supervisor/run";
 import { writeReport } from "../src/session/reports";
 import { fakeCtx, gitRepo, realRun, tmpDir } from "./helpers";
 import { issueOwnedWorktreeGrant } from "../src/plugins/executor-worktree";
+import { opencodeReportingSource } from "../plugins/agent-session/opencode-report";
 
 function fixture() {
   const home = mkdtempSync(join(tmpdir(), "pacer-run-claim-"));
@@ -232,6 +234,167 @@ test("interactive artifact publication never replaces a preexisting hook", async
     expect(existsSync(join(dir, "pid"))).toBe(false);
     expect(readTask(ctx, task.id)?.startIntent).toMatchObject({ attempt: 1 });
   } finally { await authority.revoke(); cleanup(); }
+});
+
+test("owned OpenCode conversation publishes one private fixed reporting plugin", async () => {
+  const { ctx, task, resource, manifest, cleanup } = fixture();
+  const id = "ses_owned", source = opencodeReportingSource(id,
+    join(ctx.pacerHome, "runs", task.id, "1"));
+  updateTask(ctx, task.id, current => {
+    current.executor = "opencode#opencode";
+    current.interactionMode = "conversation";
+    current.conversation = { activity: "starting", agentSessionId: id };
+    current.nativeIdentityIntent = { attempt: 1, providerId: manifest.id,
+      executor: "opencode#opencode", workdir: ctx.home, kind: "create", id, source: "assigned" };
+  });
+  const file = { name: "opencode-report-plugin" as const, content: source, mode: 0o600,
+    sourceSha256: createHash("sha256").update(source).digest("hex") };
+  const authority = createCallAuthority(ctx, { reads: [], commands: [], stores: [],
+    executorClaim: { ...resource, executor: "opencode#opencode", launch: { ...resource.launch,
+      session: "interactive", interactionMode: "conversation", files: [file] } } },
+  { deadlineMs: Date.now() + 10_000, grants: ["process.spawn"] });
+  try {
+    const claim = await answerCapability(ctx, { id: manifest.id, manifest },
+      "capability.process.claimRun", { taskId: task.id, attempt: 1 }, authority) as
+      { task: { id: string; rev: number }; attempt: number; runDir: 1 };
+    const dir = readTask(ctx, task.id)!.run!.dir;
+    expect(await answerCapability(ctx, { id: manifest.id, manifest },
+      "capability.process.startRun", { task: claim.task, attempt: 1, runDir: 1 }, authority))
+      .toHaveProperty("pid");
+    expect(readFileSync(join(dir, "report-plugin", "index.ts"), "utf8")).toBe(source);
+    expect(statSync(join(dir, "report-plugin")).mode & 0o777).toBe(0o700);
+    expect(statSync(join(dir, "report-plugin", "index.ts")).mode & 0o777).toBe(0o600);
+    await expect(answerCapability(ctx, { id: manifest.id, manifest },
+      "capability.process.startRun", { task: claim.task, attempt: 1, runDir: 1 }, authority))
+      .rejects.toMatchObject({ code: "capability_denied" });
+  } finally {
+    await authority.revoke();
+    const dir = readTask(ctx, task.id)?.run?.dir;
+    if (dir) await stopRun(dir, { graceMs: 1000 });
+    cleanup();
+  }
+});
+
+test("OpenCode reporting refuses a forged hash or preexisting publication without spawning", async () => {
+  for (const preexisting of ["hash", "identity", "directory", "file", "symlink"] as const) {
+    const { ctx, task, resource, manifest, cleanup } = fixture();
+    const id = "ses_owned", source = opencodeReportingSource(preexisting === "identity" ? "other" : id,
+      join(ctx.pacerHome, "runs", task.id, "1"));
+    updateTask(ctx, task.id, current => {
+      current.executor = "opencode#opencode";
+      current.interactionMode = "conversation";
+      current.conversation = { activity: "starting", agentSessionId: id };
+      current.nativeIdentityIntent = { attempt: 1, providerId: manifest.id,
+        executor: "opencode#opencode", workdir: ctx.home, kind: "create", id, source: "assigned" };
+    });
+    const authority = createCallAuthority(ctx, { reads: [], commands: [], stores: [],
+      executorClaim: { ...resource, executor: "opencode#opencode", launch: { ...resource.launch,
+        session: "interactive", interactionMode: "conversation", files: [{
+          name: "opencode-report-plugin", content: source, mode: 0o600,
+          sourceSha256: preexisting === "hash" ? "0".repeat(64) :
+            createHash("sha256").update(source).digest("hex"),
+        }] } } }, { deadlineMs: Date.now() + 10_000, grants: ["process.spawn"] });
+    try {
+      const claim = await answerCapability(ctx, { id: manifest.id, manifest },
+        "capability.process.claimRun", { taskId: task.id, attempt: 1 }, authority) as
+        { task: { id: string; rev: number }; attempt: number; runDir: 1 };
+      const dir = readTask(ctx, task.id)!.run!.dir;
+      if (!["hash", "identity"].includes(preexisting)) {
+        if (preexisting === "symlink") symlinkSync(ctx.home, join(dir, "report-plugin"));
+        else {
+          mkdirSync(join(dir, "report-plugin"), { mode: 0o700 });
+          if (preexisting === "file") writeFileSync(join(dir, "report-plugin", "index.ts"), "foreign");
+        }
+      }
+      await expect(answerCapability(ctx, { id: manifest.id, manifest },
+        "capability.process.startRun", { task: claim.task, attempt: 1, runDir: 1 }, authority))
+        .rejects.toMatchObject({ code: "capability_denied" });
+      expect(existsSync(join(dir, "pid"))).toBe(false);
+      if (preexisting === "file")
+        expect(readFileSync(join(dir, "report-plugin", "index.ts"), "utf8")).toBe("foreign");
+    } finally { await authority.revoke(); cleanup(); }
+  }
+});
+
+test("pipe and ordinary interactive grants cannot publish an OpenCode conversation artifact", async () => {
+  for (const session of [undefined, "interactive" as const]) {
+    const { ctx, task, resource, manifest, cleanup } = fixture();
+    updateTask(ctx, task.id, current => { current.executor = "opencode#opencode"; });
+    const dir = join(ctx.pacerHome, "runs", task.id, "1");
+    const source = opencodeReportingSource("ses_other", dir);
+    const authority = createCallAuthority(ctx, { reads: [], commands: [], stores: [],
+      executorClaim: { ...resource, executor: "opencode#opencode", launch: { ...resource.launch,
+        ...(session ? { session } : {}), files: [{ name: "opencode-report-plugin",
+          content: source, mode: 0o600,
+          sourceSha256: createHash("sha256").update(source).digest("hex") }] } } },
+    { deadlineMs: Date.now() + 10_000, grants: ["process.spawn"] });
+    try {
+      const claim = await answerCapability(ctx, { id: manifest.id, manifest },
+        "capability.process.claimRun", { taskId: task.id, attempt: 1 }, authority) as
+        { task: { id: string; rev: number }; attempt: number; runDir: 1 };
+      await expect(answerCapability(ctx, { id: manifest.id, manifest },
+        "capability.process.startRun", { task: claim.task, attempt: 1, runDir: 1 }, authority))
+        .rejects.toMatchObject({ code: "capability_denied" });
+      expect(existsSync(join(dir, "pid"))).toBe(false);
+      expect(existsSync(join(dir, "report-plugin"))).toBe(false);
+    } finally { await authority.revoke(); cleanup(); }
+  }
+});
+
+test("existing OpenCode pipe and ordinary interactive attempts still launch without a conversation artifact", async () => {
+  for (const session of [undefined, "interactive" as const]) {
+    const { ctx, task, resource, manifest, cleanup } = fixture();
+    updateTask(ctx, task.id, current => { current.executor = "opencode#opencode"; });
+    const authority = createCallAuthority(ctx, { reads: [], commands: [], stores: [],
+      executorClaim: { ...resource, executor: "opencode#opencode", launch: {
+        ...resource.launch, ...(session ? { session } : {}) } } },
+    { deadlineMs: Date.now() + 10_000, grants: ["process.spawn"] });
+    try {
+      const claim = await answerCapability(ctx, { id: manifest.id, manifest },
+        "capability.process.claimRun", { taskId: task.id, attempt: 1 }, authority) as
+        { task: { id: string; rev: number }; attempt: number; runDir: 1 };
+      expect(await answerCapability(ctx, { id: manifest.id, manifest },
+        "capability.process.startRun", { task: claim.task, attempt: 1, runDir: 1 }, authority))
+        .toHaveProperty("pid");
+      const dir = readTask(ctx, task.id)!.run!.dir;
+      expect(existsSync(join(dir, "report-plugin"))).toBe(false);
+    } finally {
+      await authority.revoke();
+      const dir = readTask(ctx, task.id)?.run?.dir;
+      if (dir) await stopRun(dir, { graceMs: 1000 });
+      cleanup();
+    }
+  }
+});
+
+test("OpenCode conversation refuses a missing or foreign reporting artifact before spawn", async () => {
+  for (const kind of ["missing", "foreign"] as const) {
+    const { ctx, task, resource, manifest, cleanup } = fixture(), id = "ses_owned";
+    updateTask(ctx, task.id, current => {
+      current.executor = "opencode#opencode";
+      current.interactionMode = "conversation";
+      current.conversation = { activity: "starting", agentSessionId: id };
+      current.nativeIdentityIntent = { attempt: 1, providerId: manifest.id,
+        executor: "opencode#opencode", workdir: ctx.home, kind: "create", id, source: "assigned" };
+    });
+    const authority = createCallAuthority(ctx, { reads: [], commands: [], stores: [],
+      executorClaim: { ...resource, executor: "opencode#opencode", launch: { ...resource.launch,
+        session: "interactive", interactionMode: "conversation",
+        files: kind === "missing" ? [] : [{ name: "report-hook.sh", content: "foreign", mode: 0o700 }] } } },
+    { deadlineMs: Date.now() + 10_000, grants: ["process.spawn"] });
+    try {
+      const claim = await answerCapability(ctx, { id: manifest.id, manifest },
+        "capability.process.claimRun", { taskId: task.id, attempt: 1 }, authority) as
+        { task: { id: string; rev: number }; attempt: number; runDir: 1 };
+      const dir = readTask(ctx, task.id)!.run!.dir;
+      await expect(answerCapability(ctx, { id: manifest.id, manifest },
+        "capability.process.startRun", { task: claim.task, attempt: 1, runDir: 1 }, authority))
+        .rejects.toMatchObject({ code: "capability_denied" });
+      expect(existsSync(join(dir, "pid"))).toBe(false);
+      expect(existsSync(join(dir, "report-plugin"))).toBe(false);
+      expect(existsSync(join(dir, "report-hook.sh"))).toBe(false);
+    } finally { await authority.revoke(); cleanup(); }
+  }
 });
 
 test("reported interactive completion requires the exact live report and reaped run", async () => {

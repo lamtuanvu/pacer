@@ -307,6 +307,99 @@ printf 'Claude conversation turn complete\\n'
   } finally { cleanup(); }
 });
 
+test("task runner gives local OpenCode only its owned private reporting artifact", async () => {
+  const { ctx, task, cleanup } = fixture();
+  const opencode = join(ctx.home, "bin", "opencode");
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"),
+    "planner: claude-code\nproviders: {claude-code: {}, opencode: {via: opencode, model: test/model, usage: unmetered}}\nexecution: {worktree: current}\n");
+  writeFileSync(opencode, `#!/bin/sh
+if [ "$1" = --version ]; then echo 'opencode 2.1.2'; exit 0; fi
+if [ "$1" = --help ]; then echo '--standalone --session --prompt'; exit 0; fi
+if [ "$1" = api ] && [ "$2" = --help ]; then echo '--standalone'; exit 0; fi
+if [ "$1" = api ]; then echo '{"data":{"id":"ses_owned"}}'; exit 0; fi
+previous=''
+for arg do
+  if [ "$previous" = --session ]; then printf '%s' "$arg" > "$PACER_RUN_DIR/launch-session-id"; fi
+  previous="$arg"
+done
+printf '%s' "$OPENCODE_CONFIG_CONTENT" > "$PACER_RUN_DIR/launch-config.json"
+chmod 600 "$PACER_RUN_DIR/launch-config.json"
+printf 'OpenCode conversation turn complete\\n'
+`, { mode: 0o700 });
+  ctx.which = name => name === "opencode" ? opencode : null;
+  try {
+    Bun.spawnSync(["git", "init", "-q", "-b", "main"], { cwd: task.brief.repo });
+    Bun.spawnSync(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+      "commit", "-q", "--allow-empty", "-m", "init"], { cwd: task.brief.repo });
+    ctx.env.OPENCODE_CONFIG_CONTENT = JSON.stringify({ model: "test/model", plugins: ["existing-plugin"],
+      provider: { fixture: { marker: "private-fixture" } } });
+    updateTask(ctx, task.id, current => {
+      current.state = "queued";
+      current.requestedExecutor = "opencode#opencode";
+      delete current.executor;
+      delete current.executorProvider;
+      current.interactionMode = "conversation";
+      current.conversation = { activity: "starting" };
+      current.placement = { requested: "current" };
+      current.timeoutS = 3600;
+    });
+    const deps = {
+      loadStrategy,
+      computeStatus: async () => ({ generatedAt: ctx.now, strategy: "default", planner: "claude-code",
+        mode: "normal" as const, disabled: false, calendarPace: true, accounts: [],
+        providers: ["claude-code", "opencode#opencode"].map(id => ({ id, eligibility: eligibility(),
+          usage: "quota" as const, windows: [], binding: null, verdict: "ON_PACE" as const,
+          installed: true, stale: false })), executors: { ranked: [], excluded: [] } }),
+      hooks: { ...defaultHooks, taskKind: async () => "research" },
+      verifyRepo: async () => ({ files: "(no changes)" }),
+    };
+    const result = await runTask({ ...ctx, run: realRun }, task.id, deps);
+    expect(result.executorProvider).toBe("pacer-exec-direct");
+    expect(result.run?.agentSession?.id).toBe("ses_owned");
+    expect(result.nativeIdentityIntent?.id).toBe("ses_owned");
+    const dir = result.run!.dir;
+    expect(readFileSync(join(dir, "launch-session-id"), "utf8")).toBe("ses_owned");
+    expect(readFileSync(join(dir, "report-plugin", "index.ts"), "utf8")).toContain("ses_owned");
+    const config = JSON.parse(readFileSync(join(dir, "launch-config.json"), "utf8"));
+    expect(config).toMatchObject({ provider: { fixture: { marker: "private-fixture" } },
+      plugins: ["existing-plugin", join(dir, "report-plugin")] });
+    expect(readTask(ctx, task.id)?.attempts).toHaveLength(1);
+    await pluginRegistry(ctx).disable(ctx, "pacer-agent-session");
+    const blocked = createTask(ctx, { brief: { goal: "second OpenCode conversation", repo: task.brief.repo },
+      kind: null, requestedExecutor: "opencode#opencode", timeoutS: 3600,
+      placement: { requested: "current" }, interactionMode: "conversation" });
+    const denied = await runTask({ ...ctx, run: realRun }, blocked.id, deps);
+    expect(denied.run).toBeUndefined();
+    expect(denied.executorProvider).toBe("pacer-exec-direct");
+    expect(readTask(ctx, blocked.id)?.nativeIdentityIntent).toBeUndefined();
+  } finally { cleanup(); }
+});
+
+test("malformed OpenCode account config refuses before native identity creation", async () => {
+  const { ctx, task, cleanup } = fixture();
+  const marker = join(ctx.home, "native-create-marker");
+  const opencode = join(ctx.home, "bin", "opencode");
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"),
+    "planner: claude-code\nproviders: {claude-code: {}, opencode: {via: opencode, model: test/model, usage: unmetered}}\nexecution: {worktree: current}\n");
+  writeFileSync(opencode, `#!/bin/sh\nprintf native-create > ${JSON.stringify(marker)}\n`, { mode: 0o700 });
+  ctx.which = name => name === "opencode" ? opencode : null;
+  ctx.env.OPENCODE_CONFIG_CONTENT = "[]";
+  try {
+    const cfg = Object.values(loadStrategy(ctx).providers).find(item => item.via === "opencode")!;
+    const current = updateTask(ctx, task.id, record => {
+      record.executor = cfg.id;
+      record.interactionMode = "conversation";
+      record.conversation = { activity: "starting" };
+      record.placement = { requested: "current" };
+    });
+    await expect(runOwnedDirectCurrent({ ...ctx, run: realRun },
+      { ...cfg, session: "interactive" }, current)).rejects.toThrow();
+    expect(existsSync(marker)).toBe(false);
+    expect(readTask(ctx, task.id)?.nativeIdentityIntent).toBeUndefined();
+    expect(readTask(ctx, task.id)?.run).toBeUndefined();
+  } finally { cleanup(); }
+});
+
 test("stopping an owned conversation does not label expected revocation lost-contact", async () => {
   const { ctx, task, cleanup } = fixture();
   const executable = ctx.which("codex")!;

@@ -29,6 +29,8 @@ import { agentSessionCapabilities, prepareAgentSession } from "./agent-session";
 import { admitOwnedConversationIdentity, discoverOwnedConversationIdentity } from "./executor-conversation-identity";
 import { validateOwnedConversationPending } from "./executor-conversation-pending";
 import { inspectOwnedExecutorRun } from "./executor-run-state";
+import { bundledAgentSessionSnapshot, planOwnedOpenCodeReporting,
+  validateOwnedOpenCodeConfig } from "./executor-opencode-reporting";
 import { issueOwnedWorktreeGrant } from "./executor-worktree";
 import { admitOwnedRemotePrepare } from "./executor-remote-prepare";
 import type { CallResources } from "./authority";
@@ -244,13 +246,16 @@ async function runOwnedDirect(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord,
   }
   const interactive = cfg.session === "interactive";
   const agent = parseRunnerId(cfg.id)?.agent ?? cfg.id;
-  const env = executorEnv(ctx.env, await providerEnv(ctx, cfg), task.id);
+  let env = executorEnv(ctx.env, await providerEnv(ctx, cfg), task.id);
+  const openCodeConfig = conversation && agent === "opencode" ? validateOwnedOpenCodeConfig(env) : undefined;
+  if (openCodeConfig) bundledAgentSessionSnapshot(ctx);
   const prompt = conversation ? task.brief.goal : buildPrompt(placement === "new" ? { ...task.brief,
     repo: task.worktree ? `${workdir} (the task worktree; keep its current branch; do not edit ${task.brief.repo} itself)` :
       `${workdir} (a new git worktree of ${task.brief.repo} on branch pacer/${task.id}; do not edit ${task.brief.repo} itself)` }
     : task.brief, task.id, !!ctx.env.PACER_WORK_GRANT);
   const instructions = interactive && !conversation ? `\n\nInteractive pacer session: completion requires running pacer report --task ${task.id} --outcome done --summary "<result>" (or --outcome failed). Before asking the user, run pacer report --status needs-input --summary "<question>"; when resuming use --status running. Do not infer completion from the terminal. PACER_RUN_DIR identifies this attempt. You may write a longer Markdown result to $PACER_TRANSCRIPT_REPORT.\n` : "";
   let baseLaunch;
+  let reportingFile: ReturnType<typeof planOwnedOpenCodeReporting>["file"] | undefined;
   if (conversation) {
     const probe = await probeAgentSession(ctx, agent, env);
     if (probe.reason) throw new CoreError("plugin_unavailable", probe.reason);
@@ -259,13 +264,24 @@ async function runOwnedDirect(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord,
     const priorId = current.conversation?.agentSessionId;
     const identity = await admitOwnedConversationIdentity(ctx, task.id, providerId, cfg.id,
       { ...probe, taskId: task.id, ...(cfg.model ? { model: cfg.model } : {}) }, workdir, env);
+    const adapterBefore = openCodeConfig ? bundledAgentSessionSnapshot(ctx) : undefined;
     baseLaunch = await prepareAgentSession(ctx, { ...probe, request: prompt,
       workspace: workdir, runDir: dir,
       ...(task.sessionDraftId ? { attachmentDir: attachmentDirectory(ctx, task.sessionDraftId) } : {}),
       attachments: resolveAttachments(ctx, task.id), permissionPolicy: "native",
       ...(priorId ? { sessionId: priorId } : identity ? { newSessionId: identity.id } : {}),
       ...(cfg.model ? { model: cfg.model } : {}) });
-    if (baseLaunch.reporting)
+    if (openCodeConfig) {
+      const adapterAfter = bundledAgentSessionSnapshot(ctx);
+      if (adapterBefore?.version !== adapterAfter.version ||
+        adapterBefore.pid !== null && adapterBefore.pid !== adapterAfter.pid)
+        throw new CoreError("plugin_unavailable", "bundled agent-session adapter changed during preparation");
+      if (!identity?.id) throw new CoreError("plugin_refused", "OpenCode identity was not verified");
+      const reporting = planOwnedOpenCodeReporting(ctx, cfg.id, identity.id,
+        dir, baseLaunch, env, openCodeConfig);
+      env = reporting.env;
+      reportingFile = reporting.file;
+    } else if (baseLaunch.reporting)
       throw new CoreError("plugin_unavailable", "native reporting artifact needs an owned claim grant");
   } else baseLaunch = launchFor(cfg, prompt + instructions, workdir, dir, task.id);
   const planned = interactive ? planInteractive(agent, dir, baseLaunch) :
@@ -299,7 +315,8 @@ async function runOwnedDirect(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord,
         executableIdentity: { dev: stat.dev, ino: stat.ino, size: stat.size,
           mtimeMs: stat.mtimeMs, mode: stat.mode }, env: cleanEnv,
         ...(launch.stdin === undefined ? {} : { stdin: launch.stdin }),
-        ...(interactive ? { session: "interactive" as const, files: planned.files } : {}),
+        ...(interactive ? { session: "interactive" as const,
+          files: [...planned.files, ...(reportingFile ? [reportingFile] : [])] } : {}),
         ...(conversation ? { interactionMode: "conversation" as const } : {}) } } };
   let raw = await caller.call(ctx, providerId, "executor.run",
     { task: { id: task.id, rev: admitted.rev }, attempt, runDir: 1,
