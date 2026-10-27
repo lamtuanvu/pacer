@@ -13,6 +13,7 @@ import { prepareClaimedBundle, publishPreparedBundle, removeConsumedClaimedBundl
 import type { CallAuthority } from "../plugins/authority";
 import type { ClaimedBundleTicket } from "../plugins/bundle-stage";
 import { execProcess } from "../exec/process";
+import { CoreError } from "../core/errors";
 
 type TransferResult = { ok: true; branch: string; commits: number; reviewWorktree: string } | { ok: false; reason: string; bundle?: string };
 
@@ -106,13 +107,18 @@ export async function transferBack(ctx: Ctx, task: TaskRecord, host: HostCfg, ru
     if (caller !== "pacer-remote-caller") return fail("bundled remote caller plugin is unavailable");
     let claimed: { authority: CallAuthority; ticket: ClaimedBundleTicket } | undefined;
     let verified: { head: string; commits: number } | undefined;
-    await registry.callWithIssuedHostFetch<{ ok: true }>(ctx, caller, "remoteCaller.fetch",
-      { alias: host.alias, timeoutMs: bundleTimeoutMs, maxBytes: 50 * 1024 * 1024 }, grant,
-      async (authority, ticket) => {
-        const prepared = await prepareClaimedBundle(authority, ticket, grant);
-        publishPreparedBundle(authority, prepared);
-        claimed = { authority, ticket }; verified = prepared;
-      });
+    try {
+      await registry.callWithIssuedHostFetch<{ ok: true }>(ctx, caller, "remoteCaller.fetch",
+        { alias: host.alias, timeoutMs: bundleTimeoutMs, maxBytes: 50 * 1024 * 1024 }, grant,
+        async (authority, ticket) => {
+          const prepared = await prepareClaimedBundle(authority, ticket, grant);
+          publishPreparedBundle(authority, prepared);
+          claimed = { authority, ticket }; verified = prepared;
+        });
+    } catch (error) {
+      if (error instanceof CoreError && error.code === "plugin_timeout") return fail("host fetch expired");
+      throw error;
+    }
     if (!claimed || !verified) return fail("remote bundle was not finalized");
     const { authority, ticket } = claimed;
     const { head, commits } = verified;

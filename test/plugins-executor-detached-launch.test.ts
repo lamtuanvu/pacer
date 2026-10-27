@@ -257,6 +257,30 @@ test("detached stop broker rejects foreign identity and replay", async () => {
   }
 });
 
+test("detached stop broker refuses a dead wrapper without an exit receipt", async () => {
+  const { home, ctx, task, registry } = fixture();
+  try {
+    const dir = join(ctx.pacerHome, "runs", task.id, "1");
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    writeFileSync(join(dir, "pid"), "999999", { mode: 0o600 });
+    const persisted = updateTask(ctx, task.id, current => {
+      current.run = { dir, attempt: 1, executor: "codex", startedAt: ctx.now,
+        mode: "current", workdir: home, logFile: join(dir, "stdout") };
+      current.startIntent = { attempt: 1, providerId: "pacer-exec-direct", dir };
+    });
+    const stat = statSync(dir);
+    const authority = createCallAuthority(ctx, { reads: [], commands: [], stores: [], detachedStop: {
+      taskId: task.id, rev: persisted.rev, attempt: 1, dir,
+      dirIdentity: { dev: stat.dev, ino: stat.ino }, pid: 999999,
+      startedAt: persisted.run!.startedAt, executor: "codex", graceMs: 100,
+    } }, { deadlineMs: Date.now() + 5000, grants: ["process.spawn"] });
+    await expect(answerDetachedStop(authority, { taskId: task.id, attempt: 1, graceMs: 100 }))
+      .rejects.toMatchObject({ code: "plugin_unavailable" });
+    expect(existsSync(join(dir, "exit"))).toBe(false);
+    await authority.revoke();
+  } finally { await registry.shutdown(); rmSync(home, { recursive: true, force: true }); }
+});
+
 test("unissued public executor stop cannot reach a local process", async () => {
   const { home, ctx, task, registry } = fixture();
   try {
