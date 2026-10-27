@@ -93,11 +93,15 @@ test('section failures show the service hint and a retry action',async()=>{
 });
 test('standalone screens bundle for the browser with their CSP compatible styles',async()=>{
  const {APP_JS_BUDGET}=await import('../app/build');
- const result=await Bun.build({entrypoints:['app/src/screens/settings/index.ts'],target:'browser',minify:true});
- expect(result.success).toBe(true);expect(result.outputs.length).toBe(1);
- const text=await result.outputs[0]!.text();expect(text).toContain('adoptedStyleSheets');expect(text).toContain('--surface-card');
- // Settings composes the shared eligibility vocabulary; use the governed UI-3 budget.
- expect(Bun.gzipSync(text).byteLength).toBeLessThan(APP_JS_BUDGET);
+ // Split like the shipped app, so lazy screens are measured as the chunks the browser loads.
+ const result=await Bun.build({entrypoints:['app/src/screens/settings/index.ts'],target:'browser',minify:true,splitting:true});
+ expect(result.success).toBe(true);
+ const chunks=await Promise.all(result.outputs.filter(file=>file.path.endsWith('.js')).map(async file=>({path:file.path,kind:file.kind,text:await file.text()})));
+ expect(chunks.filter(chunk=>chunk.kind==='entry-point')).toHaveLength(1);
+ const all=chunks.map(chunk=>chunk.text).join('\n');expect(all).toContain('adoptedStyleSheets');expect(all).toContain('--surface-card');
+ // Each chunk, the entry included, stays within the governed UI-3 budget.
+ const over=chunks.map(chunk=>({path:chunk.path,gzip:Bun.gzipSync(chunk.text).byteLength})).filter(chunk=>chunk.gzip>=APP_JS_BUDGET);
+ expect(over).toEqual([]);
 });
 test('restored executor draft resumes checks and Ready follows a passed job only',()=>{
  const initialDraft={step:'4',agent:'codex',account:'team',host:'devbox',createdId:executor.id,jobId:job.id};
