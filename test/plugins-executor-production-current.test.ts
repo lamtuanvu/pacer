@@ -15,6 +15,8 @@ const parsedDirectManifest = manifestSchema.parse(directManifest);
 import { createTask, readTask, updateTask } from "../src/tasks/store";
 import { superviseTask, taskStop } from "../src/tasks/api";
 import { runTask } from "../src/tasks/runner";
+import { registerWork } from "../src/dispatch/work";
+import { retryWork } from "../src/core/work";
 import { realRun } from "./helpers";
 import { eligibility } from "./fixtures/eligibility";
 import { defaultHooks } from "../src/classify/hooks";
@@ -459,6 +461,110 @@ test("retry reuses the prior task-owned worktree after its HEAD advances", async
     expect(outcome.worktree).toBe(worktree);
     expect(readTask(ctx, retried.id)?.baseSha).toBe(head);
     expect(readFileSync(join(worktree, "first-commit.txt"), "utf8")).toBe("retained\n");
+  } finally { cleanup(); }
+});
+
+test("a managed retry keeps the same task worktree under a second provider-owned run", async () => {
+  const { ctx, task, cfg, cleanup } = fixture();
+  try {
+    Bun.spawnSync(["git", "init", "-q", "-b", "main"], { cwd: task.brief.repo });
+    Bun.spawnSync(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+      "commit", "-q", "--allow-empty", "-m", "init"], { cwd: task.brief.repo });
+    registerWork(ctx, task.id, { maxAttempts: 2 });
+    const first = updateTask(ctx, task.id, current => {
+      current.placement = { requested: "new" };
+      current.brief.worktreeBase = "head";
+    });
+    const initial = await runOwnedDirectNew({ ...ctx, run: realRun }, cfg, first);
+    const original = readTask(ctx, task.id)!;
+    expect(original.run?.attempt).toBe(1);
+    expect(original.worktree).toBe(initial.worktree);
+    writeFileSync(join(initial.worktree!, "first-attempt.txt"), "retained across retry\n");
+    Bun.spawnSync(["git", "add", "first-attempt.txt"], { cwd: initial.worktree });
+    Bun.spawnSync(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+      "commit", "-q", "-m", "first attempt"], { cwd: initial.worktree });
+    const advancedHead = Bun.spawnSync(["git", "rev-parse", "HEAD"],
+      { cwd: initial.worktree }).stdout.toString().trim();
+    updateTask(ctx, task.id, current => {
+      current.attempts.push(initial.attempt);
+      current.state = "failed";
+      current.result = { status: "failed", executor: "codex", model: null, files: "",
+        report: "fixture asks for another attempt", backend: "direct", worktree: initial.worktree };
+    });
+    writeFileSync(join(ctx.pacerHome, "strategy.yaml"), JSON.stringify({
+      planner: "claude-code", accounts: { "claude-code": { kind: "claude" },
+        codex: { kind: "codex", usage: "unmetered" } },
+      runners: { codex: { models: [{ id: "provider/fixture", tier: "small" }] } },
+      execution: { worktree: "new-child" },
+      dispatch: { timeoutMs: 5000, steps: [{ id: "fixture", capacity: "unknown" }] },
+    }));
+    const liveCtx = { ...ctx, now: Date.now() / 1000, run: realRun };
+    await retryWork(liveCtx, task.id,
+      { expectRev: readTask(ctx, task.id)!.rev, requestId: "same-task-attempt-2" }, () => undefined);
+    const selected = readTask(ctx, task.id)!;
+    expect(selected.state).toBe("queued");
+    expect(selected.worktree).toBe(initial.worktree);
+    expect(selected.run).toBeUndefined();
+    const status = async () => ({ generatedAt: Date.now() / 1000, strategy: "default", planner: "claude-code",
+      mode: "normal" as const, disabled: false, calendarPace: true, accounts: [],
+      providers: ["claude-code", "codex"].map(id => ({ id, eligibility: eligibility(), usage: "quota" as const,
+        windows: [], binding: null, verdict: "ON_PACE" as const, installed: true, stale: false })),
+      executors: { ranked: [], excluded: [] } });
+    const result = await runTask(liveCtx, task.id, {
+      loadStrategy,
+      computeStatus: status,
+      hooks: { ...defaultHooks, taskKind: async () => "research" },
+      verifyRepo: async () => ({ files: "(no changes)" }),
+    });
+    expect(result.state).toBe("done");
+    expect(result.attempts).toHaveLength(2);
+    expect(result.worktree).toBe(initial.worktree);
+    expect(result.run?.attempt).toBe(2);
+    expect(result.startIntent).toMatchObject({ attempt: 2, providerId: "pacer-exec-direct" });
+    expect(result.executorExitReceipt).toMatchObject({ attempt: 2, providerId: "pacer-exec-direct" });
+    expect(result.executorProvider).toBe("pacer-exec-direct");
+    expect(result.baseSha).toBe(advancedHead);
+    expect(readFileSync(join(initial.worktree!, "first-attempt.txt"), "utf8"))
+      .toBe("retained across retry\n");
+  } finally { cleanup(); }
+});
+
+test("an uncertain prior local attempt cannot launch a second provider run", async () => {
+  const { ctx, task, cfg, cleanup } = fixture();
+  try {
+    Bun.spawnSync(["git", "init", "-q", "-b", "main"], { cwd: task.brief.repo });
+    Bun.spawnSync(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+      "commit", "-q", "--allow-empty", "-m", "init"], { cwd: task.brief.repo });
+    const first = updateTask(ctx, task.id, current => {
+      current.placement = { requested: "new" };
+      current.brief.worktreeBase = "head";
+    });
+    const initial = await runOwnedDirectNew({ ...ctx, run: realRun }, cfg, first);
+    const uncertain = updateTask(ctx, task.id, current => {
+      current.attempts.push(initial.attempt);
+      delete current.run;
+      delete current.executorExitReceipt;
+    });
+    expect(runOwnedDirectNew({ ...ctx, run: realRun }, cfg, uncertain))
+      .rejects.toMatchObject({ code: "conflict" });
+    expect(readTask(ctx, task.id)?.run).toBeUndefined();
+    expect(readTask(ctx, task.id)?.startIntent?.attempt).toBe(1);
+  } finally { cleanup(); }
+});
+
+test("a settled in-place attempt can claim a second provider run", async () => {
+  const { ctx, task, cfg, cleanup } = fixture();
+  try {
+    const first = await runOwnedDirectCurrent({ ...ctx, run: realRun }, cfg, task);
+    const retry = updateTask(ctx, task.id, current => {
+      current.attempts.push(first.attempt);
+      delete current.run;
+    });
+    const second = await runOwnedDirectCurrent({ ...ctx, run: realRun }, cfg, retry);
+    expect(second.exec.code).toBe(0);
+    expect(readTask(ctx, task.id)?.run?.attempt).toBe(2);
+    expect(readTask(ctx, task.id)?.startIntent?.attempt).toBe(2);
+    expect(readTask(ctx, task.id)?.executorExitReceipt?.attempt).toBe(2);
   } finally { cleanup(); }
 });
 

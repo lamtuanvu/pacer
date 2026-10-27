@@ -75,7 +75,26 @@ async function admittedDefaultBase(ctx: Ctx, task: TaskRecord, providerId: strin
 /** A selected local noninteractive attempt, with placement owned by the same plugin call. */
 async function runOwnedDirect(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord,
   placement: "current" | "new", caller: ExecutorCaller): Promise<AttemptOutcome> {
-  const providerId = "pacer-exec-direct", current = readTask(ctx, task.id);
+  const providerId = "pacer-exec-direct";
+  // A managed retry retains the task-owned checkout. Keep the prior receipts
+  // until the new attempt replaces them, including across a crash before claim.
+  if (!task.retryOf && task.attempts.length > 0) {
+    withTaskLock(ctx, task.id, () => {
+      const owned = readTask(ctx, task.id), previous = owned?.attempts.length ?? 0;
+      const receipt = owned?.executorExitReceipt, start = owned?.startIntent;
+      if (!owned || owned.state !== "running" || owned.stopPending || owned.run || owned.runClaim ||
+        owned.executorProvider !== providerId || owned.attempts.length !== task.attempts.length ||
+        owned.worktree !== task.worktree || !receipt || receipt.attempt !== previous ||
+        receipt.providerId !== providerId || !start || start.attempt !== previous ||
+        start.providerId !== providerId || start.dir !== receipt.dir ||
+        owned.attempts[previous - 1]?.exitCode !== receipt.exitCode ||
+        owned.attempts[previous - 1]?.startedAt !== receipt.startedAt ||
+        owned.worktreeIntent && (placement !== "new" ||
+          owned.worktreeIntent.attempt !== previous + 1))
+        throw new CoreError("conflict", "prior local attempt is not settled");
+    });
+  }
+  const current = readTask(ctx, task.id);
   if (!current || current.state !== "running" || current.stopPending || current.run ||
     current.executorProvider !== providerId || current.executor !== cfg.id ||
     current.attempts.length !== task.attempts.length ||
@@ -84,7 +103,7 @@ async function runOwnedDirect(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord,
     current.worktreeIntent && (placement !== "new" ||
       current.worktreeIntent.providerId !== providerId ||
       current.worktreeIntent.attempt !== current.attempts.length + 1) ||
-    current.worktree && (placement !== "new" || !current.retryOf) ||
+    current.worktree && (placement !== "new" || !current.retryOf && current.attempts.length === 0) ||
     !Number.isSafeInteger(task.timeoutS) || task.timeoutS < 1 || task.timeoutS > 1800)
     throw new CoreError("capability_denied", "direct executor route is not an owned local attempt");
   const strategy = loadStrategy(ctx), execution = validateExecution(strategy.execution);
