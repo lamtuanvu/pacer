@@ -136,15 +136,15 @@ pub(super) fn refresh_opencode(ctx: &Ctx, content: &[u8]) -> io::Result<()> {
         use std::os::unix::fs::PermissionsExt;
         dir.set_permissions(std::fs::Permissions::from_mode(0o700))?;
     }
-    if let Some((file, current)) = read_regular(&dir, "opencode.json")? {
-        if current == content {
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
-            }
-            return Ok(());
+    if let Some((file, current)) = read_regular(&dir, "opencode.json")?
+        && current == content
+    {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
         }
+        return Ok(());
     }
     replace(&dir, "opencode.json", content)
 }

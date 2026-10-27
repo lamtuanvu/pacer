@@ -106,7 +106,7 @@ async fn supported_routing_edits_match_typescript_bytes_and_events() {
         let op = routing_set_ops()
             .iter()
             .find(|op| op.name == "routing.set")
-            .expect("routing.set must be native");
+            .unwrap();
         let outcome = match (op.call)(&ctx, params).await {
             Ok(result) => json!({"result":result}),
             Err(error) => {
