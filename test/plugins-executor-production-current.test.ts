@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type ProviderCfg, loadStrategy } from "../src/config/strategy";
@@ -16,6 +16,7 @@ import { createTask, readTask, updateTask } from "../src/tasks/store";
 import { superviseTask, taskStop } from "../src/tasks/api";
 import { runTask } from "../src/tasks/runner";
 import { registerWork } from "../src/dispatch/work";
+import { dispatchDatabase } from "../src/dispatch/store";
 import { retryWork } from "../src/core/work";
 import { realRun } from "./helpers";
 import { eligibility } from "./fixtures/eligibility";
@@ -526,6 +527,98 @@ test("a managed retry keeps the same task worktree under a second provider-owned
     expect(result.baseSha).toBe(advancedHead);
     expect(readFileSync(join(initial.worktree!, "first-attempt.txt"), "utf8"))
       .toBe("retained across retry\n");
+  } finally { cleanup(); }
+});
+
+test("delegating managed work reaches only the owned executor child with its attempt grant", async () => {
+  const { ctx, task, cleanup } = fixture();
+  try {
+    Bun.spawnSync(["git", "init", "-q", "-b", "main"], { cwd: task.brief.repo });
+    Bun.spawnSync(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+      "commit", "-q", "--allow-empty", "-m", "init"], { cwd: task.brief.repo });
+    writeFileSync(ctx.which("codex")!, "#!/bin/sh\nif [ -n \"$PACER_WORK_GRANT\" ]; then echo grant-present; else echo grant-missing; fi\n", { mode: 0o700 });
+    registerWork(ctx, task.id, { allowDelegation: true });
+    writeFileSync(join(ctx.pacerHome, "strategy.yaml"), JSON.stringify({
+      planner: "claude-code", accounts: { "claude-code": { kind: "claude" },
+        codex: { kind: "codex", usage: "unmetered" } },
+      runners: { codex: { models: [{ id: "provider/fixture", tier: "small" }] } },
+      execution: { worktree: "new-child" },
+      dispatch: { timeoutMs: 5000, steps: [{ id: "fixture", capacity: "unknown" }] },
+    }));
+    updateTask(ctx, task.id, current => {
+      current.state = "queued";
+      current.placement = { requested: "new" };
+      current.brief.worktreeBase = "head";
+      delete current.executor;
+      delete current.executorProvider;
+    });
+    const liveCtx = { ...ctx, now: Date.now() / 1000, run: realRun };
+    const result = await runTask(liveCtx, task.id, {
+      loadStrategy,
+      computeStatus: async () => ({ generatedAt: Date.now() / 1000, strategy: "default", planner: "claude-code",
+        mode: "normal", disabled: false, calendarPace: true, accounts: [],
+        providers: ["claude-code", "codex"].map(id => ({ id, eligibility: eligibility(), usage: "quota" as const,
+          windows: [], binding: null, verdict: "ON_PACE" as const, installed: true, stale: false })),
+        executors: { ranked: [], excluded: [] } }),
+      hooks: { ...defaultHooks, taskKind: async () => "research" },
+      verifyRepo: async () => ({ files: "(no changes)" }),
+    });
+    expect(result.state).toBe("done");
+    expect(result.executorProvider).toBe("pacer-exec-direct");
+    expect(result.startIntent?.attempt).toBe(1);
+    expect(result.result?.report).toContain("grant-present");
+    expect(JSON.stringify(result)).not.toMatch(/pwg_[0-9a-f]{64}/);
+    expect(readFileSync(result.run!.logFile, "utf8")).not.toMatch(/pwg_[0-9a-f]{64}/);
+    const grants = dispatchDatabase(ctx).query<{ n: number; live: number }, [string]>(
+      "SELECT count(*) AS n, sum(CASE WHEN revoked=0 THEN 1 ELSE 0 END) AS live FROM work_grants WHERE task_id=?",
+    ).get(task.id)!;
+    expect(grants.n).toBe(1);
+    expect(grants.live).toBe(0);
+  } finally { cleanup(); }
+});
+
+test("disabled bundled executor never falls back for delegating managed work", async () => {
+  const { ctx, task, cleanup } = fixture();
+  try {
+    Bun.spawnSync(["git", "init", "-q", "-b", "main"], { cwd: task.brief.repo });
+    Bun.spawnSync(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+      "commit", "-q", "--allow-empty", "-m", "init"], { cwd: task.brief.repo });
+    const marker = join(task.brief.repo, "legacy-ran.txt");
+    writeFileSync(ctx.which("codex")!, `#!/bin/sh\nprintf legacy > '${marker}'\n`, { mode: 0o700 });
+    registerWork(ctx, task.id, { allowDelegation: true });
+    writeFileSync(join(ctx.pacerHome, "strategy.yaml"), JSON.stringify({
+      planner: "claude-code", accounts: { "claude-code": { kind: "claude" },
+        codex: { kind: "codex", usage: "unmetered" } },
+      runners: { codex: { models: [{ id: "provider/fixture", tier: "small" }] } },
+      execution: { worktree: "new-child" },
+      dispatch: { timeoutMs: 5000, steps: [{ id: "fixture", capacity: "unknown" }] },
+    }));
+    await pluginRegistry(ctx).disable(ctx, "pacer-exec-direct");
+    updateTask(ctx, task.id, current => {
+      current.state = "queued";
+      current.placement = { requested: "new" };
+      current.brief.worktreeBase = "head";
+      delete current.executor;
+      delete current.executorProvider;
+    });
+    const result = await runTask({ ...ctx, now: Date.now() / 1000, run: realRun }, task.id, {
+      loadStrategy,
+      computeStatus: async () => ({ generatedAt: Date.now() / 1000, strategy: "default", planner: "claude-code",
+        mode: "normal", disabled: false, calendarPace: true, accounts: [],
+        providers: ["claude-code", "codex"].map(id => ({ id, eligibility: eligibility(), usage: "quota" as const,
+          windows: [], binding: null, verdict: "ON_PACE" as const, installed: true, stale: false })),
+        executors: { ranked: [], excluded: [] } }),
+      hooks: { ...defaultHooks, taskKind: async () => "research" },
+      verifyRepo: async () => ({ files: "(no changes)" }),
+    });
+    expect(result.state).not.toBe("done");
+    expect(readTask(ctx, task.id)?.run).toBeUndefined();
+    expect(existsSync(marker)).toBe(false);
+    expect(JSON.stringify(result)).not.toMatch(/pwg_[0-9a-f]{64}/);
+    const grants = dispatchDatabase(ctx).query<{ live: number }, [string]>(
+      "SELECT count(*) AS live FROM work_grants WHERE task_id=? AND revoked=0",
+    ).get(task.id)!;
+    expect(grants.live).toBe(0);
   } finally { cleanup(); }
 });
 

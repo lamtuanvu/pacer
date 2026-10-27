@@ -26,6 +26,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 ### Changed
 
 - Route local current and task-owned worktree attempts, including automatic child placement and same-task managed retries, through the bundled direct executor. A retry reuses the task worktree only after the prior provider exit is confirmed; an uncertain exit cannot start another local run. The host journals default-origin fetch before placement and refuses an unresolved fetch or provider result without a built-in retry. Interactive and remote executor orchestration remain under extraction.
+- Route local noninteractive managed work that permits child delegation through the bundled direct executor. The host passes its attempt-scoped work grant only to the selected executor child; a disabled provider cannot cause a built-in launch.
 - Stream an attached remote PTY viewer through bounded, one-use SSH plugin reads. Detach cancels the pending read, reconnect resumes from the committed cursor, and a refused read never falls back to direct SSH. Empty polls add about 200 ms plus SSH round-trip latency.
 - Start persisted remote runs through a one-use bundled SSH plugin grant with private stdin and a completion receipt. Launch input over 50 MiB is refused; uncertain starts do not retry through direct SSH.
 - Mirror full-session remote recordings through bounded, one-use SSH plugin reads. A changed or incomplete recording snapshot pauses that poll, and publication failures restore the prior local files without retrying direct SSH.
