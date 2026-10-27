@@ -3,8 +3,9 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import type { AttentionItem } from "../../../../src/api/read-model/types";
 import { agentInfo, markAgent } from "../../../../src/view-model/agents";
 import { glanceTiles, needsYouCards, tokenSpread, type NeedsYouCard, type TokenReport } from "../../../../src/view-model/dispatch";
+import { executorEligibility } from "../../../../src/view-model/capacity";
 import { eligibilityPresentation } from "../../../../src/view-model/eligibility";
-import { counts, needsYou, otherReposNeedingYou, plannerMeter, type Scope } from "../../../../src/view-model/selectors";
+import { capacity, counts, needsYou, otherReposNeedingYou, plannerMeter, type Scope } from "../../../../src/view-model/selectors";
 import type { ClientSnapshot } from "../../../../src/view-model/snapshot";
 import { scopedTaskTree, type TaskNodeView } from "../../../../src/view-model/task-tree";
 import { clock } from "../../../../src/view-model/time";
@@ -14,7 +15,7 @@ import type { ActionRunner } from "../../data/actions";
 import { AgentMark } from "../../ds/AgentMark";
 import { TextAction } from "../../ds/Button";
 import { Page } from "../../ds/Page";
-import { EmptyState, ListRow } from "../../ds/Patterns";
+import { EmptyState, ListRow, ListRowLink } from "../../ds/Patterns";
 import { SectionHeading } from "../../ds/SectionHeading";
 import { StackedShareBar } from "../../ds/StackedShareBar";
 import { StatusGlyph } from "../../ds/StatusGlyph";
@@ -146,6 +147,22 @@ function NextTask({ routing, query }: { routing: RoutingPreview; query: RouteQue
   </section>;
 }
 
+/** Narrow layouts hide the status bar, so agent usage and readiness stay reachable here (desktop keeps them in the status bar). */
+function AgentUsage({ snapshot, query }: { snapshot: ClientSnapshot; query: RouteQuery }) {
+  const rows = capacity(snapshot).filter(row => row.rank !== "planner");
+  if (!rows.length) return null;
+  return <section className="pc-card-section" aria-labelledby="agent-usage">
+    <div className="pc-card-section__head"><SectionHeading id="agent-usage">Agents</SectionHeading></div>
+    <ul className="pc-dispatch-agents">{rows.map(row => {
+      const ready = executorEligibility(row, snapshot.at), usage = row.usedPct === null ? "usage unknown" : `${Math.round(row.usedPct)}% used`;
+      return <li key={row.id}><ListRowLink className="pc-dispatch-agent" href={withQuery("#/settings/executors", query)} aria-label={`${executorLabel(row.id)} · ${usage} · ${ready.label}`}>
+        <AgentMark agent={markAgent(row.id, row.account)} size={20} labelled={false} /><span className="pc-dispatch-agent__name">{executorLabel(row.id)}</span>
+        <span className="pc-num">{usage}</span><StatusPill status={ready} />
+      </ListRowLink></li>;
+    })}</ul>
+  </section>;
+}
+
 /** Facts pacer measured today; token figures join once token accounting reports them. Nothing is shown as a placeholder. */
 function Glance({ snapshot, scope, tokens }: { snapshot: ClientSnapshot; scope: Scope; tokens: TokenReport | null }) {
   const tiles = glanceTiles(snapshot, scope, tokens);
@@ -189,6 +206,7 @@ export function DispatchView({ snapshot, query, now, runner, routing = null, tok
       <div className="pc-dispatch__side">
         <PlannerBudget snapshot={snapshot} now={now} />
         {routing && <NextTask routing={routing} query={query} />}
+        {narrow && <AgentUsage snapshot={snapshot} query={query} />}
         <Glance snapshot={snapshot} scope={scope} tokens={tokens} />
         <TokenShare tokens={tokens} />
       </div>

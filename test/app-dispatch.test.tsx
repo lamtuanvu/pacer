@@ -129,6 +129,18 @@ test("next task goes to names the next agent and the order after it, without int
   expect(view(null, snap, { routing: null })).not.toContain('aria-labelledby="next-task"');
 });
 
+test("narrow Dispatch keeps agent usage and readiness while the status bar is absent", () => {
+  const wide = view();
+  expect(wide).not.toContain('aria-labelledby="agent-usage"');
+  const narrow = view(null, snap, {});
+  const scoped = renderToString(<DispatchView snapshot={snap} query={{ repo: null, scope: "repo:github.com/acme/api" }} now={snap.at} runner={runner} routing={null} />);
+  const agents = section(scoped, "agent-usage");
+  expect(agents).toMatch(/aria-label="[^"]+% used · [^"]+"/);
+  expect(agents).toMatch(/aria-label="[^"]+ · usage unknown · [^"]+"/);
+  expect(agents).toContain('href="#/settings/executors?scope=repo%3Agithub.com%2Facme%2Fapi"');
+  expect(narrow).toBe(wide);
+});
+
 test("repo chips show counts, pressed state and the shared-budget note", () => {
   const html = view("github.com/acme/api");
   expect(html).toContain("All repos");
