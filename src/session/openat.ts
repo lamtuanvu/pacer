@@ -12,10 +12,10 @@ function openLibrary() {
 }
 
 /** Read a regular file by walking from an owned directory descriptor, never following symlinks. */
-export function readWorkspaceFile(root: string, components: string[], deniedDirectory?: { dev: number; ino: number }): { bytes: Buffer; size: number; modified: string } {
+export function readWorkspaceFile(root: string, components: string[], deniedDirectory?: { dev: number; ino: number }, expectedRoot?: { dev: number; ino: number }): { bytes: Buffer; size: number; modified: string } {
   if (!components.length || components.some(part => !part || part === "." || part === ".." || part.includes("/") || part.includes("\0")))
     throw Error("Invalid workspace path");
-  const expected = statSync(root);
+  const expected = expectedRoot ?? statSync(root);
   const owned: number[] = [];
   try {
     let dir = openSync(root, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW | CLOEXEC);

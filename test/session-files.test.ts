@@ -77,3 +77,78 @@ test("session API exposes attempt identity and reads through a versioned operati
     .toMatchObject({ kind: "markdown", text: "# Hello\n" });
   await expect(callOp(ctx, "session.file.read", { id, attempt: 1, reference: "README.md" })).rejects.toMatchObject({ code: "conflict" });
 });
+
+test("reads files in a pacer task worktree but still refuses the rest of private state", () => {
+  const home = tmpDir();
+  const ctx = fakeCtx({ home, pacerHome: join(home, ".pacer") });
+  const workdir = join(ctx.pacerHome, "worktrees", "repo-0123abcd", id);
+  mkdirSync(join(workdir, "src"), { recursive: true });
+  writeFileSync(join(workdir, "src", "main.ts"), "export {};\n");
+  writeJsonAtomic(join(ctx.pacerHome, "tasks", `${id}.json`), {
+    id, rev: 1, state: "running", createdAt: 1,
+    brief: { goal: "view", repo: workdir }, attempts: [],
+    run: { attempt: 2, workdir, dir: join(ctx.pacerHome, "runs", id, "2"), host: null, mode: "worktree" },
+  } as any);
+  expect(readSessionFile(ctx, { id, attempt: 2, reference: "src/main.ts" })).toMatchObject({ path: "src/main.ts", text: "export {};\n" });
+  symlinkSync(join(ctx.pacerHome, "tasks", `${id}.json`), join(workdir, "task.json"));
+  expect(errorCode(() => readSessionFile(ctx, { id, attempt: 2, reference: "task.json" }))).toBe("not_allowed");
+  expect(errorCode(() => readSessionFile(ctx, { id, attempt: 2, reference: "../../../tasks/" + id + ".json" }))).toBe("not_allowed");
+});
+
+test("refuses a session whose workspace is the worktrees directory or private state itself", () => {
+  const home = tmpDir();
+  const ctx = fakeCtx({ home, pacerHome: join(home, ".pacer") });
+  for (const workdir of [ctx.pacerHome, join(ctx.pacerHome, "worktrees")]) {
+    mkdirSync(join(ctx.pacerHome, "worktrees"), { recursive: true });
+    writeFileSync(join(ctx.pacerHome, "state.txt"), "secret");
+    writeFileSync(join(ctx.pacerHome, "worktrees", "state.txt"), "secret");
+    writeJsonAtomic(join(ctx.pacerHome, "tasks", `${id}.json`), {
+      id, rev: 1, state: "running", createdAt: 1,
+      brief: { goal: "view", repo: workdir }, attempts: [],
+      run: { attempt: 2, workdir, dir: join(ctx.pacerHome, "runs", id, "2"), host: null, mode: "current" },
+    } as any);
+    expect(errorCode(() => readSessionFile(ctx, { id, attempt: 2, reference: "state.txt" }))).toBe("not_allowed");
+  }
+});
+
+function worktreeSession(ctx: ReturnType<typeof fakeCtx>, workdir: string) {
+  writeJsonAtomic(join(ctx.pacerHome, "tasks", `${id}.json`), {
+    id, rev: 1, state: "running", createdAt: 1,
+    brief: { goal: "view", repo: workdir }, attempts: [],
+    run: { attempt: 2, workdir, dir: join(ctx.pacerHome, "runs", id, "2"), host: null, mode: "current" },
+  } as any);
+}
+
+test("a per-repo worktrees directory cannot read sibling task worktrees", () => {
+  const home = tmpDir();
+  const ctx = fakeCtx({ home, pacerHome: join(home, ".pacer") });
+  const repoDir = join(ctx.pacerHome, "worktrees", "repo-0123abcd");
+  mkdirSync(join(repoDir, "t-20261027-120000-ffff"), { recursive: true });
+  writeFileSync(join(repoDir, "t-20261027-120000-ffff", "secret.txt"), "secret");
+  worktreeSession(ctx, repoDir);
+  expect(errorCode(() => readSessionFile(ctx, { id, attempt: 2, reference: "t-20261027-120000-ffff/secret.txt" }))).toBe("not_allowed");
+});
+
+test("a retried task reads the earlier task's worktree, and a sub directory workdir cannot read above itself", () => {
+  const home = tmpDir();
+  const ctx = fakeCtx({ home, pacerHome: join(home, ".pacer") });
+  const top = join(ctx.pacerHome, "worktrees", "repo-0123abcd", "t-20261026-090000-0aa0");
+  mkdirSync(join(top, "pkg", "src"), { recursive: true });
+  writeFileSync(join(top, "root.txt"), "top");
+  writeFileSync(join(top, "pkg", "src", "a.ts"), "a");
+  worktreeSession(ctx, top);
+  expect(readSessionFile(ctx, { id, attempt: 2, reference: "root.txt" }).text).toBe("top");
+  worktreeSession(ctx, join(top, "pkg"));
+  expect(readSessionFile(ctx, { id, attempt: 2, reference: "src/a.ts" }).text).toBe("a");
+  expect(errorCode(() => readSessionFile(ctx, { id, attempt: 2, reference: "../root.txt" }))).toBe("not_allowed");
+});
+
+test("a symlinked worktrees directory never widens the exemption", () => {
+  const home = tmpDir();
+  const ctx = fakeCtx({ home, pacerHome: join(home, ".pacer") });
+  mkdirSync(join(ctx.pacerHome, "runs", "repo-0123abcd", id), { recursive: true });
+  writeFileSync(join(ctx.pacerHome, "runs", "repo-0123abcd", id, "log.txt"), "secret");
+  symlinkSync(join(ctx.pacerHome, "runs"), join(ctx.pacerHome, "worktrees"));
+  worktreeSession(ctx, join(ctx.pacerHome, "worktrees", "repo-0123abcd", id));
+  expect(errorCode(() => readSessionFile(ctx, { id, attempt: 2, reference: "log.txt" }))).toBe("not_allowed");
+});
