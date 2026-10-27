@@ -6,6 +6,7 @@ import { PluginRegistry } from "../src/plugins/registry";
 import { issueConfiguredHostSessionStream } from "../src/plugins/host-session-stream-issuer";
 import { createTask, updateTask } from "../src/tasks/store";
 import { fakeCtx } from "./helpers";
+import { CoreError } from "../src/core/errors";
 
 test("host streams one persisted full-session run through the bundled provider", async () => {
   const home = mkdtempSync(join(tmpdir(), "pacer-session-stream-bridge-"));
@@ -55,7 +56,11 @@ test("host streams one persisted full-session run through the bundled provider",
     await consuming;
     updateTask(ctx, task.id, record => { record.run!.remoteDir = `/remote/.pacer-remote/runs/${task.id}/2`; });
     release();
-    await expect(next.done).rejects.toMatchObject({ code: "capability_denied" });
+    const failure = await next.done.then(() => null, error => error as unknown);
+    if (!(failure instanceof CoreError)) throw new Error("changed stream owner did not fail closed");
+    // The watcher can reject the changed grant directly or abort its in-flight plugin call.
+    expect(failure.code === "capability_denied" ||
+      (failure.code === "plugin_unavailable" && failure.message === "owning plugin call ended")).toBe(true);
   } finally { await registry.shutdown(); rmSync(home, { recursive: true, force: true }); }
 });
 

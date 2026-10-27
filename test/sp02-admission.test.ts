@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { CallAdmission } from "../src/plugins/admission";
+import { CoreError } from "../src/core/errors";
 
 test("eight active calls and thirty-two queued calls reject overflow without executing it", async () => {
   const admission = new CallAdmission();
@@ -32,6 +33,22 @@ test("active cancellation awaits task cleanup and never returns its late value",
   }), controller.signal);
   await Promise.resolve(); controller.abort();
   await expect(pending).rejects.toMatchObject({ code: "plugin_unavailable" });
+  expect(clean).toBe(true);
+});
+
+test("parent timeout keeps its reason through active and pre-dispatch cancellation", async () => {
+  const timeout = new CoreError("plugin_timeout", "host fetch expired");
+  const before = new AbortController(); before.abort(timeout);
+  await expect(new CallAdmission().run(Date.now() + 2000, async () => "wrong", before.signal))
+    .rejects.toMatchObject({ code: "plugin_timeout", message: "host fetch expired" });
+
+  const active = new AbortController();
+  let clean = false;
+  const pending = new CallAdmission().run(Date.now() + 2000, signal => new Promise(resolve => {
+    signal.addEventListener("abort", () => { clean = true; resolve("late value"); }, { once: true });
+  }), active.signal);
+  await Promise.resolve(); active.abort(timeout);
+  await expect(pending).rejects.toMatchObject({ code: "plugin_timeout", message: "host fetch expired" });
   expect(clean).toBe(true);
 });
 
