@@ -2,6 +2,7 @@ import { classNames as classes } from "./classNames";
 // Beautiful UI atoms/Button.tsx adaptation. Source revision and MIT credit: docs/design-system.md.
 import type { JSX } from 'preact';
 import { forwardRef } from "preact/compat";
+import { Icon, type IconName } from "./icons";
 import { useDensity } from "./Density";
 
 export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'quiet' | 'danger';
@@ -30,6 +31,8 @@ export const ButtonLink = forwardRef<HTMLAnchorElement, ButtonLinkProps>(functio
 export const TextAction = forwardRef<HTMLAnchorElement, JSX.AnchorHTMLAttributes<HTMLAnchorElement>>(function TextAction({ className, children, ...rest }, ref) {
   return <a {...rest} ref={ref} className={classes('pc-text-action', className)}>{children}</a>;
 });
-export const IconButton = forwardRef<HTMLButtonElement, ButtonProps & { 'aria-label': string }>(function IconButton(props, ref) {
-  return <Button {...props} ref={ref} className={classes('pc-icon-button', props.className)} />;
+export const IconButton = forwardRef<HTMLButtonElement, ButtonProps & { 'aria-label': string; icon?: IconName }>(function IconButton({ icon, children, className, ...props }, ref) {
+  return <Button {...props} ref={ref} className={classes('pc-icon-button', className)}>
+    {icon && <Icon name={icon} />}{children}
+  </Button>;
 });

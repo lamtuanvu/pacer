@@ -6,6 +6,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
+- Add redesign foundations to the design system: calm chart and aurora color tokens, new icons, `StatusDot`, `HostChip`, `MetaRow`, `AgentStack`, `Identicon`, and an `icon` prop for `IconButton`. The Settings rail icon is now a gear.
 - Add a persistent built-in terminal with workspace shells, tabs, splits, search and integrated app action sessions.
 - Strict native subagent control for new managed work: Pacer excludes uncertified executors before dispatch, checks again before launch, and exposes certification status and a quota-using canary in Dispatcher and the CLI. Existing managed tasks retain cooperative behavior.
 - Open HTTP(S), local file and source-location links from the built-in session terminal. A read-only viewer shows code, Markdown and an isolated static HTML preview without disconnecting the session.
@@ -13,6 +14,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 ### Changed
 
 - Refine the terminal file viewer: it opens beside the terminal when there is room (a full sheet on narrow screens), starts on Source, adds whole-file search with match stepping (⌘F/Ctrl+F), lists what the isolated HTML preview blocked, explains missing, outside, too-large, binary and changed-session files, and closes with Esc or Back to terminal.
+
+### Fixed
+
+- The session file viewer opens files in sessions that run in a Pacer task worktree instead of refusing them as private state.
 
 ## [0.11.0] - 2026-10-26
 
