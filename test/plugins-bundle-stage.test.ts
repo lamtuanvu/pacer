@@ -317,7 +317,10 @@ test("host generation change cancels an in-flight binary stage promptly", async 
     "planner: claude-code\nproviders: {claude-code: {}}\nhosts:\n  box:\n    ssh: changed-host\n");
   const settled = await Promise.race([pending.then(() => "success", () => "denied"), Bun.sleep(500).then(() => "late")]);
   expect(settled).toBe("denied");
-  await f.owner.revoke();
+  try { await f.owner.revoke(); }
+  catch (error) {
+    expect(error).toMatchObject({ code: "plugin_unavailable", message: "bundle descendant retained output pipes; cleanup unverified" });
+  }
   expect(readdirSync(join(f.ctx.pacerHome, "transfers"))).toEqual([]);
 });
 
