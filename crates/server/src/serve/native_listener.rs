@@ -59,7 +59,7 @@ impl NativeListener {
                 _ => return Err(denied()),
             }
         }
-        let listener = bind_private(&path)?;
+        let listener = bind_private(&directory, &path)?;
         let socket = path.symlink_metadata()?;
         use std::os::unix::fs::FileTypeExt;
         if !socket.file_type().is_socket()
@@ -140,20 +140,36 @@ impl NativeListener {
 fn denied() -> io::Error {
     io::Error::other("native listener ownership unavailable")
 }
-fn bind_private(path: &Path) -> io::Result<UnixListener> {
-    use nix::sys::stat::{Mode, umask};
-    static BIND: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    let _guard = BIND.lock().map_err(|_| denied())?;
-    struct Restore(Mode);
-    impl Drop for Restore {
-        fn drop(&mut self) {
-            umask(self.0);
-        }
+fn bind_private(directory: &std::fs::File, path: &Path) -> io::Result<UnixListener> {
+    bind_private_with(directory, path, || {})
+}
+fn bind_private_with(
+    directory: &std::fs::File,
+    path: &Path,
+    before_bind: impl FnOnce(),
+) -> io::Result<UnixListener> {
+    use nix::sys::stat::{FchmodatFlags, Mode, fchmodat};
+    // The caller verified and opened the 0700 parent. Keep the process-wide
+    // umask unchanged; other threads can create directories during this bind.
+    before_bind();
+    let listener = UnixListener::bind(path)?;
+    let before = path.symlink_metadata()?;
+    let name = path.file_name().ok_or_else(denied)?;
+    fchmodat(
+        directory,
+        name,
+        Mode::S_IRUSR | Mode::S_IWUSR,
+        FchmodatFlags::NoFollowSymlink,
+    )?;
+    let after = path.symlink_metadata()?;
+    use std::os::unix::fs::FileTypeExt;
+    if !same_file(&before, &after)
+        || !after.file_type().is_socket()
+        || after.mode() & 0o777 != 0o600
+    {
+        return Err(denied());
     }
-    // Restrict at creation; never chmod a pathname that could have been redirected.
-    // No await or child spawn occurs while the process mask is restricted.
-    let _mask = Restore(umask(Mode::from_bits_truncate(0o177)));
-    UnixListener::bind(path)
+    Ok(listener)
 }
 fn remove_stale(directory: &std::fs::File, path: &Path, owner: &Path) -> io::Result<()> {
     use nix::{
