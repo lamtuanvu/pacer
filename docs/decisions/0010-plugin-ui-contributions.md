@@ -11,7 +11,7 @@ The redesigned app has places for plugins: activity-bar items, right-panel tabs,
 Plugins contribute UI as data only.
 
 - A new extension point, `contributes.ui`, declares four kinds of surface: `activity`, `panelTabs`, `settings` and `status`. Each has an id, a plain-text title and a design-system icon name.
-- Settings pages are drawn from a closed JSON Schema subset declared in the manifest. Values are validated by the host and stored in the existing plugin config. There is no secret field type: secrets stay references (P5).
+- Settings pages are drawn from a closed JSON Schema subset declared in the manifest. Values are validated by the host and stored in the existing plugin config. Secrets are never values: a `secretRef` field holds only the name of a secret reference (P5).
 - Other surfaces are drawn from **view documents**: bounded trees of typed nodes that the plugin returns from `ui.render`. The host validates every document against a zod schema and passes only valid documents to clients. The app renders them with `app/src/ds/` components.
 - Plugins ship no CSS, JavaScript, HTML, images or URLs that the app loads. Strings are always rendered as text. Views have no text input and no primary buttons. Every plugin surface, header and confirmation dialog is marked with its plugin by the host.
 - User actions go from the app through new client ops to the host, which calls `ui.action` on the plugin. Plugins never call client ops.
@@ -22,6 +22,7 @@ Plugins contribute UI as data only.
 
 - Plugin UI looks and behaves like the rest of pacer, and inherits accessibility, theming, density and the status vocabulary without review of each plugin.
 - What plugins can show is limited to the node set. Richer views, such as charts or editors, each need a protocol addition. That is deliberate.
+- This decision does not sandbox plugins. Until installed plugins are sandboxed (plugin system milestone M3), a plugin process runs as the user and can reach the service token in `PACER_HOME`. The guarantees above hold for the UI path, not against a hostile plugin process.
 - Plugin text can still imitate pacer's wording. Host-drawn provenance and confirmations, and including surfaces in the grant, reduce that risk but don't remove it.
 - The host validates and caches documents, which adds per-render cost to the service. Size limits, deadlines and coalesced invalidation bound that cost.
 - The CLI gains plugin settings commands, so plugin configuration doesn't depend on the app (ARCH-8).
