@@ -40,6 +40,18 @@ function localAsset(address: string): boolean {
 // A tag's attribute text may contain ">" inside quoted values.
 const tagPattern = /<([a-z][\w-]*)((?:[^>"']|"[^"]*"|'[^']*')*)>/gi;
 
+/** One linear pass: each comment (an unterminated one runs to the end) becomes a space, so no new "<!--" can form and nothing is rescanned. */
+function withoutComments(source: string): string {
+  let out = "", at = 0;
+  for (let open = source.indexOf("<!--"); open >= 0; open = source.indexOf("<!--", at)) {
+    const close = source.indexOf("-->", open + 4);
+    out += `${source.slice(at, open)} `;
+    if (close < 0) return out;
+    at = close + 3;
+  }
+  return out + source.slice(at);
+}
+
 /** Lists what the sandboxed preview blocks or omits, from the file text alone (no DOM, no network). */
 export function blockedResources(source: string): BlockedResource[] {
   const found: BlockedResource[] = [];
@@ -55,9 +67,7 @@ export function blockedResources(source: string): BlockedResource[] {
     if (external(address)) add(kind, address, false);
     else if (localAsset(address)) add(kind, address, true);
   };
-  // Strip comments until none remain, so removing one cannot join the pieces into a new "<!--".
-  let text = source;
-  for (let previous = ""; previous !== text;) { previous = text; text = text.replace(/<!--[\s\S]*?(?:-->|$)/g, ""); }
+  const text = withoutComments(source);
   const css: string[] = [];
   let inlineStyles = false;
   const markup = text.replace(/<script\b((?:[^>"']|"[^"]*"|'[^']*')*)>([\s\S]*?)(?:<\/script\s*>|$)/gi, (_whole, attributeText: string, body: string) => {

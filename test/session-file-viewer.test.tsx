@@ -229,6 +229,15 @@ test("Markdown file links resolve from the viewed document and ignore fragments 
 });
 
 test("the blocked-resource scanner ignores comments, including nested and unterminated ones", () => {
-  expect(blockedResources('<!-<!-- x -->- <script src="https://a.example/x.js"></script> -->')).toEqual([]);
+  // As in the HTML parser, a comment ends at the first "-->", so the script after it is real markup.
+  expect(blockedResources('<!-<!-- x -->- <script src="https://a.example/x.js"></script> -->')).toEqual([{ kind: "script", address: "https://a.example/x.js", local: false }]);
+  expect(blockedResources('<!-- <script src="https://a.example/x.js"></script> -->')).toEqual([]);
   expect(blockedResources('<img src="https://b.example/y.png"><!-- <script src="https://a.example/x.js"></script>')).toEqual([{ kind: "img", address: "https://b.example/y.png", local: false }]);
+});
+
+test("comment stripping stays linear on deeply nested comment fragments", () => {
+  const nested = "<!-".repeat(40_000) + "<!-- x -->" + "- -->".repeat(40_000);
+  const started = performance.now();
+  expect(blockedResources(nested + '<img src="https://c.example/z.png">')).toEqual([{ kind: "img", address: "https://c.example/z.png", local: false }]);
+  expect(performance.now() - started).toBeLessThan(500);
 });
