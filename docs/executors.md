@@ -42,6 +42,9 @@ Claude usage requires the status-line integration to have received rate-limit da
 
 Each direct attempt records `pid`, live `stdout` and `stderr`, and `exit` under `<pacerHome>/runs/<task-id>/<attempt>/`. New task worktrees live under `<pacerHome>/worktrees/…` on branch `pacer/<task-id>`; current placement uses the selected repository. `pacer clean [--dry-run] [--force] [--json]` removes pacer-owned worktrees and run directories of settled tasks that have been reviewed, dismissed or resolved. Dirty worktrees are kept unless `--force` is given, and branches are always kept.
 
+For a managed retry on the same task, the bundled direct executor reuses its task worktree and current HEAD after a confirmed provider exit. If the previous process outcome is uncertain, the retry is refused before another process starts.
+Local noninteractive managed work may also permit child delegation. The selected executor child receives an attempt-scoped work grant; a disabled bundled provider stops the attempt before the host starts a built-in executor.
+
 A brief or `--worktree` flag can choose `current`, `new` or `auto`, with `--worktree-reason` explaining the choice. Concurrent activity and unsafe placement can prevent in-place execution. Inspect the returned task's placement and reported worktree before review.
 
 The executor contract asks workers to stay in scope, avoid further delegation, avoid commits/pushes and run acceptance. pacer records reports, logs and any acceptance result; provider-limit detection can retry another ranked executor. Review the changes and run acceptance independently before `pacer review <id> --accept` or `--reject`.

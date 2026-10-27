@@ -1,16 +1,18 @@
-import { closeSync, fstatSync, lstatSync, openSync, realpathSync, statSync, type Stats } from "node:fs";
+import { closeSync, fstatSync, lstatSync, openSync, readdirSync, realpathSync, statSync, type Stats } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { CoreError } from "../core/errors";
 import { readTask, updateTask, withTaskLock } from "../tasks/store";
 import type { RunRef } from "../tasks/types";
 import type { Ctx } from "../types";
 import { applyExecutorProgress } from "./executor-progress";
-import { executorRunResult } from "./executor-protocol";
+import { executorEffectRunResult } from "./executor-protocol";
 import { MAX_PROCESS_SPAWN_MS } from "./capability-protocol";
 import type { CallResources } from "./authority";
 import type { CredentialBinding } from "./credential-bindings";
 import { secretReference } from "./http-protocol";
 import { killTree } from "../exec/process";
+import { realpathSafe } from "../core/git";
+import { bindOwnedWorktreeIntent } from "./executor-worktree";
 import { NativeWriteError, WRITE_DIRECTORY, writeNative } from "./write-native";
 
 interface ExecutorCaller {
@@ -41,7 +43,7 @@ function privateDirectory(path: string, fd: number): void {
     throw new CoreError("conflict", "executor run directory is not private or changed");
 }
 
-function claimRunDirectory(ctx: Ctx, taskId: string, attempt: number):
+export function claimRunDirectory(ctx: Ctx, taskId: string, attempt: number, recover: boolean):
   { path: string; identity: { dev: number; ino: number } } {
   if (!/^[A-Za-z0-9_-]{1,128}$/.test(taskId))
     throw new CoreError("invalid_input", "invalid executor task id");
@@ -71,11 +73,14 @@ function claimRunDirectory(ctx: Ctx, taskId: string, attempt: number):
     };
     const runsFd = openChild(homeFd, "runs", runs, true);
     const taskFd = openChild(runsFd, taskId, taskDir, true);
-    openChild(taskFd, String(attempt), attemptDir, false);
+    openChild(taskFd, String(attempt), attemptDir, recover);
     // Resolve every path again after creation; a replaced ancestor cannot become the persisted run owner.
     privateDirectory(ctx.pacerHome, homeFd);
     privateDirectory(runs, runsFd);
     privateDirectory(taskDir, taskFd);
+    privateDirectory(attemptDir, opened[opened.length - 1]!);
+    if (recover && readdirSync(attemptDir).length !== 0)
+      throw new CoreError("conflict", "unpublished executor run directory contains effects");
     privateDirectory(attemptDir, opened[opened.length - 1]!);
     const claimed = fstatSync(opened[opened.length - 1]!);
     return { path: attemptDir, identity: { dev: claimed.dev, ino: claimed.ino } };
@@ -84,11 +89,73 @@ function claimRunDirectory(ctx: Ctx, taskId: string, attempt: number):
   }
 }
 
+/** Persist the exact run owner before any provider process effect. */
+export async function publishOwnedExecutorRun(ctx: Ctx, pluginId: string, taskId: string,
+  executor: string, workdir: string, session?: "interactive"):
+  Promise<{ owner: RunRef; runIdentity: { dev: number; ino: number } }> {
+  if (!isAbsolute(workdir)) throw new CoreError("invalid_input", "executor workdir must be absolute");
+  let runIdentity: { dev: number; ino: number };
+  let isolated = false;
+  const owner = withTaskLock(ctx, taskId, (): RunRef => {
+    const task = readTask(ctx, taskId);
+    if (!task) throw new CoreError("unknown_task", `unknown task ${taskId}`);
+    if (task.state !== "running" || task.stopPending || task.run || task.executor !== executor ||
+      task.executorProvider !== pluginId)
+      throw new CoreError("conflict", "executor task is no longer available for this attempt");
+    const attempt = task.attempts.length + 1;
+    const conversation = task.interactionMode === "conversation";
+    const identity = task.nativeIdentityIntent;
+    if (conversation && (session !== "interactive" || !identity ||
+      identity.attempt !== attempt || identity.providerId !== pluginId ||
+      identity.executor !== executor || identity.workdir !== workdir ||
+      (identity.kind === "header" ? !!identity.id || !!task.conversation?.agentSessionId :
+        !identity.id || !identity.source || identity.id !== task.conversation?.agentSessionId)))
+      throw new CoreError("conflict", "conversation claim has no exact native identity intent");
+    isolated = realpathSafe(workdir) !== realpathSafe(task.brief.repo);
+    if (isolated && (task.executorProvider !== pluginId ||
+      task.worktreeIntent?.providerId !== pluginId ||
+      task.worktreeIntent?.attempt !== attempt || task.worktreeIntent?.workdir !== workdir))
+      throw new CoreError("conflict", "isolated executor run has no bound worktree intent");
+    if (!isolated && task.worktreeIntent)
+      throw new CoreError("conflict", "in-place run conflicts with pending worktree intent");
+    const dir = join(ctx.pacerHome, "runs", taskId, String(attempt));
+    const expected = { attempt, providerId: pluginId, executor, workdir, dir,
+      ...(session ? { session } : {}),
+      ...(conversation ? { interactionMode: "conversation" as const,
+        ...(identity?.id && identity.source ? { agentSession: { id: identity.id, source: identity.source } } : {}) } : {}) };
+    const recover = task.runClaim !== undefined;
+    if (recover && JSON.stringify(task.runClaim) !== JSON.stringify(expected))
+      throw new CoreError("conflict", "executor run claim changed before dispatch");
+    if (!recover) {
+      try { lstatSync(dir); throw new CoreError("conflict", "executor attempt directory already exists"); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+      updateTask(ctx, taskId, current => { current.runClaim = expected; });
+    }
+    const claim = claimRunDirectory(ctx, taskId, attempt, recover);
+    if (claim.path !== dir) throw new CoreError("conflict", "executor run directory changed");
+    runIdentity = claim.identity;
+    const run: RunRef = { dir, attempt, executor, startedAt: Date.now() / 1000,
+      ...(session ? { session } : {}),
+      ...(conversation ? { interactionMode: "conversation" as const,
+        ...(identity?.id && identity.source ? { agentSession: { id: identity.id, source: identity.source } } : {}) } : {}),
+      mode: isolated ? "new" : "current", workdir, logFile: join(dir, "stdout") };
+    updateTask(ctx, taskId, current => {
+      if (JSON.stringify(current.runClaim) !== JSON.stringify(expected))
+        throw new CoreError("conflict", "executor run claim changed before publication");
+      current.run = run;
+      delete current.runClaim;
+      if (isolated) current.worktree = workdir;
+    });
+    return run;
+  });
+  if (isolated) await bindOwnedWorktreeIntent(ctx, taskId, pluginId, owner.attempt);
+  return { owner, runIdentity: runIdentity! };
+}
+
 /** Stage an owned local attempt. Production dispatch stays on the existing backend until full effects and recovery are reviewed. */
 export async function runOwnedExecutorAttempt(ctx: Ctx, caller: ExecutorCaller, pluginId: string,
   taskId: string, executor: string, workdir: string,
-  effect?: LocalExecutorEffect, credentialBindings: readonly CredentialBinding[] = []): Promise<ReturnType<typeof executorRunResult.parse>> {
-  if (!isAbsolute(workdir)) throw new CoreError("invalid_input", "executor workdir must be absolute");
+  effect?: LocalExecutorEffect, credentialBindings: readonly CredentialBinding[] = []): Promise<ReturnType<typeof executorEffectRunResult.parse>> {
   if (effect && (!isAbsolute(effect.cwd) || effect.cwd !== workdir || effect.argv.length < 1 ||
     effect.argv.length > 32 || effect.argv.some(value => !value || value.length > 4096 || value.includes("\0")) ||
     !Number.isSafeInteger(effect.timeoutMs) || effect.timeoutMs < 1 || effect.timeoutMs > MAX_PROCESS_SPAWN_MS ||
@@ -117,21 +184,7 @@ export async function runOwnedExecutorAttempt(ctx: Ctx, caller: ExecutorCaller, 
     } catch { throw new CoreError("invalid_input", "detached executor source is unavailable"); }
   })() : undefined;
   const sensitiveOutput = refs.size > 0;
-  let runIdentity: { dev: number; ino: number };
-  const owner = withTaskLock(ctx, taskId, (): RunRef => {
-    const task = readTask(ctx, taskId);
-    if (!task) throw new CoreError("unknown_task", `unknown task ${taskId}`);
-    if (task.state !== "running" || task.run || task.executor !== executor)
-      throw new CoreError("conflict", "executor task is no longer available for this attempt");
-    const attempt = task.attempts.length + 1;
-    const claim = claimRunDirectory(ctx, taskId, attempt);
-    const dir = claim.path;
-    runIdentity = claim.identity;
-    const run: RunRef = { dir, attempt, executor, startedAt: Date.now() / 1000,
-      mode: "current", workdir, logFile: join(dir, "stdout") };
-    updateTask(ctx, taskId, current => { current.run = run; });
-    return run;
-  });
+  const { owner, runIdentity } = await publishOwnedExecutorRun(ctx, pluginId, taskId, executor, workdir);
   const revision = withTaskLock(ctx, taskId, () => {
     if (!ownsRun(ctx, taskId, owner))
       throw new CoreError("conflict", "executor attempt changed before dispatch");
@@ -140,7 +193,7 @@ export async function runOwnedExecutorAttempt(ctx: Ctx, caller: ExecutorCaller, 
   let spawnedPid: number | undefined;
   const spawnAdmission = (spawn: () => import("node:child_process").ChildProcess) =>
     withTaskLock(ctx, taskId, () => {
-      if (!ownsRun(ctx, taskId, owner))
+      if (!ownsRun(ctx, taskId, owner) || readTask(ctx, taskId)?.stopPending)
         throw new CoreError("conflict", "executor attempt changed before process spawn");
       const child = spawn();
       try {
@@ -185,7 +238,7 @@ export async function runOwnedExecutorAttempt(ctx: Ctx, caller: ExecutorCaller, 
       if (current?.childPid === spawnedPid) updateTask(ctx, taskId, task => { delete task.childPid; });
     });
   }
-  const result = executorRunResult.safeParse(raw);
+  const result = executorEffectRunResult.safeParse(raw);
   if (!result.success) throw new CoreError("plugin_refused", "executor returned an invalid result");
   withTaskLock(ctx, taskId, () => {
     if (!ownsRun(ctx, taskId, owner))

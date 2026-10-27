@@ -21,3 +21,16 @@ test("the future run-directory contract names the files existing readers use", (
       "report.json", "transcript-report.md", "prompt.md"],
   });
 });
+
+test("only the owned conversation arm accepts a bounded running result", () => {
+  const owned = { task: { id: "t-conversation", rev: 2 }, attempt: 1, runDir: 1,
+    owned: { placement: "current", timeoutMs: 5000, session: "conversation",
+      executor: "codex", model: null } };
+  expect(protocol.executorOwnedRunParams.safeParse(owned).success).toBe(true);
+  const running = { status: "running", taskId: "t-conversation", attempt: 1, startedAt: 100 };
+  expect(protocol.executorRunResult.safeParse(running).success).toBe(true);
+  expect(protocol.executorAttemptOutcome.safeParse(running).success).toBe(false);
+  expect(protocol.executorRunResult.safeParse({ ...running, attempt: "1" }).success).toBe(false);
+  expect(protocol.executorRunResult.safeParse({ ...running, startedAt: "100" }).success).toBe(false);
+  expect(protocol.executorRunResult.safeParse({ ...running, dir: "/tmp/unissued" }).success).toBe(false);
+});

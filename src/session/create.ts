@@ -141,7 +141,7 @@ export async function createConversation(
           if(candidate.worktree==="current") return canMapCurrent();
           if(candidate.worktree==="new") return /^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(baseForNew())&&!baseForNew().includes("..");
           return false; // auto has no explicit conversation workspace representation.
-        });
+        },"conversation");
         if(admission.policies) currentPreparation=await (deps.prepare??prepareSession)(admissionCtx(ctx),{repo:input.repo,executor:admission.input.executor??undefined});
         const authorizedExecutor=admission.input.executor!;
         const authorizedPlacement=admission.input.worktree as "current"|"new";

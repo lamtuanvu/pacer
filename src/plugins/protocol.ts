@@ -1,6 +1,7 @@
 import {POLICY_METHODS,POLICY_CAPABILITY_METHODS,POLICY_METHOD_CAPABILITY} from "./policy-protocol";
 import {HOST_RUNNER_METHODS,hostRunnerContribution,hostRunnerStreamId} from "./host-runner-protocol";
 import { EXECUTOR_METHODS, executorContribution } from "./executor-protocol";
+import { WORKTREE_CAPABILITY_METHODS, WORKTREE_METHOD_CAPABILITY } from "./executor-worktree-protocol";
 import { HOSTS_METHODS, HOSTS_METHOD_CAPABILITY } from "./hosts-protocol";
 import { REMOTE_CALLER_METHODS } from "./remote-caller-protocol";
 export {HOST_RUNNER_SCRIPTS,hostRunnerAlias,hostRunnerSession,hostRunnerScript,hostRunnerContribution} from "./host-runner-protocol";
@@ -25,13 +26,13 @@ import { isVersion } from "../update/version";
 import { observationMethodSchema, observationScopeSchema, observationSchema, decisionRequestSchema, proposalSchema } from "../dispatch/types";
 
 /** Plugin protocol version; independent of the client protocol (P4 applies to both). */
-export const PLUGIN_PROTOCOL_VERSION = "1.5.0";
+export const PLUGIN_PROTOCOL_VERSION = "1.10.0";
 export const PLUGIN_PROTOCOL_MAJOR = 1;
 
 export const EXTENSION_POINTS = ["diagnostic", "agentSession", "observation", "decision", "usage", "classifier", "notifier", "endpoint", "planner", "policy", "hostRunner", "remoteCaller", "executor"] as const;
 export type ExtensionPoint = (typeof EXTENSION_POINTS)[number];
 
-export const CAPABILITIES = ["tasks.read", "events.subscribe", "process.spawn", "fs.read", "fs.write", "net.http", "secrets.resolve", "config.get", "entitlement.report", "log", "usage.state", "hosts"] as const;
+export const CAPABILITIES = ["tasks.read", "events.subscribe", "process.spawn", "fs.read", "fs.write", "worktree", "net.http", "secrets.resolve", "config.get", "entitlement.report", "log", "usage.state", "hosts"] as const;
 export type Capability = (typeof CAPABILITIES)[number];
 
 export const PLUGIN_ID = /^[a-z0-9][a-z0-9-]{1,63}$/;
@@ -138,13 +139,14 @@ export const CAPABILITY_METHODS: Record<string, MethodDef> = {
   ...PLANNER_CAPABILITY_METHODS,
   ...POLICY_CAPABILITY_METHODS,
   ...SCOPED_CAPABILITY_METHODS,
+  ...WORKTREE_CAPABILITY_METHODS,
   ...FS_WRITE_METHODS,
   ...HTTP_CAPABILITY_METHODS,
   "capability.log": method({ description: "Append a line to the plugin's log file under PACER_HOME/logs/plugins.", params: z.object({ level: z.enum(["debug", "info", "warn", "error"]), message: z.string().max(4096) }), result: z.object({ ok: z.literal(true) }), deadlineMs: 1000 }),
   "capability.config.get": method({ description: "The plugin's own config slice (plugins.config.<id> in the strategy file).", params: z.object({}), result: z.object({ config: z.record(z.string(), z.json()) }), deadlineMs: 1000 }),
 };
 
-export const METHOD_CAPABILITY: Readonly<Record<string, Capability>> = { ...HOSTS_METHOD_CAPABILITY, ...POLICY_METHOD_CAPABILITY, ...PLANNER_METHOD_CAPABILITY, ...SCOPED_METHOD_CAPABILITY, ...FS_WRITE_METHOD_CAPABILITY, ...HTTP_METHOD_CAPABILITY };
+export const METHOD_CAPABILITY: Readonly<Record<string, Capability>> = { ...HOSTS_METHOD_CAPABILITY, ...POLICY_METHOD_CAPABILITY, ...PLANNER_METHOD_CAPABILITY, ...SCOPED_METHOD_CAPABILITY, ...WORKTREE_METHOD_CAPABILITY, ...FS_WRITE_METHOD_CAPABILITY, ...HTTP_METHOD_CAPABILITY };
 
 export function capabilityOf(method: string): Capability | null {
   if (Object.hasOwn(METHOD_CAPABILITY, method)) return METHOD_CAPABILITY[method]!;

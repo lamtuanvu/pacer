@@ -113,6 +113,13 @@ test("SDK facade re-exports every generated execution type", () => {
   expect(block).toBeDefined();
   const declared = [...generated.matchAll(/pub (?:struct|enum|type) ((?:Executor|CapabilityProcess)[A-Za-z0-9_]+)/g)]
     .map(match => match[1]!).sort();
-  const exported = block!.split(",").map(name => name.trim()).filter(Boolean).sort();
-  expect(exported).toEqual(declared);
+  const entries = block!.split(",").map(name => name.trim()).filter(Boolean);
+  const exported = entries.filter(name => !name.includes(" as ")).sort();
+  const aliases = entries.filter(name => name.includes(" as "));
+  const aliasSources = aliases.map(name => name.split(/\s+as\s+/)[0]!);
+  const aliasTargets = aliases.map(name => name.split(/\s+as\s+/)[1]!);
+  expect([...new Set([...exported, ...aliasSources])].sort()).toEqual(declared);
+  expect(aliases.length).toBeGreaterThan(0);
+  expect(aliases.every(name => declared.includes(name.split(/\s+as\s+/)[0]!))).toBe(true);
+  expect(aliasTargets.some(name => exported.includes(name))).toBe(false);
 });

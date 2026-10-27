@@ -17,7 +17,8 @@ import { issueConfiguredHostBinaryCheck, consumeConfiguredHostBinaryCheck } from
 import { issueConfiguredHostBinaryUpload, consumeConfiguredHostBinaryUpload } from "../src/plugins/host-binary-upload-issuer";
 import { issueConfiguredHostStart, consumeConfiguredHostStart } from "../src/plugins/host-start-issuer";
 import { issueConfiguredHostRuntimeProbe, consumeConfiguredHostRuntimeProbe } from "../src/plugins/host-runtime-probe-issuer";
-import { pluginRegistry } from "../src/plugins";
+import { pluginRegistry, shutdownPlugins } from "../src/plugins";
+import { cleanupFixtureResources, registerFixtureCleanup } from "./fixture-cleanup";
 
 const host = { alias: "box", ssh: "box-ssh", repos: {}, maxTasks: 2, accounts: {} };
 function setup() {
@@ -42,6 +43,7 @@ function setup() {
   }
   const ctx = fakeCtx({ env: { ...process.env, ...env }, run: (argv, ms, o) => realRun(argv, ms, { ...o, env: { ...process.env, ...env, ...o?.env } }),
     which: name => name === "ssh" ? ssh : null });
+  registerFixtureCleanup(() => shutdownPlugins(ctx));
   mkdirSync(ctx.pacerHome, { recursive: true });
   writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders: {claude-code: {}}\nhosts:\n  box:\n    ssh: box-ssh\n");
   const task = createTask(ctx, { brief: { goal: "remote fixture", repo: home }, kind: null, requestedExecutor: null, timeoutS: 60 });
@@ -56,6 +58,21 @@ function setup() {
 function enableFull(ctx: ReturnType<typeof setup>["ctx"]) {
   writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders: {claude-code: {}}\nhosts:\n  box:\n    ssh: box-ssh\n    session: full\n");
 }
+
+test("remote IO fixture cleanup reaps its bundled SSH child", async () => {
+  const { ctx } = setup();
+  const report = (await pluginRegistry(ctx).doctor(ctx, "pacer-ssh"))[0];
+  expect(report?.ok).toBe(true);
+  const pid = report?.pid;
+  if (typeof pid !== "number") throw Error("bundled SSH fixture did not start");
+  expect(() => process.kill(pid, 0)).not.toThrow();
+  try {
+    await cleanupFixtureResources();
+    expect(() => process.kill(pid, 0)).toThrow();
+  } finally {
+    await shutdownPlugins(ctx);
+  }
+});
 
 test("REPORT grants are one-use and bind the persisted run snapshot", async () => {
   const { ctx, remote, local } = setup();

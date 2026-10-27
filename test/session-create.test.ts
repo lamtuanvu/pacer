@@ -12,6 +12,8 @@ import { readTask, createTask, updateTask } from "../src/tasks/store";
 import { callOp } from "../src/api/ops";
 import { runTask } from "../src/tasks/runner";
 import { queueDeps, queueStrategy, queueTask } from "./queue-helpers";
+import { loadStrategy } from "../src/config/strategy";
+import { prepareDelegate, validateInput } from "../src/tasks/api";
 
 test("a failed conversation releases its runner after recording the result", async () => {
   const ctx = fakeCtx(), task = queueTask(ctx, "Recover conversation", "codex");
@@ -186,6 +188,34 @@ test("conversation creation atomically claims files and retries the same request
   await expect(
     createConversation(ctx, { ...input, request: "different" }, deps),
   ).rejects.toMatchObject({ code: "conflict" });
+});
+
+test("an explicit Claude conversation admits the configured planner without allowing ordinary delegation", async () => {
+  const repo = gitRepo(), ctx = fakeCtx({ run: realRun }), draft = createDraft(ctx);
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"),
+    "planner: claude-code\nproviders:\n  claude-code: {}\n");
+  const ordinary = { brief: { goal: "ordinary work", repo }, executor: "claude-code" };
+  expect(validateInput(loadStrategy(ctx), ordinary)).toContain('"claude-code" is the planner; pick an executor');
+  await expect(prepareDelegate(ctx, ordinary, () => process.pid))
+    .rejects.toThrow('"claude-code" is the planner; pick an executor');
+  const result = await createConversation(ctx, {
+    request_id: "planner-conversation", draftId: draft.id, request: "Say READY", repo,
+    executor: "claude-code", workspace: { mode: "current", path: repo }, attachments: [],
+  }, {
+    prepare: async () => ({
+      repo: { key: "local:planner", path: repo, label: "repo" },
+      branches: ["main"], base: "main",
+      checkouts: [{ path: repo, branch: "main", dirty: false }],
+      executors: [{ id: "claude-code", agent: "claude-code", account: "default",
+        version: "2.1.281", available: true,
+        capabilities: { interactive: true, resume: true, launchImages: false,
+          liveImages: false, files: true } }],
+    }),
+    spawnRunner: () => process.pid,
+  });
+  expect(readTask(ctx, result.task_id)).toMatchObject({
+    interactionMode: "conversation", requestedExecutor: "claude-code",
+  });
 });
 
 test("existing checkout is reserved at creation, including queued sessions", async () => {

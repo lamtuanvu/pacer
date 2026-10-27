@@ -6,9 +6,16 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
+- Route local OpenCode conversations through the bundled direct executor with a private, session-bound reporting plugin. Existing OpenCode configuration is preserved; a disabled bundled provider or malformed configuration refuses launch without a built-in fallback.
+- Add plugin protocol 1.10's bounded `running` observation for host-owned local conversations. The provider returns after one read; the host must recheck the persisted run before read-only continuation. Production conversation routing remains under extraction.
+- Add plugin protocol 1.9 host-issued remote pipe placement, run claim, start, poll, bounded output, stop and committed-change transfer methods for the bundled direct executor. Selected noninteractive remote tasks now use the provider-owned route with durable placement and transfer recovery.
+- Add a read-only, host-issued remote PREPARE recovery proof for a persisted unreceipted executor placement. It verifies the exact clean task worktree without another fetch or launch; the remote executor production cutover remains in progress.
+- Add plugin protocol 1.6 worktree consent and host-issued task placement methods. The bundled direct executor may inspect and resolve a local base, then create or recover one journaled task-owned worktree.
+- Add plugin protocol 1.7 host-issued local run claims. An exact task-owned directory and one-use start grant are published before the provider can launch; lost claim replies recover only an empty, unstarted run.
 - Split generated Rust executor and process capability types into the independent `pacer-plugin-exec-protocol` area, retaining the SDK type facade and keeping each generated crate within its size limit.
-- Bundle the staged direct executor reference plugin for `plugin list` and `plugin doctor`; it remains unavailable for production task dispatch while attempt ownership and recovery are completed.
-- Stage a one-use, host-issued stop for a persisted local executor wrapper. A changed owner or missing exit receipt refuses completion without retrying another process path; production task stopping still uses its existing route.
+- Bundle the direct executor reference plugin for `plugin list` and `plugin doctor`; selected local noninteractive direct attempts now use its host-issued process and worktree authority.
+- Route provider-owned local stops through a one-use host-issued grant for the persisted wrapper. A changed owner or missing exit receipt keeps the stop pending; deadline stops settle failed only after verified exit.
+- Resume provider-owned local attempts through a read-only host grant for the exact persisted wrapper. A lost result cannot start a second process; running, exited and uncertain remain distinct.
 - Route interactive full-session remote viewers through a one-use, persisted-run SSH plugin stream with bounded acknowledged input and output. Viewer detach or provider refusal closes the connection without direct SSH forwarding or exec fallback.
 - Add a host-only, one-use finalized bundle input that rechecks the persisted run and private publication, then supplies an immutable bounded byte snapshot for safe downstream Git consumption.
 - Stage the direct executor manifest and bounded availability, run, stop and progress contracts with a fake conformance plugin and owner-bound host progress updates; no attempt runner or production backend is switched yet.
@@ -20,6 +27,11 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Changed
 
+- Route selected local Codex and Claude Code conversations through the bundled direct executor with an exact native identity and finite read-only observations. Turn reports keep the same interactive wrapper alive; provider refusal does not start a built-in process.
+- Route local current and task-owned worktree attempts, including automatic child placement and same-task managed retries, through the bundled direct executor. A retry reuses the task worktree only after the prior provider exit is confirmed; an uncertain exit cannot start another local run. The host journals default-origin fetch before placement and refuses an unresolved fetch or provider result without a built-in retry. Conversation, takeover and remote full-session executor orchestration remain under extraction.
+- Route ordinary local interactive attempts through the bundled direct executor. The host pins each launch and verifies a completion report before reaping the exact wrapper; an exit without a report fails, while an uncertain exit cannot start a replacement.
+- Stop provider-owned local interactive sessions through the exact persisted session grant; a pipe-only grant cannot stop a session, and settlement still requires the wrapper's exit receipt.
+- Route local noninteractive managed work that permits child delegation through the bundled direct executor. The host passes its attempt-scoped work grant only to the selected executor child; a disabled provider cannot cause a built-in launch.
 - Stream an attached remote PTY viewer through bounded, one-use SSH plugin reads. Detach cancels the pending read, reconnect resumes from the committed cursor, and a refused read never falls back to direct SSH. Empty polls add about 200 ms plus SSH round-trip latency.
 - Start persisted remote runs through a one-use bundled SSH plugin grant with private stdin and a completion receipt. Launch input over 50 MiB is refused; uncertain starts do not retry through direct SSH.
 - Mirror full-session remote recordings through bounded, one-use SSH plugin reads. A changed or incomplete recording snapshot pauses that poll, and publication failures restore the prior local files without retrying direct SSH.
@@ -44,6 +56,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Admit the configured planner only for an explicit interactive conversation; ordinary task delegation still refuses it.
 - Close an SSH session viewer when an owned duplex broker reply is lost, using a finite per-call deadline while leaving the remote task running.
 - Open current task details from native tray attention actions after the Tasks route migration.
 - Detect macOS iTerm.app consistently when opening session viewers through the preferred terminal.

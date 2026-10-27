@@ -67,7 +67,8 @@ export const sessionOps: Record<string, OpDef> = {
           "conflict",
           "Session changed; refresh and try again",
         );
-      taskStop(ctx, p.id);
+      const stopped = taskStop(ctx, p.id);
+      if (stopped?.stopPending) return stopped;
       return updateTask(ctx, p.id, (t) => {
         t.conversation = {
           ...t.conversation,
@@ -122,7 +123,7 @@ export const sessionOps: Record<string, OpDef> = {
       const admission=await prepareDelegate(admissionCtx(ctx),{
         brief:task.brief,kind:null,executor:task.requestedExecutor,worktree:mode,repoRef:prepared.repo,repoValidated:true,admissionTaskLock:p.id,
         admissionContext:()=>JSON.stringify({task:readTask(ctx,p.id),preparation:currentPreparation}),
-      },deps.spawnRunner??spawnRunner,undefined,()=>"conversation-resume",candidate=>candidate.kind===null&&candidate.executor===task.requestedExecutor&&candidate.worktree===mode);
+      },deps.spawnRunner??spawnRunner,undefined,()=>"conversation-resume",candidate=>candidate.kind===null&&candidate.executor===task.requestedExecutor&&candidate.worktree===mode,"conversation");
       if(admission.policies) currentPreparation=await prepareSession(admissionCtx(ctx),{repo:task.repo?.key??task.brief.repo});
       if((await sessionInfo(admissionCtx(ctx),p.id,undefined,false)).live) throw new CoreError("conflict","The previous session is still active");
       return admission.consume(({revalidate})=>{

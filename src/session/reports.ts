@@ -103,24 +103,33 @@ export function agentHook(dir: string, input: unknown): void {
   if (typeof event === "string") appendFileSync(join(dir, "events.jsonl"), JSON.stringify({event, status: readReport(dir)?.status, at: Date.now() / 1000}) + "\n", {mode: 0o600});
 }
 const quote = (s: string) => "'" + s.replaceAll("'", "'\\''") + "'";
-export function prepareInteractive(agent: string, dir: string, launch: Launch): Launch {
-  if (!["claude-code", "codex"].includes(agent)) return launch;
-  mkdirSync(dir, {recursive: true, mode: 0o700});
+export function planInteractive(agent: string, dir: string, launch: Launch): {
+  launch: Launch; files: { name: "report-hook.sh" | "claude-settings.json"; content: string; mode: number }[]
+} {
+  if (!["claude-code", "codex"].includes(agent)) return { launch, files: [] };
   const cli = /(^|\/)bun(?:\.exe)?$/.test(process.execPath) ? [process.execPath, fileURLToPath(new URL("../cli.ts", import.meta.url))] : [process.execPath];
   const script = join(dir, "report-hook.sh");
-  writeFileSync(script, `#!/bin/sh\nexec ${[...cli, "_session-hook", dir].map(quote).join(" ")}\n`, {mode: 0o700});
+  const files: { name: "report-hook.sh" | "claude-settings.json"; content: string; mode: number }[] = [
+    { name: "report-hook.sh", content: `#!/bin/sh\nexec ${[...cli, "_session-hook", dir].map(quote).join(" ")}\n`, mode: 0o700 }];
   const command = `/bin/sh ${quote(script)}`;
   const hooks: Record<string, {matcher?: string; hooks: {type: string; command: string}[]}[]> = Object.fromEntries(["PermissionRequest", "Stop", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure"].map(event => [event, [{hooks: [{type: "command", command}]}]]));
   if (agent === "codex") {
     const overrides = Object.entries(hooks).flatMap(([event]) => ["-c", `hooks.${event}=[{hooks=[{type="command",command=${JSON.stringify(command)}}]}]`]);
-    return {...launch, argv: [launch.argv[0], "--dangerously-bypass-hook-trust", ...overrides, ...launch.argv.slice(1)]};
+    return { launch: {...launch, argv: [launch.argv[0], "--dangerously-bypass-hook-trust", ...overrides, ...launch.argv.slice(1)]}, files };
   }
   hooks.Elicitation = [{hooks: [{type: "command", command}]}];
   hooks.ElicitationResult = [{hooks: [{type: "command", command}]}];
   hooks.Notification = [{matcher: "permission_prompt|idle_prompt|elicitation_dialog", hooks: [{type: "command", command}]}];
   const settings = join(dir, "claude-settings.json");
-  writeFileSync(settings, JSON.stringify({hooks}), {mode: 0o600});
-  return {...launch, argv: [launch.argv[0], "--settings", settings, ...launch.argv.slice(1)]};
+  files.push({ name: "claude-settings.json", content: JSON.stringify({hooks}), mode: 0o600 });
+  return { launch: {...launch, argv: [launch.argv[0], "--settings", settings, ...launch.argv.slice(1)]}, files };
+}
+export function prepareInteractive(agent: string, dir: string, launch: Launch): Launch {
+  const planned = planInteractive(agent, dir, launch);
+  if (planned.files.length) mkdirSync(dir, {recursive: true, mode: 0o700});
+  for (const file of planned.files)
+    writeFileSync(join(dir, file.name), file.content, {mode: file.mode});
+  return planned.launch;
 }
 /** Bind agent reports to the active attempt, including when --task is supplied. */
 export function reportDestination(ctx: Ctx, id?: string, explicitTask = false): {dir: string; source: "agent" | "user"} {

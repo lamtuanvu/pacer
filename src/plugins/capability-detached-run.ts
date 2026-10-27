@@ -1,11 +1,58 @@
-import { lstatSync, realpathSync, statSync } from "node:fs";
+import { closeSync, fsyncSync, linkSync, lstatSync, mkdirSync, openSync, realpathSync,
+  statSync, unlinkSync, writeSync } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { CoreError } from "../core/errors";
+import { parseRunnerId } from "../config/runner-id";
 import { startRun } from "../supervisor/run";
 import { readTask, updateTask, withTaskLock } from "../tasks/store";
 import type { CallAuthority } from "./authority";
 
 const deny = (): never => { throw new CoreError("capability_denied", "detached run owner or source changed"); };
+
+/** Publish a complete fixed artifact without replacing another entry at its name. */
+function publishArtifact(dir: string, file: { name: string;
+  content: string; mode: number }): void {
+  const temp = join(dir, `.pacer-${randomUUID()}.tmp`), target = join(dir, file.name);
+  let fd: number | undefined;
+  try {
+    fd = openSync(temp, "wx", file.mode);
+    const bytes = Buffer.from(file.content, "utf8");
+    for (let offset = 0; offset < bytes.length;)
+      offset += writeSync(fd, bytes, offset, bytes.length - offset);
+    fsyncSync(fd);
+    closeSync(fd); fd = undefined;
+    // Same-directory link is an atomic no-replace publication. A rename here
+    // could overwrite a foreign or crash-left target before the wrapper starts.
+    linkSync(temp, target);
+    const directory = openSync(dir, "r");
+    try { fsyncSync(directory); } finally { closeSync(directory); }
+  } catch {
+    throw new CoreError("capability_denied", "interactive launch artifact changed");
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+    try { unlinkSync(temp); } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+  }
+}
+
+/** A fixed nested artifact; an existing folder is a lost/foreign publication, never replaced. */
+function publishOpenCodeArtifact(dir: string, source: string): void {
+  const folder = join(dir, "report-plugin");
+  try {
+    mkdirSync(folder, { mode: 0o700 });
+    const parent = openSync(dir, "r");
+    try { fsyncSync(parent); } finally { closeSync(parent); }
+    const stat = lstatSync(folder);
+    if (!stat.isDirectory() || (stat.mode & 0o777) !== 0o700 ||
+      (process.getuid?.() !== undefined && stat.uid !== process.getuid()) ||
+      realpathSync(folder) !== join(realpathSync(dir), "report-plugin")) return deny();
+    publishArtifact(folder, { name: "index.ts", content: source, mode: 0o600 });
+    const after = lstatSync(folder);
+    if (after.dev !== stat.dev || after.ino !== stat.ino) return deny();
+  } catch { return deny(); }
+}
 
 /** The plugin requests only task identity; the exact process and directory stay host-owned. */
 export function answerDetachedRun(authority: CallAuthority, declaredScopes: readonly string[], params: {
@@ -16,8 +63,11 @@ export function answerDetachedRun(authority: CallAuthority, declaredScopes: read
   return withTaskLock(authority.ctx, grant.taskId, () => {
     authority.assertActive();
     const task = readTask(authority.ctx, grant.taskId);
-    if (!task || task.rev !== grant.rev || task.state !== "running" || !task.run || task.run.host ||
+    if (!task || task.rev !== grant.rev || task.state !== "running" || task.stopPending || !task.run || task.run.host ||
+      !task.executorProvider || task.startIntent?.attempt === grant.attempt ||
       task.run.attempt !== grant.attempt || task.run.dir !== grant.dir || task.run.executor !== task.executor ||
+      task.run.session !== grant.session ||
+      task.run.interactionMode !== grant.interactionMode ||
       task.attempts.length + 1 !== grant.attempt ||
       grant.dir !== join(authority.ctx.pacerHome, "runs", grant.taskId, String(grant.attempt))) return deny();
     try {
@@ -33,9 +83,37 @@ export function answerDetachedRun(authority: CallAuthority, declaredScopes: read
         !cwd.isDirectory() || cwd.dev !== grant.cwdIdentity.dev || cwd.ino !== grant.cwdIdentity.ino ||
         realpathSync(grant.cwd) !== grant.cwd) return deny();
     } catch { return deny(); }
+    updateTask(authority.ctx, grant.taskId, current => {
+      current.startIntent = { attempt: grant.attempt, providerId: current.executorProvider!, dir: grant.dir };
+    });
+    if (grant.files?.length && grant.session !== "interactive") return deny();
+    const openCodeConversation = parseRunnerId(task.executor)?.agent === "opencode" &&
+      task.interactionMode === "conversation";
+    if (openCodeConversation && (grant.interactionMode !== "conversation" ||
+      grant.files?.length !== 1 || grant.files[0]?.name !== "opencode-report-plugin") ||
+      !openCodeConversation && grant.files?.some(file => file.name === "opencode-report-plugin")) return deny();
+    for (const file of grant.files ?? []) {
+      if (!["report-hook.sh", "claude-settings.json", "opencode-report-plugin"].includes(file.name) ||
+        file.mode !== (file.name === "report-hook.sh" ? 0o700 : 0o600) ||
+        Buffer.byteLength(file.content, "utf8") > 16_384) return deny();
+      if (file.name === "opencode-report-plugin") {
+        if (grant.interactionMode !== "conversation" ||
+          !task.run.agentSession?.id || task.run.agentSession.id !== task.nativeIdentityIntent?.id ||
+          !file.content.includes(`const sessionID = ${JSON.stringify(task.run.agentSession.id)};`) ||
+          !file.content.includes(`const dir = ${JSON.stringify(grant.dir)};`) ||
+          !/^([a-f0-9]{64})$/.test(file.sourceSha256 ?? "") ||
+          createHash("sha256").update(file.content).digest("hex") !== file.sourceSha256) return deny();
+      } else {
+        if (file.sourceSha256 !== undefined) return deny();
+      }
+    }
+    for (const file of grant.files ?? []) {
+      if (file.name === "opencode-report-plugin") publishOpenCodeArtifact(grant.dir, file.content);
+      else publishArtifact(grant.dir, file);
+    }
     const result = startRun({ dir: grant.dir, argv: [grant.executable, ...grant.argv.slice(1)], cwd: grant.cwd,
       env: { PATH: authority.ctx.env.PATH ?? "/usr/bin:/bin", ...grant.env, HOME: authority.ctx.home },
-      stdin: grant.stdin, session: "pipe" });
+      stdin: grant.stdin, session: grant.session ?? "pipe", interactionMode: grant.interactionMode });
     if ("error" in result) throw new CoreError("plugin_unavailable", "detached wrapper launch uncertain; inspect run directory");
     updateTask(authority.ctx, grant.taskId, current => { current.childPid = result.pid; });
     return result;

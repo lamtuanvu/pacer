@@ -6,7 +6,7 @@ const MAX=4*1024*1024, CHUNK=256*1024;
 const ask=()=>protocol.EXTENSION_METHODS["classifier.ask"]!;
 const cap=(name:string)=>protocol.CAPABILITY_METHODS[name]!;
 test("1.2 adds classifier without losing existing extension methods",()=>{
- expect(protocol.PLUGIN_PROTOCOL_VERSION).toBe("1.5.0");
+ expect(protocol.PLUGIN_PROTOCOL_VERSION).toBe("1.10.0");
  for(const point of ["diagnostic","agentSession","usage","classifier"])expect(protocol.EXTENSION_POINTS as readonly string[]).toContain(point);
  for(const name of ["usage.read", "diagnostic.ping"])expect(protocol.EXTENSION_METHODS[name]).toBeDefined();
  expect(protocol.EXTENSION_METHODS["classifier.adapters"]?.deadlineMs).toBe(2000);

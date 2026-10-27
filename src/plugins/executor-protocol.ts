@@ -15,7 +15,7 @@ export const executorAvailableResult = z.object({
 const taskId = z.string().regex(/^t-[A-Za-z0-9_-]{1,120}$/);
 const positive = z.number().int().positive().safe();
 /** The host selects the task, revision and any exact, bounded local command. */
-export const executorRunParams = z.object({
+export const executorEffectRunParams = z.object({
   task: z.object({ id: taskId, rev: positive }).strict(),
   attempt: positive,
   runDir: z.literal(1),
@@ -29,11 +29,28 @@ export const executorRunParams = z.object({
     detached: z.literal(true).optional(),
   }).strict().optional(),
 }).strict();
-export const executorRunResult = z.discriminatedUnion("status", [
+export const executorEffectRunResult = z.discriminatedUnion("status", [
   z.object({ status: z.enum(["done", "failed"]), exitCode: z.number().int().safe(),
     report: z.string().max(65_536) }).strict(),
   z.object({ status: z.literal("launched"), pid: positive, report: z.string().max(65_536) }).strict(),
 ]);
+/** Credential-free owned attempt; every path and process effect comes from this call's host grants. */
+export const executorOwnedRunParams = z.object({
+  task: z.object({ id: taskId, rev: positive }).strict(), attempt: positive, runDir: z.literal(1),
+  owned: z.object({ placement: z.enum(["current", "new"]), timeoutMs: z.number().int().positive().max(MAX_PROCESS_SPAWN_MS),
+    session: z.enum(["interactive", "conversation"]).optional(),
+    executor: z.string().min(1).max(256), model: z.string().max(256).nullable(),
+    resume: z.object({ startedAt: z.number().finite(), logFile: z.string().min(1).max(4096),
+      worktree: z.string().min(1).max(4096).optional() }).strict().optional() }).strict(),
+}).strict();
+export const executorOwnedRemoteRunParams = z.object({
+  task: z.object({ id: taskId, rev: positive }).strict(), attempt: positive, runDir: z.literal(1),
+  remote: z.object({ timeoutMs: z.number().int().positive().max(MAX_PROCESS_SPAWN_MS),
+    executor: z.string().min(1).max(256), model: z.string().max(256).nullable(),
+    resume: z.object({ startedAt: z.number().finite(), logFile: z.string().min(1).max(4096) }).strict().optional(),
+  }).strict(),
+}).strict();
+export const executorRunParams = z.union([executorEffectRunParams, executorOwnedRunParams, executorOwnedRemoteRunParams]);
 
 /** The files the eventual executor owner must preserve for current task and session readers. */
 export const RUN_DIR_CONTRACT = {
@@ -60,19 +77,28 @@ export const executorAttemptOutcome = z.object({
     executor: z.string().min(1), model: z.string().nullable(),
     actualModel: z.string().nullable().optional(), dispatchSettingsHash: z.string().optional(),
     startedAt: z.number().finite(), endedAt: z.number().finite(), exitCode: z.number().int().safe(),
-    timedOut: z.boolean(), limitHit: z.boolean(), log: z.string(), brokenReason: z.string().optional(),
+    timedOut: z.boolean(), limitHit: z.boolean(), log: z.string().max(4096), brokenReason: z.string().optional(),
     routing: z.json().optional(), usageAtStart: z.json().optional(), usageAtEnd: z.json().optional(),
   }).strict(),
   exec: z.object({
-    code: z.number().int().safe(), stdout: z.string(), stderr: z.string(), timedOut: z.boolean(),
+    code: z.number().int().safe(), stdout: z.string().max(262144), stderr: z.string().max(262144), timedOut: z.boolean(),
     stdoutOverflow: z.boolean().optional(),
   }).strict(),
-  report: z.string(), backend: z.string().optional(), worktree: z.string().optional(),
+  report: z.string().max(65_536), backend: z.string().optional(), worktree: z.string().max(4096).optional(),
   partial: z.string().optional(),
 }).strict();
+/** One finite observation of a host-owned persistent conversation, with no path or native identity. */
+export const executorConversationRunning = z.object({ status: z.literal("running"),
+  taskId, attempt: positive, startedAt: z.number().finite() }).strict();
+export const executorRunResult = z.union([executorEffectRunResult, executorAttemptOutcome, executorConversationRunning]);
 export const executorStopParams = z.object({ taskId, attempt: positive,
-  graceMs: z.number().int().nonnegative().max(25_000) }).strict();
+  graceMs: z.number().int().nonnegative().max(25_000), remote: z.literal(true).optional() }).strict();
 export const executorStopResult = z.object({ code: z.number().int().safe(), killed: z.boolean() }).strict();
+/** Read-only session state; uncertainty cannot authorize a replacement launch. */
+export const executorSessionStateParams = z.object({ taskId, attempt: positive }).strict();
+export const executorSessionStateResult = z.object({
+  state: z.enum(["running", "exited", "uncertain"]), host: z.literal("builtin"), handle: z.null(),
+}).strict();
 export const executorProgress = z.object({
   phase: z.enum(["driving", "testing", "needs-input", "starting", "working", "idle", "lost-contact"]),
   lastOutputAt: z.number().finite().nullable(), lastChangeAt: z.number().finite().nullable(),
@@ -88,10 +114,12 @@ export const executorRunEvent = z.discriminatedUnion("kind", [
 
 /** Full attempt outcome, stop and recovery remain later SP09 slices. */
 export const EXECUTOR_METHODS = {
-  "executor.available": { description: "Report availability for a host-selected direct backend using a credential-free strategy name; staged only, with no production caller.",
+  "executor.available": { description: "Report bundled direct provider readiness for a host-selected credential-free strategy name; route admission remains host-owned.",
     params: executorAvailableParams, result: executorAvailableResult, deadlineMs: 10_000 },
-  "executor.run": { description: "Owned local attempt with an optional host-issued bounded process effect.",
+  "executor.run": { description: "Owned direct attempt or compatibility local process effect, each under exact host-issued grants.",
     params: executorRunParams, result: executorRunResult, deadlineMs: 0 },
   "executor.stop": { description: "Stop the matching staged local attempt.",
     params: executorStopParams, result: executorStopResult, deadlineMs: 30_000 },
+  "executor.sessionState": { description: "Read the running, exited or uncertain state of one host-issued persisted local executor session.",
+    params: executorSessionStateParams, result: executorSessionStateResult, deadlineMs: 5_000 },
 } as const;

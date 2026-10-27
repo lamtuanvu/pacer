@@ -64,6 +64,7 @@ export function parseDelegateBrief(raw: unknown, defaultRepo: string): DelegateI
 }
 export function summarizeTask(t: TaskRecord): Record<string, unknown> {
   return { ...(t.archived ? {archived:true, archive_path:t.archivePath} : {}), task_id:t.id, title:taskTitle(t), goal:clip(t.brief.goal, LIMITS.goal), state:t.state, kind:t.kind, requested_executor:t.requestedExecutor, ...(t.executorFallback ? {executor_fallback:t.executorFallback} : {}), placement:t.placement??null, queue:t.queue??null,
+    ...(t.stopPending ? {stop_pending:t.stopPending} : {}),
     attempts:t.attempts.map(a=>({executor:a.executor,exit_code:a.exitCode,limit_hit:a.limitHit,timed_out:a.timedOut,log:a.log})),
     ...(t.question ? {question:t.question} : {}),
     ...(t.reviewRequest ? {reviewRequest:t.reviewRequest} : {}),
@@ -122,7 +123,8 @@ export function launchTaskRunner(ctx: Ctx, taskId: string, spawn: SpawnRunner, a
 }
 export const spawnRunner: SpawnRunner = (ctx, taskId) => launchTaskRunner(ctx, taskId, spawnRunnerProcess);
 
-export function validateInput(s: Strategy, input: DelegateInput): string[] {
+export function validateInput(s: Strategy, input: DelegateInput,
+  scope: "delegate" | "conversation" = "delegate"): string[] {
   const p: string[] = [];
   const b = input.brief;
   if (input.title !== undefined && (typeof input.title !== "string" || !input.title.trim() || input.title.trim().length > 60)) p.push("title must be 1–60 characters after trimming");
@@ -139,7 +141,8 @@ export function validateInput(s: Strategy, input: DelegateInput): string[] {
   const runner = input.executor ? resolveRunner(s, input.executor) : null;
   if (input.executor && !runner) {
     p.push(`unknown executor "${input.executor}" (configured: ${Object.keys(s.providers).join(", ")})`);
-  } else if (input.executor && runner?.agent === s.planner.agent && runner.account === s.planner.account && !input.dispatch?.allowDelegation) {
+  } else if (input.executor && runner?.agent === s.planner.agent && runner.account === s.planner.account &&
+    scope !== "conversation" && !input.dispatch?.allowDelegation) {
     p.push(`"${input.executor}" is the planner; pick an executor`);
   }
   if (input.timeoutMin !== undefined && !(input.timeoutMin >= 1 && input.timeoutMin <= 240)) {
@@ -164,6 +167,7 @@ export async function prepareDelegate(
   ctx: Ctx, original: DelegateInput, spawnFn: SpawnRunner = spawnRunner, supplied?: Strategy,
   contextFingerprint: () => string = () => "",
   validateAmend: (candidate: Readonly<DelegateInput>) => boolean = () => true,
+  scope: "delegate" | "conversation" = "delegate",
 ) {
   const fresh=()=>admissionCtx(ctx);
   const {commitWith,admissionContext,admissionSignal,admissionDeadline,admissionTaskLock,admissionPaths,admissionPrepare,admissionValidate,...cloneable}=original;
@@ -173,13 +177,13 @@ export async function prepareDelegate(
     catch(error){if(supplied&&error instanceof MissingStrategyError)return supplied;throw error;}
   };
   const initial=supplied??strategy();
-  const basicProblems=validateInput(initial,{...input,repoValidated:true});
+  const basicProblems=validateInput(initial,{...input,repoValidated:true},scope);
   if(basicProblems.length)throw new DelegateError(basicProblems.join("; "));
   input.repoValidated=true;
   if(input.executor)input.executor=resolveRunner(initial,input.executor)?.id??input.executor;
   const repo=input.repoRef??registeredRepo(ctx,input.brief.repo);
   const validate=(candidate:DelegateInput,current:Strategy)=>{
-    const problems=validateInput(current,candidate);
+    const problems=validateInput(current,candidate,scope);
     if(candidate.executor){
       const runner=resolveRunner(current,candidate.executor);
       if(runner?.enabled===false)problems.push(`${candidate.executor}: disabled`);
@@ -226,6 +230,7 @@ export async function prepareDelegate(
       synchronous(effect);return admission.consume(({input,revalidate})=>effect({input:structuredClone(map(input)),revalidate}));
     },
     commit:()=>{
+      if(scope==="conversation")throw new CoreError("not_allowed","Conversation admission cannot commit an ordinary delegated task");
       synchronous(()=>{});
       return admission.consume(({revalidate})=>{
         let committed=false;
@@ -328,15 +333,132 @@ export async function superviseTask(ctx: Ctx, id: string, spawn: SpawnRunner = s
 async function superviseTaskRecord(ctx: Ctx, t: TaskRecord, spawn: SpawnRunner, stopped: () => boolean = () => false): Promise<TaskRecord> {
   if (!["queued", "running"].includes(t.state)) return t;
   const id = t.id;
+  if (t.state === "running" && t.executorProvider && t.stopPending && t.run &&
+    !t.startIntent) {
+    return withTaskLock(ctx, id, () => {
+      const latest = readTask(ctx, id);
+      if (!latest || latest.state !== "running" || !latest.stopPending ||
+        latest.startIntent || !latest.run || latest.run.dir !== t.run!.dir ||
+        latest.run.attempt !== t.stopPending!.attempt || latest.childPid ||
+        existsSync(`${latest.run.dir}/pid`) || existsSync(`${latest.run.dir}/exit`)) return latest ?? t;
+      return updateTask(ctx, id, current => {
+        const deadline = current.stopPending?.reason === "deadline";
+        delete current.stopPending;
+        delete current.runClaim;
+        delete current.run;
+        delete current.runnerPid;
+        current.state = deadline ? "failed" : "stopped";
+        current.result = { status: deadline ? "failed" : "stopped", executor: current.executor ?? null,
+          model: null, files: "", report: deadline ? "executor deadline reached before launch" :
+            "stopped before an executor ran", backend: "direct" };
+      });
+    });
+  }
+  if (t.state === "running" && t.executorProvider === "pacer-exec-direct" &&
+    t.stopPending && t.run?.host) {
+    try {
+      const { stopOwnedRemoteExecutorAttempt } = await import("../plugins/executor-stop");
+      const { pluginRegistry } = await import("../plugins");
+      const intent = t.stopPending, run = t.run;
+      const verified = t.executorExitReceipt?.attempt === run.attempt &&
+        t.executorExitReceipt.providerId === t.executorProvider &&
+        t.executorExitReceipt.dir === run.dir &&
+        t.executorExitReceipt.startedAt === run.startedAt;
+      if (!verified)
+        await stopOwnedRemoteExecutorAttempt(ctx, pluginRegistry(ctx), id, run.attempt, intent.graceMs);
+      return withTaskLock(ctx, id, () => {
+        const latest = readTask(ctx, id), receipt = latest?.executorExitReceipt;
+        if (!latest || latest.state !== "running" || latest.executorProvider !== "pacer-exec-direct" ||
+          latest.stopPending?.requestedAt !== intent.requestedAt ||
+          latest.stopPending.attempt !== run.attempt || latest.run?.dir !== run.dir ||
+          latest.run.startedAt !== run.startedAt || !receipt ||
+          receipt.attempt !== run.attempt || receipt.providerId !== latest.executorProvider ||
+          receipt.dir !== run.dir || receipt.startedAt !== run.startedAt) return latest ?? t;
+        return updateTask(ctx, id, current => {
+          const deadline = current.stopPending?.reason === "deadline";
+          current.attempts.push({ executor: run.executor, model: null,
+            startedAt: run.startedAt, endedAt: Date.now() / 1000,
+            exitCode: receipt.exitCode, timedOut: !!deadline, limitHit: false, log: run.logFile });
+          delete current.stopPending; delete current.pendingAttempt;
+          delete current.childPid; delete current.runnerPid;
+          current.state = deadline ? "failed" : "stopped";
+          current.result = { status: deadline ? "failed" : "stopped", executor: run.executor,
+            model: null, files: "", report: deadline ?
+              "Remote executor deadline reached; exit verified" :
+              "Remote executor exited after stop was requested", backend: "direct" };
+        });
+      });
+    } catch { /* Preserve pending remote stop for another exact reconciliation. */ }
+    return readTask(ctx, id) ?? t;
+  }
+  if (t.state === "running" && t.executorProvider && t.stopPending && t.run && !t.run.host) {
+    try {
+      const { inspectOwnedExecutorRun } = await import("../plugins/executor-run-state");
+      const { stopOwnedExecutorAttempt } = await import("../plugins/executor-stop");
+      const { pluginRegistry } = await import("../plugins");
+      const intent = t.stopPending, owner = t.executorProvider, run = t.run;
+      let observed = inspectOwnedExecutorRun(ctx, id, run.attempt);
+      if (observed.state === "running") {
+        await stopOwnedExecutorAttempt(ctx, pluginRegistry(ctx), owner, id, run.attempt, intent.graceMs);
+        observed = inspectOwnedExecutorRun(ctx, id, run.attempt);
+      }
+      if (observed.state === "exited" && observed.exitCode !== null) {
+        return withTaskLock(ctx, id, () => {
+          const latest = readTask(ctx, id);
+          if (!latest || latest.state !== "running" || latest.executorProvider !== owner ||
+            latest.stopPending?.requestedAt !== intent.requestedAt ||
+            latest.stopPending.attempt !== run.attempt || latest.run?.dir !== run.dir ||
+            latest.run.startedAt !== run.startedAt || latest.attempts.length + 1 !== run.attempt)
+            return latest ?? t;
+          const checked = inspectOwnedExecutorRun(ctx, id, run.attempt);
+          if (checked.state !== "exited" || checked.exitCode !== observed.exitCode) return latest;
+          return updateTask(ctx, id, current => {
+            const deadline = current.stopPending?.reason === "deadline";
+            current.executorExitReceipt = { attempt: run.attempt, providerId: owner,
+              dir: run.dir, startedAt: run.startedAt, exitCode: checked.exitCode! };
+            current.attempts.push({ executor: run.executor, model: null,
+              startedAt: run.startedAt, endedAt: Date.now() / 1000,
+              exitCode: checked.exitCode!, timedOut: deadline, limitHit: false, log: run.logFile });
+            delete current.stopPending;
+            delete current.pendingAttempt;
+            delete current.childPid;
+            delete current.runnerPid;
+            current.state = deadline ? "failed" : "stopped";
+            current.result = { status: deadline ? "failed" : "stopped", executor: run.executor, model: null,
+              files: "", report: deadline ? "Executor deadline reached; wrapper exit verified" :
+                "Executor exited after stop was requested", backend: "direct" };
+          });
+        });
+      }
+    } catch { /* Preserve the pending intent for the next bounded reconciliation. */ }
+    return readTask(ctx, id) ?? t;
+  }
   const run = t.run, current = run && run.attempt > t.attempts.length;
   const deadRun = t.state === "running" && current && !alive(t.runnerPid);
+  const preparedOwnedRun = t.state === "running" && t.executorProvider === "pacer-exec-direct" &&
+    !t.run && !t.stopPending && !alive(t.runnerPid) &&
+    (!!t.worktreeIntent || !!t.runClaim || !!t.baseFetchIntent?.sha ||
+      !!t.remotePrepareIntent);
   const r = deadRun && !run.host ? await readRunLiveness(run.dir) : null;
   if (stopped()) return t;
   return withTaskLock(ctx, id, () => {
     // Repository IO yields; an independent runner may have settled meanwhile.
     const latest = readTask(ctx, id);
     if (!latest || latest.rev !== t.rev) return latest ?? t;
-    if (deadRun && (run.host || (r && (r.alive || r.exit !== null)))) {
+    if (latest.stopPending && latest.executorProvider && latest.state === "running" &&
+      !latest.run && !latest.childPid && !alive(latest.runnerPid)) {
+      return updateTask(ctx, id, current => {
+        if (!current.stopPending || current.run || current.childPid) return;
+        const deadline = current.stopPending.reason === "deadline";
+        delete current.stopPending;
+        delete current.runClaim;
+        current.state = deadline ? "failed" : "stopped";
+        current.result = { status: deadline ? "failed" : "stopped", executor: current.executor ?? null, model: null,
+          files: "", report: deadline ? "executor deadline reached before launch" :
+            "stopped before an executor ran", backend: "direct" };
+      });
+    }
+    if (preparedOwnedRun || deadRun && (run.host || (r && (r.alive || r.exit !== null)))) {
       if (!t.resumeSpawnedAt || ctx.now - t.resumeSpawnedAt >= 60) {
         let lease: string;
         try { lease = beginWorkSync(ctx, { kind: "task", id, label: `Recovering task ${id}` }); }
@@ -346,6 +468,7 @@ async function superviseTaskRecord(ctx: Ctx, t: TaskRecord, spawn: SpawnRunner, 
       }
       return readTask(ctx, id)!;
     }
+    if (latest.stopPending && latest.executorProvider && deadRun) return latest;
     const neverStarted = !t.queue && ["queued", "running"].includes(t.state) && !t.attemptStartedAt && !t.attempts.length && !alive(t.runnerPid) && ctx.now - t.createdAt > 600;
     if (neverStarted || (t.state === "running" && (t.attempts.length > 0 || t.attemptStartedAt !== undefined || ctx.now - t.createdAt > 600) && !alive(t.runnerPid))) {
       return updateTask(ctx, id, (x) => {
@@ -387,6 +510,16 @@ export function taskStop(ctx: Ctx, id: string): TaskRecord | null {
   const updated = withTaskLock(ctx, id, () => {
     const t = readTask(ctx, id);
     if (!t) return null;
+    if (t.stopPending) return t;
+    if (t.state === "running" && t.executorProvider === "pacer-exec-direct" &&
+      t.run?.host && t.remoteTransferIntent?.attempt === t.run.attempt &&
+      t.remoteTransferIntent.dir === t.run.dir &&
+      t.remoteTransferIntent.startedAt === t.run.startedAt && !t.run.transferredHead)
+      throw new CoreError("conflict", "remote transfer is in progress; retry stop after it settles");
+    if (t.executorProvider && t.state === "running") return updateTask(ctx, id, current => {
+      current.stopPending = { attempt: current.run?.attempt ?? current.attempts.length + 1,
+        requestedAt: Date.now() / 1000, providerId: t.executorProvider!, graceMs: 5000, reason: "user" };
+    });
     if (t.state === "needs_input") return updateTask(ctx, id, x => {
       x.state = "stopped";
       if (x.result) x.result.status = "stopped";

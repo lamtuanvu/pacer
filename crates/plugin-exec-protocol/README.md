@@ -1,6 +1,6 @@
 # pacer-plugin-exec-protocol
 
-Generated Rust types for the `executor.*` and `capability.process.*` areas of the [pacer plugin protocol](../../docs/plugin-protocol.md).
+Generated Rust types for the `executor.*`, `capability.process.*` and `capability.worktree.*` areas of the [pacer plugin protocol](../../docs/plugin-protocol.md).
 
 This independent 0.2 area keeps `pacer-plugin-protocol` within the generated crate size limit. The TypeScript SDK and JSON wire contract are unchanged. `pacer_plugin::types` preserves the existing type names through explicit re-exports. Direct Rust imports of `Executor*` and `CapabilityProcess*` types use `pacer_plugin_exec_protocol` rather than `pacer_plugin_protocol`; the independent layer-0 crates have no peer dependencies.
 

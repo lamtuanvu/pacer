@@ -7,7 +7,7 @@ import { PluginRegistry } from "../src/plugins/registry";
 import { bundledPluginSpawn } from "../src/plugins";
 import { fakeCtx } from "./helpers";
 
-test("production registry reaches bundled direct plugin but does not claim task dispatch", async () => {
+test("production registry reports bundled direct readiness and disabled refusal", async () => {
   const home = mkdtempSync(join(tmpdir(), "pacer-bundled-direct-"));
   const pacerHome = join(home, ".pacer");
   mkdirSync(pacerHome, { mode: 0o700 });
@@ -20,8 +20,7 @@ test("production registry reaches bundled direct plugin but does not claim task 
     expect(listed).toMatchObject({ bundled: true, enabled: true, contributes: ["executor"] });
     expect((await registry.doctor(ctx, "pacer-exec-direct"))[0]).toMatchObject({ ok: true });
     expect(await registry.call(ctx, "pacer-exec-direct", "executor.available",
-      { strategy: { name: "default" } })).toEqual({ available: false,
-      reason: "Direct attempt dispatch is not yet routed to this plugin" });
+      { strategy: { name: "default" } })).toEqual({ available: true });
     await registry.disable(ctx, "pacer-exec-direct");
     await expect(registry.call(ctx, "pacer-exec-direct", "executor.available",
       { strategy: { name: "default" } })).rejects.toMatchObject({ code: "plugin_unavailable" });

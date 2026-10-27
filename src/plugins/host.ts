@@ -13,7 +13,12 @@ import { answerSpawn, readSpawnOutput } from "./capability-spawn";
 import { answerDuplex } from "./capability-duplex";
 import { answerDetachedRun } from "./capability-detached-run";
 import { answerDetachedStop } from "./capability-detached-stop";
+import { answerDetachedInspect } from "./capability-detached-inspect";
 import { stageBundle } from "./bundle-stage";
+import { answerWorktree } from "./executor-worktree";
+import { answerExecutorClaim } from "./executor-run-claim";
+import { answerExecutorPoll, answerExecutorOutput } from "./executor-run-observe";
+import { answerExecutorReportedCompletion } from "./executor-run-complete";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { CoreError } from "../core/errors";
@@ -35,7 +40,7 @@ export async function answerCapability(ctx: Ctx, plugin: { id: string; manifest:
   if (!name) throw new CoreError("unknown_op", `unknown host method ${method}`);
   if (!plugin.manifest.capabilities.some(c => c.name === name)) throw new CoreError("capability_denied", `plugin ${plugin.id} did not declare ${name}`);
   if (!def) throw new CoreError("capability_denied", `${name} is not available in this pacer yet`);
-  if (["fs.read", "fs.write", "process.spawn", "usage.state", "net.http", "secrets.resolve", "hosts"].includes(name)) {
+  if (["fs.read", "fs.write", "process.spawn", "usage.state", "net.http", "secrets.resolve", "hosts", "worktree"].includes(name)) {
     if (!(authority instanceof CallAuthority)) throw new CoreError("capability_denied", "scoped capability requires an active owning call");
     authority.assertGranted(name);
   }
@@ -64,6 +69,7 @@ export async function answerCapability(ctx: Ctx, plugin: { id: string; manifest:
     if (!authority || !hostBroker) throw new CoreError("capability_denied", "hosts require an active registry broker");
     return scoped(() => hostBroker(method, parsed.data, authority));
   }
+  if (name === "worktree") return scoped(() => answerWorktree(authority!, method, parsed.data as { taskId: string; attempt: number; baseSha?: string }));
   if (authority && name === "fs.write") {
     if (!transport) throw new CoreError("capability_denied", "file writes require a captured transport envelope");
     if (!transport.requestFits(parsed.data)) throw new CoreError("too_large", "file write request exceeds transport limit");
@@ -112,6 +118,16 @@ export async function answerCapability(ctx: Ctx, plugin: { id: string; manifest:
         ? Promise.resolve(answerDetachedRun(authority, scopes, parsed.data as { task: { id: string; rev: number }; attempt: number; runDir: 1 }))
       : method === "capability.process.stopRun"
         ? answerDetachedStop(authority, parsed.data as { taskId: string; attempt: number; graceMs: number })
+      : method === "capability.process.inspectRun"
+        ? Promise.resolve(answerDetachedInspect(authority, parsed.data as { taskId: string; attempt: number }))
+      : method === "capability.process.claimRun"
+        ? answerExecutorClaim(authority, parsed.data as { taskId: string; attempt: number })
+      : method === "capability.process.pollRun"
+        ? Promise.resolve(answerExecutorPoll(authority, parsed.data as { taskId: string; attempt: number }))
+      : method === "capability.process.readRunOutput"
+        ? Promise.resolve(answerExecutorOutput(authority, parsed.data as { taskId: string; attempt: number }))
+      : method === "capability.process.completeReportedRun"
+        ? answerExecutorReportedCompletion(authority, parsed.data as { taskId: string; attempt: number })
       : answerSpawn(authority, scopes, parsed.data as Record<string, unknown>));
   if (authority && name === "usage.state") return scoped(() => answerUsageState(authority,
     method.slice("capability.usage.state.".length) as Parameters<typeof answerUsageState>[1], parsed.data as Record<string, unknown>));
