@@ -134,6 +134,7 @@ export interface TaskRecord {
   /** Exact local attempt directory claimed before creation and cleared with the durable run reference. */
   runClaim?: { attempt: number; providerId: string; executor: string; workdir: string; dir: string;
     session?: "interactive";
+    interactionMode?: "conversation"; agentSession?: RunRef["agentSession"];
     host?: string; remoteDir?: string; remoteBranch?: string; baseSha?: string };
   /** A wrapper start may have reached the OS; never authorize a second start for this attempt. */
   startIntent?: { attempt: number; providerId: string; dir: string };

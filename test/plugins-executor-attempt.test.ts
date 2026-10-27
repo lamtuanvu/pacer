@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { fakeCtx } from "./helpers";
 import { CoreError } from "../src/core/errors";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
-import { runOwnedExecutorAttempt } from "../src/plugins/executor-attempt";
+import { publishOwnedExecutorRun, runOwnedExecutorAttempt } from "../src/plugins/executor-attempt";
 import { writeNative } from "../src/plugins/write-native";
 
 function fixture() {
@@ -18,6 +18,33 @@ function fixture() {
   const running = updateTask(ctx, task.id, t => { t.state = "running"; t.executor = "codex"; t.executorProvider = "fx-executor"; });
   return { home, ctx, task: running, cleanup: () => rmSync(home, { recursive: true, force: true }) };
 }
+
+test("conversation claim publishes only the journaled native identity and interactive mode", async () => {
+  const { home, ctx, task, cleanup } = fixture();
+  try {
+    updateTask(ctx, task.id, current => {
+      current.interactionMode = "conversation";
+      current.conversation = { activity: "starting", agentSessionId: "native-id" };
+    });
+    await expect(publishOwnedExecutorRun(ctx, "fx-executor", task.id, "codex", home, "interactive"))
+      .rejects.toMatchObject({ code: "conflict" });
+    expect(readTask(ctx, task.id)?.runClaim).toBeUndefined();
+    updateTask(ctx, task.id, current => {
+      current.nativeIdentityIntent = { attempt: 1, providerId: "fx-executor", executor: "codex",
+        workdir: home, kind: "assigned" };
+    });
+    await expect(publishOwnedExecutorRun(ctx, "fx-executor", task.id, "codex", home, "interactive"))
+      .rejects.toMatchObject({ code: "conflict" });
+    updateTask(ctx, task.id, current => {
+      current.nativeIdentityIntent = { attempt: 1, providerId: "fx-executor", executor: "codex",
+        workdir: home, kind: "assigned", id: "native-id", source: "assigned" };
+    });
+    const claimed = await publishOwnedExecutorRun(ctx, "fx-executor", task.id, "codex", home, "interactive");
+    expect(claimed.owner).toMatchObject({ interactionMode: "conversation", session: "interactive",
+      agentSession: { id: "native-id", source: "assigned" } });
+    expect(readTask(ctx, task.id)?.runClaim).toBeUndefined();
+  } finally { cleanup(); }
+});
 
 test("host claims a private attempt directory and binds fake plugin progress to the selected task", async () => {
   const { home, ctx, task, cleanup } = fixture();

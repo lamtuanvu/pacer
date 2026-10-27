@@ -688,8 +688,17 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
         lastLimitReport = out.report;
         markExhausted({ ...ctx, now: out.attempt.endedAt }, resolveRunner(s, pick)?.account ?? pick, exhaustUntil(byId[pick], cfg, Date.now() / 1000, `${out.exec.stderr}\n${out.exec.stdout}\n${out.report}`), { scope: outcomeScope });
         if (pick === task.requestedExecutor) requestedUnavailable = "limit";
-        if (owned) return finish(ctx, id, { status: "limit", executor: pick,
-          model: cfg.model, files: "", report: out.report, backend: attemptedBackend });
+        if (owned) task = withTaskLock(ctx, id, () => {
+          const current = readTask(ctx, id), run = current?.run, receipt = current?.executorExitReceipt;
+          if (!current || current.state !== "running" || current.stopPending ||
+            current.executorProvider !== "pacer-exec-direct" || !run ||
+            run.attempt !== current.attempts.length || run.startedAt !== out.attempt.startedAt ||
+            receipt?.attempt !== run.attempt || receipt.providerId !== "pacer-exec-direct" ||
+            receipt.dir !== run.dir || receipt.startedAt !== run.startedAt ||
+            receipt.exitCode !== out.attempt.exitCode)
+            throw new CoreError("conflict", "limited executor attempt has no verified exit for fallback");
+          return updateTask(ctx, id, value => { delete value.run; });
+        });
         continue;
       }
       if (!out.partial) task = updateTask(ctx, id, t => {

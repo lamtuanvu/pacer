@@ -103,6 +103,14 @@ export async function publishOwnedExecutorRun(ctx: Ctx, pluginId: string, taskId
       task.executorProvider !== pluginId)
       throw new CoreError("conflict", "executor task is no longer available for this attempt");
     const attempt = task.attempts.length + 1;
+    const conversation = task.interactionMode === "conversation";
+    const identity = task.nativeIdentityIntent;
+    if (conversation && (session !== "interactive" || !identity ||
+      identity.attempt !== attempt || identity.providerId !== pluginId ||
+      identity.executor !== executor || identity.workdir !== workdir ||
+      (identity.kind === "header" ? !!identity.id || !!task.conversation?.agentSessionId :
+        !identity.id || !identity.source || identity.id !== task.conversation?.agentSessionId)))
+      throw new CoreError("conflict", "conversation claim has no exact native identity intent");
     isolated = realpathSafe(workdir) !== realpathSafe(task.brief.repo);
     if (isolated && (task.executorProvider !== pluginId ||
       task.worktreeIntent?.providerId !== pluginId ||
@@ -112,7 +120,9 @@ export async function publishOwnedExecutorRun(ctx: Ctx, pluginId: string, taskId
       throw new CoreError("conflict", "in-place run conflicts with pending worktree intent");
     const dir = join(ctx.pacerHome, "runs", taskId, String(attempt));
     const expected = { attempt, providerId: pluginId, executor, workdir, dir,
-      ...(session ? { session } : {}) };
+      ...(session ? { session } : {}),
+      ...(conversation ? { interactionMode: "conversation" as const,
+        ...(identity?.id && identity.source ? { agentSession: { id: identity.id, source: identity.source } } : {}) } : {}) };
     const recover = task.runClaim !== undefined;
     if (recover && JSON.stringify(task.runClaim) !== JSON.stringify(expected))
       throw new CoreError("conflict", "executor run claim changed before dispatch");
@@ -126,6 +136,8 @@ export async function publishOwnedExecutorRun(ctx: Ctx, pluginId: string, taskId
     runIdentity = claim.identity;
     const run: RunRef = { dir, attempt, executor, startedAt: Date.now() / 1000,
       ...(session ? { session } : {}),
+      ...(conversation ? { interactionMode: "conversation" as const,
+        ...(identity?.id && identity.source ? { agentSession: { id: identity.id, source: identity.source } } : {}) } : {}),
       mode: isolated ? "new" : "current", workdir, logFile: join(dir, "stdout") };
     updateTask(ctx, taskId, current => {
       if (JSON.stringify(current.runClaim) !== JSON.stringify(expected))

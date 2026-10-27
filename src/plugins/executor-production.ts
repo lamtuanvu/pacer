@@ -1,4 +1,4 @@
-import { lstatSync, realpathSync, statSync } from "node:fs";
+import { closeSync, constants, fstatSync, lstatSync, openSync, readSync, realpathSync, statSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { CoreError } from "../core/errors";
@@ -12,6 +12,8 @@ import { planInteractive, requireCodexInteractive } from "../session/reports";
 import { buildPrompt } from "../exec/prompt";
 import { resolveWorktreeBase, taskWorktreePath } from "../supervisor/worktree";
 import { readRun } from "../supervisor/run";
+import { readOutput } from "../supervisor/run";
+import { detectLimit } from "../exec/limits";
 import type { AttemptOutcome } from "../exec/direct";
 import { listTasksWhere, readTask, updateTask, withTaskLock } from "../tasks/store";
 import type { TaskRecord } from "../tasks/types";
@@ -26,6 +28,26 @@ import type { CallResources } from "./authority";
 interface ExecutorCaller {
   call(ctx: Ctx, pluginId: string, method: "executor.run", params: unknown,
     options: { resources: CallResources; onProgress: (event: unknown) => void; deadlineMs: number }): Promise<unknown>;
+}
+
+/** The Codex `-o` result is a host-issued file inside this exact private run. */
+function ownedLastMessage(taskId: string, run: NonNullable<TaskRecord["run"]>): string | undefined {
+  if (run.session || parseRunnerId(run.executor)?.agent !== "codex") return undefined;
+  let fd: number;
+  try { fd = openSync(join(run.dir, `${taskId}.codex-last.md`), constants.O_RDONLY | constants.O_NOFOLLOW); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw new CoreError("conflict", "executor last-message file changed");
+  }
+  try {
+    const stat = fstatSync(fd);
+    if (!stat.isFile() || !Number.isSafeInteger(stat.size) || stat.size < 0 ||
+      (process.getuid?.() !== undefined && stat.uid !== process.getuid()))
+      throw new CoreError("conflict", "executor last-message file changed");
+    const size = Math.min(stat.size, 4000), bytes = Buffer.alloc(size);
+    readSync(fd, bytes, 0, size, stat.size - size);
+    return bytes.toString("utf8").trim() || undefined;
+  } finally { closeSync(fd); }
 }
 
 async function admittedDefaultBase(ctx: Ctx, task: TaskRecord, providerId: string,
@@ -223,6 +245,9 @@ async function runOwnedDirect(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord,
         startedAt: owned.run!.startedAt, exitCode: out.exec.code };
     });
   });
+  out.report = ownedLastMessage(task.id, latest.run) ?? out.report;
+  if (!interactive) out.attempt.limitHit = detectLimit(cfg.id, { code: durable.exitCode!,
+    ...readOutput(durable.dir), timedOut: false });
   return out as AttemptOutcome;
 }
 
@@ -403,5 +428,8 @@ export async function resumeOwnedDirect(ctx: Ctx, cfg: ProviderCfg, task: TaskRe
         dir: run.dir, startedAt: run.startedAt, exitCode: out.exec.code };
     });
   });
+  out.report = ownedLastMessage(task.id, run) ?? out.report;
+  if (run.session !== "interactive") out.attempt.limitHit = detectLimit(cfg.id, { code: durable.exitCode!,
+    ...readOutput(durable.dir), timedOut: false });
   return out as AttemptOutcome;
 }

@@ -9,7 +9,7 @@ function setup(executors: Record<string, string>, strategy: string) {
   const home = tmpDir();
   withLoginIndicators(fakeCtx({ home }));
   const pacerHome = join(home, ".pacer");
-  mkdirSync(pacerHome, { recursive: true });
+  mkdirSync(pacerHome, { recursive: true, mode: 0o700 });
   writeFileSync(join(pacerHome, "strategy.yaml"), strategy);
   const bin = join(home, "bin");
   mkdirSync(bin);

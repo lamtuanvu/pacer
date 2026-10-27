@@ -32,6 +32,10 @@ export async function answerExecutorClaim(authority: CallAuthority,
       run.attempt !== grant.attempt || run.executor !== grant.executor ||
       run.dir !== dir || run.workdir !== grant.workdir || run.host ||
       run.session !== grant.launch.session ||
+      run.interactionMode !== task.interactionMode ||
+      (task.interactionMode === "conversation" &&
+        (run.agentSession?.id !== task.nativeIdentityIntent?.id ||
+          run.agentSession?.source !== task.nativeIdentityIntent?.source)) ||
       task.worktreeIntent || task.runClaim || task.startIntent?.attempt === grant.attempt) return deny();
     try {
       const stat = lstatSync(dir);
