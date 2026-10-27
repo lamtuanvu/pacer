@@ -61,7 +61,7 @@ browserTest('repair previews before consent, cancels without writes, prevents du
   await page.getByRole('button',{name:'Apply repair',exact:true}).click();
   await page.waitForFunction(()=>document.querySelector('#diagnostics-progress')?.textContent?.includes('Repairing'));
   expect(await page.getByRole('button',{name:'Apply repair',exact:true}).isDisabled()).toBe(true);
-  expect(await page.locator('#diagnostics > .u3-heading button').isDisabled()).toBe(true);
+  expect(await page.locator('#diagnostics .pc-setting-row button').isDisabled()).toBe(true);
   release();
   await page.getByText('Repair applied and checks refreshed. Review any remaining issues.',{exact:true}).waitFor();
   expect(calls.filter(c=>c.op==='agent.connect')).toEqual([{op:'agent.connect',params:{agent:'codex',consent:true,preview_revision:'reviewed-account'}}]);

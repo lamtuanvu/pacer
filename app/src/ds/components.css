@@ -446,7 +446,10 @@ a.pc-btn{text-decoration:none}
 .pc-setting-row__label{display:inline-flex;align-items:center;gap:var(--space-2);font-weight:var(--type-body-strong-weight);color:var(--ink)}
 .pc-setting-row__label svg{flex:none;color:var(--ink-secondary)}
 .pc-setting-row__description{margin:0;font-size:var(--type-caption-size);line-height:var(--type-caption-line);color:var(--ink-secondary)}
-.pc-setting-row:last-child{border-bottom:0}
+.pc-setting-row:not(:has(~ .pc-setting-row)){border-bottom:0}
+/* A bare toggle's empty label is its hit area: square, at the settings size, touch-sized on touch layouts. */
+.pc-checkbox.pc-checkbox--bare{justify-content:center;min-width:var(--control-settings);min-height:var(--control-settings)}
+@media(max-width:560px),(pointer:coarse){.pc-checkbox.pc-checkbox--bare{min-width:var(--control-touch);min-height:var(--control-touch)}}
 .pc-setting-row__control{display:flex;flex-direction:column;align-items:flex-start;gap:var(--space-2);min-width:0;max-width:var(--size-520)}
 @media(max-width:700px){.pc-setting-row{grid-template-columns:minmax(0,1fr);gap:var(--space-2)}}
 

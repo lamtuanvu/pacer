@@ -140,6 +140,7 @@ test('Budget & pacing and App preferences rows use the shared SettingRow grammar
   expect(budget).not.toContain('class="u3-setting"');
   const app = render(<SettingsGeneral section="app" initialData={settings} />);
   expect((app.match(/class="pc-setting-row"/g) ?? []).length).toBeGreaterThanOrEqual(2);
+  expect(app).toContain('class="pc-checkbox pc-checkbox--bare"');
   const diagnostics = render(<SettingsGeneral section="diagnostics" />);
   expect(diagnostics).toContain('class="pc-setting-row"');
   // The issue count appears once, in the results summary, never in the row.
@@ -249,7 +250,7 @@ test('update, reserve and threshold controls send the same operations', async ()
 test('setting_row_toggles_keep_a_hit_area_and_labelled_controls_keep_their_name', () => {
   const html = renderToString(<SettingRow label="Check for updates" description="Once a day"><Checkbox checked onChange={() => {}} /></SettingRow>);
   const id = attr(html, /<label[^>]*for="([^"]+)"[^>]*>Check for updates<\/label>/);
-  expect(html).toMatch(new RegExp(`<label class="pc-checkbox"><input(?=[^>]*id="${id}")`));
+  expect(html).toMatch(new RegExp(`<label class="pc-checkbox pc-checkbox--bare"><input(?=[^>]*id="${id}")`));
   const own = renderToString(<SettingRow label="Sessions" description="Live sessions"><Checkbox label="Full live sessions" /></SettingRow>);
   expect(own).not.toMatch(/<label[^>]*for=/);
   expect(own).toContain('role="group"');
@@ -261,16 +262,17 @@ test.skipIf(!browserPath)('setting_row_toggle_hit_area_meets_density', async () 
   try {
     const css = (await Promise.all(['app/src/ds/tokens.css', 'app/src/ds/components.css'].map(path => Bun.file(path).text()))).join('\n');
     const markup = renderToString(<DensityContext.Provider value="settings"><SettingRow label="Check for updates" description="Once a day"><Checkbox checked onChange={() => {}} /></SettingRow></DensityContext.Provider>);
-    const heights: number[] = [];
+    const sizes: { width: number; height: number }[] = [];
     for (const width of [1440, 375]) {
       const page = await browser.newPage({ viewport: { width, height: 800 } });
       await page.setContent(`<style>${css}</style>${markup}`);
-      heights.push(await page.locator('.pc-setting-row .pc-checkbox').evaluate(node => node.getBoundingClientRect().height));
+      sizes.push(await page.locator('.pc-setting-row .pc-checkbox').evaluate(node => { const box = node.getBoundingClientRect(); return { width: box.width, height: box.height }; }));
       await page.getByText('Check for updates').click();
       expect(await page.locator('input[type=checkbox]').isChecked()).toBe(false);
       await page.close();
     }
-    expect(heights[0]).toBeGreaterThanOrEqual(32);
-    expect(heights[1]).toBeGreaterThanOrEqual(48);
+    // Settings density on desktop; touch size when narrow. Width counts as much as height.
+    expect(sizes[0]!.width).toBeGreaterThanOrEqual(32); expect(sizes[0]!.height).toBeGreaterThanOrEqual(32);
+    expect(sizes[1]!.width).toBeGreaterThanOrEqual(48); expect(sizes[1]!.height).toBeGreaterThanOrEqual(48);
   } finally { await browser.close(); }
 }, 20_000);

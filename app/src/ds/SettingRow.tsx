@@ -17,7 +17,7 @@ export function SettingRow({ label, description, status, children }: {
   const controlId = control?.props.id ?? `${base}-control`;
   // A bare toggle sits in an empty DS checkbox label so it keeps the settings and touch hit area.
   const toggle = control && (control.type === Checkbox || control.type === Switch);
-  const content = control ? connectControl(children, control, { id: controlId, 'aria-describedby': [control.props['aria-describedby'], descriptionId].filter(Boolean).join(' ') || undefined }, toggle ? node => <label className="pc-checkbox">{node}</label> : undefined) : children;
+  const content = control ? connectControl(children, control, { id: controlId, 'aria-describedby': [control.props['aria-describedby'], descriptionId].filter(Boolean).join(' ') || undefined }, toggle ? node => <label className="pc-checkbox pc-checkbox--bare">{node}</label> : undefined) : children;
   const group = control ? {} : { role: "group" as const, "aria-labelledby": labelId, "aria-describedby": descriptionId };
   return <div className="pc-setting-row" {...group}>
     <div className="pc-setting-row__text">
