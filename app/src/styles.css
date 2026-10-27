@@ -353,7 +353,6 @@ html[data-pacer-native-titlebar] .pc-traffic__btn{display:none}
 .pc-dispatch-chip{display:inline-flex;align-items:center;gap:var(--space-1\.5);min-width:0;padding:var(--space-half) var(--space-2) var(--space-half) var(--space-half);border:1px solid var(--line);border-radius:var(--radius-full);font-size:var(--type-caption-size);line-height:var(--type-caption-line)}
 .pc-dispatch-agents{display:flex;flex-direction:column;min-width:0;margin:0;padding:0;list-style:none}
 .pc-dispatch-agents>li+li{border-top:1px solid var(--line)}
-.pc-dispatch-agent{display:flex;align-items:center;gap:var(--space-2);min-width:0;padding:var(--space-2) var(--space-3)}
 .pc-dispatch-agent__name{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pc-glance{display:grid;grid-template-columns:repeat(auto-fit,minmax(var(--size-120),1fr));gap:var(--space-3);margin:0;padding:var(--space-3)}
 .pc-glance__tile{display:flex;flex-direction:column;gap:var(--space-half);min-width:0}

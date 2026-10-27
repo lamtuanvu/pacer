@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import type { AttentionItem } from "../../../../src/api/read-model/types";
 import { agentInfo, markAgent } from "../../../../src/view-model/agents";
 import { glanceTiles, needsYouCards, tokenSpread, type NeedsYouCard, type TokenReport } from "../../../../src/view-model/dispatch";
-import { executorEligibility } from "../../../../src/view-model/capacity";
+import { executorPace } from "../../../../src/view-model/capacity";
 import { eligibilityPresentation } from "../../../../src/view-model/eligibility";
 import { capacity, counts, needsYou, otherReposNeedingYou, plannerMeter, type Scope } from "../../../../src/view-model/selectors";
 import type { ClientSnapshot } from "../../../../src/view-model/snapshot";
@@ -147,17 +147,18 @@ function NextTask({ routing, query }: { routing: RoutingPreview; query: RouteQue
   </section>;
 }
 
-/** Narrow layouts hide the status bar, so agent usage and readiness stay reachable here (desktop keeps them in the status bar). */
+/** Narrow layouts hide the status bar, so executor usage and pace stay reachable here (desktop keeps them in the status bar). A stale reading says so. */
 function AgentUsage({ snapshot, query }: { snapshot: ClientSnapshot; query: RouteQuery }) {
   const rows = capacity(snapshot).filter(row => row.rank !== "planner");
   if (!rows.length) return null;
   return <section className="pc-card-section" aria-labelledby="agent-usage">
-    <div className="pc-card-section__head"><SectionHeading id="agent-usage">Agents</SectionHeading></div>
+    <div className="pc-card-section__head"><SectionHeading id="agent-usage">Executors</SectionHeading></div>
     <ul className="pc-dispatch-agents">{rows.map(row => {
-      const ready = executorEligibility(row, snapshot.at), usage = row.usedPct === null ? "usage unknown" : `${Math.round(row.usedPct)}% used`;
-      return <li key={row.id}><ListRowLink className="pc-dispatch-agent" href={withQuery("#/settings/executors", query)} aria-label={`${executorLabel(row.id)} · ${usage} · ${ready.label}`}>
+      // Pace words come from the shared vocabulary, including "Historical usage" for a stale reading (UI-10).
+      const pace = executorPace(row, snapshot), usage = row.usedPct === null ? "usage unknown" : `${Math.round(row.usedPct)}% used`;
+      return <li key={row.id}><ListRowLink className="pc-dispatch-agent" href={withQuery("#/settings/executors", query)} aria-label={`${executorLabel(row.id)} · ${usage} · ${pace.label}`}>
         <AgentMark agent={markAgent(row.id, row.account)} size={20} labelled={false} /><span className="pc-dispatch-agent__name">{executorLabel(row.id)}</span>
-        <span className="pc-num">{usage}</span><StatusPill status={ready} />
+        <span className="pc-num">{usage}</span><StatusPill status={pace} />
       </ListRowLink></li>;
     })}</ul>
   </section>;
