@@ -28,12 +28,13 @@ export function findControl(children: ComponentChildren, skip: readonly string[]
     if (nested) return nested;
   }
 }
-export function connectControl(children: ComponentChildren, target: FieldNode, attributes: Partial<FieldNode['props']>): ComponentChildren {
+/** `wrap` optionally places the connected control inside another element. */
+export function connectControl(children: ComponentChildren, target: FieldNode, attributes: Partial<FieldNode['props']>, wrap?: (control: VNode) => VNode): ComponentChildren {
   return toChildArray(children).map(child => {
     if (!isValidElement(child)) return child;
     const node = child as FieldNode;
-    if (node === target) return cloneElement(node, attributes);
-    return node.props.children ? cloneElement(node, { children: connectControl(node.props.children, target, attributes) }) : node;
+    if (node === target) { const connected = cloneElement(node, attributes); return wrap ? wrap(connected) : connected; }
+    return node.props.children ? cloneElement(node, { children: connectControl(node.props.children, target, attributes, wrap) }) : node;
   });
 }
 /** Labels the first canonical control, including within layout elements; keeps sibling feedback intact. */

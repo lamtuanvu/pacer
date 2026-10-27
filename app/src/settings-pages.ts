@@ -32,22 +32,28 @@ export function settingsPageId(section = ''): string {
   return SETTINGS_PAGE_OF[section] ?? section;
 }
 
+/** App preferences already shows update status, so the floating update notice stays hidden there. */
+export function updateNoticeHiddenOn(route: { name: string; section?: string }): boolean {
+  return route.name === 'settings' && settingsPageId(route.section) === 'app';
+}
+
 export function settingsPageTitle(section = ''): string {
   return SETTINGS_PAGES.find(page => page.id === settingsPageId(section))?.label ?? 'Overview';
 }
 
 export interface SettingsAttention { text: string; label: string; tone: 'good' | 'warn' | 'bad' | 'info' | 'neutral' }
 
-/** Page badges shared by the settings menu and the Overview rows, so they never disagree. */
+/** Page badges for the settings menu. Overview rows show the same entries, except neutral counts and glyphs. */
 export function settingsAttention(snapshot?: ClientSnapshot | null, counts?: Counts | null): Partial<Record<string, SettingsAttention>> {
   const hosts = snapshot?.hosts ? snapshot.hosts.filter(host => host.state === 'needs_setup').length : counts?.hostsWithProblems ?? 0;
   const down = snapshot?.executors?.filter(e => e.state === 'down' || e.state === 'failing').length ?? 0;
   const blocked = snapshot?.executors?.filter(e => e.state === 'blocked').length ?? 0;
   const update = desktopUpdateIndicator(snapshot?.desktopUpdates);
   const result: Partial<Record<string, SettingsAttention>> = {};
-  if (down + blocked) result.executors = { text: String(down + blocked), label: `${down} need attention; ${blocked} blocked`, tone: 'bad' };
+  const executorWords = [down && `${down} ${down === 1 ? 'needs' : 'need'} attention`, blocked && `${blocked} blocked`].filter(Boolean).join(', ');
+  if (executorWords) result.executors = { text: String(down + blocked), label: executorWords, tone: 'bad' };
   if (snapshot?.accounts?.length) result.accounts = { text: String(snapshot.accounts.length), label: `${snapshot.accounts.length} ${snapshot.accounts.length === 1 ? 'account' : 'accounts'}`, tone: 'neutral' };
-  if (hosts) result.hosts = { text: `${hosts} needs setup`, label: `${hosts} needs setup`, tone: 'warn' };
+  if (hosts) result.hosts = { text: `${hosts} ${hosts === 1 ? 'needs' : 'need'} setup`, label: `${hosts} ${hosts === 1 ? 'needs' : 'need'} setup`, tone: 'warn' };
   if (update?.glyph) result.app = { text: update.glyph, label: update.label, tone: (['bad', 'warn', 'info'] as const).find(tone => tone === update.tone) ?? 'neutral' };
   return result;
 }

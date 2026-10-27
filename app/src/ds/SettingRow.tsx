@@ -1,6 +1,6 @@
 import type { ComponentChildren } from "preact";
 import { useId } from "preact/hooks";
-import { connectControl, findControl } from "./Controls";
+import { Checkbox, Switch, connectControl, findControl } from "./Controls";
 import { Pill, type PillProps } from "./Pill";
 
 export interface SettingStatus { tone: NonNullable<PillProps["tone"]>; label: string }
@@ -10,12 +10,16 @@ export function SettingRow({ label, description, status, children }: {
   label: ComponentChildren; description?: ComponentChildren; status?: SettingStatus; children: ComponentChildren;
 }) {
   const base = `setting-${useId()}`, labelId = `${base}-label`, descriptionId = description ? `${base}-description` : undefined;
-  // A canonical form control takes the label and description; anything else (segmented groups, buttons,
-  // controls already inside their own label) is described by the row.
-  const control = findControl(children, ['label']);
+  // A canonical form control takes the row label and description. Anything else (segmented groups, buttons,
+  // controls inside their own label or with their own label prop) keeps its name; the row group carries both.
+  const found = findControl(children, ['label']);
+  const control = found && !(found.props as { label?: unknown }).label ? found : undefined;
   const controlId = control?.props.id ?? `${base}-control`;
-  const content = control ? connectControl(children, control, { id: controlId, 'aria-describedby': [control.props['aria-describedby'], descriptionId].filter(Boolean).join(' ') || undefined }) : children;
-  return <div className="pc-setting-row" role="group" aria-labelledby={labelId} aria-describedby={control ? undefined : descriptionId}>
+  // A bare toggle sits in an empty DS checkbox label so it keeps the settings and touch hit area.
+  const toggle = control && (control.type === Checkbox || control.type === Switch);
+  const content = control ? connectControl(children, control, { id: controlId, 'aria-describedby': [control.props['aria-describedby'], descriptionId].filter(Boolean).join(' ') || undefined }, toggle ? node => <label className="pc-checkbox">{node}</label> : undefined) : children;
+  const group = control ? {} : { role: "group" as const, "aria-labelledby": labelId, "aria-describedby": descriptionId };
+  return <div className="pc-setting-row" {...group}>
     <div className="pc-setting-row__text">
       <div className="pc-setting-row__heading">
         {control ? <label id={labelId} htmlFor={controlId} className="pc-setting-row__label">{label}</label> : <span id={labelId} className="pc-setting-row__label">{label}</span>}

@@ -39,7 +39,8 @@ test('Planner uses the actual planner agent without mounting other settings',()=
 test('executor and update checkboxes keep their labels inline', () => {
  const html = render(<SettingsGeneral section="executors" initialData={settings}/>) + render(<SettingsGeneral section="updates" initialData={settings}/>);
  const labels = [...html.matchAll(/<label class="pc-checkbox">([\s\S]*?)<\/label>/g)];
- expect(labels).toHaveLength(1);
+ // The second is the update row's hit-area wrapper; SettingRow's own label names it.
+ expect(labels).toHaveLength(2);
  for (const [, body] of labels) { expect(body).toMatch(/class="[^"]*pc-checkbox__input[^"]*"/); expect(body).toContain('type="checkbox"'); }
  expect(labels[0]![1]).toContain('Enabled');
  // The update preference is a SettingRow: its label names the checkbox.

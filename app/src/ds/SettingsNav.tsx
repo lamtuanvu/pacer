@@ -1,3 +1,4 @@
+import { useEffect, useId, useRef } from "preact/hooks";
 import { TextAction } from "./Button";
 import { Icon, type IconName } from "./icons";
 import type { PillProps } from "./Pill";
@@ -7,10 +8,15 @@ export interface SettingsNavGroup { id: string; label: string; items: readonly S
 
 /** Grouped settings menu. Links stay in document order, so Tab follows the groups top to bottom. */
 export function SettingsNav({ label, groups }: { label: string; groups: readonly SettingsNavGroup[] }) {
-  return <nav aria-label={label} className="pc-settings-nav">
+  const base = `settings-nav-${useId()}`, nav = useRef<HTMLElement>(null);
+  const current = groups.flatMap(group => group.items).find(item => item.current)?.id;
+  // In the narrow horizontal strip the current page may start off-screen.
+  useEffect(() => { nav.current?.querySelector('[aria-current="page"]')?.scrollIntoView?.({ block: "nearest", inline: "nearest" }); }, [current]);
+  // Group labels name their lists without adding headings ahead of the page's own.
+  return <nav aria-label={label} className="pc-settings-nav" ref={nav}>
     {groups.map(group => <div key={group.id} className="pc-settings-nav__group">
-      <h2 id={`settings-nav-${group.id}`} className="pc-settings-nav__heading">{group.label}</h2>
-      <ul aria-labelledby={`settings-nav-${group.id}`} className="pc-settings-nav__list">
+      <span id={`${base}-${group.id}`} className="pc-settings-nav__heading">{group.label}</span>
+      <ul aria-labelledby={`${base}-${group.id}`} className="pc-settings-nav__list">
         {group.items.map(item => <li key={item.id}>
           <TextAction href={item.href} className={`pc-settings-nav__item${item.current ? " on" : ""}`} aria-current={item.current ? "page" : undefined}>
             <Icon name={item.icon}/>{item.label}

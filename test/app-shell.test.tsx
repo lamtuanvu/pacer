@@ -91,7 +91,7 @@ test("settings shows one Dispatcher destination while executor and host status b
   expect(html).not.toContain('>Strategies<');
   expect(html).not.toContain('>Routing<');
   expect(html).toMatch(/pc-settings-nav__badge--bad"[^>]*><span aria-hidden="true">1</);
-  expect(html).toContain("1 need attention; 0 blocked");
+  expect(html).toContain("1 needs attention");
   expect(html).toMatch(/pc-settings-nav__badge--warn"[^>]*>1 needs setup</);
   expect(html).not.toContain('>1 rule</span>');
 });

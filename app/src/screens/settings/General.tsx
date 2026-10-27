@@ -74,6 +74,8 @@ export interface SettingsData {
     disabled?: boolean;
   };
 }
+/** Pages whose changes reach routing; Overview, App preferences and Diagnostics do not. */
+const DISPATCH_NOTE = new Set(["planner", "accounts", "machine", "dispatcher"]);
 /** Mount only the selected editor: inactive pages must not fetch or run effects. */
 export function SettingsGeneral({
   section,
@@ -124,7 +126,7 @@ export function SettingsGeneral({
       >
         <Page width="full" className="u3-settings u3-settings-page">
           <div className="u3-general-sections">{content}</div>
-          {section !== "executors" && (
+          {DISPATCH_NOTE.has(section ?? "") && (
             <p className="u3-settings-note">
               Changes apply on the next routing decision.
             </p>
@@ -135,7 +137,7 @@ export function SettingsGeneral({
   );
 }
 
-/** Overview: every settings page by menu group, with the same attention the menu shows. */
+/** Overview: every settings page by menu group, with the menu's attention statuses (neutral counts are left to the menu). */
 function GeneralOverview({ query }: { query: RouteQuery }) {
   const { state } = useTaskContext();
   const attention = settingsAttention(state.snapshot);
@@ -843,7 +845,7 @@ function NotificationsSection({
       <ResourceState resource={query}>
         <SettingRow label="Notify me about" description="Failures, stuck tasks and reviews">
           <Segment
-            label="Notifications"
+            label="Notify me about"
             value={query.data?.level ?? ""}
             disabled={action.busy}
             options={[
@@ -884,7 +886,7 @@ function AppearanceSection() {
     <Section id="appearance" title="Appearance">
       <SettingRow label="Theme" description="Stored on this device.">
       <Segment
-        label="Appearance"
+        label="Theme"
         value={theme}
         options={["system", "light", "dark"].map((value) => ({
           value,

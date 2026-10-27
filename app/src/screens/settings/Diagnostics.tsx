@@ -86,10 +86,8 @@ export function DiagnosticsSection() {
     if (!result) setPreview(undefined);
     setProgress(result ? "Repair applied and checks refreshed. Review any remaining issues." : "Repair or recheck failed. Review the error and run checks again.");
   }
-  const issues = report && diagnosticGroups(report.checks).issueCount;
   return <Section id="diagnostics" title="Diagnostics">
-    <SettingRow label="Setup checks" description="Check setup and repair supported integrations."
-      status={issues === undefined ? undefined : { tone: issues ? "warn" : "good", label: issues ? `${issues} ${issues === 1 ? "issue" : "issues"}` : "No issues" }}>
+    <SettingRow label="Setup checks" description="Check setup and repair supported integrations.">
       <Button variant="primary" disabled={action.busy} aria-describedby={action.busy ? "diagnostics-progress" : undefined}
         onClick={() => void runChecks()}>{action.busy ? "Working…" : "Run checks"}</Button>
     </SettingRow>

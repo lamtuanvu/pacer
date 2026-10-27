@@ -1,4 +1,4 @@
-import { settingsPageId } from "./settings-pages";
+import { updateNoticeHiddenOn } from "./settings-pages";
 import { startClientControl } from "./data/control";
 import { canLeaveScreen } from "./data/navigation-guard";
 import { NotificationProvider } from "./data/notification-context";
@@ -119,7 +119,7 @@ function App() {
       <NavigationProvider route={route}><Layout route={route} state={{ ...state, sessionEnded: state.sessionEnded || sessionEnded }} title={titleFor(route)} onDelegate={() => setDelegate(true)}><Screen route={route} /></Layout></NavigationProvider>
     </SetupContext.Provider>
     {UpdateNotice && (
-      <UpdateNotice narrow={narrow} hidden={delegate || help || sessionEnded || (route.name === "settings" && settingsPageId(route.section) === "app")} />
+      <UpdateNotice narrow={narrow} hidden={delegate || help || sessionEnded || updateNoticeHiddenOn(route)} />
     )}
     {delegate && <Delegate close={() => setDelegate(false)} filterRepo={activeRepo(route.query)} />}
     {help && <CommandHelp registry={keys} close={() => setHelp(false)} />}
