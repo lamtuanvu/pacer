@@ -12,7 +12,7 @@ import { CheckList } from "../../ds/Stepper";
 import { AgentMark } from "../../ds/AgentMark";
 import { Pill } from "../../ds/Pill";
 import { Button, ButtonLink, TextAction } from "../../ds/Button";
-import { useTaskContext } from "../task-shared";
+import { ErrorMessage, useTaskContext } from "../task-shared";
 import { Feedback, ResourceState, Section, useOperation, useResource, words } from "./shared";
 
 /** pacer host names: lower-case letters, digits and hyphens; "local" names this machine. */
@@ -98,7 +98,7 @@ export function AddHost({ initialAliases }: { initialAliases?: string[] }) {
     {passed && <><p role="status">{added} is connected. Next, map the repositories it should work on and add its executors.</p>
       <div className="u3-actions"><ButtonLink variant="primary" href={`#/settings/hosts/${encodeURIComponent(added)}`}>Map repositories</ButtonLink><ButtonLink href={`#/settings/add-executor?host=${encodeURIComponent(added)}`}>Add an agent here</ButtonLink></div></>}
     <Feedback action={add} />
-    <Feedback action={check} />
+    <ErrorMessage error={check.error} />
     </>}
   </Card>;
 }
