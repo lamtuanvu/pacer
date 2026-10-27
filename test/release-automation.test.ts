@@ -191,6 +191,7 @@ function recoveryFixture() {
 case "$1 $2" in
   "pr view") cat pr.json ;;
   "run list") case "$*" in *--branch*) echo 101 ;; *) echo 100 ;; esac ;;
+  "run view") if test -f run-view.json; then cat run-view.json; else printf '{"headSha":"%s","headBranch":"release/recovery-v0.5.0-%s","event":"workflow_dispatch","status":"completed","conclusion":"success"}\n' "$RELEASE_COMMIT" "$(printf '%s' "$RELEASE_COMMIT" | cut -c 1-12)"; fi ;;
   "workflow run") touch dispatched ;;
   "run watch") exit "\${WATCH_EXIT:-0}" ;;
   *) exit 1 ;;
@@ -219,21 +220,56 @@ test("Recovery restores a deleted branch only at the reviewed head and validates
   const result = recoveryStep(work, validateRecovery, recoveryEnv(work));
   expect(result.stderr.toString()).not.toContain("error");
   expect(result.exitCode).toBe(0);
-  expect(git(origin, "rev-parse", "refs/heads/release/v0.5.0")).toBe(sha);
+  expect(git(origin, "rev-parse", `refs/heads/release/recovery-v0.5.0-${sha.slice(0, 12)}`)).toBe(sha);
   expect(git(origin, "tag", "--list")).toBe(""); // Validation alone cannot publish.
 });
 
-test("Recovery refuses a release branch changed after merge without overwriting it", () => {
+test("Recovery refuses a recovery branch changed after creation without overwriting it", () => {
   const { work, origin } = recoveryFixture();
   expect(recoveryStep(work, resolveRecovery).exitCode).toBe(0);
   git(work, "commit", "--allow-empty", "-qm", "unreviewed branch change");
   const changed = git(work, "rev-parse", "HEAD");
-  git(work, "push", "--quiet", "origin", "HEAD:refs/heads/release/v0.5.0");
+  const branch = `release/recovery-v0.5.0-${recoveryEnv(work).RELEASE_COMMIT!.slice(0, 12)}`;
+  git(work, "push", "--quiet", "origin", `HEAD:refs/heads/${branch}`);
   git(work, "checkout", "--quiet", recoveryEnv(work).RELEASE_COMMIT!);
   const result = recoveryStep(work, validateRecovery, recoveryEnv(work));
   expect(result.exitCode).not.toBe(0);
-  expect(result.stdout.toString()).toContain("Release branch changed after merge");
-  expect(git(origin, "rev-parse", "refs/heads/release/v0.5.0")).toBe(changed);
+  expect(result.stdout.toString()).toContain("Recovery branch does not point to release merge commit");
+  expect(git(origin, "rev-parse", `refs/heads/${branch}`)).toBe(changed);
+});
+
+test("Recovery validates the exact merge commit when main changed after the release PR branched", () => {
+  const { work, origin, sha: head } = recoveryFixture();
+  writeFileSync(join(work, "unrelated-fix"), "merged before release");
+  git(work, "add", "unrelated-fix");
+  git(work, "commit", "--quiet", "-m", "fix: intervening change");
+  git(work, "commit", "--allow-empty", "--quiet", "-m", "chore: release 0.5.0 (#220)");
+  const merge = git(work, "rev-parse", "HEAD");
+  git(work, "push", "--quiet", "origin", "main");
+  const pr = JSON.parse(readFileSync(join(work, "pr.json"), "utf8"));
+  writeFileSync(join(work, "pr.json"), JSON.stringify({ ...pr, headRefOid: head, mergeCommit: { oid: merge } }));
+  expect(recoveryStep(work, resolveRecovery).exitCode).toBe(0);
+  const result = recoveryStep(work, validateRecovery, recoveryEnv(work));
+  expect(result.exitCode).toBe(0);
+  expect(git(origin, "rev-parse", `refs/heads/release/recovery-v0.5.0-${merge.slice(0, 12)}`)).toBe(merge);
+  expect(recoveryEnv(work).RECOVERY_DRY_RUN_ID).toBe("101");
+  expect(git(origin, "tag", "--list")).toBe("");
+  const tagged = runTag(work, merge, "chore: release 0.5.0 (#220)", { ...recoveryEnv(work), GITHUB_STEP_SUMMARY: join(work, "summary") });
+  expect(tagged.exitCode).toBe(0);
+  expect(git(origin, "rev-parse", "v0.5.0^{commit}")).toBe(merge);
+});
+
+test("Recovery refuses a stale or unsuccessful exact-merge validation run", () => {
+  for (const change of [{ headSha: "0".repeat(40) }, { conclusion: "failure" }, { headBranch: "main" }]) {
+    const { work, origin, sha } = recoveryFixture();
+    writeFileSync(join(work, "run-view.json"), JSON.stringify({
+      headSha: sha, headBranch: `release/recovery-v0.5.0-${sha.slice(0, 12)}`,
+      event: "workflow_dispatch", status: "completed", conclusion: "success", ...change,
+    }));
+    const result = runTag(work, sha, "chore: release 0.5.0 (#220)", { RECOVERY_DRY_RUN_ID: "101", RELEASE_COMMIT: sha });
+    expect(result.exitCode).not.toBe(0);
+    expect(git(origin, "tag", "--list")).toBe("");
+  }
 });
 
 test("Recovery stops when fresh validation fails and leaves tags absent", () => {
