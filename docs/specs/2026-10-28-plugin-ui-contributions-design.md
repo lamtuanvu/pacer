@@ -215,7 +215,7 @@ See also Trust boundary above.
 Slice 9 of the redesign, in three PRs:
 
 1. The protocol: manifest schema, host methods, validation, settings storage and ops, grant change, generated docs, SDK builders and conformance. No app change.
-2. The app: activity items, panel tabs, status items and settings pages rendered from documents and schemas, with provenance markings, error and out-of-date states, and visibility toggles. It depends on redesign slices 2 and 6, which add `PanelTabs`, `SidePanel`, `SettingRow`, `SaveBar` and `SortableList`. The renderer counts against the app's 60 KB gzip budget (UI-3). UI evidence per UI-24.
+2. The app: activity items, panel tabs, status items and settings pages rendered from documents and schemas, with provenance markings, error and out-of-date states, and visibility toggles. It depends on the redesign's shared components: `PanelTabs` and `SidePanel` (slice 2), `SettingRow` (slice 6), and `SaveBar` and `SortableList`, which the redesign lists without assigning a slice (likely 6 or 7). The renderer counts against the app's 60 KB gzip budget (UI-3). UI evidence per UI-24.
 3. A bundled reference plugin, or a conformance fixture promoted to an example, that exercises all four surfaces. CT-11 live validation installs it into a sandbox `PACER_HOME`, grants it, renders every surface, saves settings, runs an action with a confirmation, upgrades it to a version with a new surface kind (re-prompt), and disables it. Surfaces not exercised live are reported as UNVERIFIED.
 
 Each PR updates `docs/plugin-protocol.md` (generated) and the plugin docs pages, and adds a CHANGELOG Unreleased entry (REPO-7).

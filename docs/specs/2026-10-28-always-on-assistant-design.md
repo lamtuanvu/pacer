@@ -93,7 +93,7 @@ Not available, by design:
 
 Task requests, context and constraints are free text that users paste into, so they may hold secrets. The read tools therefore:
 - **leave free text out by default.** `task_get` returns the title, state, kind, executor, times, decisions and review state, not the goal, context, constraints or acceptance text. Whether to include the goal is an open decision;
-- **redact everything they return** with a new redactor, `src/assistant/redact.ts`. It replaces exact values of every secret pacer holds (endpoint keys and resolved secret references), key-shaped strings (common provider key prefixes, bearer tokens, JWTs, PEM blocks and long high-entropy tokens), and the home path. The classifier's `redactState` only shortens strings and replaces the home path, so it is not enough on its own. Strategy YAML and activity-log text go through the same redactor;
+- **redact everything they return** with a new redactor, `src/assistant/redact.ts`. It replaces exact values of every secret pacer holds (endpoint keys and resolved secret references), key-shaped strings (common provider key prefixes, bearer tokens, JWTs, PEM blocks and long high-entropy tokens), and the home path. pacer's own identifiers (task, attempt and request ids) and 40- or 64-character hex commit SHAs are allowlisted by shape, so the assistant can still quote them. The classifier's `redactState` only shortens strings and replaces the home path, so it is not enough on its own. Strategy YAML and activity-log text go through the same redactor;
 - **cap each result** at 32 KiB, and wrap it as data: the host puts tool results and task text in a delimited data block, separate from the instructions it sends. The backend is told that task titles, agent output and plugin text are untrusted content. That reduces prompt injection; it does not prevent it, which is why the assistant cannot act on its own (below).
 
 The user's **context chip** narrows what the tools may read: "Dispatch · 7 days", "This task", or "This repository". Tool calls outside the chosen scope return an empty result with a note.
@@ -104,10 +104,10 @@ The assistant can suggest an action only by returning a `propose_action` tool ca
 
 | Allowed | Why it is safe enough to propose |
 |---|---|
-| `dispatch.retry`, `task.retry` | Revision-checked, and repeats work the user already started |
+| `dispatch.retry`, `task.retry` | Revision-checked, and repeats work the user already started. A proposed executor must be one `dispatch.explain` lists as eligible for that task |
 | `dispatch.stop`, `task.stop` | Revision-checked |
 | `dispatch.answer`, `task.answer` | The answer text is shown in full and editable before sending |
-| `delegation.pause`, `delegation.resume` | Reversible |
+| `delegation.pause`, `delegation.resume` | Reversible. A proposed pause is at most 24 hours |
 | `dispatch.submit` | Opens the "New task" composer prefilled, with the route explanation. It never submits directly |
 | Navigation | "Open dispatch trace", "Open task" and similar. These are links, not ops |
 
@@ -144,7 +144,7 @@ The assistant's backend never gets an API token, a grant or a session. It has no
 - **Streaming does not use the event outbox.** The outbox is durable and holds 1000 entries, so streamed deltas would push other events out within minutes and persist answer text outside History's retention and delete controls. Instead, `assistant.ask` is followed by `GET /v3/assistant/turns/<turnId>/stream` (SSE) or a JSON-RPC subscription, an ephemeral, per-turn stream of `{ delta }` frames, coalesced to at most ten a second and closed when the turn ends. It is authenticated like every other route and kept in memory only.
 - A new outbox event type, `assistant`, carries only `{ turnId, conversationId, state: "done" | "error" | "cancelled" }`, with no text, so other windows can refresh History. Clients ignore unknown event types (API-1), and `hello.events` lists it. The outbox's event-type union (`src/link/envelope.ts`) is extended additively.
 - The plugin's `assistant.delta` notifications need the transport's notification dispatch, which the [plugin UI contributions](2026-10-28-plugin-ui-contributions-design.md) spec adds, and a per-call deadline: `MethodDef.deadlineMs` is static today, so `assistant.respond` takes its deadline from `limits.deadlineMs`, capped at 120 s.
-- **Executor sessions** get `not_allowed` for every `assistant.*` op: the caller policy (`src/api/caller-policy.ts`) adds them, so an executor, with or without an API-5 grant, cannot spend the assistant's budget or read its history.
+- **Executor sessions** get `not_allowed` for every `assistant.*` op: the caller policy (`src/api/caller-policy.ts`) adds them, so an executor, with or without an API-5 grant, cannot spend the assistant's budget or read its history through pacer's own clients. The caller policy identifies executor sessions from their role environment and working directory, not from credentials, so it is a policy check, not a boundary against a process that holds the service token.
 - Errors use existing codes (API-4): `not_allowed` when the assistant isn't set up or the account is refused (with the reason in `hint`), `plugin_unavailable`, `plugin_timeout`, `invalid_input`, `not_found` and `conflict`.
 - **CLI (ARCH-8).** `pacer ask "<question>" [--scope ...] [--json]` asks once and prints the answer. Proposals are printed as the equivalent `pacer` commands and are never run.
 - **Plugin protocol.** `assistant` is a new extension point with one method and one notification: an additive minor version under P14 (1.2.0 if it ships with plugin UI, otherwise 1.3.0), generated into `docs/plugin-protocol.md` (P11). Rust types are regenerated with `cargo xtask gen` in the same PR.
@@ -181,7 +181,7 @@ The sheet is the redesign's `AuroraSheet`. It anchors to the bottom of the main 
 
 ## Governance
 
-Constitution 0.15.0. Applicable: P1–P6, P11, P13–P14; ARCH-1–3, ARCH-5, ARCH-8, ARCH-9, ARCH-12–14; API-1–5; SEC-1, SEC-2, SEC-4, SEC-5, SEC-7; UI-2, UI-6, UI-10, UI-12–15, UI-21, UI-26, UI-27; CT-11; REPO-2, REPO-3, REPO-7, REPO-11–14 for whoever implements it. No rule changes are proposed. The constitution's scope lists the service, routing and the thin clients; an assistant inside the service and app arguably fits there, but whether it deserves its own scope line (an amendment) is open decision 14. If the maintainer accepts the assistant extension point, it is a durable architectural choice that gets its own ADR with the first implementation PR (ARCH-9); this spec doesn't add one, because the open decisions below may change it.
+Constitution 0.15.0. Applicable: P1–P6, P11, P13–P14; ARCH-1–3, ARCH-5, ARCH-8, ARCH-9, ARCH-12–14; API-1–5; SEC-1, SEC-2, SEC-4, SEC-5, SEC-7; UI-2, UI-6, UI-10, UI-12–15, UI-21, UI-26, UI-27; CT-11; REPO-2, REPO-3, REPO-7; and the proposed REPO-11–14 (advisory until amendment 0.15.0 is merged) for whoever implements it. No rule changes are proposed. The constitution's scope lists the service, routing and the thin clients; an assistant inside the service and app arguably fits there, but whether it deserves its own scope line (an amendment) is open decision 14. If the maintainer accepts the assistant extension point, it is a durable architectural choice that gets its own ADR with the first implementation PR (ARCH-9); this spec doesn't add one, because the open decisions below may change it.
 
 ## Open decisions
 

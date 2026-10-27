@@ -11,7 +11,7 @@ The redesigned app has places for plugins: activity-bar items, right-panel tabs,
 Plugins contribute UI as data only.
 
 - A new extension point, `contributes.ui`, declares four kinds of surface: `activity`, `panelTabs`, `settings` and `status`. Each has an id, a plain-text title and a design-system icon name.
-- Settings pages are drawn from a closed JSON Schema subset declared in the manifest. Values are validated by the host and stored in the existing plugin config. Secrets are never values: a `secretRef` field holds only the name of a secret reference (P5).
+- Settings pages are drawn from a closed JSON Schema subset declared in the manifest. Values are validated by the host and stored in a plugin settings store that `config.get` reads; whether that is the existing strategy-scoped plugin config or a new strategy-independent store is an open decision in the spec. Secrets are never values: a `secretRef` field holds only the name of a secret reference (P5).
 - Other surfaces are drawn from **view documents**: bounded trees of typed nodes that the plugin returns from `ui.render`. The host validates every document against a zod schema and passes only valid documents to clients. The app renders them with `app/src/ds/` components.
 - Plugins ship no CSS, JavaScript, HTML, images or URLs that the app loads. Strings are always rendered as text. Views have no text input and no primary buttons. Every plugin surface, header and confirmation dialog is marked with its plugin by the host.
 - User actions go from the app through new client ops to the host, which calls `ui.action` on the plugin. Plugins never call client ops.

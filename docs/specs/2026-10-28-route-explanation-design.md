@@ -80,7 +80,7 @@ interface PlannerWindow { account: string; usedPct: number; pacePct: number | nu
 - **The codes come from the existing exclusion sites.** `rankExecutors`, `buildCandidates`, `enforcementExclusion`, `remoteExclusion` and `slotBlock` return free-text reasons today. This spec has each site return a code and facts alongside its current string, which stays in place for `dispatch.preview` and `routing.route`. The list of codes is generated into `docs/protocol.md`. A new code is an additive change (P4, API-1); clients show a generic "Not available right now" for a code they don't know.
 - **`chosen`** is the first ranked choice of a valid proposal. On `queue` and `fail` it is null, and `reasons` says why (for example `no_step_matched`).
 - **`fallbacks`** are the rest of the ranked choices, then the candidates excluded for this request with their reasons. An executor the ladder would reach in a later step is listed with that `step`. This is the card's "If it can't" row.
-- **`outcome: "override"`.** A requested executor is a preference in the runner (`src/tasks/runner.ts`), and the explanation follows the same rules. `reasons` starts with `override` (info). If the requested executor is eligible, it is `chosen`. If it is blocked by the user or exhausted, the runner refuses the task, so `outcome` is `fail` with that reason. If it is unavailable for any other reason, the runner falls back and records the fallback, so `chosen` is the executor the ladder picks and `reasons` includes `override_unavailable { requested, reason }`.
+- **`outcome: "override"`.** A requested executor is a preference in the runner (`src/tasks/runner.ts`), and the explanation follows the same rules. `reasons` starts with `override` (info). If the requested executor is eligible and, for managed work, among the ladder's candidates, it is `chosen`. If it is blocked by the user or exhausted, the runner refuses the task, so `outcome` is `fail` with that reason. If it is unavailable for any other reason, the runner falls back and records the fallback, so `chosen` is the executor the ladder picks and `reasons` includes `override_unavailable { requested, reason }`.
 - **`uncertainty`** carries what `dispatch.preview` reports today, such as capacity unknown or an unresolved executor default model, as reason codes. It always includes `cached_preview`: the preview reads cached observations and reserves nothing, so dispatch may differ. It also names the admission-time factors the explanation doesn't model (see Parity).
 
 ### Planner cost
@@ -108,11 +108,11 @@ With a goal and no `kind`, `routing.route` calls the configured classifier throu
 
 | Path in `previewDispatch` today | Side effect | In `dispatch.explain` |
 |---|---|---|
-| `enforcementExclusion` under strict enforcement (the default) | Spawns `<agent> --version` for each runner (`src/dispatch/enforcement.ts`) | Uses only an in-memory cache of the last version check, keyed by binary path and modification time. With no cached result, the runner is not excluded; `uncertainty` gets `enforcement_unverified { agent }`. The cache is filled by submit, the runner and `dispatch.enforcement`, never by explain |
-| A plugin decision engine | Starting an idle plugin, which publishes `plugin` events | Calls the engine only if its plugin is already `ready`. Otherwise it uses the ladder and reports `engine_not_running` in `engine.fallback` |
+| `enforcementExclusion` under strict enforcement (the default) | Spawns `<agent> --version` for each runner (`src/dispatch/enforcement.ts`) | Uses a **new** in-memory cache of the last version check, keyed by binary path and modification time; no such cache exists today. With no cached result (always the case in a fresh CLI or stdio process), the runner is not excluded on that ground; `uncertainty` gets `enforcement_unverified { agent }`. Static reasons that need no spawn, such as no native control adapter for the agent or the binary not being installed, are still reported as exclusions. The cache is filled by submit, the runner and `dispatch.enforcement`, never by explain |
+| A plugin decision engine | Starting an idle plugin, which publishes `plugin` events | Calls the engine only if its plugin is already `ready`, checked with a new registry peek that publishes no event and doesn't refresh state. If the plugin is idle, or is non-reentrant and busy, it uses the ladder and reports `engine_not_running` in `engine.fallback` |
 | `computeStatus` | Reads usage | `cacheOnly`, with a read-only ctx, as preview already does |
 | `remoteExclusion` | SSH probe | Cached reachability only, as preview already does; older than 60 s gives `host_reachability_unknown` |
-| `dispatchDatabase()` (learned fit, work lookup) | Runs DDL on open | Opens the store read-only. When the store or its tables don't exist yet, learned fit is skipped and `uncertainty` gets `learning_unavailable` |
+| `dispatchDatabase()` (learned fit, work lookup) and the task store's `connection()` (running tasks for slots) | Both run DDL on open; the task store also creates `tasks.db`, sets WAL mode and imports legacy JSON | Opens both stores through a new read-only connection (`SQLITE_OPEN_READONLY`, no DDL, no import). When a store or its tables don't exist yet, learned fit is skipped (`learning_unavailable`) and no task is treated as running (`tasks_unavailable`), both in `uncertainty` |
 | Observation adapters | Could reach the network | Only the stored observations and the cached-status adapter |
 
 It also never calls `dispatch.refresh`, `routing.route`, the classifier's `decide()`, a job, or the enforcement canary.
@@ -143,7 +143,7 @@ The parity test compares the explanation's `chosen` and `fallbacks` with the run
 | Planner window | `computeStatus` (cached) and the pacing mode |
 | Planner history | token accounting's `root_usage` (planner source) once it exists |
 
-`previewDispatch` is split into a pure `explainInputs` step and a `decide` step, so that `dispatch.preview`, `dispatch.explain` and `dispatch.submit` call the same code. `dispatch.preview` keeps its result shape.
+`previewDispatch` is split into an `explainInputs` step, which gathers inputs under the read-only options above, and a `decide` step, so that `dispatch.preview`, `dispatch.explain` and `dispatch.submit` call the same code. `dispatch.preview` keeps its result shape.
 
 ## Errors
 
@@ -151,7 +151,7 @@ No new error codes (API-4). The documented codes are:
 
 | Code | When |
 |---|---|
-| `invalid_input` | The params fail the schema; an unknown `kind`; `remote` without `host`; an invalid `strategyDraft` (the hint lists the draft's problems, as `strategy.preview` does); a repository whose identity can't be established (`resolvePolicyRepoInput`'s existing error) |
+| `invalid_input` | The params fail the schema; an unknown `kind`; an invalid `strategyDraft` (the hint lists the draft's problems, as `strategy.preview` does); a repository whose identity can't be established (`resolvePolicyRepoInput`'s existing error) |
 | `unknown_executor` | `executor` names nothing configured |
 | `too_large` | The decision input exceeds 256 KiB (`runDecision`'s existing cap) |
 | `not_allowed` | The caller is an executor session, with or without an API-5 grant. `dispatch.explain` is added to the caller policy (`src/api/caller-policy.ts`); scoped child work doesn't need it |
@@ -170,7 +170,7 @@ A plugin engine failure is not an error. It is reported through `engine.fallback
 
 The client owns the timing. The service keeps no session state for drafts.
 
-- **Triggers.** Changing the repository, kind, override or a "More options" field refreshes at once. Typing in the request refreshes 400 ms after the last keystroke, and at most once a second while typing continues. Only the goal's effect on kind detection depends on the text, so the service memoizes the decision step by `(strategyHash, observationRevision, decision inputs)` for 5 s in memory. That memo is not persisted.
+- **Triggers.** Changing the repository, kind, override or a "More options" field refreshes at once. Typing in the request refreshes 400 ms after the last keystroke, and at most once a second while typing continues. Only the goal's effect on kind detection depends on the text, so the service memoizes the decision step by the stable `revision` inputs (strategyHash, the timestamp-free observation hash described under Revision, and the decision inputs) for 5 s in memory. That memo is not persisted.
 - **One request in flight.** The client aborts the previous HTTP request (or ignores its JSON-RPC reply) when it sends a new one, keeps a local sequence number, and drops any reply older than the latest it showed.
 - **Events.** It refreshes on `executor`, `account`, `planner`, `mode`, `pause`, `host` and `repo` events, and on `config` events whose area is `routing`, `strategy`, `runners` or `accounts`. Bursts are coalesced to one refresh a second.
 - **Staleness.** With no refresh for 60 s, for example while the window is hidden, the card marks the preview as possibly out of date and refreshes when the window is visible again. The card shows "Updated as you type" only while refreshes are succeeding.
