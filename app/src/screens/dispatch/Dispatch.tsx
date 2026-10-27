@@ -76,7 +76,7 @@ export function NeedsYouList({ snapshot, scope, runner, now, query, narrow, stan
       {!standalone && waiting > 0 && <span className="pc-count pc-count--warn">{waiting}</span>}
       <span className="grow" />{standalone ? otherRepos : narrow && otherRepos ? otherRepos : all}
     </div>
-    {cards.length > 0 && <ul className="pc-dispatch-cards" aria-label="Needs you, most urgent first">
+    {cards.length > 0 && <ul className={standalone ? "pc-dispatch-cards pc-dispatch-cards--flush" : "pc-dispatch-cards"} aria-label="Needs you, most urgent first">
       {page.rows.map(card => <AttentionCard key={card.id} card={card} snapshot={snapshot} runner={runner} now={now} query={query} expansion={expansion} />)}
     </ul>}
     {!cards.length && <EmptyState title="Nothing needs your attention" description={<TextAction href={withQuery("#/tasks", query)}>View Tasks</TextAction>} />}
@@ -119,7 +119,7 @@ function PlannerBudget({ snapshot, now }: { snapshot: ClientSnapshot; now: numbe
     <div className="pc-card-section__body pc-dispatch-budget">
       <div className="pc-dispatch-who"><AgentMark agent={p.agent} size={20} labelled={false} /><strong>{name}</strong><StatusPill status={pace} /></div>
       {p.advice && <p className="pc-dispatch-advice">{p.advice}</p>}
-      <UsageMeter used={p.usedPct} pace={p.pacePct} tone={pace.tone} verdict={p.verdict} size="bar" label={`${name} planner usage`} stale={p.stale} staleAt={snapshot.at} now={now} />
+      {p.usedPct !== null && <UsageMeter used={p.usedPct} pace={p.pacePct} tone={pace.tone} verdict={p.verdict} size="bar" label={`${name} planner usage`} stale={p.stale} staleAt={snapshot.at} now={now} />}
       {(p.window || p.resetsAt) && <span className="muted">{[p.window, p.resetsAt ? `resets ${clock(p.resetsAt, now)}` : null].filter(Boolean).join(" · ")}</span>}
     </div>
   </section>;
@@ -133,7 +133,7 @@ function NextTask({ routing, query }: { routing: RoutingPreview; query: RouteQue
   const readiness = next ? eligibilityPresentation(next.eligibility, Date.now() / 1000) : null;
   return <section className="pc-card-section" aria-labelledby="next-task">
     <div className="pc-card-section__head"><SectionHeading id="next-task">Next task goes to</SectionHeading><span className="grow" /><TextAction className="pc-text-action" href={withQuery("#/settings/dispatcher", query)}>Dispatcher settings</TextAction></div>
-    <div className="pc-card-section__body pc-dispatch-budget" aria-live="polite">
+    <div className="pc-card-section__body pc-dispatch-budget">
       {routing.loading && !routing.data ? <span className="muted">Checking routing…</span>
         : routing.error ? <span className="muted">Could not check routing. It is checked again on the next update.</span>
         : next && readiness ? <>

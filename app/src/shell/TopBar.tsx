@@ -13,13 +13,15 @@ import { UsageMeter } from "../ds/UsageMeter";
 export interface TopBarProps {
   narrow?: boolean; title: string; planner: PlannerMeter | null; mode: string; connected: boolean; lastUpdate: number | null;
   showActions?: boolean; now?: number; onDelegate: () => void; delegatePrimary?: boolean;
+  /** False where the page itself states the planner figure (Dispatch), so the narrow meter is not repeated (UI-15). */
+  plannerFigure?: boolean;
 }
 /** One compact page header, including native controls in the desktop shell. */
-export function TopBar({ narrow = false, title, planner, mode, connected, lastUpdate, now: fixedNow, onDelegate, delegatePrimary = true, showActions = true }: TopBarProps) {
+export function TopBar({ narrow = false, title, planner, mode, connected, lastUpdate, now: fixedNow, onDelegate, delegatePrimary = true, showActions = true, plannerFigure = true }: TopBarProps) {
   const [tick, setTick] = useState(() => Date.now() / 1000);
   useEffect(() => { if (fixedNow !== undefined) return; const t = setInterval(() => setTick(Date.now() / 1000), 1000); return () => clearInterval(t); }, [fixedNow]);
   const now = fixedNow ?? tick;
-  const narrowMeter = narrow && planner && planner.verdict !== "unknown" && planner.usedPct !== null;
+  const narrowMeter = narrow && plannerFigure && planner && planner.verdict !== "unknown" && planner.usedPct !== null;
   return <header className="pc-topbar" data-tauri-drag-region>
     {!narrow && <TitleBar />}
     {showActions && <h1 data-tauri-drag-region title={title}>{title}</h1>}

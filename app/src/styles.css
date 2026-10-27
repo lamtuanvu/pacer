@@ -341,6 +341,7 @@ html[data-pacer-native-titlebar] .pc-traffic__btn{display:none}
 .pc-dispatch .pc-card-section__head{flex-wrap:wrap;min-height:var(--size-44)}
 .pc-dispatch .pc-card-section__body{flex:1}
 .pc-dispatch-cards{display:flex;flex-direction:column;gap:var(--space-2);min-width:0;margin:0;padding:var(--space-3);list-style:none}
+.pc-dispatch-cards--flush{padding:0}
 .pc-dispatch-card{min-width:0;border-radius:var(--radius-lg)}
 .pc-dispatch-card:focus-visible{outline:var(--stroke-focus) solid var(--focus);outline-offset:var(--stroke-focus)}
 .pc-dispatch-budget{display:flex;flex-direction:column;gap:var(--space-2);min-width:0}

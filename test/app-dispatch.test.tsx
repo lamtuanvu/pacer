@@ -111,6 +111,10 @@ test("planner budget is the one place that states the planner figure", () => {
   expect(html).toContain('aria-label="Claude Code planner usage"');
   expect(html).toContain("63% used · pace 77%");
   expect(view(null, { ...snap, planner: null })).not.toContain("planner-budget");
+  // With no reading, the pill says so once; there is no empty meter repeating "usage unknown".
+  const unknown = section(view(null, { ...snap, planner: { ...snap.planner!, usedPct: null, pacePct: null, verdict: "unknown" } }), "planner-budget-h");
+  expect(unknown).not.toContain("pc-meter");
+  expect(strip(unknown).match(/usage unknown/gi)).toHaveLength(1);
 });
 
 test("next task goes to names the next agent and the order after it, without internal reasons", () => {

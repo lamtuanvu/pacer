@@ -52,7 +52,9 @@ test("bottom bar keeps all four icons, badges and scope on every destination", (
     expect(html).toContain('aria-label="Tasks · 2 running"');
     expect(html).toContain(`href="#/settings?scope=repo%3Agithub.com%2Facme%2Fapi"`);
     expect(html).toContain("pc-planner");
-    expect(html).toContain("63%·77");
+    // On Dispatch the Planner budget region states the figure; the narrow top bar keeps only the planner mark (UI-15).
+    if (screen === "/") { expect(html).toContain("pc-planner"); expect(html).not.toContain("63%·77"); }
+    else expect(html).toContain("63%·77");
     expect(html).toMatch(/pc-btn--touch[^>]*>Delegate</);
   }
   const html = atWidth(400, () => renderToString(<Layout route={route("#/")} state={{ ...state, snapshot: { ...snapshot, counts: { ...snapshot.counts!, setupOpen: 1 } } }} title="Dispatch">body</Layout>));

@@ -158,7 +158,7 @@ function anchorRows(output: string, className: string): string[] {
   });
 }
 
-// Capacity left the home with the Dispatch merge (it lives in Settings › Agents); the tray keeps its compact rows.
+// Capacity left the home with the Dispatch merge (it lives in Settings › Executors); the tray keeps its compact rows.
 test("tray shows unknown and unavailable capacity from the same rows", () => {
   const unknown = snapshot.executors!.find(row => row.state === "ready" && row.usedPct === null)!;
   expect(unknown.paceReason).toBe("no limit reported");
