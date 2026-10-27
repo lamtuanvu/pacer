@@ -467,6 +467,6 @@ a.pc-btn{text-decoration:none}
 .pc-task-node__child{display:flex;align-items:center;gap:var(--space-2);min-width:0;min-height:var(--control-compact);box-sizing:border-box;padding:0 var(--space-2);border-radius:var(--radius-sm);color:var(--ink-secondary);font-size:var(--type-label-size);line-height:var(--type-label-line);text-decoration:none}
 .pc-task-node__child:hover{background:var(--surface-lane);color:var(--ink)}
 .pc-task-node__child--current{background:var(--info-bg);color:var(--ink)}
-.pc-task-node__child>.pc-pill{flex:none}
+.pc-task-node__child>.pc-pill,.pc-task-node__child>.pc-status-dot{flex:none}
 .pc-task-node__child-title{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 @media(max-width:767px){.pc-task-node__child{min-height:var(--control-touch)}.pc-task-node__title{line-height:var(--control-touch)}}
