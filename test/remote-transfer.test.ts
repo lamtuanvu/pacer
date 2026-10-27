@@ -7,7 +7,8 @@ import { createTask, readTask, updateTask } from "../src/tasks/store";
 import type { RunRef } from "../src/tasks/types";
 import type { HostCfg } from "../src/config/hosts";
 import { fakeCtx, fakeSshEnv, realRun, tmpDir } from "./helpers";
-import { pluginRegistry } from "../src/plugins";
+import { pluginRegistry, shutdownPlugins } from "../src/plugins";
+import { cleanupFixtureResources, registerFixtureCleanup } from "./fixture-cleanup";
 
 async function setup() {
   const root = tmpDir(), hostHome = join(root, "host"), repo = join(root, "local"), origin = join(root, "origin.git"), checkout = join(hostHome, "src/r");
@@ -31,6 +32,7 @@ async function setup() {
   const ctx = fakeCtx({ env, run: (argv, ms, o) => realRun(argv, ms, { ...o, env }),
     which: name => name === "ssh" ? join(import.meta.dir, "fixtures", "bin", "ssh") :
       name === "git" ? "/usr/bin/git" : null });
+  registerFixtureCleanup(() => shutdownPlugins(ctx));
   mkdirSync(ctx.pacerHome, { recursive: true });
   writeFileSync(join(ctx.pacerHome, "strategy.yaml"),
     "planner: claude-code\nproviders: {claude-code: {}}\nhosts:\n  box:\n    ssh: box-ssh\n");
@@ -43,6 +45,20 @@ async function setup() {
   const commit = (...args: string[]) => git("-C", checkout, "commit", "-q", "--allow-empty", ...args);
   return { ctx, task, host, run, git, repo, checkout, branch, commit };
 }
+
+test("transfer fixture cleanup reaps its bundled remote caller child", async () => {
+  const f = await setup();
+  const report = (await pluginRegistry(f.ctx).doctor(f.ctx, "pacer-remote-caller"))[0];
+  const pid = report?.pid;
+  if (typeof pid !== "number") throw new Error("bundled remote caller fixture did not start");
+  expect(() => process.kill(pid, 0)).not.toThrow();
+  try {
+    await cleanupFixtureResources();
+    expect(() => process.kill(pid, 0)).toThrow();
+  } finally {
+    await shutdownPlugins(f.ctx);
+  }
+});
 
 // Real Git repositories and SSH scripts can exceed the default 5 s under suite load.
 test("pre-flight refusals leave local refs untouched", async () => {
