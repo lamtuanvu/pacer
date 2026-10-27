@@ -1025,6 +1025,8 @@ Params JSON Schema:
         "pacing.order",
         "pacing.policy",
         "pacing.planner_reserve",
+        "pacing.planner_reserve_headroom",
+        "pacing.planner_probe",
         "pacing.accounts",
         "pacing.fill_threshold",
         "update_check",
