@@ -1,17 +1,20 @@
 import type { ComponentChildren } from "preact";
-import { useRef, useState } from "preact/hooks";
+import { useMemo, useRef, useState } from "preact/hooks";
 import type { TaskDetail } from "../../../src/core/task-detail";
 import type { ApiTask } from "../../../src/api/read-model/types";
 import { executorLabel, taskOutcome, taskStatus } from "../../../src/view-model/words";
 import { running } from "../../../src/view-model/selectors";
 import { clock } from "../../../src/view-model/time";
-import { Button, TextAction } from "../ds/Button";
+import { Button } from "../ds/Button";
 import { Disclosure, Field, TextArea } from "../ds/Controls";
-import { EmptyState, LoadingState, Tabs } from "../ds/Patterns";
+import { EmptyState, LoadingState } from "../ds/Patterns";
+import { markAgent } from "../../../src/view-model/agents";
+import { FrameContext, FrameSlot, useFrame, useFrameHeading } from "../shell/slots";
 import { SectionHeading } from "../ds/SectionHeading";
 import { useActions } from "../data/action-context";
 import { withQuery, type RouteQuery } from "../router";
-import { SessionRoute, sessionDetail, sessionRow } from "./session/controller";
+import { sessionDetail, sessionRow } from "./session/controller";
+import { SessionRoute } from "./session/SessionRoute";
 import { TaskNavigator } from "./session/TaskNavigator";
 import { useQuery, useTaskContext } from "./task-shared";
 import { VerdictPanel } from "./review/VerdictPanel";
@@ -28,29 +31,39 @@ export function resultSummary(task: TaskDetail): string {
   if (text && text.split("\n").length <= 8 && !/I'll start|Let me (?:read|look|check|explore)/i.test(text)) return text;
   return task.state === "done" ? "Execution finished. Inspect the checks and changes below." : task.state === "partial" ? "Execution ended with incomplete work." : "Execution ended. Inspect the result below.";
 }
-export function TaskResultView({ task, verdict, changes, question, onChanges, embedded = false }: {
-  task: TaskDetail; verdict?: ComponentChildren; changes?: ComponentChildren; question?: ComponentChildren; onChanges?: () => void; embedded?: boolean;
+/** `compact` stacks the result for the session's Details tab, which already has Changes and the brief elsewhere. */
+export function TaskResultView({ task, verdict, changes, question, onChanges, embedded = false, compact = false }: {
+  task: TaskDetail; verdict?: ComponentChildren; changes?: ComponentChildren; question?: ComponentChildren; onChanges?: () => void; embedded?: boolean; compact?: boolean;
 }) {
   const problem = task.acceptance.state === "failed" || ["partial","failed","limit"].includes(task.state);
   const openReview = !!task.reviewRequest && !task.review && !task.resolved && !task.dismissed && !task.retriedBy;
-  return <Page width="full" embedded={embedded}>
-    {!embedded && <TaskHeading task={task}/>}
-    <div className="pc-page-columns"><div className="pc-page-columns__main"><div className="pc-stack pc-stack--section">
+  const results = <>
       <section className="pc-section"><SectionHeading>Result</SectionHeading><p>{resultSummary(task)}</p><p className="muted">{taskOutcome(task).label}</p></section>
       <section className="pc-section"><SectionHeading>Checks &amp; changes</SectionHeading>
         <p className={task.acceptance.state === "failed" ? "pc-warn-text" : "muted"}>{task.acceptance.state === "failed" ? "Checks failed" : task.acceptance.state === "passed" ? "Checks passed" : task.acceptance.state === "none" ? "No acceptance checks recorded" : "Checks have no final result"}{task.acceptance.summary ? ` · ${task.acceptance.summary}` : ""}</p>
       <Stack space="compact">
         {task.acceptance.tail && <Disclosure className="pc-disclosure-panel" summary="Acceptance output" open={task.acceptance.state === "failed"}><div className="pc-disclosure-panel__body"><pre className="mono pc-code-scroll">{task.acceptance.tail}</pre></div></Disclosure>}
-        <Disclosure className="pc-disclosure-panel" summary={`Changes · ${task.files.length} files`} onToggle={e => { if (e.currentTarget.open) onChanges?.(); }}><div className="pc-disclosure-panel__body">{changes ?? <p className="muted">Expand to load changes.</p>}</div></Disclosure>
+        {!compact && <Disclosure className="pc-disclosure-panel" summary={`Changes · ${task.files.length} files`} onToggle={e => { if (e.currentTarget.open) onChanges?.(); }}><div className="pc-disclosure-panel__body">{changes ?? <p className="muted">Expand to load changes.</p>}</div></Disclosure>}
       <Disclosure className="pc-disclosure-panel" summary="Executor transcript"><div className="pc-disclosure-panel__body"><pre className="mono pc-code-scroll">{task.summary ?? "No executor output recorded."}</pre></div></Disclosure>
-      <Disclosure className="pc-disclosure-panel" summary="Brief"><div className="pc-disclosure-panel__body"><p className="report">{task.brief.goal}</p>{task.brief.acceptance && <code className="pc-code-scroll">{task.brief.acceptance}</code>}</div></Disclosure>
+      {!compact && <Disclosure className="pc-disclosure-panel" summary="Brief"><div className="pc-disclosure-panel__body"><p className="report">{task.brief.goal}</p>{task.brief.acceptance && <code className="pc-code-scroll">{task.brief.acceptance}</code>}</div></Disclosure>}
       <Disclosure className="pc-disclosure-panel" summary="Technical routing and cost"><div className="pc-disclosure-panel__body"><pre className="mono pc-code-scroll">{JSON.stringify({ routing: task.routing, cost: task.cost }, null, 2)}</pre></div></Disclosure>
       </Stack>
       </section>
-    </div></div><aside className="pc-page-columns__aside">
+  </>;
+  const next = <>
       <section className="pc-action-panel"><SectionHeading>Next step</SectionHeading>
         {task.work ? <p>Use the Work tab for decisions and history.</p> : question ?? (openReview || problem ? <><p>{task.reviewRequest?.note ?? (task.acceptance.state === "failed" ? "Inspect the failed checks before continuing." : task.state === "partial" ? "Inspect the incomplete work before continuing." : "Inspect the failure and retry when ready.")}</p>{verdict}</> : <><p className="muted">{task.acceptance.state === "failed" ? "Inspect the failed checks before deciding how to continue." : task.state === "partial" ? "Inspect the incomplete work before continuing." : task.review ? "This result has a recorded verdict." : "No acknowledgment required."}</p>{verdict && <Disclosure className="pc-disclosure" summary="Optional verdict">{verdict}</Disclosure>}</>)}
       </section>
+  </>;
+  if (compact) return <Stack space="section">{next}{results}
+      <section className="pc-section"><SectionHeading>Delivery</SectionHeading><p className="muted">Integration not recorded</p>{task.branch && <code className="pc-code-scroll">{task.branch}</code>}<p className="muted">Accepting records a verdict. Integrate changes separately.</p></section>
+  </Stack>;
+  return <Page width="full" embedded={embedded}>
+    {!embedded && <TaskHeading task={task}/>}
+    <div className="pc-page-columns"><div className="pc-page-columns__main"><div className="pc-stack pc-stack--section">
+      {results}
+    </div></div><aside className="pc-page-columns__aside">
+      {next}
       <section className="pc-section"><SectionHeading>Delivery</SectionHeading><p className="muted">Integration not recorded</p>{task.branch && <code className="pc-code-scroll">{task.branch}</code>}<p className="muted">Accepting records a verdict. Integrate changes separately.</p></section>
     </aside></div>
   </Page>;
@@ -65,7 +78,7 @@ export function ResultChanges({patch,untracked,truncated,note}:{patch:string;unt
   </>;
 }
 
-function TaskResultLoaded({ task, reload }: { task: TaskDetail; reload: () => void }) {
+function TaskResultLoaded({ task, reload, compact = false }: { task: TaskDetail; reload: () => void; compact?: boolean }) {
   const { api, state } = useTaskContext(), runner = useActions();
   const [note,setNote] = useState(""), [kind,setKind] = useState(task.kind ?? ""), [executor,setExecutor] = useState("");
   const [noteFor,setNoteFor] = useState<"reject" | "send_back" | null>(null);
@@ -106,7 +119,7 @@ function TaskResultLoaded({ task, reload }: { task: TaskDetail; reload: () => vo
     try { const result=await runner.run(`answer:${task.id}`,{label:"Answer",op:"task.answer",params:{id:task.id,text:answer,expect_rev:task.rev}});setMessage(result.status==="error"||result.status==="handled"?result.message:"Answer sent.");reload(); }
     finally {inFlight.current=false;setPending(false);}
   }}>Send answer</Button></> : undefined;
-  return <><TaskResultView embedded task={task} verdict={panel} question={question} onChanges={()=>void loadChanges()} changes={loadingChanges ? <LoadingState label="Loading changes…"/> : changesError ? <p role="status">{changesError}</p> : changes ? <ResultChanges {...changes}/> : undefined}/><p role="status" aria-live="polite">{message}</p></>;
+  return <><TaskResultView embedded compact={compact} task={task} verdict={panel} question={question} onChanges={()=>void loadChanges()} changes={loadingChanges ? <LoadingState label="Loading changes…"/> : changesError ? <p role="status">{changesError}</p> : changes ? <ResultChanges {...changes}/> : undefined}/><p role="status" aria-live="polite">{message}</p></>;
 }
 export function legacyQuestionPending(task: TaskDetail): boolean {
   return !task.work && task.state === "needs_input" && !!task.question && task.question.answer === undefined && !task.retriedBy && !task.dismissed;
@@ -120,32 +133,25 @@ export function TaskHeading({ task }: { task: TaskDetail }) {
   return <header className="pc-task-workspace__head"><div className="pc-task-workspace__identity"><PageTitle title={title}>{title}</PageTitle><div className="pc-task-workspace__meta"><span title={task.repo.label}>{task.repo.label}</span><span aria-hidden="true">·</span>{executorLabel(task.executor)}{task.endedAt && <><span aria-hidden="true">·</span>finished {clock(task.endedAt, Date.now() / 1000)}</>}</div></div><span className={`pc-task-workspace__status pc-task-workspace__status--${status.tone}`}>{status.label}</span></header>;
 }
 
-export function TaskDetailFrame({ task, query, tab, onTab, children, navigator }: {
-  task: TaskDetail; query: RouteQuery; tab: string; onTab: (value: string) => void; children: ComponentChildren; navigator?: ComponentChildren;
-}) {
-  const id = `task-${task.id}`;
-  return <div className="pc-task-workspace">{navigator}<div className="pc-task-workspace__main">
-    <div className="pc-task-workspace__navigation">
-      <nav aria-label="Task navigation" className="pc-task-workspace__breadcrumb"><TextAction href={withQuery("#/tasks", query)}>Tasks</TextAction><span aria-hidden="true">/</span><span>Task</span></nav>
-      <TaskHeading task={task}/>
-      <div className="pc-task-workspace__tabs"><Tabs label="Task views" id={id} value={tab} options={[{value:"session",label:"Session"},{value:"changes",label:"Changes"},{value:"brief",label:"Brief"},{value:"result",label:"Result"},...(task.work?[{value:"work",label:"Work"}]:[])]} onChange={onTab}/></div>
-    </div>
-    <div role="tabpanel" id={`${id}-${tab}-panel`} aria-labelledby={`${id}-${tab}-tab`} tabIndex={0} className="pc-task-workspace__panel">{children}</div>
-  </div></div>;
-}
-
+/** A task's screen: the Tasks list on the left, the session in the centre and its details in the right panel. */
 export function TaskRoute({ id, query }: { id: string; query: RouteQuery }) {
-  const [selection, setSelection] = useState<{id:string;tab:string}>();
-  const { state } = useTaskContext();
+  const { state } = useTaskContext(), frame = useFrame();
   const task = useQuery<TaskDetail>("task.get", {id});
   const history = useQuery<{tasks:ApiTask[]}>("task.list",{all:true,limit:20,...(query.repo?{repo:query.repo}:{})});
+  // Narrow layouts have no side panels, so the details follow the session in the page.
+  const [below, setBelow] = useState<HTMLElement | null>(null);
+  const slots = useMemo(() => frame?.inline ? { ...frame, right: below } : frame, [frame, below]);
+  const title = task.data && (task.data.title?.trim() || task.data.fullTitle?.trim() || task.data.goal);
+  useFrameHeading(task.data ? { title: title!, agent: markAgent(task.data.executor ?? "unknown") } : null);
   if (!task.data) return task.error ? <EmptyState title="Could not load task" description="Try refreshing the page."/> : <LoadingState label="Loading task…"/>;
   const rows=[...new Map([...(history.data?.tasks??[]),...(state.snapshot?.tasks??[])].map(item=>[item.id,item])).values()].filter(item=>!query.repo||item.repo?.key===query.repo);
   const currentRunning=state.snapshot?running(state.snapshot,{repo:query.repo||null}).map(sessionRow):[];
   const recent=rows.filter(item=>!['running','queued'].includes(item.state)).sort((a,b)=>b.updatedAt-a.updatedAt).map(sessionRow);
-  const navigator=<TaskNavigator selectedId={id} selectedTask={sessionDetail(task.data)} running={currentRunning} recent={recent} query={withQuery('',query)}/>;
-  const tab = selection?.id === id ? selection.tab : (["queued", "running"].includes(task.data.state) ? "session" : "result");
-  return <TaskDetailFrame task={task.data} query={query} tab={tab} onTab={value=>setSelection({id,tab:value})} navigator={navigator}>
-    {tab === "work" ? <LazyWork id={id}/> : tab === "result" ? <TaskResultLoaded key={id} task={task.data} reload={task.reload}/> : <SessionRoute id={id} embedded view={tab === "changes" ? "changes" : tab === "brief" ? "brief" : "terminal"}/>}
-  </TaskDetailFrame>;
+  const active = ["queued", "running"].includes(task.data.state);
+  return <FrameContext.Provider value={slots}><div className="pc-task-workspace">
+    <FrameSlot name="left"><TaskNavigator selectedId={id} selectedTask={sessionDetail(task.data)} running={currentRunning} recent={recent} query={withQuery('',query)}/></FrameSlot>
+    <div className="pc-task-workspace__main"><SessionRoute id={id} result={!active && <TaskResultLoaded key={id} task={task.data} reload={task.reload} compact/>}
+      work={task.data.work && <LazyWork id={id}/>}/></div>
+    {frame?.inline && <section ref={setBelow} className="pc-task-workspace__details" aria-label="Session details"/>}
+  </div></FrameContext.Provider>;
 }

@@ -442,6 +442,8 @@ a.pc-btn{text-decoration:none}
 .pc-side-panel{display:flex;flex-direction:column;flex:0 0 var(--size-200);width:var(--size-200);min-width:0;background:var(--surface-card)}
 .pc-side-panel--left{border-right:1px solid var(--line)}
 .pc-side-panel--right{flex-basis:var(--size-320);width:var(--size-320);border-left:1px solid var(--line)}
+.pc-side-panel--wide{flex-basis:var(--size-260);width:var(--size-260)}
+.pc-side-panel__content:first-child{padding-top:var(--space-3)}
 .pc-side-panel--closed{flex-basis:var(--size-40);width:var(--size-40);align-items:center;padding:var(--space-1) 0}
 .pc-side-panel__bar{display:flex;justify-content:flex-end;padding:var(--space-1)}
 .pc-side-panel--right .pc-side-panel__bar{justify-content:flex-start}

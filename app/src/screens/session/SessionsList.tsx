@@ -3,7 +3,7 @@ import { SectionHeading } from "../../ds/SectionHeading";
 import { AgentMark } from "../../ds/AgentMark";
 import { StatusPill } from "../../ds/StatusPill";
 import { taskStatus, taskOutcome } from "../../../../src/view-model/words";
-import { ResourceView } from "./Session";
+import { ResourceView } from "./resource";
 import type { Resource, SessionData } from './types';
 import { Page } from '../../ds/Page';
 export interface SessionsListProps { running?:Resource<SessionData[]>; recent?:Resource<SessionData[]>; query?:string }

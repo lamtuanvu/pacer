@@ -3,7 +3,7 @@ import { DensityContext } from '../ds/Density';
 import { LoadingState } from "../ds/Patterns";
 import { SectionHeading } from "../ds/SectionHeading";
 import type { ComponentChildren } from "preact";
-import { useContext, useEffect, useRef, useState } from "preact/hooks";
+import { useContext, useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { Mark } from "../ds/Mark";
 import type { StoreState } from "../data/store";
 import type { Route } from "../router";
@@ -18,6 +18,7 @@ import { SidePanel } from "../ds/SidePanel";
 import { AppFrame } from "./AppFrame";
 import { panelShortcuts, usePanelState } from "./panels";
 import { DOCK_ID, TerminalDock } from "./TerminalDock";
+import { FrameContext, type FrameHeading } from "./slots";
 
 const SETTINGS = new Set(["settings", "hosts", "add-executor"]);
 const NEEDS_READ_MODEL = new Set(["start", "overview", "review"]);
@@ -38,6 +39,14 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
   // Side panels and the dock show only from 768px, so their shortcuts never toggle something hidden.
   const wide = useMedia(PANEL_MEDIA, true);
   const hasLeft = !narrow && wide && SETTINGS.has(route.name) && !state.sessionEnded;
+  // A task's screen fills the Tasks list on the left and its session details on the right.
+  const taskPanels = !narrow && wide && route.name === "sessions" && !!route.id && !!context && !state.sessionEnded;
+  const [tasksOpen, setTasksOpen] = usePanelState("tasks", true);
+  const [detailsOpen, setDetailsOpen] = usePanelState("session-details", true);
+  const [titleSlot, setTitleSlot] = useState<HTMLElement | null>(null), [leftSlot, setLeftSlot] = useState<HTMLElement | null>(null);
+  const [rightSlot, setRightSlot] = useState<HTMLElement | null>(null), [heading, setHeading] = useState<FrameHeading | null>(null);
+  const slots = useMemo(() => ({ title: titleSlot, left: leftSlot, right: rightSlot, inline: !taskPanels, heading: setHeading,
+    details: taskPanels ? { open: detailsOpen, toggle: () => setDetailsOpen(!detailsOpen) } : undefined }), [titleSlot, leftSlot, rightSlot, taskPanels, detailsOpen]);
   // One terminal screen at a time, and only where the full desktop frame (and a service connection) exists.
   const dockAvailable = showStatusBar && wide && !!context && route.name !== "terminal" && !state.sessionEnded;
   const toggleDock = () => {
@@ -47,9 +56,10 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
     setDockOpen(!dockOpen);
   };
   useEffect(() => {
-    const offs = panelShortcuts(hasLeft ? () => setLeftOpen(!leftOpen) : undefined, dockAvailable ? toggleDock : undefined).map(shortcut => keys.register(shortcut));
+    const offs = panelShortcuts(hasLeft ? () => setLeftOpen(!leftOpen) : taskPanels ? () => setTasksOpen(!tasksOpen) : undefined,
+      dockAvailable ? toggleDock : undefined, taskPanels ? () => setDetailsOpen(!detailsOpen) : undefined).map(shortcut => keys.register(shortcut));
     return () => offs.forEach(off => off());
-  }, [hasLeft, leftOpen, dockAvailable, dockOpen]);
+  }, [hasLeft, leftOpen, taskPanels, tasksOpen, detailsOpen, dockAvailable, dockOpen]);
   const firstRun = useRef(true);
   useEffect(() => {
     if (firstRun.current) { firstRun.current = false; return; }
@@ -60,18 +70,22 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
   const counts = state.snapshot ? snapshotCounts(state.snapshot) : null;
   const loading = route.name === "loading" || !state.snapshot;
   const outdated = !loading && NEEDS_READ_MODEL.has(route.name) && !state.features.readModel;
-  const topBar = <TopBar narrow={narrow} title={title} planner={state.snapshot?.planner ?? null} mode={state.snapshot?.mode?.mode ?? ""} connected={state.connected} lastUpdate={state.snapshot?.at ?? null} onDelegate={onDelegate} delegatePrimary={!["review", "start", "sessions"].includes(route.name)} showActions={route.name !== "setup"} />;
+  const topBar = <TopBar narrow={narrow} title={title} planner={state.snapshot?.planner ?? null} mode={state.snapshot?.mode?.mode ?? ""} connected={state.connected} lastUpdate={state.snapshot?.at ?? null} onDelegate={onDelegate} delegatePrimary={!["review", "start", "sessions"].includes(route.name)} showActions={route.name !== "setup"}
+    heading={heading} context={setTitleSlot} />;
   const settings = SETTINGS.has(route.name) && (hasLeft
     ? <SidePanel side="left" label="Settings" open={leftOpen} onToggle={setLeftOpen}><Panel route={route} counts={counts} snapshot={state.snapshot} embedded /></SidePanel>
     : <Panel route={route} counts={counts} snapshot={state.snapshot} />);
-  return <NarrowContext.Provider value={narrow}><AppFrame narrow={narrow}
+  const tasks = taskPanels && <SidePanel side="left" label="Tasks" wide open={tasksOpen} onToggle={setTasksOpen}><div ref={setLeftSlot} className="pc-frame-slot" /></SidePanel>;
+  const details = taskPanels && <SidePanel side="right" label="Session details" open={detailsOpen} onToggle={setDetailsOpen} bar={false}><div ref={setRightSlot} className="pc-frame-slot" /></SidePanel>;
+  return <NarrowContext.Provider value={narrow}><FrameContext.Provider value={slots}><AppFrame narrow={narrow}
     top={narrow && route.name === "setup" ? null : topBar}
     activity={<Rail route={route} counts={counts} narrow={narrow} />}
-    left={settings}
+    left={settings || tasks}
+    right={details}
     live={!state.connected && state.snapshot && <div className="connection-bar">pacer isn't responding. Retrying…</div>}
     mainClass={`pc-main${!loading && !outdated && ["start","overview","review","settings","hosts","add-executor","sessions","terminal","setup"].includes(route.name)?" pc-main--canvas":""}`}
     main={loading ? <Skeleton /> : outdated ? <section className="pc-notice"><SectionHeading>Update pacer to use this view</SectionHeading><p>This screen needs a newer pacer service. Run <code>pacer update</code>, then reload this page.</p></section> : <DensityContext.Provider value={SETTINGS.has(route.name) ? "settings" : "compact"}>{children}</DensityContext.Provider>}
     dock={dockAvailable && dockOpen && <TerminalDock query={route.query} close={toggleDock} />}
     status={showStatusBar && <StatusBar route={route} snapshot={state.snapshot} registry={keys} terminal={dockAvailable ? { open: dockOpen, toggle: toggleDock } : undefined} />}
-  /></NarrowContext.Provider>;
+  /></FrameContext.Provider></NarrowContext.Provider>;
 }
