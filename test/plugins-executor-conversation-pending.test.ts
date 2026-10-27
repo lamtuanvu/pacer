@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { validateOwnedConversationPending } from "../src/plugins/executor-conversation-pending";
 import { createTask, updateTask } from "../src/tasks/store";
@@ -29,6 +29,14 @@ test("conversation pending result binds task, attempt, start and native owner be
   const running = { status: "running", taskId: task.id, attempt: 1, startedAt: 100 };
   expect(() => validateOwnedConversationPending(ctx, "pacer-exec-direct", task.id, 1, running))
     .not.toThrow();
+  rmSync(join(dir, "started"));
+  expect(() => validateOwnedConversationPending(ctx, "pacer-exec-direct", task.id, 1, running))
+    .toThrow();
+  writeFileSync(join(dir, "started"), "100", { mode: 0o600 });
+  rmSync(join(dir, "pid"));
+  expect(() => validateOwnedConversationPending(ctx, "pacer-exec-direct", task.id, 1, running))
+    .toThrow();
+  writeFileSync(join(dir, "pid"), "123", { mode: 0o600 });
   for (const forged of [
     { ...running, taskId: "t-foreign" },
     { ...running, attempt: 2 },

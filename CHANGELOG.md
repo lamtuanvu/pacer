@@ -26,7 +26,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Changed
 
-- Route selected local Codex conversations through the bundled direct executor with an exact native identity and finite read-only observations. Turn reports keep the same interactive wrapper alive; provider refusal does not start a built-in Codex process.
+- Route selected local Codex and Claude Code conversations through the bundled direct executor with an exact native identity and finite read-only observations. Turn reports keep the same interactive wrapper alive; provider refusal does not start a built-in process.
 - Route local current and task-owned worktree attempts, including automatic child placement and same-task managed retries, through the bundled direct executor. A retry reuses the task worktree only after the prior provider exit is confirmed; an uncertain exit cannot start another local run. The host journals default-origin fetch before placement and refuses an unresolved fetch or provider result without a built-in retry. Conversation, takeover and remote full-session executor orchestration remain under extraction.
 - Route ordinary local interactive attempts through the bundled direct executor. The host pins each launch and verifies a completion report before reaping the exact wrapper; an exit without a report fails, while an uncertain exit cannot start a replacement.
 - Stop provider-owned local interactive sessions through the exact persisted session grant; a pipe-only grant cannot stop a session, and settlement still requires the wrapper's exit receipt.
@@ -55,6 +55,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Admit the configured planner only for an explicit interactive conversation; ordinary task delegation still refuses it.
 - Close an SSH session viewer when an owned duplex broker reply is lost, using a finite per-call deadline while leaving the remote task running.
 - Open current task details from native tray attention actions after the Tasks route migration.
 - Detect macOS iTerm.app consistently when opening session viewers through the preferred terminal.

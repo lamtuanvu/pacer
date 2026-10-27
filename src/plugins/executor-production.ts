@@ -71,6 +71,25 @@ async function observeConversationUntilExit(ctx: Ctx, cfg: ProviderCfg, taskId: 
   attempt: number, first: unknown, caller: ExecutorCaller): Promise<unknown> {
   let raw = first;
   while (executorConversationRunning.safeParse(raw).success) {
+    // The provider may return its first finite observation before the detached
+    // wrapper has published both private markers. A preassigned Claude ID does
+    // not by itself prove which process accepted the launch.
+    const wrapperDeadline = Date.now() + 5_000;
+    while (true) {
+      const current = readTask(ctx, taskId);
+      if (!current || current.stopPending || current.executorProvider !== "pacer-exec-direct" ||
+        current.run?.attempt !== attempt || current.executor !== cfg.id)
+        throw new CoreError("conflict", "conversation owner changed before wrapper verification");
+      const wrapper = inspectOwnedExecutorRun(ctx, taskId, attempt, true);
+      if (wrapper.startedAt !== null && wrapper.pid !== null) {
+        if (wrapper.state === "uncertain")
+          throw new CoreError("plugin_unavailable", "conversation wrapper has no verified exit or live process");
+        break;
+      }
+      if (Date.now() >= wrapperDeadline)
+        throw new CoreError("plugin_unavailable", "conversation wrapper identity was not verified after launch");
+      await Bun.sleep(50);
+    }
     let exitedWithoutIdentity = false;
     while (!readTask(ctx, taskId)?.run?.agentSession) {
       const found = discoverOwnedConversationIdentity(ctx, taskId, "pacer-exec-direct", attempt);

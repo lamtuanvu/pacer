@@ -241,6 +241,72 @@ test("task runner sends a local conversation through the owned provider", async 
   } finally { cleanup(); }
 });
 
+test("task runner owns a local Claude conversation with the exact assigned native ID", async () => {
+  const { ctx, task, cleanup } = fixture();
+  const claude = join(ctx.home, "bin", "claude");
+  writeFileSync(claude, `#!/bin/sh
+if [ "$1" = --version ]; then echo '2.1.281 (Claude Code)'; exit 0; fi
+if [ "$1" = --help ]; then echo '--session-id --resume --add-dir --model --settings'; exit 0; fi
+previous=''
+for arg do
+  if [ "$previous" = --session-id ]; then printf '%s' "$arg" > "$PACER_RUN_DIR/launch-session-id"; fi
+  previous="$arg"
+done
+printf 'Claude conversation turn complete\\n'
+`, { mode: 0o700 });
+  ctx.which = name => name === "claude" ? claude : null;
+  try {
+    Bun.spawnSync(["git", "init", "-q", "-b", "main"], { cwd: task.brief.repo });
+    Bun.spawnSync(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+      "commit", "-q", "--allow-empty", "-m", "init"], { cwd: task.brief.repo });
+    updateTask(ctx, task.id, current => {
+      current.state = "queued";
+      current.requestedExecutor = "claude-code";
+      delete current.executor;
+      delete current.executorProvider;
+      current.interactionMode = "conversation";
+      current.conversation = { activity: "starting" };
+      current.placement = { requested: "current" };
+      current.timeoutS = 3600;
+    });
+    const deps = {
+      loadStrategy,
+      computeStatus: async () => ({ generatedAt: ctx.now, strategy: "default", planner: "claude-code",
+        mode: "normal" as const, disabled: false, calendarPace: true, accounts: [],
+        providers: ["claude-code", "codex"].map(id => ({ id, eligibility: eligibility(), usage: "quota" as const,
+          windows: [], binding: null, verdict: "ON_PACE" as const, installed: true, stale: false })),
+        executors: { ranked: [], excluded: [] } }),
+      hooks: { ...defaultHooks, taskKind: async () => "research" },
+      verifyRepo: async () => ({ files: "(no changes)" }),
+    };
+    const result = await runTask({ ...ctx, run: realRun }, task.id, deps);
+    expect(result.executorProvider).toBe("pacer-exec-direct");
+    expect(result.run?.interactionMode).toBe("conversation");
+    expect(result.run?.agentSession?.source).toBe("assigned");
+    expect(result.run?.agentSession?.id).toBe(result.nativeIdentityIntent?.id);
+    for (let i = 0; i < 100 && !existsSync(join(result.run!.dir, "launch-session-id")); i++)
+      await Bun.sleep(20);
+    expect(readFileSync(join(result.run!.dir, "launch-session-id"), "utf8"))
+      .toBe(result.run!.agentSession!.id);
+    expect(readTask(ctx, task.id)?.run?.agentSession?.id).toBe(result.run?.agentSession?.id);
+    for (let i = 0; i < 100 && !existsSync(join(result.run!.dir, "exit")); i++)
+      await Bun.sleep(20);
+    let settled = await superviseTask(ctx, task.id, () => undefined);
+    for (let i = 0; i < 50 && settled?.state === "running"; i++) {
+      await Bun.sleep(20);
+      settled = await superviseTask(ctx, task.id, () => undefined);
+    }
+    expect(settled?.state).toBe("done");
+    await pluginRegistry(ctx).disable(ctx, "pacer-exec-direct");
+    const blocked = createTask(ctx, { brief: { goal: "second Claude conversation", repo: task.brief.repo },
+      kind: null, requestedExecutor: "claude-code", timeoutS: 3600, placement: { requested: "current" },
+      interactionMode: "conversation" });
+    const denied = await runTask({ ...ctx, run: realRun }, blocked.id, deps);
+    expect(denied.run).toBeUndefined();
+    expect(denied.executorProvider).toBe("pacer-exec-direct");
+  } finally { cleanup(); }
+});
+
 test("stopping an owned conversation does not label expected revocation lost-contact", async () => {
   const { ctx, task, cleanup } = fixture();
   const executable = ctx.which("codex")!;

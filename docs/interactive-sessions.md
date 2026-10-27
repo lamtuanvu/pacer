@@ -8,7 +8,7 @@ Pick or drop files, or paste a screenshot into the composer or terminal. Files s
 
 Interactive adapters support Codex, Claude Code and OpenCode. Pacer inspects the installed CLI's interface in the selected account environment; a version update alone does not disable an executor. Missing executables, required native options, sign-in, account readiness, budget and operator restrictions each report their own reason. Other agents and remote interactive sessions remain unsupported. Ordinary delegated execution keeps its separate support.
 
-Local Codex sessions run through Pacer's bundled direct executor plugin. If that plugin is disabled or unavailable, the session cannot start a built-in Codex process as a fallback; Pacer shows the failure and retains any already-started session for exact-run recovery. A completed turn keeps the same session open until its process exits or you choose End session.
+Local Codex and Claude Code sessions run through Pacer's bundled direct executor plugin. If that plugin is disabled or unavailable, the session cannot start a built-in process as a fallback; Pacer shows the failure and retains any already-started session for exact-run recovery. A completed turn keeps the same session open until its process exits or you choose End session.
 
 Codex accepts initial images natively. Claude Code and OpenCode receive labelled readable file paths for initial images and other files; these are references, not native image attachments. Later attachments remain explicit references for all three agents. Native permission and workspace trust prompts stay in the terminal.
 

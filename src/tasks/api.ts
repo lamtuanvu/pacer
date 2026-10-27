@@ -123,7 +123,8 @@ export function launchTaskRunner(ctx: Ctx, taskId: string, spawn: SpawnRunner, a
 }
 export const spawnRunner: SpawnRunner = (ctx, taskId) => launchTaskRunner(ctx, taskId, spawnRunnerProcess);
 
-export function validateInput(s: Strategy, input: DelegateInput): string[] {
+export function validateInput(s: Strategy, input: DelegateInput,
+  scope: "delegate" | "conversation" = "delegate"): string[] {
   const p: string[] = [];
   const b = input.brief;
   if (input.title !== undefined && (typeof input.title !== "string" || !input.title.trim() || input.title.trim().length > 60)) p.push("title must be 1–60 characters after trimming");
@@ -140,7 +141,8 @@ export function validateInput(s: Strategy, input: DelegateInput): string[] {
   const runner = input.executor ? resolveRunner(s, input.executor) : null;
   if (input.executor && !runner) {
     p.push(`unknown executor "${input.executor}" (configured: ${Object.keys(s.providers).join(", ")})`);
-  } else if (input.executor && runner?.agent === s.planner.agent && runner.account === s.planner.account && !input.dispatch?.allowDelegation) {
+  } else if (input.executor && runner?.agent === s.planner.agent && runner.account === s.planner.account &&
+    scope !== "conversation" && !input.dispatch?.allowDelegation) {
     p.push(`"${input.executor}" is the planner; pick an executor`);
   }
   if (input.timeoutMin !== undefined && !(input.timeoutMin >= 1 && input.timeoutMin <= 240)) {
@@ -165,6 +167,7 @@ export async function prepareDelegate(
   ctx: Ctx, original: DelegateInput, spawnFn: SpawnRunner = spawnRunner, supplied?: Strategy,
   contextFingerprint: () => string = () => "",
   validateAmend: (candidate: Readonly<DelegateInput>) => boolean = () => true,
+  scope: "delegate" | "conversation" = "delegate",
 ) {
   const fresh=()=>admissionCtx(ctx);
   const {commitWith,admissionContext,admissionSignal,admissionDeadline,admissionTaskLock,admissionPaths,admissionPrepare,admissionValidate,...cloneable}=original;
@@ -174,13 +177,13 @@ export async function prepareDelegate(
     catch(error){if(supplied&&error instanceof MissingStrategyError)return supplied;throw error;}
   };
   const initial=supplied??strategy();
-  const basicProblems=validateInput(initial,{...input,repoValidated:true});
+  const basicProblems=validateInput(initial,{...input,repoValidated:true},scope);
   if(basicProblems.length)throw new DelegateError(basicProblems.join("; "));
   input.repoValidated=true;
   if(input.executor)input.executor=resolveRunner(initial,input.executor)?.id??input.executor;
   const repo=input.repoRef??registeredRepo(ctx,input.brief.repo);
   const validate=(candidate:DelegateInput,current:Strategy)=>{
-    const problems=validateInput(current,candidate);
+    const problems=validateInput(current,candidate,scope);
     if(candidate.executor){
       const runner=resolveRunner(current,candidate.executor);
       if(runner?.enabled===false)problems.push(`${candidate.executor}: disabled`);
@@ -227,6 +230,7 @@ export async function prepareDelegate(
       synchronous(effect);return admission.consume(({input,revalidate})=>effect({input:structuredClone(map(input)),revalidate}));
     },
     commit:()=>{
+      if(scope==="conversation")throw new CoreError("not_allowed","Conversation admission cannot commit an ordinary delegated task");
       synchronous(()=>{});
       return admission.consume(({revalidate})=>{
         let committed=false;
