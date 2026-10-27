@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { existsSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { readOutput, readRun, startRun, stopRun } from "../src/supervisor/run";
+import { killTree } from "../src/exec/process";
 import { tmpDir } from "./helpers";
 
 const until = async (f: () => boolean, ms = 5000) => { const end = Date.now() + ms; while (!f()) { if (Date.now() > end) throw new Error("timeout"); await Bun.sleep(25); } };
@@ -48,6 +49,86 @@ test("stopRun ends a TERM-respecting run with exit 143", async () => {
   await until(() => readRun(dir).alive);
   expect(await stopRun(dir, { graceMs: 3000 })).toEqual({ code: 143, killed: false });
   expect(readRun(dir).alive).toBe(false);
+});
+
+test("stopRun waits for a delayed exit receipt after the owned wrapper dies", async () => {
+  const dir = tmpDir(), script = join(dir, "run.sh");
+  writeFileSync(script, "#!/bin/sh\ntrap 'exit 143' TERM\nwhile :; do sleep 0.1; done\n", { mode: 0o700 });
+  const proc = Bun.spawn(["/bin/sh", script, dir], {
+    detached: true, stdin: "ignore", stdout: "ignore", stderr: "ignore",
+  });
+  writeFileSync(join(dir, "pid"), String(proc.pid));
+  writeFileSync(join(dir, "child"), "0");
+  try {
+    await until(() => readRun(dir).alive);
+    let deadPolls = 0;
+    const stopped = await stopRun(dir, { graceMs: 1500, sleep: async ms => {
+      if (!readRun(dir).alive && ++deadPolls === 2) writeFileSync(join(dir, "exit"), "143");
+      await Bun.sleep(Math.min(ms, 20));
+    } });
+    expect(stopped).toEqual({ code: 143, killed: false });
+    expect(readRun(dir).exit).toBe(143);
+  } finally {
+    killTree(proc.pid, "SIGKILL");
+    await proc.exited;
+  }
+});
+
+test("stopRun does not forge an exit after the wrapper vanishes", async () => {
+  const dir = tmpDir(), script = join(dir, "run.sh");
+  writeFileSync(script, "#!/bin/sh\ntrap 'exit 143' TERM\nwhile :; do sleep 0.1; done\n", { mode: 0o700 });
+  const proc = Bun.spawn(["/bin/sh", script, dir], {
+    detached: true, stdin: "ignore", stdout: "ignore", stderr: "ignore",
+  });
+  writeFileSync(join(dir, "pid"), String(proc.pid));
+  writeFileSync(join(dir, "child"), "0");
+  try {
+    await until(() => readRun(dir).alive);
+    expect(await stopRun(dir, { graceMs: 200 })).toEqual({ code: 137, killed: false });
+    expect(existsSync(join(dir, "exit"))).toBe(false);
+  } finally {
+    killTree(proc.pid, "SIGKILL");
+    await proc.exited;
+  }
+});
+
+test("stopRun does not signal a process that replaced the wrapper during readiness", async () => {
+  const dir = tmpDir(), script = join(dir, "run.sh");
+  writeFileSync(script, "#!/bin/sh\ntrap 'exec sleep 30' TERM\nwhile :; do sleep 0.1; done\n", { mode: 0o700 });
+  const proc = Bun.spawn(["/bin/sh", script, dir], {
+    detached: true, stdin: "ignore", stdout: "ignore", stderr: "ignore",
+  });
+  writeFileSync(join(dir, "pid"), String(proc.pid));
+  const originalKill = process.kill;
+  let replacementReady = false, staleSignals = 0;
+  process.kill = ((pid: number, signal?: NodeJS.Signals | number) => {
+    if (replacementReady && Math.abs(pid) === proc.pid && signal === "SIGTERM") {
+      staleSignals++;
+      return true;
+    }
+    return originalKill(pid, signal);
+  }) as typeof process.kill;
+  try {
+    await until(() => readRun(dir).alive);
+    let switched = false;
+    const stopped = await stopRun(dir, { graceMs: 500, sleep: async ms => {
+      if (!switched) {
+        switched = true;
+        process.kill(proc.pid, "SIGTERM");
+        await until(() => !readRun(dir).alive);
+        replacementReady = true;
+        writeFileSync(join(dir, "child"), "0");
+      }
+      await Bun.sleep(Math.min(ms, 20));
+    } });
+    expect(stopped).toEqual({ code: 137, killed: false });
+    expect(staleSignals).toBe(0);
+    expect(existsSync(join(dir, "exit"))).toBe(false);
+  } finally {
+    process.kill = originalKill;
+    killTree(proc.pid, "SIGKILL");
+    await proc.exited;
+  }
 });
 
 test("stopRun escalates to KILL when TERM is ignored", async () => {
