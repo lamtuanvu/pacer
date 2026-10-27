@@ -150,3 +150,24 @@ browserTest('Add host: a check that cannot start is reported, not silently retri
     expect(await page.getByRole('status').filter({ hasText: 'Changes saved' }).count()).toBe(0);
   });
 });
+
+browserTest('Agents: the save bar is hidden on narrow screens until there is something to save, and always visible on desktop', async () => {
+  const built = await Bun.build({ entrypoints: ['test/fixtures/ui/executor-editor.tsx'], target: 'browser', minify: true });
+  const browser = await chromium.launch({ executablePath: process.env.PACER_TEST_BROWSER!, headless: true });
+  try {
+    const page = await browser.newPage({ viewport: { width: 375, height: 900 } });
+    await page.setContent('<div id="app"></div>');
+    await page.addStyleTag({ content: (await Promise.all(['app/src/ds/tokens.css', 'app/src/ds/components.css', 'app/src/ds/feedback.css', 'app/src/styles.css', 'app/src/screens/settings/settings.css'].map(path => Bun.file(path).text()))).join('\n') });
+    await page.addScriptTag({ content: await built.outputs[0]!.text() });
+    const input = page.getByRole('spinbutton', { name: 'Parallel tasks for codex', exact: true });
+    await input.waitFor();
+    const bar = page.locator('.u3-save-bar');
+    expect(await bar.isVisible()).toBe(false);
+    await input.fill('2');
+    expect(await bar.isVisible()).toBe(true);
+    await page.getByRole('button', { name: 'Discard', exact: true }).click();
+    expect(await bar.isVisible()).toBe(false);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    expect(await bar.isVisible()).toBe(true);
+  } finally { await browser.close(); }
+}, 20000);
