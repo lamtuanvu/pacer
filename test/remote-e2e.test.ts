@@ -80,9 +80,9 @@ test("a remote attempt resumes after the runner dies", async () => {
   const dir = runDir(f.ctx, id, 1), host = loadStrategy(f.ctx).hosts.box;
   const launch = remoteLaunch(loadStrategy(f.ctx).providers["codex@box"], worktree, remoteDir);
   const io = new RemoteRunIO(f.ctx, host, remoteDir, dir);
-  expect(await io.start(launch.argv, worktree, { PACER_ROLE: "executor" }, "resume prompt")).toHaveProperty("pid");
   const run = { dir, attempt: 1, executor: "codex@box", startedAt: Date.now()/1000, mode: "new" as const, workdir: worktree, logFile: join(dir, "legacy.log"), host: "box", remoteDir, remoteWorktree: worktree, remoteBranch: `pacer/${id}`, baseSha };
   updateTask(f.ctx, id, t => { t.state = "running"; t.runnerPid = 2147483647; t.attemptStartedAt = run.startedAt; t.run = run; t.baseBranch = "main"; t.placement = { requested: "new", mode: "new", why: "agent" }; });
+  expect(await io.start(launch.argv, worktree, { PACER_ROLE: "executor" }, "resume prompt")).toHaveProperty("pid");
   // A remote pid must never be checked against the local process table.
   writeFileSync(join(dir, "pid"), "2147483647");
   let resumed: ReturnType<typeof runTask> | undefined;
