@@ -8,6 +8,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 - Record private, bounded OTA request-stage diagnostics in live validation evidence while preserving fixture authorization and HTTP behavior.
 - Add a persistent built-in terminal with workspace shells, tabs, splits, search and integrated app action sessions.
+- Strict native subagent control for new managed work: Pacer excludes uncertified executors before dispatch, checks again before launch, and exposes certification status and a quota-using canary in Dispatcher and the CLI. Existing managed tasks retain cooperative behavior.
 
 ## [0.11.0] - 2026-10-26
 

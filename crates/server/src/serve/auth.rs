@@ -149,12 +149,15 @@ pub fn classify<B>(req: &Request<B>, port: u16, token: &str, ctx: &Ctx) -> Decis
         .strip_prefix("Bearer ")
         .unwrap_or("");
     if bearer.len() == 68
-        && bearer.starts_with("pwg_")
+        && (bearer.starts_with("pwg_") || bearer.starts_with("pet_"))
         && bearer[4..]
             .bytes()
             .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
     {
-        if req.method() == "POST" && path.starts_with("/v3/ops/") {
+        if req.method() == "POST"
+            && (bearer.starts_with("pwg_") && path.starts_with("/v3/ops/")
+                || bearer.starts_with("pet_") && path == "/v3/ops/dispatch.enforcement.denied")
+        {
             return Decision::Forward {
                 auth: AuthKind::Task,
             };

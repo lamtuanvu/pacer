@@ -48,6 +48,11 @@ export const agentPrepareParams = agentVersion.extend({request: z.string().max(2
 export const agentLaunchResult = z.object({argv: z.array(z.string()).min(1), cwd: z.string().min(1), stdin: z.string().optional(), reporting: z.object({source: z.string().max(100_000), configEnv: z.enum(["OPENCODE_CONFIG_CONTENT"]), configKey: z.enum(["plugins"])}).optional()});
 export const agentAttachmentParams = agentVersion.extend({workspace: z.string().min(1), attachment: attachmentRef, phase: z.enum(["launch", "live"])});
 export const agentAttachmentResult = z.discriminatedUnion("kind", [z.object({kind: z.literal("native"), args: z.array(z.string())}), z.object({kind: z.literal("reference"), text: z.string(), requiresUserSubmit: z.literal(true)}), z.object({kind: z.literal("unsupported"), reason: z.string()})]);
+export const delegationControlResult = z.discriminatedUnion("mechanism", [
+  z.object({mechanism:z.literal("hook"),entryPoints:z.array(z.string().min(1).max(64)).min(1).max(8)}).strict(),
+  z.object({mechanism:z.literal("permission"),entryPoints:z.array(z.string().min(1).max(64)).min(1).max(8),permissionAction:z.string().min(1).max(64)}).strict(),
+  z.object({mechanism:z.literal("unsupported"),entryPoints:z.array(z.string()).length(0),reason:z.string().min(1).max(500)}).strict(),
+]);
 
 /** Host → plugin. Keys are `<extensionPoint>.<method>`; every plugin serves `diagnostic`. */
 export const EXTENSION_METHODS: Record<string, MethodDef> = {
@@ -58,6 +63,7 @@ export const EXTENSION_METHODS: Record<string, MethodDef> = {
     result: z.discriminatedUnion("kind", [z.object({kind: z.literal("none")}), z.object({kind: z.literal("assigned"), id: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/)}),
       z.object({kind: z.literal("command"), argv: z.array(z.string()).min(1), idPath: z.array(z.string()).min(1).max(8)})]), deadlineMs: 5000}),
   "agentSession.capabilities": method({description: "Interactive agent capabilities for an installed version.", params: agentVersion, result: agentCapabilitiesResult, deadlineMs: 5000}),
+  "agentSession.delegationControl": method({description: "Describe a candidate native subagent blocking path; the host must probe before certification.",params:agentVersion,result:delegationControlResult,deadlineMs:5000}),
   "agentSession.prepare": method({description: "Prepare an interactive argument vector without credentials or spawning.", params: agentPrepareParams, result: agentLaunchResult, deadlineMs: 5000}),
   "agentSession.attachment": method({description: "Prepare native attachment arguments or an explicit reference without submitting input.", params: agentAttachmentParams, result: agentAttachmentResult, deadlineMs: 5000}),
   "diagnostic.ping": method({ description: "Liveness check used by plugin.doctor.", params: z.object({}), result: z.object({ ok: z.literal(true), uptimeS: z.number().nonnegative() }), deadlineMs: 5000 }),

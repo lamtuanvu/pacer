@@ -1,5 +1,6 @@
 import { refreshConnectedIntegrations } from "../core/integrations";
 import { authorizeWorkGrant } from "../dispatch/work";
+import { authorizeEnforcementToken } from "../dispatch/enforcement-token";
 import { refreshObservations } from "../dispatch/refresh";
 import { desktopCaptureRoute } from "./desktop-capture";
 import { attachmentRoute } from "./attachment-routes";
@@ -135,6 +136,7 @@ export function startServer(
       const app = pathname.startsWith("/app/");
       let bearer: boolean;
       let workGrant: string | undefined;
+      let enforcementToken: string | undefined;
       if (opts.internal) {
         if (!safeEqual(req.headers.get("authorization") ?? "", `Bearer ${opts.internal.token}`)) {
           return new Response("unauthorized\n", { status: 401 });
@@ -144,8 +146,9 @@ export function startServer(
         bearer = authKind === "bearer";
         if (authKind === "task") {
           const forwarded = req.headers.get("x-pacer-work-grant") ?? "";
-          workGrant = forwarded.startsWith("Bearer ") ? forwarded.slice(7) : undefined;
-          if (!workGrant || req.method !== "POST" || !pathname.startsWith("/v3/ops/")) return new Response("forbidden\n", { status: 403 });
+          const scoped = forwarded.startsWith("Bearer ") ? forwarded.slice(7) : undefined;
+          if (!scoped || req.method !== "POST" || !pathname.startsWith("/v3/ops/")) return new Response("forbidden\n", { status: 403 });
+          if(scoped.startsWith("pet_"))enforcementToken=scoped;else workGrant=scoped;
         }
         // The front door's heartbeat: an answer proves this event loop is responsive.
         if (req.method === "GET" && pathname === "/health") return Response.json({ ok: true, pid: process.pid });
@@ -161,11 +164,11 @@ export function startServer(
         if (pathname === "/app/auth") return appRoute(req, getCtx());
         bearer = safeEqual(req.headers.get("authorization") ?? "", `Bearer ${token}`);
         const candidate = (req.headers.get("authorization") ?? "").replace(/^Bearer /, "");
-        if (!bearer && /^pwg_[0-9a-f]{64}$/.test(candidate)) {
+        if (!bearer && /^(?:pwg|pet)_[0-9a-f]{64}$/.test(candidate)) {
           if (req.method !== "POST" || !pathname.startsWith("/v3/ops/")) return new Response("forbidden\n", { status: 403 });
-          workGrant = candidate;
+          if(candidate.startsWith("pet_"))enforcementToken=candidate;else workGrant=candidate;
         }
-        if (!bearer && !workGrant) {
+        if (!bearer && !workGrant && !enforcementToken) {
           const value = (req.headers.get("cookie") ?? "").split(";").map(c => c.trim()).find(c => c.startsWith("pacer_session="))?.slice("pacer_session=".length);
           if (!(app || /^\/v[23]\//.test(pathname)) || !value || !checkSession(getCtx(), value)) {
             return app ? appPage("Session ended. Run `pacer open`.", 401) : new Response("unauthorized\n", { status: 401 });
@@ -179,10 +182,16 @@ export function startServer(
           }
         }
       }
-      const requestCtx = workGrant ? () => ({...getCtx(),env:{...getCtx().env,PACER_WORK_GRANT:workGrant,PACER_ROLE:"executor"}}) : getCtx;
+      const requestCtx = workGrant ? () => ({...getCtx(),env:{...getCtx().env,PACER_WORK_GRANT:workGrant,PACER_ROLE:"executor"}})
+        : enforcementToken ? () => ({...getCtx(),env:{...getCtx().env,PACER_ENFORCEMENT_TOKEN:enforcementToken,PACER_ROLE:"executor"}}) : getCtx;
       if (workGrant) {
         try { authorizeWorkGrant(requestCtx(), workGrant); }
         catch { return new Response("forbidden\n", { status: 403 }); }
+      }
+      if(enforcementToken){
+        if(pathname!=="/v3/ops/dispatch.enforcement.denied")return new Response("forbidden\n",{status:403});
+        try {authorizeEnforcementToken(requestCtx(),enforcementToken);}
+        catch{return new Response("forbidden\n",{status:403});}
       }
       if (app) return appRoute(req, getCtx());
       const attachmentResponse = await attachmentRoute(req, getCtx());

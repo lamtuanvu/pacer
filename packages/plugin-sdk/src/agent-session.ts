@@ -9,6 +9,10 @@ export interface AgentVersion {
 export interface AgentSessionCapabilities {
   interactive: boolean; resume: boolean; launchImages: boolean; liveImages: boolean; files: boolean; reason?: string;
 }
+export type AgentDelegationControl =
+  | {mechanism:"hook";entryPoints:string[]}
+  | {mechanism:"permission";entryPoints:string[];permissionAction:string}
+  | {mechanism:"unsupported";entryPoints:[];reason:string};
 export interface AgentSessionPrepare extends AgentVersion {
   request: string; workspace: string; runDir: string; attachments: AttachmentRef[];
   permissionPolicy: "native"; model?: string; sessionId?: string;

@@ -1,12 +1,17 @@
 import { eligibility } from "./fixtures/eligibility";
 import { expect, test } from "bun:test";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { guardEventId } from "../src/classify/state";
 import { readLabels } from "../src/tasks/labels";
 import { defaultHooks, type GuardOpinion } from "../src/classify/hooks";
 import type { Status } from "../src/engine/status";
 import { decideGuard, parseGuardInput, renderGuard, runGuard } from "../src/guard/guard";
 import { fakeCtx } from "./helpers";
+import { tmpDir } from "./helpers";
+import { createTask, updateTask } from "../src/tasks/store";
+import { registerWork } from "../src/dispatch/work";
+import { issueEnforcementToken } from "../src/dispatch/enforcement-token";
 
 function status(overrides: Partial<Status> = {}): Status {
   return {
@@ -171,4 +176,29 @@ test("PACER off and executor-session exits do not record guard verdicts", async 
     expect((await decideGuard(ctx, input, deps)).allow).toBe(true);
     expect(readLabels(ctx)).toEqual([]);
   }
+});
+
+test("strict executor guards deny native child calls across hook formats",async()=>{
+  const ctx=fakeCtx(),task=createTask(ctx,{brief:{goal:"work",repo:tmpDir()},kind:"feature",requestedExecutor:null,timeoutS:600});
+  registerWork(ctx,task.id,{allowDelegation:false});updateTask(ctx,task.id,t=>{t.state="running";});
+  const token=issueEnforcementToken(ctx,task.id,1);
+  const strict={...ctx,env:{...ctx.env,PACER_ROLE:"executor",PACER:"off",PACER_ENFORCEMENT_MODE:"strict",PACER_ENFORCEMENT_TOKEN:token}};
+  for(const tool_name of ["Agent","Task"]){
+    const result=JSON.parse(await runGuard(strict,"claude-code",JSON.stringify({tool_name,tool_input:{subagent_type:"Explore"}})));
+    expect(result.hookSpecificOutput.permissionDecision).toBe("deny");
+    expect(result.hookSpecificOutput.permissionDecisionReason).toContain("pacer dispatch child");
+  }
+  const codex=JSON.parse(await runGuard(strict,"codex",JSON.stringify({tool_name:"spawn_agent",tool_input:{agent_type:"Plan"}})));
+  expect(codex.hookSpecificOutput.permissionDecision).toBe("deny");
+  expect(JSON.parse(await runGuard(strict,"cursor",JSON.stringify({subagent_type:"explore"})))).toMatchObject({permission:"deny"});
+});
+
+test("strict executor guards fail closed on missing identity and malformed hook input",async()=>{
+  const marker=join(tmpDir(),"report-failed");
+  const ctx=fakeCtx({env:{PACER_ROLE:"executor",PACER_ENFORCEMENT_MODE:"strict",PACER_GUARD_FAILURE_MARKER:marker}});
+  for(const raw of ["bad json",JSON.stringify({tool_name:"Agent",tool_input:{}})]){
+    const result=JSON.parse(await runGuard(ctx,"claude-code",raw));
+    expect(result.hookSpecificOutput.permissionDecision).toBe("deny");
+  }
+  expect(readFileSync(marker,"utf8")).toBe("guard-report-failed");
 });

@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { renderToString } from "preact-render-to-string";
 import { dispatchConfigSchema } from "../src/dispatch/types";
 import { SETTINGS_PAGES } from "../app/src/settings-pages";
-import { DispatcherOverview, DispatcherModelInventory, DispatcherPreviewResult, DispatcherLadderFields, DispatcherEditor, DispatcherReadError, DispatcherSection, candidateRestriction } from "../app/src/screens/settings/Dispatcher";
+import { DispatcherOverview, DispatcherModelInventory, DispatcherPreviewResult, DispatcherLadderFields, DispatcherEditor, DispatcherReadError, DispatcherSection, DispatcherEnforcementRows, scopedEnforcementReading, candidateRestriction } from "../app/src/screens/settings/Dispatcher";
 import { TaskContext } from "../app/src/screens/task-shared";
 import { initialState } from "../app/src/data/store";
 
@@ -78,4 +78,31 @@ test("model inventory and preview distinguish a declared model from unknown iden
   const timedOut=renderToString(<DispatcherPreviewResult preview={{validation:"timeout",proposal:null,recommendedAction:"queue",excluded:[],uncertainty:[]} as any}/>);
   expect(timedOut).toContain("decision engine timed out");
   expect(timedOut).not.toContain("No eligible choice now");
+  const excluded=renderToString(<DispatcherPreviewResult preview={{validation:"valid",proposal:{state:"none"},recommendedAction:"queue",excluded:[{id:"codex",reason:"Native subagent control: Codex tool-result observation is not implemented for this CLI version"},{id:"cursor",reason:"/private/secret/config.json could not be read"}],uncertainty:[]} as any}/>);
+  expect(excluded).toContain("Verification is not available for this executor yet");
+  expect(excluded).toContain("This executor is not eligible for this task");
+  expect(excluded).not.toContain("tool-result");
+  expect(excluded).not.toContain("/private/secret");
+});
+test("native control rows distinguish verified, actionable and unavailable executors",()=>{
+  const reading={repo:"/repo",scope:"native",runners:[
+    {runner:"claude-code",account:"team",agent:"claude-code",version:"2.1.281",probeSupported:true,state:"certified" as const},
+    {runner:"claude-code-spare",account:"spare",agent:"claude-code",version:"2.1.281",probeSupported:true,state:"uncertified" as const},
+    {runner:"codex",account:"personal",agent:"codex",version:"0.164.0",probeSupported:false,state:"uncertified" as const,reason:"Native subagent control: Codex tool-result observation is not implemented for this CLI version"},
+    {runner:"cursor",account:"work",agent:"cursor",version:"1.0.0",probeSupported:false,state:"uncertified" as const,reason:"No blocking control"},
+    {runner:"interactive",account:"work",agent:"claude-code",version:"2.1.281",probeSupported:false,state:"uncertified" as const,reason:"Native child blocking for interactive launches has not been verified"},
+  ]};
+  const html=renderToString(<DispatcherEnforcementRows reading={reading} canProbe probing={null} onProbe={()=>{}}/>);
+  expect(html).toContain("Verified");expect(html).toContain("Needs verification");expect(html).toContain("Unavailable");
+  expect(html).toContain("View executor setup");expect(html.match(/Verify control/g)).toHaveLength(1);
+  expect(html).toContain("Verification is not available for this executor yet");
+  expect(html).not.toContain("Tool-result observation");
+  expect(html).not.toContain("No blocking control");
+  expect(html).not.toContain("Run verification before assigning managed work");
+});
+test("native control data follows the selected repository key without showing stale rows",()=>{
+  const repos=[{key:"local:one",path:"/work/one"},{key:"local:two",path:"/work/two"}];
+  const one={repo:"/work/one",scope:"native",runners:[]};
+  expect(scopedEnforcementReading(one,"local:one",repos)).toBe(one);
+  expect(scopedEnforcementReading(one,"local:two",repos)).toBeUndefined();
 });
