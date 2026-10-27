@@ -37,7 +37,7 @@ export interface CallResources {
   /** One exact persisted detached wrapper stop, issued by the service only. */
   detachedStop?: { taskId: string; rev: number; attempt: number; dir: string;
     dirIdentity: { dev: number; ino: number }; pid: number; startedAt: number;
-    executor: string; graceMs: number;
+    executor: string; graceMs: number; session?: "interactive";
     stopIntent?: { requestedAt: number; providerId: string } };
   /** One exact task-owned detached wrapper launch, issued by the service only. */
   detachedRun?: { taskId: string; rev: number; attempt: number; dir: string;

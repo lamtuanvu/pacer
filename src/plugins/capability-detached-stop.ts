@@ -22,6 +22,7 @@ export async function answerDetachedStop(authority: CallAuthority, params: {
       : task.rev !== grant.rev) || task.state !== "running" || !task.run || task.run.host ||
       task.run.attempt !== grant.attempt || task.run.dir !== grant.dir ||
       task.run.startedAt !== grant.startedAt || task.run.executor !== grant.executor ||
+      task.run.session !== grant.session ||
       task.executor !== grant.executor || task.attempts.length + 1 !== grant.attempt ||
       grant.dir !== join(authority.ctx.pacerHome, "runs", grant.taskId, String(grant.attempt))) return deny();
     try {
@@ -29,13 +30,15 @@ export async function answerDetachedStop(authority: CallAuthority, params: {
       if (!dir.isDirectory() || dir.dev !== grant.dirIdentity.dev || dir.ino !== grant.dirIdentity.ino ||
         (dir.mode & 0o077) !== 0 || (process.getuid?.() !== undefined && dir.uid !== process.getuid()) ||
         realpathSync(grant.dir) !== join(realpathSync(authority.ctx.pacerHome), "runs", grant.taskId, String(grant.attempt)) ||
-        run.pid !== grant.pid || existsSync(join(grant.dir, "session.json")) ||
+        run.pid !== grant.pid ||
+        existsSync(join(grant.dir, "session.json")) !== (grant.session === "interactive") ||
         (effect === "signal" && !run.alive)) return deny();
     } catch { return deny(); }
   });
   active();
   try {
-    const result = await stopRun(grant.dir, { graceMs: grant.graceMs, pipeOnly: true,
+    const result = await stopRun(grant.dir, { graceMs: grant.graceMs,
+      pipeOnly: grant.session !== "interactive",
       requireRecordedExit: true, guard: effect => active(effect) });
     active();
     return result;

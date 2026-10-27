@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type ProviderCfg, loadStrategy } from "../src/config/strategy";
@@ -8,6 +8,7 @@ import { pluginRegistry } from "../src/plugins";
 import { issueOwnedWorktreeGrant } from "../src/plugins/executor-worktree";
 import { createCallAuthority } from "../src/plugins/authority";
 import { answerCapability } from "../src/plugins/host";
+import { answerDetachedStop } from "../src/plugins/capability-detached-stop";
 import { manifest as directManifest } from "../plugins/pacer-exec-direct/manifest";
 import { manifestSchema } from "../src/plugins/protocol";
 
@@ -165,6 +166,47 @@ test("supervision delivers a pending provider stop and settles only after wrappe
     expect(settled?.stopPending).toBeUndefined();
     expect(settled?.executorExitReceipt).toMatchObject({ attempt: 1,
       providerId: "pacer-exec-direct" });
+  } finally { await running; cleanup(); }
+});
+
+test("supervision stops an exact interactive session and records its wrapper exit", async () => {
+  const { ctx, task, cfg, cleanup } = fixture();
+  const executable = ctx.which("codex")!;
+  writeFileSync(executable,
+    "#!/bin/sh\nif [ \"$1\" = --version ]; then echo codex-cli 0.162.1; exit 0; fi\ntrap 'exit 0' TERM\nwhile :; do sleep 0.1; done\n",
+    { mode: 0o700 });
+  const running = runOwnedDirectCurrent({ ...ctx, run: realRun },
+    { ...cfg, session: "interactive" }, task).catch(() => undefined);
+  try {
+    let current = readTask(ctx, task.id);
+    for (let i = 0; i < 100 && !current?.startIntent; i++) {
+      await Bun.sleep(20);
+      current = readTask(ctx, task.id);
+    }
+    expect(current?.run?.session).toBe("interactive");
+    expect(existsSync(join(current!.run!.dir, "session.json"))).toBe(true);
+    expect(taskStop(ctx, task.id)).toMatchObject({ state: "running", stopPending: { attempt: 1 } });
+    const issued = readTask(ctx, task.id)!;
+    const dir = issued.run!.dir, identity = statSync(dir);
+    const wrongMode = createCallAuthority(ctx, { reads: [], commands: [], stores: [], detachedStop: {
+      taskId: task.id, rev: issued.rev, attempt: 1, dir,
+      dirIdentity: { dev: identity.dev, ino: identity.ino },
+      pid: Number(readFileSync(join(dir, "pid"), "utf8")),
+      startedAt: issued.run!.startedAt, executor: "codex", graceMs: 5000,
+      stopIntent: { requestedAt: issued.stopPending!.requestedAt, providerId: "pacer-exec-direct" },
+    } }, { deadlineMs: Date.now() + 10_000, grants: ["process.spawn"] });
+    await expect(answerDetachedStop(wrongMode, { taskId: task.id, attempt: 1, graceMs: 5000 }))
+      .rejects.toMatchObject({ code: "capability_denied" });
+    await wrongMode.revoke();
+    expect(existsSync(join(dir, "exit"))).toBe(false);
+    let settled = await superviseTask(ctx, task.id, () => undefined);
+    for (let i = 0; i < 20 && settled?.state === "running"; i++) {
+      await Bun.sleep(50);
+      settled = await superviseTask(ctx, task.id, () => undefined);
+    }
+    expect(settled?.state).toBe("stopped");
+    expect(settled?.executorExitReceipt).toMatchObject({ attempt: 1,
+      providerId: "pacer-exec-direct", exitCode: 143 });
   } finally { await running; cleanup(); }
 });
 

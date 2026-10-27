@@ -22,7 +22,8 @@ export async function stopOwnedExecutorAttempt(ctx: Ctx, caller: ExecutorStopCal
   const grant = withTaskLock(ctx, taskId, () => {
     const task = readTask(ctx, taskId), current = lstatSync(state.dir);
     if (!task || task.rev !== state.task.rev || !task.run || task.run.dir !== state.dir ||
-      task.run.attempt !== attempt || task.run.executor !== task.executor || !current.isDirectory())
+      task.run.attempt !== attempt || task.run.executor !== task.executor || !current.isDirectory() ||
+      (task.run.session !== undefined && task.run.session !== "interactive"))
       throw new CoreError("conflict", "executor stop owner changed before issuance");
     if (task.executorProvider && (task.executorProvider !== pluginId || !task.stopPending ||
       task.stopPending.providerId !== pluginId || task.stopPending.attempt !== attempt ||
@@ -31,6 +32,7 @@ export async function stopOwnedExecutorAttempt(ctx: Ctx, caller: ExecutorStopCal
     return { taskId, rev: task.rev, attempt, dir: state.dir,
       dirIdentity: { dev: current.dev, ino: current.ino }, pid: state.pid!,
       startedAt: task.run.startedAt, executor: task.run.executor, graceMs,
+      ...(task.run.session === "interactive" ? { session: "interactive" as const } : {}),
       ...(task.executorProvider && task.stopPending ? { stopIntent: {
         requestedAt: task.stopPending.requestedAt, providerId: task.stopPending.providerId,
       } } : {}) };
@@ -49,6 +51,7 @@ export async function stopOwnedExecutorAttempt(ctx: Ctx, caller: ExecutorStopCal
         task.stopPending.attempt !== grant.attempt || task.stopPending.graceMs !== grant.graceMs
       : after.task.rev !== grant.rev) ||
       after.dir !== grant.dir || task?.run?.startedAt !== grant.startedAt ||
+      task.run.session !== grant.session ||
       dir.dev !== grant.dirIdentity.dev || dir.ino !== grant.dirIdentity.ino ||
       after.pid !== grant.pid || after.state !== "exited" || after.exitCode !== result.data.code)
       throw new CoreError("conflict", "executor stop receipt does not match the owned run");

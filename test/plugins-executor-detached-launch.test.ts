@@ -239,6 +239,16 @@ test("detached stop broker rejects foreign identity and replay", async () => {
     }
     const persisted = readTask(ctx, task.id)!, run = readRun(dir!);
     const linked = statSync(dir!);
+    const wrongMode = createCallAuthority(ctx, { reads: [], commands: [], stores: [], detachedStop: {
+      taskId: task.id, rev: persisted.rev, attempt: 1, dir: dir!,
+      dirIdentity: { dev: linked.dev, ino: linked.ino }, pid: run.pid!,
+      startedAt: persisted.run!.startedAt, executor: "codex", graceMs: 3000,
+      session: "interactive",
+    } }, { deadlineMs: Date.now() + 10_000, grants: ["process.spawn"] });
+    await expect(answerDetachedStop(wrongMode, { taskId: task.id, attempt: 1, graceMs: 3000 }))
+      .rejects.toMatchObject({ code: "capability_denied" });
+    await wrongMode.revoke();
+    expect(readRun(dir!).alive).toBe(true);
     const authority = createCallAuthority(ctx, { reads: [], commands: [], stores: [], detachedStop: {
       taskId: task.id, rev: persisted.rev, attempt: 1, dir: dir!,
       dirIdentity: { dev: linked.dev, ino: linked.ino }, pid: run.pid!,
