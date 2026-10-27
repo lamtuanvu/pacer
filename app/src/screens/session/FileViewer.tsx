@@ -352,7 +352,7 @@ export function FileViewer({ file, reference, error, loading = false, onClose, o
   const preview = file?.kind === "html" ? <HtmlPreview file={file}/>
     : file?.kind === "markdown" ? <>
     <p className="pc-file-viewer__caption">Raw HTML is removed and remote images are not loaded. Links to workspace files open here.</p>
-    <div className="pc-file-viewer__markdown pc-prose" role="region" aria-label={`Preview of ${file.path}`}
+    <div className="pc-file-viewer__markdown pc-prose" role="region" tabIndex={0} aria-label={`Preview of ${file.path}`}
       onClick={event => {
         const anchor = (event.target as HTMLElement).closest("a");
         if (!anchor) return;
@@ -379,7 +379,7 @@ export function FileViewer({ file, reference, error, loading = false, onClose, o
     {skeleton && <div className="pc-file-viewer__skeleton" aria-hidden="true">{Array.from({ length: 8 }, (_, index) => <span key={index}/>)}</div>}
   </div> : canPreview ? <>
     <Tabs label="File view" id={id} value={tab} onChange={value => setTab(value as "source" | "preview")} options={[{ value: "source", label: "Source" }, { value: "preview", label: "Preview" }]}/>
-    <div id={`${id}-${tab}-panel`} role="tabpanel" aria-labelledby={`${id}-${tab}-tab`} className="pc-file-viewer__panel" tabIndex={tab === "preview" ? 0 : undefined}>
+    <div id={`${id}-${tab}-panel`} role="tabpanel" aria-labelledby={`${id}-${tab}-tab`} className="pc-file-viewer__panel" tabIndex={tab === "preview" && file?.kind === "html" ? 0 : undefined}>
       <p className="pc-file-viewer__caption">{caption}</p>
       {tab === "source" ? sourceView : preview}
     </div>

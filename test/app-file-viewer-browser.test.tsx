@@ -31,7 +31,7 @@ beforeAll(async()=>{
  const styles=(await Promise.all(["app/src/ds/tokens.css","app/src/ds/components.css","app/src/styles.css","app/src/screens/session/file-viewer.css"].map(path=>Bun.file(path).text()))).join("\n");
  server=Bun.serve({port:0,hostname:"127.0.0.1",fetch:request=>new URL(request.url).pathname==="/fixture.js"?new Response(script,{headers:{"Content-Type":"text/javascript"}}):new Response(`<meta charset="utf-8"><style>${styles}</style><div id="root"></div><script type="module" src="/fixture.js"></script>`,{headers:{"Content-Type":"text/html"}})});
  browser=await chromium.launch({executablePath:browserPath,headless:true});
-});
+},60_000);
 afterAll(async()=>{await browser?.close();server?.stop(true)});
 
 async function open(page:Page,width:number,path:string,query=""){
@@ -231,7 +231,13 @@ browserTest("inside the scrolling panel the source focus ring stays visible and 
    return {visible:element.matches(":focus-visible"),inside:box.left-grow>=panel.left-0.5&&box.right+grow<=panel.right+0.5&&box.bottom+grow<=panel.bottom+0.5};
   });
   expect(ring).toEqual({visible:true,inside:true});
+  // Markdown scrolls in its own region, which is the keyboard stop; the panel is a stop only for HTML.
   await viewer.getByRole("tab",{name:"Preview"}).click();
-  await expect(viewer.getByRole("tabpanel").getAttribute("tabindex")).resolves.toBe("0");
+  await expect(viewer.getByRole("tabpanel").getAttribute("tabindex")).resolves.toBeNull();
+  await expect(viewer.getByRole("region",{name:"Preview of README.md"}).getAttribute("tabindex")).resolves.toBe("0");
+  await viewer.getByRole("button",{name:"Back to terminal"}).click();
+  const html=await open(page,375,"public/index.html");
+  await html.getByRole("tab",{name:"Preview"}).click();
+  await expect(html.getByRole("tabpanel").getAttribute("tabindex")).resolves.toBe("0");
  }finally{await page.close()}
 },30_000);

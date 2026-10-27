@@ -51,7 +51,8 @@
 .pc-file-viewer__match{color:var(--ink);background:var(--warn-bg);border-bottom:1px solid var(--warn-fg)}
 .pc-file-viewer__match--current{font-weight:var(--type-body-strong-weight);outline:var(--stroke-focus) solid var(--warn-fg)}
 .pc-file-viewer__preview{width:100%;height:var(--size-520);border:1px solid var(--line);background:var(--surface-page)}
-.pc-file-viewer__markdown{overflow:auto;max-height:var(--size-520)}
+.pc-file-viewer__markdown{overflow:auto;max-height:var(--size-520);padding:var(--space-1)}
+.pc-file-viewer__markdown:focus-visible{outline:var(--stroke-focus) solid var(--focus);outline-offset:calc(-1 * var(--stroke-focus))}
 .pc-file-viewer__state{display:flex;flex-direction:column;align-items:flex-start;gap:var(--space-2);padding:var(--space-4);border-radius:var(--radius-md)}
 .pc-file-viewer__state p{margin:0;color:var(--ink-secondary)}
 .pc-file-viewer__state-title{font-size:var(--type-body-strong-size);line-height:var(--type-body-strong-line)}
