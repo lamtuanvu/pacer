@@ -198,6 +198,7 @@ export function Conversation({
               uploads.uploadFiles(files);
               setFilesOpen(true);
             }}
+            onReadFile={request => api.call("session.file.read", request)}
           />
         </div>
       </div>

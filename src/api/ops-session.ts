@@ -15,9 +15,15 @@ import { launchTaskRunner, spawnRunner, taskStop } from "../tasks/api";
 import { updateTask } from "../tasks/store";
 import { CoreError } from "../core/errors";
 import { pidAlive } from "../link/store";
+import { readSessionFile } from "../session/files";
 const id = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 const op = <P extends z.ZodTypeAny>(def: OpDef<P>) => def as unknown as OpDef;
 export const sessionOps: Record<string, OpDef> = {
+  "session.file.read": op({
+    description: "Read a bounded UTF-8 file inside one local session attempt's workspace.",
+    params: z.object({ id, attempt: z.number().int().positive(), reference: z.string().min(1).max(4096) }),
+    handler: (ctx, p) => readSessionFile(ctx, p),
+  }),
   "session.draft.create": op({
     description:
       "Create a private attachment draft, expiring after 24 hours if unclaimed.",

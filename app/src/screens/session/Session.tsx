@@ -13,7 +13,7 @@ import { Page, Stack } from '../../ds/Page';
 import { AppButtonLink, AppLink } from '../../navigation';
 import { routes } from '../../router';
 import { StatusPill } from '../../ds/StatusPill';
-import { LazyTerminal } from '../../term/LazyTerminal';
+import { LinkedTerminal } from './LinkedTerminal';
 import { PlainLog } from './PlainLog';
 import { sessionStatus, phaseWords, taskStatus, taskOutcome } from '../../../../src/view-model/words';
 import type { Resource, SessionData, SessionActions, Action } from './types';
@@ -54,7 +54,7 @@ function Brief({ data }: { data: SessionData }) {
 }
 
 export function Session({ embedded = false, data, loading, error, initialTab, view, onAction, onAttach, onReload, onTakeover,
-  takeoverBusy, takeoverStarting, takeoverError, takeRequested, onTakeSent }: SessionProps) {
+  takeoverBusy, takeoverStarting, takeoverError, takeRequested, onTakeSent, onReadFile }: SessionProps) {
   const [chosenTab, setTab] = useState<SessionTab | undefined>(initialTab);
   const [selected, setSelected] = useState(''), [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState(''), [notice, setNotice] = useState('');
@@ -107,7 +107,7 @@ export function Session({ embedded = false, data, loading, error, initialTab, vi
         {data.log ? <ResourceView value={data.log} loading="Loading output…" empty="Waiting for output…">{text =>
           <Disclosure className="pc-disclosure" summary="Technical session output"><pre role="log" tabIndex={0} aria-label="Session output" className="pc-session-follow-log">{text}</pre></Disclosure>
         }</ResourceView> : <PlainLog key={data.id} id={data.id}/>}
-      </div> : <LazyTerminal key={data.id} id={data.id} url={session.attach.ws} cols={session.cols} rows={session.rows}
+      </div> : <LinkedTerminal key={data.id} id={data.id} attempt={session.attempt ?? null} readFile={onReadFile} url={session.attach.ws} cols={session.cols} rows={session.rows}
         control={active && session.capabilities.control} resize={active && session.capabilities.resize} live={active && session.live}
         controller={session.controller} driving={driving} takeRequested={active && takeRequested} onTakeSent={onTakeSent} takeover={takeover}/>}
   </Stack>;

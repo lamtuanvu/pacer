@@ -1,5 +1,6 @@
 import type { Action } from '../../../../src/api/read-model/types';
 import type { SessionInfo } from '../../../../src/session/service';
+import type { SessionFileRequest, SessionFileResult } from '../../../../src/session/files';
 export type { Action };
 export interface Resource<T> { data?:T|null; loading?:boolean; error?:string|null }
 export interface RetryOption { id:string; agent:string; label:string; reason?:string; available:boolean; action:Action }
@@ -13,4 +14,4 @@ export interface SessionData {
  timeline?:Resource<{at:string;text:string;raw?:string}[]>;
  stop?:Action|null; retryOptions?:RetryOption[]; retryLoading?:boolean; retryError?:string;
 }
-export interface SessionActions { onAction?:(action:Action)=>void|Promise<unknown>; onAttach?:(id:string,target:'orca'|'terminal')=>void|Promise<{opened:boolean;command?:string}|void> }
+export interface SessionActions { onAction?:(action:Action)=>void|Promise<unknown>; onAttach?:(id:string,target:'orca'|'terminal')=>void|Promise<{opened:boolean;command?:string}|void>; onReadFile?:(request:SessionFileRequest)=>Promise<SessionFileResult> }
