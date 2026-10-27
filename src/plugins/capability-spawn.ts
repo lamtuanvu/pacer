@@ -19,7 +19,7 @@ interface Pin {
   argv: readonly string[];
   timeoutMs: number;
   stdin?: string;
-  mode?: "codex-live" | "prepare-bundle" | "binary-upload" | "start-input" | "session-duplex";
+  mode?: "codex-live" | "prepare-bundle" | "prepare-recover" | "binary-upload" | "start-input" | "session-duplex";
   input?: Uint8Array;
   selected: string | null;
   canonical?: string;
@@ -36,7 +36,7 @@ interface Pin {
   capture?: { stdout: string; stderr: string };
   suppressOutput?: boolean;
 }
-interface State { pins: Pin[]; busy: boolean; liveUsed: boolean; prepareUsed: boolean; uploadUsed: boolean; startUsed: boolean; sessionUsed: boolean; output: Map<string, Buffer>; cleanupFailure?: Error }
+interface State { pins: Pin[]; busy: boolean; liveUsed: boolean; prepareUsed: boolean; prepareRecoverUsed: boolean; uploadUsed: boolean; startUsed: boolean; sessionUsed: boolean; output: Map<string, Buffer>; cleanupFailure?: Error }
 const states = new WeakMap<CallAuthority, State>();
 const deny = (message: string): never => { throw new CoreError("capability_denied", message); };
 const invalid = (message: string): never => { throw new CoreError("invalid_input", message); };
@@ -61,6 +61,11 @@ export function prepareSpawnAuthority(authority: CallAuthority): void {
         command.secretEnv !== undefined || command.timeoutMs > 60_000)
         deny("remote prepare input was not issued by the host");
       pin.input = Uint8Array.from(command.input!);
+    } else if (command.mode === "prepare-recover") {
+      if (command.argv[0] !== "ssh" || command.input !== undefined || command.inputSha256 !== undefined ||
+        command.cwd !== undefined || command.env !== undefined || command.secretEnv !== undefined ||
+        command.timeoutMs > 30_000)
+        deny("remote prepare recovery was not issued by the host");
     } else if (command.mode === "start-input") {
       if (!(command.input instanceof Uint8Array) || command.input.length < 1 || command.input.length > 50 * 1024 * 1024 ||
         command.inputSha256 !== createHash("sha256").update(command.input).digest("hex") ||
@@ -114,7 +119,7 @@ export function prepareSpawnAuthority(authority: CallAuthority): void {
     }
     return pin;
   });
-  const state: State = { pins, busy: false, liveUsed: false, prepareUsed: false, uploadUsed: false, startUsed: false, sessionUsed: false, output: new Map() };
+  const state: State = { pins, busy: false, liveUsed: false, prepareUsed: false, prepareRecoverUsed: false, uploadUsed: false, startUsed: false, sessionUsed: false, output: new Map() };
   states.set(authority, state);
   authority.onRevoke(() => { state.output.clear(); });
 }
@@ -179,6 +184,10 @@ export async function answerSpawn(authority: CallAuthority, declaredScopes: read
   if (pin.mode === "prepare-bundle") {
     if (state.prepareUsed) deny("remote prepare command already used by this call");
     state.prepareUsed = true;
+  }
+  if (pin.mode === "prepare-recover") {
+    if (state.prepareRecoverUsed) deny("remote prepare recovery already used by this call");
+    state.prepareRecoverUsed = true;
   }
   if (pin.mode === "start-input") {
     if (state.startUsed) deny("remote start command already used by this call");
@@ -276,7 +285,7 @@ async function run(authority: CallAuthority, state: State, pin: Pin, argv: strin
     validatePin(pin);
     const start = () => spawn(pin.canonical!, argv.slice(1), {
       stdio: [pin.mode === "codex-live" || pin.mode === "prepare-bundle" || pin.mode === "binary-upload" || pin.mode === "start-input" || pin.stdin !== undefined ? "pipe" : "ignore", "pipe", "pipe"], detached: process.platform !== "win32",
-      ...(pin.mode === "prepare-bundle" || pin.mode === "binary-upload" || pin.mode === "start-input" ? { env: authority.ctx.env } : env === undefined ? {} : { env }),
+      ...(pin.mode === "prepare-bundle" || pin.mode === "prepare-recover" || pin.mode === "binary-upload" || pin.mode === "start-input" ? { env: authority.ctx.env } : env === undefined ? {} : { env }),
       ...(pin.context?.cwd ? { cwd: pin.context.canonicalCwd } : {}),
     });
     child = authority.spawnAdmission ? authority.spawnAdmission(start) : start();

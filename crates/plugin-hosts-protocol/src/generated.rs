@@ -412,6 +412,7 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityHostsOpenResultSession {
 ///        "SET_IDENTITY",
 ///        "ECHO_STDIN",
 ///        "PREPARE",
+///        "PREPARE_RECOVER",
 ///        "QUESTION",
 ///        "QUESTION_CLEAR",
 ///        "PREFLIGHT",
@@ -518,6 +519,7 @@ impl<'de> ::serde::Deserialize<'de> for CapabilityHostsRunParamsArgsItem {
 ///    "SET_IDENTITY",
 ///    "ECHO_STDIN",
 ///    "PREPARE",
+///    "PREPARE_RECOVER",
 ///    "QUESTION",
 ///    "QUESTION_CLEAR",
 ///    "PREFLIGHT",
@@ -561,6 +563,8 @@ pub enum CapabilityHostsRunParamsScript {
     EchoStdin,
     #[serde(rename = "PREPARE")]
     Prepare,
+    #[serde(rename = "PREPARE_RECOVER")]
+    PrepareRecover,
     #[serde(rename = "QUESTION")]
     Question,
     #[serde(rename = "QUESTION_CLEAR")]
@@ -604,6 +608,7 @@ impl ::std::fmt::Display for CapabilityHostsRunParamsScript {
             Self::SetIdentity => f.write_str("SET_IDENTITY"),
             Self::EchoStdin => f.write_str("ECHO_STDIN"),
             Self::Prepare => f.write_str("PREPARE"),
+            Self::PrepareRecover => f.write_str("PREPARE_RECOVER"),
             Self::Question => f.write_str("QUESTION"),
             Self::QuestionClear => f.write_str("QUESTION_CLEAR"),
             Self::Preflight => f.write_str("PREFLIGHT"),
@@ -631,6 +636,7 @@ impl ::std::str::FromStr for CapabilityHostsRunParamsScript {
             "SET_IDENTITY" => Ok(Self::SetIdentity),
             "ECHO_STDIN" => Ok(Self::EchoStdin),
             "PREPARE" => Ok(Self::Prepare),
+            "PREPARE_RECOVER" => Ok(Self::PrepareRecover),
             "QUESTION" => Ok(Self::Question),
             "QUESTION_CLEAR" => Ok(Self::QuestionClear),
             "PREFLIGHT" => Ok(Self::Preflight),
@@ -1583,6 +1589,7 @@ pub struct HostRunnerCloseResult {
 ///        "SET_IDENTITY",
 ///        "ECHO_STDIN",
 ///        "PREPARE",
+///        "PREPARE_RECOVER",
 ///        "QUESTION",
 ///        "QUESTION_CLEAR",
 ///        "PREFLIGHT",
@@ -1683,6 +1690,7 @@ impl<'de> ::serde::Deserialize<'de> for HostRunnerFetchParamsArgsItem {
 ///    "SET_IDENTITY",
 ///    "ECHO_STDIN",
 ///    "PREPARE",
+///    "PREPARE_RECOVER",
 ///    "QUESTION",
 ///    "QUESTION_CLEAR",
 ///    "PREFLIGHT",
@@ -1726,6 +1734,8 @@ pub enum HostRunnerFetchParamsScript {
     EchoStdin,
     #[serde(rename = "PREPARE")]
     Prepare,
+    #[serde(rename = "PREPARE_RECOVER")]
+    PrepareRecover,
     #[serde(rename = "QUESTION")]
     Question,
     #[serde(rename = "QUESTION_CLEAR")]
@@ -1769,6 +1779,7 @@ impl ::std::fmt::Display for HostRunnerFetchParamsScript {
             Self::SetIdentity => f.write_str("SET_IDENTITY"),
             Self::EchoStdin => f.write_str("ECHO_STDIN"),
             Self::Prepare => f.write_str("PREPARE"),
+            Self::PrepareRecover => f.write_str("PREPARE_RECOVER"),
             Self::Question => f.write_str("QUESTION"),
             Self::QuestionClear => f.write_str("QUESTION_CLEAR"),
             Self::Preflight => f.write_str("PREFLIGHT"),
@@ -1796,6 +1807,7 @@ impl ::std::str::FromStr for HostRunnerFetchParamsScript {
             "SET_IDENTITY" => Ok(Self::SetIdentity),
             "ECHO_STDIN" => Ok(Self::EchoStdin),
             "PREPARE" => Ok(Self::Prepare),
+            "PREPARE_RECOVER" => Ok(Self::PrepareRecover),
             "QUESTION" => Ok(Self::Question),
             "QUESTION_CLEAR" => Ok(Self::QuestionClear),
             "PREFLIGHT" => Ok(Self::Preflight),
@@ -2296,6 +2308,7 @@ impl<'de> ::serde::Deserialize<'de> for HostRunnerOpenResultSession {
 ///        "SET_IDENTITY",
 ///        "ECHO_STDIN",
 ///        "PREPARE",
+///        "PREPARE_RECOVER",
 ///        "QUESTION",
 ///        "QUESTION_CLEAR",
 ///        "PREFLIGHT",
@@ -2408,6 +2421,7 @@ impl<'de> ::serde::Deserialize<'de> for HostRunnerRunParamsArgsItem {
 ///    "SET_IDENTITY",
 ///    "ECHO_STDIN",
 ///    "PREPARE",
+///    "PREPARE_RECOVER",
 ///    "QUESTION",
 ///    "QUESTION_CLEAR",
 ///    "PREFLIGHT",
@@ -2451,6 +2465,8 @@ pub enum HostRunnerRunParamsScript {
     EchoStdin,
     #[serde(rename = "PREPARE")]
     Prepare,
+    #[serde(rename = "PREPARE_RECOVER")]
+    PrepareRecover,
     #[serde(rename = "QUESTION")]
     Question,
     #[serde(rename = "QUESTION_CLEAR")]
@@ -2494,6 +2510,7 @@ impl ::std::fmt::Display for HostRunnerRunParamsScript {
             Self::SetIdentity => f.write_str("SET_IDENTITY"),
             Self::EchoStdin => f.write_str("ECHO_STDIN"),
             Self::Prepare => f.write_str("PREPARE"),
+            Self::PrepareRecover => f.write_str("PREPARE_RECOVER"),
             Self::Question => f.write_str("QUESTION"),
             Self::QuestionClear => f.write_str("QUESTION_CLEAR"),
             Self::Preflight => f.write_str("PREFLIGHT"),
@@ -2521,6 +2538,7 @@ impl ::std::str::FromStr for HostRunnerRunParamsScript {
             "SET_IDENTITY" => Ok(Self::SetIdentity),
             "ECHO_STDIN" => Ok(Self::EchoStdin),
             "PREPARE" => Ok(Self::Prepare),
+            "PREPARE_RECOVER" => Ok(Self::PrepareRecover),
             "QUESTION" => Ok(Self::Question),
             "QUESTION_CLEAR" => Ok(Self::QuestionClear),
             "PREFLIGHT" => Ok(Self::Preflight),
@@ -2806,6 +2824,7 @@ impl<'de> ::serde::Deserialize<'de> for HostRunnerRunResultStdout {
 ///        "SET_IDENTITY",
 ///        "ECHO_STDIN",
 ///        "PREPARE",
+///        "PREPARE_RECOVER",
 ///        "QUESTION",
 ///        "QUESTION_CLEAR",
 ///        "PREFLIGHT",
@@ -2916,6 +2935,7 @@ impl<'de> ::serde::Deserialize<'de> for HostRunnerStreamParamsArgsItem {
 ///    "SET_IDENTITY",
 ///    "ECHO_STDIN",
 ///    "PREPARE",
+///    "PREPARE_RECOVER",
 ///    "QUESTION",
 ///    "QUESTION_CLEAR",
 ///    "PREFLIGHT",
@@ -2959,6 +2979,8 @@ pub enum HostRunnerStreamParamsScript {
     EchoStdin,
     #[serde(rename = "PREPARE")]
     Prepare,
+    #[serde(rename = "PREPARE_RECOVER")]
+    PrepareRecover,
     #[serde(rename = "QUESTION")]
     Question,
     #[serde(rename = "QUESTION_CLEAR")]
@@ -3002,6 +3024,7 @@ impl ::std::fmt::Display for HostRunnerStreamParamsScript {
             Self::SetIdentity => f.write_str("SET_IDENTITY"),
             Self::EchoStdin => f.write_str("ECHO_STDIN"),
             Self::Prepare => f.write_str("PREPARE"),
+            Self::PrepareRecover => f.write_str("PREPARE_RECOVER"),
             Self::Question => f.write_str("QUESTION"),
             Self::QuestionClear => f.write_str("QUESTION_CLEAR"),
             Self::Preflight => f.write_str("PREFLIGHT"),
@@ -3029,6 +3052,7 @@ impl ::std::str::FromStr for HostRunnerStreamParamsScript {
             "SET_IDENTITY" => Ok(Self::SetIdentity),
             "ECHO_STDIN" => Ok(Self::EchoStdin),
             "PREPARE" => Ok(Self::Prepare),
+            "PREPARE_RECOVER" => Ok(Self::PrepareRecover),
             "QUESTION" => Ok(Self::Question),
             "QUESTION_CLEAR" => Ok(Self::QuestionClear),
             "PREFLIGHT" => Ok(Self::Preflight),

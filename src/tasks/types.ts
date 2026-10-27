@@ -135,6 +135,10 @@ export interface TaskRecord {
   /** Durable exact placement claimed before an executor-owned Git worktree effect. */
   worktreeIntent?: { attempt: number; providerId: string; repoTop: string; repoMain: string;
     path: string; workdir: string; branch: string; baseSha: string };
+  /** PREPARE may have reached SSH; only read-only reconciliation may follow a missing receipt. */
+  remotePrepareIntent?: { attempt: number; providerId: string; executor: string; alias: string;
+    hostFingerprint: string; repoTop: string; originHash: string; checkout: string; tag: string;
+    baseSha: string; base: string };
   /** Persisted owner of a plugin-backed direct attempt, including before its run directory exists. */
   executorProvider?: string;
   /** A stop request is not terminal until the exact executor exit is verified. */

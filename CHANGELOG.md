@@ -6,6 +6,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
+- Add a read-only, host-issued remote PREPARE recovery proof for a persisted unreceipted executor placement. It verifies the exact clean task worktree without another fetch or launch; the remote executor production cutover remains in progress.
 - Add plugin protocol 1.6 worktree consent and host-issued task placement methods. The bundled direct executor may inspect and resolve a local base, then create or recover one journaled task-owned worktree.
 - Add plugin protocol 1.7 host-issued local run claims. An exact task-owned directory and one-use start grant are published before the provider can launch; lost claim replies recover only an empty, unstarted run.
 - Split generated Rust executor and process capability types into the independent `pacer-plugin-exec-protocol` area, retaining the SDK type facade and keeping each generated crate within its size limit.
