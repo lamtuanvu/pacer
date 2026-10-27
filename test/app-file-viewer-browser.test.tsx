@@ -73,6 +73,10 @@ browserTest("below 1100 px the viewer replaces the terminal; below 768 px it is 
   const more=viewer.getByRole("button",{name:"More file actions"});
   await more.click();
   await expect(viewer.getByRole("button",{name:"Copy path"}).count()).resolves.toBe(1);
+  // Safari and WKWebView do not focus a clicked button, so focus leaves with no related target; the menu must stay open.
+  await page.evaluate(()=>(document.activeElement as HTMLElement|null)?.blur());
+  await expect(more.getAttribute("aria-expanded")).resolves.toBe("true");
+  await more.focus();
   for(const control of [first,more]){const size=await control.boundingBox();expect(size!.height).toBeGreaterThanOrEqual(44);expect(size!.width).toBeGreaterThanOrEqual(44);}
   await page.keyboard.press("Escape");
   await expect(more.getAttribute("aria-expanded")).resolves.toBe("false");

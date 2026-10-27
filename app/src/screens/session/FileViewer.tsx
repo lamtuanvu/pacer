@@ -302,6 +302,7 @@ export function FileViewer({ file, reference, error, loading = false, onClose, o
     void (async () => {
       try { await navigator.clipboard.writeText(path); setCopyStatus("Path copied"); }
       catch { setCopyStatus("Could not copy path"); }
+      clearTimeout(copyTimer.current);
       copyTimer.current = setTimeout(() => setCopyStatus(""), 3000);
     })();
   };
@@ -365,10 +366,10 @@ export function FileViewer({ file, reference, error, loading = false, onClose, o
       }} dangerouslySetInnerHTML={{ __html: markdown ?? "Preparing preview…" }}/>
   </> : null;
 
-  const body = failure ? <div className="pc-file-viewer__state" tabIndex={-1} ref={errorPanel} role="group" aria-labelledby={`${id}-state-title`}>
+  const body = failure ? <div className="pc-file-viewer__state" tabIndex={-1} ref={errorPanel} role="group" aria-labelledby={`${id}-state-title`} aria-describedby={`${id}-state-body`}>
     <span className={`pc-file-viewer__state-icon pc-file-viewer__state-icon--${failure.glyph === "changed" ? "info" : failure.glyph === "missing" ? "warn" : "bad"}`}><Glyph name={failure.glyph}/></span>
     <strong id={`${id}-state-title`} className="pc-file-viewer__state-title">{failure.title}</strong>
-    <p>{failure.body}</p>
+    <p id={`${id}-state-body`}>{failure.body}</p>
     {(failure.copy || failure.retry) && <div className="pc-file-viewer__state-actions">
       {failure.retry && <Button size="sm" onClick={onRefresh}>Retry</Button>}
       {failure.copy && <Button size="sm" variant="quiet" onClick={copyPath}>Copy path</Button>}
@@ -385,7 +386,7 @@ export function FileViewer({ file, reference, error, loading = false, onClose, o
   </> : sourceView;
 
   const actions = <div className="pc-file-viewer__actions" ref={actionsRef}
-    onFocusOut={event => { if (menuOpen && !event.currentTarget.contains(event.relatedTarget as Node | null)) setMenuOpen(false); }}>
+    onFocusOut={event => { const next = event.relatedTarget as Node | null; if (menuOpen && next && !event.currentTarget.contains(next)) setMenuOpen(false); }}>
     {search}
     {sheet ? <>
       <IconButton ref={menuButton} size="sm" variant="quiet" aria-label="More file actions" aria-expanded={menuOpen} aria-controls={`${id}-more`} onClick={() => setMenuOpen(open => !open)}><Glyph name="more"/></IconButton>
