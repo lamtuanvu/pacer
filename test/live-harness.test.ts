@@ -42,7 +42,7 @@ describe("live guard (D3)", () => {
 });
 
 test("fixed stdio fixture refuses caller-supplied commands before loading a session", async () => {
-  for (const command of ["stdio-strategy-list", "stdio-strategy-show", "stdio-strategy-use", "stdio-strategy-save"]) {
+  for (const command of ["stdio-strategy-list", "stdio-strategy-show", "stdio-strategy-use", "stdio-strategy-save", "stdio-routing-set"]) {
     await expect(main([command, "--id", "missing", "api"])).rejects.toThrow(`usage: live ${command}`);
     await expect(main([command, "--id", "missing", "--", "api", "--stdio"])).rejects.toThrow(`usage: live ${command}`);
   }
