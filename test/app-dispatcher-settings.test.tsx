@@ -86,13 +86,13 @@ test("model inventory and preview distinguish a declared model from unknown iden
 });
 test("native control rows distinguish verified, actionable and unavailable executors",()=>{
   const reading={repo:"/repo",scope:"native",runners:[
-    {runner:"claude-code",account:"team",agent:"claude-code",version:"2.1.281",probeSupported:true,state:"certified" as const},
-    {runner:"claude-code-spare",account:"spare",agent:"claude-code",version:"2.1.281",probeSupported:true,state:"uncertified" as const},
-    {runner:"codex",account:"personal",agent:"codex",version:"0.164.0",probeSupported:false,state:"uncertified" as const,reason:"Native subagent control: Codex tool-result observation is not implemented for this CLI version"},
-    {runner:"cursor",account:"work",agent:"cursor",version:"1.0.0",probeSupported:false,state:"uncertified" as const,reason:"No blocking control"},
-    {runner:"interactive",account:"work",agent:"claude-code",version:"2.1.281",probeSupported:false,state:"uncertified" as const,reason:"Native child blocking for interactive launches has not been verified"},
+    {runner:"claude-code",account:"team",agent:"claude-code",version:"2.1.281",probeSupported:true,unsupportedReason:null,probeMode:"ask" as const,state:"certified" as const,lastProbedAt:null,expiresAt:null,nextEligibleAt:0,probesToday:0,lastCostPct:null,consent:"unasked" as const},
+    {runner:"claude-code-spare",account:"spare",agent:"claude-code",version:"2.1.281",probeSupported:true,unsupportedReason:null,probeMode:"ask" as const,state:"uncertified" as const,lastProbedAt:null,expiresAt:null,nextEligibleAt:0,probesToday:0,lastCostPct:null,consent:"unasked" as const},
+    {runner:"codex",account:"personal",agent:"codex",version:"0.164.0",probeSupported:false,probeMode:"ask" as const,state:"uncertified" as const,reason:"Native subagent control: Codex tool-result observation is not implemented for this CLI version",unsupportedReason:"Native subagent control: Codex tool-result observation is not implemented for this CLI version",lastProbedAt:null,expiresAt:null,nextEligibleAt:0,probesToday:0,lastCostPct:null,consent:"unasked" as const},
+    {runner:"cursor",account:"work",agent:"cursor",version:"1.0.0",probeSupported:false,probeMode:"ask" as const,state:"uncertified" as const,reason:"No blocking control",unsupportedReason:"Cursor has not proven that subagentStart denial prevents child startup",lastProbedAt:null,expiresAt:null,nextEligibleAt:0,probesToday:0,lastCostPct:null,consent:"unasked" as const},
+    {runner:"interactive",account:"work",agent:"claude-code",version:"2.1.281",probeSupported:false,probeMode:"ask" as const,state:"uncertified" as const,reason:"Native child blocking for interactive launches has not been verified",unsupportedReason:"Native child blocking for interactive launches has not been verified",lastProbedAt:null,expiresAt:null,nextEligibleAt:0,probesToday:0,lastCostPct:null,consent:"unasked" as const},
   ]};
-  const html=renderToString(<DispatcherEnforcementRows reading={reading} canProbe probing={null} onProbe={()=>{}}/>);
+  const html=renderToString(<DispatcherEnforcementRows reading={reading} canProbe probing={null} onProbe={()=>{}} onConsent={()=>{}}/>);
   expect(html).toContain("Verified");expect(html).toContain("Needs verification");expect(html).toContain("Unavailable");
   expect(html).toContain("View executor setup");expect(html.match(/Verify control/g)).toHaveLength(1);
   expect(html).toContain("Verification is not available for this executor yet");
@@ -105,4 +105,93 @@ test("native control data follows the selected repository key without showing st
   const one={repo:"/work/one",scope:"native",runners:[]};
   expect(scopedEnforcementReading(one,"local:one",repos)).toBe(one);
   expect(scopedEnforcementReading(one,"local:two",repos)).toBeUndefined();
+});
+test("shows the next scheduled probe and the measured cost",()=>{
+  const now=Date.now()/1000;
+  const reading={repo:"/repo",scope:"native",runners:[{
+    runner:"claude-code",account:"claude1",agent:"claude-code",version:"2.1.281",
+    probeSupported:true,probeMode:"ask" as const,state:"uncertified" as const,
+    lastProbedAt:now-86400,expiresAt:null,
+    nextEligibleAt:now+1800,probesToday:1,lastCostPct:2,
+    consent:"granted" as const,unsupportedReason:null,
+  }]};
+  const html=renderToString(<DispatcherEnforcementRows reading={reading} canProbe={false} probing={null} onProbe={()=>{}} onConsent={()=>{}}/>);
+  expect(html).toContain("next eligible");
+  expect(html).toContain("probes today: 1");
+  expect(html).toContain("2.0%");
+  expect(html).toContain("last probe");
+  expect(html).not.toContain("error");
+  expect(html).not.toContain("failed");
+});
+test("says scheduled probing is off without implying a failure or offering a dead control",()=>{
+  const reading={repo:"/repo",scope:"native subagent entry points at admission",runners:[{
+    runner:"claude-code",account:"claude1",agent:"claude-code",version:"2.1.281",
+    probeSupported:true,unsupportedReason:null,probeMode:"off" as const,state:"uncertified" as const,
+    lastProbedAt:null,expiresAt:null,nextEligibleAt:0,probesToday:0,lastCostPct:null,
+    consent:"unasked" as const,
+  }]};
+  const html=renderToString(<DispatcherEnforcementRows reading={reading} canProbe={false} probing={null} onProbe={()=>{}} onConsent={()=>{}}/>);
+  expect(html).toContain("scheduled probing: off");
+  expect(html).not.toContain("Grant consent");
+  expect(html).not.toContain("alert");
+  expect(html).not.toContain("failed");
+});
+
+test("offers consent when the account has not been asked",()=>{
+  let consentCall:{account:string;granted:boolean}|null=null;
+  const reading={repo:"/repo",scope:"native",runners:[{
+    runner:"claude-code",account:"claude1",agent:"claude-code",version:"2.1.281",
+    probeSupported:true,probeMode:"ask" as const,state:"uncertified" as const,
+    lastProbedAt:null,expiresAt:null,nextEligibleAt:0,probesToday:0,lastCostPct:null,
+    consent:"unasked" as const,unsupportedReason:null,
+  }]};
+  const html=renderToString(<DispatcherEnforcementRows reading={reading} canProbe={false} probing={null} onProbe={()=>{}} onConsent={(account,granted)=>{consentCall={account,granted};}}/>);
+  expect(html).toContain("Grant consent");
+  expect(html).toContain("Decline");
+  expect(html).toContain("quota");
+  expect(html).toContain("certification");
+  expect(html).not.toContain("consent: granted");
+  expect(html).not.toContain("consent: declined");
+});
+test("shows the unsupported reason instead of a schedule when probing cannot run",()=>{
+  const reading={repo:"/repo",scope:"native",runners:[{
+    runner:"codex",account:"work",agent:"codex",version:"0.164.0",
+    probeSupported:false,probeMode:"ask" as const,state:"uncertified" as const,
+    reason:"Native subagent control: Codex tool-result observation is not implemented for this CLI version",
+    lastProbedAt:null,expiresAt:null,nextEligibleAt:0,probesToday:0,lastCostPct:null,
+    consent:"unasked" as const,
+    unsupportedReason:"Native subagent control: Codex tool-result observation is not implemented for this CLI version",
+  }]};
+  const html=renderToString(<DispatcherEnforcementRows reading={reading} canProbe={false} probing={null} onProbe={()=>{}} onConsent={()=>{}}/>);
+  expect(html).toContain("Verification is not available");
+  expect(html).not.toContain("next eligible");
+  expect(html).not.toContain("probes today");
+  expect(html).not.toContain("consent");
+});
+test("schedule section distinguishes consent states and presents probing status honestly",()=>{
+  // Consent granted
+  const granted={repo:"/repo",scope:"native",runners:[{
+    runner:"claude-code",account:"claude1",agent:"claude-code",version:"2.1.281",
+    probeSupported:true,probeMode:"ask" as const,state:"certified" as const,
+    lastProbedAt:Date.now()/1000-3600,expiresAt:Date.now()/1000+82800,
+    nextEligibleAt:0,probesToday:1,lastCostPct:2,
+    consent:"granted" as const,unsupportedReason:null,
+  }]};
+  const htmlGranted=renderToString(<DispatcherEnforcementRows reading={granted} canProbe={false} probing={null} onProbe={()=>{}} onConsent={()=>{}}/>);
+  expect(htmlGranted).toContain("consent: granted");
+  expect(htmlGranted).not.toContain("Grant consent");  // No buttons when consent is set
+  expect(htmlGranted).not.toContain("Decline");
+  
+  // Consent declined - NOT an error state
+  const declined={repo:"/repo",scope:"native",runners:[{
+    runner:"claude-code",account:"claude1",agent:"claude-code",version:"2.1.281",
+    probeSupported:true,probeMode:"ask" as const,state:"uncertified" as const,
+    lastProbedAt:null,expiresAt:null,nextEligibleAt:0,probesToday:0,lastCostPct:null,
+    consent:"declined" as const,unsupportedReason:null,
+  }]};
+  const htmlDeclined=renderToString(<DispatcherEnforcementRows reading={declined} canProbe={false} probing={null} onProbe={()=>{}} onConsent={()=>{}}/>);
+  expect(htmlDeclined).toContain("consent: declined");
+  expect(htmlDeclined).not.toContain("Grant consent");  // No buttons when consent is set
+  // Must not show error/warning language for declined consent
+  expect(htmlDeclined).not.toMatch(/error|fail|warn|problem|broke/i);
 });

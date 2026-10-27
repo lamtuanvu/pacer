@@ -1,5 +1,6 @@
 import type { DispatchConfig, DispatchPreview, ModelRecord } from "../../../../src/dispatch/types";
 import { executorLabel } from "../../../../src/view-model/words";
+import { clock } from "../../../../src/view-model/time";
 import type { RouteQuery } from "../../router";
 import type { BrowserApi } from "../../data/api";
 import type { ComponentChildren } from "preact";
@@ -10,6 +11,18 @@ import { ChoicePicker } from "../../ds/ChoicePicker";
 import { SectionHeading } from "../../ds/SectionHeading";
 import { ErrorMessage, useTaskContext } from "../task-shared";
 import { Section, useResource } from "./shared";
+
+const now = () => Date.now() / 1000;
+const formatTime = (seconds: number | null): string => seconds === null ? "Never" : clock(seconds, now());
+const formatDuration = (at: number, from: number): string => {
+  if (at <= 0) return "—";
+  const seconds = Math.max(0, Math.round(at - from));
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
+  const days = Math.floor(seconds / 86400);
+  return `${days}d ${Math.floor((seconds % 86400) / 3600)}h`;
+};
 
 export interface DispatcherConfigView {
   strategy: string;
@@ -24,7 +37,15 @@ function stepTitle(id:string):string {return stepNames[id]??id.replaceAll("-"," 
 function capacityLabel(value:string):string {return value==="comfortable"?"Spare capacity":value==="usable"?"Some capacity":"Unknown capacity allowed";}
 function modelLabel(model:Pick<ModelRecord,"binding">):string {return model.binding.kind==="exact"?model.binding.id:"Agent default";}
 export interface DispatcherInventory {models:ModelRecord[];advertised:{runner:string;account:string;model:{id:string};authorized:boolean}[];observedAt:number|null}
-interface EnforcementReading {repo:string;scope:string;runners:{runner:string;account:string;agent:string;version:string|null;probeSupported:boolean;state:"certified"|"uncertified"|"stale";reason?:string;probedAt?:number;expiresAt?:number}[]}
+interface EnforcementRunner {
+  runner:string;account:string;agent:string;version:string|null;
+  probeSupported:boolean;unsupportedReason:string|null;probeMode:"ask"|"auto"|"off";
+  state:"certified"|"uncertified"|"stale";reason?:string;
+  lastProbedAt:number|null;expiresAt:number|null;
+  nextEligibleAt:number;probesToday:number;lastCostPct:number|null;
+  consent:"granted"|"declined"|"unasked";
+}
+interface EnforcementReading {repo:string;scope:string;runners:EnforcementRunner[]}
 const enforcementStateCopy={certified:"Verified",uncertified:"Needs verification",stale:"Verification expired"};
 function nativeControlReasonCopy(reason:string,probeSupported=true):string {
   if(reason.includes("no resolvable configuration folder"))return "Connect this account before verification";
@@ -35,12 +56,71 @@ function nativeControlReasonCopy(reason:string,probeSupported=true):string {
   if(reason.includes("tool-result observation")||reason.includes("no native tool-result observer")||reason.includes("does not yet have a host-observed canary"))return "Verification is not available for this executor yet";
   return "This executor cannot be verified in its current setup";
 }
+function consentLabel(consent:"granted"|"declined"|"unasked"):string {
+  if(consent==="granted")return "consent: granted";
+  if(consent==="declined")return "consent: declined";
+  return "";
+}
 export function scopedEnforcementReading(reading:EnforcementReading|undefined,repo:string,repos:readonly {key:string;path:string}[]):EnforcementReading|undefined {
   const path=repos.find(item=>item.key===repo)?.path??repo;
   return reading?.repo===path?reading:undefined;
 }
-export function DispatcherEnforcementRows({reading,canProbe,probing,onProbe}:{reading:EnforcementReading;canProbe:boolean;probing:string|null;onProbe:(runner:string)=>void}){
-  return <>{reading.runners.map(item=><div className="u3-setting" key={item.runner}><div><strong>{executorLabel(item.runner)}</strong><div className="u3-muted">Account {item.account} · {item.version??"version unknown"} · {!item.probeSupported&&item.state!=="certified"?"Unavailable":enforcementStateCopy[item.state]}{item.reason?` · ${nativeControlReasonCopy(item.reason,item.probeSupported)}`:""}{!item.probeSupported&&item.state!=="certified"?<> · <TextAction href="#/settings/executors">View executor setup</TextAction>, then refresh status.</>:null}</div></div>{canProbe&&item.probeSupported&&item.state!=="certified"?<Button size="sm" busy={probing===item.runner} disabled={!!probing} onClick={()=>onProbe(item.runner)}>Verify control</Button>:null}</div>)}</>;
+function CertificationSchedule({item}:{item:EnforcementRunner}){
+  const t=now();
+  const parts:string[]=[];
+  // Turning scheduling off is a setting, not a fault, so it reads as plain state.
+  if(item.probeMode==="off")parts.push("scheduled probing: off");
+  if(item.lastProbedAt)parts.push(`last probe: ${formatTime(item.lastProbedAt)}`);
+  if(item.expiresAt&&item.expiresAt>t)parts.push(`expires: ${formatTime(item.expiresAt)}`);
+  if(item.probeMode!=="off"&&item.nextEligibleAt>t)parts.push(`next eligible: in ${formatDuration(item.nextEligibleAt,t)}`);
+  if(item.probesToday>0)parts.push(`probes today: ${item.probesToday}`);
+  // A measured delta carries full float precision; one decimal is all a reader needs.
+  if(item.lastCostPct!==null)parts.push(`last probe cost: ${item.lastCostPct.toFixed(1)}% of account window`);
+  const consentText=consentLabel(item.consent);
+  if(consentText)parts.push(consentText);
+  if(!parts.length)return null;
+  return <div className="u3-muted">{parts.join(" · ")}</div>;
+}
+function ConsentControl({item,onConsent}:{item:EnforcementRunner;onConsent:(account:string,granted:boolean)=>void}){
+  // With scheduling off, consent decides nothing: offering it would be a control
+  // that cannot take effect.
+  if(!item.probeSupported||item.probeMode==="off"||item.consent!=="unasked")return null;
+  return <div className="pc-stack pc-stack--compact">
+    <div className="u3-muted">
+      Scheduled certification probes spend <strong>{item.account}</strong>'s quota to verify native child blocking.
+      Probes run only when the account's measured headroom is above the planner reserve.
+    </div>
+    <div className="pc-cluster">
+      <Button size="sm" variant="secondary" onClick={()=>onConsent(item.account,true)}>
+        Grant consent
+      </Button>
+      <Button size="sm" variant="quiet" onClick={()=>onConsent(item.account,false)}>
+        Decline
+      </Button>
+    </div>
+  </div>;
+}
+export function DispatcherEnforcementRows({reading,canProbe,probing,onProbe,onConsent}:{
+  reading:EnforcementReading;canProbe:boolean;probing:string|null;
+  onProbe:(runner:string)=>void;onConsent:(account:string,granted:boolean)=>void;
+}){
+  return <>{reading.runners.map(item=><div className="u3-setting" key={item.runner}>
+    <div>
+      <strong>{executorLabel(item.runner)}</strong>
+      <div className="u3-muted">
+        Account {item.account} · {item.version??"version unknown"} · {!item.probeSupported&&item.state!=="certified"?"Unavailable":enforcementStateCopy[item.state]}
+        {item.reason?` · ${nativeControlReasonCopy(item.reason,item.probeSupported)}`:""}
+      </div>
+      {item.probeSupported?<CertificationSchedule item={item}/>:null}
+      {!item.probeSupported&&item.unsupportedReason?
+        <div className="u3-muted">{nativeControlReasonCopy(item.unsupportedReason,false)}{item.state!=="certified"?<> · <TextAction href="#/settings/executors">View executor setup</TextAction>, then refresh status.</>:null}</div>
+      :null}
+      <ConsentControl item={item} onConsent={onConsent}/>
+    </div>
+    {canProbe&&item.probeSupported&&item.state!=="certified"?
+      <Button size="sm" busy={probing===item.runner} disabled={!!probing} onClick={()=>onProbe(item.runner)}>Verify control</Button>
+    :null}
+  </div>)}</>;
 }
 
 export function DispatcherModelInventory({inventory}:{inventory:DispatcherInventory}) {
@@ -231,16 +311,26 @@ function DispatcherEnforcement({query}:{query:RouteQuery}){
     }
     catch{setProbeError(new Error("Verification could not complete. Review executor setup and try again."));}finally{setProbing(null);}
   };
+  const consent=async(account:string,granted:boolean)=>{
+    try{
+      setProbeNotice(`${granted?"Granting":"Declining"} consent for ${account}…`);
+      await api.call("dispatch.enforcement.consent",{account,granted});
+      setProbeNotice(granted?`Consent granted for ${account}. The next schedule check will consider probes.`:`Consent declined for ${account}. No automatic probes will run.`);
+      reading.reload();
+    }catch(error){
+      setProbeError(error instanceof Error?error:new Error(String(error)));
+    }
+  };
   return <Section id="native-control" title="Native subagent control" detail="Pacer checks native child blocking before admitting strict managed work.">
     <div className="pc-card pc-stack pc-stack--normal">
       <p>New managed work requires verified native subagent control. Executors can ask Pacer to delegate child work; Pacer selects and records it. This check covers supported native subagent tools when work starts, not arbitrary AI commands run through a shell.</p>
       {repos.length?<Field label="Repository"><ChoicePicker value={repo} searchable options={repos.map(item=>({value:item.key,label:item.label}))} onValueChange={setRepo}/></Field>:<p>Select a repository to inspect its executor controls.</p>}
       <div><Button size="sm" onClick={()=>reading.reload()} disabled={!repo}>Refresh status</Button></div>
       <DispatcherReadError error={reading.error&&currentReading?reading.error:undefined} reload={reading.reload} subject="native subagent control"/>
-      {currentReading&&<DispatcherEnforcementRows reading={currentReading} canProbe={state.features.ops.has("dispatch.enforcement.probe")&&!!repo} probing={probing} onProbe={runner=>void probe(runner)}/>}
+      {currentReading&&<DispatcherEnforcementRows reading={currentReading} canProbe={state.features.ops.has("dispatch.enforcement.probe")&&!!repo} probing={probing} onProbe={runner=>void probe(runner)} onConsent={consent}/>}
       {!currentReading&&<p role={reading.error?"alert":undefined}>{reading.error?"Native control status could not be loaded.":"Loading native control status…"}</p>}
       <p className="u3-muted">Verification starts the selected agent in a disposable repository and may use account quota.</p>
-      {probeNotice&&<p role="status">{probeNotice}</p>}<ErrorMessage error={probeError}/>
+      {probeNotice&&<p role="status" aria-live="polite">{probeNotice}</p>}<ErrorMessage error={probeError}/>
     </div>
   </Section>;
 }
