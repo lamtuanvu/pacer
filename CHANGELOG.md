@@ -11,6 +11,11 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - Add a persistent built-in terminal with workspace shells, tabs, splits, search and integrated app action sessions.
 - Strict native subagent control for new managed work: Pacer excludes uncertified executors before dispatch, checks again before launch, and exposes certification status and a quota-using canary in Dispatcher and the CLI. Existing managed tasks retain cooperative behavior.
 - Open HTTP(S), local file and source-location links from the built-in session terminal. A read-only viewer shows code, Markdown and an isolated static HTML preview without disconnecting the session.
+- Add the Dispatch home, which replaces Start work and Overview: the interactive session composer, Needs you as task cards with their actions, Live dispatch, the planner budget, where the next task goes and today's figures. Token figures and "Where the tokens went" stay hidden until token accounting reports them. `#/overview` redirects to `#/` with its repository and scope. Add the `StackedShareBar` design-system primitive on the chart colours.
+
+### Changed
+
+- The Needs you page shows task items as task cards, most urgent first. Agent capacity and recent activity left the home; capacity lives in Settings › Executors. The quick delegate form is replaced by the top bar's Delegate. While Dispatch is open, the status bar shows the planner's mark without its figure, because the Planner budget states it.
 
 ## [0.11.0] - 2026-10-26
 

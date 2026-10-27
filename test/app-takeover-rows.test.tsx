@@ -1,7 +1,7 @@
 import {expect,test} from 'bun:test';
 import {options} from 'preact';
 import {renderToString} from 'preact-render-to-string';
-import {OverviewView} from '../app/src/screens/Overview';
+import { DispatchView } from "../app/src/screens/dispatch/Dispatch";
 import {SessionsList} from '../app/src/screens/session/SessionsList';
 import {taskTree} from '../src/view-model/task-tree';
 import {createActionRunner} from '../app/src/data/actions';
@@ -17,7 +17,7 @@ test('Overview takeover remains available while Tasks uses direct row navigation
   const previous=options.vnode;
   options.vnode=node=>{previous?.(node);if(node.type==='button'&&(node.props as any).children==='Take over')clicks.push((node.props as any).onClick);};
   let html:string;
-  try{html=renderToString(<OverviewView snapshot={snapshot as unknown as ClientSnapshot} query={{repo:null,scope:null}} now={snapshot.at} runner={runner} activity={[]} ops={new Set()}/>);}
+  try{html=renderToString(<DispatchView snapshot={snapshot as unknown as ClientSnapshot} query={{repo:null,scope:null}} now={snapshot.at} runner={runner}/>);}
   finally{options.vnode=previous;}
   expect(clicks).toHaveLength(overview?snapshot.tasks.filter(t=>t.state==='running').length:1);
   expect(html!).toContain('pc-btn--secondary');

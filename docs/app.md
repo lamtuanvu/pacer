@@ -28,7 +28,8 @@ To open a particular screen, use, for example, `pacer open sessions` or
 `#/sessions/<id>` and `#/setup`; bookmarks require an active browser session. Old app routes
 (`#/tasks`, `#/tasks/<id>`,
 `#/executors`, `#/executors/add`, `#/accounts`, `#/strategy` and `#/hosts`) no longer redirect to their replacement screens. They fall back to
-Overview (`#/`), as do other unknown or malformed hashes. Incomplete setup
+the Dispatch home (`#/`), as do other unknown or malformed hashes. `#/overview`
+redirects to `#/` and keeps its `repo` and `scope` query. Incomplete setup
 redirects work screens to Setup; Settings stays reachable.
 
 `pacer open --print` prints a sign-in URL instead of opening the browser.
@@ -43,7 +44,7 @@ command under Sign out; run it in a terminal.
 | Screen | What you can do |
 | --- | --- |
 | Setup | Complete required steps, connect agents with a file preview and consent, add an executor, try or skip a first delegation. |
-| Overview | Check planner usage and pace, mode, items needing attention, who runs next and running work; delegate a task. |
+| Dispatch | Start an interactive session, act on what needs you, follow live dispatch, and check the planner budget, where the next task goes and today's figures. Token figures appear once token accounting reports them. |
 | Tasks | Browse running tasks, tasks waiting for review and paginated history; delegate, stop, retry or dismiss work. |
 | Task detail | Follow the live log, inspect the diff and untracked files, accept or reject with a note, retry or stop. |
 | Executors | Inspect availability and reasons, block or unblock, test endpoints and remove executors. |
@@ -98,13 +99,15 @@ banner dismissal lasts until the pending recommended items change.
 
 ## Needs you and Tasks
 
-On wide screens, Overview pairs Needs you with Capacity, Running with Quick delegate,
-and Done today with Activity. Cards in each row share their height. Needs you and
-Capacity show five rows per page; Running, Done today and Activity show three.
-Previous/Next navigation keeps longer lists contained. Repository changes reset
-scoped lists to their first page. Compact Capacity continues to show all executors.
-Narrow layouts stack the existing sections. The standalone Needs you page retains
-its full actionable queue.
+On wide screens, Dispatch keeps Start work, Needs you and Live dispatch in the main
+column, with Planner budget, Next task goes to and Today at a glance beside them.
+Needs you shows task items as task cards (bad before warn, then blocked, problems
+and decisions, oldest first); items about hosts, agents, accounts or setup keep
+their rows. Needs you and Live dispatch show five cards per page, with
+Previous/Next navigation. Repository changes reset scoped lists to their first
+page. Narrow layouts stack the sections in that order. Agent capacity lives in
+Settings › Executors. The standalone Needs you page retains its full actionable
+queue.
 
 **Needs you** contains actionable questions, failures, incomplete work and explicit
 human review requests, alongside existing account, setup and service problems.

@@ -94,35 +94,49 @@ test.skipIf(!browserPath)('Tasks bounds whole-row links and metadata inside narr
  }finally{await browser.close();}
 });
 
-test.skipIf(!browserPath)('Start work truncates long recent titles with an ellipsis and keeps desktop and phone shells contained',async()=>{
- const {StartSession}=await import('../app/src/screens/StartSession');
+test.skipIf(!browserPath)('Dispatch clips long titles, keeps the composer to one row until focus and stays contained on desktop and phone',async()=>{
+ const {DispatchView}=await import('../app/src/screens/dispatch/Dispatch');
+ const {StartWork}=await import('../app/src/screens/StartSession');
  const {TaskContext}=await import('../app/src/screens/task-shared');
+ const {createActionRunner}=await import('../app/src/data/actions');
  const {initialState}=await import('../app/src/data/store');
  const {Layout}=await import('../app/src/shell/Layout');
  const fixture=(await import('./fixtures/ui/snapshot.json')).default;
- const state={...initialState(),connected:true,features:{readModel:true,ops:new Set<string>(["session.create"])},snapshot:{...fixture,tasks:[{...fixture.tasks[0]!,fullTitle:'Implement ticket SFOS-488: '+ 'Complete the deployment-target implementation and verify all affected infrastructure. '.repeat(12)}]}};
+ const long='Implement ticket SFOS-488: '+'Complete the deployment-target implementation and verify all affected infrastructure. '.repeat(12);
+ const snapshot={...fixture,tasks:fixture.tasks.map((t,i)=>i===0||t.id==='t-0409'?{...t,fullTitle:long}:t)};
+ const state={...initialState(),connected:true,features:{readModel:true,ops:new Set<string>(["session.create"])},snapshot};
+ const runner=createActionRunner({call:async<T,>()=>({} as T),waitFor:async()=>true,refetch(){},navigate(){}});
+ const tokens={coverage:'partial' as const,total:1_840_000,measuredAttempts:4,partialAttempts:1,unknownAttempts:1,byExecutor:[{executor:'codex#team@devbox',tokens:980_000,tasks:4},{executor:'claude-code',tokens:520_000,tasks:6},{executor:'agy',tokens:340_000,tasks:2}]};
  const css=(await Promise.all(['app/src/ds/tokens.css','app/src/ds/components.css','app/src/styles.css'].map(f=>Bun.file(f).text()))).join('\n');
  const browser=await chromium.launch({executablePath:browserPath!,headless:true});
  try{
   const page=await browser.newPage();
-  for(const width of [1990,1440,375])for(const theme of ['light','dark']){
-   await page.setViewportSize({width,height:1000});
-   const html=renderToString(<TaskContext.Provider value={{state:state as unknown as StoreState,api:{} as BrowserApi}}><Layout route={{name:'start',query:{repo:null,scope:width<560?'repo:sample':null}}} state={state as unknown as StoreState} title="Start work"><StartSession/></Layout></TaskContext.Provider>);
+  for(const width of [1990,1440,375])for(const theme of ['light','dark'])for(const withTokens of [false,true]){
+   await page.setViewportSize({width,height:1200});
+   const query={repo:null,scope:width<560?'repo:github.com/acme/api':null};
+   const html=renderToString(<TaskContext.Provider value={{state:state as unknown as StoreState,api:{} as BrowserApi}}><Layout route={{name:'dispatch',query}} state={state as unknown as StoreState} title="Dispatch"><DispatchView snapshot={snapshot as never} query={query} now={snapshot.at} runner={runner} routing={null} tokens={withTokens?tokens:null} startWork={<StartWork/>}/></Layout></TaskContext.Provider>);
    await page.setContent(`<html data-theme="${theme}" data-pacer-desktop data-pacer-native-titlebar><div id="app"><style>${css}</style>${html}</div></html>`);
-   if(process.env.PACER_LAYOUT_EVIDENCE)await page.screenshot({path:`${process.env.PACER_LAYOUT_EVIDENCE}/start-${width}-${theme}.png`});
-   expect(await page.locator('.pc-start-recent .pc-ellipsis').count()).toBe(1);
-   const title=page.locator('.pc-start-recent .pc-ellipsis');
-   expect(await title.getAttribute('title')).toBe(state.snapshot.tasks[0]!.fullTitle);
-   expect(await title.evaluate(n=>({clipped:n.scrollWidth>n.clientWidth,overflow:getComputedStyle(n).textOverflow}))).toEqual({clipped:true,overflow:'ellipsis'});
-   expect(await page.locator('.pc-start__side .pc-card-section__head').count()).toBe(1);
-   const recentGap=await page.locator('.pc-start-recent').evaluate(section=>section.getBoundingClientRect().top-section.previousElementSibling!.getBoundingClientRect().bottom);
-   expect(recentGap).toBe(0);
+   if(process.env.PACER_LAYOUT_EVIDENCE&&!withTokens)await page.screenshot({path:`${process.env.PACER_LAYOUT_EVIDENCE}/dispatch-${width}-${theme}.png`,fullPage:true});
+   const titles=page.locator('.pc-task-node__title',{hasText:'Implement ticket SFOS-488'});
+   expect(await titles.count()).toBeGreaterThan(0);
+   for(const title of await titles.all()){
+    expect(await title.getAttribute('title')).toBe(long);
+    expect(await title.evaluate(n=>({clipped:n.scrollWidth>n.clientWidth,overflow:getComputedStyle(n).textOverflow}))).toEqual({clipped:true,overflow:'ellipsis'});
+   }
+   // Collapsed composer: the request only; repository and agent fields appear once it has focus.
+   expect(await page.locator('.pc-start-composer textarea').count()).toBe(1);
+   expect(await page.locator('.pc-start-fields').count()).toBe(0);
    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
-   const contentEdge=await page.locator('.pc-start__cols').evaluate(n=>n.getBoundingClientRect().left);
+   const contentEdge=await page.locator('.pc-dispatch__cols').evaluate(n=>n.getBoundingClientRect().left);
    expect(contentEdge).toBe(width<560?16:72);
-   if(width>560)expect(await page.locator('.pc-start').evaluate(n=>n.getBoundingClientRect().width)).toBeGreaterThan(width-150);
-   const rail=await page.locator(width<560?'.pc-bottom-bar':'.pc-rail').evaluate(n=>n.getBoundingClientRect().left);
-   expect(rail).toBeGreaterThanOrEqual(0);
+   if(withTokens){
+    const bar=page.locator('.pc-share-bar__bar');
+    expect(await bar.getAttribute('role')).toBe('img');
+    const box=await bar.boundingBox();
+    expect(box!.width).toBeGreaterThan(100);
+    expect(await page.locator('.pc-share-bar__item').count()).toBe(3);
+    for(const item of await page.locator('.pc-share-bar__item').all())expect(await item.evaluate(n=>n.scrollWidth<=n.clientWidth+1)).toBe(true);
+   }
   }
  }finally{await browser.close();}
 });

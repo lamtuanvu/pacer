@@ -71,15 +71,17 @@ export function StatusBar({ route, snapshot, registry }: { route: Route; snapsho
   }, [usageOpen]);
   const planner = snapshot ? plannerMeter(snapshot) : null;
   const visiblePlanner = planner?.usedPct !== null ? planner : null;
+  // The Dispatch home's Planner budget states the figure; here the planner keeps only its mark (UI-15).
+  const plannerFigure = route.name !== "dispatch";
   const executors = snapshot ? capacity(snapshot).filter(executor => executor.usedPct !== null && !(visiblePlanner && executor.id === visiblePlanner.runner)) : [];
   const usageNames = [
-    ...(visiblePlanner ? [`${agentInfo(visiblePlanner.agent).name} planner ${Math.round(visiblePlanner.usedPct!)}%${visiblePlanner.stale ? " historical usage" : ""}`] : []),
+    ...(visiblePlanner ? [`${agentInfo(visiblePlanner.agent).name} planner${plannerFigure ? ` ${Math.round(visiblePlanner.usedPct!)}%${visiblePlanner.stale ? " historical usage" : ""}` : ", shown in Planner budget"}`] : []),
     ...executors.map(executor => `${executorLabel(executor.id)} ${Math.round(executor.usedPct!)}%${executor.stale ? " historical usage" : ""}`),
   ];
   const hints = usageOpen ? [{ keys: "Escape", label: "close usage" }] : screenHints(shortcuts, route);
   return <footer className="pc-statusbar" aria-label="Status bar">
     <Button ref={usageButton} size="sm" className="pc-statusbar__usage-button" aria-label={`Usage details${usageNames.length ? `: ${usageNames.join(", ")}` : ": unavailable"}`} aria-expanded={usageOpen} aria-controls="pc-usage-details" onClick={() => setUsageOpen(open => !open)}>
-      {visiblePlanner && <span className="pc-statusbar__item" aria-hidden="true"><AgentMark agent={visiblePlanner.agent} size={16} labelled={false} /><span className="pc-num">{Math.round(visiblePlanner.usedPct!)}%</span>{visiblePlanner.stale && <span className="pc-statusbar__stale" title="Stale usage reading">!</span>}</span>}
+      {visiblePlanner && <span className="pc-statusbar__item" aria-hidden="true"><AgentMark agent={visiblePlanner.agent} size={16} labelled={false} />{plannerFigure && <><span className="pc-num">{Math.round(visiblePlanner.usedPct!)}%</span>{visiblePlanner.stale && <span className="pc-statusbar__stale" title="Stale usage reading">!</span>}</>}</span>}
       {executors.map(executor => <span className="pc-statusbar__item" aria-hidden="true" key={executor.id}><AgentMark agent={markAgent(executor.id, executor.account)} size={16} labelled={false} /><span className="pc-num">{Math.round(executor.usedPct!)}%</span>{executor.stale && <span className="pc-statusbar__stale" title="Stale usage reading">!</span>}</span>)}
       {!usageNames.length && <span>Usage</span>}
     </Button>

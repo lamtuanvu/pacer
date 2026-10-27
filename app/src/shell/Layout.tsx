@@ -17,7 +17,7 @@ import { StatusBar } from "./StatusBar";
 import { keys } from "../keys/instance";
 
 const SETTINGS = new Set(["settings", "hosts", "add-executor"]);
-const NEEDS_READ_MODEL = new Set(["start", "overview", "review"]);
+const NEEDS_READ_MODEL = new Set(["dispatch", "review"]);
 function Skeleton() {
   const [slow, setSlow] = useState(false);
   useEffect(() => { const t = setTimeout(() => setSlow(true), 1000); return () => clearTimeout(t); }, []);
@@ -33,7 +33,7 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
   const loading = route.name === "loading" || !state.snapshot;
   const outdated = !loading && NEEDS_READ_MODEL.has(route.name) && !state.features.readModel;
   const showStatusBar = !narrow && route.name !== "setup";
-  const topBar = <TopBar narrow={narrow} title={title} planner={state.snapshot?.planner ?? null} mode={state.snapshot?.mode?.mode ?? ""} connected={state.connected} lastUpdate={state.snapshot?.at ?? null} onDelegate={onDelegate} delegatePrimary={!["review", "start", "sessions"].includes(route.name)} showActions={route.name !== "setup"} />;
+  const topBar = <TopBar narrow={narrow} title={title} planner={state.snapshot?.planner ?? null} mode={state.snapshot?.mode?.mode ?? ""} connected={state.connected} lastUpdate={state.snapshot?.at ?? null} onDelegate={onDelegate} delegatePrimary={!["review", "dispatch", "sessions"].includes(route.name)} showActions={route.name !== "setup"} />;
   return <NarrowContext.Provider value={narrow}><div className={`pc-app${narrow ? " pc-app--narrow" : ""}${showStatusBar ? " pc-app--with-status" : ""}`}>
     <TextAction href="#main-content" className="skip-link" onClick={event => { event.preventDefault(); document.getElementById("main-content")?.focus(); }}>Skip to content</TextAction>
     {!narrow && topBar}
@@ -44,7 +44,7 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
       <div className="pc-work">
         {narrow && route.name !== "setup" && topBar}
         <div aria-live="polite" role="status" className="pc-live-region">{!state.connected && state.snapshot && <div className="connection-bar">pacer isn't responding. Retrying…</div>}</div>
-        <main id="main-content" tabIndex={-1} className={`pc-main${!loading && !outdated && ["start","overview","review","settings","hosts","add-executor","sessions","terminal","setup"].includes(route.name)?" pc-main--canvas":""}`}>
+        <main id="main-content" tabIndex={-1} className={`pc-main${!loading && !outdated && ["dispatch","review","settings","hosts","add-executor","sessions","terminal","setup"].includes(route.name)?" pc-main--canvas":""}`}>
           {loading ? <Skeleton /> : outdated ? <section className="pc-notice"><SectionHeading>Update pacer to use this view</SectionHeading><p>This screen needs a newer pacer service. Run <code>pacer update</code>, then reload this page.</p></section> : <DensityContext.Provider value={SETTINGS.has(route.name) ? "settings" : "compact"}>{children}</DensityContext.Provider>}
         </main>
       </div>

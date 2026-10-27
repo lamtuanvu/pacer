@@ -11,12 +11,12 @@ const route = (name: Route["name"], id?: string): Route => ({ name, ...(id ? { i
 const registry = createKeyRegistry({ controlActive: () => false });
 registry.register({ keys: "d", label: "Delegate a task", scope: "global", run: () => {} });
 registry.register({ keys: "?", label: "Show keyboard shortcuts", scope: "global", run: () => {} });
-registry.register({ keys: "j", label: "select", scope: "overview", run: () => {} });
-registry.register({ keys: "k", label: "select", scope: "overview", run: () => {} });
+registry.register({ keys: "j", label: "select", scope: "dispatch", run: () => {} });
+registry.register({ keys: "k", label: "select", scope: "dispatch", run: () => {} });
 registry.register({ keys: "s", label: "Stop session", scope: "sessions", run: () => {} });
 
 test("the whole usage summary opens details and keeps only vendor marks and percentages", () => {
-  const html = renderToString(<StatusBar route={route("overview")} snapshot={snapshot} registry={registry} />);
+  const html = renderToString(<StatusBar route={route("review")} snapshot={snapshot} registry={registry} />);
   expect(html).toContain("pc-statusbar");
   const usage = html.match(/<button[^>]*aria-label="Usage details[^"]*"[^>]*>(.*?)<\/button>/)?.[1] ?? "";
   expect(usage).toContain("63%");
@@ -26,15 +26,25 @@ test("the whole usage summary opens details and keeps only vendor marks and perc
   expect(usage).not.toContain("pc-meter");
   expect(usage).not.toContain("Historical usage");
   expect(usage).not.toContain("Planner");
-  expect(html).toContain("j k");
-  expect(html).toContain("select");
   expect(html).not.toContain("Stop session");
   expect(html).not.toContain("as of");
+  const home = renderToString(<StatusBar route={route("dispatch")} snapshot={snapshot} registry={registry} />);
+  expect(home).toContain("j k");
+  expect(home).toContain("select");
+});
+
+test("on Dispatch the planner keeps only its mark, because the Planner budget states the figure", () => {
+  const html = renderToString(<StatusBar route={route("dispatch")} snapshot={snapshot} registry={registry} />);
+  const usage = html.match(/<button[^>]*aria-label="Usage details[^"]*"[^>]*>(.*?)<\/button>/)?.[1] ?? "";
+  expect(usage).not.toContain("63%");
+  expect(usage).toContain("3%");
+  expect(html).toContain("Claude Code planner, shown in Planner budget");
+  expect(html).not.toMatch(/aria-label="Usage details[^"]*63%/);
 });
 
 test("stale planner usage visibly marks freshness and names it for assistive technology", () => {
   const historical = { ...snapshot, planner: { ...snapshot.planner!, stale: true } };
-  const html = renderToString(<StatusBar route={route("overview")} snapshot={historical} registry={registry} />);
+  const html = renderToString(<StatusBar route={route("review")} snapshot={historical} registry={registry} />);
   expect(html).toContain("historical usage");
   expect(html).toContain('title="Stale usage reading" class="pc-statusbar__stale">!</span>');
   expect(html).not.toContain("Historical usage");
@@ -83,7 +93,7 @@ test("Escape closes usage details before a route shortcut receives it", () => {
 });
 
 test("shortcut hints follow the route and omit inactive shortcuts", () => {
-  expect(screenHints(registry.list(), route("overview")).map(hint => hint.label)).toContain("select");
+  expect(screenHints(registry.list(), route("dispatch")).map(hint => hint.label)).toContain("select");
   expect(screenHints(registry.list(), route("sessions", "task-1")).map(hint => hint.label)).toContain("stop session");
   expect(screenHints(registry.list(), route("settings")).map(hint => hint.label)).not.toContain("stop session");
 });
@@ -91,10 +101,10 @@ test("shortcut hints follow the route and omit inactive shortcuts", () => {
 test("shortcut hints use compact labels and ranges in the bottom bar", () => {
   const shortcuts = [
     ...registry.list(),
-    ...["1", "2", "3", "4"].map(keys => ({ keys, label: "repo filter", scope: "overview", run: () => {} })),
-    { keys: "/", label: "Focus the repo filter", scope: "overview", run: () => {} },
+    ...["1", "2", "3", "4"].map(keys => ({ keys, label: "repo filter", scope: "dispatch", run: () => {} })),
+    { keys: "/", label: "Focus the repo filter", scope: "dispatch", run: () => {} },
   ];
-  const hints = screenHints(shortcuts, route("overview"));
+  const hints = screenHints(shortcuts, route("dispatch"));
   expect(hints).toContainEqual({ keys: "1–4", label: "repo filter" });
   expect(hints).toContainEqual({ keys: "/", label: "focus filter" });
 });
@@ -102,9 +112,9 @@ test("shortcut hints use compact labels and ranges in the bottom bar", () => {
 test("busy screens keep the help shortcut visible without overflowing the bar", () => {
   const shortcuts = [
     ...registry.list(),
-    ...["/", "Enter", "v", "1", "2", "3", "4", "x"].map(keys => ({ keys, label: keys, scope: "overview", run: () => {} })),
+    ...["/", "Enter", "v", "1", "2", "3", "4", "x"].map(keys => ({ keys, label: keys, scope: "dispatch", run: () => {} })),
   ];
-  const hints = screenHints(shortcuts, route("overview"));
+  const hints = screenHints(shortcuts, route("dispatch"));
   expect(hints.length).toBeLessThanOrEqual(6);
   expect(hints.at(-1)).toEqual({ keys: "?", label: "shortcuts" });
 });
@@ -112,7 +122,7 @@ test("busy screens keep the help shortcut visible without overflowing the bar", 
 test("shortcut registry notifies the status bar when screens mount and unmount", () => {
   let updates = 0;
   const stopListening = registry.subscribe(() => updates++);
-  const unregister = registry.register({ keys: "x", label: "dismiss", scope: "overview", run: () => {} });
+  const unregister = registry.register({ keys: "x", label: "dismiss", scope: "dispatch", run: () => {} });
   unregister();
   stopListening();
   expect(updates).toBe(2);

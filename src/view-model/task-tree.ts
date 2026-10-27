@@ -9,7 +9,7 @@ import { attentionStatus, localHostWords, subtaskAttentionWords, taskOutcome, ta
 
 export type TaskAttention = "none" | "warn" | "bad";
 /** Icon names shared with the DS icon set; kept as a subset so the view model never imports the app. */
-export type TaskMetaIcon = "time" | "files" | "pr" | "checks" | "layers" | "review" | "routing";
+export type TaskMetaIcon = "time" | "files" | "pr" | "checks" | "layers" | "review" | "routing" | "notes";
 export interface TaskMetaItem { icon: TaskMetaIcon; text: string; tone?: Tone; title?: string }
 export interface TaskNodeView {
   id: string; title: string;
@@ -32,14 +32,15 @@ export interface TreeSnapshot { tasks: TreeTask[]; attention?: AttentionItem[] }
 
 const rank: Record<TaskAttention, number> = { none: 0, warn: 1, bad: 2 };
 
-function compact(n: number): string {
+/** 1234 → "1.2k", 18400000 → "18.4M": the one compact count format for token figures. */
+export function compactCount(n: number): string {
   const [div, unit] = n >= 1e6 ? [1e6, "M"] : n >= 1e3 ? [1e3, "k"] : [1, ""];
   const value = n / div;
   return `${value >= 100 || div === 1 ? Math.round(value) : Math.round(value * 10) / 10}${unit}`;
 }
 function tokenText(tokens: TreeTokens | null | undefined): string | undefined {
   if (!tokens || tokens.coverage === "unknown" || tokens.total == null) return undefined;
-  return `${tokens.coverage === "partial" ? "≥ " : ""}${compact(tokens.total)} tokens`;
+  return `${tokens.coverage === "partial" ? "≥ " : ""}${compactCount(tokens.total)} tokens`;
 }
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 

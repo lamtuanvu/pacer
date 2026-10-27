@@ -3,7 +3,7 @@ import { Fragment } from "preact";
 import { Kbd } from "../ds/Kbd";
 import type { KeyRegistry } from "../keys/registry";
 import { Dialog } from "../screens/task-shared";
-const SCOPES: Record<string, string> = { global: "Anywhere", overview: "Overview", review: "Review", sessions: "Sessions", settings: "Settings" };
+const SCOPES: Record<string, string> = { global: "Anywhere", dispatch: "Dispatch", review: "Review", sessions: "Sessions", settings: "Settings" };
 /** The ? overlay: every registered shortcut, grouped by where it works. */
 export function CommandHelp({ registry, close }: { registry: KeyRegistry; close: () => void }) {
   const groups = new Map<string, { keys: string; label: string }[]>();

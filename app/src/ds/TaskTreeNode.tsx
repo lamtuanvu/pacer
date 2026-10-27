@@ -1,3 +1,4 @@
+import type { ComponentChildren } from "preact";
 import { useId, useState } from "preact/hooks";
 import type { TaskNodeView } from "../../../src/view-model/task-tree";
 import { AgentStack } from "./AgentStack";
@@ -12,6 +13,8 @@ import { StatusDot } from "./StatusDot";
 export type TaskTreeDensity = "regular" | "compact";
 export interface TaskTreeNodeProps {
   node: TaskNodeView; density: TaskTreeDensity; expanded: boolean; onToggle(id: string): void; selectedId?: string; href(id: string): string;
+  /** Secondary actions for the card (Needs you, Live dispatch); siblings of the title link, never inside it. */
+  actions?: ComponentChildren;
 }
 
 const contains = (node: TaskNodeView, id: string | undefined): boolean => !!id && node.children.some(child => child.id === id || contains(child, id));
@@ -31,7 +34,7 @@ function ChildRows({ nodes, selectedId, href, id }: { nodes: TaskNodeView[]; sel
 }
 
 /** A root task card: status, title, attention, host, agents and facts, plus a toggle for its subtasks. Expansion is controlled by the caller. */
-export function TaskTreeNode({ node, density, expanded, onToggle, selectedId, href }: TaskTreeNodeProps) {
+export function TaskTreeNode({ node, density, expanded, onToggle, selectedId, href, actions }: TaskTreeNodeProps) {
   const listId = `${useId()}-children`;
   const current = node.id === selectedId;
   return <article className={classNames("pc-task-node", `pc-task-node--${density}`, node.attention !== "none" && `pc-task-node--${node.attention}`, current && "pc-task-node--current")}>
@@ -39,6 +42,7 @@ export function TaskTreeNode({ node, density, expanded, onToggle, selectedId, hr
       <a className="pc-task-node__title" href={href(node.id)} aria-current={current ? "page" : undefined} title={node.title}>{node.title}</a>
       {/* The status label already says "Failed": repeating it in the pill would state one fact twice (UI-15). */}
       {node.attention !== "none" && node.attentionLabel && node.attentionLabel !== node.state.label && <Pill tone={node.attention}>{node.attentionLabel}</Pill>}
+      {actions && <div className="pc-task-node__actions">{actions}</div>}
     </div>
     <div className="pc-task-node__facts">
       <StatusDot tone={node.state.tone} live={node.state.live} label={node.state.label} />

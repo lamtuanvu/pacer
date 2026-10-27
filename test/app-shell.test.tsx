@@ -17,7 +17,9 @@ const at = (hash: string) => resolveRoute(hash) as Route;
 
 test("rail labels carry counts and mark the current screen", () => {
   const html = renderToString(<Rail route={at("#/needs-you")} counts={snap.counts!} />);
-  expect(html).toContain('aria-label="Overview"');
+  expect(html).toContain('aria-label="Dispatch"');
+  expect(html).not.toContain('aria-label="Overview"');
+  expect(html).not.toContain('aria-label="Start work"');
   expect(html).toContain('aria-label="Needs you · 4 need you"');
   expect(html).toContain('aria-label="Tasks · 2 running"');
   expect(html).toMatch(/aria-current="page"[^>]*aria-label="Needs you|aria-label="Needs you[^"]*"[^>]*aria-current="page"/);
@@ -27,7 +29,8 @@ test("rail labels carry counts and mark the current screen", () => {
 test("rail badges hide without counts or at zero, and the gear shows open setup", () => {
   const none = renderToString(<Rail route={at("#/")} counts={null} />);
   expect(none).not.toContain("pc-rail__badge");
-  expect(none).toContain('aria-label="Overview"');
+  expect(none).toContain('aria-label="Dispatch"');
+  expect(none).toMatch(/aria-current="page"[^>]*aria-label="Dispatch"|aria-label="Dispatch"[^>]*aria-current="page"/);
   const zero = renderToString(<Rail route={at("#/")} counts={{ ...snap.counts!, attention: 0, review: 0, running: 0 }} />);
   expect(zero).not.toContain("pc-rail__badge");
   expect(zero).not.toContain("pc-rail__dot");
@@ -97,11 +100,11 @@ test("settings shows one Dispatcher destination while executor and host status b
   expect(html).not.toContain('>1 rule</span>');
 });
 
-test("retired and unknown hashes select Overview in the shell", () => {
+test("retired and unknown hashes select Dispatch in the shell", () => {
   for (const hash of ["#/accounts", "#/missing"]) {
-    const html = renderToString(<Layout route={at(hash)} state={ready()} title="Overview"><p>Overview body</p></Layout>);
-    expect(html).toContain("<p>Overview body</p>");
-    expect(html).toMatch(/aria-current="page"[^>]*aria-label="Overview|aria-label="Overview[^"]*"[^>]*aria-current="page"/);
+    const html = renderToString(<Layout route={at(hash)} state={ready()} title="Dispatch"><p>Dispatch body</p></Layout>);
+    expect(html).toContain("<p>Dispatch body</p>");
+    expect(html).toMatch(/aria-current="page"[^>]*aria-label="Dispatch|aria-label="Dispatch[^"]*"[^>]*aria-current="page"/);
     expect(html).not.toContain("<aside");
   }
 });

@@ -33,11 +33,12 @@ test('shell mounts the U3 settings screens and U4 sessions screens',()=>{
  expect(html('#/sessions')).toContain('Completed');
  expect(html('#/sessions/t1')).toContain('Loading task');
 });
-test('legacy and unknown routes mount Overview',()=>{
+test('legacy and unknown routes mount the Dispatch home, which loads on demand',()=>{
  for(const path of ['/executors','/executors/add','/accounts','/strategy','/hosts','/missing']) {
-  expect(destination(`#${path}`).name).toBe('overview');
-  expect(html(`#${path}`)).toContain('pc-overview');
+  expect(destination(`#${path}`).name).toBe('dispatch');
+  expect(html(`#${path}`)).toContain('<p role="status">Loading…</p>');
  }
+ expect(html('#/needs-you')).toContain('<p role="status">Loading…</p>');
  expect(html('#/review/t1')).toContain('Loading task');
 });
 test('Add executor keeps the host prefill from host detail links',()=>{
