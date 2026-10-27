@@ -19,6 +19,7 @@ mod host_suggest;
 mod repo_add;
 mod repos;
 mod routing;
+mod routing_set;
 mod strategy_list;
 pub mod strategy_load;
 mod strategy_remove;
@@ -28,6 +29,7 @@ pub use host_suggest::{host_suggest, ops as host_suggest_ops, requires_core_host
 pub use repo_add::{add_repo, ops as repo_add_ops};
 pub use repos::{ops as repo_ops, remove_repo, requires_core_repo_parser};
 pub use routing::{ops as routing_ops, requires_core_routing_parser, routing_get};
+pub use routing_set::{ops as routing_set_ops, requires_core_routing_set_parser};
 pub use strategy_list::{
     ops as strategy_list_ops, requires_core_strategy_list_parser,
     requires_core_strategy_show_parser, strategy_list, strategy_show,

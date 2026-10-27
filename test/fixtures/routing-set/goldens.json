@@ -1,0 +1,559 @@
+[
+  {
+    "id": "same-length-block",
+    "initial": "# keep layout\naccounts:\n  personal: {kind: claude}\n  codex: {kind: codex}\nplanner: claude-code\nrouting:\n  - default: [codex] # keep rule\npacing: {order: [codex], policy: priority}\n",
+    "active": "default",
+    "rules": [
+      {
+        "executors": [
+          "codex",
+          "claude-code"
+        ]
+      }
+    ],
+    "outcome": {
+      "result": {
+        "diff": "--- $PACER_HOME/strategy.yaml\n+++ $PACER_HOME/strategy.yaml\n@@ -7,1 +7,1 @@\n-  - default: [codex] # keep rule\n+  - default: [codex, claude-code] # keep rule"
+      }
+    },
+    "edited": "# keep layout\naccounts:\n  personal: {kind: claude}\n  codex: {kind: codex}\nplanner: claude-code\nrouting:\n  - default: [codex, claude-code] # keep rule\npacing: {order: [codex], policy: priority}\n",
+    "mode": 384,
+    "opencode": "{\n  \"$schema\": \"https://opencode.ai/config.json\",\n  \"provider\": {}\n}\n",
+    "activity": [
+      {
+        "kind": "config",
+        "level": "info",
+        "text": "Configuration changed · routing",
+        "id": "<activity-id>",
+        "at": 1700000000
+      }
+    ],
+    "outbox": [
+      {
+        "seq": 1,
+        "at": 1700000000,
+        "envelope": {
+          "type": "entity",
+          "data": {
+            "kind": "activity",
+            "id": "<activity-id>",
+            "value": {
+              "kind": "config",
+              "level": "info",
+              "text": "Configuration changed · routing",
+              "id": "<activity-id>",
+              "at": 1700000000
+            }
+          }
+        }
+      },
+      {
+        "seq": 2,
+        "at": 1700000000,
+        "envelope": {
+          "type": "config",
+          "data": {
+            "area": "routing",
+            "at": 1700000000
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "unchanged-default",
+    "initial": "# keep layout\naccounts:\n  personal: {kind: claude}\n  codex: {kind: codex}\nplanner: claude-code\nrouting:\n  - default: [codex] # keep rule\npacing: {order: [codex], policy: priority}\n",
+    "active": "default",
+    "rules": [
+      {
+        "executors": [
+          "codex"
+        ]
+      }
+    ],
+    "outcome": {
+      "result": {
+        "diff": ""
+      }
+    },
+    "edited": "# keep layout\naccounts:\n  personal: {kind: claude}\n  codex: {kind: codex}\nplanner: claude-code\nrouting:\n  - default: [codex] # keep rule\npacing: {order: [codex], policy: priority}\n",
+    "mode": 384,
+    "opencode": "{\n  \"$schema\": \"https://opencode.ai/config.json\",\n  \"provider\": {}\n}\n",
+    "activity": [
+      {
+        "kind": "config",
+        "level": "info",
+        "text": "Configuration changed · routing",
+        "id": "<activity-id>",
+        "at": 1700000000
+      }
+    ],
+    "outbox": [
+      {
+        "seq": 1,
+        "at": 1700000000,
+        "envelope": {
+          "type": "entity",
+          "data": {
+            "kind": "activity",
+            "id": "<activity-id>",
+            "value": {
+              "kind": "config",
+              "level": "info",
+              "text": "Configuration changed · routing",
+              "id": "<activity-id>",
+              "at": 1700000000
+            }
+          }
+        }
+      },
+      {
+        "seq": 2,
+        "at": 1700000000,
+        "envelope": {
+          "type": "config",
+          "data": {
+            "area": "routing",
+            "at": 1700000000
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "add-rule-comments",
+    "initial": "# keep layout\naccounts:\n  personal: {kind: claude}\n  codex: {kind: codex}\nplanner: claude-code\nrouting:\n  - kinds: [debug] # kinds comment\n    executors: [codex] # executors comment\n  - default: [codex] # default comment\npacing: {order: [codex], policy: priority}\n",
+    "active": "default",
+    "rules": [
+      {
+        "kinds": [
+          "debug"
+        ],
+        "executors": [
+          "claude-code"
+        ]
+      },
+      {
+        "kinds": [
+          "tests"
+        ],
+        "executors": [
+          "codex"
+        ]
+      },
+      {
+        "executors": [
+          "codex"
+        ]
+      }
+    ],
+    "outcome": {
+      "result": {
+        "diff": "--- $PACER_HOME/strategy.yaml\n+++ $PACER_HOME/strategy.yaml\n@@ -7,3 +7,6 @@\n-  - kinds: [debug] # kinds comment\n-    executors: [codex] # executors comment\n-  - default: [codex] # default comment\n+  - kinds: [ debug ] # kinds comment\n+    executors: [ claude-code ] # executors comment\n+  - executors: [ codex ] # default comment\n+    kinds: [ tests ]\n+  - default:\n+      - codex"
+      }
+    },
+    "edited": "# keep layout\naccounts:\n  personal: {kind: claude}\n  codex: {kind: codex}\nplanner: claude-code\nrouting:\n  - kinds: [ debug ] # kinds comment\n    executors: [ claude-code ] # executors comment\n  - executors: [ codex ] # default comment\n    kinds: [ tests ]\n  - default:\n      - codex\npacing: {order: [codex], policy: priority}\n",
+    "mode": 384,
+    "opencode": "{\n  \"$schema\": \"https://opencode.ai/config.json\",\n  \"provider\": {}\n}\n",
+    "activity": [
+      {
+        "kind": "config",
+        "level": "info",
+        "text": "Configuration changed · routing",
+        "id": "<activity-id>",
+        "at": 1700000000
+      }
+    ],
+    "outbox": [
+      {
+        "seq": 1,
+        "at": 1700000000,
+        "envelope": {
+          "type": "entity",
+          "data": {
+            "kind": "activity",
+            "id": "<activity-id>",
+            "value": {
+              "kind": "config",
+              "level": "info",
+              "text": "Configuration changed · routing",
+              "id": "<activity-id>",
+              "at": 1700000000
+            }
+          }
+        }
+      },
+      {
+        "seq": 2,
+        "at": 1700000000,
+        "envelope": {
+          "type": "config",
+          "data": {
+            "area": "routing",
+            "at": 1700000000
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "remove-rule-comments",
+    "initial": "# keep layout\naccounts:\n  personal: {kind: claude}\n  codex: {kind: codex}\nplanner: claude-code\nrouting:\n  - kinds: [debug] # kinds comment\n    executors: [codex] # executors comment\n  - default: [codex] # default comment\npacing: {order: [codex], policy: priority}\n",
+    "active": "default",
+    "rules": [
+      {
+        "executors": [
+          "claude-code"
+        ]
+      }
+    ],
+    "outcome": {
+      "error": {
+        "code": "invalid_input",
+        "message": "A block sequence may not be used as an implicit map key at line 8, column 1:\n\n    executors: [codex] # executors comment\n  - default: [codex] # default comment\n^\n",
+        "hint": "Check the strategy values and retry."
+      }
+    },
+    "edited": "# keep layout\naccounts:\n  personal: {kind: claude}\n  codex: {kind: codex}\nplanner: claude-code\nrouting:\n  - kinds: [debug] # kinds comment\n    executors: [codex] # executors comment\n  - default: [codex] # default comment\npacing: {order: [codex], policy: priority}\n",
+    "mode": 384,
+    "opencode": null,
+    "activity": [],
+    "outbox": []
+  },
+  {
+    "id": "rename-default-to-executors",
+    "initial": "# keep layout\naccounts:\n  personal: {kind: claude}\n  codex: {kind: codex}\nplanner: claude-code\nrouting:\n  - default: [codex] # keep rule\npacing: {order: [codex], policy: priority}\n",
+    "active": "default",
+    "rules": [
+      {
+        "kinds": [
+          "debug"
+        ],
+        "executors": [
+          "codex"
+        ]
+      },
+      {
+        "executors": [
+          "claude-code"
+        ]
+      }
+    ],
+    "outcome": {
+      "result": {
+        "diff": "--- $PACER_HOME/strategy.yaml\n+++ $PACER_HOME/strategy.yaml\n@@ -7,1 +7,4 @@\n-  - default: [codex] # keep rule\n+  - executors: [ codex ] # keep rule\n+    kinds: [ debug ]\n+  - default:\n+      - claude-code"
+      }
+    },
+    "edited": "# keep layout\naccounts:\n  personal: {kind: claude}\n  codex: {kind: codex}\nplanner: claude-code\nrouting:\n  - executors: [ codex ] # keep rule\n    kinds: [ debug ]\n  - default:\n      - claude-code\npacing: {order: [codex], policy: priority}\n",
+    "mode": 384,
+    "opencode": "{\n  \"$schema\": \"https://opencode.ai/config.json\",\n  \"provider\": {}\n}\n",
+    "activity": [
+      {
+        "kind": "config",
+        "level": "info",
+        "text": "Configuration changed · routing",
+        "id": "<activity-id>",
+        "at": 1700000000
+      }
+    ],
+    "outbox": [
+      {
+        "seq": 1,
+        "at": 1700000000,
+        "envelope": {
+          "type": "entity",
+          "data": {
+            "kind": "activity",
+            "id": "<activity-id>",
+            "value": {
+              "kind": "config",
+              "level": "info",
+              "text": "Configuration changed · routing",
+              "id": "<activity-id>",
+              "at": 1700000000
+            }
+          }
+        }
+      },
+      {
+        "seq": 2,
+        "at": 1700000000,
+        "envelope": {
+          "type": "config",
+          "data": {
+            "area": "routing",
+            "at": 1700000000
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "same-length-flow",
+    "initial": "# keep flow\naccounts: {personal: {kind: claude}, codex: {kind: codex}}\nplanner: claude-code\nrouting: [{default: [codex]}] # flow comment\npacing: {order: [codex], policy: priority}\n",
+    "active": "default",
+    "rules": [
+      {
+        "executors": [
+          "claude-code"
+        ]
+      }
+    ],
+    "outcome": {
+      "result": {
+        "diff": "--- $PACER_HOME/strategy.yaml\n+++ $PACER_HOME/strategy.yaml\n@@ -4,1 +4,1 @@\n-routing: [{default: [codex]}] # flow comment\n+routing: [{default: [claude-code]}] # flow comment"
+      }
+    },
+    "edited": "# keep flow\naccounts: {personal: {kind: claude}, codex: {kind: codex}}\nplanner: claude-code\nrouting: [{default: [claude-code]}] # flow comment\npacing: {order: [codex], policy: priority}\n",
+    "mode": 384,
+    "opencode": "{\n  \"$schema\": \"https://opencode.ai/config.json\",\n  \"provider\": {}\n}\n",
+    "activity": [
+      {
+        "kind": "config",
+        "level": "info",
+        "text": "Configuration changed · routing",
+        "id": "<activity-id>",
+        "at": 1700000000
+      }
+    ],
+    "outbox": [
+      {
+        "seq": 1,
+        "at": 1700000000,
+        "envelope": {
+          "type": "entity",
+          "data": {
+            "kind": "activity",
+            "id": "<activity-id>",
+            "value": {
+              "kind": "config",
+              "level": "info",
+              "text": "Configuration changed · routing",
+              "id": "<activity-id>",
+              "at": 1700000000
+            }
+          }
+        }
+      },
+      {
+        "seq": 2,
+        "at": 1700000000,
+        "envelope": {
+          "type": "config",
+          "data": {
+            "area": "routing",
+            "at": 1700000000
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "same-length-crlf",
+    "initial": "# keep layout\r\naccounts:\r\n  personal: {kind: claude}\r\n  codex: {kind: codex}\r\nplanner: claude-code\r\nrouting:\r\n  - default: [codex] # keep rule\r\npacing: {order: [codex], policy: priority}\r\n",
+    "active": "default",
+    "rules": [
+      {
+        "executors": [
+          "claude-code"
+        ]
+      }
+    ],
+    "outcome": {
+      "result": {
+        "diff": "--- $PACER_HOME/strategy.yaml\n+++ $PACER_HOME/strategy.yaml\n@@ -7,1 +7,1 @@\n-  - default: [codex] # keep rule\r\n+  - default: [claude-code] # keep rule\r"
+      }
+    },
+    "edited": "# keep layout\r\naccounts:\r\n  personal: {kind: claude}\r\n  codex: {kind: codex}\r\nplanner: claude-code\r\nrouting:\r\n  - default: [claude-code] # keep rule\r\npacing: {order: [codex], policy: priority}\r\n",
+    "mode": 384,
+    "opencode": "{\n  \"$schema\": \"https://opencode.ai/config.json\",\n  \"provider\": {}\n}\n",
+    "activity": [
+      {
+        "kind": "config",
+        "level": "info",
+        "text": "Configuration changed · routing",
+        "id": "<activity-id>",
+        "at": 1700000000
+      }
+    ],
+    "outbox": [
+      {
+        "seq": 1,
+        "at": 1700000000,
+        "envelope": {
+          "type": "entity",
+          "data": {
+            "kind": "activity",
+            "id": "<activity-id>",
+            "value": {
+              "kind": "config",
+              "level": "info",
+              "text": "Configuration changed · routing",
+              "id": "<activity-id>",
+              "at": 1700000000
+            }
+          }
+        }
+      },
+      {
+        "seq": 2,
+        "at": 1700000000,
+        "envelope": {
+          "type": "config",
+          "data": {
+            "area": "routing",
+            "at": 1700000000
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "active-named",
+    "initial": "# keep layout\naccounts:\n  personal: {kind: claude}\n  codex: {kind: codex}\nplanner: claude-code\nrouting:\n  - default: [codex] # keep rule\npacing: {order: [codex], policy: priority}\n",
+    "active": "research",
+    "rules": [
+      {
+        "executors": [
+          "claude-code"
+        ]
+      }
+    ],
+    "outcome": {
+      "result": {
+        "diff": "--- $PACER_HOME/strategies/research.yaml\n+++ $PACER_HOME/strategies/research.yaml\n@@ -7,1 +7,1 @@\n-  - default: [codex] # keep rule\n+  - default: [claude-code] # keep rule"
+      }
+    },
+    "edited": "# keep layout\naccounts:\n  personal: {kind: claude}\n  codex: {kind: codex}\nplanner: claude-code\nrouting:\n  - default: [claude-code] # keep rule\npacing: {order: [codex], policy: priority}\n",
+    "mode": 384,
+    "opencode": "{\n  \"$schema\": \"https://opencode.ai/config.json\",\n  \"provider\": {}\n}\n",
+    "activity": [
+      {
+        "kind": "config",
+        "level": "info",
+        "text": "Configuration changed · routing",
+        "id": "<activity-id>",
+        "at": 1700000000
+      }
+    ],
+    "outbox": [
+      {
+        "seq": 1,
+        "at": 1700000000,
+        "envelope": {
+          "type": "entity",
+          "data": {
+            "kind": "activity",
+            "id": "<activity-id>",
+            "value": {
+              "kind": "config",
+              "level": "info",
+              "text": "Configuration changed · routing",
+              "id": "<activity-id>",
+              "at": 1700000000
+            }
+          }
+        }
+      },
+      {
+        "seq": 2,
+        "at": 1700000000,
+        "envelope": {
+          "type": "config",
+          "data": {
+            "area": "routing",
+            "at": 1700000000
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "invalid-order",
+    "initial": "# keep layout\naccounts:\n  personal: {kind: claude}\n  codex: {kind: codex}\nplanner: claude-code\nrouting:\n  - default: [codex] # keep rule\npacing: {order: [codex], policy: priority}\n",
+    "active": "default",
+    "rules": [
+      {
+        "executors": [
+          "codex"
+        ]
+      },
+      {
+        "kinds": [
+          "debug"
+        ],
+        "executors": [
+          "codex"
+        ]
+      }
+    ],
+    "outcome": {
+      "error": {
+        "code": "invalid_input",
+        "message": "the default routing rule must be last",
+        "hint": "End the rules with one rule without kinds."
+      }
+    },
+    "edited": "# keep layout\naccounts:\n  personal: {kind: claude}\n  codex: {kind: codex}\nplanner: claude-code\nrouting:\n  - default: [codex] # keep rule\npacing: {order: [codex], policy: priority}\n",
+    "mode": 384,
+    "opencode": null,
+    "activity": [],
+    "outbox": []
+  },
+  {
+    "id": "unknown-executor",
+    "initial": "# keep layout\naccounts:\n  personal: {kind: claude}\n  codex: {kind: codex}\nplanner: claude-code\nrouting:\n  - default: [codex] # keep rule\npacing: {order: [codex], policy: priority}\n",
+    "active": "default",
+    "rules": [
+      {
+        "executors": [
+          "invented"
+        ]
+      }
+    ],
+    "outcome": {
+      "error": {
+        "code": "invalid_input",
+        "message": "unknown executor invented",
+        "hint": "available: claude-code, codex"
+      }
+    },
+    "edited": "# keep layout\naccounts:\n  personal: {kind: claude}\n  codex: {kind: codex}\nplanner: claude-code\nrouting:\n  - default: [codex] # keep rule\npacing: {order: [codex], policy: priority}\n",
+    "mode": 384,
+    "opencode": null,
+    "activity": [],
+    "outbox": []
+  },
+  {
+    "id": "invalid-kind",
+    "initial": "# keep layout\naccounts:\n  personal: {kind: claude}\n  codex: {kind: codex}\nplanner: claude-code\nrouting:\n  - default: [codex] # keep rule\npacing: {order: [codex], policy: priority}\n",
+    "active": "default",
+    "rules": [
+      {
+        "kinds": [
+          "bad-kind"
+        ],
+        "executors": [
+          "codex"
+        ]
+      },
+      {
+        "executors": [
+          "codex"
+        ]
+      }
+    ],
+    "outcome": {
+      "error": {
+        "code": "invalid_input",
+        "message": "invalid strategy $PACER_HOME/strategy.yaml:\n  - routing[0]: unknown kind \"bad-kind\" (allowed: boilerplate, tests, docs, rename, migration, feature, debug, refactor, performance, unfamiliar-code, research)",
+        "hint": "Check the strategy values and retry."
+      }
+    },
+    "edited": "# keep layout\naccounts:\n  personal: {kind: claude}\n  codex: {kind: codex}\nplanner: claude-code\nrouting:\n  - default: [codex] # keep rule\npacing: {order: [codex], policy: priority}\n",
+    "mode": 384,
+    "opencode": null,
+    "activity": [],
+    "outbox": []
+  }
+]

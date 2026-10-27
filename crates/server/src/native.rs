@@ -17,6 +17,7 @@ pub const NATIVE_OPS: &[&str] = &[
     "repo.add",
     "repo.remove",
     "routing.get",
+    "routing.set",
     "strategy.list",
     "strategy.remove",
     "strategy.save",
@@ -33,6 +34,7 @@ impl Dispatcher {
         ops.extend_from_slice(pacer_config::repo_ops());
         ops.extend_from_slice(pacer_config::repo_add_ops());
         ops.extend_from_slice(pacer_config::routing_ops());
+        ops.extend_from_slice(pacer_config::routing_set_ops());
         ops.extend_from_slice(pacer_config::strategy_list_ops());
         ops.extend_from_slice(pacer_config::strategy_remove_ops());
         ops.extend_from_slice(pacer_config::strategy_save_ops());
@@ -86,6 +88,8 @@ impl Dispatcher {
                 && pacer_config::requires_core_strategy_remove_parser(ctx, params))
             || (name == "strategy.save"
                 && pacer_config::requires_core_strategy_save_parser(ctx, params))
+            || (name == "routing.set"
+                && pacer_config::requires_core_routing_set_parser(ctx, params))
     }
     /// Merge selected native names with the actual core hello advertisement.
     pub fn decorate_hello(&self, hello: &mut Value) {
@@ -204,6 +208,7 @@ mod registry_tests {
                 "repo.add",
                 "repo.remove",
                 "routing.get",
+                "routing.set",
                 "strategy.list",
                 "strategy.remove",
                 "strategy.save",
@@ -354,6 +359,64 @@ mod registry_tests {
         );
         let saved = fs::read_to_string(ctx.pacer_home.join("strategies/new-plan.yaml")).unwrap();
         assert!(saved.contains("2023-11-14T22:13:20.125Z"));
+    }
+    #[tokio::test]
+    async fn routing_set_selects_flow_default_and_forwards_broader_edits() {
+        let dir = tempfile::tempdir().unwrap();
+        let ctx = Ctx::with(
+            dir.path().into(),
+            dir.path().join("pacer"),
+            HashMap::new(),
+            1_700_000_000.0,
+        );
+        fs::create_dir_all(&ctx.pacer_home).unwrap();
+        let yaml = "accounts: {personal: {kind: claude}, codex: {kind: codex}}\nplanner: claude-code\nrouting: [{default: [codex]}]\npacing: {order: [codex], policy: priority}\n";
+        fs::write(ctx.pacer_home.join("strategy.yaml"), yaml).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(
+                ctx.pacer_home.join("strategy.yaml"),
+                fs::Permissions::from_mode(0o600),
+            )
+            .unwrap();
+        }
+        let native = Dispatcher::new("");
+        let params = json!({"rules":[{"executors":["claude-code"]}]});
+        assert!(!native.needs_core_request(&ctx, "routing.set", &params));
+        assert!(native.needs_core_request(
+            &ctx,
+            "routing.set",
+            &json!({"rules":[{"kinds":["debug"],"executors":["codex"]},{"executors":["codex"]}]})
+        ));
+        assert!(native.needs_core_request(
+            &ctx,
+            "routing.set",
+            &json!({"rules":[{"executors":["unknown"]}]})
+        ));
+        assert!(
+            !Dispatcher::new("routing.set")
+                .names()
+                .contains(&"routing.set")
+        );
+        assert!(
+            Dispatcher::new("routing.set")
+                .call(&ctx, "routing.set", params.clone())
+                .await
+                .is_none()
+        );
+        assert!(
+            native
+                .call(&ctx, "routing.set", params)
+                .await
+                .unwrap()
+                .is_ok()
+        );
+        assert!(
+            fs::read_to_string(ctx.pacer_home.join("strategy.yaml"))
+                .unwrap()
+                .contains("default: [claude-code]")
+        );
     }
     #[test]
     fn notification_write_keeps_javascript_number_and_key_cases_with_core() {

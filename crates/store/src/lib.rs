@@ -209,6 +209,11 @@ pub fn record_strategy_change(ctx: &Ctx) -> io::Result<()> {
     record_config_change_area(ctx, "strategy")
 }
 
+/// A routing edit publishes the same activity and config pair as the core.
+pub fn record_routing_change(ctx: &Ctx) -> io::Result<()> {
+    record_config_change_area(ctx, "routing")
+}
+
 fn record_config_change_area(ctx: &Ctx, area: &str) -> io::Result<()> {
     let mut random = [0u8; 2];
     getrandom::fill(&mut random).map_err(io::Error::other)?;
