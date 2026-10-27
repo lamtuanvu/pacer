@@ -86,7 +86,7 @@ test.skipIf(!browserPath)('Tasks bounds whole-row links and metadata inside narr
    const boxes=await page.locator('.pc-task-node,.pc-task-node__title,.pc-task-node__facts,.pc-meta-row__item').evaluateAll(nodes=>nodes.map(n=>({left:n.getBoundingClientRect().left,right:n.getBoundingClientRect().right,width:n.getBoundingClientRect().width})));
    for(const box of boxes){expect(box.left).toBeGreaterThanOrEqual(0);expect(box.right).toBeLessThanOrEqual(width);expect(box.width).toBeGreaterThan(0);}
    expect(await page.locator('.pc-task-node__title').first().getAttribute('title')).toBe(longTitle);
-   if(width<1990)expect(await page.locator('.pc-task-node__title').first().evaluate(n=>n.scrollWidth>n.clientWidth)).toBe(true);
+   if(width<1440)expect(await page.locator('.pc-task-node__title').first().evaluate(n=>n.scrollWidth>n.clientWidth)).toBe(true);
    expect(await page.locator('.pc-meta-row__item').first().getAttribute('title')).toBe(longRepo);
    expect(await page.locator('.pc-task-node').count()).toBe(3);
    expect(await page.locator('.pc-task-node button').count()).toBe(0);

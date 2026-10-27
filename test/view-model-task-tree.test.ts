@@ -13,8 +13,10 @@ const find = (nodes: TaskNodeView[], id: string): TaskNodeView | undefined => {
 test("waiting_root_gets_warn_attention", () => {
   const snap = snapshot();
   snap.tasks.find(t => t.id === "t-0421")!.state = "needs_input";
+  snap.attention!.push({ ...snap.attention!.find(item => item.id === "review:t-0412")!, id: "question:t-0421", kind: "question", taskId: "t-0421" });
   const nodes = taskTree(snap, { now });
   expect(find(nodes, "t-0421")!.attention).toBe("warn");
+  expect(find(nodes, "t-0421")!.attentionLabel).toBe("Needs your answer");
   // A review request is a decision waiting on the user.
   expect(find(nodes, "t-0412")!.attention).toBe("warn");
   expect(find(nodes, "t-0412")!.attentionLabel).toBe("Review requested");
@@ -150,4 +152,83 @@ test("scoped_tree_applies_repo_dismissal_and_needs_you_rules", () => {
   expect(find(all, "t-0412")!.attention).toBe("warn");
   const api = scopedTaskTree(snap, { repo: "github.com/acme/api" }, { now });
   expect(api.every(node => snap.tasks.find(t => t.id === node.id)!.repo?.key === "github.com/acme/api")).toBe(true);
+});
+
+test("attention_follows_needs_you_not_raw_state", () => {
+  // A failure the user already resolved is gone from Needs you, so its card is not tinted and does not sort first.
+  const snap = snapshot();
+  snap.attention = snap.attention!.filter(item => item.taskId !== "t-0409");
+  snap.tasks.find(t => t.id === "t-0409")!.resolved = "worktree removed";
+  const nodes = taskTree(snap, { now });
+  expect(find(nodes, "t-0409")!.attention).toBe("none");
+  expect(find(nodes, "t-0409")!.attentionLabel).toBeUndefined();
+  expect(nodes[0]!.id).not.toBe("t-0409");
+});
+
+test("without_a_needs_you_list_state_is_the_evidence", () => {
+  const snap = snapshot();
+  const tasks = snap.tasks.map(t => t.id === "t-0421" ? { ...t, state: "needs_input" } : t.id === "t-0415" ? { ...t, acceptanceState: "failed" as const } : t);
+  const nodes = taskTree({ tasks }, { now });
+  expect(find(nodes, "t-0421")!.attention).toBe("warn");
+  expect(find(nodes, "t-0409")!.attention).toBe("bad");
+  expect(find(nodes, "t-0415")!.attentionLabel).toBe("Checks failed");
+  // Decided or resolved work needs nothing.
+  expect(find(nodes, "t-0405")!.attention).toBe("none");
+  expect(taskTree({ tasks: tasks.map(t => t.id === "t-0409" ? { ...t, resolved: "retried" } : t) }, { now }).find(n => n.id === "t-0409")!.attention).toBe("none");
+});
+
+test("detail_parent_link_survives_snapshot_merge", () => {
+  const snap = snapshot();
+  const detail = { ...snap.tasks.find(t => t.id === "t-0421")!, parentId: "t-0420" };
+  const nodes = taskTree(snap, { now, extra: [detail] });
+  expect(nodes.find(n => n.id === "t-0420")!.children.map(c => c.id)).toEqual(["t-0421"]);
+  expect(nodes.some(n => n.id === "t-0421")).toBe(false);
+});
+
+test("pinned_task_survives_scope_filters", () => {
+  const snap = snapshot() as unknown as Parameters<typeof scopedTaskTree>[0];
+  snap.tasks.find(t => t.id === "t-0420")!.dismissed = true;
+  const other = snap.tasks.find(t => t.repo?.key !== "github.com/acme/api")!;
+  const scope = { repo: "github.com/acme/api" };
+  expect(scopedTaskTree(snap, scope, { now }).some(n => n.id === "t-0420")).toBe(false);
+  expect(scopedTaskTree(snap, scope, { now, pinned: "t-0420" }).some(n => n.id === "t-0420")).toBe(true);
+  expect(scopedTaskTree(snap, scope, { now, extra: [other], pinned: other.id }).some(n => n.id === other.id)).toBe(true);
+});
+
+const walk = (nodes: TaskNodeView[]): TaskNodeView[] => nodes.flatMap(node => [node, ...walk(node.children)]);
+
+test("every_attention_tint_has_words", () => {
+  const snap = snapshot();
+  snap.tasks.find(t => t.id === "t-0409")!.parentId = "t-0420";
+  const nodes = taskTree(snap, { now });
+  const root = nodes.find(node => node.id === "t-0420")!;
+  expect(root.attention).toBe("bad");
+  expect(root.attentionLabel).toBe("Subtask: Failed");
+  for (const node of walk(nodes)) if (node.attention !== "none") expect(node.attentionLabel).toBeTruthy();
+});
+
+test("attention_tone_matches_vocabulary", () => {
+  const snap = snapshot();
+  // A problem-severity item whose words are a warning (Incomplete) is tinted as a warning, like its status everywhere else.
+  snap.tasks.find(t => t.id === "t-0409")!.state = "partial";
+  snap.tasks.find(t => t.id === "t-0421")!.state = "needs_input";
+  snap.attention!.push({ ...snap.attention!.find(item => item.id === "failed:t-0409")!, id: "question:t-0421", kind: "question", severity: "blocked", taskId: "t-0421" });
+  const nodes = taskTree(snap, { now });
+  for (const node of walk(nodes)) {
+    if (node.attention === "none" || !node.attentionLabel || node.attentionLabel.startsWith("Subtask: ")) continue;
+    const tone = [...Object.values({ a: taskStatus({ state: "failed" }), b: taskStatus({ state: "needs_input" }), c: taskStatus({ state: "partial" }) })]
+      .find(status => status.label === node.attentionLabel)?.tone;
+    if (tone) expect(node.attention).toBe(tone === "bad" ? "bad" : "warn");
+  }
+  expect(find(nodes, "t-0421")!.attention).toBe("warn");
+  expect(find(nodes, "t-0409")!.attention).toBe("warn");
+  expect(find(nodes, "t-0409")!.attentionLabel).toBe("Incomplete");
+});
+
+test("orphan_subtask_says_so", () => {
+  const snap = snapshot();
+  snap.tasks.find(t => t.id === "t-0403")!.parentId = "t-missing";
+  const nodes = taskTree(snap, { now });
+  expect(find(nodes, "t-0403")!.meta[0]).toEqual({ icon: "routing", text: "Subtask" });
+  expect(find(nodes, "t-0405")!.meta.some(item => item.text === "Subtask")).toBe(false);
 });

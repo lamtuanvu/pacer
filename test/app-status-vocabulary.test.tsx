@@ -42,6 +42,7 @@ test('session list and detail retain review verdicts and ignore phases from ende
     const badge = renderToString(<StatusPill status={taskStatus(task)} />);
     const list = renderToString(<SessionsList recent={{data:taskTree({tasks:[task]},{now:0})}} />);
     expect(list).toContain(`>${taskStatus(task).label}<`);
+    expect(list).toContain(`pc-status-dot--${taskStatus(task).tone}`);
     expect(list).toContain(`>${accepted ? 'Accepted' : 'Rejected'}<`);
     expect(list).not.toContain('Testing');
     expect(renderToString(<Session data={sessionDetail(task)} />)).toContain(badge);
