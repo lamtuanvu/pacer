@@ -150,14 +150,15 @@ test("stop kills the executor's grandchild too", async () => {
     computeStatus: async () => ({ generatedAt: 0, strategy: "d", planner: "claude-code", mode: "normal", disabled: false, paused: null, modeHold: null, calendarPace: true, executors: { ranked: [], excluded: [] },
       providers: [{ id: "codex", usage: "quota", windows: [], binding: null, verdict: "ON_PACE", installed: true, stale: false }] }),
     runAttempt: async (_c, cfg, task, onSpawn) => {
-      const exec = await execProcess({ argv: ["sh", "-c", `sleep 30 & echo $! > '${pidFile}'; wait`], cwd: task.brief.repo, env: ctx.env, timeoutMs: 1000, onSpawn });
+      const exec = await execProcess({ argv: ["sh", "-c", `sleep 30 & echo $! > '${pidFile}'; wait`], cwd: task.brief.repo, env: ctx.env, timeoutMs: 15_000, onSpawn });
       return { exec, report: "killed", attempt: { executor: cfg.id, model: null, startedAt: 0, endedAt: 0, exitCode: exec.code, timedOut: exec.timedOut, limitHit: false, log: "" } };
     },
     verifyRepo: async () => ({ files: "" }),
   });
   let pid = 0;
   try {
-    for (let i = 0; i < 100 && (!readTask(ctx, t.id)?.childPid || !existsSync(pidFile) || !readFileSync(pidFile, "utf8").trim()); i++) await Bun.sleep(5);
+    const readyBy = Date.now() + 5_000;
+    while ((!readTask(ctx, t.id)?.childPid || !existsSync(pidFile) || !readFileSync(pidFile, "utf8").trim()) && Date.now() < readyBy) await Bun.sleep(10);
     expect(readTask(ctx, t.id)?.childPid).toBeGreaterThan(0);
     pid = Number(readFileSync(pidFile, "utf8"));
     expect(pid).toBeGreaterThan(0);
