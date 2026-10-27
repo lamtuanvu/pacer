@@ -19,7 +19,18 @@ browserTest('status_dot_live_respects_reduced_motion', async () => {
     expect(await dot.evaluate(node => getComputedStyle(node).animationName)).toBe('none');
     expect(await page.locator('.pc-status-dot__label').textContent()).toBe('Running');
   } finally { await browser.close(); }
-});
+}, 20_000);
+
+browserTest('status_dot_paired_glyph_label_is_visually_hidden', async () => {
+  const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
+  try {
+    const page = await browser.newPage();
+    await page.setContent(`<style>${(await styles()).join('\n')}</style><p id="a">${renderToString(<StatusDot tone="warn" label="Needs you" />)}</p><p id="b">${renderToString(<StatusDot tone="warn" label="Needs you" paired="glyph" />)}</p>`);
+    expect(await page.locator('#a .pc-status-dot__label').evaluate(node => node.getBoundingClientRect().width)).toBeGreaterThan(1);
+    expect(await page.locator('#b .pc-status-dot__label').evaluate(node => node.getBoundingClientRect().width)).toBeLessThanOrEqual(1);
+    expect(await page.locator('#b').ariaSnapshot()).toContain('Needs you');
+  } finally { await browser.close(); }
+}, 20_000);
 
 browserTest('meta_row_no_overflow_at_272px', async () => {
   const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
@@ -45,4 +56,4 @@ browserTest('meta_row_no_overflow_at_272px', async () => {
       expect(fact.lines).toBe(1);
     }
   } finally { await browser.close(); }
-});
+}, 20_000);

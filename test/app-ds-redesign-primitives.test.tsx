@@ -18,14 +18,17 @@ function luminance(hex: string) {
 }
 
 test('tokens_include_chart_and_aurora', () => {
-  const light = ['#4f7a94', '#c08a6a', '#8b9bd0', '#7f8f6f', '#b9b4a8', '#a5b4fc', '#f0abfc', '#99f6e4'];
+  const light = ['#4f7a94', '#b97d5a', '#7588c7', '#7f8f6f', '#918977', '#a5b4fc', '#f0abfc', '#99f6e4'];
   const names = ['chart-1', 'chart-2', 'chart-3', 'chart-4', 'chart-5', 'aurora-1', 'aurora-2', 'aurora-3'];
   names.forEach((name, index) => {
     const token = tokens.color.tokens.find(token => token.name === name)!;
     expect(token.value.light).toBe(light[index]!);
     expect(token.value.dark).toMatch(/^#[\da-f]{6}$/i);
     expect(token.usage.length).toBeGreaterThan(0);
-    if (name.startsWith('chart')) expect((luminance(token.value.dark) + .05) / (luminance('#09090b') + .05)).toBeGreaterThanOrEqual(3);
+    const ratio = (a: string, b: string) => { const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x); return (hi! + .05) / (lo! + .05); };
+    if (name.startsWith('chart')) for (const [value, surfaces] of [[token.value.dark, ['#09090b', '#27272a']], [token.value.light, ['#ffffff', '#f4f4f5']]] as const) {
+      for (const surface of surfaces) expect(ratio(value, surface)).toBeGreaterThanOrEqual(3);
+    }
     else expect(token.usage).toContain('decorative only, never status');
   });
 });
@@ -40,7 +43,11 @@ test('status_dot_has_text_label', () => {
 
 test('status_dot_label_visible_unless_paired', () => {
   expect(renderToString(<StatusDot tone="warn" label="Needs you" />)).not.toContain('pc-status-dot__label--paired');
-  expect(renderToString(<StatusDot tone="warn" label="Needs you" paired />)).toContain('class="pc-status-dot__label pc-status-dot__label--paired">Needs you</span>');
+  expect(renderToString(<StatusDot tone="warn" label="Needs you" />)).toContain('title="Needs you"');
+  expect(renderToString(<StatusDot tone="warn" label="Needs you" paired="glyph" />)).toContain('class="pc-status-dot__label pc-status-dot__label--paired">Needs you</span>');
+  const pill = renderToString(<StatusDot tone="warn" label="Needs you" paired="pill" />);
+  expect(pill).toContain('<span aria-hidden="true" class="pc-status-dot pc-status-dot--warn">');
+  expect(pill).not.toContain('Needs you');
 });
 
 test('icon_button_renders_icon_and_keeps_label', () => {
@@ -83,9 +90,9 @@ test('meta_row_renders_nothing_when_empty', () => {
 
 test('agent_stack_dedupes_and_names_group', () => {
   const html = renderToString(<AgentStack agents={['codex', 'claude-code', 'codex', 'claude']} size={16} />);
-  expect(html).toContain('role="group" aria-label="Codex, Claude Code"');
+  expect(html).toContain('role="img" aria-label="Codex, Claude Code"');
   expect(html.match(/class="pc-agent-mark /g)).toHaveLength(2);
-  expect(html).not.toContain('role="img"');
+  expect(html.match(/role="img"/g)).toHaveLength(1);
   expect(renderToString(<AgentStack agents={[]} />)).toBe('');
 });
 
@@ -115,4 +122,10 @@ test('settings_icon_is_gear', () => {
   expect(html).toContain('M19.4 15a1.7');
   expect(html).toContain('<circle cx="12" cy="12" r="3"');
   expect(html).not.toContain('M9 3h6l1 3');
+});
+
+test('identicon_never_empty_and_colour_independent_of_cells', () => {
+  for (const seed of ['', 'a', 'release-checklist', 'Fast and cheap', 'Ω', 'x'.repeat(40)]) {
+    expect(renderToString(<Identicon seed={seed} />)).toContain('<rect');
+  }
 });

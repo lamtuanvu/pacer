@@ -9,10 +9,12 @@ function hashSeed(seed: string): number {
 
 export function Identicon({ seed, size = 24 }: { seed: string; size?: 16 | 24 | 32 }) {
   const hash = hashSeed(seed);
+  // Cells use bits 8-22 so the colour (hash % 5) is independent of the pattern; an all-empty pattern falls back to the centre cell.
+  const bits = (hash >>> 8) & 0x7fff || 1 << 8;
   const cells = [];
   for (let row = 0; row < 5; row++) {
     for (let column = 0; column < 3; column++) {
-      if ((hash >>> (row * 3 + column)) & 1) {
+      if ((bits >>> (row * 3 + column)) & 1) {
         cells.push(<rect key={`${row}-${column}`} x={column} y={row} width={1} height={1} />);
         if (column < 2) cells.push(<rect key={`${row}-${4 - column}`} x={4 - column} y={row} width={1} height={1} />);
       }
