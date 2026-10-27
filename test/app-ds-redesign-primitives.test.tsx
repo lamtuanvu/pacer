@@ -6,7 +6,7 @@ import { IconButton } from '../app/src/ds/Button';
 import { HostChip } from '../app/src/ds/HostChip';
 import { MetaRow } from '../app/src/ds/MetaRow';
 import { AgentStack } from '../app/src/ds/AgentStack';
-import { Identicon } from '../app/src/ds/Identicon';
+import { Identicon, hashSeed } from '../app/src/ds/Identicon';
 import { Icon } from '../app/src/ds/icons';
 
 function luminance(hex: string) {
@@ -124,8 +124,15 @@ test('settings_icon_is_gear', () => {
   expect(html).not.toContain('M9 3h6l1 3');
 });
 
-test('identicon_never_empty_and_colour_independent_of_cells', () => {
+test('identicon_never_empty_falls_back_to_centre_cell', () => {
   for (const seed of ['', 'a', 'release-checklist', 'Fast and cheap', 'Ω', 'x'.repeat(40)]) {
     expect(renderToString(<Identicon seed={seed} />)).toContain('<rect');
   }
+  let seed = '';
+  for (let index = 0; index < 1_000_000 && !seed; index++) if (((hashSeed(`s${index}`) >>> 8) & 0x7fff) === 0) seed = `s${index}`;
+  expect(seed).not.toBe('');
+  const rects = renderToString(<Identicon seed={seed} />).match(/<rect[^>]*>/g) ?? [];
+  expect(rects).toHaveLength(1);
+  expect(rects[0]).toContain('x="2"');
+  expect(rects[0]).toContain('y="2"');
 });

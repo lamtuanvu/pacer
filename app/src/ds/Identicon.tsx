@@ -1,5 +1,5 @@
 /** FNV-1a over UTF-16 code units: stable across browsers and server rendering. */
-function hashSeed(seed: string): number {
+export function hashSeed(seed: string): number {
   let hash = 2166136261;
   for (let index = 0; index < seed.length; index++) {
     hash = Math.imul(hash ^ seed.charCodeAt(index), 16777619);
