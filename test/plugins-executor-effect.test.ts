@@ -123,7 +123,7 @@ test("owned direct plugin call executes only the exact host-issued local process
       task: { id: task.id, rev: readTask(ctx, task.id)!.rev }, attempt: 2, runDir: 1,
       effect: { argv: ["bun", "-e", `await Bun.write(${JSON.stringify(unauthorized)}, "bad")`],
         cwd: home, timeoutMs: 5000 },
-    }, { onProgress: () => {} })).rejects.toMatchObject({ code: "capability_denied" });
+    }, { onProgress: () => {}, deadlineMs: 5000 })).rejects.toMatchObject({ code: "capability_denied" });
     expect(existsSync(unauthorized)).toBe(false);
 
     const stoppedTask = createTask(ctx, { brief: { goal: "stop race", repo: home }, kind: null,
