@@ -4,7 +4,8 @@ import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { issueConfiguredHostPrepare, consumeConfiguredHostPrepare } from "../src/plugins/host-prepare-issuer";
 import { issueConfiguredHostAttemptPreflight, consumeConfiguredHostAttemptPreflight } from "../src/plugins/host-attempt-preflight-issuer";
-import { pluginRegistry } from "../src/plugins";
+import { pluginRegistry, shutdownPlugins } from "../src/plugins";
+import { cleanupFixtureResources, registerFixtureCleanup } from "./fixture-cleanup";
 import { runAttempt, resumeAttempt } from "../src/exec/direct";
 import { loadStrategy } from "../src/config/strategy";
 import { taskWorktreePath } from "../src/supervisor/worktree";
@@ -47,6 +48,7 @@ async function setup(agent = "codex", account = "") {
     if (argv[0] === "git") gitCalls.push(argv);
     return realRun(argv, ms, { ...o, env: { ...env, ...o?.env } });
   } });
+  registerFixtureCleanup(() => shutdownPlugins(ctx));
   mkdirSync(ctx.pacerHome, { recursive: true });
   const id = `${agent}${account ? `#${account}` : ""}@box`;
   const raw = { accounts: { claude: { kind: "claude" }, codex: { kind: "codex" }, team: { kind: agent === "codex" ? "codex" : "claude", home: "~/local-team" } }, planner: "claude-code", hosts: { box: { ssh: "box-ssh", repos: { "example.invalid/o/r": "~/src/r" }, accounts: { team: { home: "~/host-team" } } } }, routing: [{ default: [id] }] };
@@ -58,6 +60,20 @@ async function setup(agent = "codex", account = "") {
   updateTask(ctx, task.id, t => { t.state = "running"; t.placement = { requested: "new" }; });
   return { ctx, cfg, task: readTask(ctx, task.id)!, git, hostHome, repo, goal, sshLog, gitCalls };
 }
+
+test("remote attempt fixture cleanup reaps its bundled SSH child", async () => {
+  const f = await setup();
+  const report = (await pluginRegistry(f.ctx).doctor(f.ctx, "pacer-ssh"))[0];
+  const pid = report?.pid;
+  if (typeof pid !== "number") throw new Error("bundled SSH fixture did not start");
+  expect(() => process.kill(pid, 0)).not.toThrow();
+  try {
+    await cleanupFixtureResources();
+    expect(() => process.kill(pid, 0)).toThrow();
+  } finally {
+    await shutdownPlugins(f.ctx);
+  }
+});
 
 test("the prompt reaches the host agent unchanged", async () => {
   const f = await setup();

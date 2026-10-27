@@ -11,6 +11,23 @@ import { RemoteRunIO } from "../src/remote/run-io";
 import { remoteLaunch } from "../src/exec/launch";
 import { runAttempt, runDir } from "../src/exec/direct";
 import { fakeCtx, fakeSshEnv, realRun, tmpDir } from "./helpers";
+import { pluginRegistry, shutdownPlugins } from "../src/plugins";
+import { cleanupFixtureResources, registerFixtureCleanup } from "./fixture-cleanup";
+
+test("remote E2E fixture cleanup reaps its bundled SSH provider", async () => {
+  const { ctx } = await setup();
+  const report = (await pluginRegistry(ctx).doctor(ctx, "pacer-ssh"))[0];
+  expect(report?.ok).toBe(true);
+  const pid = report?.pid;
+  if (typeof pid !== "number") throw Error("bundled SSH fixture did not start");
+  expect(() => process.kill(pid, 0)).not.toThrow();
+  try {
+    await cleanupFixtureResources();
+    expect(() => process.kill(pid, 0)).toThrow();
+  } finally {
+    await shutdownPlugins(ctx);
+  }
+});
 
 async function setup(wait = false) {
   const root = tmpDir(), hostHome = join(root, "host"), repo = join(root, "local"), origin = join(root, "origin.git");
@@ -41,6 +58,7 @@ async function setup(wait = false) {
   const ctx = fakeCtx({ env, run: (argv, ms, o) => realRun(argv, ms, { ...o, env: { ...env, ...o?.env } }),
     which: name => name === "ssh" ? ssh :
       name === "git" ? "/usr/bin/git" : Bun.which(name) });
+  registerFixtureCleanup(() => shutdownPlugins(ctx));
   mkdirSync(ctx.pacerHome, { recursive: true });
   writeFileSync(join(ctx.pacerHome, "strategy.yaml"), JSON.stringify({ accounts: { claude: { kind: "claude" }, codex: { kind: "codex" } }, planner: "claude-code", hosts: { box: { ssh: "box-ssh", repos: { "example.invalid/o/r": "~/src/r" } } }, routing: [{ default: ["codex@box"] }] }));
   const deps: RunnerDeps = {
