@@ -56,6 +56,10 @@ test("tabs_overflow_into_menu", async () => {
   expect(selectedHidden).not.toContain(">Logs<");
   expect(renderToString(<PanelTabs label="Few" tabs={tabs.slice(0, 4)} value="summary" onChange={() => {}} />)).not.toContain("more tabs");
   expect(renderToString(<PanelTabs label="Two" tabs={tabs} value="summary" maxVisible={2} onChange={() => {}} />)).toContain('aria-label="+4 more tabs"');
+  // A non-positive maxVisible still keeps the selected tab in the strip.
+  const none = renderToString(<PanelTabs label="None" tabs={tabs} value="files" maxVisible={0} onChange={() => {}} />);
+  expect(none.match(/role="tab"/g)?.length).toBe(1);
+  expect(none).toContain('aria-label="+5 more tabs"');
   if (!browserPath) return;
   await withTabs(async page => {
     await page.getByRole("button", { name: "+2 more tabs" }).click();
@@ -72,8 +76,7 @@ test("tabs_overflow_into_menu", async () => {
   });
 }, 20_000);
 
-test("overflow_menu_escape_returns_focus", async () => {
-  if (!browserPath) return;
+test.skipIf(!browserPath)("overflow_menu_escape_returns_focus", async () => {
   await withTabs(async page => {
     const more = page.getByRole("button", { name: "+2 more tabs" });
     await more.focus();

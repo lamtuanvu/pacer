@@ -15,8 +15,8 @@ export function PanelTabs({ label, tabs, value, onChange, maxVisible = 4 }: {
   const [menu, setMenu] = useState(false);
   const list = useRef<HTMLDivElement>(null), more = useRef<HTMLButtonElement>(null), wrap = useRef<HTMLDivElement>(null);
   const focusSelected = useRef(false);
-  const chosen = tabs.findIndex(tab => tab.id === value);
-  const visible = chosen < maxVisible ? tabs.slice(0, maxVisible) : [...tabs.slice(0, maxVisible - 1), tabs[chosen]!];
+  const chosen = tabs.findIndex(tab => tab.id === value), max = Math.max(1, maxVisible);
+  const visible = chosen < max ? tabs.slice(0, max) : [...tabs.slice(0, max - 1), tabs[chosen]!];
   const hidden = tabs.filter(tab => !visible.includes(tab));
   const current = visible.some(tab => tab.id === value) ? value : visible[0]?.id;
   useEffect(() => {
