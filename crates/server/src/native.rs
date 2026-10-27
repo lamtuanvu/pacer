@@ -19,6 +19,7 @@ pub const NATIVE_OPS: &[&str] = &[
     "routing.get",
     "strategy.list",
     "strategy.remove",
+    "strategy.save",
     "strategy.show",
     "strategy.use",
 ];
@@ -34,6 +35,7 @@ impl Dispatcher {
         ops.extend_from_slice(pacer_config::routing_ops());
         ops.extend_from_slice(pacer_config::strategy_list_ops());
         ops.extend_from_slice(pacer_config::strategy_remove_ops());
+        ops.extend_from_slice(pacer_config::strategy_save_ops());
         ops.extend_from_slice(pacer_config::strategy_use_ops());
         ops.extend_from_slice(pacer_config::host_suggest_ops());
         #[cfg(feature = "test-ops")]
@@ -82,6 +84,8 @@ impl Dispatcher {
                 && pacer_config::requires_core_strategy_use_parser(ctx, params))
             || (name == "strategy.remove"
                 && pacer_config::requires_core_strategy_remove_parser(ctx, params))
+            || (name == "strategy.save"
+                && pacer_config::requires_core_strategy_save_parser(ctx, params))
     }
     /// Merge selected native names with the actual core hello advertisement.
     pub fn decorate_hello(&self, hello: &mut Value) {
@@ -202,6 +206,7 @@ mod registry_tests {
                 "routing.get",
                 "strategy.list",
                 "strategy.remove",
+                "strategy.save",
                 "strategy.show",
                 "strategy.use"
             ]
@@ -313,6 +318,42 @@ mod registry_tests {
             Some(Ok(json!({"removed":true})))
         );
         assert!(!ctx.pacer_home.join("strategies/research.yaml").exists());
+    }
+    #[tokio::test]
+    async fn strategy_save_selects_supported_draft_and_preserves_forced_forwarding() {
+        let dir = tempfile::tempdir().unwrap();
+        let ctx = Ctx::with(
+            dir.path().into(),
+            dir.path().join("pacer"),
+            HashMap::new(),
+            1_700_000_000.125,
+        );
+        fs::create_dir_all(&ctx.pacer_home).unwrap();
+        fs::write(
+            ctx.pacer_home.join("strategy.yaml"),
+            "planner: codex\naccounts: {personal: {kind: codex}}\nrouting: [{default: [codex]}]\n",
+        )
+        .unwrap();
+        let params = json!({"name":"new-plan","draft":{"from":"default"},"reason":"Approved"});
+        let dispatcher = Dispatcher::new("");
+        assert!(!dispatcher.needs_core_request(&ctx, "strategy.save", &params));
+        assert!(dispatcher.needs_core_request(&ctx, "strategy.save", &json!({"name":"new-plan","draft":{"from":"default","unset":["pacing.policy"]},"reason":"Approved"})));
+        assert!(
+            Dispatcher::new("strategy.save")
+                .call(&ctx, "strategy.save", params.clone())
+                .await
+                .is_none()
+        );
+        assert_eq!(
+            dispatcher
+                .call(&ctx, "strategy.save", params)
+                .await
+                .unwrap()
+                .unwrap()["name"],
+            "new-plan"
+        );
+        let saved = fs::read_to_string(ctx.pacer_home.join("strategies/new-plan.yaml")).unwrap();
+        assert!(saved.contains("2023-11-14T22:13:20.125Z"));
     }
     #[test]
     fn notification_write_keeps_javascript_number_and_key_cases_with_core() {

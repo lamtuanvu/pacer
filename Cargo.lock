@@ -920,6 +920,7 @@ name = "pacer-config"
 version = "0.0.0"
 dependencies = [
  "getrandom 0.4.3",
+ "jiff",
  "pacer-foundation",
  "pacer-store",
  "rustix",

@@ -1,6 +1,6 @@
 import { withLoginIndicators } from "./helpers";
 import { test, expect } from "bun:test";
-import { mkdirSync, readFileSync, existsSync, readdirSync, statSync, writeFileSync, utimesSync } from "node:fs";
+import { chmodSync, lstatSync, mkdirSync, readFileSync, existsSync, readdirSync, statSync, symlinkSync, writeFileSync, utimesSync } from "node:fs";
 import { join } from "node:path";
 import { fakeCtx } from "./helpers";
 import * as s from "../src/strategy/service";
@@ -38,6 +38,30 @@ test("save header, summary, overwrite, active/default protection and complete li
  await s.use({...ctx,which:()=>null},"protect");expect(loadStrategy(ctx).name).toBe("protect");expect(()=>s.remove(ctx,"protect")).toThrow("active");
  await s.use({...ctx,which:()=>null},"default");expect(s.remove(ctx,"protect").deleted).toBe(true);expect(()=>s.remove(ctx,"default")).toThrow("protected");
  expect(readFileSync(join(ctx.pacerHome,"link","latest.json"),"utf8")).toContain("Switched to strategy default");
+});
+test("save keeps the strategies directory and created and replaced files private",async()=>{
+ const ctx=await setup(), dir=join(ctx.pacerHome,"strategies"), file=join(dir,"private.yaml");
+ const prior=process.umask(0);
+ try {
+  s.save(ctx,"private",{from:"default"},"approved");
+  expect(lstatSync(dir).mode&0o777).toBe(0o700);
+  expect(lstatSync(file).mode&0o777).toBe(0o600);
+  chmodSync(dir,0o755);
+  s.save(ctx,"private",{from:"default"},"approved",{overwrite:true});
+  expect(lstatSync(dir).mode&0o777).toBe(0o700);
+  expect(lstatSync(file).mode&0o777).toBe(0o600);
+ } finally {process.umask(prior);}
+});
+test("save refuses a symlinked strategies directory or named file",async()=>{
+ const ctx=await setup(), outside=join(ctx.home,"outside");mkdirSync(outside);
+ const dir=join(ctx.pacerHome,"strategies");symlinkSync(outside,dir);
+ expect(()=>s.save(ctx,"private",{from:"default"},"approved")).toThrow(/symbolic link/);
+ expect(readdirSync(outside)).toEqual([]);
+ const other=await setup(), target=join(other.home,"outside.yaml");
+ writeFileSync(target,"untouched");mkdirSync(join(other.pacerHome,"strategies"));
+ symlinkSync(target,join(other.pacerHome,"strategies/private.yaml"));
+ expect(()=>s.save(other,"private",{from:"default"},"approved",{overwrite:true})).toThrow(/symbolic link/);
+ expect(readFileSync(target,"utf8")).toBe("untouched");
 });
 test("preview validates with no writes and computes ranking changes and policy wording",async()=>{
  const ctx=await setup();const before=readdirSync(ctx.pacerHome);
