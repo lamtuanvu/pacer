@@ -169,7 +169,20 @@ function GeneralOverview({ query }: { query: RouteQuery }) {
 /** Updates, notifications and appearance share one page; their old deep links scroll to their section. */
 function AppPreferences({ section, initialData }: { section: string; initialData: SettingsData }) {
   useEffect(() => {
-    if (section !== "app") document.getElementById(section)?.scrollIntoView({ block: "start" });
+    if (section === "app") return;
+    // The shell focuses the main region after this effect, and sections above may still be loading:
+    // keep the target aligned until it settles, the user scrolls, or two seconds pass.
+    const target = () => document.getElementById(section);
+    const align = () => target()?.scrollIntoView({ block: "start" });
+    const frame = requestAnimationFrame(align);
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(align);
+    const page = target()?.parentElement;
+    if (page) observer?.observe(page);
+    const stop = () => { observer?.disconnect(); cancelAnimationFrame(frame); };
+    const timer = setTimeout(stop, 2000);
+    const events = ["wheel", "touchstart", "keydown", "pointerdown"] as const;
+    events.forEach(name => addEventListener(name, stop, { once: true, passive: true }));
+    return () => { stop(); clearTimeout(timer); events.forEach(name => removeEventListener(name, stop)); };
   }, [section]);
   return (
     <>

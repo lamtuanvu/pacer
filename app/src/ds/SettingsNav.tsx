@@ -11,7 +11,7 @@ export function SettingsNav({ label, groups }: { label: string; groups: readonly
   const base = `settings-nav-${useId()}`, nav = useRef<HTMLElement>(null);
   const current = groups.flatMap(group => group.items).find(item => item.current)?.id;
   // In the narrow horizontal strip the current page may start off-screen.
-  useEffect(() => { nav.current?.querySelector('[aria-current="page"]')?.scrollIntoView?.({ block: "nearest", inline: "nearest" }); }, [current]);
+  useEffect(() => { nav.current?.querySelector('[aria-current="page"]')?.scrollIntoView?.({ block: "nearest", inline: "center" }); }, [current]);
   // Group labels name their lists without adding headings ahead of the page's own.
   return <nav aria-label={label} className="pc-settings-nav" ref={nav}>
     {groups.map(group => <div key={group.id} className="pc-settings-nav__group">
