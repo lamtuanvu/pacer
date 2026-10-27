@@ -1,0 +1,592 @@
+[
+  {
+    "id": "reorder-implicit",
+    "initial": "# keep layout\nplanner: claude-code\naccounts:\n  personal: {kind: claude}\n  codex: {kind: codex}\n  cursor: {kind: cursor}\nrouting:\n  - default: [codex, cursor] # keep rule\npacing: {order: [codex, cursor], policy: priority}\n",
+    "active": "default",
+    "op": "runner.reorder",
+    "params": {
+      "ids": [
+        "cursor",
+        "codex"
+      ]
+    },
+    "outcome": {
+      "result": {
+        "order": [
+          "cursor",
+          "codex"
+        ]
+      }
+    },
+    "edited": "# keep layout\nplanner: claude-code\naccounts:\n  personal: {kind: claude}\n  codex: {kind: codex}\n  cursor: {kind: cursor}\nrouting:\n  - default: [codex, cursor] # keep rule\npacing: {order: [cursor, codex], policy: priority}\n",
+    "mode": 384,
+    "opencode": "{\n  \"$schema\": \"https://opencode.ai/config.json\",\n  \"provider\": {}\n}\n",
+    "activity": [
+      {
+        "kind": "config",
+        "level": "info",
+        "text": "Configuration changed · runners",
+        "id": "<activity-id>",
+        "at": 1700000000
+      }
+    ],
+    "outbox": [
+      {
+        "seq": 1,
+        "at": 1700000000,
+        "envelope": {
+          "type": "entity",
+          "data": {
+            "kind": "activity",
+            "id": "<activity-id>",
+            "value": {
+              "kind": "config",
+              "level": "info",
+              "text": "Configuration changed · runners",
+              "id": "<activity-id>",
+              "at": 1700000000
+            }
+          }
+        }
+      },
+      {
+        "seq": 2,
+        "at": 1700000000,
+        "envelope": {
+          "type": "config",
+          "data": {
+            "area": "runners",
+            "at": 1700000000
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "reorder-explicit",
+    "initial": "# keep layout\nplanner: claude-code\naccounts:\n  personal: {kind: claude}\n  codex: {kind: codex}\n  cursor: {kind: cursor}\nrunners:\n  codex: {enabled: true} # keep runner\nrouting:\n  - default: [codex, cursor] # keep rule\npacing: {order: [codex, cursor], policy: priority}\n",
+    "active": "default",
+    "op": "runner.reorder",
+    "params": {
+      "ids": [
+        "cursor",
+        "codex"
+      ]
+    },
+    "outcome": {
+      "result": {
+        "order": [
+          "cursor",
+          "codex"
+        ]
+      }
+    },
+    "edited": "# keep layout\nplanner: claude-code\naccounts:\n  personal: {kind: claude}\n  codex: {kind: codex}\n  cursor: {kind: cursor}\nrunners:\n  codex: {enabled: true} # keep runner\nrouting:\n  - default: [codex, cursor] # keep rule\npacing: {order: [cursor, codex], policy: priority}\n",
+    "mode": 384,
+    "opencode": "{\n  \"$schema\": \"https://opencode.ai/config.json\",\n  \"provider\": {}\n}\n",
+    "activity": [
+      {
+        "kind": "config",
+        "level": "info",
+        "text": "Configuration changed · runners",
+        "id": "<activity-id>",
+        "at": 1700000000
+      }
+    ],
+    "outbox": [
+      {
+        "seq": 1,
+        "at": 1700000000,
+        "envelope": {
+          "type": "entity",
+          "data": {
+            "kind": "activity",
+            "id": "<activity-id>",
+            "value": {
+              "kind": "config",
+              "level": "info",
+              "text": "Configuration changed · runners",
+              "id": "<activity-id>",
+              "at": 1700000000
+            }
+          }
+        }
+      },
+      {
+        "seq": 2,
+        "at": 1700000000,
+        "envelope": {
+          "type": "config",
+          "data": {
+            "area": "runners",
+            "at": 1700000000
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "reorder-named",
+    "initial": "# keep layout\nplanner: claude-code\naccounts:\n  personal: {kind: claude}\n  codex: {kind: codex}\n  cursor: {kind: cursor}\nrouting:\n  - default: [codex, cursor] # keep rule\npacing: {order: [codex, cursor], policy: priority}\n",
+    "active": "research",
+    "op": "runner.reorder",
+    "params": {
+      "ids": [
+        "cursor",
+        "codex"
+      ]
+    },
+    "outcome": {
+      "result": {
+        "order": [
+          "cursor",
+          "codex"
+        ]
+      }
+    },
+    "edited": "# keep layout\nplanner: claude-code\naccounts:\n  personal: {kind: claude}\n  codex: {kind: codex}\n  cursor: {kind: cursor}\nrouting:\n  - default: [codex, cursor] # keep rule\npacing: {order: [cursor, codex], policy: priority}\n",
+    "mode": 384,
+    "opencode": "{\n  \"$schema\": \"https://opencode.ai/config.json\",\n  \"provider\": {}\n}\n",
+    "activity": [
+      {
+        "kind": "config",
+        "level": "info",
+        "text": "Configuration changed · runners",
+        "id": "<activity-id>",
+        "at": 1700000000
+      }
+    ],
+    "outbox": [
+      {
+        "seq": 1,
+        "at": 1700000000,
+        "envelope": {
+          "type": "entity",
+          "data": {
+            "kind": "activity",
+            "id": "<activity-id>",
+            "value": {
+              "kind": "config",
+              "level": "info",
+              "text": "Configuration changed · runners",
+              "id": "<activity-id>",
+              "at": 1700000000
+            }
+          }
+        }
+      },
+      {
+        "seq": 2,
+        "at": 1700000000,
+        "envelope": {
+          "type": "config",
+          "data": {
+            "area": "runners",
+            "at": 1700000000
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "reorder-invalid",
+    "initial": "# keep layout\nplanner: claude-code\naccounts:\n  personal: {kind: claude}\n  codex: {kind: codex}\n  cursor: {kind: cursor}\nrouting:\n  - default: [codex, cursor] # keep rule\npacing: {order: [codex, cursor], policy: priority}\n",
+    "active": "default",
+    "op": "runner.reorder",
+    "params": {
+      "ids": [
+        "codex"
+      ]
+    },
+    "outcome": {
+      "error": {
+        "code": "invalid_input",
+        "message": "ids must be a permutation of the non-planner runners"
+      }
+    },
+    "edited": "# keep layout\nplanner: claude-code\naccounts:\n  personal: {kind: claude}\n  codex: {kind: codex}\n  cursor: {kind: cursor}\nrouting:\n  - default: [codex, cursor] # keep rule\npacing: {order: [codex, cursor], policy: priority}\n",
+    "mode": 384,
+    "opencode": null,
+    "activity": [],
+    "outbox": []
+  },
+  {
+    "id": "set-disabled",
+    "initial": "# keep layout\nplanner: claude-code\naccounts:\n  personal: {kind: claude}\n  codex: {kind: codex}\n  cursor: {kind: cursor}\nrunners:\n  codex: {enabled: true} # keep runner\nrouting:\n  - default: [codex, cursor] # keep rule\npacing: {order: [codex, cursor], policy: priority}\n",
+    "active": "default",
+    "op": "runner.set",
+    "params": {
+      "id": "codex",
+      "enabled": false
+    },
+    "outcome": {
+      "result": {
+        "id": "codex",
+        "warnings": []
+      }
+    },
+    "edited": "# keep layout\nplanner: claude-code\naccounts:\n  personal: {kind: claude}\n  codex: {kind: codex}\n  cursor: {kind: cursor}\nrunners:\n  codex: {enabled: false} # keep runner\nrouting:\n  - default: [codex, cursor] # keep rule\npacing: {order: [codex, cursor], policy: priority}\n",
+    "mode": 384,
+    "opencode": "{\n  \"$schema\": \"https://opencode.ai/config.json\",\n  \"provider\": {}\n}\n",
+    "activity": [
+      {
+        "kind": "config",
+        "level": "info",
+        "text": "Configuration changed · runners",
+        "id": "<activity-id>",
+        "at": 1700000000
+      }
+    ],
+    "outbox": [
+      {
+        "seq": 1,
+        "at": 1700000000,
+        "envelope": {
+          "type": "entity",
+          "data": {
+            "kind": "activity",
+            "id": "<activity-id>",
+            "value": {
+              "kind": "config",
+              "level": "info",
+              "text": "Configuration changed · runners",
+              "id": "<activity-id>",
+              "at": 1700000000
+            }
+          }
+        }
+      },
+      {
+        "seq": 2,
+        "at": 1700000000,
+        "envelope": {
+          "type": "config",
+          "data": {
+            "area": "runners",
+            "at": 1700000000
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "set-model-null",
+    "initial": "# keep layout\nplanner: claude-code\naccounts:\n  personal: {kind: claude}\n  codex: {kind: codex}\n  cursor: {kind: cursor}\nrunners:\n  codex: {model: initial} # keep runner\nrouting:\n  - default: [codex, cursor] # keep rule\npacing: {order: [codex, cursor], policy: priority}\n",
+    "active": "default",
+    "op": "runner.set",
+    "params": {
+      "id": "codex",
+      "model": null
+    },
+    "outcome": {
+      "result": {
+        "id": "codex",
+        "warnings": []
+      }
+    },
+    "edited": "# keep layout\nplanner: claude-code\naccounts:\n  personal: {kind: claude}\n  codex: {kind: codex}\n  cursor: {kind: cursor}\nrunners:\n  codex: {model: null} # keep runner\nrouting:\n  - default: [codex, cursor] # keep rule\npacing: {order: [codex, cursor], policy: priority}\n",
+    "mode": 384,
+    "opencode": "{\n  \"$schema\": \"https://opencode.ai/config.json\",\n  \"provider\": {}\n}\n",
+    "activity": [
+      {
+        "kind": "config",
+        "level": "info",
+        "text": "Configuration changed · runners",
+        "id": "<activity-id>",
+        "at": 1700000000
+      }
+    ],
+    "outbox": [
+      {
+        "seq": 1,
+        "at": 1700000000,
+        "envelope": {
+          "type": "entity",
+          "data": {
+            "kind": "activity",
+            "id": "<activity-id>",
+            "value": {
+              "kind": "config",
+              "level": "info",
+              "text": "Configuration changed · runners",
+              "id": "<activity-id>",
+              "at": 1700000000
+            }
+          }
+        }
+      },
+      {
+        "seq": 2,
+        "at": 1700000000,
+        "envelope": {
+          "type": "config",
+          "data": {
+            "area": "runners",
+            "at": 1700000000
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "set-max-tasks",
+    "initial": "# keep layout\nplanner: claude-code\naccounts:\n  personal: {kind: claude}\n  codex: {kind: codex}\n  cursor: {kind: cursor}\nrunners:\n  codex: {enabled: true} # keep runner\nrouting:\n  - default: [codex, cursor] # keep rule\npacing: {order: [codex, cursor], policy: priority}\n",
+    "active": "default",
+    "op": "runner.set",
+    "params": {
+      "id": "codex",
+      "max_tasks": 3
+    },
+    "outcome": {
+      "result": {
+        "id": "codex",
+        "warnings": []
+      }
+    },
+    "edited": "# keep layout\nplanner: claude-code\naccounts:\n  personal: {kind: claude}\n  codex: {kind: codex}\n  cursor: {kind: cursor}\nrunners:\n  codex: {enabled: true, max_tasks: 3} # keep runner\nrouting:\n  - default: [codex, cursor] # keep rule\npacing: {order: [codex, cursor], policy: priority}\n",
+    "mode": 384,
+    "opencode": "{\n  \"$schema\": \"https://opencode.ai/config.json\",\n  \"provider\": {}\n}\n",
+    "activity": [
+      {
+        "kind": "config",
+        "level": "info",
+        "text": "Configuration changed · runners",
+        "id": "<activity-id>",
+        "at": 1700000000
+      }
+    ],
+    "outbox": [
+      {
+        "seq": 1,
+        "at": 1700000000,
+        "envelope": {
+          "type": "entity",
+          "data": {
+            "kind": "activity",
+            "id": "<activity-id>",
+            "value": {
+              "kind": "config",
+              "level": "info",
+              "text": "Configuration changed · runners",
+              "id": "<activity-id>",
+              "at": 1700000000
+            }
+          }
+        }
+      },
+      {
+        "seq": 2,
+        "at": 1700000000,
+        "envelope": {
+          "type": "config",
+          "data": {
+            "area": "runners",
+            "at": 1700000000
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "set-rank",
+    "initial": "# keep layout\nplanner: claude-code\naccounts:\n  personal: {kind: claude}\n  codex: {kind: codex}\n  cursor: {kind: cursor}\nrunners:\n  codex: {enabled: true} # keep runner\nrouting:\n  - default: [codex, cursor] # keep rule\npacing: {order: [codex, cursor], policy: priority}\n",
+    "active": "default",
+    "op": "runner.set",
+    "params": {
+      "id": "codex",
+      "rank": 1
+    },
+    "outcome": {
+      "result": {
+        "id": "codex",
+        "warnings": []
+      }
+    },
+    "edited": "# keep layout\nplanner: claude-code\naccounts:\n  personal: {kind: claude}\n  codex: {kind: codex}\n  cursor: {kind: cursor}\nrunners:\n  codex: {enabled: true} # keep runner\nrouting:\n  - default: [codex, cursor] # keep rule\npacing: {order: [cursor, codex], policy: priority}\n",
+    "mode": 384,
+    "opencode": "{\n  \"$schema\": \"https://opencode.ai/config.json\",\n  \"provider\": {}\n}\n",
+    "activity": [
+      {
+        "kind": "config",
+        "level": "info",
+        "text": "Configuration changed · runners",
+        "id": "<activity-id>",
+        "at": 1700000000
+      }
+    ],
+    "outbox": [
+      {
+        "seq": 1,
+        "at": 1700000000,
+        "envelope": {
+          "type": "entity",
+          "data": {
+            "kind": "activity",
+            "id": "<activity-id>",
+            "value": {
+              "kind": "config",
+              "level": "info",
+              "text": "Configuration changed · runners",
+              "id": "<activity-id>",
+              "at": 1700000000
+            }
+          }
+        }
+      },
+      {
+        "seq": 2,
+        "at": 1700000000,
+        "envelope": {
+          "type": "config",
+          "data": {
+            "area": "runners",
+            "at": 1700000000
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "set-planner-refusal",
+    "initial": "# keep layout\nplanner: claude-code\naccounts:\n  personal: {kind: claude}\n  codex: {kind: codex}\n  cursor: {kind: cursor}\nrunners:\n  codex: {enabled: true} # keep runner\nrouting:\n  - default: [codex, cursor] # keep rule\npacing: {order: [codex, cursor], policy: priority}\n",
+    "active": "default",
+    "op": "runner.set",
+    "params": {
+      "id": "claude-code",
+      "enabled": false
+    },
+    "outcome": {
+      "error": {
+        "code": "not_allowed",
+        "message": "cannot edit the planner runner"
+      }
+    },
+    "edited": "# keep layout\nplanner: claude-code\naccounts:\n  personal: {kind: claude}\n  codex: {kind: codex}\n  cursor: {kind: cursor}\nrunners:\n  codex: {enabled: true} # keep runner\nrouting:\n  - default: [codex, cursor] # keep rule\npacing: {order: [codex, cursor], policy: priority}\n",
+    "mode": 384,
+    "opencode": null,
+    "activity": [],
+    "outbox": []
+  },
+  {
+    "id": "set-warning",
+    "initial": "# keep layout\nplanner: claude-code\naccounts:\n  personal: {kind: claude}\n  codex: {kind: codex}\n  cursor: {kind: cursor}\nrunners:\n  codex: {enabled: true}\nrouting:\n  - default: [codex] # keep rule\npacing: {order: [codex, cursor], policy: priority}\n",
+    "active": "default",
+    "op": "runner.set",
+    "params": {
+      "id": "codex",
+      "enabled": false
+    },
+    "outcome": {
+      "result": {
+        "id": "codex",
+        "warnings": [
+          "routing rule 'default' has no enabled executor left"
+        ]
+      }
+    },
+    "edited": "# keep layout\nplanner: claude-code\naccounts:\n  personal: {kind: claude}\n  codex: {kind: codex}\n  cursor: {kind: cursor}\nrunners:\n  codex: {enabled: false}\nrouting:\n  - default: [codex] # keep rule\npacing: {order: [codex, cursor], policy: priority}\n",
+    "mode": 384,
+    "opencode": "{\n  \"$schema\": \"https://opencode.ai/config.json\",\n  \"provider\": {}\n}\n",
+    "activity": [
+      {
+        "kind": "config",
+        "level": "info",
+        "text": "Configuration changed · runners",
+        "id": "<activity-id>",
+        "at": 1700000000
+      }
+    ],
+    "outbox": [
+      {
+        "seq": 1,
+        "at": 1700000000,
+        "envelope": {
+          "type": "entity",
+          "data": {
+            "kind": "activity",
+            "id": "<activity-id>",
+            "value": {
+              "kind": "config",
+              "level": "info",
+              "text": "Configuration changed · runners",
+              "id": "<activity-id>",
+              "at": 1700000000
+            }
+          }
+        }
+      },
+      {
+        "seq": 2,
+        "at": 1700000000,
+        "envelope": {
+          "type": "config",
+          "data": {
+            "area": "runners",
+            "at": 1700000000
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "set-warning-planner",
+    "initial": "# keep layout\nplanner: claude-code\naccounts:\n  personal: {kind: claude}\n  codex: {kind: codex}\n  cursor: {kind: cursor}\nrunners:\n  codex: {enabled: true} # keep runner\nrouting:\n  - default: [claude-code, codex] # keep rule\npacing: {order: [codex, cursor], policy: priority}\n",
+    "active": "default",
+    "op": "runner.set",
+    "params": {
+      "id": "codex",
+      "enabled": false
+    },
+    "outcome": {
+      "result": {
+        "id": "codex",
+        "warnings": [
+          "routing rule 'default' has no enabled executor left"
+        ]
+      }
+    },
+    "edited": "# keep layout\nplanner: claude-code\naccounts:\n  personal: {kind: claude}\n  codex: {kind: codex}\n  cursor: {kind: cursor}\nrunners:\n  codex: {enabled: false} # keep runner\nrouting:\n  - default: [claude-code, codex] # keep rule\npacing: {order: [codex, cursor], policy: priority}\n",
+    "mode": 384,
+    "opencode": "{\n  \"$schema\": \"https://opencode.ai/config.json\",\n  \"provider\": {}\n}\n",
+    "activity": [
+      {
+        "kind": "config",
+        "level": "info",
+        "text": "Configuration changed · runners",
+        "id": "<activity-id>",
+        "at": 1700000000
+      }
+    ],
+    "outbox": [
+      {
+        "seq": 1,
+        "at": 1700000000,
+        "envelope": {
+          "type": "entity",
+          "data": {
+            "kind": "activity",
+            "id": "<activity-id>",
+            "value": {
+              "kind": "config",
+              "level": "info",
+              "text": "Configuration changed · runners",
+              "id": "<activity-id>",
+              "at": 1700000000
+            }
+          }
+        }
+      },
+      {
+        "seq": 2,
+        "at": 1700000000,
+        "envelope": {
+          "type": "config",
+          "data": {
+            "area": "runners",
+            "at": 1700000000
+          }
+        }
+      }
+    ]
+  }
+]

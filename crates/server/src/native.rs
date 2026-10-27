@@ -18,6 +18,8 @@ pub const NATIVE_OPS: &[&str] = &[
     "repo.remove",
     "routing.get",
     "routing.set",
+    "runner.reorder",
+    "runner.set",
     "strategy.list",
     "strategy.remove",
     "strategy.save",
@@ -35,6 +37,7 @@ impl Dispatcher {
         ops.extend_from_slice(pacer_config::repo_add_ops());
         ops.extend_from_slice(pacer_config::routing_ops());
         ops.extend_from_slice(pacer_config::routing_set_ops());
+        ops.extend_from_slice(pacer_config::runner_config_ops());
         ops.extend_from_slice(pacer_config::strategy_list_ops());
         ops.extend_from_slice(pacer_config::strategy_remove_ops());
         ops.extend_from_slice(pacer_config::strategy_save_ops());
@@ -90,6 +93,8 @@ impl Dispatcher {
                 && pacer_config::requires_core_strategy_save_parser(ctx, params))
             || (name == "routing.set"
                 && pacer_config::requires_core_routing_set_parser(ctx, params))
+            || (matches!(name, "runner.reorder" | "runner.set")
+                && pacer_config::requires_core_runner_parser(ctx, name, params))
     }
     /// Merge selected native names with the actual core hello advertisement.
     pub fn decorate_hello(&self, hello: &mut Value) {
@@ -209,6 +214,8 @@ mod registry_tests {
                 "repo.remove",
                 "routing.get",
                 "routing.set",
+                "runner.reorder",
+                "runner.set",
                 "strategy.list",
                 "strategy.remove",
                 "strategy.save",
@@ -292,6 +299,47 @@ mod registry_tests {
         assert_eq!(
             fs::read(ctx.pacer_home.join("active")).unwrap(),
             b"research\n"
+        );
+    }
+    #[tokio::test]
+    async fn runner_request_selector_and_forced_forwarding() {
+        let dir = tempfile::tempdir().unwrap();
+        let ctx = Ctx::with(
+            dir.path().into(),
+            dir.path().join("pacer"),
+            HashMap::new(),
+            1_700_000_000.0,
+        );
+        fs::create_dir_all(&ctx.pacer_home).unwrap();
+        let yaml = "planner: claude-code\naccounts:\n  personal: {kind: claude}\n  codex: {kind: codex}\n  cursor: {kind: cursor}\nrouting:\n  - default: [codex, cursor]\npacing: {order: [codex, cursor], policy: priority}\n";
+        fs::write(ctx.pacer_home.join("strategy.yaml"), yaml).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(
+                ctx.pacer_home.join("strategy.yaml"),
+                fs::Permissions::from_mode(0o600),
+            )
+            .unwrap();
+        }
+        let dispatcher = Dispatcher::new("");
+        let params = json!({"ids":["cursor","codex"]});
+        assert!(!dispatcher.needs_core_request(&ctx, "runner.reorder", &params));
+        assert!(dispatcher.needs_core_request(&ctx, "runner.reorder", &json!({"ids":["codex"]})));
+        assert!(
+            Dispatcher::new("runner.reorder")
+                .call(&ctx, "runner.reorder", params.clone())
+                .await
+                .is_none()
+        );
+        assert_eq!(
+            dispatcher.call(&ctx, "runner.reorder", params).await,
+            Some(Ok(json!({"order":["cursor","codex"]})))
+        );
+        assert!(
+            fs::read_to_string(ctx.pacer_home.join("strategy.yaml"))
+                .unwrap()
+                .contains("order: [cursor, codex]")
         );
     }
     #[tokio::test]

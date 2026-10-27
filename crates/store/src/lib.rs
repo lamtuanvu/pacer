@@ -214,6 +214,11 @@ pub fn record_routing_change(ctx: &Ctx) -> io::Result<()> {
     record_config_change_area(ctx, "routing")
 }
 
+/// A runner edit publishes the same activity and config pair as the core.
+pub fn record_runner_change(ctx: &Ctx) -> io::Result<()> {
+    record_config_change_area(ctx, "runners")
+}
+
 fn record_config_change_area(ctx: &Ctx, area: &str) -> io::Result<()> {
     let mut random = [0u8; 2];
     getrandom::fill(&mut random).map_err(io::Error::other)?;

@@ -12,6 +12,7 @@ import { exerciseStdioStrategyList, exerciseStdioStrategyShow } from "./stdio-st
 import { exerciseStdioStrategyUse } from "./stdio-strategy-use";
 import { exerciseStdioStrategySave } from "./stdio-strategy-save";
 import { exerciseStdioRoutingSet } from "./stdio-routing-set";
+import { exerciseStdioRunnerConfig } from "./stdio-runner-config";
 
 const usage = `usage: bun run live <command> [--id <id>]
   up [--repo-template <dir>] [--seed ui] [--front-door rust|rust-test-ops]
@@ -34,6 +35,7 @@ const usage = `usage: bun run live <command> [--id <id>]
   stdio-strategy-use --id <id>    exercise fixed named/default strategy.use over v3 stdio
   stdio-strategy-save --id <id>   exercise fixed strategy.save over v3 stdio
   stdio-routing-set --id <id>      exercise fixed routing.set over v3 stdio
+  stdio-runner-config --id <id>    exercise fixed runner.reorder/set over v3 stdio
   env                             print sandbox export lines
   pacer -- <args...>               run guarded checkout CLI in sandbox repo
   login [--screen <screen>]        print fresh single-use app login URL
@@ -75,13 +77,14 @@ export async function main(argv: string[]): Promise<number> {
     console.log(JSON.stringify(await up(id, options.get("--repo-template"), undefined, options.get("--seed"), options.get("--front-door")), null, 2));
     return 0;
   }
-  if (command === "stdio-strategy-list" || command === "stdio-strategy-show" || command === "stdio-strategy-use" || command === "stdio-strategy-save" || command === "stdio-routing-set") {
+  if (command === "stdio-strategy-list" || command === "stdio-strategy-show" || command === "stdio-strategy-use" || command === "stdio-strategy-save" || command === "stdio-routing-set" || command === "stdio-runner-config") {
     if (!id || options.size !== 1 || positionals.length || separator >= 0 || flags.size) throw Error(`usage: live ${command} --id <id>`);
     if (command === "stdio-strategy-list") await exerciseStdioStrategyList(loadSession(id));
     else if (command === "stdio-strategy-show") await exerciseStdioStrategyShow(loadSession(id));
     else if (command === "stdio-strategy-use") await exerciseStdioStrategyUse(loadSession(id));
     else if (command === "stdio-strategy-save") await exerciseStdioStrategySave(loadSession(id));
-    else await exerciseStdioRoutingSet(loadSession(id));
+    else if (command === "stdio-routing-set") await exerciseStdioRoutingSet(loadSession(id));
+    else await exerciseStdioRunnerConfig(loadSession(id));
     return 0;
   }
   if (command === "status") {

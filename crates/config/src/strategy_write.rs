@@ -86,7 +86,7 @@ fn replace(dir: &File, name: &str, bytes: &[u8]) -> io::Result<()> {
     result
 }
 
-pub(super) fn replace_strategy(
+pub(crate) fn replace_strategy(
     ctx: &Ctx,
     active: &str,
     before: &str,
@@ -119,7 +119,7 @@ pub(super) fn replace_strategy(
     replace(&dir, &name, after)
 }
 
-pub(super) fn refresh_opencode(ctx: &Ctx, content: &[u8]) -> io::Result<()> {
+pub(crate) fn refresh_opencode(ctx: &Ctx, content: &[u8]) -> io::Result<()> {
     let pacer = pacer(ctx)?;
     match mkdirat(&pacer, "opencode", Mode::from_bits_retain(0o700)) {
         Ok(()) | Err(Errno::EXIST) => {}

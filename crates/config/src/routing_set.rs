@@ -1,12 +1,11 @@
 //! Conservative native routing edit for one existing default rule.
 
-mod write;
-
 use crate::{
     doc::replace_flow_list,
     routing::routing_get,
     strategy_list::{strategy_show, use_selection},
     strategy_load::normalize_basic,
+    strategy_write as write,
 };
 use pacer_foundation::{
     Ctx,
