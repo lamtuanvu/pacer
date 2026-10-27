@@ -10,6 +10,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - Strict native subagent control for new managed work: Pacer excludes uncertified executors before dispatch, checks again before launch, and exposes certification status and a quota-using canary in Dispatcher and the CLI. Existing managed tasks retain cooperative behavior.
 - Open HTTP(S), local file and source-location links from the built-in session terminal. A read-only viewer shows code, Markdown and an isolated static HTML preview without disconnecting the session.
 
+### Changed
+
+- Refine the terminal file viewer: it opens beside the terminal when there is room (a full sheet on narrow screens), starts on Source, adds whole-file search with match stepping (⌘F/Ctrl+F), lists what the isolated HTML preview blocked, explains missing, outside, too-large, binary and changed-session files, and closes with Esc or Back to terminal.
+
 ## [0.11.0] - 2026-10-26
 
 ### Added
