@@ -6,7 +6,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
-- Add plugin protocol 1.8 host-issued remote pipe placement, run claim, start, poll and bounded output methods for the bundled direct executor. Production remote routing, stop and transfer remain under extraction.
+- Add plugin protocol 1.9 host-issued remote pipe placement, run claim, start, poll, bounded output, stop and committed-change transfer methods for the bundled direct executor. Selected noninteractive remote tasks now use the provider-owned route with durable placement and transfer recovery.
 - Add a read-only, host-issued remote PREPARE recovery proof for a persisted unreceipted executor placement. It verifies the exact clean task worktree without another fetch or launch; the remote executor production cutover remains in progress.
 - Add plugin protocol 1.6 worktree consent and host-issued task placement methods. The bundled direct executor may inspect and resolve a local base, then create or recover one journaled task-owned worktree.
 - Add plugin protocol 1.7 host-issued local run claims. An exact task-owned directory and one-use start grant are published before the provider can launch; lost claim replies recover only an empty, unstarted run.

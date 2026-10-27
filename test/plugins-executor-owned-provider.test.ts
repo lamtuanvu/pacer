@@ -89,6 +89,7 @@ test("remote provider owns placement, claim, start, observation and full pipe ou
     if (method === "capability.hosts.pollOwned") return { state: "exited", exitCode: 0 };
     if (method === "capability.hosts.readOwnedOutput") return {
       stdoutBase64: Buffer.from("remote complete\n").toString("base64"), stderrBase64: "" };
+    if (method === "capability.hosts.transferOwned") return { transferred: false };
     throw Error(`unexpected ${method}`);
   } };
   const result = await handlers["executor.run"]({ task: { id: "t-fixture", rev: 2 }, attempt: 1,
@@ -97,7 +98,8 @@ test("remote provider owns placement, claim, start, observation and full pipe ou
   expect(executorAttemptOutcome.safeParse(result).success).toBe(true);
   expect(result).toMatchObject({ report: "remote complete", attempt: { executor: "codex@box", exitCode: 0 } });
   expect(methods).toEqual(["capability.hosts.prepareOwned", "capability.hosts.claimOwned",
-    "capability.hosts.startOwned", "capability.hosts.pollOwned", "capability.hosts.readOwnedOutput"]);
+    "capability.hosts.startOwned", "capability.hosts.pollOwned", "capability.hosts.readOwnedOutput",
+    "capability.hosts.transferOwned"]);
 });
 
 test("remote provider never retries an unreceipted START or claims on resume", async () => {
@@ -118,11 +120,30 @@ test("remote provider never retries an unreceipted START or claims on resume", a
     methods.push(method);
     if (method === "capability.hosts.pollOwned") return { state: "exited", exitCode: 0 };
     if (method === "capability.hosts.readOwnedOutput") return { stdoutBase64: "", stderrBase64: "" };
+    if (method === "capability.hosts.transferOwned") return { transferred: false };
     throw Error(`unexpected ${method}`);
   } };
   await handlers["executor.run"]({ task: { id: "t-fixture", rev: 3 }, attempt: 1,
     runDir: 1, remote: { timeoutMs: 5000, executor: "codex@box", model: null,
       resume: { startedAt: 100, logFile: "/tmp/owned/1/stdout" } } },
   recovered as any, new AbortController().signal);
-  expect(methods).toEqual(["capability.hosts.pollOwned", "capability.hosts.readOwnedOutput"]);
+  expect(methods).toEqual(["capability.hosts.pollOwned", "capability.hosts.readOwnedOutput",
+    "capability.hosts.transferOwned"]);
+});
+
+test("remote provider refuses an uncertain transfer without another START or direct SSH", async () => {
+  const methods: string[] = [];
+  const host = { call: async (method: string) => {
+    methods.push(method);
+    if (method === "capability.hosts.pollOwned") return { state: "exited", exitCode: 0 };
+    if (method === "capability.hosts.readOwnedOutput") return { stdoutBase64: "", stderrBase64: "" };
+    if (method === "capability.hosts.transferOwned") throw Error("transfer receipt lost");
+    throw Error(`unexpected ${method}`);
+  } };
+  await expect(handlers["executor.run"]({ task: { id: "t-fixture", rev: 3 }, attempt: 1,
+    runDir: 1, remote: { timeoutMs: 5000, executor: "codex@box", model: null,
+      resume: { startedAt: 100, logFile: "/tmp/owned/1/stdout" } } },
+  host as any, new AbortController().signal)).rejects.toThrow("transfer receipt lost");
+  expect(methods).toEqual(["capability.hosts.pollOwned", "capability.hosts.readOwnedOutput",
+    "capability.hosts.transferOwned"]);
 });

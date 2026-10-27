@@ -139,7 +139,13 @@ export interface TaskRecord {
   /** PREPARE may have reached SSH; only read-only reconciliation may follow a missing receipt. */
   remotePrepareIntent?: { attempt: number; providerId: string; executor: string; alias: string;
     hostFingerprint: string; repoTop: string; originHash: string; checkout: string; tag: string;
-    baseSha: string; base: string };
+    baseSha: string; base: string; missingBaseReceiptAt?: number; bundleRetryIssuedAt?: number };
+  /** Fix the local destination before a remote bundle can publish a branch. */
+  remoteTransferIntent?: { attempt: number; providerId: string; dir: string;
+    startedAt: number; branch: string; oldHead: string };
+  /** Complete fixed preflight proved an exited failed remote attempt has no commits to transfer. */
+  remoteTransferNoWork?: { attempt: number; providerId: string; dir: string;
+    startedAt: number; exitCode: number };
   /** Persisted owner of a plugin-backed direct attempt, including before its run directory exists. */
   executorProvider?: string;
   /** A stop request is not terminal until the exact executor exit is verified. */

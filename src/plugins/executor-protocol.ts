@@ -88,7 +88,7 @@ export const executorAttemptOutcome = z.object({
 }).strict();
 export const executorRunResult = z.union([executorEffectRunResult, executorAttemptOutcome]);
 export const executorStopParams = z.object({ taskId, attempt: positive,
-  graceMs: z.number().int().nonnegative().max(25_000) }).strict();
+  graceMs: z.number().int().nonnegative().max(25_000), remote: z.literal(true).optional() }).strict();
 export const executorStopResult = z.object({ code: z.number().int().safe(), killed: z.boolean() }).strict();
 /** Read-only session state; uncertainty cannot authorize a replacement launch. */
 export const executorSessionStateParams = z.object({ taskId, attempt: positive }).strict();

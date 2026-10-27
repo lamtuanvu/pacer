@@ -4,12 +4,12 @@ import { join } from "node:path";
 import { CoreError } from "../core/errors";
 import { gitInfo, realpathSafe } from "../core/git";
 import { loadStrategy, type ProviderCfg } from "../config/strategy";
-import { parseRunnerId } from "../config/runner-id";
+import { parseRunnerId, resolveRunner } from "../config/runner-id";
 import { validateExecution } from "../config/execution";
 import { launchFor, providerEnv } from "../exec/launch";
 import { executorEnv } from "../exec/process";
 import { buildPrompt } from "../exec/prompt";
-import { resolveWorktreeBase } from "../supervisor/worktree";
+import { resolveWorktreeBase, taskWorktreePath } from "../supervisor/worktree";
 import type { AttemptOutcome } from "../exec/direct";
 import { listTasksWhere, readTask, updateTask, withTaskLock } from "../tasks/store";
 import type { TaskRecord } from "../tasks/types";
@@ -18,6 +18,7 @@ import { pluginRegistry } from "./index";
 import { executorAttemptOutcome } from "./executor-protocol";
 import { inspectOwnedExecutorRun } from "./executor-run-state";
 import { issueOwnedWorktreeGrant } from "./executor-worktree";
+import { admitOwnedRemotePrepare } from "./executor-remote-prepare";
 import type { CallResources } from "./authority";
 
 interface ExecutorCaller {
@@ -186,6 +187,114 @@ export const runOwnedDirectCurrent = (ctx: Ctx, cfg: ProviderCfg, task: TaskReco
 export const runOwnedDirectNew = (ctx: Ctx, cfg: ProviderCfg, task: TaskRecord,
   caller: ExecutorCaller = pluginRegistry(ctx)): Promise<AttemptOutcome> =>
   runOwnedDirect(ctx, cfg, task, "new", caller);
+
+/** The provider owns a selected remote pipe attempt; the host issues exact run effects. */
+export async function runOwnedDirectRemote(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord,
+  caller: ExecutorCaller = pluginRegistry(ctx)): Promise<AttemptOutcome> {
+  const nextAttempt = task.attempts.length + 1;
+  if (task.remotePrepareIntent && task.remotePrepareIntent.attempt !== nextAttempt) {
+    withTaskLock(ctx, task.id, () => {
+      const settled = readTask(ctx, task.id), prior = settled?.remotePrepareIntent,
+        receipt = settled?.executorExitReceipt;
+      if (!settled || !prior || prior.attempt >= nextAttempt ||
+        settled.attempts.length + 1 !== nextAttempt || !receipt ||
+        receipt.attempt !== prior.attempt || receipt.providerId !== "pacer-exec-direct" ||
+        settled.attempts[prior.attempt - 1]?.exitCode !== receipt.exitCode ||
+        settled.attempts[prior.attempt - 1]?.startedAt !== receipt.startedAt ||
+        settled.run || settled.stopPending)
+        throw new CoreError("conflict", "prior remote attempt is not settled");
+      updateTask(ctx, task.id, record => {
+        delete record.remotePrepareIntent;
+        delete record.remoteTransferIntent;
+        delete record.remoteTransferNoWork;
+        delete record.startIntent;
+        delete record.executorExitReceipt;
+        delete record.baseFetchIntent;
+      });
+    });
+  }
+  const providerId = "pacer-exec-direct", current = readTask(ctx, task.id);
+  const strategy = loadStrategy(ctx), runner = resolveRunner(strategy, cfg.id);
+  const alias = runner?.host, host = alias && strategy.hosts[alias];
+  if (!current || !runner || !alias || !host || host.paused ||
+    current.state !== "running" || current.stopPending || current.executorProvider !== providerId ||
+    current.executor !== cfg.id || task.interactionMode === "conversation" || cfg.session === "interactive" ||
+    host.session === "full" || validateExecution(strategy.execution).session === "pty" ||
+    current.attempts.length !== task.attempts.length ||
+    !Number.isSafeInteger(task.timeoutS) || task.timeoutS < 1 || task.timeoutS > 1800)
+    throw new CoreError("capability_denied", "direct executor route is not an owned remote pipe attempt");
+  const attempt = current.attempts.length + 1;
+  let resources: CallResources = { reads: [], commands: [], stores: [],
+    remoteTransfer: { taskId: task.id, attempt, providerId } };
+  if (!current.run) {
+    const git = await gitInfo(ctx.run, task.brief.repo);
+    if ("error" in git) throw new CoreError("capability_denied", "remote source repository is unavailable");
+    const base = current.remotePrepareIntent?.base ?? task.brief.base ??
+      (task.brief.worktreeBase === "head" ? "HEAD" : validateExecution(strategy.execution).baseBranch) ??
+      await admittedDefaultBase(ctx, task, providerId, attempt);
+    const resolved = await resolveWorktreeBase(ctx, git.top, task.brief, base, false);
+    if ("error" in resolved) throw new CoreError("conflict", resolved.error);
+    const prepared = await admitOwnedRemotePrepare(ctx, task.id, providerId,
+      cfg.id, alias, resolved.base, resolved.sha);
+    resources = { ...resources, remotePrepare: { grant: prepared.grant } };
+  } else {
+    const run = current.run;
+    if (run.attempt !== attempt || run.executor !== cfg.id || run.host !== alias ||
+      !run.remoteDir || !run.remoteWorktree || !current.remotePrepareIntent ||
+      run.baseSha !== current.remotePrepareIntent.baseSha ||
+      !current.startIntent || current.startIntent.attempt !== attempt ||
+      current.startIntent.providerId !== providerId || current.startIntent.dir !== run.dir)
+      throw new CoreError("capability_denied", "remote run is uncertain; replacement launch refused");
+  }
+  const admitted = readTask(ctx, task.id)!;
+  const run = admitted.run;
+  const raw = await caller.call(ctx, providerId, "executor.run", {
+    task: { id: task.id, rev: admitted.rev }, attempt, runDir: 1,
+    remote: { timeoutMs: task.timeoutS * 1000, executor: cfg.id, model: cfg.model ?? null,
+      ...(run ? { resume: { startedAt: run.startedAt, logFile: run.logFile } } : {}) },
+  }, { resources, onProgress: () => {},
+    deadlineMs: Math.max(5_000, (run?.startedAt ?? Date.now() / 1000) * 1000 +
+      task.timeoutS * 1000 - Date.now() + 150_000) });
+  const parsed = executorAttemptOutcome.safeParse(raw);
+  if (!parsed.success) throw new CoreError("plugin_refused", "remote executor returned an invalid outcome");
+  const out = parsed.data, latest = readTask(ctx, task.id), persisted = latest?.run,
+    receipt = latest?.executorExitReceipt;
+  if (!latest || !persisted || !receipt || latest.state !== "running" || latest.stopPending ||
+    latest.executorProvider !== providerId ||
+    persisted.host !== alias || persisted.executor !== cfg.id || persisted.attempt !== attempt ||
+    receipt.attempt !== attempt || receipt.providerId !== providerId ||
+    receipt.dir !== persisted.dir || receipt.startedAt !== persisted.startedAt ||
+    receipt.exitCode !== out.exec.code || out.attempt.exitCode !== out.exec.code ||
+    out.attempt.startedAt !== persisted.startedAt || out.attempt.log !== persisted.logFile ||
+    out.attempt.executor !== cfg.id || out.attempt.model !== (cfg.model ?? null) ||
+    out.exec.timedOut || out.attempt.timedOut || out.attempt.limitHit ||
+    out.partial !== undefined || out.takeover || out.attempt.brokenReason !== undefined ||
+    out.backend !== "direct")
+    throw new CoreError("conflict", "remote executor outcome is not bound to its persisted run");
+  if (persisted.transferredHead) {
+    const transfer = latest.remoteTransferIntent, git = await gitInfo(ctx.run, latest.brief.repo);
+    if (!transfer || "error" in git || transfer.attempt !== attempt ||
+      transfer.providerId !== providerId || transfer.dir !== persisted.dir ||
+      transfer.startedAt !== persisted.startedAt || !out.worktree ||
+      out.worktree !== taskWorktreePath(ctx, git.top, task.id))
+      throw new CoreError("conflict", "remote transfer outcome has no matching local worktree");
+    const ref = await ctx.run(["git", "-C", git.top, "rev-parse", "--verify",
+      `refs/heads/${transfer.branch}`], 10_000);
+    const head = await ctx.run(["git", "-C", out.worktree, "rev-parse", "--verify", "HEAD"], 10_000);
+    if (ref.code !== 0 || ref.timedOut || head.code !== 0 || head.timedOut ||
+      ref.stdout.trim() !== persisted.transferredHead ||
+      head.stdout.trim() !== persisted.transferredHead)
+      throw new CoreError("conflict", "remote transfer head changed after provider result");
+  } else {
+    const noWork = latest.remoteTransferNoWork;
+    if (out.worktree !== undefined || receipt.exitCode === 0 || !noWork ||
+      noWork.attempt !== attempt || noWork.providerId !== providerId ||
+      noWork.dir !== persisted.dir || noWork.startedAt !== persisted.startedAt ||
+      noWork.exitCode !== receipt.exitCode)
+      throw new CoreError("conflict", "remote transfer outcome lacks a host-verified disposition");
+  }
+  return out as AttemptOutcome;
+}
 
 /** Reattach to the same persisted wrapper with read authority only; never claim or start again. */
 export async function resumeOwnedDirect(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord,

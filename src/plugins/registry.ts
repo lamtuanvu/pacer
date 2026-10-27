@@ -54,7 +54,8 @@ import { consumeConfiguredHostPrepare, validateConfiguredHostPrepare, type Confi
 import { consumeConfiguredHostPrepareRecover, validateConfiguredHostPrepareRecover, type ConfiguredHostPrepareRecoverGrant } from "./host-prepare-recover-issuer";
 import { answerOwnedRemotePrepare } from "./executor-remote-prepare-host";
 import { answerOwnedRemoteClaim } from "./executor-remote-claim";
-import { answerOwnedRemoteStart, answerOwnedRemotePoll, answerOwnedRemoteOutput } from "./executor-remote-run";
+import { answerOwnedRemoteStart, answerOwnedRemotePoll, answerOwnedRemoteOutput,
+  answerOwnedRemoteStop, answerOwnedRemoteTransfer } from "./executor-remote-run";
 import { consumeConfiguredHostReport, validateConfiguredHostReport, type ConfiguredHostReportGrant } from "./host-report-issuer";
 import { consumeConfiguredHostSessionFiles, validateConfiguredHostSessionFiles, type ConfiguredHostSessionFilesGrant } from "./host-session-files-issuer";
 import { consumeConfiguredHostAttemptPreflight, validateConfiguredHostAttemptPreflight, type ConfiguredHostAttemptPreflightGrant } from "./host-attempt-preflight-issuer";
@@ -1366,6 +1367,11 @@ export class PluginRegistry {
         return answerOwnedRemotePoll(authority, params as { taskId: string; attempt: number });
       if (method === "capability.hosts.readOwnedOutput")
         return answerOwnedRemoteOutput(authority, params as { taskId: string; attempt: number });
+      if (method === "capability.hosts.stopOwned")
+        return answerOwnedRemoteStop(authority,
+          params as { taskId: string; attempt: number; graceMs: number });
+      if (method === "capability.hosts.transferOwned")
+        return answerOwnedRemoteTransfer(authority, params as { taskId: string; attempt: number });
       throw new CoreError("capability_denied", "direct executor has no general SSH broker authority");
     }
     if (method === "capability.hosts.fetch") {

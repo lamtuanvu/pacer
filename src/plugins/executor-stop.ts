@@ -55,3 +55,39 @@ export async function stopOwnedExecutorAttempt(ctx: Ctx, caller: ExecutorStopCal
   });
   return result.data;
 }
+
+/** One exact remote STOP request; only the host's verified report can settle it. */
+export async function stopOwnedRemoteExecutorAttempt(ctx: Ctx, caller: ExecutorStopCaller,
+  taskId: string, attempt: number, graceMs: number): Promise<ReturnType<typeof executorStopResult.parse>> {
+  if (!Number.isSafeInteger(graceMs) || graceMs < 0 || graceMs > 25_000)
+    throw new CoreError("invalid_input", "remote stop grace must be bounded");
+  const grant = withTaskLock(ctx, taskId, () => {
+    const task = readTask(ctx, taskId), run = task?.run, pending = task?.stopPending;
+    if (!task || !run || !pending || task.state !== "running" || !run.host ||
+      task.executorProvider !== "pacer-exec-direct" || pending.providerId !== task.executorProvider ||
+      pending.attempt !== attempt || pending.graceMs !== graceMs || run.attempt !== attempt ||
+      !task.startIntent || task.startIntent.attempt !== attempt ||
+      task.startIntent.dir !== run.dir) throw new CoreError("conflict", "remote stop owner changed");
+    const dir = lstatSync(run.dir);
+    if (!dir.isDirectory() || (dir.mode & 0o077) !== 0) throw new CoreError("conflict", "remote run directory changed");
+    return { taskId, attempt, providerId: task.executorProvider,
+      requestedAt: pending.requestedAt, graceMs, dir: run.dir, startedAt: run.startedAt };
+  });
+  const raw = await caller.call(ctx, "pacer-exec-direct", "executor.stop",
+    { taskId, attempt, graceMs, remote: true },
+    { resources: { reads: [], commands: [], stores: [], remoteStop: grant }, deadlineMs: graceMs + 20_000 });
+  const result = executorStopResult.safeParse(raw);
+  if (!result.success) throw new CoreError("plugin_refused", "remote stop returned an invalid receipt");
+  withTaskLock(ctx, taskId, () => {
+    const task = readTask(ctx, taskId), run = task?.run, pending = task?.stopPending,
+      receipt = task?.executorExitReceipt;
+    if (!task || !run || !pending || pending.providerId !== grant.providerId ||
+      pending.requestedAt !== grant.requestedAt || pending.attempt !== attempt ||
+      run.dir !== grant.dir || run.startedAt !== grant.startedAt ||
+      receipt?.attempt !== attempt || receipt.providerId !== grant.providerId ||
+      receipt.dir !== grant.dir || receipt.startedAt !== grant.startedAt ||
+      receipt.exitCode !== result.data.code)
+      throw new CoreError("conflict", "remote stop receipt does not match the owned run");
+  });
+  return result.data;
+}

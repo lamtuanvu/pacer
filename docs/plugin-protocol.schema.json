@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "pacer plugin protocol 1.8.0",
-  "version": "1.8.0",
+  "title": "pacer plugin protocol 1.9.0",
+  "version": "1.9.0",
   "$defs": {
     "pluginMetadata": {
       "oneOf": [
@@ -5179,6 +5179,10 @@
           "type": "integer",
           "minimum": 0,
           "maximum": 25000
+        },
+        "remote": {
+          "type": "boolean",
+          "const": true
         }
       },
       "required": [
@@ -7206,6 +7210,97 @@
       "required": [
         "stdoutBase64",
         "stderrBase64"
+      ],
+      "additionalProperties": false
+    },
+    "capability.hosts.stopOwned.params": {
+      "type": "object",
+      "properties": {
+        "taskId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,128}$"
+        },
+        "attempt": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "graceMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 25000
+        }
+      },
+      "required": [
+        "taskId",
+        "attempt",
+        "graceMs"
+      ],
+      "additionalProperties": false
+    },
+    "capability.hosts.stopOwned.result": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "killed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "code",
+        "killed"
+      ],
+      "additionalProperties": false
+    },
+    "capability.hosts.transferOwned.params": {
+      "type": "object",
+      "properties": {
+        "taskId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,128}$"
+        },
+        "attempt": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "taskId",
+        "attempt"
+      ],
+      "additionalProperties": false
+    },
+    "capability.hosts.transferOwned.result": {
+      "type": "object",
+      "properties": {
+        "transferred": {
+          "type": "boolean"
+        },
+        "branch": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "commits": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "reviewWorktree": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 4096
+        }
+      },
+      "required": [
+        "transferred"
       ],
       "additionalProperties": false
     },

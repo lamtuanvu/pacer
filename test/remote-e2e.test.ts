@@ -45,6 +45,9 @@ async function setup(wait = false) {
   writeFileSync(join(ctx.pacerHome, "strategy.yaml"), JSON.stringify({ accounts: { claude: { kind: "claude" }, codex: { kind: "codex" } }, planner: "claude-code", hosts: { box: { ssh: "box-ssh", repos: { "example.invalid/o/r": "~/src/r" } } }, routing: [{ default: ["codex@box"] }] }));
   const deps: RunnerDeps = {
     loadStrategy,
+    // These cases characterize the compatibility route; provider-owned routing has
+    // separate production tests in plugins-remote-prepare-recover.test.ts.
+    runAttempt,
     computeStatus: async () => ({ generatedAt: 0, strategy: "default", planner: "claude-code", mode: "normal", disabled: false, paused: null, modeHold: null, calendarPace: true,
       providers: [{ id: "codex@box", usage: "quota", windows: [], binding: null, verdict: "ON_PACE", installed: true, stale: false }], executors: { ranked: [], excluded: [] } }),
     verifyRepo: async (worktree) => {
@@ -80,9 +83,9 @@ test("a remote attempt resumes after the runner dies", async () => {
   const dir = runDir(f.ctx, id, 1), host = loadStrategy(f.ctx).hosts.box;
   const launch = remoteLaunch(loadStrategy(f.ctx).providers["codex@box"], worktree, remoteDir);
   const io = new RemoteRunIO(f.ctx, host, remoteDir, dir);
-  expect(await io.start(launch.argv, worktree, { PACER_ROLE: "executor" }, "resume prompt")).toHaveProperty("pid");
   const run = { dir, attempt: 1, executor: "codex@box", startedAt: Date.now()/1000, mode: "new" as const, workdir: worktree, logFile: join(dir, "legacy.log"), host: "box", remoteDir, remoteWorktree: worktree, remoteBranch: `pacer/${id}`, baseSha };
   updateTask(f.ctx, id, t => { t.state = "running"; t.runnerPid = 2147483647; t.attemptStartedAt = run.startedAt; t.run = run; t.baseBranch = "main"; t.placement = { requested: "new", mode: "new", why: "agent" }; });
+  expect(await io.start(launch.argv, worktree, { PACER_ROLE: "executor" }, "resume prompt")).toHaveProperty("pid");
   // A remote pid must never be checked against the local process table.
   writeFileSync(join(dir, "pid"), "2147483647");
   let resumed: ReturnType<typeof runTask> | undefined;

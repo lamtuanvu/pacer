@@ -2,7 +2,9 @@ import { isAbsolute, normalize } from "node:path";
 import { CoreError } from "../core/errors";
 import type { Ctx } from "../types";
 import type { CallAuthority } from "./authority";
-import { consumeOwnedRemotePrepareGrant } from "./executor-remote-prepare";
+import { baseBundle } from "../remote/base-bundle";
+import { consumeOwnedRemotePrepareGrant, recordOwnedRemoteBundleRetry,
+  recordOwnedRemoteMissingBase } from "./executor-remote-prepare";
 import { issueConfiguredHostPrepare } from "./host-prepare-issuer";
 import { issueConfiguredHostPrepareRecover } from "./host-prepare-recover-issuer";
 
@@ -21,15 +23,27 @@ export async function answerOwnedRemotePrepare(authority: CallAuthority,
   const ctx = authority.ctx;
   const resource = authority.consumeRemotePrepare(request.taskId, request.attempt);
   const intent = consumeOwnedRemotePrepareGrant(ctx, resource.grant);
-  if (intent.providerId !== "pacer-exec-direct" || intent.attempt !== request.attempt ||
-    (resource.grant.mode === "recover" && resource.bundle !== undefined))
+  if (intent.providerId !== "pacer-exec-direct" || intent.attempt !== request.attempt)
     throw new CoreError("capability_denied", "remote placement grant changed");
-  const result = resource.grant.mode === "prepare"
-    ? await broker.prepareConfiguredHost(ctx, await issueConfiguredHostPrepare(ctx,
-      intent.alias, request.taskId, intent.baseSha, intent.base,
-      resource.bundle ?? new Uint8Array()), authority.signal)
-    : await broker.recoverConfiguredHostPrepare(ctx,
-      await issueConfiguredHostPrepareRecover(ctx, request.taskId), authority.signal);
+  const bundleRetry = async () => {
+    const bundle = await baseBundle(ctx, intent.repoTop, request.taskId, intent.baseSha);
+    recordOwnedRemoteBundleRetry(ctx, request.taskId, intent);
+    return broker.prepareConfiguredHost(ctx, await issueConfiguredHostPrepare(ctx,
+      intent.alias, request.taskId, intent.baseSha, intent.base, bundle), authority.signal);
+  };
+  let result: Result;
+  if (resource.grant.mode === "recover") result = await broker.recoverConfiguredHostPrepare(ctx,
+    await issueConfiguredHostPrepareRecover(ctx, request.taskId), authority.signal);
+  else if (resource.grant.mode === "bundle") result = await bundleRetry();
+  else {
+    result = await broker.prepareConfiguredHost(ctx, await issueConfiguredHostPrepare(ctx,
+      intent.alias, request.taskId, intent.baseSha, intent.base, new Uint8Array()), authority.signal);
+    if (!result.timedOut && result.code === 3 && result.stderr.trim() === "missing-base" &&
+      result.stdout === "") {
+      recordOwnedRemoteMissingBase(ctx, request.taskId, intent);
+      result = await bundleRetry();
+    }
+  }
   if (result.code !== 0 || result.timedOut) throw new CoreError("plugin_refused", "remote placement is unverified");
   const lines = result.stdout.trimEnd().split("\n");
   if (lines.length !== 2 || !lines[0]?.startsWith("worktree=") || !lines[1]?.startsWith("branch="))

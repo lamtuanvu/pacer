@@ -60,11 +60,16 @@ async function runOwnedRemote(params: z.infer<typeof remoteInput>, host: Paramet
       const stdout = Buffer.from(encoded.stdoutBase64, "base64").toString("utf8");
       const stderr = Buffer.from(encoded.stderrBase64, "base64").toString("utf8");
       const report = (stdout.trim() || stderr.trim()).slice(-4000);
+      const transfer = await host.call<{ transferred: boolean; branch?: string; commits?: number;
+        reviewWorktree?: string; reason?: string }>("capability.hosts.transferOwned", { taskId: task.id, attempt });
+      if (transfer.reason) throw new PluginError("plugin_refused", `remote transfer is unresolved: ${transfer.reason}`);
       return { backend: "direct", report,
         exec: { code: state.exitCode, stdout, stderr, timedOut: false },
         attempt: { executor: remote.executor, model: remote.model, startedAt: startedAt!,
           endedAt: Date.now() / 1000, exitCode: state.exitCode, timedOut: false,
-          limitHit: false, log: logFile! } };
+          limitHit: false, log: logFile! },
+        ...(transfer.transferred && transfer.reviewWorktree ? { worktree: transfer.reviewWorktree,
+          report: `ran on remote host; fetched ${transfer.branch} (${transfer.commits} commits)\n\n${report}` } : {}) };
     }
     uncertainSince = state.state === "uncertain" ? uncertainSince ?? Date.now() : null;
     if (uncertainSince !== null && Date.now() - uncertainSince >= 5000)
@@ -164,9 +169,11 @@ export const handlers = {
   },
   "executor.stop": async (params, host, signal) => {
     const stop = z.object({ taskId: z.string(), attempt: z.number().int().positive(),
-      graceMs: z.number().int().nonnegative().max(25_000) }).strict().parse(params);
+      graceMs: z.number().int().nonnegative().max(25_000), remote: z.literal(true).optional() }).strict().parse(params);
     if (signal.aborted) throw new PluginError("plugin_unavailable", "executor stop was cancelled");
-    const result = await host.call<{ code: number; killed: boolean }>("capability.process.stopRun", stop);
+    const result = await host.call<{ code: number; killed: boolean }>(
+      stop.remote ? "capability.hosts.stopOwned" : "capability.process.stopRun",
+      { taskId: stop.taskId, attempt: stop.attempt, graceMs: stop.graceMs });
     if (signal.aborted) throw new PluginError("plugin_unavailable", "executor stop completion is uncertain");
     return result;
   },

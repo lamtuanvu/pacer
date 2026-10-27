@@ -2,8 +2,9 @@ import { expect, test } from "bun:test";
 import { mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { taskWorktreePath } from "../src/supervisor/worktree";
-import { transferBack } from "../src/remote/transfer";
+import { transferBack, transferred } from "../src/remote/transfer";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
+import { taskStop } from "../src/tasks/api";
 import type { RunRef } from "../src/tasks/types";
 import type { HostCfg } from "../src/config/hosts";
 import { fakeCtx, fakeSshEnv, realRun, tmpDir } from "./helpers";
@@ -106,6 +107,50 @@ for (const committed of [false, true]) test(`an earlier local branch ${committed
   expect(await f.git("-C", f.repo, "rev-parse", result.branch)).toBe(head);
   if (committed) expect(await f.git("-C", f.repo, "rev-parse", f.branch)).toBe(before);
   expect(readTask(f.ctx, f.task.id)?.run).toHaveProperty("transferredHead", head);
+}, 30000);
+
+test("owned transferred detection follows the admitted retry branch and exact run", async () => {
+  const f = await setup();
+  const branch = `${f.branch}-r1`;
+  await f.git("-C", f.repo, "branch", branch);
+  const head = await f.git("-C", f.repo, "rev-parse", branch);
+  const saved = updateTask(f.ctx, f.task.id, current => {
+    current.executorProvider = "pacer-exec-direct";
+    current.run!.transferredHead = head;
+    current.remoteTransferIntent = { attempt: 1, providerId: "pacer-exec-direct",
+      dir: f.run.dir, startedAt: f.run.startedAt, branch, oldHead: "" };
+  });
+  expect(await transferred(f.ctx, saved)).toBe(true);
+  const wrong = updateTask(f.ctx, f.task.id, current => {
+    current.remoteTransferIntent!.attempt = 2;
+  });
+  expect(await transferred(f.ctx, wrong)).toBe(false);
+}, 30000);
+
+test("stop during an owned transfer is a conflict until the single admitted branch settles", async () => {
+  const f = await setup();
+  await f.commit("-m", "remote result");
+  const bin = join(f.run.dir, "slow-owned-ssh");
+  mkdirSync(bin);
+  writeFileSync(join(bin, "ssh"), `#!/bin/sh\nsleep 0.15\nexec ${JSON.stringify(join(import.meta.dir, "fixtures", "bin", "ssh"))} "$@"\n`,
+    { mode: 0o700 });
+  f.ctx.which = name => name === "ssh" ? join(bin, "ssh") : name === "git" ? "/usr/bin/git" : null;
+  updateTask(f.ctx, f.task.id, current => {
+    current.state = "running"; current.executor = f.run.executor;
+    current.executorProvider = "pacer-exec-direct";
+    current.startIntent = { attempt: 1, providerId: "pacer-exec-direct", dir: f.run.dir };
+    current.executorExitReceipt = { attempt: 1, providerId: "pacer-exec-direct",
+      dir: f.run.dir, startedAt: f.run.startedAt, exitCode: 0 };
+  });
+  const transfer = transferBack(f.ctx, f.task, f.host, f.run);
+  for (let i = 0; i < 200 && !readTask(f.ctx, f.task.id)?.remoteTransferIntent; i++) await Bun.sleep(10);
+  expect(readTask(f.ctx, f.task.id)?.remoteTransferIntent?.branch).toBe(f.branch);
+  expect(() => taskStop(f.ctx, f.task.id)).toThrow("remote transfer is in progress");
+  const result = await transfer;
+  expect(result.ok).toBe(true);
+  expect(readTask(f.ctx, f.task.id)?.stopPending).toBeUndefined();
+  expect(await f.git("-C", f.repo, "for-each-ref", "--format=%(refname)", "refs/heads/pacer"))
+    .toBe(`refs/heads/${f.branch}`);
 }, 30000);
 
 test("a clean transfer fetches only pacer/<id> and opens a review worktree", async () => {

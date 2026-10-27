@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fakeCtx, fakeSshEnv, realRun, tmpDir } from "./helpers";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
@@ -14,7 +14,14 @@ import { createCallAuthority } from "../src/plugins/authority";
 import { manifest as directManifest } from "../plugins/pacer-exec-direct/manifest";
 import { manifestSchema } from "../src/plugins/protocol";
 import { answerOwnedRemoteClaim } from "../src/plugins/executor-remote-claim";
-import { answerOwnedRemoteStart, answerOwnedRemotePoll, answerOwnedRemoteOutput } from "../src/plugins/executor-remote-run";
+import { answerOwnedRemoteStart, answerOwnedRemotePoll, answerOwnedRemoteOutput,
+  answerOwnedRemoteStop, answerOwnedRemoteTransfer } from "../src/plugins/executor-remote-run";
+import { taskStop, superviseTask } from "../src/tasks/api";
+import { runOwnedDirectRemote } from "../src/plugins/executor-production";
+import { runTask } from "../src/tasks/runner";
+import { defaultHooks } from "../src/classify/hooks";
+import { eligibility } from "./fixtures/eligibility";
+import * as tasks from "../src/core/tasks";
 
 async function fixture() {
   const root = tmpDir(), repo = join(root, "repo"), home = join(root, "home"),
@@ -92,7 +99,7 @@ test("issued PREPARE recovery observes the same remote worktree through bundled 
     await issueConfiguredHostPrepareRecover(f.ctx, f.task.id));
   expect(recovered).toMatchObject({ code: 0, timedOut: false, stdout: first.stdout });
   expect(recovered.stdout).toContain(join(f.hostHome, ".pacer-remote", "worktrees", f.tag, `${f.task.id}-1`));
-});
+}, 30_000);
 
 test("owned remote admission persists first PREPARE and later permits only recovery", async () => {
   const f = await fixture();
@@ -220,6 +227,72 @@ test("lost PREPARE reply can only enter read-only recovery", async () => {
   } finally { await recovery.revoke(); }
 });
 
+test("a definite missing-base receipt permits one journaled bundle retry", async () => {
+  const f = await fixture();
+  updateTask(f.ctx, f.task.id, current => { delete current.remotePrepareIntent; });
+  const first = await admitOwnedRemotePrepare(f.ctx, f.task.id, "pacer-exec-direct",
+    "codex@box", "box", "main", f.baseSha);
+  const authority = createCallAuthority(f.ctx, { reads: [], commands: [], stores: [],
+    remotePrepare: { grant: first.grant } }, { deadlineMs: Date.now() + 180_000, grants: ["hosts"] });
+  let calls = 0;
+  const worktree = join(f.hostHome, ".pacer-remote", "worktrees", f.tag, `${f.task.id}-1`);
+  const broker = { prepareConfiguredHost: async () => {
+    calls++;
+    if (calls === 1) return { code: 3, timedOut: false, stderr: "missing-base\n", stdout: "" };
+    expect(readTask(f.ctx, f.task.id)?.remotePrepareIntent?.bundleRetryIssuedAt).toBeGreaterThan(0);
+    return { code: 0, timedOut: false, stderr: "",
+      stdout: `worktree=${worktree}\nbranch=pacer/${f.task.id}\n` };
+  }, recoverConfiguredHostPrepare: async () => { throw Error("must not recover a receipted missing base"); } };
+  try {
+    expect(await answerOwnedRemotePrepare(authority, { taskId: f.task.id, attempt: 1 }, broker))
+      .toMatchObject({ worktree });
+    expect(calls).toBe(2);
+  } finally { await authority.revoke(); }
+  expect((await admitOwnedRemotePrepare(f.ctx, f.task.id, "pacer-exec-direct",
+    "codex@box", "box", "main", f.baseSha)).mode).toBe("recover");
+});
+
+test("extra stderr cannot authorize a second remote PREPARE", async () => {
+  const f = await fixture();
+  updateTask(f.ctx, f.task.id, current => { delete current.remotePrepareIntent; });
+  const first = await admitOwnedRemotePrepare(f.ctx, f.task.id, "pacer-exec-direct",
+    "codex@box", "box", "main", f.baseSha);
+  const authority = createCallAuthority(f.ctx, { reads: [], commands: [], stores: [],
+    remotePrepare: { grant: first.grant } }, { deadlineMs: Date.now() + 180_000, grants: ["hosts"] });
+  let calls = 0;
+  const broker = { prepareConfiguredHost: async () => {
+    calls++;
+    return { code: 3, timedOut: false, stderr: "warning\nmissing-base\n", stdout: "" };
+  }, recoverConfiguredHostPrepare: async () => { throw Error("unexpected recovery"); } };
+  try {
+    await expect(answerOwnedRemotePrepare(authority, { taskId: f.task.id, attempt: 1 }, broker))
+      .rejects.toMatchObject({ code: "plugin_refused" });
+    expect(calls).toBe(1);
+    expect(readTask(f.ctx, f.task.id)?.remotePrepareIntent?.missingBaseReceiptAt).toBeUndefined();
+  } finally { await authority.revoke(); }
+});
+
+test("lost bundle retry receipt never authorizes a third PREPARE", async () => {
+  const f = await fixture();
+  updateTask(f.ctx, f.task.id, current => { delete current.remotePrepareIntent; });
+  const first = await admitOwnedRemotePrepare(f.ctx, f.task.id, "pacer-exec-direct",
+    "codex@box", "box", "main", f.baseSha);
+  const authority = createCallAuthority(f.ctx, { reads: [], commands: [], stores: [],
+    remotePrepare: { grant: first.grant } }, { deadlineMs: Date.now() + 180_000, grants: ["hosts"] });
+  let calls = 0;
+  const broker = { prepareConfiguredHost: async () => {
+    calls++; if (calls === 1) return { code: 3, timedOut: false, stderr: "missing-base\n", stdout: "" };
+    throw Error("bundle reply lost");
+  }, recoverConfiguredHostPrepare: async () => { throw Error("unreachable"); } };
+  try {
+    await expect(answerOwnedRemotePrepare(authority, { taskId: f.task.id, attempt: 1 }, broker))
+      .rejects.toThrow("bundle reply lost");
+  } finally { await authority.revoke(); }
+  expect(calls).toBe(2);
+  expect((await admitOwnedRemotePrepare(f.ctx, f.task.id, "pacer-exec-direct",
+    "codex@box", "box", "main", f.baseSha)).mode).toBe("recover");
+});
+
 test("direct executor cannot use the general SSH broker despite its scoped hosts consent", async () => {
   const f = await fixture(), registry = pluginRegistry(f.ctx);
   const authority = createCallAuthority(f.ctx, { reads: [], commands: [], stores: [] },
@@ -265,3 +338,170 @@ test("owned remote pipe starts once and settles only on the exact completion rec
     expect(readTask(f.ctx, f.task.id)?.executorExitReceipt).toMatchObject({ attempt: 1, exitCode: 0 });
   } finally { await authority.revoke(); }
 }, 60_000);
+
+test("remote stop remains pending until fixed STOP and REPORT verify the exact exit", async () => {
+  const f = await fixture();
+  writeFileSync(join(f.bin, "codex"), "#!/bin/sh\ncat >/dev/null\nwhile :; do sleep 0.2; done\n", { mode: 0o755 });
+  if (!Bun.which("setsid")) writeFileSync(join(f.bin, "setsid"),
+    `#!${Bun.which("python3")}\nimport os,sys\nos.setsid()\nos.execvp(sys.argv[1],sys.argv[1:])\n`, { mode: 0o755 });
+  updateTask(f.ctx, f.task.id, current => { delete current.remotePrepareIntent; });
+  const admitted = await admitOwnedRemotePrepare(f.ctx, f.task.id, "pacer-exec-direct",
+    "codex@box", "box", "main", f.baseSha);
+  const initial = createCallAuthority(f.ctx, { reads: [], commands: [], stores: [],
+    remotePrepare: { grant: admitted.grant } }, { deadlineMs: Date.now() + 120_000, grants: ["hosts"] });
+  try {
+    await answerOwnedRemotePrepare(initial, { taskId: f.task.id, attempt: 1 }, pluginRegistry(f.ctx));
+    answerOwnedRemoteClaim(initial, { taskId: f.task.id, attempt: 1 });
+    await answerOwnedRemoteStart(initial, { taskId: f.task.id, attempt: 1 });
+  } finally { await initial.revoke(); }
+  const pending = taskStop(f.ctx, f.task.id)!;
+  expect(pending.state).toBe("running");
+  expect(pending.stopPending).toBeDefined();
+  const run = pending.run!;
+  const grant = { taskId: f.task.id, attempt: 1, providerId: "pacer-exec-direct",
+    requestedAt: pending.stopPending!.requestedAt, graceMs: pending.stopPending!.graceMs,
+    dir: run.dir, startedAt: run.startedAt };
+  const authority = createCallAuthority(f.ctx, { reads: [], commands: [], stores: [], remoteStop: grant },
+    { deadlineMs: Date.now() + 120_000, grants: ["hosts"] });
+  try {
+    const stopped = await answerOwnedRemoteStop(authority,
+      { taskId: f.task.id, attempt: 1, graceMs: grant.graceMs });
+    expect(stopped.code).toBeNumber();
+    await expect(answerOwnedRemoteStop(authority,
+      { taskId: f.task.id, attempt: 1, graceMs: grant.graceMs }))
+      .rejects.toMatchObject({ code: "capability_denied" });
+    expect(readTask(f.ctx, f.task.id)?.executorExitReceipt?.exitCode).toBe(stopped.code);
+  } finally { await authority.revoke(); }
+  const settled = await superviseTask(f.ctx, f.task.id, () => undefined);
+  expect(settled?.state).toBe("stopped");
+  expect(settled?.stopPending).toBeUndefined();
+}, 60_000);
+
+test("production remote owner publishes placement, starts once and verifies its exit", async () => {
+  const f = await fixture();
+  writeFileSync(join(f.bin, "codex"), "#!/bin/sh\ncat >/dev/null\necho production-remote-done > DONE.txt\n" +
+    "git add DONE.txt\ngit commit -q -m fixture\necho production-remote-done\n", { mode: 0o755 });
+  if (!Bun.which("setsid")) writeFileSync(join(f.bin, "setsid"),
+    `#!${Bun.which("python3")}\nimport os,sys\nos.setsid()\nos.execvp(sys.argv[1],sys.argv[1:])\n`, { mode: 0o755 });
+  updateTask(f.ctx, f.task.id, current => { delete current.remotePrepareIntent; });
+  const cfg = loadStrategy(f.ctx).providers["codex@box"]!;
+  const out = await runOwnedDirectRemote(f.ctx, cfg, readTask(f.ctx, f.task.id)!);
+  expect(out.exec.code).toBe(0);
+  expect(out.report).toContain("production-remote-done");
+  expect(readTask(f.ctx, f.task.id)?.executorExitReceipt).toMatchObject({
+    attempt: 1, providerId: "pacer-exec-direct", exitCode: 0 });
+  expect(readTask(f.ctx, f.task.id)?.run?.host).toBe("box");
+  const unissued = createCallAuthority(f.ctx, { reads: [], commands: [], stores: [] },
+    { deadlineMs: Date.now() + 5000, grants: ["hosts"] });
+  try {
+    await expect(answerOwnedRemoteTransfer(unissued, { taskId: f.task.id, attempt: 1 }))
+      .rejects.toMatchObject({ code: "capability_denied" });
+  } finally { await unissued.revoke(); }
+}, 60_000);
+
+test("lost provider transfer reply reuses the same admitted branch and remote run", async () => {
+  const f = await fixture();
+  writeFileSync(join(f.bin, "codex"), "#!/bin/sh\ncat >/dev/null\necho once > ONCE.txt\n" +
+    "git add ONCE.txt\ngit commit -q -m fixture\necho transferred\n", { mode: 0o755 });
+  if (!Bun.which("setsid")) writeFileSync(join(f.bin, "setsid"),
+    `#!${Bun.which("python3")}\nimport os,sys\nos.setsid()\nos.execvp(sys.argv[1],sys.argv[1:])\n`, { mode: 0o755 });
+  updateTask(f.ctx, f.task.id, current => { delete current.remotePrepareIntent; });
+  const cfg = loadStrategy(f.ctx).providers["codex@box"]!;
+  const registry = pluginRegistry(f.ctx);
+  const lost = { call: async (...args: Parameters<typeof registry.call>) => {
+    await registry.call(...args);
+    throw Error("provider reply lost after transfer");
+  } };
+  await expect(runOwnedDirectRemote(f.ctx, cfg, readTask(f.ctx, f.task.id)!, lost))
+    .rejects.toThrow("provider reply lost");
+  const prior = readTask(f.ctx, f.task.id)!;
+  expect(prior.remoteTransferIntent?.branch).toBe(`pacer/${f.task.id}`);
+  expect(prior.run?.transferredHead).toMatch(/^[a-f0-9]{40}$/);
+  updateTask(f.ctx, f.task.id, current => { delete current.run?.transferredHead; });
+  const recovered = await runOwnedDirectRemote(f.ctx, cfg, readTask(f.ctx, f.task.id)!);
+  expect(recovered.worktree).toBeDefined();
+  expect(readTask(f.ctx, f.task.id)?.remoteTransferIntent).toEqual(prior.remoteTransferIntent);
+  expect(readTask(f.ctx, f.task.id)?.run?.transferredHead).toBe(prior.run?.transferredHead);
+  const forged = { call: async (...args: Parameters<typeof registry.call>) => {
+    const actual = await registry.call<Record<string, unknown>>(args[0], args[1], args[2], args[3], args[4]);
+    return { ...actual, worktree: f.repo };
+  } };
+  await expect(runOwnedDirectRemote(f.ctx, cfg, readTask(f.ctx, f.task.id)!, forged))
+    .rejects.toMatchObject({ code: "conflict" });
+  const forgedStatus = { call: async (...args: Parameters<typeof registry.call>) => {
+    const actual = await registry.call<Record<string, unknown>>(args[0], args[1], args[2], args[3], args[4]);
+    return { ...actual, exec: { ...(actual.exec as object), timedOut: true } };
+  } };
+  await expect(runOwnedDirectRemote(f.ctx, cfg, readTask(f.ctx, f.task.id)!, forgedStatus))
+    .rejects.toMatchObject({ code: "conflict" });
+  const omittedTransfer = { call: async (...args: Parameters<typeof registry.call>) => {
+    const actual = await registry.call<Record<string, unknown>>(args[0], args[1], args[2], args[3], args[4]);
+    updateTask(f.ctx, f.task.id, current => { delete current.run?.transferredHead; });
+    const { worktree: _discard, ...withoutWorktree } = actual;
+    return withoutWorktree;
+  } };
+  await expect(runOwnedDirectRemote(f.ctx, cfg, readTask(f.ctx, f.task.id)!, omittedTransfer))
+    .rejects.toMatchObject({ code: "conflict" });
+  const log = readFileSync(join(f.ctx.home, "..", "ssh.log"), "utf8");
+  expect(log.match(/START/g)?.length).toBe(1);
+}, 60_000);
+
+test("failed remote exit with no commits requires host-recorded no-work preflight", async () => {
+  const f = await fixture();
+  writeFileSync(join(f.bin, "codex"), "#!/bin/sh\ncat >/dev/null\necho failed >&2\nexit 2\n", { mode: 0o755 });
+  if (!Bun.which("setsid")) writeFileSync(join(f.bin, "setsid"),
+    `#!${Bun.which("python3")}\nimport os,sys\nos.setsid()\nos.execvp(sys.argv[1],sys.argv[1:])\n`, { mode: 0o755 });
+  updateTask(f.ctx, f.task.id, current => { delete current.remotePrepareIntent; });
+  const cfg = loadStrategy(f.ctx).providers["codex@box"]!;
+  const out = await runOwnedDirectRemote(f.ctx, cfg, readTask(f.ctx, f.task.id)!);
+  expect(out.exec.code).toBe(2);
+  expect(out.worktree).toBeUndefined();
+  expect(readTask(f.ctx, f.task.id)?.remoteTransferNoWork).toMatchObject({
+    attempt: 1, providerId: "pacer-exec-direct", exitCode: 2 });
+}, 60_000);
+
+test("task runner selects provider-owned remote pipe without built-in SSH fallback", async () => {
+  const f = await fixture();
+  writeFileSync(join(f.ctx.pacerHome, "strategy.yaml"), JSON.stringify({
+    accounts: { codex: { kind: "codex" }, "claude-code": { kind: "claude" } },
+    planner: "claude-code", hosts: { box: f.host }, routing: [{ default: ["codex@box"] }] }));
+  writeFileSync(join(f.bin, "codex"), "#!/bin/sh\ncat >/dev/null\necho routed > ROUTED.txt\n" +
+    "git add ROUTED.txt\ngit commit -q -m fixture\necho routed-remote\n", { mode: 0o755 });
+  if (!Bun.which("setsid")) writeFileSync(join(f.bin, "setsid"),
+    `#!${Bun.which("python3")}\nimport os,sys\nos.setsid()\nos.execvp(sys.argv[1],sys.argv[1:])\n`, { mode: 0o755 });
+  updateTask(f.ctx, f.task.id, current => {
+    current.state = "queued"; delete current.executor; delete current.executorProvider;
+    delete current.remotePrepareIntent;
+  });
+  const deps = {
+    loadStrategy,
+    computeStatus: async () => ({ generatedAt: f.ctx.now, strategy: "default", planner: "claude-code",
+      mode: "normal" as const, disabled: false, calendarPace: true, accounts: [],
+      providers: [{ id: "codex@box", eligibility: eligibility(), usage: "quota" as const,
+        windows: [], binding: null, verdict: "ON_PACE" as const, installed: true, stale: false }],
+      executors: { ranked: [], excluded: [] } }),
+    hooks: { ...defaultHooks, taskKind: async () => "research" },
+    verifyRepo: async () => ({ files: "(no changes)" }),
+  };
+  const result = await runTask(f.ctx, f.task.id, deps);
+  expect(result.executorProvider).toBe("pacer-exec-direct");
+  expect(result.attempts).toHaveLength(1);
+  expect(result.run?.host).toBe("box");
+  expect(result.result?.report).toContain("routed-remote");
+  updateTask(f.ctx, f.task.id, current => {
+    current.state = "queued";
+    delete current.result;
+    delete current.executor;
+    delete current.runnerPid;
+  });
+  const retry = await runTask(f.ctx, f.task.id, deps);
+  expect(retry.executorProvider).toBe("pacer-exec-direct");
+  expect(retry.attempts).toHaveLength(2);
+  expect(retry.run?.attempt).toBe(2);
+  expect(retry.startIntent).toMatchObject({ attempt: 2, providerId: "pacer-exec-direct" });
+  expect(retry.remoteTransferIntent?.attempt).toBe(2);
+  await tasks.review(f.ctx, retry.id, { accepted: true });
+  expect((await tasks.clean(f.ctx)).removed).toContain(retry.id);
+  expect(existsSync(retry.run!.remoteWorktree!)).toBe(false);
+  expect(existsSync(retry.run!.remoteDir!)).toBe(false);
+}, 90_000);

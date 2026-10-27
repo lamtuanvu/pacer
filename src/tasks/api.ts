@@ -330,7 +330,7 @@ async function superviseTaskRecord(ctx: Ctx, t: TaskRecord, spawn: SpawnRunner, 
   if (!["queued", "running"].includes(t.state)) return t;
   const id = t.id;
   if (t.state === "running" && t.executorProvider && t.stopPending && t.run &&
-    !t.run.host && !t.startIntent) {
+    !t.startIntent) {
     return withTaskLock(ctx, id, () => {
       const latest = readTask(ctx, id);
       if (!latest || latest.state !== "running" || !latest.stopPending ||
@@ -349,6 +349,43 @@ async function superviseTaskRecord(ctx: Ctx, t: TaskRecord, spawn: SpawnRunner, 
             "stopped before an executor ran", backend: "direct" };
       });
     });
+  }
+  if (t.state === "running" && t.executorProvider === "pacer-exec-direct" &&
+    t.stopPending && t.run?.host) {
+    try {
+      const { stopOwnedRemoteExecutorAttempt } = await import("../plugins/executor-stop");
+      const { pluginRegistry } = await import("../plugins");
+      const intent = t.stopPending, run = t.run;
+      const verified = t.executorExitReceipt?.attempt === run.attempt &&
+        t.executorExitReceipt.providerId === t.executorProvider &&
+        t.executorExitReceipt.dir === run.dir &&
+        t.executorExitReceipt.startedAt === run.startedAt;
+      if (!verified)
+        await stopOwnedRemoteExecutorAttempt(ctx, pluginRegistry(ctx), id, run.attempt, intent.graceMs);
+      return withTaskLock(ctx, id, () => {
+        const latest = readTask(ctx, id), receipt = latest?.executorExitReceipt;
+        if (!latest || latest.state !== "running" || latest.executorProvider !== "pacer-exec-direct" ||
+          latest.stopPending?.requestedAt !== intent.requestedAt ||
+          latest.stopPending.attempt !== run.attempt || latest.run?.dir !== run.dir ||
+          latest.run.startedAt !== run.startedAt || !receipt ||
+          receipt.attempt !== run.attempt || receipt.providerId !== latest.executorProvider ||
+          receipt.dir !== run.dir || receipt.startedAt !== run.startedAt) return latest ?? t;
+        return updateTask(ctx, id, current => {
+          const deadline = current.stopPending?.reason === "deadline";
+          current.attempts.push({ executor: run.executor, model: null,
+            startedAt: run.startedAt, endedAt: Date.now() / 1000,
+            exitCode: receipt.exitCode, timedOut: !!deadline, limitHit: false, log: run.logFile });
+          delete current.stopPending; delete current.pendingAttempt;
+          delete current.childPid; delete current.runnerPid;
+          current.state = deadline ? "failed" : "stopped";
+          current.result = { status: deadline ? "failed" : "stopped", executor: run.executor,
+            model: null, files: "", report: deadline ?
+              "Remote executor deadline reached; exit verified" :
+              "Remote executor exited after stop was requested", backend: "direct" };
+        });
+      });
+    } catch { /* Preserve pending remote stop for another exact reconciliation. */ }
+    return readTask(ctx, id) ?? t;
   }
   if (t.state === "running" && t.executorProvider && t.stopPending && t.run && !t.run.host) {
     try {
@@ -396,7 +433,8 @@ async function superviseTaskRecord(ctx: Ctx, t: TaskRecord, spawn: SpawnRunner, 
   const deadRun = t.state === "running" && current && !alive(t.runnerPid);
   const preparedOwnedRun = t.state === "running" && t.executorProvider === "pacer-exec-direct" &&
     !t.run && !t.stopPending && !alive(t.runnerPid) &&
-    (!!t.worktreeIntent || !!t.runClaim || !!t.baseFetchIntent?.sha);
+    (!!t.worktreeIntent || !!t.runClaim || !!t.baseFetchIntent?.sha ||
+      !!t.remotePrepareIntent);
   const r = deadRun && !run.host ? await readRunLiveness(run.dir) : null;
   if (stopped()) return t;
   return withTaskLock(ctx, id, () => {
@@ -469,6 +507,11 @@ export function taskStop(ctx: Ctx, id: string): TaskRecord | null {
     const t = readTask(ctx, id);
     if (!t) return null;
     if (t.stopPending) return t;
+    if (t.state === "running" && t.executorProvider === "pacer-exec-direct" &&
+      t.run?.host && t.remoteTransferIntent?.attempt === t.run.attempt &&
+      t.remoteTransferIntent.dir === t.run.dir &&
+      t.remoteTransferIntent.startedAt === t.run.startedAt && !t.run.transferredHead)
+      throw new CoreError("conflict", "remote transfer is in progress; retry stop after it settles");
     if (t.executorProvider && t.state === "running") return updateTask(ctx, id, current => {
       current.stopPending = { attempt: current.run?.attempt ?? current.attempts.length + 1,
         requestedAt: Date.now() / 1000, providerId: t.executorProvider!, graceMs: 5000, reason: "user" };

@@ -7,8 +7,11 @@ import type { Ctx } from "../types";
 
 export interface CallResources {
   /** One persisted remote placement; provider may request only this fixed PREPARE or recover proof. */
-  remotePrepare?: { grant: import("./executor-remote-prepare").OwnedRemotePrepareGrant;
-    bundle?: Uint8Array };
+  remotePrepare?: { grant: import("./executor-remote-prepare").OwnedRemotePrepareGrant };
+  /** Exact pending remote stop; one provider call may issue only this fixed STOP. */
+  remoteStop?: { taskId: string; attempt: number; providerId: string;
+    requestedAt: number; graceMs: number; dir: string; startedAt: number };
+  remoteTransfer?: { taskId: string; attempt: number; providerId: string };
   /** Host-selected local run publication after placement, never derived from plugin params. */
   executorClaim?: { taskId: string; attempt: number; providerId: string; executor: string; workdir: string;
     launch: { argv: string[]; cwd: string; executable: string;
@@ -113,6 +116,8 @@ export class CallAuthority {
   private worktreeCreateUsed = false;
   private executorClaimUsed = false;
   private remotePrepareUsed = false;
+  private remoteStopUsed = false;
+  private remoteTransferUsed = false;
   private remotePrepared?: { taskId: string; attempt: number; worktree: string; branch: string };
   private claimedDetachedRun?: ClaimedRun;
   private readonly detach: () => void;
@@ -189,6 +194,8 @@ export class CallAuthority {
       Object.freeze(this.resources.executorObserve);
     }
     if (this.resources.remotePrepare) Object.freeze(this.resources.remotePrepare);
+    if (this.resources.remoteStop) Object.freeze(this.resources.remoteStop);
+    if (this.resources.remoteTransfer) Object.freeze(this.resources.remoteTransfer);
     Object.freeze(this.resources);
     const cancel = () => { void this.revoke().catch(() => {}); };
     parent?.addEventListener("abort", cancel, { once: true });
@@ -295,6 +302,23 @@ export class CallAuthority {
     if (!result || result.taskId !== taskId || result.attempt !== attempt)
       throw new CoreError("capability_denied", "remote run claim has no verified placement");
     return result;
+  }
+  consumeRemoteStop(taskId: string, attempt: number, graceMs: number): NonNullable<CallResources["remoteStop"]> {
+    this.assertGranted("hosts");
+    const grant = this.resources.remoteStop;
+    if (!grant || this.remoteStopUsed || grant.taskId !== taskId || grant.attempt !== attempt ||
+      grant.graceMs !== graceMs)
+      throw new CoreError("capability_denied", "remote stop is not issued for this call");
+    this.remoteStopUsed = true;
+    return grant;
+  }
+  consumeRemoteTransfer(taskId: string, attempt: number): NonNullable<CallResources["remoteTransfer"]> {
+    this.assertGranted("hosts");
+    const grant = this.resources.remoteTransfer;
+    if (!grant || this.remoteTransferUsed || grant.taskId !== taskId || grant.attempt !== attempt)
+      throw new CoreError("capability_denied", "remote transfer is not issued for this call");
+    this.remoteTransferUsed = true;
+    return grant;
   }
   /** Host-only continuation after an exact durable run claim; never accepts a provider-supplied command. */
   bindClaimedDetachedRun(grant: ClaimedRun): void {

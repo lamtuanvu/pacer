@@ -11,13 +11,13 @@ import type { Ctx } from "../types";
 type Intent = NonNullable<TaskRecord["remotePrepareIntent"]>;
 const deny = (): never => { throw new CoreError("capability_denied", "remote placement owner or source changed"); };
 export interface OwnedRemotePrepareGrant { readonly nonce: string; readonly taskId: string; readonly attempt: number;
-  readonly providerId: string; readonly mode: "prepare" | "recover" }
+  readonly providerId: string; readonly mode: "prepare" | "bundle" | "recover" }
 const issued = new Map<string, { home: string; intent: Intent;
-  mode: "prepare" | "recover"; expiresAt: number }>();
+  mode: "prepare" | "bundle" | "recover"; expiresAt: number }>();
 
 /** Persist an exact first PREPARE before any remote effect. A later admission is recover-only. */
 export async function admitOwnedRemotePrepare(ctx: Ctx, taskId: string, providerId: string,
-  executor: string, alias: string, base: string, baseSha: string): Promise<{ mode: "prepare" | "recover"; intent: Intent;
+  executor: string, alias: string, base: string, baseSha: string): Promise<{ mode: "prepare" | "bundle" | "recover"; intent: Intent;
     grant: OwnedRemotePrepareGrant }> {
   if (providerId !== "pacer-exec-direct" || !/^[a-f0-9]{40,64}$/.test(baseSha) ||
     !base || base.length > 256 || /[\u0000-\u001f\u007f]/.test(base)) return deny();
@@ -50,8 +50,10 @@ export async function admitOwnedRemotePrepare(ctx: Ctx, taskId: string, provider
       JSON.stringify(loadStrategy(ctx).hosts[alias]) !== intent.hostFingerprint) return deny();
     const prior = current.remotePrepareIntent;
     if (prior) {
-      if (JSON.stringify(prior) !== JSON.stringify(intent)) return deny();
-      return { mode: "recover" as const, intent: prior };
+      const { missingBaseReceiptAt: _receipt, bundleRetryIssuedAt: _retry, ...core } = prior;
+      if (JSON.stringify(core) !== JSON.stringify(intent)) return deny();
+      return { mode: prior.missingBaseReceiptAt && !prior.bundleRetryIssuedAt
+        ? "bundle" as const : "recover" as const, intent: prior };
     }
     if (current.rev !== task.rev) return deny();
     updateTask(ctx, taskId, record => { record.remotePrepareIntent = intent; });
@@ -77,4 +79,33 @@ export function consumeOwnedRemotePrepareGrant(ctx: Ctx, grant: OwnedRemotePrepa
     grant.mode !== saved.mode) return deny();
   issued.delete(grant.nonce);
   return { ...saved.intent };
+}
+
+function phaseOwner(ctx: Ctx, taskId: string, expected: Intent): Intent {
+  const task = readTask(ctx, taskId), current = task?.remotePrepareIntent;
+  if (!task || !current || task.state !== "running" || task.stopPending || task.run ||
+    task.executorProvider !== expected.providerId || task.executor !== expected.executor ||
+    task.attempts.length + 1 !== expected.attempt) return deny();
+  const { missingBaseReceiptAt: _receipt, bundleRetryIssuedAt: _retry, ...core } = current;
+  const { missingBaseReceiptAt: _expectedReceipt, bundleRetryIssuedAt: _expectedRetry, ...wanted } = expected;
+  if (JSON.stringify(core) !== JSON.stringify(wanted)) return deny();
+  return current;
+}
+
+/** Only a verified fixed-script missing-base receipt can permit one bundle-bearing retry. */
+export function recordOwnedRemoteMissingBase(ctx: Ctx, taskId: string, expected: Intent): void {
+  withTaskLock(ctx, taskId, () => {
+    const current = phaseOwner(ctx, taskId, expected);
+    if (current.missingBaseReceiptAt || current.bundleRetryIssuedAt) return deny();
+    updateTask(ctx, taskId, task => { task.remotePrepareIntent!.missingBaseReceiptAt = Date.now() / 1000; });
+  });
+}
+
+/** Commit retry issuance before the second PREPARE; a missing reply is recover-only. */
+export function recordOwnedRemoteBundleRetry(ctx: Ctx, taskId: string, expected: Intent): void {
+  withTaskLock(ctx, taskId, () => {
+    const current = phaseOwner(ctx, taskId, expected);
+    if (!current.missingBaseReceiptAt || current.bundleRetryIssuedAt) return deny();
+    updateTask(ctx, taskId, task => { task.remotePrepareIntent!.bundleRetryIssuedAt = Date.now() / 1000; });
+  });
 }

@@ -37,7 +37,8 @@ import { brokenReason, markBroken, readBroken, repoFingerprint } from "../exec/b
 import { directBackend, selectBackend } from "../exec/backend";
 import { type AttemptOutcome, resumeAttempt } from "../exec/direct";
 import { killTree } from "../exec/process";
-import { resumeOwnedDirect, runOwnedDirectCurrent, runOwnedDirectNew } from "../plugins/executor-production";
+import { resumeOwnedDirect, runOwnedDirectCurrent, runOwnedDirectNew,
+  runOwnedDirectRemote } from "../plugins/executor-production";
 import { exhaustUntil } from "../exec/limits";
 import { verifyRepo } from "../exec/verify";
 import type { Ctx } from "../types";
@@ -166,7 +167,8 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
       const resumable = current.state === "running" && !!current.run && current.run.attempt > current.attempts.length && !(!!current.runnerPid && pidAlive(current.runnerPid));
       const prepared = current.state === "running" && current.executorProvider === "pacer-exec-direct" &&
         !current.run && !current.stopPending &&
-        (!!current.worktreeIntent || !!current.runClaim || !!current.baseFetchIntent?.sha);
+        (!!current.worktreeIntent || !!current.runClaim || !!current.baseFetchIntent?.sha ||
+          !!current.remotePrepareIntent);
       const dispatched = current.state === "running" && !current.run &&
         (!current.runnerPid || current.runnerPid === process.pid || !pidAlive(current.runnerPid)) &&
         (!current.attemptStartedAt || prepared);
@@ -457,8 +459,14 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
       const ownedCurrent = localOwnerCandidate && localPlacement?.mode === "current";
       const ownedNew = localOwnerCandidate && localPlacement?.mode === "new" &&
         !!localGit && !("error" in localGit);
+      const remoteRunner = resolveRunner(s, pick);
+      const ownedRemote = !deps.runAttempt && !work && task.interactionMode !== "conversation" &&
+        ctx.env.PACER_BACKEND !== "orca" && !!remoteRunner?.host &&
+        !!s.hosts[remoteRunner.host] && s.hosts[remoteRunner.host]!.session !== "full" &&
+        validateExecution(s.execution).session !== "pty" && cfg.session !== "interactive" &&
+        (!resuming || !!resuming.host);
       const ownedResume = !!resuming && task.executorProvider === "pacer-exec-direct";
-      const owned = ownedCurrent || ownedNew || ownedResume;
+      const owned = ownedCurrent || ownedNew || ownedRemote || ownedResume;
       const account = resolveRunner(s, pick)?.account ?? pick;
       const usage = (st: Status | undefined): AttemptUsage => {
         const reading = st?.accounts?.find(a => a.name === account);
@@ -549,15 +557,17 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
             if (localPlacement) current.placement = { requested: current.placement?.requested ?? "auto",
               ...current.placement, mode: localPlacement.mode, why: localPlacement.why };
           });
-          out = await (ownedResume ? resumeOwnedDirect(executionCtx, cfg, task)
-            : ownedNew ? runOwnedDirectNew(executionCtx, cfg, task)
+          out = await (ownedRemote ? runOwnedDirectRemote(executionCtx, cfg, task)
+            : ownedResume ? resumeOwnedDirect(executionCtx, cfg, task)
+              : ownedNew ? runOwnedDirectNew(executionCtx, cfg, task)
               : runOwnedDirectCurrent(executionCtx, cfg, task));
         } else out = resuming ? await resumeAttempt(executionCtx, cfg, task) : await (deps.runAttempt ?? backend!.runAttempt)(executionCtx, cfg, task, onSpawn);
       } catch (error) {
         const latest = readTask(ctx, id);
         if (owned && latest && TERMINAL_STATES.includes(latest.state)) return latest;
         if (owned && latest?.executorProvider === "pacer-exec-direct" &&
-          (latest.run || latest.runClaim || latest.worktreeIntent || latest.baseFetchIntent || latest.startIntent)) {
+          (latest.run || latest.runClaim || latest.worktreeIntent || latest.baseFetchIntent ||
+            latest.remotePrepareIntent || latest.startIntent)) {
           return updateTask(ctx, id, current => {
             if (error instanceof CoreError && error.code === "plugin_timeout" &&
               current.run && current.startIntent && !current.stopPending)
@@ -565,7 +575,8 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
                 providerId: "pacer-exec-direct", graceMs: 5000, reason: "deadline" };
             if (current.runnerPid === process.pid) delete current.runnerPid;
             current.progress = { lastOutputAt: null, lastChangeAt: null, files: 0, commits: 0,
-              logBytes: 0, host: "local", ...current.progress, phase: "lost-contact", updatedAt: Date.now() / 1000 };
+              logBytes: 0, host: current.run?.host ?? current.remotePrepareIntent?.alias ?? "local",
+              ...current.progress, phase: "lost-contact", updatedAt: Date.now() / 1000 };
           });
         }
         if (!/ENOENT|EACCES|command not found/.test(String(error))) throw error;
@@ -685,7 +696,8 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
       if (!out.partial) task = updateTask(ctx, id, t => {
         const now = Date.now() / 1000;
         t.progress = {
-          lastOutputAt: null, lastChangeAt: null, files: 0, commits: 0, logBytes: 0, host: "local",
+          lastOutputAt: null, lastChangeAt: null, files: 0, commits: 0, logBytes: 0,
+          host: task.run?.host ?? "local",
           ...t.progress, phase: "testing", updatedAt: now,
         };
       });
