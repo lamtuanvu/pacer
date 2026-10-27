@@ -37,7 +37,15 @@ export type ColorToken =
   | "agent-gemini"
   | "traffic-close"
   | "traffic-min"
-  | "traffic-max";
+  | "traffic-max"
+  | "chart-1"
+  | "chart-2"
+  | "chart-3"
+  | "chart-4"
+  | "chart-5"
+  | "aurora-1"
+  | "aurora-2"
+  | "aurora-3";
 export const colorTokens: Record<ColorToken, { light: string; dark: string }> = {
   "surface-page": { light: "#ffffff", dark: "#09090b" },
   "surface-card": { light: "#fafafa", dark: "#18181b" },
@@ -77,4 +85,12 @@ export const colorTokens: Record<ColorToken, { light: string; dark: string }> = 
   "traffic-close": { light: "#ff5f56", dark: "#ff5f56" },
   "traffic-min": { light: "#ffbd2e", dark: "#ffbd2e" },
   "traffic-max": { light: "#27ca40", dark: "#27ca40" },
+  "chart-1": { light: "#4f7a94", dark: "#7da4bb" },
+  "chart-2": { light: "#c08a6a", dark: "#d5a68a" },
+  "chart-3": { light: "#8b9bd0", dark: "#a5b2df" },
+  "chart-4": { light: "#7f8f6f", dark: "#9baa8b" },
+  "chart-5": { light: "#b9b4a8", dark: "#c6c1b5" },
+  "aurora-1": { light: "#a5b4fc", dark: "#818cf8" },
+  "aurora-2": { light: "#f0abfc", dark: "#d58be8" },
+  "aurora-3": { light: "#99f6e4", dark: "#5ed8c4" },
 };

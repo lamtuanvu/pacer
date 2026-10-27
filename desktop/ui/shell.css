@@ -39,6 +39,14 @@
   --traffic-close: #ff5f56;
   --traffic-min: #ffbd2e;
   --traffic-max: #27ca40;
+  --chart-1: #4f7a94;
+  --chart-2: #c08a6a;
+  --chart-3: #8b9bd0;
+  --chart-4: #7f8f6f;
+  --chart-5: #b9b4a8;
+  --aurora-1: #a5b4fc;
+  --aurora-2: #f0abfc;
+  --aurora-3: #99f6e4;
   --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   --type-display-size: 28px;
@@ -209,6 +217,14 @@
   --traffic-close: #ff5f56;
   --traffic-min: #ffbd2e;
   --traffic-max: #27ca40;
+  --chart-1: #7da4bb;
+  --chart-2: #d5a68a;
+  --chart-3: #a5b2df;
+  --chart-4: #9baa8b;
+  --chart-5: #c6c1b5;
+  --aurora-1: #818cf8;
+  --aurora-2: #d58be8;
+  --aurora-3: #5ed8c4;
 }
 }
 :root[data-theme="dark"] {
@@ -250,6 +266,14 @@
   --traffic-close: #ff5f56;
   --traffic-min: #ffbd2e;
   --traffic-max: #27ca40;
+  --chart-1: #7da4bb;
+  --chart-2: #d5a68a;
+  --chart-3: #a5b2df;
+  --chart-4: #9baa8b;
+  --chart-5: #c6c1b5;
+  --aurora-1: #818cf8;
+  --aurora-2: #d58be8;
+  --aurora-3: #5ed8c4;
 }
 /* Bundled copy of app/src/ds/tokens.css above; keep in sync with the pacer tokens. */
 * { box-sizing: border-box; }
