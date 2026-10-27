@@ -55,7 +55,9 @@ export function blockedResources(source: string): BlockedResource[] {
     if (external(address)) add(kind, address, false);
     else if (localAsset(address)) add(kind, address, true);
   };
-  const text = source.replace(/<!--[\s\S]*?-->/g, "");
+  // Strip comments until none remain, so removing one cannot join the pieces into a new "<!--".
+  let text = source;
+  for (let previous = ""; previous !== text;) { previous = text; text = text.replace(/<!--[\s\S]*?(?:-->|$)/g, ""); }
   const css: string[] = [];
   let inlineStyles = false;
   const markup = text.replace(/<script\b((?:[^>"']|"[^"]*"|'[^']*')*)>([\s\S]*?)(?:<\/script\s*>|$)/gi, (_whole, attributeText: string, body: string) => {

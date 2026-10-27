@@ -227,3 +227,8 @@ test("Markdown file links resolve from the viewed document and ignore fragments 
   expect(resolvePreviewReference("docs/guide/README.md", "//example.com/a.md")).toBeNull();
   expect(resolvePreviewReference("docs/guide/README.md", "javascript:alert(1)")).toBeNull();
 });
+
+test("the blocked-resource scanner ignores comments, including nested and unterminated ones", () => {
+  expect(blockedResources('<!-<!-- x -->- <script src="https://a.example/x.js"></script> -->')).toEqual([]);
+  expect(blockedResources('<img src="https://b.example/y.png"><!-- <script src="https://a.example/x.js"></script>')).toEqual([{ kind: "img", address: "https://b.example/y.png", local: false }]);
+});
