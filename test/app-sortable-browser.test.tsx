@@ -126,12 +126,12 @@ browserTest('focus stays in place after adding from the pool, removing the last 
     expect(await active(page)).toBe('Add to Executors for Task kinds: tests');
     // Removing the only executor of a rule keeps focus on that (now empty) list.
     await page.getByRole('button', { name: 'Remove: Claude Code' }).last().click();
-    expect(await active(page)).toBe('Executors for Everything else, in priority order');
+    expect(await active(page)).toBe('Add Claude Code');
     expect(await page.getByText('Add at least one executor to this rule.').count()).toBe(1);
     await page.getByRole('button', { name: 'Remove rule: Task kinds: tests' }).click();
     expect(await active(page)).toBe('Add task-kind rule');
     await page.getByRole('button', { name: 'Add task-kind rule' }).click();
-    expect(await page.evaluate(() => (document.activeElement as HTMLElement).hasAttribute('data-rule-kinds'))).toBe(true);
+    expect(await page.evaluate(() => (document.activeElement as HTMLElement).getAttribute('data-list-field') === 'kinds')).toBe(true);
   } finally { await page.close(); }
 });
 
@@ -146,7 +146,7 @@ browserTest('a failed ladder save after saved rules keeps the error and the unsa
     expect(await page.locator('.pc-save-bar').textContent()).toContain('3 unsaved changes');
     await page.getByRole('button', { name: 'Validate and save' }).click();
     await page.getByText('Saved executor rules. name taken').waitFor();
-    expect(await page.getByTestId('calls').textContent()).toBe('routing.set,dispatch.config.get,strategy.preview,strategy.save');
+    expect(await page.getByTestId('calls').textContent()).toBe('dispatch.config.get,routing.set,strategy.preview,strategy.save');
     // The rules saved and were reloaded; the ladder change, its name and reason are kept for a retry.
     await page.locator('.pc-save-bar', { hasText: '2 unsaved changes' }).waitFor({ timeout: 3000 });
     expect(await page.getByLabel('Profile name').inputValue()).toBe('night');
@@ -166,5 +166,43 @@ browserTest('a change from another client keeps the draft, says so, and Discard 
     await page.getByRole('button', { name: 'Discard' }).click();
     expect(await everything.allTextContents()).toEqual(['Codex']);
     expect(await page.getByText('Another client changed these settings.').count()).toBe(0);
+  } finally { await page.close(); }
+});
+
+browserTest('reverting edits after another client changed the rules follows their saved rules', async () => {
+  const page = await browser.newPage();
+  try {
+    await page.goto(`${server.url.href}#setup`);
+    const add = page.getByRole('group', { name: 'Add to Executors for Everything else' });
+    await add.getByRole('button', { name: 'Add Codex' }).click();
+    await page.locator('#other-client').click();
+    await page.getByText('Another client changed these settings.').waitFor();
+    // Undo by hand: the count reaches zero, so the editor must rebase onto the other client's rules.
+    await page.getByRole('button', { name: 'Remove: Codex' }).last().click();
+    const everything = page.locator('[aria-label="Executors for Everything else, in priority order"] .pc-sortable__label');
+    await page.locator('[aria-label="Executors for Task kinds: tests, in priority order"]', { hasText: 'OpenCode' }).waitFor({ timeout: 3000 });
+    expect(await everything.allTextContents()).toEqual(['Codex']);
+    expect(await page.getByText('Another client changed these settings.').count()).toBe(0);
+    expect(await page.locator('[aria-label="Executors for Task kinds: tests, in priority order"] .pc-sortable__label').allTextContents()).toEqual(['OpenCode']);
+  } finally { await page.close(); }
+});
+
+browserTest('task kinds and ladder lists accept typed commas and spaces', async () => {
+  const page = await browser.newPage();
+  try {
+    await page.goto(`${server.url.href}#setup`);
+    const kinds = page.getByLabel('Rule 1 task kinds');
+    await kinds.click(); await kinds.press('End');
+    await page.keyboard.type(', docs');
+    expect(await kinds.inputValue()).toBe('tests, docs');
+    expect(await page.getByText('Task kinds: tests, docs').count()).toBe(1);
+    expect(await page.locator('.pc-save-bar').textContent()).toContain('1 unsaved change');
+    await page.getByText('Edit step 1').click();
+    const prefer = page.getByLabel('Prefer these models').first();
+    await prefer.click();
+    await page.keyboard.type('provider/a, provider/b');
+    expect(await prefer.inputValue()).toBe('provider/a, provider/b');
+    await prefer.blur();
+    expect(await prefer.inputValue()).toBe('provider/a, provider/b');
   } finally { await page.close(); }
 });

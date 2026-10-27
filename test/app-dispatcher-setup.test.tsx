@@ -150,8 +150,8 @@ const profile = { name: "night", reason: " cheaper " };
 test("save sequence writes eligibility first, then validates, saves and activates the ladder", async () => {
   const { calls, call } = recorder();
   const done = await saveSetup({ call, setup: globalSetup([{ executors: ["codex"] }], [{ executors: ["cursor"] }], reordered), profile });
-  expect(calls.map(([op]) => op)).toEqual(["routing.set", "dispatch.config.get", "strategy.preview", "strategy.save", "strategy.use"]);
-  expect(calls[0]![1]).toEqual({ rules: [{ executors: ["cursor"] }] });
+  expect(calls.map(([op]) => op)).toEqual(["dispatch.config.get", "routing.set", "strategy.preview", "strategy.save", "strategy.use"]);
+  expect(calls[1]![1]).toEqual({ rules: [{ executors: ["cursor"] }] });
   expect(calls[3]![1]).toEqual({ name: "night", draft: { from: "default", set: { dispatch: reordered } }, reason: "cheaper" });
   expect(done).toEqual(["executor rules", "profile night, now active"]);
   const unchanged = recorder();
@@ -179,8 +179,9 @@ test("a ladder failure after saved rules reports what saved; stale profiles and 
   expect(failure.done).toEqual(["executor rules"]);
   const activation = recorder(op => op === "strategy.use" && new Error("busy"));
   await expect(saveSetup({ call: activation.call, setup: globalSetup([], [], reordered), profile })).rejects.toThrow("Saved night, but it could not be activated: busy");
+  // A stale profile stops the save before the rules are written, so nothing saves part-way.
   const stale = recorder();
-  await expect(saveSetup({ call: stale.call, setup: { ...globalSetup([], [], reordered), strategy: "night" }, profile })).rejects.toThrow("changed in another client");
+  await expect(saveSetup({ call: stale.call, setup: { ...globalSetup([{ executors: ["codex"] }], [{ executors: ["cursor"] }], reordered), strategy: "night" }, profile })).rejects.toThrow("changed in another client");
   expect(stale.calls.map(([op]) => op)).toEqual(["dispatch.config.get"]);
   const invalid: typeof stale = { calls: [], call: async <T,>(op: string): Promise<T> => { invalid.calls.push([op, {}]); return (op === "dispatch.config.get" ? { strategy: "default", config: base } : { ok: false, errors: ["Step ids must be unique."] }) as T; } };
   await expect(saveSetup({ call: invalid.call, setup: globalSetup([], [], reordered), profile })).rejects.toThrow("Step ids must be unique.");

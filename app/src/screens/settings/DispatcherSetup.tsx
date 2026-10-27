@@ -14,7 +14,7 @@ import type { ProjectStrategyView } from "../../model/project-strategies";
 import type { StrategyRow } from "../../model/strategy";
 import { countSetupChanges, discardSetup, eligibilityChanges, ladderChanges, PartialSaveError, reconcileSetup, saveSetup, type EligibilityDraft, type SetupDraft } from "../../model/dispatcher-setup";
 import { ErrorMessage, useTaskContext } from "../task-shared";
-import { DispatcherLadderFields, DispatcherReadError, type DispatcherConfigView } from "./Dispatcher";
+import { DispatcherLadderFields, DispatcherReadError, ListField, type DispatcherConfigView } from "./Dispatcher";
 import { Feedback, ResourceState, Section, useOperation, useResource } from "./shared";
 
 /** Saved setups are named strategy profiles; each is marked with a deterministic identicon. */
@@ -60,7 +60,7 @@ function OrderWithPool({ label, items, onChange, pool, empty, disabled }: { labe
   const add = (key: string, index: number) => { focusAfter(() => { const left = buttons(group.current, "button"); return left[Math.min(index, left.length - 1)] ?? group.current; }); onChange([...keys, key]); };
   return <div className="u3-settings-grid">
     <div className="pc-stack pc-stack--compact">
-      <SortableList label={`${label}, in priority order`} disabled={disabled} items={items} onReorder={onChange} onRemove={key => onChange(keys.filter(item => item !== key))} />
+      <SortableList label={`${label}, in priority order`} disabled={disabled} items={items} onReorder={onChange} onRemove={key => { if (keys.length === 1) focusAfter(() => buttons(group.current, "button")[0] ?? group.current); onChange(keys.filter(item => item !== key)); }} />
       {!items.length && <p>{empty}</p>}
     </div>
     <div ref={group} className="pc-stack pc-stack--compact" role="group" aria-label={`Add to ${label}`} tabIndex={-1} data-executor-pool="">
@@ -78,7 +78,7 @@ function GlobalRules({ rules, available, disabled, onChange }: { rules: Rule[]; 
     const at = rules.findIndex(rule => !rule.kinds), index = at < 0 ? rules.length : at, next = [...rules];
     next.splice(index, 0, { kinds: [], executors: [] });
     keys.current.splice(index, 0, `new${Date.now()}`);
-    focusAfter(() => root.current?.querySelectorAll<HTMLInputElement>("[data-rule-kinds]")[index]);
+    focusAfter(() => root.current?.querySelectorAll<HTMLInputElement>("[data-list-field=kinds]")[index]);
     onChange(next);
   };
   const removeRule = (index: number) => {
@@ -92,8 +92,8 @@ function GlobalRules({ rules, available, disabled, onChange }: { rules: Rule[]; 
       return <div className="pc-card" key={keys.current[index]}>
         <div className="u3-row"><SectionHeading>{title}</SectionHeading>
           {rule.kinds && <Button size="sm" variant="quiet" disabled={disabled} data-rule-remove="" aria-label={`Remove rule: ${title}`} onClick={() => removeRule(index)}>Remove rule</Button>}</div>
-        {rule.kinds && <Field label={`Rule ${index + 1} task kinds`} help="Separate task kinds with commas."><TextInput data-rule-kinds="" value={rule.kinds.join(", ")} disabled={disabled} placeholder="For example, tests, docs"
-          onChange={event => patch(index, { ...rule, kinds: splitKinds(event.currentTarget.value) })} /></Field>}
+        {rule.kinds && <ListField label={`Rule ${index + 1} task kinds`} help="Separate task kinds with commas." marker="kinds" value={rule.kinds} disabled={disabled}
+          placeholder="For example, tests, docs" onText={text => patch(index, { ...rule, kinds: splitKinds(text) })} />}
         <OrderWithPool label={`Executors for ${title}`} disabled={disabled} empty="Add at least one executor to this rule."
           items={rule.executors.map((id, at) => ({ key: id, label: executorLabel(id), detail: rank(at) }))} onChange={executors => patch(index, { ...rule, executors })}
           pool={available.filter(id => !rule.executors.includes(id)).map(id => ({ key: id, label: executorLabel(id) }))} />
@@ -150,11 +150,12 @@ export function SetupEditor({ view, eligibility: source, onSaved, onDirtyChange,
   const [name, setName] = useState(""), [reason, setReason] = useState(""), [busy, setBusy] = useState(false), [error, setError] = useState<unknown>();
   const signature = JSON.stringify([incoming.eligibility.saved, incoming.eligibility.kind === "project" ? incoming.eligibility.rev : null, incoming.savedLadder, incoming.strategy]);
   useEffect(() => {
-    setSetup(current => { const merged = reconcileSetup(current, latest.current); if (merged.conflict) setConflict(true); return merged.setup; });
+    setSetup(current => { const merged = reconcileSetup(current, latest.current); setConflict(merged.conflict); return merged.setup; });
   }, [signature]);
   const count = countSetupChanges(setup), ladderDirty = ladderChanges(setup.savedLadder, setup.ladder) > 0;
   useEffect(() => onDirtyChange(count > 0), [count > 0]);
-  useEffect(() => { if (!count) { setConflict(false); if (!ladderDirty) { setName(""); setReason(""); } } }, [count]);
+  // With nothing left to save, follow the latest saved settings, so a later edit never builds on a stale base.
+  useEffect(() => { if (!count) { setSetup(discardSetup(latest.current)); setConflict(false); setName(""); setReason(""); } }, [count]);
   const disabled = busy || !state.connected;
   const setEligibility = (draft: Rule[] | string[]) => setSetup(current => ({ ...current, eligibility: { ...current.eligibility, draft } as EligibilityDraft }));
   // Discard loads the latest saved settings, which also resolves a conflict.

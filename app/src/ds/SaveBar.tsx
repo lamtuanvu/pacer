@@ -25,7 +25,7 @@ export function SaveBar({ count, onSave, onDiscard, busy, saveLabel = "Save chan
   const dirty = count > 0, reasonId = useId();
   const clean = !dirty && !notice && !children;
   // While clean the bar is visually hidden and is not a landmark; its status stays mounted to announce.
-  return <div className={classNames("pc-save-bar", clean && "pc-save-bar--clean")} role={clean ? undefined : "region"} aria-label={clean ? undefined : "Unsaved changes"}>
+  return <div className={classNames("pc-save-bar", clean && "pc-save-bar--clean")} role={clean ? undefined : "region"} aria-label={clean ? undefined : dirty ? "Unsaved changes" : "Save status"}>
     <div className="pc-save-bar__summary">
       <p className="pc-save-bar__count" role="status" aria-live="polite">{busy ? "Saving…" : dirty ? unsavedCopy(count) : notice ?? ""}</p>
       {dirty && blockedReason && <p className="pc-save-bar__reason" id={reasonId}>{blockedReason}</p>}

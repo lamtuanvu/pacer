@@ -68,13 +68,19 @@ export class PartialSaveError extends Error {
 }
 const message = (failure: unknown) => failure instanceof Error ? failure.message : String(failure);
 /**
- * Save eligibility first (routing rules or the project order, with its revision), then a changed
- * ladder: check the profile did not change elsewhere, validate, save as a new profile and activate it.
+ * Check a changed ladder's profile is current, save eligibility (routing rules or the project order,
+ * with its revision), then validate the ladder, save it as a new profile and activate it.
  * Returns the saved parts; throws PartialSaveError when a later part fails after an earlier one saved.
  */
 export async function saveSetup({ call, setup, repo, profile }: SaveSetupInput): Promise<string[]> {
   const done: string[] = [];
+  const ladderDirty = ladderChanges(setup.savedLadder, setup.ladder) > 0;
   try {
+    // Check the profile before writing anything, so a stale ladder never leaves a partial save.
+    if (ladderDirty) {
+      const latest = await call<{ strategy: string; config: DispatchConfig }>("dispatch.config.get", {});
+      if (latest.strategy !== setup.strategy || !same(latest.config, setup.savedLadder)) throw new Error("The active profile changed in another client. Discard to load it.");
+    }
     const { eligibility } = setup;
     if (eligibility.kind === "global" && eligibilityChanges(eligibility)) {
       await call("routing.set", { rules: eligibility.draft });
@@ -89,9 +95,7 @@ export async function saveSetup({ call, setup, repo, profile }: SaveSetupInput):
         done.push(`removal of the project order; ${repo.label} now uses the global rules`);
       }
     }
-    if (ladderChanges(setup.savedLadder, setup.ladder)) {
-      const latest = await call<{ strategy: string; config: DispatchConfig }>("dispatch.config.get", {});
-      if (latest.strategy !== setup.strategy || !same(latest.config, setup.savedLadder)) throw new Error("The active profile changed in another client. Discard to load it.");
+    if (ladderDirty) {
       const draft = { from: setup.strategy, set: { dispatch: setup.ladder } };
       const validation = await call<{ ok: boolean; errors: string[] }>("strategy.preview", { draft });
       if (!validation.ok) throw new Error(validation.errors.join(" ") || "The ladder needs changes before it can be saved.");

@@ -2,7 +2,7 @@ import type { DispatchConfig, DispatchPreview, ModelRecord } from "../../../../s
 import { executorLabel } from "../../../../src/view-model/words";
 import type { RouteQuery } from "../../router";
 import type { BrowserApi } from "../../data/api";
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import { SortableList, useStableKeys } from "../../ds/SortableList";
 import { DispatcherGuidedSetup, SavedSetups } from "./DispatcherSetup";
 import { Button, TextAction } from "../../ds/Button";
@@ -82,6 +82,14 @@ const splitList=(value:string)=>value.split(",").map(item=>item.trim()).filter(B
 const optionalList=(value:string)=>{const items=splitList(value);return items.length?items:undefined;};
 export const candidateRestriction=(candidate: LadderStep["candidates"], field:"executors"|"models", value:string):LadderStep["candidates"]=>({...candidate,[field]:optionalList(value)});
 const rankLabel=(value:string)=>rankOptions.find(option=>option.value===value)?.label??"Other criterion";
+/** A comma-separated list field: keeps the typed text (commas, spaces) while focused and reports it on each input. */
+export function ListField({label,help,value,onText,disabled,placeholder,marker}:{label:string;help?:string;value:readonly string[]|undefined;onText:(text:string)=>void;disabled?:boolean;placeholder?:string;marker?:string}){
+  const joined=value?.join(", ")??"",[text,setText]=useState(joined),focused=useRef(false);
+  useEffect(()=>{if(!focused.current)setText(joined);},[joined]);
+  return <Field label={label} help={help}><TextInput value={text} disabled={disabled} placeholder={placeholder} data-list-field={marker}
+    onFocus={()=>{focused.current=true;}} onBlur={()=>{focused.current=false;setText(joined);}}
+    onInput={event=>{const next=event.currentTarget.value;setText(next);onText(next);}}/></Field>;
+}
 type LadderStep=DispatchConfig["steps"][number];
 const listFields:[string,string,(step:LadderStep)=>string[]|undefined,(step:LadderStep,value:string)=>LadderStep][]=[
   ["Only these executors","Optional hard restriction. Use executor IDs separated by commas.",step=>step.candidates.executors,(step,value)=>({...step,candidates:candidateRestriction(step.candidates,"executors",value)})],
@@ -105,7 +113,7 @@ export function DispatcherLadderFields({config,onChange,disabled}:{config:Dispat
       <Field label="Capacity needed"><ChoicePicker value={step.capacity} disabled={disabled} options={capacityOptions} onValueChange={value=>patch(index,item=>({...item,capacity:value as LadderStep["capacity"]}))}/></Field>
       <Field label="Minimum model tier"><ChoicePicker value={step.require.minTier??""} disabled={disabled} options={tierOptions} onValueChange={value=>patch(index,item=>({...item,require:{...item.require,minTier:value?value as NonNullable<LadderStep["require"]["minTier"]>:undefined}}))}/></Field>
       <Checkbox label="Model must support tools" disabled={disabled} checked={step.require.tools===true} onChange={event=>patch(index,item=>({...item,require:{...item.require,tools:event.currentTarget.checked?true:undefined}}))}/>
-      {listFields.map(([label,help,read,write])=><Field key={label} label={label} help={help}><TextInput value={read(step)?.join(", ")??""} disabled={disabled} onInput={event=>{const value=event.currentTarget.value;patch(index,item=>write(item,value));}}/></Field>)}
+      {listFields.map(([label,help,read,write])=><ListField key={label} label={label} help={help} value={read(step)} disabled={disabled} onText={value=>patch(index,item=>write(item,value))}/>)}
       <Field label="Rank first by"><ChoicePicker value={step.rank[0]} disabled={disabled} options={rankOptions} onValueChange={value=>patch(index,item=>({...item,rank:[value as LadderStep["rank"][number],...item.rank.filter(rank=>rank!==value)]}))}/></Field>
     </div></Disclosure>;}}/>
     <div><Button disabled={disabled} onClick={add}>Add ladder step</Button></div>

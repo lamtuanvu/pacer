@@ -103,7 +103,7 @@ fieldset{border:1px solid var(--line);border-radius:var(--radius-sm);display:fle
 .pc-app--with-status .pc-save-bar{bottom:var(--size-32)}
 .pc-app--narrow .pc-save-bar{bottom:calc(var(--size-56) + env(safe-area-inset-bottom))}
 /* Focused fields scroll clear of an open SaveBar. */
-html:has(.pc-app--with-status .pc-save-bar:not(.pc-save-bar--clean)){scroll-padding-bottom:calc(var(--size-32) + var(--size-120))}
+html:has(.pc-app--with-status .pc-save-bar:not(.pc-save-bar--clean)),.pc-work:has(.pc-save-bar:not(.pc-save-bar--clean)){scroll-padding-bottom:calc(var(--size-32) + var(--size-120))}
 html:has(.pc-app--narrow .pc-save-bar:not(.pc-save-bar--clean)){scroll-padding-bottom:calc(var(--size-56) + var(--size-200) + env(safe-area-inset-bottom))}
 html[data-pacer-native-titlebar] .pc-traffic{min-width:var(--size-64)}
 html[data-pacer-native-titlebar] .pc-traffic__btn{display:none}
