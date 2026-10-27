@@ -73,3 +73,80 @@ browserTest('Stepper moves focus with the arrow keys, Home and End, and selects 
     expect(await page.getByText('D', { exact: true }).evaluate(n => n.closest('button'))).toBeNull();
   });
 }, 20000);
+
+async function openAgent(fn: (page: import('playwright-core').Page) => Promise<void>) {
+  const built = await Bun.build({ entrypoints: ['test/fixtures/ui/add-agent.tsx'], target: 'browser', minify: true });
+  const browser = await chromium.launch({ executablePath: process.env.PACER_TEST_BROWSER!, headless: true });
+  try {
+    const page = await browser.newPage();
+    await page.addInitScript(() => { try { sessionStorage.clear(); } catch { /* none */ } });
+    await page.setContent('<div id="app"></div>');
+    await page.addScriptTag({ content: await built.outputs[0]!.text() });
+    await fn(page);
+  } finally { await browser.close(); }
+}
+const agentCalls = (page: import('playwright-core').Page) => page.evaluate(() => (window as any).agentFixture.calls() as [string, any][]);
+const toStepFour = async (page: import('playwright-core').Page) => {
+  await page.getByRole('button', { name: /Codex/ }).first().click();
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await page.locator('.pc-choice-card').filter({ hasText: 'team' }).click();
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await page.getByRole('button', { name: 'Continue' }).click();
+};
+
+browserTest('Add agent: creates once with the chosen options, then is Ready only after the test task passes', async () => {
+  await openAgent(async page => {
+    await toStepFour(page);
+    // The host link prefill reached step 3 (local was kept here), and the step heading took focus on arrival.
+    await page.waitForFunction(() => document.activeElement?.textContent === 'Model, then a test task');
+    await page.getByRole('button', { name: 'Tests', exact: true }).click();
+    const add = page.getByRole('button', { name: 'Add agent and run test task' });
+    await add.dblclick();
+    await page.getByText('codex#team is ready.').waitFor();
+    const adds = (await agentCalls(page)).filter(([op]) => op === 'runner.add');
+    expect(adds).toHaveLength(1);
+    expect(adds[0]![1]).toEqual({ agent: 'codex', account: 'team', host: 'devbox', kinds: ['tests'], max_tasks: 1, test: true });
+    expect(await page.getByRole('link', { name: 'Open agents' }).getAttribute('href')).toBe('#/settings/executors');
+    expect(await page.getByRole('button', { name: 'Add agent and run test task' }).count()).toBe(0);
+  });
+});
+
+browserTest('Add agent: a failed test never shows Ready, can re-run, and the added agent can be removed', async () => {
+  await openAgent(async page => {
+    await page.evaluate(() => (window as any).agentFixture.outcome('failed'));
+    await toStepFour(page);
+    await page.getByRole('button', { name: 'Add agent and run test task' }).click();
+    await page.getByRole('button', { name: 'Run test task again' }).waitFor();
+    expect(await page.getByText(/is ready\./).count()).toBe(0);
+    expect(await page.getByText('Not logged in').count()).toBeGreaterThan(0);
+    expect(await page.getByRole('button', { name: 'Remove this agent' }).count()).toBe(1);
+    await page.evaluate(() => (window as any).agentFixture.outcome('passed'));
+    await page.getByRole('button', { name: 'Run test task again' }).click();
+    await page.getByText('codex#team is ready.').waitFor();
+    expect((await agentCalls(page)).filter(([op]) => op === 'runner.add')).toHaveLength(1);
+    expect((await agentCalls(page)).filter(([op]) => op === 'runner.check')).toHaveLength(1);
+  });
+});
+
+browserTest('Add agent: Remove this agent asks first, removes the executor and returns to step 1', async () => {
+  await openAgent(async page => {
+    await page.evaluate(() => (window as any).agentFixture.outcome('failed'));
+    await toStepFour(page);
+    await page.getByRole('button', { name: 'Add agent and run test task' }).click();
+    await page.getByRole('button', { name: 'Remove this agent' }).waitFor();
+    await page.getByRole('button', { name: 'Remove this agent' }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Remove', exact: true }).click();
+    await page.getByRole('heading', { name: 'Which agent?' }).waitFor();
+    expect((await agentCalls(page)).find(([op]) => op === 'runner.remove')![1]).toEqual({ id: 'codex#team' });
+  });
+});
+
+browserTest('Add host: a check that cannot start is reported, not silently retried', async () => {
+  await open(async page => {
+    await page.getByRole('button', { name: 'devbox', exact: true }).click();
+    await page.evaluate(() => (window as any).hostFixture.failFirst(true));
+    await page.getByRole('button', { name: 'Connect and check', exact: true }).click();
+    await page.getByRole('list', { name: 'Checks for devbox' }).waitFor();
+    expect(await page.getByRole('status').filter({ hasText: 'Changes saved' }).count()).toBe(0);
+  });
+});

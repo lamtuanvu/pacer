@@ -64,7 +64,8 @@ function ThisMachine({ initialData }: { initialData?: ConfigData }) {
 /** Guided add: an alias from the user's SSH config, a pacer name, then a live connect-and-check list. */
 export function AddHost({ initialAliases }: { initialAliases?: string[] }) {
   const { state } = useTaskContext(), aliases = useResource<string[]>("host.suggest", {}, initialAliases);
-  const add = useOperation(), check = useOperation();
+  // Adding only records the alias; the result that matters is the check, so adding stays quiet.
+  const add = useOperation(undefined, { notifySuccess: false }), check = useOperation();
   const [ssh, setSsh] = useState(""), [name, setName] = useState(""), [added, setAdded] = useState("");
   const taken = state.snapshot?.hosts?.map(h => h.alias).filter(alias => alias !== added) ?? [];
   const problem = !ssh ? "Pick a host from your SSH config first." : hostNameProblem(name, taken);
@@ -97,6 +98,7 @@ export function AddHost({ initialAliases }: { initialAliases?: string[] }) {
     {passed && <><p role="status">{added} is connected. Next, map the repositories it should work on and add its executors.</p>
       <div className="u3-actions"><ButtonLink variant="primary" href={`#/settings/hosts/${encodeURIComponent(added)}`}>Map repositories</ButtonLink><ButtonLink href={`#/settings/add-executor?host=${encodeURIComponent(added)}`}>Add an agent here</ButtonLink></div></>}
     <Feedback action={add} />
+    <Feedback action={check} />
     </>}
   </Card>;
 }

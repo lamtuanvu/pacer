@@ -135,3 +135,23 @@ test('Add remote host with no SSH aliases explains where they come from and offe
   expect(html).not.toContain('Connect and check');
   expect(html).not.toContain('Pick a host from your SSH config first.');
 });
+
+test('wizard announces its step and offers Remove, not Cancel, once the agent exists but has not passed', () => {
+  const draft = { step: '4', account: 'team', createdId: executor.id, jobId: job.id };
+  const failed = render(<AddExecutor initialDraft={draft} />, { ...withState({}), jobs: { [job.id]: { ...job, state: 'failed' } } });
+  expect(failed).toContain('aria-live="polite" class="sr-only">Step 4 of 4: Model and test');
+  expect(failed).toContain('Remove this agent');
+  expect(failed).not.toContain('>Cancel<');
+  expect(render(<AddExecutor />)).toContain('>Cancel<');
+  expect(render(<AddExecutor />)).not.toContain('Remove this agent');
+});
+
+test('route plumbing: Add agent receives the host link and host detail receives its alias through SettingsGeneral', () => {
+  const state = withState({ hosts: [{ alias: 'devbox', ssh: 'devbox', state: 'ready', running: 0, maxTasks: 2, executors: [], repos: 0 }] });
+  const add = render(<SettingsGeneral section="add-executor" host="devbox" initialData={settings} />, state);
+  expect(add).toContain('Which agent?');
+  const hostless = render(<SettingsGeneral section="add-executor" initialData={settings} />, state);
+  expect(hostless).toContain('Which agent?');
+  expect(render(<SettingsGeneral section="hosts" alias="devbox" initialData={settings} />, state)).toContain('Machines</a>');
+  expect(render(<SettingsGeneral section="hosts" initialData={settings} />, state)).toContain('Add a remote host');
+});

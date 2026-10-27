@@ -5,7 +5,7 @@ import { accountNeedsSignIn, accountStatus } from "../../../../src/view-model/wo
 import { SectionHeading } from "../../ds/SectionHeading";
 import { SettingRow } from "../../ds/SettingRow";
 import { CheckList, Stepper } from "../../ds/Stepper";
-import { useState, useEffect } from "preact/hooks";
+import { useState, useEffect, useRef } from "preact/hooks";
 import type { AgentDetection } from "../../../../src/install/detection";
 import type { Job } from "../../../../src/api/read-model/types";
 import { Pill } from "../../ds/Pill";
@@ -15,6 +15,7 @@ import type { Account } from "../../model/accounts";
 import { AGENT_KINDS, REMOTE_AGENTS, accountRequired, agentStepProblem, agents, blankAgentDraft, furthestAgentStep, type AgentDraft } from "../../model/wizard";
 import { useDraft, useTaskContext } from "../task-shared";
 import { OpencodeSetup } from "./OpencodeSetup";
+import { useDialogs } from "../../ds/useDialogs";
 import { Feedback, Field, latestJob, ResourceState, Segment, useOperation, useResource, words } from "./shared";
 export const executorId = ({ agent, account, host }: { agent: string; account: string; host: string }) =>
   `${agent}${account ? `#${account}` : ""}${host && host !== "local" ? `@${host}` : ""}`;
@@ -40,15 +41,27 @@ export function AddExecutor({ host: prefillHost = "", initialDraft = {}, initial
   // On the OpenCode provider picker, adding the provider creates the account and its executor, so it is the step's one primary action.
   const picker = step === 2 && draft.agent === "opencode" && !urlForm && !draft.account && !locked;
   useResumeJob(draft.jobId, action.job ?? state.jobs[draft.jobId], api.call, setResumed, setResumeError);
+  // A step change is announced and moves focus to the new step's heading, so keyboard and screen reader users land in it.
+  const shown = useRef(step), dialogs = useDialogs();
+  useEffect(() => { if (shown.current !== step) { shown.current = step; document.getElementById("agent-step-heading")?.focus(); } }, [step]);
+  // Arriving from a host's "Add an agent here" link selects that host even when an older draft exists.
+  useEffect(() => { if (prefillHost && !draft.createdId && draft.host !== prefillHost) patch({ host: prefillHost }); }, [prefillHost]);
+  const startOver = () => { action.clear(); setResumed(undefined); setResumeError(""); setUrlForm(false); setDraft({ ...blankAgentDraft }); };
+  async function removeAgent() {
+    if (!(await dialogs.confirm(`Remove ${draft.createdId}? It was added but has not passed its test task.`, "Remove agent", "Remove"))) return;
+    if (await action.run("runner.remove", { id: draft.createdId })) { action.clear(); setResumed(undefined); clearDraft(); setDraft({ ...blankAgentDraft }); }
+  }
   async function finish() {
     if (draft.createdId) { const r = await action.run("runner.check", { id: draft.createdId }); if (r?.jobId) patch({ jobId: r.jobId }); return; }
     const r = await action.run("runner.add", { agent: draft.agent, ...(draft.account ? { account: draft.account } : {}), ...(draft.host ? { host: draft.host } : {}),
       ...(draft.model ? { model: draft.model } : {}), ...(kinds.length ? { kinds } : {}), max_tasks: Number(draft.maxTasks), test: true });
     if (r) patch({ createdId: (r.data as { id: string }).id, jobId: r.jobId ?? "" });
   }
-  const values = [name, draft.account || (accountRequired(draft.agent) ? "" : "Its own sign-in"), `${draft.host || "This machine"} · ${draft.maxTasks} parallel`, ready ? "Ready" : job ? "Test task run" : "Not tested yet"];
+  const values = [name, draft.account || (accountRequired(draft.agent) ? "" : "Its own sign-in"), `${facts.hosts.includes(draft.host) ? draft.host : "This machine"} · ${draft.maxTasks} parallel`, ready ? "Ready" : job ? "Test task run" : "Not tested yet"];
   return (
     <div className="u3-wizard">
+      {dialogs.dialog}
+      <div className="sr-only" role="status" aria-live="polite">Step {step} of 4: {TITLES[step - 1]}</div>
       <Stepper label="Add agent steps" onSelect={id => patch({ step: id })} steps={TITLES.map((title, i) => ({
         id: String(i + 1), title, reachable: i + 1 <= furthest && (!locked || i === 3),
         state: i === 3 && ready ? "done" : i + 1 === step ? "current" : i + 1 < furthest ? "done" : "todo",
@@ -56,7 +69,7 @@ export function AddExecutor({ host: prefillHost = "", initialDraft = {}, initial
       }))} />
       <section className="pc-card" aria-labelledby="agent-step-heading">
         {step === 1 && <>
-          <SectionHeading id="agent-step-heading">Which agent?</SectionHeading>
+          <SectionHeading id="agent-step-heading" tabIndex={-1}>Which agent?</SectionHeading>
           <p className="u3-muted">pacer looks for each agent’s CLI on this machine.</p>
           <ResourceState resource={detected}><span /></ResourceState>
           <div className="u3-choices">{agents.map(agent => {
@@ -70,7 +83,7 @@ export function AddExecutor({ host: prefillHost = "", initialDraft = {}, initial
           {facts.installed === false && <p>Install it with <code>{detected.data?.find(a => a.agent === draft.agent)?.install_hint}</code></p>}
         </>}
         {step === 2 && <>
-          <SectionHeading id="agent-step-heading">Which account pays for it?</SectionHeading>
+          <SectionHeading id="agent-step-heading" tabIndex={-1}>Which account pays for it?</SectionHeading>
           {!accountRequired(draft.agent) ? <p>{name} uses its own signed-in account. pacer reads its usage from there.</p> : <>
             <p className="u3-muted">Two executors can share an account; they share its quota.</p>
             <ResourceState resource={accounts} empty="No accounts yet. Add one below.">
@@ -88,7 +101,7 @@ export function AddExecutor({ host: prefillHost = "", initialDraft = {}, initial
           </>}
         </>}
         {step === 3 && <>
-          <SectionHeading id="agent-step-heading">Where does it run?</SectionHeading>
+          <SectionHeading id="agent-step-heading" tabIndex={-1}>Where does it run?</SectionHeading>
           <p className="u3-muted">Tasks run in their own worktree on that machine. The planner always runs here.</p>
           {REMOTE_AGENTS.includes(draft.agent)
             ? <SettingRow label="Runs on"><Segment label="Runs on" value={draft.host ? "remote" : "local"}
@@ -103,7 +116,7 @@ export function AddExecutor({ host: prefillHost = "", initialDraft = {}, initial
           </SettingRow>
         </>}
         {step === 4 && <>
-          <SectionHeading id="agent-step-heading">Model, then a test task</SectionHeading>
+          <SectionHeading id="agent-step-heading" tabIndex={-1}>Model, then a test task</SectionHeading>
           <p className="u3-muted">The agent is Ready only after a real task passes.</p>
           <SettingRow label="Model"><TextInput disabled={locked} value={draft.model} placeholder="Agent default" onInput={e => patch({ model: e.currentTarget.value })} /></SettingRow>
           <SettingRow label="Good at" description={kinds.length ? "Added to these task kinds’ routing rules." : "Added to the rule for everything else."}>
@@ -123,7 +136,7 @@ export function AddExecutor({ host: prefillHost = "", initialDraft = {}, initial
             <Button onClick={() => { action.clear(); setResumed(undefined); setResumeError(""); setUrlForm(false); setDraft({ ...blankAgentDraft }); }}>Add another agent</Button>
             <ButtonLink variant="primary" href="#/settings/executors" onClick={clearDraft}>Open agents</ButtonLink>
           </> : <>
-            <TextAction href="#/settings/executors">Cancel</TextAction>
+            {locked ? <><Button disabled={action.busy} onClick={() => void removeAgent()}>Remove this agent</Button><Button variant="quiet" disabled={action.busy} onClick={startOver}>Start over</Button></> : <TextAction href="#/settings/executors">Cancel</TextAction>}
             {step > 1 && !locked && <Button disabled={action.busy} onClick={() => patch({ step: String(step - 1) })}>Back</Button>}
             {step < 4 ? !picker && <Button variant="primary" disabled={action.busy || !!problem} onClick={() => patch({ step: String(step + 1) })}>Continue</Button>
               : <Button variant="primary" busy={action.busy || job?.state === "running"} onClick={() => void finish()}>{job?.state === "running" ? "Running test task…" : locked ? job ? "Run test task again" : "Run test task" : "Add agent and run test task"}</Button>}
