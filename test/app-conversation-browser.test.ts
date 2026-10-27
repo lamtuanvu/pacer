@@ -27,7 +27,7 @@ browserTest('conversation terminal portals its controls to the footer and never 
   await page.keyboard.press('Tab');
   expect(await page.evaluate(()=>document.activeElement?.closest('#footer')!==null)).toBe(true);
   // A watcher's Ctrl combinations reach the app (its frame shortcuts), not the terminal; a driver's stay with the agent.
-  await page.evaluate(()=>{(window as any).seen=[];addEventListener('keydown',e=>{if(e.key==='b')(window as any).seen.push([e.key,e.defaultPrevented]);});});
+  await page.evaluate(()=>{(window as any).seen=[];addEventListener('keydown',(e:Event)=>{const k=e as KeyboardEvent;if(k.key==='b')(window as any).seen.push([k.key,k.defaultPrevented]);});});
   await page.locator('#session-panel .xterm-helper-textarea').focus();
   await page.keyboard.press('Control+b');
   expect(await page.evaluate(()=>(window as any).seen)).toEqual([['b',false]]);
