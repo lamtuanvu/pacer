@@ -124,6 +124,10 @@ export interface RunRef {
 export interface ReviewRequest { note: string; at: number }
 
 export interface TaskRecord {
+  /** Native conversation identity admission precedes any external create command. */
+  nativeIdentityIntent?: { attempt: number; providerId: string; executor: string;
+    workdir: string; kind: "assigned" | "create" | "lookup" | "header";
+    requestedId?: string; id?: string; source?: "assigned" | "lookup" | "header" };
   /** Host-authorized origin fetch is journaled before effect; unresolved outcomes cannot be retried. */
   baseFetchIntent?: { attempt: number; providerId: string; repoTop: string;
     originHash: string; base?: string; sha?: string };
