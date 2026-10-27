@@ -12,7 +12,7 @@ import { bindOwnedWorktreeIntent, issueOwnedWorktreeGrant } from "../src/plugins
 import { runOwnedExecutorAttempt } from "../src/plugins/executor-attempt";
 
 test("worktree authority has three bounded task-owned methods and a distinct consent capability", () => {
-  expect(PLUGIN_PROTOCOL_VERSION).toBe("1.9.0");
+  expect(PLUGIN_PROTOCOL_VERSION).toBe("1.10.0");
   for (const name of ["inspect", "resolveBase", "createOrReuse"]) {
     const method = `capability.worktree.${name}`;
     expect(capabilityOf(method)).toBe("worktree");

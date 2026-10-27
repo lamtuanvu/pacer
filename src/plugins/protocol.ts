@@ -26,7 +26,7 @@ import { isVersion } from "../update/version";
 import { observationMethodSchema, observationScopeSchema, observationSchema, decisionRequestSchema, proposalSchema } from "../dispatch/types";
 
 /** Plugin protocol version; independent of the client protocol (P4 applies to both). */
-export const PLUGIN_PROTOCOL_VERSION = "1.9.0";
+export const PLUGIN_PROTOCOL_VERSION = "1.10.0";
 export const PLUGIN_PROTOCOL_MAJOR = 1;
 
 export const EXTENSION_POINTS = ["diagnostic", "agentSession", "observation", "decision", "usage", "classifier", "notifier", "endpoint", "planner", "policy", "hostRunner", "remoteCaller", "executor"] as const;

@@ -6,6 +6,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
+- Add plugin protocol 1.10's bounded `running` observation for host-owned local conversations. The provider returns after one read; the host must recheck the persisted run before read-only continuation. Production conversation routing remains under extraction.
 - Add plugin protocol 1.9 host-issued remote pipe placement, run claim, start, poll, bounded output, stop and committed-change transfer methods for the bundled direct executor. Selected noninteractive remote tasks now use the provider-owned route with durable placement and transfer recovery.
 - Add a read-only, host-issued remote PREPARE recovery proof for a persisted unreceipted executor placement. It verifies the exact clean task worktree without another fetch or launch; the remote executor production cutover remains in progress.
 - Add plugin protocol 1.6 worktree consent and host-issued task placement methods. The bundled direct executor may inspect and resolve a local base, then create or recover one journaled task-owned worktree.

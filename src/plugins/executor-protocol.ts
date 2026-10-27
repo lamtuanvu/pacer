@@ -38,7 +38,7 @@ export const executorEffectRunResult = z.discriminatedUnion("status", [
 export const executorOwnedRunParams = z.object({
   task: z.object({ id: taskId, rev: positive }).strict(), attempt: positive, runDir: z.literal(1),
   owned: z.object({ placement: z.enum(["current", "new"]), timeoutMs: z.number().int().positive().max(MAX_PROCESS_SPAWN_MS),
-    session: z.literal("interactive").optional(),
+    session: z.enum(["interactive", "conversation"]).optional(),
     executor: z.string().min(1).max(256), model: z.string().max(256).nullable(),
     resume: z.object({ startedAt: z.number().finite(), logFile: z.string().min(1).max(4096),
       worktree: z.string().min(1).max(4096).optional() }).strict().optional() }).strict(),
@@ -87,7 +87,10 @@ export const executorAttemptOutcome = z.object({
   report: z.string().max(65_536), backend: z.string().optional(), worktree: z.string().max(4096).optional(),
   partial: z.string().optional(),
 }).strict();
-export const executorRunResult = z.union([executorEffectRunResult, executorAttemptOutcome]);
+/** One finite observation of a host-owned persistent conversation, with no path or native identity. */
+export const executorConversationRunning = z.object({ status: z.literal("running"),
+  taskId, attempt: positive, startedAt: z.number().finite() }).strict();
+export const executorRunResult = z.union([executorEffectRunResult, executorAttemptOutcome, executorConversationRunning]);
 export const executorStopParams = z.object({ taskId, attempt: positive,
   graceMs: z.number().int().nonnegative().max(25_000), remote: z.literal(true).optional() }).strict();
 export const executorStopResult = z.object({ code: z.number().int().safe(), killed: z.boolean() }).strict();

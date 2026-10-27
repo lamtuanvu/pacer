@@ -22,7 +22,7 @@ const ownedInput = z.object({
   task: z.object({ id: z.string(), rev: z.number().int().positive() }).strict(),
   attempt: z.number().int().positive(), runDir: z.literal(1),
   owned: z.object({ placement: z.enum(["current", "new"]),
-    session: z.literal("interactive").optional(),
+    session: z.enum(["interactive", "conversation"]).optional(),
     timeoutMs: z.number().int().positive().max(30 * 60 * 1000),
     executor: z.string().min(1).max(256), model: z.string().max(256).nullable(),
     resume: z.object({ startedAt: z.number().finite(), logFile: z.string().min(1).max(4096),
@@ -113,8 +113,10 @@ async function runOwned(params: z.infer<typeof ownedInput>, host: Parameters<Han
     const state = await host.call<{ state: "running" | "exited" | "uncertain"; exitCode: number | null;
       interactive?: boolean; report?: { status: string; summary: string; at: number } | null }>(
       "capability.process.pollRun", { taskId: task.id, attempt });
-    if (owned.session === "interactive" && state.interactive !== true)
+    if ((owned.session === "interactive" || owned.session === "conversation") && state.interactive !== true)
       throw new PluginError("plugin_refused", "interactive run observation has no session proof");
+    if (owned.session === "conversation" && state.state === "running")
+      return { status: "running", taskId: task.id, attempt, startedAt: startedAt! };
     if (owned.session === "interactive" && !completed &&
       (state.report?.status === "done" || state.report?.status === "failed")) {
       const receipt = await host.call<{ status: "done" | "failed"; summary: string;

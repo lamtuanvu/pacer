@@ -135,8 +135,34 @@ test("interactive exit after needs-input preserves the question but cannot compl
     session: "interactive", resume: { startedAt: 100, logFile: "/tmp/owned/1/stdout" } } },
   host as any, new AbortController().signal);
   expect(result).toMatchObject({ exec: { code: 1 }, attempt: { exitCode: 1 } });
+  if (!("report" in result)) throw Error("interactive exit returned a running observation");
   expect(result.report).toContain("without an explicit completion report");
   expect(result.report).toContain("Approve access");
+});
+
+test("conversation provider returns one bounded running observation and never completes a turn report", async () => {
+  const methods: string[] = [];
+  const host = { call: async (method: string) => {
+    methods.push(method);
+    if (method === "capability.process.claimRun") return { task: { id: "t-fixture", rev: 3 },
+      attempt: 1, runDir: 1, dir: "/tmp/owned/1", workdir: "/tmp/repo",
+      startedAt: 100, logFile: "/tmp/owned/1/stdout" };
+    if (method === "capability.process.startRun") return { pid: 42 };
+    if (method === "capability.process.pollRun") return { state: "running", exitCode: null,
+      interactive: true, report: { status: "done", summary: "turn finished", at: 101 } };
+    throw Error(`unexpected ${method}`);
+  } };
+  const owned = { ...params, owned: { ...params.owned, session: "conversation" } };
+  const result = await handlers["executor.run"](owned, host as any, new AbortController().signal);
+  expect(result).toEqual({ status: "running", taskId: "t-fixture", attempt: 1, startedAt: 100 });
+  expect(methods).toEqual(["capability.process.claimRun", "capability.process.startRun",
+    "capability.process.pollRun"]);
+  methods.length = 0;
+  const resumed = await handlers["executor.run"]({ ...owned, owned: { ...owned.owned,
+    resume: { startedAt: 100, logFile: "/tmp/owned/1/stdout" } } },
+  host as any, new AbortController().signal);
+  expect(resumed).toEqual(result);
+  expect(methods).toEqual(["capability.process.pollRun"]);
 });
 
 test("remote provider owns placement, claim, start, observation and full pipe outcome", async () => {

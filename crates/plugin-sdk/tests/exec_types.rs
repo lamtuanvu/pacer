@@ -5,8 +5,8 @@ use pacer_plugin::types::{
     CapabilityProcessDuplexCloseParams, CapabilityProcessPollRunResult,
     CapabilityProcessReadRunOutputParams, CapabilityProcessSpawnParams, ExecutorAvailableParams,
     ExecutorRunOwnedResultReport, ExecutorRunParams, ExecutorRunParamsEffect,
-    ExecutorRunParamsTask, ExecutorRunResultVariant0Report, ExecutorRunResultVariant0Status,
-    ExecutorRunResultVariant1Report, ExecutorSessionStateResult,
+    ExecutorRunParamsTask, ExecutorRunResult, ExecutorRunResultVariant0Report,
+    ExecutorRunResultVariant0Status, ExecutorRunResultVariant1Report, ExecutorSessionStateResult,
 };
 use serde_json::json;
 
@@ -32,6 +32,10 @@ fn exec_area_keeps_sdk_type_paths_and_wire_fields() {
         "executor":"codex","model":null}});
     let params: ExecutorRunParams = serde_json::from_value(owned.clone()).unwrap();
     assert_eq!(serde_json::to_value(params).unwrap(), owned);
+    let pending = json!({"status":"running","taskId":"t-20261027-102417-e2b4",
+        "attempt":1,"startedAt":100.5});
+    let observation: ExecutorRunResult = serde_json::from_value(pending.clone()).unwrap();
+    assert_eq!(serde_json::to_value(observation).unwrap(), pending);
     for state in ["running", "exited", "uncertain"] {
         let value = json!({"state": state, "host": "builtin", "handle": null});
         let receipt: ExecutorSessionStateResult = serde_json::from_value(value.clone()).unwrap();
