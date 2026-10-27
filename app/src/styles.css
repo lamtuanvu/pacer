@@ -430,3 +430,21 @@ body:has(.pc-app--narrow) .pc-toasts{bottom:calc(var(--size-56) + var(--space-5)
 .pc-strategy-popup__actions{display:flex;flex-direction:column;gap:var(--space-1);padding:var(--space-2) var(--space-4);border-top:1px solid var(--line);margin-top:auto}
 .pc-strategy-popup__actions .pc-text-action{display:flex;align-items:center;gap:var(--space-2);padding:var(--space-1)}
 .pc-strategy-popup__error{padding:var(--space-2) var(--space-4);color:var(--bad-fg);font-size:var(--type-caption-size);overflow-wrap:anywhere}
+/* AppFrame regions: sticky full-height side panels like the rail, and the terminal dock above the status bar. */
+.pc-body>.pc-side-panel{position:sticky;top:var(--size-32);height:calc(100vh - var(--size-32));align-self:flex-start}
+.pc-app--with-status .pc-body>.pc-side-panel{height:calc(100vh - var(--size-32) - var(--size-32))}
+@media(pointer:coarse){.pc-body>.pc-side-panel{top:var(--control-touch)}.pc-app--with-status .pc-body>.pc-side-panel{height:calc(100vh - var(--control-touch) - var(--size-32))}}
+@media(max-width:767px){.pc-body>.pc-side-panel{display:none}}
+.pc-statusbar__terminal{flex:none}
+.pc-dock{flex:none;display:flex;height:var(--size-320);border-top:1px solid var(--line);background:var(--surface-page)}
+.pc-dock__panel{display:flex;flex-direction:column;flex:1;min-width:0;min-height:0;outline:none}
+.pc-dock__panel:focus-visible{outline:var(--stroke-focus) solid var(--focus);outline-offset:calc(-1*var(--stroke-focus))}
+.pc-dock__bar{display:flex;align-items:center;justify-content:space-between;gap:var(--space-2);padding:var(--space-1) var(--space-3);border-bottom:1px solid var(--line);background:var(--surface-card)}
+.pc-dock__body{flex:1;min-height:0;overflow:auto;padding:var(--space-2) var(--space-3)}
+.pc-dock .pc-workspace-terminal{height:auto;min-height:100%}
+.pc-dock .pc-workspace-terminal__pane .pc-terminal-pane{min-height:var(--size-120)}
+/* With the dock open the frame fits the viewport, like the desktop window: the work area scrolls on its own. */
+.pc-app--with-dock{height:100vh;min-height:0}
+.pc-app--with-dock .pc-body{overflow:hidden}
+.pc-app--with-dock .pc-work{overflow:auto;min-height:0}
+.pc-app.pc-app--with-dock .pc-body>:is(.pc-rail,.pc-side-panel){position:static;height:auto;max-height:none;align-self:stretch}

@@ -6,6 +6,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
+- Add collapsible side panels (the Settings navigation collapses with its panel button or Ctrl-b), a terminal dock below the work area (Ctrl-` or the status-bar Terminal button), and a `PanelTabs` design-system tablist with a "+N" overflow menu.
 - Add redesign foundations to the design system: calm chart and aurora color tokens, new icons, `StatusDot`, `HostChip`, `MetaRow`, `AgentStack`, `Identicon`, and an `icon` prop for `IconButton`. The Settings rail icon is now a gear.
 - Add a persistent built-in terminal with workspace shells, tabs, splits, search and integrated app action sessions.
 - Strict native subagent control for new managed work: Pacer excludes uncertified executors before dispatch, checks again before launch, and exposes certification status and a quota-using canary in Dispatcher and the CLI. Existing managed tasks retain cooperative behavior.
