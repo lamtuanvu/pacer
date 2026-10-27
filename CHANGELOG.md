@@ -6,6 +6,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
+- Split generated Rust executor and process capability types into the independent `pacer-plugin-exec-protocol` area, retaining the SDK type facade and keeping each generated crate within its size limit.
+- Route interactive full-session remote viewers through a one-use, persisted-run SSH plugin stream with bounded acknowledged input and output. Viewer detach or provider refusal closes the connection without direct SSH forwarding or exec fallback.
 - Add a host-only, one-use finalized bundle input that rechecks the persisted run and private publication, then supplies an immutable bounded byte snapshot for safe downstream Git consumption.
 - Stage the direct executor manifest and bounded availability contract with a fake conformance plugin; no attempt runner or production backend is switched yet.
 - Add a scoped `hosts.open/run/close` plugin capability with caller-owned broker sessions, configured SSH aliases and fixed-script fake-provider forwarding; production SSH callers are not yet migrated.
@@ -40,6 +42,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Close an SSH session viewer when an owned duplex broker reply is lost, using a finite per-call deadline while leaving the remote task running.
 - Open current task details from native tray attention actions after the Tasks route migration.
 - Detect macOS iTerm.app consistently when opening session viewers through the preferred terminal.
 - Let live native controls inspect a completed managed OTA fixture without transferring teardown ownership, and keep authority collection and input within the original command deadline.

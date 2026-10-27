@@ -1,5 +1,5 @@
 import {POLICY_METHODS,POLICY_CAPABILITY_METHODS,POLICY_METHOD_CAPABILITY} from "./policy-protocol";
-import {HOST_RUNNER_METHODS,hostRunnerContribution} from "./host-runner-protocol";
+import {HOST_RUNNER_METHODS,hostRunnerContribution,hostRunnerStreamId} from "./host-runner-protocol";
 import { EXECUTOR_METHODS, executorContribution } from "./executor-protocol";
 import { HOSTS_METHODS, HOSTS_METHOD_CAPABILITY } from "./hosts-protocol";
 import { REMOTE_CALLER_METHODS } from "./remote-caller-protocol";
@@ -77,6 +77,19 @@ export const resultChunkParams = z.object({ request: z.number().int().positive()
   base64: z.string().max(349528).regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/) }).strict();
 export const resultChunkAck = z.object({ bytes: z.number().int().nonnegative().safe() }).strict();
 export const chunkedResult = z.object({ _chunkedResult: z.object({ bytes: z.number().int().nonnegative().safe() }).strict() }).strict();
+
+/** Private stream transport, scoped to the exact pending hostRunner.stream request. */
+export const STREAM_ACK_METHOD = "$/streamAck";
+export const streamProgressEvent = z.object({ streamId: hostRunnerStreamId, seq: z.number().int().nonnegative().safe(),
+  base64: z.string().min(4).max(87_384).regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/) }).strict();
+export const streamAckParams = z.object({ request: z.number().int().positive().safe(), streamId: hostRunnerStreamId,
+  seq: z.number().int().nonnegative().safe() }).strict();
+export const streamAckResult = z.object({ seq: z.number().int().nonnegative().safe() }).strict();
+export const STREAM_INPUT_METHOD = "$/streamInput";
+export const STREAM_INPUT_ACK_METHOD = "$/streamInputAck";
+export const streamInputFrame = streamProgressEvent.extend({ request: z.number().int().positive().safe() }).strict();
+export const streamInputAckParams = streamAckParams;
+export const streamInputAckResult = streamAckResult;
 
 export const helloParams = z.object({
   protocol: z.string(), pacer: z.string(), manifest: manifestSchema, features: z.array(z.string().min(1).max(64)).max(16).optional(),
