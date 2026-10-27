@@ -21,7 +21,13 @@ const apiEdits: Edit[] = [
   ["      const result = pathname === \"/v2/ops/routing.status\"", "      if (pathname === \"/v2/ops/desktop.update.adopt\") recordBaselineRequestStage(\"route-dispatch\");\n      const result = pathname === \"/v2/ops/routing.status\""],
 ];
 const adoptionEdits: Edit[] = [
-  ["import { sameProcess } from \"./process-identity\";\n", "import { recordBaselineRequestStage } from \"./fixture-request-stage\";\nimport { sameProcess } from \"./process-identity\";\n"],
+  ["import { sameProcess } from \"./process-identity\";\n", "import { recordBaselineRequestStage, type BaselineRequestStage } from \"./fixture-request-stage\";\nimport { sameProcess } from \"./process-identity\";\n"],
+  ["  const cancelWaiting = async (value: AdoptionRecord) => {", "  const cancelWaiting = async (value: AdoptionRecord, reason: BaselineRequestStage) => {"],
+  ["      change(current, \"cancelled\");\n      await gate.releaseReservation", "      recordBaselineRequestStage(reason);\n      change(current, \"cancelled\");\n      await gate.releaseReservation"],
+  ["if (value.phase === \"waiting\") await cancelWaiting(value);", "if (value.phase === \"waiting\") await cancelWaiting(value, \"cancel-startup\");"],
+  ["if (!s || !permitted(s, value)) {\n            await cancelWaiting(value);", "if (!s || !permitted(s, value)) {\n            await cancelWaiting(value, !s ? \"cancel-no-session\" : \"cancel-not-permitted\");"],
+  ["          } catch {\n            await cancelWaiting(value);", "          } catch {\n            await cancelWaiting(value, \"cancel-reverify\");"],
+  ["if (stopped || !s.alive() || !permitted(s, current)) {\n            await cancelWaiting(current);", "if (stopped || !s.alive() || !permitted(s, current)) {\n            await cancelWaiting(current, \"cancel-after-reserve\");"],
   ["    async adopt(input: UpdateRequest) {\n      if (stopped)", "    async adopt(input: UpdateRequest) {\n      recordBaselineRequestStage(\"adopt-entry\");\n      if (stopped)"],
   ["      const replay = replayAdoptionRequest(getCtx(), input);\n      if (replay)", "      recordBaselineRequestStage(\"replay-enter\");\n      const replay = replayAdoptionRequest(getCtx(), input);\n      recordBaselineRequestStage(\"replay-exit\");\n      if (replay)"],
   ["      if (!s) throw unavailable();\n      await deps.native.reverify(s);\n      if (!s.alive())", "      if (!s) throw unavailable();\n      recordBaselineRequestStage(\"reverify-enter\");\n      await deps.native.reverify(s);\n      recordBaselineRequestStage(\"reverify-exit\");\n      if (!s.alive())"],

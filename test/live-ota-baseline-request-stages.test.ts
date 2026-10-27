@@ -1,12 +1,13 @@
 import { afterEach, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, statSync, existsSync, mkdirSync, writeFileSync, realpathSync, chmodSync, symlinkSync, renameSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { applyStageEdits, overlayPublishedBaseline } from "../scripts/live/ota-baseline-request-stages";
 import { createBaselineRequestRecorder } from "../src/update/desktop/fixture-request-stage";
 import { main as liveMain } from "../scripts/live/cli";
-import { buildOtaFixtures, fixturePairedFrontDoorTarget } from "../scripts/live/ota-build";
+import { buildOtaFixtures, fixturePairedFrontDoorTarget, PUBLISHED_BRIDGE_SOURCE } from "../scripts/live/ota-build";
 import { assertExternalCargoTargetIdentity, validateExternalCargoTarget } from "../scripts/live/ota-external-cargo-target";
 
 const roots: string[] = [];
@@ -32,6 +33,20 @@ test("default baseline control remains byte-for-byte unchanged", () => {
   expect(existsSync(join(root, "src/update/desktop/fixture-request-stage.ts"))).toBe(false);
 });
 
+test("diagnostic overlay binds every waiting-cancellation reason to the pinned published source", () => {
+  const root = temp();
+  for (const name of ["src/serve/http.ts", "src/api/http.ts", "src/update/desktop/adoption-service.ts"]) {
+    const path = join(root, name);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, execFileSync("git", ["show", `${PUBLISHED_BRIDGE_SOURCE}:${name}`]));
+  }
+  expect(overlayPublishedBaseline(root, true)?.moduleSha256).toMatch(/^[0-9a-f]{64}$/);
+  const body = readFileSync(join(root, "src/update/desktop/adoption-service.ts"), "utf8");
+  for (const reason of ["cancel-startup", "cancel-no-session", "cancel-not-permitted", "cancel-reverify", "cancel-after-reserve"])
+    expect(body).toContain(`"${reason}"`);
+  expect(body).toContain("recordBaselineRequestStage(reason);");
+});
+
 test("request stage recorder writes only bounded fixed stages atomically to private evidence", () => {
   const root = temp();
   const ota = join(root, "ota");
@@ -42,6 +57,7 @@ test("request stage recorder writes only bounded fixed stages atomically to priv
   record("request-arrival");
   record("route-dispatch");
   record("begin-exit");
+  record("cancel-no-session");
   const path = join(evidence, "baseline-request-stages.json");
   const body = readFileSync(path, "utf8");
   expect(Buffer.byteLength(body)).toBeLessThanOrEqual(1024);
@@ -49,7 +65,7 @@ test("request stage recorder writes only bounded fixed stages atomically to priv
   const parsed = JSON.parse(body);
   expect(Object.keys(parsed).sort()).toEqual(["pid", "schema", "stages"]);
   expect(parsed.pid).toBe(process.pid);
-  expect(parsed.stages.map((stage: { stage: string }) => stage.stage)).toEqual(["request-arrival", "route-dispatch", "begin-exit"]);
+  expect(parsed.stages.map((stage: { stage: string }) => stage.stage)).toEqual(["request-arrival", "route-dispatch", "begin-exit", "cancel-no-session"]);
   expect(body).not.toContain(root);
 });
 

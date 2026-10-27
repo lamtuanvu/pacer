@@ -6,11 +6,14 @@ import { compiledNativeFixture } from "./native-fixture";
 export type BaselineRequestStage =
   | "request-arrival" | "api-entry" | "route-dispatch" | "adopt-entry"
   | "replay-enter" | "replay-exit" | "reverify-enter" | "reverify-exit"
-  | "begin-enter" | "begin-exit";
+  | "begin-enter" | "begin-exit" | "cancel-startup" | "cancel-no-session"
+  | "cancel-not-permitted" | "cancel-reverify" | "cancel-after-reserve";
 
 const stageNames = new Set<BaselineRequestStage>([
   "request-arrival", "api-entry", "route-dispatch", "adopt-entry", "replay-enter", "replay-exit",
   "reverify-enter", "reverify-exit", "begin-enter", "begin-exit",
+  "cancel-startup", "cancel-no-session", "cancel-not-permitted", "cancel-reverify",
+  "cancel-after-reserve",
 ]);
 
 /** The compiled policy fixes the destination; no API input or environment chooses it. */
