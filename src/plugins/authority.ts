@@ -6,6 +6,9 @@ import { CoreError } from "../core/errors";
 import type { Ctx } from "../types";
 
 export interface CallResources {
+  /** One persisted remote placement; provider may request only this fixed PREPARE or recover proof. */
+  remotePrepare?: { grant: import("./executor-remote-prepare").OwnedRemotePrepareGrant;
+    bundle?: Uint8Array };
   /** Host-selected local run publication after placement, never derived from plugin params. */
   executorClaim?: { taskId: string; attempt: number; providerId: string; executor: string; workdir: string;
     launch: { argv: string[]; cwd: string; executable: string;
@@ -109,6 +112,8 @@ export class CallAuthority {
   private detachedInspectUsed = false;
   private worktreeCreateUsed = false;
   private executorClaimUsed = false;
+  private remotePrepareUsed = false;
+  private remotePrepared?: { taskId: string; attempt: number; worktree: string; branch: string };
   private claimedDetachedRun?: ClaimedRun;
   private readonly detach: () => void;
 
@@ -183,6 +188,7 @@ export class CallAuthority {
       Object.freeze(this.resources.executorObserve.dirIdentity);
       Object.freeze(this.resources.executorObserve);
     }
+    if (this.resources.remotePrepare) Object.freeze(this.resources.remotePrepare);
     Object.freeze(this.resources);
     const cancel = () => { void this.revoke().catch(() => {}); };
     parent?.addEventListener("abort", cancel, { once: true });
@@ -266,6 +272,29 @@ export class CallAuthority {
       throw new CoreError("capability_denied", "executor worktree effect has not completed");
     this.executorClaimUsed = true;
     return grant;
+  }
+  consumeRemotePrepare(taskId: string, attempt: number): NonNullable<CallResources["remotePrepare"]> {
+    this.assertGranted("hosts");
+    const grant = this.resources.remotePrepare;
+    if (!grant || this.remotePrepareUsed || grant.grant.taskId !== taskId || grant.grant.attempt !== attempt)
+      throw new CoreError("capability_denied", "remote placement is not issued for this call");
+    this.remotePrepareUsed = true;
+    return grant;
+  }
+  bindRemotePrepared(taskId: string, attempt: number, worktree: string, branch: string): void {
+    this.assertGranted("hosts");
+    const grant = this.resources.remotePrepare?.grant;
+    if (!this.remotePrepareUsed || this.remotePrepared || !grant ||
+      grant.taskId !== taskId || grant.attempt !== attempt)
+      throw new CoreError("capability_denied", "remote placement was not verified in this call");
+    this.remotePrepared = { taskId, attempt, worktree, branch };
+  }
+  remotePreparedRun(taskId: string, attempt: number): { worktree: string; branch: string } {
+    this.assertGranted("hosts");
+    const result = this.remotePrepared;
+    if (!result || result.taskId !== taskId || result.attempt !== attempt)
+      throw new CoreError("capability_denied", "remote run claim has no verified placement");
+    return result;
   }
   /** Host-only continuation after an exact durable run claim; never accepts a provider-supplied command. */
   bindClaimedDetachedRun(grant: ClaimedRun): void {

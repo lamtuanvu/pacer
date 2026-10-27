@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "pacer plugin protocol 1.7.0",
-  "version": "1.7.0",
+  "title": "pacer plugin protocol 1.8.0",
+  "version": "1.8.0",
   "$defs": {
     "pluginMetadata": {
       "oneOf": [
@@ -4791,6 +4791,96 @@
             "owned"
           ],
           "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "task": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^t-[A-Za-z0-9_-]{1,120}$"
+                },
+                "rev": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "id",
+                "rev"
+              ],
+              "additionalProperties": false
+            },
+            "attempt": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "runDir": {
+              "type": "number",
+              "const": 1
+            },
+            "remote": {
+              "type": "object",
+              "properties": {
+                "timeoutMs": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 1800000
+                },
+                "executor": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                },
+                "model": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 256
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "resume": {
+                  "type": "object",
+                  "properties": {
+                    "startedAt": {
+                      "type": "number"
+                    },
+                    "logFile": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    }
+                  },
+                  "required": [
+                    "startedAt",
+                    "logFile"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "timeoutMs",
+                "executor",
+                "model"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "task",
+            "attempt",
+            "runDir",
+            "remote"
+          ],
+          "additionalProperties": false
         }
       ]
     },
@@ -6897,6 +6987,225 @@
       "required": [
         "ok",
         "uptimeS"
+      ],
+      "additionalProperties": false
+    },
+    "capability.hosts.prepareOwned.params": {
+      "type": "object",
+      "properties": {
+        "taskId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,128}$"
+        },
+        "attempt": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "taskId",
+        "attempt"
+      ],
+      "additionalProperties": false
+    },
+    "capability.hosts.prepareOwned.result": {
+      "type": "object",
+      "properties": {
+        "worktree": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "branch": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      },
+      "required": [
+        "worktree",
+        "branch"
+      ],
+      "additionalProperties": false
+    },
+    "capability.hosts.claimOwned.params": {
+      "type": "object",
+      "properties": {
+        "taskId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,128}$"
+        },
+        "attempt": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "taskId",
+        "attempt"
+      ],
+      "additionalProperties": false
+    },
+    "capability.hosts.claimOwned.result": {
+      "type": "object",
+      "properties": {
+        "dir": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "worktree": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "remoteDir": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "branch": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "startedAt": {
+          "type": "number"
+        },
+        "logFile": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        }
+      },
+      "required": [
+        "dir",
+        "worktree",
+        "remoteDir",
+        "branch",
+        "startedAt",
+        "logFile"
+      ],
+      "additionalProperties": false
+    },
+    "capability.hosts.startOwned.params": {
+      "type": "object",
+      "properties": {
+        "taskId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,128}$"
+        },
+        "attempt": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "taskId",
+        "attempt"
+      ],
+      "additionalProperties": false
+    },
+    "capability.hosts.startOwned.result": {
+      "type": "object",
+      "properties": {
+        "pid": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "pid"
+      ],
+      "additionalProperties": false
+    },
+    "capability.hosts.pollOwned.params": {
+      "type": "object",
+      "properties": {
+        "taskId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,128}$"
+        },
+        "attempt": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "taskId",
+        "attempt"
+      ],
+      "additionalProperties": false
+    },
+    "capability.hosts.pollOwned.result": {
+      "type": "object",
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": [
+            "running",
+            "exited",
+            "uncertain"
+          ]
+        },
+        "exitCode": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "state",
+        "exitCode"
+      ],
+      "additionalProperties": false
+    },
+    "capability.hosts.readOwnedOutput.params": {
+      "type": "object",
+      "properties": {
+        "taskId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,128}$"
+        },
+        "attempt": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "taskId",
+        "attempt"
+      ],
+      "additionalProperties": false
+    },
+    "capability.hosts.readOwnedOutput.result": {
+      "type": "object",
+      "properties": {
+        "stdoutBase64": {
+          "type": "string",
+          "maxLength": 349528
+        },
+        "stderrBase64": {
+          "type": "string",
+          "maxLength": 349528
+        }
+      },
+      "required": [
+        "stdoutBase64",
+        "stderrBase64"
       ],
       "additionalProperties": false
     },

@@ -3,15 +3,23 @@ import { createHash } from "node:crypto";
 import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fakeCtx, fakeSshEnv, realRun, tmpDir } from "./helpers";
-import { createTask, updateTask } from "../src/tasks/store";
+import { createTask, readTask, updateTask } from "../src/tasks/store";
 import { loadStrategy } from "../src/config/strategy";
 import { issueConfiguredHostPrepareRecover, consumeConfiguredHostPrepareRecover } from "../src/plugins/host-prepare-recover-issuer";
 import { issueConfiguredHostPrepare } from "../src/plugins/host-prepare-issuer";
 import { pluginRegistry } from "../src/plugins";
+import { admitOwnedRemotePrepare } from "../src/plugins/executor-remote-prepare";
+import { answerOwnedRemotePrepare } from "../src/plugins/executor-remote-prepare-host";
+import { createCallAuthority } from "../src/plugins/authority";
+import { manifest as directManifest } from "../plugins/pacer-exec-direct/manifest";
+import { manifestSchema } from "../src/plugins/protocol";
+import { answerOwnedRemoteClaim } from "../src/plugins/executor-remote-claim";
+import { answerOwnedRemoteStart, answerOwnedRemotePoll, answerOwnedRemoteOutput } from "../src/plugins/executor-remote-run";
 
 async function fixture() {
-  const root = tmpDir(), repo = join(root, "repo"), home = join(root, "home"), hostHome = join(root, "host");
-  mkdirSync(repo); mkdirSync(home); mkdirSync(hostHome);
+  const root = tmpDir(), repo = join(root, "repo"), home = join(root, "home"),
+    hostHome = join(root, "host"), bin = join(root, "bin");
+  mkdirSync(repo); mkdirSync(home); mkdirSync(hostHome); mkdirSync(bin);
   const git = async (...args: string[]) => {
     const result = await realRun(["git", "-C", repo, ...args], 10_000);
     if (result.code) throw new Error(result.stderr);
@@ -22,16 +30,19 @@ async function fixture() {
   await git("commit", "--allow-empty", "-qm", "base");
   const clone = await realRun(["git", "clone", "-q", repo, join(hostHome, "repo")], 10_000);
   if (clone.code) throw new Error(clone.stderr);
+  await realRun(["git", "-C", join(hostHome, "repo"), "config", "user.name", "Fixture"], 10_000);
+  await realRun(["git", "-C", join(hostHome, "repo"), "config", "user.email", "fixture@example.invalid"], 10_000);
   const origin = "https://example.invalid/o/r";
   await git("remote", "add", "origin", origin);
   const baseSha = await git("rev-parse", "HEAD");
   const sshEnv = fakeSshEnv(hostHome, join(root, "ssh.log"));
-  const env = { ...process.env, ...sshEnv };
+  const env = { ...process.env, ...sshEnv, PATH: `${bin}:${sshEnv.PATH}` };
   const ctx = fakeCtx({ home, pacerHome: join(home, ".pacer"), env,
     which: name => name === "ssh" ? join(import.meta.dir, "fixtures", "bin", "ssh") : Bun.which(name),
     run: (argv, ms, options) => realRun(argv, ms, { ...options, env: { ...env, ...options?.env } }) });
-  mkdirSync(ctx.pacerHome, { recursive: true });
-  const host = { ssh: "box-ssh", repos: { "example.invalid/o/r": "~/repo" }, accounts: {}, max_tasks: 1 };
+  mkdirSync(ctx.pacerHome, { recursive: true, mode: 0o700 });
+  const host = { ssh: "box-ssh", repos: { "example.invalid/o/r": "~/repo",
+    "example.invalid/o/s": "~/other" }, accounts: {}, max_tasks: 1 };
   writeFileSync(join(ctx.pacerHome, "strategy.yaml"), JSON.stringify({ accounts: { codex: { kind: "codex" } },
     planner: "codex", hosts: { box: host }, routing: [{ default: ["codex@box"] }] }));
   const parsedHost = loadStrategy(ctx).hosts.box;
@@ -46,7 +57,7 @@ async function fixture() {
       repoTop: realpathSync(repo), originHash: createHash("sha256").update(origin).digest("hex"),
       checkout: "~/repo", tag, baseSha, base: "main" };
   });
-  return { ctx, task, host, repo, baseSha, tag, hostHome };
+  return { ctx, task, host, repo, baseSha, tag, hostHome, bin };
 }
 
 test("PREPARE recovery is issued only from the exact persisted unreceipted intent", async () => {
@@ -82,3 +93,175 @@ test("issued PREPARE recovery observes the same remote worktree through bundled 
   expect(recovered).toMatchObject({ code: 0, timedOut: false, stdout: first.stdout });
   expect(recovered.stdout).toContain(join(f.hostHome, ".pacer-remote", "worktrees", f.tag, `${f.task.id}-1`));
 });
+
+test("owned remote admission persists first PREPARE and later permits only recovery", async () => {
+  const f = await fixture();
+  updateTask(f.ctx, f.task.id, current => { delete current.remotePrepareIntent; });
+  const first = await admitOwnedRemotePrepare(f.ctx, f.task.id, "pacer-exec-direct",
+    "codex@box", "box", "main", f.baseSha);
+  expect(first.mode).toBe("prepare");
+  expect(readTask(f.ctx, f.task.id)?.remotePrepareIntent).toEqual(first.intent);
+  const later = await admitOwnedRemotePrepare(f.ctx, f.task.id, "pacer-exec-direct",
+    "codex@box", "box", "main", f.baseSha);
+  expect(later).toMatchObject({ mode: "recover", intent: first.intent });
+  updateTask(f.ctx, f.task.id, current => { current.stopPending = { attempt: 1,
+    providerId: "pacer-exec-direct", requestedAt: 1, graceMs: 5000 }; });
+  await expect(admitOwnedRemotePrepare(f.ctx, f.task.id, "pacer-exec-direct",
+    "codex@box", "box", "main", f.baseSha)).rejects.toMatchObject({ code: "capability_denied" });
+});
+
+test("owned remote recovery refuses a changed provider, host mapping or base", async () => {
+  const f = await fixture();
+  updateTask(f.ctx, f.task.id, current => { delete current.remotePrepareIntent; });
+  await admitOwnedRemotePrepare(f.ctx, f.task.id, "pacer-exec-direct", "codex@box", "box", "main", f.baseSha);
+  await expect(admitOwnedRemotePrepare(f.ctx, f.task.id, "other", "codex@box", "box", "main", f.baseSha))
+    .rejects.toMatchObject({ code: "capability_denied" });
+  await expect(admitOwnedRemotePrepare(f.ctx, f.task.id, "pacer-exec-direct", "codex@box", "box", "HEAD", f.baseSha))
+    .rejects.toMatchObject({ code: "capability_denied" });
+  writeFileSync(join(f.ctx.pacerHome, "strategy.yaml"), JSON.stringify({
+    accounts: { codex: { kind: "codex" } }, planner: "codex",
+    hosts: { box: { ...f.host, repos: { "example.invalid/o/r": "~/other" } } },
+    routing: [{ default: ["codex@box"] }],
+  }));
+  await expect(admitOwnedRemotePrepare(f.ctx, f.task.id, "pacer-exec-direct", "codex@box", "box", "main", f.baseSha))
+    .rejects.toMatchObject({ code: "capability_denied" });
+});
+
+test("origin drift after durable admission cannot redirect first PREPARE to another valid checkout", async () => {
+  const f = await fixture();
+  updateTask(f.ctx, f.task.id, current => { delete current.remotePrepareIntent; });
+  const admitted = await admitOwnedRemotePrepare(f.ctx, f.task.id, "pacer-exec-direct",
+    "codex@box", "box", "main", f.baseSha);
+  const authority = createCallAuthority(f.ctx, { reads: [], commands: [], stores: [],
+    remotePrepare: { grant: admitted.grant } }, { deadlineMs: Date.now() + 120_000, grants: ["hosts"] });
+  const changed = await realRun(["git", "-C", f.repo, "remote", "set-url", "origin",
+    "https://example.invalid/o/s"], 10_000);
+  expect(changed.code).toBe(0);
+  let effects = 0;
+  const broker = { prepareConfiguredHost: async () => {
+    effects++; return { code: 0, timedOut: false, stdout: "", stderr: "" };
+  }, recoverConfiguredHostPrepare: async () => {
+    effects++; return { code: 0, timedOut: false, stdout: "", stderr: "" };
+  } };
+  try {
+    await expect(answerOwnedRemotePrepare(authority, { taskId: f.task.id, attempt: 1 }, broker))
+      .rejects.toMatchObject({ code: "capability_denied" });
+    expect(effects).toBe(0);
+  } finally { await authority.revoke(); }
+});
+
+test("one-use owned host method publishes the exact remote run before START", async () => {
+  const f = await fixture();
+  updateTask(f.ctx, f.task.id, current => { delete current.remotePrepareIntent; });
+  const first = await admitOwnedRemotePrepare(f.ctx, f.task.id, "pacer-exec-direct",
+    "codex@box", "box", "main", f.baseSha);
+  const authority = createCallAuthority(f.ctx, { reads: [], commands: [], stores: [],
+    remotePrepare: { grant: first.grant } }, { deadlineMs: Date.now() + 120_000, grants: ["hosts"] });
+  const expectedWorktree = join(f.hostHome, ".pacer-remote", "worktrees", f.tag, `${f.task.id}-1`);
+  let prepares = 0, recovers = 0;
+  const broker = {
+    prepareConfiguredHost: async () => {
+      prepares++;
+      expect(readTask(f.ctx, f.task.id)?.remotePrepareIntent).toEqual(first.intent);
+      return { code: 0, timedOut: false, stderr: "",
+        stdout: `worktree=${expectedWorktree}\nbranch=pacer/${f.task.id}\n` };
+    },
+    recoverConfiguredHostPrepare: async () => {
+      recovers++;
+      return { code: 0, timedOut: false, stderr: "",
+        stdout: `worktree=${expectedWorktree}\nbranch=pacer/${f.task.id}\n` };
+    },
+  };
+  try {
+    expect(await answerOwnedRemotePrepare(authority, { taskId: f.task.id, attempt: 1 }, broker))
+      .toEqual({ worktree: expectedWorktree, branch: `pacer/${f.task.id}` });
+    const claimed = answerOwnedRemoteClaim(authority, { taskId: f.task.id, attempt: 1 });
+    expect(claimed).toMatchObject({ worktree: expectedWorktree,
+      branch: `pacer/${f.task.id}` });
+    expect(readTask(f.ctx, f.task.id)?.run).toMatchObject({
+      host: "box", remoteWorktree: expectedWorktree, remoteDir: claimed.remoteDir,
+      attempt: 1, mode: "new" });
+    await expect(answerOwnedRemotePrepare(authority, { taskId: f.task.id, attempt: 1 }, broker))
+      .rejects.toMatchObject({ code: "capability_denied" });
+  } finally { await authority.revoke(); }
+  expect(prepares).toBe(1);
+  expect(recovers).toBe(0);
+});
+
+test("lost PREPARE reply can only enter read-only recovery", async () => {
+  const f = await fixture();
+  updateTask(f.ctx, f.task.id, current => { delete current.remotePrepareIntent; });
+  const first = await admitOwnedRemotePrepare(f.ctx, f.task.id, "pacer-exec-direct",
+    "codex@box", "box", "main", f.baseSha);
+  const authority = createCallAuthority(f.ctx, { reads: [], commands: [], stores: [],
+    remotePrepare: { grant: first.grant } }, { deadlineMs: Date.now() + 120_000, grants: ["hosts"] });
+  const worktree = join(f.hostHome, ".pacer-remote", "worktrees", f.tag, `${f.task.id}-1`);
+  let prepares = 0, recovers = 0;
+  const broker = {
+    prepareConfiguredHost: async () => { prepares++; throw Error("reply lost"); },
+    recoverConfiguredHostPrepare: async () => {
+      recovers++; return { code: 0, timedOut: false, stderr: "",
+        stdout: `worktree=${worktree}\nbranch=pacer/${f.task.id}\n` };
+    },
+  };
+  try {
+    await expect(answerOwnedRemotePrepare(authority, { taskId: f.task.id, attempt: 1 }, broker))
+      .rejects.toThrow("reply lost");
+  } finally { await authority.revoke(); }
+  const next = await admitOwnedRemotePrepare(f.ctx, f.task.id, "pacer-exec-direct",
+    "codex@box", "box", "main", f.baseSha);
+  expect(next.mode).toBe("recover");
+  const recovery = createCallAuthority(f.ctx, { reads: [], commands: [], stores: [],
+    remotePrepare: { grant: next.grant } }, { deadlineMs: Date.now() + 120_000, grants: ["hosts"] });
+  try {
+    expect(await answerOwnedRemotePrepare(recovery, { taskId: f.task.id, attempt: 1 }, broker))
+      .toEqual({ worktree, branch: `pacer/${f.task.id}` });
+    expect(prepares).toBe(1); expect(recovers).toBe(1);
+  } finally { await recovery.revoke(); }
+});
+
+test("direct executor cannot use the general SSH broker despite its scoped hosts consent", async () => {
+  const f = await fixture(), registry = pluginRegistry(f.ctx);
+  const authority = createCallAuthority(f.ctx, { reads: [], commands: [], stores: [] },
+    { deadlineMs: Date.now() + 5000, grants: ["hosts"] });
+  const invoke = registry as unknown as { answerHosts: (...args: unknown[]) => Promise<unknown> };
+  try {
+    await expect(invoke.answerHosts(f.ctx,
+      { id: "pacer-exec-direct", manifest: manifestSchema.parse(directManifest) },
+      { alive: true }, authority, "capability.hosts.open", { alias: "box" }))
+      .rejects.toMatchObject({ code: "capability_denied" });
+    await expect(invoke.answerHosts(f.ctx,
+      { id: "pacer-exec-direct", manifest: manifestSchema.parse(directManifest) },
+      { alive: true }, authority, "capability.hosts.prepareOwned", { taskId: f.task.id, attempt: 1 }))
+      .rejects.toMatchObject({ code: "capability_denied" });
+  } finally { await authority.revoke(); }
+});
+
+test("owned remote pipe starts once and settles only on the exact completion receipt", async () => {
+  const f = await fixture();
+  writeFileSync(join(f.bin, "codex"), "#!/bin/sh\ncat > PROMPT.txt\necho owned-remote-started\n" +
+    "git add PROMPT.txt\ngit commit -q -m fixture\necho owned-remote-done\n", { mode: 0o755 });
+  if (!Bun.which("setsid")) writeFileSync(join(f.bin, "setsid"),
+    `#!${Bun.which("python3")}\nimport os,sys\nos.setsid()\nos.execvp(sys.argv[1],sys.argv[1:])\n`, { mode: 0o755 });
+  updateTask(f.ctx, f.task.id, current => { delete current.remotePrepareIntent; });
+  const admitted = await admitOwnedRemotePrepare(f.ctx, f.task.id, "pacer-exec-direct",
+    "codex@box", "box", "main", f.baseSha);
+  const authority = createCallAuthority(f.ctx, { reads: [], commands: [], stores: [],
+    remotePrepare: { grant: admitted.grant } }, { deadlineMs: Date.now() + 120_000, grants: ["hosts"] });
+  try {
+    await answerOwnedRemotePrepare(authority, { taskId: f.task.id, attempt: 1 }, pluginRegistry(f.ctx));
+    answerOwnedRemoteClaim(authority, { taskId: f.task.id, attempt: 1 });
+    expect((await answerOwnedRemoteStart(authority, { taskId: f.task.id, attempt: 1 })).pid).toBeGreaterThan(0);
+    await expect(answerOwnedRemoteStart(authority, { taskId: f.task.id, attempt: 1 }))
+      .rejects.toMatchObject({ code: "capability_denied" });
+    let state: Awaited<ReturnType<typeof answerOwnedRemotePoll>> = { state: "uncertain", exitCode: null };
+    for (let i = 0; i < 100 && state.state !== "exited"; i++) {
+      await Bun.sleep(50);
+      state = await answerOwnedRemotePoll(authority, { taskId: f.task.id, attempt: 1 });
+    }
+    expect(state).toMatchObject({ state: "exited", exitCode: 0 });
+    const output = answerOwnedRemoteOutput(authority, { taskId: f.task.id, attempt: 1 });
+    expect(Buffer.from(output.stdoutBase64, "base64").toString()).toContain("owned-remote-done");
+    expect(readTask(f.ctx, f.task.id)?.executorExitReceipt).toMatchObject({ attempt: 1, exitCode: 0 });
+  } finally { await authority.revoke(); }
+}, 60_000);

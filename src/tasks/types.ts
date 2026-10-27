@@ -127,7 +127,8 @@ export interface TaskRecord {
   baseFetchIntent?: { attempt: number; providerId: string; repoTop: string;
     originHash: string; base?: string; sha?: string };
   /** Exact local attempt directory claimed before creation and cleared with the durable run reference. */
-  runClaim?: { attempt: number; providerId: string; executor: string; workdir: string; dir: string };
+  runClaim?: { attempt: number; providerId: string; executor: string; workdir: string; dir: string;
+    host?: string; remoteDir?: string; remoteBranch?: string; baseSha?: string };
   /** A wrapper start may have reached the OS; never authorize a second start for this attempt. */
   startIntent?: { attempt: number; providerId: string; dir: string };
   /** Host-verified exit of the exact provider-owned run, safe across later task revision changes. */

@@ -42,7 +42,14 @@ export const executorOwnedRunParams = z.object({
     resume: z.object({ startedAt: z.number().finite(), logFile: z.string().min(1).max(4096),
       worktree: z.string().min(1).max(4096).optional() }).strict().optional() }).strict(),
 }).strict();
-export const executorRunParams = z.union([executorEffectRunParams, executorOwnedRunParams]);
+export const executorOwnedRemoteRunParams = z.object({
+  task: z.object({ id: taskId, rev: positive }).strict(), attempt: positive, runDir: z.literal(1),
+  remote: z.object({ timeoutMs: z.number().int().positive().max(MAX_PROCESS_SPAWN_MS),
+    executor: z.string().min(1).max(256), model: z.string().max(256).nullable(),
+    resume: z.object({ startedAt: z.number().finite(), logFile: z.string().min(1).max(4096) }).strict().optional(),
+  }).strict(),
+}).strict();
+export const executorRunParams = z.union([executorEffectRunParams, executorOwnedRunParams, executorOwnedRemoteRunParams]);
 
 /** The files the eventual executor owner must preserve for current task and session readers. */
 export const RUN_DIR_CONTRACT = {

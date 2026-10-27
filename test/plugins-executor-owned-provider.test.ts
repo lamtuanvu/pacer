@@ -78,3 +78,51 @@ test("provider recovery reads the exact prior run without claiming or starting",
   expect(result).toMatchObject({ report: "recovered", attempt: { startedAt: 100 } });
   expect(methods).toEqual(["capability.process.pollRun", "capability.process.readRunOutput"]);
 });
+
+test("remote provider owns placement, claim, start, observation and full pipe outcome", async () => {
+  const methods: string[] = [];
+  const host = { call: async (method: string) => {
+    methods.push(method);
+    if (method === "capability.hosts.prepareOwned") return { worktree: "/home/x/worktree", branch: "pacer/t-fixture" };
+    if (method === "capability.hosts.claimOwned") return { startedAt: 100, logFile: "/tmp/owned/1/stdout" };
+    if (method === "capability.hosts.startOwned") return { pid: 42 };
+    if (method === "capability.hosts.pollOwned") return { state: "exited", exitCode: 0 };
+    if (method === "capability.hosts.readOwnedOutput") return {
+      stdoutBase64: Buffer.from("remote complete\n").toString("base64"), stderrBase64: "" };
+    throw Error(`unexpected ${method}`);
+  } };
+  const result = await handlers["executor.run"]({ task: { id: "t-fixture", rev: 2 }, attempt: 1,
+    runDir: 1, remote: { timeoutMs: 5000, executor: "codex@box", model: null } },
+  host as any, new AbortController().signal);
+  expect(executorAttemptOutcome.safeParse(result).success).toBe(true);
+  expect(result).toMatchObject({ report: "remote complete", attempt: { executor: "codex@box", exitCode: 0 } });
+  expect(methods).toEqual(["capability.hosts.prepareOwned", "capability.hosts.claimOwned",
+    "capability.hosts.startOwned", "capability.hosts.pollOwned", "capability.hosts.readOwnedOutput"]);
+});
+
+test("remote provider never retries an unreceipted START or claims on resume", async () => {
+  const methods: string[] = [];
+  const host = { call: async (method: string) => {
+    methods.push(method);
+    if (method === "capability.hosts.prepareOwned") return { worktree: "/home/x/worktree", branch: "pacer/t-fixture" };
+    if (method === "capability.hosts.claimOwned") return { startedAt: 100, logFile: "/tmp/owned/1/stdout" };
+    throw Error("lost START receipt");
+  } };
+  await expect(handlers["executor.run"]({ task: { id: "t-fixture", rev: 2 }, attempt: 1,
+    runDir: 1, remote: { timeoutMs: 5000, executor: "codex@box", model: null } },
+  host as any, new AbortController().signal)).rejects.toThrow("lost START receipt");
+  expect(methods).toEqual(["capability.hosts.prepareOwned", "capability.hosts.claimOwned",
+    "capability.hosts.startOwned"]);
+  methods.length = 0;
+  const recovered = { call: async (method: string) => {
+    methods.push(method);
+    if (method === "capability.hosts.pollOwned") return { state: "exited", exitCode: 0 };
+    if (method === "capability.hosts.readOwnedOutput") return { stdoutBase64: "", stderrBase64: "" };
+    throw Error(`unexpected ${method}`);
+  } };
+  await handlers["executor.run"]({ task: { id: "t-fixture", rev: 3 }, attempt: 1,
+    runDir: 1, remote: { timeoutMs: 5000, executor: "codex@box", model: null,
+      resume: { startedAt: 100, logFile: "/tmp/owned/1/stdout" } } },
+  recovered as any, new AbortController().signal);
+  expect(methods).toEqual(["capability.hosts.pollOwned", "capability.hosts.readOwnedOutput"]);
+});

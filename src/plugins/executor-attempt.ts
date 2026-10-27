@@ -43,7 +43,7 @@ function privateDirectory(path: string, fd: number): void {
     throw new CoreError("conflict", "executor run directory is not private or changed");
 }
 
-function claimRunDirectory(ctx: Ctx, taskId: string, attempt: number, recover: boolean):
+export function claimRunDirectory(ctx: Ctx, taskId: string, attempt: number, recover: boolean):
   { path: string; identity: { dev: number; ino: number } } {
   if (!/^[A-Za-z0-9_-]{1,128}$/.test(taskId))
     throw new CoreError("invalid_input", "invalid executor task id");

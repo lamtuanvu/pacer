@@ -27,6 +27,53 @@ const ownedInput = z.object({
     resume: z.object({ startedAt: z.number().finite(), logFile: z.string().min(1).max(4096),
       worktree: z.string().min(1).max(4096).optional() }).strict().optional() }).strict(),
 }).strict();
+const remoteInput = z.object({
+  task: z.object({ id: z.string(), rev: z.number().int().positive() }).strict(),
+  attempt: z.number().int().positive(), runDir: z.literal(1),
+  remote: z.object({ timeoutMs: z.number().int().positive().max(30 * 60 * 1000),
+    executor: z.string().min(1).max(256), model: z.string().max(256).nullable(),
+    resume: z.object({ startedAt: z.number().finite(), logFile: z.string().min(1).max(4096) }).strict().optional(),
+  }).strict(),
+}).strict();
+
+async function runOwnedRemote(params: z.infer<typeof remoteInput>, host: Parameters<Handler>[1], signal: AbortSignal) {
+  const { task, attempt, remote } = params;
+  let startedAt = remote.resume?.startedAt, logFile = remote.resume?.logFile;
+  if (!remote.resume) {
+    await host.call("capability.hosts.prepareOwned", { taskId: task.id, attempt });
+    if (signal.aborted) throw new PluginError("plugin_unavailable", "remote placement was cancelled");
+    const claimed = await host.call<{ startedAt: number; logFile: string }>(
+      "capability.hosts.claimOwned", { taskId: task.id, attempt });
+    startedAt = claimed.startedAt; logFile = claimed.logFile;
+    if (signal.aborted) throw new PluginError("plugin_unavailable", "remote start was cancelled");
+    await host.call("capability.hosts.startOwned", { taskId: task.id, attempt });
+  }
+  const deadline = startedAt! * 1000 + remote.timeoutMs;
+  let uncertainSince: number | null = null;
+  for (;;) {
+    if (signal.aborted) throw new PluginError("plugin_unavailable", "remote run was cancelled; inspect the persisted run");
+    const state = await host.call<{ state: "running" | "exited" | "uncertain"; exitCode: number | null }>(
+      "capability.hosts.pollOwned", { taskId: task.id, attempt });
+    if (state.state === "exited" && state.exitCode !== null) {
+      const encoded = await host.call<{ stdoutBase64: string; stderrBase64: string }>(
+        "capability.hosts.readOwnedOutput", { taskId: task.id, attempt });
+      const stdout = Buffer.from(encoded.stdoutBase64, "base64").toString("utf8");
+      const stderr = Buffer.from(encoded.stderrBase64, "base64").toString("utf8");
+      const report = (stdout.trim() || stderr.trim()).slice(-4000);
+      return { backend: "direct", report,
+        exec: { code: state.exitCode, stdout, stderr, timedOut: false },
+        attempt: { executor: remote.executor, model: remote.model, startedAt: startedAt!,
+          endedAt: Date.now() / 1000, exitCode: state.exitCode, timedOut: false,
+          limitHit: false, log: logFile! } };
+    }
+    uncertainSince = state.state === "uncertain" ? uncertainSince ?? Date.now() : null;
+    if (uncertainSince !== null && Date.now() - uncertainSince >= 5000)
+      throw new PluginError("plugin_unavailable", "remote run state is uncertain; replacement launch refused");
+    if (Date.now() >= deadline)
+      throw new PluginError("plugin_timeout", "remote deadline reached; persisted run requires stop reconciliation");
+    await Bun.sleep(200);
+  }
+}
 
 async function runOwned(params: z.infer<typeof ownedInput>, host: Parameters<Handler>[1], signal: AbortSignal) {
   const { task, attempt, owned } = params;
@@ -82,6 +129,8 @@ async function runOwned(params: z.infer<typeof ownedInput>, host: Parameters<Han
 export const handlers = {
   "executor.available": () => ({ available: true }),
   "executor.run": async (params, host, signal) => {
+    const remote = remoteInput.safeParse(params);
+    if (remote.success) return runOwnedRemote(remote.data, host, signal);
     const owned = ownedInput.safeParse(params);
     if (owned.success) return runOwned(owned.data, host, signal);
     const parsed = input.safeParse(params);

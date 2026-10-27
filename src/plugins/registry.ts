@@ -52,6 +52,9 @@ import { consumeConfiguredHostClean, validateConfiguredHostClean, type Configure
 import { consumeConfiguredHostStop, validateConfiguredHostStop, type ConfiguredHostStopGrant } from "./host-stop-issuer";
 import { consumeConfiguredHostPrepare, validateConfiguredHostPrepare, type ConfiguredHostPrepareGrant } from "./host-prepare-issuer";
 import { consumeConfiguredHostPrepareRecover, validateConfiguredHostPrepareRecover, type ConfiguredHostPrepareRecoverGrant } from "./host-prepare-recover-issuer";
+import { answerOwnedRemotePrepare } from "./executor-remote-prepare-host";
+import { answerOwnedRemoteClaim } from "./executor-remote-claim";
+import { answerOwnedRemoteStart, answerOwnedRemotePoll, answerOwnedRemoteOutput } from "./executor-remote-run";
 import { consumeConfiguredHostReport, validateConfiguredHostReport, type ConfiguredHostReportGrant } from "./host-report-issuer";
 import { consumeConfiguredHostSessionFiles, validateConfiguredHostSessionFiles, type ConfiguredHostSessionFilesGrant } from "./host-session-files-issuer";
 import { consumeConfiguredHostAttemptPreflight, validateConfiguredHostAttemptPreflight, type ConfiguredHostAttemptPreflightGrant } from "./host-attempt-preflight-issuer";
@@ -1350,6 +1353,21 @@ export class PluginRegistry {
     authority: CallAuthority, method: string, params: unknown): Promise<unknown> {
     authority.assertGranted("hosts");
     if (caller.manifest?.contributes.hostRunner) throw new CoreError("capability_denied", "host runner providers cannot forward hosts calls");
+    if (caller.id === "pacer-exec-direct") {
+      if (!callerProcess.alive)
+        throw new CoreError("capability_denied", "direct executor has no general SSH broker authority");
+      if (method === "capability.hosts.prepareOwned")
+        return answerOwnedRemotePrepare(authority, params as { taskId: string; attempt: number }, this);
+      if (method === "capability.hosts.claimOwned")
+        return answerOwnedRemoteClaim(authority, params as { taskId: string; attempt: number });
+      if (method === "capability.hosts.startOwned")
+        return answerOwnedRemoteStart(authority, params as { taskId: string; attempt: number });
+      if (method === "capability.hosts.pollOwned")
+        return answerOwnedRemotePoll(authority, params as { taskId: string; attempt: number });
+      if (method === "capability.hosts.readOwnedOutput")
+        return answerOwnedRemoteOutput(authority, params as { taskId: string; attempt: number });
+      throw new CoreError("capability_denied", "direct executor has no general SSH broker authority");
+    }
     if (method === "capability.hosts.fetch") {
       const admission = this.hostCallerFetch.get(authority);
       if (!admission) throw new CoreError("capability_denied", "host fetch has no persisted caller grant");
