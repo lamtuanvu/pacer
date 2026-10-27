@@ -8,6 +8,7 @@ const big=Array.from({length:5000},(_,index)=>[10,2500,4999].includes(index+1)?`
 const files:Record<string,Omit<SessionFileResult,"line"|"column">>={
  "src/big.ts":{path:"src/big.ts",kind:"code",text:big,size:big.length,modified:"v1"},
  "README.md":{path:"README.md",kind:"markdown",text:"# Readme title\n\nBody text.\n",size:26,modified:"v1"},
+ "docs/long.md":{path:"docs/long.md",kind:"markdown",text:Array.from({length:120},(_,index)=>`Paragraph ${index+1}.`).join("\n\n"),size:1500,modified:"v1"},
  "public/index.html":{path:"public/index.html",kind:"html",text:'<script src="https://cdn.example/a.js"></script><h1>Page</h1>',size:60,modified:"v1"},
 };
 // With `deferred`, reads wait until the test resolves them by path, so responses can arrive out of order.

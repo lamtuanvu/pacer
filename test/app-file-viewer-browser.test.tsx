@@ -10,7 +10,7 @@ let server:ReturnType<typeof Bun.serve>;
 const stubTerminal=`import { h } from "preact";
 export const LazyTerminal = props => h("div", { "data-stub-terminal": "" },
   h("textarea", { className: "xterm-helper-textarea", "aria-label": "Terminal input" }),
-  ...[["src/big.ts", 2500], ["README.md"], ["public/index.html"], ["src/gone.ts", 4]].map(([path, line]) =>
+  ...[["src/big.ts", 2500], ["README.md"], ["docs/long.md"], ["public/index.html"], ["src/gone.ts", 4]].map(([path, line]) =>
     h("button", { type: "button", onClick: () => props.onOpenFile(path, line) }, "Open " + path)));`;
 
 // Viewer import wrapper: with ?failViewer the lazy module resolves without a component until the test enables it.
@@ -239,5 +239,20 @@ browserTest("inside the scrolling panel the source focus ring stays visible and 
   const html=await open(page,375,"public/index.html");
   await html.getByRole("tab",{name:"Preview"}).click();
   await expect(html.getByRole("tabpanel").getAttribute("tabindex")).resolves.toBe("0");
+ }finally{await page.close()}
+},30_000);
+
+browserTest("the focused Markdown preview scrolls with the keyboard",async()=>{
+ const page=await browser.newPage({viewport:{width:375,height:812}});page.setDefaultTimeout(5000);
+ try{
+  const viewer=await open(page,375,"docs/long.md");
+  await viewer.getByRole("tab",{name:"Preview"}).click();
+  const region=viewer.getByRole("region",{name:"Preview of docs/long.md"});
+  await region.getByText("Paragraph 1.",{exact:true}).waitFor();
+  await viewer.getByRole("tab",{name:"Preview"}).focus();
+  await page.keyboard.press("Tab");
+  await expect(region.evaluate(element=>element===document.activeElement&&element.matches(":focus-visible"))).resolves.toBe(true);
+  await page.keyboard.press("PageDown");
+  await page.waitForFunction(()=>(document.querySelector(".pc-file-viewer__markdown")?.scrollTop??0)>0);
  }finally{await page.close()}
 },30_000);
