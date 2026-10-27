@@ -53,3 +53,23 @@ it does not add automated CI enforcement or grant bots merge approval.
 Relevant reviewers: applicable definitions from the context index, plus independent
 repository-rule review for every changed work product.
 Exceptions and open decisions: REPO-8 and REPO-9.
+
+## REPO-11 to REPO-14: agent work routing
+
+Amendment 0.15.0. Proposed; the rules apply repository-wide once the maintainer merges the amendment. Until then, reviewers report REPO-11 to REPO-14 findings as advisory.
+They apply to every agent working in this repository, whatever planner or tool
+it uses (P3, ARCH-5). "Planner" means the agent that plans and reviews the task.
+"Executor" means an agent that pacer delegates to. REPO-11 to REPO-13 apply to
+the planner. An executor never delegates further except through a grant under
+API-5.
+
+| ID | Rule | Status | Rationale/source | Verification |
+|----|------|--------|------------------|--------------|
+| REPO-11 | The planner plans, decides and reviews. Execution goes through pacer (`pacer route <kind> --json`, then `pacer delegate`, then `pacer review <id> --accept\|--reject`) as the current pacer mode requires (the [README mode table](../../README.md)):<br>• in normal, strict and emergency mode, the planner delegates execution;<br>• in relaxed mode, the planner may execute directly but still delegates any task it would split across several agents or sessions.<br>Subagents and parallel sessions running on the planner's own subscription count as the planner doing the work. Execution may also stay with the planner when `pacer route` reports no eligible executor, delegation is paused (`pacer pause`), or pacing is off for the session (`PACER=off`). Read-only helpers and independent reviewers may always run on the planner's side. | Proposed | Constitution purpose; README "Planner policy" modes; [docs/configuration.md](../../docs/configuration.md) | Review: the delivery report names each delegation, or the exception that applied |
+| REPO-12 | When work runs on the planner's side, each agent or session uses the smallest model tier that can do that job. The tiers are the planner vendor's model families, ordered by cost:<br>• the smallest family for lookups, status checks and read-only searches;<br>• the middle family for implementation from a written brief, tests, live validation and evidence;<br>• the largest family only for planning and design decisions, security-sensitive changes, and a final independent review when a stronger second opinion is worth the cost.<br>Choose the tier explicitly; don't let a helper inherit the planner's tier by default. | Proposed | Subscription budgets are the resource pacer manages | Review, using the record REPO-13 requires |
+| REPO-13 | Every brief, delegation and spawned session names the executor or model tier chosen and why. The result report records what actually ran. | Proposed | Makes REPO-11 and REPO-12 reviewable | REPO-10 repository-rule review checks the reports |
+| REPO-14 | Executor briefs require a sandboxed `PACER_HOME`, never the operator's real `~/.pacer`. Any change to pacer state under `PACER_HOME` must be non-destructive: keep or copy the original files, and never rename, rewrite or delete them in place. | Proposed | An executor once renamed real task data while testing a migration | Review the brief; CT-2 and CT-11 keep isolated homes in tests and live runs |
+
+These rules change how agents spend budget and where execution happens. They
+don't relax REPO-10 review, CT-11 live validation, the UI evidence gates or the
+maintainer's merge authority.

@@ -63,6 +63,8 @@ requires independent scoped review, fixes and final-content re-review. The revie
 index selects specialist criteria; it does not waive the general review gate.
 Recommendations and merge approval remain distinct from required evidence.
 
+Agent work routing: REPO-11 to REPO-14 in [rules/repository.md](rules/repository.md#repo-11-to-repo-14-agent-work-routing) (amendment 0.15.0, pending maintainer merge).
+
 CI job selection: [docs/testing/ci-selection.md](../docs/testing/ci-selection.md), amendment 0.11.0 (pending maintainer merge). Local validation rules remain applicable.
 
 ## Commands
