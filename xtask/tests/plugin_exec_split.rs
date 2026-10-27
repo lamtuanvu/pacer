@@ -2,8 +2,9 @@
 use std::path::Path;
 
 fn in_exec_area(name: &str) -> bool {
-    name.starts_with("executor.") || name.starts_with("capability.process.") ||
-        name.starts_with("capability.worktree.")
+    name.starts_with("executor.")
+        || name.starts_with("capability.process.")
+        || name.starts_with("capability.worktree.")
 }
 
 #[test]

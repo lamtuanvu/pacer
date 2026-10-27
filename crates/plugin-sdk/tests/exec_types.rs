@@ -2,7 +2,9 @@
 
 use pacer_plugin::types::{
     CapabilityProcessDuplexCloseParams, CapabilityProcessSpawnParams, ExecutorAvailableParams,
-    ExecutorSessionStateResult,
+    ExecutorRunParams, ExecutorRunParamsEffect, ExecutorRunParamsTask,
+    ExecutorRunResultVariant0Report, ExecutorRunResultVariant0Status,
+    ExecutorRunResultVariant1Report, ExecutorSessionStateResult,
 };
 use serde_json::json;
 
@@ -13,6 +15,16 @@ fn exec_area_keeps_sdk_type_paths_and_wire_fields() {
     assert_eq!(serde_json::to_value(params).unwrap(), value);
     let _: Option<CapabilityProcessSpawnParams> = None;
     let _: Option<CapabilityProcessDuplexCloseParams> = None;
+    let _: Option<ExecutorRunParamsEffect> = None;
+    let _: Option<ExecutorRunParamsTask> = None;
+    let _: Option<ExecutorRunResultVariant0Report> = None;
+    let _: Option<ExecutorRunResultVariant0Status> = None;
+    let _: Option<ExecutorRunResultVariant1Report> = None;
+    let owned = json!({"task":{"id":"t-20261027-102417-e2b4","rev":1},"attempt":1,
+        "runDir":1.0,"owned":{"placement":"current","timeoutMs":1000,
+        "executor":"codex","model":null}});
+    let params: ExecutorRunParams = serde_json::from_value(owned.clone()).unwrap();
+    assert_eq!(serde_json::to_value(params).unwrap(), owned);
     for state in ["running", "exited", "uncertain"] {
         let value = json!({"state": state, "host": "builtin", "handle": null});
         let receipt: ExecutorSessionStateResult = serde_json::from_value(value.clone()).unwrap();
