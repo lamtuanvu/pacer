@@ -3,6 +3,10 @@ import { renderToString } from 'preact-render-to-string';
 import { chromium, type Browser } from 'playwright-core';
 import { TaskTree, TaskTreeNode } from '../app/src/ds/TaskTreeNode';
 import type { TaskNodeView } from '../src/view-model/task-tree';
+import { workTree } from '../app/src/screens/session/WorkList';
+import { TaskNavigator } from '../app/src/screens/session/TaskNavigator';
+import snapshotFixture from './fixtures/ui/snapshot.json';
+import type { ClientSnapshot } from '../src/view-model/snapshot';
 
 const leaf = (id: string, over: Partial<TaskNodeView> = {}): TaskNodeView => ({
   id, title: `Task ${id}`, state: { tone: 'info', live: true, label: 'Working' }, active: true, attention: 'none',
@@ -42,6 +46,15 @@ test('expanded_card_renders_child_rows_with_controls_target', () => {
   expect(html).toMatch(/href="#\/tasks\/t-3"[^>]*aria-current="page"|aria-current="page"[^>]*href="#\/tasks\/t-3"/);
 });
 
+test('pill_never_repeats_the_status_label', () => {
+  const failed = leaf('t-6', { state: { tone: 'bad', live: false, label: 'Failed' }, attention: 'bad', attentionLabel: 'Failed' });
+  const html = card(failed);
+  expect(html).toContain('pc-task-node--bad');
+  expect(html).not.toContain('pc-pill');
+  expect(html.match(/>Failed</g)).toHaveLength(1);
+  expect(card({ ...failed, attentionLabel: 'Checks failed' })).toContain('pc-pill--bad');
+});
+
 test('leaf_root_has_no_toggle', () => {
   const html = card(leaf('t-9'));
   expect(html).not.toContain('pc-task-node__toggle');
@@ -68,6 +81,35 @@ test('tree_seeds_expansion_for_selected_descendant', () => {
   const html = renderToString(<TaskTree nodes={[root(), leaf('t-8')]} density="compact" href={href} selectedId="t-3" label="Tasks" />);
   expect(html).toContain('aria-label="Tasks"');
   expect(html).toContain('aria-expanded="true"');
+  expect(html.match(/aria-current="page"/g)).toHaveLength(1);
+});
+
+test('work_rows_nest_children_and_omit_unknown_facts', () => {
+  const snapshot = structuredClone(snapshotFixture) as unknown as ClientSnapshot;
+  const rows = [
+    { id: 'w-root', parentId: null, rootId: 'w-root', depth: 0, title: 'Root work', state: 'running', executor: 'codex', rev: 1 },
+    { id: 'w-child', parentId: 'w-root', rootId: 'w-root', depth: 1, title: 'Child work', state: 'failed', executor: 'agy', rev: 1 },
+    { id: 't-0409', parentId: null, rootId: 't-0409', depth: 0, title: 'Retry budget refresh on 429', state: 'failed', executor: 'agy', rev: 1 },
+  ];
+  const nodes = workTree(rows, snapshot);
+  const root = nodes.find(node => node.id === 'w-root')!;
+  expect(root.children.map(child => child.id)).toEqual(['w-child']);
+  // Work rows carry no machine or update time; nothing is invented for them.
+  expect(root.host).toBeUndefined();
+  expect(root.meta.some(item => item.icon === 'time')).toBe(false);
+  // Attention follows Needs you: the snapshot's failed item for t-0409 counts, an unlisted child failure does not.
+  expect(nodes.find(node => node.id === 't-0409')!.attention).toBe('bad');
+  expect(root.children[0]!.attention).toBe('none');
+  expect(nodes.find(node => node.id === 't-0409')!.host).toEqual({ name: 'This Mac', kind: 'local' });
+  // Without a snapshot the row's own state is the only evidence.
+  expect(workTree(rows, null).find(node => node.id === 'w-root')!.children[0]!.attention).toBe('bad');
+});
+
+test('navigator_counts_every_task_and_groups_by_activity', () => {
+  const html = renderToString(<TaskNavigator selectedId="t-3" nodes={[root(), leaf('t-8', { active: false, state: { tone: 'good', live: false, label: 'Completed' } })]} />);
+  expect(html).toMatch(/<strong>Tasks<\/strong><span>4<\/span>/);
+  expect(html).toContain('aria-label="Running tasks"');
+  expect(html).toContain('aria-label="Completed tasks"');
   expect(html.match(/aria-current="page"/g)).toHaveLength(1);
 });
 

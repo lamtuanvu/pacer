@@ -15,12 +15,13 @@ type WorkPage={tasks:WorkRow[];next:string|null};
 
 /**
  * Work rows carry the parent link but not the machine or update time, so those facts stay unknown (omitted) unless the
- * snapshot holds the same task. Children nest under a parent on the loaded page; server order holds within each group.
+ * snapshot holds the same task. Children nest under a parent on the loaded page. Rows the snapshot does not hold keep the
+ * server's order after attention and running work; rows it does hold sort by their update time.
  */
-function workTree(rows:WorkRow[],snapshot:ClientSnapshot|null|undefined){
+export function workTree(rows:WorkRow[],snapshot:ClientSnapshot|null|undefined){
  const known=new Map((snapshot?.tasks??[]).map(task=>[task.id,task]));
  const tasks=rows.map((row):TreeTask=>({...(known.get(row.id)??{id:row.id,goal:row.title,title:row.title,executor:row.executor,backend:null,worktree:null,updatedAt:0}),state:row.state,parentId:row.parentId}));
- return taskTree({tasks,attention:snapshot?needsYou(snapshot,{repo:null}):[]},{now:Date.now()/1000});
+ return taskTree({tasks,attention:snapshot?needsYou(snapshot,{repo:null}):undefined},{now:Date.now()/1000});
 }
 /** Work overview reuses the same task detail route as the tree and timeline. */
 export function WorkList({query}:{query:RouteQuery}){

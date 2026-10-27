@@ -5,11 +5,11 @@ import { markAgent } from "./agents";
 import { needsYou, type Scope } from "./selectors";
 
 import { sessionTime } from "./copy";
-import { attentionStatus, taskOutcome, taskStatus, type Tone } from "./words";
+import { attentionStatus, localHostWords, subtaskAttentionWords, taskOutcome, taskStatus, type Status, type Tone } from "./words";
 
 export type TaskAttention = "none" | "warn" | "bad";
 /** Icon names shared with the DS icon set; kept as a subset so the view model never imports the app. */
-export type TaskMetaIcon = "time" | "files" | "pr" | "checks" | "layers" | "review";
+export type TaskMetaIcon = "time" | "files" | "pr" | "checks" | "layers" | "review" | "routing";
 export interface TaskMetaItem { icon: TaskMetaIcon; text: string; tone?: Tone; title?: string }
 export interface TaskNodeView {
   id: string; title: string;
@@ -31,7 +31,6 @@ export type TreeTask = ClientTask & {
 export interface TreeSnapshot { tasks: TreeTask[]; attention?: AttentionItem[] }
 
 const rank: Record<TaskAttention, number> = { none: 0, warn: 1, bad: 2 };
-const worst = (a: TaskAttention, b: TaskAttention) => rank[b] > rank[a] ? b : a;
 
 function compact(n: number): string {
   const [div, unit] = n >= 1e6 ? [1e6, "M"] : n >= 1e3 ? [1e3, "k"] : [1, ""];
@@ -44,13 +43,23 @@ function tokenText(tokens: TreeTokens | null | undefined): string | undefined {
 }
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
-function ownAttention(task: TreeTask, items: AttentionItem[], tasks: TreeTask[]): { level: TaskAttention; label?: string } {
-  const item = items.filter(i => i.taskId === task.id).sort((a, b) => (b.severity === "decide" ? 0 : 1) - (a.severity === "decide" ? 0 : 1))[0];
-  if (item) return { level: item.severity === "decide" ? "warn" : "bad", label: attentionStatus(item, tasks).label };
+/** Tint, pill colour and words come from one vocabulary status, so they never disagree (UI-10). */
+const fromStatus = (status: Status): { level: TaskAttention; label: string } => ({ level: status.tone === "bad" ? "bad" : "warn", label: status.label });
+/**
+ * With a Needs you list (a snapshot), attention comes only from it, so a resolved, snoozed or decided item never tints a card.
+ * Without one (history or work pages fetched alone), the task's own state is the only evidence.
+ */
+function ownAttention(task: TreeTask, items: AttentionItem[] | undefined, tasks: TreeTask[]): { level: TaskAttention; label?: string } {
+  if (items) {
+    const item = items.filter(i => i.taskId === task.id).sort((a, b) => Number(a.severity === "decide") - Number(b.severity === "decide"))[0];
+    return item ? fromStatus(attentionStatus(item, tasks)) : { level: "none" };
+  }
+  if (task.resolved || task.dismissed || task.retriedBy || task.review) return { level: "none" };
   const status = taskStatus(task);
-  if (task.acceptanceState === "failed" || task.acceptance?.state === "failed") return { level: "bad", label: "Checks failed" };
-  if (task.state === "needs_input" || status.label === "Needs input") return { level: "warn", label: status.label };
-  if (task.state === "failed" || task.state === "limit") return { level: "bad", label: status.label };
+  if (task.acceptanceState === "failed" || task.acceptance?.state === "failed")
+    return fromStatus(attentionStatus({ kind: "failed", taskId: task.id }, [{ ...task, acceptanceState: "failed" }]));
+  if (task.state === "needs_input" || (task.state === "running" && task.conversation?.activity === "waiting")) return fromStatus(status);
+  if (task.state === "failed" || task.state === "limit" || task.state === "partial") return fromStatus(status);
   return { level: "none" };
 }
 
@@ -77,9 +86,13 @@ function order(a: TaskNodeView & { at: number; queued: boolean }, b: TaskNodeVie
 
 export function taskTree(snapshot: TreeSnapshot, opts: { now: number; extra?: TreeTask[] }): TaskNodeView[] {
   const byId = new Map<string, TreeTask>();
-  for (const task of [...(opts.extra ?? []), ...snapshot.tasks]) byId.set(task.id, task);
+  // Snapshot rows are fresher, but only a fetched detail or work page knows the parent link, so keep it.
+  for (const task of [...(opts.extra ?? []), ...snapshot.tasks]) {
+    const previous = byId.get(task.id);
+    byId.set(task.id, previous?.parentId != null && task.parentId == null ? { ...task, parentId: previous.parentId } : task);
+  }
   const tasks = [...byId.values()];
-  const items = snapshot.attention ?? [];
+  const items = snapshot.attention;
   type Built = TaskNodeView & { at: number; queued: boolean };
   const built = new Map<string, Built>();
   for (const task of tasks) {
@@ -92,7 +105,7 @@ export function taskTree(snapshot: TreeSnapshot, opts: { now: number; extra?: Tr
       state: { tone: status.tone, live: task.state === "running", label: status.label },
       active: task.state === "running" || task.state === "queued",
       attention: attention.level, ...(attention.label ? { attentionLabel: attention.label } : {}),
-      ...(task.host ? { host: { name: task.host, kind: "remote" as const } } : task.host === null && task.state !== "queued" ? { host: { name: "This Mac", kind: "local" as const } } : {}),
+      ...(task.host ? { host: { name: task.host, kind: "remote" as const } } : task.host === null && task.state !== "queued" ? { host: { name: localHostWords, kind: "local" as const } } : {}),
       ...(branch ? { branch } : {}), agents: task.executor ? [markAgent(task.executor)] : [], ...(tokens ? { tokens } : {}),
       meta: meta(task, opts.now), children: [], at: task.updatedAt, queued: task.state === "queued",
     });
@@ -101,16 +114,25 @@ export function taskTree(snapshot: TreeSnapshot, opts: { now: number; extra?: Tr
   for (const task of tasks) {
     const node = built.get(task.id)!;
     const parent = task.parentId && task.parentId !== task.id ? built.get(task.parentId) : undefined;
-    if (parent) parent.children.push(node); else roots.push(node);
+    if (parent) parent.children.push(node);
+    else {
+      // A subtask whose parent is not loaded stays reachable as a root, and says what it is.
+      if (task.parentId && task.parentId !== task.id) node.meta.unshift({ icon: "routing", text: "Subtask" });
+      roots.push(node);
+    }
   }
   const finish = (node: Built, seen: Set<string>): TaskNodeView => {
     seen.add(node.id);
     const children = (node.children as Built[]).filter(child => !seen.has(child.id)).sort(order).map(child => finish(child, seen));
-    let attention = node.attention;
+    let attention = node.attention, attentionLabel = node.attentionLabel;
     const agents = [...node.agents];
-    for (const child of children) { attention = worst(attention, child.attention); for (const agent of child.agents) if (!agents.includes(agent)) agents.push(agent); }
-    const { at: _at, queued: _queued, ...view } = node;
-    return { ...view, attention, agents, children };
+    for (const child of children) {
+      // A worse subtask lends its words along with its tint, so a collapsed card never shows colour alone (UI-2).
+      if (rank[child.attention] > rank[attention]) { attention = child.attention; attentionLabel = child.attentionLabel && subtaskAttentionWords(child.attentionLabel.replace(/^Subtask: /, "")); }
+      for (const agent of child.agents) if (!agents.includes(agent)) agents.push(agent);
+    }
+    const { at: _at, queued: _queued, attentionLabel: _label, ...view } = node;
+    return { ...view, attention, ...(attentionLabel ? { attentionLabel } : {}), agents, children };
   };
   // Roll attention up before ordering roots, so a root with a failing child sorts with the problems.
   const seen = new Set<string>();
@@ -118,9 +140,12 @@ export function taskTree(snapshot: TreeSnapshot, opts: { now: number; extra?: Tr
   return finished.sort((a, b) => order({ ...a.view, at: a.at, queued: a.queued }, { ...b.view, at: b.at, queued: b.queued })).map(item => item.view);
 }
 
-/** What screens call: the repository scope, the Needs you attention rules and the running list's dismissal rule, applied once. */
-export function scopedTaskTree(snapshot: ClientSnapshot, scope: Scope, opts: { now: number; extra?: TreeTask[] }): TaskNodeView[] {
-  const keep = (task: TreeTask) => (scope.repo === null || !task.repo || task.repo.key === scope.repo)
+/**
+ * What screens call: the repository scope, the Needs you attention rules and the running list's dismissal rule, applied once.
+ * `pinned` (the open task) is exempt from the filters, so the navigator always shows it.
+ */
+export function scopedTaskTree(snapshot: ClientSnapshot, scope: Scope, opts: { now: number; extra?: TreeTask[]; pinned?: string }): TaskNodeView[] {
+  const keep = (task: TreeTask) => task.id === opts.pinned || (scope.repo === null || !task.repo || task.repo.key === scope.repo)
     && !(task.dismissed && (task.state === "running" || task.state === "queued"));
   return taskTree({ tasks: snapshot.tasks.filter(keep), attention: needsYou(snapshot, scope) }, { now: opts.now, extra: opts.extra?.filter(keep) });
 }

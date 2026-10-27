@@ -144,7 +144,7 @@ export function TaskRoute({ id, query }: { id: string; query: RouteQuery }) {
   const selected={...task.data,parentId:task.data.work?.parentId??null};
   const extra=[...(history.data?.tasks??[]),selected];
   const now=Date.now()/1000;
-  const nodes=state.snapshot?scopedTaskTree(state.snapshot,{repo:query.repo||null},{now,extra}):taskTree({tasks:extra.filter(item=>!query.repo||item.repo?.key===query.repo||item.id===id)},{now});
+  const nodes=state.snapshot?scopedTaskTree(state.snapshot,{repo:query.repo||null},{now,extra,pinned:id}):taskTree({tasks:extra.filter(item=>!query.repo||item.repo?.key===query.repo||item.id===id)},{now});
   const navigator=<TaskNavigator selectedId={id} nodes={nodes} query={withQuery('',query)}/>;
   const tab = selection?.id === id ? selection.tab : (["queued", "running"].includes(task.data.state) ? "session" : "result");
   return <TaskDetailFrame task={task.data} query={query} tab={tab} onTab={value=>setSelection({id,tab:value})} navigator={navigator}>

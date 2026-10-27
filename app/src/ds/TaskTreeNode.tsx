@@ -37,7 +37,8 @@ export function TaskTreeNode({ node, density, expanded, onToggle, selectedId, hr
   return <article className={classNames("pc-task-node", `pc-task-node--${density}`, node.attention !== "none" && `pc-task-node--${node.attention}`, current && "pc-task-node--current")}>
     <div className="pc-task-node__head">
       <a className="pc-task-node__title" href={href(node.id)} aria-current={current ? "page" : undefined} title={node.title}>{node.title}</a>
-      {node.attention !== "none" && node.attentionLabel && <Pill tone={node.attention}>{node.attentionLabel}</Pill>}
+      {/* The status label already says "Failed": repeating it in the pill would state one fact twice (UI-15). */}
+      {node.attention !== "none" && node.attentionLabel && node.attentionLabel !== node.state.label && <Pill tone={node.attention}>{node.attentionLabel}</Pill>}
     </div>
     <div className="pc-task-node__facts">
       <StatusDot tone={node.state.tone} live={node.state.live} label={node.state.label} />
