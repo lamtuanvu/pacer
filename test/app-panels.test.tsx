@@ -23,8 +23,10 @@ const press = (key: string, extra: Partial<KeyInput> = {}): KeyInput => ({ key, 
 
 test("panel_toggle_has_aria_expanded_and_controls", () => {
   const changes: boolean[] = [];
-  const open = SidePanel({ side: "left", label: "Settings", open: true, onToggle: next => changes.push(next), children: "links" });
-  const html = renderToString(open);
+  // SidePanel uses hooks, so capture its tree from inside a rendering component.
+  let open!: ReturnType<typeof SidePanel>;
+  function Probe() { open = SidePanel({ side: "left", label: "Settings", open: true, onToggle: next => changes.push(next), children: "links" }); return open; }
+  const html = renderToString(<Probe />);
   expect(html).toContain('<aside aria-label="Settings" class="pc-side-panel pc-side-panel--left">');
   expect(html).toMatch(/aria-label="Hide Settings"[^>]*aria-expanded="true"[^>]*aria-controls="pc-side-panel-left"/);
   expect(html).toContain('id="pc-side-panel-left" class="pc-side-panel__content">links</div>');

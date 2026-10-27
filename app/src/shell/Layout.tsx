@@ -10,7 +10,7 @@ import type { Route } from "../router";
 import { Rail } from "./Rail";
 import { TaskContext } from "../screens/task-shared";
 import { SettingsPanel, SettingsPanelData } from "./SettingsPanel";
-import { NarrowContext, useNarrow } from "./narrow";
+import { NarrowContext, PANEL_MEDIA, useMedia, useNarrow } from "./narrow";
 import { TopBar } from "./TopBar";
 import { StatusBar } from "./StatusBar";
 import { keys } from "../keys/instance";
@@ -35,11 +35,15 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
   const [dockOpen, setDockOpen] = usePanelState("dock", false);
   const opener = useRef<HTMLElement | null>(null);
   const showStatusBar = !narrow && route.name !== "setup";
-  const hasLeft = !narrow && SETTINGS.has(route.name);
-  // One terminal screen at a time, and only where the desktop frame (and a service connection) exists.
-  const dockAvailable = showStatusBar && !!context && route.name !== "terminal" && !state.sessionEnded;
+  // Side panels and the dock show only from 768px, so their shortcuts never toggle something hidden.
+  const wide = useMedia(PANEL_MEDIA, true);
+  const hasLeft = !narrow && wide && SETTINGS.has(route.name) && !state.sessionEnded;
+  // One terminal screen at a time, and only where the full desktop frame (and a service connection) exists.
+  const dockAvailable = showStatusBar && wide && !!context && route.name !== "terminal" && !state.sessionEnded;
   const toggleDock = () => {
-    if (!dockOpen) opener.current = document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : null;
+    const here = document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : null;
+    // Opening remembers the opener; closing from outside the dock keeps focus where it is.
+    if (!dockOpen || (here && !here.closest(".pc-dock"))) opener.current = here;
     setDockOpen(!dockOpen);
   };
   useEffect(() => {

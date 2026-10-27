@@ -14,7 +14,7 @@ export function usePanelState(id: string, defaultOpen: boolean): [boolean, (open
   }];
 }
 
-/** Frame shortcuts. Ctrl-` still works while a terminal has control, so the dock can always be closed from inside it. */
+/** Frame shortcuts. Ctrl-` is allowed while the docked shell has control, so the dock can always be closed from inside it. */
 export function panelShortcuts(toggleLeft?: () => void, toggleDock?: () => void): Shortcut[] {
   return [
     ...(toggleLeft ? [{ keys: "Ctrl-b", label: "Side panel", scope: "global", run: toggleLeft }] : []),

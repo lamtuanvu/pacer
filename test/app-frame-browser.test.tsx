@@ -48,6 +48,13 @@ browserTest("dock_focus_moves_in_and_returns", async () => {
     await page.keyboard.press("Control+Backquote");
     await expect(dock.count()).resolves.toBe(0);
     await focused(page, '[aria-label="Terminal"]');
+    // Closing with the status-bar button keeps focus on that button, even when the dock opened without an opener.
+    await page.evaluate(() => (document.activeElement as HTMLElement).blur());
+    await page.keyboard.press("Control+Backquote");
+    await dock.waitFor();
+    await button.click();
+    await expect(dock.count()).resolves.toBe(0);
+    await focused(page, '[aria-label="Terminal"]');
     // Keyboard open from the main landmark, close with the dock's own control.
     await page.locator("#main-content").focus();
     await page.keyboard.press("Control+Backquote");
@@ -102,5 +109,48 @@ browserTest("settings_panel_collapse_keeps_main_usable", async () => {
       expect(await page.evaluate(() => localStorage.getItem("pacer.panel.settings"))).toBe("0");
       await page.close();
     }
+  } finally { await browser.close(); }
+}, 20_000);
+
+browserTest("panel_toggle_keeps_focus_on_its_control", async () => {
+  const built = await frame();
+  const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 800 } });
+    await open(page, built, "#/settings");
+    // Pointer and keyboard toggles swap the control; focus follows it instead of falling to the body.
+    await page.getByRole("button", { name: "Hide Settings" }).click();
+    await focused(page, '[aria-label="Show Settings"]');
+    await page.keyboard.press("Enter");
+    await focused(page, '[aria-label="Hide Settings"]');
+    // Ctrl-b from a link inside the panel removes that link; focus moves to the reopen control.
+    await page.getByRole("complementary", { name: "Settings" }).getByRole("link").first().focus();
+    await page.keyboard.press("Control+b");
+    await focused(page, '[aria-label="Show Settings"]');
+    // Ctrl-b from the work area leaves focus where it was.
+    await page.locator("#main-content").focus();
+    await page.keyboard.press("Control+b");
+    await page.getByRole("complementary", { name: "Settings" }).waitFor();
+    await focused(page, "#main-content");
+  } finally { await browser.close(); }
+}, 20_000);
+
+browserTest("panels_and_dock_not_offered_where_hidden", async () => {
+  const built = await frame();
+  const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
+  try {
+    // Between the narrow breakpoint and 768px the shell hides side panels, so Ctrl-b must not be registered.
+    const page = await browser.newPage({ viewport: { width: 700, height: 800 } });
+    await open(page, built, "#/settings");
+    expect(await page.getByRole("button", { name: /^(Hide|Show) Settings$/ }).count()).toBe(0);
+    await page.locator("#main-content").focus();
+    await page.keyboard.press("Control+b");
+    await page.waitForTimeout(100);
+    expect(await page.evaluate(() => localStorage.getItem("pacer.panel.settings"))).toBeNull();
+    // The dock is not offered there either: no status-bar control, and Ctrl-` does nothing.
+    expect(await page.getByRole("button", { name: "Terminal", exact: true }).count()).toBe(0);
+    await page.keyboard.press("Control+Backquote");
+    await page.waitForTimeout(100);
+    expect(await page.getByRole("region", { name: "Terminal panel" }).count()).toBe(0);
   } finally { await browser.close(); }
 }, 20_000);
