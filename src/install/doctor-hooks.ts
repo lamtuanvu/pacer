@@ -13,6 +13,8 @@ import { isObj } from "../util";
 import { defaultHooks } from "../classify/hooks";
 import { runGuard } from "../guard/guard";
 import { renderHook } from "../render/hook";
+import { loadStrategy, MissingStrategyError } from "../config/strategy";
+import { readScheduleState, BACKOFF_MAX_S } from "../dispatch/certification-schedule";
 
 /** A different planner does not require Claude hooks unless a Claude integration remains installed. */
 export function claudeHooksApplicable(ctx: Ctx, strategy?: Strategy): boolean {
@@ -121,4 +123,79 @@ export async function probeClaudeHandlers(): Promise<Check> {
   } catch {
     return { name: "Claude handler probes", level: "fail", evidence: "unverified", detail: "A fixed handler fixture failed.", fix: "Run the doctor-hook tests from this build and report the failure before reconnecting." };
   } finally { rmSync(home, { recursive: true, force: true }); }
+}
+
+/** Enforcement probe schedule doctor check. Reports mode, consent, last probe, expiry, next eligible time and measured cost.
+ * level: "info" when scheduling is healthy OR deliberately off;
+ * level: "warn" only when consent was declined or backoff has reached BACKOFF_MAX_S.
+ */
+export function enforcementProbeScheduleCheck(ctx: Ctx): Check {
+  let strategy: Strategy;
+  try {
+    strategy = loadStrategy(ctx);
+  } catch (e) {
+    if (e instanceof MissingStrategyError) {
+      return { name: "Enforcement probe schedule", level: "info", detail: "No strategy configured: certification probes are not applicable." };
+    }
+    return { name: "Enforcement probe schedule", level: "info", detail: `Strategy unavailable: ${e instanceof Error ? e.message : String(e)}` };
+  }
+
+  const mode = strategy.pacing.plannerProbe;
+  const state = readScheduleState(ctx);
+
+  // Mode "off" is a deliberate choice, not a fault - info level
+  if (mode === "off") {
+    return { name: "Enforcement probe schedule", level: "info", detail: "Certification probing is turned off. No probes will run automatically." };
+  }
+
+  const consent = state.consent[strategy.planner.account];
+  /** A wait already at the cap cannot grow, so probing has stopped rather than slowed. */
+  const atMaxBackoff = Object.values(state.attempts)
+    .some(attempt => attempt.nextEligibleAt - ctx.now >= BACKOFF_MAX_S);
+
+  // Build detail message
+  const details: string[] = [];
+  details.push(`mode: ${mode}`);
+
+  if (consent === "granted") {
+    details.push("consent: granted");
+  } else if (consent === "declined") {
+    details.push("consent: declined");
+  } else {
+    details.push("consent: not yet asked");
+  }
+
+  // Check if any attempts exist
+  const attemptKeys = Object.keys(state.attempts);
+  if (attemptKeys.length > 0) {
+    // Get the first attempt (typically there's only one for the planner)
+    const attempt = state.attempts[attemptKeys[0]]!;
+    if (attempt.nextEligibleAt > 0) {
+      details.push(`next eligible: in ${Math.max(0, Math.round((attempt.nextEligibleAt - ctx.now) / 60))} minutes`);
+    }
+    if (attempt.probesToday > 0) {
+      details.push(`probes today: ${attempt.probesToday}`);
+    }
+    if (attempt.lastCostPct !== null) {
+      details.push(`last probe cost: ${attempt.lastCostPct}% of account window`);
+    }
+    if (attempt.failures > 0) {
+      details.push(`consecutive failures: ${attempt.failures}`);
+    }
+  }
+
+  // Determine level: warn only when declined or at max backoff
+  let level: "info" | "warn" = "info";
+  if (consent === "declined") {
+    level = "warn";
+  } else if (atMaxBackoff) {
+    level = "warn";
+    details.push("(note: backoff has reached maximum; probes are effectively paused)");
+  }
+
+  return {
+    name: "Enforcement probe schedule",
+    level,
+    detail: details.join("; "),
+  };
 }

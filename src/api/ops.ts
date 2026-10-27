@@ -5,6 +5,7 @@ import { dispatchAnalytics, resetLearning, recordWorkReview } from "../dispatch/
 import { getWork } from "../dispatch/work";
 import { dispatchConfigSchema, previewInputSchema } from "../dispatch/types";
 import { enforcementDiagnostics, probeNativeControl } from "../dispatch/enforcement";
+import { readScheduleState, writeScheduleState } from "../dispatch/certification-schedule";
 import { authorizeEnforcementToken } from "../dispatch/enforcement-token";
 import { appendWorkEvent, dispatchDatabase, updateWorkDecision } from "../dispatch/store";
 import { enforcementExclusion } from "../dispatch/enforcement";
@@ -447,6 +448,13 @@ export const OPS: Record<string, OpDef> = {
   "dispatch.config.get": op({description:"Read the active planner and effective dispatcher configuration, including built-in defaults.",params:z.object({}),handler:ctx=>{const current=loadStrategy(ctx);return {strategy:current.name,planner:current.planner.agent,plannerAccount:current.planner.account,source:current.dispatch?"strategy":"built-in",config:current.dispatch??dispatchConfigSchema.parse({})};}}),
   "dispatch.enforcement": op({description:"Read native subagent control certification and exclusion reasons for a repository.",params:z.object({repo:z.string().min(1).max(4096)}),handler:async(ctx,p)=>{const repo=await resolvePolicyRepoInput(ctx,p.repo);return enforcementDiagnostics(ctx,loadStrategy(ctx),repo.path);}}),
   "dispatch.enforcement.probe": op({description:"Start a quota-using native subagent control canary for one local executor and repository.",params:z.object({repo:z.string().min(1).max(4096),runner:id}),handler:async(ctx,p)=>{const repo=await resolvePolicyRepoInput(ctx,p.repo);const chosen=loadStrategy(ctx);const job=await startJob(ctx,"enforcement.probe",`${p.runner}:${repo.path}`,["Probe native child control"],async step=>{step.start("Probe native child control");const result=await probeNativeControl({...ctx,now:Date.now()/1000},chosen,p.runner,repo.path);if(result.state!=="certified")throw new CoreError("not_allowed",result.reason??"Native child blocking was not observed");step.pass("Probe native child control","Native child blocking verified");});return{job};}}),
+  "dispatch.enforcement.consent": op({description:"Grant or decline consent for scheduled certification probes on an account. Probes spend the account's own quota to certify its enforcement guard.",params:z.object({account:id,granted:z.boolean()}),handler:(ctx,p)=>{
+    const state=readScheduleState(ctx);
+    const consentValue: "granted" | "declined" = p.granted ? "granted" : "declined";
+    const updated = { ...state, consent: { ...state.consent, [p.account]: consentValue } };
+    writeScheduleState(ctx,updated);
+    return {account:p.account,consent:consentValue};
+  }}),
   "dispatch.enforcement.denied": op({description:"Record a native child denial for the authenticated strict attempt.",params:z.object({agent:z.enum(["claude-code","codex","cursor"])}),handler:async(ctx,p)=>{
     const attempt=authorizeEnforcementToken(ctx,ctx.env.PACER_ENFORCEMENT_TOKEN??"");
     appendWorkEvent(ctx,attempt.taskId,"native-child.denied",{agent:p.agent,attempt:attempt.attempt});

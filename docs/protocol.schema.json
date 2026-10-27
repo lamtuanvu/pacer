@@ -1667,6 +1667,24 @@
       ],
       "additionalProperties": false
     },
+    "DispatchEnforcementConsentParams": {
+      "type": "object",
+      "properties": {
+        "account": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "granted": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "account",
+        "granted"
+      ],
+      "additionalProperties": false
+    },
     "DispatchEnforcementDeniedParams": {
       "type": "object",
       "properties": {

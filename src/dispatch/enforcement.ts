@@ -15,6 +15,7 @@ import pkg from "../../package.json";
 import { pacerArgv } from "../install/self";
 import { shellCommand } from "../install/fsx";
 import { withLock } from "../core/lock";
+import { readScheduleState } from "./certification-schedule";
 
 export interface EnforcementTarget {runner:string;account:string;agent:string;version:string;binary:string;controlFiles:string[];launchMode:string;launchArgs:string[];guardArgv?:string[]}
 export type CertificateStatus = {state:"certified"|"uncertified"|"stale";reason?:string;probedAt?:number;expiresAt?:number};
@@ -132,14 +133,48 @@ export async function enforcementExclusion(ctx:Ctx,strategy:Strategy,runnerId:st
   }
 }
 export async function enforcementDiagnostics(ctx:Ctx,strategy:Strategy,repo:string){
+  const state = readScheduleState(ctx);
   const rows=[];
   for(const runner of Object.values(strategy.runners)){
     try {
       const target=await resolveEnforcementTarget(ctx,strategy,runner.id,repo);
       const unsupported=probeSupportReason(target,repo);
-      rows.push({runner:runner.id,account:target.account,agent:target.agent,version:target.version,probeSupported:!unsupported,...(unsupported?{state:"uncertified" as const,reason:unsupported}:certificateStatus(ctx,target))});
+      const cert = certificateStatus(ctx,target);
+      const attempt = state.attempts[key(target)];
+      const consentVal = state.consent[target.account];
+      rows.push({
+        runner:runner.id,
+        account:target.account,
+        agent:target.agent,
+        version:target.version,
+        probeSupported:!unsupported,
+        unsupportedReason: unsupported ?? null,
+        ...cert,
+        lastProbedAt: cert.probedAt ?? null,
+        expiresAt: cert.expiresAt ?? null,
+        nextEligibleAt: attempt?.nextEligibleAt ?? 0,
+        probesToday: attempt?.probesToday ?? 0,
+        lastCostPct: attempt?.lastCostPct ?? null,
+        consent: consentVal ?? "unasked" as const,
+        ...(unsupported?{state:"uncertified" as const,reason:unsupported}:{}),
+      });
     } catch(error) {
-      rows.push({runner:runner.id,account:runner.account,agent:runner.agent,version:null,probeSupported:false,state:"uncertified" as const,reason:error instanceof Error?error.message:String(error)});
+      rows.push({
+        runner:runner.id,
+        account:runner.account,
+        agent:runner.agent,
+        version:null,
+        probeSupported:false,
+        unsupportedReason: null,
+        state:"uncertified" as const,
+        reason:error instanceof Error?error.message:String(error),
+        lastProbedAt: null,
+        expiresAt: null,
+        nextEligibleAt: 0,
+        probesToday: 0,
+        lastCostPct: null,
+        consent: "unasked" as const,
+      });
     }
   }
   return {repo,scope:"native subagent entry points at admission",runners:rows};
