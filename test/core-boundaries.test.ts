@@ -40,3 +40,9 @@ test("src/core runs no orca CLI and leaves host cleanup to src/exec adapters", (
   expect(env).toEqual([]);
   expect(readFileSync(join(import.meta.dir, "..", "src", "core", "tasks.ts"), "utf8")).not.toMatch(/orca/i);
 });
+
+test("the API operation table loads execution backends only on use", () => {
+  const ops = readFileSync(join(import.meta.dir, "..", "src", "api", "ops.ts"), "utf8");
+  expect(ops).not.toMatch(/from\s+["'][^"']*\/exec\//);
+  expect(ops).toMatch(/import\(["']\.\.\/exec\/backend["']\)/);
+});

@@ -12,7 +12,7 @@ export interface StatusResult {
   runtime?: { state?: string; reachable?: boolean; appVersion?: string };
 }
 export interface RepoRow { id: string; path: string }
-export interface TerminalRow { handle: string; incarnationId?: string; exitCause?: { kind: string }; connected?: boolean; writable?: boolean; preview?: string; worktreePath?: string }
+export interface TerminalRow { handle: string; incarnationId?: string; exitCause?: { kind: string }; connected?: boolean; writable?: boolean; preview?: string; worktreeId?: string; worktreePath?: string }
 export interface RunRow { id: string; coordinator_handle?: string; objective?: string }
 export interface WorkerStartResult {
   runId?: string;
@@ -130,6 +130,7 @@ export class OrcaClient {
   worktreeShow(path: string) { return this.worktreeShowBy(`path:${path}`); }
   worktreeShowBy(selector: string) { return this.call<{worktree?: WorktreeRow; terminal?: TerminalRow; terminalHandle?: string; initialTerminalHandle?: string}>(["worktree", "show", "--worktree", selector]); }
   worktreeRemove(id: string, force: boolean) { return this.call<Record<string, unknown>>(["worktree", "rm", "--worktree", `id:${id}`, ...(force ? ["--force"] : [])], 60_000); }
+  terminalList(worktree: string) { return this.call<{ terminals?: TerminalRow[] }>(["terminal", "list", "--worktree", worktree]); }
   terminalShow(handle: string) { return this.call<{ terminal?: TerminalRow }>(["terminal", "show", "--terminal", handle]); }
   terminalClose(handle: string) { return this.call<Record<string, unknown>>(["terminal", "close", "--terminal", handle]); }
   terminalSend(handle: string, text: string) { return this.call<Record<string, unknown>>(["terminal", "send", "--terminal", handle, "--text", text, "--enter"]); }
@@ -139,7 +140,10 @@ export class OrcaClient {
   }
   runShow(id: string) { return this.call<{ run: RunRow }>(["orchestration", "run-show", "--id", id]); }
   workerStart(o: WorkerStartOpts) { return this.call<WorkerStartResult>(workerStartArgs(o), START_TIMEOUT_MS); }
-  workerList(run: string) { return this.call<{ workers?: WorkerListRow[]; page?: { hasMore?: boolean }; scope?: { run?: string } }>(["orchestration", "worker-list", "--run", run]); }
+  workerList(run: string, cursor?: string) {
+    return this.call<{ workers?: WorkerListRow[]; page?: { hasMore?: boolean; nextCursor?: string | null }; scope?: { run?: string } }>(
+      ["orchestration", "worker-list", "--run", run, ...(cursor ? ["--cursor", cursor] : [])]);
+  }
   workerShow(dispatch: string) { return this.call<{ worker?: WorkerRow }>(["orchestration", "worker-show", "--dispatch", dispatch]); }
   workerRead(dispatch: string, limit: number) {
     return this.call<{ terminal?: { tail?: string[] } }>(["orchestration", "worker-read", "--dispatch", dispatch, "--limit", String(limit)]);

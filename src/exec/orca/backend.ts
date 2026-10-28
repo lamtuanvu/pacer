@@ -18,8 +18,8 @@ import { brokenReason, repoFingerprint } from "../broken";
 import type { ExecResult } from "../process";
 import { buildPrompt } from "../prompt";
 import { orcaAgentFor } from "./agents";
-import { OrcaClient, type Placement, type WorkerStartResult, type WorktreeRow, isReady } from "./client";
-import { closeCreatedTerminal, discardCreatedWorktree, lookupWorker, type OwnedWorktree, type WorkerLookup } from "./cleanup";
+import { OrcaClient, type Placement, type TerminalRow, type WorkerStartResult, type WorktreeRow, isReady } from "./client";
+import { closeCreatedTerminal, discardCreatedWorktree, lookupWorker, type OwnedWorktree, recordUnclosed, type WorkerLookup, worktreeTerminals } from "./cleanup";
 import { ensureCoordinator, ensureRepo, gitInfo, realpathSafe } from "./setup";
 import { updateOrcaState, withLock } from "./state";
 import { type WaitResult, waitForWorker } from "./wait";
@@ -200,6 +200,8 @@ async function runOrcaAttempt(
   } catch (e) {
     return fallback(deps, ctx, cfg, task, onSpawn, (e as Error).message);
   }
+  // A work grant is a secret: it cannot go in a visible Orca terminal command, so delegating work runs directly.
+  if (ctx.env.PACER_WORK_GRANT) return fallback(deps, ctx, cfg, task, onSpawn, "the task allows delegation, and its work grant cannot be placed in a visible Orca terminal command");
   const c = new OrcaClient(ctx.run, ctx.env);
   let p: Prepared;
   try {
@@ -238,6 +240,23 @@ async function runOrcaAttempt(
   let created: OwnedWorktree | null = null;
   let worktree: string | null = null;
   let selector = "";
+  let incarnationId: string | undefined;
+  // Orca opens its own shell terminal in a new worktree; the create reply may not name it, so list the worktree.
+  const strays: string[] = [], unproven: string[] = [];
+  const closeStrays = async (worktreeId: string, reply: TerminalRow[], when: string) => {
+    const listed = await worktreeTerminals(c, worktreeId, [...strays, ...(terminal ? [terminal] : [])]);
+    if (!listed) log(`orca terminal list for ${worktreeId} failed; Orca's initial terminal may stay open`);
+    const rows = [...reply, ...(listed ?? [])].filter((t, i, all) => all.findIndex(x => x.handle === t.handle) === i);
+    for (const t of rows) {
+      const closed = await closeCreatedTerminal(c, t.handle);
+      log(`closed Orca initial terminal ${t.handle}${when}: ${closed.failure ?? "ok"}`);
+      if (closed.proof) { strays.push(t.handle); continue; }
+      unproven.push(t.handle);
+      await recordUnclosed(ctx, task.id, t.handle, log);
+      if (!terminal) book("admission binding", () => adm.bind(ctx, admission, {dispatchId: "pending", terminal: t.handle, ...(t.incarnationId ? {incarnationId: t.incarnationId} : {})}));
+    }
+    if (unproven.length) throw Error(`orca worktree initial terminal ${unproven.join(", ")} could not be verified closed`);
+  };
   const discard = async () => { if (created) await discardCreatedWorktree(ctx, c, task.id, created, log, { sleep: deps.sleep }); };
   try {
     const kind = p.placement.kind === "new-child" ? "create" : "show";
@@ -245,9 +264,10 @@ async function runOrcaAttempt(
       ? await c.worktreeCreate(p.placement)
       : await c.worktreeShow(realpathSafe(p.placement.selector.slice("path:".length)));
     if (!placement.ok) throw Error(`orca worktree ${kind} failed: ${placement.error.code} ${placement.error.message}`);
-    const initial = p.placement.kind === "new-child"
-      ? placement.result.terminal?.handle ?? placement.result.initialTerminalHandle ?? placement.result.terminalHandle : undefined;
-    if (initial) terminal = initial;
+    // Older Orca replies named the initial terminal; current ones do not.
+    const named = placement.result.terminal?.handle ?? placement.result.initialTerminalHandle ?? placement.result.terminalHandle;
+    const initial: TerminalRow[] = p.placement.kind === "new-child" && named
+      ? [{handle: named, ...(placement.result.terminal?.handle === named && placement.result.terminal.incarnationId ? {incarnationId: placement.result.terminal.incarnationId} : {})}] : [];
     let checked: { id: string; path: string };
     try { checked = checkedWorktree(p, placement.result.worktree); }
     catch (e) {
@@ -258,14 +278,7 @@ async function runOrcaAttempt(
     if (p.placement.kind === "new-child") created = { id, path: root, name: p.placement.name };
     selector = `id:${id}`;
     log(`worktree ${kind} ${id}: ${root}`);
-    if (initial) {
-      adm.bind(ctx, admission, {dispatchId: "pending", terminal: initial,
-        ...(placement.result.terminal?.incarnationId ? {incarnationId: placement.result.terminal.incarnationId} : {})});
-      const closed = await closeCreatedTerminal(c, initial);
-      log(`closed Orca initial terminal ${initial}: ${closed.failure ?? "ok"}`);
-      if (closed.failure || !closed.proof) throw Error(`orca worktree initial terminal ${initial} could not be verified closed: ${closed.failure ?? "no close receipt"}`);
-      terminal = null;
-    }
+    if (created) await closeStrays(id, initial, "");
     worktree = p.placement.kind === "existing" ? (task.retryOf && task.worktree ? task.worktree : task.brief.repo)
       : p.sub ? join(root, p.sub) : root;
     const accountEnv = await providerEnv(ctx, cfg);
@@ -274,18 +287,24 @@ async function runOrcaAttempt(
     }
     // CLAUDE_CODE_SANDBOXED makes Claude treat the folder as trusted without writing its configuration.
     const identity = ["PACER_ROLE=executor", `PACER_TASK_ID=${task.id}`, ...(p.agent === "claude" ? ["CLAUDE_CODE_SANDBOXED=1"] : [])];
+    // Orca's shell environment is not the service's: a default account must not inherit another account's home.
+    const home = p.agent === "claude" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME";
+    const unset = home in accountEnv ? [] : ["-u", home];
     const launch = launchArgvFor(cfg, root, tasksDir(ctx), p.top);
-    const command = shellCommand(["env", ...identity, ...Object.entries(accountEnv).map(([key, value]) => `${key}=${value}`), ...launch]);
-    const shown = shellCommand(["env", ...identity, ...Object.keys(accountEnv).map(key => `${key}=<${key}>`), ...launch]);
+    const command = shellCommand(["env", ...unset, ...identity, ...Object.entries(accountEnv).map(([key, value]) => `${key}=${value}`), ...launch]);
+    const shown = shellCommand(["env", ...unset, ...identity, ...Object.keys(accountEnv).map(key => `${key}=<${key}>`), ...launch]);
     const made = await c.terminalCreate(selector, `pacer ${task.id}`, command);
     if (!made.ok || !made.result.terminal?.handle) throw Error(`orca terminal create failed: ${made.ok ? "no handle" : `${made.error.code} ${made.error.message}`}`);
     terminal = made.result.terminal.handle;
     log(`terminal create ${terminal}: ${shown}`);
-    adm.bind(ctx, admission, {dispatchId: "pending", terminal, ...(made.result.terminal.incarnationId ? {incarnationId: made.result.terminal.incarnationId} : {})});
+    incarnationId = made.result.terminal.incarnationId;
+    adm.bind(ctx, admission, {dispatchId: "pending", terminal, ...(incarnationId ? {incarnationId} : {})});
     const idle = await c.terminalWait(terminal);
     const state = idle.ok ? (idle.result.wait?.satisfied === true ? "idle" : idle.result.wait?.blockedReason ?? idle.result.wait?.status ?? "timeout") : `${idle.error.code} ${idle.error.message}`;
     log(`terminal wait ${terminal}: ${state}`);
     if (state !== "idle") throw Error(`orca terminal did not become idle: ${state}`);
+    // The app may open its initial terminal after the create reply: check the new worktree once more.
+    if (created) await closeStrays(created.id, [], " (opened late)");
   } catch (e) {
     let reason = String(e instanceof Error ? e.message : e);
     let closed = !terminal;
@@ -294,9 +313,10 @@ async function runOrcaAttempt(
       log(`closed pacer terminal ${terminal}: ${result.failure ?? "ok"}`);
       closed = result.proof;
       if (result.failure) reason += `; terminal close failed ${terminal}: ${result.failure}`;
+      if (!result.proof && !unproven.includes(terminal)) await recordUnclosed(ctx, task.id, terminal, log);
     }
     await discard();
-    if (closed) book("admission release", () => adm.finish(ctx, admission));
+    if (closed && !unproven.length) book("admission release", () => adm.finish(ctx, admission));
     return fallback(deps, ctx, cfg, task, onSpawn, reason, lines);
   }
   const agentTerminal: string = terminal!;
@@ -309,6 +329,7 @@ async function runOrcaAttempt(
       log(`worker-start refused: ${ws.error.code} ${ws.error.message}`);
       const closed = await closeCreatedTerminal(c, agentTerminal);
       log(`closed pacer terminal ${agentTerminal}: ${closed.failure ?? "ok"}`);
+      if (!closed.proof) await recordUnclosed(ctx, task.id, agentTerminal, log);
       await discard();
       if (closed.proof) book("admission release", () => adm.finish(ctx, admission));
       return fallback(deps, ctx, cfg, task, onSpawn, `orca worker-start refused (${ws.error.code}: ${ws.error.message})`
@@ -353,14 +374,17 @@ async function runOrcaAttempt(
   startedAt = deps.now() / 1000;
   const start = r!;
   const dispatchId = start.dispatchId!;
-  book("admission binding", () => adm.bind(ctx, admission, { dispatchId, terminal: agentTerminal }));
-  try {
-    const shown = await c.terminalShow(agentTerminal);
-    if (shown.ok && shown.result.terminal?.handle === agentTerminal && shown.result.terminal.incarnationId) {
-      const incarnationId = shown.result.terminal.incarnationId;
-      book("admission binding", () => adm.bind(ctx, admission, { dispatchId, terminal: agentTerminal, incarnationId }));
-    }
-  } catch { /* No precise terminal identity: retain the lease until a closure receipt. */ }
+  // Every rebind keeps the create-time incarnation, so a later pass can still prove the terminal closed.
+  book("admission binding", () => adm.bind(ctx, admission, { dispatchId, terminal: agentTerminal, ...(incarnationId ? { incarnationId } : {}) }));
+  if (!incarnationId) {
+    try {
+      const shown = await c.terminalShow(agentTerminal);
+      if (shown.ok && shown.result.terminal?.handle === agentTerminal && shown.result.terminal.incarnationId) {
+        const shownId = shown.result.terminal.incarnationId;
+        book("admission binding", () => adm.bind(ctx, admission, { dispatchId, terminal: agentTerminal, incarnationId: shownId }));
+      }
+    } catch { /* No precise terminal identity: retain the lease until a closure receipt. */ }
+  }
   log(`worker-start ${dispatchId}: ${start.state ?? "unknown"} (agent ${p.agent}${p.model ? `, model ${p.model}` : ""}, worktree ${worktree ?? "-"})`);
   const forget = async () => {
     try {
@@ -432,6 +456,7 @@ async function runOrcaAttempt(
     const closed = await closeCreatedTerminal(c, agentTerminal);
     log(`closed pacer terminal ${agentTerminal}: ${closed.failure ?? "ok"}`);
     if (closed.proof) book("admission release", () => adm.finish(ctx, admission));
+    else await recordUnclosed(ctx, task.id, agentTerminal, log);
     await forget();
   }
 

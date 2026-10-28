@@ -130,13 +130,22 @@ Cursor and OpenCode still enforce explicit deny rules. These launch options do
 not change operating system permissions or managed organization policies.
 
 For Orca tasks, pacer creates or resolves the worktree, launches an idle agent
-with its unattended-permission flags, then attaches the worker. Pacer closes the
-terminal it created when the worker settles. If the agent does not start, pacer
+with its unattended-permission flags, then attaches the worker. Orca opens its
+own shell terminal in a new worktree; pacer lists that worktree's terminals and
+closes it before launching the agent, and checks once more after the agent is
+idle. Terminals in other worktrees are never touched. Pacer closes the
+terminal it created when the worker settles. A close that Orca does not confirm
+is recorded and retried by the next `pacer clean`. For a default account, the
+terminal command unsets `CLAUDE_CONFIG_DIR` or `CODEX_HOME` so the agent does
+not inherit another account from Orca's shell. Tasks that allow delegation run
+directly, because their work grant cannot be placed in a visible terminal
+command. If the agent does not start, pacer
 closes that terminal and removes the worktree it just created before running the
 task directly; a worktree it cannot remove is removed by `pacer clean` after
 review. When pacer cannot tell whether Orca started the worker, it does not run
 the task directly: it keeps the terminal and retries the check on the next
-`pacer clean`. The attempt log lists each step, with account folder values
+`pacer clean`. If that check finds the worker settled, pacer adds its worktree
+and outcome to the task for review. The attempt log lists each step, with account folder values
 replaced by their variable names. `pacer clean` removes reviewed or dismissed
 Orca worktrees once Orca has deleted the directory; Orca may also remove the
 worktree branch when it can prove the branch is merged.
@@ -147,6 +156,8 @@ configuration. The variable is
 undocumented by Anthropic. If a Claude release ignores it, the trust prompt
 keeps the agent from becoming idle and pacer runs the task directly instead.
 With the variable set, Claude also applies the repository's own `.claude/`
-permission settings without asking; the agent already runs with
+permission settings, runs its project hooks and starts the MCP servers in its
+`.mcp.json` without asking. This matches direct execution, where `claude -p`
+already skips the trust prompt. The agent runs with
 `--dangerously-skip-permissions`, so only delegate repositories whose
-`.claude/` settings you trust. Codex keeps its per-invocation trust argument.
+`.claude/` settings, hooks and `.mcp.json` you trust. Codex keeps its per-invocation trust argument.

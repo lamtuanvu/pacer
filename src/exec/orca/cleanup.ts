@@ -1,11 +1,12 @@
 import { existsSync } from "node:fs";
 import { worktreeDirty } from "../../supervisor/worktree";
+import { updateTask } from "../../tasks/store";
 import type { TaskRecord } from "../../tasks/types";
 import type { Ctx } from "../../types";
 import type { HostClean, HostCleanOpts } from "../cleanup";
-import { OrcaClient } from "./client";
+import { OrcaClient, type TerminalRow } from "./client";
 import { realpathSafe } from "./setup";
-import { loadOrcaState, type StrandedWorktree, updateOrcaState, withLock } from "./state";
+import { loadOrcaState, type StrandedWorktree, type UncertainStart, updateOrcaState, withLock } from "./state";
 
 export interface OwnedWorktree { id: string; path: string; name: string }
 export interface CleanupDeps { sleep: (ms: number) => Promise<void>; polls: number }
@@ -32,23 +33,49 @@ export async function closeCreatedTerminal(c: OrcaClient, terminal: string): Pro
 
 export type WorkerLookup = { kind: "found"; dispatchId: string; state: string } | { kind: "none" } | { kind: "unknown"; reason: string };
 
-/** Whether a dispatch is attached to this terminal in the run. "none" needs a complete, matching listing. */
-export async function lookupWorker(c: OrcaClient, run: string, terminal: string): Promise<WorkerLookup> {
+/** Whether a dispatch is attached to this terminal in the run. "none" needs a complete, matching listing across every page. */
+export async function lookupWorker(c: OrcaClient, run: string, terminal: string, maxPages = 50): Promise<WorkerLookup> {
   try {
-    const r = await c.workerList(run);
-    if (!r.ok) return { kind: "unknown", reason: `orca worker-list failed: ${r.error.code} ${r.error.message}` };
-    const workers = r.result.workers;
-    if (!Array.isArray(workers)) return { kind: "unknown", reason: "orca worker-list returned no workers" };
-    const w = workers.find(w => w.agentTerminalHandle === terminal || w.resource?.terminalHandle === terminal);
-    if (w) return w.dispatchId ? { kind: "found", dispatchId: w.dispatchId, state: w.workerState ?? "" }
-      : { kind: "unknown", reason: "orca worker-list row has no dispatch id" };
-    if (r.result.page?.hasMore !== false || (r.result.scope?.run !== undefined && r.result.scope.run !== run)) {
-      return { kind: "unknown", reason: "orca worker-list is incomplete for the run" };
+    let cursor: string | undefined;
+    for (let page = 0; page < maxPages; page++) {
+      const r = await c.workerList(run, cursor);
+      if (!r.ok) return { kind: "unknown", reason: `orca worker-list failed: ${r.error.code} ${r.error.message}` };
+      const workers = r.result.workers;
+      if (!Array.isArray(workers)) return { kind: "unknown", reason: "orca worker-list returned no workers" };
+      if (r.result.scope?.run !== undefined && r.result.scope.run !== run) return { kind: "unknown", reason: "orca worker-list is incomplete for the run" };
+      const w = workers.find(w => w.agentTerminalHandle === terminal || w.resource?.terminalHandle === terminal);
+      if (w) return w.dispatchId ? { kind: "found", dispatchId: w.dispatchId, state: w.workerState ?? "" }
+        : { kind: "unknown", reason: "orca worker-list row has no dispatch id" };
+      if (r.result.page?.hasMore === false) return { kind: "none" };
+      const next = r.result.page?.nextCursor;
+      if (r.result.page?.hasMore !== true || typeof next !== "string" || !next || next === cursor) {
+        return { kind: "unknown", reason: "orca worker-list is incomplete for the run" };
+      }
+      cursor = next;
     }
-    return { kind: "none" };
+    return { kind: "unknown", reason: `orca worker-list has more than ${maxPages} pages` };
   } catch (e) {
     return { kind: "unknown", reason: String(e instanceof Error ? e.message : e) };
   }
+}
+
+/** Terminals Orca lists in exactly this worktree, except the given handles. Null when the listing failed. */
+export async function worktreeTerminals(c: OrcaClient, worktreeId: string, except: string[] = []): Promise<TerminalRow[] | null> {
+  try {
+    const r = await c.terminalList(`id:${worktreeId}`);
+    if (!r.ok || !Array.isArray(r.result.terminals)) return null;
+    return r.result.terminals.filter(t => typeof t?.handle === "string" && t.worktreeId === worktreeId && !except.includes(t.handle));
+  } catch { return null; }
+}
+
+/** Record a pacer-owned terminal whose close had no receipt proof, so `pacer clean` retries it. */
+export async function recordUnclosed(ctx: Ctx, taskId: string, terminal: string, log: (l: string) => void): Promise<void> {
+  try {
+    await withLock(ctx, "coordinator", async () => {
+      updateOrcaState(ctx, s => { s.unclosed[terminal] = { taskId, terminal, at: ctx.now }; });
+    });
+    log(`recorded terminal ${terminal} for a later close by pacer clean`);
+  } catch (e) { log(`recording unclosed terminal ${terminal} failed: ${String(e)}`); }
 }
 
 /** Orca's reply proves the selector names this pacer-named, non-main worktree at this path. */
@@ -122,17 +149,37 @@ export async function cleanOrcaTask(ctx: Ctx, t: TaskRecord, o: HostCleanOpts, o
   return failure ? { kept: failure } : { removed: true };
 }
 
-/** Later pass for uncertain worker starts: close the terminal once no live worker can use it. */
+/** A worker found settled after an uncertain start: show its worktree and outcome on the task for review. */
+function attachSettled(ctx: Ctx, u: UncertainStart, dispatchId: string, state: string): void {
+  updateTask(ctx, u.taskId, t => {
+    const note = `Orca worker ${dispatchId} was found ${state} after the uncertain start${u.worktree ? `; its work is in ${u.worktree.path}` : ""}.`;
+    if (u.worktree) { t.worktree ??= u.worktree.path; if (t.result) t.result.worktree ??= u.worktree.path; }
+    if (t.result && !t.result.report.includes(note)) t.result.report = `${t.result.report}\n\n${note}`.trim();
+  });
+}
+
+/** Later pass: close terminals whose close had no proof, and uncertain-start terminals once no live worker can use them. */
 export async function reconcileOrcaWork(ctx: Ctx): Promise<void> {
   const c = new OrcaClient(ctx.run, ctx.env);
+  for (const u of Object.values(loadOrcaState(ctx).unclosed)) {
+    let done = (await closeCreatedTerminal(c, u.terminal)).proof;
+    if (!done) {
+      // A terminal Orca already shows disconnected (for example, killed with its worktree) has nothing left to close.
+      const shown = await c.terminalShow(u.terminal).catch(() => null);
+      done = !!shown?.ok && shown.result.terminal?.handle === u.terminal && shown.result.terminal.connected === false && shown.result.terminal.writable === false;
+    }
+    if (done) await withLock(ctx, "coordinator", async () => { updateOrcaState(ctx, s => { delete s.unclosed[u.terminal]; }); });
+  }
   for (const u of Object.values(loadOrcaState(ctx).uncertain)) {
     const found = await lookupWorker(c, u.run, u.terminal);
     if (found.kind === "unknown" || (found.kind === "found" && !SETTLED.includes(found.state))) continue;
     if (!(await closeCreatedTerminal(c, u.terminal)).proof) continue;
+    if (found.kind === "found") attachSettled(ctx, u, found.dispatchId, found.state);
     await withLock(ctx, "coordinator", async () => {
       updateOrcaState(ctx, s => {
         delete s.uncertain[u.terminal];
-        if (u.worktree) s.stranded[u.taskId] = { taskId: u.taskId, ...u.worktree, at: ctx.now };
+        // No worker ran, so the worktree holds no work: remove it after review.
+        if (found.kind === "none" && u.worktree) s.stranded[u.taskId] = { taskId: u.taskId, ...u.worktree, at: ctx.now };
       });
     });
   }

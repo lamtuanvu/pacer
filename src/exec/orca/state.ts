@@ -16,9 +16,11 @@ export interface OrcaWorkerEntry {
 export interface StrandedWorktree { taskId: string; id: string; path: string; name: string; at: number }
 /** A pacer terminal whose worker-start result was uncertain; a later pass reconciles it. */
 export interface UncertainStart { taskId: string; terminal: string; run: string; worktree: Omit<StrandedWorktree, "taskId" | "at"> | null; at: number }
+/** A pacer-owned terminal whose close returned no receipt proof; a later pass retries the close. */
+export interface UnclosedTerminal { taskId: string; terminal: string; at: number }
 export interface OrcaState {
   coordinator: string | null; run: string | null; workers: Record<string, OrcaWorkerEntry>;
-  stranded: Record<string, StrandedWorktree>; uncertain: Record<string, UncertainStart>;
+  stranded: Record<string, StrandedWorktree>; uncertain: Record<string, UncertainStart>; unclosed: Record<string, UnclosedTerminal>;
 }
 export interface InboxEntry { outcome: string; subject: string; body: string; filesModified: string[]; messageId: string }
 
@@ -41,6 +43,7 @@ export function loadOrcaState(ctx: Ctx): OrcaState {
     workers: isObj(o.workers) ? (o.workers as Record<string, OrcaWorkerEntry>) : {},
     stranded: records<StrandedWorktree>(o.stranded, v => ["taskId", "id", "path", "name"].every(k => typeof v[k] === "string")),
     uncertain: records<UncertainStart>(o.uncertain, v => ["taskId", "terminal", "run"].every(k => typeof v[k] === "string")),
+    unclosed: records<UnclosedTerminal>(o.unclosed, v => ["taskId", "terminal"].every(k => typeof v[k] === "string")),
   };
 }
 
