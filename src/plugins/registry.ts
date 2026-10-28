@@ -9,7 +9,7 @@ import { type PluginGrant, pluginsConfig, setPluginDisabled, setPluginGrant } fr
 import { answerCapability, appendPluginLog } from "./host";
 import { hostRangeAccepts, readManifestFile } from "./manifest";
 import { PluginProcess, type SpawnSpec } from "./process";
-import { EXTENSION_METHODS, HELLO_METHOD, PLUGIN_ID, PLUGIN_PROTOCOL_MAJOR, PLUGIN_PROTOCOL_VERSION, type PluginManifest, type PluginState, helloResult } from "./protocol";
+import { EXTENSION_METHODS, HELLO_METHOD, NOTIFICATIONS, uiOf, parseViewDocument, parseStatusItemDocument, type ViewDocument, PLUGIN_ID, PLUGIN_PROTOCOL_MAJOR, PLUGIN_PROTOCOL_VERSION, type PluginManifest, type PluginState, helloResult } from "./protocol";
 import type { BundledPlugin } from "./types";
 import { currentVersion } from "../update/version";
 
@@ -22,6 +22,7 @@ interface Entry {
   state: PluginState; error: string | null; served: string[]; pluginProtocol: string | null;
   process?: PluginProcess; starting?: Promise<PluginProcess>; queue: Promise<unknown>;
   crashes: number[]; nextStartAt: number; stopping: boolean;
+  invalidatedAt: number; invalidatePending: string | null | undefined; renders: Map<string, number[]>; actions: number[]; inflight: Set<string>; cache: Map<string, { document: ViewDocument; at: number; ttlS: number }>;
 }
 const ENABLED: ReadonlySet<PluginState> = new Set(["idle", "starting", "ready"]);
 const CRASH_WINDOW_S = 60, CRASH_LIMIT = 3, MAX_BACKOFF_MS = 30_000, HELLO_DEADLINE_MS = 10_000;
@@ -34,7 +35,7 @@ export class PluginRegistry {
 
   private entry(id: string, manifest: PluginManifest | null, bundled: boolean, dir: string | null): Entry {
     let e = this.entries.get(id);
-    if (!e) { e = { id, manifest, bundled, dir, state: "idle", error: null, served: [], pluginProtocol: null, queue: Promise.resolve(), crashes: [], nextStartAt: 0, stopping: false }; this.entries.set(id, e); }
+    if (!e) { e = { id, manifest, bundled, dir, state: "idle", error: null, served: [], pluginProtocol: null, queue: Promise.resolve(), crashes: [], nextStartAt: 0, stopping: false, invalidatedAt: 0, invalidatePending: undefined, renders: new Map(), actions: [], inflight: new Set(), cache: new Map() }; this.entries.set(id, e); }
     e.manifest = manifest; e.bundled = bundled; e.dir = dir;
     return e;
   }
@@ -115,6 +116,7 @@ export class PluginRegistry {
       const proc = new PluginProcess(this.spec(ctx, e), {
         spawn: this.deps.spawn,
         onRequest: (m, p) => answerCapability(ctx, { id: e.id, manifest }, m, p),
+        onNotification: (m, p) => this.notified(ctx, e, m, p),
         onStderr: line => appendPluginLog(ctx, e.id, "stderr", line),
         onExit: info => this.onExit(ctx, e, proc, info),
       });
@@ -138,6 +140,70 @@ export class PluginRegistry {
       }
     })();
     try { return await e.starting; } finally { e.starting = undefined; }
+  }
+
+
+  /** Plugin → host notifications. Only allowlisted names, only from plugins serving the owning extension point. */
+  private notified(ctx: Ctx, e: Entry, method: string, params: unknown): void {
+    const def = NOTIFICATIONS[method];
+    if (!def || !e.served.includes(def.point)) return;
+    const parsed = def.params.safeParse(params);
+    if (!parsed.success) return;
+    const id = (parsed.data as { id?: string }).id ?? null;
+    if (id !== null) { const hidden = uiOf(e.manifest!); if (!hidden) return; }
+    for (const k of [...e.cache.keys()]) if (id === null || k.startsWith(`${id}\u0000`)) e.cache.delete(k);
+    const now = Date.now();
+    if (now - e.invalidatedAt < 1000) return; // coalesced: one `plugin` event per plugin per second
+    e.invalidatedAt = now;
+    this.published = this.published.then(() => publish(ctx, [{ type: "entity", data: { kind: "plugin", id: e.id, value: { id: e.id, state: e.state, error: e.error, ui: id === null ? {} : { id } } } }])).catch(() => {});
+  }
+
+  private surfaceDef(e: Entry, surface: "activity" | "panelTab" | "status", id: string): { title: string; view?: string } {
+    const ui = e.manifest ? uiOf(e.manifest) : null;
+    const list = !ui ? [] : surface === "activity" ? ui.activity : surface === "panelTab" ? ui.panelTabs : ui.status;
+    const found = list.find(s => s.id === id);
+    if (!found) throw new CoreError("not_found", `plugin ${e.id} has no ${surface} surface ${id}`);
+    return found;
+  }
+
+  /** Render one surface: validated, cached for its ttl, served stale when the plugin fails. Status items never start a plugin. */
+  async renderSurface(ctx: Ctx, id: string, surface: "activity" | "panelTab" | "status", surfaceId: string, context: { route: string; taskId?: string; theme: string }): Promise<{ document: ViewDocument; renderedAt: number; ttlS: number; stale: boolean }> {
+    const e = this.find(ctx, id);
+    const def = this.surfaceDef(e, surface, surfaceId);
+    const key = `${surfaceId}\u0000${context.route}\u0000${context.taskId ?? ""}\u0000${context.theme}`;
+    const hit = e.cache.get(key);
+    const now = Date.now();
+    if (hit && now - hit.at < hit.ttlS * 1000) return { document: hit.document, renderedAt: hit.at, ttlS: hit.ttlS, stale: false };
+    if (surface === "status" && e.state !== "ready") throw new CoreError("plugin_unavailable", `plugin ${id} is not running`);
+    const recent = (e.renders.get(surfaceId) ?? []).filter(t => now - t < 1000);
+    if (recent.length >= 2) throw new CoreError("conflict", `surface ${surfaceId} is rendering too often`, "Retry in a second.");
+    e.renders.set(surfaceId, [...recent, now]);
+    try {
+      const raw = await this.call<{ document: unknown; ttlS?: number }>(ctx, id, "ui.render", { surface, id: surfaceId, view: (def as { view: string }).view, context });
+      const doc = (surface === "status" ? parseStatusItemDocument : parseViewDocument)(raw.document);
+      if (!doc.ok) { appendPluginLog(ctx, id, "stderr", `invalid ui.render document for ${surfaceId}: ${doc.error}`); throw new CoreError("invalid_input", "This plugin's view couldn't be shown"); }
+      const ttlS = Math.min(Math.max(raw.ttlS ?? 60, surface === "status" ? 30 : 0), 3600);
+      e.cache.set(key, { document: doc.document, at: now, ttlS });
+      return { document: doc.document, renderedAt: now, ttlS, stale: false };
+    } catch (err) {
+      if (hit && err instanceof CoreError && err.code !== "invalid_input") return { document: hit.document, renderedAt: hit.at, ttlS: hit.ttlS, stale: true };
+      throw err;
+    }
+  }
+
+  async actionSurface(ctx: Ctx, id: string, surface: "activity" | "panelTab" | "status", surfaceId: string, action: string, context: { route: string; taskId?: string; theme: string }, requestId: string, values?: Record<string, unknown>): Promise<{ result: "done" | "refresh"; message?: string }> {
+    const e = this.find(ctx, id);
+    this.surfaceDef(e, surface, surfaceId);
+    const now = Date.now();
+    e.actions = e.actions.filter(t => now - t < 60_000);
+    if (e.actions.length >= 10) throw new CoreError("conflict", `plugin ${id} has had too many actions`, "Retry in a minute.");
+    if (e.inflight.has(surfaceId)) throw new CoreError("conflict", `surface ${surfaceId} already has an action in flight`, "Retry shortly.");
+    e.actions.push(now); e.inflight.add(surfaceId);
+    try {
+      const out = await this.call<{ result: "done" | "refresh"; message?: string }>(ctx, id, "ui.action", { surface, id: surfaceId, action, context, requestId, ...(values ? { values } : {}) });
+      if (out.result === "refresh") for (const k of [...e.cache.keys()]) if (k.startsWith(`${surfaceId}\u0000`)) e.cache.delete(k);
+      return out;
+    } finally { e.inflight.delete(surfaceId); }
   }
 
   private onExit(ctx: Ctx, e: Entry, proc: PluginProcess, info: { code: number | null; signal: string | null }): void {
