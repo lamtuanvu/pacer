@@ -107,7 +107,7 @@ export function Session({ embedded = false, data, loading, error, initialTab, vi
         {data.log ? <ResourceView value={data.log} loading="Loading output…" empty="Waiting for output…">{text =>
           <Disclosure className="pc-disclosure" summary="Technical session output"><pre role="log" tabIndex={0} aria-label="Session output" className="pc-session-follow-log">{text}</pre></Disclosure>
         }</ResourceView> : <PlainLog key={data.id} id={data.id}/>}
-      </div> : <LinkedTerminal key={data.id} id={data.id} attempt={session.attempt ?? null} readFile={onReadFile} url={session.attach.ws} cols={session.cols} rows={session.rows}
+      </div> : <LinkedTerminal key={data.id} id={data.id} attempt={session.attempt ?? null} readFile={onReadFile} workspace={data.branch ?? data.repo} agent={data.agent} url={session.attach.ws} cols={session.cols} rows={session.rows}
         control={active && session.capabilities.control} resize={active && session.capabilities.resize} live={active && session.live}
         controller={session.controller} driving={driving} takeRequested={active && takeRequested} onTakeSent={onTakeSent} takeover={takeover}/>}
   </Stack>;
