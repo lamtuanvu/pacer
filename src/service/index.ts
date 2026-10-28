@@ -205,11 +205,13 @@ export function serviceBackend(ctx: Ctx, deps: ServiceDeps = {}): ServiceBackend
       } else if (!/not loaded|could not find (?:specified )?service|no such process|not found|does not exist/i.test(probe.stderr + probe.stdout)) {
         throw new CoreError("not_allowed", `Could not inspect the login service: ${probe.stderr || probe.stdout || `exit ${probe.code}`}`);
       }
-      const old = readText(path);
+      let old: string | null = null;
       let activated = false;
       try {
       const report = await runInstall({ ctx, pacerArgv: argv }, "service", async tx => {
         mkdirSync(join(ctx.pacerHome, "logs"), { recursive: true });
+        const before = tx.read(path);
+        old = before;
         tx.edit(path, () => mac ? plist(ctx, argv) : unit(ctx, argv), [], join(ctx.pacerHome, "backups/service"));
         installedCache.delete(path);
         // The manager must read the registration before the install transaction commits.
@@ -229,8 +231,8 @@ export function serviceBackend(ctx: Ctx, deps: ServiceDeps = {}): ServiceBackend
           } while (Date.now() < deadline);
           throw new Error(verificationWarning ?? "service did not become running and healthy within 10 seconds; inspect pacer service logs");
         } finally {
-          if (old === null) rmSync(path, { force: true });
-          else writeInstallFile(path, old);
+          if (before === null) rmSync(path, { force: true });
+          else writeInstallFile(path, before);
         }
       });
       return report.notes;

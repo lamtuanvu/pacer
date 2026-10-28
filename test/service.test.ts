@@ -80,7 +80,9 @@ test("service registration exists during activation and is removed after refusal
   for (const platform of ["darwin", "linux"]) {
     const { ctx, d, path } = fixture(platform);
     let selected: string | null = null;
+    let presentAtReload = false;
     ctx.run = async argv => {
+      if (argv.includes("daemon-reload")) presentAtReload ||= existsSync(path);
       if (argv.includes("bootstrap") || argv.includes("enable")) {
         selected = binaryInFile(readFileSync(path, "utf8"), platform);
         return { code: 1, stdout: "", stderr: "fixed fixture activation refusal" };
@@ -90,8 +92,21 @@ test("service registration exists during activation and is removed after refusal
     };
     await expect(serviceBackend(ctx, d).install()).rejects.toThrow("fixed fixture activation refusal");
     expect(String(selected)).toBe("/opt/pacer");
+    if (platform === "linux") expect(presentAtReload).toBe(true);
     expect(existsSync(path)).toBe(false);
     expect(readManifest(ctx).planners.service).toBeUndefined();
+  }
+});
+test("service install commits after recovering an interrupted registration write", async () => {
+  for (const platform of ["darwin", "linux"]) {
+    const { ctx, d, path } = fixture(platform);
+    const journal = join(ctx.pacerHome, "install-transaction.json");
+    put(path, "B-interrupted");
+    put(journal, JSON.stringify({ schema: 1, files: [{ path, before: "A-original", after: "B-interrupted" }], manifestHash: "not committed" }));
+    await serviceBackend(ctx, d).install();
+    expect(readFileSync(path, "utf8")).toBe(platform === "darwin" ? plist(ctx, ["/opt/pacer"]) : unit(ctx, ["/opt/pacer"]));
+    expect(existsSync(journal)).toBe(false);
+    expect(readManifest(ctx).planners.service.files[0].action).toBe("edited");
   }
 });
 test("uninstall accepts exact legacy label and refuses unrelated files before bootout", async () => {
