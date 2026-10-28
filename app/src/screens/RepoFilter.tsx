@@ -24,7 +24,15 @@ export function repoChoices(snapshot: ClientSnapshot, active: string | null) {
   return { all, chips };
 }
 
-export function RepoFilter({ snapshot, query, narrow = false }: { snapshot: ClientSnapshot; query: RouteQuery; narrow?: boolean }) {
+/** One "All repos · N" button that opens the searchable repository menu, as on the Dispatch board. */
+function repoOptions(all: ReturnType<typeof repoChoices>["all"]) {
+  return [{ value: null, label: "All repos" }, ...all.map(repo => {
+    const slash = repo.label.indexOf("/");
+    return { value: repo.key, label: slash < 0 ? repo.label : repo.label.slice(slash + 1),
+      description: slash < 0 ? undefined : repo.label.slice(0, slash), count: repo.count, searchText: `${repo.label} ${repo.key}` };
+  })];
+}
+export function RepoFilter({ snapshot, query, narrow = false, menu = false }: { snapshot: ClientSnapshot; query: RouteQuery; narrow?: boolean; menu?: boolean }) {
   const lastRepo = useRef(query.repo);
   if (query.repo) lastRepo.current = query.repo;
   const { all, chips } = repoChoices(snapshot, query.repo);
@@ -33,9 +41,17 @@ export function RepoFilter({ snapshot, query, narrow = false }: { snapshot: Clie
     const here = scopeRepo(query) ?? (query.repo || lastRepo.current) ?? null;
     const selected = activeRepo(query);
     const label = snapshot.repos?.find(repo => repo.key === here)?.label ?? here;
-    return <div className="pc-chips pc-scope-toggle" role="group" aria-label="Scope" id="repo-filter">
-      <FilterChip disabled={!here} className={`pc-chip pc-btn--touch${selected ? " on" : ""}`} aria-pressed={!!selected} onClick={() => go(here)} aria-describedby={!here?"repo-scope-reason":undefined}>This repo{label ? ` · ${label}` : ""}</FilterChip>{!here&&<span id="repo-scope-reason" className="muted">Choose a repository to use this scope.</span>}
+    // The reason follows the two chips, so they stay one joined toggle.
+    return <><div className="pc-chips pc-scope-toggle" role="group" aria-label="Scope" id="repo-filter">
+      <FilterChip disabled={!here} className={`pc-chip pc-btn--touch${selected ? " on" : ""}`} aria-pressed={!!selected} onClick={() => go(here)} aria-describedby={!here?"repo-scope-reason":undefined}>This repo{label ? ` · ${label}` : ""}</FilterChip>
       <FilterChip className={`pc-chip pc-btn--touch${!selected ? " on" : ""}`} aria-pressed={!selected} onClick={() => go("")}>All repos</FilterChip>
+    </div>{!here&&<span id="repo-scope-reason" className="muted">Choose a repository to use this scope.</span>}</>;
+  }
+  if (menu) {
+    const selected = all.find(repo => repo.key === query.repo);
+    return <div className="pc-filter pc-filter--menu" id="repo-filter" role="group" aria-label="Repository filter">
+      <SearchPicker label={selected ? selected.label : `All repos · ${all.length}`} searchLabel="Search repositories" placeholder="Search repositories…"
+        emptyLabel="No matching repositories." value={query.repo || null} onChange={go} options={repoOptions(all)} />
     </div>;
   }
   const chip = (repo: string | null, label: string, n?: number) =>
@@ -46,15 +62,7 @@ export function RepoFilter({ snapshot, query, narrow = false }: { snapshot: Clie
       {chips.map(repo => chip(repo.key, repo.label, repo.count))}
       {all.length > 0 && <SearchPicker label="Find repo" searchLabel="Search repositories" placeholder="Search repositories…"
         emptyLabel="No matching repositories."
-        value={query.repo || null} onChange={go} options={[
-          { value: null, label: "All repos" },
-          ...all.map(repo => {
-            const slash = repo.label.indexOf("/");
-            return { value: repo.key, label: slash < 0 ? repo.label : repo.label.slice(slash + 1),
-              description: slash < 0 ? undefined : repo.label.slice(0, slash), count: repo.count,
-              searchText: `${repo.label} ${repo.key}` };
-          }),
-        ]} />}
+        value={query.repo || null} onChange={go} options={repoOptions(all)} />}
     </div>
     <p className="muted">Budgets are shared across repos; the filter only narrows work.</p>
   </div>;

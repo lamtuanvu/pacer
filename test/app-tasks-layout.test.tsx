@@ -114,36 +114,103 @@ test.skipIf(!browserPath)('Tasks bounds whole-row links and metadata inside narr
  }finally{await browser.close();}
 });
 
-test.skipIf(!browserPath)('Start work truncates long recent titles with an ellipsis and keeps desktop and phone shells contained',async()=>{
- const {StartSession}=await import('../app/src/screens/StartSession');
+test.skipIf(!browserPath)('Dispatch clips long titles, keeps the composer to one row until focus and stays contained on desktop and phone',async()=>{
+ const {DispatchView}=await import('../app/src/screens/dispatch/Dispatch');
+ const {StartWork}=await import('../app/src/screens/StartSession');
  const {TaskContext}=await import('../app/src/screens/task-shared');
+ const {createActionRunner}=await import('../app/src/data/actions');
  const {initialState}=await import('../app/src/data/store');
  const {Layout}=await import('../app/src/shell/Layout');
  const fixture=(await import('./fixtures/ui/snapshot.json')).default;
- const state={...initialState(),connected:true,features:{readModel:true,ops:new Set<string>(["session.create"])},snapshot:{...fixture,tasks:[{...fixture.tasks[0]!,fullTitle:'Implement ticket SFOS-488: '+ 'Complete the deployment-target implementation and verify all affected infrastructure. '.repeat(12)}]}};
+ const long='Implement ticket SFOS-488: '+'Complete the deployment-target implementation and verify all affected infrastructure. '.repeat(12);
+ const snapshot={...fixture,tasks:fixture.tasks.map((t,i)=>i===0||t.id==='t-0409'?{...t,fullTitle:long}:t)};
+ const state={...initialState(),connected:true,features:{readModel:true,ops:new Set<string>(["session.create"])},snapshot};
+ const runner=createActionRunner({call:async<T,>()=>({} as T),waitFor:async()=>true,refetch(){},navigate(){}});
+ const summary={rootTasksHandled:12,acceptedFirstTry:9,reviewedRoots:11,acceptedFirstTryRate:9/11,retryAttempts:2,tokens:{total:1_840_000,measuredAttempts:4,partialAttempts:1,unknownAttempts:1,attempts:6,lowerBound:true},spread:[{agent:'codex',total:980_000,tasks:4},{agent:'claude-code',total:520_000,tasks:6},{agent:'agy',total:340_000,tasks:2}],planner:{coverage:'unknown' as const},ranOutsidePlanner:null,previous:{rootTasksHandled:10}};
+ const insights={supported:true,loading:false,current:summary,today:summary};
  const css=(await Promise.all(['app/src/ds/tokens.css','app/src/ds/components.css','app/src/styles.css'].map(f=>Bun.file(f).text()))).join('\n');
  const browser=await chromium.launch({executablePath:browserPath!,headless:true});
  try{
   const page=await browser.newPage();
-  for(const width of [1990,1440,375])for(const theme of ['light','dark']){
-   await page.setViewportSize({width,height:1000});
-   const html=renderToString(<TaskContext.Provider value={{state:state as unknown as StoreState,api:{} as BrowserApi}}><Layout route={{name:'start',query:{repo:null,scope:width<560?'repo:sample':null}}} state={state as unknown as StoreState} title="Start work"><StartSession/></Layout></TaskContext.Provider>);
+  for(const width of [1990,1440,900,375])for(const theme of ['light','dark'])for(const withTokens of [false,true]){
+   await page.setViewportSize({width,height:1200});
+   const query={repo:null,scope:width<560?'repo:github.com/acme/api':null};
+   const html=renderToString(<TaskContext.Provider value={{state:state as unknown as StoreState,api:{} as BrowserApi}}><Layout route={{name:'dispatch',query}} state={state as unknown as StoreState} title="Dispatch"><DispatchView snapshot={snapshot as never} query={query} now={snapshot.at} runner={runner} routing={null} insights={withTokens?insights:undefined} onPeriod={()=>{}} startWork={<StartWork/>}/></Layout></TaskContext.Provider>);
    await page.setContent(`<html data-theme="${theme}" data-pacer-desktop data-pacer-native-titlebar><div id="app"><style>${css}</style>${html}</div></html>`);
-   if(process.env.PACER_LAYOUT_EVIDENCE)await page.screenshot({path:`${process.env.PACER_LAYOUT_EVIDENCE}/start-${width}-${theme}.png`});
-   expect(await page.locator('.pc-start-recent .pc-ellipsis').count()).toBe(1);
-   const title=page.locator('.pc-start-recent .pc-ellipsis');
-   expect(await title.getAttribute('title')).toBe(state.snapshot.tasks[0]!.fullTitle);
-   expect(await title.evaluate(n=>({clipped:n.scrollWidth>n.clientWidth,overflow:getComputedStyle(n).textOverflow}))).toEqual({clipped:true,overflow:'ellipsis'});
-   expect(await page.locator('.pc-start__side .pc-card-section__head').count()).toBe(1);
-   const recentGap=await page.locator('.pc-start-recent').evaluate(section=>section.getBoundingClientRect().top-section.previousElementSibling!.getBoundingClientRect().bottom);
-   expect(recentGap).toBe(0);
+   if(process.env.PACER_LAYOUT_EVIDENCE)await page.screenshot({path:`${process.env.PACER_LAYOUT_EVIDENCE}/dispatch-${width}-${theme}${withTokens?'-insights':''}.png`,fullPage:true});
+   const titles=page.locator('.pc-task-card__title',{hasText:'Implement ticket SFOS-488'});
+   expect(await titles.count()).toBeGreaterThan(0);
+   for(const title of await titles.all()){
+    expect(await title.getAttribute('title')).toBe(long);
+    expect(await title.evaluate(n=>({clipped:n.scrollWidth>n.clientWidth,overflow:getComputedStyle(n).textOverflow}))).toEqual({clipped:true,overflow:'ellipsis'});
+   }
+   // Collapsed composer: the request only; repository and agent fields appear once it has focus.
+   expect(await page.locator('.pc-start-composer textarea').count()).toBe(1);
+   expect(await page.locator('.pc-start-fields').count()).toBe(0);
    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
-   const contentEdge=await page.locator('.pc-start__cols').evaluate(n=>n.getBoundingClientRect().left);
-   expect(contentEdge).toBe(width<560?16:84);
-   if(width>560)expect(await page.locator('.pc-start').evaluate(n=>n.getBoundingClientRect().width)).toBeGreaterThan(width-150);
+   const contentEdge=await page.locator('.pc-dispatch h1').evaluate(n=>n.getBoundingClientRect().left);
+   expect(contentEdge).toBe(width<560?16:52+Math.max(0,(width-52-1240)/2)+40);
+   if(width>=560){
+    expect(await page.locator(".pc-dispatch").evaluate(n=>{const s=getComputedStyle(n);return [s.paddingTop,s.paddingRight,s.paddingBottom,s.gap,s.maxWidth]})).toEqual(["28px","40px","48px","20px","1240px"]);
+    expect(await page.locator(".pc-filter--menu .pc-search-picker>.pc-btn").evaluate(n=>[getComputedStyle(n).borderRadius,n.getBoundingClientRect().height])).toEqual(["8px",28]);
+   }
+   expect(await page.locator(".pc-live-dot").first().evaluate(n=>[n.getBoundingClientRect().width,n.getBoundingClientRect().height])).toEqual([8,8]);
+   expect(await page.locator(".pc-attn-card").first().evaluate(n=>{const s=getComputedStyle(n);return [s.padding,s.borderRadius,s.gap,s.fontSize,s.lineHeight]})).toEqual(["12px","10px","10px","13px","19px"]);
+   expect(await page.locator(".pc-live-dispatch>.pc-card-section__head").evaluate(n=>{const s=getComputedStyle(n);return [s.padding,s.gap]})).toEqual(["14px 20px","12px"]);
+   expect(await page.locator(".pc-task-card--flush").first().evaluate(n=>{const s=getComputedStyle(n);return [s.borderTopWidth,s.borderRadius,s.backgroundColor]})).toEqual(["0px","0px","rgba(0, 0, 0, 0)"]);
+   expect(await page.locator(".pc-task-card--flush .pc-task-card__main").first().evaluate(n=>getComputedStyle(n).padding)).toBe("9px 20px");
+   if(await page.locator(".pc-live-dispatch .pc-task-card--flush").count()>1)expect(await page.locator(".pc-live-dispatch li+li>.pc-task-card--flush").first().evaluate(n=>getComputedStyle(n).borderTopWidth)).toBe("1px");
    const rail=await page.locator(width<560?'.pc-bottom-bar':'.pc-rail').evaluate(n=>n.getBoundingClientRect().left);
    expect(rail).toBeGreaterThanOrEqual(0);
+   if(withTokens){
+    const bar=page.locator('.pc-share-bar__bar');
+    expect(await bar.getAttribute('role')).toBe('img');
+    const box=await bar.boundingBox();
+    expect(box!.width).toBeGreaterThan(100);
+    expect(await page.locator('.pc-share-bar__legend tbody tr').count()).toBe(3);
+    // Tile dividers are drawn per tile, so a short last row leaves blank cells rather than a grey slab.
+    expect(await page.locator('.pc-glance').evaluate(n=>getComputedStyle(n).backgroundColor)).toBe('rgba(0, 0, 0, 0)');
+    expect(await page.locator('.pc-share-bar__legend').evaluate(n=>n.scrollWidth<=n.clientWidth+1)).toBe(true);
+    // Every region keeps its own height: the token share and Needs you do not stretch to match each other.
+    if(width>=560){
+     const natural=await page.locator(".pc-dispatch-attention").evaluate(n=>{const s=getComputedStyle(n);return {height:n.getBoundingClientRect().height,content:[...n.children].reduce((sum,c)=>sum+c.getBoundingClientRect().height,0)+parseFloat(s.gap)*(n.children.length-1)}});
+     expect(natural.height).toBeCloseTo(natural.content,0);
+    }
+   }
   }
  }finally{await browser.close();}
-});
+},30_000); // Sixteen browser renders: four widths, two themes, with and without insights.
 
+
+
+
+test.skipIf(!browserPath)('Needs you has one visible page h1 and space between repository context and the section', async()=>{
+ const {NeedsYouPage}=await import('../app/src/screens/dispatch/Dispatch');
+ const {ActionContext}=await import('../app/src/data/action-context');
+ const {createActionRunner}=await import('../app/src/data/actions');
+ const fixture=(await import('./fixtures/ui/snapshot.json')).default;
+ const state={...initialState(),connected:true,features:{readModel:true,ops:new Set<string>()},snapshot:fixture} as unknown as StoreState;
+ const runner=createActionRunner({call:async<T,>()=>({} as T),waitFor:async()=>true,refetch(){},navigate(){}});
+ const query={repo:null,scope:null};
+ const css=(await Promise.all(['app/src/ds/tokens.css','app/src/ds/components.css','app/src/styles.css'].map(f=>Bun.file(f).text()))).join('\n');
+ const browser=await chromium.launch({executablePath:browserPath!,headless:true});
+ try{
+  const page=await browser.newPage();
+  for(const width of [1440,900,375])for(const theme of ['light','dark']){
+   await page.setViewportSize({width,height:900});
+   const {NARROW_MEDIA,PANEL_MEDIA}=await import('../app/src/shell/narrow');
+   // The shell picks its narrow frame from matchMedia; server rendering has none, so give it this width's answer.
+   const previous=Object.getOwnPropertyDescriptor(globalThis,'window');
+   Object.defineProperty(globalThis,'window',{configurable:true,value:{matchMedia:(q:string)=>({matches:q===NARROW_MEDIA?width<560:q===PANEL_MEDIA?width>=768:false})}});
+   let html='';
+   try{html=renderToString(<ActionContext.Provider value={runner}><TaskContext.Provider value={{state,api:{} as BrowserApi}}><NarrowContext.Provider value={width<560}><Layout route={{name:'review',query}} state={state} title="Needs you"><NeedsYouPage query={query}/></Layout></NarrowContext.Provider></TaskContext.Provider></ActionContext.Provider>);}finally{if(previous)Object.defineProperty(globalThis,'window',previous);else Reflect.deleteProperty(globalThis,'window');}
+   await page.setContent(`<html data-theme="${theme}"><style>${css}</style>${html}</html>`);
+   expect(await page.locator('h1').count()).toBe(1);
+   expect(await page.locator('h1').innerText()).toBe('Needs you');
+   expect(await page.locator('h1').evaluate(n=>{const b=n.getBoundingClientRect(),s=getComputedStyle(n);return b.width>1&&b.height>1&&s.visibility==='visible'&&s.display!=='none'})).toBe(true);
+   expect(await page.locator('.pc-needs-you').evaluate(n=>n.querySelector('.pc-section')!.getBoundingClientRect().top-n.querySelector('.pc-filter')!.getBoundingClientRect().bottom)).toBe(24);
+   expect(await page.locator('.pc-topbar').getByRole('button',{name:'New task',exact:true}).count()).toBe(1);
+   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  }
+ }finally{await browser.close();}
+},30_000); // One browser launch and two routes.

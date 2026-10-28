@@ -12,7 +12,7 @@ export function SettingsPanel({ route, counts, snapshot, embedded = false }: { r
     href: hrefFor(routes.settings(id || undefined), route.query),
     badge: id === 'executors' ? attention[id] : undefined,
   })) }));
-  const nav = <SettingsNav label="Settings pages" groups={groups} backHref={hrefFor(routes.start(), route.query)}/>;
+  const nav = <SettingsNav label="Settings pages" groups={groups} backHref={hrefFor(routes.dispatch(), route.query)}/>;
   return embedded ? nav : <aside className="pc-panel" aria-label="Settings">{nav}</aside>;
 }
 

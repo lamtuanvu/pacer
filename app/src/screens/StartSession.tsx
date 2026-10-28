@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
-import { Button, ButtonLink } from "../ds/Button";
+import { Button } from "../ds/Button";
 import { Disclosure, Field, TextArea, TextInput } from "../ds/Controls";
 import { ChoicePicker } from "../ds/ChoicePicker";
 import {
@@ -8,7 +8,6 @@ import {
   type AttachmentItem,
 } from "../ds/AttachmentTray";
 import { SectionHeading } from "../ds/SectionHeading";
-import { Page } from "../ds/Page";
 import { agentInfo } from "../../../src/view-model/agents";
 import type { RepoRef } from "../../../src/api/read-model/types";
 import type { SessionPreparation } from "../../../src/session/capabilities";
@@ -46,6 +45,9 @@ interface FormProps {
   onRemove: (id: string) => void;
   onRetry: (id: string) => void;
   onSubmit: () => void;
+  /** Collapsed: only the request shows, until the composer gets focus or has text. */
+  collapsed?: boolean;
+  onExpand?: () => void;
 }
 export function StartSessionForm(p: FormProps) {
   const [attempted, setAttempted] = useState(false);
@@ -67,6 +69,7 @@ export function StartSessionForm(p: FormProps) {
   return (
     <form
       className="pc-start-composer"
+      onFocusIn={p.onExpand}
       onSubmit={(event) => {
         event.preventDefault();
         if (disabledSubmit) return;
@@ -95,7 +98,7 @@ export function StartSessionForm(p: FormProps) {
         help="Start a conversation with your agent. Paste a screenshot or drop files for context."
       >
         <TextArea
-          rows={7}
+          rows={p.collapsed ? 2 : 7}
           required
           value={p.request}
           placeholder="Describe what you want to build, fix, or explore…"
@@ -119,6 +122,7 @@ export function StartSessionForm(p: FormProps) {
           }}
         />
       </Field>
+      {!p.collapsed && <>
       <AttachmentTray
         items={p.items}
         onRemove={p.onRemove}
@@ -218,11 +222,13 @@ export function StartSessionForm(p: FormProps) {
               : "Choose a ready interactive executor."}
         </small>
       )}
+      </>}
     </form>
   );
 }
 
-export function StartSession() {
+/** Start work on the Dispatch home: the interactive session composer, one input row until it gets focus. */
+export function StartWork() {
   const { api, state } = useTaskContext(),
     supported = state.features.ops.has("session.create");
   const [draft, setDraft, clearDraft] = useDraft(
@@ -230,9 +236,10 @@ export function StartSession() {
       blankSession,
     ),
     [busy, setBusy] = useState(false),
-    [error, setError] = useState<unknown>();
+    [error, setError] = useState<unknown>(),
+    [open, setOpen] = useState(false);
   const [repoPath, setRepoPath] = useState("");
-  const repos = useQuery<RepoRef[]>("repo.list", {});
+  const repos = useQuery<RepoRef[]>(supported ? "repo.list" : "version.get", {});
   const preparation = useQuery<SessionPreparation>(
     supported && draft.repo ? "session.prepare" : "version.get",
     supported && draft.repo ? { repo: draft.repo } : {},
@@ -245,7 +252,7 @@ export function StartSession() {
     [],
   );
   useEffect(() => {
-    if (!draft.repo && repos.data?.[0])
+    if (supported && !draft.repo && Array.isArray(repos.data) && repos.data[0])
       setDraft((previous) => ({ ...previous, repo: repos.data![0]!.key }));
   }, [repos.data]);
   useEffect(() => {
@@ -258,20 +265,8 @@ export function StartSession() {
       executor: previous.executor || (data.executors.find((e) => e.available)?.id ?? ""),
     }));
   }, [preparation.data]);
-  if (!supported)
-    return (
-      <Page width="full">
-        <section className="pc-notice">
-          <SectionHeading>
-            Interactive sessions need a newer service
-          </SectionHeading>
-          <p>
-            Update the Pacer service to start an interactive conversation here.
-          </p>
-          <ButtonLink href="#/overview">Open overview</ButtonLink>
-        </section>
-      </Page>
-    );
+  // An older service cannot start interactive sessions; the top bar's Delegate still works.
+  if (!supported) return null;
   const field = (key: keyof SessionDraft, value: string) =>
     setDraft((previous) => ({
       ...previous,
@@ -301,80 +296,54 @@ export function StartSession() {
       setBusy(false);
     }
   };
-  const recent = state.snapshot?.tasks.slice(0, 6) ?? [];
+  const expanded = open || !!draft.request.trim() || uploads.items.length > 0;
   return (
-    <Page width="full" className="pc-start">
-      <p className="pc-start-intro">
-        Your agent. Your workspace. Ready when you are.
-      </p>
-      <div className="pc-start__cols">
-        <div className="pc-start__main">
-          <StartSessionForm
-            {...draft}
-            repos={repos.data ?? []}
-            preparation={draft.repo ? preparation.data : undefined}
-            items={uploads.items}
-            busy={busy}
-            onField={field}
-            onFiles={uploads.uploadFiles}
-            onRemove={(id) => void uploads.remove(id)}
-            onRetry={uploads.retry}
-            onSubmit={() => void start()}
+    <section className="pc-start" aria-labelledby="start-work">
+      <SectionHeading id="start-work">Start work</SectionHeading>
+      <StartSessionForm
+        {...draft}
+        repos={Array.isArray(repos.data) ? repos.data : []}
+        preparation={draft.repo ? preparation.data : undefined}
+        items={uploads.items}
+        busy={busy}
+        collapsed={!expanded}
+        onExpand={() => setOpen(true)}
+        onField={field}
+        onFiles={uploads.uploadFiles}
+        onRemove={(id) => void uploads.remove(id)}
+        onRetry={uploads.retry}
+        onSubmit={() => void start()}
+      />
+      <ErrorMessage
+        error={error ?? repos.error ?? preparation.error ?? uploads.error}
+      />
+      {expanded && <Disclosure summary="Add a repository">
+        <Field
+          label="Repository folder"
+          help="Enter the full path to an existing local Git checkout."
+        >
+          <TextInput
+            value={repoPath}
+            placeholder="/path/to/project"
+            onInput={(e) => setRepoPath(e.currentTarget.value)}
           />
-          <ErrorMessage
-            error={error ?? repos.error ?? preparation.error ?? uploads.error}
-          />
-          <Disclosure summary="Add a repository">
-            <Field
-              label="Repository folder"
-              help="Enter the full path to an existing local Git checkout."
-            >
-              <TextInput
-                value={repoPath}
-                placeholder="/path/to/project"
-                onInput={(e) => setRepoPath(e.currentTarget.value)}
-              />
-            </Field>
-            <Button
-              disabled={!repoPath.trim()}
-              onClick={() => {
-                void api.call<RepoRef>("repo.add", { path: repoPath }).then(
-                  (repo) => {
-                    field("repo", repo.key);
-                    setRepoPath("");
-                    repos.reload();
-                  },
-                  (e) => setError(e),
-                );
-              }}
-            >
-              Add repository
-            </Button>
-          </Disclosure>
-        </div>
-        {!!recent.length && (
-          <aside className="pc-start__side">
-            <section className="pc-card-section" aria-label="Recent work">
-              <div className="pc-card-section__head">
-                <SectionHeading>Recent work</SectionHeading>
-              </div>
-              <div className="pc-start-recent">
-                {recent.map((task) => (
-                  <ButtonLink
-                    key={task.id}
-                    variant="quiet"
-                    href={`#/tasks/${encodeURIComponent(task.id)}`}
-                  >
-                    <span className="pc-ellipsis" title={task.fullTitle ?? task.title ?? task.goal}>
-                      {task.fullTitle ?? task.title ?? task.goal}
-                    </span>
-                  </ButtonLink>
-                ))}
-              </div>
-            </section>
-          </aside>
-        )}
-      </div>
-    </Page>
+        </Field>
+        <Button
+          disabled={!repoPath.trim()}
+          onClick={() => {
+            void api.call<RepoRef>("repo.add", { path: repoPath }).then(
+              (repo) => {
+                field("repo", repo.key);
+                setRepoPath("");
+                repos.reload();
+              },
+              (e) => setError(e),
+            );
+          }}
+        >
+          Add repository
+        </Button>
+      </Disclosure>}
+    </section>
   );
 }

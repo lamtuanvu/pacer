@@ -15,6 +15,6 @@ const call: BrowserApi["call"] = async <T,>(op: string, params: unknown) => {
   return data as T;
 };
 const state = { ...initialState(), connected: true };
-const route = { name: "overview", query: { repo: null, scope: null } } as Route;
+const route = { name: "dispatch", query: { repo: null, scope: null } } as Route;
 const registry = createKeyRegistry({ controlActive: () => false });
 render(<TaskContext.Provider value={{ state, api: { call } as BrowserApi }}><StatusBar route={route} snapshot={fixture as unknown as ClientSnapshot} registry={registry} /></TaskContext.Provider>, document.getElementById("root")!);

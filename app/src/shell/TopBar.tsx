@@ -32,6 +32,12 @@ export interface TopBarProps {
   panels?: { left?: PanelToggle; dock?: PanelToggle; right?: PanelToggle };
   narrow?: boolean; title: string; planner: PlannerMeter | null; mode: string; connected: boolean; lastUpdate: number | null;
   showActions?: boolean; now?: number; onDelegate: () => void;
+  /** False where the page has its own New task button, so the action is offered once. */
+  delegate?: boolean;
+  /** False where the page carries its own h1 (Dispatch), so the title appears once (UI-9). */
+  pageTitle?: boolean;
+  /** False where the page itself states the planner figure (Dispatch), so the narrow meter is not repeated (UI-15). */
+  plannerFigure?: boolean;
   /** A screen's own title and agent, shown instead of `title`. */
   heading?: FrameHeading | null;
   /** Receives the action slot after the layout toggles. */
@@ -44,16 +50,16 @@ function LayoutToggle({ icon, label, keys, toggle }: { icon: "panel-left" | "pan
   return <IconButton icon={icon} size="sm" variant="quiet" aria-label={label} title={label} aria-keyshortcuts={keys} aria-pressed={toggle.open} onClick={toggle.toggle} />;
 }
 /** One compact page header, including native controls in the desktop shell. */
-export function TopBar({ brand, search, narrowSearch, panels = {}, narrow = false, title, planner, mode, connected, lastUpdate, now: fixedNow, onDelegate, showActions = true, heading, context, actions }: TopBarProps) {
+export function TopBar({ brand, search, narrowSearch, panels = {}, narrow = false, title, planner, mode, connected, lastUpdate, now: fixedNow, onDelegate, showActions = true, delegate = true, pageTitle = true, plannerFigure = true, heading, context, actions }: TopBarProps) {
   const [tick, setTick] = useState(() => Date.now() / 1000);
   useEffect(() => { if (fixedNow !== undefined) return; const t = setInterval(() => setTick(Date.now() / 1000), 1000); return () => clearInterval(t); }, [fixedNow]);
   const now = fixedNow ?? tick;
-  const narrowMeter = narrow && planner && planner.verdict !== "unknown" && planner.usedPct !== null;
+  const narrowMeter = narrow && plannerFigure && planner && planner.verdict !== "unknown" && planner.usedPct !== null;
   return <header className="pc-topbar" data-tauri-drag-region>
     {!narrow && <TitleBar />}
     {!narrow && brand && <span className="pc-topbar__brand">{brand}</span>}
     {showActions && heading?.agent && <AgentMark agent={heading.agent} size={18} />}
-    {showActions && <h1 data-tauri-drag-region className={heading ? "pc-topbar__heading" : undefined} title={heading?.title ?? title}>{heading?.title ?? title}</h1>}
+    {showActions && pageTitle && <h1 data-tauri-drag-region className={heading ? "pc-topbar__heading" : undefined} title={heading?.title ?? title}>{heading?.title ?? title}</h1>}
     {showActions && context && <div ref={context} className="pc-topbar__context" />}
     <span className="grow" data-tauri-drag-region />
     {!narrow && showActions && <div className="pc-topbar__search">{search}</div>}
@@ -73,7 +79,7 @@ export function TopBar({ brand, search, narrowSearch, panels = {}, narrow = fals
       {actions && <span ref={actions} className="pc-frame-actions" />}
     </div>}
     {!connected && <span className="pc-live" role="status"><span className="pc-live-dot pc-live-dot--off" aria-hidden="true" />Reconnecting…</span>}
-    <DensityContext.Provider value="compact"><Button variant="secondary" size="sm" onClick={onDelegate}>Delegate</Button></DensityContext.Provider>
+    {delegate && <DensityContext.Provider value="compact"><Button variant="secondary" size="sm" onClick={onDelegate}>New task</Button></DensityContext.Provider>}
     </>}
   </header>;
 }

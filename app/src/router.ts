@@ -1,9 +1,9 @@
 import { settingsPageTitle } from "./settings-pages";
 
-/** Hash routes for the redesigned shell. Unknown hashes fall back to Overview. */
+/** Hash routes for the redesigned shell. Unknown hashes fall back to the Dispatch home. */
 export interface RouteQuery { repo: string | null; scope: string | null }
 type RouteBase =
-  | { name: "start" | "overview" | "loading" | "setup" }
+  | { name: "dispatch" | "loading" | "setup" }
   | { name: "add-executor"; host?: string }
   | { name: "review" | "sessions" | "terminal"; id?: string }
   | { name: "settings"; section?: string }
@@ -11,10 +11,10 @@ type RouteBase =
   ;
 export type Route = RouteBase & { query: RouteQuery };
 export type RouteName = Route["name"];
-export type PrimaryRoute = "start" | "overview" | "review" | "sessions" | "terminal" | "settings" | null;
+export type PrimaryRoute = "dispatch" | "review" | "sessions" | "terminal" | "settings" | null;
 type TargetQuery = Partial<RouteQuery>;
 export type RouteTarget =
-  | { name: "start" | "overview" | "review" | "setup"; query?: TargetQuery }
+  | { name: "dispatch" | "review" | "setup"; query?: TargetQuery }
   | { name: "sessions" | "terminal"; id?: string; query?: TargetQuery }
   | { name: "settings"; section?: string; query?: TargetQuery }
   | { name: "hosts"; alias?: string; query?: TargetQuery }
@@ -23,8 +23,7 @@ export const SETTINGS_SECTIONS = ["planner", "accounts", "executors", "machine",
 const EMPTY_QUERY: RouteQuery = { repo: null, scope: null };
 const withTargetQuery = <T extends RouteTarget>(target: T, query?: TargetQuery): T => query ? { ...target, query } : target;
 export const routes = {
-  start: (query?: TargetQuery) => withTargetQuery({ name: "start" } as const, query),
-  overview: (query?: TargetQuery) => withTargetQuery({ name: "overview" } as const, query),
+  dispatch: (query?: TargetQuery) => withTargetQuery({ name: "dispatch" } as const, query),
   needsYou: (query?: TargetQuery) => withTargetQuery({ name: "review" } as const, query),
   tasks: (query?: TargetQuery) => withTargetQuery({ name: "sessions" } as const, query),
   task: (id: string, query?: TargetQuery) => withTargetQuery({ name: "sessions", id } as const, query),
@@ -44,8 +43,7 @@ function mergedQuery(target: RouteTarget, current: RouteQuery = EMPTY_QUERY): Ro
 export function hrefFor(target: RouteTarget, current: RouteQuery = EMPTY_QUERY): string {
   let href: string;
   switch (target.name) {
-    case "start": href = "#/"; break;
-    case "overview": href = "#/overview"; break;
+    case "dispatch": href = "#/"; break;
     case "review": href = "#/needs-you"; break;
     case "sessions": href = target.id ? `#/tasks/${encodeURIComponent(target.id)}` : "#/tasks"; break;
     case "terminal": href = target.id ? `#/terminal/${encodeURIComponent(target.id)}` : "#/terminal"; break;
@@ -70,19 +68,17 @@ export function parentFor(route: Route): RouteTarget | null {
   return null;
 }
 export function titleFor(route: Route): string {
-  if (route.name === "start") return "Start work";
   if (route.name === "sessions" && route.id) return "Task";
   if (route.name === "terminal") return "Terminal";
   if (route.name === "hosts" && route.alias) return "Host";
   if (route.name === "settings") return settingsPageTitle(route.section);
-  return route.name === "overview" ? "Overview" : route.name === "review" ? "Needs you" : route.name === "sessions" ? "Tasks" : route.name === "hosts" ? "Remote hosts" : route.name === "add-executor" ? "Add executor" : route.name === "setup" ? "Set up pacer" : "pacer";
+  return route.name === "dispatch" ? "Dispatch" : route.name === "review" ? "Needs you" : route.name === "sessions" ? "Tasks" : route.name === "hosts" ? "Remote hosts" : route.name === "add-executor" ? "Add executor" : route.name === "setup" ? "Set up pacer" : "pacer";
 }
 export function primaryFor(route: Route): PrimaryRoute {
-  if (route.name === "start") return "start";
-  return route.name === "overview" || route.name === "review" || route.name === "sessions" || route.name === "terminal" ? route.name : route.name === "settings" || route.name === "hosts" || route.name === "add-executor" ? "settings" : null;
+  return route.name === "dispatch" || route.name === "review" || route.name === "sessions" || route.name === "terminal" ? route.name : route.name === "settings" || route.name === "hosts" || route.name === "add-executor" ? "settings" : null;
 }
 
-/** Map service settings sections to Settings; setup item ids open Overview. */
+/** Map service settings sections to Settings; setup item ids open the Dispatch home. */
 export function settingsPath(section: unknown): string {
   if (typeof section !== "string") return "/settings";
   if (section === "routing" || section === "strategies") return "/settings/dispatcher";
@@ -109,9 +105,11 @@ export function resolveRoute(hash: string, setupComplete: boolean | null = true,
   const params = new URLSearchParams(search);
   const query: RouteQuery = { repo: params.get("repo"), scope: params.get("scope") };
   if (path === "/settings/routing" || path === "/settings/strategies") return {redirect:withQuery("#/settings/dispatcher",query)};
+  // Start and Overview merged into the Dispatch home; old Overview links keep their repo and scope.
+  if (path === "/overview") return { redirect: withQuery("#/", query) };
   const route = match(path);
   const settingsArea = route.name === "settings" || route.name === "hosts" || route.name === "add-executor";
-  const interactiveArea = interactiveEntry && (route.name === "start" || route.name === "sessions");
+  const interactiveArea = interactiveEntry && (route.name === "dispatch" || route.name === "sessions");
   if (!settingsArea && !interactiveArea && setupComplete === null) return { name: "loading", query };
   if (!settingsArea && !interactiveArea && route.name !== "setup" && setupComplete === false) return { redirect: withQuery("#/setup", query) };
   const legacy = /^\/(review|sessions)(?:\/(.*))?$/.exec(path);
@@ -123,8 +121,7 @@ export function resolveRoute(hash: string, setupComplete: boolean | null = true,
 }
 function match(path: string): RouteBase {
   if (path === "/setup") return { name: "setup" };
-  if (path === "/") return { name: "start" };
-  if (path === "/overview") return { name: "overview" };
+  if (path === "/") return { name: "dispatch" };
   if (path === "/settings") return { name: "settings" };
   if (path === "/settings/hosts") return { name: "hosts" };
   if (path === "/settings/add-executor") return { name: "add-executor" };
@@ -132,18 +129,18 @@ function match(path: string): RouteBase {
   if (path === "/tasks") return {name:"sessions"};
   if (path === "/terminal") return {name:"terminal"};
   const terminal = /^\/terminal\/([^/]+)$/.exec(path);
-  if (terminal) { const id = decode(terminal[1]!); return id === null ? { name: "overview" } : { name: "terminal", id }; }
+  if (terminal) { const id = decode(terminal[1]!); return id === null ? { name: "dispatch" } : { name: "terminal", id }; }
   const parts = /^\/(review|sessions|tasks)(?:\/([^/]+))?$/.exec(path);
   if (parts) {
     if (parts[2] === undefined) return { name: parts[1] as "review" | "sessions" };
     const id = decode(parts[2]);
-    return id === null ? { name: "overview" } : { name: parts[1] === "tasks" ? "sessions" : parts[1] as "review" | "sessions", id };
+    return id === null ? { name: "dispatch" } : { name: parts[1] === "tasks" ? "sessions" : parts[1] as "review" | "sessions", id };
   }
   const host = /^\/settings\/hosts\/([^/]+)$/.exec(path);
-  if (host) { const alias = decode(host[1]!); return alias === null ? { name: "overview" } : { name: "hosts", alias }; }
+  if (host) { const alias = decode(host[1]!); return alias === null ? { name: "dispatch" } : { name: "hosts", alias }; }
   const section = /^\/settings\/([^/]+)$/.exec(path)?.[1];
   if (section && (SETTINGS_SECTIONS as readonly string[]).includes(section)) return { name: "settings", section };
-  return { name: "overview" };
+  return { name: "dispatch" };
 }
 
 /** Preserve work scope on internal navigation, while allowing an explicit filter change. */

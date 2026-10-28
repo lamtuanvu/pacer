@@ -25,7 +25,7 @@ export function dismissUsageOnEscape(event: Pick<KeyboardEvent, "key" | "prevent
 }
 
 /** `terminal` adds the dock toggle; it is omitted wherever the dock cannot open. */
-export function StatusBar({ snapshot, registry, terminal }: { route?: Route; snapshot: ClientSnapshot | null; registry: KeyRegistry; terminal?: { open: boolean; toggle: () => void } }) {
+export function StatusBar({ route, snapshot, registry, terminal }: { route?: Route; snapshot: ClientSnapshot | null; registry: KeyRegistry; terminal?: { open: boolean; toggle: () => void } }) {
   const [help, setHelp] = useState(() => registry.list().find(shortcut => shortcut.keys === "?"));
   useEffect(() => { const update = () => setHelp(registry.list().find(shortcut => shortcut.keys === "?")); update(); return registry.subscribe(update); }, [registry]);
   const [usageOpen, setUsageOpen] = useState(false);
@@ -39,9 +39,12 @@ export function StatusBar({ snapshot, registry, terminal }: { route?: Route; sna
   }, [usageOpen]);
   const planner = snapshot ? plannerMeter(snapshot) : null;
   const visiblePlanner = planner?.usedPct !== null ? planner : null;
-  const executors = snapshot ? capacity(snapshot).filter(executor => executor.usedPct !== null && !(visiblePlanner && executor.id === visiblePlanner.runner)) : [];
+  // The Dispatch home's Planner budget states the figure; here the planner keeps only its mark (UI-15).
+  const plannerFigure = route?.name !== "dispatch";
+  const markedPlanner = plannerFigure ? visiblePlanner : planner;
+  const executors = snapshot ? capacity(snapshot).filter(executor => executor.usedPct !== null && !(markedPlanner && executor.id === markedPlanner.runner)) : [];
   const usageNames = [
-    ...(visiblePlanner ? [`${agentInfo(visiblePlanner.agent).name} planner ${Math.round(visiblePlanner.usedPct!)}%${visiblePlanner.verdict === "ahead" ? ", ahead of pace" : ""}${visiblePlanner.stale ? " historical usage" : ""}`] : []),
+    ...(markedPlanner ? [`${agentInfo(markedPlanner.agent).name} planner${plannerFigure ? ` ${Math.round(markedPlanner.usedPct!)}%${markedPlanner.verdict === "ahead" ? ", ahead of pace" : ""}${markedPlanner.stale ? " historical usage" : ""}` : ", shown in Planner budget"}`] : []),
     ...executors.map(executor => `${executorLabel(executor.id)} ${Math.round(executor.usedPct!)}%${executor.stale ? " historical usage" : ""}`),
   ];
   const counts = snapshot ? snapshotCounts(snapshot) : null;
@@ -56,7 +59,8 @@ export function StatusBar({ snapshot, registry, terminal }: { route?: Route; sna
   };
   return <footer className="pc-statusbar" aria-label="Status bar">
     <Button ref={usageButton} size="sm" className="pc-statusbar__usage-button" aria-label={`Usage details${usageNames.length ? `: ${usageNames.join(", ")}` : ": unavailable"}`} aria-expanded={usageOpen} aria-controls="pc-usage-details" onClick={() => setUsageOpen(open => !open)}>
-      {visiblePlanner && budget("planner", visiblePlanner.agent, agentInfo(visiblePlanner.agent).name, visiblePlanner.usedPct!, visiblePlanner.stale, paceStatus(visiblePlanner.verdict).label === paceStatus("ahead").label)}
+      {markedPlanner && !plannerFigure && <span className="pc-statusbar__item" key="planner" title={`${agentInfo(markedPlanner.agent).name} planner, shown in Planner budget`}><AgentMark agent={markedPlanner.agent} size={16} labelled={false} /></span>}
+      {visiblePlanner && plannerFigure && budget("planner", visiblePlanner.agent, agentInfo(visiblePlanner.agent).name, visiblePlanner.usedPct!, visiblePlanner.stale, paceStatus(visiblePlanner.verdict).label === paceStatus("ahead").label)}
       {executors.map(executor => budget(executor.id, markAgent(executor.id, executor.account), executorLabel(executor.id), executor.usedPct!, executor.stale, false))}
       {!usageNames.length && <span>Usage</span>}
     </Button>

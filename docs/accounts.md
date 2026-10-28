@@ -198,7 +198,7 @@ optional detail and last test time (`checked_at`).
 | State | Meaning |
 | --- | --- |
 | Ready (`ready`) | Last test task passed |
-| Not tested (`not_tested`) | No passing test yet, for example after `--no-test` or an edit. Routing still uses the runner; the Executors screen, Overview and tray show it as Not tested, not Ready |
+| Not tested (`not_tested`) | No passing test yet, for example after `--no-test` or an edit. Routing still uses the runner; the Executors screen and tray show it as Not tested, not Ready |
 | Not working (`not_working`) | Test failed; reason is recorded and routing excludes the runner |
 | Key missing (`key_missing`) | Stored key or environment variable is absent; routing excludes the runner |
 | External OpenCode provider (`external`) | Legacy endpoint without a managed connection |
