@@ -49,6 +49,26 @@
         "provisional": "App frame chrome board value; not yet in the design system."
       },
       {
+        "name": "radius-4",
+        "value": "4px",
+        "provisional": "File viewer board: Esc key cap."
+      },
+      {
+        "name": "radius-5",
+        "value": "5px",
+        "provisional": "File viewer board: Line and Session running chips."
+      },
+      {
+        "name": "radius-2",
+        "value": "2px",
+        "provisional": "File viewer board: search match highlight."
+      },
+      {
+        "name": "radius-7",
+        "value": "7px",
+        "provisional": "File viewer board: Source/Preview segmented control."
+      },
+      {
         "name": "radius-key",
         "value": "4px",
         "usage": "Small key caps in the command menu and title-bar search.",
@@ -68,13 +88,13 @@
         "name": "size-10",
         "value": "10px",
         "usage": "Root task status dot; title and status bar horizontal padding.",
-        "provisional": "Tasks and app frame chrome board value; not yet in the design system."
+        "provisional": "Tasks and app frame chrome board value; not yet in the design system. Tasks board value; not yet in the design system. File viewer board: loading skeleton line height."
       },
       {
         "name": "size-14",
         "value": "14px",
         "usage": "Task fact icons; status bar item gap and glyph size.",
-        "provisional": "Tasks and app frame chrome board value; not yet in the design system."
+        "provisional": "Tasks and app frame chrome board value; not yet in the design system. Tasks board value; not yet in the design system. File viewer board: header padding, title size and line-number gutter padding."
       },
       {
         "name": "size-15",
@@ -98,7 +118,7 @@
         "name": "size-52",
         "value": "52px",
         "usage": "Root task token column; activity bar width.",
-        "provisional": "Tasks and app frame chrome board value; not yet in the design system."
+        "provisional": "Tasks and app frame chrome board value; not yet in the design system. Tasks board value; not yet in the design system."
       },
       {
         "name": "size-272",
@@ -128,7 +148,7 @@
         "name": "size-5",
         "value": "5px",
         "usage": "Status bar budget gap.",
-        "provisional": "App frame chrome board value; not yet in the design system."
+        "provisional": "App frame chrome board value; not yet in the design system. File viewer board: Esc key cap padding."
       },
       {
         "name": "size-84",
@@ -147,6 +167,21 @@
         "value": "-6px",
         "usage": "Activity bar active indicator offset.",
         "provisional": "App frame chrome board value; not yet in the design system."
+      },
+      {
+        "name": "size-10.5",
+        "value": "10.5px",
+        "provisional": "File viewer board: file glyph text."
+      },
+      {
+        "name": "size-12.5",
+        "value": "12.5px",
+        "provisional": "File viewer board: source code text; the design system's code style is 12px."
+      },
+      {
+        "name": "size-440",
+        "value": "440px",
+        "provisional": "File viewer board: empty-state text width."
       },
       {
         "name": "size-72",
