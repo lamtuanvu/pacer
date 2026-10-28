@@ -689,3 +689,9 @@ a.pc-btn{text-decoration:none}
 @media(max-width:1000px){.pc-setting-row--board{grid-template-columns:minmax(0,1fr);gap:var(--space-2)}}
 .pc-setting-row--budget{align-items:start}
 .pc-setting-row--budget .pc-setting-row__label{font-size:var(--size-14);line-height:var(--size-20);font-weight:var(--type-display-weight)}
+
+/* Content-sized settings choice, with the board's select geometry. */
+.pc-choice-picker--content{width:max-content;max-width:100%}
+.pc-choice-picker--content .pc-choice-picker__trigger{min-height:var(--size-32);padding:0 var(--space-2\.5);border-radius:var(--radius-sm)}
+.pc-setting-row__h3{margin:0;font:inherit}
+@media(max-width:560px){.pc-choice-picker--content .pc-choice-picker__trigger{min-height:var(--control-touch)}}

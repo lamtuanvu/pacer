@@ -405,7 +405,8 @@ test.skipIf(!browserPath)('Overview and App board geometry, themes and narrow co
     for (const section of ['', 'app']) for (const theme of ['light','dark']) for (const width of [1440,375]) {
       const page = await browser.newPage({viewport:{width,height:900}});
       const snapshot = {...state.snapshot,executors:[executor,{...executor,id:'blocked',state:'blocked',reason:'No subscription',tone:'bad'}],machine:{used:0,max:4}};
-      const html = render(<SettingsGeneral section={section} initialData={settings}/>,{...state,snapshot});
+      const configured = { ...settings, config: { ...settings.config, keys: { ...settings.config.keys, "terminal.open": {value:"ghostty"} }, terminalChoices: [{value:"ghostty",label:"Ghostty"},{value:"auto",label:"Automatic"}] } };
+      const html = render(<SettingsGeneral section={section} initialData={configured}/>,{...state,snapshot});
       await page.setContent(`<html data-theme="${theme}"><style>${css}</style>${html}</html>`);
       const geometry = await page.locator('.pc-page').evaluate(node=>{
         const canvas=getComputedStyle(node),board=getComputedStyle(node.querySelector('.pc-settings-board')!),h=getComputedStyle(node.querySelector('h1')!);
@@ -417,6 +418,10 @@ test.skipIf(!browserPath)('Overview and App board geometry, themes and narrow co
           const s=getComputedStyle(node);return {columns:s.gridTemplateColumns,gap:s.gap,padding:s.padding,border:s.borderTopWidth};
         })).toEqual({columns:'300px 676px',gap:'24px',padding:'14px 0px',border:'1px'});
         expect(await page.locator('.pc-segmented--board button').first().evaluate(node=>node.getBoundingClientRect().height)).toBe(30);
+        expect(await page.locator('.pc-choice-picker--content').evaluate(node => {
+          const trigger = node.querySelector('button')!, s = getComputedStyle(trigger);
+          return { fits: node.getBoundingClientRect().width < node.parentElement!.getBoundingClientRect().width, height: trigger.getBoundingClientRect().height, padding: s.padding, radius: s.borderRadius };
+        })).toEqual({ fits: true, height: 32, padding: '0px 10px', radius: '6px' });
         expect(await page.locator('[role=switch]').evaluate(node=>({width:node.getBoundingClientRect().width,height:node.getBoundingClientRect().height,thumb:getComputedStyle(node,'::before').width}))).toEqual({width:36,height:20,thumb:'16px'});
       }
       expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
@@ -451,6 +456,7 @@ test('Budget board uses real planner facts and omits unsupported controls', () =
   const planner = { agent: 'codex', runner: 'codex#team', usedPct: 18, pacePct: 38, deltaPts: -20, verdict: 'behind', window: 'weekly', resetsAt: 1800000000, stale: false, mode: 'relaxed', advice: '20 pts under pace — spend it.' };
   const html = render(<SettingsGeneral section="planner" initialData={settings} />, { ...state, snapshot: { ...state.snapshot, planner } });
   expect(html).toContain('pc-settings-board--budget');
+  expect(html.match(/<h3 /g)).toHaveLength(6);
   expect(html).toContain('Codex is 20 points under pace, so it may do small edits itself.');
   expect(html).toContain('Emergency, Strict, Normal, Relaxed; Relaxed is active');
   expect(html).toContain('18% of weekly used · pace 38% · 20% kept for planning and review');

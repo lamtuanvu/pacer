@@ -2,6 +2,7 @@ import { HostsSection } from "./HostsSection";
 export { HostsSection } from "./HostsSection";
 import { ExecutorsSection } from "./Executors";
 export { ExecutorsSection } from "./Executors";
+import { PluginsSection } from "./Plugins";
 import { UpdatesSection } from "./Updates";
 import { LazyDispatcher } from "./LazyDispatcher";
 
@@ -214,6 +215,7 @@ function AppPreferences({ section, initialData }: { section: string; initialData
       <NotificationsSection initialData={initialData.notifications} />
       <WorkspacePreferences initialData={initialData.config} />
       <UpdatesSection initialData={initialData.updates} initialConfig={initialData.config} />
+      <PluginsSection />
     </div>
   );
 }
@@ -267,27 +269,27 @@ export function PlannerPacing({ initialData, initialAccounts }: { initialData?: 
     </div></Card>}
     <ResourceState resource={query}>{config && <>
       <section className="pc-preferences-section" aria-labelledby="budget-planner-h"><h2 id="budget-planner-h" className="pc-settings-board__label">Planner</h2>
-        <SettingRow variant="budget" label="Keep back for planning and review" description="The planner never delegates this share away. Raise it if reviews get cut short.">
+        <SettingRow headingLevel={3} variant="budget" label="Keep back for planning and review" description="The planner never delegates this share away. Raise it if reviews get cut short.">
           <div className="pc-budget-reserve"><Range aria-label="Keep back for planning and review" min="0" max="50" step="5" value={value("pacing.planner_reserve")} disabled={action.busy} onChange={e => { if (e.currentTarget.validity.valid) save("pacing.planner_reserve", Number(e.currentTarget.value)); }}/><output>{value("pacing.planner_reserve")}%</output><span className="pc-settings-board__caption">0–50%</span></div>
         </SettingRow>
-        <SettingRow variant="budget" label="Mode" description="Automatic follows the pace above. Hold keeps one mode until the planner window resets.">
+        <SettingRow headingLevel={3} variant="budget" label="Mode" description="Automatic follows the pace above. Hold keeps one mode until the planner window resets.">
           <Segment variant="board" label="Mode" value={planner?.modeHeldUntil != null ? mode ?? "" : "auto"} disabled={action.busy} options={[{ value: "auto", label: "Automatic" }, { value: "strict", label: "Hold strict" }, { value: "relaxed", label: "Hold relaxed" }]} onChange={v => { void action.run(v === "auto" ? "mode.release" : "mode.hold", v === "auto" ? {} : { mode: v }); }}/>
           {mode && <span className="pc-settings-board__caption">Now: {modeWords(mode).toLowerCase()}{planner?.modeHeldUntil != null ? `, held until ${time(planner.modeHeldUntil)}` : ""}.</span>}
         </SettingRow>
-        <SettingRow variant="budget" label="Planner" description="Plans and reviews; paced weekly">
+        <SettingRow headingLevel={3} variant="budget" label="Planner" description="Plans and reviews; paced weekly">
           <div className="u3-agent"><AgentMark agent={agent}/><ChoicePicker aria-label="Planner" value={value("planner")} placeholder="Choose a planner" options={config.planners.map(planner => ({ value: planner, label: planner }))} onValueChange={setChosen}/></div>
           <Button disabled={!value("planner")} onClick={() => setChosen(value("planner"))}>Review integration changes</Button>
         </SettingRow>
       </section>
       <section className="pc-preferences-section" aria-labelledby="budget-executors-h"><h2 id="budget-executors-h" className="pc-settings-board__label">Executors</h2>
-        <SettingRow variant="budget" label="Pacing policy" description="How work spreads across executors">
+        <SettingRow headingLevel={3} variant="budget" label="Pacing policy" description="How work spreads across executors">
           <Segment variant="board" label="Pacing policy" value={value("pacing.policy")} disabled={action.busy} onChange={v => save("pacing.policy", v)} options={[{ value: "priority", label: "Priority" }, { value: "even", label: "Even" }, { value: "burn-before-reset", label: "Burn before reset" }, { value: "cheapest-first", label: "Cheapest first" }]}/>
           <span className="pc-settings-board__caption">{value("pacing.policy") === "priority" ? "Use the order on the Agents page; skip one only when it’s out of quota or ahead of pace." : "pacer applies this policy on the next routing decision."}</span>
         </SettingRow>
-        <SettingRow variant="budget" label="Multiple accounts" description="When one agent has several">
+        <SettingRow headingLevel={3} variant="budget" label="Multiple accounts" description="When one agent has several">
           <Segment variant="board" label="Account mode" value={value("pacing.accounts")} disabled={action.busy} onChange={v => save("pacing.accounts", v)} options={[{ value: "spread", label: "Spread" }, { value: "fill", label: "Fill" }]}/>
         </SettingRow>
-        <SettingRow variant="budget" label="Move to the next account at" description="Percent of quota used; applies when filling accounts">
+        <SettingRow headingLevel={3} variant="budget" label="Move to the next account at" description="Percent of quota used; applies when filling accounts">
           <div className="pc-budget-threshold"><TextInput type="number" min="50" max="100" disabled={action.busy || value("pacing.accounts") !== "fill"} value={value("pacing.fill_threshold") || "80"} onChange={e => { if (e.currentTarget.validity.valid) save("pacing.fill_threshold", Number(e.currentTarget.value)); }}/><span>% used</span></div>
         </SettingRow>
       </section>
@@ -900,7 +902,7 @@ function WorkspacePreferences({ initialData }: { initialData?: ConfigData }) {
   const config = query.data;
   if (!config?.keys["terminal.open"] && !config?.terminalChoices) return null;
   const { selectedTerminal, terminalChoices } = terminalPreference(config);
-  return <section className="pc-preferences-section" aria-labelledby="workspace-h"><h2 id="workspace-h" className="pc-settings-board__label">Workspace</h2><SettingRow variant="board" label="Terminal" description="Used when opening sessions and other terminal actions on this machine."><ChoicePicker value={selectedTerminal} options={terminalChoices} disabled={action.busy} onValueChange={choice => void action.run("config.set", {key:"terminal.open",value:choice})}/></SettingRow><Feedback action={action}/></section>;
+  return <section className="pc-preferences-section" aria-labelledby="workspace-h"><h2 id="workspace-h" className="pc-settings-board__label">Workspace</h2><SettingRow variant="board" label="Terminal" description="Used when opening sessions and other terminal actions on this machine."><ChoicePicker sizing="content" value={selectedTerminal} options={terminalChoices} disabled={action.busy} onValueChange={choice => void action.run("config.set", {key:"terminal.open",value:choice})}/></SettingRow><Feedback action={action}/></section>;
 }
 
 function terminalPreference(config?: ConfigData) {
