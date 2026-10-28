@@ -34,13 +34,13 @@ test("layout_renders_same_landmarks", () => {
   expect(html).not.toContain("pc-app--with-dock");
   // The only frame addition is the status-bar dock control, closed by default.
   expect(html).toMatch(/aria-label="Terminal" aria-keyshortcuts="Control\+`" aria-expanded="false"/);
-  expect(html).toContain("Ctrl `</kbd>");
+  expect(html).toContain("Ctrl+`</span>");
 });
 
 test("settings routes put the settings links in a collapsible left side panel", () => {
   const html = withService("#/settings");
   expect(html).toContain('<aside aria-label="Settings" class="pc-side-panel pc-side-panel--left">');
-  expect(html.match(/aria-label="Settings"/g)?.length).toBe(2); // the side panel landmark and the rail link
+  expect(html.match(/aria-label="Settings(, [^"]*)?"/g)?.length).toBe(2); // the side panel landmark and the rail link
   expect(html).not.toContain('class="pc-panel"');
   expect(html).toContain('href="#/settings/machine"');
 });
@@ -78,4 +78,26 @@ test("dock_not_rendered_on_terminal_route", () => {
     expect(terminal).not.toContain('aria-keyshortcuts="Control+`"');
     expect(withService("#/setup")).not.toContain("pc-dock");
   } finally { (globalThis as any).localStorage = previous; }
+});
+
+test("settings attention counts enabled executors that cannot take work and names the count", async () => {
+  const { settingsAttention } = await import("../app/src/shell/Rail");
+  const row = (state: string, enabled = true) => ({ id: state, enabled, state });
+  const withExecutors = (executors: unknown[]) => ({ ...snap, executors }) as unknown as ClientSnapshot;
+  expect(settingsAttention(null)).toBe(0);
+  expect(settingsAttention(withExecutors([row("ready"), row("down", false), row("busy")]))).toBe(0);
+  expect(settingsAttention(withExecutors([row("down"), row("failing"), row("ready"), row("exhausted", false)]))).toBe(2);
+  const render = (executors: unknown[]) => renderToString(<TaskContext.Provider value={{ state: { ...ready(), snapshot: withExecutors(executors) }, api }}>
+    <Layout route={at("#/overview")} state={{ ...ready(), snapshot: withExecutors(executors) }} title="Screen"><p>body</p></Layout></TaskContext.Provider>);
+  expect(render([row("down")])).toContain('aria-label="Settings, 1 agent needs attention"');
+  expect(render([row("down"), row("blocked")])).toContain('aria-label="Settings, 2 agents need attention"');
+  expect(render([row("ready")])).toContain('aria-label="Settings"');
+});
+
+test("the planner chip carries the mode pill with a tone from the mode", () => {
+  const html = (mode: string) => { const state = ready(); return renderToString(<TaskContext.Provider value={{ state, api }}>
+    <Layout route={at("#/overview")} state={{ ...state, snapshot: { ...snap, mode: { ...snap.mode!, mode } } as ClientSnapshot }} title="Screen"><p>body</p></Layout></TaskContext.Provider>); };
+  expect(html("relaxed")).toMatch(/pc-planner[\s\S]*pc-pill--good[^>]*>Relaxed</);
+  expect(html("strict")).toMatch(/pc-planner[\s\S]*pc-pill--warn[^>]*>Strict</);
+  expect(html("normal")).toMatch(/pc-planner[\s\S]*pc-pill--neutral[^>]*>Normal</);
 });
