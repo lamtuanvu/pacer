@@ -46,6 +46,7 @@
 @media(max-width:560px),(pointer:coarse){.pc-plugin-field--visibility>.pc-checkbox{min-height:var(--control-touch)}}
 
 .pc-plugin-settings--editor .pc-setting-row{align-items:start}
-.pc-plugin-tags .pc-search-picker>.pc-search-picker__popover{left:0;right:auto}
+.pc-plugin-move__spacer{width:var(--size-26);height:var(--size-26)}
+@media(pointer:coarse){.pc-plugin-move__spacer{width:var(--control-touch);height:var(--control-touch)}}
 .pc-plugin-card__actions .pc-plugin-settings-link{height:var(--size-32);min-height:var(--size-32);padding:0 var(--space-3);border:1px solid var(--line);border-radius:var(--radius-md);font-size:var(--type-body-size);font-weight:var(--type-body-strong-weight)}
 @media(pointer:coarse){.pc-plugin-card__actions .pc-plugin-settings-link{height:var(--control-touch);min-height:var(--control-touch)}}

@@ -258,8 +258,8 @@ browserTest('plugin pages share App preferences frame and board control geometry
     expect(await style(editor,'.pc-plugin-remove')).toMatchObject({width:'26px',height:'26px',padding:'0px'});
     const row=await editor.locator('.pc-plugin-ordered>li').first().evaluate(node=>{const s=getComputedStyle(node);return {height:node.getBoundingClientRect().height,columns:s.gridTemplateColumns.split(' ').length,padding:s.padding,radius:s.borderRadius};});
     expect(row).toMatchObject({height:44,columns:4,padding:'8px 10px',radius:'8px'});
-    const up=editor.getByRole('button',{name:'Move up: Run tests',exact:true});expect(await up.getAttribute('aria-disabled')).toBe('true');expect(await up.getAttribute('title')).toContain('already first');
-    expect(await editor.getByRole('button',{name:'Move down: Update notes',exact:true}).getAttribute('aria-disabled')).toBe('true');
+    expect(await editor.getByRole('button',{name:'Move up: Run tests',exact:true}).count()).toBe(0);
+    expect(await editor.getByRole('button',{name:'Move down: Update notes',exact:true}).count()).toBe(0);
     await editor.getByRole('button',{name:'Move down: Run tests',exact:true}).focus();await editor.keyboard.press('Enter');
     expect(await editor.locator('.pc-plugin-ordered>li').first().textContent()).toBe('Update notes×');
     for(const [page,selector] of [[app,'.pc-plugin-manage'],[editor,'.pc-plugin-provenance>.pc-text-action']] as const) {
