@@ -3,8 +3,8 @@ import { SettingsNav } from "../ds/SettingsNav";
 import type { ClientSnapshot } from "../../../src/view-model/snapshot";
 import type { Counts } from "../../../src/api/read-model/types";
 import { hrefFor, routes, type Route } from "../router";
-/** 200 px panel beside the rail while any settings screen is open. */
-export function SettingsPanel({ route, counts, snapshot }: { route: Route; counts: Counts | null; snapshot?: ClientSnapshot | null }) {
+/** 200 px panel beside the rail while any settings screen is open. `embedded` returns only the menu, for a SidePanel that owns the landmark. */
+export function SettingsPanel({ route, counts, snapshot, embedded = false }: { route: Route; counts: Counts | null; snapshot?: ClientSnapshot | null; embedded?: boolean }) {
   const attention = settingsAttention(snapshot, counts);
   const current = route.name === 'hosts' || route.name === 'add-executor' ? settingsPageId(route.name) : route.name === 'settings' ? settingsPageId(route.section) : null;
   const groups = SETTINGS_GROUPS.map(group => ({ ...group, items: SETTINGS_PAGES.filter(page => page.group === group.id).map(({ id, label, icon }) => ({
@@ -12,9 +12,10 @@ export function SettingsPanel({ route, counts, snapshot }: { route: Route; count
     href: hrefFor(routes.settings(id || undefined), route.query),
     badge: attention[id],
   })) }));
-  return <aside className="pc-panel" aria-label="Settings"><SettingsNav label="Settings pages" groups={groups}/></aside>;
+  const nav = <SettingsNav label="Settings pages" groups={groups}/>;
+  return embedded ? nav : <aside className="pc-panel" aria-label="Settings">{nav}</aside>;
 }
 
-export function SettingsPanelData({ route, counts, snapshot }: { route: Route; counts: Counts | null; snapshot?: ClientSnapshot | null }) {
-  return <SettingsPanel route={route} counts={counts} snapshot={snapshot} />;
+export function SettingsPanelData({ route, counts, snapshot, embedded }: { route: Route; counts: Counts | null; snapshot?: ClientSnapshot | null; embedded?: boolean }) {
+  return <SettingsPanel route={route} counts={counts} snapshot={snapshot} embedded={embedded} />;
 }

@@ -1,0 +1,6 @@
+$ claude -p --output-format stream-json --verbose prompt
+--- stdout
+{"type":"result","usage":{"prompt_tokens":10,"completion_tokens":5}}
+--- stderr
+
+--- exit 0

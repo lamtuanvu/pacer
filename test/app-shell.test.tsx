@@ -18,8 +18,8 @@ const at = (hash: string) => resolveRoute(hash) as Route;
 test("rail labels carry counts and mark the current screen", () => {
   const html = renderToString(<Rail route={at("#/needs-you")} counts={snap.counts!} />);
   expect(html).toContain('aria-label="Overview"');
-  expect(html).toContain('aria-label="Needs you · 4 need you"');
-  expect(html).toContain('aria-label="Tasks · 2 running"');
+  expect(html).toContain('aria-label="Needs you, 4 items"');
+  expect(html).toContain('aria-label="Tasks, 2 running"');
   expect(html).toMatch(/aria-current="page"[^>]*aria-label="Needs you|aria-label="Needs you[^"]*"[^>]*aria-current="page"/);
   expect(html).toContain('role="tooltip"');
 });
