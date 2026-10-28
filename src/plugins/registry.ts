@@ -95,6 +95,9 @@ export class PluginRegistry {
     for (const [id, e] of this.entries) if (!seen.has(id)) { void this.stop(e); this.entries.delete(id); }
   }
 
+  /** The plugin's current state with no refresh, no start and no event; null when the registry has not loaded it. */
+  peek(id: string): PluginState | null { return this.entries.get(id)?.state ?? null; }
+
   list(ctx: Ctx): PluginInfo[] {
     this.refresh(ctx);
     const cfg = pluginsConfig(ctx);

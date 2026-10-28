@@ -4,6 +4,8 @@ import { listDispatchModels, refreshObservations } from "../dispatch/refresh";
 import { dispatchAnalytics, resetLearning, recordWorkReview } from "../dispatch/learning";
 import { getWork } from "../dispatch/work";
 import { dispatchConfigSchema, previewInputSchema } from "../dispatch/types";
+import { explainDispatch } from "../core/dispatch-explain";
+import { explainInputSchema } from "../dispatch/explain-input";
 import { enforcementDiagnostics, probeNativeControl } from "../dispatch/enforcement";
 import { authorizeEnforcementToken } from "../dispatch/enforcement-token";
 import { appendWorkEvent, dispatchDatabase, updateWorkDecision } from "../dispatch/store";
@@ -467,6 +469,7 @@ export const OPS: Record<string, OpDef> = {
     return{recorded:true};
   }}),
   "dispatch.preview": op({ description: "Preview account/model dispatch using cached observations and the replaceable decision engine. Does not reserve capacity or launch work.", params: previewInputSchema, handler: (ctx, p) => core.dispatch.previewDispatch(ctx, p) }),
+  "dispatch.explain": op({ description: "Explain, read-only, which executor a request would go to: the ladder step, the reasons, the fallbacks and the planner's cost. Starts, reserves and writes nothing.", params: explainInputSchema, handler: (ctx, p) => explainDispatch(ctx, p) }),
   "dispatch.submit": op({ description: "Submit a root work item to the dispatcher.", params: z.object({goal:z.string().min(1).max(20000),repo:z.string().min(1).max(4096),title:z.string().max(500).optional(),kind:id.optional(),acceptance:z.string().max(20000).optional(),context:z.string().max(20000).optional(),constraints:z.string().max(20000).optional(),executor:id.optional(),requestId:id.optional(),options:workOptionsSchema.partial().optional()}),handler:async(ctx,p,deps)=>summarizeTask(await submitWork(ctx,p,deps.spawnRunner??spawnRunner)) }),
   "dispatch.child": op({ description: "Delegate a scoped child work item using the current attempt's grant and an idempotency key.", params: z.object({goal:z.string().min(1).max(20000),title:z.string().max(500).optional(),kind:id.optional(),acceptance:z.string().max(20000).optional(),context:z.string().max(20000).optional(),constraints:z.string().max(20000).optional(),executor:id.optional(),requestId:id,options:workOptionsSchema.partial().optional()}),handler:async(ctx,p,deps)=>summarizeTask(await delegateChild(ctx,p,deps.spawnRunner??spawnRunner)) }),
   "dispatch.tree": op({ description: "Scoped nested work tree, selected decisions, dependencies and aggregate execution time.", params:z.object({id}),handler:(ctx,p)=>scopedWorkTree(ctx,p.id) }),
