@@ -90,7 +90,7 @@ function App() {
     keys.setScope(route.name);
     const go = (to: string) => () => { location.hash = inheritQuery(to, location.hash); };
     const offs = [
-      commands.register({ id: "go.overview", title: "Go to Overview", group: "Go to", icon: "overview", keys: "g o", run: go("#/overview") }),
+      commands.register({ id: "go.dispatch", title: "Go to Dispatch", group: "Go to", icon: "dispatch", keys: "g o", run: go("#/") }),
       commands.register({ id: "go.needs-you", title: "Go to Needs you", group: "Go to", icon: "review", keys: "g r", run: go("#/needs-you") }),
       commands.register({ id: "go.tasks", title: "Go to Tasks", group: "Go to", icon: "tasks", keys: "g t", run: go("#/tasks") }),
       commands.register({ id: "go.terminal", title: "Go to Terminal", group: "Go to", icon: "terminal", keys: "g e", run: go("#/terminal") }),

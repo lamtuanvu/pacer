@@ -26,7 +26,7 @@ export function SettingsPanel({ route, counts, snapshot, embedded = false }: { r
     id:`plugins/${surface.plugin}`,label:surface.title,icon:PLUGIN_ICONS[surface.icon as keyof typeof PLUGIN_ICONS] ?? 'checks',
     current:current === `plugins/${surface.plugin}`,href:hrefFor(routes.pluginSettings(surface.plugin),route.query),badge:undefined,plugin:true,
   } as SettingsNavItem);
-  const nav = <SettingsNav label="Settings pages" groups={groups} backHref={hrefFor(routes.start(), route.query)}/>;
+  const nav = <SettingsNav label="Settings pages" groups={groups} backHref={hrefFor(routes.dispatch(), route.query)}/>;
   return embedded ? nav : <aside className="pc-panel" aria-label="Settings">{nav}</aside>;
 }
 

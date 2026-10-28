@@ -11,8 +11,8 @@ import { routes, type RouteTarget } from "../router";
 export interface ViewAction { action: string; label: string; variant?: "secondary" | "quiet" | "danger"; confirm?: { title: string; body: string }; values?: Record<string, boolean> }
 export function pluginLink(to: Extract<ViewNode, { type: "link" }>["to"]): RouteTarget {
   switch (to.route) {
-    case "start": return routes.start();
-    case "overview": return routes.overview();
+    case "start": return routes.dispatch();
+    case "overview": return routes.dispatch();
     case "review": return routes.needsYou();
     case "sessions": return to.taskId ? routes.task(to.taskId) : routes.tasks();
     case "terminal": return routes.terminal();

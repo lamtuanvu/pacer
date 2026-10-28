@@ -4,7 +4,7 @@ import { ButtonLink, TextAction, type ButtonLinkProps } from "./ds/Button";
 import { hrefFor, titleFor, type Route, type RouteQuery, type RouteTarget } from "./router";
 
 export interface NavigationLocation { hash: string; replace(value: string): void }
-const fallbackRoute:Route={name:"overview",query:{repo:null,scope:null}};
+const fallbackRoute:Route={name:"dispatch",query:{repo:null,scope:null}};
 export interface NavigationValue {current:Route;navigate(target:RouteTarget,options?:{replace?:boolean}):void}
 const NavigationContext=createContext<NavigationValue>({current:fallbackRoute,navigate(){}});
 
