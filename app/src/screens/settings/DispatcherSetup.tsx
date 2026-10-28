@@ -6,10 +6,11 @@ import { Field, TextArea, TextInput } from "../../ds/Controls";
 import { ChoicePicker } from "../../ds/ChoicePicker";
 import { AgentMark } from "../../ds/AgentMark";
 import { Icon } from "../../ds/icons";
-import { tabStep } from "../../ds/Patterns";
+import { SegmentedControl, tabStep } from "../../ds/Patterns";
 import { hrefFor, routes } from "../../router";
 import { Identicon } from "../../ds/Identicon";
 import { Pill } from "../../ds/Pill";
+import { SettingRow } from "../../ds/SettingRow";
 import { SaveBar } from "../../ds/SaveBar";
 import { SectionHeading } from "../../ds/SectionHeading";
 import { SortableList, useFocusAfterRender, useStableKeys } from "../../ds/SortableList";
@@ -222,8 +223,8 @@ export function SetupEditor({ view, eligibility: source, onSaved, onDirtyChange,
         {ladderDirty && <div className="pc-card pc-stack pc-stack--normal">
           <SectionHeading as="h3">Save the ladder as a new saved setup</SectionHeading>
           <p>The current saved setup stays active until this one is validated and activated.</p>
-          <Field label="Setup name" help="Lowercase letters, numbers and hyphens."><TextInput value={name} maxLength={40} disabled={disabled} onInput={event => setName(event.currentTarget.value)} /></Field>
-          <Field label="Reason for change"><TextInput value={reason} maxLength={500} disabled={disabled} onInput={event => setReason(event.currentTarget.value)} /></Field>
+          <SettingRow variant="board" label="Setup name" description="Lowercase letters, numbers and hyphens."><TextInput value={name} maxLength={40} disabled={disabled} onInput={event => setName(event.currentTarget.value)} /></SettingRow>
+          <SettingRow variant="board" label="Reason for change"><TextInput value={reason} maxLength={500} disabled={disabled} onInput={event => setReason(event.currentTarget.value)} /></SettingRow>
         </div>}
       </div>}
     </Section>
@@ -275,20 +276,14 @@ export function DispatcherGuidedSetup({ view, onSaved, onLadderDraft }: { view: 
 function GuidedSetup({ view, onSaved, onLadderDraft, repos, listError }: { view: DispatcherConfigView; onSaved: () => void; onLadderDraft?: (draft: StrategyDraft | undefined) => void; repos: ScopeOption[]; listError?: ComponentChildren }) {
   const [scope, setScope] = useState(""), [dirty, setDirty] = useState(false), [notice, setNotice] = useState("");
   const [oneRepo, setOneRepo] = useState(false);
-  const scopeRoot = useRef<HTMLDivElement>(null);
   const pickScope = (one: boolean) => { if (dirty || one === oneRepo) return; setOneRepo(one); setScope(one ? repos[0]?.value ?? "" : ""); setNotice(""); };
   const options = [{ value: "", label: "All repositories" }, ...repos];
   return <>
     <Section step={1} id="dispatcher-scope" title="Where should this apply?">
       <div className="pc-dispatcher-scope-row">
-        <div ref={scopeRoot} role="radiogroup" aria-label="Scope" aria-describedby={dirty ? "dispatcher-scope-reason" : undefined} className="pc-dispatcher-scope">
-          {["All repositories", "One repository"].map((label, index) => <Button size="sm" role="radio" aria-checked={oneRepo === !!index} tabIndex={oneRepo === !!index ? 0 : -1} disabled={dirty || (!!index && !repos.length)}
-            onClick={() => pickScope(!!index)} onKeyDown={event => {
-              const key = event.key === "ArrowUp" ? "ArrowLeft" : event.key === "ArrowDown" ? "ArrowRight" : event.key;
-              const to = tabStep(key, index, repos.length ? 2 : 1);
-              if (to === undefined || dirty) return; event.preventDefault(); pickScope(!!to); buttons(scopeRoot.current, "button")[to]?.focus();
-            }}>{label}</Button>)}
-        </div>
+        <SegmentedControl variant="board" label="Scope" value={oneRepo ? "one" : "all"} disabled={dirty}
+          options={[{ value: "all", label: "All repositories" }, { value: "one", label: "One repository", disabled: !repos.length }]}
+          onChange={value => pickScope(value === "one")} />
         {oneRepo && <div className="dispatcher-repo-picker"><Field label={<span className="sr-only">Repository</span>}><ChoicePicker className="pc-choice-picker--mono" value={scope} searchable={repos.length > 8} disabled={dirty} options={repos} onValueChange={value => { setScope(value); setNotice(""); }} /></Field></div>}
         {oneRepo && repos.find(repo => repo.value === scope)?.ownList && <Pill tone="info">Has its own list</Pill>}
       </div>

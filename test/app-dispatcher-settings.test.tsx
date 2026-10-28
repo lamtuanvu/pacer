@@ -1,5 +1,4 @@
 import { expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
 import { renderToString } from "preact-render-to-string";
 import { dispatchConfigSchema } from "../src/dispatch/types";
 import { MAX_PROBES_PER_DAY, MAX_COST_PCT } from "../src/view-model/certification-schedule";
@@ -66,6 +65,10 @@ test("ladder setup exposes ordered steps, restrictions, capacity and fallback", 
   expect(html).toContain("Minimum model tier");
   expect(html).toContain("Spare capacity threshold");
   expect(html).toContain("When no step matches");
+  expect(html.match(/pc-setting-row--board/g)).toHaveLength(3);
+  expect(html).toMatch(/<label[^>]*for="([^"]+)"[^>]*>Spare capacity threshold<\/label>/);
+  expect(html).toMatch(/<input[^>]*aria-describedby="[^"]+-description"/);
+  expect(html).toContain("Edit step 1");
 });
 test("clearing an optional candidate restriction restores unrestricted matching", () => {
   const narrowed=candidateRestriction({},"models","provider/deep");
@@ -85,6 +88,9 @@ test("model inventory and preview distinguish a declared model from unknown iden
   expect(models).toContain("Codex");
   expect(models).toContain("Agent default");
   expect(models).toContain("Exact model unknown");
+  expect(models).toContain("pc-setting-row--board");
+  expect(models).toContain('pc-pill--neutral">Configured</span>');
+  expect(models).not.toContain('class="u3-setting"');
   const preview=renderToString(<DispatcherPreviewResult preview={{engine:{id:"ladder",version:"1"},validation:"valid",proposal:{state:"ranked",step:"capable-with-headroom",choices:[{id:"candidate",factors:[],reason:"internal"}],skipped:[]},request:{candidates:[{id:"candidate",runner:"codex",executor:"codex",binding:{kind:"executor-default"},headroom:78}]},recommendedAction:"select",excluded:[],uncertainty:["codex: executor default model unresolved"]} as any}/>);
   expect(preview).toContain("Capable model with spare capacity");
   expect(preview).toContain("Codex");
@@ -109,6 +115,9 @@ test("native control rows distinguish verified, actionable and unavailable execu
     {runner:"interactive",account:"work",agent:"claude-code",version:"2.1.281",probeSupported:false,probeMode:"ask" as const,state:"uncertified" as const,reason:"Native child blocking for interactive launches has not been verified",unsupportedReason:"Native child blocking for interactive launches has not been verified",lastProbedAt:null,expiresAt:null,nextEligibleAt:0,probesToday:0,lastCostPct:null,consent:"unasked" as const},
   ]};
   const html=renderToString(<DispatcherEnforcementRows reading={reading} canProbe probing={null} onProbe={()=>{}} onConsent={()=>{}}/>);
+  expect(html.match(/pc-setting-row--board/g)).toHaveLength(reading.runners.length);
+  expect(html).toContain('pc-pill--good">Verified</span>');
+  expect(html).not.toContain('class="u3-setting"');
   expect(html).toContain("Verified");expect(html).toContain("Needs verification");expect(html).toContain("Unavailable");
   expect(html).toContain("View executor setup");expect(html.match(/Verify control/g)).toHaveLength(1);
   expect(html).toContain("Verification is not available for this executor yet");
@@ -315,12 +324,12 @@ test("the cost disclosure goes with an offered grant, not with withdrawal",()=>{
   expect(html).toContain("Withdraw consent");
   expect(html).not.toContain("probes per day");
 });
-test("the consent block spans the whole settings row",()=>{
-  // Nested in the first cell, the disclosure was squeezed into a third of the row at desktop width.
+test("consent details follow the board row outside its control column",()=>{
   const html=renderToString(<DispatcherEnforcementRows reading={consentRunner("unasked")} canProbe probing={null} onProbe={()=>{}} onConsent={()=>{}}/>);
-  expect(html).toMatch(/^<div class="u3-setting"><div>(?:(?!<div class="u3-setting-consent).)*<\/div><button[^>]*>Verify control<\/button><div class="u3-setting-consent /s);
-  const css=readFileSync(new URL("../app/src/screens/settings/settings.css",import.meta.url),"utf8");
-  expect(css).toContain(".u3-setting>.u3-setting-consent{grid-column:1/-1}");
+  expect(html).toMatch(/^<div class="pc-stack pc-stack--compact"><div[^>]*class="pc-setting-row pc-setting-row--board"/);
+  expect(html).toMatch(/<div class="pc-setting-row__control"><button[^>]*>Verify control<\/button><\/div><\/div>/);
+  expect(html).toContain('<div class="u3-setting-consent pc-stack pc-stack--compact">');
+  expect(html).not.toMatch(/pc-setting-row__control(?:(?!<\/div>).)*u3-setting-consent/s);
 });
 test("renders consent controls only when the consent operation is available",()=>{
   const props={reading:consentRunner("unasked"),canProbe:false,probing:null,onProbe:()=>{},onConsent:()=>{}};

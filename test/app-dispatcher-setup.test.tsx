@@ -4,7 +4,7 @@ import { dispatchConfigSchema } from "../src/dispatch/types";
 import { SortableList } from "../app/src/ds/SortableList";
 import { SaveBar } from "../app/src/ds/SaveBar";
 import { countSetupChanges, discardSetup, ladderChanges, moveKey, orderChanges, PartialSaveError, positionAnnouncement, reconcileSetup, ruleChanges, saveSetup, type SetupDraft } from "../app/src/model/dispatcher-setup";
-import { SetupEditor } from "../app/src/screens/settings/DispatcherSetup";
+import { DispatcherGuidedSetup, SetupEditor } from "../app/src/screens/settings/DispatcherSetup";
 import { SavedSetups } from "../app/src/screens/settings/Dispatcher";
 import { TaskContext } from "../app/src/screens/task-shared";
 import { initialState } from "../app/src/data/store";
@@ -257,4 +257,18 @@ test("pool reasons use eligibility copy for known and unknown codes", () => {
     expect(html).not.toContain(code!);
     expect(html).toContain(">Fix</a>");
   }
+});
+
+
+test("scope uses board pressed buttons and explains why repository scope is disabled", () => {
+  const state = { ...initialState(), connected: true, features: { readModel: true, ops: new Set(["routing.get", "routing.set"]) } };
+  const html = renderToString(<TaskContext.Provider value={{state,api:{call:async()=>({})}} as any}>
+    <DispatcherGuidedSetup view={{strategy:"default",planner:"codex",plannerAccount:"work",source:"built-in",config:dispatchConfigSchema.parse({})}} onSaved={()=>{}} />
+  </TaskContext.Provider>);
+  expect(html).toContain('role="group" aria-label="Scope"');
+  expect(html).toContain('pc-segmented--board');
+  expect(html).toMatch(/aria-pressed="true"[^>]*>All repositories<\/button>/);
+  expect(html).toMatch(/aria-pressed="false"[^>]*disabled[^>]*>One repository<\/button>/);
+  expect(html).toContain("Add a repository to edit its own executor list.");
+  expect(html).not.toContain('role="radiogroup"');
 });

@@ -361,26 +361,28 @@ browserTest('768px executor labels remain readable and move buttons never overla
   } finally { await page.close(); }
 });
 
-browserTest('scope radios use arrows and repository picker and explain a dirty lock', async () => {
+browserTest('scope pressed buttons switch repositories and explain a dirty lock', async () => {
   const page = await browser.newPage();
   try {
     await page.goto(`${server.url.href}#scope`);
-    const scope = page.getByRole('radiogroup', { name: 'Scope' });
-    await scope.getByRole('radio', { name: 'All repositories' }).focus();
-    await page.keyboard.press('ArrowRight');
-    expect(await scope.getByRole('radio', { name: 'One repository' }).getAttribute('aria-checked')).toBe('true');
+    const scope = page.getByRole('group', { name: 'Scope', exact: true });
+    expect(await scope.getByRole('button', { name: 'All repositories' }).getAttribute('aria-pressed')).toBe('true');
+    await scope.getByRole('button', { name: 'One repository' }).focus();
+    await page.keyboard.press('Space');
+    expect(await scope.getByRole('button', { name: 'One repository' }).getAttribute('aria-pressed')).toBe('true');
     await page.getByText('Has its own list', { exact: true }).waitFor();
     expect(await page.getByLabel('Repository', { exact: true }).count()).toBe(1);
     await page.getByRole('button', { name: 'Add Claude Code' }).click();
     // The dirty lock arrives after the editor reports its change, so wait for it.
-    await scope.getByRole('radio', { name: 'All repositories', disabled: true }).waitFor({ timeout: 3000 });
-    expect(await page.getByText('Save or discard your changes to switch scope.').count()).toBe(1);
+    await scope.getByRole('button', { name: 'All repositories', disabled: true }).waitFor({ timeout: 3000 });
+    expect(await page.getByText('Save or discard your changes to switch scope.').isVisible()).toBe(true);
+    expect(await scope.getByRole('button', { name: 'One repository' }).isDisabled()).toBe(true);
     expect(await page.locator('.pc-save-bar').textContent()).toContain('repo-a list');
     await page.getByRole('button', { name: 'Discard', exact: true }).click();
-    await scope.getByRole('radio', { name: 'One repository', disabled: false }).waitFor({ timeout: 3000 });
-    await scope.getByRole('radio', { name: 'One repository' }).focus();
-    await page.keyboard.press('Home');
-    expect(await scope.getByRole('radio', { name: 'All repositories' }).getAttribute('aria-checked')).toBe('true');
+    await scope.getByRole('button', { name: 'One repository', disabled: false }).waitFor({ timeout: 3000 });
+    await scope.getByRole('button', { name: 'All repositories' }).focus();
+    await page.keyboard.press('Enter');
+    expect(await scope.getByRole('button', { name: 'All repositories' }).getAttribute('aria-pressed')).toBe('true');
   } finally { await page.close(); }
 });
 

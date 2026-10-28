@@ -16,6 +16,7 @@ import { ChoicePicker } from "../../ds/ChoicePicker";
 import { AgentMark } from "../../ds/AgentMark";
 import { Identicon } from "../../ds/Identicon";
 import { Pill } from "../../ds/Pill";
+import { SettingRow } from "../../ds/SettingRow";
 import type { StrategyRow } from "../../model/strategy";
 import type { ProjectStrategyView } from "../../model/project-strategies";
 import { SectionHeading } from "../../ds/SectionHeading";
@@ -139,23 +140,18 @@ export function DispatcherEnforcementRows({reading,canProbe,canConsent=true,prob
   reading:EnforcementReading;canProbe:boolean;canConsent?:boolean;probing:string|null;
   onProbe:(runner:string)=>void;onConsent:(account:string,granted:boolean)=>void;
 }){
-  return <>{reading.runners.map(item=><div className="u3-setting" key={item.runner}>
-    <div>
-      <strong>{executorLabel(item.runner)}</strong>
-      <div className="u3-muted">
-        Account {item.account} · {item.version??"version unknown"} · {!item.probeSupported&&item.state!=="certified"?"Unavailable":enforcementStateCopy[item.state]}
-        {item.reason?` · ${nativeControlReasonCopy(item.reason,item.probeSupported)}`:""}
-      </div>
-      {item.probeSupported?<CertificationSchedule item={item}/>:null}
-      {/* The reason is already on the line above; repeating it only adds noise. */}
-      {!item.probeSupported&&item.state!=="certified"?
-        <div className="u3-muted"><TextAction href="#/settings/executors">View executor setup</TextAction>, then refresh status.</div>
+  return <>{reading.runners.map(item=><div className="pc-stack pc-stack--compact" key={item.runner}>
+    <SettingRow variant="board" label={executorLabel(item.runner)}
+      description={<>Account {item.account} · {item.version??"version unknown"}{item.reason?` · ${nativeControlReasonCopy(item.reason,item.probeSupported)}`:""}</>}
+      status={{tone:item.state==="certified"?"good":"neutral",label:!item.probeSupported&&item.state!=="certified"?"Unavailable":enforcementStateCopy[item.state]}}>
+      {canProbe&&item.probeSupported&&item.state!=="certified"?
+        <Button size="sm" busy={probing===item.runner} disabled={!!probing} onClick={()=>onProbe(item.runner)}>Verify control</Button>
       :null}
-    </div>
-    {canProbe&&item.probeSupported&&item.state!=="certified"?
-      <Button size="sm" busy={probing===item.runner} disabled={!!probing} onClick={()=>onProbe(item.runner)}>Verify control</Button>
+    </SettingRow>
+    {item.probeSupported?<CertificationSchedule item={item}/>:null}
+    {!item.probeSupported&&item.state!=="certified"?
+      <div className="u3-muted"><TextAction href="#/settings/executors">View executor setup</TextAction>, then refresh status.</div>
     :null}
-    {/* A direct child of the row grid, so the disclosure spans both columns instead of the narrow first one. */}
     {canConsent?<ConsentControl item={item} onConsent={onConsent}/>:null}
   </div>)}</>;
 }
@@ -163,7 +159,10 @@ export function DispatcherEnforcementRows({reading,canProbe,canConsent=true,prob
 export function DispatcherModelInventory({inventory}:{inventory:DispatcherInventory}) {
   return <div className="pc-card">
     <p>These models can be considered by the dispatcher. A declared tier is a configuration choice, not a measured quality score. <TextAction href="#/settings/executors">View executors</TextAction></p>
-    {inventory.models.length?<div className="pc-stack pc-stack--compact">{inventory.models.map(model=><div className="u3-setting" key={`${model.runner}:${modelLabel(model)}`}><div><strong>{executorLabel(model.executor)}</strong> · {modelLabel(model)}<div className="u3-muted">Account {model.account} · {model.tier==="unknown"?"Tier unknown":`${model.tier} tier`} · {model.actualModel?`Observed model ${model.actualModel}`:"Exact model unknown"}</div></div><div>{model.provenance==="observed"?"Allowed from discovery":"Configured"}</div></div>)}</div>:<p>No allowed models are configured for this saved setup.</p>}
+    {inventory.models.length?<div className="pc-stack pc-stack--compact">{inventory.models.map(model=><SettingRow variant="board" key={`${model.runner}:${modelLabel(model)}`}
+      label={<>{executorLabel(model.executor)} · {modelLabel(model)}</>}
+      description={<>Account {model.account} · {model.tier==="unknown"?"Tier unknown":`${model.tier} tier`} · {model.actualModel?`Observed model ${model.actualModel}`:"Exact model unknown"}</>}
+      status={{tone:"neutral",label:model.provenance==="observed"?"Allowed from discovery":"Configured"}}>{null}</SettingRow>)}</div>:<p>No allowed models are configured for this saved setup.</p>}
     {!!inventory.advertised.filter(model=>!model.authorized).length&&<p className="u3-muted">Other advertised models are suggestions only; they are not enabled automatically.</p>}
   </div>;
 }
@@ -247,8 +246,8 @@ export function DispatcherLadderFields({config,onChange,disabled}:{config:Dispat
   const remove=(key:string)=>{const at=keys.current.indexOf(key);if(at<0)return;keys.current=keys.current.filter(item=>item!==key);onChange({...config,steps:config.steps.filter((_,index)=>index!==at)});};
   const add=()=>{let number=config.steps.length+1;while(config.steps.some(step=>step.id===`step-${number}`))number++;onChange({...config,steps:[...config.steps,{id:`step-${number}`,match:{},require:{},prefer:{models:[],strengths:[]},candidates:{},capacity:"comfortable",rank:["task-fit","spare-capacity"]}]});};
   return <div className="pc-stack pc-stack--section">
-    <Field label="Spare capacity threshold" help="A step requiring spare capacity uses this percentage as its minimum."><TextInput type="number" min="0" max="100" disabled={disabled} value={String(config.comfortablePct)} onInput={event=>onChange({...config,comfortablePct:Number(event.currentTarget.value)})}/></Field>
-    <Field label="Keep capacity in reserve" help="Percentage Pacer leaves unused when selecting a model."><TextInput type="number" min="0" max="100" disabled={disabled} value={String(config.reservePct)} onInput={event=>onChange({...config,reservePct:Number(event.currentTarget.value)})}/></Field>
+    <SettingRow variant="board" label="Spare capacity threshold" description="A step requiring spare capacity uses this percentage as its minimum."><TextInput type="number" min="0" max="100" disabled={disabled} value={String(config.comfortablePct)} onInput={event=>onChange({...config,comfortablePct:Number(event.currentTarget.value)})}/></SettingRow>
+    <SettingRow variant="board" label="Keep capacity in reserve" description="Percentage Pacer leaves unused when selecting a model."><TextInput type="number" min="0" max="100" disabled={disabled} value={String(config.reservePct)} onInput={event=>onChange({...config,reservePct:Number(event.currentTarget.value)})}/></SettingRow>
     <SortableList iconControls label="Ladder steps, first match wins" disabled={disabled} onReorder={reorder} onRemove={config.steps.length>1?remove:undefined}
       items={config.steps.map((step,index)=>({key:keys.current[index]!,label:stepTitle(step.id),leading:<span className={`pc-ladder-number pc-ladder-number--${step.capacity==="comfortable"?"good":step.capacity==="usable"?"warn":"muted"}`} aria-hidden="true">{index+1}</span>,detail:<span className="u3-muted">Step {index+1} · {capacityLabel(step.capacity)}{step.match.kind?` · ${step.match.kind} tasks`:" · any task kind"} · Rank by {step.rank.map(rankLabel).join(", ")}</span>}))}
       renderExtra={(_,index)=>{const step=config.steps[index]!;return <Disclosure className="pc-disclosure-panel" summary={`Edit step ${index+1}`}><div className="pc-disclosure-panel__body pc-stack pc-stack--normal">
@@ -261,7 +260,7 @@ export function DispatcherLadderFields({config,onChange,disabled}:{config:Dispat
       <Field label="Rank first by"><ChoicePicker value={step.rank[0]} disabled={disabled} options={rankOptions} onValueChange={value=>patch(index,item=>({...item,rank:[value as LadderStep["rank"][number],...item.rank.filter(rank=>rank!==value)]}))}/></Field>
     </div></Disclosure>;}}/>
     <div><Button disabled={disabled} onClick={add}>Add ladder step</Button></div>
-    <Field label="When no step matches"><ChoicePicker value={config.onNoMatch} disabled={disabled} options={[{value:"queue",label:"Queue the work"},{value:"fail",label:"Report no eligible choice"}]} onValueChange={value=>onChange({...config,onNoMatch:value as DispatchConfig["onNoMatch"]})}/></Field>
+    <SettingRow variant="board" label="When no step matches"><ChoicePicker value={config.onNoMatch} disabled={disabled} options={[{value:"queue",label:"Queue the work"},{value:"fail",label:"Report no eligible choice"}]} onValueChange={value=>onChange({...config,onNoMatch:value as DispatchConfig["onNoMatch"]})}/></SettingRow>
   </div>;
 }
 
@@ -375,7 +374,7 @@ function DispatcherEnforcement({query}:{query:RouteQuery}){
   return <Section id="native-control" title="Native subagent control" detail="Pacer checks native child blocking before admitting strict managed work.">
     <div className="pc-card pc-stack pc-stack--normal">
       <p>New managed work requires verified native subagent control. Executors can ask Pacer to delegate child work; Pacer selects and records it. This check covers supported native subagent tools when work starts, not arbitrary AI commands run through a shell.</p>
-      {repos.length?<Field label="Repository"><ChoicePicker value={repo} searchable options={repos.map(item=>({value:item.key,label:item.label}))} onValueChange={setRepo}/></Field>:<p>Select a repository to inspect its executor controls.</p>}
+      {repos.length?<SettingRow variant="board" label="Repository"><ChoicePicker value={repo} searchable options={repos.map(item=>({value:item.key,label:item.label}))} onValueChange={setRepo}/></SettingRow>:<p>Select a repository to inspect its executor controls.</p>}
       <div><Button size="sm" onClick={()=>reading.reload()} disabled={!repo}>Refresh status</Button></div>
       <DispatcherReadError error={reading.error&&currentReading?reading.error:undefined} reload={reading.reload} subject="native subagent control"/>
       {currentReading&&<DispatcherEnforcementRows reading={currentReading} canProbe={state.features.ops.has("dispatch.enforcement.probe")&&!!repo} probing={probing} onProbe={runner=>void probe(runner)} canConsent={state.features.ops.has("dispatch.enforcement.consent")} onConsent={consent}/>}

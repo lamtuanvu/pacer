@@ -525,9 +525,6 @@ body:has(.pc-app--narrow) .pc-toasts{bottom:calc(var(--size-56) + var(--space-5)
 .pc-settings-step__heading h2{margin:0;font-size:var(--size-16);line-height:var(--size-22);font-weight:var(--type-headline-weight)}
 .pc-settings-step__heading p{margin:0;font-size:var(--type-caption-size);line-height:var(--type-caption-line);color:var(--ink-muted)}
 .pc-settings-step__body>:where(*){margin-block:0}
-.pc-dispatcher-scope{display:inline-flex;gap:var(--space-half);padding:var(--size-3);border:1px solid var(--line);border-radius:var(--radius-md);background:var(--surface-card)}
-.pc-dispatcher-scope .pc-btn{min-height:var(--size-30);padding:0 var(--space-3);border:0;border-radius:var(--radius-sm);background:transparent;color:var(--ink-secondary)}
-.pc-dispatcher-scope .pc-btn[aria-checked=true]{background:var(--surface-lane);color:var(--ink)}
 .pc-dispatcher-tabs{display:flex;flex-wrap:wrap;gap:var(--space-1\.5)}
 .pc-dispatcher-tabs .pc-btn{min-height:var(--size-28);padding:0 var(--space-2\.5);border-radius:var(--radius-full);background:var(--surface-page);color:var(--ink-secondary);font-size:var(--type-caption-size)}
 .pc-dispatcher-tabs .pc-btn[aria-selected=true]{background:var(--ink);border-color:var(--ink);color:var(--ink-on-ink)}
@@ -551,7 +548,7 @@ body:has(.pc-app--narrow) .pc-toasts{bottom:calc(var(--size-56) + var(--space-5)
 .pc-dispatcher-callout--warn{border:1px solid var(--warn-line);background:var(--warn-tint);color:var(--warn-fg)}
 .pc-dispatcher-callout--info{padding-block:var(--space-2\.5);background:var(--info-bg);color:var(--info-fg)}
 @media(max-width:560px),(pointer:coarse){
- .pc-dispatcher-scope .pc-btn,.pc-dispatcher-tabs .pc-btn{min-height:var(--control-touch);min-width:var(--control-touch)}
+ .pc-dispatcher-tabs .pc-btn{min-height:var(--control-touch);min-width:var(--control-touch)}
 }
 /* Dispatcher board compositions; identity, result severity and list visuals stay in DS. */
 .pc-current-setup{container: current-setup / inline-size;display:flex;flex-wrap:wrap;align-items:center;border:1px solid var(--line);border-radius:var(--radius-lg);background:var(--surface-card);overflow:hidden}
