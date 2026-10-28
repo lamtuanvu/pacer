@@ -139,6 +139,7 @@ export function paceStatus(verdict: string): Status {
 export function attentionStatus(item: { kind: string; taskId?: string }, tasks: (TaskStatusInput & { id: string })[] = []): Status {
   const task = tasks.find(t => t.id === item.taskId);
   if (item.kind === "review") return waitingReview;
+  if (item.kind === "message") return status("Waiting on you", "warn", "!");
   if (item.kind === "failed" && (task?.state === "done" || task?.acceptanceState === "failed")) return status("Checks failed", "bad", "✕");
   if (task) return taskStatus(task);
   return ({ review: waitingReview, question: taskStates.needs_input!, failed: taskStates.failed!, limit: taskStates.limit!,

@@ -6,7 +6,7 @@ import type { LinkSnapshot, TaskData } from "../../link/envelope";
 
 export interface RepoRef { key: string; label: string; path: string; unreachable?: true; identityUnverified?: true }
 /** fullTitle is complete display text; title remains the compact compatibility fallback. */
-export type TaskDataV2 = TaskData & { archived?: boolean; archivePath?: string; title: string; fullTitle?: string; question?: TaskRecord["question"]; rev: number; queue: TaskRecord["queue"] | null; repo: RepoRef; kind: string | null; host: string | null; source?: TaskRecord["source"] };
+export type TaskDataV2 = TaskData & { archived?: boolean; archivePath?: string; title: string; fullTitle?: string; question?: TaskRecord["question"]; rev: number; queue: TaskRecord["queue"] | null; repo: RepoRef; kind: string | null; host: string | null; source?: TaskRecord["source"]; messages?: { unreadForHuman: number; question?: { id: string; text: string; at: number } } };
 export type ApiTask = TaskDataV2;
 export interface ExecutorRow {
  stale?: boolean;
