@@ -37,6 +37,12 @@ It only selects the agent's config folder. Default accounts have neither `home`
 nor `orca_account`, and pacer does not set account environment variables for
 them. There is at most one default account per native account kind.
 
+Issue import (`issue.import`, `issue.search`) runs `gh` with your own GitHub CLI
+login. `gh` reads its credential store itself; pacer never reads, stores or logs
+the token, and passes `gh` only the environment it needs (`GH_TOKEN` and
+`GITHUB_TOKEN` included, pacer's own tokens and endpoint keys excluded). See
+[Import a GitHub issue](dispatch.md#import-a-github-issue).
+
 ## Link an Orca account
 
 ```sh

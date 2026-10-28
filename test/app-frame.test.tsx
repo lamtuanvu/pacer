@@ -42,7 +42,7 @@ test("settings routes put the settings links in a collapsible left side panel", 
   expect(html).toContain('<aside aria-label="Settings" class="pc-side-panel pc-side-panel--left">');
   expect(html.match(/aria-label="Settings(, [^"]*)?"/g)?.length).toBe(2); // the side panel landmark and the rail link
   expect(html).not.toContain('class="pc-panel"');
-  expect(html).toContain('href="#/settings/hosts"');
+  expect(html).toContain('href="#/settings/machine"');
 });
 
 test("narrow_layout_has_no_side_panels_or_dock", () => {

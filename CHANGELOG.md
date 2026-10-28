@@ -9,6 +9,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - Restyle the app frame chrome to the design canvas: a 44px title bar with the pacer mark, planner chip and panel-toggle buttons, a 52px activity bar with an active indicator and count badges, and a 28px status bar with per-vendor budget meters, running and queued counts and the terminal shortcut. The Setup and Settings attention dots are now red.
 - Let plugins contribute UI as host-rendered data (plugin protocol 1.2.0): `contributes.ui` declares activity items, panel tabs, a settings page and a status item; the host validates every view document and settings value, and grants cover surface kinds. Adds the `plugin.ui.*` and `plugin.settings.*` client ops (additive, v3), the `pacer plugin settings` and `pacer plugin ui list` commands, and a strategy-independent plugin settings store. See [Plugin UI contributions](docs/specs/2026-10-28-plugin-ui-contributions-design.md).
 - Add the read-only `files.search` operation (protocol 3) for the app's command menu Files scope: it searches tracked file paths in registered repositories with `git ls-files` and returns the repository, repo-relative path, size, matched ranges and the running tasks that changed each file. Results, query length and per-repository listing time and size are capped, executors are refused, and nothing is written; the change is additive. See the [design](docs/specs/2026-10-28-files-search-design.md).
+- Add the read-only `issue.import` and `issue.search` operations for starting a task from a GitHub issue. They read a registered repository's issue through the user's `gh` login, take the GitHub repository from the checkout's `origin` remote, return the title, body, labels, URL and state as capped plain text, and are refused for executor sessions. Two error codes are added, `unavailable` (503) and `rate_limited` (429); the change is additive. See [Import a GitHub issue](docs/dispatch.md#import-a-github-issue).
 - Add the read-only `dispatch.explain` operation and `pacer route --explain`: which executor a request would go to, the ladder step, coded reasons, fallbacks with exclusion reasons, and the planner's cost (`unknown` until a planner adapter reports tokens). It reuses the dispatcher's decision code, starts, reserves and writes nothing, and the change is additive. See [Explain a route](docs/dispatch.md#explain-a-route).
 - Record token usage for each attempt with a `measured`, `partial` or `unknown` coverage label. Codex gets its final `tokens used` total as a partial, self-reported figure and Claude Code gets measured usage from its `stream-json` result. The service indexes existing history in the new `attempt_usage` table without touching task files. See [Token accounting](docs/dispatch.md#token-accounting).
 - Roll token usage up through work trees (`totals.tokens`, with coverage counts, a lower-bound flag and a split per agent) and show it in task detail. `Attempt.tokens` is added to task and work-tree results; the change is additive.
@@ -28,7 +29,21 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 ### Changed
 
 - The Needs you page shows task items as task cards, most urgent first. Agent capacity and recent activity left the home; capacity lives in Settings › Executors. The quick delegate form is replaced by the top bar's Delegate. While Dispatch is open, the status bar shows the planner's mark without its figure, because the Planner budget states it.
+- Keep App plugin switches focused during changes and reloads, label the plugin list, describe refused plugins, and preserve loaded rows and inline errors when a reload fails.
+
+- Add the service-backed App Plugins list with explicit capability grants, content-sized Terminal selection, and semantic Budget row headings through additive design-system options.
+
 - Refine the terminal file viewer: it opens beside the terminal when there is room (a full sheet on narrow screens), starts on Source, adds whole-file search with match stepping (⌘F/Ctrl+F), lists what the isolated HTML preview blocked, explains missing, outside, too-large, binary and changed-session files, and closes with Esc or Back to terminal.
+
+- Rebuild Budget & pacing around planner pace, mode holds and reported budget windows. Preserve planner integration consent, pacing policy and account controls using shared board rows.
+
+- Rebuild Settings Overview with real readiness and setup facts, and App preferences with board-aligned theme, notification, terminal and update controls. Keep existing operations, legacy section links and desktop OTA controls; add opt-in board rows, segmented controls and a compact Switch.
+
+- Rebuild Settings Diagnostics with report totals, grouped check disclosures, report copying and the existing previewed repair flow.
+
+- Match the Settings navigation board with a 240px panel, Back to Dispatch and save guidance. Agents and Machines replace the executor and machine menu labels; Accounts, Add executor and Remote hosts stay reachable from their parent pages.
+
+- Group the Settings menu into Dispatch and App. Overview summarises readiness and the current setup, Budget & pacing replaces Planner & pacing, and App preferences holds Updates, Notifications and Appearance on one page; their old links still open the right section. Settings rows share one layout with the new `SettingRow` and `SettingsNav` design system components.
 
 ### Fixed
 

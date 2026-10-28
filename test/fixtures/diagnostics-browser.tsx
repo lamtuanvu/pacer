@@ -1,3 +1,5 @@
+import { Page } from '../../app/src/ds/Page';
+import { DensityContext } from '../../app/src/ds/Density';
 import { NotificationProvider } from '../../app/src/data/notification-context';
 import { render } from 'preact';
 import { DiagnosticsSection } from '../../app/src/screens/settings/Diagnostics';
@@ -15,4 +17,4 @@ const call: BrowserApi['call'] = async <T,>(op: string, params: unknown) => {
 };
 const api = {call} as BrowserApi;
 const runner = createActionRunner({call,waitFor:async()=>true,refetch:()=>{},navigate:hash=>{location.hash=hash;}});
-render(<TaskContext.Provider value={{state:initialState(),api}}><ActionContext.Provider value={runner}><NotificationProvider><DiagnosticsSection/></NotificationProvider></ActionContext.Provider></TaskContext.Provider>, document.getElementById('root')!);
+render(<TaskContext.Provider value={{state:initialState(),api}}><ActionContext.Provider value={runner}><NotificationProvider><DensityContext.Provider value="settings"><Page width="full" className="u3-settings"><DiagnosticsSection/></Page></DensityContext.Provider></NotificationProvider></ActionContext.Provider></TaskContext.Provider>, document.getElementById('root')!);
