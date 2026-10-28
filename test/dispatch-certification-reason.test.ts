@@ -1,13 +1,19 @@
-import { expect, test, describe } from "bun:test";
-import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { expect, test, describe, spyOn } from "bun:test";
+import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { basename, join } from "node:path";
 import { fakeCtx, tmpDir } from "./helpers";
 import type { Ctx } from "../src/types";
+import { createTask, updateTask } from "../src/tasks/store";
+import { resolveRepoInput } from "../src/core/repos";
+import { loadStrategy } from "../src/config/strategy";
+import * as launch from "../src/exec/launch";
+import { enforcementDiagnostics, resolveEnforcementTarget } from "../src/dispatch/enforcement";
+import { plannerScheduleKey, scheduledRepo } from "../src/dispatch/certification-schedule";
 import { OPS } from "../src/api/ops";
 import { enforcementProbeScheduleCheck } from "../src/install/doctor-hooks";
 import { BACKOFF_MAX_S, MAX_REPO_SWITCHES, recordProbeOutcome, settleProbe, writeScheduleState, type AttemptRecord } from "../src/dispatch/certification-schedule";
 
-/** Registers repositories the way the registry stores them; the first is the one tick certifies. */
+/** Registry insertion order is distinct from its mutable lastUsed order. */
 function registerRepos(ctx: Ctx, ...repos: string[]): void {
   mkdirSync(join(ctx.pacerHome, "state"), { recursive: true });
   writeFileSync(join(ctx.pacerHome, "state", "repos.json"), JSON.stringify(Object.fromEntries(
@@ -47,7 +53,7 @@ const costPause = (now: number): AttemptRecord => ({
   dayStartedAt: now - 3600, probesToday: 1, lastCostPct: 12,
 });
 
-type Row = { runner: string; scheduleReason: string | null; schedulePaused: boolean };
+type Row = { runner: string; scheduleReason: string | null; schedulePaused: boolean; scheduleRepo?: string | null; scheduleUnsupportedReason?: string | null };
 async function plannerRow(ctx: Ctx, repo: string): Promise<Row> {
   const result = await OPS["dispatch.enforcement"].handler(ctx, { repo }, {}) as { runners: Row[] };
   return result.runners.find(row => row.runner === "claude-code")!;
@@ -89,10 +95,28 @@ describe("diagnostics row carries the schedule's reason", () => {
     mkdirSync(join(certified, ".claude"), { recursive: true });
     writeFileSync(join(certified, ".claude", "settings.json"), "{}");
     registerRepos(ctx, certified, shown);
+    const registryFile = join(ctx.pacerHome, "state", "repos.json");
+    const registry = JSON.parse(readFileSync(registryFile, "utf8"));
+    registry[certified].key = "github.com/team/project";
+    writeFileSync(registryFile, JSON.stringify(registry));
     writeStrategyYaml(ctx, "auto");
     writeScheduleState(ctx, { consent: { "claude-code": "granted" }, attempts: {} });
-    expect((await plannerRow(ctx, shown)).scheduleReason).toBe(
-      `scheduled probing certifies ${certified}, not this repository; there: Project-level native control overrides need an exact-environment canary`);
+    expect(await plannerRow(ctx, shown)).toMatchObject({
+      scheduleRepo: "team/project", schedulePaused: false,
+      scheduleUnsupportedReason: "Project-level native control overrides need an exact-environment canary",
+      scheduleReason: null,
+    });
+  });
+
+  test("the scheduled repository also carries unsupported reasons structurally on its own row", async () => {
+    const ctx = fakeCtx(), repo = setupEnforcementContext(ctx);
+    mkdirSync(join(repo, ".claude"), { recursive: true });
+    writeFileSync(join(repo, ".claude", "settings.json"), "{}");
+    writeStrategyYaml(ctx, "auto");
+    expect(await plannerRow(ctx, repo)).toMatchObject({
+      scheduleRepo: null, scheduleReason: null, schedulePaused: false,
+      scheduleUnsupportedReason: "Project-level native control overrides need an exact-environment canary",
+    });
   });
 
   test("with no registered repository it says the schedule has nothing to certify", async () => {
@@ -181,4 +205,97 @@ describe("doctor reports the planner's schedule", () => {
     expect(check.detail).not.toContain("probes today: 7");
     expect(check.level).toBe("info");
   });
+});
+
+function taskIn(ctx: Ctx, repo: string) {
+  return createTask(ctx, { brief: { goal: "fixture", repo }, kind: null, requestedExecutor: null, timeoutS: 60 });
+}
+
+describe("schedule repository follows managed work", () => {
+  test("real diagnostics names the most recently active task repository despite viewing another", async () => {
+    const ctx = fakeCtx();
+    const shown = setupEnforcementContext(ctx, false), working = realpathSync(tmpDir());
+    registerRepos(ctx, shown, working);
+    writeStrategyYaml(ctx, "auto");
+    const old = taskIn({ ...ctx, now: ctx.now - 500 }, working);
+    taskIn({ ...ctx, now: ctx.now - 100 }, shown);
+    updateTask(ctx, old.id, t => { t.state = "running"; t.attemptStartedAt = ctx.now; });
+    const strategy = loadStrategy(ctx);
+    expect((await enforcementDiagnostics(ctx, strategy, shown)).runners[0]).toMatchObject({ scheduleRepo: basename(working) });
+    // Viewing uses the real writing resolver; fake only its bounded Git reads.
+    ctx.run = async argv => argv.includes("--show-toplevel")
+      ? { code: 0, stdout: `${shown}\n${shown}/.git\n`, stderr: "" }
+      : argv.includes("remote") ? { code: 0, stdout: "", stderr: "" }
+      : { code: 0, stdout: "2.1.281", stderr: "" };
+    await resolveRepoInput({ ...ctx, now: ctx.now + 10 }, shown);
+    expect(scheduledRepo(ctx)).toBe(working);
+    expect((await enforcementDiagnostics(ctx, strategy, working)).runners[0]).toMatchObject({ scheduleRepo: null });
+    expect((await enforcementDiagnostics(ctx, strategy, shown)).runners[0]).toMatchObject({ scheduleRepo: basename(working) });
+  });
+
+  test("without task activity the first registered repository wins over lastUsed", async () => {
+    const ctx = fakeCtx();
+    const shown = setupEnforcementContext(ctx, false), first = realpathSync(tmpDir());
+    registerRepos(ctx, first, shown);
+    // A real resolver write changes lastUsed without changing registration order.
+    ctx.run = async argv => argv.includes("--show-toplevel")
+      ? { code: 0, stdout: `${shown}\n${shown}/.git\n`, stderr: "" }
+      : argv.includes("remote") ? { code: 0, stdout: "", stderr: "" }
+      : { code: 0, stdout: "2.1.281", stderr: "" };
+    await resolveRepoInput({ ...ctx, now: ctx.now + 10 }, shown);
+    writeStrategyYaml(ctx, "auto");
+    expect(scheduledRepo(ctx)).toBe(first);
+    expect(await plannerRow(ctx, shown)).toMatchObject({ scheduleRepo: basename(first) });
+  });
+
+  test("no registered repository yields null even with an old task reference", () => {
+    const ctx = fakeCtx();
+    expect(scheduledRepo(ctx)).toBeNull();
+    taskIn(ctx, realpathSync(tmpDir()));
+    expect(scheduledRepo(ctx)).toBeNull();
+  });
+
+  test("recent completed work counts, expired and dismissed completed work do not", () => {
+    const ctx = fakeCtx(), first = realpathSync(tmpDir()), recent = realpathSync(tmpDir());
+    registerRepos(ctx, first, recent);
+    const t = taskIn({ ...ctx, now: ctx.now - 100 }, recent);
+    updateTask(ctx, t.id, task => { task.state = "done"; });
+    expect(scheduledRepo(ctx)).toBe(recent);
+    expect(scheduledRepo({ ...ctx, now: ctx.now + 86401 })).toBe(first);
+    updateTask(ctx, t.id, task => { task.dismissed = true; });
+    expect(scheduledRepo(ctx)).toBe(first);
+  });
+
+  test("cross-repository pauses survive and non-planner rows stay outside the schedule", async () => {
+    const ctx = fakeCtx(), shown = setupEnforcementContext(ctx, false), working = realpathSync(tmpDir());
+    registerRepos(ctx, working, shown);
+    writeStrategyYaml(ctx, "auto");
+    const strategy = loadStrategy(ctx);
+    strategy.runners["claude-code#other-account"] = { ...strategy.runners["claude-code"], id: "claude-code#other-account", account: "other-account" };
+    strategy.providers["claude-code#other-account"] = { ...strategy.providers["claude-code"], id: "claude-code#other-account" };
+    strategy.accounts["other-account"] = { ...strategy.accounts["claude-code"], name: "other-account" };
+    writeScheduleState(ctx, { consent: {}, attempts: { [plannerKey]: costPause(ctx.now) } });
+    const rows = (await enforcementDiagnostics(ctx, strategy, shown)).runners;
+    expect(rows.find(r => r.runner === "claude-code")).toMatchObject({
+      scheduleRepo: basename(working), schedulePaused: true, scheduleReason: "the last probe cost 12% of the account window",
+    });
+    expect(rows.find(r => r.runner === "claude-code#other-account")).toMatchObject({
+      scheduleRepo: null, scheduleUnsupportedReason: null, schedulePaused: false,
+      scheduleReason: "scheduled probing covers only the planner's own executor",
+    });
+  });
+});
+
+test("planner schedule key shares managed launch-mode resolution with enforcement", async () => {
+  const ctx = fakeCtx(), repo = setupEnforcementContext(ctx);
+  writeStrategyYaml(ctx, "auto");
+  const strategy = loadStrategy(ctx);
+  // Simulate managed work gaining interactive support: both callers must follow it.
+  const mode = spyOn(launch, "launchModeFor").mockReturnValue({ mode: "interactive", explicit: false });
+  try {
+    const target = await resolveEnforcementTarget(ctx, strategy, "claude-code", repo);
+    expect(plannerScheduleKey(strategy)).toBe(JSON.stringify([target.runner, target.account, target.launchMode]));
+    expect(mode).toHaveBeenCalledTimes(2);
+    expect(mode.mock.calls.every(call => call[2]?.managed === true)).toBe(true);
+  } finally { mode.mockRestore(); }
 });

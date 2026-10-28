@@ -47,6 +47,8 @@ interface EnforcementRunner {
   consent:"granted"|"declined"|"unasked";
   /** Absent from a service older than this app. */
   scheduleReason?:string|null;
+  scheduleRepo?:string|null;
+  scheduleUnsupportedReason?:string|null;
   /** A maximum-length pause, as the doctor reports it. Absent from a service older than this app. */
   schedulePaused?:boolean|null;
 }
@@ -87,6 +89,7 @@ export function scopedEnforcementReading(reading:EnforcementReading|undefined,re
 function CertificationSchedule({item}:{item:EnforcementRunner}){
   const t=now();
   const parts:string[]=[];
+  if(item.scheduleRepo)parts.push(`scheduled probing certifies ${item.scheduleRepo}`);
   // Turning scheduling off is a setting, not a fault, so it reads as plain state.
   if(item.probeMode==="off")parts.push("scheduled probing: off");
   if(item.lastProbedAt)parts.push(`last probe: ${formatTime(item.lastProbedAt)}`);
@@ -100,8 +103,9 @@ function CertificationSchedule({item}:{item:EnforcementRunner}){
   // Why renewal is not happening, in the doctor's words. A pause is Pacer's own
   // decision, so it reads as plain state; "off" and a current certificate
   // already say it above.
-  if(item.scheduleReason&&item.probeMode!=="off"&&item.state!=="certified")
-    parts.push(`${item.schedulePaused?"probing paused":"not probing now"}: ${item.scheduleReason}`);
+  const reason=item.scheduleUnsupportedReason?nativeControlReasonCopy(item.scheduleUnsupportedReason,false):item.scheduleReason;
+  if(reason&&item.probeMode!=="off"&&item.state!=="certified")
+    parts.push(`${item.schedulePaused?"probing paused":"not probing now"}: ${reason}`);
   if(!parts.length)return null;
   return <div className="u3-muted">{parts.join(" · ")}</div>;
 }

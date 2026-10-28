@@ -323,3 +323,22 @@ test("a paused schedule says why, as plain state, and probing turned off does no
   expect(off).toContain("scheduled probing: off");
   expect(off).not.toContain("not probing now");
 });
+
+test("cross-repository schedule uses a label and maps unsupported copy in the muted line", () => {
+  const reading = consentRunner("granted");
+  const runner = { ...reading.runners[0], probeMode: "auto" as const,
+    scheduleRepo: "team/project", schedulePaused: false,
+    scheduleReason: null as string | null,
+    scheduleUnsupportedReason: "Project-level native control overrides need an exact-environment canary" as string | null };
+  const render = (row: typeof runner) => renderToString(<DispatcherEnforcementRows reading={{ ...reading, runners: [row] }}
+    canProbe={false} probing={null} onProbe={()=>{}} onConsent={()=>{}}/>);
+  const html = render(runner);
+  expect(html).toMatch(/<div class="u3-muted">scheduled probing certifies team\/project ·/);
+  expect(html).toContain("not probing now: Verification is not available for this executor yet");
+  expect(html).not.toContain("Project-level native control overrides");
+  expect(html).not.toContain("exact-environment canary");
+  const paused = render({ ...runner, scheduleUnsupportedReason: null,
+    scheduleReason: "the last probe cost 12% of the account window", schedulePaused: true });
+  expect(paused).toMatch(/<div class="u3-muted">scheduled probing certifies team\/project ·[^<]*probing paused: the last probe cost/);
+  expect(paused).not.toContain('role="alert"');
+});
