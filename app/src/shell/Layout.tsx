@@ -70,8 +70,10 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
   const hasLeft = !narrow && wide && SETTINGS.has(route.name) && !state.sessionEnded;
   // A task's screen fills the Sessions list on the left and its session details on the right.
   const taskPanels = !narrow && wide && route.name === "sessions" && !!route.id && !!context && !state.sessionEnded;
-  const [tasksOpen, setTasksOpen] = usePanelState("tasks", true);
-  const [detailsOpen, setDetailsOpen] = usePanelState("session-details", true);
+  // Both panels start open only where the session keeps room beside them; a saved choice always wins.
+  const roomy = typeof matchMedia === "function" && matchMedia("(min-width: 1100px)").matches;
+  const [tasksOpen, setTasksOpen] = usePanelState("tasks", roomy);
+  const [detailsOpen, setDetailsOpen] = usePanelState("session-details", roomy);
   const [actionSlot, setActionSlot] = useState<HTMLElement | null>(null);
   const [titleSlot, setTitleSlot] = useState<HTMLElement | null>(null), [leftSlot, setLeftSlot] = useState<HTMLElement | null>(null);
   const [rightSlot, setRightSlot] = useState<HTMLElement | null>(null), [heading, setHeading] = useState<FrameHeading | null>(null);

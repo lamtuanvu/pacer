@@ -60,7 +60,7 @@ export function Conversation({
       "start",
   );
   const uploads = useAttachments(api, context.data?.draftId ?? "", () => {});
-  const narrowTitle = useMedia("(width < 560px)");
+  const narrowTitle = useMedia("(width < 1000px)");
   const active = ["queued", "running"].includes(task.state);
   useEffect(() => {
     if (!take) return;

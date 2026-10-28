@@ -230,7 +230,7 @@ browserTest("takeover_starts_from_the_page_and_ended_sessions_offer_none", async
 }), 30_000);
 
 browserTest("ended_conversation_title_bar_does_not_cover_the_search", async () => withBrowser(async browser => {
-  for (const width of [1440, 1100, 768, 375]) {
+  for (const width of [1440, 1100, 900, 768, 375]) {
     const page = await openSession(browser, "conversation", { width, height: 900 });
     await page.getByRole("button", { name: "End session" }).click();
     await page.getByRole("dialog").getByRole("button", { name: "End session" }).click();
@@ -384,4 +384,14 @@ browserTest("sessions navigator matches board geometry and retains panel focus",
     await panel.waitFor();
     await page.close();
   }
+}), 30_000);
+
+browserTest("narrow_desktop_starts_with_the_side_panels_closed", async () => withBrowser(async browser => {
+  const page = await openSession(browser, "conversation", { width: 900, height: 900 });
+  // First visit below 1100px: the session keeps the room; the toggles still open both panels.
+  expect(await page.locator("aside").count()).toBe(0);
+  expect((await page.locator(".pc-task-workspace__main").boundingBox())!.width).toBeGreaterThan(450);
+  await page.getByRole("button", { name: "Toggle details panel" }).click();
+  await page.getByRole("complementary", { name: "Session details" }).waitFor();
+  await page.close();
 }), 30_000);
