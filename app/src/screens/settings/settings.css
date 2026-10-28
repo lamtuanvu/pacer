@@ -12,6 +12,7 @@
 .u3-setting{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr);gap:var(--space-5);padding:0 0 var(--space-3);border-bottom:1px solid var(--line)}
 .u3-setting>div:first-child{display:flex;flex-direction:column;gap:var(--space-1)}
 .u3-setting:last-child{border-bottom:0}.u3-setting>div{min-width:0}
+.u3-setting>.u3-setting-consent{grid-column:1/-1}
 .u3-table-wrap{overflow:auto;border:1px solid var(--line);border-radius:var(--radius-md)}
 .u3-settings table{width:100%;border-collapse:collapse;text-align:left}.u3-settings th{font-size:var(--type-caption-size);font-weight:var(--type-label-weight);background:var(--surface-card);color:var(--ink-secondary)}
 .u3-settings td,.u3-settings th{padding:var(--space-2) var(--space-3);border-bottom:1px solid var(--line);vertical-align:middle}.u3-settings tr:last-child td{border:0}
@@ -53,6 +54,7 @@
 .u3-settings:not(.pc-page){width:100%;max-width:var(--size-960);margin:0 auto;padding:var(--space-6);box-sizing:border-box}
 .u3-settings-page .u3-section:first-child{margin-top:0;border-top:0;padding-top:0}
 .u3-settings-page .u3-setting>div:last-child{max-width:var(--size-520)}
+.u3-settings-page .u3-setting>div.u3-setting-consent:last-child{max-width:var(--size-680)}
 .u3-settings-page .u3-agent:has(select){max-width:var(--size-360)}
 .u3-settings-page .u3-agent select{flex:1;min-width:0}
 .u3-settings p.u3-settings-note{border-top:1px solid var(--line);padding-top:var(--space-3);margin-top:var(--space-6);color:var(--ink-secondary);font-size:var(--type-caption-size)}

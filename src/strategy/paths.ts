@@ -4,7 +4,7 @@ const leaves=(keys:readonly string[]):Schema=>Object.fromEntries(keys.map(k=>[k,
 const provider:Schema={...leaves(["via","model","usage","allow_paid","cooldown","quota_source"]),budget:leaves(["weekly_tokens"])};
 const schema:Schema={
   planner:null, providers:{"*":provider}, dispatch:null,
-  pacing:leaves(["policy","order","planner_reserve","ahead_threshold","behind_threshold"]),
+  pacing:leaves(["policy","order","planner_reserve","planner_reserve_headroom","planner_probe","ahead_threshold","behind_threshold"]),
   routing:null, execution:leaves(["backend","worktree","base_branch"]),
   classifier:{...leaves(["default","shadow","shadow_external","timeout_ms","log_state"]),
     decisions:Object.fromEntries(DECISIONS.map(k=>[k,leaves(["use","min_confidence","verify_kind","max_for_cheap"])])),
