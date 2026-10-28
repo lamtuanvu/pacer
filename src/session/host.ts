@@ -105,8 +105,8 @@ async function sessionHostAdmitted(dir:string):Promise<number> {
       resize:(cols,rows)=>{
         proc.terminal?.resize(cols,rows);
         try{recording.resize(cols,rows);}catch{disableRecording();}
-        send(wire(FrameType.resize,{cols,rows}));
         try{atomic('session.state',JSON.stringify({viewers:hub!.size,controller:hub!.controller,cols,rows}));}catch{/* optional metadata */}
+        send(wire(FrameType.resize,{cols,rows}));
       },
     });
   try{atomic('session.state',JSON.stringify({viewers:0,controller:null,cols:120,rows:40}));}catch{/* optional live metadata */}
