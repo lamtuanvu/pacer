@@ -26,9 +26,10 @@ export function latestJob(event:Job|undefined,polled:Job|undefined):Job|undefine
 }
 export const SettingsPageContext = createContext<string | null>(null);
 
-export function Section({id,title,detail,actions,children}:{id:string;title:string;detail?:string;actions?:ComponentChildren;children:ComponentChildren}) {
+export function Section({id,title,detail,actions,children,step}:{id:string;title:string;detail?:string;actions?:ComponentChildren;children:ComponentChildren;step?:number}) {
  useSettingsStyles();
  const page = useContext(SettingsPageContext) === id;
+ if (step !== undefined) return <section aria-label={title} id={id} className="pc-settings-step"><span className="pc-settings-step__number" aria-hidden="true">{step}</span><div className="pc-settings-step__body"><div className="pc-settings-step__heading"><h2>{title}</h2>{detail && <p>{detail}</p>}{actions}</div>{children}</div></section>;
  return <section aria-label={title} id={id} className="u3-section">{(!page || detail || actions) && <div className="u3-heading"><div>{!page && <SectionHeading>{title}</SectionHeading>}{detail&&<p>{detail}</p>}</div><div className="u3-actions">{actions}</div></div>}{children}</section>;
 }
 export function resourceRevision(op: string, invalidations: Record<string, number>): string {
