@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import fixture from "./fixtures/ui/snapshot.json";
-import { buildMenu, matchItem, parseQuery, snapshotItems, type MenuItem } from "../app/src/model/command-search";
+import { buildMenu, matchItem, parseQuery, scopesFor, snapshotItems, type MenuItem } from "../app/src/model/command-search";
 import type { Command } from "../app/src/keys/commands";
 
 const snapshot = fixture as any;
@@ -125,4 +125,59 @@ test("recent does not list a picked command a second time", () => {
   expect(all.filter(title => title === "New task").length).toBe(1);
   // New task is listed once, under Recent; Suggested keeps only the waiting item.
   expect(result.groups.find(group => group.title === "Suggested")!.items.map(item => item.id)).toEqual(["attention:" + snapshot.attention.find((item: any) => item.kind === "review").id]);
+});
+
+const answer = (extra: Partial<any> = {}): any => ({ query: "ssh", results: [], truncated: false, repos: [{ key: "github.com/acme/api", state: "ok" }], ...extra });
+const file = (path: string, extra: Partial<any> = {}) => ({ repo: "github.com/acme/api", repoLabel: "acme/api", path, ranges: [[4, 7]], ...extra });
+const withFiles = (query: string, files: any, scope: any = "all") => buildMenu({ query, scope, snapshot, commands, recent: [], now: NOW, files });
+
+test("files search results become a Files group with their ranges, repo and running-task chip", () => {
+  const found = answer({ results: [file("src/ssh/keepalive.ts", { changedBy: [{ task: "t-0420", title: "Add SSH keepalive" }] }), file("docs/ssh.md", { ranges: [[5, 8]] })] });
+  const result = withFiles("ssh", { status: "ready", result: found });
+  const group = result.groups.find(entry => entry.title === "Files")!;
+  expect(group.items.map(item => item.title)).toEqual(["src/ssh/keepalive.ts", "docs/ssh.md"]);
+  expect(group.items[0]).toMatchObject({ scope: "files", ranges: [[4, 7]], sub: "acme/api · changed by “Add SSH keepalive”", pill: { label: "Running task", tone: "info" }, target: { name: "sessions", id: "t-0420" } });
+  // A file no running task changed has no route; picking it copies its repo-relative path.
+  expect(group.items[1]).toMatchObject({ sub: "acme/api", pill: undefined, target: undefined, copy: "docs/ssh.md" });
+  expect(group.items[0]!.copy).toBeUndefined();
+  expect(result.counts.files).toBe(2);
+  expect(result.counts.all).toBe(result.counts.tasks + result.counts.agents + result.counts.files + result.counts.commands);
+  // Files sit between Machines and Do something, and the Files tab lists only them.
+  const order = withFiles("a", { status: "ready", result: answer({ results: [file("a.ts")] }) }).groups.map(entry => entry.title);
+  expect(order.indexOf("Files")).toBeGreaterThan(order.indexOf("Tasks"));
+  expect(withFiles("ssh", { status: "ready", result: found }, "files").groups.map(entry => entry.title)).toEqual(["Files"]);
+});
+
+test("files still loading are announced and are not 'no results'", () => {
+  const loading = withFiles("xyzzy", { status: "loading" });
+  expect(loading.empty).toBe(false);
+  expect(loading.notice).toBe("Searching files…");
+  // The Files tab stays selected while it waits, even with nothing to show.
+  expect(withFiles("xyzzy", { status: "loading" }, "files").scope).toBe("files");
+  // With other matches on screen the notice still shows, and nothing is hidden.
+  expect(withFiles("fix", { status: "loading" }).groups.map(group => group.title)).toContain("Tasks");
+  expect(withFiles("xyzzy", { status: "ready", result: answer() }).empty).toBe(true);
+});
+
+test("repositories that could not be searched, a cut-short list and an error are explained in plain words", () => {
+  const found = answer({ results: [file("a.ts")], truncated: true, repos: [{ key: "github.com/acme/api", state: "ok" }, { key: "github.com/acme/web", state: "too_large" }, { key: "github.com/lamtuanvu/pacer", state: "timeout" }, { key: "x/y", state: "error" }, { key: "q/r", state: "skipped" }] });
+  const notice = withFiles("a", { status: "ready", result: found }).notice!;
+  expect(notice).toContain("acme/web has too many files to search");
+  expect(notice).toContain("pacer took too long to read");
+  expect(notice).toContain("x/y could not be read");
+  expect(notice).toContain("q/r was skipped");
+  expect(notice).toContain("Showing the first matches");
+  expect(withFiles("a", { status: "ready", result: answer({ results: [file("a.ts")] }) }).notice).toBeUndefined();
+  expect(withFiles("a", { status: "error" }).notice).toBe("Files could not be searched just now.");
+  expect(JSON.stringify(notice)).not.toMatch(/too_large|timeout"/);
+});
+
+test("without the operation there are no files, in any mode, and the Files tab is not offered", () => {
+  const off = withFiles("a", { status: "off" });
+  expect(off.counts.files).toBe(0);
+  expect(off.notice).toBeUndefined();
+  expect(scopesFor(false).map(scope => scope.id)).toEqual(["all", "tasks", "agents", "commands"]);
+  expect(scopesFor(true).map(scope => scope.id)).toEqual(["all", "tasks", "agents", "files", "commands"]);
+  // Commands mode never lists files.
+  expect(buildMenu({ query: ">a", scope: "all", snapshot, commands, recent: [], now: NOW, files: { status: "ready", result: answer({ results: [file("a.ts")] }) } }).groups.map(group => group.title)).not.toContain("Files");
 });

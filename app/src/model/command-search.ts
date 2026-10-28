@@ -1,3 +1,4 @@
+import type { FilesSearchResult, RepoScanState } from "../../../src/core/files-search";
 import type { ClientSnapshot } from "../../../src/view-model/snapshot";
 import { agentInfo } from "../../../src/view-model/agents";
 import { ago, elapsed } from "../../../src/view-model/time";
@@ -10,9 +11,10 @@ import { routes, type RouteTarget } from "../router";
 /** `?` asks the assistant. Hidden until the assistant exists (Slice 10), so typing it searches for a question mark. */
 export const ASK_ENABLED = false;
 
-/** Machines belong to Agents: both are the things that run work. Files wait for snapshot data that names files (UI-13). */
-export type MenuScope = "all" | "tasks" | "agents" | "commands";
-export const SCOPES: { id: MenuScope; label: string }[] = [{ id: "all", label: "All" }, { id: "tasks", label: "Tasks" }, { id: "agents", label: "Agents" }, { id: "commands", label: "Commands" }];
+/** Machines belong to Agents: both are the things that run work. Files come from the files.search operation and are listed only where the service has it (UI-13). */
+export type MenuScope = "all" | "tasks" | "agents" | "files" | "commands";
+export const SCOPES: { id: MenuScope; label: string }[] = [{ id: "all", label: "All" }, { id: "tasks", label: "Tasks" }, { id: "agents", label: "Agents" }, { id: "files", label: "Files" }, { id: "commands", label: "Commands" }];
+export const scopesFor = (filesAvailable: boolean) => filesAvailable ? SCOPES : SCOPES.filter(scope => scope.id !== "files");
 
 export type MenuMode = "recent" | "search" | "commands" | "ask";
 export interface ParsedQuery { mode: MenuMode; text: string }
@@ -34,6 +36,8 @@ export interface MenuItem {
   /** Extra words matched but not shown. */
   hidden?: string;
   target?: RouteTarget; command?: Command;
+  /** Picking the item copies this text (the repo-relative path of a file no running task changed). */
+  copy?: string;
   /** The title with matched text marked, as [start, end) offsets. */
   ranges?: [number, number][];
 }
@@ -75,6 +79,32 @@ export function snapshotItems(snapshot: ClientSnapshot | null, now: number): Men
     });
   }
   return items;
+}
+
+/** The state of the files.search read for the current query. `off` means the service has no such operation. */
+export type FilesState = { status: "off" } | { status: "loading" } | { status: "error" } | { status: "ready"; result: FilesSearchResult };
+
+const REPO_STATE_WORDS: Record<Exclude<RepoScanState, "ok">, string> = {
+  too_large: "has too many files to search", timeout: "took too long to read", error: "could not be read", skipped: "was skipped (the search covers a limited number of repositories)",
+};
+/** Matched file paths, already ranked by the service (files changed by a running task first). Their ranges index the path. */
+export function fileItems(result: FilesSearchResult): MenuItem[] {
+  return result.results.map(file => {
+    const by = file.changedBy?.[0];
+    return {
+      id: `file:${file.repo}\u0000${file.path}`, scope: "files", group: "Files", title: file.path, ranges: file.ranges, icon: "files",
+      sub: [file.repoLabel, by ? (by.title ? `changed by “${by.title}”` : "changed by a running task") : ""].filter(Boolean).join(" · "),
+      pill: by ? { label: "Running task", tone: "info" } : undefined,
+      target: by ? routes.task(by.task) : undefined, copy: by ? undefined : file.path,
+    };
+  });
+}
+/** Why some of the repositories were not searched, in plain words, and whether the list was cut short. */
+export function filesNotice(result: FilesSearchResult, repoLabel: (key: string) => string): string | undefined {
+  const parts: string[] = [];
+  for (const repo of result.repos) if (repo.state !== "ok") parts.push(`${repoLabel(repo.key)} ${REPO_STATE_WORDS[repo.state]}`);
+  if (result.truncated) parts.push("Showing the first matches; add more letters to narrow them");
+  return parts.length ? parts.join(". ") + "." : undefined;
 }
 
 export function commandItems(commands: Command[]): MenuItem[] {
@@ -122,8 +152,8 @@ const rankAndMark = (items: MenuItem[], text: string): MenuItem[] => items
   .flatMap((item, order) => { const hit = matchItem(item, text); return hit ? [{ item: { ...item, ranges: hit.ranges }, rank: hit.rank, order }] : []; })
   .sort((a, b) => a.rank - b.rank || a.order - b.order).map(entry => entry.item);
 
-const GROUP_TITLES: Record<Exclude<MenuScope, "all">, string> = { tasks: "Tasks", agents: "Agents", commands: "Do something" };
-const SEARCH_GROUP_ORDER = ["Tasks", "Agents", "Machines", "Do something"];
+const GROUP_TITLES: Record<Exclude<MenuScope, "all">, string> = { tasks: "Tasks", agents: "Agents", files: "Files", commands: "Do something" };
+const SEARCH_GROUP_ORDER = ["Tasks", "Agents", "Machines", "Files", "Do something"];
 const PER_GROUP = 8;
 /** Command groups in the order the board shows them; unknown groups follow. */
 const COMMAND_GROUPS = ["Dispatcher", "Go to", "Suggested", "View", "Help"];
@@ -142,6 +172,8 @@ export interface MenuResult {
   scope: MenuScope;
   /** Footer wording for Enter. */
   enterHint: string;
+  /** A plain-words line under the list: files still being searched, repositories that could not be, or a cut-short list. */
+  notice?: string;
   /** Footer wording for ⌘↵, present only where it does something. */
   modEnterHint?: string;
   /** The ⌘↵ action is announced but not built yet. */
@@ -149,12 +181,12 @@ export interface MenuResult {
 }
 /** ⌘↵ will open a task beside the current one once a right panel exists; until then it is announced and inert. */
 const OPEN_BESIDE = { modEnterHint: "open beside", modEnterSoon: true } as const;
-export interface MenuInput { query: string; scope: MenuScope; snapshot: ClientSnapshot | null; commands: Command[]; recent: string[]; now: number }
+export interface MenuInput { query: string; scope: MenuScope; snapshot: ClientSnapshot | null; commands: Command[]; recent: string[]; now: number; files?: FilesState }
 
-export function buildMenu({ query, scope, snapshot, commands, recent, now }: MenuInput): MenuResult {
+export function buildMenu({ query, scope, snapshot, commands, recent, now, files = { status: "off" } }: MenuInput): MenuResult {
   const { mode, text } = parseQuery(query);
   const everything = [...snapshotItems(snapshot, now), ...commandItems(commands)];
-  const zero = { all: 0, tasks: 0, agents: 0, commands: 0 };
+  const zero = { all: 0, tasks: 0, agents: 0, files: 0, commands: 0 };
   if (mode === "ask") return { mode, groups: [], counts: zero, empty: false, scope: "all", enterHint: "ask" };
   if (mode === "commands") {
     // Only the command groups: Suggested holds New task, which the recent screen offers.
@@ -173,19 +205,25 @@ export function buildMenu({ query, scope, snapshot, commands, recent, now }: Men
     const groups: MenuGroup[] = [...(recentItems.length ? [{ title: "Recent", items: recentItems }] : []), ...groupBy(offered, item => item.group ?? item.command!.group).sort(orderOf(RECENT_COMMAND_GROUPS))];
     return { mode, groups, counts: zero, empty: false, scope: "all", enterHint: "open", ...OPEN_BESIDE };
   }
-  const matched = rankAndMark(everything, text);
+  const matched = [...rankAndMark(everything, text), ...(files.status === "ready" ? fileItems(files.result) : [])];
   const counts = { ...zero, all: matched.length };
   for (const item of matched) counts[item.scope]++;
-  // A scope with nothing in it falls back to All, so the tab never hides matches that exist elsewhere.
-  const only = scope !== "all" && counts[scope] > 0 ? scope : "all";
+  const labels = new Map((snapshot?.repos ?? []).map(repo => [repo.key, repo.label]));
+  const filesLoading = files.status === "loading";
+  const notice = files.status === "ready" ? filesNotice(files.result, key => labels.get(key) ?? key)
+    : filesLoading ? "Searching files…" : files.status === "error" ? "Files could not be searched just now." : undefined;
+  // A scope with nothing in it falls back to All, so the tab never hides matches that exist elsewhere (the Files tab stays while files load).
+  const only = scope !== "all" && (counts[scope] > 0 || (scope === "files" && files.status !== "off")) ? scope : "all";
   const shown = only === "all" ? matched : matched.filter(item => item.scope === only);
   // Each group is capped while browsing All; a single scope lists everything it matched.
   const groups = groupBy(shown, item => item.group ?? GROUP_TITLES[item.scope], only === "all" ? PER_GROUP : shown.length).sort(orderOf(SEARCH_GROUP_ORDER));
-  if (shown.length) return { mode, groups, counts, empty: false, scope: only, enterHint: "open", ...OPEN_BESIDE };
+  if (shown.length) return { mode, groups, counts, empty: false, scope: only, notice, enterHint: "open", ...OPEN_BESIDE };
+  // Nothing yet but files are still being searched: not "no results" until they answer.
+  if (filesLoading) return { mode, groups: [], counts, empty: false, scope: only, notice, enterHint: "open", ...OPEN_BESIDE };
   const start = commands.find(command => command.id === "task.new");
   const instead: MenuItem[] = [
     ...(start ? [{ ...commandItems([start])[0]!, title: "New task", sub: `Describe “${text}” and pacer routes it` }] : []),
     { id: "action:tasks", scope: "tasks" as const, title: "Browse all tasks", icon: "tasks" as const, target: routes.tasks() },
   ];
-  return { mode, groups: [{ title: "Instead", items: instead }], counts, empty: true, scope: "all", enterHint: "open", ...OPEN_BESIDE };
+  return { mode, groups: [{ title: "Instead", items: instead }], counts, empty: true, scope: "all", notice, enterHint: "open", ...OPEN_BESIDE };
 }
