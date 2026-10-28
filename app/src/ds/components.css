@@ -438,3 +438,19 @@ a.pc-btn{text-decoration:none}
 .pc-identicon--32{width:var(--size-32);height:var(--size-32)}
 .pc-identicon--chart-1{fill:var(--chart-1)}.pc-identicon--chart-2{fill:var(--chart-2)}
 .pc-identicon--chart-3{fill:var(--chart-3)}.pc-identicon--chart-4{fill:var(--chart-4)}.pc-identicon--chart-5{fill:var(--chart-5)}
+/* SidePanel: a collapsible frame column; the shell positions it. */
+.pc-side-panel{display:flex;flex-direction:column;flex:0 0 var(--size-200);width:var(--size-200);min-width:0;background:var(--surface-card)}
+.pc-side-panel--left{border-right:1px solid var(--line)}
+.pc-side-panel--right{flex-basis:var(--size-320);width:var(--size-320);border-left:1px solid var(--line)}
+.pc-side-panel--closed{flex-basis:var(--size-40);width:var(--size-40);align-items:center;padding:var(--space-1) 0}
+.pc-side-panel__bar{display:flex;justify-content:flex-end;padding:var(--space-1)}
+.pc-side-panel--right .pc-side-panel__bar{justify-content:flex-start}
+.pc-side-panel__content{display:flex;flex-direction:column;gap:var(--space-1);min-height:0;overflow:auto;padding:0 var(--space-3) var(--space-4)}
+/* PanelTabs: compact tablist with a "+N" overflow menu. */
+.pc-panel-tabs{display:flex;align-items:center;gap:var(--space-1);min-width:0;border-bottom:1px solid var(--line)}
+.pc-panel-tabs__list{flex:1;min-width:0;overflow:hidden;border-bottom:0}
+.pc-panel-tabs__list .pc-btn{min-width:0}
+.pc-panel-tabs__label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pc-panel-tabs__more{position:relative;flex:none}
+.pc-panel-tabs__menu{position:absolute;top:calc(100% + var(--space-1));right:0;z-index:var(--layer-overlay);display:flex;flex-direction:column;min-width:var(--size-180);padding:var(--space-1);border:1px solid var(--line);border-radius:var(--radius-md);background:var(--surface-page);box-shadow:var(--shadow-popover)}
+.pc-panel-tabs__menu .pc-btn{justify-content:flex-start}

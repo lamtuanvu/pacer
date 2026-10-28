@@ -2445,6 +2445,194 @@ Params JSON Schema:
 }
 ```
 
+### `dispatch.explain`
+
+Explain, read-only, which executor a request would go to: the ladder step, the reasons, the fallbacks and the planner's cost. Starts, reserves and writes nothing.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "repo": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "goal": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 20000
+    },
+    "kind": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "executor": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "model": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "requirements": {
+      "default": {},
+      "type": "object",
+      "properties": {
+        "minTier": {
+          "type": "string",
+          "enum": [
+            "small",
+            "medium",
+            "frontier"
+          ]
+        },
+        "tools": {
+          "type": "boolean"
+        },
+        "context": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "additionalProperties": false
+    },
+    "preferences": {
+      "default": {
+        "models": [],
+        "strengths": []
+      },
+      "type": "object",
+      "properties": {
+        "models": {
+          "default": [],
+          "maxItems": 256,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        },
+        "strengths": {
+          "default": [],
+          "maxItems": 64,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        }
+      },
+      "required": [
+        "models",
+        "strengths"
+      ],
+      "additionalProperties": false
+    },
+    "delegationEnforcement": {
+      "type": "string",
+      "enum": [
+        "strict",
+        "cooperative"
+      ]
+    },
+    "difficulty": {
+      "type": "string",
+      "enum": [
+        "simple",
+        "standard",
+        "complex"
+      ]
+    },
+    "strategyDraft": {
+      "type": "object",
+      "properties": {
+        "from": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "set": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "maxLength": 256
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema0"
+          }
+        },
+        "unset": {
+          "maxItems": 256,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 256
+          }
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 1000
+        }
+      },
+      "required": [
+        "from"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "repo",
+    "goal",
+    "requirements",
+    "preferences"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "__schema0": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/__schema0"
+          }
+        },
+        {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema0"
+          }
+        }
+      ]
+    }
+  }
+}
+```
+
 ### `dispatch.learning.reset`
 
 Reset derived learning for a repository without deleting work history, and optionally exclude it.
