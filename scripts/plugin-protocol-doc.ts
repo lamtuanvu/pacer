@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import { bundleDefs } from "./schema-bundle";
-import { CANCEL_METHOD, CAPABILITIES, CAPABILITY_METHODS, EXTENSION_METHODS, EXTENSION_POINTS, HELLO_METHOD, PLUGIN_PROTOCOL_VERSION, PLUGIN_STATES, helloParams, helloResult, manifestSchema } from "../src/plugins/protocol";
+import { CANCEL_METHOD, CAPABILITIES, CAPABILITY_METHODS, EXTENSION_METHODS, EXTENSION_POINTS, HELLO_METHOD, DOC_LIMITS, NOTIFICATIONS, UI_ICONS, UI_LIMITS, UI_ROUTES, uiContributionSchema, viewNodeSchema, PLUGIN_PROTOCOL_VERSION, PLUGIN_STATES, helloParams, helloResult, manifestSchema } from "../src/plugins/protocol";
 
 const json = (s: z.ZodTypeAny) => JSON.stringify(z.toJSONSchema(s), null, 2);
 const section = (name: string, description: string, params: z.ZodTypeAny, result: z.ZodTypeAny, deadline?: number) => [
@@ -22,6 +22,13 @@ export function renderPluginProtocolDoc(): string {
     "`pacer-plugin.json` in the plugin folder. Installed plugins live under `$PACER_HOME/plugins/<id>/`; the folder name must equal `id`.", "",
     "```json", json(manifestSchema), "```", "",
     `Extension points: ${EXTENSION_POINTS.map(p => `\`${p}\``).join(", ")} (every plugin serves \`diagnostic\`). Capabilities: ${CAPABILITIES.map(c => `\`${c}\``).join(", ")}.`, "",
+    "## UI contributions", "",
+    "`contributes.ui` has a fixed schema. Plugins contribute data only: the host validates it and the app draws it with its own components. A plugin ships no CSS, JavaScript, HTML, images or URLs. A manifest with `contributes.ui` sets `host` to `>=1.2.0`, and a plugin with a settings page declares `config.get`.", "",
+    `Limits per plugin: ${Object.entries(UI_LIMITS).map(([k, n]) => `${n} ${k}`).join(", ")}. Icons (closed set): ${UI_ICONS.map(i => `\`${i}\``).join(", ")}. Routes a document may link to: ${UI_ROUTES.map(r => `\`${r}\``).join(", ")}.`, "",
+    "```json", json(uiContributionSchema), "```", "",
+    `A view document is a tree of typed nodes, at most ${DOC_LIMITS.bytes} bytes, ${DOC_LIMITS.nodes} nodes and depth ${DOC_LIMITS.depth}. Strings are text: the host normalizes them to NFC and strips control, zero-width and bidirectional-override characters. An invalid document replaces the whole surface with a host-drawn error. A status item's document is one \`status\`, \`text\` or \`button\` node of at most ${DOC_LIMITS.statusItemText} characters.`, "",
+    "```json", json(viewNodeSchema), "```", "",
+    `Plugin → host notifications (no reply): ${Object.entries(NOTIFICATIONS).map(([n, d]) => `\`${n}\` (extension point \`${d.point}\`)`).join(", ")}. The host coalesces \`ui.invalidate\` to one \`plugin\` event per plugin per second.`, "",
     "## Lifecycle", "",
     `States: ${PLUGIN_STATES.map(s => `\`${s}\``).join(", ")}. Bundled plugins are enabled unless listed in \`plugins.disabled\`; installed plugins need a recorded grant covering their capability set and drop back to \`needs_grant\` when a new version asks for more. A crash restarts the plugin after 1 s, doubling to 30 s; three crashes within a minute mark it \`failing\` until \`plugin.enable\` or a service restart. Calls to one plugin run one at a time unless the manifest sets \`reentrant\`. Service stop sends SIGTERM, then SIGKILL after 2 s.`, "",
     "## Errors", "",

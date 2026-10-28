@@ -412,6 +412,16 @@ refuses the planner and the last runner. Homes are retained unless
 terminal and are started only for newly created pacer-managed accounts unless
 `--no-login` is given.
 
+## Plugins
+
+`pacer plugin list|enable|disable|remove|doctor` manage plugins. A plugin that contributes UI (plugin protocol 1.2) is granted its surface kinds as well as its capabilities, and `enable` lists both.
+
+- `pacer plugin ui list [--json]` lists the activity items, panel tabs, settings pages and status items of enabled plugins.
+- `pacer plugin settings get <id>` prints a plugin's settings schema, values and revision as JSON.
+- `pacer plugin settings set <id> --values '<json object>' [--rev <n>]` validates the values against the schema from the plugin's manifest and saves them. A stale `--rev` fails with `conflict`.
+
+Settings are stored in `$PACER_HOME/plugin-settings.json` (mode 0600), not in the strategy file. The app's plugin pages use the same operations. Secrets are never values: a `secretRef` field holds the name of a secret reference.
+
 ## Pause and resume delegation
 
 Set `PACER=off` for a session (for example, `PACER=off claude`) to disable

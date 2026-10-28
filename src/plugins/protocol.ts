@@ -1,12 +1,15 @@
 import { z } from "zod";
-import { isVersion } from "../update/version";
+import { compareVersions, isVersion } from "../update/version";
+import { type UiContribution, uiActionParams, uiActionResult, uiContributionSchema, uiRenderParams, uiRenderResult, uiValidateParams, uiValidateResult } from "./ui-schema";
+
+export * from "./ui-schema";
 import { observationMethodSchema, observationScopeSchema, observationSchema, decisionRequestSchema, proposalSchema } from "../dispatch/types";
 
 /** Plugin protocol version; independent of the client protocol (P4 applies to both). */
-export const PLUGIN_PROTOCOL_VERSION = "1.1.0";
+export const PLUGIN_PROTOCOL_VERSION = "1.2.0";
 export const PLUGIN_PROTOCOL_MAJOR = 1;
 
-export const EXTENSION_POINTS = ["diagnostic", "agentSession", "observation", "decision"] as const;
+export const EXTENSION_POINTS = ["diagnostic", "agentSession", "observation", "decision", "ui"] as const;
 export type ExtensionPoint = (typeof EXTENSION_POINTS)[number];
 
 export const CAPABILITIES = ["tasks.read", "events.subscribe", "process.spawn", "fs.read", "net.http", "secrets.resolve", "config.get", "entitlement.report", "log"] as const;
@@ -25,7 +28,21 @@ export const manifestSchema = z.object({
   entry: z.string().min(1).optional(),
   reentrant: z.boolean().default(false),
   tier: z.enum(["free", "commercial"]).default("free"),
+}).superRefine((m, ctx) => {
+  const raw = m.contributes.ui;
+  if (raw === undefined) return;
+  const ui = uiContributionSchema.safeParse(raw);
+  if (!ui.success) { for (const i of ui.error.issues) ctx.addIssue({ code: "custom", path: ["contributes", "ui", ...i.path], message: i.message }); return; }
+  const floor = /^(?:>=|\^|~)?(\d+(?:\.\d+){0,2})$/.exec(m.host)?.[1];
+  const [a = "0", b = "0", c = "0"] = (floor ?? "0").split(".");
+  if (m.host === "*" || compareVersions(`${a}.${b}.${c}`, "1.2.0") < 0) ctx.addIssue({ code: "custom", path: ["host"], message: "a manifest with contributes.ui sets host to >=1.2.0" });
+  if (ui.data.settings.length && !m.capabilities.some(c => c.name === "config.get")) ctx.addIssue({ code: "custom", path: ["capabilities"], message: "a plugin with a settings page declares the config.get capability" });
 });
+/** The validated `contributes.ui`, with defaults, or null when the plugin contributes none. */
+export function uiOf(m: Pick<PluginManifest, "contributes">): UiContribution | null {
+  const raw = m.contributes.ui;
+  return raw === undefined ? null : uiContributionSchema.parse(raw);
+}
 export type PluginManifest = z.infer<typeof manifestSchema>;
 
 export const HELLO_METHOD = "plugin.hello";
@@ -66,6 +83,9 @@ export const EXTENSION_METHODS: Record<string, MethodDef> = {
   "agentSession.delegationControl": method({description: "Describe a candidate native subagent blocking path; the host must probe before certification.",params:agentVersion,result:delegationControlResult,deadlineMs:5000}),
   "agentSession.prepare": method({description: "Prepare an interactive argument vector without credentials or spawning.", params: agentPrepareParams, result: agentLaunchResult, deadlineMs: 5000}),
   "agentSession.attachment": method({description: "Prepare native attachment arguments or an explicit reference without submitting input.", params: agentAttachmentParams, result: agentAttachmentResult, deadlineMs: 5000}),
+  "ui.render": method({description:"Return the view document for one surface.",params:uiRenderParams,result:uiRenderResult,deadlineMs:2000}),
+  "ui.action": method({description:"Handle a user action on a surface; the host has already shown any confirmation.",params:uiActionParams,result:uiActionResult,deadlineMs:10000}),
+  "ui.settings.validate": method({description:"Check settings values the host already validated against the manifest schema.",params:uiValidateParams,result:uiValidateResult,deadlineMs:2000}),
   "diagnostic.ping": method({ description: "Liveness check used by plugin.doctor.", params: z.object({}), result: z.object({ ok: z.literal(true), uptimeS: z.number().nonnegative() }), deadlineMs: 5000 }),
 };
 

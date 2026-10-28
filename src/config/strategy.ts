@@ -38,7 +38,7 @@ export interface ProviderCfg {
 }
 export interface RouteRule { kinds: string[] | null; executors: string[] }
 
-export interface PluginGrant { version: string; capabilities: string[] }
+export interface PluginGrant { version: string; capabilities: string[]; /** UI surface kinds the user granted; absent in grants recorded before plugin protocol 1.2, which cover none. */ surfaces?: string[] }
 export interface PluginsCfg { disabled: string[]; installed: Record<string, PluginGrant>; config: Record<string, Record<string, unknown>> }
 export const EMPTY_PLUGINS: PluginsCfg = { disabled: [], installed: {}, config: {} };
 
@@ -60,7 +60,8 @@ export function parsePlugins(raw: unknown, p: string[]): PluginsCfg {
       if (!isObj(g)) { p.push(`plugins.installed.${id} must be a mapping`); continue; }
       if (typeof g.version !== "string" || !SEMVER.test(g.version)) p.push(`plugins.installed.${id}.version must be semver`);
       if (!Array.isArray(g.capabilities) || g.capabilities.some(c => typeof c !== "string")) p.push(`plugins.installed.${id}.capabilities must be a list of names`);
-      else installed[id] = { version: String(g.version), capabilities: g.capabilities.map(String) };
+      else if (g.surfaces !== undefined && (!Array.isArray(g.surfaces) || g.surfaces.some(c => typeof c !== "string"))) p.push(`plugins.installed.${id}.surfaces must be a list of names`);
+      else installed[id] = { version: String(g.version), capabilities: g.capabilities.map(String), ...(g.surfaces ? { surfaces: g.surfaces.map(String) } : {}) };
     }
   }
   const config: Record<string, Record<string, unknown>> = {};
