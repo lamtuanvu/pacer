@@ -648,5 +648,7 @@ a.pc-btn{text-decoration:none}
 @media(pointer:coarse){.pc-segmented--board .pc-btn{min-height:var(--control-touch)}}
 
 /* Budget rows preserve board geometry with its stronger label typography. */
+/* The settings panel takes 240px, so the two-column board rows need the stacked layout well above the phone breakpoint. */
+@media(max-width:1000px){.pc-setting-row--board{grid-template-columns:minmax(0,1fr);gap:var(--space-2)}}
 .pc-setting-row--budget{align-items:start}
 .pc-setting-row--budget .pc-setting-row__label{font-size:var(--size-14);line-height:var(--size-20);font-weight:var(--type-display-weight)}
