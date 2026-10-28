@@ -5,6 +5,8 @@ import type { TaskRecord } from "../tasks/types";
 import type { Ctx } from "../types";
 import { EXTRA_BACKENDS } from "./backends-extra";
 import { type AttemptOutcome, runAttempt } from "./direct";
+import { launchModeFor } from "./launch";
+import { validateExecution } from "../config/execution";
 
 export interface Backend {
   id: string;
@@ -27,7 +29,9 @@ const orcaPermissionFallback: Backend = {
 /** Managed account folders and connection credentials require direct execution. */
 export async function selectBackend(ctx: Ctx, s: Strategy, extras: Backend[] = EXTRA_BACKENDS, runnerId?: string): Promise<Backend> {
   const runner = runnerId ? resolveRunner(s, runnerId) : undefined;
-  if (runner?.session === "interactive") return directBackend;
+  // The same resolution as the attempt (runAttempt), including strict enforcement's headless rule.
+  if (runner && launchModeFor({id: runner.id, via: runner.agent === "opencode" ? "opencode" : null, session: runner.session}, validateExecution(s.execution),
+    {managed: ctx.env.PACER_ENFORCEMENT_MODE === "strict"}).mode === "interactive") return directBackend;
   const account = runner ? s.accounts[runner.account] : undefined;
   if (account?.source === "pacer" || account?.source === "orca" || account?.connection) {
     return {

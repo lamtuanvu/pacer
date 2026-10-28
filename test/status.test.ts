@@ -1,12 +1,13 @@
 import { withLoginIndicators } from "./helpers";
 import { expect, test } from "bun:test";
-import { chmodSync, mkdirSync, statSync } from "node:fs";
+import { chmodSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { validateStrategy } from "../src/config/strategy";
 import { binaryFor, computeStatus, displayName } from "../src/engine/status";
 import { claudeCachePaths } from "../src/usage/claude";
 import type { RunFn } from "../src/types";
-import { fakeCtx, localTs } from "./helpers";
+import { fakeCtx, localTs, tmpDir } from "./helpers";
+import { clearTerminalEnvCache, terminalEnv } from "../src/exec/login-env";
 
 const s = validateStrategy({
   planner: "claude-code",
@@ -82,6 +83,23 @@ test("PACER=off marks the status disabled; missing binaries are not installed", 
   expect(st.disabled).toBe(true);
   expect(st.providers.find((p) => p.id === "codex")?.installed).toBe(false);
   expect(st.executors.excluded).toContainEqual(expect.objectContaining({ id: "codex", account: "codex", reason: "not installed" }));
+});
+
+test("a binary only on the login shell's PATH counts as installed once that PATH is read; strict work keeps the service PATH", async () => {
+  const bin = tmpDir(), home = tmpDir();
+  writeFileSync(join(bin, "codex"), "#!/bin/sh\n");
+  chmodSync(join(bin, "codex"), 0o755);
+  const env = { SHELL: "/bin/sh", PATH: "/usr/bin:/bin", PACER_LOGIN_ENV: "on" };
+  const ctx = withLoginIndicators(fakeCtx({ now, run, home, env, which: (b) => (b === "codex" ? null : "/bin/" + b) }));
+  const installed = async (c: typeof ctx, servicePath?: boolean) => (await computeStatus(c, s, { profile: null, servicePath })).providers.find((p) => p.id === "codex")?.installed;
+  // Nothing read yet: the service PATH decides, and status does not wait on a shell.
+  expect(await installed(ctx)).toBe(false);
+  await terminalEnv(ctx.env, { cwd: ctx.home, run: async () => ({ code: 0, stdout: `__PACER_LOGIN_ENV__\nPATH=${bin}:/usr/bin:/bin\0`, stderr: "", timedOut: false }) });
+  expect(await installed(ctx)).toBe(true);
+  // Routing for strict work passes servicePath; PACER_ENFORCEMENT_MODE is only set later, for the attempt.
+  expect(await installed(ctx, true)).toBe(false);
+  expect(await installed({ ...ctx, env: { ...ctx.env, PACER_ENFORCEMENT_MODE: "strict" } })).toBe(true);
+  clearTerminalEnvCache();
 });
 
 test("displayName", () => {

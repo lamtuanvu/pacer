@@ -10,7 +10,8 @@ function setup(executors: Record<string, string>, strategy: string) {
   withLoginIndicators(fakeCtx({ home }));
   const pacerHome = join(home, ".pacer");
   mkdirSync(pacerHome, { recursive: true });
-  writeFileSync(join(pacerHome, "strategy.yaml"), strategy);
+  // These stubs model headless CLIs, so pin the launch mode rather than take the interactive default.
+  writeFileSync(join(pacerHome, "strategy.yaml"), `${strategy}execution:\n  launch_mode: headless\n`);
   const bin = join(home, "bin");
   mkdirSync(bin);
   // Direct-backend fixtures must not read the host Orca account budgets.

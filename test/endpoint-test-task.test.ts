@@ -21,6 +21,8 @@ test("test task uses launch helpers in a disposable git repo and records Ready",
     repo = spec.cwd; expect(existsSync(join(repo, ".git"))).toBe(true);
     expect(repo.startsWith(ctx.pacerHome)).toBe(true);
     expect(spec.argv).toContain("pacer-api/m");
+    // The default interactive launch mode does not apply to test tasks.
+    expect(spec.argv.slice(0, 2)).toEqual(["opencode", "run"]);
     expect(spec.argv.at(-1)).toBe("Create a file named hello.txt containing exactly: ok");
     expect(spec.timeoutMs).toBe(120000); expect(spec.env.PACER_KEY_API).toBe(ctx.env.TEST_ENDPOINT_KEY);
     expect(spec.logFile).toBeUndefined();

@@ -6,6 +6,7 @@ import type { Status } from "../src/engine/status";
 import { ruleFor } from "../src/engine/rank";
 import { runTask, type RunnerDeps } from "../src/tasks/runner";
 import { createTask, readTask } from "../src/tasks/store";
+import { registerWork } from "../src/dispatch/work";
 import { fakeCtx } from "./helpers";
 
 const strategy = validateStrategy({
@@ -104,4 +105,16 @@ test("a configuration change during refresh is rechecked before dispatch", async
   deps.runAttempt = async () => { launched = true; throw Error("must not launch"); };
   await runTask(ctx, task.id, deps);
   expect(launched).toBe(false);
+});
+test("routing for strict work checks installed binaries on the service PATH; other work uses the login PATH", async () => {
+  for (const strict of [true, false]) {
+    const { ctx, task, deps } = setup();
+    if (strict) registerWork(ctx, task.id);
+    // PACER_ENFORCEMENT_MODE is only set for the attempt, not while routing.
+    expect(ctx.env.PACER_ENFORCEMENT_MODE).toBeUndefined();
+    const compute = deps.computeStatus, seen: (boolean | undefined)[] = [];
+    deps.computeStatus = (c, s, opts) => { seen.push(opts?.servicePath); return compute(c, s, opts); };
+    await runTask(ctx, task.id, deps).catch(() => undefined);
+    expect(seen[0]).toBe(strict);
+  }
 });

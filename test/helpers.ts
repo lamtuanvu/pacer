@@ -80,3 +80,11 @@ export async function installLegacyPlugin(ctx: Ctx): Promise<string> {
   writeFileSync(join(root, "panel", "live.html"), "<p>panel</p>");
   return root;
 }
+
+/** A stand-in login shell: a profile that prints noise, exports, then runs pacer's fixed command. */
+export function fakeLoginShell(dir: string, profile: string): string {
+  const shell = join(dir, "login-shell");
+  writeFileSync(shell, `#!/bin/sh\necho "profile says hello"\n${profile}\n[ "$1 $2 $3" = "-l -i -c" ] || exit 64\neval "$4"\n`);
+  chmodSync(shell, 0o755);
+  return shell;
+}

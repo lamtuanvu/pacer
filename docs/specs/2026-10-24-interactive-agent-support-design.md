@@ -31,7 +31,7 @@ Keep the native interactive CLI with the workspace and private attachment direct
 
 ### Claude Code
 
-Launch interactive Claude in the selected workspace and named-account environment, with the chosen model and explicit private-directory access. Assign a UUID for a new conversation through its native session-ID option and persist it before process launch. Resume with the native resume option and that UUID; do not pass a new-session flag or replay the initial prompt. Preserve native permission prompts.
+Launch interactive Claude in the selected workspace and named-account environment, with the chosen model and explicit private-directory access. Assign a UUID for a new conversation through its native session-ID option and persist it before process launch. Resume with the native resume option and that UUID; do not pass a new-session flag or replay the initial prompt. Preserve native permission prompts. *(Superseded 2026-10-28 for unattended delegated tasks, which answer folder trust, external imports, the bypass acknowledgement and project MCP approval: see [ADR interactive default launch](../decisions/2026-10-28-interactive-default-launch.md). Conversations keep the native MCP prompt.)*
 
 Initial files and images use explicit readable path references unless a supported native attachment mechanism is demonstrated. Do not treat Claude's remote file-ID download option as a local attachment option. Keep truthful per-agent attachment capability reporting.
 

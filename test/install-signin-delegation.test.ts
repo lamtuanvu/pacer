@@ -36,7 +36,7 @@ async function sandbox() {
   symlinkSync(join(root, "test/fixtures/bin/fake-agent"), join(bin, "codex"));
   // Never inspect a host Orca installation or use its budgets/service manager.
   for (const name of ["orca", "launchctl", "systemctl"]) writeFileSync(join(bin, name), "#!/bin/sh\nexit 127\n", { mode: 0o755 });
-  writeFileSync(join(pacerHome, "strategy.yaml"), "planner: claude-code\nproviders: {claude-code: {}, codex: {usage: reactive}}\nexecution: {backend: direct}\n");
+  writeFileSync(join(pacerHome, "strategy.yaml"), "planner: claude-code\nproviders: {claude-code: {}, codex: {usage: reactive}}\nexecution: {backend: direct, launch_mode: headless}\n");
 
   async function run(argv: string[]) {
     const proc = Bun.spawn(argv, { env, cwd: repo, stdout: "pipe", stderr: "pipe" });

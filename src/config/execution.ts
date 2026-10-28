@@ -2,6 +2,8 @@ import { isObj } from "../util";
 
 export const EXEC_BACKENDS = ["auto", "orca", "direct"] as const;
 export const WORKTREE_MODES = ["child-of-current", "new-child", "current"] as const;
+export const LAUNCH_MODES = ["interactive", "headless"] as const;
+export type LaunchMode = (typeof LAUNCH_MODES)[number];
 export const IDLE_AFTER_S = 600;
 export const IDLE_FAIL_S = 1800;
 export type ExecBackend = (typeof EXEC_BACKENDS)[number];
@@ -9,6 +11,7 @@ export type WorktreeMode = (typeof WORKTREE_MODES)[number];
 
 export interface ExecutionCfg {
   localMaxTasks?: number;
+  launchMode?: LaunchMode;
   session?: "pty" | "pipe";
   sessionLogMb?: number;
   sessionRetentionDays?: number;
@@ -22,7 +25,7 @@ export interface ExecutionCfg {
 
 export const DEFAULT_EXECUTION: ExecutionCfg = { localMaxTasks: 2, backend: "auto", worktree: "child-of-current", baseBranch: null };
 
-const KEYS = ["local_max_tasks", "session", "session_log_mb", "session_retention_days", "backend", "worktree", "base_branch", "registerRepos", "register_repos", "idle_after_min", "idle_fail_min"];
+const KEYS = ["local_max_tasks", "launch_mode", "session", "session_log_mb", "session_retention_days", "backend", "worktree", "base_branch", "registerRepos", "register_repos", "idle_after_min", "idle_fail_min"];
 
 export class ExecutionError extends Error {
   constructor(readonly problems: string[]) {
@@ -71,6 +74,7 @@ export function validateExecution(raw: unknown): ExecutionCfg {
   };
   const idleAfter = mins("idle_after_min"), idleFail = mins("idle_fail_min");
   if ((idleFail ?? IDLE_FAIL_S / 60) <= (idleAfter ?? IDLE_AFTER_S / 60)) p.push("execution.idle_fail_min must be greater than execution.idle_after_min");
+  if (raw.launch_mode !== undefined && !(LAUNCH_MODES as readonly unknown[]).includes(raw.launch_mode)) p.push("execution.launch_mode must be interactive or headless");
   if (raw.session !== undefined && raw.session !== "pty" && raw.session !== "pipe") p.push("execution.session must be pipe or pty");
   for (const [key, max] of [["session_log_mb", 256], ["session_retention_days", 3650]] as const) {
     const v = raw[key];
@@ -78,6 +82,7 @@ export function validateExecution(raw: unknown): ExecutionCfg {
   }
   if (p.length) throw new ExecutionError(p);
   return {
+    ...(raw.launch_mode !== undefined ? {launchMode: raw.launch_mode as LaunchMode} : {}),
     ...(raw.session !== undefined ? {session: raw.session as "pty" | "pipe"} : {}),
     ...(raw.session_log_mb !== undefined ? {sessionLogMb: raw.session_log_mb as number} : {}),
     ...(raw.session_retention_days !== undefined ? {sessionRetentionDays: raw.session_retention_days as number} : {}),
