@@ -85,6 +85,7 @@ function importJson(ctx: Ctx, entry: Connection): void {
         WHERE excluded.rev > tasks.rev OR (excluded.rev = tasks.rev AND
           (tasks.json_mtime IS NULL OR excluded.json_mtime > tasks.json_mtime))`)
         .run(...values(task, activityAt(task)), mtime);
+      if (task.settledAt !== undefined) db.query("INSERT OR IGNORE INTO task_first_settle(task_id,at) VALUES(?,?)").run(task.id, task.settledAt);
     }
   }).immediate();
   // Keep the pre-scan stamp: an atomic write during the scan is seen next time.
