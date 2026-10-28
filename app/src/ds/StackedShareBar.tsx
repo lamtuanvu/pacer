@@ -5,8 +5,8 @@ import { AgentMark } from "./AgentMark";
 const GAP = 0.6;
 
 /**
- * Shares of one whole as a stacked bar on the calm chart series, with a text legend in the same order.
- * The bar is one image named in words, and the legend states every name and percentage, so no share is colour alone.
+ * Shares of one whole as a stacked bar on the calm chart series, with a legend table in the same order.
+ * The bar is one image named in words, and the table states every name, task count, token count and percentage, so no share is colour alone.
  */
 export function StackedShareBar({ label, segments }: { label: string; segments: ShareSegment[] }) {
   const shown = segments.filter(segment => segment.share > 0);
@@ -21,14 +21,17 @@ export function StackedShareBar({ label, segments }: { label: string; segments: 
         return <rect key={segment.id} className={`pc-share-bar__seg pc-share-bar__seg--${segment.series}`} x={at} y={0} width={width} height={4} />;
       })}
     </svg>
-    <ul className="pc-share-bar__legend" aria-label={`${label} by agent`}>
-      {segments.map(segment => <li key={segment.id} className="pc-share-bar__item">
-        <span className={`pc-share-bar__swatch pc-share-bar__seg--${segment.series}`} aria-hidden="true" />
-        {segment.agent && <AgentMark agent={segment.agent} size={18} labelled={false} />}
-        <span className="pc-share-bar__name" title={segment.label}>{segment.label}</span>
-        <span className="pc-share-bar__detail">{segment.detail}</span>
-        <span className="pc-share-bar__share">{segment.share}%</span>
-      </li>)}
-    </ul>
+    <table className="pc-share-bar__legend" aria-label={`${label} by agent`}>
+      <thead><tr><th scope="col">Agent</th><th scope="col">Tasks</th><th scope="col">Tokens</th><th scope="col">Share</th></tr></thead>
+      <tbody>{segments.map(segment => <tr key={segment.id}>
+        <th scope="row"><span className="pc-share-bar__agent">
+          <span className={`pc-share-bar__swatch pc-share-bar__seg--${segment.series}`} aria-hidden="true" />
+          {segment.agent && <AgentMark agent={segment.agent} size={18} labelled={false} />}
+          <span className="pc-share-bar__name" title={segment.label}>{segment.label}</span>
+          {segment.role && <span className="pc-share-bar__role">{segment.role}</span>}
+        </span></th>
+        <td>{segment.tasks}</td><td className="pc-share-bar__tokens">{segment.tokens}</td><td className="pc-share-bar__share">{segment.share}%</td>
+      </tr>)}</tbody>
+    </table>
   </div>;
 }

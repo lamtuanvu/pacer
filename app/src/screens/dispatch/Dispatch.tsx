@@ -2,7 +2,7 @@ import type { ComponentChildren } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { AttentionItem } from "../../../../src/api/read-model/types";
 import { agentInfo, markAgent } from "../../../../src/view-model/agents";
-import { glanceTiles, needsYouCards, tokenSpread, type NeedsYouCard, type TokenReport } from "../../../../src/view-model/dispatch";
+import { kpiTiles, needsYouCards, periodHeading, periodRange, PERIODS, tokenSpread, type InsightsSummary, type NeedsYouCard, type Period } from "../../../../src/view-model/dispatch";
 import { executorPace } from "../../../../src/view-model/capacity";
 import { eligibilityPresentation } from "../../../../src/view-model/eligibility";
 import { capacity, counts, needsYou, otherReposNeedingYou, plannerMeter, type Scope } from "../../../../src/view-model/selectors";
@@ -13,9 +13,10 @@ import { attentionStatus, executorLabel, paceStatus } from "../../../../src/view
 import { useActions } from "../../data/action-context";
 import type { ActionRunner } from "../../data/actions";
 import { AgentMark } from "../../ds/AgentMark";
-import { TextAction } from "../../ds/Button";
+import { Button, TextAction } from "../../ds/Button";
+import { Kbd } from "../../ds/Kbd";
 import { Page } from "../../ds/Page";
-import { EmptyState, ListRow, ListRowLink } from "../../ds/Patterns";
+import { EmptyState, ListRow, ListRowLink, LoadingState, SegmentedControl } from "../../ds/Patterns";
 import { SectionHeading } from "../../ds/SectionHeading";
 import { StackedShareBar } from "../../ds/StackedShareBar";
 import { StatusGlyph } from "../../ds/StatusGlyph";
@@ -26,6 +27,7 @@ import { keys } from "../../keys/instance";
 import { overviewHints } from "../../keys/registry";
 import type { Routing } from "../../model/home";
 import { withQuery, type RouteQuery } from "../../router";
+import { useDelegate } from "../../shell/delegate";
 import { activeRepo, NarrowContext, useNarrow } from "../../shell/narrow";
 import { ActionButton } from "../ActionButton";
 import { useOverviewPage } from "../overview-page";
@@ -164,54 +166,76 @@ function AgentUsage({ snapshot, query }: { snapshot: ClientSnapshot; query: Rout
   </section>;
 }
 
-/** Facts pacer measured today; token figures join once token accounting reports them. Nothing is shown as a placeholder. */
-function Glance({ snapshot, scope, tokens }: { snapshot: ClientSnapshot; scope: Scope; tokens: TokenReport | null }) {
-  const tiles = glanceTiles(snapshot, scope, tokens);
-  if (!tiles.length) return null;
+/** `insights.summary` for the period (which carries the period before it) and for today. */
+export interface InsightsState { supported: boolean; loading: boolean; error?: unknown; current?: InsightsSummary; today?: InsightsSummary }
+
+/** The at-a-glance strip. Figures come only from `insights.summary`; without it the strip says why, never a zero or a dash. */
+function Glance({ period, insights }: { period: Period; insights: InsightsState }) {
+  const tiles = insights.current ? kpiTiles(insights.current, period, { today: insights.today ?? null }) : [];
+  const heading = periodHeading(period);
   return <section className="pc-card-section" aria-labelledby="glance">
-    <div className="pc-card-section__head"><SectionHeading id="glance">Today at a glance</SectionHeading></div>
-    <dl className="pc-glance">{tiles.map(tile => <div key={tile.id} className="pc-glance__tile">
-      <dt className="muted">{tile.label}</dt><dd className="pc-stat__n">{tile.value}</dd>{tile.detail && <dd className="muted">{tile.detail}</dd>}
+    <div className="pc-card-section__head"><SectionHeading id="glance">{heading}</SectionHeading></div>
+    {tiles.length ? <dl className="pc-glance">{tiles.map(tile => <div key={tile.id} className="pc-glance__tile">
+      <dt className="pc-glance__label">{tile.label}</dt><dd className="pc-stat__n">{tile.value}</dd>
+      {(tile.delta || tile.note) && <dd className="muted">{tile.delta && <span className={`pc-glance__delta pc-glance__delta--${tile.delta.tone}`}>{tile.delta.text}</span>}{tile.delta && tile.note ? " " : ""}{tile.note}</dd>}
     </div>)}</dl>
+      : <div className="pc-card-section__body">{!insights.supported ? <span className="muted">These figures need a newer pacer service with task insights.</span>
+        : insights.loading ? <LoadingState label="Loading figures…" />
+        : <span className="muted">Could not load these figures. They are checked again on the next update.</span>}</div>}
   </section>;
 }
 
-function TokenShare({ tokens }: { tokens: TokenReport | null }) {
-  const spread = tokenSpread(tokens);
+/** Where the tokens went, as a share bar and table by agent. Hidden until token accounting measures something. */
+function TokenShare({ summary }: { summary?: InsightsSummary }) {
+  const spread = tokenSpread(summary);
   if (!spread) return null;
-  return <section className="pc-card-section" aria-labelledby="token-share">
+  return <section className="pc-card-section pc-dispatch-spread" aria-labelledby="token-share">
     <div className="pc-card-section__head"><SectionHeading id="token-share">Where the tokens went</SectionHeading></div>
     <div className="pc-card-section__body pc-dispatch-budget"><span className="muted">{spread.caption}</span><StackedShareBar label="Token share" segments={spread.segments} /></div>
   </section>;
 }
 
+/** Repo filter, period and the primary New task action. New task opens the Delegate dialog until the New task composer lands. */
+function DispatchHeader({ snapshot, query, narrow, period, onPeriod }: { snapshot: ClientSnapshot; query: RouteQuery; narrow: boolean; period: Period; onPeriod?: (period: Period) => void }) {
+  const delegate = useDelegate();
+  return <div className="pc-dispatch__header">
+    <RepoFilter snapshot={snapshot} query={query} narrow={narrow} />
+    <span className="grow" />
+    {onPeriod && <SegmentedControl label="Period" value={period} options={PERIODS} onChange={value => onPeriod(value as Period)} />}
+    {delegate && <Button variant="primary" onClick={delegate} aria-keyshortcuts="d">New task <Kbd>D</Kbd></Button>}
+  </div>;
+}
+
 export interface DispatchProps {
   snapshot: ClientSnapshot; query: RouteQuery; now: number; runner: ActionRunner;
   /** The routing preview for new work; null when the service cannot preview routing. */
-  routing?: RoutingPreview | null; tokens?: TokenReport | null; startWork?: ComponentChildren;
+  routing?: RoutingPreview | null;
+  period?: Period; onPeriod?: (period: Period) => void;
+  insights?: InsightsState; startWork?: ComponentChildren;
 }
 const dispatchScope = (query: RouteQuery, narrow: boolean): Scope => ({ repo: narrow ? activeRepo(query) : query.repo || null });
-/** The Dispatch home: start work, what needs you, live work, then the planner budget, routing and today's figures. */
-export function DispatchView({ snapshot, query, now, runner, routing = null, tokens = null, startWork }: DispatchProps) {
+const NO_INSIGHTS: InsightsState = { supported: false, loading: false };
+/** The Dispatch home in the board's order: planner budget and next task, the period's figures, tokens and Needs you, then live work. Phones lead with Needs you and live work. */
+export function DispatchView({ snapshot, query, now, runner, routing = null, period = "7d", onPeriod, insights = NO_INSIGHTS, startWork }: DispatchProps) {
   const narrow = useNarrow(query);
   const scope = dispatchScope(query, narrow);
+  const budget = <PlannerBudget snapshot={snapshot} now={now} />, next = routing && <NextTask routing={routing} query={query} />;
+  const glance = <Glance period={period} insights={insights} />, share = <TokenShare summary={insights.current} />;
+  const needs = <NeedsYouList snapshot={snapshot} scope={scope} runner={runner} now={now} query={query} narrow={narrow} />;
+  const liveWork = <LiveDispatch snapshot={snapshot} scope={scope} now={now} runner={runner} query={query} />;
   return <NarrowContext.Provider value={narrow}><Page width="full" className={`pc-dispatch${narrow ? " pc-dispatch--narrow" : ""}`}>
     <SetupBanner />
-    <RepoFilter snapshot={snapshot} query={query} narrow={narrow} />
-    <div className="pc-dispatch__cols">
-      <div className="pc-dispatch__main">
-        {startWork}
-        <NeedsYouList snapshot={snapshot} scope={scope} runner={runner} now={now} query={query} narrow={narrow} />
-        <LiveDispatch snapshot={snapshot} scope={scope} now={now} runner={runner} query={query} />
-      </div>
-      <div className="pc-dispatch__side">
-        <PlannerBudget snapshot={snapshot} now={now} />
-        {routing && <NextTask routing={routing} query={query} />}
-        {narrow && <AgentUsage snapshot={snapshot} query={query} />}
-        <Glance snapshot={snapshot} scope={scope} tokens={tokens} />
-        <TokenShare tokens={tokens} />
-      </div>
-    </div>
+    <DispatchHeader snapshot={snapshot} query={query} narrow={narrow} period={period} onPeriod={onPeriod} />
+    {narrow ? <>
+      {/* Phones lead with what needs action; the figures and budgets follow. */}
+      {needs}{liveWork}{budget}{next}<AgentUsage snapshot={snapshot} query={query} />{glance}{share}
+    </> : <>
+      <div className="pc-dispatch__pair">{budget}{next}</div>
+      {glance}
+      <div className="pc-dispatch__pair pc-dispatch__pair--wide">{share}{needs}</div>
+      {liveWork}
+    </>}
+    {startWork}
   </Page></NarrowContext.Provider>;
 }
 
@@ -239,15 +263,30 @@ function useAttentionKeys(query: RouteQuery) {
   }, [runner, state.features.ops]);
 }
 
+/** Two `insights.summary` reads: the period and today. The op arrives with attempt token accounting; without it the strip says so. */
+function useInsights(period: Period, repo: string | null): InsightsState {
+  const { state } = useTaskContext();
+  const supported = state.features.ops.has("insights.summary");
+  // Minute resolution, so the range does not change on every render.
+  const range = periodRange(period, Math.floor(Date.now() / 60000) * 60);
+  const params = (r: { from: number; to: number }) => supported ? { from: r.from, to: r.to, bucket: "day", ...(repo ? { repo } : {}) } : {};
+  const op = supported ? "insights.summary" : "version.get";
+  const current = useQuery<InsightsSummary>(op, params(range)), today = useQuery<InsightsSummary>(op, params(range.today));
+  if (!supported) return NO_INSIGHTS;
+  return { supported, loading: current.loading, error: current.error, current: current.data, today: today.data };
+}
+
 export function DispatchHome({ query }: { query: RouteQuery }) {
   const { state } = useTaskContext();
   const runner = useActions();
   useAttentionKeys(query);
+  const [period, setPeriod] = useState<Period>("7d");
   const supported = state.features.ops.has("routing.route"), scope = dispatchScope(query, useNarrow(query));
   const routing = useQuery<Routing>(supported ? "routing.route" : "version.get", supported && scope.repo ? { repo: scope.repo } : {});
+  const insights = useInsights(period, scope.repo);
   if (!state.snapshot) return null;
-  // Token figures arrive with `insights.summary` (attempt token accounting); until then they stay hidden, never zero.
-  return <DispatchView snapshot={state.snapshot} query={query} now={Date.now() / 1000} runner={runner} routing={supported ? routing : null} tokens={null} startWork={<StartWork />} />;
+  return <DispatchView snapshot={state.snapshot} query={query} now={Date.now() / 1000} runner={runner} routing={supported ? routing : null}
+    period={period} onPeriod={setPeriod} insights={insights} startWork={<StartWork />} />;
 }
 
 export function NeedsYouPage({ query }: { query: RouteQuery }) {

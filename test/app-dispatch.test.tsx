@@ -2,9 +2,10 @@ import { expect, test } from "bun:test";
 import { renderToString } from "preact-render-to-string";
 import fixture from "./fixtures/ui/snapshot.json";
 import type { ClientSnapshot } from "../src/view-model/snapshot";
-import type { TokenReport } from "../src/view-model/dispatch";
+import type { InsightsSummary } from "../src/view-model/dispatch";
+import { DelegateContext } from "../app/src/shell/delegate";
 import { createActionRunner } from "../app/src/data/actions";
-import { DispatchView, type RoutingPreview } from "../app/src/screens/dispatch/Dispatch";
+import { DispatchView, type InsightsState, type RoutingPreview } from "../app/src/screens/dispatch/Dispatch";
 import { RepoFilter, repoChoices } from "../app/src/screens/RepoFilter";
 
 const snap = fixture as unknown as ClientSnapshot;
@@ -15,53 +16,76 @@ const routing: RoutingPreview = { loading: false, data: { ranked: [
   { id: "cursor", verdict: "ok", reason: "ok", eligibility: eligible },
   { id: "claude-code", verdict: "ok", reason: "ok", eligibility: eligible },
 ], excluded: [{ id: "local", reason: "down" }] } };
-const tokens: TokenReport = { coverage: "measured", total: 1_840_000, measuredAttempts: 6, partialAttempts: 0, unknownAttempts: 0,
-  byExecutor: [{ executor: "codex", tokens: 980_000, tasks: 4 }, { executor: "claude-code", tokens: 520_000, tasks: 6 }, { executor: "agy", tokens: 340_000, tasks: 2 }] };
-const view = (repo: string | null = null, s: ClientSnapshot = snap, extra: { routing?: RoutingPreview | null; tokens?: TokenReport | null } = {}) =>
-  renderToString(<DispatchView snapshot={s} query={{ repo, scope: null }} now={snap.at} runner={runner} routing={extra.routing === undefined ? routing : extra.routing} tokens={extra.tokens ?? null} startWork={<p>start work composer</p>} />);
+const summary = (handled = 42): InsightsSummary => ({ rootTasksHandled: handled, acceptedFirstTry: 31, reviewedRoots: 40, acceptedFirstTryRate: 31 / 40, retryAttempts: 6,
+  tokens: { total: 1_840_000, measuredAttempts: 6, partialAttempts: 0, unknownAttempts: 0, attempts: 6, lowerBound: false },
+  spread: [{ agent: "codex", total: 980_000, tasks: 4 }, { agent: "claude-code", total: 520_000, tasks: 6 }, { agent: "agy", total: 340_000, tasks: 2 }],
+  planner: { coverage: "unknown" }, ranOutsidePlanner: null, previous: { rootTasksHandled: handled - 8 } });
+const measured: InsightsState = { supported: true, loading: false, current: summary(), today: summary(9) };
+const view = (repo: string | null = null, s: ClientSnapshot = snap, extra: { routing?: RoutingPreview | null; insights?: InsightsState; delegate?: () => void } = {}) =>
+  renderToString(<DelegateContext.Provider value={extra.delegate ?? null}><DispatchView snapshot={s} query={{ repo, scope: null }} now={snap.at} runner={runner} routing={extra.routing === undefined ? routing : extra.routing} insights={extra.insights} onPeriod={() => {}} startWork={<p>start work composer</p>} /></DelegateContext.Provider>);
 const order = (html: string, words: string[]) => words.map(w => html.indexOf(w));
 const section = (html: string, id: string) => { const at = html.indexOf(`aria-labelledby="${id}"`); return at < 0 ? "" : html.slice(html.indexOf(">", at) + 1, html.indexOf("</section>", at)); };
 const strip = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
 
-test("work fills the main column; planner budget, routing and today's figures sit beside it", () => {
-  const html = view();
-  const main = html.indexOf("pc-dispatch__main"), side = html.indexOf("pc-dispatch__side");
-  const left = order(html, ["start work composer", ">Needs you<", ">Live dispatch<"]);
-  expect(left.every(i => i > main && i < side)).toBe(true);
-  expect([...left].sort((a, b) => a - b)).toEqual(left);
-  const right = order(html, [">Planner budget<", ">Next task goes to<", ">Today at a glance<"]);
-  expect(right.every(i => i > side)).toBe(true);
-  expect([...right].sort((a, b) => a - b)).toEqual(right);
+test("regions follow the board: header, planner and next task, the period's figures, tokens and Needs you, then live work", () => {
+  const html = view(null, snap, { insights: measured, delegate: () => {} });
+  const at = order(html, ['aria-label="Period"', ">New task", ">Planner budget<", ">Next task goes to<", ">This week at a glance<", ">Where the tokens went<", ">Needs you<", ">Live dispatch<", "start work composer"]);
+  expect(at.every(i => i >= 0)).toBe(true);
+  expect([...at].sort((a, b) => a - b)).toEqual(at);
   // The page title is the top bar's; sections use the DS heading only (UI-9).
   expect(html).not.toContain("<h1");
 });
 
-test("glance_strip_shows_measured_counts_and_hides_unknown_data", () => {
-  const html = section(view(), "glance");
-  expect(strip(html)).toBe("Today at a glance Tasks finished 7 1 failed Accepted 86% 6 of 7 reviewed");
-  // No daily summary and no token reading: the strip and the token share are not rendered at all, never "0" or "—".
-  const unknown = { ...snap } as ClientSnapshot;
-  delete (unknown as { today?: unknown }).today;
-  const none = view(null, unknown, { tokens: { ...tokens, coverage: "unknown", total: null } });
-  expect(none).not.toContain('aria-labelledby="glance"');
-  expect(none).not.toContain('aria-labelledby="token-share"');
-  expect(none).not.toContain("Tokens spent");
-  const side = none.slice(none.indexOf("pc-dispatch__side"));
-  // No element states a bare zero or a dash as if it were measured.
-  expect(side).not.toMatch(/>\s*(0|0%|—|0 tokens)\s*</);
-  expect(strip(side)).not.toMatch(/tokens/i);
+test("period switch offers Today, 7 days and 30 days with 7 days selected", () => {
+  const html = view();
+  const group = html.slice(html.indexOf(">", html.indexOf('aria-label="Period"')) + 1, html.indexOf("</div>", html.indexOf('aria-label="Period"')));
+  expect(strip(group)).toBe("Today 7 days 30 days");
+  expect(group).toMatch(/aria-pressed="true"[^>]*>7 days</);
+  expect(group.match(/aria-pressed="true"/g)).toHaveLength(1);
+  expect(strip(section(view(null, snap, { insights: measured }).replace("pc-dispatch", ""), "glance"))).toContain("This week at a glance");
 });
 
-test("token figures and their share appear only with a reading", () => {
-  const hidden = view();
-  expect(hidden).not.toContain("Tokens spent");
-  expect(hidden).not.toContain("pc-share-bar");
-  const html = view(null, snap, { tokens });
-  expect(strip(section(html, "glance"))).toContain("Tokens spent 1.8M 6 attempts measured");
-  const share = section(html, "token-share");
+test("New task is the primary action and opens the Delegate dialog until the composer lands", () => {
+  const html = view(null, snap, { delegate: () => {} });
+  expect(html).toMatch(/<button aria-keyshortcuts="d" type="button" class="[^"]*pc-btn--primary[^"]*">New task <kbd class="pc-kbd">D<\/kbd>/);
+  // No quick-delegate box: the board has none.
+  expect(html).not.toContain("Quick delegate");
+  expect(view()).not.toContain(">New task");
+});
+
+test("kpi_strip_shows_the_week_from_insights", () => {
+  expect(strip(section(view(null, snap, { insights: measured }), "glance"))).toBe(
+    "This week at a glance Root tasks handled 42 +8 vs last week · 9 today Tokens spent 1.8M 43.8k per root task Accepted first try 78% 31 of 40 reviewed · 6 retries");
+});
+
+test("kpi_strip_without_insights_says_why_and_never_invents_numbers", () => {
+  const states: [InsightsState | undefined, string][] = [
+    [undefined, "This week at a glance These figures need a newer pacer service with task insights."],
+    [{ supported: true, loading: true }, "This week at a glance Loading figures…"],
+    [{ supported: true, loading: false, error: new Error("boom") }, "This week at a glance Could not load these figures. They are checked again on the next update."],
+  ];
+  for (const [insights, words] of states) {
+    const html = view(null, snap, { insights });
+    expect(strip(section(html, "glance"))).toBe(words);
+    expect(html).not.toContain('aria-labelledby="token-share"');
+    expect(section(html, "glance")).not.toMatch(/>\s*(0|0%|—)\s*</);
+  }
+  // A summary with no measured tokens shows the root count only, and no token share.
+  const unmeasured = { ...summary(0), acceptedFirstTry: 0, reviewedRoots: 0, acceptedFirstTryRate: null, previous: null,
+    tokens: { total: 0, measuredAttempts: 0, partialAttempts: 0, unknownAttempts: 2, attempts: 2, lowerBound: true } };
+  const html = view(null, snap, { insights: { supported: true, loading: false, current: unmeasured } });
+  expect(strip(section(html, "glance"))).toBe("This week at a glance Root tasks handled 0");
+  expect(html).not.toContain("Tokens spent");
+  expect(html).not.toContain("pc-share-bar");
+});
+
+test("token share appears only with a reading, as a table by agent", () => {
+  expect(view()).not.toContain("pc-share-bar");
+  const share = section(view(null, snap, { insights: measured }), "token-share");
   expect(share).toContain('role="img"');
   expect(share).toContain('aria-label="Token share: Codex 53%, Claude Code 28%, Antigravity 19%"');
-  expect(strip(share)).toContain("Codex 980k tokens · 4 tasks 53%");
+  expect(strip(share)).toContain("1.8M tokens on 42 root tasks");
+  expect(strip(share)).toContain("Agent Tasks Tokens Share Codex executor 4 980k 53%");
 });
 
 test("needs you cards are task tree nodes, most urgent first, with the service's words and actions", () => {
@@ -153,7 +177,7 @@ test("repo chips show counts, pressed state and the shared-budget note", () => {
   expect(html).toContain("Budgets are shared across repos; the filter only narrows work.");
 });
 
-test("a repo scope filters Needs you, Live dispatch and today's figures", () => {
+test("a repo scope filters Needs you and Live dispatch", () => {
   const html = view("github.com/acme/api");
   expect(html).toContain("Retry budget refresh on 429");
   expect(html).not.toContain("Add dark mode to the web header");
@@ -161,7 +185,6 @@ test("a repo scope filters Needs you, Live dispatch and today's figures", () => 
   expect(html).not.toContain("Split the settings page into sections");
   expect(html).toContain("+1 in other repos");
   expect(html).toContain('href="#/?repo="');
-  expect(strip(section(html, "glance"))).toContain("Tasks finished 3");
 });
 
 test("empty states say what to do next", () => {

@@ -1,78 +1,89 @@
 import { expect, test } from "bun:test";
 import fixture from "./fixtures/ui/snapshot.json";
-import { glanceTiles, needsYouCards, tokenSpread, type TokenReport } from "../src/view-model/dispatch";
+import { kpiTiles, needsYouCards, periodHeading, periodRange, tokenSpread, type InsightsSummary } from "../src/view-model/dispatch";
 import type { ClientSnapshot } from "../src/view-model/snapshot";
 
 const now = 1800000000;
 const all = { repo: null };
 const snapshot = () => structuredClone(fixture) as unknown as ClientSnapshot;
-const report = (over: Partial<TokenReport> = {}): TokenReport => ({
-  coverage: "measured", total: 1_840_000, measuredAttempts: 6, partialAttempts: 0, unknownAttempts: 0,
-  byExecutor: [{ executor: "codex", tokens: 980_000, tasks: 4 }, { executor: "claude-code", tokens: 520_000, tasks: 6 }, { executor: "opencode#byteplus", tokens: 340_000, tasks: 2 }],
+type Tokens = InsightsSummary["tokens"];
+const summary = (tokens: Partial<Tokens> = {}, over: Partial<InsightsSummary> = {}): InsightsSummary => ({
+  rootTasksHandled: 42, acceptedFirstTry: 31, reviewedRoots: 40, acceptedFirstTryRate: 31 / 40, retryAttempts: 6,
+  tokens: { total: 1_840_000, measuredAttempts: 6, partialAttempts: 0, unknownAttempts: 0, attempts: 6, lowerBound: false, ...tokens },
+  spread: [{ agent: "codex", total: 980_000, tasks: 4 }, { agent: "claude-code", total: 520_000, tasks: 6 }, { agent: "opencode#byteplus", total: 340_000, tasks: 2 }],
+  planner: { coverage: "unknown" }, ranOutsidePlanner: null, previous: { rootTasksHandled: 34 },
   ...over,
 });
-const texts = (tiles: ReturnType<typeof glanceTiles>) => tiles.flatMap(tile => [tile.value, tile.detail ?? ""]);
+const texts = (tiles: ReturnType<typeof kpiTiles>) => tiles.flatMap(tile => [tile.value, tile.delta?.text ?? "", tile.note ?? ""]).join(" ");
+const unknownTokens = { total: 0, measuredAttempts: 0, partialAttempts: 0, unknownAttempts: 3, attempts: 3, lowerBound: true };
 
-test("glance_shows_measured_counts_for_today", () => {
-  const tiles = glanceTiles(snapshot(), all);
-  expect(tiles.map(t => t.id)).toEqual(["finished", "accepted"]);
-  expect(tiles[0]).toEqual({ id: "finished", label: "Tasks finished", value: "7", detail: "1 failed" });
-  expect(tiles[1]).toEqual({ id: "accepted", label: "Accepted", value: "86%", detail: "6 of 7 reviewed" });
+test("kpi_strip_states_the_week's_root_tasks_tokens_and_first-try_acceptance", () => {
+  const tiles = kpiTiles(summary(), "7d", { today: summary({}, { rootTasksHandled: 9 }) });
+  expect(tiles.map(t => t.id)).toEqual(["handled", "tokens", "accepted"]);
+  expect(tiles[0]).toEqual({ id: "handled", label: "Root tasks handled", value: "42", delta: { text: "+8", tone: "good" }, note: "vs last week · 9 today" });
+  expect(tiles[1]).toEqual({ id: "tokens", label: "Tokens spent", value: "1.8M", delta: { text: "43.8k", tone: "neutral" }, note: "per root task" });
+  expect(tiles[2]).toEqual({ id: "accepted", label: "Accepted first try", value: "78%", delta: { text: "31 of 40", tone: "neutral" }, note: "reviewed · 6 retries" });
+  expect(periodHeading("7d")).toBe("This week at a glance");
 });
 
-test("glance_unknown_data_shows_nothing_not_zero", () => {
-  // An older service sends no daily summary and token accounting has not shipped: no tile, no "0", no "—".
-  const snap = snapshot();
-  delete (snap as { today?: unknown }).today;
-  for (const tokens of [undefined, null, report({ coverage: "unknown", total: null }), report({ coverage: "unknown", total: 0 }), report({ coverage: "measured", total: null })]) {
-    const tiles = glanceTiles(snap, all, tokens);
-    expect(tiles).toEqual([]);
+test("kpi_strip_ran_outside_planner_only_with_planner_attribution", () => {
+  // Today's service reports planner coverage unknown and ranOutsidePlanner null.
+  expect(kpiTiles(summary(), "7d").some(t => t.id === "outside")).toBe(false);
+  expect(kpiTiles(summary({}, { ranOutsidePlanner: 0.81 }), "7d").some(t => t.id === "outside")).toBe(false);
+  const tiles = kpiTiles(summary({}, { planner: { coverage: "partial" }, ranOutsidePlanner: 0.81 }), "7d");
+  expect(tiles.find(t => t.id === "outside")).toEqual({ id: "outside", label: "Ran outside planner", value: "81%", delta: { text: "1.5M", tone: "neutral" }, note: "tokens on 3 executors" });
+});
+
+test("kpi_strip_unknown_data_shows_no_zero_or_dash", () => {
+  // Nothing measured and nothing reviewed: only the root count, with no invented token figure, rate or change.
+  for (const tokens of [unknownTokens, { ...unknownTokens, total: 5, unknownAttempts: 1 }]) {
+    const tiles = kpiTiles(summary(tokens, { rootTasksHandled: 0, acceptedFirstTry: 0, reviewedRoots: 0, acceptedFirstTryRate: null, retryAttempts: 0, previous: null }), "7d");
+    expect(tiles.map(t => t.id)).toEqual(["handled"]);
+    expect(tiles[0]).toEqual({ id: "handled", label: "Root tasks handled", value: "0" });
+    expect(texts(tiles)).not.toMatch(/—|0%|tokens/);
   }
-  // Nothing reviewed yet: there is no accept rate to state.
-  const quiet = snapshot();
-  quiet.today = { ...quiet.today!, accepted: 0, rejected: 0, failed: 0 };
-  const tiles = glanceTiles(quiet, all, null);
-  expect(tiles.map(t => t.id)).toEqual(["finished"]);
-  expect(texts(tiles).join(" ")).not.toMatch(/(^|\s)(0%|—)/);
-  expect(tiles[0]!.detail).toBeUndefined();
+  // A lower bound is shown as one, never as an exact figure.
+  const partial = kpiTiles(summary({ lowerBound: true, partialAttempts: 1 }), "today").find(t => t.id === "tokens")!;
+  expect(partial.value).toBe("≥ 1.8M");
+  expect(partial.delta!.text).toBe("≥ 43.8k");
+  // Today has no "N today" note, and a drop is stated without a good tone.
+  expect(kpiTiles(summary({}, { previous: { rootTasksHandled: 50 } }), "today", { today: summary() })[0]).toMatchObject({ delta: { text: "−8", tone: "neutral" }, note: "vs the hours before" });
 });
 
-test("glance_tokens_only_with_a_reading_and_partial_is_a_lower_bound", () => {
-  expect(glanceTiles(snapshot(), all, report()).find(t => t.id === "tokens")).toEqual({ id: "tokens", label: "Tokens spent", value: "1.8M", detail: "6 attempts measured" });
-  const partial = glanceTiles(snapshot(), all, report({ coverage: "partial", measuredAttempts: 2, partialAttempts: 1, unknownAttempts: 1 })).find(t => t.id === "tokens");
-  expect(partial).toEqual({ id: "tokens", label: "Tokens spent", value: "≥ 1.8M", detail: "2 of 4 attempts measured" });
-});
-
-test("glance_repo_scope_uses_that_repo's_rows", () => {
-  const tiles = glanceTiles(snapshot(), { repo: "github.com/acme/api" });
-  expect(tiles[0]!.value).toBe("3");
+test("period_ranges_cover_today_and_rolling_windows", () => {
+  const r = periodRange("7d", now);
+  expect([r.from, r.to]).toEqual([now - 7 * 86400, now]);
+  expect(periodRange("30d", now).from).toBe(now - 30 * 86400);
+  const t = periodRange("today", now);
+  expect(t.from).toBe(t.today.from);
+  expect(new Date(t.from * 1000).getHours()).toBe(0);
 });
 
 test("token_spread_hidden_without_a_reading", () => {
   expect(tokenSpread(undefined)).toBeNull();
   expect(tokenSpread(null)).toBeNull();
-  expect(tokenSpread(report({ coverage: "unknown", total: null }))).toBeNull();
-  expect(tokenSpread(report({ byExecutor: [] }))).toBeNull();
-  expect(tokenSpread(report({ byExecutor: [{ executor: "codex", tokens: 0, tasks: 1 }] }))).toBeNull();
+  expect(tokenSpread(summary(unknownTokens))).toBeNull();
+  expect(tokenSpread(summary({}, { spread: [] }))).toBeNull();
+  expect(tokenSpread(summary({}, { spread: [{ agent: "codex", total: 0, tasks: 1 }] }))).toBeNull();
 });
 
 test("token_spread_shares_add_to_100_on_chart_series", () => {
-  const spread = tokenSpread(report())!;
+  const spread = tokenSpread(summary())!;
   expect(spread.partial).toBe(false);
-  expect(spread.caption).toBe("1.8M tokens");
+  expect(spread.caption).toBe("1.8M tokens on 42 root tasks");
   expect(spread.segments.map(s => [s.label, s.share, s.series])).toEqual([["Codex", 53, 1], ["Claude Code", 28, 2], ["BytePlus", 19, 3]]);
   expect(spread.segments.reduce((n, s) => n + s.share, 0)).toBe(100);
-  expect(spread.segments[0]!.detail).toBe("980k tokens · 4 tasks");
-  const partial = tokenSpread(report({ coverage: "partial" }))!;
+  expect(spread.segments[0]).toMatchObject({ tasks: 4, tokens: "980k", role: "executor" });
+  const partial = tokenSpread(summary({ lowerBound: true, partialAttempts: 1 }))!;
   expect(partial.partial).toBe(true);
-  expect(partial.caption).toBe("At least 1.8M tokens · some attempts were not measured");
+  expect(partial.caption).toBe("At least 1.8M tokens on 42 root tasks · some attempts were not measured");
+  expect(tokenSpread(summary({}, { planner: { coverage: "measured" }, ranOutsidePlanner: 0.84 }))!.caption).toBe("1.8M tokens on 42 root tasks · 84% ran outside the planner");
 });
 
 test("token_spread_groups_beyond_five_series", () => {
-  const byExecutor = ["codex", "claude-code", "cursor", "agy", "local", "opencode#a", "opencode#b"].map((executor, i) => ({ executor, tokens: 700 - i * 100, tasks: 1 }));
-  const spread = tokenSpread(report({ total: 2800, byExecutor }))!;
+  const spread = tokenSpread(summary({ total: 2800 }, { spread: ["codex", "claude-code", "cursor", "agy", "local", "opencode#a", "opencode#b"].map((agent, i) => ({ agent, total: 700 - i * 100, tasks: 1 })) }))!;
   expect(spread.segments).toHaveLength(5);
-  expect(spread.segments.at(-1)).toMatchObject({ id: "other", label: "Other agents", series: 5, detail: "600 tokens · 3 tasks" });
+  expect(spread.segments.at(-1)).toMatchObject({ id: "other", label: "Other agents", series: 5, tasks: 3, tokens: "600" });
   expect(spread.segments.at(-1)!.agent).toBeUndefined();
 });
 

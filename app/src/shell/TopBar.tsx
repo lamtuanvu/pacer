@@ -13,11 +13,13 @@ import { UsageMeter } from "../ds/UsageMeter";
 export interface TopBarProps {
   narrow?: boolean; title: string; planner: PlannerMeter | null; mode: string; connected: boolean; lastUpdate: number | null;
   showActions?: boolean; now?: number; onDelegate: () => void; delegatePrimary?: boolean;
+  /** False where the page has its own New task button, so the action is offered once. */
+  delegate?: boolean;
   /** False where the page itself states the planner figure (Dispatch), so the narrow meter is not repeated (UI-15). */
   plannerFigure?: boolean;
 }
 /** One compact page header, including native controls in the desktop shell. */
-export function TopBar({ narrow = false, title, planner, mode, connected, lastUpdate, now: fixedNow, onDelegate, delegatePrimary = true, showActions = true, plannerFigure = true }: TopBarProps) {
+export function TopBar({ narrow = false, title, planner, mode, connected, lastUpdate, now: fixedNow, onDelegate, delegatePrimary = true, delegate = true, showActions = true, plannerFigure = true }: TopBarProps) {
   const [tick, setTick] = useState(() => Date.now() / 1000);
   useEffect(() => { if (fixedNow !== undefined) return; const t = setInterval(() => setTick(Date.now() / 1000), 1000); return () => clearInterval(t); }, [fixedNow]);
   const now = fixedNow ?? tick;
@@ -35,7 +37,7 @@ export function TopBar({ narrow = false, title, planner, mode, connected, lastUp
     {mode && <Pill tone={mode.toLowerCase() === "normal" ? "neutral" : "warn"}>{modeWords(mode)}{planner?.modeHeldUntil ? ` · held until ${clock(planner.modeHeldUntil, now)}` : ""}</Pill>}
     <span className="pc-live"><span className={`pc-live-dot${connected ? "" : " pc-live-dot--off"}`} aria-hidden="true" />{connected ? (lastUpdate ? `updated ${ago(lastUpdate, now)}` : "live") : "Reconnecting…"}</span>
     <span className="pc-clock muted">{clock(now, now)}</span>
-    <DensityContext.Provider value="compact"><Button variant={delegatePrimary ? "primary" : "secondary"} size="sm" onClick={onDelegate}>Delegate</Button></DensityContext.Provider>
+    {delegate && <DensityContext.Provider value="compact"><Button variant={delegatePrimary ? "primary" : "secondary"} size="sm" onClick={onDelegate}>Delegate</Button></DensityContext.Provider>}
     </>}
   </header>;
 }

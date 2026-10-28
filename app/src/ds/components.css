@@ -477,11 +477,16 @@ a.pc-btn{text-decoration:none}
 .pc-share-bar__seg--1{fill:var(--chart-1);background:var(--chart-1)}.pc-share-bar__seg--2{fill:var(--chart-2);background:var(--chart-2)}
 .pc-share-bar__seg--3{fill:var(--chart-3);background:var(--chart-3)}.pc-share-bar__seg--4{fill:var(--chart-4);background:var(--chart-4)}
 .pc-share-bar__seg--5{fill:var(--chart-5);background:var(--chart-5)}
-.pc-share-bar__legend{display:flex;flex-direction:column;margin:0;padding:0;list-style:none}
-.pc-share-bar__item{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2);min-width:0;padding:var(--space-1\.5) 0;border-top:1px solid var(--surface-lane);font-variant-numeric:tabular-nums}
-.pc-share-bar__item:first-child{border-top:0}
+.pc-share-bar__legend{width:100%;border-collapse:collapse;font-size:var(--type-body-size);line-height:var(--type-body-line);font-variant-numeric:tabular-nums}
+.pc-share-bar__legend th,.pc-share-bar__legend td{padding:var(--space-1\.5) 0 var(--space-1\.5) var(--space-3);border-top:1px solid var(--surface-lane);text-align:right;font-weight:var(--type-body-weight);white-space:nowrap}
+.pc-share-bar__legend thead th{padding-top:0;border-top:0;color:var(--ink-muted);font-size:var(--type-caption-size);line-height:var(--type-caption-line);font-weight:var(--type-body-strong-weight)}
+.pc-share-bar__legend th:first-child{padding-left:0;text-align:left;width:100%;max-width:0}
+.pc-share-bar__agent{display:flex;align-items:center;gap:var(--space-2);min-width:0}
 .pc-share-bar__swatch{flex:none;width:var(--space-2\.5);height:var(--space-2\.5);border-radius:var(--radius-sm)}
-.pc-share-bar__name{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:var(--type-body-strong-weight)}
-.pc-share-bar__detail{flex:none;color:var(--ink-secondary);font-size:var(--type-caption-size);line-height:var(--type-caption-line)}
-.pc-share-bar__share{flex:none;min-width:var(--size-40);text-align:right;color:var(--ink-secondary)}
+.pc-share-bar__name{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:var(--type-body-strong-weight)}
+.pc-share-bar__role{flex:none;color:var(--ink-muted);font-size:var(--type-caption-size);line-height:var(--type-caption-line)}
+.pc-share-bar__tokens{font-weight:var(--type-body-strong-weight)}
+.pc-share-bar__share{color:var(--ink-secondary)}
+/* Phones keep the agent name; the role is the first fact to go. */
+@media(max-width:559px){.pc-share-bar__role{display:none}}
 @media(max-width:767px){.pc-task-node__head:has(>.pc-task-node__actions),.pc-task-node--compact .pc-task-node__head:has(>.pc-task-node__actions){flex-wrap:wrap}.pc-task-node__head:has(>.pc-task-node__actions)>.pc-task-node__title,.pc-task-node--compact .pc-task-node__head:has(>.pc-task-node__actions)>.pc-task-node__title{flex-basis:100%}}

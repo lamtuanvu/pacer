@@ -1,3 +1,4 @@
+import { DelegateContext } from "./delegate";
 import { counts as snapshotCounts } from "../../../src/view-model/selectors";
 import { DensityContext } from '../ds/Density';
 import { TextAction } from "../ds/Button";
@@ -33,7 +34,7 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
   const loading = route.name === "loading" || !state.snapshot;
   const outdated = !loading && NEEDS_READ_MODEL.has(route.name) && !state.features.readModel;
   const showStatusBar = !narrow && route.name !== "setup";
-  const topBar = <TopBar narrow={narrow} title={title} planner={state.snapshot?.planner ?? null} mode={state.snapshot?.mode?.mode ?? ""} connected={state.connected} lastUpdate={state.snapshot?.at ?? null} onDelegate={onDelegate} delegatePrimary={!["review", "dispatch", "sessions"].includes(route.name)} showActions={route.name !== "setup"} plannerFigure={route.name !== "dispatch"} />;
+  const topBar = <TopBar narrow={narrow} title={title} planner={state.snapshot?.planner ?? null} mode={state.snapshot?.mode?.mode ?? ""} connected={state.connected} lastUpdate={state.snapshot?.at ?? null} onDelegate={onDelegate} delegatePrimary={!["review", "sessions"].includes(route.name)} delegate={route.name !== "dispatch"} showActions={route.name !== "setup"} plannerFigure={route.name !== "dispatch"} />;
   return <NarrowContext.Provider value={narrow}><div className={`pc-app${narrow ? " pc-app--narrow" : ""}${showStatusBar ? " pc-app--with-status" : ""}`}>
     <TextAction href="#main-content" className="skip-link" onClick={event => { event.preventDefault(); document.getElementById("main-content")?.focus(); }}>Skip to content</TextAction>
     {!narrow && topBar}
@@ -45,7 +46,7 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
         {narrow && route.name !== "setup" && topBar}
         <div aria-live="polite" role="status" className="pc-live-region">{!state.connected && state.snapshot && <div className="connection-bar">pacer isn't responding. Retrying…</div>}</div>
         <main id="main-content" tabIndex={-1} className={`pc-main${!loading && !outdated && ["dispatch","review","settings","hosts","add-executor","sessions","terminal","setup"].includes(route.name)?" pc-main--canvas":""}`}>
-          {loading ? <Skeleton /> : outdated ? <section className="pc-notice"><SectionHeading>Update pacer to use this view</SectionHeading><p>This screen needs a newer pacer service. Run <code>pacer update</code>, then reload this page.</p></section> : <DensityContext.Provider value={SETTINGS.has(route.name) ? "settings" : "compact"}>{children}</DensityContext.Provider>}
+          {loading ? <Skeleton /> : outdated ? <section className="pc-notice"><SectionHeading>Update pacer to use this view</SectionHeading><p>This screen needs a newer pacer service. Run <code>pacer update</code>, then reload this page.</p></section> : <DensityContext.Provider value={SETTINGS.has(route.name) ? "settings" : "compact"}><DelegateContext.Provider value={onDelegate}>{children}</DelegateContext.Provider></DensityContext.Provider>}
         </main>
       </div>
     </div>

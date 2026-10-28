@@ -55,7 +55,9 @@ test("bottom bar keeps all four icons, badges and scope on every destination", (
     // On Dispatch the Planner budget region states the figure; the narrow top bar keeps only the planner mark (UI-15).
     if (screen === "/") { expect(html).toContain("pc-planner"); expect(html).not.toContain("63%·77"); }
     else expect(html).toContain("63%·77");
-    expect(html).toMatch(/pc-btn--touch[^>]*>Delegate</);
+    // Dispatch offers New task in its header instead of the top bar's Delegate.
+    if (screen === "/") expect(html).not.toMatch(/pc-btn--touch[^>]*>Delegate</);
+    else expect(html).toMatch(/pc-btn--touch[^>]*>Delegate</);
   }
   const html = atWidth(400, () => renderToString(<Layout route={route("#/")} state={{ ...state, snapshot: { ...snapshot, counts: { ...snapshot.counts!, setupOpen: 1 } } }} title="Dispatch">body</Layout>));
   expect(html).toContain('pc-rail__dot');
@@ -63,7 +65,7 @@ test("bottom bar keeps all four icons, badges and scope on every destination", (
 
 test("narrow Dispatch keeps the spec order, repo default, other-repo count and touch actions", () => {
   const html = atWidth(1200, () => overview({ repo: "another", scope: `repo:${repo}` }));
-  const sections = ['aria-label="Scope"', '>Needs you<', '>Live dispatch<', '>Planner budget<', '>Today at a glance<'].map(s => html.indexOf(s));
+  const sections = ['aria-label="Scope"', '>Needs you<', '>Live dispatch<', '>Planner budget<', '>Executors<', '>This week at a glance<'].map(s => html.indexOf(s));
   expect(sections.every(at => at >= 0)).toBe(true);
   expect(sections).toEqual([...sections].sort((a, b) => a - b));
   expect(html).toMatch(/aria-pressed="true"[^>]*>This repo · acme\/api/);
@@ -111,16 +113,16 @@ test("narrow Dispatch stretches every section across the column", async () => {
     expect(html).toContain(`aria-labelledby="${id}"`);
   }
   const css = await Bun.file(new URL('../app/src/styles.css', import.meta.url)).text();
-  // Overrides the desktop align-self:start even when scope forces narrow above 560px.
-  expect(css).toMatch(/\.pc-dispatch--narrow \.pc-dispatch__main>section\[aria-labelledby\]\s*\{[^}]*align-self:stretch/);
+  // Stretches even when scope forces narrow above 560px.
+  expect(css).toMatch(/\.pc-dispatch--narrow>section\[aria-labelledby\]\s*\{[^}]*align-self:stretch/);
 });
 
-test("narrow repo scope shows its own figures for today", () => {
+test("narrow Dispatch never shows snapshot counts as the period's figures", () => {
   for (const width of [400, 1200]) {
     const html = atWidth(width, () => overview({ repo: null, scope: `repo:${repo}` }));
-    const section = html.slice(html.indexOf('aria-labelledby="glance"'));
-    expect(section).toContain('>3<');
-    expect(section).not.toContain('>7<');
+    const section = html.slice(html.indexOf('aria-labelledby="glance"'), html.indexOf("</section>", html.indexOf('aria-labelledby="glance"')));
+    expect(section).toContain("These figures need a newer pacer service with task insights.");
+    expect(section).not.toMatch(/>\s*\d+\s*</);
   }
 });
 
@@ -135,7 +137,8 @@ test("narrow Needs you puts other repos on the right of its header, once", () =>
 
 test('display-contents Dispatch sections constrain intrinsic long titles to the available width', async () => {
   const css = await Bun.file(new URL('../app/src/styles.css', import.meta.url)).text();
-  expect(css).toMatch(/\.pc-dispatch__main>section,\.pc-dispatch__side>section\s*\{[^}]*min-width:0[^}]*max-width:100%/);
+  expect(css).toMatch(/\.pc-dispatch>section\s*\{[^}]*min-width:0[^}]*max-width:100%/);
+  expect(css).toMatch(/\.pc-dispatch__pair>\*\s*\{[^}]*min-width:0[^}]*max-width:100%/);
 });
 
 test('consumer styles never reduce canonical button and input hit targets', async () => {

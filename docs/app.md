@@ -44,7 +44,7 @@ command under Sign out; run it in a terminal.
 | Screen | What you can do |
 | --- | --- |
 | Setup | Complete required steps, connect agents with a file preview and consent, add an executor, try or skip a first delegation. |
-| Dispatch | Start an interactive session, act on what needs you, follow live dispatch, and check the planner budget, where the next task goes and today's figures. Token figures appear once token accounting reports them. |
+| Dispatch | Start a new task, check the planner budget and where the next task goes, read the period's figures (Today, 7 days or 30 days), see where the tokens went, act on what needs you, follow live dispatch, and start an interactive session. The figures come from task insights; with an older service the strip says so instead of showing numbers. |
 | Tasks | Browse running tasks, tasks waiting for review and paginated history; delegate, stop, retry or dismiss work. |
 | Task detail | Follow the live log, inspect the diff and untracked files, accept or reject with a note, retry or stop. |
 | Executors | Inspect availability and reasons, block or unblock, test endpoints and remove executors. |
@@ -99,8 +99,17 @@ banner dismissal lasts until the pending recommended items change.
 
 ## Needs you and Tasks
 
-On wide screens, Dispatch keeps Start work, Needs you and Live dispatch in the main
-column, with Planner budget, Next task goes to and Today at a glance beside them.
+Dispatch follows the canvas board. Its header holds the repository filter, the
+period switch (Today, 7 days or 30 days; 7 days by default) and New task, which
+opens the Delegate dialog (shortcut D) until the New task composer lands. Below it:
+Planner budget beside Next task goes to; the period at a glance (root tasks handled
+with the change against the previous period and today's count, tokens spent with
+tokens per root task, ran outside the planner, and accepted first try); Where the
+tokens went beside Needs you; Live dispatch; then Start work for interactive
+sessions. The figures come from `insights.summary`. A figure pacer has not measured
+is left out: tokens need a measured or partial reading (partial is shown as a lower
+bound), and "ran outside the planner" needs planner coverage. Without the operation,
+the strip says the figures need a newer service.
 Needs you shows task items as task cards (bad before warn, then blocked, problems
 and decisions, oldest first); items about hosts, agents, accounts or setup keep
 their rows. Needs you and Live dispatch show five cards per page, with

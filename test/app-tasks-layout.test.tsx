@@ -106,7 +106,8 @@ test.skipIf(!browserPath)('Dispatch clips long titles, keeps the composer to one
  const snapshot={...fixture,tasks:fixture.tasks.map((t,i)=>i===0||t.id==='t-0409'?{...t,fullTitle:long}:t)};
  const state={...initialState(),connected:true,features:{readModel:true,ops:new Set<string>(["session.create"])},snapshot};
  const runner=createActionRunner({call:async<T,>()=>({} as T),waitFor:async()=>true,refetch(){},navigate(){}});
- const tokens={coverage:'partial' as const,total:1_840_000,measuredAttempts:4,partialAttempts:1,unknownAttempts:1,byExecutor:[{executor:'codex#team@devbox',tokens:980_000,tasks:4},{executor:'claude-code',tokens:520_000,tasks:6},{executor:'agy',tokens:340_000,tasks:2}]};
+ const summary={rootTasksHandled:12,acceptedFirstTry:9,reviewedRoots:11,acceptedFirstTryRate:9/11,retryAttempts:2,tokens:{total:1_840_000,measuredAttempts:4,partialAttempts:1,unknownAttempts:1,attempts:6,lowerBound:true},spread:[{agent:'codex#team@devbox',total:980_000,tasks:4},{agent:'claude-code',total:520_000,tasks:6},{agent:'agy',total:340_000,tasks:2}],planner:{coverage:'unknown' as const},ranOutsidePlanner:null,previous:{rootTasksHandled:10}};
+ const insights={supported:true,loading:false,current:summary,today:summary};
  const css=(await Promise.all(['app/src/ds/tokens.css','app/src/ds/components.css','app/src/styles.css'].map(f=>Bun.file(f).text()))).join('\n');
  const browser=await chromium.launch({executablePath:browserPath!,headless:true});
  try{
@@ -114,9 +115,9 @@ test.skipIf(!browserPath)('Dispatch clips long titles, keeps the composer to one
   for(const width of [1990,1440,375])for(const theme of ['light','dark'])for(const withTokens of [false,true]){
    await page.setViewportSize({width,height:1200});
    const query={repo:null,scope:width<560?'repo:github.com/acme/api':null};
-   const html=renderToString(<TaskContext.Provider value={{state:state as unknown as StoreState,api:{} as BrowserApi}}><Layout route={{name:'dispatch',query}} state={state as unknown as StoreState} title="Dispatch"><DispatchView snapshot={snapshot as never} query={query} now={snapshot.at} runner={runner} routing={null} tokens={withTokens?tokens:null} startWork={<StartWork/>}/></Layout></TaskContext.Provider>);
+   const html=renderToString(<TaskContext.Provider value={{state:state as unknown as StoreState,api:{} as BrowserApi}}><Layout route={{name:'dispatch',query}} state={state as unknown as StoreState} title="Dispatch"><DispatchView snapshot={snapshot as never} query={query} now={snapshot.at} runner={runner} routing={null} insights={withTokens?insights:undefined} onPeriod={()=>{}} startWork={<StartWork/>}/></Layout></TaskContext.Provider>);
    await page.setContent(`<html data-theme="${theme}" data-pacer-desktop data-pacer-native-titlebar><div id="app"><style>${css}</style>${html}</div></html>`);
-   if(process.env.PACER_LAYOUT_EVIDENCE&&!withTokens)await page.screenshot({path:`${process.env.PACER_LAYOUT_EVIDENCE}/dispatch-${width}-${theme}.png`,fullPage:true});
+   if(process.env.PACER_LAYOUT_EVIDENCE)await page.screenshot({path:`${process.env.PACER_LAYOUT_EVIDENCE}/dispatch-${width}-${theme}${withTokens?'-insights':''}.png`,fullPage:true});
    const titles=page.locator('.pc-task-node__title',{hasText:'Implement ticket SFOS-488'});
    expect(await titles.count()).toBeGreaterThan(0);
    for(const title of await titles.all()){
@@ -127,15 +128,18 @@ test.skipIf(!browserPath)('Dispatch clips long titles, keeps the composer to one
    expect(await page.locator('.pc-start-composer textarea').count()).toBe(1);
    expect(await page.locator('.pc-start-fields').count()).toBe(0);
    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
-   const contentEdge=await page.locator('.pc-dispatch__cols').evaluate(n=>n.getBoundingClientRect().left);
+   const contentEdge=await page.locator('.pc-dispatch__header').evaluate(n=>n.getBoundingClientRect().left);
    expect(contentEdge).toBe(width<560?16:72);
    if(withTokens){
     const bar=page.locator('.pc-share-bar__bar');
     expect(await bar.getAttribute('role')).toBe('img');
     const box=await bar.boundingBox();
     expect(box!.width).toBeGreaterThan(100);
-    expect(await page.locator('.pc-share-bar__item').count()).toBe(3);
-    for(const item of await page.locator('.pc-share-bar__item').all())expect(await item.evaluate(n=>n.scrollWidth<=n.clientWidth+1)).toBe(true);
+    expect(await page.locator('.pc-share-bar__legend tbody tr').count()).toBe(3);
+    expect(await page.locator('.pc-share-bar__legend').evaluate(n=>n.scrollWidth<=n.clientWidth+1)).toBe(true);
+    // Every region keeps its own height: the token share and Needs you do not stretch to match each other.
+    if(width>=560){const [share,needs]=await Promise.all(['.pc-dispatch-spread','.pc-dispatch-attention'].map(s=>page.locator(s).evaluate(n=>n.getBoundingClientRect().height)));
+    expect(share).not.toBe(needs);}
    }
   }
  }finally{await browser.close();}

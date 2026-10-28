@@ -6,9 +6,9 @@ import { StackedShareBar } from "../app/src/ds/StackedShareBar";
 import type { ShareSegment } from "../src/view-model/dispatch";
 
 const segments: ShareSegment[] = [
-  { id: "codex", label: "Codex", agent: "codex", share: 53, detail: "980k tokens · 4 tasks", series: 1 },
-  { id: "claude-code", label: "Claude Code", agent: "claude-code", share: 47, detail: "520k tokens · 6 tasks", series: 2 },
-  { id: "other", label: "Other agents", share: 0, detail: "1k tokens · 1 task", series: 3 },
+  { id: "codex", label: "Codex", agent: "codex", role: "executor", share: 53, tasks: 4, tokens: "980k", series: 1 },
+  { id: "claude-code", label: "Claude Code", agent: "claude-code", role: "planner", share: 47, tasks: 6, tokens: "520k", series: 2 },
+  { id: "other", label: "Other agents", share: 0, tasks: 1, tokens: "1k", series: 3 },
 ];
 const html = () => renderToString(<StackedShareBar label="Token share" segments={segments} />);
 
@@ -22,12 +22,15 @@ test("share_bar_is_one_image_named_in_words", () => {
 
 test("share_bar_states_every_share_in_text_not_colour_alone", () => {
   const out = html();
-  expect(out).toContain('aria-label="Token share by agent"');
+  expect(out).toMatch(/<table[^>]*aria-label="Token share by agent"/);
+  expect(out).toContain('<th scope="col">Agent</th><th scope="col">Tasks</th><th scope="col">Tokens</th><th scope="col">Share</th>');
   for (const segment of segments) {
     expect(out).toContain(`>${segment.label}</span>`);
-    expect(out).toContain(`>${segment.share}%</span>`);
-    expect(out).toContain(`>${segment.detail}</span>`);
+    expect(out).toContain(`<td>${segment.tasks}</td>`);
+    expect(out).toContain(`>${segment.tokens}</td>`);
+    expect(out).toContain(`>${segment.share}%</td>`);
   }
+  expect(out.match(/<th scope="row">/g)).toHaveLength(3);
   // Colour swatches and agent marks are decorative; the legend's words carry the meaning.
   const swatches = out.match(/<span[^>]*pc-share-bar__swatch[^>]*>/g) ?? [];
   expect(swatches).toHaveLength(3);

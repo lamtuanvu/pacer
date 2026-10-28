@@ -78,8 +78,8 @@ test("cross-surface counts use service totals and repo totals", () => {
   const text = Object.fromEntries(Object.entries(surfaces).map(([name, html]) => [name, strip(html).toLowerCase()]));
   expect(text.app).toContain(`needs you ${c.attention} `);
   expect(text.app).toContain(`live dispatch ${c.running} running · ${c.queued} queued`);
-  expect(text.app).toContain(`tasks finished ${today.done} `);
-  expect(text.app).toContain(`${today.accepted} of ${today.accepted + today.rejected} reviewed`);
+  // The app's period figures come from insights.summary, not the snapshot's daily counts; without it the strip says so.
+  expect(text.app).toContain("these figures need a newer pacer service with task insights.");
   expect(text.tray).toContain(`${c.attention} needs you ${c.running} running ${c.queued} waiting ${today.done} done today`);
   expect(text.tui).toContain(`needs you ${c.attention}`);
   expect(text.tui).toContain(`running ${c.running} · ${c.queued} queued`);
@@ -123,12 +123,11 @@ test("the TUI order is Needs you, Running, Capacity, Done today", () => {
   }
 });
 
-test("app keeps work in the main column and the planner and today's figures beside it on desktop", () => {
-  const [main, side] = app.split('class="pc-dispatch__main">')[1]!.split('class="pc-dispatch__side">');
-  expect(headings(main!.replace(/<section\b[^>]*class="pc-empty"[^>]*>[\s\S]*?<\/section>/g, ""))).toEqual(["Needs you", "Live dispatch"]);
-  // No token reading yet: Where the tokens went is not rendered, and the glance strip has no token tile.
-  expect(headings(side!)).toEqual(["Planner budget", "Today at a glance"]);
-  expect(strip(side!)).not.toMatch(/tokens/i);
+test("app follows the board on desktop: planner budget, the week's figures, Needs you, then live work", () => {
+  expect(headings(app.slice(app.indexOf("pc-dispatch"))).filter(h => h !== "Nothing running. Start work, delegate a task, or ask your planner to.").slice(0, 4)).toEqual(["Planner budget", "This week at a glance", "Needs you", "Live dispatch"]);
+  // No token reading yet: Where the tokens went is not rendered, and the glance strip invents no token figure.
+  expect(app).not.toContain('aria-labelledby="token-share"');
+  expect(strip(app.slice(app.indexOf('aria-labelledby="glance"'), app.indexOf('aria-labelledby="needs-you"')))).not.toMatch(/tokens/i);
 });
 
 test("tray orders Needs you, Running, executors with done today only in counts", () => {
