@@ -1,3 +1,4 @@
+import { createCommandRegistry } from "./commands";
 import { createKeyRegistry } from "./registry";
 /** True while a modal dialog is open: it owns the keyboard, including Escape to close it. */
 export const dialogOpen = (doc: { querySelector: (s: string) => unknown } | undefined): boolean => !!doc?.querySelector("dialog[open]");
@@ -8,3 +9,5 @@ export const sessionControlActive = (doc: { querySelector: (s: string) => unknow
 };
 /** The app's one registry instance; screens register their shortcuts on it. */
 export const keys = createKeyRegistry({ controlActive: () => sessionControlActive(typeof document === "undefined" ? undefined : document), blocked: () => dialogOpen(typeof document === "undefined" ? undefined : document) });
+/** The app's one command registry: menus list it, and commands with keys are registered on `keys`. */
+export const commands = createCommandRegistry(keys);
