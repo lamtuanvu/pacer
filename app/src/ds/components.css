@@ -482,7 +482,7 @@ a.pc-btn{text-decoration:none}
 .pc-task-card__branch{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--font-mono);font-size:var(--type-code-size);color:var(--ink-secondary)}
 .pc-task-card__tokens{flex:none;width:var(--size-52);text-align:right;font-size:var(--type-caption-size);line-height:var(--type-caption-line);color:var(--ink-secondary);font-variant-numeric:tabular-nums}
 .pc-task-card__tokens--child{width:var(--size-44)}
-.pc-task-card__status{flex:none;font-size:var(--type-caption-size);line-height:var(--type-caption-line);color:var(--ink-muted)}
+.pc-task-card__status{flex:none;font-size:var(--type-caption-size);line-height:var(--type-caption-line);color:var(--ink-secondary)}
 .pc-task-card__actions{display:flex;flex:none;gap:var(--space-half)}
 .pc-task-card__action{display:inline-flex;align-items:center;justify-content:center;width:var(--size-26);height:var(--size-26);border-radius:var(--radius-sm);color:var(--ink-muted);text-decoration:none}
 .pc-task-card__action:hover{background:var(--surface-lane);color:var(--ink)}
