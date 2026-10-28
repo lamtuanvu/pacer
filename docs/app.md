@@ -99,23 +99,31 @@ banner dismissal lasts until the pending recommended items change.
 
 ## Needs you and Tasks
 
-Dispatch follows the canvas board. Its header holds the repository filter, the
-period switch (Today, 7 days or 30 days; 7 days by default, shown only when the
-service has task insights) and New task, which opens the Delegate dialog (shortcut
-D) until the New task composer lands. 7 and 30 days are rolling windows. Below it:
-Planner budget beside Next task goes to; the period at a glance (root tasks handled
-with the change against the previous period and today's count, tokens spent with
-tokens per root task, ran outside the planner, and accepted first try); Where the
-tokens went beside Needs you; Live dispatch; then Start work for interactive
-sessions. The figures come from `insights.summary`. A figure pacer has not measured
+Dispatch follows the canvas board. Its header holds the page title with a live line
+(connected agents and the last update), the period switch (Today, 7 days or 30
+days; 7 days by default, shown only when the service has task insights), one
+"All repos · N" button that opens the repository menu, and New task, which opens
+the Delegate dialog (shortcut D) until the New task composer lands. Below it:
+Planner budget and Next task goes to in one split section (the planner's pace, its
+week caption with the 5-hour window when its account reports one, the next agent,
+the chain after it ending in the queue, and the active strategy); the period at a
+glance (root tasks handled against the previous period with today's count, tokens
+spent per root task, ran outside the planner, and accepted first try), labelled
+"This week" for the rolling 7 days; Where the tokens went beside Needs you; Live
+dispatch; then Start work, which stays until the New task composer can start
+interactive sessions. In the token spread the configured planner is labelled
+planner and every other agent executor; the planner's own tokens are stated as not
+measured yet. The figures come from `insights.summary`. A figure pacer has not measured
 is left out: tokens need a measured or partial reading (partial is shown as a lower
 bound), and "ran outside the planner" needs planner coverage. Without the operation,
 the strip says the figures need a newer service.
-Needs you shows task items as task cards (bad before warn, then blocked, problems
-and decisions, oldest first); items about hosts, agents, accounts or setup keep
-their rows. Needs you and Live dispatch show five cards per page, with
-Previous/Next navigation. Repository changes reset scoped lists to their first
-page. Narrow layouts stack the sections in that order. Agent capacity lives in
+Needs you shows compact cards (bad before warn, then blocked, problems and
+decisions, oldest first), one per root task: a glyph, the title, one caption line
+and one action, the primary one for a failure. Needs you and Live dispatch show
+five cards per page, with
+Previous/Next navigation once there is more than one page. Repository changes reset
+scoped lists to their first page. Narrow layouts lead with Needs you and Live
+dispatch, then the planner, executors and figures. Agent capacity lives in
 Settings › Executors. The standalone Needs you page retains its full actionable
 queue.
 
