@@ -14,6 +14,7 @@ import { enforcementExclusion } from "../dispatch/enforcement";
 import { clientControlOps } from "./ops-client-control";
 import pkg from "../../package.json";
 import { PROTOCOL_VERSION } from "./protocol";
+import { taskIdText } from "../plugins/ui-schema";
 import { desktopUpdateOps } from "./ops-desktop-update";
 import { captureBroker } from "../desktop/capture-broker";
 import { desktopOps } from "./ops-desktop";
@@ -94,6 +95,9 @@ export interface OpDef<P extends z.ZodTypeAny = z.ZodTypeAny> { description: str
 const expect_rev = z.number().int().positive().optional();
 const pluginId = z.string().regex(/^[a-z0-9][a-z0-9-]{1,63}$/);
 const id = z.string().min(1).max(128);
+const uiId = z.string().regex(/^[a-z0-9][a-z0-9-]{0,31}$/);
+const uiSurface = z.enum(["activity", "panelTab", "status"]);
+const uiContext = z.object({ route: z.enum(["start", "overview", "review", "sessions", "terminal", "settings", "hosts", "add-executor", "setup"]), taskId: taskIdText.optional(), theme: z.enum(["light", "dark"]) });
 const op = <P extends z.ZodTypeAny>(d: OpDef<P>) => d as unknown as OpDef;
 
 const agent = z.enum(["claude-code", "codex", "cursor", "opencode"]);
@@ -502,6 +506,12 @@ export const OPS: Record<string, OpDef> = {
   "plugin.remove": op({ description: "Disable an installed plugin, delete its folder and forget its grant. Bundled plugins return not_allowed.", params: z.object({ id: pluginId }), handler: (ctx, p) => mutation(ctx, "plugins", () => plugins.remove(ctx, p.id)) }),
   "plugin.doctor": op({ description: "Start enabled plugins if idle and ping each with a 5 s deadline; report protocol versions, served extension points, restarts and errors.", params: z.object({ id: pluginId.optional() }), handler: (ctx, p) => plugins.doctor(ctx, p.id) }),
 
+  "plugin.ui.list": op({ description: "Every UI surface of every enabled, granted plugin: activity items, panel tabs, settings pages and status items, with visibility. Starts nothing.", params: z.object({}), handler: ctx => plugins.uiList(ctx) }),
+  "plugin.ui.render": op({ description: "Render one plugin surface to a validated view document. Starts the plugin if idle, except for status items, which render only while the plugin is ready.", params: z.object({ plugin: pluginId, surface: uiSurface, id: uiId, context: uiContext }), handler: (ctx, p) => plugins.uiRender(ctx, p) }),
+  "plugin.ui.action": op({ description: "Send a user action on a plugin surface to the plugin. requestId makes a repeat safe.", params: z.object({ plugin: pluginId, surface: uiSurface, id: uiId, action: z.string().regex(/^[A-Za-z0-9._-]{1,64}$/), context: uiContext, requestId: z.string().min(1).max(128), values: z.record(z.string().max(64), z.union([z.string().max(2000), z.number(), z.boolean(), z.null()])).refine(v => Object.keys(v).length <= 20, "at most 20 values").optional() }), handler: (ctx, p) => plugins.uiAction(ctx, p) }),
+  "plugin.ui.visibility": op({ description: "Show or hide one plugin surface. Service state, so every client agrees. A stale expect_rev returns conflict.", params: z.object({ plugin: pluginId, surface: z.enum(["activity", "panelTab", "settings", "status"]), id: uiId, visible: z.boolean(), expect_rev: z.number().int().nonnegative() }), handler: (ctx, p) => mutation(ctx, "plugins", () => plugins.uiVisibility(ctx, p)) }),
+  "plugin.settings.get": op({ description: "A plugin's settings schema (from its manifest), saved values and revision.", params: z.object({ plugin: pluginId }), handler: (ctx, p) => plugins.settingsGet(ctx, p) }),
+  "plugin.settings.set": op({ description: "Validate and save a plugin's settings against its manifest schema. A stale expect_rev returns conflict; invalid values return invalid_input with field errors in data.", params: z.object({ plugin: pluginId, values: z.record(z.string(), z.json()), expect_rev: z.number().int().nonnegative() }), handler: (ctx, p) => mutation(ctx, "plugins", () => plugins.settingsSet(ctx, p)) }),
   "update.check": op({ description: "Check the release version, optionally bypassing the cached update check. `plugin` is always null since the Orca plugin was removed.", params: z.object({force: z.boolean().optional()}), handler: (ctx, p) => mutation(ctx, "update", async () => {
     const check = await checkForUpdate(ctx, {force: p.force});
     return {current: currentVersion(), latest: check?.latest ?? null, available: updateAvailable(check), plugin: null, ...(check?.error ? {error: check.error} : {}), ...(!check ? {disabled: true} : {})};
