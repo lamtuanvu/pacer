@@ -593,6 +593,7 @@ export function MachineSection({ initialData }: { initialData?: ConfigData }) {
   const query = useResource("config.get", {}, initialData),
     action = useOperation(query.reload);
   const value = query.data?.keys["execution.local_max_tasks"]?.value;
+  const launchMode = String(query.data?.keys["execution.launch_mode"]?.value ?? "interactive");
   const terminal = String(query.data?.keys["terminal.open"]?.value ?? "");
   const legacy = String(query.data?.keys["terminal.app"]?.value ?? "Terminal");
   const choices = query.data?.terminalChoices ?? [
@@ -628,6 +629,18 @@ export function MachineSection({ initialData }: { initialData?: ConfigData }) {
                   value: Number(e.currentTarget.value),
                 });
             }}
+          />
+        </Field>
+        <Field
+          label="Delegated task launch"
+          help="Interactive runs open in the agent's terminal UI and finish when the agent reports its result. Headless runs the agent's non-interactive CLI. A runner's own session setting overrides this."
+        >
+          <ChoicePicker
+            aria-label="Delegated task launch"
+            value={launchMode}
+            options={[{value:"interactive",label:"Interactive"},{value:"headless",label:"Headless"}]}
+            disabled={action.busy}
+            onValueChange={(choice) => void action.run("config.set", {key:"execution.launch_mode",value:choice})}
           />
         </Field>
         <Field label="Preferred terminal" help="Used when opening sessions and other terminal actions on this machine.">
