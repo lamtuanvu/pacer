@@ -102,12 +102,12 @@ browserTest("greater_than_switches_to_commands_and_runs_one", () => withPage(asy
   await expect(page.locator(".pc-command__prefix").textContent()).resolves.toBe("Commands");
   await expect(page.getByRole("tablist", { name: "Search in" }).count()).resolves.toBe(0);
   const options = await labels(page);
-  expect(options).toContain("Toggle side panel");
+  expect(options).toContain("Toggle left panel");
   expect(options).not.toContain("Add SSH keepalive to remote runs");
   // The shortcut shows as key caps next to the command.
   // macOS draws the modifier as a symbol, other platforms as Ctrl.
   const mac = await page.evaluate(() => /Mac|iPhone|iPad/.test(navigator.platform));
-  await expect(page.locator('[role="option"]', { hasText: "Toggle side panel" }).locator(".pc-command__keys kbd").allTextContents()).resolves.toEqual([mac ? "⌃" : "Ctrl", "B"]);
+  await expect(page.locator('[role="option"]', { hasText: "Toggle left panel" }).locator(".pc-command__keys kbd").allTextContents()).resolves.toEqual([mac ? "⌃" : "Ctrl", "B"]);
   await page.keyboard.press("Enter");
   await page.getByRole("button", { name: "Show Settings" }).waitFor();
   // Back to a bare query: recents with the Go to commands.
@@ -184,11 +184,11 @@ browserTest("shift_ctrl_k_and_clicks", () => withPage(async (page, built) => {
   await page.keyboard.press("Control+Shift+K");
   await expect(page.getByRole("combobox").count()).resolves.toBe(0);
   await page.keyboard.press("Control+k");
-  await page.getByRole("combobox").fill(">");
+  await page.getByRole("combobox").fill(">count");
   // A mouse pick runs the command and closes the menu.
-  await page.getByRole("option", { name: /^New task/ }).click();
+  await page.getByRole("option", { name: /^Count one/ }).click();
   await expect(page.getByRole("combobox").count()).resolves.toBe(0);
-  await page.waitForFunction(() => (window as any).newTask === 1);
+  await page.waitForFunction(() => (window as any).counted === 1);
   await page.keyboard.press("Control+k");
   await page.getByRole("combobox").fill("devbox");
   await page.getByRole("option", { name: /devbox/ }).first().click();
@@ -255,12 +255,12 @@ browserTest("mod_enter_runs_a_command_and_keeps_the_menu_open", () => withPage(a
 browserTest("mod_enter_closes_the_menu_for_a_command_that_opens_a_dialog", () => withPage(async (page, built) => {
   await open(page, built, "#/overview");
   await page.keyboard.press("Control+k");
-  await page.getByRole("combobox").fill(">delegate");
-  await page.getByRole("option", { name: /^New task/ }).waitFor();
-  expect(await labels(page)).toEqual(["New task"]);
-  // New task opens its own dialog, which a modal menu would leave inert, so ⌘↵ closes the menu like Enter does.
+  await page.getByRole("combobox").fill(">shortcuts");
+  await page.getByRole("option", { name: /^Show keyboard shortcuts/ }).waitFor();
+  expect(await labels(page)).toEqual(["Show keyboard shortcuts"]);
+  // The shortcuts overlay is a dialog of its own, which a modal menu would leave inert, so ⌘↵ closes the menu like Enter does.
   await page.keyboard.press("Control+Enter");
-  await page.waitForFunction(() => (window as any).newTask === 1);
+  await page.waitForFunction(() => (window as any).helped === 1);
   await expect(page.getByRole("combobox").count()).resolves.toBe(0);
   // Focus goes back to what had it when the menu opened (the page's main area).
   await focused(page, "#main-content");
@@ -273,11 +273,12 @@ browserTest("dispatcher_commands_follow_the_service_operations", () => withPage(
   await input.fill(">dispatch");
   // Pause is offered because the service has delegation.pause; resume and the saved-setup switch are not (no such operations here).
   expect(await labels(page)).toEqual(["Pause dispatch", "Budget & pacing"]);
-  await input.fill(">saved setup");
+  // The Commands chip stays, so later queries are the text after it.
+  await input.fill("saved setup");
   await expect(page.getByRole("option").count()).resolves.toBe(0);
-  await input.fill(">budget");
+  await input.fill("budget");
   expect(await labels(page)).toEqual(["Budget & pacing"]);
-  await input.fill(">pause");
+  await input.fill("pause");
   await page.keyboard.press("Enter");
   await expect(page.getByRole("combobox").count()).resolves.toBe(0);
   await page.waitForFunction(() => JSON.stringify((window as any).dispatchCalls) === JSON.stringify([["pause", { for: "1h" }]]));
@@ -305,4 +306,36 @@ browserTest("menu_and_trigger_match_the_board_measurements", () => withPage(asyn
   });
   expect(m).toMatchObject({ dialogW: 640, dialogTop: 72, dialogRadius: "14px", rowH: 52, inputOutline: "none", focusRing: "inset", optionRadius: "8px", glyph: [28, "7px"], markWeight: "700", scopeH: 24, scopeRadius: "6px", kbd: ["4px", "11px", 18],
     placeholder: "Search tasks, agents or type > for commands", label: "Search tasks, agents or run a command" });
+}));
+
+browserTest("the commands chip replaces the leading greater-than and backspace removes it", () => withPage(async (page, built) => {
+  await open(page, built, "#/overview");
+  await page.keyboard.press("Control+k");
+  const input = page.getByRole("combobox");
+  await input.fill(">pa");
+  // The chip carries the mode; the input shows only what follows it.
+  await expect(page.locator(".pc-command__prefix").textContent()).resolves.toBe("Commands");
+  await expect(input.inputValue()).resolves.toBe("pa");
+  const headings = await page.locator(".pc-command__heading").allTextContents();
+  expect(headings).not.toContain("Suggested");
+  await input.fill("");
+  await page.keyboard.press("Backspace");
+  await expect(page.locator(".pc-command__prefix").count()).resolves.toBe(0);
+  await expect(input.inputValue()).resolves.toBe("");
+  // Back to the recent screen.
+  expect((await page.locator(".pc-command__heading").allTextContents())[0]).toBe("Recent");
+  // Typing > again re-enters command mode.
+  await input.fill(">");
+  await expect(page.locator(".pc-command__prefix").count()).resolves.toBe(1);
+}));
+
+browserTest("select_all_works_in_the_input", () => withPage(async (page, built) => {
+  await open(page, built, "#/overview");
+  await page.keyboard.press("Control+k");
+  const input = page.getByRole("combobox");
+  await input.fill("fix");
+  // Cmd+A on macOS, Ctrl+A elsewhere: the menu selects the text itself, so it does not depend on the host's Edit menu.
+  await page.keyboard.press("ControlOrMeta+a");
+  await page.keyboard.type("x");
+  await expect(input.inputValue()).resolves.toBe("x");
 }));

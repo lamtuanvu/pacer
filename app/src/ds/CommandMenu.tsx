@@ -35,7 +35,7 @@ export function Highlight({ text, ranges = [] }: { text: string; ranges?: [numbe
  * announced through aria-activedescendant. The caller owns the query, scope and options; mounting it opens it and
  * unmounting closes it and returns focus to the element that opened it.
  */
-export function CommandMenu({ label, placeholder, query, onQueryChange, prefix, scopes, scope, onScope, groups, empty, enterHint, modEnterHint, modEnterKeys, hints, returnFocus, onPick, onClose }: {
+export function CommandMenu({ label, placeholder, query, onQueryChange, prefix, scopes, scope, onScope, groups, empty, enterHint, modEnterHint, modEnterKeys, hints, returnFocus, onBackspaceEmpty, onPick, onClose }: {
   label: string; placeholder: string; query: string; onQueryChange: (query: string) => void;
   /** A badge shown before the input for the active mode, such as "Commands". */
   prefix?: string;
@@ -51,9 +51,11 @@ export function CommandMenu({ label, placeholder, query, onQueryChange, prefix, 
   hints?: ComponentChildren;
   /** The element to focus on close. Defaults to the element focused at open, which WebKit leaves on the body after a mouse click on a button. */
   returnFocus?: () => HTMLElement | null;
+  /** Backspace in an empty input, such as to remove the mode chip. */
+  onBackspaceEmpty?: () => void;
   onPick: (id: string, options?: { keepOpen: boolean }) => void; onClose: () => void;
 }) {
-  const uid = useId();
+  const uid = useId(), isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
   const dialog = useRef<HTMLDialogElement>(null), input = useRef<HTMLInputElement>(null), list = useRef<HTMLDivElement>(null);
   const options = groups.flatMap(group => group.options);
   const signature = options.map(option => option.id).join("\n");
@@ -86,6 +88,9 @@ export function CommandMenu({ label, placeholder, query, onQueryChange, prefix, 
     // Enter that confirms an IME candidate (Telex, Pinyin) belongs to the composition, not to the menu.
     if (event.isComposing || event.keyCode === 229) return;
     if (key === "ArrowDown" || key === "ArrowUp") setActive(options.length ? (activeRef.current + (key === "ArrowDown" ? 1 : -1) + options.length) % options.length : 0);
+    else if (key === "Backspace" && query === "" && onBackspaceEmpty) onBackspaceEmpty();
+    // Select all works in the input even where the host (a webview without an Edit menu) does not provide it.
+    else if (key.toLowerCase() === "a" && (isMac ? event.metaKey : event.ctrlKey) && !event.altKey && !event.shiftKey) input.current?.select();
     else if (key === "Home") setActive(0);
     else if (key === "End") setActive(Math.max(0, options.length - 1));
     else if (key === "Enter") {

@@ -22,7 +22,12 @@ export function rememberRecent(id: string, before = loadRecent()): string[] {
 
 /** The ⌘K command menu over the app's snapshot and the one command registry. Mount it to open it. */
 export function CommandPalette({ snapshot, registry = commandRegistry, now: fixedNow, returnFocus, close }: { snapshot: ClientSnapshot | null; registry?: CommandRegistry; now?: number; returnFocus?: () => HTMLElement | null; close: () => void }) {
-  const [query, setQuery] = useState("");
+  // The leading ">" (or "?") is the chip, not text: the input shows only what follows it, and Backspace on an empty input removes the chip.
+  const [text, setText] = useState(""), [commandMode, setCommandMode] = useState(false);
+  const query = commandMode ? `>${text}` : text;
+  const edit = (next: string) => {
+    if (!commandMode && next.startsWith(">")) { setCommandMode(true); setText(next.slice(1)); } else setText(next);
+  };
   const [scope, setScope] = useState<MenuScope>("all");
   const [recent] = useState(loadRecent);
   const { navigate } = useNavigation();
@@ -53,9 +58,9 @@ export function CommandPalette({ snapshot, registry = commandRegistry, now: fixe
   };
   const searching = menu.mode === "search";
   return <CommandMenu label="Search tasks, agents or run a command" placeholder="Search tasks, agents or type > for commands"
-    query={query} onQueryChange={setQuery} prefix={menu.mode === "commands" ? "Commands" : menu.mode === "ask" ? "Ask" : undefined}
+    query={text} onQueryChange={edit} onBackspaceEmpty={commandMode ? () => setCommandMode(false) : undefined} prefix={menu.mode === "commands" ? "Commands" : menu.mode === "ask" ? "Ask" : undefined}
     scopes={searching ? SCOPES.map(item => ({ ...item, count: menu.counts[item.id] })) : undefined} scope={menu.scope} onScope={id => setScope(id as MenuScope)}
-    groups={groups} empty={menu.empty ? { title: `Nothing matches “${parseQuery(query).text}”`, description: "Try fewer words, another scope, or turn it into work:" } : undefined}
+    groups={groups} empty={menu.empty ? { title: `Nothing matches “${text.trim()}”`, description: "Try fewer words, another scope, or turn it into work:" } : undefined}
     enterHint={menu.enterHint} modEnterHint={menu.modEnterHint} modEnterKeys={keyCaps("Mod-Enter")} hints={<span className="pc-command__hint"><Kbd>&gt;</Kbd> commands{ASK_ENABLED && <> · <Kbd>?</Kbd> ask assistant</>}</span>}
     onPick={pick} onClose={close} returnFocus={returnFocus} />;
 }

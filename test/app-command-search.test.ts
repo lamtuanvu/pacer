@@ -6,7 +6,7 @@ import type { Command } from "../app/src/keys/commands";
 const snapshot = fixture as any;
 const NOW = 1800000000;
 const command = (id: string, title: string, group = "Go to", extra: Partial<Command> = {}): Command => ({ id, title, group, run: () => {}, ...extra });
-const commands = [command("go.tasks", "Go to Tasks", "Go to", { keys: "g t" }), command("view.panel.left", "Toggle side panel", "View", { keywords: "sidebar" }), command("task.new", "New task", "Suggested")];
+const commands = [command("go.tasks", "Go to Tasks", "Go to", { keys: "g t" }), command("view.panel.left", "Toggle left panel", "View", { keywords: "sidebar" }), command("task.new", "New task", "Suggested")];
 const menu = (query: string, scope: any = "all", recent: string[] = []) => buildMenu({ query, scope, snapshot, commands, recent, now: NOW });
 const titles = (result: ReturnType<typeof menu>) => result.groups.flatMap(group => group.items.map(item => item.title));
 
@@ -48,7 +48,7 @@ test("search covers tasks, machines, repos and commands from the snapshot only",
   expect(titles(menu("keepalive"))).toEqual(["Add SSH keepalive to remote runs"]);
   // Repositories are not part of the menu: the board has no repository group.
   expect(menu("acme/web").groups.flatMap(group => group.items).some(item => item.id.startsWith("repo:"))).toBe(false);
-  expect(titles(menu("sidebar"))).toEqual(["Toggle side panel"]);
+  expect(titles(menu("sidebar"))).toEqual(["Toggle left panel"]);
 });
 
 test("scope tabs filter results and counts stay for every scope", () => {
@@ -62,9 +62,11 @@ test("scope tabs filter results and counts stay for every scope", () => {
 test("> lists only commands, grouped, and ignores tasks", () => {
   const result = menu(">new");
   expect(result.mode).toBe("commands");
-  expect(titles(result)).toEqual(["New task"]);
+  expect(titles(result)).toEqual([]);
   const everything = menu(">");
-  expect(everything.groups.map(group => group.title)).toEqual(["Go to", "Suggested", "View"]);
+  // Suggested (New task) is for the recent screen; command mode lists only command groups.
+  expect(everything.groups.map(group => group.title)).toEqual(["Go to", "View"]);
+  expect(titles(everything)).not.toContain("New task");
   expect(everything.enterHint).toBe("run");
   expect(everything.modEnterHint).toBe("run and keep open");
   // ⌘↵ has nothing to do outside commands mode, so no hint is offered.

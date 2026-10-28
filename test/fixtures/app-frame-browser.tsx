@@ -39,6 +39,7 @@ function App() {
 }
 // The commands main.tsx registers for the real app, so the command menu has something to run.
 commands.register({ id: "go.tasks", title: "Go to Tasks", group: "Go to", icon: "tasks", keys: "g t", run: () => { location.hash = "#/tasks"; } });
+commands.register({ id: "help.shortcuts", title: "Show keyboard shortcuts", group: "Help", icon: "notes", opensDialog: true, run: () => { (window as any).helped = ((window as any).helped ?? 0) + 1; } });
 commands.register({ id: "view.count", title: "Count one", group: "View", icon: "plus", run: () => { (window as any).counted = ((window as any).counted ?? 0) + 1; } });
 commands.register({ id: "task.new", title: "New task", sub: "Describe it and pacer routes it", group: "Suggested", icon: "plus", keywords: "delegate start", opensDialog: true, keys: "d", shortcutLabel: "Delegate a task", run: () => { (window as any).newTask = ((window as any).newTask ?? 0) + 1; } });
 attachKeyRegistry(keys, window);
