@@ -1,8 +1,12 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
+import * as fs from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   BACKOFF_BASE_S, BACKOFF_MAX_S, MAX_COST_PCT, MAX_PROBES_PER_DAY, MAX_REPO_SWITCHES,
-  decideProbe, recordProbeOutcome, type ProbeInputs, type ScheduleState,
+  decideProbe, readScheduleState, recordProbeOutcome, writeScheduleState, type ProbeInputs, type ScheduleState,
 } from "../src/dispatch/certification-schedule";
+import { fakeCtx } from "./helpers";
 
 const DAY = 86_400;
 
@@ -170,4 +174,79 @@ test("recordProbeOutcome does not mutate the state it is given", () => {
   expect(before.attempts["planner-key"].failures).toBe(0);
   expect(before.attempts["planner-key"].lastRepo).toBe("/repo");
   expect(after).not.toBe(before);
+});
+
+// SEC-7: the schedule file records consent and the probe brakes. A torn read
+// parses as "no consent, no probe recorded" and spends quota again, so the write
+// must be private and atomic.
+const stateDir = (pacerHome: string) => join(pacerHome, "state");
+const stateFile = (pacerHome: string) => join(stateDir(pacerHome), "certification-schedule.json");
+const granted: ScheduleState = { consent: { "claude-code": "granted" }, attempts: {} };
+
+test("writes the schedule file 0600 inside a newly created 0700 directory", () => {
+  const ctx = fakeCtx();
+  expect(existsSync(stateDir(ctx.pacerHome))).toBe(false);
+  writeScheduleState(ctx, granted);
+  expect(statSync(stateFile(ctx.pacerHome)).mode & 0o777).toBe(0o600);
+  expect(statSync(stateDir(ctx.pacerHome)).mode & 0o777).toBe(0o700);
+  expect(readScheduleState(ctx)).toEqual(granted);
+});
+
+test("one write tightens a pre-existing loose schedule file to 0600", () => {
+  const ctx = fakeCtx();
+  mkdirSync(stateDir(ctx.pacerHome), { recursive: true });
+  writeFileSync(stateFile(ctx.pacerHome), JSON.stringify({ consent: {}, attempts: {} }));
+  chmodSync(stateFile(ctx.pacerHome), 0o644);
+  writeScheduleState(ctx, granted);
+  expect(statSync(stateFile(ctx.pacerHome)).mode & 0o777).toBe(0o600);
+});
+
+test("leaves no temporary file behind", () => {
+  const ctx = fakeCtx();
+  writeScheduleState(ctx, granted);
+  writeScheduleState(ctx, { consent: { "claude-code": "declined" }, attempts: {} });
+  expect(readdirSync(stateDir(ctx.pacerHome))).toEqual(["certification-schedule.json"]);
+});
+
+// Pinned: the target is never opened for writing; the bytes go to a sibling
+// temporary file that is renamed over it, and a write that dies halfway leaves
+// the previous complete file readable. Not pinned: rename(2) atomicity itself
+// and durability across power loss (no fsync), which this suite cannot observe.
+test("a write that dies halfway leaves the previous file whole", () => {
+  const ctx = fakeCtx();
+  writeScheduleState(ctx, granted);
+  const before = readFileSync(stateFile(ctx.pacerHome), "utf8");
+  const realWrite = fs.writeFileSync;
+  const written: string[] = [];
+  const write = spyOn(fs, "writeFileSync").mockImplementation(((path: fs.PathOrFileDescriptor, data: string, options?: fs.WriteFileOptions) => {
+    written.push(String(path));
+    realWrite(path, data.slice(0, data.length >> 1), options);
+    throw new Error("disk full");
+  }) as typeof realWrite);
+  const rename = spyOn(fs, "renameSync");
+  let renamed: number;
+  try {
+    expect(() => writeScheduleState(ctx, { consent: { "claude-code": "declined" }, attempts: {} })).toThrow("disk full");
+    renamed = rename.mock.calls.length;
+  } finally { write.mockRestore(); rename.mockRestore(); }
+  expect(renamed).toBe(0);
+  expect(written).toHaveLength(1);
+  expect(written[0]).not.toBe(stateFile(ctx.pacerHome));
+  expect(written[0].startsWith(`${stateFile(ctx.pacerHome)}.`)).toBe(true);
+  expect(readFileSync(stateFile(ctx.pacerHome), "utf8")).toBe(before);
+  expect(readScheduleState(ctx)).toEqual(granted);
+  expect(readdirSync(stateDir(ctx.pacerHome))).toEqual(["certification-schedule.json"]);
+});
+
+test("a completed write renames its temporary file over the target", () => {
+  const ctx = fakeCtx();
+  const rename = spyOn(fs, "renameSync");
+  let calls: unknown[][];
+  try { writeScheduleState(ctx, granted); calls = [...rename.mock.calls]; }
+  finally { rename.mockRestore(); }
+  expect(calls).toHaveLength(1);
+  const [from, to] = calls[0] as [string, string];
+  expect(to).toBe(stateFile(ctx.pacerHome));
+  expect(from).not.toBe(to);
+  expect(from.startsWith(`${stateFile(ctx.pacerHome)}.`)).toBe(true);
 });

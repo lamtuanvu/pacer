@@ -403,15 +403,17 @@ pacing:
     const attempts = Object.values(state.attempts);
     // A probe we did not run leaves no trace: no charge, no backoff.
     expect(attempts.length).toBe(0);
-    if (attempts.length > 0) {
-      expect(attempts[0].failures).toBe(0);
-    }
   });
 
   test("no registered repository means no probe", async () => {
     const ctx = fakeCtx();
+    // Stub the agent binary so every later gate would pass: a decline can then
+    // only come from there being no registered repository, not from this
+    // checkout's own control files or a missing claude binary.
+    setupEnforcementContext(ctx);
     writeStrategyYaml(ctx);
     let probeCalled = false;
+    let statusCalled = false;
 
     const deps: TickDeps = {
       // Do NOT provide repo: tick will call getActiveRepo which returns null
@@ -420,13 +422,15 @@ pacing:
         return certifiedStatus();
       },
       status: async (): Promise<Status> => {
+        statusCalled = true;
         return testStatus({ usedPct: 40 });
       },
     };
 
     await tick(ctx, deps);
 
-    // Without a registered repo, tick should return early and not probe
+    // tick returned before buying a status reading, so it never had a repository.
+    expect(statusCalled).toBe(false);
     expect(probeCalled).toBe(false);
   });
 
