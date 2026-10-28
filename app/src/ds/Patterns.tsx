@@ -49,11 +49,11 @@ export function FilterChip({ selected, className, ...props }: ButtonProps & { se
 }
 
 export interface SegmentOption { value: string; label: ComponentChildren; disabled?: boolean }
-export function SegmentedControl({ label, value, options, onChange, disabled, className }: {
-  label: string; value: string; options: readonly SegmentOption[];
+export function SegmentedControl({ label, value, options, onChange, disabled, className, variant }: {
+  variant?: "board"; label: string; value: string; options: readonly SegmentOption[];
   onChange: (value: string) => void; disabled?: boolean; className?: string;
 }) {
-  return <div role="group" aria-label={label} className={classes('pc-segmented', className)}>
+  return <div role="group" aria-label={label} className={classes('pc-segmented', variant && 'pc-segmented--board', className)}>
     {options.map(option => <Button size="sm" key={option.value} disabled={disabled || option.disabled}
       aria-pressed={value === option.value} onClick={() => onChange(option.value)}>{option.label}</Button>)}
   </div>;
@@ -89,7 +89,7 @@ export function NavTabs({ label, items }: { label: string; items: readonly { hre
   </nav>;
 }
 
-export function Card({ children, className, tone, ...props }: JSX.HTMLAttributes<HTMLElement>&{tone?:"bad"}) {
+export function Card({ children, className, tone, ...props }: JSX.HTMLAttributes<HTMLElement>&{tone?:"bad"|"sunken"}) {
   return <section {...props} className={classes('pc-card', tone&&`pc-card--${tone}`, className)}>{children}</section>;
 }
 export function ApprovalCard({ title, children, actions, className, ...props }: JSX.HTMLAttributes<HTMLElement> & {

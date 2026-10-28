@@ -32,6 +32,8 @@ New managed work uses strict delegation enforcement. Pacer admits a local execut
 
 Open **Settings → Dispatcher → Native subagent control** or run `pacer dispatch enforcement --repo .` to inspect each executor. `pacer dispatch probe --repo . --executor RUNNER` starts a background check that may use account quota; its response includes a job ID for `pacer api call job.get`. The app follows that job automatically. Connect that executor's native Pacer integration before probing. Claude Code currently has a certifying native tool-result observer. Codex, Cursor and permission-only adapters remain uncertified until a host-observed probe proves child startup was prevented. Project-level native control overrides are also left uncertified until they can be probed in the exact launch environment.
 
+Certificates expire within 24 hours, so the service also renews them on a timer. Because a probe spends the quota of the account it certifies, it runs only with your consent: `pacing.planner_probe` is `ask` by default, and nothing is probed until you answer in Dispatcher or through `dispatch.enforcement.consent`; `auto` renews without asking and `off` disables scheduling while leaving manual verification available. Scheduling also stops short of probing when `pacing.planner_reserve_headroom` would be breached, when headroom cannot be measured, during failure backoff, past a daily ceiling, and when the runner is not listed in a routing rule. An over-ceiling probe cost or repeated repository switching pauses probing for at least 24 hours, then scheduling retries when eligible; the daily ceiling still applies. Dispatcher and `pacer doctor` show the consent state, the next eligible probe and the last measured cost; declining consent is a recorded answer, and probing turned off is a setting rather than a fault.
+
 Strict executor attempts get an enforcement identity for the native guard. They get a separate child work grant only when delegation is allowed. The guard denies native subagent calls and reports the denial to the service through an operation limited to that attempt. It directs the executor to `dispatch.child`; Pacer selects and records an authorized child. This is admission-time control of supported native subagent tools. It cannot prevent an executor from starting another AI CLI or calling a provider API through an unrestricted shell.
 
 ## Configure the choice ladder
@@ -102,6 +104,31 @@ The explanation does not model admission-time factors, and names them in `uncert
 Known differences from the admission stage: capacity reserved by running work is reported in `uncertainty` and not subtracted from headroom; a busy non-reentrant plugin engine is not detected (only a `ready` plugin is called); a requested executor outside the project's executor policy is not refused here; `strategy.source` is `strategy` or `built-in`, never `project`; a slot-full requested executor returns `queue`.
 
 Reason codes: `step_match`, `capacity_comfortable`, `capacity_usable`, `capacity_unknown`, `override`, `planner_account`, `runner_disabled`, `not_configured`, `blocked_by_user`, `quota_exhausted`, `not_installed`, `signed_out`, `unavailable`, `ineligible`, `runner_unhealthy`, `requirements_not_met`, `pinned_to_other_model`, `executor_busy`, `machine_busy`, `host_unreachable`, `host_reachability_unknown`, `host_paused`, `repo_not_on_host`, `needs_new_worktree`, `local_grant_required`, `enforcement_uncertified`, `other_exclusion`, `step_kind_mismatch`, `step_no_candidates`, `no_step_matched`, `paused`, `engine_failed`, `override_unavailable`, `planner_not_measured`, `too_few_samples`, `planner_is_executor`, `cached_preview`, `capacity_unmeasured`, `default_model_unresolved`, `enforcement_unverified`, `engine_not_running`, `learning_unavailable`, `tasks_unavailable`, `reserved_capacity`, `admission_hooks`.
+
+## Import a GitHub issue
+
+`issue.import` and `issue.search` let a client start a task from a GitHub issue (the New task composer's "From an issue" option). Both are read only: they start, reserve and write nothing, and they are refused for executor sessions.
+
+- `issue.import` params: `repo`, the key of a repository pacer already knows (`repo.list`), and `issue`, a number (`"217"` or `"#217"`) or an issue URL in that repository. Result: `repo`, `github` (`owner/name`), `number`, `title`, `body`, `labels` (names), `url`, `state` (`open` or `closed`) and `truncated: {title, body}`.
+- `issue.search` params: `repo`, `query` (GitHub search syntax), and optionally `state` (`open` by default, `closed` or `all`) and `limit` (1–50, default 20). Result: `repo`, `github` and `issues`, each with `number`, `title`, `labels`, `url` and `state`, but no body. A query with a `repo:`, `org:` or `user:` qualifier is refused (`invalid_input`). Identical searches within 30 s share one `gh` call, including one still running, and failures are not cached. At most two `gh` processes run at once and up to eight more wait; further calls fail at once with `unavailable` (`gh_failed`).
+
+The GitHub repository comes from the checkout's `origin` remote, never from the request; a URL for another repository is refused, and anything gh returns that is not this repository's issue (another repository's item, a pull request, a moved issue) is refused or dropped from search results. pacer calls `gh issue view` or `gh issue list` with an argument vector and the user's own `gh` login. It never reads, stores or sends the token. `gh` gets only the environment it needs (home, path, locale, `XDG_*`, proxy and certificate settings, `GH_TOKEN`, `GITHUB_TOKEN`, `GH_CONFIG_DIR`); pacer's own tokens and endpoint keys are not passed. Its output is capped at 4 MiB while it is read.
+
+Issue text is untrusted. It is returned as plain text: control characters, invisible format characters (bidirectional overrides, zero-width and tag characters) and variation selectors are removed, HTML comments and link reference definitions (Markdown a rendered preview does not show) are removed from the body, the title is cut to 300 characters and the body to 64 KiB of UTF-8, and `truncated` says when that happened. Clients render it as text, and the user confirms the request before it becomes a task.
+
+Errors carry `data.reason` over HTTP:
+
+| Reason | Code | When |
+|---|---|---|
+| `gh_missing` | `unavailable` (503) | `gh` is not on the service's `PATH` |
+| `gh_unauthenticated` | `not_allowed` (403) | `gh` is not signed in to github.com |
+| `rate_limited` | `rate_limited` (429) | GitHub's rate limit was reached |
+| `not_github` | `invalid_input` (400) | the `origin` remote is not a github.com repository |
+| `unknown_repo` | `invalid_input` (400) | `repo` is not a registered repository key |
+| `repo_mismatch` | `invalid_input` (400) | the issue URL names another repository |
+| `repo_not_found` | `not_found` (404) | the repository is missing or not visible to the `gh` login |
+| `issue_not_found` | `not_found` (404) | the issue does not exist or is a pull request (also `invalid_input` for a malformed reference) |
+| `gh_failed` | `unavailable` (503) | `gh` timed out, failed otherwise or returned unexpected output |
 
 ## History and limits
 

@@ -18,7 +18,7 @@ import { Button, TextAction } from "../../ds/Button";
 import { arkcliRefreshMessage, arkcliSignInRequired, type Account } from "../../model/accounts";
 import { useTaskContext } from "../task-shared";
 import { AgentsIntro } from "./Executors";
-import { Feedback, Field, ResourceState, Section, useOperation, useResource } from "./shared";
+import { Feedback, Field, ResourceState, Section, useOperation, useResource, useScoped } from "./shared";
 
 const agentOf = (account: Account, summary?: AccountSummary) => summary?.agent ?? (account.kind === "claude" ? "claude-code" : account.kind === "endpoint" ? "opencode" : account.kind);
 
@@ -33,6 +33,7 @@ export function accountUsageWords(summary?: AccountSummary): string {
 }
 
 export function AccountsSection({ initialData, initialConfig }: { initialData?: Account[]; initialConfig?: ConfigData }) {
+  const scoped = useScoped();
   const query = useResource<Account[]>("account.list", {}, initialData),
     action = useOperation(query.reload),
     { state, api } = useTaskContext();
@@ -109,7 +110,7 @@ export function AccountsSection({ initialData, initialConfig }: { initialData?: 
             <Field label="Agent"><ChoicePicker value={kind} options={[{ value: "codex", label: "Codex" }, { value: "claude", label: "Claude Code" }]} onValueChange={setKind} /></Field>
           </div>
           <Button type="submit" disabled={action.busy}>Create account</Button>
-          <p><TextAction href="#/settings/add-executor">Connect an API endpoint through Add agent</TextAction></p>
+          <p><TextAction href={scoped("#/settings/add-executor")}>Connect an API endpoint through Add agent</TextAction></p>
         </form>
       )}
       <AccountPolicy initialData={initialConfig}/>

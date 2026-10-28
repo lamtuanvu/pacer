@@ -17,13 +17,15 @@ import { runAttempt } from "../src/exec/direct";
 import { fakeCtx, gitRepo, realRun, tmpDir, withLoginIndicators } from "./helpers";
 
 const strategy = validateStrategy({ planner: "claude-code", providers: { "claude-code": {}, codex: {}, cursor: {} }, routing: [{ default: ["codex", "cursor"] }] }, "/x");
+// Fake executors here answer headlessly.
+for (const p of Object.values(strategy.providers)) p.session = "headless";
 function executorCtx() {
   const bin = tmpDir(), path = join(bin, "cursor-agent");
   writeFileSync(path, '#!/bin/sh\n[ "$1" = create-chat ] && exit 1\ncat >/dev/null\necho executed\n');
   chmodSync(path, 0o755);
   return fakeCtx({ run: realRun, env: { PATH: `${bin}:${process.env.PATH}` } });
 }
-const strategyText = "planner: claude-code\nproviders:\n  claude-code: {}\n  codex: {}\n  cursor: {}\n";
+const strategyText = "planner: claude-code\nproviders:\n  claude-code: {}\n  codex: {}\n  cursor: {}\nexecution:\n  launch_mode: headless\n";
 
 test("explicit CLI repo preserves the real linked checkout despite registry aliases", async () => {
   const ctx = fakeCtx({ run: realRun }), repo = gitRepo(), wt = join(tmpDir(), "linked"), link = join(tmpDir(), "alias");

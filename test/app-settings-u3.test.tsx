@@ -38,12 +38,8 @@ test('Planner uses the actual planner agent without mounting other settings',()=
 });
 test('the update checkbox keeps its label inline', () => {
  const html = render(<SettingsGeneral section="updates" initialData={settings}/>);
- const labels = [...html.matchAll(/<label class="pc-checkbox pc-checkbox--bare">([\s\S]*?)<\/label>/g)];
- // The update row's checkbox sits in a bare hit-area label; SettingRow's own label names it.
- expect(labels).toHaveLength(1);
- for (const [, body] of labels) { expect(body).toMatch(/class="[^"]*pc-checkbox__input[^"]*"/); expect(body).toContain('type="checkbox"'); }
  // The update preference is a SettingRow: its label names the checkbox.
- const id = /<label[^>]*for="([^"]+)"[^>]*>Check for updates<\/label>/.exec(html)?.[1];
+ const id = /<label[^>]*for="([^"]+)"[^>]*>Check automatically<\/label>/.exec(html)?.[1];
  expect(html).toMatch(new RegExp(`<input(?=[^>]*type="checkbox")(?=[^>]*id="${id}")`));
 });
 test('all General sections provide loading and empty states',()=>{
@@ -92,15 +88,12 @@ test('section failures show the service hint and a retry action',async()=>{
 });
 test('standalone screens bundle for the browser with their CSP compatible styles',async()=>{
  const {APP_JS_BUDGET}=await import('../app/build');
- // Split like the shipped app, so lazy screens are measured as the chunks the browser loads.
  const result=await Bun.build({entrypoints:['app/src/screens/settings/index.ts'],target:'browser',minify:true,splitting:true});
- expect(result.success).toBe(true);
- const chunks=await Promise.all(result.outputs.filter(file=>file.path.endsWith('.js')).map(async file=>({path:file.path,kind:file.kind,text:await file.text()})));
- expect(chunks.filter(chunk=>chunk.kind==='entry-point')).toHaveLength(1);
- const all=chunks.map(chunk=>chunk.text).join('\n');expect(all).toContain('adoptedStyleSheets');expect(all).toContain('--surface-card');
- // Each chunk, the entry included, stays within the governed UI-3 budget.
- const over=chunks.map(chunk=>({path:chunk.path,gzip:Bun.gzipSync(chunk.text).byteLength})).filter(chunk=>chunk.gzip>=APP_JS_BUDGET);
- expect(over).toEqual([]);
+ expect(result.success).toBe(true);expect(result.outputs.length).toBeGreaterThan(0);
+ const chunks=await Promise.all(result.outputs.map(output=>output.text()));
+ const text=chunks.join('\n');expect(text).toContain('adoptedStyleSheets');expect(text).toContain('--surface-card');
+ // Production settings use lazy chunks; apply the unchanged UI-3 budget to each emitted chunk.
+ for(const chunk of chunks) expect(Bun.gzipSync(chunk).byteLength).toBeLessThan(APP_JS_BUDGET);
 });
 test('restored executor draft resumes checks and Ready follows a passed job only',()=>{
  const initialDraft={step:'4',agent:'codex',account:'team',host:'devbox',createdId:executor.id,jobId:job.id};
@@ -148,10 +141,10 @@ test('Ark CLI quota authentication errors show recovery in the affected account'
  expect(html).not.toContain('No subscription');
 });
 
-test('multiple accounts always shows the threshold beside Spread and Fill, disabled only for Spread',()=>{
+test('multiple accounts retains the threshold as a board row, disabled only for Spread',()=>{
  for(const mode of ['spread','fill']) {
   const html=render(<SettingsGeneral section="planner" initialData={{...settings,config:{...settings.config,keys:{...settings.config.keys,'pacing.accounts':{value:mode}}}}}/>);
-  expect(html).toContain('class="u3-accounts-mode"');
+  expect(html).toContain('class="pc-budget-threshold"');
   expect(html).toContain('Move to the next account at');
   expect(html).toContain('% used');
   expect(html).toMatch(mode==='spread'?/max="100" disabled value="80"/:/max="100" value="80"/);
@@ -184,13 +177,13 @@ test('General exposes named parallel tasks controls and shared capacity notes',(
  const planner=render(<SettingsGeneral section="executors" initialData={settings}/>,{...state,snapshot:{...state.snapshot,executors:[{...limited,rank:'planner'}]}});
  expect(planner).not.toContain('Parallel tasks for '+executor.id);
 });
-test('settings pages leave their page title to the shell and inline links are underlined', () => {
- for (const child of [<SettingsGeneral initialData={settings}/>, <AddExecutor/>, <SettingsGeneral section="machine" initialData={settings}/>, <HostDetail alias="devbox" initialData={host}/>]) {
+test('board pages render their headline and other editors retain shell titles', () => {
+ expect(render(<SettingsGeneral section="planner" initialData={settings}/>)).toContain('<h1>Budget &amp; pacing</h1>');
+ for (const child of [<AddExecutor/>, <HostDetail alias="devbox" initialData={host}/>]) {
   expect(render(child)).not.toContain('<h1');
  }
  const emptyState = {...state,snapshot:{...state.snapshot,hosts:[]}};
- expect(render(<SettingsGeneral section="machine" initialData={settings}/>, emptyState)).not.toContain('>Machines</h2>');
- expect(render(<SettingsGeneral initialData={settings}/>, emptyState)).toContain('href="#/settings/machine"');
+ expect(render(<SettingsGeneral section="machine" initialData={settings}/>, emptyState)).not.toContain('>Remote hosts</h2>');
 });
 
 test('Settings and host executors share uncertainty; retained account usage is historical',()=>{
@@ -206,13 +199,13 @@ test('Settings and host executors share uncertainty; retained account usage is h
  expect(render(<HostDetail alias="devbox" initialData={{...host,executors:[known] as any}}/>)).toContain('observed 3h ago');
 });
 
-test('Executors copy matches routing: a failed check does not skip an executor',()=>{
+test('Agents copy matches routing: a failed check does not skip an executor',()=>{
  const html=render(<SettingsGeneral section="executors" initialData={settings}/>);
  expect(html).not.toContain('skipped until it passes again');
  expect(html).toContain('Unavailable executors are skipped; warning states may still receive work.');
 });
 
-test('a not-tested endpoint executor reads Not tested, not Ready, in Executors',()=>{
+test('a not-tested endpoint executor reads Not tested, not Ready, in Agents',()=>{
  const row={...executor,id:'opencode#lab',agent:'opencode',account:'lab',host:null,state:'ready',untested:true,reason:'not tested — run a check',lastCheck:null} as any;
  const html=render(<SettingsGeneral section="executors" initialData={settings}/>,{...state,snapshot:{...state.snapshot,executors:[row]}});
  expect(html).toMatch(/pc-pill[^"]*"[^>]*>(?:<span[^>]*>[^<]*<\/span>)?Not tested<\/span>/);
@@ -255,13 +248,14 @@ test('historical endpoint usage keeps its weekly spend and cap', () => {
 
 test('Updates identifies the service and preserves failed-check status', () => {
  const html = render(<SettingsGeneral section="updates" initialData={{updates:{current:'0.5.0',latest:'0.5.0',available:false}}}/>);
- expect(html).toContain('Service 0.5.0 · Up to date');
+ expect(html).toContain('pacer 0.5.0');
+ expect(html).toContain('Up to date');
  expect(html).not.toContain('Desktop app');
  const failed = render(<SettingsGeneral section="updates" initialData={{updates:{current:'0.5.0',latest:'0.5.0',available:false,error:'offline'}}}/>);
  expect(failed).toContain('Update check failed');
  expect(failed).not.toContain('Up to date');
  const available = render(<SettingsGeneral section="updates" initialData={{updates:{current:'0.3.1',latest:'0.5.0',available:true}}}/>);
- expect(available).toContain('Update service and restart');
+ expect(available).toContain('Install 0.5.0');
 
 });
 
@@ -288,10 +282,9 @@ test('paged Updates keeps OTA controls, service identity and navigation status t
  expect(html).not.toContain('Update service and restart');
  expect(html).not.toContain('Pacing policy');
  const panel=renderToString(<SettingsPanel route={{name:'settings',section:'updates',query:{repo:null,scope:null}}} counts={null} snapshot={updated.snapshot}/>);
- expect(panel).toContain('<span class="sr-only">Update ready</span>');
- expect(panel).toContain('>↑</span>');
- expect(panel).toContain('pc-settings-nav__badge--info');
- expect(panel).toContain('title="Update ready"');
+ expect(panel).not.toContain('pc-settings-nav__badge--info');
+ expect(panel).not.toContain('title="Update ready"');
+ expect(panel).toContain('>App preferences<');
  expect(panel.match(/aria-current="page"/g)).toHaveLength(1);
 });
 

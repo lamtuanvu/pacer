@@ -1021,10 +1021,13 @@ Params JSON Schema:
       "enum": [
         "task_retention_days",
         "execution.local_max_tasks",
+        "execution.launch_mode",
         "planner",
         "pacing.order",
         "pacing.policy",
         "pacing.planner_reserve",
+        "pacing.planner_reserve_headroom",
+        "pacing.planner_probe",
         "pacing.accounts",
         "pacing.fill_threshold",
         "update_check",

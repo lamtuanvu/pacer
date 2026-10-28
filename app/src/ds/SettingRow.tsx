@@ -6,8 +6,8 @@ import { Pill, type PillProps } from "./Pill";
 export interface SettingStatus { tone: NonNullable<PillProps["tone"]>; label: string }
 
 /** The single settings row grammar: label and description on the left, control on the right. */
-export function SettingRow({ label, description, status, children, layout }: {
-  layout?: "stacked"; label: ComponentChildren; description?: ComponentChildren; status?: SettingStatus; children: ComponentChildren;
+export function SettingRow({ label, description, status, children, variant, headingLevel, layout }: {
+  headingLevel?: 3; layout?: "stacked"; variant?: "board" | "budget"; label: ComponentChildren; description?: ComponentChildren; status?: SettingStatus; children: ComponentChildren;
 }) {
   const base = `setting-${useId()}`, labelId = `${base}-label`, descriptionId = description ? `${base}-description` : undefined;
   // A canonical form control takes the row label and description. Anything else (segmented groups, buttons,
@@ -19,10 +19,11 @@ export function SettingRow({ label, description, status, children, layout }: {
   const toggle = control && (control.type === Checkbox || control.type === Switch);
   const content = control ? connectControl(children, control, { id: controlId, 'aria-describedby': [control.props['aria-describedby'], descriptionId].filter(Boolean).join(' ') || undefined }, toggle ? node => <label className="pc-checkbox pc-checkbox--bare">{node}</label> : undefined) : children;
   const group = control ? {} : { role: "group" as const, "aria-labelledby": labelId, "aria-describedby": descriptionId };
-  return <div className={`pc-setting-row${layout?` pc-setting-row--${layout}`:""}`} {...group}>
+  const title = control ? <label id={labelId} htmlFor={controlId} className="pc-setting-row__label">{label}</label> : <span id={labelId} className="pc-setting-row__label">{label}</span>;
+  return <div className={`pc-setting-row${variant ? " pc-setting-row--board" : ""}${variant === "budget" ? " pc-setting-row--budget" : ""}${layout ? ` pc-setting-row--${layout}` : ""}`} {...group}>
     <div className="pc-setting-row__text">
       <div className="pc-setting-row__heading">
-        {control ? <label id={labelId} htmlFor={controlId} className="pc-setting-row__label">{label}</label> : <span id={labelId} className="pc-setting-row__label">{label}</span>}
+        {headingLevel === 3 ? <h3 className="pc-setting-row__h3">{title}</h3> : title}
         {status && <Pill tone={status.tone}>{status.label}</Pill>}
       </div>
       {description && <p id={descriptionId} className="pc-setting-row__description">{description}</p>}

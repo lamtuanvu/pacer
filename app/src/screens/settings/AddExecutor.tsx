@@ -16,7 +16,7 @@ import { AGENT_KINDS, REMOTE_AGENTS, accountRequired, agentStepProblem, agents, 
 import { useDraft, useTaskContext } from "../task-shared";
 import { OpencodeSetup } from "./OpencodeSetup";
 import { useDialogs } from "../../ds/useDialogs";
-import { Feedback, Field, latestJob, ResourceState, useOperation, useResource, words } from "./shared";
+import { Feedback, Field, latestJob, ResourceState, useOperation, useResource, useScoped, words } from "./shared";
 export const executorId = ({ agent, account, host }: { agent: string; account: string; host: string }) =>
   `${agent}${account ? `#${account}` : ""}${host && host !== "local" ? `@${host}` : ""}`;
 export const executorReady = (job: Job | undefined, target?: string) =>
@@ -26,6 +26,7 @@ const TITLES = ["Agent", "Account", "Where it runs", "Model and test"];
 export function AddExecutor({ host: prefillHost = "", initialDraft = {}, initialAccounts, initialDetection, initialUrlForm = false }: {
   host?: string; initialDraft?: Partial<AgentDraft>; initialAccounts?: Account[]; initialDetection?: AgentDetection[]; initialUrlForm?: boolean;
 }) {
+  const scoped = useScoped();
   const { state, api } = useTaskContext(),
     [draft, setDraft, clearDraft] = useDraft("pacer.settings.add-executor", { ...blankAgentDraft, host: prefillHost, ...initialDraft });
   const accounts = useResource<Account[]>("account.list", {}, initialAccounts),
@@ -64,7 +65,7 @@ export function AddExecutor({ host: prefillHost = "", initialDraft = {}, initial
   const values = [name, draft.account || (accountRequired(draft.agent) ? "" : "Its own sign-in"), `${facts.hosts.includes(draft.host) ? draft.host : "This machine"} · ${draft.maxTasks} parallel`, ready ? "Ready" : job ? "Test task run" : "Not tested yet"];
   return (
     <div className="u3-add-agent">
-      <nav className="u3-breadcrumb" aria-label="Breadcrumb"><TextAction href="#/settings/executors">Agents</TextAction><span aria-hidden="true">/</span><span>Add an agent</span></nav>
+      <nav className="u3-breadcrumb" aria-label="Breadcrumb"><TextAction href={scoped("#/settings/executors")}>Agents</TextAction><span aria-hidden="true">/</span><span>Add an agent</span></nav>
       <div className="u3-wizard">
       {dialogs.dialog}
       <div className="sr-only" role="status" aria-live="polite">Step {step} of 4: {TITLES[step - 1]}</div>
@@ -111,10 +112,10 @@ export function AddExecutor({ host: prefillHost = "", initialDraft = {}, initial
                   ...(facts.hosts.length ? [{ value: "remote", label: <><strong>A remote host</strong><span className="u3-muted">Choose a configured host below</span></> }] : [])]}
                 onChange={v => patch({ host: v === "local" ? "" : facts.hosts[0] ?? "" })} />
             : <p>{name} runs on this machine. Only Codex and Claude Code can run on a remote host.</p>}
-          {REMOTE_AGENTS.includes(draft.agent) && !facts.hosts.length && <p className="u3-muted">No remote hosts yet. <TextAction href="#/settings/machine">Add one in Machines</TextAction></p>}
+          {REMOTE_AGENTS.includes(draft.agent) && !facts.hosts.length && <p className="u3-muted">No remote hosts yet. <TextAction href={scoped("#/settings/machine")}>Add one in Machines</TextAction></p>}
           {draft.host && (facts.hosts.length
             ? <SettingRow label="Remote host"><ChoicePicker value={draft.host} placeholder="Choose a host" options={state.snapshot!.hosts!.map(h => ({ value: h.alias, label: `${h.alias} · ${words(h.state)}` }))} onValueChange={host => patch({ host })} /></SettingRow>
-            : <p>No remote hosts yet. <TextAction href="#/settings/machine">Add one in Machines</TextAction></p>)}
+            : <p>No remote hosts yet. <TextAction href={scoped("#/settings/machine")}>Add one in Machines</TextAction></p>)}
           <SettingRow label="Parallel tasks" description="1–16; the machine’s own limit still applies.">
             <TextInput className="u3-parallel-input" type="number" min="1" max="16" step="1" required value={draft.maxTasks} onInput={e => patch({ maxTasks: e.currentTarget.value })} />
           </SettingRow>
@@ -140,9 +141,9 @@ export function AddExecutor({ host: prefillHost = "", initialDraft = {}, initial
           <span className="u3-muted">{problem ?? `Step ${step} of 4 · Draft kept for this session${locked ? "; agent added; test before Ready" : ""}`}</span>
           {ready ? <>
             <Button onClick={() => { action.clear(); setResumed(undefined); setResumeError(""); setUrlForm(false); setDraft({ ...blankAgentDraft }); }}>Add another agent</Button>
-            <ButtonLink variant="primary" href="#/settings/executors" onClick={clearDraft}>Open agents</ButtonLink>
+            <ButtonLink variant="primary" href={scoped("#/settings/executors")} onClick={clearDraft}>Open agents</ButtonLink>
           </> : <>
-            {locked ? <><Button disabled={action.busy} onClick={() => void removeAgent()}>Remove this agent</Button><Button variant="quiet" disabled={action.busy} onClick={startOver}>Start over</Button></> : <TextAction href="#/settings/executors">Cancel</TextAction>}
+            {locked ? <><Button disabled={action.busy} onClick={() => void removeAgent()}>Remove this agent</Button><Button variant="quiet" disabled={action.busy} onClick={startOver}>Start over</Button></> : <TextAction href={scoped("#/settings/executors")}>Cancel</TextAction>}
             {step > 1 && !locked && <Button disabled={action.busy} onClick={() => patch({ step: String(step - 1) })}>Back</Button>}
             {step < 4 ? !picker && <Button variant="primary" disabled={action.busy || !!problem} onClick={() => patch({ step: String(step + 1) })}>Continue</Button>
               : null}

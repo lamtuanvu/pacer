@@ -14,7 +14,7 @@ import { AgentMark } from "../../ds/AgentMark";
 import { Pill } from "../../ds/Pill";
 import { Button, ButtonLink, TextAction } from "../../ds/Button";
 import { ErrorMessage, useTaskContext } from "../task-shared";
-import { Feedback, Field, ResourceState, Section, useOperation, useResource, words } from "./shared";
+import { Feedback, Field, ResourceState, Section, useOperation, useResource, words, useScoped } from "./shared";
 
 /** pacer host names: lower-case letters, digits and hyphens; "local" names this machine. */
 export function hostNameProblem(name: string, taken: readonly string[] = []): string | null {
@@ -58,6 +58,9 @@ function ThisMachine({ initialData }: { initialData?: ConfigData }) {
       <div className="u3-actions"><TextInput className="u3-parallel-input" type="number" min="1" max="16" step="1" required value={String(value ?? 2)} disabled={action.busy}
         onChange={e => { if (e.currentTarget.validity.valid) void action.run("config.set", { key: "execution.local_max_tasks", value: Number(e.currentTarget.value) }); }} />{caps && <span className="u3-muted">{caps}</span>}</div>
     </SettingRow>
+    <SettingRow label="Delegated task launch" description="Interactive runs open in the agent's terminal UI and finish when the agent reports its result. Headless runs the agent's non-interactive CLI. A runner's own session setting overrides this.">
+      <ChoicePicker aria-label="Delegated task launch" value={String(keys?.["execution.launch_mode"]?.value ?? "interactive")} options={[{ value: "interactive", label: "Interactive" }, { value: "headless", label: "Headless" }]} disabled={action.busy} onValueChange={choice => void action.run("config.set", { key: "execution.launch_mode", value: choice })} />
+    </SettingRow>
     <SettingRow label="Terminal for sessions" description="Where “Open elsewhere” goes">
       <ChoicePicker className="u3-terminal-picker" aria-label="Terminal for sessions" value={selected} options={options} disabled={action.busy} onValueChange={choice => void action.run("config.set", { key: "terminal.open", value: choice })} />
     </SettingRow>
@@ -67,6 +70,7 @@ function ThisMachine({ initialData }: { initialData?: ConfigData }) {
 
 /** Guided add: an alias from the user's SSH config, a pacer name, then a live connect-and-check list. */
 export function AddHost({ initialAliases }: { initialAliases?: string[] }) {
+  const scoped = useScoped();
   const { state } = useTaskContext(), aliases = useResource<string[]>("host.suggest", {}, initialAliases);
   // Adding only records the alias; the result that matters is the check, so adding stays quiet.
   const add = useOperation(undefined, { notifySuccess: false }), check = useOperation();
@@ -102,7 +106,7 @@ export function AddHost({ initialAliases }: { initialAliases?: string[] }) {
     {job && <CheckList label={`Checks for ${added}`} items={checkItems(job)} />}
     {job?.error && <p role="alert">{job.error.message}{job.error.hint && ` · ${job.error.hint}`}</p>}
     {passed && <><p className="u3-muted" role="status">{added} is connected. Next, map the repositories it should work on and add its executors.</p>
-      <div className="u3-actions"><ButtonLink variant="primary" href={`#/settings/hosts/${encodeURIComponent(added)}`}>Map repositories</ButtonLink><ButtonLink href={`#/settings/add-executor?host=${encodeURIComponent(added)}`}>Add an agent here</ButtonLink></div></>}
+      <div className="u3-actions"><ButtonLink variant="primary" href={scoped(`#/settings/hosts/${encodeURIComponent(added)}`)}>Map repositories</ButtonLink><ButtonLink href={scoped(`#/settings/add-executor?host=${encodeURIComponent(added)}`)}>Add an agent here</ButtonLink></div></>}
     <Feedback action={add} />
     <ErrorMessage error={check.error} />
     </>}
@@ -110,6 +114,7 @@ export function AddHost({ initialAliases }: { initialAliases?: string[] }) {
 }
 
 function RemoteHostList() {
+  const scoped = useScoped();
   const { state } = useTaskContext(), hosts = state.snapshot?.hosts;
   if (!hosts?.length) return null;
   return <section aria-labelledby="remote-hosts" className="u3-section">
@@ -120,7 +125,7 @@ function RemoteHostList() {
         <td data-label="Checks">{words(host.state)}</td>
         <td data-label="Parallel tasks">{host.running} of {host.maxTasks} running</td>
         <td data-label="Executors">{host.executors.length ? <div className="u3-chips">{host.executors.map(id => <span className="u3-chip" key={id} title={id}><AgentMark agent={id.split("#")[0]!} size={16} labelled={false} />{executorLabel(id)}</span>)}</div> : <span className="u3-muted">None yet</span>}</td>
-        <td data-label="Actions"><TextAction href={`#/settings/hosts/${encodeURIComponent(host.alias)}`}>Manage<span className="sr-only"> {host.alias}</span></TextAction></td>
+        <td data-label="Actions"><TextAction href={scoped(`#/settings/hosts/${encodeURIComponent(host.alias)}`)}>Manage<span className="sr-only"> {host.alias}</span></TextAction></td>
       </tr>)}</tbody></table></div>
   </section>;
 }

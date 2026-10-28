@@ -69,18 +69,6 @@
         "provisional": "File viewer board: Source/Preview segmented control."
       },
       {
-        "name": "radius-key",
-        "value": "4px",
-        "usage": "Small key caps in the command menu and title-bar search.",
-        "provisional": "Command menu board value; not yet in the design system."
-      },
-      {
-        "name": "radius-tile",
-        "value": "7px",
-        "usage": "Glyph tiles in command menu rows.",
-        "provisional": "Command menu board value; not yet in the design system."
-      },
-      {
         "name": "radius-agents",
         "value": "10px",
         "provisional": "Settings Agents and Accounts board geometry."

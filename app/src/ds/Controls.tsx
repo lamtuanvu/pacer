@@ -70,8 +70,8 @@ export const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(function Che
 export function Radio({ className, ...props }: InputProps) {
   return <input {...props} type="radio" className={classes('pc-radio', className)} />;
 }
-export const Switch = forwardRef<HTMLInputElement, CheckboxProps>(function Switch(props, ref) {
-  return <Checkbox {...props} ref={ref} role="switch" className={classes('pc-switch', props.className)} />;
+export const Switch = forwardRef<HTMLInputElement, Omit<CheckboxProps, "size"> & { size?: CheckboxProps["size"] | "sm" }>(function Switch({ size, ...props }, ref) {
+  return <Checkbox {...props} size={size === "sm" ? undefined : size} ref={ref} role="switch" aria-checked={props.checked === undefined ? props["aria-checked"] : !!props.checked} className={classes('pc-switch', size === "sm" && 'pc-switch--sm', props.className)} />;
 });
 export const Range = forwardRef<HTMLInputElement, InputProps & { label?: ComponentChildren }>(function Range({ label, id, className, ...props }, ref) {
   const generated = useId();

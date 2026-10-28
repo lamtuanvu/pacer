@@ -11,6 +11,7 @@ import { commands, keys } from "../../app/src/keys/instance";
 import { Field, TextInput } from "../../app/src/ds/Controls";
 import { Page, PageBody, Section } from "../../app/src/ds/Page";
 import { Button } from "../../app/src/ds/Button";
+import { NotificationProvider } from "../../app/src/data/notification-context";
 
 // Browser fixture for the window frame: the real Layout around a settings-like page, with a stub service.
 const terminals: any[] = [];
@@ -20,10 +21,11 @@ const api = { async call(op: string, params?: unknown) {
   if (op === "terminal.list") return [...terminals];
   if (op === "terminal.create") { const id = `00000000-0000-4000-8000-${String(terminals.length + 1).padStart(12, "0")}`; terminals.push({ id, kind: "shell", title: "Shell", cwd: "/workspace", createdAt: 1, rev: 1, live: true, exit: null, cols: 80, rows: 24, attach: { ws: `/v3/terminals/${id}/session` } }); return terminals.at(-1); }
   if (op === "account.list") return [];
+  if (op === "files.search") { ((window as any).fileCalls ??= []).push(params); if ((window as any).failFiles) throw new Error("no"); return { query: (params as any).query, results: [], truncated: false, repos: [], ...(window as any).filesAnswer }; }
   if (op === "delegation.pause") { ((window as any).dispatchCalls ??= []).push(["pause", params]); if ((window as any).failPause) throw new Error("service said no"); return {}; }
   return {};
 }, hello: async () => ({}), snapshot: async () => ({}) };
-const state = { ...initialState(), connected: true, snapshot: fixture as any, features: { readModel: true, ops: new Set(["terminal.create", "delegation.pause"]) } };
+const state = { ...initialState(), connected: true, snapshot: fixture as any, features: { readModel: true, ops: new Set(["terminal.create", "delegation.pause", "files.search"]) } };
 function App() {
   const [hash, setHash] = useState(location.hash || "#/settings");
   useEffect(() => { const update = () => setHash(location.hash); addEventListener("hashchange", update); keys.setScope((resolveRoute(hash) as Route).name); return () => removeEventListener("hashchange", update); }, [hash]);
@@ -43,4 +45,4 @@ commands.register({ id: "help.shortcuts", title: "Show keyboard shortcuts", grou
 commands.register({ id: "view.count", title: "Count one", group: "View", icon: "plus", run: () => { (window as any).counted = ((window as any).counted ?? 0) + 1; } });
 commands.register({ id: "task.new", title: "New task", sub: "Describe it and pacer routes it", group: "Suggested", icon: "plus", keywords: "delegate start", opensDialog: true, keys: "d", shortcutLabel: "Delegate a task", run: () => { (window as any).newTask = ((window as any).newTask ?? 0) + 1; } });
 attachKeyRegistry(keys, window);
-render(<App />, document.getElementById("app")!);
+render(<NotificationProvider><App /></NotificationProvider>, document.getElementById("app")!);
