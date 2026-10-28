@@ -59,8 +59,8 @@ progress.pc-insights__c0,progress.pc-insights__c1,progress.pc-insights__c2,progr
 .pc-insights__p-1::-moz-progress-bar{background:var(--good-fill)}.pc-insights__p-2::-moz-progress-bar{background:var(--warn-fill)}.pc-insights__p-P::-moz-progress-bar{background:var(--chart-2)}.pc-insights__p-Q::-moz-progress-bar{background:var(--ink-muted)}
 .pc-insights__heat{min-width:0}
 .pc-insights__heat thead th{text-align:center}
-.pc-insights__heat td.pc-insights__cell{text-align:center;border-top:0;font-weight:var(--type-body-strong-weight);border-radius:var(--radius-sm);height:calc(var(--space-1) * 8.5);background-clip:padding-box}
-.pc-insights__heat tbody th{border-top:0;font-weight:var(--type-body-strong-weight)}
+.pc-insights__heat td.pc-insights__cell{text-align:center;border-top:0;font-weight:var(--type-body-strong-weight);border-radius:var(--radius-sm);height:calc(var(--space-1) * 8.5);padding-block:0;background-clip:padding-box}
+.pc-insights__table.pc-insights__heat tbody th{border-top:0;padding-block:0;font-weight:var(--type-body-strong-weight)}
 .pc-insights__cell--0{background:var(--surface-card);color:var(--ink-muted)}
 .pc-insights__cell--1{background:color-mix(in srgb,var(--chart-1) 16%,transparent);color:var(--ink)}
 .pc-insights__cell--2{background:color-mix(in srgb,var(--chart-1) 42%,transparent);color:var(--ink)}
