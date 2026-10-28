@@ -255,13 +255,21 @@ browserTest('plugin pages share App preferences frame and board control geometry
     expect(await style(cards,'.pc-plugin-settings-link')).toMatchObject({height:'32px',padding:'0px 12px',radius:'8px',fontSize:'13px',weight:'600'});
     expect(await style(cards,'.pc-action-menu__trigger')).toMatchObject({width:'32px',height:'32px',radius:'6px'});
     expect((await style(cards,'.pc-action-menu__trigger')).color).toBe('rgb(82, 82, 91)');
-    expect(await style(editor,'.pc-plugin-remove')).toMatchObject({width:'26px',height:'26px',padding:'0px'});
+    expect(await style(editor,'.pc-plugin-remove')).toMatchObject({width:'26px',height:'26px',padding:'0px',radius:'6px'});
+    expect(await editor.locator('.pc-plugin-remove').first().evaluate(node=>{const probe=document.createElement('span');probe.style.color='var(--ink-secondary)';document.body.append(probe);const want=getComputedStyle(probe).color;probe.remove();return getComputedStyle(node).color===want;})).toBe(true);
     const row=await editor.locator('.pc-plugin-ordered>li').first().evaluate(node=>{const s=getComputedStyle(node);return {height:node.getBoundingClientRect().height,columns:s.gridTemplateColumns.split(' ').length,padding:s.padding,radius:s.borderRadius};});
     expect(row).toMatchObject({height:44,columns:4,padding:'8px 10px',radius:'8px'});
     expect(await editor.getByRole('button',{name:'Move up: Run tests',exact:true}).count()).toBe(0);
     expect(await editor.getByRole('button',{name:'Move down: Update notes',exact:true}).count()).toBe(0);
     await editor.getByRole('button',{name:'Move down: Run tests',exact:true}).focus();await editor.keyboard.press('Enter');
     expect(await editor.locator('.pc-plugin-ordered>li').first().textContent()).toBe('Update notes×');
+    const focused=(label:string)=>editor.waitForFunction(label=>document.activeElement?.getAttribute('aria-label')===label,label,{timeout:2000});
+    await focused('Move up: Run tests');
+    await editor.getByRole('textbox',{name:'Checklist items: new item'}).fill('Ship it');await editor.keyboard.press('Enter');
+    await editor.getByRole('button',{name:'Move down: Update notes',exact:true}).focus();
+    await editor.keyboard.press('Enter');await focused('Move down: Update notes');
+    await editor.keyboard.press('Enter');await focused('Move up: Update notes');
+    expect(await editor.locator('.pc-plugin-ordered__text').allTextContents()).toEqual(['Run tests','Ship it','Update notes']);
     for(const [page,selector] of [[app,'.pc-plugin-manage'],[editor,'.pc-plugin-provenance>.pc-text-action']] as const) {
       expect((await style(page,selector)).fontSize).toBe('12px');
       const link=page.locator(selector);expect(await link.evaluate(node=>getComputedStyle(node).color)).toBe(await link.evaluate(node=>{const probe=document.createElement('span');probe.style.color='var(--link)';node.append(probe);const color=getComputedStyle(probe).color;probe.remove();return color;}));

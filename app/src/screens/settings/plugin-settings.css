@@ -29,7 +29,7 @@
 .pc-plugin-field{display:flex;flex-direction:column;gap:var(--space-2\.5);width:100%;min-width:0}
 .pc-plugin-field__error{color:var(--bad-fg);font-size:var(--type-caption-size)}
 .pc-plugin-repo{display:inline-flex;align-items:center;gap:var(--space-1\.5);height:var(--size-26);padding:0 var(--space-1\.5) 0 var(--space-2\.5);border:1px solid var(--line);border-radius:var(--radius-full);font-family:var(--font-mono);font-size:var(--type-code-size);max-width:100%;overflow-x:auto;white-space:nowrap}
-.pc-btn.pc-plugin-remove{width:var(--size-26);min-width:var(--size-26);height:var(--size-26);min-height:var(--size-26);padding:0}
+.pc-btn.pc-plugin-remove{width:var(--size-26);min-width:var(--size-26);height:var(--size-26);min-height:var(--size-26);padding:0;border-radius:var(--radius-sm);color:var(--ink-secondary)}
 .pc-plugin-ordered{list-style:none;display:flex;flex-direction:column;gap:var(--space-1);margin:0;padding:0}
 .pc-plugin-ordered>li{display:grid;grid-template-columns:var(--size-16) minmax(0,1fr) auto var(--size-26);gap:var(--space-2\.5);align-items:center;padding:var(--space-2) var(--space-2\.5);border:1px solid var(--line);border-radius:var(--radius-md)}
 .pc-plugin-ordered__text{min-width:0;overflow-wrap:anywhere}
