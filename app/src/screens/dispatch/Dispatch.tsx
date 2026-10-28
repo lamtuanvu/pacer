@@ -265,7 +265,7 @@ function useAttentionKeys(query: RouteQuery) {
   }, [runner, state.features.ops]);
 }
 
-/** Two `insights.summary` reads: the period and today. The op arrives with attempt token accounting; without it the strip says so. */
+/** Re-anchor at least this often; settling or reviewing a task moves the anchor sooner. */
 const REANCHOR_S = 300;
 type Read = { op: string; params: unknown };
 /**
@@ -296,9 +296,9 @@ export function holdInsights(held: HeldInsights, period: Period, repo: string | 
 function useInsights(period: Period, repo: string | null): InsightsState {
   const { state } = useTaskContext();
   const supported = state.features.ops.has("insights.summary");
-  // The range ends at an anchor that moves when a task settles and at least every five minutes, not on every render.
+  // The range ends at an anchor that moves when a task settles or is reviewed, and at least every five minutes, not on every render.
   const [anchor, setAnchor] = useState(() => Math.floor(Date.now() / 1000));
-  const settled = state.snapshot?.tasks.filter(task => task.state !== "running" && task.state !== "queued").map(task => `${task.id}:${task.state}`).join(",") ?? "";
+  const settled = state.snapshot?.tasks.filter(task => task.state !== "running" && task.state !== "queued").map(task => `${task.id}:${task.state}:${task.review?.accepted ?? ""}`).join(",") ?? "";
   useEffect(() => { setAnchor(Math.floor(Date.now() / 1000)); }, [settled]);
   useEffect(() => { const t = setInterval(() => setAnchor(Math.floor(Date.now() / 1000)), REANCHOR_S * 1000); return () => clearInterval(t); }, []);
   const reads = insightsReads(period, anchor, repo, supported);
