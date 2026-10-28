@@ -4,7 +4,7 @@ import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, 
 import { join } from "node:path";
 import {
   BACKOFF_BASE_S, BACKOFF_MAX_S, MAX_COST_PCT, MAX_PROBES_PER_DAY, MAX_REPO_SWITCHES,
-  decideProbe, readScheduleState, recordProbeOutcome, writeScheduleState, type ProbeInputs, type ScheduleState,
+  decideProbe, readScheduleState, recordProbeOutcome, settleProbe, writeScheduleState, type ProbeInputs, type ScheduleState,
 } from "../src/dispatch/certification-schedule";
 import { fakeCtx } from "./helpers";
 
@@ -92,14 +92,46 @@ test("mode off never probes and says so distinctly from needing consent", () => 
   expect((ask as { reason: string }).reason).not.toBe((off as { reason: string }).reason);
 });
 
-test("stops after repeated repository switches", () => {
-  const d = decideProbe(inputs(), state({ repoSwitches: MAX_REPO_SWITCHES }), 1_000);
-  expect(d.probe).toBe(false);
+test("repository switching pauses for the maximum backoff, then retries", () => {
+  const now = 1_000;
+  const charged = recordProbeOutcome(state({ repoSwitches: MAX_REPO_SWITCHES - 1 }),
+    "planner-key", "/other", { certified: false, costPct: null }, now);
+  // A successful certification must not erase the repository-switch pause.
+  const paused = settleProbe(charged, "planner-key", { certified: true, costPct: 0 }, now);
+  expect(paused.attempts["planner-key"].nextEligibleAt).toBe(now + BACKOFF_MAX_S);
+  expect(decideProbe(inputs(), paused, now + BACKOFF_MAX_S - 1).probe).toBe(false);
+  expect(decideProbe(inputs(), paused, now + BACKOFF_MAX_S)).toEqual({ probe: true });
 });
 
-test("stops when the last probe cost exceeded the ceiling", () => {
-  const d = decideProbe(inputs(), state({ lastCostPct: MAX_COST_PCT + 3 }), 1_000);
-  expect(d.probe).toBe(false);
+test("an over-ceiling settlement pauses for the maximum backoff, then retries", () => {
+  const now = 1_000;
+  const charged = recordProbeOutcome(state(), "planner-key", "/repo",
+    { certified: false, costPct: null }, now);
+  const paused = settleProbe(charged, "planner-key", { certified: true, costPct: MAX_COST_PCT + 3 }, now);
+  expect(paused.attempts["planner-key"].lastCostPct).toBe(MAX_COST_PCT + 3);
+  expect(paused.attempts["planner-key"].nextEligibleAt).toBe(now + BACKOFF_MAX_S);
+  expect(decideProbe(inputs(), paused, now + BACKOFF_MAX_S - 1)).toEqual({
+    probe: false, reason: `the last probe cost ${MAX_COST_PCT + 3}% of the account window`,
+  });
+  expect(decideProbe(inputs(), paused, now + BACKOFF_MAX_S)).toEqual({ probe: true });
+});
+
+test("the daily cap survives a pause", () => {
+  const now = 1_000;
+  const charged = recordProbeOutcome(state({ probesToday: MAX_PROBES_PER_DAY - 1, dayStartedAt: now }),
+    "planner-key", "/repo", { certified: false, costPct: null }, now);
+  const paused = settleProbe(charged, "planner-key", { certified: true, costPct: MAX_COST_PCT + 3 }, now);
+  expect(paused.attempts["planner-key"].probesToday).toBe(MAX_PROBES_PER_DAY);
+  expect(decideProbe(inputs(), paused, now + BACKOFF_MAX_S - 1).probe).toBe(false);
+  expect(decideProbe(inputs(), paused, now + BACKOFF_MAX_S)).toEqual({ probe: true });
+  // Exhaust the new day's allowance after recovery, without altering the brake.
+  let resumed = paused;
+  for (let n = 0; n < MAX_PROBES_PER_DAY; n++) {
+    resumed = recordProbeOutcome(resumed, "planner-key", "/repo", { certified: true, costPct: 0 }, now + BACKOFF_MAX_S);
+  }
+  expect(decideProbe(inputs(), resumed, now + BACKOFF_MAX_S)).toEqual({
+    probe: false, reason: `already probed ${MAX_PROBES_PER_DAY} times today`,
+  });
 });
 
 test("allows a probe whose last cost was at the ceiling", () => {

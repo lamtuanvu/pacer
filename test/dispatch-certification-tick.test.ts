@@ -9,7 +9,7 @@ import type { CertificateStatus } from "../src/dispatch/enforcement";
 import type { Status } from "../src/engine/status";
 
 // Import the module under test
-import { tick, readScheduleState, writeScheduleState, type TickDeps } from "../src/dispatch/certification-schedule";
+import { BACKOFF_MAX_S, MAX_COST_PCT, MAX_REPO_SWITCHES, tick, readScheduleState, writeScheduleState, type TickDeps } from "../src/dispatch/certification-schedule";
 
 /**
  * Set up ctx.which and ctx.run so resolveEnforcementTarget works.
@@ -150,6 +150,54 @@ describe("certification tick", () => {
     const attempts = Object.values(state.attempts);
     expect(attempts.length).toBeGreaterThan(0);
     expect(attempts[0].lastCostPct).toBe(3);
+  });
+
+  for (const certified of [true, false]) {
+    test(`an over-ceiling tick retries after the pause (certified=${certified})`, async () => {
+      const ctx = fakeCtx();
+      const repo = setupEnforcementContext(ctx);
+      writeStrategyYaml(ctx);
+      let probes = 0;
+      let readings = 0;
+      const deps: TickDeps = {
+        repo,
+        probe: async () => { probes++; return certified ? certifiedStatus() : uncertifiedStatus(); },
+        status: async () => testStatus({ usedPct: readings++ % 2 === 0 ? 40 : 40 + MAX_COST_PCT + 1 }),
+      };
+      await tick(ctx, deps);
+      const record = Object.values(readScheduleState(ctx).attempts)[0];
+      expect(record.nextEligibleAt).toBeGreaterThanOrEqual(ctx.now + BACKOFF_MAX_S);
+      await tick({ ...ctx, now: record.nextEligibleAt - 1 }, deps);
+      expect(probes).toBe(1);
+      await tick({ ...ctx, now: record.nextEligibleAt }, deps);
+      expect(probes).toBe(2);
+    });
+  }
+
+  test("repository switching retries after its pause through tick", async () => {
+    const ctx = fakeCtx();
+    const repo = setupEnforcementContext(ctx);
+    writeStrategyYaml(ctx);
+    let probes = 0;
+    const deps: TickDeps = {
+      repo,
+      probe: async () => { probes++; return uncertifiedStatus(); },
+      status: async () => testStatus({ usedPct: 40 }),
+    };
+    await tick(ctx, deps);
+    const state = readScheduleState(ctx);
+    const key = Object.keys(state.attempts)[0];
+    state.attempts[key].repoSwitches = MAX_REPO_SWITCHES - 1;
+    writeScheduleState(ctx, state);
+    const switched = { ...deps, repo: tmpDir() };
+    const retryAt = state.attempts[key].nextEligibleAt;
+    await tick({ ...ctx, now: retryAt }, switched);
+    expect(probes).toBe(2);
+    expect(readScheduleState(ctx).attempts[key].nextEligibleAt).toBe(retryAt + BACKOFF_MAX_S);
+    await tick({ ...ctx, now: retryAt + BACKOFF_MAX_S - 1 }, switched);
+    expect(probes).toBe(2);
+    await tick({ ...ctx, now: retryAt + BACKOFF_MAX_S }, switched);
+    expect(probes).toBe(3);
   });
 
   test("does nothing when the decision declines", async () => {

@@ -78,13 +78,18 @@ export function writeScheduleState(ctx: Ctx, state: ScheduleState): void {
  * so a probe is charged against the daily ceiling exactly once.
  */
 export function settleProbe(
-  state: ScheduleState, key: string, outcome: { certified: boolean; costPct: number | null },
+  state: ScheduleState, key: string, outcome: { certified: boolean; costPct: number | null }, now: number,
 ): ScheduleState {
   const record = state.attempts[key];
   if (!record) return state;
   return { ...state, attempts: { ...state.attempts, [key]: {
     ...record,
-    ...(outcome.certified ? { failures: 0, nextEligibleAt: 0, repoSwitches: 0 } : {}),
+    ...(outcome.certified ? { failures: 0, repoSwitches: 0 } : {}),
+    // Certification success must not erase a spending/thrashing pause.
+    nextEligibleAt: outcome.costPct !== null && outcome.costPct > MAX_COST_PCT
+      ? now + BACKOFF_MAX_S
+      : record.repoSwitches >= MAX_REPO_SWITCHES ? record.nextEligibleAt
+      : outcome.certified ? 0 : record.nextEligibleAt,
     lastCostPct: outcome.costPct,
   } } };
 }
@@ -136,15 +141,17 @@ export function decideProbe(inputs: ProbeInputs, state: ScheduleState, now: numb
   }
 
   const record = state.attempts[inputs.key] ?? empty;
-  if (now < record.nextEligibleAt) return no("waiting out the backoff from an earlier failed probe");
+  if (now < record.nextEligibleAt) {
+    if (record.repoSwitches >= MAX_REPO_SWITCHES) {
+      return no("the certificate keeps being invalidated by switching repositories");
+    }
+    if (record.lastCostPct !== null && record.lastCostPct > MAX_COST_PCT) {
+      return no(`the last probe cost ${record.lastCostPct}% of the account window`);
+    }
+    return no("waiting out the backoff from an earlier failed probe");
+  }
   const { probesToday } = dayWindow(record, now);
   if (probesToday >= MAX_PROBES_PER_DAY) return no(`already probed ${probesToday} times today`);
-  if (record.repoSwitches >= MAX_REPO_SWITCHES) {
-    return no("the certificate keeps being invalidated by switching repositories");
-  }
-  if (record.lastCostPct !== null && record.lastCostPct > MAX_COST_PCT) {
-    return no(`the last probe cost ${record.lastCostPct}% of the account window`);
-  }
   if (inputs.headroomPct === null) return no("planner headroom is unknown");
   if (inputs.headroomPct <= inputs.reserveHeadroomPct) {
     return no(`planner reserve: ${inputs.headroomPct}% headroom is at or below the ${inputs.reserveHeadroomPct}% reserve`);
@@ -160,11 +167,13 @@ export function recordProbeOutcome(
   const record = previous ?? empty;
   const { dayStartedAt, probesToday } = dayWindow(record, now);
   const failures = outcome.certified ? 0 : record.failures + 1;
+  const repoSwitches = previous && previous.lastRepo !== repo ? record.repoSwitches + 1 : record.repoSwitches;
+  const paused = repoSwitches >= MAX_REPO_SWITCHES || (outcome.costPct !== null && outcome.costPct > MAX_COST_PCT);
   const updated: AttemptRecord = {
     failures,
-    nextEligibleAt: outcome.certified ? 0 : now + Math.min(BACKOFF_BASE_S * 2 ** (failures - 1), BACKOFF_MAX_S),
+    nextEligibleAt: paused ? now + BACKOFF_MAX_S : outcome.certified ? 0 : now + Math.min(BACKOFF_BASE_S * 2 ** (failures - 1), BACKOFF_MAX_S),
     lastRepo: repo,
-    repoSwitches: previous && previous.lastRepo !== repo ? record.repoSwitches + 1 : record.repoSwitches,
+    repoSwitches,
     dayStartedAt,
     probesToday: probesToday + 1,
     lastCostPct: outcome.costPct,
@@ -275,6 +284,7 @@ function enforcementKey(target: EnforcementTarget): string {
  * promise for the real completion.
  */
 export async function tick(ctx: Ctx, deps: TickDeps = {}): Promise<void> {
+  const startedAt = performance.now();
   try {
     let strategy: Strategy;
     try {
@@ -431,7 +441,10 @@ export async function tick(ctx: Ctx, deps: TickDeps = {}): Promise<void> {
     };
     // Re-read under the lock: the probe took minutes, and a consent answer given
     // in that window must survive this write rather than be reverted by it.
-    await withScheduleLock(ctx, fresh => [settleProbe(fresh, key, outcome), null]);
+    // ctx.now is the tick's snapshot. Include elapsed probe time so an expensive
+    // probe gets a full pause after settlement, even if it took minutes to run.
+    await withScheduleLock(ctx, fresh => [settleProbe(fresh, key, outcome,
+      ctx.now + Math.ceil((performance.now() - startedAt) / 1_000)), null]);
 
   } catch (error) {
     // tick never throws, so the service's .catch can never fire. Without this

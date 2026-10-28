@@ -182,7 +182,7 @@ test("offers consent when the account has not been asked",()=>{
   expect(html).not.toContain("the planner reserve");
   // FIX 3: bounds appear when lastCostPct is null
   expect(html).toContain(`${MAX_PROBES_PER_DAY} probes per day`);
-  expect(html).toContain(`more than ${MAX_COST_PCT}% of the account's window`);
+  expect(html).toContain(`pauses probing for at least 24 hours if one costs more than ${MAX_COST_PCT}% of the account's window, then retries when eligible.`);
   expect(html).toContain("expire within 24 hours");
 });
 
@@ -271,7 +271,7 @@ test("a declined account offered a grant sees what the grant costs",()=>{
   expect(html).toContain(`aria-label="Grant consent for claude1"`);
   expect(html).toContain("<strong>claude1</strong>'s quota");
   expect(html).toContain(`${MAX_PROBES_PER_DAY} probes per day`);
-  expect(html).toContain(`more than ${MAX_COST_PCT}% of the account's window`);
+  expect(html).toContain(`pauses probing for at least 24 hours if one costs more than ${MAX_COST_PCT}% of the account's window, then retries when eligible.`);
   expect(html).toContain("expire within 24 hours");
 });
 test("the cost disclosure goes with an offered grant, not with withdrawal",()=>{

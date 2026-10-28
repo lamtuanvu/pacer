@@ -108,7 +108,7 @@ function ConsentControl({item,onConsent}:{item:EnforcementRunner;onConsent:(acco
     {offersGrant&&<div className="u3-muted">
       Scheduled certification probes spend <strong>{item.account}</strong>'s quota to verify native child blocking.
       Certificates expire within 24 hours, so this recurs automatically.
-      At most {MAX_PROBES_PER_DAY} probes per day. Pacer stops probing if one costs more than {MAX_COST_PCT}% of the account's window.
+      At most {MAX_PROBES_PER_DAY} probes per day. Pacer pauses probing for at least 24 hours if one costs more than {MAX_COST_PCT}% of the account's window, then retries when eligible.
       Probes start only when the account's measured headroom is above the certification headroom floor.
     </div>}
     <div className="pc-cluster">
