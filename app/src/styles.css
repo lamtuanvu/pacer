@@ -291,7 +291,6 @@ html[data-pacer-native-titlebar] .pc-traffic__btn{display:none}
 .pc-scope-toggle{flex-wrap:nowrap;gap:0}
 .pc-scope-toggle .pc-chip:first-child{border-radius:var(--radius-md) 0 0 var(--radius-md)}
 .pc-scope-toggle .pc-chip:last-child{border-radius:0 var(--radius-md) var(--radius-md) 0}
-.pc-dispatch--narrow .pc-attn>.grow{flex-basis:65%;overflow-wrap:anywhere}
 .pc-dispatch--narrow .row-actions{width:100%;flex-wrap:wrap}
 .pc-dispatch--narrow .pc-row__goal{flex-basis:65%}
 .pc-dispatch--narrow .pc-section__head{flex-wrap:wrap}

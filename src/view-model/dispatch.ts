@@ -164,6 +164,6 @@ export function plannerCaption(meter: { usedPct: number | null; pacePct: number 
     meter.pacePct !== null ? `pace ${Math.round(meter.pacePct)}%` : null,
     meter.resetsAt ? `resets ${clock(meter.resetsAt, now)}` : null,
     // The planner's own window may already be the 5-hour one; then it is not stated twice.
-    typeof shortWindowPct === "number" && meter.window !== "5h" ? `5h window ${Math.round(shortWindowPct)}%` : null,
+    typeof shortWindowPct === "number" && meter.window?.toLowerCase() !== "5h" ? `5h window ${Math.round(shortWindowPct)}%` : null,
   ].filter(Boolean).join(" · ");
 }

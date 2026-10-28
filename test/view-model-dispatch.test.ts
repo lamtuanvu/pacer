@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import fixture from "./fixtures/ui/snapshot.json";
-import { kpiTiles, needsYouCards, periodHeading, periodRange, tokenSpread, type InsightsSummary } from "../src/view-model/dispatch";
+import { kpiTiles, plannerCaption, needsYouCards, periodHeading, periodRange, tokenSpread, type InsightsSummary } from "../src/view-model/dispatch";
 import type { ClientSnapshot } from "../src/view-model/snapshot";
 
 const now = 1800000000;
@@ -123,4 +123,11 @@ test("needs_you_item_for_an_unloaded_task_stays_a_row", () => {
   snap.attention!.push({ ...snap.attention![0]!, id: "failed:gone", kind: "failed", severity: "problem", taskId: "t-gone", repo: null });
   const card = needsYouCards(snap, all, { now }).find(c => c.id === "failed:gone");
   expect(card?.kind).toBe("item");
+});
+
+test("planner caption states each measured part and the 5-hour window once", () => {
+  const meter = { usedPct: 16, pacePct: 38, window: "weekly", resetsAt: null };
+  expect(plannerCaption(meter, now, 4)).toBe("16% of week used · pace 38% · 5h window 4%");
+  expect(plannerCaption({ ...meter, window: "5H" }, now, 4)).toBe("16% of the 5H window used · pace 38%");
+  expect(plannerCaption({ usedPct: null, pacePct: null, window: null, resetsAt: null }, now)).toBe("");
 });

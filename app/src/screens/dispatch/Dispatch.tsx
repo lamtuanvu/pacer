@@ -216,12 +216,20 @@ function TokenShare({ summary, planner }: { summary?: InsightsSummary; planner: 
   </section>;
 }
 
+/** The current time, ticking every second like the top bar's clock, so the update age counts up while the service is quiet. */
+export function useTick(from: number): number {
+  const [tick, setTick] = useState(from);
+  useEffect(() => { const t = setInterval(() => setTick(Date.now() / 1000), 1000); return () => clearInterval(t); }, []);
+  return Math.max(from, tick);
+}
+
 /** The page title with its live line, then the period, repos and the primary New task. New task opens Delegate until the New task composer lands. */
 function DispatchHeader({ snapshot, query, narrow, period, onPeriod, connected, now }: { snapshot: ClientSnapshot; query: RouteQuery; narrow: boolean; period: Period; onPeriod?: (period: Period) => void; connected: boolean; now: number }) {
   const delegate = useDelegate();
+  const age = useTick(now);
   const agents = capacity(snapshot).filter(row => row.rank !== "planner" && row.usedPct !== null).length + (snapshot.planner ? 1 : 0);
   // The page line carries the update age, as on the board; the top bar drops its own on Dispatch (UI-15). No snapshot time, no age.
-  const live = connected ? ["Live", agents ? `${agents} agent${agents === 1 ? "" : "s"} connected` : null, snapshot.at > 0 ? `updated ${ago(snapshot.at, now)}` : null].filter(Boolean).join(" · ") : "Reconnecting…";
+  const live = connected ? ["Live", agents ? `${agents} agent${agents === 1 ? "" : "s"} connected` : null, snapshot.at > 0 ? `updated ${ago(snapshot.at, age)}` : null].filter(Boolean).join(" · ") : "Reconnecting…";
   // The period only changes figures from task insights, so the switch shows only when the service has them.
   const controls = <div className="pc-dispatch__controls">
     {onPeriod && <SegmentedControl label="Period" value={period} options={PERIODS} onChange={value => onPeriod(value as Period)} />}
