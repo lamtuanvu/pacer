@@ -61,6 +61,24 @@ test.skipIf(!browserPath)('Tasks route lays out the board header, filters and tr
     return {title:document.querySelector('h1')?.textContent,width:box.width,left:box.left,columns:getComputedStyle(document.querySelector('.pc-tasks-page__columns')!).display};
    });
    expect(geometry.title).toBe('Tasks');
+   // Measured against the Tasks board: type, padding, card geometry and the quick-action size.
+   const board=await page.evaluate(()=>{
+    const style=(selector:string)=>{const el=document.querySelector(selector);return el?getComputedStyle(el):undefined;};
+    const box=(selector:string)=>document.querySelector(selector)?.getBoundingClientRect();
+    return {
+     h1:[style('.pc-tasks-page__title')?.fontSize,style('.pc-tasks-page__title')?.lineHeight,style('.pc-tasks-page__title')?.fontWeight],
+     page:[style('.pc-tasks-page')?.paddingTop,style('.pc-tasks-page')?.paddingLeft,style('.pc-tasks-page')?.paddingBottom,style('.pc-tasks-page')?.rowGap],
+     search:[box('.pc-tasks-page__search')?.height,box('.pc-tasks-page__search')?.width],
+     card:[style('.pc-task-card')?.borderRadius,style('.pc-task-card')?.paddingTop],
+     main:[style('.pc-task-card__main')?.borderRadius,style('.pc-task-card__main')?.paddingTop,style('.pc-task-card__main')?.paddingLeft],
+     title:[style('.pc-task-card__title')?.fontSize,style('.pc-task-card__title')?.lineHeight,style('.pc-task-card__title')?.fontWeight],
+     dot:[box('.pc-task-card__dot--root')?.width,box('.pc-task-card__dot--root')?.height],
+     host:[box('.pc-task-card .pc-host-chip')?.height],
+     action:[box('.pc-task-card__action')?.width,box('.pc-task-card__action')?.height],
+     aside:[box('.pc-task-aside')?.width,style('.pc-task-aside')?.position],
+    };
+   });
+   expect(board).toEqual({h1:['28px','34px','650'],page:['28px','40px','48px','16px'],search:[36,260],card:['12px','4px'],main:['10px','10px','12px'],title:['15px','21px','600'],dot:[10,10],host:[22],action:[26,26],aside:[360,'sticky']});
    // The board is capped at its design width and starts at the content edge; the tree and the panel share a row.
    expect(geometry.width).toBeLessThanOrEqual(1240);
    expect(geometry.left).toBeLessThan(100);
