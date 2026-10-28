@@ -485,5 +485,4 @@ a.pc-btn{text-decoration:none}
 .pc-task-node__child--current{background:var(--info-bg);color:var(--ink)}
 .pc-task-node__child>.pc-pill,.pc-task-node__child>.pc-status-dot{flex:none}
 .pc-task-node__child-title{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-@media(max-width:767px){.pc-task-node__child{min-height:var(--control-touch)}}
 @media(max-width:767px){.pc-task-node__child{min-height:var(--control-touch)}.pc-task-node__title{line-height:var(--control-touch)}}
