@@ -119,7 +119,8 @@ export function prepareInteractive(agent: string, dir: string, launch: Launch): 
   hooks.ElicitationResult = [{hooks: [{type: "command", command}]}];
   hooks.Notification = [{matcher: "permission_prompt|idle_prompt|elicitation_dialog", hooks: [{type: "command", command}]}];
   const settings = join(dir, "claude-settings.json");
-  writeFileSync(settings, JSON.stringify({hooks}), {mode: 0o600});
+  // Per launch, so the account's settings.json stays untouched: no bypass-permissions acknowledgement dialog.
+  writeFileSync(settings, JSON.stringify({skipDangerousModePermissionPrompt: true, hooks}), {mode: 0o600});
   return {...launch, argv: [launch.argv[0], "--settings", settings, ...launch.argv.slice(1)]};
 }
 /** Bind agent reports to the active attempt, including when --task is supplied. */
@@ -143,12 +144,22 @@ export function reportDestination(ctx: Ctx, id?: string, explicitTask = false): 
   return {dir, source: insideRun ? "agent" : "user"};
 }
 
+/** Why this Codex cannot take per-run hook overrides (codex-cli >= 0.162.1), or null when it can. */
+export async function codexInteractiveGap(ctx: Ctx, env: Record<string, string | undefined>): Promise<string | null> {
+  const line = (text: string) => text.trim().split("\n")[0].slice(0, 120);
+  let version;
+  try { version = await ctx.run(["codex", "--version"], 5000, {env}); }
+  catch (e) { return `could not verify codex-cli version (${line((e as Error).message) || "codex --version failed"})`; }
+  if (version.code !== 0) return `could not verify codex-cli version (codex --version exited ${version.code}${line(version.stderr) ? `: ${line(version.stderr)}` : ""})`;
+  const match = /^codex-cli (\d+)\.(\d+)\.(\d+)(?:\s|$)/.exec(version.stdout.trim());
+  if (!match) return `could not verify codex-cli version (unrecognized output ${JSON.stringify(line(version.stdout).slice(0, 80))})`;
+  const supported = Number(match[1]) > 0 || Number(match[2]) > 162 || (Number(match[2]) === 162 && Number(match[3]) >= 1);
+  return supported ? null : `codex-cli ${match[1]}.${match[2]}.${match[3]} is below 0.162.1 and has no per-run hook overrides`;
+}
+
 /** Conservative version floor for the per-invocation hook configuration we support. */
 export async function requireCodexInteractive(ctx: Ctx, env: Record<string, string | undefined>): Promise<void> {
-  const version = await ctx.run(["codex", "--version"], 5000, {env});
-  const match = /^codex-cli (\d+)\.(\d+)\.(\d+)(?:\s|$)/.exec(version.stdout.trim());
-  const supported = match && (Number(match[1]) > 0 || Number(match[2]) > 162 || (Number(match[2]) === 162 && Number(match[3]) >= 1));
-  if (version.code !== 0 || !supported) throw Error("Codex interactive mode requires per-run hook overrides (codex-cli >= 0.162.1); upgrade this runner or use session: headless");
+  if (await codexInteractiveGap(ctx, env)) throw Error("Codex interactive mode requires per-run hook overrides (codex-cli >= 0.162.1); upgrade this runner or use session: headless");
 }
 
 export function reportCommand(args: string[], ctx: Ctx): Result {

@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { folderKeys } from "../src/exec/claude-trust";
 import { launchFor, resumeLaunchFor } from "../src/exec/launch";
 import { parseOpencodeSessions, takeoverAvailability } from "../src/session/takeover";
 import { parseSessionHeader } from "../src/exec/direct";
@@ -58,7 +59,7 @@ function fixture() {
  symlinkSync(join(import.meta.dir,"fixtures/bin/fake-agent"),join(bin,"claude"));
  const ctx=fakeCtx({run:realRun,env:{...process.env,PATH:`${bin}:${process.env.PATH}`}});
  mkdirSync(ctx.pacerHome,{recursive:true});
- writeFileSync(join(ctx.pacerHome,"strategy.yaml"),"planner: claude-code\nproviders: {claude-code: {}, codex: {}, cursor: {}}\nexecution: {backend: direct}\n");
+ writeFileSync(join(ctx.pacerHome,"strategy.yaml"),"planner: claude-code\nproviders: {claude-code: {}, codex: {}, cursor: {}}\nexecution: {backend: direct, launch_mode: headless}\n");
  const strategy=loadStrategy(ctx);
  const task=createTask(ctx,{brief:{goal:"Take over",repo,acceptance:"test -f takeover-change.txt"},kind:null,requestedExecutor:"codex",timeoutS:60});
  const deps:RunnerDeps={loadStrategy:()=>strategy,runAttempt,verifyRepo,computeStatus:async()=>({generatedAt:0,strategy:"default",planner:"claude-code",mode:"normal",disabled:false,paused:null,modeHold:null,calendarPace:true,providers:Object.keys(strategy.providers).map(id=>({id,usage:"quota",windows:[],binding:null,verdict:"ON_PACE",installed:true,stale:false})),executors:{ranked:[],excluded:[]}} as Status)};
@@ -252,6 +253,27 @@ test.skipIf(!canInspect)("runner restart between headless stop and resume starts
  }finally{const current=readTask(ctx,task.id)?.run;if(current)await stopRun(current.dir);await running;}
 },25000);
 
+test.skipIf(!canInspect)("a Claude takeover resume is pre-trusted and keeps its permission bypass",async()=>{
+ const {ctx,task,deps}=fixture(),dir=join(ctx.pacerHome,"runs",task.id,"1"),startedAt=Date.now()/1000;
+ mkdirSync(dir,{recursive:true});mkdirSync(ctx.home,{recursive:true});
+ writeFileSync(join(ctx.home,".claude.json"),JSON.stringify({oauthAccount:{}}),{mode:0o600});
+ for(const [name,value] of Object.entries({pid:"999999999",stdout:"headless context",stderr:"",exit:"143","takeover.json":JSON.stringify({at:startedAt,sessionId:id})}))writeFileSync(join(dir,name),value);
+ const run={dir,attempt:1,executor:"claude-code",startedAt,mode:"current" as const,workdir:task.brief.repo,logFile:join(ctx.pacerHome,"starting.log"),agentSession:{id,source:"assigned" as const}};
+ writeFileSync(join(run.workdir,"takeover-change.txt"),"kept context");
+ updateTask(ctx,task.id,t=>{t.state="running";t.executor="claude-code";t.run=run;t.attemptStartedAt=startedAt;t.takeover={state:"starting",at:startedAt,sessionId:id};});
+ const running=runTask(ctx,task.id,deps);
+ try{
+  await until(()=>readTask(ctx,task.id)?.run?.takeover && existsSync(join(run.workdir,"resumed-id.txt")));
+  const takeover=readTask(ctx,task.id)!.run!.dir;
+  expect(readFileSync(join(takeover,"argv"),"utf8")).toContain("--dangerously-skip-permissions");
+  expect(JSON.parse(readFileSync(join(takeover,"claude-settings.json"),"utf8")).skipDangerousModePermissionPrompt).toBe(true);
+  const projects=JSON.parse(readFileSync(join(ctx.home,".claude.json"),"utf8")).projects;
+  for(const key of folderKeys(run.workdir))expect(projects[key]).toMatchObject({hasTrustDialogAccepted:true});
+  writeFileSync(join(run.workdir,"finish-session"),"");
+  expect((await running).state).toBe("done");
+ }finally{const current=readTask(ctx,task.id)?.run;if(current)await stopRun(current.dir);await running;}
+},25000);
+
 test("headless launches record assigned Claude and Cursor ids, with failed Cursor creation falling back unchanged",async()=>{
  for(const agent of ["claude-code","cursor","cursor-failed"]){
   const bin=tmpDir(),ctx=fakeCtx({env:{...process.env,PATH:`${bin}:${process.env.PATH}`}}),repo=tmpDir();
@@ -265,7 +287,7 @@ fi
 printf '%s\\n' "$@"
 `,{mode:0o755});
   const task=createTask(ctx,{brief:{goal:"assignment",repo},kind:null,requestedExecutor:null,timeoutS:20});
-  const out=await runAttempt(ctx,providers[agent==="claude-code"?"claude-code":"cursor"],task);
+  const out=await runAttempt(ctx,{...providers[agent==="claude-code"?"claude-code":"cursor"],session:"headless"},task);
   const run=readTask(ctx,task.id)!.run!;
   const argv=readFileSync(join(run.dir,"argv"),"utf8");
   expect(out.exec.code).toBe(0);

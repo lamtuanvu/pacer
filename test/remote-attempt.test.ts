@@ -58,6 +58,7 @@ test("the prompt reaches the host agent unchanged", async () => {
   const f = await setup();
   const result = await runAttempt(f.ctx, f.cfg, f.task);
   expect(result.exec.code).toBe(0);
+  expect(readFileSync(result.attempt.log, "utf8")).toContain("launch mode: headless (remote runners run headless)");
   expect(result.exec.stdout.split("\n").filter(l => /^(CODEX_HOME|CLAUDE_CONFIG_DIR|PACER_ROLE)=/.test(l))).toEqual(["PACER_ROLE=executor"]);
   const task = readTask(f.ctx, f.task.id)!;
   const prompt = readFileSync(join(task.run!.remoteWorktree!, "PROMPT.txt"), "utf8");

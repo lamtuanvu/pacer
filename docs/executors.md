@@ -105,6 +105,38 @@ Credits, credit balances and measured paid consumption are separate from the con
 
 Successful execution confirms availability only. Authentication/subscription failures constrain availability; a quota failure constrains budget. Timeouts and unrelated task failures do not establish either. Later applicable evidence can clear an older observed failure; explicit user blocks remain effective until removed or expired.
 
+## Launch mode
+
+Delegated tasks start in interactive mode by default. An interactive task opens in
+the agent's own terminal UI, which you can watch or take over. It finishes when the
+agent runs `pacer report`. A headless task runs the agent's non-interactive CLI
+(for example `codex exec` or `claude -p`) and finishes when that process exits.
+
+Pacer picks the mode in this order:
+
+1. The runner's own `session: interactive` or `session: headless`.
+2. The global `execution.launch_mode` (`interactive` or `headless`).
+3. `interactive`.
+
+```sh
+pacer config set execution.launch_mode headless
+```
+
+In the app, use **Settings → This machine → Delegated task launch**.
+
+If the mode comes from `execution.launch_mode` or the default, and a task cannot run
+interactively, it runs headless. The reason is recorded in the attempt's report or
+log. This happens for remote runners, for Codex older than 0.162.1 or whose version
+cannot be confirmed (older versions lack per-run hook overrides), and for agents with
+no interactive launcher. Endpoint test tasks always run headless. A runner with an
+explicit `session: interactive` still reports these cases as errors.
+Conversations are always interactive.
+
+Managed work with strict native subagent control resolves its mode the same way.
+Strict control is certified only for headless launches, so strict work whose mode
+resolves to interactive fails at once instead of waiting in the queue. Set
+`execution.launch_mode: headless`, or `session: headless` on the runner, to run it.
+
 ## Permission policy
 
 Every pacer-launched agent uses its CLI's unattended permission mode, including
@@ -121,6 +153,26 @@ interactive sessions, takeover/resume, remote execution and strategy planning:
 Codex interactive and resumed launches pass trusted worktree and original-repository
 paths as an invocation-only TOML table, without editing native config. Pacer
 adds `--dangerously-bypass-hook-trust` when it injects its reporting hooks.
+
+Claude Code asks whether to trust a folder, and whether to allow external
+`CLAUDE.md` imports, before it loads Pacer's hooks. An unattended task would wait
+at those prompts unseen. Before an interactive or takeover launch, Pacer marks the
+task worktree as trusted in the selected account's Claude state (`~/.claude.json`,
+or `.claude.json` in a named account's folder), the way Orca does. It sets
+`hasTrustDialogAccepted` on the worktree's entry. If you have not yet answered the
+import prompt for the repository, it also records the answer "No" on the repository
+root's entry (`hasClaudeMdExternalIncludesWarningShown`), which is where Claude Code
+reads it: the prompt is not shown and imports from outside the repository stay off.
+That answer also applies to your own Claude sessions in the repository; an earlier
+answer is never changed. Conversations, which you attend, keep Claude's prompts. Pacer
+re-reads the file under Claude's `<file>.lock` lock, changes only those `projects`
+entries and replaces the file atomically. If the file is missing, unreadable or
+locked, the task still starts and its report says the trust prompt may appear.
+Claude's one-time bypass-permissions acknowledgement is skipped per launch through
+the run's `--settings` file; the account's `settings.json` is not edited.
+Claude still asks before using a project MCP server it has not seen, including one
+from a `.mcp.json` in a parent folder of `~/.pacer/worktrees`. Such a task waits for
+an answer from an attached terminal.
 
 OpenCode model and agent selection are merged into the child's
 `OPENCODE_CONFIG_CONTENT` so full-TUI launches work with both CLI generations.

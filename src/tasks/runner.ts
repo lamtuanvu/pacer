@@ -1,6 +1,6 @@
 import { getWork, pendingChildren, issueWorkGrant, revokeWorkGrants } from "../dispatch/work";
 import { issueEnforcementToken, revokeEnforcementTokens } from "../dispatch/enforcement-token";
-import { certificateEvidence, enforcementExclusion, resolveEnforcementTarget } from "../dispatch/enforcement";
+import { certificateEvidence, enforcementExclusion, resolveEnforcementTarget, STRICT_INTERACTIVE_REASON } from "../dispatch/enforcement";
 import { appendWorkEvent, dispatchDatabase, updateWorkDecision } from "../dispatch/store";
 import { extractAttemptTokens } from "../tokens/extract";
 import { attemptUsageText, recordAttemptUsage } from "../tokens/store";
@@ -305,11 +305,16 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
           if (work && !pick && !paused) {
             const expired=work.options.expiresAt!==undefined&&work.options.expiresAt<=now;
             const exclusion=decision?.excluded.find(e=>e.id===task.requestedExecutor)
+              ??decision?.excluded.find(e=>e.reason.includes("Native subagent control")&&e.reason!==STRICT_INTERACTIVE_REASON)
               ??decision?.excluded.find(e=>e.reason.includes("Native subagent control"))
               ??decision?.excluded[0];
+            // Strict work never certifies an interactive launch, so waiting helps only while another runner may free up.
+            const blocking=task.requestedExecutor?decision?.excluded.filter(e=>e.id===task.requestedExecutor):decision?.excluded.filter(e=>e.reason!=="planner");
+            const candidates=!!decision?.request.candidates.length;
+            const interactive=!!blocking?.length&&blocking.every(e=>e.reason===STRICT_INTERACTIVE_REASON)&&!candidates;
             task=updateTask(ctx,id,t=>{
-              if(expired||decision?.recommendedAction==="fail"){t.state="failed";t.result={status:"failed",executor:null,model:null,files:"",report:expired?"Work expired in queue":"No dispatch candidate satisfies policy",backend:"direct"};delete t.queue;}
-              else {t.state="queued";t.queue={reason:"waiting_retry",detail:exclusion?`${exclusion.id}: ${exclusion.reason}`:"Waiting for dispatch capacity or dependencies",since:initial.queue?.since??now,position:1,nextAt:now+30};}
+              if(expired||interactive||decision?.recommendedAction==="fail"){t.state="failed";t.result={status:"failed",executor:null,model:null,files:"",report:expired?"Work expired in queue":interactive?`${exclusion!.id}: ${STRICT_INTERACTIVE_REASON}`:"No dispatch candidate satisfies policy",backend:"direct"};delete t.queue;}
+              else {t.state="queued";t.queue={reason:"waiting_retry",detail:exclusion&&!(candidates&&exclusion.reason===STRICT_INTERACTIVE_REASON)?`${exclusion.id}: ${exclusion.reason}`:"Waiting for dispatch capacity or dependencies",since:initial.queue?.since??now,position:1,nextAt:now+30};}
               delete t.runnerPid;delete t.executor;delete t.attemptStartedAt;
             });return;
           }
@@ -339,7 +344,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
           if (++policyChanges > 20) throw new Error("Project policy keeps changing; retry once editing is complete");
           i--; continue;
         }
-        if (task.queue) return task;
+        if (task.queue || task.state === "failed") return task;
       }
       if (!pick) break;
       if (!resuming) {
@@ -452,6 +457,11 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
         let evidence:ReturnType<typeof certificateEvidence>|undefined;
         if(!reason)try{evidence=certificateEvidence(checkedCtx,await resolveEnforcementTarget(checkedCtx,s,pick,checkedRepo));}
         catch(error){reason=error instanceof Error?error.message:"Native subagent control is unverified";}
+        if(reason===STRICT_INTERACTIVE_REASON&&pick===task.requestedExecutor){
+          releaseDispatch(ctx,id);
+          updateTask(ctx,id,t=>{delete t.pendingAttempt;delete t.attemptStartedAt;delete t.executor;});
+          return finish(ctx,id,{status:"failed",executor:pick,model:null,files:"",report:`${pick}: ${reason}`,backend:"direct"});
+        }
         if(reason){
           releaseDispatch(ctx,id);
           task=updateTask(ctx,id,t=>{t.state="queued";t.queue={reason:"waiting_retry",detail:`Native subagent control unverified for ${pick}: ${reason}`,since:t.queue?.since??Date.now()/1000,position:1,nextAt:Date.now()/1000+30};delete t.runnerPid;delete t.executor;delete t.attemptStartedAt;delete t.run;});

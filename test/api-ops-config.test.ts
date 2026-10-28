@@ -167,6 +167,20 @@ test("machine parallel tasks validates whole numbers 1..16, preserves invalid ed
   expect(await callOp(ctx, "config.get", {})).toMatchObject({keys: {"execution.local_max_tasks": {value: 3, source: path}}});
 });
 
+test("delegated task launch mode defaults to interactive and validates its values", async () => {
+  const ctx = await configured(), path = join(ctx.pacerHome, "strategy.yaml");
+  expect(await callOp(ctx, "config.get", {})).toMatchObject({keys: {"execution.launch_mode": {value: "interactive", source: "default"}}});
+  const before = readFileSync(path, "utf8");
+  for (const value of ["pty", "Headless", "", 1, true]) {
+    const failure = await error(callOp(ctx, "config.set", {key: "execution.launch_mode", value}));
+    expect(failure.code).toBe("invalid_input");
+    expect(readFileSync(path, "utf8")).toBe(before);
+  }
+  expect(await callOp(ctx, "config.set", {key: "execution.launch_mode", value: "headless"})).toMatchObject({value: "headless", previous: "interactive", undo: "pacer config set execution.launch_mode interactive"});
+  expect(Bun.YAML.parse(readFileSync(path, "utf8"))).toMatchObject({execution: {launch_mode: "headless"}});
+  expect(await callOp(ctx, "config.get", {})).toMatchObject({keys: {"execution.launch_mode": {value: "headless", source: path}}});
+});
+
 test("concurrent conflicting machine capacity changes return conflict", async () => {
   const ctx = await configured();
   const first = callOp(ctx, "config.set", {key: "execution.local_max_tasks", value: 3});
