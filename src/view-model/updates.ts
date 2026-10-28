@@ -127,7 +127,9 @@ export function desktopConnectionView(connection: { state: string; reason: strin
   };
   return {
     label: "Automatic desktop updates are unavailable",
-    detail: connection?.reason === "service-identity"
+    detail: connection?.reason === "service-takeover"
+      ? "The pacer service was replaced by another build. Automatic updates are paused."
+      : connection?.reason === "service-identity"
       ? "pacer could not verify the connected service for desktop updates. Your service continues running; no update has been installed."
       : connection?.state === "unsupported"
         ? "This desktop build does not support automatic updates. Your service continues running."

@@ -4,6 +4,54 @@ use std::io::{self, Write};
 use std::os::unix::fs::{symlink, DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::SystemTime;
+use sha2::{Digest, Sha256};
+
+fn matches_takeover_identity(path: &Path, expected: &pacer_desktop::ota::bootstrap_identity::LegacyExecutable) -> Result<bool, String> {
+    use std::os::unix::fs::MetadataExt;
+    let metadata = fs::symlink_metadata(path).map_err(|e| e.to_string())?;
+    if !metadata.is_file() || metadata.nlink() != 1 || metadata.dev().to_string() != expected.device
+        || metadata.ino().to_string() != expected.inode || metadata.len() != expected.size { return Ok(false) }
+    let bytes = fs::read(path).map_err(|e| e.to_string())?;
+    Ok(format!("{:x}", Sha256::digest(bytes)) == expected.sha256)
+}
+
+pub fn relink_after_takeover(home: &Path, bundled: &Path, expected: &pacer_desktop::ota::bootstrap_identity::LegacyExecutable, now: SystemTime) -> Result<PathBuf, String> {
+    let link = link_path(home);
+    if !matches_takeover_identity(&link, expected)? { return Err("The terminal command changed since confirmation".into()) }
+    let seconds = now.duration_since(SystemTime::UNIX_EPOCH).map_err(|e| e.to_string())?.as_secs();
+    let stamp = unsafe {
+        let raw = seconds as libc::time_t;
+        let mut utc: libc::tm = std::mem::zeroed();
+        if libc::gmtime_r(&raw, &mut utc).is_null() { return Err("Unable to format backup time".into()) }
+        format!("{:04}{:02}{:02}T{:02}{:02}{:02}Z", utc.tm_year + 1900, utc.tm_mon + 1, utc.tm_mday, utc.tm_hour, utc.tm_min, utc.tm_sec)
+    };
+    let backup = link.with_file_name(format!("pacer.pre-app-{stamp}"));
+    if fs::symlink_metadata(&backup).is_ok() { return Err("The terminal backup already exists".into()) }
+    #[cfg(target_os = "macos")]
+    {
+        use std::ffi::CString;
+        use std::os::unix::ffi::OsStrExt;
+        let old = CString::new(link.as_os_str().as_bytes()).map_err(|e| e.to_string())?;
+        let new = CString::new(backup.as_os_str().as_bytes()).map_err(|e| e.to_string())?;
+        if unsafe { libc::renamex_np(old.as_ptr(), new.as_ptr(), libc::RENAME_EXCL) } != 0 { return Err(std::io::Error::last_os_error().to_string()) }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        // Exclusive hard link prevents overwriting an existing backup.
+        fs::hard_link(&link, &backup).map_err(|e| e.to_string())?;
+        fs::remove_file(&link).map_err(|e| e.to_string())?;
+    }
+    // The move may have raced a write. Never link to the app if the backed-up file changed.
+    let backed = fs::symlink_metadata(&backup).map_err(|e| e.to_string())?;
+    use std::os::unix::fs::MetadataExt;
+    if !backed.is_file() || backed.dev().to_string() != expected.device || backed.ino().to_string() != expected.inode || backed.len() != expected.size
+        || format!("{:x}", Sha256::digest(fs::read(&backup).map_err(|e| e.to_string())?)) != expected.sha256 {
+        return Err("The terminal command changed during backup".into());
+    }
+    symlink(bundled, &link).map_err(|e| e.to_string())?;
+    Ok(backup)
+}
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum LinkState {
@@ -135,6 +183,54 @@ mod tests {
     use std::fs;
     use std::os::unix::fs::{symlink, MetadataExt, PermissionsExt};
     use std::sync::atomic::{AtomicUsize, Ordering};
+
+    fn expected(path: &Path) -> pacer_desktop::ota::bootstrap_identity::LegacyExecutable {
+        let m = fs::symlink_metadata(path).unwrap();
+        pacer_desktop::ota::bootstrap_identity::LegacyExecutable {
+            device: m.dev().to_string(), inode: m.ino().to_string(), size: m.len(), modified_ns: "0".into(), changed_ns: "0".into(),
+            sha256: format!("{:x}", Sha256::digest(fs::read(path).unwrap())), cdhash: "a".repeat(40),
+        }
+    }
+
+    #[test]
+    fn takeover_relink_backs_up_exact_file_and_never_follows_a_symlink() {
+        let dir = TempDir::new();
+        let bundled = dir.bundled();
+        let link = dir.link();
+        fs::write(&link, "other build").unwrap();
+        let identity = expected(&link);
+        let now = SystemTime::UNIX_EPOCH;
+        let backup = relink_after_takeover(&dir.0, &bundled, &identity, now).unwrap();
+        assert!(backup.file_name().unwrap().to_string_lossy().starts_with("pacer.pre-app-"));
+        assert_eq!(fs::read(&backup).unwrap(), b"other build");
+        assert_eq!(fs::read_link(&link).unwrap(), bundled);
+        assert!(relink_after_takeover(&dir.0, &bundled, &identity, now).is_err());
+    }
+
+    #[test]
+    fn takeover_relink_rejects_changed_content_inode_and_existing_backup() {
+        let dir = TempDir::new();
+        let bundled = dir.bundled();
+        let link = dir.link();
+        fs::write(&link, "other build").unwrap();
+        let identity = expected(&link);
+        let now = SystemTime::UNIX_EPOCH;
+        fs::write(&link, "changed").unwrap();
+        assert!(relink_after_takeover(&dir.0, &bundled, &identity, now).is_err());
+        fs::remove_file(&link).unwrap();
+        fs::write(&link, "other build").unwrap();
+        assert!(relink_after_takeover(&dir.0, &bundled, &identity, now).is_err());
+        let new_identity = expected(&link);
+        let backup = link.with_file_name("pacer.pre-app-19700101T000000Z");
+        fs::write(&backup, "existing").unwrap();
+        assert!(relink_after_takeover(&dir.0, &bundled, &new_identity, now).is_err());
+        assert_eq!(fs::read(&backup).unwrap(), b"existing");
+        assert_eq!(fs::read(&link).unwrap(), b"other build");
+        fs::remove_file(&link).unwrap();
+        symlink(&backup, &link).unwrap();
+        assert!(relink_after_takeover(&dir.0, &bundled, &new_identity, now).is_err());
+        assert_eq!(fs::read(&backup).unwrap(), b"existing");
+    }
 
     struct TempDir(PathBuf);
 

@@ -45,6 +45,8 @@ async fn native_validation_setup(window: WebviewWindow, app: AppHandle) -> Resul
 }
 
 struct Shell {
+    takeover: Mutex<Option<TakeoverView>>,
+    takeover_progress: Mutex<Option<Value>>,
     #[cfg(feature = "ota-fixture")]
     fixture_tray_auth: Mutex<Option<Url>>,
     native: Mutex<Option<Arc<pacer_desktop::ota::control::NativeConnection>>>,
@@ -77,6 +79,8 @@ struct Shell {
 impl Default for Shell {
     fn default() -> Self {
         Self {
+            takeover: Mutex::new(None),
+            takeover_progress: Mutex::new(None),
             #[cfg(feature = "ota-fixture")]
             fixture_tray_auth: Mutex::new(None),
             native: Mutex::new(None),
@@ -106,6 +110,11 @@ impl Default for Shell {
             actions: Mutex::new(std::collections::HashMap::new()),
         }
     }
+}
+#[derive(Clone)]
+struct TakeoverView {
+    candidate: pacer_desktop::ota::takeover::detect::TakeoverCandidate,
+    inspection: Value,
 }
 /// Popover width from the TrayPopover board.
 const TRAY_WIDTH: f64 = 340.;
@@ -160,12 +169,40 @@ fn native_titlebar_supported(window: WebviewWindow, app: AppHandle) -> Result<bo
     Ok(cfg!(target_os = "macos"))
 }
 #[tauri::command]
-fn desktop_update_connection(window: WebviewWindow, app: AppHandle) -> Result<Value, String> {
+fn desktop_update_connection(window: WebviewWindow, app: AppHandle, supports: Option<Vec<String>>) -> Result<Value, String> {
     authorized(&window, &app)?;
     let shell = app.state::<Shell>();
     let alive = shell.native.lock().unwrap().as_ref().is_some_and(|native| native.alive());
     let error = *shell.native_update_error.lock().unwrap();
-    Ok(logic::desktop_update_connection(pacer_desktop::ota::trust::ReleaseTrust::configured().is_some(), alive, error))
+    let takeover = shell.takeover.lock().unwrap().is_some();
+    let supports_takeover = supports.as_ref().is_some_and(|items| items.iter().any(|item| item == "service-takeover"));
+    let mut result = logic::desktop_update_connection(pacer_desktop::ota::trust::ReleaseTrust::configured().is_some(), alive, error, takeover, supports_takeover);
+    if alive {
+        if let (Some(user_home), Some(bundled), Ok(config)) = (std::env::var_os("HOME"), client::bundled_binary(), app.path().app_config_dir()) {
+            if pacer_desktop::ota::takeover::detect::read_consent(&config).ok().flatten().is_some_and(|consent| !consent.keep)
+                && matches!(link::state(std::path::Path::new(&user_home), &bundled), link::LinkState::Foreign(_)) {
+                result["terminalCommandDifferent"] = serde_json::json!(true);
+            }
+        }
+    }
+    Ok(result)
+}
+fn authorized_shell(window: &WebviewWindow) -> Result<(), String> {
+    if window.label() == "main" && window.url().is_ok_and(|url| logic::bundled_shell(Some(&url))) { Ok(()) }
+    else { Err("Takeover inspection is restricted to the bundled shell".into()) }
+}
+#[tauri::command]
+fn takeover_inspection(window: WebviewWindow, app: AppHandle) -> Result<Value, String> {
+    authorized_shell(&window)?;
+    app.state::<Shell>().takeover.lock().unwrap().as_ref().map(|view| view.inspection.clone()).ok_or("No service takeover was detected".into())
+}
+#[tauri::command]
+fn takeover_open(window: WebviewWindow, app: AppHandle) -> Result<(), String> {
+    authorized(&window, &app)?;
+    if app.state::<Shell>().takeover.lock().unwrap().is_none() { return Err("No service takeover was detected".into()) }
+    recovery(&app, "takeover");
+    app.state::<Shell>().expired.notify_one();
+    Ok(())
 }
 #[tauri::command]
 fn session_ready(
@@ -534,6 +571,21 @@ fn shell_action(app: &AppHandle, url: &Url, current: Option<&Url>) -> bool {
     }
     let bundled = logic::bundled_shell(current);
     if let Some(action) = logic::shell_action_url(url) {
+        if matches!(action, logic::ShellAction::TakeoverOpen) {
+            let origin = app.state::<Shell>().origin.lock().unwrap().clone();
+            if current.is_some_and(|page| logic::service_navigation(page, origin.as_deref()))
+                && app.state::<Shell>().takeover.lock().unwrap().is_some() {
+                *app.state::<Shell>().shell_action.lock().unwrap() = Some(action);
+                app.state::<Shell>().expired.notify_one();
+                app.state::<Shell>().wake.notify_one();
+            }
+            return true;
+        }
+        if matches!(action, logic::ShellAction::TakeoverConfirm { .. } | logic::ShellAction::TakeoverDismiss)
+            && !current.is_some_and(|page| logic::bundled_shell(Some(page))
+                && (page.query() == Some("state=takeover") || (action == logic::ShellAction::TakeoverDismiss
+                    && page.query() == Some("state=restored")
+                    && app.state::<Shell>().takeover_progress.lock().unwrap().as_ref().is_some_and(|p| p["state"] == "restored")))) { return true; }
         if bundled && (action != logic::ShellAction::ContinueOldService
             || app.state::<Shell>().diagnosis.lock().unwrap().as_ref()
                 .is_some_and(|d| matches!(d.page, "outdatedService" | "unverifiedService"))) {
@@ -597,6 +649,46 @@ fn render_diagnosis(app: &AppHandle) {
         }
     }
 }
+fn render_takeover(app: &AppHandle) {
+    let shell = app.state::<Shell>();
+    let present = shell.takeover.lock().unwrap().is_some();
+    let progress = shell.takeover_progress.lock().unwrap().clone();
+    let Some(window) = app.get_webview_window("main") else { return };
+    if !window.url().is_ok_and(|url| logic::bundled_shell(Some(&url))) { return }
+    if !present { return }
+    let payload = serde_json::json!({"progress":progress});
+    let script = format!(r#"(async () => {{
+      const data = {payload};
+      try {{ data.inspection = await window.__TAURI__.core.invoke('takeover_inspection'); }} catch {{ return; }}
+      const panel = document.getElementById('takeover');
+      if (!panel) return;
+      const pageState = new URLSearchParams(location.search).get('state');
+      if (pageState === 'restored' && data.progress?.state === 'restored') {{
+        document.querySelector('h1').textContent = 'Kept your current service';
+        document.getElementById('message').textContent = data.progress.error || 'The app could not start its service. Your current service was restored.';
+        document.getElementById('message').hidden = false;
+      }}
+      document.getElementById('takeover-restored-actions').hidden = !(pageState === 'restored' && data.progress?.state === 'restored');
+      panel.hidden = pageState !== 'takeover';
+      if (panel.hidden) return;
+      document.querySelector('h1').textContent = 'Use the app\'s service';
+      document.getElementById('spinner').hidden = true;
+      document.getElementById('message').hidden = true;
+      for (const [id, key] of [['takeover-current','currentPath'],['takeover-version','currentVersion'],['takeover-replacement','replacementPath'],['takeover-label','label'],['takeover-port','port'],['takeover-home','dataHome']]) document.getElementById(id).textContent = String(data.inspection[key] ?? 'Unknown');
+      for (const [id, key] of [['takeover-tasks','tasks'],['takeover-terminals','terminals']]) document.getElementById(id).textContent = data.inspection.work[key] === null ? 'unknown' : String(data.inspection.work[key]);
+      const choice = document.getElementById('takeover-relink');
+      const confirm = document.getElementById('takeover-confirm');
+      if (!choice.dataset.bound) {{ choice.addEventListener('change', () => {{ confirm.href = 'tauri://localhost/action/takeover-confirm?relink=' + (choice.checked ? '1' : '0'); }}); choice.dataset.bound = '1'; }}
+      const progress = data.progress;
+      document.getElementById('takeover-actions').hidden = !!progress && progress.state !== 'error';
+      document.getElementById('takeover-progress').textContent = progress ? (progress.error ? progress.state + ': ' + progress.error : progress.state) : '';
+    }})();"#);
+    let _ = window.eval(script);
+}
+fn set_takeover_progress(app: &AppHandle, value: Value) {
+    *app.state::<Shell>().takeover_progress.lock().unwrap() = Some(value);
+    render_takeover(app);
+}
 fn recovery(app: &AppHandle, state: &str) {
     let shell = app.state::<Shell>();
     if let Some(window) = app.get_webview_window("main") {
@@ -632,6 +724,7 @@ fn recovery(app: &AppHandle, state: &str) {
                     "existing" => "existing",
                     "incomplete" => "incomplete",
                     "relink" => "relink",
+                    "takeover" => "takeover",
                     "foreign" => "foreign",
                     "stuck" => "stuck",
                     "installing" => "installing",
@@ -653,6 +746,7 @@ fn recovery(app: &AppHandle, state: &str) {
         }
     }
     render_diagnosis(app);
+    render_takeover(app);
     let title = match state {
         "stuck" => "pacer could not finish signing in",
         "permission" => "macOS needs your permission",
@@ -667,6 +761,7 @@ fn recovery(app: &AppHandle, state: &str) {
         "incomplete" => "This copy of pacer is incomplete",
         "foreign" => "Another pacer is running",
         "relink" => "pacer's terminal command was removed",
+        "takeover" => "Use the app's service",
         "protocol" => "Unable to connect to pacer",
         "installing" => "Installing update",
         "rollingBack" => "Restoring the previous version",
@@ -751,6 +846,7 @@ fn activate(app: &AppHandle, origin: &str, mut auth: Url) -> Result<(), String> 
                 .permission("allow-rounded-window-supported")
                 .permission("allow-native-titlebar-supported")
                 .permission("allow-desktop-update-connection")
+                .permission("allow-takeover-open")
                 .permission("allow-native-validation-setup")
                 .permission("allow-windowMinimize")
                 .permission("allow-windowToggleMaximize")
@@ -1190,6 +1286,8 @@ fn main() {
             rounded_window_supported,
             native_titlebar_supported,
             desktop_update_connection,
+            takeover_inspection,
+            takeover_open,
             native_validation_setup,
             windowMinimize,
             windowToggleMaximize,
@@ -1197,6 +1295,8 @@ fn main() {
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
+            app.add_capability(CapabilityBuilder::new("takeover-shell")
+                .local(true).window("main").permission("allow-takeover-inspection"))?;
             if let Some(route) = std::env::args().find_map(|arg| {
                 arg.strip_prefix("--pacer-relaunch-route=")
                     .and_then(logic::route)
@@ -1232,6 +1332,7 @@ fn main() {
                         check_main_document(&window, payload.url());
                         if shell_url(payload.url()) {
                             render_diagnosis(window.app_handle());
+                            render_takeover(window.app_handle());
                         }
                         if !matches!(payload.url().path(), "/app" | "/app/") {
                             return;

@@ -2,6 +2,46 @@ use reqwest::Url;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct TakeoverDismissal {
+    schema: u32,
+    sha256: String,
+    cdhash: String,
+}
+
+pub fn takeover_dismissed(config: &Path, identity: &pacer_desktop::ota::bootstrap_identity::LegacyExecutable) -> bool {
+    let Ok(bytes) = std::fs::read(config.join("takeover-dismissed.json")) else { return false };
+    if bytes.len() > 1024 { return false }
+    let Ok(record) = serde_json::from_slice::<TakeoverDismissal>(&bytes) else { return false };
+    record.schema == 1 && record.sha256 == identity.sha256 && record.cdhash == identity.cdhash
+}
+
+pub fn dismiss_takeover(config: &Path, identity: &pacer_desktop::ota::bootstrap_identity::LegacyExecutable) -> Result<(), String> {
+    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+    use std::io::Write;
+    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(config).map_err(|e| e.to_string())?;
+    let bytes = serde_json::to_vec(&TakeoverDismissal { schema: 1, sha256: identity.sha256.clone(), cdhash: identity.cdhash.clone() }).map_err(|e| e.to_string())?;
+    let temp = config.join(format!(".takeover-dismissed-{}-{}.tmp", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_err(|e| e.to_string())?.as_nanos()));
+    let mut file = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&temp).map_err(|e| e.to_string())?;
+    let result = (|| -> std::io::Result<()> {
+        file.write_all(&bytes)?;
+        file.sync_all()?;
+        std::fs::rename(&temp, config.join("takeover-dismissed.json"))?;
+        std::fs::File::open(config)?.sync_all()
+    })();
+    if result.is_err() { let _ = std::fs::remove_file(temp); }
+    result.map_err(|e| e.to_string())
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LaunchGate { Takeover, Version, Continue }
+pub fn launch_gate(candidate: bool, dismissed: bool, version_mismatch: bool) -> LaunchGate {
+    if candidate && !dismissed { LaunchGate::Takeover }
+    else if version_mismatch { LaunchGate::Version }
+    else { LaunchGate::Continue }
+}
+
 pub fn recovery_for(bundle_app: bool, bundled_cli: bool, external_cli: bool) -> Option<&'static str> {
     if bundled_cli || external_cli {
         None
@@ -151,6 +191,9 @@ pub enum ShellAction {
     Relink,
     Download,
     ContinueOldService,
+    TakeoverOpen,
+    TakeoverDismiss,
+    TakeoverConfirm { relink: bool },
 }
 
 pub fn onboarding_back(url: &Url, current: Option<&Url>) -> bool {
@@ -174,6 +217,13 @@ pub fn shell_action_url(url: &Url) -> Option<ShellAction> {
             _ => None,
         };
     }
+    if url.path() == "/action/takeover-confirm" {
+        return match url.query() {
+            Some("relink=0") => Some(ShellAction::TakeoverConfirm { relink: false }),
+            Some("relink=1") => Some(ShellAction::TakeoverConfirm { relink: true }),
+            _ => None,
+        };
+    }
     if url.query().is_some() {
         return None;
     }
@@ -184,6 +234,8 @@ pub fn shell_action_url(url: &Url) -> Option<ShellAction> {
         "/action/relink" => Some(ShellAction::Relink),
         "/action/download" => Some(ShellAction::Download),
         "/action/continue-old-service" => Some(ShellAction::ContinueOldService),
+        "/action/takeover-open" => Some(ShellAction::TakeoverOpen),
+        "/action/takeover-dismiss" => Some(ShellAction::TakeoverDismiss),
         _ => None,
     }
 }
@@ -1187,6 +1239,10 @@ mod tests {
             ("relink", Relink),
             ("download", Download),
             ("continue-old-service", ContinueOldService),
+            ("takeover-open", TakeoverOpen),
+            ("takeover-dismiss", TakeoverDismiss),
+            ("takeover-confirm?relink=0", TakeoverConfirm { relink: false }),
+            ("takeover-confirm?relink=1", TakeoverConfirm { relink: true }),
         ] {
             assert_eq!(
                 shell_action_url(
@@ -1202,6 +1258,9 @@ mod tests {
             "tauri://localhost/action/consent",
             "tauri://localhost/action/consent?path=1&path=0",
             "tauri://localhost/action/consent?path=1&extra=1",
+            "tauri://localhost/action/takeover-confirm",
+            "tauri://localhost/action/takeover-confirm?relink=2",
+            "tauri://localhost/action/takeover-confirm?relink=1&extra=1",
             "tauri://localhost/action/unknown",
             "tauri://localhost/action/begin?extra=1",
             "tauri://localhost/action/begin#fragment",
@@ -2043,13 +2102,15 @@ pub fn desktop_update_connection(
     configured: bool,
     alive: bool,
     error: Option<pacer_desktop::ota::OtaError>,
+    takeover: bool,
+    supports_takeover: bool,
 ) -> serde_json::Value {
     let (state, reason) = if !configured {
         ("unsupported", None)
     } else if alive {
         ("available", None)
     } else if let Some(error) = error {
-        ("unavailable", Some(if error == pacer_desktop::ota::OtaError::Identity { "service-identity" } else { "connection" }))
+        ("unavailable", Some(if error == pacer_desktop::ota::OtaError::Identity { if takeover && supports_takeover { "service-takeover" } else { "service-identity" } } else { "connection" }))
     } else {
         ("connecting", None)
     };
@@ -2062,13 +2123,37 @@ mod desktop_connection_tests {
     use pacer_desktop::ota::OtaError;
     #[test]
     fn connection_failure_is_not_an_up_to_date_or_manual_only_state() {
-        assert_eq!(desktop_update_connection(true, false, Some(OtaError::Identity)), serde_json::json!({"state":"unavailable","reason":"service-identity"}));
-        assert_eq!(desktop_update_connection(true, false, Some(OtaError::Io)), serde_json::json!({"state":"unavailable","reason":"connection"}));
+        assert_eq!(desktop_update_connection(true, false, Some(OtaError::Identity), false, true), serde_json::json!({"state":"unavailable","reason":"service-identity"}));
+        assert_eq!(desktop_update_connection(true, false, Some(OtaError::Io), true, true), serde_json::json!({"state":"unavailable","reason":"connection"}));
+        assert_eq!(desktop_update_connection(true, false, Some(OtaError::Identity), true, true)["reason"], "service-takeover");
+        assert_eq!(desktop_update_connection(true, false, Some(OtaError::Identity), true, false)["reason"], "service-identity");
     }
     #[test]
     fn live_authority_and_build_support_are_distinct_from_pending_connection() {
-        assert_eq!(desktop_update_connection(false, false, None)["state"], "unsupported");
-        assert_eq!(desktop_update_connection(true, false, None)["state"], "connecting");
-        assert_eq!(desktop_update_connection(true, true, Some(OtaError::Identity)), serde_json::json!({"state":"available","reason":null}));
+        assert_eq!(desktop_update_connection(false, false, None, true, true)["state"], "unsupported");
+        assert_eq!(desktop_update_connection(true, false, None, true, true)["state"], "connecting");
+        assert_eq!(desktop_update_connection(true, true, Some(OtaError::Identity), true, true), serde_json::json!({"state":"available","reason":null}));
+    }
+    #[test]
+    fn takeover_precedes_version_gate_unless_dismissed() {
+        assert_eq!(launch_gate(true, false, true), LaunchGate::Takeover);
+        assert_eq!(launch_gate(true, true, true), LaunchGate::Version);
+        assert_eq!(launch_gate(false, false, true), LaunchGate::Version);
+        assert_eq!(launch_gate(false, false, false), LaunchGate::Continue);
+    }
+    #[test]
+    fn dismissal_is_strict_and_bound_to_both_hashes() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut identity = pacer_desktop::ota::bootstrap_identity::LegacyExecutable { device: "1".into(), inode: "2".into(), size: 3, modified_ns: "4".into(), changed_ns: "5".into(), sha256: "a".repeat(64), cdhash: "b".repeat(40) };
+        assert!(!takeover_dismissed(dir.path(), &identity));
+        dismiss_takeover(dir.path(), &identity).unwrap();
+        assert!(takeover_dismissed(dir.path(), &identity));
+        identity.cdhash = "c".repeat(40);
+        assert!(!takeover_dismissed(dir.path(), &identity));
+        identity.cdhash = "b".repeat(40);
+        identity.sha256 = "c".repeat(64);
+        assert!(!takeover_dismissed(dir.path(), &identity));
+        std::fs::write(dir.path().join("takeover-dismissed.json"), format!(r#"{{"schema":1,"sha256":"{}","cdhash":"{}","extra":1}}"#, identity.sha256, identity.cdhash)).unwrap();
+        assert!(!takeover_dismissed(dir.path(), &identity));
     }
 }
