@@ -96,6 +96,16 @@ test('settings panel groups pages and keeps a stable keyboard order', () => {
   for (const [item] of html.matchAll(/<a\b[^>]*>[\s\S]*?<\/a>/g)) expect(item).toContain('<svg');
 });
 
+test('embedded settings panel renders only the nav so the SidePanel owns the landmark', () => {
+  const route = { name: 'settings', section: 'planner', query } as Route;
+  const embedded = renderToString(<SettingsPanel route={route} counts={null} embedded />);
+  expect(embedded).not.toContain('<aside');
+  expect(embedded).toMatch(/<nav[^>]*aria-label="Settings pages"/);
+  expect(embedded.match(/aria-current="page"/g)).toHaveLength(1);
+  const standalone = renderToString(<SettingsPanel route={route} counts={null} />);
+  expect(standalone.match(/<aside[^>]*aria-label="Settings"/g)).toHaveLength(1);
+});
+
 test('legacy app sections open App preferences and keep their deep links', () => {
   for (const section of ['app', 'updates', 'notifications', 'appearance']) {
     const route = resolveRoute(`#/settings/${section}`) as Route;
