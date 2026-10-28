@@ -87,7 +87,7 @@ export function TaskCard({ density = "regular", node, expanded, onToggle, select
       </div> : <>
         <div className="pc-task-card__row pc-task-card__row--facts">
           {node.host && <HostChip name={node.host.name} kind={node.host.kind} />}
-          {node.repo && <span className="pc-task-card__branch pc-task-card__branch--repo" title={node.repo}>{node.repo}</span>}
+          {node.repo && <span className="pc-task-card__branch pc-task-card__branch--repo" title="Repository">{node.repo}</span>}
         </div>
         <div className="pc-task-card__row pc-task-card__row--facts">
           <span className={classNames("pc-task-card__status pc-task-card__status--grow", `pc-task-card__status--${dotTone(node)}`)}>{words(node)}</span>

@@ -3,12 +3,12 @@ import { useContext } from "preact/hooks";
 import { LazySetup } from "./setup/LazySetup";
 import { SetupContext } from "./setup/context";
 import type { Route } from '../router';
-import { TaskRoute } from "./TaskResult";
+import { LazyTaskRoute } from "./LazyTaskRoute";
 import { LazyDispatch } from "./dispatch/LazyDispatch";
 
 import { RemoteHosts, HostDetail } from "./settings/Hosts";
 import { LazyAddExecutor } from "./settings/LazyAddExecutor";
-import { Sessions, SessionRoute } from "./session/controller";
+import { Sessions } from "./session/controller";
 import { TerminalScreen } from "./terminal/Terminal";
 /** Route mounting lives separately from browser bootstrap so every destination can be verified. */
 export function Screen({route}:{route:Route}) {
@@ -17,7 +17,7 @@ export function Screen({route}:{route:Route}) {
  case 'setup': return <LazySetup query={route.query}/>;
  case 'dispatch': return <LazyDispatch view="home" query={route.query}/>;
  case 'review': return <LazyDispatch view="needs-you" query={route.query}/>;
- case 'sessions': return route.id?<>{running?.id === route.id && <p role="status">Running on {running.executor}</p>}<TaskRoute key={route.id} id={route.id} query={route.query}/></>:<Sessions key={JSON.stringify(route.query)} query={route.query}/>;
+ case 'sessions': return route.id?<>{running?.id === route.id && <p role="status">Running on {running.executor}</p>}<LazyTaskRoute key={route.id} id={route.id} query={route.query}/></>:<Sessions key={JSON.stringify(route.query)} query={route.query}/>;
  case 'terminal': return <TerminalScreen id={route.id} query={route.query}/>;
  case 'settings': return <LazySettings key={route.section ?? "general"} section={route.section} query={route.query}/>;
  case 'hosts': return route.alias?<HostDetail key={route.alias} alias={route.alias}/>:<RemoteHosts/>;
