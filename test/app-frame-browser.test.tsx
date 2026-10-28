@@ -115,7 +115,7 @@ browserTest("settings_panel_collapse_keeps_main_usable", async () => {
       await expect(page.getByRole("button", { name: "Save settings" }).isVisible()).resolves.toBe(true);
       const closedMain = await page.locator("#main-content").evaluate(node => node.getBoundingClientRect().width);
       await page.locator("#main-content").focus();
-      await page.keyboard.press("Control+b");
+      await page.keyboard.press("ControlOrMeta+b");
       await panel.waitFor();
       expect(await page.locator("#main-content").evaluate(node => node.getBoundingClientRect().width)).toBeLessThan(closedMain);
       expect(await noHorizontalOverflow(page)).toBe(true);
@@ -138,13 +138,13 @@ browserTest("panel_toggle_keeps_focus_on_its_control", async () => {
     await focused(page, '[aria-label="Show Settings"]');
     await page.keyboard.press("Enter");
     await focused(page, '[aria-label="Hide Settings"]');
-    // Ctrl-b from a link inside the panel removes that link; focus moves to the reopen control.
+    // Mod-b from a link inside the panel removes that link; focus moves to the reopen control.
     await page.getByRole("complementary", { name: "Settings" }).getByRole("link").first().focus();
-    await page.keyboard.press("Control+b");
+    await page.keyboard.press("ControlOrMeta+b");
     await focused(page, '[aria-label="Show Settings"]');
-    // Ctrl-b from the work area leaves focus where it was.
+    // Mod-b from the work area leaves focus where it was.
     await page.locator("#main-content").focus();
-    await page.keyboard.press("Control+b");
+    await page.keyboard.press("ControlOrMeta+b");
     await page.getByRole("complementary", { name: "Settings" }).waitFor();
     await focused(page, "#main-content");
   } finally { await browser.close(); }
@@ -154,12 +154,12 @@ browserTest("panels_and_dock_not_offered_where_hidden", async () => {
   const built = await frame();
   const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
   try {
-    // Between the narrow breakpoint and 768px the shell hides side panels, so Ctrl-b must not be registered.
+    // Between the narrow breakpoint and 768px the shell hides side panels, so Mod-b must not be registered.
     const page = await browser.newPage({ viewport: { width: 700, height: 800 } });
     await open(page, built, "#/settings");
     expect(await page.getByRole("button", { name: /^(Hide|Show) Settings$/ }).count()).toBe(0);
     await page.locator("#main-content").focus();
-    await page.keyboard.press("Control+b");
+    await page.keyboard.press("ControlOrMeta+b");
     await page.waitForTimeout(100);
     expect(await page.evaluate(() => localStorage.getItem("pacer.panel.settings"))).toBeNull();
     // The dock is not offered there either: no status-bar control, and Ctrl-` does nothing.

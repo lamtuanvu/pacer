@@ -3748,6 +3748,40 @@ Params JSON Schema:
 }
 ```
 
+### `files.search`
+
+Search file paths, read-only, in registered repositories for the command menu: tracked files only, bounded, with matched ranges and the running tasks that changed each file. Writes nothing.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "query": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "repo": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 50
+    }
+  },
+  "required": [
+    "query"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### `host.account.add`
 
 Map a host account folder and return its login command.

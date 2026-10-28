@@ -6,6 +6,7 @@ import { getWork } from "../dispatch/work";
 import { dispatchConfigSchema, previewInputSchema } from "../dispatch/types";
 import { explainDispatch } from "../core/dispatch-explain";
 import { explainInputSchema } from "../dispatch/explain-input";
+import { filesSearchInputSchema, searchFiles } from "../core/files-search";
 import { enforcementDiagnostics, probeNativeControl } from "../dispatch/enforcement";
 import { authorizeEnforcementToken } from "../dispatch/enforcement-token";
 import { appendWorkEvent, dispatchDatabase, updateWorkDecision } from "../dispatch/store";
@@ -330,6 +331,7 @@ export const OPS: Record<string, OpDef> = {
   "repo.list": op({ description: "Registered repos with local branches, current first.", params: z.object({}), handler: ctx => listReposWithBranches(ctx) }),
   "repo.add": op({ description: "Register a git repository.", params: z.object({path:z.string().min(1).max(4096)}), handler: (ctx,p) => addRepo(ctx,p.path) }),
   "repo.remove": op({ description: "Remove a repository from the registry.", params: z.object({key:z.string().min(1)}), handler: (ctx,p) => removeRepo(ctx,p.key) }),
+  "files.search": op({ description: "Search file paths, read-only, in registered repositories for the command menu: tracked files only, bounded, with matched ranges and the running tasks that changed each file. Writes nothing.", params: filesSearchInputSchema, handler: (ctx, p) => searchFiles(ctx, p) }),
   "task.prune": op({ description: "Archive old reviewed or dismissed settled tasks; dry_run reports files and bytes without moving them.", params: z.object({ dry_run: z.boolean().optional() }), handler: (ctx, p) => pruneTasks(ctx, { dryRun: p.dry_run }) }),
   "task.restore": op({ description: "Restore an archived task and its artifacts; conflicting files are never overwritten.", params: z.object({ id }), handler: async (ctx, p) => summarizeTask(await restoreTask(ctx, p.id)) }),
   "task.list": op({ description: "Recent tasks, newest first, always returned as a cursor page.", params: z.object({
