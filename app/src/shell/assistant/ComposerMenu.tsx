@@ -14,7 +14,9 @@ export function ComposerMenu({ canStartNew, busy, onNew, onContext }: { canStart
   }, [open]);
   const close = (restore = true) => { setOpen(false); if (restore) root.current?.querySelector<HTMLElement>("button[aria-haspopup]")?.focus(); };
   // Tabbing out of the menu closes it, so it never stays open behind the sheet.
-  const onBlur = (event: FocusEvent) => { if (open && !root.current?.contains(event.relatedTarget as Node | null)) setOpen(false); };
+  // WebKit does not focus a button on mousedown, so a null relatedTarget is a click inside, not a Tab out: only a real
+  // focus target outside the menu closes it (outside clicks are handled by the pointerdown listener).
+  const onBlur = (event: FocusEvent) => { const next = event.relatedTarget as Node | null; if (open && next && !root.current?.contains(next)) setOpen(false); };
   const onKey = (event: KeyboardEvent) => {
     if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); close(); return; }
     if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;

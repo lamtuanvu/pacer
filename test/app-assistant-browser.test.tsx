@@ -218,3 +218,17 @@ webkitTest("assistant_sheet_is_drawn_in_webkit_with_the_desktop_frame_and_the_la
     }
   } finally { await browser.close(); }
 }, 40_000);
+
+webkitTest("assistant_plus_menu_items_work_with_the_mouse_in_webkit", async () => {
+  const built = await build();
+  const browser = await webkit.launch();
+  try {
+    const page = await browser.newPage({ viewport: { width: 1100, height: 700 } });
+    await open(page, built);
+    await openSheet(page);
+    await page.getByRole("button", { name: "Conversation options" }).click();
+    // WebKit does not focus a clicked button; the click must still reach the item.
+    await page.getByRole("menuitem", { name: "Change context" }).click();
+    await page.getByRole("listbox").waitFor({ timeout: 2000 });
+  } finally { await browser.close(); }
+}, 30_000);
