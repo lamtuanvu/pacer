@@ -31,6 +31,7 @@ pacer paces AI coding work across subscription budgets. A planner plans and revi
 | `crates/foundation` | `pacer-foundation`: ctx, file rules, lock, `CoreError`, op registry types |
 | `crates/client-control-protocol` | `pacer-client-control-protocol`: generated agent discovery and connected-page control types, split under CRATE-3 |
 | `crates/limits-protocol` | `pacer-limits-protocol`: generated limits operation types, split under CRATE-3 |
+| `crates/plugin-ops-protocol` | `pacer-plugin-ops-protocol`: generated `plugin.*` client operation types, split under CRATE-3 |
 | `crates/session-protocol` | `pacer-session-protocol`: generated interactive-session operation types, split from the client schema under CRATE-3 |
 | `crates/terminal-protocol` | `pacer-terminal-protocol`: generated terminal and host-terminal operation types, split from the client schema under CRATE-3 |
 | `crates/assistant-protocol` | `pacer-assistant-protocol`: generated assistant operation types, split from the client schema under CRATE-3 |

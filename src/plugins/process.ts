@@ -7,6 +7,7 @@ import { CANCEL_METHOD } from "./protocol";
 export interface SpawnSpec { argv: string[]; cwd: string; env: Record<string, string | undefined> }
 export interface ProcessHooks {
   onRequest: (method: string, params: unknown) => Promise<unknown>;
+  onNotification?: (method: string, params: unknown) => void;
   onStderr: (line: string) => void;
   onExit: (info: { code: number | null; signal: string | null }) => void;
   spawn?: typeof nodeSpawn;
@@ -65,7 +66,7 @@ export class PluginProcess {
     catch { this.hooks.onStderr("ignored a malformed JSON line on stdout"); return; }
     if (m.jsonrpc !== "2.0") return;
     if (typeof m.method === "string") {
-      if (m.id === undefined || m.id === null) return;
+      if (m.id === undefined || m.id === null) { try { this.hooks.onNotification?.(m.method, m.params ?? {}); } catch (e) { this.hooks.onStderr(`notification ${m.method} failed: ${(e as Error).message}`); } return; }
       const id = m.id;
       void this.hooks.onRequest(m.method, m.params ?? {})
         .then(result => this.send({ id, result }), e => this.send({ id, error: rpcError(e) }));

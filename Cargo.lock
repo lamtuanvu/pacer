@@ -664,6 +664,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "pacer-plugin-ops-protocol"
+version = "0.0.0"
+dependencies = [
+ "regress",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "pacer-plugin-protocol"
 version = "0.0.0"
 dependencies = [
