@@ -7,18 +7,21 @@ import { createPortal } from "preact/compat";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
+import { WebLinksAddon } from "@xterm/addon-web-links";
 import { Button } from "../ds/Button";
 import { SessionClient, type SessionState } from "./client";
 import { filesFromPaste } from "../model/attachments";
 import { terminalDocument } from "./document";
-export interface TerminalViewProps { id:string; url?:string; label?:string; cols?:number; rows?:number; control?:boolean; resize?:boolean; live?:boolean; controller?:string|null; driving?:boolean; takeRequested?:boolean; onTakeSent?:()=>void; takeover?:ComponentChildren; conversation?:boolean; shell?:boolean; onFiles?:(files:File[])=>void; footer?:HTMLElement|null }
+import { classifyTerminalLink, findWrappedFileLinks, shouldActivateTerminalLink, type TerminalLink } from "./links";
+export interface TerminalViewProps { id:string; url?:string; label?:string; cols?:number; rows?:number; control?:boolean; resize?:boolean; live?:boolean; controller?:string|null; driving?:boolean; takeRequested?:boolean; onTakeSent?:()=>void; takeover?:ComponentChildren; conversation?:boolean; shell?:boolean; onFiles?:(files:File[])=>void; onOpenFile?:(reference:string,line?:number,column?:number)=>void; footer?:HTMLElement|null }
 /** Loaded only by import(). The shell may disable its shortcuts when data-session-control is true. */
-export function TerminalView({id,url,label='pacer app',cols=120,rows=40,control=false,resize=true,live=true,controller=null,driving=false,takeRequested=false,onTakeSent,takeover,conversation=false,shell=false,onFiles,footer}:TerminalViewProps){
+export function TerminalView({id,url,label='pacer app',cols=120,rows=40,control=false,resize=true,live=true,controller=null,driving=false,takeRequested=false,onTakeSent,takeover,conversation=false,shell=false,onFiles,onOpenFile,footer}:TerminalViewProps){
  const dialogs=useDialogs();
  const mount=useRef<HTMLDivElement>(null),pane=useRef<HTMLDivElement>(null),client=useRef<SessionClient>();
  const [state,setState]=useState<SessionState>({status:'connecting',you:false,controller,cols,rows,viewers:0});
  const [reader,setReader]=useState(false),[error,setError]=useState(''),[generation,setGeneration]=useState(0),[exitAt,setExitAt]=useState('');
  const terminal=useRef<Terminal>(),searchAddon=useRef<SearchAddon>(),taken=useRef(false);
+ const openFileRef=useRef(onOpenFile);openFileRef.current=onOpenFile;
  const [search,setSearch]=useState(''),[searchFound,setSearchFound]=useState<boolean|null>(null);
  useEffect(()=>{
   if(!mount.current||!pane.current)return;
@@ -27,6 +30,37 @@ export function TerminalView({id,url,label='pacer app',cols=120,rows=40,control=
   const term=new Terminal({documentOverride:terminalDocument(document,nonce),cols,rows,disableStdin:true,screenReaderMode:reader,fontFamily:getComputedStyle(mount.current).getPropertyValue('--font-mono').trim(),fontSize:parseFloat(getComputedStyle(mount.current).getPropertyValue('--type-code-size')),scrollback:10000,convertEol:false});
   terminal.current=term;const fit=new FitAddon();term.loadAddon(fit);
   if(shell){const addon=new SearchAddon();term.loadAddon(addon);searchAddon.current=addon;}
+  const activate=(event:MouseEvent,target:TerminalLink|null)=>{
+   if(!target||!shouldActivateTerminalLink(!!client.current?.state.you,event))return;
+   if(target.kind==='file'&&!openFileRef.current)return;
+   event.preventDefault();
+   if(target.kind==='web')window.open(target.url,'_blank','noopener,noreferrer');
+   else openFileRef.current?.(target.reference,target.line,target.column);
+  };
+  term.options.linkHandler={allowNonHttpProtocols:!!onOpenFile,activate:(event,uri)=>activate(event,classifyTerminalLink(uri,true)),
+   hover:(_event,uri)=>{if(term.element)term.element.title=uri;},leave:()=>{if(term.element)term.element.removeAttribute('title');}};
+  term.loadAddon(new WebLinksAddon((event,uri)=>activate(event,classifyTerminalLink(uri,false))));
+  const fileLinks=onOpenFile?term.registerLinkProvider({provideLinks(bufferLineNumber,callback){
+   const buffer=term.buffer.active,row=bufferLineNumber-1;
+   let first=row,last=row;
+   while(first>0&&row-first<16&&buffer.getLine(first)?.isWrapped)first--;
+   while(last+1<buffer.length&&last-row<16&&buffer.getLine(last+1)?.isWrapped)last++;
+   const lines=Array.from({length:last-first+1},(_,index)=>{
+    const line=buffer.getLine(first+index),text=line?.translateToString(true)??'',cells:number[]=[],endCells:number[]=[];
+    if(line){let offset=0;for(let x=0;x<line.length&&offset<text.length;x++){
+     const cell=line.getCell(x);if(!cell||cell.getWidth()===0)continue;
+     const chars=cell.getChars()||' ';
+     for(let n=0;n<chars.length&&offset<text.length;n++){cells[offset]=x+1;endCells[offset++]=x+Math.max(1,cell.getWidth());}
+    }}
+    return{text,wrapped:!!line?.isWrapped,cells,endCells};
+   });
+   callback(findWrappedFileLinks(lines,row-first).map(link=>({
+    text:link.target.reference,range:{start:{x:link.start.x,y:link.start.y+first},end:{x:link.end.x,y:link.end.y+first}},
+    activate:event=>activate(event,link.target),
+    hover:()=>{if(term.element)term.element.title=link.target.reference;},
+    leave:()=>{if(term.element)term.element.removeAttribute('title');},
+   })));
+  }}):undefined;
   term.open(mount.current);
   const applyTheme=()=>{const style=getComputedStyle(mount.current!);const token=(name:string)=>style.getPropertyValue(name).trim();term.options.theme={background:token('--surface-page'),foreground:token('--ink'),cursor:token('--ink'),selectionBackground:token('--line'),black:token('--ink'),red:token('--bad-fg'),green:token('--good-fg'),yellow:token('--warn-fg'),blue:token('--info-fg'),magenta:token('--link'),cyan:token('--info-fg'),white:token('--ink-secondary'),brightBlack:token('--ink-muted'),brightRed:token('--bad-fill'),brightGreen:token('--good-fill'),brightYellow:token('--warn-fill'),brightBlue:token('--link'),brightMagenta:token('--link'),brightCyan:token('--info-fg'),brightWhite:token('--ink')};};
   applyTheme();const observer=new MutationObserver(applyTheme);observer.observe(document.documentElement,{attributes:true,attributeFilter:['data-theme','class']});const media=matchMedia('(prefers-color-scheme: dark)');media.addEventListener('change',applyTheme);
@@ -52,14 +86,14 @@ export function TerminalView({id,url,label='pacer app',cols=120,rows=40,control=
   const input=term.onData(data=>connection.input(data));
   const resizer=new ResizeObserver(()=>{clearTimeout(resizeTimer);resizeTimer=setTimeout(scale,150);});resizer.observe(pane.current);
   connection.connect();scale();
-  return ()=>{clearTimeout(resizeTimer);resizer.disconnect();observer.disconnect();media.removeEventListener('change',applyTheme);input.dispose();connection.dispose();term.dispose();client.current=undefined;terminal.current=undefined;searchAddon.current=undefined;};
+  return ()=>{clearTimeout(resizeTimer);resizer.disconnect();observer.disconnect();media.removeEventListener('change',applyTheme);input.dispose();connection.dispose();fileLinks?.dispose();term.dispose();client.current=undefined;terminal.current=undefined;searchAddon.current=undefined;};
  },[id,url,label,control,resize,live,shell,generation]);
  useEffect(()=>{if(terminal.current)terminal.current.options.screenReaderMode=reader;},[reader]);
  // Focus on the next frame, after the control state renders.
  useEffect(()=>{if(!state.you)return;const frame=requestAnimationFrame(()=>terminal.current?.focus());return ()=>cancelAnimationFrame(frame);},[state.you]);
  useEffect(()=>{if(takeRequested&&!taken.current&&state.status==='live'){taken.current=true;void client.current?.take(message=>dialogs.confirm(message,'Take control','Take control')).then(()=>onTakeSent?.()).catch(e=>setError(String(e)));}},[takeRequested,state.status]);
  const mode=state.status==='exited'?`Exited with code ${state.code ?? 'unknown'}${state.signal?` (${state.signal})`:''}${exitAt?` at ${exitAt}`:''}`:state.you?'You have control':state.status==='live'?'Watching · read-only':state.status==='resyncing'?'Refreshing snapshot…':state.status==='error'?'Session error':state.status==='reconnecting'?'Reconnecting…':'Connecting…';
- const hint=state.you?`Keystrokes go to your ${shell?'shell':'agent'}. Ctrl-] to release.`:shell?'Nothing you type reaches the shell until you take control.':conversation?'Nothing you type reaches the agent. Closing this window leaves your conversation running.':'Nothing you type reaches the agent.';
+ const hint=state.you?`Keystrokes go to your ${shell?'shell':'agent'}. Ctrl/⌘-click links; Ctrl-] to release.`:shell?'Nothing you type reaches the shell until you take control.':conversation?'Nothing you type reaches the agent. Closing this window leaves your conversation running.':'Nothing you type reaches the agent.';
  const readerToggle=<label><Checkbox checked={reader} onChange={e=>setReader(e.currentTarget.checked)}/> Screen reader</label>;
  const toggleControl=()=>{if(state.you)client.current?.release();else{void client.current?.take(message=>dialogs.confirm(message,'Take control','Take control')).catch(e=>setError(String(e)));}};
  const reconnect=()=>setGeneration(n=>n+1);

@@ -8,6 +8,7 @@ import { resetCaptureBroker } from "../desktop/capture-broker";
 import { configuredNativeServices } from "../update/desktop/native-provider";
 import type { PairedNativeBootstrap } from "../update/desktop/native-paired-bootstrap";
 import { bindDesktopUpdateRuntime, createDesktopUpdateRuntime } from "../update/desktop/service";
+import { backfillAttemptUsage } from "../tokens/store";
 import { reconcileAdmissionSync } from "../update/desktop/admission";
 import { retentionScheduler } from "../tasks/retention";
 import { superviseTasks } from "../tasks/api";
@@ -59,6 +60,8 @@ export function startServer(
   const token = ensureToken(initialCtx);
   reconcileAdmissionSync(initialCtx);
   recoverJobs(initialCtx);
+  // History gets its token index in the background; it reads logs and writes only attempt_usage.
+  void backfillAttemptUsage(initialCtx).catch(error => console.error(`pacer: token usage backfill skipped: ${error instanceof Error ? error.message : String(error)}`));
   // Serving diagnostics must not wait on account configuration writes. New local
   // launches serialize with this job through the shared installation lock.
   void Promise.resolve().then(() => refreshConnectedIntegrations(initialCtx)).then(results => {

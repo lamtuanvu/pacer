@@ -64,11 +64,11 @@ function sessionProcessAlive(dir:string):boolean{
   try{process.kill(pid,0);return true;}catch(e){return (e as NodeJS.ErrnoException).code==='EPERM';}
  }catch{return false;}
 }
-export interface SessionInfo {takeover:{available:boolean;reason?:string};driving:boolean;host:'builtin'|'orca'|'none';capabilities:Capabilities;live:boolean;machine:string|null;cols:number;rows:number;controller:string|null;viewers:number;targets:ViewerTarget[];attach:{cli:string;ws:string}}
+export interface SessionInfo {takeover:{available:boolean;reason?:string};driving:boolean;host:'builtin'|'orca'|'none';capabilities:Capabilities;live:boolean;machine:string|null;attempt?:number|null;cols:number;rows:number;controller:string|null;viewers:number;targets:ViewerTarget[];attach:{cli:string;ws:string}}
 function json(path:string):any{try{return JSON.parse(readFileSync(path,'utf8'));}catch{return {};}}
 export async function sessionInfo(ctx:Ctx,id:string,orcaLive?:boolean,includeTargets=true):Promise<SessionInfo>{
  validateTaskId(id);const task=readTask(ctx,id);if(!task)throw new CoreError('unknown_task',`unknown task ${id}`);
- const info:SessionInfo={takeover:takeoverAvailability(task),driving:task.takeover?.state==='driving',host:'none',capabilities:{snapshot:false,control:false,record:false,resize:false},live:false,machine:task.run?.host??null,cols:120,rows:40,controller:null,viewers:0,targets:[],attach:{cli:attachCommand(id),ws:`/v2/tasks/${id}/session`}};
+ const info:SessionInfo={takeover:takeoverAvailability(task),driving:task.takeover?.state==='driving',host:'none',capabilities:{snapshot:false,control:false,record:false,resize:false},live:false,machine:task.run?.host??null,attempt:task.run?.attempt??null,cols:120,rows:40,controller:null,viewers:0,targets:[],attach:{cli:attachCommand(id),ws:`/v2/tasks/${id}/session`}};
  const worker=Object.values(loadOrcaState(ctx).workers).find(w=>w.taskId===id);
  if(worker || (task.result?.backend??task.backend)==='orca'){
   info.host='orca';if(worker?.terminal){try{info.live=orcaLive??isLiveTerminal(await new OrcaClient(ctx.run,ctx.env).terminalShow(worker.terminal));}catch{}}

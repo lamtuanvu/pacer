@@ -10,15 +10,21 @@ export function scopeRepo(query: RouteQuery): string | null {
 export function activeRepo(query: RouteQuery): string | null {
   return (query.repo === "" ? null : scopeRepo(query) ?? query.repo);
 }
-export function useNarrow(query: RouteQuery): boolean {
-  const [small, setSmall] = useState(() => typeof window !== "undefined" && !!window.matchMedia?.(NARROW_MEDIA).matches);
+/** Side panels show from this width; below it the shell hides them, as it hid the settings panel before. */
+export const PANEL_MEDIA = "(width >= 768px)";
+/** `fallback` applies where media queries are unavailable, such as server rendering. */
+export function useMedia(query: string, fallback = false): boolean {
+  const [matches, setMatches] = useState(() => typeof window !== "undefined" && window.matchMedia ? window.matchMedia(query).matches : fallback);
   useEffect(() => {
-    const media = window.matchMedia?.(NARROW_MEDIA);
+    const media = window.matchMedia?.(query);
     if (!media) return;
-    const update = () => setSmall(media.matches);
+    const update = () => setMatches(media.matches);
     update();
     media.addEventListener("change", update);
     return () => media.removeEventListener("change", update);
-  }, []);
-  return small || scopeRepo(query) !== null;
+  }, [query]);
+  return matches;
+}
+export function useNarrow(query: RouteQuery): boolean {
+  return useMedia(NARROW_MEDIA) || scopeRepo(query) !== null;
 }

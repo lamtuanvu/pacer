@@ -1,6 +1,6 @@
 # pacer Constitution
 
-Status: Rust front-door/coexistence proposal (identifier pending; OD-12); Amendment 0.14.0 (scoped work delegation) proposed; amendment 0.13.0 (UI readiness procedure and preflight) proposed; amendment 0.12.0 (spacing ownership) proposed; amendment 0.11.0 (affected-area CI selection) proposed; amendment 0.10.0 (portable skills and mandatory project review) proposed; amendment 0.9.0 (compact UI density) proposed; amendment 0.8.0 (plugin system: P13–P15) proposed; amendment 0.7.0 (Rust crate structure and size rules) proposed; amendment 0.6.0 (automated releases) proposed; established rules remain in force. The maintainer adopts the amendment by merging its PR. Amendment 0.5.0 was adopted on 2026-10-20 by merging #209; amendment 0.4.0 on 2026-10-19 by merging #193. | Version: 0.14.0 | Updated: 2026-10-26
+Status: Rust front-door/coexistence proposal (identifier pending; OD-12); Amendment 0.15.0 (agent work routing) proposed; amendment 0.14.0 (scoped work delegation) proposed; amendment 0.13.0 (UI readiness procedure and preflight) proposed; amendment 0.12.0 (spacing ownership) proposed; amendment 0.11.0 (affected-area CI selection) proposed; amendment 0.10.0 (portable skills and mandatory project review) proposed; amendment 0.9.0 (compact UI density) proposed; amendment 0.8.0 (plugin system: P13–P15) proposed; amendment 0.7.0 (Rust crate structure and size rules) proposed; amendment 0.6.0 (automated releases) proposed; established rules remain in force. The maintainer adopts the amendment by merging its PR. Amendment 0.5.0 was adopted on 2026-10-20 by merging #209; amendment 0.4.0 on 2026-10-19 by merging #193. | Version: 0.15.0 | Updated: 2026-10-27
 Decision authority: the single maintainer, @lamtuanvu ([GOVERNANCE.md](../GOVERNANCE.md), [.github/CODEOWNERS](../.github/CODEOWNERS)). AI reviewers give advice; they do not approve.
 
 ## Purpose and scope
@@ -159,6 +159,10 @@ Stale 0.4.0 proposal labels are corrected to its recorded adoption by #193.
 ## Amendment 0.14.0 — scoped work delegation
 
 Proposed for adoption by maintainer merge; implementation for the current dispatcher task was explicitly authorized on 2026-10-25. API-5 permits an executor to create and manage child work only through a service-issued grant bound to its running task and attempt. The service derives parent identity and enforces subtree, repository, capability, depth, concurrency and lifetime constraints. A grant never authorizes global operations, self-review or free-form shell execution. Executor sessions without a valid grant remain unable to delegate. This amendment changes no other authentication or protocol compatibility rule.
+
+## Amendment 0.15.0 — agent work routing
+
+Proposed; adopted when the maintainer merges it. It adds REPO-11 to REPO-14 to [rules/repository.md](rules/repository.md#repo-11-to-repo-14-agent-work-routing): delegate execution through pacer as the mode requires, use the smallest capable model tier for work on the planner's side, record the choice in every brief and report, and keep executor state in a sandbox. The rules name no particular planner or vendor (P3). They don't relax REPO-10, CT-11, the UI evidence gates or the maintainer's merge authority.
 
 ## Amendment and exception policy
 

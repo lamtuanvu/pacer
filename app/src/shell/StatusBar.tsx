@@ -57,7 +57,8 @@ export function screenHints(shortcuts: Shortcut[], route: Route): StatusHint[] {
   return hints.length > 6 ? [...hints.slice(0, 5), { keys: "?", label: "shortcuts" }] : hints;
 }
 
-export function StatusBar({ route, snapshot, registry }: { route: Route; snapshot: ClientSnapshot | null; registry: KeyRegistry }) {
+/** `terminal` adds the dock toggle; it is omitted wherever the dock cannot open. */
+export function StatusBar({ route, snapshot, registry, terminal }: { route: Route; snapshot: ClientSnapshot | null; registry: KeyRegistry; terminal?: { open: boolean; toggle: () => void } }) {
   const [shortcuts, setShortcuts] = useState(() => registry.list());
   const [usageOpen, setUsageOpen] = useState(false);
   const usageButton = useRef<HTMLButtonElement>(null);
@@ -84,6 +85,7 @@ export function StatusBar({ route, snapshot, registry }: { route: Route; snapsho
       {!usageNames.length && <span>Usage</span>}
     </Button>
     <div className="pc-statusbar__hints" aria-label="Shortcuts">{hints.map(hint => <span className="pc-statusbar__hint" key={`${hint.keys}:${hint.label}`}><Kbd>{hint.keys === "Enter" ? "⏎" : hint.keys === "Escape" ? "Esc" : hint.keys}</Kbd> {hint.label}</span>)}</div>
+    {terminal && <Button size="sm" variant="quiet" className="pc-statusbar__terminal" aria-label="Terminal" aria-keyshortcuts="Control+`" aria-expanded={terminal.open} aria-controls={terminal.open ? "pc-terminal-dock" : undefined} onClick={terminal.toggle}>Terminal <Kbd>Ctrl `</Kbd></Button>}
     <span className="pc-statusbar__version">pacer {snapshot?.service?.version ?? ""}</span>
     {usageOpen && <PopoverDialog id="pc-usage-details" title="Usage details" close={() => setUsageOpen(false)}><UsagePopover close={() => setUsageOpen(false)} now={now} /></PopoverDialog>}
   </footer>;
