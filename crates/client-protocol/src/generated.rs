@@ -6862,6 +6862,158 @@ impl<'de> ::serde::Deserialize<'de> for ExecutorSetupModelsParamsProvider {
             })
     }
 }
+///`FilesSearchParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "query"
+///  ],
+///  "properties": {
+///    "limit": {
+///      "type": "integer",
+///      "maximum": 50.0,
+///      "minimum": 1.0
+///    },
+///    "query": {
+///      "type": "string",
+///      "maxLength": 200,
+///      "minLength": 1
+///    },
+///    "repo": {
+///      "type": "string",
+///      "maxLength": 512,
+///      "minLength": 1
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct FilesSearchParams {
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub limit: ::std::option::Option<::std::num::NonZeroU64>,
+    pub query: FilesSearchParamsQuery,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub repo: ::std::option::Option<FilesSearchParamsRepo>,
+}
+///`FilesSearchParamsQuery`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 200,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct FilesSearchParamsQuery(::std::string::String);
+impl ::std::ops::Deref for FilesSearchParamsQuery {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<FilesSearchParamsQuery> for ::std::string::String {
+    fn from(value: FilesSearchParamsQuery) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for FilesSearchParamsQuery {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 200usize {
+            return Err("longer than 200 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for FilesSearchParamsQuery {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for FilesSearchParamsQuery {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`FilesSearchParamsRepo`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 512,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct FilesSearchParamsRepo(::std::string::String);
+impl ::std::ops::Deref for FilesSearchParamsRepo {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<FilesSearchParamsRepo> for ::std::string::String {
+    fn from(value: FilesSearchParamsRepo) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for FilesSearchParamsRepo {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 512usize {
+            return Err("longer than 512 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for FilesSearchParamsRepo {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for FilesSearchParamsRepo {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
 ///`Hello`
 ///
 /// <details><summary>JSON schema</summary>
