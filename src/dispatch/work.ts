@@ -161,7 +161,8 @@ function headBranch(worktree:string|undefined):string|null{
 function listBranch(task:NonNullable<ReturnType<typeof readTask>>):string|null{
  const known=task.run?.remoteBranch??(task.run?.mode==="new"?`pacer/${task.id}`:null);
  if(known||task.run?.host)return known;
- return headBranch(task.run?.workdir??task.worktree??task.result?.worktree??task.brief.repo);
+ // Only a worktree the task owns: the shared repository's branch moves on and would mislabel old tasks.
+ return headBranch(task.run?.workdir??task.worktree??task.result?.worktree);
 }
 /** The compact roll-up a list row shows; no usage reading at all is reported as null, never as zero. */
 function listTokens(ctx:Ctx,id:string,attempts:Parameters<typeof attemptsWithTokens>[2]){

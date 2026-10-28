@@ -245,8 +245,14 @@ test("work list rows show the checked-out branch read from the worktree HEAD, fo
  const {ctx,task}=root();
  const repo=task.brief.repo;
  mkdirSync(join(repo,".git"),{recursive:true});writeFileSync(join(repo,".git","HEAD"),"ref: refs/heads/feat/board\n");
+ // The shared repository's branch is not the task's: with no worktree of its own the row shows none.
+ expect(listWork(ctx,{relation:"all"}).tasks.find(t=>t.id===task.id)!.branch).toBeNull();
+ const own=tmpDir();mkdirSync(join(own,".git"),{recursive:true});writeFileSync(join(own,".git","HEAD"),"ref: refs/heads/feat/board\n");
+ updateTask(ctx,task.id,t=>{t.worktree=own;});
  expect(listWork(ctx,{relation:"all"}).tasks.find(t=>t.id===task.id)!.branch).toBe("feat/board");
- // A linked worktree has a .git file pointing at its own git dir.
+ // A linked worktree has a .git file pointing at its own git dir, relative or absolute; a missing path shows none.
+ updateTask(ctx,task.id,t=>{t.worktree=join(own,"gone");});
+ expect(listWork(ctx,{relation:"all"}).tasks.find(t=>t.id===task.id)!.branch).toBeNull();
  const linked=tmpDir(),gitDir=join(tmpDir(),"wt");mkdirSync(gitDir,{recursive:true});
  writeFileSync(join(gitDir,"HEAD"),"ref: refs/heads/fix/linked\n");writeFileSync(join(linked,".git"),`gitdir: ${gitDir}\n`);
  updateTask(ctx,task.id,t=>{t.worktree=linked;});
