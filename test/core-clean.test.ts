@@ -6,7 +6,6 @@ import { gitInfo } from "../src/core/git";
 import * as tasks from "../src/core/tasks";
 import { createTaskWorktree } from "../src/supervisor/worktree";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
-import { trustClaudeWorktree } from "../src/exec/claude-trust";
 import { fakeCtx, gitRepo, realRun } from "./helpers";
 
 async function finished(o: { dirty?: boolean; reviewed?: boolean } = {}) {
@@ -78,10 +77,8 @@ test("clean prunes settled in-place recordings, preserves logs and respects dry-
   }
 });
 
-test("clean removes an Orca worktree and its pacer-added Claude trust", async () => {
+test("clean removes an Orca worktree through the execution adapter", async () => {
   const {ctx, t, w, repo} = await finished();
-  const config = join(ctx.home, ".claude.json");
-  trustClaudeWorktree(ctx, w.path, config, t.id);
   updateTask(ctx, t.id, x => {
     x.result = {status: "done", executor: "claude-code", model: null, files: "", report: "", backend: "orca", worktree: w.path};
     x.placement = {requested: "new", mode: "new", why: "test"};
@@ -100,7 +97,8 @@ test("clean removes an Orca worktree and its pacer-added Claude trust", async ()
   expect(calls).toHaveLength(2);
   expect(calls[1]).toEqual(["orca", "worktree", "rm", "--worktree", `id:repo-id::${w.path}`, "--json"]);
   expect(existsSync(w.path)).toBe(false);
-  expect(JSON.parse(await Bun.file(config).text()).projects[w.path]).toBeUndefined();
+  expect(existsSync(join(ctx.home, ".claude.json"))).toBe(false);
+  expect(await tasks.clean(ctx)).toEqual({removed: [], kept: []});
 });
 
 test("clean keeps an Orca worktree whose ownership name changed", async () => {

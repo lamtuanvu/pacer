@@ -30,3 +30,13 @@ test("only the plugin host imports the bundled plugin list", () => {
 test("core config takes backend readiness by injection, not from src/exec", () => {
   expect(readFileSync(join(import.meta.dir, "..", "src", "core", "config.ts"), "utf8")).not.toMatch(/from\s+["'][^"']*\/exec\//);
 });
+
+test("src/core runs no orca CLI and leaves host cleanup to src/exec adapters", () => {
+  const core = files(join(import.meta.dir, "..", "src", "core"));
+  const argv = /(?:\b(?:run|spawn|spawnSync|execProcess)\s*\(\s*\[\s*["']orca["'])|\[\s*["']orca["']\s*,\s*["'](?:worktree|terminal|orchestration|repo|status|project|account)["']/;
+  const cli = core.filter((f) => argv.test(readFileSync(f, "utf8")));
+  expect(cli).toEqual([]);
+  const env = core.filter((f) => /sanitizedOrcaEnv|attestation-env/.test(readFileSync(f, "utf8")));
+  expect(env).toEqual([]);
+  expect(readFileSync(join(import.meta.dir, "..", "src", "core", "tasks.ts"), "utf8")).not.toMatch(/orca/i);
+});

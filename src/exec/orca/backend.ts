@@ -2,7 +2,7 @@ import { beginWorkSync, bindOrcaWorkSync, finishOrcaWorkSync, finishWorkSync } f
 import { resolveWorktreeBase } from "../../supervisor/worktree";
 import { pidAlive } from "../../link/store";
 import { appendFileSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { shellCommand } from "../../install/fsx";
 import { launchArgvFor, providerEnv } from "../launch";
 import { readJson, writeJsonAtomic } from "../../fsutil";
@@ -18,14 +18,15 @@ import { brokenReason, repoFingerprint } from "../broken";
 import type { ExecResult } from "../process";
 import { buildPrompt } from "../prompt";
 import { orcaAgentFor } from "./agents";
-import { OrcaClient, type Placement, isReady } from "./client";
-import { trustClaudeWorktree } from "../claude-trust";
+import { OrcaClient, type Placement, type WorkerStartResult, type WorktreeRow, isReady } from "./client";
+import { closeCreatedTerminal, discardCreatedWorktree, lookupWorker, type OwnedWorktree, type WorkerLookup } from "./cleanup";
 import { ensureCoordinator, ensureRepo, gitInfo, realpathSafe } from "./setup";
 import { updateOrcaState, withLock } from "./state";
 import { type WaitResult, waitForWorker } from "./wait";
 
 export interface OrcaBackendDeps {
   loadExecution: (ctx: Ctx) => ExecutionCfg;
+  admission: { begin: typeof beginWorkSync; bind: typeof bindOrcaWorkSync; finishOrca: typeof finishOrcaWorkSync; finish: typeof finishWorkSync };
   direct: Backend["runAttempt"];
   sliceMs: number;
   now: () => number;
@@ -34,6 +35,7 @@ export interface OrcaBackendDeps {
 
 const DEFAULTS: OrcaBackendDeps = {
   loadExecution: (ctx) => validateExecution(loadStrategy(ctx).execution),
+  admission: { begin: beginWorkSync, bind: bindOrcaWorkSync, finishOrca: finishOrcaWorkSync, finish: finishWorkSync },
   direct: directAttempt,
   sliceMs: 30_000,
   now: () => Date.now(),
@@ -127,10 +129,10 @@ function mapWait(w: WaitResult): Mapped {
 }
 
 async function fallback(
-  deps: OrcaBackendDeps, ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, onSpawn: ((pid: number) => void) | undefined, reason: string,
+  deps: OrcaBackendDeps, ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, onSpawn: ((pid: number) => void) | undefined, reason: string, lines: string[] = [],
 ): Promise<AttemptOutcome> {
   const out = await deps.direct(ctx, cfg, task, onSpawn);
-  if (out.attempt.log) appendFileSync(out.attempt.log, `direct backend: Orca fallback (${reason.replace(/\s+/g, " ").trim()})\n`);
+  if (out.attempt.log) appendFileSync(out.attempt.log, [...lines, `direct backend: Orca fallback (${reason.replace(/\s+/g, " ").trim()})`].join("\n") + "\n");
   try {
     await withLock(ctx,"fallback",async()=>{
       const dir=join(ctx.pacerHome,"orca"), path=join(dir,"fallback.json");
@@ -144,24 +146,8 @@ async function fallback(
   return { ...out, backend: "direct" };
 }
 
-async function closeCreatedTerminal(c: OrcaClient, terminal: string): Promise<{failure: string | null; proof: boolean}> {
-  let failure = "unknown";
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      const closed = await c.terminalClose(terminal);
-      if (closed.ok) {
-        const receipt = closed.result.close as {handle?: string; ptyKilled?: boolean} | undefined;
-        if (receipt?.handle === terminal && receipt.ptyKilled === true) return {failure: null, proof: true};
-        failure = "close receipt lacks exact handle and ptyKilled proof";
-        continue;
-      }
-      failure = `${closed.error.code}: ${closed.error.message}`;
-    } catch (e) { failure = String(e instanceof Error ? e.message : e); }
-  }
-  return {failure, proof: false};
-}
-
-async function cleanup(c: OrcaClient, dispatchId: string, terminal: string | null, settled: boolean, log: (l: string) => void, receipt: (reply: Awaited<ReturnType<OrcaClient["workerStop"]>>) => void): Promise<boolean> {
+/** Release or stop the dispatch; the caller closes the terminal. */
+async function settle(c: OrcaClient, dispatchId: string, settled: boolean, log: (l: string) => void, receipt: (reply: Awaited<ReturnType<OrcaClient["workerStop"]>>) => void): Promise<void> {
   let stop = !settled;
   if (settled) {
     const rel = await c.workerRelease(dispatchId);
@@ -174,12 +160,35 @@ async function cleanup(c: OrcaClient, dispatchId: string, terminal: string | nul
     receipt(st);
     log(`worker-stop: ${st.ok ? (st.result.state ?? "ok") : st.error.code}`);
   }
-  if (terminal) {
-    const closed = await closeCreatedTerminal(c, terminal);
-    log(`closed pacer terminal ${terminal}: ${closed.failure ?? "ok"}`);
-    return closed.proof;
+}
+
+function waitLine(dispatchId: string, w: WaitResult): string {
+  switch (w.kind) {
+    case "done": return `worker_done ${dispatchId}: ${w.outcome}`;
+    case "settled": return `worker ${dispatchId} settled: ${w.state}${w.error ? ` (${w.error})` : ""}`;
+    case "timeout": return `worker ${dispatchId}: timed out`;
+    case "stopped": return `worker ${dispatchId}: stopped by the planner`;
   }
-  return false;
+}
+
+/** The worktree Orca returned must be the one pacer asked for (new-child name under the repo, or the existing path). */
+function checkedWorktree(p: Ready, w: WorktreeRow | undefined): { id: string; path: string } {
+  const id = w?.id;
+  if (!id) throw Error("orca worktree returned no id");
+  const sep = id.indexOf("::"), path = sep > 0 ? id.slice(sep + 2) : "";
+  const mismatch = (why: string) => Error(`orca worktree ${id} does not match the requested worktree: ${why}`);
+  if (!path.startsWith("/")) throw mismatch("no absolute path in its id");
+  if (w.path && realpathSafe(w.path) !== realpathSafe(path)) throw mismatch(`path ${w.path}`);
+  if (p.placement.kind === "new-child") {
+    if (id.slice(0, sep) !== p.placement.repoId) throw mismatch(`repo is not ${p.placement.repoId}`);
+    if (basename(path) !== p.placement.name) throw mismatch(`name is not ${p.placement.name}`);
+    if (realpathSafe(path) === realpathSafe(p.top)) throw mismatch("it is the repository itself");
+  } else {
+    // A retry may resolve its original worktree from a repository subdirectory inside it.
+    const want = realpathSafe(p.placement.selector.slice("path:".length)), real = realpathSafe(path);
+    if (want !== real && !want.startsWith(real + "/")) throw mismatch(`path does not contain ${want}`);
+  }
+  return { id, path };
 }
 
 async function runOrcaAttempt(
@@ -207,12 +216,14 @@ async function runOrcaAttempt(
   let startedAt = deps.now() / 1000;
   const lines: string[] = [];
   const log = (line: string) => { lines.push(line); };
-  const uncertainStart = async (reason: string): Promise<AttemptOutcome> => {
-    const report = `pacer cannot tell whether Orca created the worker: ${reason}. Direct fallback was skipped to avoid duplicate execution.`;
+  const adm = deps.admission;
+  // Admission bookkeeping must never skip terminal close or supervision.
+  const book = (what: string, f: () => unknown) => { try { f(); } catch (e) { log(`${what} failed: ${String(e instanceof Error ? e.message : e)}`); } };
+  const unstarted = async (report: string): Promise<AttemptOutcome> => {
     const dir = tasksDir(ctx);
     mkdirSync(dir, { recursive: true });
     const logFile = join(dir, `${task.id}.${cfg.id}.log`);
-    await Bun.write(logFile, report + "\n");
+    await Bun.write(logFile, [...lines, "--- summary", report].join("\n") + "\n");
     return {
       exec: { code: 1, stdout: report, stderr: "", timedOut: false }, report, backend: "orca",
       attempt: {
@@ -221,93 +232,136 @@ async function runOrcaAttempt(
       },
     };
   };
-  let ws: Awaited<ReturnType<OrcaClient["workerStart"]>>;
   const prompt = workerSpec(task, p);
-  const admission = beginWorkSync(ctx, { kind: "session", id: task.id, label: `Orca session ${task.id}` });
+  const admission = adm.begin(ctx, { kind: "session", id: task.id, label: `Orca session ${task.id}` });
   let terminal: string | null = null;
+  let created: OwnedWorktree | null = null;
   let worktree: string | null = null;
-  let selector: string;
+  let selector = "";
+  const discard = async () => { if (created) await discardCreatedWorktree(ctx, c, task.id, created, log, { sleep: deps.sleep }); };
   try {
+    const kind = p.placement.kind === "new-child" ? "create" : "show";
     const placement = p.placement.kind === "new-child"
       ? await c.worktreeCreate(p.placement)
       : await c.worktreeShow(realpathSafe(p.placement.selector.slice("path:".length)));
-    if (!placement.ok) throw Error(`orca worktree ${p.placement.kind === "new-child" ? "create" : "show"} failed: ${placement.error.code} ${placement.error.message}`);
-    const id = placement.result.worktree?.id;
-    if (!id) throw Error("orca worktree returned no id");
+    if (!placement.ok) throw Error(`orca worktree ${kind} failed: ${placement.error.code} ${placement.error.message}`);
+    const initial = p.placement.kind === "new-child"
+      ? placement.result.terminal?.handle ?? placement.result.initialTerminalHandle ?? placement.result.terminalHandle : undefined;
+    if (initial) terminal = initial;
+    let checked: { id: string; path: string };
+    try { checked = checkedWorktree(p, placement.result.worktree); }
+    catch (e) {
+      if (p.placement.kind === "new-child") log(`Orca worktree ${placement.result.worktree?.id ?? "(no id)"} not removed: its identity is unverified`);
+      throw e;
+    }
+    const { id, path: root } = checked;
+    if (p.placement.kind === "new-child") created = { id, path: root, name: p.placement.name };
     selector = `id:${id}`;
-    const root = placement.result.worktree?.path ?? id.slice(id.indexOf("::") + 2);
-    if (p.placement.kind === "new-child") {
-      const initial = placement.result.terminal?.handle ?? placement.result.initialTerminalHandle ?? placement.result.terminalHandle;
-      if (initial) {
-        terminal = initial;
-        bindOrcaWorkSync(ctx, admission, {dispatchId: "pending", terminal: initial,
-          ...(placement.result.terminal?.incarnationId ? {incarnationId: placement.result.terminal.incarnationId} : {})});
-        const closed = await closeCreatedTerminal(c, initial);
-        if (closed.failure || !closed.proof) throw Error(`orca worktree initial terminal ${initial} could not be verified closed: ${closed.failure ?? "no close receipt"}`);
-        terminal = null;
-      }
+    log(`worktree ${kind} ${id}: ${root}`);
+    if (initial) {
+      adm.bind(ctx, admission, {dispatchId: "pending", terminal: initial,
+        ...(placement.result.terminal?.incarnationId ? {incarnationId: placement.result.terminal.incarnationId} : {})});
+      const closed = await closeCreatedTerminal(c, initial);
+      log(`closed Orca initial terminal ${initial}: ${closed.failure ?? "ok"}`);
+      if (closed.failure || !closed.proof) throw Error(`orca worktree initial terminal ${initial} could not be verified closed: ${closed.failure ?? "no close receipt"}`);
+      terminal = null;
     }
     worktree = p.placement.kind === "existing" ? (task.retryOf && task.worktree ? task.worktree : task.brief.repo)
       : p.sub ? join(root, p.sub) : root;
-    if (p.agent === "claude") {
-      const env = await providerEnv(ctx, cfg);
-      trustClaudeWorktree(ctx, realpathSafe(root), env.CLAUDE_CONFIG_DIR ? join(env.CLAUDE_CONFIG_DIR, ".claude.json") : join(ctx.home, ".claude.json"), task.id);
-    }
     const accountEnv = await providerEnv(ctx, cfg);
     if (Object.keys(accountEnv).some(key => key !== "CLAUDE_CONFIG_DIR" && key !== "CODEX_HOME")) {
       throw Error("account environment contains values that cannot be placed in a visible Orca terminal command");
     }
-    const command = shellCommand(["env", "PACER_ROLE=executor", `PACER_TASK_ID=${task.id}`,
-      ...Object.entries(accountEnv).map(([key, value]) => `${key}=${value}`),
-      ...launchArgvFor(cfg, root, tasksDir(ctx), p.top)]);
-    const created = await c.terminalCreate(selector, `pacer ${task.id}`, command);
-    if (!created.ok || !created.result.terminal?.handle) throw Error(`orca terminal create failed: ${created.ok ? "no handle" : `${created.error.code} ${created.error.message}`}`);
-    terminal = created.result.terminal.handle;
-    bindOrcaWorkSync(ctx, admission, {dispatchId: "pending", terminal, ...(created.result.terminal.incarnationId ? {incarnationId: created.result.terminal.incarnationId} : {})});
+    // CLAUDE_CODE_SANDBOXED makes Claude treat the folder as trusted without writing its configuration.
+    const identity = ["PACER_ROLE=executor", `PACER_TASK_ID=${task.id}`, ...(p.agent === "claude" ? ["CLAUDE_CODE_SANDBOXED=1"] : [])];
+    const launch = launchArgvFor(cfg, root, tasksDir(ctx), p.top);
+    const command = shellCommand(["env", ...identity, ...Object.entries(accountEnv).map(([key, value]) => `${key}=${value}`), ...launch]);
+    const shown = shellCommand(["env", ...identity, ...Object.keys(accountEnv).map(key => `${key}=<${key}>`), ...launch]);
+    const made = await c.terminalCreate(selector, `pacer ${task.id}`, command);
+    if (!made.ok || !made.result.terminal?.handle) throw Error(`orca terminal create failed: ${made.ok ? "no handle" : `${made.error.code} ${made.error.message}`}`);
+    terminal = made.result.terminal.handle;
+    log(`terminal create ${terminal}: ${shown}`);
+    adm.bind(ctx, admission, {dispatchId: "pending", terminal, ...(made.result.terminal.incarnationId ? {incarnationId: made.result.terminal.incarnationId} : {})});
     const idle = await c.terminalWait(terminal);
-    if (!idle.ok || idle.result.wait?.satisfied !== true) {
-      throw Error(`orca terminal did not become idle: ${idle.ok ? idle.result.wait?.blockedReason ?? idle.result.wait?.status ?? "timeout" : `${idle.error.code} ${idle.error.message}`}`);
-    }
+    const state = idle.ok ? (idle.result.wait?.satisfied === true ? "idle" : idle.result.wait?.blockedReason ?? idle.result.wait?.status ?? "timeout") : `${idle.error.code} ${idle.error.message}`;
+    log(`terminal wait ${terminal}: ${state}`);
+    if (state !== "idle") throw Error(`orca terminal did not become idle: ${state}`);
   } catch (e) {
     let reason = String(e instanceof Error ? e.message : e);
     let closed = !terminal;
     if (terminal) {
       const result = await closeCreatedTerminal(c, terminal);
+      log(`closed pacer terminal ${terminal}: ${result.failure ?? "ok"}`);
       closed = result.proof;
       if (result.failure) reason += `; terminal close failed ${terminal}: ${result.failure}`;
     }
-    if (closed) finishWorkSync(ctx, admission);
-    return fallback(deps, ctx, cfg, task, onSpawn, reason);
+    await discard();
+    if (closed) book("admission release", () => adm.finish(ctx, admission));
+    return fallback(deps, ctx, cfg, task, onSpawn, reason, lines);
   }
+  const agentTerminal: string = terminal!;
+  let r: WorkerStartResult | null = null;
+  let uncertain: string | null = null;
   try {
-    ws = await c.workerStart({ spec: prompt, terminal: terminal!, worktree: selector!, run: p.run, from: p.coordinator });
+    const ws = await c.workerStart({ spec: prompt, terminal: agentTerminal, worktree: selector, run: p.run, from: p.coordinator });
+    if (ws.ok && ws.result.dispatchId) r = ws.result;
+    else if (!ws.ok && ws.error.code === "task_not_startable") {
+      log(`worker-start refused: ${ws.error.code} ${ws.error.message}`);
+      const closed = await closeCreatedTerminal(c, agentTerminal);
+      log(`closed pacer terminal ${agentTerminal}: ${closed.failure ?? "ok"}`);
+      await discard();
+      if (closed.proof) book("admission release", () => adm.finish(ctx, admission));
+      return fallback(deps, ctx, cfg, task, onSpawn, `orca worker-start refused (${ws.error.code}: ${ws.error.message})`
+        + (closed.failure ? `; terminal close failed ${agentTerminal}: ${closed.failure}` : ""), lines);
+    } else uncertain = ws.ok ? "orca worker-start returned no dispatch id" : `${ws.error.code}: ${ws.error.message}`;
   } catch (e) {
-    return uncertainStart(String(e instanceof Error ? e.message : e));
+    uncertain = String(e instanceof Error ? e.message : e);
   }
-  if (!ws.ok && ["timeout", "bad_output"].includes(ws.error.code)) {
-    return uncertainStart(`${ws.error.code}: ${ws.error.message}`);
-  }
-  if (!ws.ok) {
-    if (ws.error.code !== "task_not_startable") return uncertainStart(`${ws.error.code}: ${ws.error.message}`);
-    const closed = await closeCreatedTerminal(c, terminal!);
-    if (closed.proof) finishWorkSync(ctx, admission);
-    return fallback(deps, ctx, cfg, task, onSpawn, `orca worker-start refused (${ws.error.code}: ${ws.error.message})`
-      + (closed.failure ? `; terminal close failed ${terminal}: ${closed.failure}` : ""));
+  if (uncertain) {
+    log(`worker-start uncertain: ${uncertain}`);
+    // Never fall back while a worker may exist: look the terminal's dispatch up, a bounded number of times.
+    let found: WorkerLookup = { kind: "unknown", reason: "not checked" };
+    for (let i = 0; i < 3; i++) {
+      if (i) await deps.sleep(5_000);
+      found = await lookupWorker(c, p.run, agentTerminal);
+      log(`worker-list ${p.run} for ${agentTerminal}: ${found.kind === "found" ? `${found.dispatchId} ${found.state}` : found.kind === "none" ? "no worker" : found.reason}`);
+      if (found.kind === "found") break;
+    }
+    const keep = async (why: string) => {
+      try {
+        await withLock(ctx, "coordinator", async () => {
+          updateOrcaState(ctx, s => { s.uncertain[agentTerminal] = { taskId: task.id, terminal: agentTerminal, run: p.run, worktree: created, at: ctx.now }; });
+        });
+      } catch (e) { log(`recording uncertain start failed: ${String(e)}`); }
+      log(`kept terminal ${agentTerminal} (run ${p.run}) and its work lease for later reconciliation: ${why}`);
+    };
+    if (found.kind === "none") {
+      const closed = await closeCreatedTerminal(c, agentTerminal);
+      log(`closed pacer terminal ${agentTerminal}: ${closed.failure ?? "ok"}`);
+      if (closed.proof) {
+        book("admission release", () => adm.finish(ctx, admission));
+        await discard();
+      } else await keep(`terminal close failed: ${closed.failure}`);
+      return unstarted(`Orca did not create the worker (${uncertain}). Direct fallback was skipped.`);
+    }
+    if (found.kind === "unknown") {
+      await keep(found.reason);
+      return unstarted(`pacer cannot tell whether Orca created the worker: ${uncertain}. Direct fallback was skipped to avoid duplicate execution; terminal ${agentTerminal} is kept for reconciliation.`);
+    }
+    r = { dispatchId: found.dispatchId, state: found.state === "failed" ? "failed" : "ready" };
   }
   startedAt = deps.now() / 1000;
-  const r = ws.result;
-  if (!r.dispatchId) return uncertainStart("orca worker-start returned no dispatch id");
-  const dispatchId = r.dispatchId;
-  bindOrcaWorkSync(ctx, admission, { dispatchId, terminal });
-  if (terminal) {
-    try {
-      const shown = await c.terminalShow(terminal);
-      if (shown.ok && shown.result.terminal?.handle === terminal && shown.result.terminal.incarnationId) {
-        bindOrcaWorkSync(ctx, admission, { dispatchId, terminal, incarnationId: shown.result.terminal.incarnationId });
-      }
-    } catch { /* No precise terminal identity: retain the lease until a closure receipt. */ }
-  }
-  log(`worker-start ${dispatchId}: ${r.state ?? "unknown"} (agent ${p.agent}${p.model ? `, model ${p.model}` : ""}, worktree ${worktree ?? "-"})`);
+  const start = r!;
+  const dispatchId = start.dispatchId!;
+  book("admission binding", () => adm.bind(ctx, admission, { dispatchId, terminal: agentTerminal }));
+  try {
+    const shown = await c.terminalShow(agentTerminal);
+    if (shown.ok && shown.result.terminal?.handle === agentTerminal && shown.result.terminal.incarnationId) {
+      const incarnationId = shown.result.terminal.incarnationId;
+      book("admission binding", () => adm.bind(ctx, admission, { dispatchId, terminal: agentTerminal, incarnationId }));
+    }
+  } catch { /* No precise terminal identity: retain the lease until a closure receipt. */ }
+  log(`worker-start ${dispatchId}: ${start.state ?? "unknown"} (agent ${p.agent}${p.model ? `, model ${p.model}` : ""}, worktree ${worktree ?? "-"})`);
   const forget = async () => {
     try {
       await withLock(ctx, "coordinator", async () => {
@@ -328,7 +382,7 @@ async function runOrcaAttempt(
       if(worktree)updateTask(ctx,task.id,t=>{t.worktree=worktree;});
       await withLock(ctx, "coordinator", async () => {
         updateOrcaState(ctx, (s) => {
-          s.workers[dispatchId] = { dispatchId, taskId: task.id, executor: cfg.id, worktree, terminal, startedAt };
+          s.workers[dispatchId] = { dispatchId, taskId: task.id, executor: cfg.id, worktree, terminal: agentTerminal, startedAt };
         });
       });
     } catch (e) {
@@ -337,22 +391,24 @@ async function runOrcaAttempt(
     if (p.placement.kind === "new-child" && !worktree) {
       throw new Error(`orca worker ${dispatchId} returned no worktree path for new-child placement; stopped it without verifying the original repository`);
     }
-    if (r.state !== "ready") {
-      if (/agent[ _-]?launch|launch[ _-]?agent/i.test(r.failedStage ?? "")) {
-        launchBroken = `orca agent launch failed: ${r.lastError ?? "no error given"}`;
+    if (start.state !== "ready") {
+      if (/agent[ _-]?launch|launch[ _-]?agent/i.test(start.failedStage ?? "")) {
+        launchBroken = `orca agent launch failed: ${start.lastError ?? "no error given"}`;
       }
       m = {
         code: 1, timedOut: false, settled: true,
-        summary: `orca worker failed to start at ${r.failedStage ?? r.stage ?? "an unknown stage"}: ${r.lastError ?? "no error given"}`,
+        summary: `orca worker failed to start at ${start.failedStage ?? start.stage ?? "an unknown stage"}: ${start.lastError ?? "no error given"}`,
       };
     } else {
       before = await repoFingerprint(ctx, worktree ?? task.brief.repo);
-      m = mapWait(await waitForWorker(ctx, c, {
-        taskId: task.id, providerId: cfg.id, prompt, coordinator: p.coordinator, run: p.run, dispatchId, terminal,
+      const w = await waitForWorker(ctx, c, {
+        taskId: task.id, providerId: cfg.id, prompt, coordinator: p.coordinator, run: p.run, dispatchId, terminal: agentTerminal,
         deadlineMs: deps.now() + task.timeoutS * 1000,
         isStopped: () => readTask(ctx, task.id)?.state === "stopped",
         sliceMs: deps.sliceMs, now: deps.now, sleep: deps.sleep, log,
-      }));
+      });
+      log(waitLine(dispatchId, w));
+      m = mapWait(w);
     }
 
     endedAt = deps.now() / 1000;
@@ -361,23 +417,22 @@ async function runOrcaAttempt(
       const rd = await c.workerRead(dispatchId, 60);
       tailText = rd.ok ? (rd.result.terminal?.tail ?? []).join("\n") : "";
     }
-    const closed = await cleanup(c, dispatchId, terminal, m.settled, log, receipt => { finishOrcaWorkSync(ctx, admission, receipt); });
-    if (closed) finishWorkSync(ctx, admission);
-    await forget();
+    await settle(c, dispatchId, m.settled, log, receipt => book("admission receipt", () => adm.finishOrca(ctx, admission, receipt)));
   } catch (e) {
     try {
       const receipt = await c.workerStop(dispatchId);
-      finishOrcaWorkSync(ctx, admission, receipt);
+      log(`worker-stop: ${receipt.ok ? (receipt.result.state ?? "ok") : receipt.error.code}`);
+      book("admission receipt", () => adm.finishOrca(ctx, admission, receipt));
     } catch (stopError) {
       log(`worker-stop failed: ${String(stopError)}`);
     }
-    if (terminal) {
-      const closed = await closeCreatedTerminal(c, terminal);
-      log(`closed pacer terminal ${terminal}: ${closed.failure ?? "ok"}`);
-      if (closed.proof) finishWorkSync(ctx, admission);
-    }
-    await forget();
     throw e;
+  } finally {
+    // Always close the exact terminal pacer created; nothing above may skip this.
+    const closed = await closeCreatedTerminal(c, agentTerminal);
+    log(`closed pacer terminal ${agentTerminal}: ${closed.failure ?? "ok"}`);
+    if (closed.proof) book("admission release", () => adm.finish(ctx, admission));
+    await forget();
   }
 
   const exec: ExecResult = { code: m.code, stdout: m.summary, stderr: tailText, timedOut: m.timedOut };

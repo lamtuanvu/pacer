@@ -79,10 +79,8 @@ test.each([
     [["orca", "status"], ok("status-ready.json")],
     [["orca", "repo", "list"], raw('{"ok":true,"result":{"repos":[{"id":"repo1","path":"/work/app"}]}}')],
     [["orca", "worktree", "show"], raw('{"ok":true,"result":{"worktree":{"id":"repo1::/work/app","path":"/work/app"}}}')],
-    [["orca", "worktree", "create"], raw('{"ok":true,"result":{"worktree":{"id":"repo1::/work/new","path":"/work/new"}}}')],
-    [["orca", "terminal", "create", "--worktree", "id:repo1::/work/app"], raw('{"ok":true,"result":{"terminal":{"handle":"term_agent"}}}')],
-    [["orca", "terminal", "create", "--worktree", "id:repo1::/work/new"], raw('{"ok":true,"result":{"terminal":{"handle":"term_agent"}}}')],
-    [["orca", "terminal", "create"], ok("coordinator-terminal.json")],
+    [["orca", "worktree", "create"], (a: string[]) => raw(JSON.stringify({ok: true, result: {worktree: {id: `repo1::/work/${a[a.indexOf("--name") + 1]}`}}}))],
+    [["orca", "terminal", "create"], (a: string[]) => a.includes("--command") ? raw('{"ok":true,"result":{"terminal":{"handle":"term_agent"}}}') : ok("coordinator-terminal.json")],
     [["orca", "terminal", "wait"], raw('{"ok":true,"result":{"wait":{"satisfied":true}}}')],
     [["orca", "terminal", "show"], ok("terminal-show-live.json")],
     [["orca", "orchestration", "run-create"], ok("run-create.json")],
@@ -103,13 +101,18 @@ test.each([
     expect(text).toContain(`'${agent === "claude" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME"}=`);
     expect(text).toContain("'\\''s $(unsafe) home'");
     expect(text).not.toContain("PACER_KEY_");
+    const logged = readFileSync(out.attempt.log, "utf8");
+    const key = agent === "claude" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME";
+    expect(logged).toContain(`'${key}=<${key}>'`);
+    expect(logged).not.toContain("$(unsafe)");
   }
+  expect(text.includes("CLAUDE_CODE_SANDBOXED=1")).toBe(agent === "claude");
   const start = f.calls.find(a => a[2] === "worker-start")!;
   expect(start[start.indexOf("--terminal") + 1]).toBe("term_agent");
   expect(start).not.toContain("--agent");
   if (worktree === "new-child") {
-    expect(start[start.indexOf("--worktree") + 1]).toBe("id:repo1::/work/new");
-    expect(out.worktree).toBe("/work/new");
+    expect(start[start.indexOf("--worktree") + 1]).toBe(`id:repo1::/work/pacer-${task.id}-${id}`);
+    expect(out.worktree).toBe(`/work/pacer-${task.id}-${id}`);
   } else {
     expect(start[start.indexOf("--worktree") + 1]).toBe("id:repo1::/work/app");
     expect(out.worktree).toBe("/work/app");

@@ -10,10 +10,10 @@ const entry = (subject: string): InboxEntry => ({ outcome: "succeeded", subject,
 
 test("a missing or corrupt orca.json loads as empty state", () => {
   const ctx = fakeCtx();
-  expect(loadOrcaState(ctx)).toEqual({ coordinator: null, run: null, workers: {} });
+  expect(loadOrcaState(ctx)).toEqual({ coordinator: null, run: null, workers: {}, stranded: {}, uncertain: {} });
   mkdirSync(ctx.pacerHome, { recursive: true });
   writeFileSync(orcaStatePath(ctx), "not json");
-  expect(loadOrcaState(ctx)).toEqual({ coordinator: null, run: null, workers: {} });
+  expect(loadOrcaState(ctx)).toEqual({ coordinator: null, run: null, workers: {}, stranded: {}, uncertain: {} });
 });
 
 test("updateOrcaState persists coordinator, run and workers", () => {
@@ -24,7 +24,7 @@ test("updateOrcaState persists coordinator, run and workers", () => {
     s.workers.ctx_1 = { dispatchId: "ctx_1", taskId: "t-20261011-150000-ab12", executor: "codex", worktree: "/wt", terminal: "term_2", startedAt: 5 };
   });
   expect(loadOrcaState(ctx)).toEqual({
-    coordinator: "term_1", run: "run_1",
+    coordinator: "term_1", run: "run_1", stranded: {}, uncertain: {},
     workers: { ctx_1: { dispatchId: "ctx_1", taskId: "t-20261011-150000-ab12", executor: "codex", worktree: "/wt", terminal: "term_2", startedAt: 5 } },
   });
   updateOrcaState(ctx, (s) => { delete s.workers.ctx_1; });
@@ -68,4 +68,16 @@ test("a stale lock is taken over; a held lock times out with an error", async ()
   expect(await withLock(ctx, "t", async () => "ok", { staleMs: 1000 })).toBe("ok");
   writeFileSync(lock, "");
   await expect(withLock(ctx, "t", async () => "never", { timeoutMs: 120 })).rejects.toThrow("timed out");
+});
+
+test("stranded worktrees and uncertain starts persist; malformed records are dropped", () => {
+  const ctx = fakeCtx();
+  mkdirSync(ctx.pacerHome, { recursive: true });
+  writeFileSync(orcaStatePath(ctx), JSON.stringify({
+    stranded: { t1: { taskId: "t1", id: "r::/w", path: "/w", name: "pacer-t1-codex", at: 1 }, bad: { taskId: 3 } },
+    uncertain: { term_a: { taskId: "t1", terminal: "term_a", run: "run_1", worktree: null, at: 1 }, term_b: "x" },
+  }));
+  const s = loadOrcaState(ctx);
+  expect(Object.keys(s.stranded)).toEqual(["t1"]);
+  expect(Object.keys(s.uncertain)).toEqual(["term_a"]);
 });

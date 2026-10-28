@@ -129,9 +129,24 @@ Native configuration files are unchanged.
 Cursor and OpenCode still enforce explicit deny rules. These launch options do
 not change operating system permissions or managed organization policies.
 
-For Orca tasks, pacer creates or resolves the worktree, pre-trusts Claude's exact
-worktree folder, launches an idle agent with its unattended-permission flags, then
-attaches the worker. Pacer closes the terminal it created when the worker settles.
-`pacer clean` removes reviewed or dismissed Orca worktrees and their pacer-added
-Claude trust entries; Orca may also remove the worktree branch when it can prove
-the branch is merged.
+For Orca tasks, pacer creates or resolves the worktree, launches an idle agent
+with its unattended-permission flags, then attaches the worker. Pacer closes the
+terminal it created when the worker settles. If the agent does not start, pacer
+closes that terminal and removes the worktree it just created before running the
+task directly; a worktree it cannot remove is removed by `pacer clean` after
+review. When pacer cannot tell whether Orca started the worker, it does not run
+the task directly: it keeps the terminal and retries the check on the next
+`pacer clean`. The attempt log lists each step, with account folder values
+replaced by their variable names. `pacer clean` removes reviewed or dismissed
+Orca worktrees once Orca has deleted the directory; Orca may also remove the
+worktree branch when it can prove the branch is merged.
+
+Claude terminals started for Orca carry `CLAUDE_CODE_SANDBOXED=1`, so Claude
+skips its per-folder workspace trust prompt and pacer edits no Claude
+configuration. The variable is
+undocumented by Anthropic. If a Claude release ignores it, the trust prompt
+keeps the agent from becoming idle and pacer runs the task directly instead.
+With the variable set, Claude also applies the repository's own `.claude/`
+permission settings without asking; the agent already runs with
+`--dangerously-skip-permissions`, so only delegate repositories whose
+`.claude/` settings you trust. Codex keeps its per-invocation trust argument.

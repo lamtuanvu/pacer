@@ -27,6 +27,8 @@ export interface WorkerStartResult {
 }
 export interface WorkerClosureResult { dispatchId?: string; state?: string; processAction?: string; close?: { handle?: string; ptyKilled?: boolean } }
 export interface WorkerRow { state?: string; stage?: string; worktreeId?: string; agentTerminalHandle?: string; lastError?: string | null }
+export interface WorkerListRow { dispatchId?: string; workerState?: string; agentTerminalHandle?: string; resource?: { terminalHandle?: string } }
+export interface WorktreeRow { id?: string; path?: string; repoId?: string; displayName?: string; isMainWorktree?: boolean }
 export interface OrcaMessage { id: string; type: string; from_handle?: string; subject?: string; body?: string; payload?: string | null }
 export interface CheckResult { deliveryId?: string | null; messages: OrcaMessage[]; timedOut?: boolean; acknowledged?: string | null }
 
@@ -123,9 +125,11 @@ export class OrcaClient {
   }
   terminalWait(handle: string) { return this.call<{ wait?: { satisfied?: boolean; blockedReason?: string | null; status?: string } }>(
     ["terminal", "wait", "--terminal", handle, "--for", "tui-idle", "--timeout-ms", "60000"], 65_000); }
-  worktreeCreate(p: Extract<Placement, {kind: "new-child"}>) { return this.call<{worktree?: {id?: string; path?: string}; terminal?: TerminalRow; terminalHandle?: string; initialTerminalHandle?: string}>(
+  worktreeCreate(p: Extract<Placement, {kind: "new-child"}>) { return this.call<{worktree?: WorktreeRow; terminal?: TerminalRow; terminalHandle?: string; initialTerminalHandle?: string}>(
     ["worktree", "create", "--name", p.name, "--repo", `id:${p.repoId}`, "--base-branch", p.baseBranch, "--setup", "skip"]); }
-  worktreeShow(path: string) { return this.call<{worktree?: {id?: string; path?: string}; terminal?: TerminalRow; terminalHandle?: string; initialTerminalHandle?: string}>(["worktree", "show", "--worktree", `path:${path}`]); }
+  worktreeShow(path: string) { return this.worktreeShowBy(`path:${path}`); }
+  worktreeShowBy(selector: string) { return this.call<{worktree?: WorktreeRow; terminal?: TerminalRow; terminalHandle?: string; initialTerminalHandle?: string}>(["worktree", "show", "--worktree", selector]); }
+  worktreeRemove(id: string, force: boolean) { return this.call<Record<string, unknown>>(["worktree", "rm", "--worktree", `id:${id}`, ...(force ? ["--force"] : [])], 60_000); }
   terminalShow(handle: string) { return this.call<{ terminal?: TerminalRow }>(["terminal", "show", "--terminal", handle]); }
   terminalClose(handle: string) { return this.call<Record<string, unknown>>(["terminal", "close", "--terminal", handle]); }
   terminalSend(handle: string, text: string) { return this.call<Record<string, unknown>>(["terminal", "send", "--terminal", handle, "--text", text, "--enter"]); }
@@ -135,6 +139,7 @@ export class OrcaClient {
   }
   runShow(id: string) { return this.call<{ run: RunRow }>(["orchestration", "run-show", "--id", id]); }
   workerStart(o: WorkerStartOpts) { return this.call<WorkerStartResult>(workerStartArgs(o), START_TIMEOUT_MS); }
+  workerList(run: string) { return this.call<{ workers?: WorkerListRow[]; page?: { hasMore?: boolean }; scope?: { run?: string } }>(["orchestration", "worker-list", "--run", run]); }
   workerShow(dispatch: string) { return this.call<{ worker?: WorkerRow }>(["orchestration", "worker-show", "--dispatch", dispatch]); }
   workerRead(dispatch: string, limit: number) {
     return this.call<{ terminal?: { tail?: string[] } }>(["orchestration", "worker-read", "--dispatch", dispatch, "--limit", String(limit)]);
