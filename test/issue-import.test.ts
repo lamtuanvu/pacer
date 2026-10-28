@@ -242,3 +242,28 @@ test("at most two gh processes run at once", async () => {
   expect(calls).toHaveLength(6);
   expect(peak).toBe(2);
 });
+
+test("beyond eight waiting gh calls, further calls fail fast with gh_failed", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const { ctx, calls } = await setup(async argv => { await gate; return ok(argv[2] === "view" ? fixture("view-217.json") : "[]"); });
+  // While gh is held, two calls run and eight wait; the last two to arrive are refused without running gh.
+  const settled: Promise<[string, unknown] | "ok">[] = [
+    ...Array.from({ length: 11 }, (_, i) => searchIssues(ctx, { repo: KEY, query: `q${i}` })),
+    importIssue(ctx, { repo: KEY, issue: 217 }),
+  ].map(p => p.then(() => "ok" as const, e => reasonOf(Promise.reject(e))));
+  let refused = 0;
+  for (const p of settled) p.then(r => { if (r !== "ok") refused++; });
+  while (refused < 2) await Bun.sleep(1);
+  expect(calls).toHaveLength(2);
+  release();
+  const results = await Promise.all(settled);
+  expect(results.filter(r => r !== "ok")).toEqual([["unavailable", "gh_failed"], ["unavailable", "gh_failed"]]);
+  expect(calls).toHaveLength(10);
+  // Refused searches are not cached and the queue has drained, so a retry runs gh.
+  const failedQuery = results.slice(0, 11).findIndex(r => r !== "ok");
+  if (failedQuery >= 0) {
+    await searchIssues(ctx, { repo: KEY, query: `q${failedQuery}` });
+    expect(calls).toHaveLength(11);
+  }
+});

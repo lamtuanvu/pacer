@@ -23,6 +23,7 @@ const ISSUE_NUMBER_MAX = 2 ** 31 - 1;
 const SEARCH_CACHE_MS = 30_000;
 const SEARCH_CACHE_MAX = 100;
 const GH_CONCURRENCY = 2;
+const GH_QUEUE_MAX = 8;
 
 const repoParam = z.string().min(1).max(512);
 export const issueImportSchema = z.object({
@@ -166,11 +167,15 @@ function defaultGh(ctx: Ctx): (argv: string[]) => Promise<RunResult> {
   };
 }
 
-// At most GH_CONCURRENCY gh processes run at once across all calls; the rest wait their turn.
+// At most GH_CONCURRENCY gh processes run at once across all calls; up to GH_QUEUE_MAX more wait their
+// turn, and any call beyond that fails at once instead of piling up behind slow gh runs.
 let ghRunning = 0;
 const ghWaiting: (() => void)[] = [];
 async function limited<T>(task: () => Promise<T>): Promise<T> {
-  if (ghRunning >= GH_CONCURRENCY) await new Promise<void>(resolve => ghWaiting.push(resolve));
+  if (ghRunning >= GH_CONCURRENCY) {
+    if (ghWaiting.length >= GH_QUEUE_MAX) fail("unavailable", "gh_failed", "Too many GitHub requests are waiting", "Wait a moment and retry.");
+    await new Promise<void>(resolve => ghWaiting.push(resolve));
+  }
   else ghRunning++;
   try { return await task(); }
   finally {
