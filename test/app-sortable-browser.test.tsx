@@ -376,6 +376,8 @@ browserTest('scope pressed buttons switch repositories and explain a dirty lock'
     // The dirty lock arrives after the editor reports its change, so wait for it.
     await scope.getByRole('button', { name: 'All repositories', disabled: true }).waitFor({ timeout: 3000 });
     expect(await page.getByText('Save or discard your changes to switch scope.').isVisible()).toBe(true);
+    // The reason is linked to the group, so screen readers hear it on the disabled buttons.
+    expect(await page.getByRole('group', { name: 'Scope' }).getAttribute('aria-describedby')).toBe('dispatcher-scope-reason');
     expect(await scope.getByRole('button', { name: 'One repository' }).isDisabled()).toBe(true);
     expect(await page.locator('.pc-save-bar').textContent()).toContain('repo-a list');
     await page.getByRole('button', { name: 'Discard', exact: true }).click();

@@ -282,13 +282,14 @@ function GuidedSetup({ view, onSaved, onLadderDraft, repos, listError }: { view:
     <Section step={1} id="dispatcher-scope" title="Where should this apply?">
       <div className="pc-dispatcher-scope-row">
         <SegmentedControl variant="board" label="Scope" value={oneRepo ? "one" : "all"} disabled={dirty}
+          describedBy={dirty ? "dispatcher-scope-reason" : !repos.length ? "dispatcher-scope-no-repo" : undefined}
           options={[{ value: "all", label: "All repositories" }, { value: "one", label: "One repository", disabled: !repos.length }]}
           onChange={value => pickScope(value === "one")} />
         {oneRepo && <div className="dispatcher-repo-picker"><Field label={<span className="sr-only">Repository</span>}><ChoicePicker className="pc-choice-picker--mono" value={scope} searchable={repos.length > 8} disabled={dirty} options={repos} onValueChange={value => { setScope(value); setNotice(""); }} /></Field></div>}
         {oneRepo && repos.find(repo => repo.value === scope)?.ownList && <Pill tone="info">Has its own list</Pill>}
       </div>
       {dirty && <p id="dispatcher-scope-reason">Save or discard your changes to switch scope.</p>}
-      {!repos.length && <p className="u3-muted">Add a repository to edit its own executor list.</p>}
+      {!repos.length && <p id="dispatcher-scope-no-repo" className="u3-muted">Add a repository to edit its own executor list.</p>}
       <p className="pc-dispatcher-callout pc-dispatcher-callout--info"><span className="pc-dispatcher-callout__glyph" aria-hidden="true"><Icon name="info" /></span>A repository's executor list takes precedence over the global task-type lists, and it stays in place when you switch saved setups.</p>
       {listError}
     </Section>
