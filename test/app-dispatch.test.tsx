@@ -462,6 +462,16 @@ test("planner half shows a missing planner reading's historical figure as stale 
   expect(html).not.toContain("as of");
 });
 
+test("a fresh borrowed planner figure shows its meter without a pace pill or a stale mark", () => {
+  const snapFresh = { ...snap, planner: { ...snap.planner!, usedPct: null, pacePct: null, verdict: "unknown" as const, stale: false },
+    accounts: [{ name: "team", agent: "claude-code", source: "pacer", usedPct: 40, pacePct: null, window: "5h", resetsAt: null, verdict: "UNKNOWN", signedIn: true, executors: [snap.planner!.runner], stale: false, capturedAt: null, spendUsdWeek: null, capUsdWeek: null }] } as unknown as ClientSnapshot;
+  const html = plannerHalf(view(null, snapFresh));
+  expect(strip(html)).toContain("Planner pace is not measured yet.");
+  expect(html).toContain("40% used");
+  expect(html).not.toMatch(/Usage unknown|Under pace|On pace|Ahead of pace/);
+  expect(html).not.toContain("pc-meter--stale");
+});
+
 
 test("live dispatch keeps both count pills when no work is queued, including the empty state", () => {
   const noQueue = { ...snap, tasks: snap.tasks.filter(t => t.state !== "queued") };
