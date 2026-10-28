@@ -158,8 +158,11 @@ function RequestBox({ p, rows, compact }: { p: ViewProps; rows: number; compact?
   const [mentioning, setMentioning] = useState(false), [path, setPath] = useState("");
   const add = () => { const value = path.trim().replace(/^@/, ""); if (value) p.set({ mentions: writeMentions([...p.mentions, value]) }); setPath(""); setMentioning(false); };
   const chips = p.uploads.items.length > 0 || p.mentions.length > 0;
+  // The composer opens ready to type, on the route and inside the narrow sheet alike.
+  const input = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => { input.current?.focus({ preventScroll: true }); }, []);
   return <div className={`pc-request-box${p.draft.request.trim() && !p.failure ? " pc-request-box--filled" : ""}`} onDragOver={event => event.preventDefault()} onDrop={event => { event.preventDefault(); p.uploads.uploadFiles(Array.from(event.dataTransfer?.files ?? [])); }}>
-    <TextArea id="nt-request" rows={rows} value={p.draft.request} className="pc-request-box__input" aria-describedby="nt-request-help"
+    <TextArea ref={input} id="nt-request" rows={rows} value={p.draft.request} className="pc-request-box__input" aria-describedby="nt-request-help"
       placeholder="e.g. Make remote-support access opt-out, and update the settings copy and docs"
       onInput={event => p.set({ request: event.currentTarget.value })} onPaste={onPaste(p)} />
     {chips && <div className="pc-request-box__chips">
