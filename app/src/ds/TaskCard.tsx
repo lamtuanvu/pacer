@@ -70,6 +70,8 @@ export function TaskCard({ density = "regular", node, expanded, onToggle, select
         <a className="pc-task-card__title" href={href(node.id)} aria-current={current ? (regular ? "true" : "page") : undefined} title={node.title} onFocus={() => onSelect?.(node.id)}>{node.title}</a>
         {pill && <Pill tone={pill.tone}>{pill.label}</Pill>}
         {regular && !pill && <span className={classNames("pc-task-card__status", `pc-task-card__status--${dotTone(node)}`)}>{node.state.label}</span>}
+        {/* A flush row (Dispatch) carries its agents on the title line, as the board does. */}
+        {flush && !regular && <AgentStack agents={node.agents} size={16} />}
         {actions && <span className="pc-task-card__controls">{actions}</span>}
       </div>
       {regular ? <div className="pc-task-card__row pc-task-card__row--facts">
@@ -89,7 +91,7 @@ export function TaskCard({ density = "regular", node, expanded, onToggle, select
         </div>
         <div className="pc-task-card__row pc-task-card__row--facts">
           <span className={classNames("pc-task-card__status pc-task-card__status--grow", `pc-task-card__status--${dotTone(node)}`)}>{words(node)}</span>
-          <AgentStack agents={node.agents} size={16} />
+          {!flush && <AgentStack agents={node.agents} size={16} />}
           <span className="pc-task-card__tokens pc-task-card__tokens--compact">{bare(node.tokens)}</span>
         </div>
       </>}

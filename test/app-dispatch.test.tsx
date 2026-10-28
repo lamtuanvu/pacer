@@ -132,6 +132,14 @@ test("needs you cards are compact as on the board: glyph, title, one caption lin
   expect(html).not.toContain("Needs you pages");
 });
 
+test("flush Live dispatch rows carry the agent marks on the title line", () => {
+  const html = section(view(), "live-dispatch");
+  const heads = html.match(/pc-task-card__row--head">[\s\S]*?<\/div>/g) ?? [];
+  expect(heads.length).toBeGreaterThan(0);
+  for (const head of heads) expect(head).toContain("pc-agent-stack");
+  expect(html.match(/pc-agent-stack/g)?.length).toBe(heads.length);
+});
+
 test("live dispatch shows running and queued work as compact cards with their actions", () => {
   const html = section(view(), "live-dispatch");
   expect(strip(html)).toContain("Live dispatch 2 running 1 queued");
