@@ -217,3 +217,20 @@ browserTest("new_task_375_sheet_closes_with_escape", async () => {
     await page.waitForFunction(() => location.hash === "#/tasks");
   }, { width: 375, height: 812 });
 }, 30_000);
+
+browserTest("new_task_submit_never_uses_a_stale_preview_and_keeps_a_mention_added_with_cmd_enter", async () => {
+  await withComposer(async page => {
+    await focused(page, "#nt-request");
+    await page.keyboard.type(REQUEST);
+    await page.getByRole("radio", { name: /Feature · detected/ }).waitFor();
+    // New text, submitted before the preview refreshes: the old detected kind is not sent.
+    await page.locator("#nt-request").fill("Document the config flags.");
+    await page.getByRole("button", { name: "Mention a file or folder" }).click();
+    await page.getByRole("textbox", { name: "File or folder in the repository" }).fill("docs/config.md");
+    await page.keyboard.press("Meta+Enter");
+    await page.waitForFunction(() => location.hash.startsWith("#/tasks/t-"));
+    const [params] = await calls(page, "task.delegate");
+    expect(params).toMatchObject({ goal: "Document the config flags.", scope: "docs/config.md" });
+    expect(params.kind).toBeUndefined();
+  });
+}, 30_000);

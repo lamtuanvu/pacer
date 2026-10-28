@@ -55,38 +55,41 @@ function useNewTaskDraft(filterRepo: string | null) {
   };
   const save = () => { storage.write(current.current); setSavedAt(Date.now()); };
   const clear = () => { current.current = blankNewTask; storage.clear(); update(blankNewTask); setSavedAt(null); };
-  return { draft, set, save, clear, savedAt };
+  return { draft, latest: () => current.current, set, save, clear, savedAt };
 }
 
 /**
  * The live "Will go to" preview. Typing refreshes 400 ms after the last keystroke; repository, kind and override
  * changes refresh at once. Replies older than the latest request are dropped, and a failed refresh keeps the last
- * explanation, marked out of date.
+ * explanation, marked out of date. `fresh` is the explanation only while it was computed for the current repository and
+ * request, so a stale reply never decides the kind that is submitted.
  */
 function useRoutePreview(input: { repo: string; goal: string; kind: string; executor: string }) {
   const { api, state } = useTaskContext();
   const [goal, setGoal] = useState(input.goal.trim());
   useEffect(() => { const t = setTimeout(() => setGoal(input.goal.trim()), 400); return () => clearTimeout(t); }, [input.goal]);
-  const [result, setResult] = useState<{ last: RouteExplanation | null; unavailable: boolean; error: unknown; loading: boolean }>({ last: null, unavailable: false, error: undefined, loading: false });
+  const [result, setResult] = useState<{ last: RouteExplanation | null; for: string; unavailable: boolean; error: unknown; loading: boolean }>({ last: null, for: "", unavailable: false, error: undefined, loading: false });
   const sequence = useRef(0);
   useEffect(() => {
-    if (!goal || !input.repo) { setResult(r => ({ ...r, loading: false, error: undefined })); return; }
     const mine = ++sequence.current;
+    if (!goal || !input.repo) { setResult(r => ({ ...r, last: null, for: "", loading: false, error: undefined })); return; }
+    const key = JSON.stringify([input.repo, goal]);
     setResult(r => ({ ...r, loading: true }));
     void explainRoute(api, state.features.ops, { repo: input.repo, goal, kind: input.kind, executor: input.executor }).then((reply: ExplainResult) => {
       if (mine !== sequence.current) return;
-      setResult(r => reply.state === "ok" ? { last: reply.explanation, unavailable: false, error: undefined, loading: false }
-        : reply.state === "unavailable" ? { last: null, unavailable: true, error: undefined, loading: false }
+      setResult(r => reply.state === "ok" ? { last: reply.explanation, for: key, unavailable: false, error: undefined, loading: false }
+        : reply.state === "unavailable" ? { last: null, for: "", unavailable: true, error: undefined, loading: false }
         : { ...r, error: reply.error, loading: false });
     });
   }, [api, state.features.ops, input.repo, goal, input.kind, input.executor, state.connected]);
-  return { ...result, empty: !input.goal.trim() };
+  const fresh = !result.loading && !result.error && result.for === JSON.stringify([input.repo, input.goal.trim()]) ? result.last : null;
+  return { ...result, fresh, empty: !input.goal.trim() };
 }
 
 export function NewTask({ query }: { query: RouteQuery }) {
   const { api, state } = useTaskContext();
   const narrow = useMedia(NARROW_MEDIA);
-  const { draft, set, save, clear, savedAt } = useNewTaskDraft(activeRepo(query));
+  const { draft, latest, set, save, clear, savedAt } = useNewTaskDraft(activeRepo(query));
   const [now, setNow] = useState(Date.now());
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 30_000); return () => clearInterval(t); }, []);
   const repos = useQuery<RepoChoice[]>("repo.list", {});
@@ -104,7 +107,8 @@ export function NewTask({ query }: { query: RouteQuery }) {
   const uploads = useAttachments(api, draft.draftId, id => set({ draftId: id }));
   const action = useAction();
   const [failure, setFailure] = useState<unknown>();
-  const requestId = useMemo(newId, [draft.request === ""]);
+  // A new id whenever the goal or repository changes; a retry of the same request keeps it, so the service deduplicates.
+  const requestId = useMemo(newId, [draft.request.trim(), draft.repo]);
   const checks = readChecks(draft), mentions = readMentions(draft);
   const planner = state.snapshot?.planner ?? null;
   const card = preview.last ? routeCard(preview.last, accounts.data ?? [], planner) : null;
@@ -115,11 +119,13 @@ export function NewTask({ query }: { query: RouteQuery }) {
 
   const delegate = () => {
     if (submit.disabled) return;
-    const next = submit.retryInWorktree ? { ...draft, workspace: "worktree" } : draft;
+    // The latest draft, so a change made in the same keystroke (⌘↵ in the mention field adds the path) is sent.
+    const current = latest();
+    const next = submit.retryInWorktree ? { ...current, workspace: "worktree" } : current;
     if (submit.retryInWorktree) set({ workspace: "worktree" });
     let params;
     try {
-      params = newTaskPayload(next, { requestId, knownRepos: choices.map(r => r.key), attachments: uploads.items.filter(i => i.status === "ready"), explanation: preview.last });
+      params = newTaskPayload(next, { requestId, knownRepos: choices.map(r => r.key), attachments: uploads.items.filter(i => i.status === "ready"), explanation: preview.fresh });
     } catch (error) { setFailure(error); return; }
     setFailure(undefined);
     void action.run<TaskSummary>("task.delegate", params, task => {
@@ -179,7 +185,7 @@ function RequestBox({ p, rows, compact }: { p: ViewProps; rows: number; compact?
     {mentioning && <div className="pc-request-box__mention">
       <TextInput autoFocus aria-label="File or folder in the repository" className="mono" placeholder="src/remote/access.ts" value={path}
         onInput={event => setPath(event.currentTarget.value)}
-        onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); add(); } if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setMentioning(false); } }} />
+        onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); add(); if (!(event.metaKey || event.ctrlKey)) event.stopPropagation(); } if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setMentioning(false); } }} />
       <Button size="sm" onClick={add} disabled={!path.trim()}>Add</Button>
       <Button size="sm" variant="ghost" onClick={() => setMentioning(false)}>Cancel</Button>
     </div>}
@@ -193,8 +199,8 @@ function RequestBox({ p, rows, compact }: { p: ViewProps; rows: number; compact?
 }
 
 function KindField({ p }: { p: ViewProps }) {
-  const chips = kindChips(p.draft, p.preview.last);
-  const chosen = effectiveKind(p.draft, p.preview.last);
+  const chips = kindChips(p.draft, p.preview.fresh);
+  const chosen = effectiveKind(p.draft, p.preview.fresh);
   const note = p.draft.kind ? "chosen by you" : chosen ? `detected: ${chosen.value} · change it if pacer guessed wrong` : p.preview.empty ? "detected from the request" : "pick one, or pacer starts without a kind";
   return <div className="pc-new-task__field">
     <span className="pc-new-task__label" id="nt-kind-label">Kind <span className="pc-caption pc-new-task__label-note">· {note}</span></span>
@@ -385,7 +391,7 @@ type SheetName = "repo" | "workspace" | "kind" | "checks" | "agent";
 function NewTaskSheet(p: ViewProps) {
   const [open, setOpen] = useState<SheetName | null>(null);
   const on = p.checks.filter(c => c.on).length;
-  const kind = effectiveKind(p.draft, p.preview.last);
+  const kind = effectiveKind(p.draft, p.preview.fresh);
   const agent = p.draft.executor ? agentOptions(p.routing, row => routingStatus(row as never), p.accounts).find(a => a.executor === p.draft.executor)?.name ?? p.draft.executor : "Let pacer decide";
   const titles: Record<SheetName, string> = { repo: "Repository", workspace: "Where it runs", kind: "Kind", checks: "Acceptance checks", agent: "Agent" };
   return <Sheet title="New task" close={p.onCancel} className="pc-new-task-sheet"

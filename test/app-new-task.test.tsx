@@ -108,8 +108,9 @@ test("explain_route_is_unavailable_without_the_op_and_on_unknown_op", async () =
   expect(calls).toBe(0);
   expect(await explainRoute(api, new Set([EXPLAIN_OP]), { repo: "r", goal: "g" })).toEqual({ state: "unavailable" });
   expect(calls).toBe(1);
-  const missing = { call: async <T,>(): Promise<T> => { throw new ApiError("not_found", "no route", undefined, 404); } };
-  expect(await explainRoute(missing, new Set([EXPLAIN_OP]), { repo: "r", goal: "g" })).toEqual({ state: "unavailable" });
+  // Other 404s come from a service that has the op (an unknown override executor), so they are errors.
+  const missing = { call: async <T,>(): Promise<T> => { throw new ApiError("unknown_executor", "no such executor", undefined, 404); } };
+  expect((await explainRoute(missing, new Set([EXPLAIN_OP]), { repo: "r", goal: "g", executor: "gone" })).state).toBe("error");
 });
 
 test("explain_route_sends_only_documented_params_and_reports_errors", async () => {

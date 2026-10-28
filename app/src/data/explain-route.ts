@@ -57,7 +57,8 @@ export async function explainRoute(api: Pick<BrowserApi, "call">, ops: ReadonlyS
   try {
     return { state: "ok", explanation: await api.call<RouteExplanation>(EXPLAIN_OP, explainParams(input)) };
   } catch (error) {
-    if (error instanceof ApiError && (error.code === "unknown_op" || error.status === 404)) return { state: "unavailable" };
+    // Only unknown_op means the op is missing: unknown_executor and not_found are also 404s from a service that has it.
+    if (error instanceof ApiError && error.code === "unknown_op") return { state: "unavailable" };
     return { state: "error", error };
   }
 }
