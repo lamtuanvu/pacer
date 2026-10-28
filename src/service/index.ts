@@ -3,6 +3,7 @@ import { mkdirSync, realpathSync, rmSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import type { Ctx } from "../types";
 import { readText } from "../install/fsx";
+import { writeInstallFile } from "../install/atomic";
 import { readManifest, writeManifest } from "../install/manifest";
 import { isDevArgv, pacerArgv } from "../install/self";
 import { runInstall } from "../install/txn";
@@ -211,18 +212,26 @@ export function serviceBackend(ctx: Ctx, deps: ServiceDeps = {}): ServiceBackend
         mkdirSync(join(ctx.pacerHome, "logs"), { recursive: true });
         tx.edit(path, () => mac ? plist(ctx, argv) : unit(ctx, argv), [], join(ctx.pacerHome, "backups/service"));
         installedCache.delete(path);
-        if (mac) { await run(["launchctl", "bootout", target], true); activated = true; await run(["launchctl", "bootstrap", target.slice(0, target.lastIndexOf("/")), path]); }
-        else { await run(system("daemon-reload")); activated = true; await run(system("enable", "--now", "pacer-serve.service")); }
-        let verificationWarning: string | undefined;
-        const deadline = Date.now() + (deps.waitMs ?? 10000);
-        do {
-          const s = await backend.status(deps.waitMs === 0 ? 1000 : Math.max(1, deadline - Date.now()));
-          if (s.running && s.healthy) return;
-          verificationWarning = s.warning;
-          if (Date.now() >= deadline) break;
-          await Bun.sleep(Math.min(200, deadline - Date.now()));
-        } while (Date.now() < deadline);
-        throw new Error(verificationWarning ?? "service did not become running and healthy within 10 seconds; inspect pacer service logs");
+        // The manager must read the registration before the install transaction commits.
+        // Stage it only while activating, then restore the pre-transaction state for commit.
+        writeInstallFile(path, tx.read(path)!);
+        try {
+          if (mac) { await run(["launchctl", "bootout", target], true); activated = true; await run(["launchctl", "bootstrap", target.slice(0, target.lastIndexOf("/")), path]); }
+          else { await run(system("daemon-reload")); activated = true; await run(system("enable", "--now", "pacer-serve.service")); }
+          let verificationWarning: string | undefined;
+          const deadline = Date.now() + (deps.waitMs ?? 10000);
+          do {
+            const s = await backend.status(deps.waitMs === 0 ? 1000 : Math.max(1, deadline - Date.now()));
+            if (s.running && s.healthy) return;
+            verificationWarning = s.warning;
+            if (Date.now() >= deadline) break;
+            await Bun.sleep(Math.min(200, deadline - Date.now()));
+          } while (Date.now() < deadline);
+          throw new Error(verificationWarning ?? "service did not become running and healthy within 10 seconds; inspect pacer service logs");
+        } finally {
+          if (old === null) rmSync(path, { force: true });
+          else writeInstallFile(path, old);
+        }
       });
       return report.notes;
       } catch (error) {
