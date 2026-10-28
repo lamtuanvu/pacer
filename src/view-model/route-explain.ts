@@ -1,5 +1,5 @@
 import type { RouteExplanation } from "../core/dispatch-explain";
-import type { Reason } from "../dispatch/reasons";
+import type { Reason, ReasonCode } from "../dispatch/reasons";
 import { clock } from "./time";
 
 /** A reason as clients receive it: the code may be newer than this client knows (P4), so it is a plain string here. */
@@ -82,4 +82,23 @@ export function plannerCopy(planner: RouteExplanation["planner"], labels: Explai
   if (planner.state === "estimate") return `Planner cost: about ${planner.tokens.median.toLocaleString("en-US")} tokens (80% of tasks under ${planner.tokens.p80.toLocaleString("en-US")}), from ${planner.samples} similar tasks.`;
   // An unknown cost carries only its code, so too_few_samples has no counts to show here.
   return `Planner cost unknown. ${planner.reason === "too_few_samples" ? "There are not enough similar reviewed tasks for an estimate yet." : reasonCopy({ code: planner.reason, outcome: "info", facts: {} }, labels)}`;
+}
+
+export type ReasonSeverity = "good" | "neutral" | "soft" | "hard";
+/** Severity follows the condition, not its fail/info outcome: a busy executor can recover. */
+const severity: Record<ReasonCode, ReasonSeverity> = {
+  step_match: "good", capacity_comfortable: "good", capacity_usable: "soft", capacity_unknown: "soft", override: "neutral",
+  planner_account: "neutral", runner_disabled: "hard", not_configured: "hard", blocked_by_user: "hard",
+  quota_exhausted: "hard", not_installed: "hard", signed_out: "hard", unavailable: "hard", ineligible: "hard",
+  runner_unhealthy: "hard", requirements_not_met: "hard", pinned_to_other_model: "neutral",
+  executor_busy: "soft", machine_busy: "soft", host_unreachable: "hard", host_reachability_unknown: "soft",
+  host_paused: "hard", repo_not_on_host: "hard", needs_new_worktree: "hard", local_grant_required: "hard",
+  enforcement_uncertified: "hard", other_exclusion: "soft", step_kind_mismatch: "neutral", step_no_candidates: "soft",
+  no_step_matched: "soft", paused: "soft", engine_failed: "hard", override_unavailable: "hard",
+  planner_not_measured: "neutral", too_few_samples: "neutral", planner_is_executor: "neutral", cached_preview: "neutral",
+  capacity_unmeasured: "soft", default_model_unresolved: "soft", enforcement_unverified: "soft", engine_not_running: "soft",
+  learning_unavailable: "neutral", tasks_unavailable: "soft", reserved_capacity: "soft", admission_hooks: "neutral",
+};
+export function reasonSeverity(code?: string): ReasonSeverity {
+  return code && Object.hasOwn(severity, code) ? severity[code as ReasonCode] : "soft";
 }

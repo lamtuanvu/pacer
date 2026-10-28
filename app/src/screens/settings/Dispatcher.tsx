@@ -1,19 +1,24 @@
 import type { DispatchConfig, DispatchPreview, ModelRecord } from "../../../../src/dispatch/types";
 import { executorLabel } from "../../../../src/view-model/words";
 import type { RouteExplanation } from "../../../../src/core/dispatch-explain";
-import { explainHeadline, modelCopy, plannerCopy, reasonCopy, type ExplainLabels } from "../../../../src/view-model/route-explain";
+import { explainHeadline, modelCopy, plannerCopy, reasonCopy, reasonSeverity, type ExplainLabels } from "../../../../src/view-model/route-explain";
 import type { StrategyDraft } from "../../model/dispatcher-setup";
 import type { RouteQuery } from "../../router";
 import type { BrowserApi } from "../../data/api";
-import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useLayoutEffect, useRef, useState, useId } from "preact/hooks";
 import { SortableList, useStableKeys } from "../../ds/SortableList";
-import { DispatcherGuidedSetup, SavedSetups } from "./DispatcherSetup";
+import { DispatcherGuidedSetup } from "./DispatcherSetup";
 import { Button, TextAction } from "../../ds/Button";
-import { Checkbox, Disclosure, Field, TextInput } from "../../ds/Controls";
+import { Checkbox, Disclosure, Field, TextInput, TextArea } from "../../ds/Controls";
 import { ChoicePicker } from "../../ds/ChoicePicker";
+import { AgentMark } from "../../ds/AgentMark";
+import { Identicon } from "../../ds/Identicon";
+import { Pill } from "../../ds/Pill";
+import type { StrategyRow } from "../../model/strategy";
+import type { ProjectStrategyView } from "../../model/project-strategies";
 import { SectionHeading } from "../../ds/SectionHeading";
 import { ErrorMessage, useTaskContext } from "../task-shared";
-import { Section, useResource } from "./shared";
+import { Section, useResource, useOperation, ResourceState, Feedback } from "./shared";
 
 export interface DispatcherConfigView {
   strategy: string;
@@ -69,14 +74,19 @@ export function RouteExplanationResult({result}:{result:RouteExplanation}) {
   const labels:ExplainLabels={executor:executorLabel,step:stepTitle,now:Date.now()/1000,outcome:result.outcome};
   const copyReason=(item:RouteExplanation["reasons"][number])=>reasonCopy(item,labels,item.subject&&(item.subject!==result.chosen?.runner||item.code==="capacity_unmeasured"||item.code==="default_model_unresolved")?executorLabel(item.subject):undefined);
   const fallbacks=result.fallbacks.filter(item=>item.executor!==result.chosen?.executor||item.runner!==result.chosen?.runner);
-  return <div className="pc-card pc-stack pc-stack--compact">
-    {result.chosen?<div className="pc-stack pc-stack--compact"><span className="u3-muted">Would go to</span><strong>{executorLabel(result.chosen.runner)}</strong><span className="u3-muted">{result.chosen.account} · {modelCopy(result.chosen)} · {result.chosen.host?`Host ${result.chosen.host}`:"This machine"}</span></div>:<p><strong>{explainHeadline(result,labels)}</strong></p>}
-    {result.step&&<p>Matched: Step {result.step.index+1} · {stepTitle(result.step.id)}</p>}
+  return <div className="pc-route-result">
+    <div className="pc-route-result__header">{result.chosen?<div className="pc-route-result__choice"><span className="pc-current-setup__label">Would go to</span><strong className="pc-route-result__name">{executorLabel(result.chosen.runner)}</strong><span className="u3-muted">{result.chosen.account} · {modelCopy(result.chosen)} · {result.chosen.host?`Host ${result.chosen.host}`:"This machine"}</span></div>:<p><strong>{explainHeadline(result,labels)}</strong></p>}
+    {result.step&&<p>Matched: Step {result.step.index+1} · {stepTitle(result.step.id)}</p>}</div>
+    <div className="pc-route-result__body pc-stack pc-stack--compact">
     {result.strategy.draft&&<p className="u3-muted">Uses your unsaved choice ladder.</p>}
     {!!result.reasons.length&&<ul>{result.reasons.map((item,index)=><li key={`${item.code}:${index}`}>{copyReason(item)}</li>)}</ul>}
-    {!!fallbacks.length&&<div><strong>Also considered</strong><ul className="u3-candidates">{fallbacks.map((item,index)=><li key={`${item.runner}:${index}`}><span aria-hidden="true" className={item.state==="eligible"?"u3-candidates__ok":"u3-candidates__out"}>{item.state==="eligible"?"✓":"×"}</span> <strong>{executorLabel(item.runner)}</strong>: {item.state==="eligible"?(result.chosen?"Could take it if the choice above cannot.":"Could take it."):item.reason?reasonCopy(item.reason,labels):"Left out."}</li>)}</ul></div>}
+    {!!fallbacks.length&&<div><strong>Also considered</strong><ul className="pc-route-result__candidates">{fallbacks.map((item,index)=>{
+      const severity=item.state==="eligible"?"good":reasonSeverity(item.reason?.code);
+      return <li key={`${item.runner}:${index}`}><span aria-hidden="true" className={`pc-route-result__glyph pc-route-result__glyph--${severity}`}>{({good:"✓",neutral:"–",soft:"◐",hard:"✕"})[severity]}</span><span><strong>{executorLabel(item.runner)}</strong>: {item.state==="eligible"?(result.chosen?"Could take it if the choice above cannot.":"Could take it."):item.reason?reasonCopy(item.reason,labels):"Left out."}</span></li>;
+    })}</ul></div>}
     <p className="u3-muted">{plannerCopy(result.planner,labels)}</p>
     {!!result.uncertainty.length&&<Disclosure summary="What could change this"><ul>{result.uncertainty.map((item,index)=><li key={`${item.code}:${index}`}>{copyReason(item)}</li>)}</ul></Disclosure>}
+    </div>
   </div>;
 }
 
@@ -131,8 +141,8 @@ export function DispatcherLadderFields({config,onChange,disabled}:{config:Dispat
   return <div className="pc-stack pc-stack--section">
     <Field label="Spare capacity threshold" help="A step requiring spare capacity uses this percentage as its minimum."><TextInput type="number" min="0" max="100" disabled={disabled} value={String(config.comfortablePct)} onInput={event=>onChange({...config,comfortablePct:Number(event.currentTarget.value)})}/></Field>
     <Field label="Keep capacity in reserve" help="Percentage Pacer leaves unused when selecting a model."><TextInput type="number" min="0" max="100" disabled={disabled} value={String(config.reservePct)} onInput={event=>onChange({...config,reservePct:Number(event.currentTarget.value)})}/></Field>
-    <SortableList label="Ladder steps, first match wins" disabled={disabled} onReorder={reorder} onRemove={config.steps.length>1?remove:undefined}
-      items={config.steps.map((step,index)=>({key:keys.current[index]!,label:stepTitle(step.id),detail:<span className="u3-muted">Step {index+1} · {capacityLabel(step.capacity)}{step.match.kind?` · ${step.match.kind} tasks`:" · any task kind"} · Rank by {step.rank.map(rankLabel).join(", ")}</span>}))}
+    <SortableList iconControls label="Ladder steps, first match wins" disabled={disabled} onReorder={reorder} onRemove={config.steps.length>1?remove:undefined}
+      items={config.steps.map((step,index)=>({key:keys.current[index]!,label:stepTitle(step.id),leading:<span className="pc-ladder-number" aria-hidden="true">{index+1}</span>,detail:<span className="u3-muted">Step {index+1} · {capacityLabel(step.capacity)}{step.match.kind?` · ${step.match.kind} tasks`:" · any task kind"} · Rank by {step.rank.map(rankLabel).join(", ")}</span>}))}
       renderExtra={(_,index)=>{const step=config.steps[index]!;return <Disclosure className="pc-disclosure-panel" summary={`Edit step ${index+1}`}><div className="pc-disclosure-panel__body pc-stack pc-stack--normal">
       <Field label={`Step ${index+1} name`}><TextInput value={step.id} maxLength={256} disabled={disabled} onInput={event=>patch(index,item=>({...item,id:event.currentTarget.value}))}/></Field>
       <Field label="Task kind" help="Optional. Leave empty to match any task kind."><TextInput value={step.match.kind??""} disabled={disabled} onInput={event=>patch(index,item=>({...item,match:event.currentTarget.value.trim()?{kind:event.currentTarget.value.trim()}:{}}))}/></Field>
@@ -147,15 +157,44 @@ export function DispatcherLadderFields({config,onChange,disabled}:{config:Dispat
   </div>;
 }
 
-export function DispatcherOverview({view}:{view:DispatcherConfigView}) {
+function RepositoryChoices() {
+  const query=useResource<ProjectStrategyView[]>("project.strategy.list");
+  const count=query.data?.filter(item=>!!item.executors).length;
+  return <>
+    {query.error&&(query.data?<DispatcherReadError error={query.error} reload={query.reload} subject="repository choices"/>:<div><p role="alert">Repository choices could not be loaded.</p><Button onClick={query.reload}>Try again</Button></div>)}
+    {count!==undefined&&<div className="pc-current-setup__cell"><div><span className="pc-current-setup__label">Repository choices</span><strong>{count?`${count} ${count===1?"repository":"repositories"}`:"No repository lists"}</strong></div><span className="u3-muted">Kept when setup changes</span></div>}
+  </>;
+}
+export function DispatcherOverview({view,repositoryChoices=false}:{view:DispatcherConfigView;repositoryChoices?:boolean}) {
   return <Section id="dispatcher" title="Dispatcher" detail="See who plans work and how Pacer chooses an executor and model.">
-    <div className="pc-stack pc-stack--section">
-      <div className="pc-card">
-        <SectionHeading>Who plans work</SectionHeading>
-        <p><strong>{executorLabel(view.planner)}</strong> on account <strong>{view.plannerAccount}</strong> is the default planner for a new session. Any executor with a valid work grant can plan child work by asking Pacer to delegate it. Pacer still chooses the child's executor and model.</p>
-        <p>The active setup uses {view.source === "built-in" ? "built-in defaults" : "saved configuration"} and {view.config.engine==="ladder"?"the ordered ladder":`the plugin ${view.config.engine.replace(/^plugin:/,"")}`}. Pacer uses a repository's own order, else the global rules, then ranks with the ladder.</p>
-      </div>
-    </div>
+    <section aria-label="Current setup" className="pc-current-setup">
+      <div className="pc-current-setup__cell"><AgentMark agent={view.planner} size={28} labelled={false}/><div><span className="pc-current-setup__label">Planner</span><strong>{executorLabel(view.planner)}</strong></div><TextAction href="#/settings/planner">Planner &amp; pacing</TextAction></div>
+      <div className="pc-current-setup__cell"><span className="pc-setup-icon"><Identicon seed={view.strategy}/></span><div><span className="pc-current-setup__label">Active saved setup</span><strong>{view.strategy}</strong></div><TextAction href="#saved-profiles" onClick={event=>{
+        const target=document.getElementById("saved-profiles");
+        if(target){event.preventDefault();target.tabIndex=-1;target.focus();target.scrollIntoView({block:"start"});}
+      }}>Switch setup</TextAction></div>
+      {repositoryChoices&&<RepositoryChoices/>}
+    </section>
+  </Section>;
+}
+
+/** Same saved-profile operations as the guided setup, composed as the board's bordered list. */
+export function SavedSetups({onActivated,initialData}:{onActivated?:()=>void;initialData?:StrategyRow[]}) {
+  const query=useResource<StrategyRow[]>("strategy.list",{},initialData),action=useOperation(query.reload);
+  const [building,setBuilding]=useState(false),[brief,setBrief]=useState("");
+  return <Section id="saved-profiles" title="Saved setups" detail="Each setup saves global planner, pacing, eligibility and dispatcher settings. Repository choices are kept when you switch."
+    actions={<Button size="sm" onClick={()=>setBuilding(value=>!value)} aria-expanded={building}>New from a brief</Button>}>
+    <ResourceState resource={query} empty="No saved setups yet.">
+      <div className="pc-saved-setups">{query.data?.map(strategy=><div key={strategy.name} className={`pc-saved-setups__row${strategy.active?" pc-saved-setups__row--active":""}`}>
+        <span className="pc-setup-icon"><Identicon seed={strategy.name}/></span><strong>{strategy.name}</strong><span>{strategy.summary}</span>
+        <div>{strategy.active?<Pill tone="good">Active</Pill>:<Button size="sm" aria-label={`Use ${strategy.name}`} disabled={action.busy} onClick={()=>void action.run("strategy.use",{name:strategy.name},onActivated)}>Use</Button>}</div>
+      </div>)}</div>
+    </ResourceState>
+    {building&&<form className="pc-card" onSubmit={event=>{event.preventDefault();void action.run("strategy.build",{brief});}}>
+      <Field label="What should this setup do?"><TextArea value={brief} maxLength={2000} required onInput={event=>setBrief(event.currentTarget.value)}/></Field>
+      <div><Button type="submit" disabled={action.busy}>Build setup</Button></div><p className="u3-muted">Opens a planning session or returns a command to run.</p>
+    </form>}
+    <Feedback action={action}/>
   </Section>;
 }
 
@@ -175,8 +214,7 @@ function DispatcherContent({query}:{query:RouteQuery}){
   const [setupsRevision,setSetupsRevision]=useState(0),[ladderDraft,setLadderDraft]=useState<StrategyDraft>();
   const [refreshing,setRefreshing]=useState(false),[refreshError,setRefreshError]=useState<unknown>();
   const refresh=async()=>{setRefreshing(true);setRefreshError(undefined);try{await api.call("dispatch.refresh",{});models.reload();}catch(error){setRefreshError(error);}finally{setRefreshing(false);}};
-  return config.data?<><DispatcherReadError error={config.error} reload={config.reload} subject="dispatcher settings"/><DispatcherOverview view={config.data}/>
-    <SavedSetups key={setupsRevision} onActivated={()=>{config.reload();models.reload();}}/>
+  return config.data?<><DispatcherReadError error={config.error} reload={config.reload} subject="dispatcher settings"/><DispatcherOverview view={config.data} repositoryChoices={state.features.ops.has("project.strategy.list")}/>
     <DispatcherGuidedSetup view={config.data} onLadderDraft={setLadderDraft} onSaved={()=>{config.reload();models.reload();setSetupsRevision(value=>value+1);}}/>
     {(state.features.ops.has("dispatch.explain")||state.features.ops.has("dispatch.preview"))&&<DispatcherPreviewForm query={query} draft={ladderDraft}/>}
     {state.features.ops.has("dispatch.enforcement")?<DispatcherEnforcement query={query}/>:<Section id="native-control" title="Native subagent control"><p>Update the service to inspect managed delegation enforcement.</p></Section>}
@@ -185,6 +223,7 @@ function DispatcherContent({query}:{query:RouteQuery}){
       {models.data?<DispatcherModelInventory inventory={models.data}/>:<p role={models.error?"alert":undefined}>{models.error?"Model choices could not be loaded.":"Loading model choices…"}</p>}
       <ErrorMessage error={refreshError}/>
     </Section>
+    <SavedSetups key={setupsRevision} onActivated={()=>{config.reload();models.reload();}}/>
   </>:<><Section id="dispatcher" title="Dispatcher"><p role={config.error?"alert":undefined}>{config.error?"Dispatcher settings could not be loaded.":"Loading dispatcher settings…"}</p></Section><SavedSetups/></>;
 }
 
@@ -237,13 +276,17 @@ export function DispatcherPreviewForm({query,draft}:{query:RouteQuery;draft?:Str
   const explain=state.features.ops.has("dispatch.explain"),[useDraft,setUseDraft]=useState(true);
   const request=useRef(0),inFlight=useRef(false);
   const [announcement,setAnnouncement]=useState("");
+  const [goalError,setGoalError]=useState("");
+  const draftHelpId=useId();
   useEffect(()=>{if(!repo&&repos.length)setRepo(repos[0]!.key);},[repo,repos.length]);
   useLayoutEffect(()=>{
     request.current++;inFlight.current=false;setBusy(false);setResult(undefined);setExplained(undefined);setError(undefined);setAnnouncement("");
     return ()=>{request.current++;};
   },[draft,useDraft,repo,goal,kind,tier,tools,explain]);
   const submit=async(event:Event)=>{
-    event.preventDefault();if(!repo||!goal.trim()||inFlight.current)return;
+    event.preventDefault();if(inFlight.current)return;
+    if(!goal.trim()){setGoalError("Describe the task to preview where it would go.");return;}
+    setGoalError("");if(!repo)return;
     const id=++request.current;inFlight.current=true;setBusy(true);setError(undefined);setResult(undefined);setExplained(undefined);setAnnouncement("Previewing…");
     const params={repo,goal:goal.trim(),...(kind.trim()?{kind:kind.trim()}:{}),requirements:{...(tier?{minTier:tier}:{}),...(tools?{tools:true}:{})}};
     try{
@@ -259,15 +302,19 @@ export function DispatcherPreviewForm({query,draft}:{query:RouteQuery;draft?:Str
   };
   return <Section step={4} id="dispatch-preview" title="Try a task" detail={explain?"See where a task would go, using recent readings. This does not start work or reserve capacity.":"See where a task would go, using saved settings and recent readings. This does not start work or reserve capacity."}>
     <span className="sr-only" role="status">{announcement}</span>
-    <form className="pc-card pc-stack pc-stack--normal" onSubmit={event=>void submit(event)}>
-      {repos.length?<Field label="Repository"><ChoicePicker value={repo} searchable options={repos.map(item=>({value:item.key,label:item.label}))} onValueChange={setRepo}/></Field>:<p>Choose a repository from the repository picker before previewing.</p>}
-      <Field label="Task"><TextInput value={goal} maxLength={8000} placeholder="What work should Pacer assign?" onInput={event=>setGoal(event.currentTarget.value)}/></Field>
-      <Field label="Task kind" help="Optional. Use this to check a specialist step."><TextInput value={kind} maxLength={256} placeholder="For example, architecture" onInput={event=>setKind(event.currentTarget.value)}/></Field>
-      <Field label="Minimum model tier"><ChoicePicker value={tier} options={tierOptions} onValueChange={setTier}/></Field>
-      <Checkbox label="Needs tools" checked={tools} onChange={event=>setTools(event.currentTarget.checked)}/>
-      {explain&&draft?.from&&<Checkbox label="Use my unsaved choice ladder" help="Changes to Who may do the work count only after you save them." checked={useDraft} onChange={event=>setUseDraft(event.currentTarget.checked)}/>}
-      {explain&&draft&&!draft.from&&<p className="u3-muted">Save the choice ladder once to try unsaved changes here.</p>}
-      <div><Button type="submit" variant="primary" busy={busy} disabled={!repo||!goal.trim()}>Preview selection</Button></div>
+    <form className="dispatcher-preview-form pc-dispatcher-preview" onSubmit={event=>void submit(event)}>
+      <div className="dispatcher-preview-row">
+        {repos.length?<Field label="Repository"><ChoicePicker className="pc-choice-picker--mono" value={repo} searchable options={repos.map(item=>({value:item.key,label:item.label}))} onValueChange={setRepo}/></Field>:<p>Choose a repository from the repository picker before previewing.</p>}
+        <Field label="Task kind"><TextInput value={kind} maxLength={256} placeholder="Any kind" onInput={event=>setKind(event.currentTarget.value)}/></Field>
+        <Field label="Task" error={goalError}><TextInput value={goal} maxLength={8000} placeholder="What work should Pacer assign?" onInput={event=>{setGoal(event.currentTarget.value);setGoalError("");}}/></Field>
+        <div className="dispatcher-preview-submit"><Button type="submit" variant="primary" busy={busy}>Preview selection</Button></div>
+      </div>
+      <div className="dispatcher-preview-options">
+        <Field label="Minimum model tier"><ChoicePicker value={tier} options={tierOptions} onValueChange={setTier}/></Field>
+        <Checkbox label="Needs tools" checked={tools} onChange={event=>setTools(event.currentTarget.checked)}/>
+        {explain&&draft?.from&&<div><Checkbox label="Use my unsaved choice ladder" aria-describedby={draftHelpId} checked={useDraft} onChange={event=>setUseDraft(event.currentTarget.checked)}/><small id={draftHelpId} className="u3-muted">Changes to Who may do the work count only after you save them.</small></div>}
+        {explain&&draft&&!draft.from&&<p className="u3-muted">Save the choice ladder once to try unsaved changes here.</p>}
+      </div>
     </form>
     <ErrorMessage error={error}/>
     {result&&<DispatcherPreviewResult preview={result}/>}

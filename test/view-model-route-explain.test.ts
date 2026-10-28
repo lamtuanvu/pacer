@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import { REASON_CODES, type ReasonFacts } from '../src/dispatch/reasons';
-import { explainHeadline, plannerCopy, reasonCopy } from '../src/view-model/route-explain';
+import { explainHeadline, plannerCopy, reasonCopy, reasonSeverity } from '../src/view-model/route-explain';
 
 const labels = { executor: (id: string) => id.toUpperCase(), step: (id: string) => `step ${id}`, now: 0 };
 
@@ -57,4 +57,13 @@ test('queue reasons describe waiting and refused overrides name the requested ru
   expect(explainHeadline({ outcome: 'select', chosen, reasons: [{ code: 'override_unavailable', outcome: 'fail', facts: { requested: 'codex#team' } }] }, labels)).toBe('Pacer would choose CLAUDE-CODE');
   expect(explainHeadline({ outcome: 'fail', chosen: null, reasons: [{ code: 'override_unavailable', outcome: 'fail', facts: { requested: 'codex#team' } }] }, labels)).toBe('CODEX#TEAM cannot take this task');
   expect(explainHeadline({ outcome: 'fail', chosen: null, reasons: [{ code: 'override', outcome: 'info', facts: { executor: 'codex#team' } }] }, labels)).toBe('CODEX#TEAM cannot take this task');
+});
+
+test('reason severity distinguishes temporary pressure, hard blocks and neutral exclusions', () => {
+  for(const code of ['executor_busy','machine_busy','capacity_usable','capacity_unknown','reserved_capacity'])expect(reasonSeverity(code)).toBe('soft');
+  for(const code of ['blocked_by_user','signed_out','not_installed','quota_exhausted','runner_disabled','not_configured','enforcement_uncertified'])expect(reasonSeverity(code)).toBe('hard');
+  expect(reasonSeverity('planner_account')).toBe('neutral');
+  expect(reasonSeverity('capacity_comfortable')).toBe('good');
+  for(const code of ['new_future_code','toString','__proto__',undefined])expect(reasonSeverity(code)).toBe('soft');
+  for(const code of REASON_CODES)expect(['good','neutral','soft','hard']).toContain(reasonSeverity(code));
 });

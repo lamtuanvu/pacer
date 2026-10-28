@@ -1,10 +1,11 @@
 import { render } from 'preact';
 import { useState } from 'preact/hooks';
 import { SortableList } from '../../../app/src/ds/SortableList';
+import { DensityProvider } from '../../../app/src/ds/Density';
 import { SaveBar } from '../../../app/src/ds/SaveBar';
 import { orderChanges } from '../../../app/src/model/dispatcher-setup';
 import { DispatcherGuidedSetup, SetupEditor } from '../../../app/src/screens/settings/DispatcherSetup';
-import { DispatcherPreviewForm } from '../../../app/src/screens/settings/Dispatcher';
+import { DispatcherPreviewForm, DispatcherSection } from '../../../app/src/screens/settings/Dispatcher';
 import type { StrategyDraft } from '../../../app/src/model/dispatcher-setup';
 import { TaskContext } from '../../../app/src/screens/task-shared';
 import { initialState } from '../../../app/src/data/store';
@@ -56,14 +57,14 @@ function Try() {
     }
     return {};
   } };
-  return <TaskContext.Provider value={{ state: mode === '#try-preview' ? { ...tryState, features: { ...tryState.features, ops: new Set(['routing.get', 'routing.set', 'dispatch.preview']) } } : tryState, api } as never}>
+  return <DensityProvider value="settings"><TaskContext.Provider value={{ state: mode === '#try-preview' ? { ...tryState, features: { ...tryState.features, ops: new Set(['routing.get', 'routing.set', 'dispatch.preview']) } } : tryState, api } as never}>
     <main>
       <SetupEditor view={mode === '#try-no-saved' ? { ...view, strategy: '' } : view} eligibility={{ kind: 'global', rules: [{ executors: ['codex'] }], available: ['codex'] }} onDirtyChange={() => {}} onSaved={() => {}} onLadderDraft={setDraft} />
       <DispatcherPreviewForm query={{} as never} draft={draft} />
       <output data-testid="sent">{sent}</output>
       <output data-testid="called">{called}</output>
     </main>
-  </TaskContext.Provider>;
+  </TaskContext.Provider></DensityProvider>;
 }
 /** The real guided-setup editor against a fake service; `#setup-fail` makes strategy.save fail. */
 function Setup() {
@@ -87,7 +88,7 @@ function Setup() {
   </TaskContext.Provider>;
 }
 
-render(location.hash === '#scope' ? <Scope /> : location.hash.startsWith('#try') ? <Try /> : location.hash.startsWith('#setup') ? <Setup /> : <Fixture />, document.getElementById('root')!);
+render(location.hash === '#overview' ? <Overview /> : location.hash === '#scope' ? <Scope /> : location.hash.startsWith('#try') ? <Try /> : location.hash.startsWith('#setup') ? <Setup /> : <Fixture />, document.getElementById('root')!);
 
 
 /** Full scope selector with existing read operations, including a repository override. */
@@ -99,4 +100,19 @@ function Scope() {
     : { rules: [{ executors: ['codex'] }], available: ['codex', 'claude-code'] } };
   const scoped = { ...state, snapshot: { repos: [project.repo], tasks: [] }, features: { readModel: true, ops: new Set(['routing.get', 'routing.set', 'project.strategy.get', 'project.strategy.list', 'project.strategy.set', 'project.strategy.remove']) } };
   return <TaskContext.Provider value={{ state: scoped, api } as never}><main><DispatcherGuidedSetup view={view} onSaved={() => {}} /></main></TaskContext.Provider>;
+}
+
+/** Dispatcher composition verifies overview data and Saved setups order without new operations. */
+function Overview() {
+  const profiles=[{name:'default',summary:'Everyday work',active:true},{name:'other',summary:'Other work',active:false}];
+  const api={call:async(op:string)=>{
+    if(op==='dispatch.config.get')return view;
+    if(op==='dispatch.models')return {models:[],advertised:[],observedAt:null};
+    if(op==='strategy.list')return profiles;
+    if(op==='project.strategy.list')return [{repo:{key:'repo-a',label:'repo-a'},executors:['codex']},{repo:{key:'repo-b',label:'repo-b'},executors:null}];
+    if(op==='routing.get')return {rules:[{executors:['codex']}],available:['codex']};
+    return {};
+  }};
+  const overviewState={...tryState,features:{readModel:true,ops:new Set([...tryState.features.ops,'dispatch.config.get','dispatch.models','strategy.list','project.strategy.list'])}};
+  return <DensityProvider value="settings"><TaskContext.Provider value={{state:overviewState,api} as never}><main><DispatcherSection query={{} as never}/></main></TaskContext.Provider></DensityProvider>;
 }

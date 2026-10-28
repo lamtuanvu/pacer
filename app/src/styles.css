@@ -503,3 +503,13 @@ body:has(.pc-app--narrow) .pc-toasts{bottom:calc(var(--size-56) + var(--space-5)
 .dispatcher-order-container{container-type:inline-size;min-width:0;display:flex;flex-direction:column;gap:var(--space-3)}
 .dispatcher-order-grid{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(var(--size-220),1fr);gap:var(--space-4);min-width:0}
 @container(max-width:800px){.dispatcher-order-grid{grid-template-columns:minmax(0,1fr)}}
+
+.dispatcher-preview-form{container-type:inline-size;display:flex;flex-direction:column;gap:var(--space-3)}
+.dispatcher-preview-row{display:grid;grid-template-columns:var(--size-200) var(--size-140) minmax(0,1fr) auto;gap:var(--space-2);align-items:start}
+.dispatcher-preview-row .pc-field{min-width:0}
+.dispatcher-preview-submit{padding-top:calc(var(--type-body-line) + var(--space-1\.5))}
+.dispatcher-preview-options{display:flex;flex-wrap:wrap;gap:var(--space-4);align-items:center}
+@container(max-width:800px){
+ .dispatcher-preview-row{grid-template-columns:minmax(0,1fr)}
+ .dispatcher-preview-submit{padding-top:0}
+}

@@ -224,13 +224,15 @@ browserTest('Try a task explains the route with the unsaved choice ladder', asyn
     await page.getByRole('button', { name: 'Move up: Usable fallback' }).click();
     const useDraft = page.getByLabel('Use my unsaved choice ladder');
     expect(await useDraft.isChecked()).toBe(true);
+    expect(await useDraft.getAttribute('aria-describedby')).toBeTruthy();
+    expect(await page.getByRole('checkbox', { name: 'Use my unsaved choice ladder', exact: true }).count()).toBe(1);
     await page.getByLabel('Task', { exact: true }).fill('Fix the login bug');
     await page.getByRole('button', { name: 'Preview selection' }).click();
     await page.getByText('Would go to', { exact: true }).waitFor();
     const sent = JSON.parse((await page.getByTestId('sent').textContent())!);
     expect(sent.strategyDraft.from).toBe('default');
     expect(sent.strategyDraft.set.dispatch.steps[0].id).toBe('usable-fallback');
-    const card = page.locator('.pc-card', { has: page.getByText('Would go to', { exact: true }) });
+    const card = page.locator('.pc-route-result', { has: page.getByText('Would go to', { exact: true }) });
     expect(await card.getAttribute('role')).toBeNull();
     expect(await card.getByText('Matched: Step 2 · Usable fallback', { exact: true }).count()).toBe(1);
     expect(await page.locator('#dispatch-preview [role="status"]').textContent()).toBe('Pacer would choose Codex');
@@ -291,7 +293,7 @@ browserTest('Try a task names an eligible fallback without a chosen executor', a
     await page.goto(`${server.url.href}#try-no-choice`);
     await page.getByLabel('Task', { exact: true }).fill('Check available executors');
     await page.getByRole('button', { name: 'Preview selection' }).click();
-    const card = page.locator('.pc-card', { has: page.getByText('Also considered', { exact: true }) });
+    const card = page.locator('.pc-route-result', { has: page.getByText('Also considered', { exact: true }) });
     await card.waitFor();
     expect(await card.textContent()).toContain('Codex · team');
     expect(await card.textContent()).toContain('Could take it.');
@@ -374,4 +376,79 @@ browserTest('scope radios use arrows and repository picker and explain a dirty l
     await page.keyboard.press('Home');
     expect(await scope.getByRole('radio', { name: 'All repositories' }).getAttribute('aria-checked')).toBe('true');
   } finally { await page.close(); }
+});
+
+browserTest('Preview selection stays enabled and links an empty-task field error without calling the service', async () => {
+  const page=await browser.newPage();
+  try {
+    await page.goto(`${server.url.href}#try`);
+    const preview=page.getByRole('button',{name:'Preview selection'}),task=page.getByLabel('Task',{exact:true});
+    expect(await preview.isEnabled()).toBe(true);
+    await preview.click();
+    expect(await task.getAttribute('aria-invalid')).toBe('true');
+    const errorId=await task.getAttribute('aria-describedby');
+    expect(errorId).toBeTruthy();
+    expect(await page.locator(`[id="${errorId}"]`).textContent()).toBe('Describe the task to preview where it would go.');
+    expect(await page.getByTestId('called').textContent()).toBe('');
+    await task.fill('Check the route');
+    expect(await task.getAttribute('aria-invalid')).not.toBe('true');
+    await preview.click();
+    await page.getByText('Would go to',{exact:true}).waitFor();
+    expect(await page.getByTestId('called').textContent()).toBe('dispatch.explain');
+  } finally {await page.close();}
+});
+
+browserTest('ladder icon actions preserve move focus, announcements and numbered circles', async () => {
+  const page=await browser.newPage();
+  try {
+    await page.goto(`${server.url.href}#try`);
+    const ladder=page.locator('#decision-ladder');
+    expect(await ladder.locator('.pc-ladder-number').allTextContents()).toEqual(['1','2']);
+    await ladder.getByRole('button',{name:'Move up: Usable fallback'}).focus();
+    await page.keyboard.press('Enter');
+    expect(await focusedLabel(page)).toBe('Move down: Usable fallback');
+    expect(await ladder.locator('.pc-sortable__status').textContent()).toBe('Usable fallback moved to position 1 of 2.');
+    expect(await ladder.locator('.pc-ladder-number').allTextContents()).toEqual(['1','2']);
+    await ladder.getByRole('button',{name:'Remove: Usable fallback'}).click();
+    expect(await ladder.locator('.pc-sortable__status').textContent()).toBe('Usable fallback removed.');
+    expect(await ladder.locator('.pc-ladder-number').allTextContents()).toEqual(['1']);
+    // The last step cannot be removed, so focus falls back to the list itself.
+    expect(await focusedLabel(page)).toBe('Ladder steps, first match wins');
+  } finally {await page.close();}
+});
+
+browserTest('overview reads repository choices and Switch setup focuses the final Saved setups section', async () => {
+  const page=await browser.newPage({viewport:{width:1440,height:900}});
+  try {
+    await page.goto(`${server.url.href}#overview`);
+    const strip=page.getByRole('region',{name:'Current setup'});
+    await strip.getByText('1 repository',{exact:true}).waitFor();
+    expect(await strip.getByRole('link',{name:'Planner & pacing'}).getAttribute('href')).toBe('#/settings/planner');
+    await strip.getByRole('link',{name:'Switch setup'}).click();
+    expect(await page.evaluate(()=>document.activeElement?.id)).toBe('saved-profiles');
+    expect(await page.locator('main>section').last().getAttribute('id')).toBe('saved-profiles');
+    expect(await page.locator('.pc-saved-setups__row--active strong').textContent()).toBe('default');
+    const icon=await page.locator('.pc-saved-setups .pc-identicon').first().boundingBox();
+    expect(icon?.width).toBe(28);
+    expect(icon?.height).toBe(28);
+  } finally {await page.close();}
+});
+
+for(const width of [1440,768,375])browserTest(`Try a task input layout at ${width}px`,async()=>{
+  const page=await browser.newPage({viewport:{width,height:900}});
+  try {
+    await page.goto(`${server.url.href}#try`);
+    const form=page.locator('.dispatcher-preview-form');
+    const fields=form.locator('.dispatcher-preview-row .pc-field');
+    const boxes=await Promise.all([0,1,2].map(index=>fields.nth(index).boundingBox()));
+    if(width===1440){
+      expect(boxes[0]!.width).toBe(200);expect(boxes[1]!.width).toBe(140);
+      expect(boxes[0]!.y).toBe(boxes[2]!.y);
+      expect((await form.getByLabel('Task',{exact:true}).boundingBox())!.height).toBe(32);
+    }else{
+      expect(boxes[1]!.y).toBeGreaterThan(boxes[0]!.y);
+      expect(boxes[2]!.y).toBeGreaterThan(boxes[1]!.y);
+      expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+    }
+  }finally{await page.close();}
 });

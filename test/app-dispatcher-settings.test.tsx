@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { renderToString } from "preact-render-to-string";
 import { dispatchConfigSchema } from "../src/dispatch/types";
 import { SETTINGS_PAGES } from "../app/src/settings-pages";
-import { DispatcherOverview, DispatcherModelInventory, DispatcherPreviewResult, DispatcherLadderFields, DispatcherReadError, DispatcherSection, DispatcherEnforcementRows, scopedEnforcementReading, candidateRestriction } from "../app/src/screens/settings/Dispatcher";
+import { DispatcherOverview, DispatcherModelInventory, DispatcherPreviewResult, DispatcherLadderFields, DispatcherReadError, DispatcherSection, DispatcherEnforcementRows, scopedEnforcementReading, candidateRestriction, RouteExplanationResult, SavedSetups } from "../app/src/screens/settings/Dispatcher";
 import { SetupEditor } from "../app/src/screens/settings/DispatcherSetup";
 import { TaskContext } from "../app/src/screens/task-shared";
 import { initialState } from "../app/src/data/store";
@@ -12,10 +12,11 @@ test("dispatcher settings explain the active planner and built-in ladder", () =>
   expect(SETTINGS_PAGES.some(page=>page.id==="dispatcher")).toBe(true);
   expect(SETTINGS_PAGES.some(page=>page.id==="routing"||page.id==="strategies")).toBe(false);
   expect(html).toContain("Claude Code");
-  expect(html).toContain("claude1");
-  expect(html).toContain("Any executor");
-  expect(html).toContain("built-in");
-  expect(html).toContain("a repository's own order, else the global rules, then ranks with the ladder");
+  expect(html).toContain('aria-label="Current setup"');
+  expect(html).toContain('href="#/settings/planner"');
+  expect(html).toContain("Switch setup");
+  expect(html).toContain("Active saved setup");
+  expect(html).not.toContain("Repository choices");
   // The ladder itself is shown once, in the guided setup's step 3 (UI-15).
   expect(html).not.toContain("Usable fallback");
   const ladder=renderToString(<DispatcherLadderFields config={dispatchConfigSchema.parse({})} onChange={()=>{}}/>);
@@ -27,7 +28,7 @@ test("dispatcher settings explain the active planner and built-in ladder", () =>
 test("plugin strategy does not present inactive ladder as the active decision engine", () => {
   const config=dispatchConfigSchema.parse({engine:"plugin:custom-choice",engineFallback:"queue"});
   const html=renderToString(<DispatcherOverview view={{strategy:"custom",planner:"codex",plannerAccount:"work",source:"strategy",config}}/>);
-  expect(html).toContain("plugin custom-choice");
+  expect(html).toContain("custom");
   expect(html).not.toContain("Capable model with spare capacity");
   const setup=renderToString(<TaskContext.Provider value={{state:{...initialState(),connected:true},api:{call:async()=>({})}} as any}><SetupEditor view={{strategy:"custom",planner:"codex",plannerAccount:"work",source:"strategy",config}} eligibility={{kind:"global",rules:[{executors:["codex"]}],available:["codex"]}} onSaved={()=>{}} onDirtyChange={()=>{}}/></TaskContext.Provider>);
   expect(setup).toContain("If the plugin cannot decide, Pacer queues the work");
@@ -103,4 +104,37 @@ test("native control data follows the selected repository key without showing st
   const one={repo:"/work/one",scope:"native",runners:[]};
   expect(scopedEnforcementReading(one,"local:one",repos)).toBe(one);
   expect(scopedEnforcementReading(one,"local:two",repos)).toBeUndefined();
+});
+
+test("ladder rows use numbered circles and icon actions with full accessible names", () => {
+  const html=renderToString(<DispatcherLadderFields config={dispatchConfigSchema.parse({})} onChange={()=>{}}/>);
+  expect(html).toContain('pc-sortable--icons');
+  expect(html).toContain('aria-hidden="true" class="pc-ladder-number">1</span>');
+  expect(html).toContain('aria-label="Move down: Capable model with spare capacity"');
+  expect(html).not.toContain('>Move down</button>');
+});
+
+test("route results group choice and matched step in a band and distinguish exclusion severity", () => {
+  const result={chosen:{runner:"codex",executor:"codex",account:"work",model:{kind:"executor-default"},host:null},outcome:"select",step:{index:0,id:"capable-with-headroom"},strategy:{draft:false},reasons:[],fallbacks:[
+    ...["executor_busy","quota_exhausted","planner_account","brand_new"].map((code,index)=>({runner:`executor${index}`,state:"excluded",reason:{code,outcome:"fail",facts:{},text:"internal raw detail"}})),
+    {runner:"cursor",state:"eligible"},
+  ],planner:{state:"unknown",reason:"planner_not_measured"},uncertainty:[]};
+  const html=renderToString(<RouteExplanationResult result={result as any}/>);
+  expect(html).toContain('pc-route-result__header');
+  expect(html).toContain('pc-route-result__name');
+  expect(html).toContain('Matched: Step 1 · Capable model with spare capacity');
+  for(const [tone,glyph] of [["soft","◐"],["hard","✕"],["neutral","–"],["good","✓"]])expect(html).toContain(`pc-route-result__glyph--${tone}">${glyph}</span>`);
+  expect(html).not.toContain('internal raw detail');
+  expect(html).not.toContain('brand_new');
+  const queued=renderToString(<RouteExplanationResult result={{...result,chosen:null,step:null,outcome:"queue"} as any}/>);
+  expect(queued).toContain('Pacer would hold this task');
+  expect(queued).not.toContain('Would go to');
+});
+
+test("saved setup rows retain explicit Use actions and mark the active row", () => {
+  const rows=[{name:"daily",summary:"Everyday work",active:true},{name:"other",summary:"Other work",active:false}];
+  const html=renderToString(<TaskContext.Provider value={{state:initialState(),api:{call:async()=>rows}} as any}><SavedSetups initialData={rows as any}/></TaskContext.Provider>);
+  expect(html).toContain('pc-saved-setups__row--active');
+  expect(html).toContain('aria-label="Use other"');
+  expect(html).toContain('pc-setup-icon');
 });

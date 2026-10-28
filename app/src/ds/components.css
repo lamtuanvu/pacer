@@ -632,3 +632,46 @@ a.pc-btn{text-decoration:none}
 }
 @container(max-width:520px){.pc-sortable--icons .pc-sortable__row{display:flex;flex-wrap:wrap}}
 .pc-choice-picker--mono .pc-choice-picker__value,.pc-choice-picker--mono .pc-choice-picker__option-label{font-family:var(--font-mono)}
+
+/* Dispatcher board compositions; identity, result severity and list visuals stay in DS. */
+.pc-current-setup{display:flex;flex-wrap:wrap;align-items:center;border:1px solid var(--line);border-radius:var(--radius-lg);background:var(--surface-card);overflow:hidden}
+.pc-current-setup__cell{flex:1 1 var(--size-240);min-width:0;display:flex;align-items:center;gap:var(--space-2\.5);padding:var(--space-3) var(--space-4)}
+.pc-current-setup__cell+ .pc-current-setup__cell{border-left:1px solid var(--line);flex-basis:var(--size-280)}
+.pc-current-setup__cell:last-child:not(:nth-child(2)){flex-basis:var(--size-200)}
+.pc-current-setup__cell>div{display:flex;flex-direction:column;min-width:0;overflow-wrap:anywhere}
+.pc-current-setup__cell>a,.pc-current-setup__cell> .u3-muted{margin-left:auto;font-size:var(--type-caption-size)}
+.pc-current-setup__label{font-size:var(--type-label-size);line-height:var(--type-label-line);font-weight:var(--type-label-weight);letter-spacing:var(--type-label-tracking);text-transform:uppercase;color:var(--ink-muted)}
+.pc-setup-icon{display:inline-flex;flex:none}
+.pc-setup-icon .pc-identicon{width:var(--size-28);height:var(--size-28);border-radius:var(--radius-7)}
+.pc-ladder-number{display:grid;place-items:center;flex:none;width:var(--size-24);height:var(--size-24);border-radius:var(--radius-full);background:var(--surface-lane);color:var(--ink-secondary);font-weight:var(--type-match-strong-weight)}
+.pc-saved-setups{border:1px solid var(--line);border-radius:var(--radius-lg);overflow:hidden}
+.pc-saved-setups__row{display:grid;grid-template-columns:var(--size-28) minmax(0,var(--size-180)) minmax(0,1fr) var(--size-110);align-items:center;gap:var(--space-3);padding:var(--space-2\.5) var(--space-3\.5);overflow-wrap:anywhere}
+.pc-saved-setups__row+ .pc-saved-setups__row{border-top:1px solid var(--line)}
+.pc-saved-setups__row--active{background:var(--surface-card)}
+.pc-saved-setups__row>div:last-child{text-align:right}
+.pc-saved-setups__row>span:nth-child(3){font-size:var(--type-caption-size);line-height:var(--type-caption-line);color:var(--ink-muted)}
+.pc-route-result{border:1px solid var(--line);border-radius:var(--radius-lg);overflow:hidden}
+.pc-route-result__header{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-4);padding:var(--space-3) var(--space-3\.5);background:var(--surface-card);border-bottom:1px solid var(--line)}
+.pc-route-result__header>p{margin:0}
+.pc-route-result__name{font-size:var(--size-15);font-weight:var(--type-match-strong-weight)}
+.pc-route-result__body{padding:var(--space-3) var(--space-3\.5)}
+.pc-route-result__candidates{list-style:none;margin:var(--space-2) calc(0px - var(--space-3\.5)) 0;padding:0}
+.pc-route-result__candidates li{display:flex;gap:var(--space-2);padding:var(--space-2) var(--space-3\.5);border-top:1px solid var(--surface-lane)}
+.pc-route-result__glyph{flex:none;width:var(--size-14);font-weight:var(--type-match-strong-weight)}
+.pc-route-result__glyph--good{color:var(--good-fg)}
+.pc-route-result__glyph--neutral{color:var(--ink-muted)}
+.pc-route-result__glyph--soft{color:var(--warn-fg)}
+.pc-route-result__glyph--hard{color:var(--bad-fg)}
+@media(max-width:700px){
+ .pc-saved-setups__row{grid-template-columns:var(--size-28) minmax(0,1fr) auto}
+ .pc-saved-setups__row>span:nth-child(3){grid-column:2;grid-row:2}
+ .pc-saved-setups__row>div:last-child{grid-column:3;grid-row:1 / 3}
+ .pc-current-setup__cell+ .pc-current-setup__cell{border-left:0;border-top:1px solid var(--line)}
+}
+.pc-route-result__choice{display:flex;flex-direction:column;min-width:0;overflow-wrap:anywhere}
+.pc-dispatcher-preview .pc-input,.pc-dispatcher-preview .pc-choice-picker__trigger{border-radius:var(--radius-sm);padding-inline:var(--space-2\.5)}
+/* Ladder rows share icon actions, but have one numbered cell rather than executor metadata. */
+.pc-sortable--icons .pc-sortable__row:has(.pc-ladder-number){grid-template-columns:var(--size-16) var(--size-24) minmax(var(--size-64),1fr) auto}
+.pc-sortable--icons .pc-ladder-number{grid-column:2;grid-row:1}
+.pc-sortable--icons .pc-sortable__row:has(.pc-ladder-number) .pc-sortable__content{grid-column:3}
+.pc-sortable--icons .pc-sortable__row:has(.pc-ladder-number) .pc-sortable__actions{grid-column:4}
