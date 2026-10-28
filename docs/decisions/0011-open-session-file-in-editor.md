@@ -24,7 +24,7 @@ This ADR narrows ADR 0009's "No editor or shell command is added" to one desktop
 
 ## Consequences
 
-- Desktop users can open any regular workspace file, including binary or oversized ones, in their own editor or reveal it in the file manager. Browser users keep the read-only viewer.
+- Desktop users can open any regular workspace file, including binary or oversized ones, in their own editor or, on macOS, reveal it in Finder. Browser users keep the read-only viewer.
 - The desktop gains one launch path, which falls under SEC-5 and SEC-8. It needs a security review whenever it changes.
 - A swap that lands after the final identity check and before the editor opens the path remains a narrow race. The editor only opens a file, and on macOS the default handler never executes one.
 - Remote and Orca sessions remain excluded, as they are for the read.

@@ -156,7 +156,7 @@ fn host_file_actions(window: WebviewWindow, app: AppHandle) -> Result<Value, Str
     let editor = open_file::load_editor(&client::pacer_home()).ok().flatten().is_some();
     Ok(open_file::supported(std::env::consts::OS, editor))
 }
-/// Hand a session file to the user's editor or file manager (ADR 0011). The page
+/// Hand a session file to the user's editor or Finder (ADR 0011). The page
 /// names only a session reference; the service resolves it by the bounded read's
 /// rules and the shell re-checks the file before launching an argument vector.
 #[tauri::command]

@@ -1,5 +1,5 @@
 //! Desktop hand-off of a service-validated session file to the user's editor or
-//! file manager (ADR 0011). The page supplies only a session reference; the path
+//! Finder (ADR 0011). The page supplies only a session reference; the path
 //! comes from the service's bounded resolution and is re-checked here.
 use serde_json::{json, Value};
 use std::ffi::{CString, OsString};
