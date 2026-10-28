@@ -117,7 +117,7 @@ export function CommandMenu({ label, placeholder, query, onQueryChange, prefix, 
             onMouseMove={() => { if (mine !== active) setActive(mine); }} onClick={() => onPick(option.id)}>
             <span className="pc-command__glyph" aria-hidden="true">{option.leading ?? (option.icon && <Icon name={option.icon} />)}</span>
             <span className="pc-command__text">
-              <span className="pc-command__label"><Highlight text={option.label} ranges={option.ranges} /></span>
+              <span className="pc-command__label" title={option.label}><Highlight text={option.label} ranges={option.ranges} /></span>
               {option.sub && <span className="pc-command__sub">{option.sub}</span>}
             </span>
             {option.pill && <Pill tone={option.pill.tone}>{option.pill.label}</Pill>}

@@ -480,7 +480,7 @@ a.pc-btn{text-decoration:none}
 .pc-command__label,.pc-command__sub{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pc-command__label{font-weight:var(--type-body-strong-weight)}
 .pc-command__label mark{background:transparent;color:var(--ink);text-decoration:underline;text-decoration-color:var(--warn-fg);text-underline-offset:var(--size-2)}
-.pc-command__sub{color:var(--ink-muted);font-size:var(--type-caption-size);line-height:var(--type-caption-line)}
+.pc-command__sub{color:var(--ink-secondary);font-size:var(--type-caption-size);line-height:var(--type-caption-line)}
 .pc-command__keys{display:inline-flex;gap:var(--size-2)}
 .pc-command__empty{display:flex;flex-direction:column;align-items:center;gap:var(--space-1\.5);padding:var(--space-6) var(--space-4) var(--space-3);text-align:center;color:var(--ink-muted)}
 .pc-command__empty strong{color:var(--ink)}
