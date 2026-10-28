@@ -112,11 +112,11 @@ test("new child finds Orca's initial terminal by listing the new worktree (the c
   expect(closed).toBeLessThan(launched);
   expect(x.f.count(O("terminal", "close", "--terminal", "term_shell"))).toBe(1);
   expect(x.f.calls.some(a => a.includes("term_elsewhere"))).toBe(false);
-  expect(x.f.count(O("terminal", "list"))).toBe(2);
+  expect(x.f.count(O("terminal", "list"))).toBe(1);
   expect(readFileSync(out.attempt.log, "utf8")).toContain("closed Orca initial terminal term_shell: ok");
 });
 
-test("an initial terminal Orca opens after the idle wait is closed; terminals in other worktrees are never touched", async () => {
+test("terminals that appear after the agent terminal are never closed; other worktrees are never touched", async () => {
   const late = {handle: "term_late", worktreeId: "", title: "Terminal 1", connected: true, writable: true};
   const x = setup([
     [O("terminal", "list"), [envelope({terminals: []}), (a: string[]) => envelope({terminals: [{...late, worktreeId: arg(a, "--worktree").slice(3)},
@@ -125,13 +125,9 @@ test("an initial terminal Orca opens after the idle wait is closed; terminals in
   ]);
   const out = await x.backend.runAttempt(x.ctx, x.cfg, x.task);
   expect(out.backend).toBe("orca");
-  const wait = x.f.calls.findIndex(a => a[2] === "wait"), closed = x.f.calls.findIndex(a => a[2] === "close" && a.includes("term_late"));
-  const start = x.f.calls.findIndex(a => a[2] === "worker-start");
-  expect(wait).toBeLessThan(closed);
-  expect(closed).toBeLessThan(start);
+  expect(x.f.calls.some(a => a[2] === "close" && a.includes("term_late"))).toBe(false);
   expect(x.f.calls.some(a => a.includes("term_elsewhere"))).toBe(false);
   expect(closes(x.f.calls)).toHaveLength(1);
-  expect(readFileSync(out.attempt.log, "utf8")).toContain("closed Orca initial terminal term_late (opened late): ok");
 });
 
 test("an older create reply naming the initial terminal is still closed", async () => {

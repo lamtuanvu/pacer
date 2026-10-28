@@ -308,8 +308,6 @@ async function runOrcaAttempt(
     const state = idle.ok ? (idle.result.wait?.satisfied === true ? "idle" : idle.result.wait?.blockedReason ?? idle.result.wait?.status ?? "timeout") : `${idle.error.code} ${idle.error.message}`;
     log(`terminal wait ${terminal}: ${state}`);
     if (state !== "idle") throw Error(`orca terminal did not become idle: ${state}`);
-    // The app may open its initial terminal after the create reply: check the new worktree once more.
-    if (created) await closeStrays(created, [], " (opened late)");
   } catch (e) {
     let reason = String(e instanceof Error ? e.message : e);
     let closed = !terminal;

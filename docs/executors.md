@@ -132,8 +132,8 @@ not change operating system permissions or managed organization policies.
 For Orca tasks, pacer creates or resolves the worktree, launches an idle agent
 with its unattended-permission flags, then attaches the worker. Orca opens its
 own shell terminal in a new worktree; pacer lists that worktree's terminals and
-closes it before launching the agent, and checks once more after the agent is
-idle. Terminals in other worktrees are never touched. Pacer closes the
+closes it before launching the agent. Terminals that appear later, and
+terminals in other worktrees, are never touched. Pacer closes the
 terminal it created when the worker settles. A close that Orca does not confirm
 is recorded and retried by the next `pacer clean`. If Orca cannot list the
 worktree's terminals, the next `pacer clean` closes only the initial terminal
