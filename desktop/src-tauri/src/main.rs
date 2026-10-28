@@ -11,6 +11,10 @@ mod link;
 mod logging;
 mod logic;
 mod notifications;
+#[cfg(unix)]
+mod open_file;
+#[cfg(not(unix))]
+#[path = "open_file_unsupported.rs"]
 mod open_file;
 mod permission_setup;
 mod profile;
@@ -153,8 +157,7 @@ fn desktop_version(window: WebviewWindow, app: AppHandle) -> Result<String, Stri
 #[tauri::command]
 fn host_file_actions(window: WebviewWindow, app: AppHandle) -> Result<Value, String> {
     authorized(&window, &app)?;
-    let editor = open_file::load_editor(&client::pacer_home()).ok().flatten().is_some();
-    Ok(open_file::supported(std::env::consts::OS, editor))
+    Ok(open_file::host_actions(&client::pacer_home()))
 }
 /// Hand a session file to the user's editor or Finder (ADR 0011). The page
 /// names only a session reference; the service resolves it by the bounded read's
@@ -185,14 +188,7 @@ async fn open_session_file(
         .await?;
     // The active service can change while the request is outstanding.
     authorized(&window, &app)?;
-    let resolved = open_file::parse_resolution(&resolution)?;
-    let editor = match action {
-        open_file::Action::Open => open_file::load_editor(&client::pacer_home())?,
-        open_file::Action::Reveal => None,
-    };
-    open_file::verify(&resolved)?;
-    let argv = open_file::argv(action, &resolved, editor.as_deref(), std::env::consts::OS)?;
-    open_file::spawn(&argv)
+    open_file::hand_off(&resolution, action, &client::pacer_home())
 }
 #[tauri::command]
 fn rounded_window_supported(window: WebviewWindow, app: AppHandle) -> Result<bool, String> {

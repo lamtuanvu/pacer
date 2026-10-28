@@ -10,10 +10,14 @@ use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 const MAX_EDITOR_CONFIG_BYTES: u64 = 64 * 1024;
 const MAX_EDITOR_ARGS: usize = 64;
 const MAX_ARG_BYTES: usize = 4096;
+const LAUNCH_INTERVAL: Duration = Duration::from_secs(1);
+const MAX_LIVE_LAUNCHES: usize = 3;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
@@ -98,6 +102,30 @@ pub fn parse_resolution(value: &Value) -> Result<Resolved, String> {
         line: position(&value["line"])?,
         column: position(&value["column"])?,
     })
+}
+
+/// The shell does not take the service's word for the workspace: the root must
+/// be a real directory that is its own canonical path, not `/`, and not Pacer's
+/// private state except a task worktree (`<home>/worktrees/<repo>/<task>/...`).
+pub fn check_root(root: &Path, home: &Path) -> Result<(), String> {
+    let refused = || "The session workspace cannot be opened from the desktop".to_string();
+    let real = std::fs::canonicalize(root).map_err(|_| refused())?;
+    if real != root || real == Path::new("/") || !real.is_dir() {
+        return Err(refused());
+    }
+    let homes = [Some(home.to_path_buf()), std::fs::canonicalize(home).ok()];
+    for home in homes.iter().flatten() {
+        if let Ok(rest) = real.strip_prefix(home) {
+            let mut parts = rest.components();
+            let worktree = parts.next().is_some_and(|c| c.as_os_str() == "worktrees")
+                && parts.next().is_some()
+                && parts.next().is_some();
+            if !worktree {
+                return Err(refused());
+            }
+        }
+    }
+    Ok(())
 }
 
 fn open_fd(dir: Option<&OwnedFd>, name: &Path, flags: libc::c_int) -> Result<OwnedFd, String> {
@@ -268,17 +296,75 @@ pub fn argv(
     }
 }
 
-/// What the shell can do, for the page's capability check.
-pub fn supported(os: &str, editor_configured: bool) -> Value {
+/// What the shell can do, for the page's capability check. Open is offered
+/// only when it can work (UI-13): invalid or untrusted editor settings turn it
+/// off with the `reason` the page may show, since a launch would refuse them.
+pub fn supported(os: &str, editor: &Result<Option<Vec<String>>, String>) -> Value {
+    let reason = editor.as_ref().err().cloned();
     match os {
-        "macos" => json!({"open": true, "reveal": true, "revealLabel": "Reveal in Finder"}),
+        "macos" => {
+            json!({"open": reason.is_none(), "reason": reason, "reveal": true, "revealLabel": "Reveal in Finder"})
+        }
         // xdg-open on a raced parent directory could pick a type handler; no Linux reveal.
-        "linux" => json!({"open": editor_configured, "reveal": false, "revealLabel": null}),
-        _ => json!({"open": false, "reveal": false, "revealLabel": null}),
+        "linux" => {
+            let reason = reason.or_else(|| {
+                matches!(editor, Ok(None))
+                    .then(|| "Configure an editor to open files on this platform".to_string())
+            });
+            json!({"open": reason.is_none(), "reason": reason, "reveal": false, "revealLabel": null})
+        }
+        _ => json!({"open": false, "reason": null, "reveal": false, "revealLabel": null}),
     }
 }
 
-/// A launch without a shell, with null stdio and no Pacer environment.
+/// The capability answer for this platform and the user's editor settings.
+pub fn host_actions(home: &Path) -> Value {
+    supported(std::env::consts::OS, &load_editor(home))
+}
+
+/// Re-check a service resolution and launch the action (ADR 0011).
+pub fn hand_off(resolution: &Value, action: Action, home: &Path) -> Result<(), String> {
+    let resolved = parse_resolution(resolution)?;
+    check_root(&resolved.root, home)?;
+    let editor = match action {
+        Action::Open => load_editor(home)?,
+        Action::Reveal => None,
+    };
+    verify(&resolved)?;
+    spawn(&argv(
+        action,
+        &resolved,
+        editor.as_deref(),
+        std::env::consts::OS,
+    )?)
+}
+
+/// Variables an editor needs to find the user's session, locale and display;
+/// everything else in the desktop's environment (tokens, `DYLD_*`, `PACER*`) stays behind.
+fn passed_to_editor(key: &[u8]) -> bool {
+    matches!(
+        key,
+        b"HOME"
+            | b"PATH"
+            | b"USER"
+            | b"LOGNAME"
+            | b"LANG"
+            | b"TMPDIR"
+            | b"DISPLAY"
+            | b"WAYLAND_DISPLAY"
+            | b"XDG_RUNTIME_DIR"
+            | b"XDG_CONFIG_HOME"
+            | b"XDG_DATA_HOME"
+            | b"XDG_CACHE_HOME"
+            | b"XDG_CURRENT_DESKTOP"
+            | b"XDG_SESSION_TYPE"
+            | b"XAUTHORITY"
+            | b"DBUS_SESSION_BUS_ADDRESS"
+            | b"__CF_USER_TEXT_ENCODING"
+    ) || key.starts_with(b"LC_")
+}
+
+/// A launch without a shell, with null stdio and an allowlisted environment.
 pub fn command(argv: &[OsString]) -> Result<Command, String> {
     let (program, args) = argv.split_first().ok_or("Missing program")?;
     let mut command = Command::new(program);
@@ -287,22 +373,62 @@ pub fn command(argv: &[OsString]) -> Result<Command, String> {
         .current_dir("/")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    for (key, _) in std::env::vars_os() {
-        if key.as_bytes().starts_with(b"PACER") {
-            command.env_remove(key);
-        }
-    }
+        .stderr(Stdio::null())
+        .env_clear()
+        .envs(std::env::vars_os().filter(|(key, _)| passed_to_editor(key.as_bytes())));
     Ok(command)
 }
 
-/// Launch and reap the hand-off.
+/// At most one launch per interval and a few live children, since the shell
+/// cannot tell a click from a script calling the command in a loop.
+#[derive(Debug, Default)]
+pub struct Launches {
+    last: Option<Instant>,
+    alive: usize,
+}
+impl Launches {
+    pub const fn new() -> Self {
+        Self {
+            last: None,
+            alive: 0,
+        }
+    }
+    pub fn admit(&self, now: Instant) -> Result<(), String> {
+        if self.alive >= MAX_LIVE_LAUNCHES {
+            return Err("Too many files are still opening; close one and try again".into());
+        }
+        if self
+            .last
+            .is_some_and(|last| now.saturating_duration_since(last) < LAUNCH_INTERVAL)
+        {
+            return Err("Wait a moment before opening another file".into());
+        }
+        Ok(())
+    }
+    pub fn started(&mut self, now: Instant) {
+        self.last = Some(now);
+        self.alive += 1;
+    }
+    pub fn ended(&mut self) {
+        self.alive = self.alive.saturating_sub(1);
+    }
+}
+
+static LAUNCHES: Mutex<Launches> = Mutex::new(Launches::new());
+
+/// Launch and reap the hand-off; launches are serialized and rate-limited.
 pub fn spawn(argv: &[OsString]) -> Result<(), String> {
+    let mut launches = LAUNCHES.lock().unwrap_or_else(|e| e.into_inner());
+    let now = Instant::now();
+    launches.admit(now)?;
     let mut child = command(argv)?
         .spawn()
         .map_err(|_| "Unable to start the editor")?;
+    launches.started(now);
+    drop(launches);
     std::thread::spawn(move || {
         let _ = child.wait();
+        LAUNCHES.lock().unwrap_or_else(|e| e.into_inner()).ended();
     });
     Ok(())
 }
@@ -505,14 +631,156 @@ mod tests {
     }
 
     #[test]
-    fn open_in_editor_launch_has_no_pacer_environment_or_stdio() {
+    fn open_in_editor_launch_passes_only_allowlisted_environment() {
         std::env::set_var("PACER_OPEN_FILE_TEST", "secret");
-        let command = command(&["/usr/bin/true".into(), "x".into()]).unwrap();
-        assert!(command
-            .get_envs()
-            .any(|(key, value)| key == "PACER_OPEN_FILE_TEST" && value.is_none()));
+        std::env::set_var("GH_TOKEN_OPEN_FILE_TEST", "secret");
+        std::env::set_var("LC_OPEN_FILE_TEST", "C");
+        let mut command = command(&["/usr/bin/env".into()]).unwrap();
         assert_eq!(command.get_current_dir(), Some(Path::new("/")));
+        let output = command.stdout(Stdio::piped()).output().unwrap();
+        let env = String::from_utf8(output.stdout).unwrap();
+        assert!(!env.contains("PACER_OPEN_FILE_TEST"), "{env}");
+        assert!(!env.contains("GH_TOKEN_OPEN_FILE_TEST"), "{env}");
+        assert!(env.contains("LC_OPEN_FILE_TEST=C"), "{env}");
+        assert!(env.lines().any(|line| line.starts_with("PATH=")), "{env}");
+        assert!(!passed_to_editor(b"DYLD_INSERT_LIBRARIES"));
+        assert!(!passed_to_editor(b"PACER_HOME"));
         assert!(super::command(&[]).is_err());
+    }
+
+    #[test]
+    fn open_in_editor_launches_are_rate_limited_and_bounded() {
+        let start = Instant::now();
+        let mut launches = Launches::new();
+        launches.admit(start).unwrap();
+        launches.started(start);
+        assert!(launches.admit(start + Duration::from_millis(200)).is_err());
+        let mut now = start;
+        for _ in 0..2 {
+            now += LAUNCH_INTERVAL;
+            launches.admit(now).unwrap();
+            launches.started(now);
+        }
+        assert!(
+            launches.admit(now + LAUNCH_INTERVAL * 5).is_err(),
+            "a fourth live launch was admitted"
+        );
+        launches.ended();
+        launches.admit(now + LAUNCH_INTERVAL).unwrap();
+    }
+
+    #[test]
+    fn open_in_editor_requires_a_canonical_root_outside_private_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = std::fs::canonicalize(dir.path()).unwrap();
+        let home = base.join(".pacer");
+        let workspace = base.join("repo");
+        let worktree = home.join("worktrees/repo-0123abcd/t-20261028-120000-abcd");
+        std::fs::create_dir_all(&workspace).unwrap();
+        std::fs::create_dir_all(&worktree).unwrap();
+        std::fs::create_dir_all(home.join("tasks")).unwrap();
+        std::fs::create_dir_all(home.join("desktop")).unwrap();
+        check_root(&workspace, &home).unwrap();
+        check_root(&worktree, &home).unwrap();
+        for refused in [
+            Path::new("/"),
+            home.as_path(),
+            &home.join("tasks"),
+            &home.join("desktop"),
+            &home.join("worktrees"),
+            &home.join("worktrees/repo-0123abcd"),
+            &base.join("missing"),
+        ] {
+            assert!(check_root(refused, &home).is_err(), "{refused:?} accepted");
+        }
+        std::fs::write(base.join("file"), "x").unwrap();
+        assert!(
+            check_root(&base.join("file"), &home).is_err(),
+            "a file root was accepted"
+        );
+        symlink(&workspace, base.join("link")).unwrap();
+        assert!(
+            check_root(&base.join("link"), &home).is_err(),
+            "a linked root was accepted"
+        );
+
+        // A linked PACER_HOME still protects its target.
+        let linked_home = base.join("home-link");
+        symlink(&home, &linked_home).unwrap();
+        assert!(check_root(&home.join("tasks"), &linked_home).is_err());
+        check_root(&worktree, &linked_home).unwrap();
+        check_root(&workspace, &linked_home).unwrap();
+    }
+
+    #[test]
+    fn open_in_editor_is_not_offered_with_invalid_settings() {
+        let home = tempfile::tempdir().unwrap();
+        let desktop = home.path().join("desktop");
+        std::fs::create_dir(&desktop).unwrap();
+        std::fs::set_permissions(&desktop, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let config = desktop.join("editor.json");
+        std::fs::write(&config, r#"{"command":["vim"]}"#).unwrap();
+        std::fs::set_permissions(&config, std::fs::Permissions::from_mode(0o600)).unwrap();
+        for os in ["macos", "linux"] {
+            let answer = supported(os, &load_editor(home.path()));
+            assert_eq!(answer["open"], false, "{os}");
+            assert!(answer["reason"]
+                .as_str()
+                .unwrap()
+                .contains("absolute program"));
+        }
+        assert_eq!(
+            supported("macos", &load_editor(home.path()))["reveal"],
+            true
+        );
+        std::fs::set_permissions(&config, std::fs::Permissions::from_mode(0o666)).unwrap();
+        assert!(host_actions(home.path())["reason"]
+            .as_str()
+            .unwrap()
+            .contains("owned by you"));
+        std::fs::write(&config, r#"{"command":["/usr/bin/vim","{path}"]}"#).unwrap();
+        std::fs::set_permissions(&config, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let answer = supported("macos", &load_editor(home.path()));
+        assert_eq!(
+            (answer["open"].clone(), answer["reason"].clone()),
+            (json!(true), Value::Null)
+        );
+    }
+
+    #[test]
+    fn open_in_editor_settings_refuse_a_linked_desktop_and_follow_a_linked_home() {
+        let base = tempfile::tempdir().unwrap();
+        let home = base.path().join("home");
+        let elsewhere = base.path().join("elsewhere");
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        std::fs::write(
+            elsewhere.join("editor.json"),
+            r#"{"command":["/usr/bin/vim"]}"#,
+        )
+        .unwrap();
+        std::fs::set_permissions(
+            elsewhere.join("editor.json"),
+            std::fs::Permissions::from_mode(0o600),
+        )
+        .unwrap();
+        symlink(&elsewhere, home.join("desktop")).unwrap();
+        assert!(
+            load_editor(&home).is_err(),
+            "a linked desktop directory was trusted"
+        );
+
+        std::fs::remove_file(home.join("desktop")).unwrap();
+        std::fs::rename(&elsewhere, home.join("desktop")).unwrap();
+        let linked = base.path().join("home-link");
+        symlink(&home, &linked).unwrap();
+        assert_eq!(load_editor(&linked).unwrap().unwrap()[0], "/usr/bin/vim");
+        std::fs::set_permissions(&home, std::fs::Permissions::from_mode(0o777)).unwrap();
+        assert!(
+            load_editor(&linked).is_err(),
+            "a writable linked home was trusted"
+        );
+        std::fs::set_permissions(&home, std::fs::Permissions::from_mode(0o700)).unwrap();
     }
 
     #[test]
@@ -542,11 +810,17 @@ mod tests {
             argv(Action::Reveal, &main, Some(&editor), "macos").unwrap()[0],
             "/usr/bin/open"
         );
-        assert_eq!(supported("windows", true)["open"], false);
-        assert_eq!(supported("linux", false)["open"], false);
-        assert_eq!(supported("linux", true)["open"], true);
-        assert_eq!(supported("linux", true)["reveal"], false);
-        assert_eq!(supported("macos", false)["revealLabel"], "Reveal in Finder");
+        let configured = Ok(Some(editor.clone()));
+        assert_eq!(supported("windows", &configured)["open"], false);
+        assert_eq!(supported("linux", &Ok(None))["open"], false);
+        assert!(supported("linux", &Ok(None))["reason"].is_string());
+        assert_eq!(supported("linux", &configured)["open"], true);
+        assert_eq!(supported("linux", &configured)["reveal"], false);
+        assert_eq!(supported("macos", &Ok(None))["open"], true);
+        assert_eq!(
+            supported("macos", &Ok(None))["revealLabel"],
+            "Reveal in Finder"
+        );
         assert_eq!(
             (Action::parse("open"), Action::parse("exec")),
             (Some(Action::Open), None)
