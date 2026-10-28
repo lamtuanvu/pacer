@@ -112,6 +112,10 @@
   --radius-full: 999px;
   --radius-card: 12px;
   --radius-xs: 2px;
+  --radius-4: 4px;
+  --radius-5: 5px;
+  --radius-2: 2px;
+  --radius-7: 7px;
   --radius-key: 4px;
   --radius-tile: 7px;
   --control-compact: 28px;
@@ -193,6 +197,9 @@
   --size-84: 84px;
   --size-420: 420px;
   --size-neg-6: -6px;
+  --size-10\.5: 10.5px;
+  --size-12\.5: 12.5px;
+  --size-440: 440px;
   --size-72: 72px;
   --shadow-popover: 0 6px 24px rgb(0 0 0 / .13);
   --shadow-status-outline: 0 0 0 1px var(--ink-muted);

@@ -28,6 +28,7 @@ export function SessionView({
         id={task.id}
         attempt={session.attempt ?? null}
         readFile={onReadFile}
+        workspace={task.branch ?? task.repo?.label}
         url={session.attach.ws}
         cols={session.cols}
         rows={session.rows}
