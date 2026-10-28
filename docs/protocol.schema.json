@@ -956,6 +956,8 @@
             "pacing.order",
             "pacing.policy",
             "pacing.planner_reserve",
+            "pacing.planner_reserve_headroom",
+            "pacing.planner_probe",
             "pacing.accounts",
             "pacing.fill_threshold",
             "update_check",
@@ -1663,6 +1665,24 @@
       },
       "required": [
         "repo"
+      ],
+      "additionalProperties": false
+    },
+    "DispatchEnforcementConsentParams": {
+      "type": "object",
+      "properties": {
+        "account": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "granted": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "account",
+        "granted"
       ],
       "additionalProperties": false
     },
