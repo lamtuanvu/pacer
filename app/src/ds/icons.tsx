@@ -1,6 +1,23 @@
-export type IconName = "home" | "tasks" | "executors" | "accounts" | "strategy" | "hosts" | "settings" | "menu" | "overview" | "review" | "sessions" | "terminal" | "sliders" | "gauge" | "servers" | "routing" | "layers" | "download" | "bell" | "palette" | "diagnostics" | "plus";
+export type IconName = "home" | "tasks" | "executors" | "accounts" | "strategy" | "hosts" | "settings" | "menu" | "overview" | "review" | "sessions" | "terminal" | "sliders" | "gauge" | "servers" | "routing" | "layers" | "download" | "bell" | "palette" | "diagnostics" | "plus" | "pr" | "commit" | "files" | "checks" | "time" | "retry" | "notes" | "branch" | "panel-left" | "panel-bottom" | "panel-right" | "split" | "external" | "end-session" | "insights" | "dispatch" | "plugin";
 export function Icon({ name }: { name: IconName }) {
   const paths: Partial<Record<IconName, string>> = {
+    "pr": "M6 8v8m0-14a3 3 0 1 0 0 6 3 3 0 0 0 0-6m0 14a3 3 0 1 0 0 6 3 3 0 0 0 0-6M15 2l-3 3 3 3M12 5h4a3 3 0 0 1 3 3v8m0 0a3 3 0 1 0 0 6 3 3 0 0 0 0-6",
+    "commit": "M3 12h5m8 0h5m-9-4a4 4 0 1 0 0 8 4 4 0 0 0 0-8",
+    "files": "M8 3h8l4 4v14H8zM16 3v5h4M4 7v14",
+    "checks": "m3 6 2 2 4-4M12 6h9m-18 8 2 2 4-4m3 2h9M3 21h18",
+    "time": "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18m0 4v5l3 2",
+    "retry": "M3 10a9 9 0 1 1 2 9M3 4v6h6",
+    "notes": "M5 3h14v18H5zM8 7h8M8 11h8M8 15h5",
+    "branch": "M6 7v10m0-16a3 3 0 1 0 0 6 3 3 0 0 0 0-6m0 16a3 3 0 1 0 0 6 3 3 0 0 0 0-6M9 17a9 9 0 0 0 9-9V7m0-6a3 3 0 1 0 0 6 3 3 0 0 0 0-6",
+    "panel-left": "M3 4h18v16H3zM9 4v16",
+    "panel-bottom": "M3 4h18v16H3zM3 14h18",
+    "panel-right": "M3 4h18v16H3zM15 4v16",
+    "split": "M3 4h18v16H3zM12 4v16",
+    "external": "M14 3h7v7m0-7L10 14M10 3H3v18h18v-7",
+    "end-session": "M9 4H3v16h6m6-13 5 5-5 5M8 12h12",
+    "insights": "M4 3v18h17M8 16v-5m5 5V6m5 10V9",
+    "dispatch": "m3 3 18 9-18 9 4-9zM7 12h14",
+    "plugin": "M9 4H4v5a3 3 0 1 1 0 6v5h5a3 3 0 1 0 6 0h5v-5a3 3 0 1 0 0-6V4h-5a3 3 0 1 0-6 0z",
     sliders: "M4 6h6m4 0h6M4 12h10m4 0h2M4 18h2m4 0h10M10 3v6m4 0v6M6 15v6",
     gauge: "M4 18a9 9 0 1 1 16 0M12 13l5-6M6 18h12",
     servers: "M4 3h16v7H4zM4 14h16v7H4zM7 6h1m-1 11h1",
@@ -13,7 +30,7 @@ export function Icon({ name }: { name: IconName }) {
     plus: "M12 4v16M4 12h16",
     terminal: "M4 5h16v14H4zM7 10l3 2-3 2M12 15h5",
     home: "M4 11l8-7 8 7v9H4z", tasks: "M5 6h14M5 12h14M5 18h9", accounts: "M8 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8M2 21v-3a6 6 0 0 1 12 0v3M17 4a4 4 0 0 1 0 8m0 3a5 5 0 0 1 5 5",
-    strategy: "M6 4v6a6 6 0 0 0 12 0V4M12 16v4", settings: "M9 3h6l1 3 3 1 2 5-2 5-3 1-1 3H9l-1-3-3-1-2-5 2-5 3-1z", menu: "M4 6h16M4 12h16M4 18h16",
+    strategy: "M6 4v6a6 6 0 0 0 12 0V4M12 16v4", settings: "M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 0 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 0 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 0 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 0 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z", menu: "M4 6h16M4 12h16M4 18h16",
     overview: "M4 4h7v7H4zM13 4h7v4h-7zM13 10h7v10h-7zM4 13h7v7H4z", review: "M5 12l4 4 10-10M5 20h14", sessions: "M4 5h16v14H4zM8 10l3 2-3 2M13 15h3",
   };
   return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">

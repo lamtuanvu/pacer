@@ -22,6 +22,12 @@ export function dispatchDatabase(ctx: Ctx) {
     CREATE TABLE IF NOT EXISTS work_dependency_waivers(task_id TEXT NOT NULL, dependency_id TEXT NOT NULL, reason TEXT NOT NULL, at REAL NOT NULL, PRIMARY KEY(task_id,dependency_id));
     CREATE TABLE IF NOT EXISTS work_learning_exclusions(repo TEXT PRIMARY KEY);
     CREATE TABLE IF NOT EXISTS work_learning_reset(repo TEXT PRIMARY KEY, at REAL NOT NULL);
+    CREATE TABLE IF NOT EXISTS attempt_usage(task_id TEXT NOT NULL, attempt INTEGER NOT NULL, root_id TEXT NOT NULL, executor TEXT NOT NULL, account TEXT, model TEXT,
+      extractor TEXT NOT NULL, ended_at REAL NOT NULL, kind TEXT, repo_key TEXT, outcome TEXT, ladder_rule TEXT,
+      coverage TEXT NOT NULL CHECK(coverage IN ('measured','partial','unknown')), input INTEGER, cache_read INTEGER, cache_write INTEGER, output INTEGER, reasoning INTEGER, total INTEGER, turns INTEGER,
+      source TEXT NOT NULL, self_reported INTEGER NOT NULL DEFAULT 0, captured_at REAL NOT NULL, note TEXT, PRIMARY KEY(task_id,attempt));
+    CREATE INDEX IF NOT EXISTS attempt_usage_root ON attempt_usage(root_id);
+    CREATE INDEX IF NOT EXISTS attempt_usage_ended ON attempt_usage(ended_at);
     CREATE TRIGGER IF NOT EXISTS work_task_changed AFTER UPDATE ON tasks WHEN EXISTS(SELECT 1 FROM work_nodes WHERE task_id=NEW.id) BEGIN
       INSERT INTO work_events(root_id,task_id,at,kind,data) SELECT root_id,NEW.id,NEW.updated_at,'task.changed',json_object('state',NEW.state,'rev',NEW.rev) FROM work_nodes WHERE task_id=NEW.id;
       DELETE FROM work_reservations WHERE task_id=NEW.id AND NEW.state NOT IN ('running');

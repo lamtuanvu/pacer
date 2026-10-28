@@ -1,9 +1,10 @@
 import type { Ctx } from "../types";
 import { lstatSync, realpathSync, statSync } from "node:fs";
-import { isAbsolute, relative, resolve, sep } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { readTask } from "../tasks/store";
 import { CoreError } from "../core/errors";
 import { readWorkspaceFile } from "./openat";
+import { taskWorktreesDir } from "../supervisor/worktree";
 
 export interface SessionFileRequest { id: string; attempt: number; reference: string }
 export interface SessionFileResult { path: string; kind: "code" | "markdown" | "html"; text: string; size: number; modified: string; line?: number; column?: number }
@@ -11,6 +12,18 @@ export interface SessionFileResult { path: string; kind: "code" | "markdown" | "
 function inside(root: string, path: string): boolean {
   const rel = relative(root, path);
   return rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
+}
+
+/** True when root is within one pacer task worktree, <state>/worktrees/<repo>-<8 hex>/<task id>; the per-repo and worktrees directories never qualify. */
+function insideTaskWorktree(ctx: Ctx, state: string, root: string): boolean {
+  const worktrees = join(state, "worktrees");
+  try {
+    const info = lstatSync(taskWorktreesDir(ctx));
+    if (!info.isDirectory() || realpathSync(taskWorktreesDir(ctx)) !== worktrees) return false;
+  } catch { return false; }
+  if (!inside(worktrees, root)) return false;
+  const [tag, task] = relative(worktrees, root).split(sep);
+  return !!tag && /-[0-9a-f]{8}$/.test(tag) && !!task && /^t-\d{8}-\d{6}-[0-9a-f]{4}$/.test(task);
 }
 
 export function readSessionFile(ctx: Ctx, request: SessionFileRequest): SessionFileResult {
@@ -29,7 +42,8 @@ export function readSessionFile(ctx: Ctx, request: SessionFileRequest): SessionF
       (column !== undefined && (!Number.isSafeInteger(column) || column < 1)))
     throw new CoreError("invalid_input", "Invalid file location");
   let root: string;
-  try { root = realpathSync(run.workdir); }
+  let rootIdentity: { dev: number; ino: number };
+  try { root = realpathSync(run.workdir); const info = statSync(root); rootIdentity = { dev: info.dev, ino: info.ino }; }
   catch { throw new CoreError("not_found", "Session workspace is unavailable"); }
   const absolute = resolve(root, name);
   if (!inside(root, absolute) || absolute === root) throw new CoreError("not_allowed", "File is outside the session workspace");
@@ -38,14 +52,16 @@ export function readSessionFile(ctx: Ctx, request: SessionFileRequest): SessionF
     const state = realpathSync(ctx.pacerHome);
     const info = statSync(state);
     privateDirectory = { dev: info.dev, ino: info.ino };
-    if (inside(state, absolute)) throw new CoreError("not_allowed", "Private Pacer state cannot be previewed");
+    const ownWorktree = insideTaskWorktree(ctx, state, root);
+    const isPrivate = (target: string) => inside(state, target) && !(ownWorktree && inside(root, target));
+    if (isPrivate(absolute)) throw new CoreError("not_allowed", "Private Pacer state cannot be previewed");
     try {
-      if (inside(state, realpathSync(absolute))) throw new CoreError("not_allowed", "Private Pacer state cannot be previewed");
+      if (isPrivate(realpathSync(absolute))) throw new CoreError("not_allowed", "Private Pacer state cannot be previewed");
     } catch (error) { if (error instanceof CoreError) throw error; }
   } catch (error) { if (error instanceof CoreError) throw error; }
   const path = relative(root, absolute);
   let result: ReturnType<typeof readWorkspaceFile>;
-  try { result = readWorkspaceFile(root, path.split(sep), privateDirectory); }
+  try { result = readWorkspaceFile(root, path.split(sep), privateDirectory, rootIdentity); }
   catch (error) {
     if (error instanceof RangeError) throw new CoreError("too_large", "File is too large to preview");
     try { lstatSync(absolute); }
