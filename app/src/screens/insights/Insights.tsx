@@ -39,14 +39,14 @@ export function Insights({ query }: { query: RouteQuery }) {
       </Card>
       <Section title="Tokens per day, by agent" description={`Bars show tokens per ${s.bucket}; segments are separated and listed in the legend.`}>
         <ul className="pc-insights__legend" aria-label="Agents">{agents.map((a, i) => <li key={a}><span className={`pc-insights__swatch ${agentClass(i)}`} />{label(a)}</li>)}</ul>
-        {s.daily.length ? <><ol className="pc-insights__bars" aria-label="Tokens per bucket">{bars(s.daily, agents).map(d => <li key={d.at} >
+        {s.daily.length ? <><ol className="pc-insights__bars" aria-hidden="true">{bars(s.daily, agents).map(d => <li key={d.at} >
           <svg viewBox="0 0 10 100" preserveAspectRatio="none" aria-hidden="true">{d.rects.map(r => <rect key={r.agent} className={agentClass(r.index)} x={0} width={10} y={r.y} height={r.height} />)}</svg>
           <small>{new Date(d.at * 1000).toLocaleDateString(undefined, { month: "numeric", day: "numeric" })}</small></li>)}</ol>
           <table className="sr-only"><caption>Tokens per {s.bucket}, by agent</caption><thead><tr><th scope="col">Date</th>{agents.map(a => <th scope="col" key={a}>{label(a)}</th>)}</tr></thead><tbody>{s.daily.map(d => <tr key={d.at}><th scope="row">{new Date(d.at * 1000).toLocaleDateString()}</th>{agents.map(a => <td key={a}>{compact(d.byAgent[a] ?? 0)}</td>)}</tr>)}</tbody></table></>
           : <p className="pc-insights__note">No tokens recorded in this period.</p>}
       </Section>
       <Section title="Agents, ranked by tokens" description="A root task is what was asked for; subtasks are what it was split into.">
-        <div className="pc-insights__scroll" tabIndex={0} role="region" aria-label="Scrollable table"><table className="pc-insights__table"><caption className="sr-only">Agents ranked by tokens</caption>
+        <div className="pc-insights__scroll" tabIndex={0} role="region" aria-label="Agents table, scrollable"><table className="pc-insights__table"><caption className="sr-only">Agents ranked by tokens</caption>
           <thead><tr><th scope="col">Agent</th><th scope="col">Root tasks</th><th scope="col">Attempts</th><th scope="col">Tokens</th><th scope="col">Share</th><th scope="col">{s.tokens.lowerBound ? "Per task (at least)" : "Per task"}</th><th scope="col">Accepted</th></tr></thead>
           <tbody>{s.spread.map(g => { const i = agents.indexOf(g.agent); return <tr key={g.agent}>
             <th scope="row"><span className="pc-insights__agent"><span className={`pc-insights__swatch ${agentClass(i)}`} /><AgentMark agent={g.agent} size={20} labelled={false} />{label(g.agent)}</span></th>
@@ -58,7 +58,7 @@ export function Insights({ query }: { query: RouteQuery }) {
       </Section>
       <div className="pc-insights__pair">
         <Section title="Who got which kind of work" description="Tasks by kind and agent">
-          {s.kindByAgent.length ? <div className="pc-insights__scroll" tabIndex={0} role="region" aria-label="Scrollable table"><table className="pc-insights__table"><caption className="sr-only">Tasks by kind and agent</caption>
+          {s.kindByAgent.length ? <div className="pc-insights__scroll" tabIndex={0} role="region" aria-label="Task kinds table, scrollable"><table className="pc-insights__table"><caption className="sr-only">Tasks by kind and agent</caption>
             <thead><tr><th scope="col">Kind</th>{agents.map(a => <th scope="col" key={a}>{label(a)}</th>)}</tr></thead>
             <tbody>{s.kindByAgent.map(k => <tr key={k.kind}><th scope="row">{k.kind}</th>{agents.map(a => <td key={a}>{k.byAgent[a] ?? 0}</td>)}</tr>)}</tbody></table></div>
             : <p className="pc-insights__note">No attempts in this period.</p>}
