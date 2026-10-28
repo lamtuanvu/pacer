@@ -188,9 +188,12 @@ browserTest("assistant_plus_menu_offers_only_what_works_and_the_sheet_never_depe
     await plus.click();
     await focused(page, '[role="menuitem"]');
     await page.keyboard.press("Meta+j");
+    await page.waitForFunction(() => document.querySelector(".pc-aurora")?.getAttribute("data-state") === "closed", undefined, { timeout: 2000 });
+    // Checked while the sheet is closed, before reopening moves focus (which would close the menu by itself).
+    await page.waitForFunction(() => document.querySelectorAll('[role="menu"]').length === 0, undefined, { timeout: 2000 });
     await page.keyboard.press("Meta+j");
     await focused(page, 'input[aria-label="Ask pacer"]');
-    await expect(page.getByRole("menu").count()).resolves.toBe(0);
+    expect(await page.evaluate(() => document.querySelectorAll('[role="menu"]').length)).toBe(0);
     // Forced colors keep a visible focus indicator on the composer row.
     await page.emulateMedia({ forcedColors: "active" });
     await page.getByLabel("Ask pacer").focus();
