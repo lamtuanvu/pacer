@@ -39,7 +39,7 @@ const api = { async call(op: string, params: unknown) {
   if (op === "account.list") return [];
   return {};
 }, hello: async () => ({}), snapshot: async () => ({}) };
-const store = { ...initialState(), connected: true, snapshot: fixture as any, features: { readModel: true, ops: new Set(["task.stop", "session.end", "task.review"]) } };
+const store = { ...initialState(), connected: true, snapshot: { ...fixture, planner: { ...fixture.planner, agent: "claude" } } as any, features: { readModel: true, ops: new Set(["task.stop", "session.end", "task.review"]) } };
 const runner = createActionRunner({ call: api.call as any, waitFor: async () => true, refetch: () => {}, navigate: () => {} });
 function App() {
   const route = resolveRoute("#/tasks/t-0412") as Route;

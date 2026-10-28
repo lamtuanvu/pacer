@@ -34,6 +34,8 @@ export interface TopBarProps {
   showActions?: boolean; now?: number; onDelegate: () => void;
   /** A screen's own title and agent, shown instead of `title`. */
   heading?: FrameHeading | null;
+  /** Receives the action slot after the layout toggles. */
+  actions?: (element: HTMLElement | null) => void;
   /** Receives the title-bar area a screen fills with its facts and actions. */
   context?: (element: HTMLElement | null) => void;
 }
@@ -42,7 +44,7 @@ function LayoutToggle({ icon, label, keys, toggle }: { icon: "panel-left" | "pan
   return <IconButton icon={icon} size="sm" variant="quiet" aria-label={label} title={label} aria-keyshortcuts={keys} aria-pressed={toggle.open} onClick={toggle.toggle} />;
 }
 /** One compact page header, including native controls in the desktop shell. */
-export function TopBar({ brand, search, narrowSearch, panels = {}, narrow = false, title, planner, mode, connected, lastUpdate, now: fixedNow, onDelegate, showActions = true, heading, context }: TopBarProps) {
+export function TopBar({ brand, search, narrowSearch, panels = {}, narrow = false, title, planner, mode, connected, lastUpdate, now: fixedNow, onDelegate, showActions = true, heading, context, actions }: TopBarProps) {
   const [tick, setTick] = useState(() => Date.now() / 1000);
   useEffect(() => { if (fixedNow !== undefined) return; const t = setInterval(() => setTick(Date.now() / 1000), 1000); return () => clearInterval(t); }, [fixedNow]);
   const now = fixedNow ?? tick;
@@ -64,10 +66,11 @@ export function TopBar({ brand, search, narrowSearch, panels = {}, narrow = fals
       {mode && <Pill tone={modeTone(mode)}>{modeWords(mode)}{planner.modeHeldUntil ? ` · held until ${clock(planner.modeHeldUntil, now)}` : ""}</Pill>}
       {narrowMeter && <UsageMeter used={planner.usedPct} pace={planner.pacePct} tone={paceStatus(planner.verdict).tone} verdict={planner.verdict} size="top" text="compact" label={`${agentInfo(planner.agent).name} planner usage`} stale={planner.stale} staleAt={lastUpdate ?? undefined} now={now} />}
     </span>}
-    {!narrow && <div role="group" aria-label="Layout" className="pc-layout-toggles">
-      {panels.left && <LayoutToggle icon="panel-left" label="Toggle left panel" keys={isMacPlatform() ? "Meta+B" : "Control+B"} toggle={panels.left} />}
-      {panels.dock && <LayoutToggle icon="panel-bottom" label="Toggle terminal panel (Ctrl+`)" keys="Control+`" toggle={panels.dock} />}
-      {panels.right && <LayoutToggle icon="panel-right" label={`Toggle ${panels.right.label ?? "right panel"}`} keys={panels.right.keys ?? "Alt+Meta+B"} toggle={panels.right} />}
+    {(!narrow || heading) && <div role="group" aria-label="Layout" className="pc-layout-toggles">
+      {!narrow && panels.left && <LayoutToggle icon="panel-left" label="Toggle left panel" keys={isMacPlatform() ? "Meta+B" : "Control+B"} toggle={panels.left} />}
+      {!narrow && panels.dock && <LayoutToggle icon="panel-bottom" label="Toggle terminal panel (Ctrl+`)" keys="Control+`" toggle={panels.dock} />}
+      {!narrow && panels.right && <LayoutToggle icon="panel-right" label={`Toggle ${panels.right.label ?? "right panel"}`} keys={panels.right.keys ?? "Alt+Meta+B"} toggle={panels.right} />}
+      {actions && <span ref={actions} className="pc-frame-actions" />}
     </div>}
     {!connected && <span className="pc-live" role="status"><span className="pc-live-dot pc-live-dot--off" aria-hidden="true" />Reconnecting…</span>}
     <DensityContext.Provider value="compact"><Button variant="secondary" size="sm" onClick={onDelegate}>Delegate</Button></DensityContext.Provider>

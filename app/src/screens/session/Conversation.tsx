@@ -5,6 +5,7 @@ import type { SessionInfo } from "../../../../src/session/service";
 import { Button, IconButton } from "../../ds/Button";
 import { SectionHeading } from "../../ds/SectionHeading";
 import { useDialogs } from "../../ds/useDialogs";
+import { useMedia } from "../../shell/narrow";
 import { FrameSlot } from "../../shell/slots";
 import { Alert } from "../../ds/Alert";
 import { DisclosurePanel } from "../../ds/Page";
@@ -59,6 +60,7 @@ export function Conversation({
       "start",
   );
   const uploads = useAttachments(api, context.data?.draftId ?? "", () => {});
+  const narrowTitle = useMedia("(width < 560px)");
   const active = ["queued", "running"].includes(task.state);
   useEffect(() => {
     if (!take) return;
@@ -113,11 +115,11 @@ export function Conversation({
   return (<>
     <article className="pc-conversation" aria-label="Interactive conversation">
       {dialogs.dialog}
-      <FrameSlot name="title">{slots?.title(<>
-        {!active && !!task.conversation?.agentSessionId && <Button size="sm" disabled={busy} onClick={() => void resume()}>Resume conversation</Button>}
-        {active && <IconButton size="sm" variant="danger" icon="end-session" aria-label="End session" title="End session (asks to confirm)"
-          busy={busy} disabled={busy} onClick={() => void end()} />}
-      </>)}</FrameSlot>
+      <FrameSlot name="title">{slots?.title(!active && !!task.conversation?.agentSessionId && (narrowTitle
+        ? <IconButton size="sm" icon="retry" aria-label="Resume conversation" title="Resume conversation" disabled={busy} onClick={() => void resume()} />
+        : <Button size="sm" disabled={busy} onClick={() => void resume()}>Resume conversation</Button>))}</FrameSlot>
+      <FrameSlot name="actions">{active && <IconButton size="sm" variant="quiet" tone="bad" icon="end-session" aria-label="End session" title="End session (asks to confirm)"
+        busy={busy} disabled={busy} onClick={() => void end()} />}</FrameSlot>
       <div className="pc-conversation-body">
         {task.state === "failed" && task.summary && (
           <Alert tone="error" title="Session failed">

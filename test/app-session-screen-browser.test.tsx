@@ -40,9 +40,16 @@ async function withBrowser(run: (browser: Browser) => Promise<void>) {
 browserTest("end_session_icon_confirms", async () => withBrowser(async browser => {
   for (const scenario of ["conversation", "supervised"] as const) {
     const page = await openSession(browser, scenario);
-    const actions = page.getByRole("banner").getByRole("group", { name: "Session actions" });
+    const actions = page.getByRole("banner").getByRole("group", { name: "Layout", exact: true });
     const end = actions.getByRole("button", { name: "End session" });
-    await expect(end.getAttribute("class")).resolves.toContain("pc-btn--danger");
+    await expect(end.getAttribute("class")).resolves.toContain("pc-btn--quiet");
+    await expect(end.getAttribute("title")).resolves.toBe("End session (asks to confirm)");
+    expect(await actions.getByRole("button").evaluateAll(nodes => nodes.map(node => node.getAttribute("aria-label")).slice(-2))).toEqual(["Toggle details panel", "End session"]);
+    expect(await end.evaluate(node => ({ width: node.getBoundingClientRect().width, height: node.getBoundingClientRect().height }))).toEqual({ width: 30, height: 30 });
+    expect(await end.evaluate(node => {
+      const expected = document.createElement("span"); expected.style.color = "var(--bad-fg)"; node.append(expected);
+      const matches = getComputedStyle(node).color === getComputedStyle(expected).color; expected.remove(); return matches;
+    })).toBe(true);
     // Cancelling the existing confirm dialog ends nothing and returns focus to the icon.
     await end.click();
     const dialog = page.getByRole("dialog");
@@ -223,7 +230,7 @@ browserTest("takeover_starts_from_the_page_and_ended_sessions_offer_none", async
 }), 30_000);
 
 browserTest("ended_conversation_title_bar_does_not_cover_the_search", async () => withBrowser(async browser => {
-  for (const width of [1440, 1100]) {
+  for (const width of [1440, 1100, 768, 375]) {
     const page = await openSession(browser, "conversation", { width, height: 900 });
     await page.getByRole("button", { name: "End session" }).click();
     await page.getByRole("dialog").getByRole("button", { name: "End session" }).click();
@@ -231,9 +238,73 @@ browserTest("ended_conversation_title_bar_does_not_cover_the_search", async () =
     await resume.waitFor();
     // The actions stay whole and clear of the command search; the title and facts give way instead.
     const box = (selector: string) => page.locator(selector).first().boundingBox();
-    const actions = (await resume.boundingBox())!, search = (await box(".pc-topbar__search"))!;
+    const actions = (await resume.boundingBox())!, search = (await page.locator("[data-command-trigger]").boundingBox())!;
     expect(actions.x + actions.width).toBeLessThanOrEqual(search.x + 0.5);
     expect(await resume.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+    await assertTitleBarFits(page);
     await page.close();
   }
 }), 40_000);
+
+async function assertTitleBarFits(page: Page) {
+  const geometry = await page.evaluate(() => {
+    const box = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
+    const title = box("h1.pc-topbar__heading"), search = box("[data-command-trigger]");
+    const delegate = [...document.querySelectorAll(".pc-topbar button")].find(node => node.textContent === "Delegate")!.getBoundingClientRect();
+    return { scroll: document.scrollingElement!.scrollWidth, width: innerWidth, title: title.width, search: search.width, searchRight: search.right, delegate: delegate.right };
+  });
+  expect(geometry.scroll).toBeLessThanOrEqual(geometry.width);
+  expect(geometry.title).toBeGreaterThanOrEqual(80);
+  expect(geometry.search).toBeGreaterThan(0);
+  expect(geometry.searchRight).toBeLessThanOrEqual(geometry.width);
+  expect(geometry.delegate).toBeLessThanOrEqual(geometry.width);
+  await expect(page.locator("[data-command-trigger]").isVisible()).resolves.toBe(true);
+}
+
+browserTest("session_title_bar_keeps_title_search_and_delegate_reachable", async () => withBrowser(async browser => {
+  for (const scenario of ["conversation", "supervised", "ended"] as const) for (const width of [1440, 1100, 768, 375]) {
+    const page = await openSession(browser, scenario, { width, height: 900 });
+    await assertTitleBarFits(page);
+    if (width === 1440) {
+      expect(await page.locator("h1.pc-topbar__heading").evaluate(node => {
+        const style = getComputedStyle(node);
+        return [style.fontSize, style.lineHeight, style.fontWeight];
+      })).toEqual(["14px", "20px", "650"]);
+      expect(await page.locator(".pc-planner__name").innerText()).toBe("Claude Code");
+      expect(await page.locator(".pc-planner__name").evaluate(node => ({ wrap: getComputedStyle(node).whiteSpace, height: node.getBoundingClientRect().height }))).toMatchObject({ wrap: "nowrap", height: 19 });
+      expect(await page.locator("h1.pc-topbar__heading").evaluate(node => getComputedStyle(node).textOverflow)).toBe("ellipsis");
+      expect(await page.locator(".pc-planner").evaluate(node => node.getBoundingClientRect().height)).toBe(28);
+    }
+    await page.close();
+  }
+}), 60_000);
+
+browserTest("session_workspace_fits_between_frame_bars", async () => withBrowser(async browser => {
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 768, height: 1024 }]) {
+    const page = await openSession(browser, "conversation", viewport);
+    const geometry = await page.evaluate(() => ({
+      scroll: document.scrollingElement!.scrollHeight, height: innerHeight,
+      footer: document.querySelector(".pc-conversation-footer")!.getBoundingClientRect().bottom,
+      status: document.querySelector(".pc-statusbar")!.getBoundingClientRect().top,
+    }));
+    expect(geometry.scroll).toBe(geometry.height);
+    expect(geometry.footer).toBeLessThanOrEqual(geometry.status);
+    await page.close();
+  }
+}), 30_000);
+
+browserTest("session_status_dot_retains_tone_and_reduced_motion", async () => withBrowser(async browser => {
+  for (const scenario of ["supervised", "ended"] as const) {
+    const page = await openSession(browser, scenario);
+    const dot = page.locator(".pc-session-title-facts .pc-status-dot__dot");
+    const expected = await page.evaluate(tone => {
+      const node = document.createElement("span"); node.style.color = `var(--${tone}-fg)`; document.body.append(node);
+      const color = getComputedStyle(node).color; node.remove(); return color;
+    }, scenario === "supervised" ? "info" : "good");
+    expect(await dot.evaluate(node => getComputedStyle(node).backgroundColor)).toBe(expected);
+    expect(await dot.evaluate(node => getComputedStyle(node).animationName)).toBe(scenario === "supervised" ? "pc-status-pulse" : "none");
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    expect(await dot.evaluate(node => getComputedStyle(node).animationName)).toBe("none");
+    await page.close();
+  }
+}), 30_000);

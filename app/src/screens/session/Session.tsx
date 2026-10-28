@@ -138,8 +138,8 @@ export function Session({ embedded = false, data, loading, error, initialTab, vi
   return <Page width="full" embedded={embedded} className="pc-session">
     {!embedded && <nav aria-label="Breadcrumb" className="pc-session-breadcrumb"><AppLink to={routes.tasks()}>Tasks</AppLink></nav>}
     {loading && <LoadingState updating label="Updating session…"/>}
-    {slots && <FrameSlot name="title">{slots.title(active && data.stop && onAction && <IconButton size="sm" variant="danger" icon="end-session"
-      aria-label="End session" title="End session (asks to confirm)" onClick={() => void run(data.stop!)}/>)}</FrameSlot>}
+    {slots && <><FrameSlot name="title">{slots.title(null)}</FrameSlot><FrameSlot name="actions">{active && data.stop && onAction && <IconButton size="sm" variant="quiet" tone="bad" icon="end-session"
+      aria-label="End session" title="End session (asks to confirm)" onClick={() => void run(data.stop!)}/>}</FrameSlot></>}
     {(!embedded || (!slots && active && data.stop)) && <header className="pc-session-header">
       {!embedded && <AgentMark agent={data.agent} size={28}/>}
       {!embedded && <div className="pc-session-heading">

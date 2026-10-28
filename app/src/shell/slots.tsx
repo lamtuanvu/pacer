@@ -1,6 +1,6 @@
 import { createContext, type ComponentChildren } from "preact";
 import { createPortal } from "preact/compat";
-import { useContext, useEffect } from "preact/hooks";
+import { useContext, useEffect, useRef } from "preact/hooks";
 
 export interface FrameHeading { title: string; agent?: string }
 /**
@@ -10,6 +10,8 @@ export interface FrameHeading { title: string; agent?: string }
 export interface FrameSlots {
   /** Title-bar area after the page title: the screen's facts and actions. */
   title: HTMLElement | null;
+  /** Actions inside the bordered layout-toggle group, after the panel toggles. */
+  actions?: HTMLElement | null;
   left: HTMLElement | null;
   right: HTMLElement | null;
   /** Side panels cannot show (narrow layouts); a screen may then provide its own in-page `right` target. */
@@ -22,9 +24,19 @@ export const FrameContext = createContext<FrameSlots | null>(null);
 export const useFrame = () => useContext(FrameContext);
 
 /** Renders children into a frame region. Outside the frame, or while the region is closed, nothing renders. */
-export function FrameSlot({ name, children }: { name: "title" | "left" | "right"; children: ComponentChildren }) {
+export function FrameSlot({ name, children }: { name: "title" | "actions" | "left" | "right"; children: ComponentChildren }) {
   const target = useFrame()?.[name];
-  return target ? createPortal(<>{children}</>, target) : null;
+  const group = useRef<HTMLSpanElement>(null), within = useRef(false);
+  useEffect(() => {
+    if (name === "actions" && within.current && document.activeElement === document.body) {
+      const bar = target?.closest(".pc-topbar");
+      (bar?.querySelector<HTMLElement>(".pc-layout-toggles button") ?? bar?.querySelector<HTMLElement>("button"))?.focus();
+      within.current = false;
+    }
+  });
+  return target ? createPortal(name === "actions" ? <span ref={group} className="pc-frame-actions"
+    onFocusIn={() => { within.current = true; }}
+    onFocusOut={event => { if (event.relatedTarget) within.current = group.current!.contains(event.relatedTarget as Node); }}>{children}</span> : <>{children}</>, target) : null;
 }
 
 /** The top bar shows the screen's own title (and agent) instead of the route name while the screen is mounted. */

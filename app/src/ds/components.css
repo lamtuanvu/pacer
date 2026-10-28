@@ -561,3 +561,9 @@ a.pc-btn{text-decoration:none}
 .pc-task-card--compact .pc-task-card__row--child-facts{padding-left:var(--size-15)}
 .pc-task-card--compact .pc-task-card__row--child-facts .pc-task-card__status{flex:1 1 auto}
 .pc-task-card__row--head>.pc-task-card__status{flex:none}
+
+/* Session board: quiet destructive icon actions retain their semantic colour. */
+.pc-icon-button--bad.pc-btn--quiet.pc-icon-button{color:var(--bad-fg);width:var(--size-30);height:var(--size-30);min-height:var(--size-30);padding:0}
+@media(pointer:coarse){.pc-icon-button--bad.pc-btn--quiet.pc-icon-button{width:var(--control-touch);height:var(--control-touch);min-height:var(--control-touch)}}
+
+.pc-icon-button--bad.pc-btn--quiet.pc-icon-button:hover{color:var(--bad-fg)}
