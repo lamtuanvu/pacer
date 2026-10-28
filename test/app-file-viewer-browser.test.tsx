@@ -88,6 +88,9 @@ browserTest("below 1100 px the viewer replaces the terminal; below 768 px it is 
   expect(field!.width).toBeGreaterThan(150);
   for(const name of ["Next match","Match case","Close search"]){const b=await viewer.getByRole("button",{name}).boundingBox();expect(b!.width).toBeGreaterThanOrEqual(36);}
   await viewer.getByRole("button",{name:"Close search"}).click();
+  // Source and Preview stretch the full width for touch.
+  const tabs=await viewer.getByRole("tablist",{name:"File view"}).boundingBox(),head=await viewer.locator(".pc-file-viewer__head").boundingBox();
+  expect(tabs!.width).toBeGreaterThan(head!.width-32);
  }finally{await page.close()}
 },30_000);
 

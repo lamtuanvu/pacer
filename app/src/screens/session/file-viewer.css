@@ -124,3 +124,6 @@
 .pc-file-viewer--sheet .pc-file-viewer__count{flex:1}
 .pc-file-viewer--sheet .pc-file-viewer__search .pc-file-viewer__ib{min-width:var(--size-36);min-height:var(--size-36);width:var(--size-36);height:var(--size-36)}
 .pc-file-viewer--sheet .pc-file-viewer__row--tabs .pc-tabs .pc-btn{min-height:var(--size-36)}
+.pc-file-viewer--sheet .pc-file-viewer__row--tabs{flex-wrap:wrap}
+.pc-file-viewer--sheet .pc-file-viewer__row--tabs .pc-tabs{flex:1 1 100%}
+.pc-file-viewer--sheet .pc-file-viewer__row--tabs .pc-tabs .pc-btn{flex:1;justify-content:center}
