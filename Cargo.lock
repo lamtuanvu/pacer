@@ -952,11 +952,31 @@ dependencies = [
 name = "pacer-plugin"
 version = "0.1.0"
 dependencies = [
+ "pacer-plugin-agent-session-protocol",
+ "pacer-plugin-decision-protocol",
  "pacer-plugin-protocol",
  "serde",
  "serde_json",
  "tokio",
  "tokio-util",
+]
+
+[[package]]
+name = "pacer-plugin-agent-session-protocol"
+version = "0.1.0"
+dependencies = [
+ "regress",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "pacer-plugin-decision-protocol"
+version = "0.1.0"
+dependencies = [
+ "regress",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

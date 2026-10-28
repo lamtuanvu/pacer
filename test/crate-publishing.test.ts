@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
-import { crateContentHash, publishPluginCrates } from "../scripts/release/crates";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { crateContentHash, pluginCrateFolders, publishPluginCrates } from "../scripts/release/crates";
 
 test("independent crate versions ignore generated VCS and lock metadata but detect source changes", async () => {
   const archive = async (sha: string, source: string) => new Bun.Archive({
@@ -11,6 +13,28 @@ test("independent crate versions ignore generated VCS and lock metadata but dete
   const first = await crateContentHash(await archive("a", "source"));
   expect(await crateContentHash(await archive("b", "source"))).toBe(first);
   expect(await crateContentHash(await archive("b", "changed"))).not.toBe(first);
+});
+
+test("the independent protocol crates publish before the SDK that depends on all of them", () => {
+  const root = join(import.meta.dir, "..");
+  const manifest = (folder: string) => Bun.TOML.parse(readFileSync(join(root, "crates", folder, "Cargo.toml"), "utf8")) as { package: { name: string; version: string; publish?: boolean }; dependencies?: Record<string, unknown> };
+  expect(pluginCrateFolders).toEqual(["plugin-decision-protocol", "plugin-agent-session-protocol", "plugin-protocol", "plugin-sdk"]);
+  const names = pluginCrateFolders.map(folder => manifest(folder).package.name);
+  for (const [index, folder] of pluginCrateFolders.entries()) {
+    const { package: metadata, dependencies = {} } = manifest(folder);
+    expect(metadata.publish).toBe(true);
+    for (const dependency of Object.keys(dependencies).filter(name => names.includes(name))) expect(names.indexOf(dependency)).toBeLessThan(index);
+  }
+  const protocols = names.slice(0, -1);
+  for (const folder of pluginCrateFolders.slice(0, -1)) expect(Object.keys(manifest(folder).dependencies ?? {}).filter(name => names.includes(name))).toEqual([]);
+  expect(Object.keys(manifest("plugin-sdk").dependencies ?? {})).toEqual(expect.arrayContaining(protocols));
+});
+
+test("protocol area crate archives hash like the other plugin crates", async () => {
+  for (const name of ["pacer-plugin-decision-protocol", "pacer-plugin-agent-session-protocol"]) {
+    const bytes = await new Bun.Archive({ [`${name}-0.1.0/Cargo.toml`]: `[package]\nname="${name}"\n`, [`${name}-0.1.0/src/lib.rs`]: "source" }, { compress: "gzip" }).bytes();
+    expect(await crateContentHash(bytes)).toMatch(/^[0-9a-f]{64}$/);
+  }
 });
 
 test("plugin crate publishing packages and publishes protocol before the SDK", async () => {

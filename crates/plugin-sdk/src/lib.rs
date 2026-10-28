@@ -7,8 +7,16 @@ mod serve;
 pub mod testing;
 pub mod wire;
 
+/// Plugin protocol types, re-exported from the generated protocol crates (CRATE-3 area split).
+pub mod types {
+    pub use pacer_plugin_agent_session_protocol::*;
+    pub use pacer_plugin_decision_protocol::*;
+    pub use pacer_plugin_protocol::*;
+    // Every protocol crate emits these; the entry crate's definitions take precedence.
+    pub use pacer_plugin_protocol::{PacerPluginProtocol120, VERSION, error};
+}
+
 pub use error::PluginError;
 pub use host::Host;
-pub use pacer_plugin_protocol as types;
 pub use serve::{Ctx, HandlerResult, Manifest, Plugin, Progress};
 pub use tokio_util::sync::CancellationToken;

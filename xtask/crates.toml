@@ -30,6 +30,12 @@ generated = true
 [crates.pacer-terminal-protocol]
 layer = 0
 generated = true
+[crates.pacer-plugin-decision-protocol]
+layer = 0
+generated = true
+[crates.pacer-plugin-agent-session-protocol]
+layer = 0
+generated = true
 [crates.pacer-plugin-protocol]
 layer = 0
 generated = true
