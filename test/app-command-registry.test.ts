@@ -14,11 +14,11 @@ function setup(control = false) {
 
 test("a command with keys is also the shortcut, and unregistering removes both", () => {
   const { keys, commands, ran } = setup();
-  const off = commands.register({ id: "go.tasks", title: "Go to Tasks", shortcutLabel: "Tasks", group: "Go to", keys: "g s", run: () => ran.push("tasks") });
+  const off = commands.register({ id: "go.tasks", title: "Go to Tasks", shortcutLabel: "Tasks", group: "Go to", keys: "g t", run: () => ran.push("tasks") });
   commands.register({ id: "x", title: "No keys", group: "Go to", run: () => {} });
   expect(commands.list().map(command => command.id)).toEqual(["go.tasks", "x"]);
-  expect(keys.list().map(shortcut => [shortcut.keys, shortcut.label, shortcut.scope])).toEqual([["g s", "Tasks", "global"]]);
-  keys.handle(press("g")); keys.handle(press("s"));
+  expect(keys.list().map(shortcut => [shortcut.keys, shortcut.label, shortcut.scope])).toEqual([["g t", "Tasks", "global"]]);
+  keys.handle(press("g")); keys.handle(press("t"));
   expect(ran).toEqual(["tasks"]);
   off();
   expect(commands.list().map(command => command.id)).toEqual(["x"]);

@@ -43,8 +43,8 @@ export function CommandPalette({ snapshot, registry = commandRegistry, now: fixe
   const pick = (id: string, options?: { keepOpen: boolean }) => {
     const item = byId.get(id);
     if (!item) return;
-    // ⌘↵ runs a command and leaves the menu open, so several can be run in a row.
-    if (options?.keepOpen) { if (item.command) setTimeout(item.command.run, 0); return; }
+    // ⌘↵ runs a command and leaves the menu open so several can run in a row, except one that opens its own dialog.
+    if (options?.keepOpen && !item.command?.opensDialog) { if (item.command) setTimeout(item.command.run, 0); return; }
     close();
     rememberRecent(item.id, recent);
     // After the menu has closed, so a command that opens a dialog starts from the restored focus.

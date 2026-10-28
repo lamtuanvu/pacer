@@ -6,7 +6,7 @@ import type { Command } from "../app/src/keys/commands";
 const snapshot = fixture as any;
 const NOW = 1800000000;
 const command = (id: string, title: string, group = "Go to", extra: Partial<Command> = {}): Command => ({ id, title, group, run: () => {}, ...extra });
-const commands = [command("go.tasks", "Go to Tasks", "Go to", { keys: "g s" }), command("view.panel.left", "Toggle side panel", "View", { keywords: "sidebar" }), command("task.new", "New task", "Suggested")];
+const commands = [command("go.tasks", "Go to Tasks", "Go to", { keys: "g t" }), command("view.panel.left", "Toggle side panel", "View", { keywords: "sidebar" }), command("task.new", "New task", "Suggested")];
 const menu = (query: string, scope: any = "all", recent: string[] = []) => buildMenu({ query, scope, snapshot, commands, recent, now: NOW });
 const titles = (result: ReturnType<typeof menu>) => result.groups.flatMap(group => group.items.map(item => item.title));
 

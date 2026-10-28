@@ -103,6 +103,8 @@
   --radius-lg: 10px;
   --radius-xl: 14px;
   --radius-full: 999px;
+  --radius-xs: 4px;
+  --radius-tile: 7px;
   --control-compact: 28px;
   --control-settings: 32px;
   --control-normal: 44px;
@@ -169,7 +171,6 @@
   --size-260: 260px;
   --size-180: 180px;
   --size-15: 15px;
-  --size-21: 21px;
   --size-52: 52px;
   --size-72: 72px;
   --size-420: 420px;

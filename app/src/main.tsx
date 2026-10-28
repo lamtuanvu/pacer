@@ -92,8 +92,8 @@ function App() {
       commands.register({ id: "go.tasks", title: "Go to Tasks", group: "Go to", icon: "tasks", keys: "g t", run: go("#/tasks") }),
       commands.register({ id: "go.terminal", title: "Go to Terminal", group: "Go to", icon: "terminal", keys: "g e", run: go("#/terminal") }),
       commands.register({ id: "go.settings", title: "Open Settings", group: "Go to", icon: "settings", keys: ",", run: go("#/settings") }),
-      commands.register({ id: "help.shortcuts", title: "Show keyboard shortcuts", group: "Help", icon: "notes", keys: "?", run: () => setHelp(true) }),
-      commands.register({ id: "task.new", title: "New task", sub: "Describe it and pacer routes it", group: "Suggested", icon: "plus", keywords: "delegate start", keys: "d", shortcutLabel: "Delegate a task", run: () => setDelegate(true) }),
+      commands.register({ id: "help.shortcuts", title: "Show keyboard shortcuts", group: "Help", icon: "notes", opensDialog: true, keys: "?", run: () => setHelp(true) }),
+      commands.register({ id: "task.new", title: "New task", sub: "Describe it and pacer routes it", group: "Suggested", icon: "plus", keywords: "delegate start", opensDialog: true, keys: "d", shortcutLabel: "Delegate a task", run: () => setDelegate(true) }),
       // Escape closes the settings panel only on settings screens; elsewhere it stays with the page.
       ...[...SETTINGS].map(scope => keys.register({ keys: "Escape", label: "Close the settings panel", scope, run: () => { location.hash = lastWork.current; } })),
     ];

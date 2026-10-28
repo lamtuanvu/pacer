@@ -41,7 +41,8 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
   const [dockOpen, setDockOpen] = usePanelState("dock", false);
   const opener = useRef<HTMLElement | null>(null);
   const [palette, setPalette] = useState(false), [setupOpen, setSetupOpen] = useState(false);
-  const { navigate } = useNavigation(), notifications = useNotifications(), [activeSetup, setActiveSetup] = useState<string | null>(null);
+  const { navigate: navigateTo } = useNavigation(), navigateRef = useRef(navigateTo), navigate: typeof navigateTo = target => navigateRef.current(target), notifications = useNotifications(), [activeSetup, setActiveSetup] = useState<string | null>(null);
+  navigateRef.current = navigateTo;
   // The menu is its own chunk; it loads once the shell is up, so opening it is instant but it stays out of app.js.
   const [Palette, setLoaded] = useState<typeof import("./CommandPalette").CommandPalette | null>(null);
   const [loadAttempt, setLoadAttempt] = useState(0), wantOpen = useRef(false);
@@ -94,7 +95,7 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
       ...(ops.has(paused ? "delegation.resume" : "delegation.pause") ? [commands.register(paused
         ? { id: "dispatch.resume", title: "Resume dispatch", sub: "New tasks start again", group: "Dispatcher", icon: "dispatch", keywords: "unpause continue", run: () => { void api.call("delegation.resume", {}).catch(fail); } }
         : { id: "dispatch.pause", title: "Pause dispatch", sub: "Running tasks finish; nothing new starts", group: "Dispatcher", icon: "dispatch", keywords: "stop hold", run: () => { void api.call("delegation.pause", { for: "1h" }).catch(fail); } })] : []),
-      ...(ops.has("strategy.use") ? [commands.register({ id: "dispatch.setup", title: "Switch saved setup…", sub: activeSetup ? `Active: ${activeSetup}` : undefined, group: "Dispatcher", icon: "routing", keywords: "strategy routing profile", run: () => setSetupOpen(true) })] : []),
+      ...(ops.has("strategy.use") ? [commands.register({ id: "dispatch.setup", opensDialog: true, title: "Switch saved setup…", sub: activeSetup ? `Active: ${activeSetup}` : undefined, group: "Dispatcher", icon: "routing", keywords: "strategy routing profile", run: () => setSetupOpen(true) })] : []),
       commands.register({ id: "dispatch.budget", title: "Budget & pacing", sub: pacing, group: "Dispatcher", icon: "gauge", keywords: "planner quota limit", run: () => navigate(routes.settings("planner")) }),
     ];
     return () => offs.forEach(off => off());

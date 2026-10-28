@@ -32,7 +32,7 @@ export function TopBar({ narrow = false, title, planner, mode, connected, lastUp
       : <><DensityContext.Provider value="compact"><Button variant="quiet" size="sm" className="pc-topbar__search" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K" data-command-trigger="" onClick={event => onSearch(event.currentTarget)}>
         <span className="pc-topbar__search-icon" aria-hidden="true"><Icon name="search" /></span>
         <span className="pc-topbar__search-text">Search tasks, agents or run a command</span>
-        <Kbd>{(caps => caps[0] === "⌘" ? caps.join("") : caps.join(" "))(keyCaps("Mod-k"))}</Kbd>
+        <Kbd size="sm">{(caps => caps[0] === "⌘" ? caps.join("") : caps.join(" "))(keyCaps("Mod-k"))}</Kbd>
       </Button></DensityContext.Provider><span className="grow" data-tauri-drag-region /></>)}
     {showActions && <>
     {planner && <span className="pc-planner">

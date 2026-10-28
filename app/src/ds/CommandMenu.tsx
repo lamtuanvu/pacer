@@ -110,13 +110,15 @@ export function CommandMenu({ label, placeholder, query, onQueryChange, prefix, 
       <input ref={input} className="pc-command__input" type="text" role="combobox" aria-expanded="true" aria-autocomplete="list" aria-controls={`${uid}-list`}
         aria-activedescendant={options.length ? optionId(active) : undefined} aria-label={label} placeholder={placeholder} autocomplete="off" spellcheck={false}
         value={query} onInput={event => onQueryChange(event.currentTarget.value)} onKeyDown={onKeyDown} />
-      <Kbd>Esc</Kbd>
+      <Kbd size="sm">Esc</Kbd>
     </div>
-    {scopes && scopes.length > 0 && <div className="pc-command__scopes" role="tablist" aria-label="Search in">
+    {scopes && scopes.length > 0 && <div className="pc-command__scopes">
+      <div className="pc-command__tabs" role="tablist" aria-label="Search in">
       {scopes.map(item => <button key={item.id} type="button" role="tab" tabIndex={-1} className="pc-command__scope" aria-selected={item.id === scope} aria-controls={`${uid}-list`}
         onMouseDown={event => event.preventDefault()} onClick={() => onScope?.(item.id)}>{item.label}{item.count !== undefined && <span className="pc-command__count"> {item.count}</span>}</button>)}
+      </div>
       <span className="pc-command__spacer" />
-      <span className="pc-command__hint"><Kbd>Tab</Kbd> switch</span>
+      <span className="pc-command__hint"><Kbd size="sm">Tab</Kbd> switch</span>
     </div>}
     {empty && <div className="pc-command__empty" role="status"><strong>{empty.title}</strong><span>{empty.description}</span></div>}
     <div className="pc-command__list" id={`${uid}-list`} role="listbox" aria-label="Results" ref={list}>
@@ -132,16 +134,16 @@ export function CommandMenu({ label, placeholder, query, onQueryChange, prefix, 
               {option.sub && <span className="pc-command__sub">{option.sub}</span>}
             </span>
             {option.pill && <Pill tone={option.pill.tone}>{option.pill.label}</Pill>}
-            {option.keys && <span className="pc-command__keys" aria-hidden="true">{option.keys.map((key, at) => <Kbd key={at}>{key}</Kbd>)}</span>}
-            {mine === active && <span className="pc-command__enter" aria-hidden="true"><Kbd>↵</Kbd></span>}
+            {option.keys && <span className="pc-command__keys" aria-hidden="true">{option.keys.map((key, at) => <Kbd key={at} size="sm">{key}</Kbd>)}</span>}
+            {mine === active && <span className="pc-command__enter" aria-hidden="true"><Kbd size="sm">↵</Kbd></span>}
           </div>;
         })}
       </div>)}
     </div>
     <div className="pc-command__footer">
-      <span className="pc-command__hint"><Kbd>↑</Kbd> <Kbd>↓</Kbd> move</span>
-      <span className="pc-command__hint"><Kbd>↵</Kbd> {enterHint}</span>
-      {modEnterHint && modEnterKeys && <span className="pc-command__hint">{modEnterKeys.map((cap, at) => <Kbd key={at}>{cap}</Kbd>)} {modEnterHint}</span>}
+      <span className="pc-command__hint"><Kbd size="sm">↑</Kbd> <Kbd size="sm">↓</Kbd> move</span>
+      <span className="pc-command__hint"><Kbd size="sm">↵</Kbd> {enterHint}</span>
+      {modEnterHint && modEnterKeys && <span className="pc-command__hint">{modEnterKeys.map((cap, at) => <Kbd key={at} size="sm">{cap}</Kbd>)} {modEnterHint}</span>}
       <span className="pc-command__spacer" />
       {hints}
     </div>

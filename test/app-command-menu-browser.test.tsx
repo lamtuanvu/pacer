@@ -123,6 +123,8 @@ browserTest("tab_cycles_scopes_and_empty_state_offers_new_task", () => withPage(
   await input.fill("a");
   const tabs = page.getByRole("tablist", { name: "Search in" }).getByRole("tab");
   await expect(tabs.allTextContents()).resolves.toEqual([expect.stringMatching(/^All \d+$/), expect.stringMatching(/^Tasks \d+$/), expect.stringMatching(/^Agents \d+$/), expect.stringMatching(/^Commands \d+$/)]);
+  // The Tab hint sits beside the tablist, not inside it.
+  await expect(page.locator('[role="tablist"] .pc-command__hint').count()).resolves.toBe(0);
   // The tabs control the results listbox.
   await expect(tabs.first().getAttribute("aria-controls")).resolves.toBe(await page.getByRole("combobox").getAttribute("aria-controls"));
   const pressed = () => page.locator('.pc-command__scope[aria-selected="true"]').textContent();
@@ -237,17 +239,53 @@ browserTest("mod_enter_runs_a_command_and_keeps_the_menu_open", () => withPage(a
   await page.keyboard.press("Control+Enter");
   await expect(page.getByRole("combobox").count()).resolves.toBe(1);
   expect(await page.evaluate(() => location.hash)).toBe("#/overview");
-  await input.fill(">new");
+  await input.fill(">count");
   await expect(page.locator(".pc-command__footer").textContent()).resolves.toContain("run and keep open");
   await page.keyboard.press("Control+Enter");
-  await page.waitForFunction(() => (window as any).newTask === 1);
+  await page.waitForFunction(() => (window as any).counted === 1);
   await expect(page.getByRole("combobox").count()).resolves.toBe(1);
   await page.keyboard.press("Control+Enter");
-  await page.waitForFunction(() => (window as any).newTask === 2);
+  await page.waitForFunction(() => (window as any).counted === 2);
   // Plain Enter runs it and closes the menu.
   await page.keyboard.press("Enter");
-  await page.waitForFunction(() => (window as any).newTask === 3);
+  await page.waitForFunction(() => (window as any).counted === 3);
   await expect(page.getByRole("combobox").count()).resolves.toBe(0);
+}));
+
+browserTest("mod_enter_closes_the_menu_for_a_command_that_opens_a_dialog", () => withPage(async (page, built) => {
+  await open(page, built, "#/overview");
+  await page.keyboard.press("Control+k");
+  await page.getByRole("combobox").fill(">delegate");
+  await page.getByRole("option", { name: /^New task/ }).waitFor();
+  expect(await labels(page)).toEqual(["New task"]);
+  // New task opens its own dialog, which a modal menu would leave inert, so ⌘↵ closes the menu like Enter does.
+  await page.keyboard.press("Control+Enter");
+  await page.waitForFunction(() => (window as any).newTask === 1);
+  await expect(page.getByRole("combobox").count()).resolves.toBe(0);
+  // Focus goes back to what had it when the menu opened (the page's main area).
+  await focused(page, "#main-content");
+}));
+
+browserTest("dispatcher_commands_follow_the_service_operations", () => withPage(async (page, built) => {
+  await open(page, built, "#/overview");
+  await page.keyboard.press("Control+k");
+  const input = page.getByRole("combobox");
+  await input.fill(">dispatch");
+  // Pause is offered because the service has delegation.pause; resume and the saved-setup switch are not (no such operations here).
+  expect(await labels(page)).toEqual(["Pause dispatch", "Budget & pacing"]);
+  await input.fill(">saved setup");
+  await expect(page.getByRole("option").count()).resolves.toBe(0);
+  await input.fill(">budget");
+  expect(await labels(page)).toEqual(["Budget & pacing"]);
+  await input.fill(">pause");
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("combobox").count()).resolves.toBe(0);
+  await page.waitForFunction(() => JSON.stringify((window as any).dispatchCalls) === JSON.stringify([["pause", { for: "1h" }]]));
+  // Budget & pacing opens the planner settings.
+  await page.keyboard.press("Control+k");
+  await page.getByRole("combobox").fill(">budget");
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(() => location.hash === "#/settings/planner");
 }));
 
 browserTest("menu_and_trigger_match_the_board_measurements", () => withPage(async (page, built) => {
@@ -260,11 +298,11 @@ browserTest("menu_and_trigger_match_the_board_measurements", () => withPage(asyn
   await page.waitForTimeout(100);
   const m = await page.evaluate(() => {
     const css = (selector: string) => getComputedStyle(document.querySelector(selector)!), box = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
-    return { dialogW: Math.round(box("dialog.pc-command").width), dialogTop: Math.round(box("dialog.pc-command").top), dialogRadius: css("dialog.pc-command").borderTopLeftRadius, rowH: Math.round(box(".pc-command__search").height), inputOutline: css(".pc-command__input").outlineStyle,
+    return { dialogW: Math.round(box("dialog.pc-command").width), dialogTop: Math.round(box("dialog.pc-command").top), dialogRadius: css("dialog.pc-command").borderTopLeftRadius, rowH: Math.round(box(".pc-command__search").height), inputOutline: css(".pc-command__input").outlineStyle, focusRing: css(".pc-command__search").boxShadow.includes("inset") ? "inset" : css(".pc-command__search").boxShadow,
       optionRadius: css(".pc-command__option").borderTopLeftRadius, glyph: [Math.round(box(".pc-command__glyph").width), css(".pc-command__glyph").borderTopLeftRadius], markWeight: css(".pc-command__label mark").fontWeight,
       scopeH: Math.round(box(".pc-command__scope").height), scopeRadius: css(".pc-command__scope").borderTopLeftRadius, kbd: [css(".pc-command__footer kbd").borderTopLeftRadius, css(".pc-command__footer kbd").fontSize, Math.round(box(".pc-command__footer kbd").height)],
       placeholder: document.querySelector<HTMLInputElement>('input[role="combobox"]')!.placeholder, label: document.querySelector('input[role="combobox"]')!.getAttribute("aria-label") };
   });
-  expect(m).toMatchObject({ dialogW: 640, dialogTop: 72, dialogRadius: "14px", rowH: 52, inputOutline: "none", optionRadius: "8px", glyph: [28, "7px"], markWeight: "700", scopeH: 24, scopeRadius: "6px", kbd: ["4px", "11px", 18],
+  expect(m).toMatchObject({ dialogW: 640, dialogTop: 72, dialogRadius: "14px", rowH: 52, inputOutline: "none", focusRing: "inset", optionRadius: "8px", glyph: [28, "7px"], markWeight: "700", scopeH: 24, scopeRadius: "6px", kbd: ["4px", "11px", 18],
     placeholder: "Search tasks, agents or type > for commands", label: "Search tasks, agents or run a command" });
 }));

@@ -467,4 +467,3 @@ body:has(.pc-app--narrow) .pc-toasts{bottom:calc(var(--size-56) + var(--space-5)
 .pc-topbar__search-icon{display:inline-flex}
 .pc-topbar__search-icon svg{width:var(--size-15);height:var(--size-15)}
 .pc-topbar__search-text{flex:1;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.pc-topbar__search .pc-kbd{padding:0 calc(var(--space-1) + var(--size-1));border-radius:var(--space-1);background:transparent;font-size:var(--type-label-size);line-height:var(--type-caption-line)}

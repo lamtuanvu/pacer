@@ -83,7 +83,7 @@ export function commandItems(commands: Command[]): MenuItem[] {
 
 /** The oldest question or review waiting on the user, offered as a suggestion on the recent screen. */
 function waitingSuggestion(snapshot: ClientSnapshot | null, now: number): MenuItem | null {
-  const item = [...(snapshot?.attention ?? [])].filter(entry => entry.kind === "question" || entry.kind === "review").sort((a, b) => a.raisedAt - b.raisedAt)[0];
+  const item = [...(snapshot?.attention ?? [])].filter(entry => entry.kind === "question" || entry.kind === "review").sort((a, b) => a.since - b.since)[0];
   if (!item || !snapshot) return null;
   const row = snapshot.executors?.find(executor => executor.id === item.executor);
   const who = row ? agentInfo(row.agent).name : "the agent";

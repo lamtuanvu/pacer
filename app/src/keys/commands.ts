@@ -11,6 +11,8 @@ export interface Command {
   keywords?: string;
   /** Registered as a shortcut but left out of the command menu, such as the shortcut that opens the menu itself. */
   hidden?: boolean;
+  /** Opens a dialog of its own. The command menu closes first, since a modal menu would leave that dialog inert. */
+  opensDialog?: boolean;
   keys?: string; scope?: "global" | string; allowInControl?: boolean;
   /** Label in the shortcuts overlay and status bar when it differs from the title. */
   shortcutLabel?: string;
