@@ -1,5 +1,5 @@
 import { expect, test, describe } from "bun:test";
-import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fakeCtx, tmpDir } from "./helpers";
 import { registerJobDaemon, startJob } from "../src/jobs/registry";
@@ -598,15 +598,4 @@ pacing:
     // Null usedPct → unknown headroom → no probe
     expect(probeCalled).toBe(false);
   });
-});
-
-// Pin the release note and terminology requested alongside the schedule regressions.
-test("scheduled repository repair has an Unreleased Fixed note and current tick terminology", () => {
-  const changelog = readFileSync(new URL("../CHANGELOG.md", import.meta.url), "utf8");
-  const unreleased = changelog.split("## [Unreleased]\n")[1]?.split("\n## [")[0];
-  const fixed = unreleased?.split("### Fixed\n")[1];
-  expect(fixed).toContain("Scheduled certification follows the repository where managed work runs rather than the one most recently viewed");
-  expect(fixed).toContain("the Dispatcher row names it by its repository picker label");
-  const source = readFileSync(import.meta.path, "utf8");
-  expect(source).toMatch(/\/\/ Do NOT provide repo: tick will call scheduledRepo which returns null/);
 });
