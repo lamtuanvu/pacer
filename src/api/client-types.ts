@@ -2,7 +2,7 @@ import type { LinkSnapshot } from "../link/envelope";
 import type { ApiEvent } from "./protocol";
 
 // Kept local so API clients never load the core operation registry at runtime.
-export type ApiErrorCode = "not_found" | "unknown_op" | "unknown_task" | "invalid_input" | "unknown_executor" | "conflict" | "not_allowed" | "too_large" | "internal"
+export type ApiErrorCode = "not_found" | "unknown_op" | "unknown_task" | "invalid_input" | "unknown_executor" | "conflict" | "not_allowed" | "too_large" | "internal" | "unavailable" | "rate_limited"
   | "plugin_timeout" | "plugin_unavailable" | "plugin_refused" | "capability_denied" | "unknown_plugin";
 
 export type Hello = { protocol: string; previous?: string; pacer: string; ops: string[]; events: string[] };

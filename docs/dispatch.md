@@ -105,6 +105,31 @@ Known differences from the admission stage: capacity reserved by running work is
 
 Reason codes: `step_match`, `capacity_comfortable`, `capacity_usable`, `capacity_unknown`, `override`, `planner_account`, `runner_disabled`, `not_configured`, `blocked_by_user`, `quota_exhausted`, `not_installed`, `signed_out`, `unavailable`, `ineligible`, `runner_unhealthy`, `requirements_not_met`, `pinned_to_other_model`, `executor_busy`, `machine_busy`, `host_unreachable`, `host_reachability_unknown`, `host_paused`, `repo_not_on_host`, `needs_new_worktree`, `local_grant_required`, `enforcement_uncertified`, `other_exclusion`, `step_kind_mismatch`, `step_no_candidates`, `no_step_matched`, `paused`, `engine_failed`, `override_unavailable`, `planner_not_measured`, `too_few_samples`, `planner_is_executor`, `cached_preview`, `capacity_unmeasured`, `default_model_unresolved`, `enforcement_unverified`, `engine_not_running`, `learning_unavailable`, `tasks_unavailable`, `reserved_capacity`, `admission_hooks`.
 
+## Import a GitHub issue
+
+`issue.import` and `issue.search` let a client start a task from a GitHub issue (the New task composer's "From an issue" option). Both are read only: they start, reserve and write nothing, and they are refused for executor sessions.
+
+- `issue.import` params: `repo`, the key of a repository pacer already knows (`repo.list`), and `issue`, a number (`"217"` or `"#217"`) or an issue URL in that repository. Result: `repo`, `github` (`owner/name`), `number`, `title`, `body`, `labels` (names), `url`, `state` (`open` or `closed`) and `truncated: {title, body}`.
+- `issue.search` params: `repo`, `query` (GitHub search syntax), and optionally `state` (`open` by default, `closed` or `all`) and `limit` (1–50, default 20). Result: `repo`, `github` and `issues`, each with `number`, `title`, `labels`, `url` and `state`, but no body. A query with a `repo:`, `org:` or `user:` qualifier is refused (`invalid_input`). Identical searches within 30 s share one `gh` call, including one still running, and failures are not cached. At most two `gh` processes run at once and up to eight more wait; further calls fail at once with `unavailable` (`gh_failed`).
+
+The GitHub repository comes from the checkout's `origin` remote, never from the request; a URL for another repository is refused, and anything gh returns that is not this repository's issue (another repository's item, a pull request, a moved issue) is refused or dropped from search results. pacer calls `gh issue view` or `gh issue list` with an argument vector and the user's own `gh` login. It never reads, stores or sends the token. `gh` gets only the environment it needs (home, path, locale, `XDG_*`, proxy and certificate settings, `GH_TOKEN`, `GITHUB_TOKEN`, `GH_CONFIG_DIR`); pacer's own tokens and endpoint keys are not passed. Its output is capped at 4 MiB while it is read.
+
+Issue text is untrusted. It is returned as plain text: control characters, invisible format characters (bidirectional overrides, zero-width and tag characters) and variation selectors are removed, HTML comments and link reference definitions (Markdown a rendered preview does not show) are removed from the body, the title is cut to 300 characters and the body to 64 KiB of UTF-8, and `truncated` says when that happened. Clients render it as text, and the user confirms the request before it becomes a task.
+
+Errors carry `data.reason` over HTTP:
+
+| Reason | Code | When |
+|---|---|---|
+| `gh_missing` | `unavailable` (503) | `gh` is not on the service's `PATH` |
+| `gh_unauthenticated` | `not_allowed` (403) | `gh` is not signed in to github.com |
+| `rate_limited` | `rate_limited` (429) | GitHub's rate limit was reached |
+| `not_github` | `invalid_input` (400) | the `origin` remote is not a github.com repository |
+| `unknown_repo` | `invalid_input` (400) | `repo` is not a registered repository key |
+| `repo_mismatch` | `invalid_input` (400) | the issue URL names another repository |
+| `repo_not_found` | `not_found` (404) | the repository is missing or not visible to the `gh` login |
+| `issue_not_found` | `not_found` (404) | the issue does not exist or is a pull request (also `invalid_input` for a malformed reference) |
+| `gh_failed` | `unavailable` (503) | `gh` timed out, failed otherwise or returned unexpected output |
+
 ## History and limits
 
 `dispatch.list` pages work roots, child work, or all work by status; the app shows these filters in Tasks. `dispatch.tree` returns the bounded work subtree, per-attempt decisions, requested and observed models, reviews, dependencies, and measured/unknown totals. Queued time across attempts, execution time, dependency wait, capacity wait and parent time waiting for children are shown separately. Open wait intervals are provisional. Account usage is grouped by account, quota window and reset epoch; overlapping parent and child observation intervals are merged before reporting observed percentage movement. It is a shared-account reading, not usage attributed solely to this work. Missing or stale readings remain unknown. `dispatch.events` returns at most 500 ordered events and a monotonic `next` cursor plus `hasMore`; keep requesting while `hasMore` is true, even when a scoped page contains no visible events. The app's Work panel and TUI use the same service data. Work event and decision rows are retained with the local service state; task archival can leave an `Archived work` lineage placeholder. There is no automatic work-history pruning in this version.

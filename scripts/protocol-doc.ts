@@ -31,7 +31,7 @@ export function renderProtocolDoc(major: 2 | 3 = 3): string {
     "conflict", "too_large", "internal",
     "plugin_timeout", "plugin_unavailable", "plugin_refused", "capability_denied", "unknown_plugin",
   ];
-  if (major === 3) codes.push("not_found");
+  if (major === 3) codes.push("not_found", "unavailable", "rate_limited");
   const schemas = major === 2 ? v2OpJsonSchemas() : opJsonSchemas();
   const doc = [
     `# Client protocol v${major}`,
