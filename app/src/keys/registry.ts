@@ -32,9 +32,15 @@ export function createKeyRegistry(opts: { controlActive: () => boolean; blocked?
     scope: (): string | null => scope,
     list: (): Shortcut[] => [...shortcuts],
     handle(e: KeyInput): boolean {
-      if (e.defaultPrevented || e.metaKey || e.altKey || opts.blocked?.()) return false;
-      const token = e.ctrlKey ? `Ctrl-${e.key}` : e.key;
-      if (e.ctrlKey && e.key === "Control") return false;
+      if (e.defaultPrevented || e.altKey || (e.metaKey && e.ctrlKey) || opts.blocked?.()) return false;
+      const token = e.metaKey ? `Meta-${e.key}` : e.ctrlKey ? `Ctrl-${e.key}` : e.key;
+      if ((e.ctrlKey && e.key === "Control") || (e.metaKey && e.key === "Meta")) return false;
+      // ⌘ belongs to the browser and the OS: only an exact registered ⌘ shortcut runs, and it never starts a sequence.
+      if (e.metaKey) {
+        const match = active().find(s => s.keys === token);
+        if (!match) return false;
+        pending = null; e.preventDefault(); match.run(); return true;
+      }
       // Escape and Ctrl combinations stay available in text fields; plain keys do not.
       if (!e.ctrlKey && token !== "Escape" && isTextTarget(e.target)) { pending = null; return false; }
       if (pending && now() - pending.at > timeout) pending = null;
@@ -50,6 +56,20 @@ export function createKeyRegistry(opts: { controlActive: () => boolean; blocked?
   };
 }
 export type KeyRegistry = ReturnType<typeof createKeyRegistry>;
+
+/** Apple platforms use ⌘ where others use Ctrl. */
+export const isApplePlatform = (platform: string = globalThis.navigator?.platform ?? ""): boolean => /mac|iphone|ipad/i.test(platform);
+/** A registry key for the platform's command modifier: `Meta-n` on Apple platforms, `Ctrl-n` elsewhere. */
+export const modShortcut = (key: string, apple = isApplePlatform()): string => `${apple ? "Meta" : "Ctrl"}-${key}`;
+/** How a modifier shortcut is written for people: ⌘N, Ctrl+N. */
+export const shortcutLabel = (keys: string): string => keys.replace(/^Meta-(.)$/, (_, k: string) => `⌘${k.toUpperCase()}`).replace(/^Ctrl-(.)$/, (_, k: string) => `Ctrl+${k.toUpperCase()}`);
+/**
+ * ⌘N (Ctrl+N elsewhere) opens the New task composer. The shell registers it once; the title-bar and Dispatch
+ * "New task" buttons show `shortcutLabel(newTaskShortcut(...).keys)` and call the same `run`.
+ */
+export function newTaskShortcut(run: () => void, apple = isApplePlatform()): Shortcut {
+  return { keys: modShortcut("n", apple), label: "New task", scope: "global", run };
+}
 
 /** The only DOM-touching export: one keydown listener for the whole app. */
 export function attachKeyRegistry(registry: KeyRegistry, target: Window): () => void {

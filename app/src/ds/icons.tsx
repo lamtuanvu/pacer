@@ -1,4 +1,4 @@
-export type IconName = "home" | "tasks" | "executors" | "accounts" | "strategy" | "hosts" | "settings" | "menu" | "overview" | "review" | "sessions" | "terminal" | "sliders" | "gauge" | "servers" | "routing" | "layers" | "download" | "bell" | "palette" | "diagnostics" | "plus" | "pr" | "commit" | "files" | "checks" | "time" | "retry" | "notes" | "branch" | "panel-left" | "panel-right" | "split" | "external" | "end-session" | "insights" | "dispatch" | "plugin";
+export type IconName = "home" | "tasks" | "executors" | "accounts" | "strategy" | "hosts" | "settings" | "menu" | "overview" | "review" | "sessions" | "terminal" | "sliders" | "gauge" | "servers" | "routing" | "layers" | "download" | "bell" | "palette" | "diagnostics" | "plus" | "pr" | "commit" | "files" | "checks" | "time" | "retry" | "notes" | "branch" | "panel-left" | "panel-right" | "split" | "external" | "end-session" | "insights" | "dispatch" | "plugin" | "attach" | "image" | "issue" | "repo" | "close" | "chevron-down" | "chevron-right";
 export function Icon({ name }: { name: IconName }) {
   const paths: Partial<Record<IconName, string>> = {
     "pr": "M6 8v8m0-14a3 3 0 1 0 0 6 3 3 0 0 0 0-6m0 14a3 3 0 1 0 0 6 3 3 0 0 0 0-6M15 2l-3 3 3 3M12 5h4a3 3 0 0 1 3 3v8m0 0a3 3 0 1 0 0 6 3 3 0 0 0 0-6",
@@ -16,6 +16,13 @@ export function Icon({ name }: { name: IconName }) {
     "end-session": "M9 4H3v16h6m6-13 5 5-5 5M8 12h12",
     "insights": "M4 3v18h17M8 16v-5m5 5V6m5 10V9",
     "dispatch": "m3 3 18 9-18 9 4-9zM7 12h14",
+    "attach": "M21 12l-8.5 8.5a5 5 0 0 1-7-7L14 5a3.5 3.5 0 0 1 5 5l-8.5 8.5a2 2 0 0 1-3-3L15 8",
+    "image": "M3 4h18v16H3zM21 16l-5-5-9 9M9 8a2 2 0 1 0 0 4 2 2 0 0 0 0-4",
+    "issue": "M6 3h9l3 3v15H6zM9 12h6M9 16h4",
+    "repo": "M5 4h11l3 3v13H5zM9 4v6l2-1.5L13 10V4",
+    "close": "M6 6l12 12M18 6L6 18",
+    "chevron-down": "M6 9l6 6 6-6",
+    "chevron-right": "M9 6l6 6-6 6",
     "plugin": "M9 4H4v5a3 3 0 1 1 0 6v5h5a3 3 0 1 0 6 0h5v-5a3 3 0 1 0 0-6V4h-5a3 3 0 1 0-6 0z",
     sliders: "M4 6h6m4 0h6M4 12h10m4 0h2M4 18h2m4 0h10M10 3v6m4 0v6M6 15v6",
     gauge: "M4 18a9 9 0 1 1 16 0M12 13l5-6M6 18h12",

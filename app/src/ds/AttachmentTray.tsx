@@ -1,3 +1,4 @@
+import type { ComponentChildren } from "preact";
 import { Button } from "./Button";
 import { TextInput } from "./Controls";
 export interface AttachmentItem {
@@ -9,21 +10,28 @@ export interface AttachmentItem {
   preview?: string;
   removable?: boolean;
 }
+/** `tool` renders a quiet toolbar trigger (composer toolbars); `label` and `accessibleLabel` replace the default words. */
 export function AttachmentPicker({
   onFiles,
   disabled = false,
+  variant = "default",
+  label = "Attach files",
+  accessibleLabel = "Attach files",
 }: {
   onFiles: (files: File[]) => void;
   disabled?: boolean;
+  variant?: "default" | "tool";
+  label?: ComponentChildren;
+  accessibleLabel?: string;
 }) {
   return (
-    <label className="pc-attachment-picker">
-      <span className="pc-attachment-picker__trigger">Attach files</span>
+    <label className={variant === "tool" ? "pc-attachment-picker pc-attachment-picker--tool" : "pc-attachment-picker"}>
+      <span className="pc-attachment-picker__trigger">{label}</span>
       <TextInput
         type="file"
         multiple
         disabled={disabled}
-        aria-label="Attach files"
+        aria-label={accessibleLabel}
         onChange={(event) => {
           onFiles(Array.from(event.currentTarget.files ?? []));
           event.currentTarget.value = "";

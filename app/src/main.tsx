@@ -9,7 +9,8 @@ import type { SetupChecklist } from "../../src/setup/checklist";
 import { TaskContext } from "./screens/task-shared";
 import { createStore } from "./data/store";
 import { inheritQuery, resolveRoute, setupCompleteFrom, titleFor, type Route } from "./router";
-import { attachKeyRegistry } from "./keys/registry";
+import { attachKeyRegistry, newTaskShortcut } from "./keys/registry";
+import { openNewTask } from "./screens/new-task/entry";
 import { keys } from "./keys/instance";
 import { ActionContext } from "./data/action-context";
 import { createActionRunner, storeWaiter } from "./data/actions";
@@ -94,6 +95,7 @@ function App() {
       keys.register({ keys: ",", label: "Open Settings", scope: "global", run: go("#/settings") }),
       keys.register({ keys: "?", label: "Show keyboard shortcuts", scope: "global", run: () => setHelp(true) }),
       keys.register({ keys: "d", label: "Delegate a task", scope: "global", run: () => setDelegate(true) }),
+      keys.register(newTaskShortcut(() => openNewTask())),
       // Escape closes the settings panel only on settings screens; elsewhere it stays with the page.
       ...[...SETTINGS].map(scope => keys.register({ keys: "Escape", label: "Close the settings panel", scope, run: () => { location.hash = lastWork.current; } })),
     ];

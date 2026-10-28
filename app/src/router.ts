@@ -3,7 +3,7 @@ import { settingsPageTitle } from "./settings-pages";
 /** Hash routes for the redesigned shell. Unknown hashes fall back to Overview. */
 export interface RouteQuery { repo: string | null; scope: string | null }
 type RouteBase =
-  | { name: "start" | "overview" | "loading" | "setup" }
+  | { name: "start" | "overview" | "loading" | "setup" | "new-task" }
   | { name: "add-executor"; host?: string }
   | { name: "review" | "sessions" | "terminal"; id?: string }
   | { name: "settings"; section?: string }
@@ -14,7 +14,7 @@ export type RouteName = Route["name"];
 export type PrimaryRoute = "start" | "overview" | "review" | "sessions" | "terminal" | "settings" | null;
 type TargetQuery = Partial<RouteQuery>;
 export type RouteTarget =
-  | { name: "start" | "overview" | "review" | "setup"; query?: TargetQuery }
+  | { name: "start" | "overview" | "review" | "setup" | "new-task"; query?: TargetQuery }
   | { name: "sessions" | "terminal"; id?: string; query?: TargetQuery }
   | { name: "settings"; section?: string; query?: TargetQuery }
   | { name: "hosts"; alias?: string; query?: TargetQuery }
@@ -26,6 +26,7 @@ export const routes = {
   start: (query?: TargetQuery) => withTargetQuery({ name: "start" } as const, query),
   overview: (query?: TargetQuery) => withTargetQuery({ name: "overview" } as const, query),
   needsYou: (query?: TargetQuery) => withTargetQuery({ name: "review" } as const, query),
+  newTask: (query?: TargetQuery) => withTargetQuery({ name: "new-task" } as const, query),
   tasks: (query?: TargetQuery) => withTargetQuery({ name: "sessions" } as const, query),
   task: (id: string, query?: TargetQuery) => withTargetQuery({ name: "sessions", id } as const, query),
   terminal: (id?: string | TargetQuery, query?: TargetQuery) => typeof id === "string"
@@ -47,6 +48,7 @@ export function hrefFor(target: RouteTarget, current: RouteQuery = EMPTY_QUERY):
     case "start": href = "#/"; break;
     case "overview": href = "#/overview"; break;
     case "review": href = "#/needs-you"; break;
+    case "new-task": href = "#/tasks/new"; break;
     case "sessions": href = target.id ? `#/tasks/${encodeURIComponent(target.id)}` : "#/tasks"; break;
     case "terminal": href = target.id ? `#/terminal/${encodeURIComponent(target.id)}` : "#/terminal"; break;
     case "settings": href = target.section ? `#/settings/${encodeURIComponent(target.section)}` : "#/settings"; break;
@@ -62,7 +64,7 @@ export function hrefFor(target: RouteTarget, current: RouteQuery = EMPTY_QUERY):
   return `${href}?${params}`;
 }
 export function parentFor(route: Route): RouteTarget | null {
-  if (route.name === "sessions" && route.id) return routes.tasks(route.query);
+  if (route.name === "new-task" || (route.name === "sessions" && route.id)) return routes.tasks(route.query);
   if (route.name === "terminal" && route.id) return routes.terminal(route.query);
   if (route.name === "settings" && route.section) return routes.settings(undefined, route.query);
   if (route.name === "hosts") return route.alias ? routes.hosts(route.query) : routes.settings(undefined, route.query);
@@ -71,6 +73,7 @@ export function parentFor(route: Route): RouteTarget | null {
 }
 export function titleFor(route: Route): string {
   if (route.name === "start") return "Start work";
+  if (route.name === "new-task") return "New task";
   if (route.name === "sessions" && route.id) return "Task";
   if (route.name === "terminal") return "Terminal";
   if (route.name === "hosts" && route.alias) return "Host";
@@ -79,6 +82,7 @@ export function titleFor(route: Route): string {
 }
 export function primaryFor(route: Route): PrimaryRoute {
   if (route.name === "start") return "start";
+  if (route.name === "new-task") return "sessions";
   return route.name === "overview" || route.name === "review" || route.name === "sessions" || route.name === "terminal" ? route.name : route.name === "settings" || route.name === "hosts" || route.name === "add-executor" ? "settings" : null;
 }
 
@@ -130,6 +134,7 @@ function match(path: string): RouteBase {
   if (path === "/settings/add-executor") return { name: "add-executor" };
   if (path === "/needs-you") return {name:"review"};
   if (path === "/tasks") return {name:"sessions"};
+  if (path === "/tasks/new") return {name:"new-task"};
   if (path === "/terminal") return {name:"terminal"};
   const terminal = /^\/terminal\/([^/]+)$/.exec(path);
   if (terminal) { const id = decode(terminal[1]!); return id === null ? { name: "overview" } : { name: "terminal", id }; }
