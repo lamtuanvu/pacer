@@ -131,8 +131,8 @@ test('Accounts show usage words, sign-in pills, used-by and sign-in commands onl
  const html=render(<SettingsGeneral section="accounts" initialData={{...settings,accounts}}/>,s);
  expect(html).toContain(`17% of week · resets ${clock(Date.UTC(2026,9,19)/1000,Date.now()/1000)}`);expect(html).not.toContain('ON_PACE');
  for(const label of ['Signed in','No subscription','Unknown','Signed out','Ready','Key missing'])expect(html).toMatch(new RegExp(`pc-pill[^"]*"[^>]*>(?:<span[^>]*>[^<]*</span>)?${label}</span>`));
- expect(html).toContain('<th>Status</th>');expect(html).not.toContain('<th>Sign-in</th>');
- expect(html).toContain('<th>Used by</th>');expect(html).toContain(executor.id);
+ expect(html).toContain('<th scope="col">Status</th>');expect(html).toContain('<th scope="col">Sign-in</th>');
+ expect(html).toContain('<th scope="col">Used by</th>');expect(html).toContain(executor.id);
  // Sign-in help only for native accounts known to be signed out (here: empty and out), never for endpoints.
  expect(html.match(/<summary>Fix sign-in<span class="sr-only"> for [a-z]+<\/span><\/summary>/g)).toHaveLength(2);
  expect(html).toContain('<summary>Fix sign-in<span class="sr-only"> for empty</span></summary>');
@@ -174,12 +174,12 @@ test('settings feedback explains automatic migration in plain language',async()=
 test('General exposes named parallel tasks controls and shared capacity notes',()=>{
  const limited={...executor,rank:1,slots:{used:0,max:4},limitedBy:'machine'};
  const html=render(<SettingsGeneral section="executors" initialData={settings}/>,{...state,snapshot:{...state.snapshot,machine:{used:0,max:2},executors:[limited]}});
- expect(html).toContain('Parallel tasks for '+executor.id);
- expect(html).toContain('Limited to 2 by this machine');
+ expect(html).toContain('data-label="Parallel tasks"><strong>4</strong>');
+ expect(html).toContain(' of 2</span>');
  const machine=render(<SettingsGeneral section="machine" initialData={settings}/>);
- expect(machine).toContain('Parallel tasks on this machine');
- expect(machine).toContain('Shared by all executors that run on this machine.');
- expect(html).toContain('min="1" max="16" step="1"');
+ expect(machine).toContain('Parallel tasks');
+ expect(machine).toContain('Shared by every executor on this Mac');
+ expect(html).not.toContain('type="number"');
  expect(html).not.toContain('>Slots<');
  const planner=render(<SettingsGeneral section="executors" initialData={settings}/>,{...state,snapshot:{...state.snapshot,executors:[{...limited,rank:'planner'}]}});
  expect(planner).not.toContain('Parallel tasks for '+executor.id);

@@ -1,6 +1,6 @@
 import { render } from 'preact';
 import { useState } from 'preact/hooks';
-import { AddHost } from '../../../app/src/screens/settings/Machines';
+import { MachineSection } from '../../../app/src/screens/settings/Machines';
 import { Stepper } from '../../../app/src/ds/Stepper';
 import { TaskContext } from '../../../app/src/screens/task-shared';
 import { ActionContext } from '../../../app/src/data/action-context';
@@ -14,6 +14,7 @@ Object.assign(window, { hostFixture: { calls: () => calls, failFirst: (value: bo
 const step = (name: string, state: string, detail?: string) => ({ name, state, ...(detail ? { detail } : {}) });
 const api = { call: async (op: string, params: any) => {
   calls.push([op, params]);
+  if (op === 'config.get') return { keys: { 'execution.local_max_tasks': { value: 4 } }, terminalChoices: [{value:'auto',label:'Automatic'}] };
   if (op === 'host.suggest') return ['devbox', 'pi-lab'];
   if (op === 'host.add') return { alias: params.alias };
   if (op === 'host.check') return { job: { id: `j${++checks}`, kind: 'host.check', target: params.alias, state: 'running', steps: [step('ssh', 'running'), step('git', 'pending')], startedAt: 1 } };
@@ -26,10 +27,10 @@ const api = { call: async (op: string, params: any) => {
 } } as any;
 const actions = createActionRunner({ call: api.call, waitFor: async () => true, refetch: () => {}, navigate: () => {} });
 function App() {
-  const state = { ...initialState(), connected: true, snapshot: { at: 1, hosts: [{ alias: 'taken', ssh: 'taken', state: 'ready', running: 0, maxTasks: 2, executors: [], repos: 0 }] } } as any;
+  const state = { ...initialState(), connected: true, snapshot: { at: 1, machine:{used:1,max:4}, service:{version:'0.11.0'}, executors:[{id:'codex#team',agent:'codex',host:null,slots:{used:1,max:3}}], hosts: [{ alias: 'taken', ssh: 'taken', state: 'ready', running: 0, maxTasks: 2, executors: [], repos: 0 }] } } as any;
   const [step, setStep] = useState('1');
   return <TaskContext.Provider value={{ state, api }}><ActionContext.Provider value={actions}>
-    <AddHost initialAliases={['devbox', 'pi-lab']} />
+    <MachineSection />
     <Stepper label="Wizard" onSelect={setStep} steps={['A', 'B', 'C', 'D'].map((title, i) => ({ id: String(i + 1), title, state: String(i + 1) === step ? 'current' : 'todo', reachable: i < 3 }))} />
     <output id="picked">{step}</output>
   </ActionContext.Provider></TaskContext.Provider>;

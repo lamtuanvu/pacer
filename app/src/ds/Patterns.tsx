@@ -19,7 +19,7 @@ export function TextRow({ label, value, meta, className }: {
 export interface ListRowProps extends JSX.HTMLAttributes<HTMLDivElement> {
   leading?: ComponentChildren; content?: ComponentChildren; meta?: ComponentChildren; actions?: ComponentChildren;
   density?: 'normal' | 'compact' | 'touch';
-  layout?: 'aligned';
+  layout?: 'aligned' | 'planner';
   outlined?: boolean; tone?: 'bad';
 }
 /** Sibling slots keep navigation and secondary actions from nesting interactive elements. */
@@ -41,8 +41,8 @@ export function SelectableRow({ selected, className, ...props }: ButtonProps & {
   return <Button {...props} variant="quiet" aria-pressed={selected ?? props['aria-pressed']}
     className={classes('pc-selectable-row', className)} />;
 }
-export function ChoiceCard(props: ButtonProps & { selected?: boolean }) {
-  return <SelectableRow {...props} className={classes('pc-choice-card', props.className)} />;
+export function ChoiceCard({ layout, ...props }: ButtonProps & { selected?: boolean; layout?: "agent" | "alias" }) {
+  return <SelectableRow {...props} className={classes('pc-choice-card', layout && `pc-choice-card--${layout}`, props.className)} />;
 }
 export function FilterChip({ selected, className, ...props }: ButtonProps & { selected?: boolean }) {
   return <Button {...props} size="sm" aria-pressed={selected ?? props['aria-pressed']} className={classes('pc-chip', className)} />;
@@ -89,8 +89,8 @@ export function NavTabs({ label, items }: { label: string; items: readonly { hre
   </nav>;
 }
 
-export function Card({ children, className, ...props }: JSX.HTMLAttributes<HTMLElement>) {
-  return <section {...props} className={classes('pc-card', className)}>{children}</section>;
+export function Card({ children, className, tone, ...props }: JSX.HTMLAttributes<HTMLElement>&{tone?:"bad"}) {
+  return <section {...props} className={classes('pc-card', tone&&`pc-card--${tone}`, className)}>{children}</section>;
 }
 export function ApprovalCard({ title, children, actions, className, ...props }: JSX.HTMLAttributes<HTMLElement> & {
   title?: string; actions?: ComponentChildren;
@@ -115,4 +115,9 @@ export function EmptyState({ title, description, children }: {
   return <section className="pc-empty"><SectionHeading>{title}</SectionHeading>
     {description && <p>{description}</p>}{children}
   </section>;
+}
+
+/** Native radios provide browser keyboard navigation and one selected account policy. */
+export function RadioChoices({label,name,value,options,onChange,disabled,layout}:{label:string;name:string;value:string;options:readonly SegmentOption[];onChange:(value:string)=>void;disabled?:boolean;layout?:"options"}) {
+  return <div role="radiogroup" aria-label={label} className={classes("pc-radio-choices",layout && `pc-radio-choices--${layout}`)}>{options.map(option=><label key={option.value}><input type="radio" name={name} value={option.value} checked={value===option.value} disabled={disabled||option.disabled} onChange={()=>onChange(option.value)}/><span>{option.label}</span></label>)}</div>;
 }

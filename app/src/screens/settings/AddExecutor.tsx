@@ -1,4 +1,4 @@
-import { ChoiceCard, FilterChip, TextRow } from "../../ds/Patterns";
+import { ChoiceCard, FilterChip, TextRow, RadioChoices } from "../../ds/Patterns";
 import { TextInput } from "../../ds/Controls";
 import { ChoicePicker } from "../../ds/ChoicePicker";
 import { accountNeedsSignIn, accountStatus } from "../../../../src/view-model/words";
@@ -16,7 +16,7 @@ import { AGENT_KINDS, REMOTE_AGENTS, accountRequired, agentStepProblem, agents, 
 import { useDraft, useTaskContext } from "../task-shared";
 import { OpencodeSetup } from "./OpencodeSetup";
 import { useDialogs } from "../../ds/useDialogs";
-import { Feedback, Field, latestJob, ResourceState, Segment, useOperation, useResource, words } from "./shared";
+import { Feedback, Field, latestJob, ResourceState, useOperation, useResource, words } from "./shared";
 export const executorId = ({ agent, account, host }: { agent: string; account: string; host: string }) =>
   `${agent}${account ? `#${account}` : ""}${host && host !== "local" ? `@${host}` : ""}`;
 export const executorReady = (job: Job | undefined, target?: string) =>
@@ -57,9 +57,15 @@ export function AddExecutor({ host: prefillHost = "", initialDraft = {}, initial
       ...(draft.model ? { model: draft.model } : {}), ...(kinds.length ? { kinds } : {}), max_tasks: Number(draft.maxTasks), test: true });
     if (r) patch({ createdId: (r.data as { id: string }).id, jobId: r.jobId ?? "" });
   }
+  const accountModels = accounts.data?.find(a => a.name === draft.account)?.connection?.models ?? [];
+  const modelOptions = [{ value: "", label: "Agent default" }, ...accountModels.map(m => ({ value: m.id, label: m.name ?? m.id }))];
+  if (draft.model && !modelOptions.some(m => m.value === draft.model)) modelOptions.push({ value: draft.model, label: draft.model });
+  const installGuidance = !!detected.data?.some(a => !a.found && a.install_hint);
   const values = [name, draft.account || (accountRequired(draft.agent) ? "" : "Its own sign-in"), `${facts.hosts.includes(draft.host) ? draft.host : "This machine"} · ${draft.maxTasks} parallel`, ready ? "Ready" : job ? "Test task run" : "Not tested yet"];
   return (
-    <div className="u3-wizard">
+    <div className="u3-add-agent">
+      <nav className="u3-breadcrumb" aria-label="Breadcrumb"><TextAction href="#/settings/executors">Agents</TextAction><span aria-hidden="true">/</span><span>Add an agent</span></nav>
+      <div className="u3-wizard">
       {dialogs.dialog}
       <div className="sr-only" role="status" aria-live="polite">Step {step} of 4: {TITLES[step - 1]}</div>
       <Stepper label="Add agent steps" onSelect={id => patch({ step: id })} steps={TITLES.map((title, i) => ({
@@ -67,29 +73,26 @@ export function AddExecutor({ host: prefillHost = "", initialDraft = {}, initial
         state: i === 3 && ready ? "done" : i + 1 === step ? "current" : i + 1 < furthest ? "done" : "todo",
         detail: i + 1 <= furthest ? values[i] || "Not set" : "Not set",
       }))} />
-      <section className="pc-card" aria-labelledby="agent-step-heading">
+      <section className="u3-wizard-panel" aria-live="polite" aria-labelledby="agent-step-heading">
         {step === 1 && <>
-          <SectionHeading id="agent-step-heading" tabIndex={-1}>Which agent?</SectionHeading>
-          <p className="u3-muted">pacer looks for each agent’s CLI on this machine.</p>
-          <ResourceState resource={detected}><span /></ResourceState>
-          <div className="u3-choices">{agents.map(agent => {
+          <div className="u3-step-heading"><SectionHeading variant="headline" id="agent-step-heading" tabIndex={-1}>Which agent?</SectionHeading><p className="u3-muted">{installGuidance ? "Found on this Mac. Agents that aren’t installed show how to get them." : "pacer looks for each agent’s CLI on this Mac."}</p></div>
+          <div className="u3-agent-choices"><ResourceState resource={detected}>{agents.map(agent => {
             const found = detected.data?.find(a => a.agent === agent.id);
-            return <ChoiceCard key={agent.id} aria-pressed={draft.agent === agent.id}
+            return <ChoiceCard layout="agent" key={agent.id} aria-pressed={draft.agent === agent.id}
               onClick={() => patch({ agent: agent.id, account: "", host: REMOTE_AGENTS.includes(agent.id) ? draft.host : "" })}>
-              <AgentMark agent={agent.id} /><div><strong>{agent.name}</strong><div className="u3-muted">{agent.tagline}</div>
-                {found && <Pill tone={found.found ? "good" : "neutral"}>{found.found ? `Found${found.version ? ` ${found.version}` : ""}` : "Not installed"}</Pill>}</div>
+              <span className="u3-agent-choice-title"><AgentMark agent={agent.id} size={28} /><strong>{agent.name}</strong>{draft.agent === agent.id && <span className="u3-selected-check" aria-hidden="true">✓</span>}</span><span className="u3-muted">{agent.tagline}</span>
+                {found && <Pill tone={found.found ? "good" : "neutral"}>{found.found ? `Found${found.version ? ` ${found.version}` : ""}` : "Not found"}</Pill>}
+                {found && !found.found && found.install_hint && <span className="u3-muted">Install: <code>{found.install_hint}</code></span>}
             </ChoiceCard>;
-          })}</div>
-          {facts.installed === false && <p>Install it with <code>{detected.data?.find(a => a.agent === draft.agent)?.install_hint}</code></p>}
+          })}</ResourceState></div>
         </>}
         {step === 2 && <>
-          <SectionHeading id="agent-step-heading" tabIndex={-1}>Which account pays for it?</SectionHeading>
-          {!accountRequired(draft.agent) ? <p>{name} uses its own signed-in account. pacer reads its usage from there.</p> : <>
+          <div className="u3-step-heading"><SectionHeading variant="headline" id="agent-step-heading" tabIndex={-1}>Which account pays for it?</SectionHeading><p className="u3-muted">pacer uses the agent’s own sign-in and never copies it.</p></div>
+          {!accountRequired(draft.agent) ? <RadioChoices layout="options" name="agent-own-account" label="Account" value="own" onChange={() => {}} options={[{ value: "own", label: <><strong>{name}’s own signed-in account</strong><span className="u3-muted">Uses the agent’s own sign-in. pacer never copies it.</span></> }]} /> : <>
             <p className="u3-muted">Two executors can share an account; they share its quota.</p>
             <ResourceState resource={accounts} empty="No accounts yet. Add one below.">
-              {compatible.length ? <div className="u3-choices">{compatible.map(account => <ChoiceCard key={account.name} aria-pressed={draft.account === account.name} onClick={() => patch({ account: account.name })}>
-                <AgentMark agent={draft.agent} /><div><strong>{account.name}</strong><div className="u3-muted">{account.source ?? account.kind} · {accountStatus(account).label}</div></div>
-              </ChoiceCard>)}</div> : <p>No accounts for this agent yet.</p>}
+              {compatible.length ? <RadioChoices layout="options" name="agent-account" label="Account" value={draft.account} onChange={account => patch({ account })}
+                options={compatible.map(account => ({ value: account.name, label: <><strong>{account.name}</strong><span className="u3-muted">{account.source ?? account.kind} · {accountStatus(account).label}</span></> }))} /> : <p>No accounts for this agent yet.</p>}
             </ResourceState>
             {draft.agent === "opencode" && !urlForm
               // The OpenCode account and its executor are created together; step 4 then runs the test task as the check.
@@ -101,37 +104,40 @@ export function AddExecutor({ host: prefillHost = "", initialDraft = {}, initial
           </>}
         </>}
         {step === 3 && <>
-          <SectionHeading id="agent-step-heading" tabIndex={-1}>Where does it run?</SectionHeading>
-          <p className="u3-muted">Tasks run in their own worktree on that machine. The planner always runs here.</p>
+          <div className="u3-step-heading"><SectionHeading variant="headline" id="agent-step-heading" tabIndex={-1}>Where does it run?</SectionHeading><p className="u3-muted">Tasks run in their own worktree on that machine.</p></div>
           {REMOTE_AGENTS.includes(draft.agent)
-            ? <SettingRow label="Runs on"><Segment label="Runs on" value={draft.host ? "remote" : "local"}
-                options={[{ value: "local", label: "This machine" }, { value: "remote", label: "A remote host" }]}
-                onChange={v => patch({ host: v === "local" ? "" : facts.hosts[0] ?? "-" })} /></SettingRow>
+            ? <RadioChoices layout="options" name="agent-location" label="Runs on" value={draft.host ? "remote" : "local"}
+                options={[{ value: "local", label: <><strong>This Mac</strong><span className="u3-muted">{state.snapshot?.machine ? `${state.snapshot.machine.max} parallel tasks shared by every executor here` : "Runs on this machine"}</span></> },
+                  ...(facts.hosts.length ? [{ value: "remote", label: <><strong>A remote host</strong><span className="u3-muted">Choose a configured host below</span></> }] : [])]}
+                onChange={v => patch({ host: v === "local" ? "" : facts.hosts[0] ?? "" })} />
             : <p>{name} runs on this machine. Only Codex and Claude Code can run on a remote host.</p>}
+          {REMOTE_AGENTS.includes(draft.agent) && !facts.hosts.length && <p className="u3-muted">No remote hosts yet. <TextAction href="#/settings/machine">Add one in Machines</TextAction></p>}
           {draft.host && (facts.hosts.length
             ? <SettingRow label="Remote host"><ChoicePicker value={draft.host} placeholder="Choose a host" options={state.snapshot!.hosts!.map(h => ({ value: h.alias, label: `${h.alias} · ${words(h.state)}` }))} onValueChange={host => patch({ host })} /></SettingRow>
             : <p>No remote hosts yet. <TextAction href="#/settings/machine">Add one in Machines</TextAction></p>)}
           <SettingRow label="Parallel tasks" description="1–16; the machine’s own limit still applies.">
-            <TextInput type="number" min="1" max="16" step="1" required value={draft.maxTasks} onInput={e => patch({ maxTasks: e.currentTarget.value })} />
+            <TextInput className="u3-parallel-input" type="number" min="1" max="16" step="1" required value={draft.maxTasks} onInput={e => patch({ maxTasks: e.currentTarget.value })} />
           </SettingRow>
         </>}
         {step === 4 && <>
-          <SectionHeading id="agent-step-heading" tabIndex={-1}>Model, then a test task</SectionHeading>
-          <p className="u3-muted">The agent is Ready only after a real task passes.</p>
-          <SettingRow label="Model"><TextInput disabled={locked} value={draft.model} placeholder="Agent default" onInput={e => patch({ model: e.currentTarget.value })} /></SettingRow>
+          <div className="u3-step-heading"><SectionHeading variant="headline" id="agent-step-heading" tabIndex={-1}>Model, then a test task</SectionHeading><p className="u3-muted">The agent is Ready only after a real task passes.</p></div>
+          <SettingRow label="Model"><ChoicePicker className="u3-model-picker" disabled={locked} value={draft.model} options={modelOptions} onValueChange={model => patch({ model })} /></SettingRow>
           <SettingRow label="Good at" description={kinds.length ? "Added to these task kinds’ routing rules." : "Added to the rule for everything else."}>
             <div className="u3-actions" role="group" aria-label="Good at">{AGENT_KINDS.map(([kind, label]) => <FilterChip key={kind} disabled={locked} selected={kinds.includes(kind)}
               onClick={() => patch({ kinds: (kinds.includes(kind) ? kinds.filter(k => k !== kind) : [...kinds, kind]).join(",") })}>{label}</FilterChip>)}</div>
           </SettingRow>
           <TextRow label="Executor id" value={<code>{draft.createdId || executorId(draft)}</code>} />
-          {job ? <CheckList label="Test task" items={job.steps.map(s => ({ id: s.name, label: s.name, state: s.state, note: s.detail }))} /> : <p className="u3-muted">Creates a scratch worktree, asks the agent for a small change, then checks the result.</p>}
+          <div className="u3-test-task"><div className="u3-heading"><strong>Test task</strong><Pill tone={ready ? "good" : job?.state === "failed" ? "bad" : job ? "info" : "neutral"}>{ready ? "Passed" : job?.state === "failed" ? "Failed" : job ? "Running" : "Not tested yet"}</Pill></div>
+          {job ? <CheckList unboxed label="Test task" items={job.steps.map(s => ({ id: s.name, label: s.name, state: s.state, note: s.detail }))} /> : <p className="u3-muted">Creates a scratch worktree, asks the agent for a small change, then checks the result.</p>}
           {job?.error && <p role="alert">{job.error.message}{job.error.hint && ` · ${job.error.hint}`}</p>}
           {ready && <p role="status"><strong>{draft.createdId} is ready.</strong> Test task passed.</p>}
+          {!ready && <div className="u3-actions"><Button variant="primary" busy={action.busy || job?.state === "running"} onClick={() => void finish()}>{job?.state === "running" ? "Running test task…" : locked ? job ? "Run test task again" : "Run test task" : "Add agent and run test task"}</Button></div>}
+          </div>
         </>}
         {resumeError && <p role="status">{resumeError}</p>}
         <Feedback action={action} />
         <div className="u3-footer">
-          <span className="u3-muted">{problem ?? `Step ${step} of 4 · ${locked ? "Agent added; test before Ready" : "Draft kept for this session"}`}</span>
+          <span className="u3-muted">{problem ?? `Step ${step} of 4 · Draft kept for this session${locked ? "; agent added; test before Ready" : ""}`}</span>
           {ready ? <>
             <Button onClick={() => { action.clear(); setResumed(undefined); setResumeError(""); setUrlForm(false); setDraft({ ...blankAgentDraft }); }}>Add another agent</Button>
             <ButtonLink variant="primary" href="#/settings/executors" onClick={clearDraft}>Open agents</ButtonLink>
@@ -139,10 +145,11 @@ export function AddExecutor({ host: prefillHost = "", initialDraft = {}, initial
             {locked ? <><Button disabled={action.busy} onClick={() => void removeAgent()}>Remove this agent</Button><Button variant="quiet" disabled={action.busy} onClick={startOver}>Start over</Button></> : <TextAction href="#/settings/executors">Cancel</TextAction>}
             {step > 1 && !locked && <Button disabled={action.busy} onClick={() => patch({ step: String(step - 1) })}>Back</Button>}
             {step < 4 ? !picker && <Button variant="primary" disabled={action.busy || !!problem} onClick={() => patch({ step: String(step + 1) })}>Continue</Button>
-              : <Button variant="primary" busy={action.busy || job?.state === "running"} onClick={() => void finish()}>{job?.state === "running" ? "Running test task…" : locked ? job ? "Run test task again" : "Run test task" : "Add agent and run test task"}</Button>}
+              : null}
           </>}
         </div>
       </section>
+      </div>
     </div>
   );
 }

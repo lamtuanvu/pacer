@@ -5,15 +5,16 @@ import { executorLabel } from "../../../../src/view-model/words";
 import type { ConfigData } from "../../model/strategy";
 import { TextInput } from "../../ds/Controls";
 import { ChoicePicker } from "../../ds/ChoicePicker";
-import { ChoiceCard, Card } from "../../ds/Patterns";
+import { ChoiceCard } from "../../ds/Patterns";
 import { SettingRow } from "../../ds/SettingRow";
 import { SectionHeading } from "../../ds/SectionHeading";
 import { CheckList } from "../../ds/Stepper";
+import { Icon } from "../../ds/icons";
 import { AgentMark } from "../../ds/AgentMark";
 import { Pill } from "../../ds/Pill";
 import { Button, ButtonLink, TextAction } from "../../ds/Button";
 import { ErrorMessage, useTaskContext } from "../task-shared";
-import { Feedback, ResourceState, Section, useOperation, useResource, words } from "./shared";
+import { Feedback, Field, ResourceState, Section, useOperation, useResource, words } from "./shared";
 
 /** pacer host names: lower-case letters, digits and hyphens; "local" names this machine. */
 export function hostNameProblem(name: string, taken: readonly string[] = []): string | null {
@@ -28,13 +29,14 @@ export function MachineSection({ initialData }: { initialData?: ConfigData }) {
   const { state } = useTaskContext(), snapshot = state.snapshot;
   const local = snapshot?.executors?.filter(e => !e.host) ?? [];
   return <Section id="machine" title="Machines" detail="Where tasks run. pacer drives remote hosts over your own SSH config and installs nothing on them.">
-    <div className="u3-settings-grid">
-      <Card aria-labelledby="this-machine">
-        <div className="u3-heading"><div><SectionHeading as="h3" id="this-machine">This machine</SectionHeading>{snapshot?.service?.version && <span className="u3-muted">pacer {snapshot.service.version}</span>}</div>
-          {snapshot?.machine && <Pill tone={snapshot.machine.used ? "info" : "neutral"}>Running {snapshot.machine.used} of {snapshot.machine.max}</Pill>}</div>
-        <ThisMachine initialData={initialData} />
+    <div className="u3-machines-grid">
+      <section className="u3-machine-card" aria-labelledby="this-machine">
+        <div className="u3-machine-header"><span className="u3-machine-tile"><Icon name="laptop" /></span>
+        <div className="u3-machine-title"><SectionHeading variant="headline" id="this-machine">This Mac</SectionHeading>{snapshot?.service?.version && <span className="u3-muted">pacer {snapshot.service.version}</span>}</div>
+          {snapshot?.machine && <Pill tone={snapshot.machine.used ? "good" : "neutral"}>Running {snapshot.machine.used} of {snapshot.machine.max}</Pill>}</div>
+        <div className="u3-machine-body"><ThisMachine initialData={initialData} />
         {!!local.length && <SettingRow label="Executors here"><div className="u3-chips">{local.map(e => <span className="u3-chip" key={e.id} title={e.id}><AgentMark agent={e.agent} size={16} labelled={false} />{executorLabel(e.id)}</span>)}</div></SettingRow>}
-      </Card>
+      </div></section>
       <AddHost />
     </div>
     <RemoteHostList />
@@ -43,6 +45,8 @@ export function MachineSection({ initialData }: { initialData?: ConfigData }) {
 
 function ThisMachine({ initialData }: { initialData?: ConfigData }) {
   const query = useResource("config.get", {}, initialData), action = useOperation(query.reload);
+  const { state } = useTaskContext();
+  const caps = state.snapshot?.executors?.filter(e => !e.host && e.slots?.max != null).map(e => `${executorLabel(e.id)} may use ${e.slots.max}`).join(" · ");
   const keys = query.data?.keys, value = keys?.["execution.local_max_tasks"]?.value;
   const terminal = String(keys?.["terminal.open"]?.value ?? ""), legacy = String(keys?.["terminal.app"]?.value ?? "Terminal");
   const choices = query.data?.terminalChoices ?? [{ value: "auto", label: "Automatic" }, { value: "terminal-app", label: "Terminal" }, { value: "iterm", label: "iTerm" }, { value: "ghostty", label: "Ghostty" }];
@@ -50,12 +54,12 @@ function ThisMachine({ initialData }: { initialData?: ConfigData }) {
   const selected = terminal || (legacyPreset && choices.some(c => c.value === legacyPreset) ? legacyPreset : "auto");
   const options = choices.some(c => c.value === selected) ? choices : [...choices, { value: selected, label: "Custom terminal (CLI)", disabled: true, reason: "Configured from the CLI" }];
   return <ResourceState resource={query}>
-    <SettingRow label="Parallel tasks on this machine" description="Shared by all executors that run on this machine.">
-      <TextInput type="number" min="1" max="16" step="1" required value={String(value ?? 2)} disabled={action.busy}
-        onChange={e => { if (e.currentTarget.validity.valid) void action.run("config.set", { key: "execution.local_max_tasks", value: Number(e.currentTarget.value) }); }} />
+    <SettingRow label="Parallel tasks" description="Shared by every executor on this Mac">
+      <div className="u3-actions"><TextInput className="u3-parallel-input" type="number" min="1" max="16" step="1" required value={String(value ?? 2)} disabled={action.busy}
+        onChange={e => { if (e.currentTarget.validity.valid) void action.run("config.set", { key: "execution.local_max_tasks", value: Number(e.currentTarget.value) }); }} />{caps && <span className="u3-muted">{caps}</span>}</div>
     </SettingRow>
-    <SettingRow label="Preferred terminal" description="Used when opening sessions and other terminal actions on this machine.">
-      <ChoicePicker aria-label="Preferred terminal" value={selected} options={options} disabled={action.busy} onValueChange={choice => void action.run("config.set", { key: "terminal.open", value: choice })} />
+    <SettingRow label="Terminal for sessions" description="Where “Open elsewhere” goes">
+      <ChoicePicker className="u3-terminal-picker" aria-label="Terminal for sessions" value={selected} options={options} disabled={action.busy} onValueChange={choice => void action.run("config.set", { key: "terminal.open", value: choice })} />
     </SettingRow>
     <Feedback action={action} />
   </ResourceState>;
@@ -76,31 +80,33 @@ export function AddHost({ initialAliases }: { initialAliases?: string[] }) {
     if (added !== name) { const result = await add.run("host.add", { alias: name, ssh }); if (!result) return; setAdded(name); }
     await check.run("host.check", { alias: name });
   };
-  return <Card aria-labelledby="add-host">
-    <SectionHeading as="h3" id="add-host">Add a remote host</SectionHeading>
-    <p className="u3-muted">Runs Codex or Claude Code on another machine over SSH.</p>
+  return <section className="u3-machine-card" aria-labelledby="add-host">
+    <div className="u3-machine-header"><span className="u3-machine-tile"><Icon name="servers" /></span><div className="u3-machine-title"><SectionHeading variant="headline" id="add-host">Add a remote host</SectionHeading>
+    <p className="u3-muted">Runs Codex or Claude Code on another machine over SSH</p></div></div>
+    <div className="u3-host-body">
     {none ? <p>No new hosts in your SSH config. Add a <code>Host</code> entry to <code>~/.ssh/config</code>, then open this page again.</p> : <>
     <fieldset className="u3-fieldset" disabled={!!added}>
       <legend>1 · Pick a host from your SSH config</legend>
       <p className="u3-muted">Aliases from <code>~/.ssh/config</code> that pacer doesn’t use yet. It must connect without a password prompt.</p>
       <ResourceState resource={aliases}>
-        <div className="u3-choices u3-choices--compact">{aliases.data?.map(alias => <ChoiceCard key={alias} aria-pressed={ssh === alias} onClick={() => { setSsh(alias); setName(hostNameFrom(alias)); }}><code>{alias}</code></ChoiceCard>)}</div>
+        <div className="u3-aliases">{aliases.data?.map(alias => <ChoiceCard layout="alias" key={alias} aria-pressed={ssh === alias} onClick={() => { setSsh(alias); setName(hostNameFrom(alias)); }}><code>{alias}</code></ChoiceCard>)}</div>
       </ResourceState>
     </fieldset>
-    {ssh && <SettingRow label="2 · Name it in pacer" description="Lower-case letters, digits, hyphens.">
-      <TextInput value={name} required pattern="[a-z0-9][a-z0-9-]*" disabled={!!added} aria-invalid={!!problem} onInput={e => setName(e.currentTarget.value)} />
-    </SettingRow>}
+    <Field label="2 · Name it in pacer" help={!ssh ? "Pick a host from your SSH config first." : undefined}><div className="u3-actions">
+      <TextInput className="u3-host-name" value={name} required pattern="[a-z0-9][a-z0-9-]*" disabled={!!added || !ssh} aria-invalid={!!ssh && !!problem} onInput={e => setName(e.currentTarget.value)} />
+      <span className="u3-muted">Lower-case letters, digits, hyphens.</span></div></Field>
     <div className="u3-heading"><strong>3 · Check it</strong>
-      {!passed && <Button variant="primary" busy={add.busy || check.busy} disabled={!!problem || !state.connected} onClick={() => void connect()}>{added ? "Check again" : "Connect and check"}</Button>}</div>
-    {problem && !added && <p className="u3-muted">{problem}</p>}
+      {!passed && <Button size="sm" variant="primary" busy={add.busy || check.busy} disabled={!!problem || !state.connected} onClick={() => void connect()}>{added ? "Check again" : "Connect and check"}</Button>}</div>
+    {!state.connected && <p className="u3-muted">Reconnecting. Connect and check will be available when the service reconnects.</p>}
+    {problem && ssh && !added && <p className="u3-muted">{problem}</p>}
     {job && <CheckList label={`Checks for ${added}`} items={checkItems(job)} />}
     {job?.error && <p role="alert">{job.error.message}{job.error.hint && ` · ${job.error.hint}`}</p>}
-    {passed && <><p role="status">{added} is connected. Next, map the repositories it should work on and add its executors.</p>
+    {passed && <><p className="u3-muted" role="status">{added} is connected. Next, map the repositories it should work on and add its executors.</p>
       <div className="u3-actions"><ButtonLink variant="primary" href={`#/settings/hosts/${encodeURIComponent(added)}`}>Map repositories</ButtonLink><ButtonLink href={`#/settings/add-executor?host=${encodeURIComponent(added)}`}>Add an agent here</ButtonLink></div></>}
     <Feedback action={add} />
     <ErrorMessage error={check.error} />
     </>}
-  </Card>;
+  </div></section>;
 }
 
 function RemoteHostList() {

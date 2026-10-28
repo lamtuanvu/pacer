@@ -7,6 +7,7 @@ browserTest('executor draft survives refresh, validates, saves once and preserve
  const browser=await chromium.launch({executablePath:process.env.PACER_TEST_BROWSER!,headless:true});
  try{
   const page=await browser.newPage();await page.setContent('<div id="app"></div>');await page.addScriptTag({content:await built.outputs[0].text()});
+  await page.getByRole('button',{name:'Details for Codex',exact:true}).click();
   const input=page.getByRole('spinbutton',{name:'Parallel tasks for codex',exact:true}),save=page.getByRole('button',{name:'Save changes',exact:true});
   await input.fill('2');await page.getByRole('button',{name:'Move Claude Code · second up',exact:true}).click();
   expect(await page.evaluate(()=>(window as any).executorFixture.writes())).toBe(0);
@@ -32,6 +33,7 @@ browserTest('a delayed save acknowledgement cannot hide a newer client change',a
  const browser=await chromium.launch({executablePath:process.env.PACER_TEST_BROWSER!,headless:true});
  try{
   const page=await browser.newPage();await page.setContent('<div id="app"></div>');await page.addScriptTag({content:await built.outputs[0].text()});
+  await page.getByRole('button',{name:'Details for Codex',exact:true}).click();
   const input=page.getByRole('spinbutton',{name:'Parallel tasks for codex',exact:true}),save=page.getByRole('button',{name:'Save changes',exact:true});
   await input.fill('2');await page.evaluate(()=>(window as any).executorFixture.holdSave());await save.click();
   await page.waitForFunction(()=>(window as any).executorFixture.writes()===1);
@@ -51,14 +53,15 @@ browserTest('stale health ranks cannot duplicate or lock the previous planner af
  const browser=await chromium.launch({executablePath:process.env.PACER_TEST_BROWSER!,headless:true});
  try{
   const page=await browser.newPage();await page.setContent('<div id="app"></div>');await page.addScriptTag({content:await built.outputs[0].text()});
-  await page.getByRole('spinbutton',{name:'Parallel tasks for codex',exact:true}).waitFor();
+  await page.getByRole('button',{name:'Details for Codex',exact:true}).waitFor();
   await page.evaluate(()=>(window as any).executorFixture.switchPlanner());await page.waitForTimeout(50);
+  await page.getByRole('button',{name:'Details for Claude Code',exact:true}).click();
   expect(await page.getByRole('spinbutton',{name:'Parallel tasks for claude-code',exact:true}).count()).toBe(1);
   expect(await page.locator('tbody tr').count()).toBe(2);
  }finally{await browser.close();}
 },20000);
 
-browserTest('save controls clear the narrow navigation and desktop actions stay visible',async()=>{
+browserTest('save controls clear the narrow navigation and desktop actions stay reachable',async()=>{
  const built=await Bun.build({entrypoints:['test/fixtures/ui/executor-editor.tsx'],target:'browser',minify:true});
  const browser=await chromium.launch({executablePath:process.env.PACER_TEST_BROWSER!,headless:true});
  try{
@@ -67,10 +70,12 @@ browserTest('save controls clear the narrow navigation and desktop actions stay 
   await page.addStyleTag({content:(await Promise.all(['app/src/ds/tokens.css','app/src/ds/components.css','app/src/ds/feedback.css','app/src/styles.css'].map(path=>Bun.file(path).text()))).join('\n')});
   await page.evaluate(()=>document.body.classList.add('pc-app--narrow'));
   await page.addScriptTag({content:await built.outputs[0].text()});
+  await page.getByRole('button',{name:'Details for Codex',exact:true}).click();
   await page.getByRole('spinbutton',{name:'Parallel tasks for codex',exact:true}).fill('2');
   const bounds=await page.evaluate(()=>({save:document.querySelector('.u3-save-bar')!.getBoundingClientRect().bottom,nav:document.querySelector('.pc-bottom-bar')!.getBoundingClientRect().top}));
   expect(bounds.save).toBeLessThanOrEqual(bounds.nav);
   await page.setViewportSize({width:1440,height:1100});await page.evaluate(()=>{document.body.classList.remove('pc-app--narrow');document.querySelector('.pc-bottom-bar')!.remove();});
+  await page.locator('.u3-agents-scroll').evaluate(el=>{el.scrollLeft=el.scrollWidth;});
   const action=await page.evaluate(()=>({right:document.querySelector('th:last-child')!.getBoundingClientRect().right,edge:document.querySelector('.u3-table-wrap')!.getBoundingClientRect().right}));
   expect(action.right).toBeLessThanOrEqual(action.edge);
  }finally{await browser.close();}

@@ -6,6 +6,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
+- Align Machines and Add agent with the settings boards: machine header cards, guided SSH aliases, native account/location options, reported model choices and a contained live Test task block.
+
+- Align Agents and Accounts with the settings boards: compact tables, factual sign-in details, account spread/fill controls, an executor details editor and a save bar that appears only while needed.
+
 - Restyle the app frame chrome to the design canvas: a 44px title bar with the pacer mark, planner chip and panel-toggle buttons, a 52px activity bar with an active indicator and count badges, and a 28px status bar with per-vendor budget meters, running and queued counts and the terminal shortcut. The Setup and Settings attention dots are now red.
 - Let plugins contribute UI as host-rendered data (plugin protocol 1.2.0): `contributes.ui` declares activity items, panel tabs, a settings page and a status item; the host validates every view document and settings value, and grants cover surface kinds. Adds the `plugin.ui.*` and `plugin.settings.*` client ops (additive, v3), the `pacer plugin settings` and `pacer plugin ui list` commands, and a strategy-independent plugin settings store. See [Plugin UI contributions](docs/specs/2026-10-28-plugin-ui-contributions-design.md).
 - Add the read-only `files.search` operation (protocol 3) for the app's command menu Files scope: it searches tracked file paths in registered repositories with `git ls-files` and returns the repository, repo-relative path, size, matched ranges and the running tasks that changed each file. Results, query length and per-repository listing time and size are capped, executors are refused, and nothing is written; the change is additive. See the [design](docs/specs/2026-10-28-files-search-design.md).

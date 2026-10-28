@@ -79,6 +79,16 @@
         "value": "7px",
         "usage": "Glyph tiles in command menu rows.",
         "provisional": "Command menu board value; not yet in the design system."
+      },
+      {
+        "name": "radius-agents",
+        "value": "10px",
+        "provisional": "Settings Agents and Accounts board geometry."
+      },
+      {
+        "name": "radius-machine-tile",
+        "value": "9px",
+        "provisional": "Settings Machines board geometry."
       }
     ]
   },
@@ -188,6 +198,26 @@
         "value": "72px",
         "usage": "Command menu distance from the top of the window.",
         "provisional": "Command menu board value; not yet in the design system."
+      },
+      {
+        "name": "size-400",
+        "value": "400px",
+        "provisional": "Settings Agents and Accounts board geometry."
+      },
+      {
+        "name": "size-9",
+        "value": "9px",
+        "provisional": "Settings Agents and Accounts board geometry."
+      },
+      {
+        "name": "size-150",
+        "value": "150px",
+        "provisional": "Settings Machines board geometry."
+      },
+      {
+        "name": "size-220",
+        "value": "220px",
+        "provisional": "Settings Machines board geometry."
       }
     ]
   },
@@ -208,6 +238,20 @@
         "sample": "Fix flaky retry test",
         "usage": "Matched text in command menu results: underlined and one step heavier than body-strong.",
         "provisional": "Command menu board value; not yet in the design system."
+      }
+    ]
+  },
+  "shadow": {
+    "tokens": [
+      {
+        "name": "shadow-agent-failure",
+        "value": "inset 0 0 0 1px var(--bad-line)",
+        "provisional": "Settings Agents board failing row ring."
+      },
+      {
+        "name": "shadow-choice-selected",
+        "value": "0 0 0 1px var(--ink)",
+        "provisional": "Settings Machines and Add agent board selection ring."
       }
     ]
   }

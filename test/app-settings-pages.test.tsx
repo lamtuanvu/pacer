@@ -34,8 +34,8 @@ test('General links to settings pages rather than mounting every editor', () => 
 test('This machine is a reachable settings page with one current icon navigation item', () => {
   const route = resolveRoute('#/settings/machine') as Route;
   expect(route).toMatchObject({ name: 'settings', section: 'machine' });
-  expect(render('machine')).toContain('Parallel tasks on this machine');
-  expect(render('machine')).toContain('Preferred terminal');
+  expect(render('machine')).toContain('Parallel tasks');
+  expect(render('machine')).toContain('Terminal for sessions');
   const html = renderToString(<SettingsPanel route={route} counts={null}/>);
   expect(html).toContain('href="#/settings/machine"');
   expect(html.match(/aria-current="page"/g)).toHaveLength(1);

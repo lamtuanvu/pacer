@@ -615,3 +615,43 @@ a.pc-btn{text-decoration:none}
 .pc-check-list__item--pending,.pc-check-list__item--skipped{color:var(--ink-secondary)}
 .pc-check-list__label{flex:1;min-width:0;overflow-wrap:anywhere}
 .pc-check-list__note{flex:none;font-size:var(--type-caption-size);color:var(--ink-secondary)}
+
+/* Board-density planner identity, account choice and agent aside variants. */
+.pc-list-row--planner,.pc-list-row--planner:last-child{padding:var(--space-3\.5) var(--space-4);gap:var(--space-3);border-radius:var(--radius-agents);background:var(--surface-card)}
+.pc-page-columns--agents{grid-template-columns:minmax(0,1fr) minmax(var(--size-340),var(--size-400));gap:var(--space-6)}
+.pc-page-columns--agents:not(:has(.pc-page-columns__aside)){grid-template-columns:minmax(0,1fr)}
+.pc-page-columns--agents>.pc-page-columns__aside{align-self:stretch;background:var(--surface-card);border-left:1px solid var(--line);padding:var(--space-7) var(--space-6)}
+.pc-radio-choices{display:inline-flex;flex-wrap:wrap;gap:var(--space-half);padding:var(--space-half);border:1px solid var(--line);border-radius:var(--radius-md);background:var(--surface-card)}
+.pc-radio-choices label{display:inline-flex;align-items:center;gap:var(--space-1);padding:var(--space-1) var(--space-3);border-radius:var(--radius-sm);font-weight:var(--type-body-strong-weight);cursor:pointer}
+.pc-radio-choices label:has(:checked){background:var(--surface-lane)}
+.pc-radio-choices label:has(:focus-visible){outline:var(--stroke-focus) solid var(--focus)}
+.pc-radio-choices input{accent-color:var(--ink)}
+@media(max-width:1100px){.pc-page-columns--agents{grid-template-columns:minmax(0,1fr)}}
+
+.pc-usage--slim{display:flex;flex-direction:column;align-items:stretch;gap:var(--space-1);width:100%;min-width:var(--size-80)}
+.pc-meter--slim{width:100%;height:var(--size-6)}
+.pc-usage--slim .pc-usage__text{white-space:normal;color:var(--ink-muted)}
+.pc-setting-row--stacked{grid-template-columns:minmax(0,1fr);gap:var(--space-2);padding-top:var(--space-3\.5);border-top:1px solid var(--line)}
+.pc-section-heading--headline{font-size:var(--type-headline-size);line-height:var(--type-headline-line);font-weight:var(--type-headline-weight);letter-spacing:normal;text-transform:none;color:var(--ink)}
+
+.pc-usage--slim.pc-meter--stale{opacity:1}
+.pc-usage--slim.pc-meter--stale .pc-meter{opacity:.55}
+
+.pc-card--bad{background:var(--bad-tint);border-color:var(--bad-line)}
+
+/* Board-aligned choices retain native button/radio focus and selection semantics. */
+.pc-choice-card--agent{font-weight:var(--type-body-weight);flex-direction:column;align-items:stretch;gap:var(--space-1\.5);padding:var(--space-3\.5);border-radius:var(--radius-agents);background:var(--surface-page)}
+.pc-choice-card--alias{min-height:var(--control-settings);font-weight:var(--type-body-weight);padding:var(--space-2) var(--space-2\.5);gap:var(--space-2);border-radius:var(--radius-md);background:var(--surface-page)}
+.pc-choice-card--agent[aria-pressed=true],.pc-choice-card--alias[aria-pressed=true]{border-color:var(--ink);background:var(--surface-page);box-shadow:var(--shadow-choice-selected)}
+.pc-radio-choices--options{display:flex;flex-direction:column;gap:var(--space-2\.5);padding:0;border:0;background:transparent}
+.pc-radio-choices--options label{display:flex;align-items:flex-start;gap:var(--space-2\.5);padding:var(--space-3) var(--space-3\.5);border:1px solid var(--line);border-radius:var(--radius-agents);font-weight:var(--type-body-weight)}
+.pc-radio-choices--options label:has(:checked){border-color:var(--ink);background:var(--surface-page)}
+.pc-radio-choices--options label>span{display:flex;flex-direction:column;min-width:0}
+.pc-stepper{gap:var(--space-half)}
+.pc-stepper__step{gap:var(--space-2\.5);padding:var(--space-2\.5)}
+.pc-check-list{padding:var(--space-2\.5) var(--space-3);gap:var(--space-1\.5)}
+.pc-check-list__glyph{width:var(--size-14)}
+.pc-check-list__note{max-width:40%;overflow-wrap:anywhere;white-space:normal;text-align:right}
+.pc-check-list--unboxed{border:0;padding:0;background:transparent}
+
+@media(max-width:560px){.pc-choice-card--alias{min-height:var(--control-touch)}}

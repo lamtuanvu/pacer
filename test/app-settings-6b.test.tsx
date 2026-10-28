@@ -103,7 +103,7 @@ test('unknown data is omitted, never shown as zero or a measured value', () => {
 
 test('Agents: Add agent is the one primary action; the planner card and tabs come from the snapshot only', () => {
   const html = render(<SettingsGeneral section="executors" initialData={settings} />, withState({ executors: [executor], accounts: [summary({ name: 'team' })], planner: { agent: 'claude-code', runner: 'claude-code', advice: 'Keep planning' } }));
-  expect((html.match(/pc-btn--primary/g) ?? []).length).toBe(2); // Add agent and the save bar's Save changes, which is disabled until there are edits.
+  expect((html.match(/pc-btn--primary/g) ?? []).length).toBe(1); // The idle save bar is absent.
   expect(html).toContain('Keep planning');
   expect(html).toContain('Executors · 1');
   expect(html).toContain('Accounts · 1');
@@ -122,7 +122,7 @@ test('host names: suggested from the alias, validated, and "local" is reserved',
 
 test('Machines page offers the guided add and lists no hosts that pacer does not have', () => {
   const html = render(<SettingsGeneral section="machine" initialData={settings} />, withState({ machine: { used: 1, max: 4 }, executors: [{ ...executor, host: null }], hosts: [] }));
-  for (const text of ['This machine', 'Add a remote host', 'Pick a host from your SSH config', 'Connect and check', 'Running 1 of 4']) expect(html).toContain(text);
+  for (const text of ['This Mac', 'Add a remote host', 'Pick a host from your SSH config', 'Connect and check', 'Running 1 of 4']) expect(html).toContain(text);
   expect(html).not.toContain('Remote hosts');
   const noMachine = render(<SettingsGeneral section="machine" initialData={settings} />, withState({ hosts: [] }));
   expect(noMachine).not.toContain('Running ');
@@ -154,4 +154,114 @@ test('route plumbing: Add agent receives the host link and host detail receives 
   expect(hostless).toContain('Which agent?');
   expect(render(<SettingsGeneral section="hosts" alias="devbox" initialData={settings} />, state)).toContain('Machines</a>');
   expect(render(<SettingsGeneral section="hosts" initialData={settings} />, state)).toContain('Add a remote host');
+});
+
+test('Agents: only Executors has a planner card; Accounts has the factual banner and sign-in column',()=>{
+ const snapshot=withState({planner:{agent:'codex',runner:'codex',advice:'Planner advice'},accounts:[summary({name:'team',signedIn:false,source:'Observed source'})]});
+ const executors=render(<SettingsGeneral section="executors" initialData={settings}/>,snapshot);
+ expect(executors).toContain('aria-label="Planner"');
+ expect(executors).not.toContain('>Connected<');
+ expect(executors).not.toContain('class="u3-save-bar"');
+ const html=render(<SettingsGeneral section="accounts" initialData={{...settings,accounts}}/>,snapshot);
+ expect(html).not.toContain('Change planner');
+ expect(html).toContain('An account is where quota comes from.');
+ expect(html).toContain('pacer never reads or copies an agent\'s own sign-in.');
+ expect(html).not.toContain('Endpoint keys stay in your keychain');
+ expect(html).toContain('scope="col">Sign-in</th>');
+ expect(html).toMatch(/data-label="Sign-in"><span>Signed out<\/span><div class="u3-muted">Observed source/);
+ expect(html).toContain('data-label="Sign-in"><span>Unknown</span>');
+});
+
+test('Agents table shows count and known machine maximum, failing tint, and 24px identity',()=>{
+ const html=render(<SettingsGeneral section="executors" initialData={settings}/>,withState({machine:{used:0,max:8},executors:[{...executor,state:'failing',slots:{used:0,max:3}}]}));
+ expect(html).toContain('u3-row--bad');
+ expect(html).toContain('data-label="Parallel tasks"><strong>3</strong><span class="u3-muted"> of 8</span>');
+ expect(html).toContain('--agent-size:24px');
+ expect(html).not.toContain('type="number"');
+ const unknown=render(<SettingsGeneral section="executors" initialData={settings}/>,withState({executors:[executor]}));
+ expect(unknown).not.toContain(' of undefined');
+});
+
+test('Accounts policy uses the existing config values and shows the threshold only for fill',()=>{
+ const policy=(mode:string)=>render(<SettingsGeneral section="accounts" initialData={{...settings,accounts,config:{keys:{'pacing.accounts':{value:mode},'pacing.fill_threshold':{value:85}},planners:[]}}}/>);
+ expect(policy('spread')).toContain('role="radiogroup" aria-label="Multiple accounts"');
+ expect(policy('spread')).toContain('Spread evenly');
+ expect(policy('spread')).not.toContain('Account fill threshold');
+ expect(policy('fill')).toContain('aria-label="Account fill threshold"');
+ expect(policy('fill')).toContain('value="85"');
+});
+
+test('Accounts policy explains disconnected controls',()=>{
+ const html=render(<SettingsGeneral section="accounts" initialData={{...settings,accounts,config:{keys:{'pacing.accounts':{value:'spread'}},planners:[]}}}/>,{...withState({}),connected:false});
+ expect(html).toContain('Reconnecting. Account policy changes will be available when the service reconnects.');
+ expect(html).toMatch(/type="radio"[^>]*disabled/);
+});
+
+test('Machines uses the board cards and only reports known local facts and executor caps', () => {
+  const html = render(<SettingsGeneral section="machine" initialData={settings} />, withState({
+    service: {version:'0.11.0'}, machine: {used:1,max:4}, executors: [{...executor,host:null,slots:{used:1,max:3}}],
+  }));
+  expect(html.match(/class="u3-machine-card"/g)).toHaveLength(2);
+  expect(html).toContain('pacer 0.11.0');
+  expect(html).toContain('pc-pill--good');
+  expect(html).toContain('may use 3');
+  expect(html).toContain('u3-parallel-input');
+  expect(html).toContain('u3-terminal-picker');
+  for (const absent of ['macOS 27','arm64','Worktrees']) expect(html).not.toContain(absent);
+  const empty=render(<SettingsGeneral section="machine" initialData={settings}/>,withState({machine:{used:0,max:4}}));
+  expect(empty).toMatch(/pc-pill--neutral[^>]*>Running 0 of 4/);
+  expect(empty).not.toContain('may use');
+});
+
+test('Add host offers aliases without invented HostName captions and waits for a passed check', () => {
+  const html=render(<AddHost initialAliases={['devbox','pi-lab']}/>);
+  expect(html).toContain('pc-choice-card--alias');
+  expect(html).toContain('<code>devbox</code>');
+  expect(html).not.toContain('34.80');
+  expect(html).not.toContain('Next, map the repositories');
+  expect(html).not.toContain('pc-check-list');
+  expect(html).toContain('u3-host-name');
+  expect(html).toContain('Pick a host from your SSH config first.');
+});
+
+test('Add agent has a breadcrumb, polite panel, found state, selection check and actual install guidance', () => {
+  const html=render(<AddExecutor initialDetection={[
+    {agent:'codex',found:true,version:'1.0',path:'',install_hint:''},
+    {agent:'cursor',found:false,version:null,path:'',install_hint:'install-cursor'},
+  ]}/>);
+  expect(html).toContain('aria-label="Breadcrumb"');
+  expect(html).toContain('aria-live="polite" aria-labelledby="agent-step-heading" class="u3-wizard-panel"');
+  expect(html).toContain('u3-selected-check');
+  expect(html).toContain('--agent-size:28px');
+  expect(html).toContain('Not found');
+  expect(html).toContain('Install: <code>install-cursor</code>');
+  expect(html).toContain('Agents that aren’t installed show how to get them.');
+  expect(render(<AddExecutor initialDetection={[]}/>)).not.toContain('show how to get them');
+});
+
+test('Add agent account and location options use radios and omit unavailable remote choices', () => {
+  const account=render(<AddExecutor initialDraft={{step:'2'}} initialAccounts={accounts}/>);
+  expect(account).toContain('pc-radio-choices--options');
+  expect(account).toContain('type="radio"');
+  expect(account).not.toContain('Use an Orca account');
+  const where=render(<AddExecutor initialDraft={{step:'3',account:'team'}}/>);
+  expect(where).toContain('name="agent-location"');
+  expect(where).toContain('Add one in Machines');
+  expect(where).not.toContain('value="remote"');
+  expect(where).not.toContain('16 parallel tasks shared');
+});
+
+test('Add agent model picker uses only reported models and nests test status and checks in its test block', () => {
+  const html=render(<AddExecutor initialDraft={{step:'4',account:'team'}} initialAccounts={[
+    {name:'team',kind:'codex',connection:{models:[{id:'fixture-model'}]}},
+  ]}/>);
+  expect(html).toContain('u3-model-picker');
+  expect(html).toContain('Agent default');
+  expect(html).not.toContain('gemini-3-pro');
+  expect(html).toContain('class="u3-test-task"');
+  expect(html).toContain('Not tested yet');
+  expect(html.match(/>Add agent and run test task</g)).toHaveLength(1);
+  const running=render(<AddExecutor initialDraft={{step:'4',account:'team',createdId:executor.id,jobId:job.id}}/>,{...withState({}),jobs:{[job.id]:{...job,state:'running'}}});
+  expect(running).toContain('pc-check-list--unboxed');
+  expect(running).toContain('Draft kept for this session');
 });

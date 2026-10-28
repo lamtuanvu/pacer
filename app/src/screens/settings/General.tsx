@@ -83,7 +83,7 @@ export function SettingsGeneral({
       content = <PlannerPacing initialData={initialData.config} />;
       break;
     case "accounts":
-      content = <AccountsSection initialData={initialData.accounts} />;
+      content = <AccountsSection initialData={initialData.accounts} initialConfig={initialData.config} />;
       break;
     case "executors":
       content = <ExecutorsSection />;

@@ -265,3 +265,43 @@ gap instead of adding their legacy outer margins. An empty project executor list
 is hidden so it does not insert a second grid gap. The start composer keeps its
 intentional landing-page offset; rail dividers retain extra separation between
 navigation groups. These specialized layouts do not override shared primitives.
+
+Agents board density: `ListRow layout="planner"` uses a 32px identity mark,
+14px × 16px card padding and a 10px radius on surface-card. It preserves sibling
+actions and content. `PageColumns layout="agents"` gives the details aside a
+340–400px column with 28px × 24px padding, a left border and surface-card;
+it stacks below the table on smaller canvases. Production consumer: Settings Agents.
+`RadioChoices` takes label, name, value, options, onChange and disabled props.
+It uses native radio inputs in a labelled radiogroup, retaining browser arrow-key
+navigation, focus and disabled semantics. Production consumer: Settings Accounts'
+existing spread/fill policy. These are local compositions, with no upstream copy.
+Agents/Accounts tables retain specialized semantic table layouts: 9px × 16px
+uppercase headers, 10px × 16px body cells and 24px agent marks. Provisional
+`radius-agents`, `size-9`, `size-400` and `shadow-agent-failure` tokens record board values.
+`Icon` also supplies lock and close glyphs for the account information banner and
+agent detail dismissal; decorative glyphs remain hidden from assistive technology.
+`UsageMeter size="slim"` stacks its 6px meter above its caption and wraps caption
+text; it is used by both agent tables. `SettingRow layout="stacked"` places the
+control beneath its label and description with a top divider for detail blocks.
+`SectionHeading variant="headline"` provides the board's 16/22/650 mixed-case
+aside title. These variants retain the base components' semantics and actions.
+The rounded table frame clips its corners; an inner scrolling region keeps all
+columns and real actions reachable when the table is wider than its canvas.
+`Card tone="bad"` uses bad-tint and bad-line for readiness explanations; wording
+and fix actions remain supplied by the screen. Slim historical meters dim only
+the visual track, retaining full contrast for their factual caption.
+
+Machines and Add agent board alignment: `ChoiceCard` accepts `layout="agent"`
+(vertical, 14px padding, 6px gap, 10px corners) or `layout="alias"` (8px × 10px
+padding). Both retain button/pressed semantics, visible keyboard focus and an ink
+selection border/ring. `RadioChoices layout="options"` renders bordered native
+radio rows with 12px × 14px padding, 10px corners and an ink selected border;
+labels can contain a title and caption. Native arrow-key radio navigation applies.
+Existing compact account policy controls keep their default layout.
+
+`Stepper` uses a 2px list gap and 10px step padding/gap. `CheckList` uses 10px ×
+12px padding, 6px row gaps and 14px glyphs; `unboxed` removes its outer border,
+background and padding when composed inside the Add agent Test task block.
+Notes stay right aligned and wrap within the row. The `laptop` outline icon is
+available for the Machines local card. These variants are owned by DS; Machines
+and Add agent own only their specialized card, panel and grid composition.

@@ -31,8 +31,8 @@ const glyphs = { passed: "✓", failed: "✕", running: "●", pending: "○", s
 const words = { passed: "Passed", failed: "Failed", running: "Checking", pending: "Not started", skipped: "Skipped" } as const;
 
 /** A live check list: each row states its result in words as well as a glyph and tone. */
-export function CheckList({ label, items }: { label: string; items: readonly CheckItem[] }) {
-  return <ul aria-label={label} className="pc-check-list">
+export function CheckList({ label, items, unboxed = false }: { label: string; items: readonly CheckItem[]; unboxed?: boolean }) {
+  return <ul aria-label={label} className={`pc-check-list${unboxed ? " pc-check-list--unboxed" : ""}`}>
     {items.map(item => <li key={item.id} className={`pc-check-list__item pc-check-list__item--${item.state}`}>
       <span className="pc-check-list__glyph" aria-hidden="true">{glyphs[item.state]}</span>
       <span className="pc-check-list__label"><span className="sr-only">{words[item.state]}: </span>{item.label}</span>
