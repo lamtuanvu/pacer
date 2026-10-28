@@ -18,3 +18,13 @@ test("live proxy permits a shell only in its disposable repo or home", () => {
   expect(guard.safeTerminalFolder(root, linked)).toBe(false);
   expect(guard.safeTerminalFolder(root, undefined)).toBe(false);
 });
+
+test("live proxy lets a ui-seeded shell default to its sandbox home, but no other sandbox", () => {
+  const root = tmpDir(); mkdirSync(join(root, "home")); mkdirSync(join(root, "repo"));
+  expect(guard.safeShellCreate({ root, seed: "ui" }, { kind: "shell" })).toBe(true);
+  expect(guard.safeShellCreate({ root }, { kind: "shell" })).toBe(false);
+  expect(guard.safeShellCreate({ root, seed: "ui" }, { kind: "shell", cwd: tmpDir() })).toBe(false);
+  expect(guard.safeShellCreate({ root, seed: "ui" }, { kind: "shell", cwd: join(root, "repo") })).toBe(true);
+  expect(guard.safeShellCreate({ root, seed: "ui" }, { kind: "action" })).toBe(false);
+  expect(guard.safeShellCreate({ root, seed: "ui" }, null)).toBe(false);
+});
