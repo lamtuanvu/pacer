@@ -61,18 +61,20 @@ function fail(code: CoreErrorCode, reason: IssueErrorReason, message: string, hi
   throw new CoreError(code, message, hint, { reason });
 }
 
-// C0/C1 controls except tab and newline, plus bidi overrides and isolates ("Trojan Source").
-const CONTROL = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f‎‏‪-‮⁦-⁩]/g;
+// Controls (except tab and newline), format characters (bidi overrides, zero-width characters, tag
+// characters, U+061C, U+FEFF), lone surrogates, variation selectors and invisible fillers. Hidden text
+// could reach an executor's brief without the person confirming it ever seeing it.
+const CONTROL = /(?![\n\t])[\p{Cc}\p{Cf}\p{Cs}\u115f\u1160\u3164\uffa0\ufe00-\ufe0f\u{e0100}-\u{e01ef}]/gu;
 
 /** Plain text with controls removed, cut to `max` code points. */
 export function cleanLine(value: string, max: number): { text: string; truncated: boolean } {
-  const chars = Array.from(value.replace(/[\r\n\t]+/g, " ").replace(CONTROL, "").trim());
+  const chars = Array.from(value.replace(/[\r\n\t\u2028\u2029]+/g, " ").replace(CONTROL, "").trim());
   return { text: chars.slice(0, max).join(""), truncated: chars.length > max };
 }
 
 /** Multi-line plain text with controls removed and CRLF normalised, cut to `maxBytes` of UTF-8 on a code point boundary. */
 export function cleanBody(value: string, maxBytes: number): { text: string; truncated: boolean } {
-  const text = value.replace(/\r\n?/g, "\n").replace(CONTROL, "");
+  const text = value.replace(/\r\n?|[\u2028\u2029]/g, "\n").replace(CONTROL, "");
   if (Buffer.byteLength(text, "utf8") <= maxBytes) return { text, truncated: false };
   let bytes = 0, out = "";
   for (const ch of text) {
@@ -98,7 +100,7 @@ async function githubRemote(ctx: Ctx, repo: RepoRef): Promise<GithubRepo> {
   try { url = await boundedGitRead(ctx.run, ["git", "-C", repo.path, "remote", "get-url", "origin"], 5000); }
   catch { return fail("unavailable", "gh_failed", `Cannot read the git remote of ${repo.label}`, "The repository folder did not respond; check that it is reachable."); }
   const key = url.code === 0 ? repoKey(url.stdout.trim()) : null;
-  const match = key ? /^github\.com\/([^/]+)\/([^/]+)$/.exec(key) : null;
+  const match = key ? /^github\.com\/([a-z0-9](?:[a-z0-9-]{0,38}))\/((?!\.\.?$)[a-z0-9._-]{1,100})$/.exec(key) : null;
   if (!match) fail("invalid_input", "not_github", `${repo.label} has no GitHub origin remote`, "Issue import reads issues from the github.com repository named by the origin remote.");
   return { owner: match[1], name: match[2] };
 }
@@ -131,14 +133,15 @@ function defaultGh(ctx: Ctx): (argv: string[]) => Promise<RunResult> {
     const bin = ctx.which("gh");
     if (!bin) fail("unavailable", "gh_missing", "The GitHub CLI (gh) is not installed", "Install gh from https://cli.github.com and run gh auth login.");
     // The user's own gh login is used as is; pacer never reads or stores the token.
-    const env = { ...ctx.env, GH_PROMPT_DISABLED: "1", GH_NO_UPDATE_NOTIFIER: "1", GH_SPINNER_DISABLED: "1", NO_COLOR: "1", CLICOLOR: "0" };
+    const { GH_DEBUG: _debug, DEBUG: _debugAll, GH_REPO: _repo, GH_HOST: _host, ...inherited } = ctx.env;
+    const env = { ...inherited, GH_PROMPT_DISABLED: "1", GH_NO_UPDATE_NOTIFIER: "1", GH_SPINNER_DISABLED: "1", NO_COLOR: "1", CLICOLOR: "0" };
     return ctx.run([bin, ...argv], GH_TIMEOUT_MS, { env });
   };
 }
 
 /** Map a failed gh run to a typed error. `what` names the missing thing for not-found messages. */
 function ghFailure(r: RunResult, what: "issue" | "repo"): never {
-  const stderr = r.stderr.replace(CONTROL, "");
+  const stderr = r.stderr.slice(0, 64 * 1024).replace(CONTROL, "");
   if (r.timedOut) fail("unavailable", "gh_failed", "gh did not answer in time", "Check the network connection and retry.");
   if (/rate limit|HTTP 429|abuse detection/i.test(stderr)) fail("rate_limited", "rate_limited", "GitHub rate limit reached", "Wait a few minutes and retry.");
   if (r.code === 4 || /HTTP 401|gh auth login|not logged in|authentication required|Bad credentials/i.test(stderr)) {
@@ -166,9 +169,13 @@ function parseGh<T extends z.ZodTypeAny>(r: RunResult, schema: T, what: "issue" 
 
 const issueUrl = (gh: GithubRepo, n: number) => `https://github.com/${gh.owner}/${gh.name}/issues/${n}`;
 
-function summary(raw: z.infer<typeof ghSummary>, gh: GithubRepo): IssueSummary {
-  // Only canonical issue URLs pass through; anything else is rebuilt from the validated number.
-  const url = /^https:\/\/github\.com\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+\/issues\/\d+$/.test(raw.url) && raw.url.endsWith(`/issues/${raw.number}`) ? raw.url : issueUrl(gh, raw.number);
+/** This repository's canonical URL for the issue, or null when gh returned anything else (another repository, a pull request). */
+function ownIssueUrl(raw: z.infer<typeof ghSummary>, gh: GithubRepo): string | null {
+  const url = issueUrl(gh, raw.number);
+  return raw.url.toLowerCase() === url ? url : null;
+}
+
+function summary(raw: z.infer<typeof ghSummary>, url: string): IssueSummary {
   return {
     number: raw.number,
     title: cleanLine(raw.title, TITLE_MAX_CHARS).text,
@@ -192,9 +199,10 @@ export async function importIssue(ctx: Ctx, input: unknown, deps: IssueDeps = {}
   const number = parseIssueRef(parsed.data.issue, gh);
   const run = deps.gh ?? defaultGh(ctx);
   const raw = parseGh(await run(["issue", "view", String(number), `--repo=github.com/${gh.owner}/${gh.name}`, "--json=number,title,body,labels,url,state"]), ghIssue, "issue");
-  if (raw.number !== number || /\/pull\/\d+/.test(raw.url)) fail("not_found", "issue_not_found", `#${number} is not an issue in ${gh.owner}/${gh.name}`);
+  const url = raw.number === number ? ownIssueUrl(raw, gh) : null;
+  if (!url) fail("not_found", "issue_not_found", `#${number} is not an issue in ${gh.owner}/${gh.name}`, "Pull requests and issues moved to another repository are not imported.");
   const title = cleanLine(raw.title, TITLE_MAX_CHARS), body = cleanBody(raw.body ?? "", BODY_MAX_BYTES);
-  return { repo: repo.key, github: `${gh.owner}/${gh.name}`, ...summary(raw, gh), body: body.text, truncated: { title: title.truncated, body: body.truncated } };
+  return { repo: repo.key, github: `${gh.owner}/${gh.name}`, ...summary(raw, url), body: body.text, truncated: { title: title.truncated, body: body.truncated } };
 }
 
 /** Search a registered repository's issues for a picker. Writes nothing. */
@@ -212,7 +220,9 @@ export async function searchIssues(ctx: Ctx, input: unknown, deps: IssueDeps = {
     `--state=${parsed.data.state ?? "open"}`, `--limit=${parsed.data.limit ?? 20}`, "--json=number,title,labels,url,state",
   ]), z.array(ghSummary), "repo");
   // A repo: or org: qualifier in the query could widen the search; keep only this repository's issues.
-  const own = `https://github.com/${gh.owner}/${gh.name}/issues/`;
-  const issues = raw.map(r => summary(r, gh)).filter(i => i.url.toLowerCase().startsWith(own));
+  const issues = raw.flatMap(r => {
+    const url = ownIssueUrl(r, gh);
+    return url ? [summary(r, url)] : [];
+  });
   return { repo: repo.key, github: `${gh.owner}/${gh.name}`, issues };
 }

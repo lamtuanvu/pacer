@@ -42,11 +42,13 @@ async function reasonOf(p: Promise<unknown>): Promise<[string, unknown]> {
 }
 
 test("imports an issue by number with gh argv, plain-text fields and the canonical URL", async () => {
-  const { ctx, calls } = await setup(() => ok(fixture("view-217.json")));
+  const { ctx: base, calls } = await setup(() => ok(fixture("view-217.json")));
+  const ctx = { ...base, env: { GH_HOST: "ghe.example", GH_DEBUG: "api" } };
   const r = await importIssue(ctx, { repo: KEY, issue: 217 });
   expect(calls).toHaveLength(1);
   expect(calls[0].argv).toEqual(["/opt/fake/gh", "issue", "view", "217", "--repo=github.com/lamtuanvu/pacer", "--json=number,title,body,labels,url,state"]);
   expect(calls[0].env).toMatchObject({ GH_PROMPT_DISABLED: "1", NO_COLOR: "1" });
+  expect(calls[0].env).not.toHaveProperty("GH_HOST");
   expect(r).toMatchObject({ repo: KEY, github: "lamtuanvu/pacer", number: 217, state: "closed", labels: [], url: "https://github.com/lamtuanvu/pacer/issues/217", truncated: { title: false, body: false } });
   expect(r.title).toBe("desktop: Linux arm64 AppImage corrupts the bundled CLI (linuxdeploy patchelf)");
   expect(r.body).toStartWith("## Problem\n\nThe Linux arm64 AppImage");
@@ -77,9 +79,9 @@ test("the repository must be registered and its GitHub identity comes from the o
 });
 
 test("issue content is untrusted: controls and bidi overrides are stripped and sizes are capped", async () => {
-  const title = "Fix\u0007 ‮evil‬ login\r\nbug\u0000" + "x".repeat(400);
-  const body = "line one\r\nline\u001b[31m two⁦\n" + "é".repeat(BODY_MAX_BYTES);
-  const raw = { number: 5, title, body, labels: [{ name: "bug\u0000" }, { name: "‮" }], url: "javascript:alert(1)", state: "OPEN" };
+  const title = "Fix\u0007 \u202Eevil\u202C login\r\nbug\u0000" + "x".repeat(400);
+  const body = "line one\r\nline\u001b[31m two\u2066\n" + "é".repeat(BODY_MAX_BYTES);
+  const raw = { number: 5, title, body, labels: [{ name: "bug\u0000" }, { name: "\u202E" }], url: "https://github.com/LamTuanVu/Pacer/issues/5", state: "OPEN" };
   const { ctx } = await setup(() => ok(JSON.stringify(raw)));
   const r = await importIssue(ctx, { repo: KEY, issue: 5 });
   expect(Array.from(r.title)).toHaveLength(TITLE_MAX_CHARS);
@@ -93,6 +95,22 @@ test("issue content is untrusted: controls and bidi overrides are stripped and s
   expect(r.state).toBe("open");
   expect(cleanLine("a\tb\nc", 10)).toEqual({ text: "a b c", truncated: false });
   expect(cleanBody("😀😀", 5)).toEqual({ text: "😀", truncated: true });
+});
+
+test("hidden Unicode cannot smuggle text past the person confirming the issue", async () => {
+  const hidden = "a\u200Bb\u200C\u200D\u2060\uFEFF\u061C\u00AD" + "\u{E0049}\u{E0067}\u{E006E}" + "\uFE0F\u{E0100}\u3164\uD800c";
+  expect(cleanLine(hidden, 100).text).toBe("abc");
+  expect(cleanBody(hidden + "\u2028d\u2029e", 1000).text).toBe("abc\nd\ne");
+  const { ctx } = await setup(() => ok(JSON.stringify({ number: 6, title: hidden, body: "ok" + "\u{E0041}".repeat(50), labels: [{ name: "\u200B" }], url: "https://github.com/lamtuanvu/pacer/issues/6", state: "OPEN" })));
+  const r = await importIssue(ctx, { repo: KEY, issue: 6 });
+  expect([r.title, r.body, r.labels]).toEqual(["abc", "ok", []]);
+});
+
+test("an issue whose URL is not this repository's issue URL is refused", async () => {
+  for (const url of ["javascript:alert(1)", "https://github.com/other/repo/issues/5", "https://github.com/lamtuanvu/pacer/issues/6"]) {
+    const { ctx } = await setup(() => ok(JSON.stringify({ number: 5, title: "t", body: "", labels: [], url, state: "OPEN" })));
+    expect(await reasonOf(importIssue(ctx, { repo: KEY, issue: 5 }))).toEqual(["not_found", "issue_not_found"]);
+  }
 });
 
 test("a pull request number is not imported as an issue", async () => {
@@ -129,11 +147,13 @@ test("a missing gh is a typed error and nothing runs", async () => {
 
 test("search passes the query as one argument and keeps only this repository's issues", async () => {
   const recorded = JSON.parse(fixture("list-delegate.json")) as { url: string }[];
-  const foreign = { number: 1, title: "elsewhere", labels: [], url: "https://github.com/other/repo/issues/1", state: "OPEN" };
-  const { ctx, calls } = await setup(() => ok(JSON.stringify([...recorded, foreign])));
+  const foreign = ["https://github.com/other/repo/issues/1", "https://github.com/victim/private/pull/9", "javascript:alert(1)", "https://github.com/lamtuanvu/pacer/pull/2"]
+    .map((url, i) => ({ number: i + 1, title: "elsewhere", labels: [], url, state: "OPEN" }));
+  const { ctx, calls } = await setup(() => ok(JSON.stringify([...recorded, ...foreign])));
   const r = await searchIssues(ctx, { repo: KEY, query: "delegate repo:other/repo --web\n", state: "all", limit: 5 });
   expect(calls[0].argv).toEqual(["/opt/fake/gh", "issue", "list", "--repo=github.com/lamtuanvu/pacer", "--search=delegate repo:other/repo --web", "--state=all", "--limit=5", "--json=number,title,labels,url,state"]);
   expect(r.issues).toHaveLength(recorded.length);
+  expect(r.issues.some(i => i.title === "elsewhere")).toBe(false);
   expect(r.issues[0]).toEqual({ number: 145, title: "ui: remote hosts, add executor and delegate dialog fixes (UI-9, UI-16)", labels: ["ui-polish"], url: "https://github.com/lamtuanvu/pacer/issues/145", state: "open" });
   expect(r.issues.some(i => "body" in i)).toBe(false);
 });
