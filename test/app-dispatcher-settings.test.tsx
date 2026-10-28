@@ -378,7 +378,10 @@ test("cross-repository schedule uses a label and maps unsupported copy in the mu
     canProbe={false} probing={null} onProbe={()=>{}} onConsent={()=>{}}/>);
   const html = render(runner);
   expect(html).toMatch(/<div class="u3-muted">scheduled probing certifies team\/project, not this repository ·/);
-  expect(html).toContain("not probing now: Verification is not available for this executor yet");
+  expect(html).toContain("not probing now: verification is not available in team/project");
+  // The executor-level sentence belongs to a genuinely unverifiable executor on another
+  // row of this same card; repeating it here would say two things with one sentence.
+  expect(html).not.toContain("Verification is not available for this executor yet");
   expect(html).not.toContain("Project-level native control overrides");
   expect(html).not.toContain("exact-environment canary");
   const paused = render({ ...runner, scheduleUnsupportedReason: null,

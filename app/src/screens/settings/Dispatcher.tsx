@@ -113,7 +113,13 @@ function CertificationSchedule({item}:{item:EnforcementRunner}){
   // Why renewal is not happening, in the doctor's words. A pause is Pacer's own
   // decision, so it reads as plain state; "off" and a current certificate
   // already say it above.
-  const reason=item.scheduleReason??(item.scheduleUnsupportedReason?nativeControlReasonCopy(item.scheduleUnsupportedReason,false):null);
+  // The obstacle is the scheduled repository, not this executor, which may well be
+  // verifiable here and shows an enabled Verify control beside this line. Borrowing
+  // nativeControlReasonCopy would repeat verbatim the sentence another row uses for a
+  // genuinely unverifiable executor.
+  const reason=item.scheduleReason??(item.scheduleUnsupportedReason
+    ?(item.scheduleRepo?`verification is not available in ${item.scheduleRepo}`:nativeControlReasonCopy(item.scheduleUnsupportedReason,false))
+    :null);
   if(reason&&item.probeMode!=="off"&&item.state!=="certified")
     parts.push(`${item.schedulePaused?"probing paused":"not probing now"}: ${reason}`);
   if(!parts.length)return null;
