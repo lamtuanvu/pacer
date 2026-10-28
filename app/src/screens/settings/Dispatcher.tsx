@@ -62,6 +62,18 @@ function consentLabel(consent:"granted"|"declined"|"unasked"):string {
   if(consent==="declined")return "consent: declined";
   return "";
 }
+export interface ConsentAction {label:string;ariaLabel:string;granted:boolean;variant:"secondary"|"quiet"}
+/**
+ * The buttons each consent state offers, and the value each one sends. The
+ * control renders only from this, so an inverted boolean here is an inverted
+ * boolean on screen, and a test of this is a test of the wiring.
+ */
+export function consentActions(account:string, consent:"granted"|"declined"|"unasked"):ConsentAction[]{
+  const grant:ConsentAction={label:"Grant consent",ariaLabel:`Grant consent for ${account}`,granted:true,variant:"secondary"};
+  if(consent==="granted")return [{label:"Withdraw consent",ariaLabel:`Withdraw consent for ${account}`,granted:false,variant:"quiet"}];
+  if(consent==="declined")return [grant];
+  return [grant,{label:"Decline",ariaLabel:`Decline probes for ${account}`,granted:false,variant:"quiet"}];
+}
 export function scopedEnforcementReading(reading:EnforcementReading|undefined,repo:string,repos:readonly {key:string;path:string}[]):EnforcementReading|undefined {
   const path=repos.find(item=>item.key===repo)?.path??repo;
   return reading?.repo===path?reading:undefined;
@@ -85,21 +97,19 @@ function CertificationSchedule({item}:{item:EnforcementRunner}){
 function ConsentControl({item,onConsent}:{item:EnforcementRunner;onConsent:(account:string,granted:boolean)=>void}){
   // With scheduling off, consent decides nothing: offering it would be a control
   // that cannot take effect.
-  if(!item.probeSupported||item.probeMode==="off"||item.consent!=="unasked")return null;
+  if(!item.probeSupported||item.probeMode==="off")return null;
+
+  const actions=consentActions(item.account,item.consent);
   return <div className="pc-stack pc-stack--compact">
-    <div className="u3-muted">
+    {item.consent==="unasked"&&<div className="u3-muted">
       Scheduled certification probes spend <strong>{item.account}</strong>'s quota to verify native child blocking.
       Certificates expire within 24 hours, so this recurs automatically.
       At most {MAX_PROBES_PER_DAY} probes per day. Pacer stops probing if one costs more than {MAX_COST_PCT}% of the account's window.
       Probes start only when the account's measured headroom is above the certification headroom floor.
-    </div>
+    </div>}
     <div className="pc-cluster">
-      <Button size="sm" variant="secondary" onClick={()=>onConsent(item.account,true)} aria-label={`Grant consent for ${item.account}`}>
-        Grant consent
-      </Button>
-      <Button size="sm" variant="quiet" onClick={()=>onConsent(item.account,false)} aria-label={`Decline probes for ${item.account}`}>
-        Decline
-      </Button>
+      {actions.map(action=><Button key={action.label} size="sm" variant={action.variant}
+        onClick={()=>onConsent(item.account,action.granted)} aria-label={action.ariaLabel}>{action.label}</Button>)}
     </div>
   </div>;
 }
