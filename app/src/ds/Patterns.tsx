@@ -49,11 +49,13 @@ export function FilterChip({ selected, className, ...props }: ButtonProps & { se
 }
 
 export interface SegmentOption { value: string; label: ComponentChildren; disabled?: boolean }
-export function SegmentedControl({ label, value, options, onChange, disabled, className, variant }: {
+export function SegmentedControl({ label, value, options, onChange, disabled, className, variant, describedBy }: {
   variant?: "board"; label: string; value: string; options: readonly SegmentOption[];
   onChange: (value: string) => void; disabled?: boolean; className?: string;
+  /** Id of visible text that explains the group, such as why it is disabled (UI-13). */
+  describedBy?: string;
 }) {
-  return <div role="group" aria-label={label} className={classes('pc-segmented', variant && 'pc-segmented--board', className)}>
+  return <div role="group" aria-label={label} aria-describedby={describedBy} className={classes('pc-segmented', variant && 'pc-segmented--board', className)}>
     {options.map(option => <Button size="sm" key={option.value} disabled={disabled || option.disabled}
       aria-pressed={value === option.value} onClick={() => onChange(option.value)}>{option.label}</Button>)}
   </div>;
