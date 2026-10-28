@@ -1,20 +1,94 @@
 {
   "size": {
     "tokens": [
-      { "name": "size-3", "value": "3px", "usage": "Activity bar active indicator width.", "provisional": "App frame chrome board value; not yet in the design system." },
-      { "name": "size-4", "value": "4px", "usage": "Status bar mini meter height.", "provisional": "App frame chrome board value; not yet in the design system." },
-      { "name": "size-5", "value": "5px", "usage": "Status bar budget gap.", "provisional": "App frame chrome board value; not yet in the design system." },
-      { "name": "size-10", "value": "10px", "usage": "Title and status bar horizontal padding.", "provisional": "App frame chrome board value; not yet in the design system." },
-      { "name": "size-14", "value": "14px", "usage": "Status bar item gap and glyph size.", "provisional": "App frame chrome board value; not yet in the design system." },
-      { "name": "size-52", "value": "52px", "usage": "Activity bar width.", "provisional": "App frame chrome board value; not yet in the design system." },
-      { "name": "size-84", "value": "84px", "usage": "Title bar inset that leaves room for the native window controls.", "provisional": "App frame chrome board value; not yet in the design system." },
-      { "name": "size-420", "value": "420px", "usage": "Title bar search width.", "provisional": "App frame chrome board value; not yet in the design system." },
-      { "name": "size-neg-6", "value": "-6px", "usage": "Activity bar active indicator offset.", "provisional": "App frame chrome board value; not yet in the design system." }
+      {
+        "name": "size-3",
+        "value": "3px",
+        "usage": "Activity bar active indicator width.",
+        "provisional": "App frame chrome board value; not yet in the design system."
+      },
+      {
+        "name": "size-4",
+        "value": "4px",
+        "usage": "Status bar mini meter height.",
+        "provisional": "App frame chrome board value; not yet in the design system."
+      },
+      {
+        "name": "size-5",
+        "value": "5px",
+        "usage": "Status bar budget gap.",
+        "provisional": "App frame chrome board value; not yet in the design system."
+      },
+      {
+        "name": "size-10",
+        "value": "10px",
+        "usage": "Title and status bar horizontal padding.",
+        "provisional": "App frame chrome board value; not yet in the design system."
+      },
+      {
+        "name": "size-14",
+        "value": "14px",
+        "usage": "Status bar item gap and glyph size.",
+        "provisional": "App frame chrome board value; not yet in the design system."
+      },
+      {
+        "name": "size-52",
+        "value": "52px",
+        "usage": "Activity bar width.",
+        "provisional": "App frame chrome board value; not yet in the design system."
+      },
+      {
+        "name": "size-84",
+        "value": "84px",
+        "usage": "Title bar inset that leaves room for the native window controls.",
+        "provisional": "App frame chrome board value; not yet in the design system."
+      },
+      {
+        "name": "size-420",
+        "value": "420px",
+        "usage": "Title bar search width.",
+        "provisional": "App frame chrome board value; not yet in the design system."
+      },
+      {
+        "name": "size-neg-6",
+        "value": "-6px",
+        "usage": "Activity bar active indicator offset.",
+        "provisional": "App frame chrome board value; not yet in the design system."
+      }
     ]
   },
   "radius": {
     "tokens": [
-      { "name": "radius-xs", "value": "2px", "usage": "Indicator bars and tiny meters.", "provisional": "App frame chrome board value; not yet in the design system." }
+      {
+        "name": "radius-xs",
+        "value": "2px",
+        "usage": "Indicator bars and tiny meters.",
+        "provisional": "App frame chrome board value; not yet in the design system."
+      }
+    ]
+  },
+  "color": {
+    "tokens": [
+      {
+        "name": "ink-on-fill",
+        "value": {
+          "light": "#ffffff",
+          "dark": "#ffffff"
+        },
+        "usage": "Text on solid status fills such as count badges.",
+        "provisional": "App frame chrome board value; not yet in the design system."
+      }
+    ]
+  },
+  "type": {
+    "styles": [
+      {
+        "name": "count-badge",
+        "fontSize": "10px",
+        "lineHeight": "16px",
+        "fontWeight": 700,
+        "provisional": "App frame chrome board value; not yet in the design system."
+      }
     ]
   }
 }

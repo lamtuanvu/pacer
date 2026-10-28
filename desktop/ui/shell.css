@@ -47,6 +47,7 @@
   --aurora-1: #a5b4fc;
   --aurora-2: #f0abfc;
   --aurora-3: #99f6e4;
+  --ink-on-fill: #ffffff;
   --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   --type-display-size: 28px;
@@ -84,6 +85,9 @@
   --type-code-size: 12px;
   --type-code-line: 18px;
   --type-code-weight: 400;
+  --type-count-badge-size: 10px;
+  --type-count-badge-line: 16px;
+  --type-count-badge-weight: 700;
   --space-1: 4px;
   --space-1\.5: 6px;
   --space-2: 8px;
@@ -235,6 +239,7 @@
   --aurora-1: #818cf8;
   --aurora-2: #d58be8;
   --aurora-3: #5ed8c4;
+  --ink-on-fill: #ffffff;
 }
 }
 :root[data-theme="dark"] {
@@ -284,6 +289,7 @@
   --aurora-1: #818cf8;
   --aurora-2: #d58be8;
   --aurora-3: #5ed8c4;
+  --ink-on-fill: #ffffff;
 }
 /* Bundled copy of app/src/ds/tokens.css above; keep in sync with the pacer tokens. */
 * { box-sizing: border-box; }

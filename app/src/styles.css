@@ -114,7 +114,7 @@ html[data-pacer-native-titlebar] .pc-traffic__btn{display:none}
 @media(pointer:coarse){.pc-rail__item.on::before{left:calc(-1 * var(--space-1))}}
 .pc-rail__badge{display:inline-flex;align-items:center;justify-content:center;min-width:var(--size-16);height:var(--size-16);padding:0 var(--space-1);border-radius:var(--radius-full);font-size:var(--type-label-size);font-weight:var(--type-body-strong-weight);line-height:var(--type-body-line)}
 .pc-rail__item .pc-rail__badge{position:absolute;top:var(--space-half);right:var(--space-half)}
-.pc-rail__badge.pc-rail__badge--count{background:var(--bad-fill);color:var(--ink-on-ink)}
+.pc-rail__badge.pc-rail__badge--count{background:var(--bad-fill);color:var(--ink-on-fill);font-size:var(--type-count-badge-size);line-height:var(--type-count-badge-line);font-weight:var(--type-count-badge-weight)}
 .pc-rail__badge--warn{background:var(--warn-bg);color:var(--warn-fg)}
 .pc-rail__badge--info{background:var(--info-bg);color:var(--info-fg)}
 .pc-rail__dot{position:absolute;top:var(--size-6);right:var(--size-6);width:var(--size-8);height:var(--size-8);box-sizing:content-box;border:var(--size-2) solid var(--surface-card);border-radius:var(--radius-full);background:var(--bad-fill)}
@@ -132,7 +132,7 @@ html[data-pacer-native-titlebar] .pc-topbar{padding-left:var(--size-84)}
 .pc-app:not(.pc-app--narrow)>.pc-topbar h1{position:absolute;width:var(--size-1);height:var(--size-1);padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 .pc-layout-toggles{display:flex;align-items:center;gap:var(--space-half);padding:0 var(--space-1);margin:0 var(--space-1);border-left:1px solid var(--line);border-right:1px solid var(--line)}
 .pc-layout-toggles:empty{display:none}
-.pc-layout-toggles .pc-icon-button{width:var(--size-32);height:var(--size-32);padding:0;color:var(--ink-secondary)}
+.pc-layout-toggles .pc-icon-button{width:var(--size-32);height:var(--size-32);padding:0;border-radius:var(--radius-sm);color:var(--ink-secondary)}
 @media(pointer:coarse){.pc-layout-toggles .pc-icon-button{width:var(--control-touch);height:var(--control-touch)}}
 .pc-layout-toggles .pc-icon-button svg{width:var(--size-18);height:var(--size-18)}
 .pc-layout-toggles .pc-icon-button:hover,.pc-layout-toggles .pc-icon-button[aria-pressed="true"]{background:var(--surface-lane);color:var(--ink)}
