@@ -33,6 +33,7 @@ pacer paces AI coding work across subscription budgets. A planner plans and revi
 | `crates/limits-protocol` | `pacer-limits-protocol`: generated limits operation types, split under CRATE-3 |
 | `crates/session-protocol` | `pacer-session-protocol`: generated interactive-session operation types, split from the client schema under CRATE-3 |
 | `crates/terminal-protocol` | `pacer-terminal-protocol`: generated terminal and host-terminal operation types, split from the client schema under CRATE-3 |
+| `crates/assistant-protocol` | `pacer-assistant-protocol`: generated assistant operation types, split from the client schema under CRATE-3 |
 | `crates/cli` | `pacer-cli`: argv dispatch, core exec, status line, self-repair |
 | `crates/pacer` | `pacer`: the binary, start-up and dispatch only |
 | `crates/plugin-sdk` | `pacer-plugin`: Rust plugin SDK |
