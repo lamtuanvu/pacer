@@ -25,6 +25,27 @@ export function rememberRecent(id: string, before = loadRecent()): string[] {
   return next;
 }
 
+/** Copies text with the clipboard API, falling back to selecting a hidden element where a webview refuses it. Resolves whether anything was copied. */
+export async function copyText(text: string): Promise<boolean> {
+  try { await navigator.clipboard.writeText(text); return true; } catch { /* try the older way */ }
+  // A modal menu still open would leave the page inert, and inert text cannot be selected: let it close first.
+  await new Promise(resolve => setTimeout(resolve, 60));
+  try {
+    const holder = document.createElement("span");
+    holder.className = "sr-only";
+    holder.textContent = text;
+    document.body.appendChild(holder);
+    const selection = window.getSelection(), range = document.createRange();
+    range.selectNodeContents(holder);
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    const ok = document.execCommand("copy");
+    selection?.removeAllRanges();
+    holder.remove();
+    return ok;
+  } catch { return false; }
+}
+
 /** The ⌘K command menu over the app's snapshot and the one command registry. Mount it to open it. */
 export function CommandPalette({ snapshot, registry = commandRegistry, now: fixedNow, returnFocus, close }: { snapshot: ClientSnapshot | null; registry?: CommandRegistry; now?: number; returnFocus?: () => HTMLElement | null; close: () => void }) {
   // The leading ">" is the chip, not text ("?" ask stays in the text while it is gated off): the input shows only what follows it, and Backspace on an empty input removes the chip.
@@ -72,7 +93,7 @@ export function CommandPalette({ snapshot, registry = commandRegistry, now: fixe
   const notifications = useNotifications();
   const copyPath = (path: string) => {
     const done = (ok: boolean) => notifications?.notify(ok ? { key: "copy-path", tone: "success", title: "Path copied", message: path } : { key: "copy-path", tone: "error", title: "Could not copy the path", message: path });
-    try { void navigator.clipboard.writeText(path).then(() => done(true), () => done(false)); } catch { done(false); }
+    void copyText(path).then(done);
   };
   const pick = (id: string, options?: { keepOpen: boolean }) => {
     const item = byId.get(id);

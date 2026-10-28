@@ -399,7 +399,7 @@ browserTest("a file no running task changed copies its path on Enter and says so
 
 browserTest("a failed copy says so", () => withPage(async (page, built) => {
   await open(page, built, "#/overview");
-  await page.evaluate(() => { Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async () => { throw new Error("denied"); } } }); });
+  await page.evaluate(() => { Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async () => { throw new Error("denied"); } } }); document.execCommand = () => false; });
   await filesAnswer(page, { results: [{ repo: "github.com/acme/api", repoLabel: "acme/api", path: "docs/ssh.md", ranges: [[5, 8]] }] });
   await page.keyboard.press("Control+k");
   await page.keyboard.type("ssh");
@@ -429,4 +429,21 @@ browserTest("repositories that could not be searched are named with a reason and
   await page.evaluate(() => { (window as any).failFiles = false; (window as any).filesAnswer = { results: [] }; });
   await page.getByRole("combobox").fill("zzz");
   await page.waitForFunction(() => document.querySelector(".pc-command__empty")?.textContent?.includes("Nothing matches"));
+}));
+
+browserTest("a webview that refuses the clipboard API still copies through the fallback", () => withPage(async (page, built) => {
+  await open(page, built, "#/overview");
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async () => { throw new Error("denied"); } } });
+    document.execCommand = (name: string) => { (window as any).copiedBy = [name, window.getSelection()?.toString() ?? null]; return true; };
+  });
+  await filesAnswer(page, { results: [{ repo: "github.com/acme/api", repoLabel: "acme/api", path: "docs/ssh.md", ranges: [[5, 8]] }] });
+  await page.keyboard.press("Control+k");
+  await page.keyboard.type("ssh");
+  await page.getByRole("option", { name: /docs\/ssh\.md/ }).hover();
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(() => document.querySelector(".pc-toasts")?.textContent?.includes("Path copied"));
+  expect(await page.evaluate(() => (window as any).copiedBy)).toEqual(["copy", "docs/ssh.md"]);
+  // The hidden element is removed again.
+  expect(await page.locator("body > span.sr-only").count()).toBe(0);
 }));
