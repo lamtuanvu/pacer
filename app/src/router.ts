@@ -3,6 +3,7 @@ import { settingsPageTitle } from "./settings-pages";
 /** Hash routes for the redesigned shell. Unknown hashes fall back to Overview. */
 export interface RouteQuery { repo: string | null; scope: string | null }
 type RouteBase =
+  | { name: "plugin"; plugin: string; id: string }
   | { name: "start" | "overview" | "loading" | "setup" }
   | { name: "add-executor"; host?: string }
   | { name: "review" | "sessions" | "terminal"; id?: string }
@@ -14,15 +15,17 @@ export type RouteName = Route["name"];
 export type PrimaryRoute = "start" | "overview" | "review" | "sessions" | "terminal" | "settings" | null;
 type TargetQuery = Partial<RouteQuery>;
 export type RouteTarget =
+  | { name: "plugin"; plugin: string; id: string; query?: TargetQuery }
   | { name: "start" | "overview" | "review" | "setup"; query?: TargetQuery }
   | { name: "sessions" | "terminal"; id?: string; query?: TargetQuery }
   | { name: "settings"; section?: string; query?: TargetQuery }
   | { name: "hosts"; alias?: string; query?: TargetQuery }
   | { name: "add-executor"; host?: string; query?: TargetQuery };
-export const SETTINGS_SECTIONS = ["planner", "accounts", "executors", "machine", "dispatcher", "updates", "notifications", "appearance", "diagnostics"] as const;
+export const SETTINGS_SECTIONS = ["plugins", "planner", "accounts", "executors", "machine", "dispatcher", "updates", "notifications", "appearance", "diagnostics"] as const;
 const EMPTY_QUERY: RouteQuery = { repo: null, scope: null };
 const withTargetQuery = <T extends RouteTarget>(target: T, query?: TargetQuery): T => query ? { ...target, query } : target;
 export const routes = {
+  plugin: (plugin: string, id: string, query?: TargetQuery) => withTargetQuery({ name: "plugin", plugin, id } as const, query),
   start: (query?: TargetQuery) => withTargetQuery({ name: "start" } as const, query),
   overview: (query?: TargetQuery) => withTargetQuery({ name: "overview" } as const, query),
   needsYou: (query?: TargetQuery) => withTargetQuery({ name: "review" } as const, query),
@@ -44,6 +47,7 @@ function mergedQuery(target: RouteTarget, current: RouteQuery = EMPTY_QUERY): Ro
 export function hrefFor(target: RouteTarget, current: RouteQuery = EMPTY_QUERY): string {
   let href: string;
   switch (target.name) {
+    case "plugin": href = `#/plugins/${encodeURIComponent(target.plugin)}/${encodeURIComponent(target.id)}`; break;
     case "start": href = "#/"; break;
     case "overview": href = "#/overview"; break;
     case "review": href = "#/needs-you"; break;
@@ -122,6 +126,8 @@ export function resolveRoute(hash: string, setupComplete: boolean | null = true,
   return { ...route, ...(route.name === "add-executor" && params.has("host") ? { host: params.get("host")! } : {}), query } as Route;
 }
 function match(path: string): RouteBase {
+  const plugin = /^\/plugins\/([^/]+)\/([^/]+)$/.exec(path);
+  if (plugin) { const owner = decode(plugin[1]!), id = decode(plugin[2]!); return owner && id ? { name: "plugin", plugin: owner, id } : { name: "overview" }; }
   if (path === "/setup") return { name: "setup" };
   if (path === "/") return { name: "start" };
   if (path === "/overview") return { name: "overview" };

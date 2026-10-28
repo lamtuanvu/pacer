@@ -91,6 +91,10 @@
   --type-match-strong-size: 13px;
   --type-match-strong-line: 19px;
   --type-match-strong-weight: 700;
+  --type-plugin-section-size: 9px;
+  --type-plugin-section-line: 12px;
+  --type-plugin-section-weight: 600;
+  --type-plugin-section-tracking: 0.04em;
   --space-1: 4px;
   --space-1\.5: 6px;
   --space-2: 8px;

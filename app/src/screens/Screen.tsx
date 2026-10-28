@@ -1,3 +1,4 @@
+import { LazyActivity } from "../plugins/LazyActivity";
 import { LazySettings } from "./settings/LazySettings";
 import { useContext } from "preact/hooks";
 import { LazySetup } from "./setup/LazySetup";
@@ -15,6 +16,7 @@ import { TerminalScreen } from "./terminal/Terminal";
 export function Screen({route}:{route:Route}) {
  const { running } = useContext(SetupContext);
  switch(route.name) {
+ case 'plugin': return <LazyActivity key={`${route.plugin}/${route.id}`} plugin={route.plugin} id={route.id}/>;
  case 'start': return <LazyStartSession/>;
  case 'setup': return <LazySetup query={route.query}/>;
  case 'overview': return <Overview query={route.query}/>;

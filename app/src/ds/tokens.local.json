@@ -196,6 +196,14 @@
         "sample": "Fix flaky retry test",
         "usage": "Matched text in command menu results: underlined and one step heavier than body-strong.",
         "provisional": "Command menu board value; not yet in the design system."
+      },
+      {
+        "name": "plugin-section",
+        "fontSize": "9px",
+        "lineHeight": "12px",
+        "fontWeight": 600,
+        "letterSpacing": "0.04em",
+        "provisional": "ActivityBar board Plugins section label; not yet in the design system."
       }
     ]
   }
