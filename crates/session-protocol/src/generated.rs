@@ -971,6 +971,155 @@ impl<'de> ::serde::Deserialize<'de> for SessionFileReadParamsReference {
             })
     }
 }
+///`SessionFileResolveParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "attempt",
+///    "id",
+///    "reference"
+///  ],
+///  "properties": {
+///    "attempt": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "exclusiveMinimum": 0.0
+///    },
+///    "id": {
+///      "type": "string",
+///      "pattern": "^[A-Za-z0-9_-]{1,128}$"
+///    },
+///    "reference": {
+///      "type": "string",
+///      "maxLength": 4096,
+///      "minLength": 1
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct SessionFileResolveParams {
+    pub attempt: ::std::num::NonZeroU64,
+    pub id: SessionFileResolveParamsId,
+    pub reference: SessionFileResolveParamsReference,
+}
+///`SessionFileResolveParamsId`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "pattern": "^[A-Za-z0-9_-]{1,128}$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct SessionFileResolveParamsId(::std::string::String);
+impl ::std::ops::Deref for SessionFileResolveParamsId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<SessionFileResolveParamsId> for ::std::string::String {
+    fn from(value: SessionFileResolveParamsId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for SessionFileResolveParamsId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| ::regress::Regex::new("^[A-Za-z0-9_-]{1,128}$").unwrap());
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^[A-Za-z0-9_-]{1,128}$\"".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for SessionFileResolveParamsId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for SessionFileResolveParamsId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`SessionFileResolveParamsReference`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 4096,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct SessionFileResolveParamsReference(::std::string::String);
+impl ::std::ops::Deref for SessionFileResolveParamsReference {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<SessionFileResolveParamsReference> for ::std::string::String {
+    fn from(value: SessionFileResolveParamsReference) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for SessionFileResolveParamsReference {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 4096usize {
+            return Err("longer than 4096 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for SessionFileResolveParamsReference {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for SessionFileResolveParamsReference {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
 ///`SessionPrepareParams`
 ///
 /// <details><summary>JSON schema</summary>

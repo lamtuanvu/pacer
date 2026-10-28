@@ -3,7 +3,7 @@ import { lstatSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { readTask } from "../tasks/store";
 import { CoreError } from "../core/errors";
-import { readWorkspaceFile } from "./openat";
+import { readWorkspaceFile, resolveWorkspaceFile } from "./openat";
 import { taskWorktreesDir } from "../supervisor/worktree";
 
 export interface SessionFileRequest { id: string; attempt: number; reference: string }
@@ -26,7 +26,13 @@ function insideTaskWorktree(ctx: Ctx, state: string, root: string): boolean {
   return !!tag && /-[0-9a-f]{8}$/.test(tag) && !!task && /^t-\d{8}-\d{6}-[0-9a-f]{4}$/.test(task);
 }
 
-export function readSessionFile(ctx: Ctx, request: SessionFileRequest): SessionFileResult {
+interface LocatedFile {
+  root: string; rootIdentity: { dev: number; ino: number }; privateDirectory?: { dev: number; ino: number };
+  absolute: string; path: string; line?: number; column?: number;
+}
+
+/** Validate a reference against one local attempt's workspace; shared by the read and the desktop hand-off. */
+function locateSessionFile(ctx: Ctx, request: SessionFileRequest): LocatedFile {
   const task = readTask(ctx, request.id);
   if (!task) throw new CoreError("unknown_task", "Session not found");
   const run = task.run;
@@ -59,23 +65,52 @@ export function readSessionFile(ctx: Ctx, request: SessionFileRequest): SessionF
       if (isPrivate(realpathSync(absolute))) throw new CoreError("not_allowed", "Private Pacer state cannot be previewed");
     } catch (error) { if (error instanceof CoreError) throw error; }
   } catch (error) { if (error instanceof CoreError) throw error; }
-  const path = relative(root, absolute);
-  let result: ReturnType<typeof readWorkspaceFile>;
-  try { result = readWorkspaceFile(root, path.split(sep), privateDirectory, rootIdentity); }
+  return { root, rootIdentity, privateDirectory, absolute, path: relative(root, absolute), line, column };
+}
+
+/** Run the descriptor-relative traversal and map its failures to the read's typed errors. */
+function traverse<T>(file: LocatedFile, walk: typeof readWorkspaceFile | typeof resolveWorkspaceFile): T {
+  try { return walk(file.root, file.path.split(sep), file.privateDirectory, file.rootIdentity) as T; }
   catch (error) {
     if (error instanceof RangeError) throw new CoreError("too_large", "File is too large to preview");
-    try { lstatSync(absolute); }
+    try { lstatSync(file.absolute); }
     catch (probe) {
       if ((probe as NodeJS.ErrnoException).code === "ENOENT" || (probe as NodeJS.ErrnoException).code === "ENOTDIR")
         throw new CoreError("not_found", "File no longer exists in this session workspace");
     }
     throw new CoreError("not_allowed", "File is unavailable or cannot be previewed");
   }
+}
+
+const location = (file: LocatedFile) =>
+  ({ ...(file.line === undefined ? {} : { line: file.line }), ...(file.column === undefined ? {} : { column: file.column }) });
+
+export function readSessionFile(ctx: Ctx, request: SessionFileRequest): SessionFileResult {
+  const file = locateSessionFile(ctx, request);
+  const result = traverse<ReturnType<typeof readWorkspaceFile>>(file, readWorkspaceFile);
   if (result.bytes.includes(0)) throw new CoreError("invalid_input", "Binary files cannot be previewed");
   let text: string;
   try { text = new TextDecoder("utf-8", { fatal: true }).decode(result.bytes); }
   catch { throw new CoreError("invalid_input", "File is not UTF-8 text"); }
+  const path = file.path;
   const kind = /\.md(?:own)?$/i.test(path) ? "markdown" : /\.html?$/i.test(path) ? "html" : "code";
-  return { path: path.split(sep).join("/"), kind, text, size: result.size, modified: result.modified,
-    ...(line === undefined ? {} : { line }), ...(column === undefined ? {} : { column }) };
+  return { path: path.split(sep).join("/"), kind, text, size: result.size, modified: result.modified, ...location(file) };
+}
+
+export interface SessionFileResolution {
+  /** Real workspace root; the desktop shell re-walks from here without following symlinks. */
+  root: string;
+  path: string;
+  absolute: string;
+  dev: number;
+  ino: number;
+  line?: number;
+  column?: number;
+}
+
+/** Resolve a session file by the read's bounded rules, for the desktop's open-in-editor hand-off (ADR 0011). Any regular file qualifies, including binary or oversized ones. */
+export function resolveSessionFile(ctx: Ctx, request: SessionFileRequest): SessionFileResolution {
+  const file = locateSessionFile(ctx, request);
+  const identity = traverse<ReturnType<typeof resolveWorkspaceFile>>(file, resolveWorkspaceFile);
+  return { root: file.root, path: file.path.split(sep).join("/"), absolute: file.absolute, dev: identity.dev, ino: identity.ino, ...location(file) };
 }

@@ -4945,6 +4945,41 @@ Params JSON Schema:
 }
 ```
 
+### `session.file.resolve`
+
+Resolve a regular file inside one local session attempt's workspace by the bounded read's rules, for the desktop's open-in-editor hand-off.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,128}$"
+    },
+    "attempt": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "reference": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    }
+  },
+  "required": [
+    "id",
+    "attempt",
+    "reference"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### `session.prepare`
 
 Interactive executor capabilities and explicit workspace choices.

@@ -15,7 +15,7 @@ import { launchTaskRunner, spawnRunner, taskStop } from "../tasks/api";
 import { updateTask } from "../tasks/store";
 import { CoreError } from "../core/errors";
 import { pidAlive } from "../link/store";
-import { readSessionFile } from "../session/files";
+import { readSessionFile, resolveSessionFile } from "../session/files";
 const id = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 const op = <P extends z.ZodTypeAny>(def: OpDef<P>) => def as unknown as OpDef;
 export const sessionOps: Record<string, OpDef> = {
@@ -23,6 +23,11 @@ export const sessionOps: Record<string, OpDef> = {
     description: "Read a bounded UTF-8 file inside one local session attempt's workspace.",
     params: z.object({ id, attempt: z.number().int().positive(), reference: z.string().min(1).max(4096) }),
     handler: (ctx, p) => readSessionFile(ctx, p),
+  }),
+  "session.file.resolve": op({
+    description: "Resolve a regular file inside one local session attempt's workspace by the bounded read's rules, for the desktop's open-in-editor hand-off.",
+    params: z.object({ id, attempt: z.number().int().positive(), reference: z.string().min(1).max(4096) }),
+    handler: (ctx, p) => resolveSessionFile(ctx, p),
   }),
   "session.draft.create": op({
     description:
