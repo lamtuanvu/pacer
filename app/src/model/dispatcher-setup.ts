@@ -119,7 +119,7 @@ export async function saveSetup({ call, setup, repo, profile }: SaveSetupInput):
     // Check the profile before writing anything, so a stale ladder never leaves a partial save.
     if (ladderDirty) {
       const latest = await call<{ strategy: string; config: DispatchConfig }>("dispatch.config.get", {});
-      if (latest.strategy !== setup.strategy || !same(latest.config, setup.savedLadder)) throw new Error("The active profile changed in another client. Discard to load it.");
+      if (latest.strategy !== setup.strategy || !same(latest.config, setup.savedLadder)) throw new Error("The active saved setup changed in another client. Discard to load it.");
     }
     const { eligibility } = setup;
     if (eligibility.kind === "global" && eligibilityChanges(eligibility)) {
@@ -142,7 +142,7 @@ export async function saveSetup({ call, setup, repo, profile }: SaveSetupInput):
       await call("strategy.save", { name: profile.name, draft, reason: profile.reason.trim() });
       try { await call("strategy.use", { name: profile.name }); }
       catch (failure) { throw new Error(`Saved ${profile.name}, but it could not be activated: ${message(failure)}`); }
-      done.push(`profile ${profile.name}, now active`);
+      done.push(`saved setup ${profile.name}, now active`);
     }
   } catch (failure) {
     if (done.length) throw new PartialSaveError(done, failure);

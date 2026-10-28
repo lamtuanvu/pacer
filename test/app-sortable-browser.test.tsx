@@ -144,16 +144,21 @@ browserTest('a failed ladder save after saved rules keeps the error and the unsa
     await page.getByRole('tab', { name: 'Everything else' }).click();
     await page.getByRole('group', { name: 'Add to Executors for Everything else' }).getByRole('button', { name: 'Add Codex' }).click();
     await page.getByRole('button', { name: 'Move up: Usable fallback' }).click();
-    await page.getByLabel('Profile name').fill('night');
+    expect(await page.locator('.pc-save-bar').textContent()).toContain('New saved setup');
+    expect(await page.locator('.pc-save-bar').textContent()).toContain('Name the new saved setup in step 3.');
+    expect(await page.locator('.pc-save-bar .pc-save-bar__scope').textContent()).not.toContain('default');
+    await page.getByLabel('Setup name').fill('night');
+    expect(await page.locator('.pc-save-bar .pc-save-bar__scope').textContent()).toBe(' · night');
     await page.getByLabel('Reason for change').fill('cheaper');
     expect(await page.locator('.pc-save-bar').textContent()).toContain('2 unsaved changes');
-    expect(await page.locator('.pc-save-bar').textContent()).toContain('Profile night');
+    expect(await page.locator('#decision-ladder').textContent()).toContain('Save the ladder as a new saved setup');
+    expect(await page.locator('#decision-ladder').textContent()).not.toContain('profile');
     await page.getByRole('button', { name: 'Validate and save' }).click();
     await page.getByText('Saved executor rules. name taken').waitFor();
     expect(await page.getByTestId('calls').textContent()).toBe('dispatch.config.get,routing.set,strategy.preview,strategy.save');
     // The rules saved and were reloaded; the ladder change, its name and reason are kept for a retry.
     await page.locator('.pc-save-bar', { hasText: '1 unsaved change' }).waitFor({ timeout: 3000 });
-    expect(await page.getByLabel('Profile name').inputValue()).toBe('night');
+    expect(await page.getByLabel('Setup name').inputValue()).toBe('night');
     expect(await page.locator('#decision-ladder .pc-sortable__label').first().textContent()).toBe('Usable fallback');
   } finally { await page.close(); }
 });
@@ -445,10 +450,46 @@ for(const width of [1440,768,375])browserTest(`Try a task input layout at ${widt
       expect(boxes[0]!.width).toBe(200);expect(boxes[1]!.width).toBe(140);
       expect(boxes[0]!.y).toBe(boxes[2]!.y);
       expect((await form.getByLabel('Task',{exact:true}).boundingBox())!.height).toBe(32);
+      const tier = (await form.getByLabel('Minimum model tier').boundingBox())!;
+      const tools = (await form.getByLabel('Needs tools').boundingBox())!;
+      expect(tier.width).toBeLessThanOrEqual(200);
+      expect(tools.x).toBeGreaterThanOrEqual(tier.x + tier.width);
     }else{
       expect(boxes[1]!.y).toBeGreaterThan(boxes[0]!.y);
       expect(boxes[2]!.y).toBeGreaterThan(boxes[1]!.y);
       expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
     }
   }finally{await page.close();}
+});
+
+browserTest('saved setups and current setup adapt to a 450px container at a 768px viewport', async () => {
+  const page = await browser.newPage({ viewport: { width: 768, height: 1024 } });
+  try {
+    await page.goto(`${server.url.href}#overview`);
+    // Match the settings canvas beside the sidebar, independently of viewport breakpoints.
+    await page.locator('main').evaluate(node => { node.style.width = '450px'; });
+    await page.locator('.pc-saved-setups__row').first().waitFor();
+    const row = page.locator('.pc-saved-setups__row').first();
+    const [name, summary, action] = await Promise.all([
+      row.locator(':scope > strong').boundingBox(), row.locator(':scope > span').nth(1).boundingBox(), row.locator(':scope > div').boundingBox(),
+    ]);
+    expect(summary!.y).toBeGreaterThanOrEqual(name!.y + name!.height);
+    expect(summary!.x).toBe(name!.x);
+    expect(summary!.width).toBeGreaterThan(150);
+    expect(summary!.x + summary!.width).toBeLessThanOrEqual(action!.x);
+    const cells = page.locator('.pc-current-setup__cell');
+    await cells.last().getByText('1 repository', { exact: true }).waitFor();
+    const boxes = await Promise.all([0, 1, 2].map(index => cells.nth(index).boundingBox()));
+    for (let index = 1; index < boxes.length; index++) {
+      expect(boxes[index]!.y).toBeGreaterThanOrEqual(boxes[index - 1]!.y + boxes[index - 1]!.height);
+      expect(boxes[index]!.width).toBe(boxes[0]!.width);
+    }
+    for (const id of ['native-control', 'model-choices', 'saved-profiles']) {
+      const heading = page.locator(`#${id} > .u3-heading h2`);
+      expect(await heading.evaluate(node => {
+        const style = getComputedStyle(node);
+        return [style.fontSize, style.lineHeight, style.fontWeight, style.textTransform];
+      })).toEqual(['16px', '22px', '650', 'none']);
+    }
+  } finally { await page.close(); }
 });

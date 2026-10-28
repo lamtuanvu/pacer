@@ -65,8 +65,8 @@ test("save bar stays quiet when clean and explains a blocked save", () => {
   const clean = renderToString(<SaveBar count={0} onSave={() => {}} onDiscard={() => {}} />);
   expect(clean).not.toContain("Discard");
   expect(clean).toContain('aria-live="polite"');
-  const blocked = renderToString(<SaveBar count={2} onSave={() => {}} onDiscard={() => {}} blockedReason="Name the new profile first." />);
-  expect(blocked).toContain("Name the new profile first.");
+  const blocked = renderToString(<SaveBar count={2} onSave={() => {}} onDiscard={() => {}} blockedReason="Name the new saved setup first." />);
+  expect(blocked).toContain("Name the new saved setup first.");
   expect(blocked).toContain("disabled");
 });
 
@@ -165,7 +165,7 @@ test("save sequence writes eligibility first, then validates, saves and activate
   expect(calls.map(([op]) => op)).toEqual(["dispatch.config.get", "routing.set", "strategy.preview", "strategy.save", "strategy.use"]);
   expect(calls[1]![1]).toEqual({ rules: [{ executors: ["cursor"] }] });
   expect(calls[3]![1]).toEqual({ name: "night", draft: { from: "default", set: { dispatch: reordered } }, reason: "cheaper" });
-  expect(done).toEqual(["executor rules", "profile night, now active"]);
+  expect(done).toEqual(["executor rules", "saved setup night, now active"]);
   const unchanged = recorder();
   expect(await saveSetup({ call: unchanged.call, setup: globalSetup([], []), profile })).toEqual([]);
   expect(unchanged.calls).toEqual([]);
@@ -228,14 +228,15 @@ test("saved SaveBar shows a good status dot and keeps its scope", () => {
 test("executor snapshot supplies account status and unavailable pool recovery", () => {
   const snapshot = { tasks: [], executors: [
     { id: "codex", agent: "codex", account: "work", state: "blocked", reason: "Maintenance" },
-    { id: "opencode", agent: "opencode", account: "local", state: "down", reason: "Host offline" },
+    { id: "opencode", agent: "opencode", account: "local", state: "down", reason: "host_offline" },
   ], accounts: [] };
   const html = renderToString(<TaskContext.Provider value={{ state: { ...state, snapshot }, api: { call: async () => ({}) } } as any}>
     <SetupEditor view={view} eligibility={{ kind: "global", rules: [{ executors: ["codex"] }], available: ["codex", "opencode"] }} onSaved={() => {}} onDirtyChange={() => {}} />
   </TaskContext.Provider>);
   expect(html).toContain("Blocked until unblocked");
   expect(html).toContain("work");
-  expect(html).toContain("Host offline");
+  expect(html).toContain("Not working");
+  expect(html).not.toContain("host_offline");
   expect(html).toContain(">Fix</a>");
   expect(html).not.toContain('aria-label="Add OpenCode"');
 });
@@ -243,4 +244,17 @@ test("executor snapshot supplies account status and unavailable pool recovery", 
 test("a full executor pool uses the board empty copy", () => {
   const html = wrap(<SetupEditor view={view} eligibility={{ kind: "global", rules: [{ executors: ["codex"] }], available: ["codex"] }} onSaved={() => {}} onDirtyChange={() => {}} />);
   expect(html).toContain("Every executor is in the list.");
+});
+
+test("pool reasons use eligibility copy for known and unknown codes", () => {
+  for (const [code, copy] of [["authentication_failed", "Sign-in is required"], ["new_internal_code", "Execution evidence needs attention"]]) {
+    const snapshot = { tasks: [], executors: [{ id: "opencode", agent: "opencode", account: "local", state: "down", reason: code,
+      eligibility: { state: "ineligible", reasons: [{ code, evidenceIds: [] }], evaluatedAt: 0, validUntil: null, evidenceAgeS: null, availability: "unavailable", budget: "unknown", spendingRisk: "unknown" } }], accounts: [] };
+    const html = renderToString(<TaskContext.Provider value={{ state: { ...state, snapshot }, api: { call: async () => ({}) } } as any}>
+      <SetupEditor view={view} eligibility={{ kind: "global", rules: [{ executors: ["codex"] }], available: ["codex", "opencode"] }} onSaved={() => {}} onDirtyChange={() => {}} />
+    </TaskContext.Provider>);
+    expect(html).toContain(copy!);
+    expect(html).not.toContain(code!);
+    expect(html).toContain(">Fix</a>");
+  }
 });

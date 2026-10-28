@@ -38,7 +38,8 @@ function OrderWithPool({ label, title, items, onChange, pool, empty, disabled }:
   const metadata = (id: string) => {
     const runner = state.snapshot?.executors?.find(row => row.id === id);
     const account = state.snapshot?.accounts?.find(row => row.name === runner?.account && row.agent === runner?.agent);
-    const status = runner ? executorStatus({ id, state: runner.state === "blocked" || runner.state === "exhausted" ? runner.state : runner.state === "failing" || runner.state === "down" ? "broken" : "ok", until: null, reason: runner.reason ?? null, eligibility: runner.eligibility }, undefined, undefined, account ? { verdict: account.verdict } : undefined) : undefined;
+    // Legacy free-form reasons may be internal codes; structured eligibility supplies safe detail.
+    const status = runner ? executorStatus({ id, state: runner.state === "blocked" || runner.state === "exhausted" ? runner.state : runner.state === "failing" || runner.state === "down" ? "broken" : "ok", until: null, reason: null, eligibility: runner.eligibility }, undefined, undefined, account ? { verdict: account.verdict } : undefined) : undefined;
     return { runner, status, account: runner?.account ?? id.split("#")[1]?.split("@")[0] ?? "default account" };
   };
   const add = (key: string, index: number) => { focusAfter(() => { const left = buttons(group.current, "button"); return left[Math.min(index, left.length - 1)] ?? group.current; }); onChange([...keys, key]); };
@@ -64,7 +65,7 @@ function OrderWithPool({ label, title, items, onChange, pool, empty, disabled }:
             const unavailable = runner && (runner.eligibility?.state === "ineligible" || ["disabled", "blocked", "down", "failing", "exhausted"].includes(runner.state));
             return <div key={item.key} className={`pc-executor-pool__row${unavailable ? " pc-executor-pool__row--unavailable" : ""}`}>
               <AgentMark agent={runner?.agent ?? item.key} size={20} labelled={false} />
-              <span className="pc-executor-pool__identity"><strong>{item.label}</strong><span className="pc-executor-caption">{unavailable ? status?.detail || runner.reason || status?.label || "Disabled" : [status?.label, account].filter(Boolean).join(" · ")}</span></span>
+              <span className="pc-executor-pool__identity"><strong>{item.label}</strong><span className="pc-executor-caption">{unavailable ? status?.detail || status?.label || "Disabled" : [status?.label, account].filter(Boolean).join(" · ")}</span></span>
               {unavailable ? <TextAction href={hrefFor(routes.settings("executors"))}>Fix</TextAction> : <IconButton size="sm" disabled={disabled} aria-label={`Add ${item.label}`} onClick={() => add(item.key, index)}><span aria-hidden="true">+</span></IconButton>}
             </div>;
           }) : <p className="pc-executor-caption">Every executor is in the list.</p>}
@@ -150,7 +151,7 @@ function blockedReason(setup: SetupDraft, ladderDirty: boolean, name: string, re
     if (eligibility.draft.some(rule => !rule.executors.length)) return "Each rule needs at least one executor.";
     if (eligibility.draft.some(rule => rule.kinds && !rule.kinds.length)) return "Name the task kinds for each rule.";
   }
-  if (ladderDirty && (!profileName.test(name) || name === "default")) return "Name the new profile in step 3.";
+  if (ladderDirty && (!profileName.test(name) || name === "default")) return "Name the new saved setup in step 3.";
   if (ladderDirty && !reason.trim()) return "Give a reason in step 3.";
   return undefined;
 }
@@ -179,7 +180,7 @@ export function SetupEditor({ view, eligibility: source, onSaved, onDirtyChange,
   useEffect(() => () => onLadderDraft?.(undefined), []);
   // With nothing left to save, follow the latest saved settings, so a later edit never builds on a stale base.
   useEffect(() => { if (!count) { setSetup(discardSetup(latest.current)); setConflict(false); setName(""); setReason(""); } }, [count]);
-  const scopeText = ladderDirty ? `Profile ${name || view.strategy}` : source.kind === "project" ? `${source.repoLabel} list` : `Global list for ${activeKind}${activeKind === "Everything else" ? "" : " tasks"}`;
+  const scopeText = ladderDirty ? name || "New saved setup" : source.kind === "project" ? `${source.repoLabel} list` : `Global list for ${activeKind}${activeKind === "Everything else" ? "" : " tasks"}`;
   const disabled = busy || !state.connected;
   const setEligibility = (draft: Rule[] | string[]) => setSetup(current => ({ ...current, eligibility: { ...current.eligibility, draft } as EligibilityDraft }));
   // Discard loads the latest saved settings, which also resolves a conflict.
@@ -215,9 +216,9 @@ export function SetupEditor({ view, eligibility: source, onSaved, onDirtyChange,
       {ladderEditable && <div className="pc-stack pc-stack--section">
         <DispatcherLadderFields config={setup.ladder} disabled={disabled} onChange={ladder => setSetup(current => ({ ...current, ladder }))} />
         {ladderDirty && <div className="pc-card pc-stack pc-stack--normal">
-          <SectionHeading as="h3">Save the ladder as a new profile</SectionHeading>
-          <p>The current profile stays active until this one is validated and activated.</p>
-          <Field label="Profile name" help="Lowercase letters, numbers and hyphens."><TextInput value={name} maxLength={40} disabled={disabled} onInput={event => setName(event.currentTarget.value)} /></Field>
+          <SectionHeading as="h3">Save the ladder as a new saved setup</SectionHeading>
+          <p>The current saved setup stays active until this one is validated and activated.</p>
+          <Field label="Setup name" help="Lowercase letters, numbers and hyphens."><TextInput value={name} maxLength={40} disabled={disabled} onInput={event => setName(event.currentTarget.value)} /></Field>
           <Field label="Reason for change"><TextInput value={reason} maxLength={500} disabled={disabled} onInput={event => setReason(event.currentTarget.value)} /></Field>
         </div>}
       </div>}
