@@ -135,7 +135,7 @@ test("needs you cards are compact as on the board: glyph, title, one caption lin
 test("live dispatch shows running and queued work as compact cards with their actions", () => {
   const html = section(view(), "live-dispatch");
   expect(strip(html)).toContain("Live dispatch 2 running · 1 queued");
-  expect(html.match(/pc-task-node--compact/g)).toHaveLength(3);
+  expect(html.match(/pc-task-card--compact/g)).toHaveLength(3);
   expect(html).toContain(">Editing<");
   expect(html).toContain(">Queued<");
   expect(html).toContain('href="#/tasks/t-0420"');
@@ -171,6 +171,19 @@ test("next task goes to names the next agent, then the chain with chevrons endin
   expect(strip(section(view(null, snap, { routing: { loading: false, data: { ranked: [], excluded: [] } } }), "next-task"))).toContain("No agent can take new work now.");
   expect(strip(section(view(null, snap, { routing: { loading: true } }), "next-task"))).toContain("Checking routing…");
   expect(view(null, snap, { routing: null })).not.toContain('aria-labelledby="next-task"');
+});
+
+test("with dispatch.explain the next task states its ladder step, the dispatcher's own chain and strategy", () => {
+  const explain = { outcome: "select" as const, strategy: { name: "balanced" }, chosen: { runner: "claude-code" }, step: { id: "capable-spare", index: 0 },
+    fallbacks: [{ runner: "claude-code", state: "eligible" as const }, { runner: "cursor", state: "eligible" as const }, { runner: "local", state: "excluded" as const }] };
+  const html = section(view(null, snap, { routing: { ...routing, explain } }), "next-task");
+  expect(strip(html)).toContain("Claude Code Ladder step 1 · capable-spare");
+  expect(html).toContain(">Eligible<");
+  expect(strip(html)).toMatch(/Then: Cursor Q Queue/);
+  expect(html).not.toContain("Local");
+  expect(html).toMatch(/href="#\/settings\/dispatcher"[^>]*>Strategy: balanced · change</);
+  // An explanation that would queue the work names nobody, whatever the preview ranks first.
+  expect(strip(section(view(null, snap, { routing: { ...routing, explain: { ...explain, outcome: "queue", chosen: null } } }), "next-task"))).toContain("No agent can take new work now.");
 });
 
 test("narrow Dispatch keeps executor usage and pace while the status bar is absent", () => {

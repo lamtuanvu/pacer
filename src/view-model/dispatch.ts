@@ -167,3 +167,26 @@ export function plannerCaption(meter: { usedPct: number | null; pacePct: number 
     typeof shortWindowPct === "number" && meter.window?.toLowerCase() !== "5h" ? `5h window ${Math.round(shortWindowPct)}%` : null,
   ].filter(Boolean).join(" · ");
 }
+
+/** The parts of a `dispatch.explain` answer the Next task half uses. */
+export interface RouteExplanationView {
+  outcome: "select" | "queue" | "fail" | "override";
+  strategy: { name: string };
+  chosen: { runner: string } | null;
+  step: { id: string; index: number } | null;
+  fallbacks: { runner: string; state: "eligible" | "excluded" }[];
+}
+/** The repository a "where would new work go" explanation is asked for: the active one, or the only one registered. */
+export function explainRepo(scopeRepo: string | null, repos: { key: string }[] | undefined): string | null {
+  return scopeRepo ?? (repos?.length === 1 ? repos[0]!.key : null);
+}
+/**
+ * The Next task half from the dispatcher's own explanation: who takes new work, the ladder step that picked it,
+ * and the eligible fallbacks after it in order. Null when the explanation names nobody (the work would queue or fail).
+ */
+export function nextFromExplanation(e: RouteExplanationView): { next: string; step: string | null; then: string[]; strategy: string } | null {
+  if (e.outcome === "queue" || e.outcome === "fail" || !e.chosen) return null;
+  const seen = new Set([e.chosen.runner]), then: string[] = [];
+  for (const f of e.fallbacks) if (f.state === "eligible" && !seen.has(f.runner)) { seen.add(f.runner); then.push(f.runner); }
+  return { next: e.chosen.runner, step: e.step ? `Ladder step ${e.step.index + 1} · ${e.step.id}` : null, then, strategy: e.strategy.name };
+}

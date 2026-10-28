@@ -2,7 +2,7 @@ import type { ComponentChildren } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { AttentionItem } from "../../../../src/api/read-model/types";
 import { agentInfo, markAgent } from "../../../../src/view-model/agents";
-import { kpiTiles, needsYouCards, periodHeading, periodRange, PERIODS, plannerCaption, plannerPace, tokenSpread, type InsightsSummary, type KpiTile, type NeedsYouCard, type Period } from "../../../../src/view-model/dispatch";
+import { explainRepo, kpiTiles, needsYouCards, nextFromExplanation, periodHeading, periodRange, PERIODS, plannerCaption, plannerPace, tokenSpread, type InsightsSummary, type KpiTile, type NeedsYouCard, type Period, type RouteExplanationView } from "../../../../src/view-model/dispatch";
 import { executorPace } from "../../../../src/view-model/capacity";
 import { eligibilityPresentation } from "../../../../src/view-model/eligibility";
 import { capacity, counts, needsYou, otherReposNeedingYou, plannerMeter, type Scope } from "../../../../src/view-model/selectors";
@@ -119,8 +119,12 @@ function LiveDispatch({ snapshot, scope, now, runner, query }: { snapshot: Clien
   </section>;
 }
 
-/** The dispatcher's current answer for new work, from the same routing preview the delegate forms show. */
-export interface RoutingPreview { data?: Routing; loading: boolean; error?: unknown }
+/**
+ * The dispatcher's current answer for new work, from the same routing preview the delegate forms show.
+ * `explain` is the dispatcher's own explanation (`dispatch.explain`) when the service has it and a repository is known;
+ * it names the ladder step and the chain. Readiness still comes from the preview.
+ */
+export interface RoutingPreview { data?: Routing; loading: boolean; error?: unknown; explain?: RouteExplanationView }
 
 /** The planner half: the one place on Dispatch that states the planner's budget (UI-15); the status bar shows only its mark here. */
 function PlannerHalf({ snapshot, now, shortWindowPct }: { snapshot: ClientSnapshot; now: number; shortWindowPct?: number | null }) {
@@ -138,24 +142,30 @@ function PlannerHalf({ snapshot, now, shortWindowPct }: { snapshot: ClientSnapsh
 /** The next-task half: who takes new work, then the chain after it, ending in the queue. */
 function NextHalf({ routing, query, strategy }: { routing: RoutingPreview; query: RouteQuery; strategy: string | null }) {
   const ranked = Array.isArray(routing.data?.ranked) ? routing.data!.ranked : [];
-  const next = ranked[0], then = ranked.slice(1, 4), more = ranked.length - 1 - then.length;
-  const readiness = next ? eligibilityPresentation(next.eligibility, Date.now() / 1000) : null;
+  const explained = routing.explain ? nextFromExplanation(routing.explain) : null;
+  // With an explanation the dispatcher's own pick and chain win; the preview only supplies readiness.
+  const nextId = routing.explain ? explained?.next : ranked[0]?.id;
+  const chain = explained ? explained.then : ranked.slice(1).map(row => row.id);
+  const then = chain.slice(0, 3), more = chain.length - then.length;
+  const row = ranked.find(r => r.id === nextId);
+  const readiness = row ? eligibilityPresentation(row.eligibility, Date.now() / 1000) : null;
+  const shown = explained?.strategy ?? strategy;
   const chevron = <span className="pc-dispatch-chain__sep"><Icon name="chevron-right" /></span>;
   return <div className="pc-dispatch-split__half pc-dispatch-split__half--page" role="group" aria-labelledby="next-task">
     <span className="pc-dispatch-label" id="next-task">Next task goes to</span>
     {routing.loading && !routing.data ? <span className="muted">Checking routing…</span>
       : routing.error ? <span className="muted">Could not check routing. It is checked again on the next update.</span>
-      : next && readiness ? <>
-        <div className="pc-dispatch-next"><AgentMark agent={markAgent(next.id)} size={32} labelled={false} />
-          <div className="pc-dispatch-next__who"><strong>{executorLabel(next.id)}</strong>{readiness.tone !== "good" && readiness.detail ? <span className="muted">{readiness.detail}</span> : routing.data?.policy ? <span className="muted">Project order for this repository</span> : null}</div>
-          <StatusPill status={readiness} /></div>
+      : nextId && (readiness || explained) ? <>
+        <div className="pc-dispatch-next"><AgentMark agent={markAgent(nextId)} size={32} labelled={false} />
+          <div className="pc-dispatch-next__who"><strong>{executorLabel(nextId)}</strong>{readiness && readiness.tone !== "good" && readiness.detail ? <span className="muted">{readiness.detail}</span> : explained?.step ? <span className="muted">{explained.step}</span> : routing.data?.policy ? <span className="muted">Project order for this repository</span> : null}</div>
+          {readiness && <StatusPill status={readiness} />}</div>
         <div className="pc-dispatch-chain"><span className="muted">Then:</span><ol aria-label="Then, in order">
-          {then.map(row => <li key={row.id}><span className="pc-dispatch-chip"><AgentMark agent={markAgent(row.id)} size={18} labelled={false} />{executorLabel(row.id)}</span>{chevron}</li>)}
+          {then.map(id => <li key={id}><span className="pc-dispatch-chip"><AgentMark agent={markAgent(id)} size={18} labelled={false} />{executorLabel(id)}</span>{chevron}</li>)}
           {more > 0 && <li><span className="muted">+{more} more</span>{chevron}</li>}
           <li><span className="pc-dispatch-chip pc-dispatch-chip--queue"><span className="pc-dispatch-chip__tile" aria-hidden="true">Q</span>Queue</span></li>
         </ol></div>
       </> : <span className="muted">No agent can take new work now. It waits in the queue.</span>}
-    <TextAction className="pc-text-action" href={withQuery("#/settings/dispatcher", query)}>{strategy ? `Strategy: ${strategy} · change` : "Change strategy"}</TextAction>
+    <TextAction className="pc-text-action" href={withQuery("#/settings/dispatcher", query)}>{shown ? `Strategy: ${shown} · change` : "Change strategy"}</TextAction>
   </div>;
 }
 
@@ -360,10 +370,13 @@ export function DispatchHome({ query }: { query: RouteQuery }) {
   const [period, setPeriod] = useState<Period>("7d");
   const supported = state.features.ops.has("routing.route"), scope = dispatchScope(query, useNarrow(query));
   const routing = useQuery<Routing>(supported ? "routing.route" : "version.get", supported && scope.repo ? { repo: scope.repo } : {});
+  // The explanation needs a repository and a goal; new work has no goal yet, so it asks about a generic one.
+  const repo = state.features.ops.has("dispatch.explain") ? explainRepo(scope.repo, state.snapshot?.repos) : null;
+  const explain = useQuery<RouteExplanationView>(repo ? "dispatch.explain" : "version.get", repo ? { repo, goal: "New task" } : {});
   const accounts = useQuery<Account[]>(state.features.ops.has("account.list") ? "account.list" : "version.get", {});
   const insights = useInsights(period, scope.repo);
   if (!state.snapshot) return null;
-  return <DispatchView snapshot={state.snapshot} query={query} now={Date.now() / 1000} runner={runner} routing={supported ? routing : null}
+  return <DispatchView snapshot={state.snapshot} query={query} now={Date.now() / 1000} runner={runner} routing={supported ? { ...routing, ...(repo && explain.data && !explain.error ? { explain: explain.data } : {}) } : null}
     period={period} onPeriod={setPeriod} insights={insights} connected={state.connected}
     shortWindowPct={Array.isArray(accounts.data) ? plannerShortWindow(accounts.data, state.snapshot.planner?.runner) : null} startWork={<StartWork />} />;
 }
