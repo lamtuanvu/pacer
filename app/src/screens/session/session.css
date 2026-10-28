@@ -51,8 +51,10 @@
 .pc-task-workspace__main{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0;overflow:auto;padding:var(--space-3)}
 .pc-task-workspace__main:has(>.pc-conversation){overflow:hidden;padding:0}
 .pc-task-workspace__details{padding:var(--space-4) var(--space-3);border-top:1px solid var(--line);background:var(--surface-card)}
-.pc-session-title-facts{display:flex;align-items:center;gap:var(--space-3);flex:1;min-width:0;overflow:hidden;white-space:nowrap;color:var(--ink-muted);font-size:var(--type-caption-size)}
-.pc-session-title-facts>span{min-width:0;overflow:hidden;text-overflow:ellipsis}.pc-session-title-facts>.pc-status-dot{flex:none}
+.pc-session-title-facts{display:grid;grid-template-columns:max-content minmax(0,1fr);align-items:center;gap:var(--space-3);flex:1;min-width:0;overflow:hidden;white-space:nowrap;color:var(--ink-muted);font-size:var(--type-caption-size)}
+.pc-session-title-facts>.pc-status-dot,.pc-session-title-repo,.pc-session-title-time{flex-shrink:0}
+.pc-session-title-extras{display:flex;align-items:center;gap:var(--space-3);min-width:0;overflow:hidden}
+.pc-session-title-facts [hidden]{display:none}
 .pc-session-title-actions{display:flex;align-items:center;gap:var(--space-1);flex:none}
 .pc-session-panel{display:flex;flex-direction:column;gap:var(--space-3);min-width:0}
 .pc-session-panel__body{min-width:0}
@@ -138,7 +140,7 @@
 
 /* Session board: caption facts yield to the title and actions in the frame. */
 .pc-session-title-repo,.pc-session-title-branch{font-family:var(--font-mono);color:var(--ink-secondary)}
-.pc-session-title-branch{display:flex;align-items:center;gap:var(--space-1);min-width:0}
+.pc-session-title-branch{display:flex;align-items:center;gap:var(--space-1);min-width:var(--size-40);flex:1;overflow:hidden}
 .pc-session-title-branch>svg{flex:none;width:var(--size-14);height:var(--size-14)}
 .pc-session-title-branch>span{min-width:0;overflow:hidden;text-overflow:ellipsis}
 /* Session board details: one rhythm through the optional sections and groups. */
@@ -152,3 +154,5 @@
 .pc-session-brief .pc-session-repository{font-family:var(--font-mono);font-size:var(--type-code-size);line-height:var(--type-code-line);white-space:pre-wrap;overflow-wrap:anywhere}
 .pc-session-command{padding:0;border:0;background:transparent}
 .pc-session-command code{display:block;font-family:var(--font-mono);font-size:var(--type-code-size);line-height:var(--type-code-line);padding:var(--space-1\.5) var(--space-2);border-radius:var(--radius-sm);background:var(--surface-lane);white-space:pre-wrap;overflow-wrap:anywhere}
+
+.pc-session-details section>p{margin:0}

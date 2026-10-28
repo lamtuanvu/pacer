@@ -89,7 +89,7 @@ test("routing and tokens sections exist only with reported data", () => {
 test("caption orders repository and branch before time and omits absent facts", () => {
   const html = renderToString(<SessionTitle status={taskStatus({ state: "running" } as never)} live facts={["12m"]} repo="acme/api" branch="feature/session" />);
   expect(html).toMatch(/title="Repository"[^>]*>acme\/api/);
-  expect(html).toContain('title="feature/session"');
+  expect(html).toContain('title="Branch"');
   expect(html.indexOf("acme/api")).toBeLessThan(html.indexOf("feature/session"));
   expect(html.indexOf("feature/session")).toBeLessThan(html.indexOf("12m"));
   expect(renderToString(<SessionTitle status={taskStatus({ state: "done" } as never)} live={false} facts={[]} />)).not.toContain('title="Repository"');
@@ -102,4 +102,18 @@ test("details group keeps workspace first and the brief uses a wrapping label an
   expect(html).toContain('class="pc-session-repository">acme/api</code>');
   expect(html).toContain('class="pc-session-command"><code>bun test</code>');
   expect(html).not.toContain('class="pc-code-scroll" tabindex="0">/tmp/fixture/api</code>');
+});
+
+for (const [name, extra, labels] of [
+  ["measured without cache", { reported: { input: true, output: true, cacheRead: false, cacheWrite: false } }, ["Input", "Output"]],
+  ["all fields", { reported: { input: true, output: true, cacheRead: true, cacheWrite: true } }, ["Input", "Output", "Cache read", "Cache write"]],
+  ["partial", { lowerBound: true, partialAttempts: 1, reported: { input: true, output: true, cacheRead: true, cacheWrite: true } }, []],
+] as const) test(`insights report only known splits: ${name}`, () => {
+  const tokens = { total: 1234, input: 1000, output: 234, cacheRead: 0, cacheWrite: 0, measuredAttempts: 1, partialAttempts: 0, lowerBound: false, ...extra };
+  const html = renderToString(<SessionInsights task={{ tokens } as never} />);
+  expect(html).toContain("1,234");
+  for (const label of ["Input", "Output", "Cache read", "Cache write"]) {
+    expect(html.includes(`<dt>${label}</dt>`)).toBe((labels as readonly string[]).includes(label));
+  }
+  expect(html.includes("Partial usage")).toBe(tokens.lowerBound);
 });

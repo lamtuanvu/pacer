@@ -5,7 +5,7 @@ import { generateTokensCss, readTokens } from "../app/tokens-gen";
 // Run with PACER_TEST_BROWSER pointing to a local Chromium/Chrome executable; without it these checks skip.
 const browserPath = process.env.PACER_TEST_BROWSER;
 const browserTest = test.skipIf(!browserPath);
-type Scenario = "conversation" | "supervised" | "ended";
+type Scenario = "conversation" | "supervised" | "ended" | "failed";
 
 let built: Promise<{ source: string; css: string }> | undefined;
 function sessionScreen() {
@@ -315,7 +315,7 @@ browserTest("details workspace and brief wrap repository labels without horizont
   await panel.getByRole("heading", { name: "Workspace", exact: true }).waitFor();
   const captionRepo = page.locator('.pc-session-title-repo[title="Repository"]');
   expect(await captionRepo.innerText()).toBe("acme/api");
-  const branch = page.locator('.pc-session-title-branch[title="pacer/review"]');
+  const branch = page.locator('.pc-session-title-branch[title="Branch"]');
   expect(await branch.innerText()).toBe("pacer/review");
   expect(await branch.locator("svg").count()).toBe(1);
   expect(await branch.locator("span").evaluate(node => getComputedStyle(node).textOverflow)).toBe("ellipsis");
@@ -333,6 +333,13 @@ browserTest("details workspace and brief wrap repository labels without horizont
   const sections = await panel.locator(".pc-session-details section").evaluateAll(nodes => nodes.map(node => ({ title: node.querySelector("h3")?.textContent, border: getComputedStyle(node).borderTopWidth, padding: getComputedStyle(node).paddingTop })));
   expect(sections[0]).toMatchObject({ title: "Workspace", border: "0px", padding: "0px" });
   for (const section of sections.slice(1)) expect(section).toMatchObject({ border: "1px", padding: "14px" });
+  const why = panel.locator(".pc-session-details section").filter({ has: page.getByRole("heading", { name: /^Why / }) });
+  expect(await why.locator("p").evaluate(node => ({ top: getComputedStyle(node).marginTop, bottom: getComputedStyle(node).marginBottom,
+    gap: node.getBoundingClientRect().top - node.previousElementSibling!.getBoundingClientRect().bottom }))).toEqual({ top: "0px", bottom: "0px", gap: 6 });
+  const tokenSection = panel.locator("section").filter({ has: page.getByRole("heading", { name: "Tokens", exact: true }) });
+  expect(await tokenSection.locator("p.mono").evaluate(node => ({ top: getComputedStyle(node).marginTop, bottom: getComputedStyle(node).marginBottom,
+    gap: node.getBoundingClientRect().top - node.previousElementSibling!.getBoundingClientRect().bottom }))).toEqual({ top: "0px", bottom: "0px", gap: 6 });
+  expect(await tokenSection.locator("dt").allTextContents()).toEqual(["Input", "Output"]);
   const command = panel.locator(".pc-session-command code");
   expect(await command.evaluate(node => ({ font: getComputedStyle(node).fontSize, padding: getComputedStyle(node).padding, radius: getComputedStyle(node).borderRadius }))).toEqual({ font: "12px", padding: "6px 8px", radius: "6px" });
   await page.close();
@@ -395,3 +402,62 @@ browserTest("narrow_desktop_starts_with_the_side_panels_closed", async () => wit
   await page.getByRole("complementary", { name: "Session details" }).waitFor();
   await page.close();
 }), 30_000);
+
+browserTest("caption preserves whole status and repository before optional facts", async () => withBrowser(async browser => {
+  for (const width of [1440, 1100, 1000, 999, 768, 375]) {
+    const page = await openSession(browser, "conversation", { width, height: 900 });
+    await page.getByRole("button", { name: "End session" }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "End session" }).click();
+    await page.getByRole("button", { name: "Resume conversation" }).waitFor();
+    await page.locator(".pc-session-title-branch > span").evaluate(node => { node.textContent = "feature/very-long-session-branch-name/".repeat(8); });
+    await page.waitForTimeout(100);
+    await assertTitleBarFits(page);
+    const status = page.locator(".pc-session-title-facts .pc-status-dot");
+    expect(await status.isVisible()).toBe(true);
+    expect(await status.innerText()).toBe("Completed");
+    expect(await status.evaluate(node => node.scrollWidth <= node.clientWidth && node.getBoundingClientRect().right <= node.closest(".pc-session-title-facts")!.getBoundingClientRect().right + 0.5)).toBe(true);
+    for (const selector of [".pc-session-title-repo", ".pc-session-title-branch", ".pc-session-title-time"]) {
+      const item = page.locator(selector).first();
+      if (!await item.isVisible()) continue;
+      const geometry = await item.evaluate(node => {
+        const text = node.querySelector("span") ?? node;
+        return { width: node.getBoundingClientRect().width, clipped: text.scrollWidth > text.clientWidth, ellipsis: getComputedStyle(text).textOverflow,
+          right: node.getBoundingClientRect().right, end: node.closest(".pc-session-title-facts")!.getBoundingClientRect().right };
+      });
+      if (selector.includes("branch")) expect(geometry.width).toBeGreaterThanOrEqual(40);
+      else expect(geometry.clipped).toBe(false);
+      if (geometry.clipped) expect(geometry.ellipsis).toBe("ellipsis");
+      expect(geometry.right).toBeLessThanOrEqual(geometry.end + 0.5);
+    }
+    await page.close();
+  }
+}), 60_000);
+
+browserTest("narrow title bar keeps running and failed status visible", async () => withBrowser(async browser => {
+  for (const scenario of ["supervised", "failed"] as const) {
+    const page = await openSession(browser, scenario, { width: 375, height: 812 });
+    await assertTitleBarFits(page);
+    const status = page.locator(".pc-session-title-facts .pc-status-dot");
+    expect(await status.isVisible()).toBe(true);
+    expect(await status.innerText()).toBe(scenario === "supervised" ? "Working" : "Failed");
+    await page.close();
+  }
+}), 30_000);
+
+browserTest("long status labels retain their intrinsic width ahead of later caption facts", async () => withBrowser(async browser => {
+  for (const ended of [false, true]) for (const width of [1440, 1100, 1000, 999, 768]) {
+    const page = await openSession(browser, "conversation", { width, height: 900 });
+    if (ended) {
+      await page.getByRole("button", { name: "End session" }).click();
+      await page.getByRole("dialog").getByRole("button", { name: "End session" }).click();
+      await page.getByRole("button", { name: "Resume conversation" }).waitFor();
+    }
+    await page.locator(".pc-session-title-facts .pc-status-dot__label").evaluate(node => { node.textContent = "Needs your answer"; });
+    await page.setViewportSize({ width: width - 1, height: 900 });
+    await page.setViewportSize({ width, height: 900 });
+    await page.waitForTimeout(100);
+    await assertTitleBarFits(page);
+    expect(await page.locator(".pc-session-title-facts").evaluate(node => node.querySelector(".pc-status-dot")!.getBoundingClientRect().right <= node.getBoundingClientRect().right + 0.5)).toBe(true);
+    await page.close();
+  }
+}), 40_000);

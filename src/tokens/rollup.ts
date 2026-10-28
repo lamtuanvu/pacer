@@ -8,10 +8,11 @@ import { attemptTokensFromRow, readAttemptUsage, type AttemptUsageRow } from "./
 /** One attempt as the roll-up sees it: its tokens and where they were spent. */
 export interface TokenItem { executor: string; account: string | null; model: string | null; tokens: AttemptTokens }
 
+export interface TokenReporting { reported: { input: boolean; output: boolean; cacheRead: boolean; cacheWrite: boolean } }
 export interface TokenSums { total: number; input: number; cacheRead: number; cacheWrite: number; output: number }
 export interface TokenCounts { measuredAttempts: number; partialAttempts: number; unknownAttempts: number }
-export interface TokenSplit extends TokenSums, TokenCounts { agent: string; account: string | null; model: string | null; attempts: number }
-export interface TokenRollup extends TokenSums, TokenCounts {
+export interface TokenSplit extends TokenSums, TokenCounts, TokenReporting { agent: string; account: string | null; model: string | null; attempts: number }
+export interface TokenRollup extends TokenSums, TokenCounts, TokenReporting {
   /** True when any attempt is unknown or partial: the sums are then a lower bound. */
   lowerBound: boolean;
   byExecutor: TokenSplit[];
@@ -20,8 +21,12 @@ export interface TokenRollup extends TokenSums, TokenCounts {
 }
 
 const zero = (): TokenSums => ({ total: 0, input: 0, cacheRead: 0, cacheWrite: 0, output: 0 });
-function add(into: TokenSums & TokenCounts, t: AttemptTokens): void {
-  // Nulls mean "not reported", never zero: they add nothing and the coverage count says why.
+const unreported = (): TokenReporting => ({ reported: { input: false, output: false, cacheRead: false, cacheWrite: false } });
+function add(into: TokenSums & TokenCounts & TokenReporting, t: AttemptTokens): void {
+  // Keep the numeric sums compatible, while preserving null-means-not-reported per field.
+  for (const field of ["input", "output", "cacheRead", "cacheWrite"] as const) {
+    into.reported[field] ||= t[field] !== null;
+  }
   into.total += t.total ?? 0; into.input += t.input ?? 0; into.cacheRead += t.cacheRead ?? 0;
   into.cacheWrite += t.cacheWrite ?? 0; into.output += t.output ?? 0;
   if (t.coverage === "measured") into.measuredAttempts++; else if (t.coverage === "partial") into.partialAttempts++; else into.unknownAttempts++;
@@ -29,12 +34,12 @@ function add(into: TokenSums & TokenCounts, t: AttemptTokens): void {
 
 /** Each attempt belongs to exactly one node, so summing items never counts an attempt twice. */
 export function rollupTokens(items: TokenItem[]): TokenRollup {
-  const all = { ...zero(), measuredAttempts: 0, partialAttempts: 0, unknownAttempts: 0 };
+  const all = { ...zero(), ...unreported(), measuredAttempts: 0, partialAttempts: 0, unknownAttempts: 0 };
   const groups = new Map<string, TokenSplit>();
   for (const item of items) {
     add(all, item.tokens);
     const agent = parseRunnerId(item.executor)?.agent ?? item.executor, key = JSON.stringify([agent, item.account, item.model]);
-    const group = groups.get(key) ?? { agent, account: item.account, model: item.model, attempts: 0, ...zero(), measuredAttempts: 0, partialAttempts: 0, unknownAttempts: 0 };
+    const group = groups.get(key) ?? { agent, account: item.account, model: item.model, attempts: 0, ...zero(), ...unreported(), measuredAttempts: 0, partialAttempts: 0, unknownAttempts: 0 };
     groups.set(key, group); group.attempts++; add(group, item.tokens);
   }
   const byExecutor = [...groups.values()].sort((a, b) => b.total - a.total || a.agent.localeCompare(b.agent));

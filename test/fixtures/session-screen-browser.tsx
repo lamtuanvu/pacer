@@ -13,13 +13,16 @@ import { ActionContext } from "../../app/src/data/action-context";
 import { createActionRunner } from "../../app/src/data/actions";
 
 // Browser fixture for a task's Session screen: the real Layout and TaskRoute with a stub service.
-// window.SCENARIO picks the task: "conversation" (running, built-in terminal), "supervised" (running) or "ended".
-const scenario = (window as any).SCENARIO as "conversation" | "supervised" | "ended";
+// window.SCENARIO picks the task: "conversation" (running, built-in terminal), "supervised" (running) "ended" or "failed".
+const scenario = (window as any).SCENARIO as "conversation" | "supervised" | "ended" | "failed";
 const calls: { op: string; params: unknown }[] = ((window as any).CALLS = []);
-const running = scenario !== "ended";
-let state = running ? "running" : "done";
+const running = scenario !== "ended" && scenario !== "failed";
+let state = running ? "running" : scenario === "failed" ? "failed" : "done";
 const task = () => ({ ...detail, state, interactionMode: scenario === "conversation" ? "conversation" : undefined,
   conversation: scenario === "conversation" ? { agentSessionId: "agent-1", activity: "working" } : undefined,
+  tokens: { total: 1234, input: 1000, output: 234, cacheRead: 0, cacheWrite: 0,
+    reported: { input: true, output: true, cacheRead: false, cacheWrite: false },
+    measuredAttempts: 1, partialAttempts: 0, unknownAttempts: 0, lowerBound: false, byExecutor: [], planner: { coverage: "unknown" }, decision: { coverage: "unknown" } },
   attemptStartedAt: detail.startedAt, title: "Run demo-stages flow with WebGL enabled and report every console error" });
 const session = { host: scenario === "conversation" ? "builtin" : "none", targets: ["terminal"], live: running, cols: 80, rows: 24, controller: null,
   capabilities: { control: true, resize: true }, takeover: { available: scenario !== "conversation", reason: "Already interactive" }, attach: { ws: "/v3/x", cli: "pacer attach t-0412" }, machine: "devbox" };

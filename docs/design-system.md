@@ -264,13 +264,18 @@ navigation groups. These specialized layouts do not override shared primitives.
 
 The Session board caption shows status, the repository label and optional branch
 in mono, then elapsed time. Repository text uses `ink-secondary` and the
-Repository tooltip; branch text truncates with ellipsis. The frame keeps its
-existing title and action priorities when facts run out of space.
+Repository tooltip; branch text truncates with ellipsis and uses the Branch
+tooltip. Status and repository do not shrink; branch and elapsed time disappear
+before the branch falls below the existing 40px size token. Repository yields
+only after later facts. At phone widths the status dot and visible label occupy
+a second row inside the title bar, preserving title, search and action space.
 
 The Details tab starts with Workspace, using only available `task.get` fields
 (Repo label, Branch, Base, Worktree, Machine). Values wrap anywhere in a
 12px/18px mono definition list. Routing explanation and reported token totals
-appear only when present; partial totals retain their lower-bound label. The
+appear only when present; unreported token fields are omitted, and partial totals
+show only their lower-bound total and partial note. Detail paragraphs have zero
+block margins so the existing 6px section gap owns heading-to-text spacing. The
 Changes tab remains separate. Detail sections use a 16px gap and, after Workspace,
 a 14px top inset with a line divider. The brief shows the repository label with
 wrapping; Done when uses 12px mono, 6px/8px padding, a 6px radius and the lane

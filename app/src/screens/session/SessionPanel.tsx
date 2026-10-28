@@ -1,5 +1,5 @@
 import type { ComponentChildren } from "preact";
-import { useEffect, useRef } from "preact/hooks";
+import { useEffect, useLayoutEffect, useRef } from "preact/hooks";
 import type { TaskDetail } from "../../../../src/core/task-detail";
 import { executorLabel } from "../../../../src/view-model/words";
 import { Icon } from "../../ds/icons";
@@ -24,16 +24,46 @@ export function SessionTitle({ status, live, facts, repo, branch, actions, next 
   next?: { label: string; tab: SessionPanelTab; open: (tab: SessionPanelTab) => void };
 }) {
   const details = useFrame()?.details;
+  const caption = useRef<HTMLSpanElement>(null);
+  useLayoutEffect(() => {
+    const node = caption.current!;
+    // Optional facts yield as whole items; only the branch may ellipsize.
+    const fit = () => {
+      const repo = node.querySelector<HTMLElement>(".pc-session-title-repo");
+      const branch = node.querySelector<HTMLElement>(".pc-session-title-branch");
+      const times = [...node.querySelectorAll<HTMLElement>(".pc-session-title-time")];
+      const optional = [repo, branch, ...times].filter((item): item is HTMLElement => !!item);
+      optional.forEach(item => { item.hidden = false; });
+      const gap = parseFloat(getComputedStyle(node).columnGap);
+      let remaining = node.clientWidth - node.firstElementChild!.getBoundingClientRect().width;
+      if (repo) {
+        const width = repo.scrollWidth + gap;
+        repo.hidden = remaining < width;
+        if (!repo.hidden) remaining -= width;
+      }
+      const branchMin = branch ? parseFloat(getComputedStyle(branch).minWidth) : 0;
+      if (branch) branch.hidden = repo?.hidden === true || remaining < branchMin + gap;
+      for (const time of times) {
+        const width = time.scrollWidth + gap;
+        time.hidden = repo?.hidden === true || remaining < width + (branch && !branch.hidden ? branchMin + gap : 0);
+        if (!time.hidden) remaining -= width;
+      }
+    };
+    fit();
+    const observer = new ResizeObserver(fit);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [repo, branch, status.label, facts.join("\n")]);
   // An action that can no longer work disappears (End session once ended); focus then stays in the group.
   const group = useRef<HTMLDivElement>(null), within = useRef(false);
   useEffect(() => {
     if (within.current && document.activeElement === document.body) (group.current?.querySelector<HTMLElement>("button") ?? document.querySelector<HTMLElement>('[aria-label="Toggle details panel"]'))?.focus();
   });
   return <>
-    <span className="pc-session-title-facts"><StatusDot tone={status.tone} live={live} label={status.label} />
+    <span ref={caption} className="pc-session-title-facts"><StatusDot tone={status.tone} live={live} label={status.label} /><span className="pc-session-title-extras">
       {repo && <span className="pc-session-title-repo" title="Repository">{repo}</span>}
-      {branch && <span className="pc-session-title-branch" title={branch}><Icon name="branch" /><span>{branch}</span></span>}
-      {facts.filter(Boolean).map(fact => <span key={fact} title={fact}>{fact}</span>)}</span>
+      {branch && <span className="pc-session-title-branch" title="Branch"><Icon name="branch" /><span>{branch}</span></span>}
+      {facts.filter(Boolean).map(fact => <span className="pc-session-title-time" key={fact} title={fact}>{fact}</span>)}</span></span>
     <div ref={group} className="pc-session-title-actions" role="group" aria-label="Session actions" onFocusIn={() => { within.current = true; }}
       onFocusOut={event => { if (event.relatedTarget) within.current = group.current!.contains(event.relatedTarget as Node); }}>
       {next && details && !details.open && <Button size="sm" variant="primary" onClick={() => next.open(next.tab)}>{next.label}</Button>}
@@ -94,7 +124,7 @@ export function SessionInsights({ task }: { task: TaskDetail }) {
     {task.routing?.why && <section><SectionHeading as="h3">Why {executorLabel(task.routing.chosen)}</SectionHeading><p>{task.routing.why}</p></section>}
     {reported && <section><SectionHeading as="h3">Tokens</SectionHeading>
       <p className="mono">{tokens.lowerBound ? "≥ " : ""}{tokens.total.toLocaleString("en-US")}</p>
-      <dl className="pc-session-token-counts">{([["Input", tokens.input], ["Cache read", tokens.cacheRead], ["Cache write", tokens.cacheWrite], ["Output", tokens.output]] as const).map(([label, value]) => <><dt key={`${label}-label`}>{label}</dt><dd key={label}>{value.toLocaleString("en-US")}</dd></>)}</dl>
+      {!tokens.lowerBound && <dl className="pc-session-token-counts">{([["Input", "input"], ["Cache read", "cacheRead"], ["Cache write", "cacheWrite"], ["Output", "output"]] as const).filter(([, field]) => tokens.reported?.[field]).map(([label, field]) => <><dt key={`${label}-label`}>{label}</dt><dd key={label}>{tokens[field].toLocaleString("en-US")}</dd></>)}</dl>}
       {tokens.lowerBound && <p className="muted">Partial usage; some attempt tokens are not reported.</p>}
     </section>}
   </>;
