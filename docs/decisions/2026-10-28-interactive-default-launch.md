@@ -46,4 +46,4 @@ Conversations and takeovers, where the user is at the terminal, keep Claude's na
 
 ## Consequences
 
-Governance: ARCH-1/2/8/9/12/13, API-1/3, SEC-1/5/7, CT-11, REPO-9. Whether SEC-1 needs a scoped exception, because the trust update parses `.claude.json` (which may contain an API key) and writes a temporary copy, is the maintainer's decision. This ADR records only the rationale: pacer reads the file only to merge the named entries, never logs, returns or keeps its contents, writes the temporary copy `wx` with the file's own mode and removes it, including leftovers from a crash.
+Governance: ARCH-1/2/8/9/12/13, API-1/3, SEC-1/5/7, CT-11, REPO-9. Because the trust update parses `.claude.json` (which may contain an API key) and writes a temporary copy, the maintainer granted a scoped SEC-1 exception on 2026-10-28 ([Exceptions](../../.project/decisions.md#exceptions)). Within it, pacer reads the file only to merge the named entries, never logs, returns or keeps its contents, writes the temporary copy `wx` with the file's own mode and removes it, including leftovers from a crash.
