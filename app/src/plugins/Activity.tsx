@@ -80,7 +80,7 @@ export function Activity({ plugin, id }: { plugin: string; id: string }) {
     <header className="pc-settings-board__header pc-plugin-header"><h1>{title} <span className="pc-plugin-marker">plugin</span></h1></header>
     <p className="pc-plugin-muted">Added by the plugin {plugin}{info?.version ? ` ${info.version}` : ""}{info?.publisher ? ` from ${info.publisher}` : ""}</p>
     {infoError && <p role="status">Plugin details could not be refreshed.</p>}
-    {document && stale && <p role="status">This view is out of date. Retry to use its actions. {(!error || !pluginError(error).retry) && <Button onClick={() => reload(n => n + 1)}>Retry</Button>}</p>}
+    {document && stale && <p role="status">This view is out of date. Retry to use its actions.</p>}{document && stale && !error && <Button onClick={() => reload(n => n + 1)}>Retry</Button>}
     {error && <PluginError error={error} retry={() => reload(n => n + 1)} />}
     {document ? <ViewDocument document={document} onAction={(value,control) => void action(value,control)} busy={busy} busyControl={busyControl} disabled={stale || !!error} /> : !error && <LoadingState label="Loading plugin view…" />}
     {message && <p role="status">{message}</p>}{dialogs.dialog}
