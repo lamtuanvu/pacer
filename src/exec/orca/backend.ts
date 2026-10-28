@@ -248,7 +248,8 @@ async function runOrcaAttempt(
     const listed = await worktreeTerminals(c, w.id, [...strays, ...(terminal ? [terminal] : [])]);
     if (!listed) {
       log(`orca terminal list for ${w.id} failed or was truncated; Orca's initial terminal may stay open`);
-      await recordStrayRisk(ctx, task.id, w, log);
+      // Only handles known before pacer's agent terminal exists are Orca's own; a later terminal may be the user's.
+      await recordStrayRisk(ctx, task.id, w, terminal ? [] : reply.map(t => t.handle), log);
     }
     const rows = [...reply, ...(listed ?? [])].filter((t, i, all) => all.findIndex(x => x.handle === t.handle) === i);
     for (const t of rows) {

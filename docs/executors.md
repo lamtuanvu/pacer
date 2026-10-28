@@ -136,8 +136,10 @@ closes it before launching the agent, and checks once more after the agent is
 idle. Terminals in other worktrees are never touched. Pacer closes the
 terminal it created when the worker settles. A close that Orca does not confirm
 is recorded and retried by the next `pacer clean`. If Orca cannot list the
-worktree's terminals, pacer records the worktree and the next `pacer clean`
-closes the terminals left in it. For a default account, the
+worktree's terminals, the next `pacer clean` closes only the initial terminal
+Orca named when it created the worktree. Orca's terminal list has no creation
+time, so pacer never closes a terminal it did not record there, such as one you
+opened. For a default account, the
 terminal command unsets `CLAUDE_CONFIG_DIR` or `CODEX_HOME` so the agent does
 not inherit another account from Orca's shell. Tasks that allow delegation run
 directly, because their work grant cannot be placed in a visible terminal

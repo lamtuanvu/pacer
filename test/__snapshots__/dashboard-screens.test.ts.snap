@@ -1415,3 +1415,73 @@ exports[`color, plain and ASCII renditions ASCII mode uses only ASCII 1`] = `
  
  Enter Run checks  x dismiss  . actions (3)  ? help            pacer 0.0.0-test"
 `;
+
+exports[`Settings › This machine shows a PACER_BACKEND override and offers no toggle 1`] = `
+" ▬┃ pacer   Home  Needs you 4  Tasks 2  [ Settings ]                                  All repos · Normal · ● live 08:00
+ Claude Code planner  ━━━━━━━━━━━━━──┃────  63% used · pace 77%  ↓ Behind pace  10 active-h · resets 18 Jan 08:00
+ ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+     Planner & pacing           │   THIS MACHINE
+     Accounts                   │   
+     Executors 2 down           │ › Parallel tasks            ‹ 2 ›  1 busy now                                        
+   ▸ This machine               │                             Shared by all executors that run on this machine. 1–16.  
+     Remote hosts 1 needs setup │   Task backend              ‹ Direct ›  Set by PACER_BACKEND                         
+     Routing                    │                             Orca runs tasks as supervised workers in Orca terminals; 
+     Project strategies         │                             tasks run directly when Orca isn't running or the agent  
+     Strategies                 │                             isn't supported. PACER_BACKEND overrides the saved       
+     Updates                    │                             setting. Unset PACER_BACKEND to change it here.          
+     Notifications              │ 
+     Appearance                 │ 
+                                │ 
+                                │ 
+                                │ 
+                                │ 
+                                │ 
+                                │ 
+                                │ 
+                                │ 
+                                │ 
+                                │ 
+                                │ 
+                                │ 
+                                │ 
+                                │ 
+                                │ 
+                                │ 
+                                │ 
+                                │ 
+                                │ 
+                                │ 
+                                │ 
+                                │ 
+                                │ 
+ ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ 
+ ← → adjust  Esc sections  ? help                                                                      pacer 0.0.0-test"
+`;
+
+exports[`Settings › This machine shows a PACER_BACKEND override and offers no toggle 2`] = `
+" ▬┃ pacer   Home  Needs you 4  Tasks 2  [ Settings ]               ● live 08:00
+ Claude Code  ━━━━━━━━─┃──  63% used · pace 77%  ↓ Behind pace  10 active-h ·…
+ ──────────────────────────────────────────────────────────────────────────────
+   THIS MACHINE
+   
+ › Parallel tasks            ‹ 2 ›  1 busy now                                 
+                             Shared by all executors that run on this machine. 
+                             1–16.                                             
+   Task backend              ‹ Direct ›  Set by PACER_BACKEND                  
+                             Orca runs tasks as supervised workers in Orca     
+                             terminals; tasks run directly when Orca isn't     
+                             running or the agent isn't supported.             
+                             PACER_BACKEND overrides the saved setting. Unset  
+                             PACER_BACKEND to change it here.                  
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ ──────────────────────────────────────────────────────────────────────────────
+ 
+ ← → adjust  Esc sections  ? help                              pacer 0.0.0-test"
+`;

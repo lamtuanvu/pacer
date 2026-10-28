@@ -76,12 +76,13 @@ test("stranded worktrees, uncertain starts, stray risks and removals persist; ma
   writeFileSync(orcaStatePath(ctx), JSON.stringify({
     stranded: { t1: { taskId: "t1", id: "r::/w", path: "/w", name: "pacer-t1-codex", at: 1 }, bad: { taskId: 3 } },
     uncertain: { term_a: { taskId: "t1", terminal: "term_a", run: "run_1", worktree: null, at: 1 }, term_b: "x" },
-    strays: { "r::/w": { taskId: "t1", id: "r::/w", path: "/w", name: "pacer-t1-codex", at: 1 }, bad: { id: 3 } },
+    strays: { "r::/w": { taskId: "t1", id: "r::/w", path: "/w", name: "pacer-t1-codex", initial: ["term_a", 3], at: 1 }, "r::/old": { taskId: "t1", id: "r::/old", path: "/old", name: "pacer-t1-codex", at: 1 }, bad: { id: 3 } },
     removed: { "r::/w": { id: "r::/w", path: "/w", at: 1 }, bad: { id: "r::/x" } },
   }));
   const s = loadOrcaState(ctx);
   expect(Object.keys(s.stranded)).toEqual(["t1"]);
   expect(Object.keys(s.uncertain)).toEqual(["term_a"]);
-  expect(Object.keys(s.strays)).toEqual(["r::/w"]);
+  expect(Object.keys(s.strays)).toEqual(["r::/w", "r::/old"]);
+  expect([s.strays["r::/w"]!.initial, s.strays["r::/old"]!.initial]).toEqual([["term_a"], []]);
   expect(Object.keys(s.removed)).toEqual(["r::/w"]);
 });

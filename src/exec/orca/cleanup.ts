@@ -7,7 +7,7 @@ import type { Ctx } from "../../types";
 import type { HostClean, HostCleanOpts } from "../cleanup";
 import { OrcaClient, type TerminalRow } from "./client";
 import { realpathSafe } from "./setup";
-import { loadOrcaState, type StrandedWorktree, type UncertainStart, updateOrcaState, withLock } from "./state";
+import { loadOrcaState, type StrandedWorktree, type StrayRisk, type UncertainStart, updateOrcaState, withLock } from "./state";
 
 export interface OwnedWorktree { id: string; path: string; name: string }
 export interface CleanupDeps { sleep: (ms: number) => Promise<void>; polls: number }
@@ -79,11 +79,15 @@ export async function recordUnclosed(ctx: Ctx, taskId: string, terminal: string,
   } catch (e) { log(`recording unclosed terminal ${terminal} failed: ${String(e)}`); }
 }
 
-/** Record a pacer-created worktree whose terminals could not be listed, so `pacer clean` sweeps its strays. */
-export async function recordStrayRisk(ctx: Ctx, taskId: string, w: OwnedWorktree, log: (l: string) => void): Promise<void> {
+/**
+ * Record a pacer-created worktree whose terminals could not be listed, with the initial terminals Orca named before
+ * pacer's agent terminal existed. Orca's listing has no creation time, so `pacer clean` closes only these handles.
+ */
+export async function recordStrayRisk(ctx: Ctx, taskId: string, w: OwnedWorktree, initial: string[], log: (l: string) => void): Promise<void> {
+  if (!initial.length) { log(`pacer cannot tell Orca's initial terminal in ${w.id} from others; it closes only terminals it recorded`); return; }
   try {
     await withLock(ctx, "coordinator", async () => {
-      updateOrcaState(ctx, s => { s.strays[w.id] = { taskId, ...w, at: ctx.now }; });
+      updateOrcaState(ctx, s => { s.strays[w.id] = { taskId, ...w, initial: [...new Set([...(s.strays[w.id]?.initial ?? []), ...initial])], at: ctx.now }; });
     });
     log(`recorded worktree ${w.id} for a stray terminal sweep by pacer clean`);
   } catch (e) { log(`recording worktree ${w.id} for a stray sweep failed: ${String(e)}`); }
@@ -188,8 +192,9 @@ function releaseRemoved(ctx: Ctx, row: TerminalRow, worktreeId: string | undefin
   try { releaseOrcaTerminalWorkSync(ctx, row.handle, row.incarnationId); } catch { /* A later pass retries. */ }
 }
 
-/** Close terminals Orca left in a pacer-created worktree whose listing failed, except pacer's own agent terminals. */
-async function sweepStrays(ctx: Ctx, c: OrcaClient, w: StrandedWorktree): Promise<boolean> {
+/** Close the recorded initial terminals Orca left in a pacer-created worktree; any other terminal may be the user's. */
+async function sweepStrays(ctx: Ctx, c: OrcaClient, w: StrayRisk): Promise<boolean> {
+  if (!w.initial.length) return true;
   const owned = await verifyOwned(c, `id:${w.id}`, w);
   if ("error" in owned) return !!owned.missing;
   const real = realpathSafe(w.path);
@@ -203,7 +208,7 @@ async function sweepStrays(ctx: Ctx, c: OrcaClient, w: StrandedWorktree): Promis
   const listed = await worktreeTerminals(c, w.id, agents);
   if (!listed) return false;
   let all = true;
-  for (const t of listed) all = (await closeCreatedTerminal(c, t.handle)).proof && all;
+  for (const t of listed.filter(t => w.initial.includes(t.handle))) all = (await closeCreatedTerminal(c, t.handle)).proof && all;
   return all;
 }
 

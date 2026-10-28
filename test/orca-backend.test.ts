@@ -643,39 +643,60 @@ test("a reviewed uncertain task whose settled worker is found needs review again
   expect([t.review, t.dismissed, t.resolved]).toEqual([undefined, undefined, undefined]);
 });
 
+const named = [O("worktree", "create"), (a: string[]) => envelope({worktree: {id: `repo-1::/work/${arg(a, "--name")}`}, terminal: {handle: "term_named", incarnationId: "named-inc"}})] as Route;
+const ownedRoute = (x: ReturnType<typeof setup>) => [O("worktree", "show"), envelope({worktree: {id: x.wt, path: x.root, displayName: `pacer-${x.task.id}-codex`, isMainWorktree: false}})] as Route;
+
 for (const [name, list] of [["failed", failure("unknown_flag")], ["truncated", envelope({terminals: [], totalCount: 40, truncated: true})]] as const) {
-  test(`a ${name} worktree terminal listing records the worktree; clean sweeps its non-agent terminals with proof`, async () => {
-    const x = setup([[O("terminal", "list"), list]]);
+  test(`a ${name} worktree terminal listing records only the initial terminal Orca named; clean closes no other terminal`, async () => {
+    const x = setup([named, [O("terminal", "list"), list], [O("terminal", "close", "--terminal", "term_named"), envelope({close: {handle: "term_named", ptyKilled: true}})]]);
     const out = await x.backend.runAttempt(x.ctx, x.cfg, x.task);
     expect(out.backend).toBe("orca");
     expect(readFileSync(out.attempt.log, "utf8")).toContain(`recorded worktree ${x.wt} for a stray terminal sweep by pacer clean`);
-    expect(loadOrcaState(x.ctx).strays[x.wt]).toMatchObject({taskId: x.task.id, id: x.wt, path: x.root});
+    expect(loadOrcaState(x.ctx).strays[x.wt]).toMatchObject({taskId: x.task.id, id: x.wt, path: x.root, initial: ["term_named"]});
     updateTask(x.ctx, x.task.id, t => {t.state = "done";});
-    const owned = [O("worktree", "show"), envelope({worktree: {id: x.wt, path: x.root, displayName: `pacer-${x.task.id}-codex`, isMainWorktree: false}})] as Route;
-    x.ctx.run = fakeRun([owned, [O("terminal", "list"), list]]).run;
+    x.ctx.run = fakeRun([ownedRoute(x), [O("terminal", "list"), list]]).run;
     await reconcileHostWork(x.ctx);
     expect(loadOrcaState(x.ctx).strays[x.wt]).toBeDefined();
     updateOrcaState(x.ctx, s => {s.unclosed.term_kept = {taskId: x.task.id, terminal: "term_kept", at: 1};});
-    const sweep = fakeRun([owned,
-      [O("terminal", "list"), envelope({terminals: [{handle: "term_shell", worktreeId: x.wt}, {handle: "term_kept", worktreeId: x.wt}, {handle: "term_elsewhere", worktreeId: "repo-1::/work/other"}], truncated: false})],
-      [O("terminal", "close", "--terminal", "term_shell"), envelope({close: {handle: "term_shell", ptyKilled: true}})],
+    // term_user was opened after pacer's agent terminal (for example, by the user): never closed.
+    const sweep = fakeRun([ownedRoute(x),
+      [O("terminal", "list"), envelope({terminals: [{handle: "term_named", worktreeId: x.wt}, {handle: "term_user", worktreeId: x.wt}, {handle: "term_kept", worktreeId: x.wt}, {handle: "term_elsewhere", worktreeId: "repo-1::/work/other"}], truncated: false})],
+      [O("terminal", "close", "--terminal", "term_named"), envelope({close: {handle: "term_named", ptyKilled: true}})],
       [O("terminal", "close"), failure("close_failed")],
       [O("terminal", "show"), envelope({terminal: {handle: "term_kept", connected: true, writable: true}})],
     ]);
     x.ctx.run = sweep.run;
     await reconcileHostWork(x.ctx);
-    expect(sweep.count(O("terminal", "close", "--terminal", "term_shell"))).toBe(1);
-    expect(sweep.calls.some(a => a.includes("term_elsewhere"))).toBe(false);
+    expect(sweep.count(O("terminal", "close", "--terminal", "term_named"))).toBe(1);
+    expect(sweep.calls.some(a => a.includes("term_user") || a.includes("term_elsewhere"))).toBe(false);
     expect(sweep.calls.filter(a => a[2] === "close" && a.includes("term_kept"))).toHaveLength(2);
     expect(loadOrcaState(x.ctx).strays).toEqual({});
   });
 }
 
-test("the stray sweep waits while a task runs in the worktree", async () => {
+test("a failed listing with no initial terminal named records nothing to sweep", async () => {
   const x = setup([[O("terminal", "list"), failure("unknown_flag")]]);
+  const out = await x.backend.runAttempt(x.ctx, x.cfg, x.task);
+  expect(out.backend).toBe("orca");
+  expect(readFileSync(out.attempt.log, "utf8")).toContain(`pacer cannot tell Orca's initial terminal in ${x.wt} from others; it closes only terminals it recorded`);
+  expect(loadOrcaState(x.ctx).strays).toEqual({});
+});
+
+test("a stray record without recorded initial terminals closes nothing and is dropped", async () => {
+  const x = setup();
+  updateOrcaState(x.ctx, s => {s.strays[x.wt] = {taskId: x.task.id, id: x.wt, path: x.root, name: `pacer-${x.task.id}-codex`, initial: [], at: 1};});
+  const sweep = fakeRun([ownedRoute(x), [O("terminal", "list"), envelope({terminals: [{handle: "term_user", worktreeId: x.wt}], truncated: false})]]);
+  x.ctx.run = sweep.run;
+  await reconcileHostWork(x.ctx);
+  expect(sweep.calls.some(a => a[1] === "terminal")).toBe(false);
+  expect(loadOrcaState(x.ctx).strays).toEqual({});
+});
+
+test("the stray sweep waits while a task runs in the worktree", async () => {
+  const x = setup([named, [O("terminal", "list"), failure("unknown_flag")], [O("terminal", "close", "--terminal", "term_named"), envelope({close: {handle: "term_named", ptyKilled: true}})]]);
   await x.backend.runAttempt(x.ctx, x.cfg, x.task);
   updateTask(x.ctx, x.task.id, t => {t.state = "running";});
-  const sweep = fakeRun([[O("worktree", "show"), envelope({worktree: {id: x.wt, path: x.root, displayName: `pacer-${x.task.id}-codex`, isMainWorktree: false}})]]);
+  const sweep = fakeRun([ownedRoute(x)]);
   x.ctx.run = sweep.run;
   await reconcileHostWork(x.ctx);
   expect(sweep.calls.some(a => a[1] === "terminal")).toBe(false);
