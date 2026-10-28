@@ -85,8 +85,54 @@ Tier and strength tags are user declarations. Pacer does not infer a tier from a
 
 Learning is opt in. Accepted/rejected reviews are grouped by task kind, difficulty, runner settings, and observed actual model. Only independently reviewed attempts with a known actual identity and matching immutable settings can affect a candidate after at least 20 comparable reviews within `maxAgeDays`. Unknown identity and missing usage remain unknown. `dispatch.analytics` reports counts, outcomes, confidence interval, duration, and available usage readings. `dispatch learning-reset --repo .` resets derived evidence for a repository; add `--exclude` to keep that repository out of learning. History and task results remain intact. This is an advisory ranking signal, not proof of model quality.
 
+## Explain a route
+
+`dispatch.explain` (and `pacer route --explain --repo . --goal 'Fix the login bug' [--kind debug] [--executor codex] --json`) answers "where would this go?" without doing anything. It reuses the same ranking, candidate and ladder code as `dispatch.preview` and the runner, so the answer cannot drift from the real route.
+
+It is read only: it starts nothing, reserves nothing, writes nothing, publishes no event and spawns no agent. It never calls the model classifier (the kind is detected with the rules classifier when you give none), never starts a plugin (a plugin decision engine is used only if its plugin is already running; otherwise the ladder is used and `engine.fallback` says `engine_not_running`), and reads the task store through a read-only connection. It is refused for executor sessions.
+
+Params: `repo`, `goal`, and optionally `kind`, `executor` (a preference for this task only), `model`, `requirements`, `preferences`, `delegationEnforcement`, `difficulty` and `strategyDraft` (an unsaved draft, as `strategy.preview` takes it). Errors: `invalid_input`, `unknown_executor`, `too_large`, `not_allowed`.
+
+Result: `outcome` is `select`, `queue`, `fail` or `override`. `override` means your requested executor was chosen. If it is blocked or its budget is used up the outcome is `fail`; if it is unavailable for another reason, the ladder's pick is returned with an `override_unavailable` reason. `reasons`, `fallbacks[].reason` and `uncertainty` are `{code, outcome, subject?, facts, text}`; clients show their own copy for `code` and `facts`, and `text` is plain English for the CLI. A new code is an additive change; clients show generic copy for codes they do not know.
+
+`planner` is `unknown` (`planner_not_measured`, or `planner_is_executor`) until a planner adapter reports tokens. `window` carries the planner account's current usage and pace from the cached status; it is not a projection.
+
+The explanation does not model admission-time factors, and names them in `uncertainty`: capacity reserved by running work (`reserved_capacity`), configured classifier hooks (`admission_hooks`) and locks taken after you looked. It also marks `enforcement_unverified` when the native-control version has not been checked in this process, and `cached_preview` always. `revision` is the same for two calls over the same facts.
+
+Known differences from the admission stage: capacity reserved by running work is reported in `uncertainty` and not subtracted from headroom; a busy non-reentrant plugin engine is not detected (only a `ready` plugin is called); a requested executor outside the project's executor policy is not refused here; `strategy.source` is `strategy` or `built-in`, never `project`; a slot-full requested executor returns `queue`.
+
+Reason codes: `step_match`, `capacity_comfortable`, `capacity_usable`, `capacity_unknown`, `override`, `planner_account`, `runner_disabled`, `not_configured`, `blocked_by_user`, `quota_exhausted`, `not_installed`, `signed_out`, `unavailable`, `ineligible`, `runner_unhealthy`, `requirements_not_met`, `pinned_to_other_model`, `executor_busy`, `machine_busy`, `host_unreachable`, `host_reachability_unknown`, `host_paused`, `repo_not_on_host`, `needs_new_worktree`, `local_grant_required`, `enforcement_uncertified`, `other_exclusion`, `step_kind_mismatch`, `step_no_candidates`, `no_step_matched`, `paused`, `engine_failed`, `override_unavailable`, `planner_not_measured`, `too_few_samples`, `planner_is_executor`, `cached_preview`, `capacity_unmeasured`, `default_model_unresolved`, `enforcement_unverified`, `engine_not_running`, `learning_unavailable`, `tasks_unavailable`, `reserved_capacity`, `admission_hooks`.
+
 ## History and limits
 
 `dispatch.list` pages work roots, child work, or all work by status; the app shows these filters in Tasks. `dispatch.tree` returns the bounded work subtree, per-attempt decisions, requested and observed models, reviews, dependencies, and measured/unknown totals. Queued time across attempts, execution time, dependency wait, capacity wait and parent time waiting for children are shown separately. Open wait intervals are provisional. Account usage is grouped by account, quota window and reset epoch; overlapping parent and child observation intervals are merged before reporting observed percentage movement. It is a shared-account reading, not usage attributed solely to this work. Missing or stale readings remain unknown. `dispatch.events` returns at most 500 ordered events and a monotonic `next` cursor plus `hasMore`; keep requesting while `hasMore` is true, even when a scoped page contains no visible events. The app's Work panel and TUI use the same service data. Work event and decision rows are retained with the local service state; task archival can leave an `Archived work` lineage placeholder. There is no automatic work-history pruning in this version.
 
 Root delegation limits default to depth 3, 20 descendants, and four concurrent tasks. Children inherit hard requirements and can narrow those limits; they cannot broaden an ancestor's permissions. A child request is rejected when it cannot make progress because its parent and other running work occupy the eligible slots. Remote executors do not yet carry scoped child grants, so delegated planners run locally. Model-list and exact-model evidence varies by provider; unknown facts are shown explicitly.
+
+## Token accounting
+
+Pacer records how many tokens each attempt used, next to the quota percentage it already tracks. Tokens describe work volume; they are not a cost, and different providers' counts are not comparable. Pacer never converts one into the other.
+
+After an attempt ends, an extractor for its executor reads the run log pacer already wrote and keeps only numeric usage fields. Prompt text, output text, tool paths and keys are never copied. Each attempt gets a coverage label:
+
+| Coverage | Meaning |
+| --- | --- |
+| `measured` | The executor reported input and output usage for the whole run. |
+| `partial` | A total without a breakdown, or usage up to the point the run was killed. Treat it as a lower bound. |
+| `unknown` | The log was empty, unreadable, malformed or from an executor that reports no usage. Never shown as zero. |
+
+Extractors in this release:
+
+- **Codex** (`partial`): the `tokens used` total that Codex prints as the last output of a run. Only that final trailer counts, and it is marked self-reported because stdout text can be written by repository code.
+- **Claude Code** (`measured`): the `usage` on the final `result` event of its `stream-json` output. A run that ended without one keeps the usage of the assistant messages seen so far, as `partial`. Pacer replaces the raw stream with its result text when it writes the log, so it keeps the numeric usage in a `usage.jsonl` file beside the run. Claude history from before this release, and remote Claude runs (plain text), stay `unknown`.
+- Other executors are `unknown` until their output can be read.
+
+`total` is the provider's own total, or input plus output when the provider splits them. Cache reads and cache writes are stored separately and left out of `total`. Counts that are negative, fractional or above 10⁹ are rejected and the attempt is recorded as `unknown`.
+
+The numbers are stored with the attempt and indexed in the `attempt_usage` table of the task database. On start, the service fills the index for existing history from logs (gzipped archives included). The backfill only adds rows: it never edits task files, task records or logs, and running it again changes nothing.
+
+### Roll-up
+
+Each attempt belongs to exactly one work node, so totals never count an attempt twice and a parent's total is never added on top of its children's. `totals.tokens` on a work tree sums every node's attempts into `total`, `input`, `cacheRead`, `cacheWrite` and `output`, with `measuredAttempts`, `partialAttempts` and `unknownAttempts`. `lowerBound` is true whenever any attempt is `partial` or `unknown`, so show the number as "at least". Unreported fields add nothing; they are never counted as zero.
+
+`byExecutor` groups the same sums by agent, account and model, largest first. Task detail returns the same block as `tokens` for that task, and each attempt carries `tokens`. An attempt whose task record has no tokens (backfilled history) takes them from the `attempt_usage` index, so every view shows the same numbers. A node whose task record can no longer be read keeps its index rows, or counts as one `unknown` attempt. `planner` and `decision` report `coverage: "unknown"` until planner attribution exists.

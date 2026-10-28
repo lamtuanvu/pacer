@@ -1,6 +1,6 @@
 import type { TaskDetail } from "../../../../src/core/task-detail";
 import type { SessionInfo } from "../../../../src/session/service";
-import { LazyTerminal } from "../../term/LazyTerminal";
+import { LinkedTerminal, type ReadSessionFile } from "./LinkedTerminal";
 
 /** Picks the renderer for a live session. The built-in terminal is the only renderer today. */
 export function SessionView({
@@ -11,6 +11,7 @@ export function SessionView({
   takeRequested,
   onTakeSent,
   onFiles,
+  onReadFile,
 }: {
   task: TaskDetail;
   session?: SessionInfo;
@@ -19,11 +20,15 @@ export function SessionView({
   takeRequested: boolean;
   onTakeSent: () => void;
   onFiles: (files: File[]) => void;
+  onReadFile?: ReadSessionFile;
 }) {
   if (session?.host === "builtin")
     return (
-      <LazyTerminal
+      <LinkedTerminal
         id={task.id}
+        attempt={session.attempt ?? null}
+        readFile={onReadFile}
+        workspace={task.branch ?? task.repo?.label}
         url={session.attach.ws}
         cols={session.cols}
         rows={session.rows}

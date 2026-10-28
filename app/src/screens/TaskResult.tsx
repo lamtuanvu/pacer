@@ -3,7 +3,7 @@ import { useMemo, useRef, useState } from "preact/hooks";
 import type { TaskDetail } from "../../../src/core/task-detail";
 import type { ApiTask } from "../../../src/api/read-model/types";
 import { executorLabel, taskOutcome, taskStatus } from "../../../src/view-model/words";
-import { running } from "../../../src/view-model/selectors";
+import { scopedTaskTree, taskTree } from "../../../src/view-model/task-tree";
 import { clock } from "../../../src/view-model/time";
 import { Button } from "../ds/Button";
 import { Disclosure, Field, TextArea } from "../ds/Controls";
@@ -13,7 +13,6 @@ import { FrameContext, FrameSlot, useFrame, useFrameHeading } from "../shell/slo
 import { SectionHeading } from "../ds/SectionHeading";
 import { useActions } from "../data/action-context";
 import { withQuery, type RouteQuery } from "../router";
-import { sessionDetail, sessionRow } from "./session/controller";
 import { SessionRoute } from "./session/SessionRoute";
 import { TaskNavigator } from "./session/TaskNavigator";
 import { useQuery, useTaskContext } from "./task-shared";
@@ -144,13 +143,17 @@ export function TaskRoute({ id, query }: { id: string; query: RouteQuery }) {
   const title = task.data && (task.data.title?.trim() || task.data.fullTitle?.trim() || task.data.goal);
   useFrameHeading(task.data ? { title: title!, agent: markAgent(task.data.executor ?? "unknown") } : null);
   if (!task.data) return task.error ? <EmptyState title="Could not load task" description="Try refreshing the page."/> : <LoadingState label="Loading task…"/>;
-  const rows=[...new Map([...(history.data?.tasks??[]),...(state.snapshot?.tasks??[])].map(item=>[item.id,item])).values()].filter(item=>!query.repo||item.repo?.key===query.repo);
-  const currentRunning=state.snapshot?running(state.snapshot,{repo:query.repo||null}).map(sessionRow):[];
-  const recent=rows.filter(item=>!['running','queued'].includes(item.state)).sort((a,b)=>b.updatedAt-a.updatedAt).map(sessionRow);
+  const selected={...task.data,parentId:task.data.work?.parentId??null};
+  const extra=[...(history.data?.tasks??[]),selected];
+  const now=Date.now()/1000;
+  const nodes=state.snapshot?scopedTaskTree(state.snapshot,{repo:query.repo||null},{now,extra,pinned:id}):taskTree({tasks:extra.filter(item=>!query.repo||item.repo?.key===query.repo||item.id===id)},{now});
+  // A deep link (`?tab=changes`) opens the details panel on that tab.
+  const requested = new URLSearchParams(location.hash.split("?")[1]).get("tab");
+  const panelTab = ({ changes: "changes", brief: "details", work: "work" } as const)[requested as "changes"];
   const active = ["queued", "running"].includes(task.data.state);
   return <FrameContext.Provider value={slots}><div className="pc-task-workspace">
-    <FrameSlot name="left"><TaskNavigator selectedId={id} selectedTask={sessionDetail(task.data)} running={currentRunning} recent={recent} query={withQuery('',query)}/></FrameSlot>
-    <div className="pc-task-workspace__main"><SessionRoute id={id} result={!active && <TaskResultLoaded key={id} task={task.data} reload={task.reload} compact/>}
+    <FrameSlot name="left"><TaskNavigator selectedId={id} nodes={nodes} query={withQuery('',query)}/></FrameSlot>
+    <div className="pc-task-workspace__main"><SessionRoute id={id} tab={panelTab} result={!active && <TaskResultLoaded key={id} task={task.data} reload={task.reload} compact/>}
       work={task.data.work && <LazyWork id={id}/>}/></div>
     {frame?.inline && <section ref={setBelow} className="pc-task-workspace__details" aria-label="Session details"/>}
   </div></FrameContext.Provider>;

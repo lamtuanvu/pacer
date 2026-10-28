@@ -20,7 +20,6 @@ export interface FrameSlots {
 }
 export const FrameContext = createContext<FrameSlots | null>(null);
 export const useFrame = () => useContext(FrameContext);
-export const RIGHT_PANEL_ID = "pc-side-panel-right";
 
 /** Renders children into a frame region. Outside the frame, or while the region is closed, nothing renders. */
 export function FrameSlot({ name, children }: { name: "title" | "left" | "right"; children: ComponentChildren }) {

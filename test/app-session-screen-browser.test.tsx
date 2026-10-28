@@ -26,7 +26,7 @@ async function openSession(browser: Browser, scenario: Scenario, viewport = { wi
   await page.goto("http://pacer.test/#/tasks/t-0412");
   await page.evaluate(([css, scenario]) => { document.head.insertAdjacentHTML("beforeend", `<style>${css}</style>`); (window as any).SCENARIO = scenario; }, [css, scenario] as const);
   await page.evaluate(async code => { const url = URL.createObjectURL(new Blob([code], { type: "text/javascript" })); await import(url); URL.revokeObjectURL(url); }, source);
-  await page.locator(".pc-session-title-actions").first().waitFor();
+  await page.locator(".pc-session-title-actions").first().waitFor({ state: "attached" });
   return page;
 }
 const focused = (page: Page, selector: string) => page.waitForFunction(at => document.activeElement?.matches(at), selector, { timeout: 2000 })
@@ -56,9 +56,9 @@ browserTest("end_session_icon_confirms", async () => withBrowser(async browser =
     await dialog.waitFor();
     await dialog.getByRole("button", { name: scenario === "conversation" ? "End session" : "Stop" }).click();
     await page.waitForFunction(op => (window as any).CALLS.some((call: { op: string }) => call.op === op), scenario === "conversation" ? "session.end" : "task.stop");
-    // Once ended, End session leaves the title bar and focus stays in its group, on the details toggle.
+    // Once ended, End session leaves the title bar and focus stays in the title bar instead of falling to the page.
     await end.waitFor({ state: "detached" });
-    await focused(page, '[aria-label="Hide session details"]');
+    await focused(page, ".pc-topbar button");
     await page.close();
   }
 }), 60_000);
@@ -86,8 +86,9 @@ browserTest("changes_tab_lists_worktree_files", async () => withBrowser(async br
 browserTest("no_actions_on_ended_session", async () => withBrowser(async browser => {
   const page = await openSession(browser, "ended");
   const actions = page.getByRole("banner").getByRole("group", { name: "Session actions" });
-  // Only the details toggle remains: nothing that would act on a session that has ended.
-  expect(await actions.getByRole("button").evaluateAll(nodes => nodes.map(node => node.getAttribute("aria-label")))).toEqual(["Hide session details"]);
+  // Nothing in the title bar would act on a session that has ended; only the frame's details toggle remains.
+  await expect(actions.getByRole("button").count()).resolves.toBe(0);
+  await expect(page.getByRole("button", { name: "Toggle session details" }).count()).resolves.toBe(1);
   for (const name of ["End session", "Stop", "Take over", "Resume conversation", "Open in terminal"]) await expect(page.getByRole("button", { name, exact: true }).count()).resolves.toBe(0);
   // The terminal fills the centre without a view switch.
   await expect(page.getByRole("main").getByRole("tablist").count()).resolves.toBe(0);
@@ -99,17 +100,15 @@ browserTest("no_actions_on_ended_session", async () => withBrowser(async browser
 browserTest("session_details_toggle_keyboard_and_focus", async () => withBrowser(async browser => {
   const page = await openSession(browser, "conversation");
   const panel = page.getByRole("complementary", { name: "Session details" });
-  const hide = page.getByRole("button", { name: "Hide session details" });
-  await expect(hide.getAttribute("aria-expanded")).resolves.toBe("true");
-  await expect(hide.getAttribute("aria-controls")).resolves.toBe("pc-side-panel-right");
+  const hide = page.getByRole("button", { name: "Toggle session details" });
+  await expect(hide.getAttribute("aria-pressed")).resolves.toBe("true");
   await expect(page.locator("#pc-side-panel-right").count()).resolves.toBe(1);
   // Keyboard activation keeps focus on the persistent title-bar toggle.
   await hide.focus();
   await page.keyboard.press("Enter");
   await expect(panel.count()).resolves.toBe(0);
-  const show = page.getByRole("button", { name: "Show session details" });
-  await expect(show.getAttribute("aria-expanded")).resolves.toBe("false");
-  await focused(page, '[aria-label="Show session details"]');
+  await expect(hide.getAttribute("aria-pressed")).resolves.toBe("false");
+  await focused(page, '[aria-label="Toggle session details"]');
   expect(await page.evaluate(() => localStorage.getItem("pacer.panel.session-details"))).toBe("0");
   // Ctrl-Shift-B toggles it from anywhere outside a text field.
   await page.locator("#main-content").focus();
@@ -125,7 +124,7 @@ browserTest("session_details_toggle_keyboard_and_focus", async () => withBrowser
   await expect(page.locator(`#${controls}`).getAttribute("aria-labelledby")).resolves.toBe(await tab.getAttribute("id"));
   // Ctrl-b collapses the Tasks list and keeps the session usable.
   await page.locator("#main-content").focus();
-  await page.keyboard.press("Control+b");
+  await page.keyboard.press("ControlOrMeta+b");
   await expect(page.getByRole("complementary", { name: "Tasks" }).count()).resolves.toBe(0);
   await expect(page.getByRole("button", { name: "Show Tasks" }).getAttribute("aria-expanded")).resolves.toBe("false");
   await page.close();
@@ -150,7 +149,7 @@ browserTest("closed_panel_keeps_next_step_reachable", async () => withBrowser(as
   const actions = page.getByRole("banner").getByRole("group", { name: "Session actions" });
   // Open panel: the next step is in the panel, so the title bar offers nothing extra.
   await expect(actions.getByRole("button", { name: "Review result" }).count()).resolves.toBe(0);
-  await page.getByRole("button", { name: "Hide session details" }).click();
+  await page.getByRole("button", { name: "Toggle session details" }).click();
   const next = actions.getByRole("button", { name: "Review result" });
   await expect(next.getAttribute("class")).resolves.toContain("pc-btn--primary");
   // Keyboard activation reopens the panel on Details, where the verdict actions are.
@@ -163,7 +162,7 @@ browserTest("closed_panel_keeps_next_step_reachable", async () => withBrowser(as
   await expect(actions.getByRole("button", { name: "Review result" }).count()).resolves.toBe(0);
   // A running session has no next step to surface, even with the panel closed.
   const running = await openSession(browser, "supervised");
-  await running.getByRole("button", { name: "Hide session details" }).click();
+  await running.getByRole("button", { name: "Toggle session details" }).click();
   await expect(running.getByRole("banner").getByRole("button", { name: "Review result" }).count()).resolves.toBe(0);
   await page.close(); await running.close();
 }), 30_000);

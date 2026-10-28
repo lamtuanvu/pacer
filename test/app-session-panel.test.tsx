@@ -4,7 +4,7 @@ import { SessionPanel, SessionTitle, WorktreeChanges } from "../app/src/screens/
 import { SidePanel } from "../app/src/ds/SidePanel";
 import { PanelTabs } from "../app/src/ds/PanelTabs";
 import { FrameContext } from "../app/src/shell/slots";
-import { panelShortcuts } from "../app/src/shell/panels";
+import { panelCommands } from "../app/src/shell/panels";
 import { taskStatus } from "../src/view-model/words";
 
 const noop = () => {};
@@ -24,14 +24,9 @@ test("changes_tab_lists_worktree_files (markup)", () => {
 
 test("no_actions_on_ended_session (markup)", () => {
   const ended = renderToString(<FrameContext.Provider value={frame(true)}><SessionTitle status={taskStatus({ state: "done" } as never)} live={false} facts={["ended 5m ago"]} /></FrameContext.Provider>);
-  expect(ended).toContain('aria-label="Hide session details"');
-  expect(ended).toContain('aria-expanded="true"');
-  expect(ended).toContain('aria-controls="pc-side-panel-right"');
-  expect(ended).not.toContain("End session");
+  expect(ended).not.toContain("<button");
   const live = renderToString(<FrameContext.Provider value={frame(false)}><SessionTitle status={taskStatus({ state: "running" } as never)} live facts={[]}
     actions={<button aria-label="End session">x</button>} /></FrameContext.Provider>);
-  expect(live).toContain('aria-label="Show session details"');
-  expect(live).not.toContain("aria-controls");
   expect(live).toContain("End session");
 });
 
@@ -54,8 +49,8 @@ test("side panel without its own bar renders nothing when closed and no toggle w
 });
 
 test("details panel shortcut is registered only where a right panel exists", () => {
-  expect(panelShortcuts(noop, noop, noop).map(s => s.keys)).toEqual(["Ctrl-b", "Ctrl-B", "Ctrl-`"]);
-  expect(panelShortcuts(noop, noop).map(s => s.keys)).not.toContain("Ctrl-B");
+  expect(panelCommands(noop, noop, noop).map(s => s.keys)).toEqual(["Mod-b", "Ctrl-B", "Ctrl-`"]);
+  expect(panelCommands(noop, noop).map(s => s.keys)).not.toContain("Ctrl-B");
 });
 
 test("next step is offered in the title bar only while the details panel is closed", () => {

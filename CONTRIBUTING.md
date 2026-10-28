@@ -60,7 +60,7 @@ The workflow then does the rest:
 3. It commits `chore: release <version>` (DCO-signed) on `release/v<version>` and opens the PR. CI runs the full suite; the PR needs no UI evidence manifest because its only UI-scoped changes are version strings, which CI checks.
 4. Opening or updating the release PR automatically runs the release dry run on its exact head commit: every platform builds (including production-signed macOS apps when `PACER_DESKTOP_RELEASE_ENABLED=true`), npm publishes with `--dry-run` and the Homebrew formula is checked, with nothing published.
 5. Prepare waits for that head’s dry run before enabling auto-merge, with a matching-head guard. The required platform Test checks also wait for Release readiness, so a later commit cannot reuse the earlier validation. If validation fails, push the fix to the release branch, wait for fresh Release readiness and CI checks, then enable auto-merge again.
-6. When the PR merges, **Release tag** requires the latest dry run for the merged PR head to pass and its file tree to match the merge commit, then tags the merge commit `v<version>` and the tag runs `release.yml`, which publishes.
+6. When the PR merges, **Release tag** requires the latest dry run for the merged PR head to pass and its file tree to match the merge commit, then tags the merge commit `v<version>` and the tag runs `release.yml`, which publishes. If another commit reached `main` before the squash merge, use the recovery action below to validate the exact merge commit.
 
 Only one release runs at a time, and a version whose tag already exists is never re-tagged.
 
@@ -77,9 +77,9 @@ Renew it before it expires; Prepare release and Release tag fail with a clear er
 
 ### Interrupted releases
 
-Prepare automatically resumes a uniquely identified merged release whose current version has no tag. This invocation finishes that version; after publication, run Prepare again to include subsequent changes. Missing or ambiguous release PRs fail closed. For explicit manual recovery, Open **Actions → Release tag → Run workflow** on `main` and enter the merged release PR number (for example, `288` for `0.8.1`). Recovery verifies that it is a same-repository release PR merged into main, compares the PR and merge trees, restores a deleted release branch at exactly its final reviewed head without overwriting any branch, and runs fresh full release validation. Only after it passes does recovery tag the original merge commit. Later commits on main are not included.
+Prepare automatically resumes a uniquely identified merged release whose current version has no tag. This invocation finishes that version; after publication, run Prepare again to include subsequent changes. Missing or ambiguous release PRs fail closed. For explicit manual recovery, open **Actions → Release tag → Run workflow** on `main` and enter the merged release PR number (for example, `288` for `0.8.1`). Recovery verifies that it is a same-repository release PR merged into main, creates a dedicated `release/recovery-v<version>-<merge SHA prefix>` branch at the exact merge commit, and runs fresh full release validation there. It tags that same commit only after the validation succeeds. Later commits on main are not included.
 
-A changed release branch, mismatched merge tree, failed dry run or existing tag stops recovery. If the tag already exists but publication failed, rerun the failed **Release** publishing workflow instead; tags are never moved. Repeating **Prepare release** cannot repair an unfinished release.
+A recovery branch pointing at another commit, failed dry run or existing tag stops recovery. Recovery never overwrites a branch. If the tag already exists but publication failed, rerun the failed **Release** publishing workflow instead; tags are never moved. Repeating **Prepare release** cannot repair an unfinished release.
 
 ### Manual fallback
 

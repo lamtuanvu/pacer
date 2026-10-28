@@ -18,9 +18,9 @@ import { SessionPanel, SessionTitle, WorktreeChanges, type SessionPanelTab, type
 import type { Action } from './types';
 
 /** A task's session: the terminal in the page, its facts and End session in the title bar, Changes and Details in the right panel. */
-export function SessionRoute({id, result, work}:{id:string; result?:ComponentChildren; work?:ComponentChildren}) {
+export function SessionRoute({id, result, work, tab}:{id:string; result?:ComponentChildren; work?:ComponentChildren; tab?:SessionPanelTab}) {
  const {state,api}=useTaskContext(),runner=useActions(),frame=useFrame();
- const [panelTab,setPanelTab]=useState<SessionPanelTab>('details');
+ const [panelTab,setPanelTab]=useState<SessionPanelTab>(tab??'details');
  const dialogs=useDialogs();
  const [shortcutError,setShortcutError]=useState('');
  const [takeoverBusy,setTakeoverBusy]=useState(false),[takeoverStarting,setTakeoverStarting]=useState(false),[takeoverError,setTakeoverError]=useState(''),[takeRequested,setTakeRequested]=useState(false);
@@ -85,6 +85,6 @@ export function SessionRoute({id, result, work}:{id:string; result?:ComponentChi
   showChanges:()=>openPanel('changes'),
  };
  if(task.data?.interactionMode==='conversation')return <Conversation key={id} task={task.data} session={session.data} slots={slots} onReload={()=>{task.reload();session.reload();}}/>;
- return <>{dialogs.dialog}{shortcutError&&<p role="status">{shortcutError}</p>}<Session embedded view="terminal" slots={slots} key={id} onTakeSent={()=>setTakeRequested(false)} onTakeover={()=>void takeOver()} takeoverBusy={takeoverBusy} takeoverStarting={takeoverStarting} takeoverError={takeoverError} takeRequested={takeRequested} data={data} loading={task.loading} error={message(task.error)} onAction={invoke} onAttach={async(_,target)=>{const key=`attach:${id}:${target}`;const outcome=await runner.run(key,{label:'Open viewer',op:'task.attach',params:{id,target}});if(outcome.status==='error'||outcome.status==='handled')throw new Error(outcome.message);return runner.result(key) as {opened:boolean;command?:string};}} onReload={task.reload}/></>;
+ return <>{dialogs.dialog}{shortcutError&&<p role="status">{shortcutError}</p>}<Session embedded view="terminal" slots={slots} key={id} onTakeSent={()=>setTakeRequested(false)} onTakeover={()=>void takeOver()} takeoverBusy={takeoverBusy} takeoverStarting={takeoverStarting} takeoverError={takeoverError} takeRequested={takeRequested} data={data} loading={task.loading} error={message(task.error)} onAction={invoke} onReadFile={request=>api.call('session.file.read',request)} onAttach={async(_,target)=>{const key=`attach:${id}:${target}`;const outcome=await runner.run(key,{label:'Open viewer',op:'task.attach',params:{id,target}});if(outcome.status==='error'||outcome.status==='handled')throw new Error(outcome.message);return runner.result(key) as {opened:boolean;command?:string};}} onReload={task.reload}/></>;
 }
 const message=(error:unknown)=>error instanceof Error?error.message:error?String(error):undefined;

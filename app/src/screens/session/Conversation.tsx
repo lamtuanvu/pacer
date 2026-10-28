@@ -149,6 +149,7 @@ export function Conversation({
               uploads.uploadFiles(files);
               slots?.showChanges();
             }}
+            onReadFile={request => api.call("session.file.read", request)}
           />
         </div>
       </div>

@@ -3,7 +3,7 @@ import { meterText } from "../../../src/view-model/format";
 import { paceStatus, type StatusTone } from "../../../src/view-model/words";
 
 export interface UsageMeterProps {
-  used: number | null; pace: number | null; tone: StatusTone; size: "top" | "bar" | "row"; label: string;
+  used: number | null; pace: number | null; tone: StatusTone; size: "top" | "bar" | "row" | "mini"; label: string;
   verdict?: string; paceReason?: string; stale?: boolean; staleAt?: number; now?: number; text?: "full" | "compact" | "none";
 }
 const clamp = (n: number) => Math.max(0, Math.min(100, n));

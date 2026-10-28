@@ -1,14 +1,14 @@
 import type { ComponentChildren } from "preact";
 import { useEffect, useRef } from "preact/hooks";
 import type { Status } from "../../../../src/view-model/words";
-import { Button, IconButton } from "../../ds/Button";
+import { Button } from "../../ds/Button";
 import { PanelTabs } from "../../ds/PanelTabs";
 import { DisclosurePanel } from "../../ds/Page";
 import { EmptyState, LoadingState } from "../../ds/Patterns";
 import { SectionHeading } from "../../ds/SectionHeading";
 import { StatusDot } from "../../ds/StatusDot";
 import { parseDiff } from "../../model/diff";
-import { RIGHT_PANEL_ID, useFrame } from "../../shell/slots";
+import { useFrame } from "../../shell/slots";
 
 export type SessionPanelTab = "changes" | "details" | "work";
 export interface ChangedFile { path: string; added: number; removed: number; status?: "added" | "modified" | "deleted" | "renamed" }
@@ -21,19 +21,16 @@ export function SessionTitle({ status, live, facts, actions, next }: {
   next?: { label: string; tab: SessionPanelTab; open: (tab: SessionPanelTab) => void };
 }) {
   const details = useFrame()?.details;
-  const name = `${details?.open ? "Hide" : "Show"} session details`;
   // An action that can no longer work disappears (End session once ended); focus then stays in the group.
   const group = useRef<HTMLDivElement>(null), within = useRef(false);
   useEffect(() => {
-    if (within.current && document.activeElement === document.body) group.current?.querySelector<HTMLElement>("button")?.focus();
+    if (within.current && document.activeElement === document.body) (group.current?.querySelector<HTMLElement>("button") ?? document.querySelector<HTMLElement>('[aria-label="Toggle session details"]'))?.focus();
   });
   return <>
     <span className="pc-session-title-facts"><StatusDot tone={status.tone} live={live} label={status.label} />
       {facts.filter(Boolean).map(fact => <span key={fact} title={fact}>{fact}</span>)}</span>
     <div ref={group} className="pc-session-title-actions" role="group" aria-label="Session actions" onFocusIn={() => { within.current = true; }}
       onFocusOut={event => { if (event.relatedTarget) within.current = group.current!.contains(event.relatedTarget as Node); }}>
-      {details && <IconButton size="sm" variant="quiet" icon="panel-right" aria-label={name} title={`${name} (Ctrl+Shift+B)`} aria-keyshortcuts="Control+Shift+B"
-        aria-expanded={details.open} aria-controls={details.open ? RIGHT_PANEL_ID : undefined} onClick={details.toggle} />}
       {next && details && !details.open && <Button size="sm" variant="primary" onClick={() => next.open(next.tab)}>{next.label}</Button>}
       {actions}
     </div>

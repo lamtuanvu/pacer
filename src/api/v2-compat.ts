@@ -17,16 +17,16 @@ export type CompatSnapshot = SnapshotV3 & { [V2_STATE]?: Pick<LinkSnapshot,'budg
 export type CompatEvent = ApiEventV3 & { [V2_EVENT]?: ApiEventV2 | null };
 
 /** Operations added after 2.8.0. 2.x is frozen, so they exist only in v3. */
-export const V3_ONLY_OPS = new Set(['snapshot.get','client.control.enroll','client.control.targets','client.control.request','client.control.result','client.control.claim','client.control.complete','api.list','api.describe','runner.settings.get','runner.settings.save','desktop.capture.register','desktop.capture.targets','desktop.capture.request','desktop.capture.claim','desktop.capture.complete','desktop.capture.result','desktop.update.adopt','desktop.update.adoptCancel','desktop.update.status','desktop.update.check','desktop.update.download','desktop.update.restart','desktop.update.cancel','desktop.update.configure','task.takeover','service.install','onboarding.skip','onboarding.try','doctor.run','project.strategy.list','project.strategy.get','project.strategy.set','project.strategy.remove','task.prune','task.restore','plugin.list','plugin.enable','plugin.disable','plugin.remove','plugin.doctor']);
+export const V3_ONLY_OPS = new Set(['snapshot.get','client.control.enroll','client.control.targets','client.control.request','client.control.result','client.control.claim','client.control.complete','api.list','api.describe','runner.settings.get','runner.settings.save','desktop.capture.register','desktop.capture.targets','desktop.capture.request','desktop.capture.claim','desktop.capture.complete','desktop.capture.result','desktop.update.adopt','desktop.update.adoptCancel','desktop.update.status','desktop.update.check','desktop.update.download','desktop.update.restart','desktop.update.cancel','desktop.update.configure','task.takeover','service.install','onboarding.skip','onboarding.try','doctor.run','project.strategy.list','project.strategy.get','project.strategy.set','project.strategy.remove','task.prune','task.restore','plugin.list','plugin.enable','plugin.disable','plugin.remove','plugin.doctor','plugin.ui.list','plugin.ui.render','plugin.ui.action','plugin.ui.visibility','plugin.settings.get','plugin.settings.set','files.search']);
 
-for (const op of ['dispatch.config.get','dispatch.preview','dispatch.submit','dispatch.child','dispatch.tree','dispatch.list','dispatch.events','dispatch.wait','dispatch.review','dispatch.retry','dispatch.answer','dispatch.stop','dispatch.dependencies','dispatch.dependencies.waive','dispatch.models','dispatch.refresh','dispatch.analytics','dispatch.enforcement','dispatch.enforcement.probe','dispatch.enforcement.denied','dispatch.learning.reset']) V3_ONLY_OPS.add(op);
+for (const op of ['dispatch.config.get','dispatch.preview','dispatch.explain','dispatch.submit','dispatch.child','dispatch.tree','dispatch.list','dispatch.events','dispatch.wait','dispatch.review','dispatch.retry','dispatch.answer','dispatch.stop','dispatch.dependencies','dispatch.dependencies.waive','dispatch.models','dispatch.refresh','dispatch.analytics','dispatch.enforcement','dispatch.enforcement.probe','dispatch.enforcement.denied','dispatch.learning.reset']) V3_ONLY_OPS.add(op);
 
 export function v2Hello() {
  const {previous:_,...hello}=helloBody();
  return {...hello,protocol:V2_PROTOCOL,ops:hello.ops.filter(op=>!V3_ONLY_OPS.has(op)),events:[...V2_EVENT_TYPES]};
 }
 
-for (const op of ["limits.refresh", "session.draft.create", "session.prepare", "session.create", "session.context", "session.end", "session.resume", "session.attachment.prepare"]) V3_ONLY_OPS.add(op);
+for (const op of ["limits.refresh", "session.draft.create", "session.prepare", "session.create", "session.context", "session.end", "session.resume", "session.attachment.prepare", "session.file.read"]) V3_ONLY_OPS.add(op);
 for (const op of ["terminal.list", "terminal.create", "terminal.rename", "terminal.close"]) V3_ONLY_OPS.add(op);
 
 function budget(s: SnapshotV3): BudgetData | null {

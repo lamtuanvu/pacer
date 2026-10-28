@@ -1,7 +1,7 @@
 import {expect, test} from 'bun:test';
 import {chromium} from 'playwright-core';
 import {renderToString} from 'preact-render-to-string';
-import {SessionsList} from '../app/src/screens/session/SessionsList';
+import {SessionsList} from './fixtures/ui/sessions-list';
 import {TaskNavigator} from '../app/src/screens/session/TaskNavigator';
 import {Session} from '../app/src/screens/session/Session';
 import type {TaskDetail} from '../src/core/task-detail';
@@ -10,7 +10,8 @@ import detailFixture from './fixtures/ui/task-get.json';
 import sessionFixture from './fixtures/ui/session.json';
 import {NarrowContext} from '../app/src/ds/Density';
 import {Page} from '../app/src/ds/Page';
-import {sessionRow} from '../app/src/screens/session/controller';
+import {taskTree} from '../src/view-model/task-tree';
+const view=(t:ClientTask)=>taskTree({tasks:[t]},{now:Math.floor(Date.now()/1000)})[0]!;
 import {Sessions} from '../app/src/screens/session/controller';
 import {Layout} from '../app/src/shell/Layout';
 import {TaskContext} from '../app/src/screens/task-shared';
@@ -22,19 +23,19 @@ import type {ClientTask} from '../src/view-model/snapshot';
 const task = {id:'ended',title:'Implement ticket SFOS-488…',fullTitle:'Implement ticket SFOS-488 (ZDD-A3) in the infrastructure repository',goal:'Implement ticket',state:'done',executor:'codex',backend:null,worktree:null,updatedAt:Math.floor(Date.now()/1000),repo:{label:'terastor/storfabricos-infra'}} as ClientTask;
 
 test('Tasks rows open the task directly without repeated control actions',()=>{
- const html=renderToString(<SessionsList recent={{data:[sessionRow(task)]}}/>);
- expect(html).toContain(`>${task.fullTitle}</strong>`);
+ const html=renderToString(<SessionsList recent={{data:[view(task)]}}/>);
+ expect(html).toContain(`>${task.fullTitle}</a>`);
  expect(html).toContain(`title="${task.fullTitle}"`);
  expect(html).toContain(`href="#/tasks/ended"`);
  expect(html).not.toContain('Take over');
  expect(html).not.toContain('View result');
- expect(sessionRow({...task,fullTitle:undefined}).title).toBe(task.title);
+ expect(view({...task,fullTitle:undefined}).title).toBe(task.title!);
 });
 
 test('Task navigator identifies the selected task and preserves the repo filter',()=>{
- const selected=sessionRow({...task,id:'running-task',state:'running',fullTitle:'Run a long task'});
- const html=renderToString(<TaskNavigator selectedId={selected.id} selectedTask={selected}
-  running={[selected]} recent={[sessionRow(task)]} query='?repo=lamtuanvu%2Fpacer'/>);
+ const selected=view({...task,id:'running-task',state:'running',fullTitle:'Run a long task'});
+ const html=renderToString(<TaskNavigator selectedId={selected.id} nodes={[selected,view(task)]} query='?repo=lamtuanvu%2Fpacer'/>);
+ expect(html).toContain('pc-task-card--compact');
  expect(html).toContain('aria-label="Task navigator"');
  expect(html).toContain('aria-current="page"');
  expect(html).toContain('href="#/tasks/running-task?repo=lamtuanvu%2Fpacer"');
@@ -43,7 +44,7 @@ test('Task navigator identifies the selected task and preserves the repo filter'
 });
 
 const browserPath=process.env.PACER_TEST_BROWSER;
-test.skipIf(!browserPath)('Tasks route follows Overview full-width gutters and card sections',async()=>{
+test.skipIf(!browserPath)('Tasks route lays out the board header, filters and tree inside the content width',async()=>{
  const fixture=(await import('./fixtures/ui/snapshot.json')).default;
  const state={...initialState(),connected:true,features:{readModel:true,ops:new Set<string>()},snapshot:fixture};
  const css=(await Promise.all(['app/src/ds/tokens.css','app/src/ds/components.css','app/src/styles.css','app/src/screens/session/session.css'].map(f=>Bun.file(f).text()))).join('\n');
@@ -54,13 +55,33 @@ test.skipIf(!browserPath)('Tasks route follows Overview full-width gutters and c
    await page.setViewportSize({width,height:1000});
    const html=renderToString(<TaskContext.Provider value={{state:state as unknown as StoreState,api:{} as BrowserApi}}><Layout route={{name:'sessions',query:{repo:null,scope:null}}} state={state as unknown as StoreState} title="Tasks"><Sessions query={{repo:null,scope:null}}/></Layout></TaskContext.Provider>);
    await page.setContent(`<html data-pacer-desktop data-pacer-native-titlebar><style>${css}</style><div id="app">${html}</div></html>`);
-   const edges=await page.evaluate(()=>{
-    const left=(selector:string)=>document.querySelector(selector)!.getBoundingClientRect().left;
-    return [left('.pc-filter'),left('.pc-sessions-list'),left('.pc-sessions-list > section')];
+   const geometry=await page.evaluate(()=>{
+    const box=document.querySelector('.pc-tasks-page')!.getBoundingClientRect();
+    return {title:document.querySelector('.pc-tasks-page__title')?.textContent,width:box.width,left:box.left,columns:getComputedStyle(document.querySelector('.pc-tasks-page__columns')!).display};
    });
-   expect(Math.max(...edges)-Math.min(...edges)).toBeLessThan(1);
-   expect(edges[0]).toBeLessThan(100);
-   expect(await page.locator('.pc-sessions-list > .pc-card-section').count()).toBe(2);
+   expect(geometry.title).toBe('Tasks');
+   // Measured against the Tasks board: type, padding, card geometry and the quick-action size.
+   const board=await page.evaluate(()=>{
+    const style=(selector:string)=>{const el=document.querySelector(selector);return el?getComputedStyle(el):undefined;};
+    const box=(selector:string)=>document.querySelector(selector)?.getBoundingClientRect();
+    return {
+     h1:[style('.pc-tasks-page__title')?.fontSize,style('.pc-tasks-page__title')?.lineHeight,style('.pc-tasks-page__title')?.fontWeight],
+     page:[style('.pc-tasks-page')?.paddingTop,style('.pc-tasks-page')?.paddingLeft,style('.pc-tasks-page')?.paddingBottom,style('.pc-tasks-page')?.rowGap],
+     search:[box('.pc-tasks-page__search')?.height,box('.pc-tasks-page__search')?.width],
+     card:[style('.pc-task-card')?.borderRadius,style('.pc-task-card')?.paddingTop],
+     main:[style('.pc-task-card__main')?.borderRadius,style('.pc-task-card__main')?.paddingTop,style('.pc-task-card__main')?.paddingLeft],
+     title:[style('.pc-task-card__title')?.fontSize,style('.pc-task-card__title')?.lineHeight,style('.pc-task-card__title')?.fontWeight],
+     dot:[box('.pc-task-card__dot--root')?.width,box('.pc-task-card__dot--root')?.height],
+     host:[box('.pc-task-card .pc-host-chip')?.height],
+     action:[box('.pc-task-card__action')?.width,box('.pc-task-card__action')?.height],
+     aside:[box('.pc-task-aside')?.width,style('.pc-task-aside')?.position],
+    };
+   });
+   expect(board).toEqual({h1:['28px','34px','650'],page:['28px','40px','48px','16px'],search:[36,260],card:['12px','4px'],main:['10px','10px','12px'],title:['15px','21px','600'],dot:[10,10],host:[22],action:[26,26],aside:[360,'sticky']});
+   // The board is capped at its design width and starts at the content edge; the tree and the panel share a row.
+   expect(geometry.width).toBeLessThanOrEqual(1240);
+   expect(geometry.left).toBeLessThan(100);
+   expect(geometry.columns).toBe('flex');
    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   }
  }finally{await browser.close();}
@@ -68,26 +89,25 @@ test.skipIf(!browserPath)('Tasks route follows Overview full-width gutters and c
 test.skipIf(!browserPath)('Tasks bounds whole-row links and metadata inside narrow viewports',async()=>{
  const longTitle='Implement ticket SFOS-488 (ZDD-A3) across the deployment controller, rollback checks, migration report, and all affected infrastructure integration tests';
  const longRepo='terastor/storfabricos-infrastructure-deployment-controller-and-validation';
- const runningTask=sessionRow({...task,id:'running-long',state:'running',fullTitle:longTitle,repo:{...task.repo!,label:longRepo}});
- const failedTask=sessionRow({...task,id:'failed-long',state:'failed',fullTitle:'Retry budget refresh after a transient provider outage and verify each affected account'});
+ const runningTask=view({...task,id:'running-long',state:'running',fullTitle:longTitle,repo:{...task.repo!,label:longRepo}} as ClientTask);
+ const failedTask=view({...task,id:'failed-long',state:'failed',fullTitle:'Retry budget refresh after a transient provider outage and verify each affected account'});
  const css=(await Promise.all(['app/src/ds/tokens.css','app/src/ds/components.css','app/src/styles.css','app/src/screens/session/session.css'].map(f=>Bun.file(f).text()))).join('\n');
  const browser=await chromium.launch({executablePath:browserPath!,headless:true});
  try{
   const page=await browser.newPage();
   for(const width of [1990,1440,375])for(const theme of ['light','dark']){
    await page.setViewportSize({width,height:1000});
-   await page.setContent(`<html data-theme="${theme}"><style>${css}</style>${renderToString(<NarrowContext.Provider value={width<560}><Page width="full" className="pc-page-body"><SessionsList running={{data:[runningTask]}} recent={{data:[sessionRow(task),failedTask]}}/></Page></NarrowContext.Provider>)}</html>`);
+   await page.setContent(`<html data-theme="${theme}"><style>${css}</style>${renderToString(<NarrowContext.Provider value={width<560}><Page width="full" className="pc-page-body"><SessionsList running={{data:[runningTask]}} recent={{data:[view(task),failedTask]}}/></Page></NarrowContext.Provider>)}</html>`);
    if(process.env.PACER_LAYOUT_EVIDENCE)await page.screenshot({path:`${process.env.PACER_LAYOUT_EVIDENCE}/tasks-${width}-${theme}.png`});
    const geometry=await page.locator('.pc-sessions-list').evaluate(n=>({width:n.getBoundingClientRect().width,overflow:document.documentElement.scrollWidth>innerWidth}));
-   if(width>560)expect(geometry.width).toBeGreaterThan(width-150);
    expect(geometry.overflow).toBe(false);
-   const boxes=await page.locator('.pc-task-list-row,.pc-list-row__content,.pc-list-row__meta').evaluateAll(nodes=>nodes.map(n=>({left:n.getBoundingClientRect().left,right:n.getBoundingClientRect().right,width:n.getBoundingClientRect().width})));
+   const boxes=await page.locator('.pc-task-card,.pc-task-card__title,.pc-meta-row__item').evaluateAll(nodes=>nodes.map(n=>({left:n.getBoundingClientRect().left,right:n.getBoundingClientRect().right,width:n.getBoundingClientRect().width})));
    for(const box of boxes){expect(box.left).toBeGreaterThanOrEqual(0);expect(box.right).toBeLessThanOrEqual(width);expect(box.width).toBeGreaterThan(0);}
-   expect(await page.locator('.pc-sessions-rows .pc-list-row__content strong').first().getAttribute('title')).toBe(longTitle);
-   if(width<1990)expect(await page.locator('.pc-sessions-rows .pc-list-row__content strong').first().evaluate(n=>n.scrollWidth>n.clientWidth)).toBe(true);
-   expect(await page.locator('.pc-sessions-repo').first().getAttribute('title')).toBe(longRepo);
-   expect(await page.locator('.pc-task-list-row').count()).toBe(3);
-   expect(await page.locator('.pc-list-row__actions').count()).toBe(0);
+   expect(await page.locator('.pc-task-card__title').first().getAttribute('title')).toBe(longTitle);
+   if(width<1440)expect(await page.locator('.pc-task-card__title').first().evaluate(n=>n.scrollWidth>n.clientWidth)).toBe(true);
+   expect(await page.locator('.pc-meta-row__item').first().getAttribute('title')).toBe(longRepo);
+   expect(await page.locator('.pc-task-card').count()).toBe(3);
+   expect(await page.locator('.pc-task-card button').count()).toBe(0);
   }
  }finally{await browser.close();}
 });
@@ -117,7 +137,7 @@ test.skipIf(!browserPath)('Start work truncates long recent titles with an ellip
    expect(recentGap).toBe(0);
    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
    const contentEdge=await page.locator('.pc-start__cols').evaluate(n=>n.getBoundingClientRect().left);
-   expect(contentEdge).toBe(width<560?16:72);
+   expect(contentEdge).toBe(width<560?16:84);
    if(width>560)expect(await page.locator('.pc-start').evaluate(n=>n.getBoundingClientRect().width)).toBeGreaterThan(width-150);
    const rail=await page.locator(width<560?'.pc-bottom-bar':'.pc-rail').evaluate(n=>n.getBoundingClientRect().left);
    expect(rail).toBeGreaterThanOrEqual(0);

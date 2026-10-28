@@ -1,0 +1,81 @@
+import { expect, test } from "bun:test";
+import { fakeCtx, tmpDir } from "./helpers";
+import { createTask, updateTask } from "../src/tasks/store";
+import { registerWork, workTree } from "../src/dispatch/work";
+import { dispatchDatabase } from "../src/dispatch/store";
+import { recordAttemptUsage } from "../src/tokens/store";
+import { rollupTokens } from "../src/tokens/rollup";
+import { scopedWorkTree } from "../src/core/work";
+import { taskDetail } from "../src/core/task-detail";
+import type { Attempt, AttemptTokens } from "../src/tasks/types";
+
+const tok = (coverage: AttemptTokens["coverage"], total: number | null, extra: Partial<AttemptTokens> = {}): AttemptTokens => ({
+  coverage, input: total === null ? null : total - 10, cacheRead: null, cacheWrite: null, output: total === null ? null : 10, reasoning: null, total,
+  turns: null, source: "executor-json", selfReported: false, extractor: "test@1", capturedAt: 1, ...extra,
+});
+const attempt = (executor: string, tokens?: AttemptTokens): Attempt =>
+  ({ executor, model: null, startedAt: 1, endedAt: 2, exitCode: 0, timedOut: false, limitHit: false, log: "", ...(tokens ? { tokens } : {}) } as Attempt);
+
+function tree() {
+  const ctx = fakeCtx(), repo = tmpDir();
+  const make = (goal: string, parent?: string) => { const t = createTask(ctx, { brief: { goal, repo }, kind: "debug", requestedExecutor: null, timeoutS: 60 }); registerWork(ctx, t.id, parent ? {} : { allowDelegation: true }, parent); return t; };
+  const root = make("root"); updateTask(ctx, root.id, t => { t.state = "running"; });
+  return { ctx, root, make };
+}
+
+test("three-level tree rolls up once per attempt, flags lower bounds and groups by executor", () => {
+  const { ctx, root, make } = tree();
+  const child = make("child", root.id); updateTask(ctx, child.id, t => { t.state = "running"; });
+  const grand = make("grand", child.id);
+  updateTask(ctx, root.id, t => { t.attempts.push(attempt("claude-code", tok("measured", 100))); });
+  updateTask(ctx, child.id, t => { t.attempts.push(attempt("codex", tok("partial", 50)), attempt("codex", tok("measured", 30))); });
+  updateTask(ctx, grand.id, t => { t.attempts.push(attempt("codex", tok("unknown", null))); });
+  const totals = workTree(ctx, root.id).totals.tokens;
+  expect(totals.total).toBe(180);
+  expect([totals.measuredAttempts, totals.partialAttempts, totals.unknownAttempts]).toEqual([2, 1, 1]);
+  expect(totals.lowerBound).toBe(true);
+  const codex = totals.byExecutor.find(g => g.agent === "codex")!, claude = totals.byExecutor.find(g => g.agent === "claude-code")!;
+  expect([codex.attempts, codex.total, claude.total]).toEqual([3, 80, 100]);
+  expect(totals.planner.coverage).toBe("unknown");
+});
+
+test("an attempt without a record takes its tokens from the index, never zero", () => {
+  const { ctx, root } = tree();
+  updateTask(ctx, root.id, t => { t.attempts.push(attempt("codex")); });
+  const bare = workTree(ctx, root.id).totals.tokens;
+  expect([bare.total, bare.unknownAttempts, bare.lowerBound]).toEqual([0, 1, true]);
+  const task = updateTask(ctx, root.id, () => {});
+  recordAttemptUsage(ctx, task, 1, tok("partial", 70));
+  const indexed = workTree(ctx, root.id);
+  expect(indexed.totals.tokens.total).toBe(70);
+  expect(indexed.nodes[0]!.attempts[0]!.tokens.coverage).toBe("partial");
+});
+
+test("a node whose record is gone keeps its index rows, or counts as one unknown attempt", () => {
+  const { ctx, root, make } = tree();
+  const a = make("a", root.id), b = make("b", root.id);
+  updateTask(ctx, a.id, t => { t.attempts.push(attempt("codex#work", tok("measured", 40))); });
+  recordAttemptUsage(ctx, updateTask(ctx, a.id, () => {}), 1, tok("measured", 40));
+  for (const id of [a.id, b.id]) dispatchDatabase(ctx).query("DELETE FROM tasks WHERE id=?").run(id);
+  const nodes = workTree(ctx, root.id);
+  expect(nodes.nodes.filter(n => n.state === "archived")).toHaveLength(2);
+  expect([nodes.totals.tokens.total, nodes.totals.tokens.measuredAttempts, nodes.totals.tokens.unknownAttempts]).toEqual([40, 1, 1]);
+  expect(nodes.totals.tokens.lowerBound).toBe(true);
+  expect(JSON.stringify(nodes)).not.toContain("tokenItems");
+  expect(JSON.stringify(scopedWorkTree(ctx, root.id).totals.tokens.total)).toBe("40");
+  expect(nodes.totals.tokens.byExecutor.find(g => g.agent === "codex")?.account).toBe("work");
+});
+
+test("null counts add nothing and sums stay separate from cache", () => {
+  const r = rollupTokens([{ executor: "claude-code", account: null, model: "m", tokens: tok("measured", 20, { cacheRead: 500 }) }]);
+  expect([r.total, r.cacheRead, r.lowerBound]).toEqual([20, 500, false]);
+});
+
+test("task detail carries the split per agent", async () => {
+  const { ctx, root } = tree();
+  updateTask(ctx, root.id, t => { t.attempts.push(attempt("codex", tok("partial", 9)), attempt("claude-code", tok("measured", 11))); });
+  const detail = await taskDetail(ctx, root.id);
+  expect(detail.tokens?.total).toBe(20);
+  expect(detail.tokens?.byExecutor.map(g => g.agent).sort()).toEqual(["claude-code", "codex"]);
+  expect(detail.attempts[0]!.tokens?.coverage).toBe("partial");
+});
