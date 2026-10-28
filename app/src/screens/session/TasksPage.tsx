@@ -59,7 +59,7 @@ export function TasksPage({ nodes, repos, query, onNew, hasOlder, loadingOlder, 
   const needle = search.trim().toLowerCase();
   const visible = roots.filter(node => (filter === "all" || node.bucket === filter) && matches(node, needle));
   const page = visible.slice(0, shown);
-  const summary = treeSummary(roots);
+  const summary = treeSummary(roots, Date.now() / 1000);
   const href = taskHref(query.repo ? `repo=${encodeURIComponent(query.repo)}` : "");
   const viewHref = (id: string, view: TaskCardView) => `${href(id)}${href(id).includes("?") ? "&" : "?"}tab=${view}`;
   // The panel follows the selection only while that task is still listed; a filter or search that hides it hands the panel to the first card.
@@ -70,7 +70,7 @@ export function TasksPage({ nodes, repos, query, onNew, hasOlder, loadingOlder, 
     <header className="pc-tasks-page__header">
       <div className="pc-tasks-page__heading">
         {/* The title bar still carries the page's h1 until the frame drops its route title; this stays a heading, not a second h1. */}<h2 className="pc-tasks-page__title">Tasks</h2>
-        {nodes && <span className="pc-tasks-page__caption">{summary.roots} root task{summary.roots === 1 ? "" : "s"} · {summary.subtasks} subtask{summary.subtasks === 1 ? "" : "s"}{summary.tokens ? ` · ${summary.tokens}` : ""}</span>}
+        {nodes && <span className="pc-tasks-page__caption">{summary.roots} root task{summary.roots === 1 ? "" : "s"}{summary.period ? ` ${summary.period}` : ""} · {summary.subtasks} subtask{summary.subtasks === 1 ? "" : "s"}{summary.tokens ? ` · ${summary.tokens}` : ""}</span>}
       </div>
       <label className="pc-tasks-page__search"><span className="sr-only">Search tasks</span><Icon name="overview" />
         <TextInput type="search" value={search} placeholder="Search goal, repo or branch" onInput={event => { setSearch(event.currentTarget.value); setShown(PAGE); }} />

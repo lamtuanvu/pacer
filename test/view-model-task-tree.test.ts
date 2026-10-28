@@ -265,8 +265,9 @@ test("tokens_roll_up_through_three_levels_once_and_carry_the_lower_bound", () =>
 
 test("summary_counts_roots_subtasks_and_measured_tokens_only", () => {
   const withTokens = taskTree({ tasks: [plain("a", { tokens: own(1200) }), plain("b", { parentId: "a", tokens: own(300) }), plain("c")] }, { now });
-  expect(treeSummary(withTokens)).toEqual({ roots: 2, subtasks: 1, tokens: "1.5k tokens" });
-  expect(treeSummary(taskTree({ tasks: [plain("x")] }, { now }))).toEqual({ roots: 1, subtasks: 0 });
+  expect(treeSummary(withTokens, now)).toEqual({ roots: 2, subtasks: 1, tokens: "1.5k tokens", period: expect.stringMatching(/^since /) });
+  expect(treeSummary(taskTree({ tasks: [plain("x", { updatedAt: now - 3600 })] }, { now }), now)).toEqual({ roots: 1, subtasks: 0, period: "this week" });
+  expect(treeSummary(taskTree({ tasks: [plain("x", { updatedAt: 0 })] }, { now }), now)).toEqual({ roots: 1, subtasks: 0 });
 });
 
 test("merge_keeps_branch_parent_and_tokens_from_work_rows_when_the_snapshot_lacks_them", () => {

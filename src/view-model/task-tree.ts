@@ -25,6 +25,8 @@ export interface TaskNodeView {
   bucket: TaskBucket;
   /** Measured tokens for this card and its subtasks, when any were measured. */
   tokenCount?: number;
+  /** Last update, in seconds; omitted when the task is known only from a work row. */
+  updatedAt?: number;
   meta: TaskMetaItem[]; children: TaskNodeView[];
 }
 export type TaskBucket = "needs" | "running" | "accepted" | "stopped" | "other";
@@ -125,7 +127,7 @@ export function taskTree(snapshot: TreeSnapshot, opts: { now: number; extra?: Tr
       attention: attention.level, ...(attention.label ? { attentionLabel: attention.label } : {}),
       ...(task.host ? { host: { name: task.host, kind: "remote" as const } } : task.host === null && task.state !== "queued" ? { host: { name: localHostWords, kind: "local" as const } } : {}),
       ...(branch ? { branch } : {}), ...(task.repo?.label ? { repo: task.repo.label } : {}), agents: task.executor ? [markAgent(task.executor)] : [], ...(tokens ? { tokens } : {}),
-      meta: meta(task, opts.now), children: [], at: task.updatedAt, queued: task.state === "queued", bucket: "other", tok,
+      meta: meta(task, opts.now), children: [], at: task.updatedAt, queued: task.state === "queued", bucket: "other", tok, ...(task.updatedAt ? { updatedAt: task.updatedAt } : {}),
       accepted: task.review?.accepted === true, stopped: ["failed", "limit", "partial", "stopped", "cancelled"].includes(task.state) || task.review?.accepted === false,
       urgency: attention.level === "none" ? calm : attention.urgency ?? urgency.problem,
     });
@@ -181,10 +183,18 @@ export function workTasks(rows: WorkRow[]): TreeTask[] {
   return rows.map((row): TreeTask => ({ id: row.id, goal: row.title, title: row.title, executor: row.executor, backend: null, worktree: null, updatedAt: 0, state: row.state, parentId: row.parentId, branch: row.branch ?? null, tokens: row.tokens ?? null, ...(row.review ? { review: row.review } : {}) }));
 }
 
-/** The Tasks page caption: roots, subtasks and tokens across the roots shown. Tokens appear only when some were measured. */
-export function treeSummary(nodes: TaskNodeView[]): { roots: number; subtasks: number; tokens?: string } {
+/**
+ * The Tasks page caption: roots, subtasks and tokens across the roots shown, and the period they cover.
+ * The period is "this week" when every dated root is under seven days old, otherwise "since <day>" from the oldest.
+ * Tokens appear only when some were measured.
+ */
+export function treeSummary(nodes: TaskNodeView[], now: number): { roots: number; subtasks: number; tokens?: string; period?: string } {
   const count = (list: TaskNodeView[]): number => list.reduce((total, node) => total + node.children.length + count(node.children), 0);
   const measured = nodes.filter(node => node.tokenCount != null);
   const total = measured.reduce((sum, node) => sum + node.tokenCount!, 0);
-  return { roots: nodes.length, subtasks: count(nodes), ...(measured.length ? { tokens: `${compact(total)} tokens` } : {}) };
+  const dated = nodes.flatMap(node => node.updatedAt ? [node.updatedAt] : []);
+  const oldest = dated.length ? Math.min(...dated) : undefined;
+  const period = oldest === undefined ? undefined : now - oldest < 7 * 86400 ? "this week"
+    : `since ${new Date(oldest * 1000).toLocaleDateString("en", { month: "short", day: "numeric" })}`;
+  return { roots: nodes.length, subtasks: count(nodes), ...(measured.length ? { tokens: `${compact(total)} tokens` } : {}), ...(period ? { period } : {}) };
 }
