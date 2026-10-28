@@ -15,7 +15,8 @@ import { LazyTerminal } from "../../term/LazyTerminal";
 import { ErrorMessage, useTaskContext } from "../task-shared";
 import { pendingAfterFailure, terminalRequest, type TerminalRequest } from "./request";
 
-export function TerminalScreen({ id, query }: { id?: string; query: RouteQuery }) {
+/** `embedded` renders inside the terminal dock: no page gutters, and tab choice stays local instead of changing the route. */
+export function TerminalScreen({ id: routeId, query, embedded = false }: { id?: string; query: RouteQuery; embedded?: boolean }) {
   const { api, state } = useTaskContext();
   const navigation = useNavigation();
   const dialogs = useDialogs();
@@ -31,6 +32,9 @@ export function TerminalScreen({ id, query }: { id?: string; query: RouteQuery }
   const [renaming, setRenaming] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const pendingRequest = useRef<TerminalRequest | null>(null);
+  const [localId, setLocalId] = useState<string>();
+  const id = embedded ? localId : routeId;
+  const show = (tabId?: string) => embedded ? setLocalId(tabId) : navigation.navigate(routes.terminal(tabId));
   const available = state.features.ops.has("terminal.create");
   const repos = state.snapshot?.repos ?? [];
   const selected = tabs.find(tab => tab.id === id) ?? tabs.at(-1);
@@ -69,7 +73,7 @@ export function TerminalScreen({ id, query }: { id?: string; query: RouteQuery }
       });
       pendingRequest.current = null;
       setTabs(previous => [...previous.filter(tab => tab.id !== created.id), created]);
-      navigation.navigate(routes.terminal(created.id));
+      show(created.id);
     } catch (failure) { pendingRequest.current=pendingAfterFailure(pendingRequest.current,failure instanceof ApiError?failure.status:undefined);setError(failure); }
     finally { setBusy(false); }
   };
@@ -93,7 +97,7 @@ export function TerminalScreen({ id, query }: { id?: string; query: RouteQuery }
       const remaining = tabs.filter(item => item.id !== tab.id);
       setTabs(remaining);
       if (splitId === tab.id) setSplitId(null);
-      if (selected?.id === tab.id) navigation.navigate(routes.terminal(remaining.at(-1)?.id));
+      if (selected?.id === tab.id) show(remaining.at(-1)?.id);
     } catch (failure) { setError(failure); }
     finally { setBusy(false); }
   };
@@ -111,8 +115,8 @@ export function TerminalScreen({ id, query }: { id?: string; query: RouteQuery }
     <LazyTerminal key={tab.id} id={tab.id} url={tab.attach.ws} label="pacer terminal" cols={tab.cols} rows={tab.rows} control resize live={tab.live} shell />
   </div>;
 
-  if (!available) return <Page width="full"><EmptyState title="Built-in terminal needs a newer Pacer service." description="Update Pacer, then reload this page." /></Page>;
-  return <Page width="full" className="pc-workspace-terminal">
+  if (!available) return <Page width="full" embedded={embedded}><EmptyState title="Built-in terminal needs a newer Pacer service." description="Update Pacer, then reload this page." /></Page>;
+  return <Page width="full" embedded={embedded} className="pc-workspace-terminal">
     {dialogs.dialog}
     <div className="pc-workspace-terminal__toolbar">
       <Field label="Workspace"><ChoicePicker value={workspace} options={[{ value: "", label: "Home folder" }, ...repos.map(repo => ({ value: repo.key, label: repo.label, description: repo.path }))]} onValueChange={value => { setWorkspace(value); setCwd(repos.find(repo => repo.key === value)?.path ?? ""); }} /></Field>
@@ -123,10 +127,10 @@ export function TerminalScreen({ id, query }: { id?: string; query: RouteQuery }
     {loading ? <LoadingState label="Loading terminals…" /> : tabs.length === 0 ? <EmptyState title="No terminals open" description="Start a shell in your home folder or choose a workspace above." /> : <>
       <nav className="pc-workspace-terminal__tabs" aria-label="Terminals">
         {tabs.map(tab => <div className="pc-workspace-terminal__tab" key={tab.id}>
-          <Button id={`terminal-${tab.id}-tab`} size="sm" variant={selected?.id === tab.id ? "secondary" : "quiet"} aria-current={selected?.id === tab.id ? "page" : undefined} onClick={() => navigation.navigate(routes.terminal(tab.id))} onKeyDown={event => {
+          <Button id={`terminal-${tab.id}-tab`} size="sm" variant={selected?.id === tab.id ? "secondary" : "quiet"} aria-current={selected?.id === tab.id ? embedded ? "true" : "page" : undefined} onClick={() => show(tab.id)} onKeyDown={event => {
             const at = tabs.findIndex(item => item.id === tab.id);
             const next = event.key === "ArrowRight" ? tabs[(at + 1) % tabs.length] : event.key === "ArrowLeft" ? tabs[(at + tabs.length - 1) % tabs.length] : null;
-            if (next) { event.preventDefault(); navigation.navigate(routes.terminal(next.id)); document.getElementById(`terminal-${next.id}-tab`)?.focus(); }
+            if (next) { event.preventDefault(); show(next.id); document.getElementById(`terminal-${next.id}-tab`)?.focus(); }
           }} title={tab.title}>{tab.title}{!tab.live && tab.exit !== null ? ` · exited ${tab.exit}` : ""}</Button>
           <IconButton size="sm" variant="quiet" aria-label={`Close ${tab.title}`} title={`Close ${tab.title}`} onClick={() => void close(tab)}>×</IconButton>
         </div>)}

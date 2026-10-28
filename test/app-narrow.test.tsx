@@ -4,7 +4,7 @@ import fixture from "./fixtures/ui/snapshot.json";
 import type { ClientSnapshot } from "../src/view-model/snapshot";
 import { initialState } from "../app/src/data/store";
 import { createActionRunner } from "../app/src/data/actions";
-import { activeRepo, NARROW_MEDIA } from "../app/src/shell/narrow";
+import { activeRepo, NARROW_MEDIA, PANEL_MEDIA } from "../app/src/shell/narrow";
 import { inheritQuery, resolveRoute, type Route, type RouteQuery } from "../app/src/router";
 import { Layout } from "../app/src/shell/Layout";
 import { OverviewView } from "../app/src/screens/Overview";
@@ -18,9 +18,10 @@ const runner = createActionRunner({ call: async <T,>() => ({} as T), waitFor: as
 const route = (hash: string) => resolveRoute(hash) as Route;
 function atWidth<T>(width: number, run: () => T): T {
   const previous = Object.getOwnPropertyDescriptor(globalThis, "window");
+  // The shell asks only for its narrow breakpoint and the side-panel width.
   Object.defineProperty(globalThis, "window", { configurable: true, value: { matchMedia: (query: string) => {
-    expect(query).toBe(NARROW_MEDIA);
-    return { matches: width < 560 };
+    expect([NARROW_MEDIA, PANEL_MEDIA]).toContain(query);
+    return { matches: query === NARROW_MEDIA ? width < 560 : width >= 768 };
   } } });
   try { return run(); } finally {
     if (previous) Object.defineProperty(globalThis, "window", previous);

@@ -251,9 +251,9 @@ html[data-pacer-native-titlebar] .pc-traffic__btn{display:none}
 .pc-review-queue{gap:var(--space-1)}
 
 
-.pc-panel .pc-rail__badge--neutral{background:transparent;color:var(--ink-secondary);font-weight:var(--type-body-weight)}
+.pc-panel__item .pc-rail__badge--neutral{background:transparent;color:var(--ink-secondary);font-weight:var(--type-body-weight)}
 .pc-rail__badge--bad{background:var(--bad-bg);color:var(--bad-fg)}
-.pc-panel .pc-rail__badge--warn{background:var(--warn-bg);color:var(--warn-fg)}
+.pc-panel__item .pc-rail__badge--warn{background:var(--warn-bg);color:var(--warn-fg)}
 /* Independent desktop columns prevent short cards from inheriting a neighbor's height. */
 .pc-overview__cols{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);align-items:start}
 .pc-overview__main,.pc-overview__side{display:flex;flex-direction:column;gap:var(--space-4);min-width:0}
@@ -430,3 +430,35 @@ body:has(.pc-app--narrow) .pc-toasts{bottom:calc(var(--size-56) + var(--space-5)
 .pc-strategy-popup__actions{display:flex;flex-direction:column;gap:var(--space-1);padding:var(--space-2) var(--space-4);border-top:1px solid var(--line);margin-top:auto}
 .pc-strategy-popup__actions .pc-text-action{display:flex;align-items:center;gap:var(--space-2);padding:var(--space-1)}
 .pc-strategy-popup__error{padding:var(--space-2) var(--space-4);color:var(--bad-fg);font-size:var(--type-caption-size);overflow-wrap:anywhere}
+/* AppFrame regions: sticky full-height side panels like the rail, and the terminal dock above the status bar. */
+.pc-body>.pc-side-panel{position:sticky;top:var(--size-32);height:calc(100vh - var(--size-32));align-self:flex-start}
+.pc-app--with-status .pc-body>.pc-side-panel{height:calc(100vh - var(--size-32) - var(--size-32))}
+@media(pointer:coarse){.pc-body>.pc-side-panel{top:var(--control-touch)}.pc-app--with-status .pc-body>.pc-side-panel{height:calc(100vh - var(--control-touch) - var(--size-32))}}
+@media(max-width:767px){.pc-body>.pc-side-panel{display:none}}
+.pc-statusbar__terminal{flex:none}
+.pc-dock{flex:none;display:flex;height:min(var(--size-320),50vh);border-top:1px solid var(--line);background:var(--surface-page)}
+.pc-dock__panel{display:flex;flex-direction:column;flex:1;min-width:0;min-height:0;outline:none}
+.pc-dock__panel:focus-visible{outline:var(--stroke-focus) solid var(--focus);outline-offset:calc(-1*var(--stroke-focus))}
+.pc-dock__bar{display:flex;align-items:center;justify-content:space-between;gap:var(--space-2);padding:var(--space-1) var(--space-3);border-bottom:1px solid var(--line);background:var(--surface-card)}
+.pc-dock__body{flex:1;min-height:0;overflow:auto;padding:var(--space-1) var(--space-3) var(--space-2)}
+.pc-dock .pc-workspace-terminal{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:repeat(3,auto) minmax(0,1fr);align-content:stretch;gap:var(--space-1) var(--space-2);height:100%;min-height:0}
+.pc-dock .pc-workspace-terminal>*{grid-column:1/-1}
+.pc-dock .pc-workspace-terminal__tabs{grid-column:1;border-bottom:0;padding-bottom:0}
+.pc-dock .pc-workspace-terminal__actions{grid-column:2;align-items:center}
+.pc-dock .pc-workspace-terminal__panes{grid-row:4}
+.pc-dock .pc-workspace-terminal__panes:not(.pc-workspace-terminal__panes--right):not(.pc-workspace-terminal__panes--down) .pc-workspace-terminal__pane-title{display:none}
+.pc-dock .pc-workspace-terminal__toolbar{align-items:center;flex-wrap:nowrap}
+.pc-dock .pc-workspace-terminal__toolbar .pc-field>label,.pc-dock .pc-terminal-search .pc-field>label{position:absolute;width:var(--size-1);height:var(--size-1);padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.pc-dock .pc-workspace-terminal__pane>.pc-terminal-view{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:auto minmax(0,1fr);gap:var(--space-1) var(--space-2);height:100%}
+.pc-dock .pc-terminal-search{grid-area:1/1;flex-wrap:nowrap;align-items:center;padding:var(--space-1) var(--space-2);border-bottom:0}
+.pc-dock .pc-terminal-view>.pc-session-row{grid-area:1/2;padding:0;border-top:0}
+.pc-dock .pc-terminal-view>.pc-terminal-frame{grid-area:2/1/3/3}
+.pc-dock .pc-session-muted{display:none}
+.pc-dock .pc-terminal-strip{flex-wrap:nowrap;padding:var(--space-1) var(--space-3)}
+.pc-dock .pc-terminal-strip>strong+span{display:none}
+.pc-dock .pc-workspace-terminal__pane .pc-terminal-pane{min-height:0}
+/* With the dock open the frame fits the viewport, like the desktop window: the work area scrolls on its own. */
+.pc-app--with-dock{height:100vh;min-height:0}
+.pc-app--with-dock .pc-body{overflow:hidden}
+.pc-app--with-dock .pc-work{overflow:auto;min-height:0}
+.pc-app.pc-app--with-dock .pc-body>:is(.pc-rail,.pc-side-panel){position:static;height:auto;max-height:none;align-self:stretch}

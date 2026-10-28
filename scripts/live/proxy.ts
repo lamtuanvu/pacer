@@ -52,11 +52,20 @@ export function safeTerminalFolder(root: string, cwd: unknown): boolean {
   } catch { return false; }
 }
 
+/**
+ * A shell with no folder starts in the service's home. A ui-seeded sandbox sets HOME to its own `home/` (sandboxEnv),
+ * so that default stays disposable; any other sandbox keeps the caller's HOME and must name a folder.
+ */
+export function safeShellCreate(session: Pick<Session, "root" | "seed">, body: Record<string, unknown> | null): boolean {
+  if (body?.kind !== "shell") return false;
+  return body.cwd === undefined ? session.seed === "ui" : safeTerminalFolder(session.root, body.cwd);
+}
+
 async function safeTerminalCreate(session: Session, req: Request): Promise<boolean> {
   try {
     if (Number(req.headers.get("content-length")) > 256 * 1024) return false;
     const body = await req.clone().json() as Record<string, unknown>;
-    return body?.kind === "shell" && safeTerminalFolder(session.root, body.cwd);
+    return safeShellCreate(session, body);
   } catch { return false; }
 }
 
