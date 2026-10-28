@@ -3900,6 +3900,8 @@ impl ::std::default::Default for ConfigGetParams {
 ///        "pacing.order",
 ///        "pacing.policy",
 ///        "pacing.planner_reserve",
+///        "pacing.planner_reserve_headroom",
+///        "pacing.planner_probe",
 ///        "pacing.accounts",
 ///        "pacing.fill_threshold",
 ///        "update_check",
@@ -4015,6 +4017,8 @@ impl ::std::convert::TryFrom<&str> for ConfigSetParamsIntegrations {
 ///    "pacing.order",
 ///    "pacing.policy",
 ///    "pacing.planner_reserve",
+///    "pacing.planner_reserve_headroom",
+///    "pacing.planner_probe",
 ///    "pacing.accounts",
 ///    "pacing.fill_threshold",
 ///    "update_check",
@@ -4051,6 +4055,10 @@ pub enum ConfigSetParamsKey {
     PacingPolicy,
     #[serde(rename = "pacing.planner_reserve")]
     PacingPlannerReserve,
+    #[serde(rename = "pacing.planner_reserve_headroom")]
+    PacingPlannerReserveHeadroom,
+    #[serde(rename = "pacing.planner_probe")]
+    PacingPlannerProbe,
     #[serde(rename = "pacing.accounts")]
     PacingAccounts,
     #[serde(rename = "pacing.fill_threshold")]
@@ -4077,6 +4085,8 @@ impl ::std::fmt::Display for ConfigSetParamsKey {
             Self::PacingOrder => f.write_str("pacing.order"),
             Self::PacingPolicy => f.write_str("pacing.policy"),
             Self::PacingPlannerReserve => f.write_str("pacing.planner_reserve"),
+            Self::PacingPlannerReserveHeadroom => f.write_str("pacing.planner_reserve_headroom"),
+            Self::PacingPlannerProbe => f.write_str("pacing.planner_probe"),
             Self::PacingAccounts => f.write_str("pacing.accounts"),
             Self::PacingFillThreshold => f.write_str("pacing.fill_threshold"),
             Self::UpdateCheck => f.write_str("update_check"),
@@ -4096,6 +4106,8 @@ impl ::std::str::FromStr for ConfigSetParamsKey {
             "pacing.order" => Ok(Self::PacingOrder),
             "pacing.policy" => Ok(Self::PacingPolicy),
             "pacing.planner_reserve" => Ok(Self::PacingPlannerReserve),
+            "pacing.planner_reserve_headroom" => Ok(Self::PacingPlannerReserveHeadroom),
+            "pacing.planner_probe" => Ok(Self::PacingPlannerProbe),
             "pacing.accounts" => Ok(Self::PacingAccounts),
             "pacing.fill_threshold" => Ok(Self::PacingFillThreshold),
             "update_check" => Ok(Self::UpdateCheck),
