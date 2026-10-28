@@ -39,21 +39,24 @@ test("save_bar_counts_changes", () => {
   const saved = dispatchConfigSchema.parse({});
   const ladder = { ...saved, reservePct: saved.reservePct + 5, steps: [...saved.steps].reverse() };
   expect(ladderChanges(saved, saved)).toBe(0);
-  expect(ladderChanges(saved, ladder)).toBe(3);
+  expect(ladderChanges(saved, ladder)).toBe(2);
   const savedRules = [{ kinds: ["tests"], executors: ["codex"] }, { executors: ["claude-code", "codex"] }];
   expect(ruleChanges(savedRules, savedRules)).toBe(0);
   expect(ruleChanges(savedRules, [savedRules[0]!, { executors: ["codex", "claude-code"] }])).toBe(1);
-  expect(ruleChanges(savedRules, [{ kinds: ["docs"], executors: ["codex"] }, ...savedRules])).toBe(3);
+  expect(ruleChanges(savedRules, [{ kinds: ["docs"], executors: ["codex"] }, ...savedRules])).toBe(1);
   expect(orderChanges(["a", "b"], ["b", "a"])).toBe(1);
   expect(orderChanges(["a"], ["a"])).toBe(0);
-  expect(countSetupChanges({ eligibility: { kind: "global", saved: savedRules, draft: [savedRules[0]!, { executors: ["codex"] }] }, savedLadder: saved, ladder })).toBe(4);
+  expect(countSetupChanges({ eligibility: { kind: "global", saved: savedRules, draft: [savedRules[0]!, { executors: ["codex"] }] }, savedLadder: saved, ladder })).toBe(3);
   const one = renderToString(<SaveBar count={1} onSave={() => {}} onDiscard={() => {}} />);
   expect(one).toContain("1 unsaved change<");
-  const many = renderToString(<SaveBar count={4} onSave={() => {}} onDiscard={() => {}} saveLabel="Save setup" />);
+  const many = renderToString(<SaveBar count={4} onSave={() => {}} onDiscard={() => {}} saveLabel="Save choices" statusDot size="sm" scope="Global list for tests tasks" />);
   expect(many).toContain("4 unsaved changes");
   expect(many.match(/pc-btn--primary/g)).toHaveLength(1);
   expect(many).toContain("Discard");
-  expect(many).toContain("Save setup");
+  expect(many).toContain("Save choices");
+  expect(many).toContain("Global list for tests tasks");
+  expect(many).toContain("pc-save-bar__dot--dirty");
+  expect(many).toContain("pc-btn--sm");
   expect(many).toContain('aria-live="polite"');
 });
 
@@ -86,7 +89,15 @@ const wrap = (node: preact.ComponentChildren) => renderToString(<TaskContext.Pro
 
 test("guided setup shows who may work as sortable lists beside the executor pool", () => {
   const html = wrap(<SetupEditor view={view} eligibility={{ kind: "global", rules: routing.rules, available: routing.available }} onSaved={() => {}} onDirtyChange={() => {}} />);
-  for (const copy of ["Who may do the work", "Choice ladder", "Task kinds: tests", "Everything else", "Move down: Claude Code", "Move up: Codex", "Add OpenCode", "Capable model with spare capacity", "Move down: Capable model with spare capacity"]) expect(html).toContain(copy);
+  for (const copy of ["Who may do the work", "How should Pacer choose?", "Task kinds: tests", "Everything else", "Only one executor: if Codex cannot take work", "There is no fallback.", "From saved setup default.", "Add OpenCode", "Capable model with spare capacity", "Move down: Capable model with spare capacity"]) expect(html).toContain(copy);
+  expect(html).toContain('role="tablist"');
+  expect(html).toContain('role="tabpanel"');
+  expect(html).toContain('aria-selected="true"');
+  expect(html).toContain('<h3 class="pc-section-heading">Available executors');
+  expect(html).toContain("pc-executor-rank");
+  expect(html).toContain("pc-executor-id");
+  expect(html).toContain("pc-sortable--icons");
+  expect(html).toContain("+ Set up a new executor");
   expect(html).not.toContain("unsaved change");
   expect(html.match(/pc-btn--primary/g) ?? []).toHaveLength(0);
 });
@@ -110,7 +121,7 @@ test("reconcile adopts our own save and clean parts, and keeps a conflicting dra
   const own = reconcileSetup(globalSetup(saved, draft, reordered), globalSetup(draft, draft));
   expect(own.conflict).toBe(false);
   expect(own.setup.eligibility.saved).toEqual(draft);
-  expect(ladderChanges(own.setup.savedLadder, own.setup.ladder)).toBe(2);
+  expect(ladderChanges(own.setup.savedLadder, own.setup.ladder)).toBe(1);
   // A clean part follows the new saved value.
   const clean = reconcileSetup(globalSetup(saved, saved), globalSetup([{ executors: ["cursor"] }], [{ executors: ["cursor"] }]));
   expect(clean.setup.eligibility.draft).toEqual([{ executors: ["cursor"] }]);
@@ -186,4 +197,49 @@ test("a ladder failure after saved rules reports what saved; stale profiles and 
   const invalid: typeof stale = { calls: [], call: async <T,>(op: string): Promise<T> => { invalid.calls.push([op, {}]); return (op === "dispatch.config.get" ? { strategy: "default", config: base } : { ok: false, errors: ["Step ids must be unique."] }) as T; } };
   await expect(saveSetup({ call: invalid.call, setup: globalSetup([], [], reordered), profile })).rejects.toThrow("Step ids must be unique.");
   expect(invalid.calls.map(([op]) => op)).not.toContain("strategy.save");
+});
+
+
+test("one move counts once for executor orders, task rules and ladder steps", () => {
+  const order = ["a", "b", "c", "d"];
+  expect(orderChanges(order, moveKey(order, 0, 3))).toBe(1);
+  expect(orderChanges(order, ["d", "c", "b", "a"])).toBe(3);
+  expect(orderChanges(order, ["a", "c", "e"])).toBe(3);
+  const rules = [{ executors: order }];
+  expect(ruleChanges(rules, [{ executors: moveKey(order, 0, 3) }])).toBe(1);
+  expect(ruleChanges(rules, [{ executors: ["a", "b", "c", "d", "e", "f"] }])).toBe(2);
+  const config = dispatchConfigSchema.parse({});
+  expect(ladderChanges(config, { ...config, steps: moveKey(config.steps, 0, 1) })).toBe(1);
+  expect(ladderChanges(config, { ...config, steps: [{ ...config.steps[0]!, match: { kind: "tests" } }, ...config.steps.slice(1)] })).toBe(1);
+  expect(ladderChanges(config, { ...config, steps: [{ ...config.steps[0]!, id: "renamed" }, ...config.steps.slice(1)] })).toBe(1);
+});
+
+test("saved SaveBar shows a good status dot and keeps its scope", () => {
+  const html = renderToString(<SaveBar count={0} notice="Changes saved" scope="acme/repo list" statusDot size="sm" onSave={() => {}} onDiscard={() => {}} />);
+  expect(html).toContain("Changes saved");
+  expect(html).toContain("acme/repo list");
+  expect(html).toContain("pc-save-bar__dot");
+  expect(html).not.toContain("pc-save-bar__dot--dirty");
+  expect(html).not.toContain("Discard");
+});
+
+
+test("executor snapshot supplies account status and unavailable pool recovery", () => {
+  const snapshot = { tasks: [], executors: [
+    { id: "codex", agent: "codex", account: "work", state: "blocked", reason: "Maintenance" },
+    { id: "opencode", agent: "opencode", account: "local", state: "down", reason: "Host offline" },
+  ], accounts: [] };
+  const html = renderToString(<TaskContext.Provider value={{ state: { ...state, snapshot }, api: { call: async () => ({}) } } as any}>
+    <SetupEditor view={view} eligibility={{ kind: "global", rules: [{ executors: ["codex"] }], available: ["codex", "opencode"] }} onSaved={() => {}} onDirtyChange={() => {}} />
+  </TaskContext.Provider>);
+  expect(html).toContain("Blocked until unblocked");
+  expect(html).toContain("work");
+  expect(html).toContain("Host offline");
+  expect(html).toContain(">Fix</a>");
+  expect(html).not.toContain('aria-label="Add OpenCode"');
+});
+
+test("a full executor pool uses the board empty copy", () => {
+  const html = wrap(<SetupEditor view={view} eligibility={{ kind: "global", rules: [{ executors: ["codex"] }], available: ["codex"] }} onSaved={() => {}} onDirtyChange={() => {}} />);
+  expect(html).toContain("Every executor is in the list.");
 });

@@ -27,7 +27,7 @@ export function useFocusAfterRender() {
   return (find: () => HTMLElement | null | undefined) => { pending.current = find; };
 }
 
-export interface SortableItem { key: string; label: string; detail?: ComponentChildren }
+export interface SortableItem { key: string; label: string; detail?: ComponentChildren; leading?: ComponentChildren; trailing?: ComponentChildren; displayLabel?: ComponentChildren }
 type Control = "up" | "down" | "remove";
 interface Drag { key: string; from: number; over: number; pointer: number }
 
@@ -35,7 +35,8 @@ interface Drag { key: string; from: number; over: number; pointer: number }
  * Ordered list with a pointer drag handle. Move up, Move down and Remove buttons are the
  * keyboard path; focus stays on the moved item and a polite live region announces the result.
  */
-export function SortableList({ label, items, onReorder, onRemove, disabled, renderExtra }: {
+export function SortableList({ label, items, onReorder, onRemove, disabled, renderExtra, iconControls = false }: {
+  iconControls?: boolean;
   label: string;
   items: readonly SortableItem[];
   onReorder: (keys: string[]) => void;
@@ -99,7 +100,7 @@ export function SortableList({ label, items, onReorder, onRemove, disabled, rend
     }
   };
 
-  return <div className="pc-sortable">
+  return <div className={classNames("pc-sortable", iconControls && "pc-sortable--icons")}>
     <ol ref={list} className="pc-sortable__list" aria-label={label} tabIndex={-1}>
       {items.map((item, index) => <li key={item.key} data-sortable-key={item.key}
         className={classNames("pc-sortable__item", drag?.key === item.key && "pc-sortable__item--dragging",
@@ -110,14 +111,14 @@ export function SortableList({ label, items, onReorder, onRemove, disabled, rend
             onPointerUp={event => endDrag(event, true)} onPointerCancel={event => endDrag(event, false)}>
             <svg viewBox="0 0 10 16" focusable="false"><path d="M2 2h2v2H2zm4 0h2v2H6zM2 7h2v2H2zm4 0h2v2H6zM2 12h2v2H2zm4 0h2v2H6z" /></svg>
           </span>}
-          <div className="pc-sortable__content"><strong className="pc-sortable__label" title={item.label}>{item.label}</strong>{item.detail}</div>
-          <div className="pc-sortable__actions">
-            {index > 0 && <Button size="sm" data-sortable-control="up" aria-label={`Move up: ${item.label}`} disabled={disabled}
-              onClick={() => move(index, index - 1, ["up", "down"])}>Move up</Button>}
-            {index < items.length - 1 && <Button size="sm" data-sortable-control="down" aria-label={`Move down: ${item.label}`} disabled={disabled}
-              onClick={() => move(index, index + 1, ["down", "up"])}>Move down</Button>}
+          {item.leading}<div className="pc-sortable__content"><strong className="pc-sortable__label" title={item.label}>{item.displayLabel ?? item.label}</strong>{item.detail}</div>
+          {item.trailing}<div className="pc-sortable__actions">
+            {index > 0 && <Button size="sm" variant={iconControls ? "quiet" : "secondary"} data-sortable-control="up" aria-label={`Move up: ${item.label}`} disabled={disabled}
+              onClick={() => move(index, index - 1, ["up", "down"])}>{iconControls ? <span aria-hidden="true">↑</span> : "Move up"}</Button>}
+            {index < items.length - 1 && <Button size="sm" variant={iconControls ? "quiet" : "secondary"} data-sortable-control="down" aria-label={`Move down: ${item.label}`} disabled={disabled}
+              onClick={() => move(index, index + 1, ["down", "up"])}>{iconControls ? <span aria-hidden="true">↓</span> : "Move down"}</Button>}
             {onRemove && <Button size="sm" variant="quiet" data-sortable-control="remove" aria-label={`Remove: ${item.label}`} disabled={disabled}
-              onClick={() => remove(index)}>Remove</Button>}
+              onClick={() => remove(index)}>{iconControls ? <span aria-hidden="true">×</span> : "Remove"}</Button>}
           </div>
         </div>
         {renderExtra?.(item, index)}

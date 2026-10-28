@@ -3,7 +3,7 @@ import { useState } from 'preact/hooks';
 import { SortableList } from '../../../app/src/ds/SortableList';
 import { SaveBar } from '../../../app/src/ds/SaveBar';
 import { orderChanges } from '../../../app/src/model/dispatcher-setup';
-import { SetupEditor } from '../../../app/src/screens/settings/DispatcherSetup';
+import { DispatcherGuidedSetup, SetupEditor } from '../../../app/src/screens/settings/DispatcherSetup';
 import { DispatcherPreviewForm } from '../../../app/src/screens/settings/Dispatcher';
 import type { StrategyDraft } from '../../../app/src/model/dispatcher-setup';
 import { TaskContext } from '../../../app/src/screens/task-shared';
@@ -87,4 +87,16 @@ function Setup() {
   </TaskContext.Provider>;
 }
 
-render(location.hash.startsWith('#try') ? <Try /> : location.hash.startsWith('#setup') ? <Setup /> : <Fixture />, document.getElementById('root')!);
+render(location.hash === '#scope' ? <Scope /> : location.hash.startsWith('#try') ? <Try /> : location.hash.startsWith('#setup') ? <Setup /> : <Fixture />, document.getElementById('root')!);
+
+
+/** Full scope selector with existing read operations, including a repository override. */
+function Scope() {
+  const project = { repo: { key: 'repo-a', label: 'repo-a' }, rev: 1, executors: ['codex'], available: [
+    { id: 'codex', reference: 'codex', label: 'Codex' }, { id: 'claude-code', reference: 'claude-code', label: 'Claude Code' },
+  ] };
+  const api = { call: async (op: string) => op === 'project.strategy.list' ? [project] : op === 'project.strategy.get' ? project
+    : { rules: [{ executors: ['codex'] }], available: ['codex', 'claude-code'] } };
+  const scoped = { ...state, snapshot: { repos: [project.repo], tasks: [] }, features: { readModel: true, ops: new Set(['routing.get', 'routing.set', 'project.strategy.get', 'project.strategy.list', 'project.strategy.set', 'project.strategy.remove']) } };
+  return <TaskContext.Provider value={{ state: scoped, api } as never}><main><DispatcherGuidedSetup view={view} onSaved={() => {}} /></main></TaskContext.Provider>;
+}

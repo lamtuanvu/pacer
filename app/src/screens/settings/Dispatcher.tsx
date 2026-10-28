@@ -257,7 +257,7 @@ export function DispatcherPreviewForm({query,draft}:{query:RouteQuery;draft?:Str
     }catch(failure){if(id===request.current){setError(failure);setAnnouncement("Preview could not be loaded.");}}
     finally{if(id===request.current){inFlight.current=false;setBusy(false);}}
   };
-  return <Section id="dispatch-preview" title="4. Try a task" detail={explain?"See where a task would go, using recent readings. This does not start work or reserve capacity.":"See where a task would go, using saved settings and recent readings. This does not start work or reserve capacity."}>
+  return <Section step={4} id="dispatch-preview" title="Try a task" detail={explain?"See where a task would go, using recent readings. This does not start work or reserve capacity.":"See where a task would go, using saved settings and recent readings. This does not start work or reserve capacity."}>
     <span className="sr-only" role="status">{announcement}</span>
     <form className="pc-card pc-stack pc-stack--normal" onSubmit={event=>void submit(event)}>
       {repos.length?<Field label="Repository"><ChoicePicker value={repo} searchable options={repos.map(item=>({value:item.key,label:item.label}))} onValueChange={setRepo}/></Field>:<p>Choose a repository from the repository picker before previewing.</p>}

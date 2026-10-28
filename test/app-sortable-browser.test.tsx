@@ -11,7 +11,7 @@ beforeAll(async () => {
   const built = await Bun.build({ entrypoints: ['test/fixtures/ui/sortable-browser.tsx'], target: 'browser' });
   if (!built.success) throw new AggregateError(built.logs);
   const script = await built.outputs[0]!.text();
-  const styles = (await Promise.all(['app/src/ds/tokens.css', 'app/src/ds/components.css'].map(path => Bun.file(path).text()))).join('\n');
+  const styles = (await Promise.all(['app/src/ds/tokens.css', 'app/src/ds/components.css', 'app/src/styles.css'].map(path => Bun.file(path).text()))).join('\n');
   server = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch: () => new Response(
     `<meta charset="utf-8"><style>${styles}</style><div id="root"></div><script type="module">${script}</script>`,
     { headers: { 'Content-Type': 'text/html' } },
@@ -124,12 +124,14 @@ browserTest('focus stays in place after adding from the pool, removing the last 
     expect(await active(page)).toBe('Add OpenCode');
     await page.keyboard.press('Enter');
     expect(await active(page)).toBe('Add to Executors for Task kinds: tests');
-    // Removing the only executor of a rule keeps focus on that (now empty) list.
+    await page.getByRole('tab', { name: 'Everything else' }).click();
+    // Removing the only executor of a rule keeps focus on its pool.
     await page.getByRole('button', { name: 'Remove: Claude Code' }).last().click();
     expect(await active(page)).toBe('Add Claude Code');
     expect(await page.getByText('Add at least one executor to this rule.').count()).toBe(1);
+    await page.getByRole('tab', { name: 'tests', exact: false }).click();
     await page.getByRole('button', { name: 'Remove rule: Task kinds: tests' }).click();
-    expect(await active(page)).toBe('Add task-kind rule');
+    expect(await page.getByRole('tab', { name: 'Everything else' }).evaluate(node => node === document.activeElement)).toBe(true);
     await page.getByRole('button', { name: 'Add task-kind rule' }).click();
     expect(await page.evaluate(() => (document.activeElement as HTMLElement).getAttribute('data-list-field') === 'kinds')).toBe(true);
   } finally { await page.close(); }
@@ -139,16 +141,18 @@ browserTest('a failed ladder save after saved rules keeps the error and the unsa
   const page = await browser.newPage();
   try {
     await page.goto(`${server.url.href}#setup-fail`);
+    await page.getByRole('tab', { name: 'Everything else' }).click();
     await page.getByRole('group', { name: 'Add to Executors for Everything else' }).getByRole('button', { name: 'Add Codex' }).click();
     await page.getByRole('button', { name: 'Move up: Usable fallback' }).click();
     await page.getByLabel('Profile name').fill('night');
     await page.getByLabel('Reason for change').fill('cheaper');
-    expect(await page.locator('.pc-save-bar').textContent()).toContain('3 unsaved changes');
+    expect(await page.locator('.pc-save-bar').textContent()).toContain('2 unsaved changes');
+    expect(await page.locator('.pc-save-bar').textContent()).toContain('Profile night');
     await page.getByRole('button', { name: 'Validate and save' }).click();
     await page.getByText('Saved executor rules. name taken').waitFor();
     expect(await page.getByTestId('calls').textContent()).toBe('dispatch.config.get,routing.set,strategy.preview,strategy.save');
     // The rules saved and were reloaded; the ladder change, its name and reason are kept for a retry.
-    await page.locator('.pc-save-bar', { hasText: '2 unsaved changes' }).waitFor({ timeout: 3000 });
+    await page.locator('.pc-save-bar', { hasText: '1 unsaved change' }).waitFor({ timeout: 3000 });
     expect(await page.getByLabel('Profile name').inputValue()).toBe('night');
     expect(await page.locator('#decision-ladder .pc-sortable__label').first().textContent()).toBe('Usable fallback');
   } finally { await page.close(); }
@@ -158,13 +162,14 @@ browserTest('a change from another client keeps the draft, says so, and Discard 
   const page = await browser.newPage();
   try {
     await page.goto(`${server.url.href}#setup`);
+    await page.getByRole('tab', { name: 'Everything else' }).click();
     await page.getByRole('group', { name: 'Add to Executors for Everything else' }).getByRole('button', { name: 'Add Codex' }).click();
     await page.locator('#other-client').click();
     await page.getByText('Another client changed these settings.').waitFor();
     const everything = page.locator('[aria-label="Executors for Everything else, in priority order"] .pc-sortable__label');
-    expect(await everything.allTextContents()).toEqual(['Claude Code', 'Codex']);
+    expect(await everything.evaluateAll(nodes => nodes.map(node => node.getAttribute('title')))).toEqual(['Claude Code', 'Codex']);
     await page.getByRole('button', { name: 'Discard' }).click();
-    expect(await everything.allTextContents()).toEqual(['Codex']);
+    expect(await everything.evaluateAll(nodes => nodes.map(node => node.getAttribute('title')))).toEqual(['Codex']);
     expect(await page.getByText('Another client changed these settings.').count()).toBe(0);
   } finally { await page.close(); }
 });
@@ -173,6 +178,7 @@ browserTest('reverting edits after another client changed the rules follows thei
   const page = await browser.newPage();
   try {
     await page.goto(`${server.url.href}#setup`);
+    await page.getByRole('tab', { name: 'Everything else' }).click();
     const add = page.getByRole('group', { name: 'Add to Executors for Everything else' });
     await add.getByRole('button', { name: 'Add Codex' }).click();
     await page.locator('#other-client').click();
@@ -180,10 +186,13 @@ browserTest('reverting edits after another client changed the rules follows thei
     // Undo by hand: the count reaches zero, so the editor must rebase onto the other client's rules.
     await page.getByRole('button', { name: 'Remove: Codex' }).last().click();
     const everything = page.locator('[aria-label="Executors for Everything else, in priority order"] .pc-sortable__label');
-    await page.locator('[aria-label="Executors for Task kinds: tests, in priority order"]', { hasText: 'OpenCode' }).waitFor({ timeout: 3000 });
-    expect(await everything.allTextContents()).toEqual(['Codex']);
+    // The rebase happens once the editor sees a zero count, after this render.
+    await page.waitForFunction(() => [...document.querySelectorAll('[aria-label="Executors for Everything else, in priority order"] .pc-sortable__label')].map(node => node.getAttribute('title')).join() === 'Codex', undefined, { timeout: 3000 });
+    expect(await everything.evaluateAll(nodes => nodes.map(node => node.getAttribute('title')))).toEqual(['Codex']);
     expect(await page.getByText('Another client changed these settings.').count()).toBe(0);
-    expect(await page.locator('[aria-label="Executors for Task kinds: tests, in priority order"] .pc-sortable__label').allTextContents()).toEqual(['OpenCode']);
+    await page.getByRole('tab', { name: 'tests', exact: false }).click();
+    await page.locator('[aria-label="Executors for Task kinds: tests, in priority order"]', { hasText: 'OpenCode' }).waitFor({ timeout: 3000 });
+    expect(await page.locator('[aria-label="Executors for Task kinds: tests, in priority order"] .pc-sortable__label').evaluateAll(nodes => nodes.map(node => node.getAttribute('title')))).toEqual(['OpenCode']);
   } finally { await page.close(); }
 });
 
@@ -195,7 +204,7 @@ browserTest('task kinds and ladder lists accept typed commas and spaces', async 
     await kinds.click(); await kinds.press('End');
     await page.keyboard.type(', docs');
     expect(await kinds.inputValue()).toBe('tests, docs');
-    expect(await page.getByText('Task kinds: tests, docs').count()).toBe(1);
+    expect(await page.getByRole('heading', { name: 'tests, docs tasks · in order' }).count()).toBe(1);
     expect(await page.locator('.pc-save-bar').textContent()).toContain('1 unsaved change');
     await page.getByText('Edit step 1').click();
     const prefer = page.getByLabel('Prefer these models').first();
@@ -301,5 +310,68 @@ browserTest('without a saved strategy, Try a task explains the saved settings an
     await page.getByRole('button', { name: 'Preview selection' }).click();
     await page.getByText('Would go to').waitFor();
     expect(await page.getByTestId('sent').textContent()).not.toContain('strategyDraft');
+  } finally { await page.close(); }
+});
+
+
+browserTest('task-kind chips use roving tabs and counts and show one named panel', async () => {
+  const page = await browser.newPage();
+  try {
+    await page.goto(`${server.url.href}#setup`);
+    const tabs = page.getByRole('tablist', { name: 'Task type' });
+    expect(await tabs.getByRole('tab', { selected: true }).textContent()).toBe('tests 1');
+    expect(await page.getByRole('tabpanel').count()).toBe(1);
+    await tabs.getByRole('tab', { selected: true }).focus();
+    await page.keyboard.press('End');
+    expect(await tabs.getByRole('tab', { selected: true }).textContent()).toBe('Everything else 1');
+    expect(await tabs.getByRole('tab', { selected: true }).evaluate(node => node === document.activeElement)).toBe(true);
+    await page.keyboard.press('ArrowRight');
+    expect(await tabs.getByRole('tab', { selected: true }).textContent()).toBe('tests 1');
+    await page.getByRole('button', { name: 'Add Claude Code' }).click();
+    expect(await tabs.getByRole('tab', { selected: true }).textContent()).toBe('tests 2');
+    expect(await page.locator('.pc-save-bar').textContent()).toContain('1 unsaved change');
+    expect(await page.locator('.pc-save-bar').textContent()).toContain('Global list for tests tasks');
+    expect(await page.getByText('There is no fallback.', { exact: false }).count()).toBe(0);
+  } finally { await page.close(); }
+});
+
+browserTest('768px executor labels remain readable and move buttons never overlap them', async () => {
+  const page = await browser.newPage({ viewport: { width: 768, height: 900 } });
+  try {
+    await page.goto(`${server.url.href}#setup`);
+    await page.getByRole('button', { name: 'Add Claude Code' }).click();
+    const rows = page.locator('#executor-eligibility .pc-sortable__item');
+    for (const row of await rows.all()) {
+      const label = (await row.locator('.pc-sortable__label').boundingBox())!;
+      const actions = (await row.locator('.pc-sortable__actions').boundingBox())!;
+      expect(label.width).toBeGreaterThan(60);
+      expect(actions.y >= label.y + label.height || actions.x >= label.x + label.width).toBe(true);
+    }
+    expect(await page.locator('.pc-executor-pool__row').count()).toBe(1);
+    expect(await page.getByRole('link', { name: '+ Set up a new executor' }).getAttribute('href')).toBe('#/settings/add-executor');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(768);
+  } finally { await page.close(); }
+});
+
+browserTest('scope radios use arrows and repository picker and explain a dirty lock', async () => {
+  const page = await browser.newPage();
+  try {
+    await page.goto(`${server.url.href}#scope`);
+    const scope = page.getByRole('radiogroup', { name: 'Scope' });
+    await scope.getByRole('radio', { name: 'All repositories' }).focus();
+    await page.keyboard.press('ArrowRight');
+    expect(await scope.getByRole('radio', { name: 'One repository' }).getAttribute('aria-checked')).toBe('true');
+    await page.getByText('Has its own list', { exact: true }).waitFor();
+    expect(await page.getByLabel('Repository', { exact: true }).count()).toBe(1);
+    await page.getByRole('button', { name: 'Add Claude Code' }).click();
+    // The dirty lock arrives after the editor reports its change, so wait for it.
+    await scope.getByRole('radio', { name: 'All repositories', disabled: true }).waitFor({ timeout: 3000 });
+    expect(await page.getByText('Save or discard your changes to switch scope.').count()).toBe(1);
+    expect(await page.locator('.pc-save-bar').textContent()).toContain('repo-a list');
+    await page.getByRole('button', { name: 'Discard', exact: true }).click();
+    await scope.getByRole('radio', { name: 'One repository', disabled: false }).waitFor({ timeout: 3000 });
+    await scope.getByRole('radio', { name: 'One repository' }).focus();
+    await page.keyboard.press('Home');
+    expect(await scope.getByRole('radio', { name: 'All repositories' }).getAttribute('aria-checked')).toBe('true');
   } finally { await page.close(); }
 });

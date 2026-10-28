@@ -176,6 +176,11 @@
         "value": "72px",
         "usage": "Command menu distance from the top of the window.",
         "provisional": "Command menu board value; not yet in the design system."
+      },
+      {
+        "name": "size-220",
+        "value": "220px",
+        "provisional": "Dispatcher board: minimum available-executor pool column width."
       }
     ]
   },

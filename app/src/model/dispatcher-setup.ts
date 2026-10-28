@@ -4,15 +4,52 @@ import type { Rule } from "./executors";
 export { moveKey, positionAnnouncement } from "../ds/SortableList";
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
-/** Count positions whose values differ, including added or removed entries. */
-const positionChanges = (saved: readonly unknown[], draft: readonly unknown[]) => Array.from({ length: Math.max(saved.length, draft.length) }, (_, index) => !same(saved[index], draft[index])).filter(Boolean).length;
-/** One change per rule position whose kinds or executor order differ, including added or removed rules. */
-export const ruleChanges = (saved: readonly Rule[], draft: readonly Rule[]) => positionChanges(saved, draft);
-export const orderChanges = (saved: readonly string[], draft: readonly string[]) => same(saved, draft) ? 0 : 1;
-/** One change per ladder setting: each step position plus the shared thresholds and fallback. */
+/** Minimum single-item moves among retained entries, plus additions and removals. */
+function sequenceChanges<T>(saved: readonly T[], draft: readonly T[], key: (value: T) => string, edits = false): number {
+  const positions = new Map(saved.map((value, index) => [key(value), index]));
+  const used = new Set<number>();
+  const matches = draft.map(value => {
+    const index = positions.get(key(value));
+    if (index !== undefined) used.add(index);
+    return { value, index };
+  });
+  // The step-name field edits the ID too. Pair unmatched steps so a rename is one edit.
+  if (edits) for (const match of matches) if (match.index === undefined) {
+    const index = saved.findIndex((_, at) => !used.has(at));
+    if (index >= 0) { match.index = index; used.add(index); }
+  }
+  const retained = matches.filter((match): match is { value: T; index: number } => match.index !== undefined);
+  const tails: number[] = [];
+  for (const { index } of retained) {
+    let low = 0, high = tails.length;
+    while (low < high) { const mid = (low + high) >>> 1; if (tails[mid]! < index) low = mid + 1; else high = mid; }
+    tails[low] = index;
+  }
+  return saved.length + draft.length - 2 * retained.length + retained.length - tails.length
+    + (edits ? retained.filter(({ value, index }) => !same(saved[index], value)).length : 0);
+}
+export const orderChanges = (saved: readonly string[], draft: readonly string[]) => sequenceChanges(saved, draft, value => value);
+/** Rules have no IDs: match their task kinds, then pair unmatched rules as edits. */
+export function ruleChanges(saved: readonly Rule[], draft: readonly Rule[]): number {
+  const used = new Set<number>();
+  let changes = 0;
+  const positions: number[] = [], unmatched: Rule[] = [];
+  for (const rule of draft) {
+    const index = saved.findIndex((value, at) => !used.has(at) && same(value.kinds, rule.kinds));
+    if (index < 0) { unmatched.push(rule); continue; }
+    used.add(index); positions.push(index);
+    changes += orderChanges(saved[index]!.executors, rule.executors);
+  }
+  const removed = saved.filter((_, index) => !used.has(index));
+  const paired = Math.min(removed.length, unmatched.length);
+  for (let index = 0; index < paired; index++) changes += 1 + orderChanges(removed[index]!.executors, unmatched[index]!.executors);
+  return changes + Math.max(removed.length, unmatched.length)
+    - paired + sequenceChanges([...positions].sort((a, b) => a - b), positions, String);
+}
+/** Count each edited step once; reordering is the minimum number of single moves. */
 export function ladderChanges(saved: DispatchConfig, draft: DispatchConfig): number {
   const { steps: savedSteps, ...savedRest } = saved, { steps, ...rest } = draft;
-  return positionChanges(savedSteps, steps) + [...new Set([...Object.keys(savedRest), ...Object.keys(rest)])].filter(key => !same(savedRest[key as keyof typeof rest], rest[key as keyof typeof rest])).length;
+  return sequenceChanges(savedSteps, steps, step => step.id, true) + [...new Set([...Object.keys(savedRest), ...Object.keys(rest)])].filter(key => !same(savedRest[key as keyof typeof rest], rest[key as keyof typeof rest])).length;
 }
 
 export type EligibilityDraft = { kind: "global"; saved: Rule[]; draft: Rule[] } | { kind: "project"; saved: string[]; draft: string[]; rev?: number };

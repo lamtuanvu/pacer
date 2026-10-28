@@ -499,3 +499,7 @@ body:has(.pc-app--narrow) .pc-toasts{bottom:calc(var(--size-56) + var(--space-5)
 .pc-command-trigger__icon{display:inline-flex}
 .pc-command-trigger__icon svg{width:var(--size-15);height:var(--size-15)}
 .pc-command-trigger__text{flex:1;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+.dispatcher-order-container{container-type:inline-size;min-width:0;display:flex;flex-direction:column;gap:var(--space-3)}
+.dispatcher-order-grid{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(var(--size-220),1fr);gap:var(--space-4);min-width:0}
+@container(max-width:800px){.dispatcher-order-grid{grid-template-columns:minmax(0,1fr)}}
