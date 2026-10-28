@@ -1,6 +1,6 @@
 # Switch the execution backend from the UI and CLI
 
-Date: 2026-10-28. Status: approved design.
+Date: 2026-10-28. Status: approved design. Superseded in part by [Orca terminal execution](2026-10-28-orca-terminal-execution-design.md): Orca selection currently runs direct (see that spec), and core receives the readiness check by injection rather than calling OrcaClient.
 
 ## Problem
 
@@ -9,7 +9,7 @@ Date: 2026-10-28. Status: approved design.
 ## Current behavior (unchanged by this work)
 
 - The schema accepts `auto`, `orca` and `direct` (`src/config/execution.ts`).
-- `selectBackend` (`src/exec/backend.ts`) uses Orca only when the effective backend is `orca` and Orca reports ready. `auto` and `direct` behave identically: direct execution.
+- `selectBackend` (`src/exec/backend.ts`) runs direct even when the backend is `orca` (since #273); see the Orca terminal execution spec.
 - `PACER_BACKEND` overrides the strategy.
 - Managed (`pacer`/`orca` source) accounts, connection accounts and interactive runners always run direct.
 
