@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import type { TaskRecord } from "../tasks/types";
 import type { Ctx } from "../types";
@@ -18,8 +18,20 @@ export interface ReadOnlyStore {
 }
 export function openReadOnlyStore(ctx: Ctx): ReadOnlyStore {
   const path = resolve(ctx.pacerHome, "state", "tasks.db");
-  let db: Database | null = null;
-  try { if (existsSync(path)) { db = new Database(path, { readonly: true, strict: true }); db.run("PRAGMA query_only = ON"); } } catch { db?.close(); db = null; }
+  let db = null as Database | null;
+  const open = (target: string, options: ConstructorParameters<typeof Database>[1]) => { const d = new Database(target, options); d.run("PRAGMA query_only = ON"); return d; };
+  try {
+    if (existsSync(path)) {
+      try { db = open(path, { readonly: true, strict: true }); }
+      catch (error) {
+        // A cleanly closed WAL database has no -wal/-shm files, which a read-only handle cannot create.
+        // With no WAL content to miss, an immutable handle reads it safely.
+        const wal = `${path}-wal`;
+        if (existsSync(wal) && statSync(wal).size > 0) throw error;
+        db = open(`file:${path}?mode=ro&immutable=1`, { readonly: true, strict: true });
+      }
+    }
+  } catch { db?.close(); db = null; }
   const tables = new Set<string>();
   if (db) try { for (const r of db.query<{ name: string }, []>("SELECT name FROM sqlite_master WHERE type='table'").all()) tables.add(r.name); } catch { /* unreadable store reads as empty */ }
   return {

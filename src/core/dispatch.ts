@@ -10,7 +10,7 @@ import { rankExecutors } from "../engine/rank";
 import { slotBlock, slotUse } from "../engine/slots";
 import { listTasksWhere, readTask } from "../tasks/store";
 import { readHostReachability, remoteExclusion } from "../remote/eligibility";
-import { projectSnapshot, resolvePolicyRepoInput } from "./project-policy";
+import { projectSnapshot, resolvePolicyRepoInput, resolvePolicyRepoInputReadOnly } from "./project-policy";
 import { CoreError } from "./errors";
 import { pluginDecisionEngine } from "../dispatch/plugin-adapters";
 import { storedObservations } from "../dispatch/refresh";
@@ -53,7 +53,7 @@ export async function previewDispatch(ctx: Ctx, input: unknown, deps: DispatchDe
   const brief = parsed.data;
   const strategy = deps.strategy ?? loadStrategy(ctx);
   const config = strategy.dispatch ?? dispatchConfigSchema.parse({});
-  const repo = await resolvePolicyRepoInput(ctx, brief.repo);
+  const repo = await (deps.readOnly ? resolvePolicyRepoInputReadOnly(ctx, brief.repo) : resolvePolicyRepoInput(ctx, brief.repo));
   const selection = projectSnapshot(ctx, strategy, repo.key).selection;
   const status = await (deps.status ?? ((c, s) => computeStatus({ ...c, readOnly: true }, s, {cacheOnly: true})))(ctx, strategy);
   const existing = rankExecutors(brief.kind ?? null, strategy, Object.fromEntries(status.providers.map(p => [p.id, p])), selection && {executors: selection.executors, order: "configured"}, {includePlanner:deps.includePlanner});

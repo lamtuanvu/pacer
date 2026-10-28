@@ -30,6 +30,7 @@ import { parseDelegateKind } from "./commands/delegate-kind";
 import * as core from "./core";
 import { CoreError } from "./core/errors";
 import { readFileSync, realpathSync } from "node:fs";
+import { assertCallerCanInvoke } from "./api/caller-policy";
 import type { RouteExplanation } from "./core/dispatch-explain";
 import { isExecutorSession } from "./install/role";
 import { executorCommand } from "./executors/command";
@@ -218,6 +219,7 @@ function currentRepoKey(ctx: Ctx): string | undefined {
 }
 
 async function routeExplain(opts: Record<string, string | true | undefined>, pos: string[], ctx: Ctx): Promise<Result> {
+  assertCallerCanInvoke(ctx, "dispatch.explain", {});
   const goalFile = str(opts["goal-file"]);
   const goal = goalFile ? readFileSync(goalFile === "-" ? 0 : goalFile, "utf8") : str(opts.goal);
   if (!goal?.trim()) throw new Error("--explain needs --goal <text> or --goal-file <path>");

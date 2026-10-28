@@ -2564,20 +2564,24 @@ Params JSON Schema:
         "set": {
           "type": "object",
           "propertyNames": {
-            "type": "string"
+            "type": "string",
+            "maxLength": 256
           },
           "additionalProperties": {
             "$ref": "#/$defs/__schema0"
           }
         },
         "unset": {
+          "maxItems": 256,
           "type": "array",
           "items": {
-            "type": "string"
+            "type": "string",
+            "maxLength": 256
           }
         },
         "description": {
-          "type": "string"
+          "type": "string",
+          "maxLength": 1000
         }
       },
       "required": [

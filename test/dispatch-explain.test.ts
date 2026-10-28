@@ -9,7 +9,7 @@ import { explainDispatch } from "../src/core/dispatch-explain";
 import { previewDispatch } from "../src/core/dispatch";
 import { blockExecutor } from "../src/executors/blocked";
 import { pause } from "../src/core/pause";
-import { fakeCtx, tmpDir } from "./helpers";
+import { fakeCtx, gitRepo, realRun, tmpDir } from "./helpers";
 import type { Status } from "../src/engine/status";
 
 function setup(used: Record<string, number | null>, extra: Record<string, unknown> = {}) {
@@ -189,4 +189,42 @@ test("the documented reason codes match the code list", async () => {
   const { REASON_CODES } = await import("../src/dispatch/reasons");
   const docs = (await Bun.file(join(import.meta.dir, "../docs/dispatch.md")).text()).match(/Reason codes: (.*)\./)![1];
   expect(docs.split(", ").map(c => c.replace(/`/g, ""))).toEqual([...REASON_CODES]);
+});
+
+test("a real git repository path or a registered key writes no repo registry or task store", async () => {
+  const { ctx, deps } = setup({ "claude-code": 10, codex: 20, cursor: 30 });
+  ctx.run = realRun;
+  const repo = gitRepo();
+  const before = snapshot(ctx.pacerHome);
+  expect((await explainDispatch(ctx, { repo, goal: "Fix a bug", delegationEnforcement: "cooperative" }, deps)).outcome).toBe("select");
+  expect(snapshot(ctx.pacerHome)).toEqual(before);
+  expect(existsSync(join(ctx.pacerHome, "state", "repos.json"))).toBe(false);
+  expect(existsSync(join(ctx.pacerHome, "state", "tasks.db"))).toBe(false);
+  // An unregistered key is refused, still without creating the task store.
+  await expect(explainDispatch(ctx, { repo: "owner/name", goal: "Fix" }, deps)).rejects.toMatchObject({ code: "invalid_input" });
+  expect(existsSync(join(ctx.pacerHome, "state", "tasks.db"))).toBe(false);
+});
+
+test("the read-only store reads a cleanly closed WAL database", async () => {
+  const { Database } = await import("bun:sqlite");
+  const { openReadOnlyStore, runningTasksReadOnly } = await import("../src/dispatch/readonly");
+  const ctx = fakeCtx(); mkdirSync(join(ctx.pacerHome, "state"), { recursive: true });
+  const db = new Database(join(ctx.pacerHome, "state", "tasks.db")); db.run("PRAGMA journal_mode = WAL");
+  db.run("CREATE TABLE tasks (id TEXT, state TEXT, record TEXT)"); db.run("INSERT INTO tasks VALUES ('t1','running','{\"id\":\"t1\",\"state\":\"running\"}')"); db.close();
+  const store = openReadOnlyStore(ctx);
+  expect(store.available).toBe(true);
+  expect(runningTasksReadOnly(store).map(t => t.id)).toEqual(["t1"]);
+  store.close();
+});
+
+test("pacer route --explain refuses an executor session before calling the service", async () => {
+  const { main } = await import("../src/cli");
+  const ctx = fakeCtx({ env: { PACER_ROLE: "executor" } });
+  const r = await main(["route", "--explain", "--repo", tmpDir(), "--goal", "x"], ctx);
+  expect(r.code).toBe(2);
+});
+
+test("an oversized strategyDraft is refused", async () => {
+  const { ctx, deps } = setup({ "claude-code": 10 });
+  await expect(explainDispatch(ctx, { ...input(), strategyDraft: { from: "default", description: "x".repeat(2000) } }, deps)).rejects.toMatchObject({ code: "invalid_input" });
 });

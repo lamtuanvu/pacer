@@ -1,4 +1,4 @@
-import { z } from "zod";
+import type { z } from "zod";
 import { resolveRunner } from "../config/runner-id";
 import { KINDS, loadStrategy, type Strategy } from "../config/strategy";
 import { classifierConfig } from "../config/classifier";
@@ -7,7 +7,8 @@ import { evaluateLadder } from "../dispatch/ladder";
 import { decisionHash } from "../dispatch/engines";
 import { openReadOnlyStore, reservationsReadOnly } from "../dispatch/readonly";
 import { reason, reasonCodeSchema, type Reason, type ReasonCode } from "../dispatch/reasons";
-import { preferencesSchema, requirementsSchema, type Candidate, type DispatchPreview } from "../dispatch/types";
+import { type Candidate, type DispatchPreview } from "../dispatch/types";
+import { explainInputSchema } from "../dispatch/explain-input";
 import { draftStrategy } from "../strategy/service";
 import { StrategyError } from "../config/strategy";
 import { readPause } from "./pause";
@@ -16,14 +17,7 @@ import { previewDispatch, type DispatchDependencies, type ReadOnlyDispatch } fro
 import { isExecutorSession } from "../install/role";
 import type { Ctx } from "../types";
 
-const name = z.string().min(1).max(256);
-const draftSchema = z.object({ from: z.string().min(1).max(128), set: z.record(z.string(), z.json()).optional(), unset: z.array(z.string()).optional(), description: z.string().optional() });
-export const explainInputSchema = z.object({
-  repo: z.string().min(1).max(4096), goal: z.string().min(1).max(20000), kind: name.optional(), executor: z.string().min(1).max(128).optional(),
-  model: name.optional(), requirements: requirementsSchema.default({}), preferences: preferencesSchema.default({ models: [], strengths: [] }),
-  delegationEnforcement: z.enum(["strict", "cooperative"]).optional(), difficulty: z.enum(["simple", "standard", "complex"]).optional(),
-  strategyDraft: draftSchema.optional(),
-}).strict();
+export { explainInputSchema };
 export type ExplainInput = z.input<typeof explainInputSchema>;
 
 export { reasonCodeSchema };
