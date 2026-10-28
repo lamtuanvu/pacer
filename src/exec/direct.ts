@@ -29,7 +29,9 @@ import { RemoteRunIO } from "../remote/run-io";
 import { runRemoteAttempt } from "../remote/attempt";
 import { SCRIPTS } from "../remote/scripts";
 import { runRemote } from "../remote/ssh";
-import { launchFor, launchModeFor, providerEnv, resumeLaunchFor, type LaunchModeChoice } from "./launch";
+import { launchFor, launchModeFor, providerEnv, resumeHeadlessFor, resumeLaunchFor, type LaunchModeChoice } from "./launch";
+import { claimTurnMessages, renderTurnPrompt } from "../messaging/turns";
+import { parseOpencodeSessions } from "../session/takeover";
 import { claudeConfigFile, grantClaudeFolderTrust, projectMcpChoices, type McpChoices } from "./claude-trust";
 import { detectLimit } from "./limits";
 import { type ExecResult, executorEnv, execProcess } from "./process";
@@ -472,13 +474,16 @@ async function runAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, 
     t.placement = { requested: task.placement?.requested ?? "auto", ...task.placement, mode, why: resolved.why };
     t.worktree = workdir;
   });
-  const prompt = conversation ? task.brief.goal : mode === "new"
+  const brief = conversation ? task.brief.goal : mode === "new"
     ? buildPrompt({ ...task.brief, repo: task.worktree ? `${workdir} (the task worktree; keep its current branch; do not edit ${task.brief.repo} itself)` : `${workdir} (a new git worktree of ${task.brief.repo} on branch pacer/${task.id}; do not edit ${task.brief.repo} itself)` }, task.id, !!ctx.env.PACER_WORK_GRANT)
     : buildPrompt(task.brief, task.id, !!ctx.env.PACER_WORK_GRANT);
+  let prompt = brief;
+  let turn: ReturnType<typeof claimTurnMessages> = null;
   let launch: ReturnType<typeof launchFor>;
   let env: Record<string, string | undefined>;
   let base: TerminalEnv | undefined;
   let agentSession: RunRef["agentSession"];
+  let resumeSession: RunRef["agentSession"];
   try {
     base = await executorBase(ctx, workdir);
     note += terminalEnvNote(base);
@@ -492,10 +497,14 @@ async function runAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, 
     }
     if (choice.fallback) note += `launch mode: headless (${choice.fallback})\n\n`;
     const interactive = cfg.session === "interactive";
+    turn = !interactive && !conversation && task.pendingTurn ? claimTurnMessages(ctx, task) : null;
+    if (turn) prompt = renderTurnPrompt(ctx, task, turn.messages);
     const instructions = interactive && !conversation ? `\n\nInteractive pacer session: completion requires running pacer report --task ${task.id} --outcome done --summary "<result>" (or --outcome failed). Run pacer report with the launch environment unchanged; do not override PACER_HOME or HOME for it. Before asking the user, run pacer report --status needs-input --summary "<question>"; when resuming use --status running. Do not infer completion from the terminal. PACER_RUN_DIR identifies this attempt. You may write a longer Markdown result to $PACER_TRANSCRIPT_REPORT.\n` : "";
+    const priorSession = turn && task.run?.executor === cfg.id ? task.run.agentSession : undefined;
     if (!interactive && cfg.via !== "opencode") {
-      if (agent === "claude-code") agentSession = {id:crypto.randomUUID(),source:"assigned"};
-      if (agent === "cursor") {
+      if (priorSession) agentSession = priorSession;
+      else if (agent === "claude-code") agentSession = {id:crypto.randomUUID(),source:"assigned"};
+      else if (agent === "cursor") {
         try {
           const chat = await execProcess({argv:["cursor-agent","create-chat"],cwd:workdir,env,timeoutMs:5000});
           const id = chat.stdout.trim();
@@ -503,6 +512,16 @@ async function runAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, 
         } catch { /* best effort: launch unchanged */ }
       }
     }
+    if (turn && !agentSession && cfg.via === "opencode") {
+      if (priorSession) agentSession = priorSession;
+      else {
+        const list = await execProcess({argv:["opencode","session","list","--standalone","--format","json","-n","20"], cwd:workdir, env, timeoutMs:5000});
+        const sid = list.code === 0 ? parseOpencodeSessions(list.stdout, task.id) : undefined;
+        if (sid) agentSession = {id:sid,source:"lookup"};
+      }
+    }
+    // Only a stored or discovered session resumes; a freshly assigned one replays the brief.
+    resumeSession = turn ? (priorSession ?? (agentSession?.source === "lookup" ? agentSession : undefined)) : undefined;
     if (conversation) {
       const sessionAgent = cfg.via === "opencode" ? "opencode" : agent;
       const probe = await probeAgentSession(ctx, sessionAgent, env);
@@ -522,7 +541,9 @@ async function runAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, 
         workspace: workdir, runDir: rdir, ...(task.sessionDraftId ? {attachmentDir: attachmentDirectory(ctx, task.sessionDraftId)} : {}), attachments: resolveAttachments(ctx, task.id), permissionPolicy: "native",
         ...(task.conversation?.agentSessionId ? {sessionId: task.conversation.agentSessionId} : agentSession ? {newSessionId: agentSession.id} : {}), ...(cfg.model ? {model: cfg.model} : {})});
       materializeAgentReporting(rdir, launch, env);
-    } else launch = launchFor(cfg, prompt + instructions, workdir, rdir, task.id, agentSession?.id, "error" in git ? task.brief.repo : git.main);
+    } else launch = resumeSession
+      ? resumeHeadlessFor(cfg, resumeSession.id, prompt, workdir, rdir, task.id)
+      : launchFor(cfg, turn ? `${brief}\n\n${prompt}` : prompt + instructions, workdir, rdir, task.id, agentSession?.id, "error" in git ? task.brief.repo : git.main);
     if(env.PACER_ENFORCEMENT_MODE==="strict"&&agent==="claude-code")launch={...launch,argv:strictClaudeLaunch(ctx,launch.argv,rdir)};
     if (interactive) {
       if (agent === "codex" && !conversation && choice.explicit) await requireCodexInteractive(ctx, env);
@@ -549,7 +570,7 @@ async function runAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, 
   writeFileSync(join(rdir, "argv"), launch.argv.join(" "));
   if (base) recordEnvironment(rdir, base);
   if (cfg.via !== "opencode") recordRunFolder(rdir, ctx, parseRunnerId(cfg.id)?.agent ?? cfg.id, env);
-  const run: RunRef = { interactionMode: task.interactionMode, ...(agentSession ? {agentSession} : {}), dir: rdir, attempt, executor: cfg.id, startedAt, mode, workdir, logFile: log, ...(launch.lastMessageFile ? { lastMessageFile: launch.lastMessageFile } : {}) };
+  const run: RunRef = { interactionMode: task.interactionMode, ...(agentSession ? {agentSession} : {}), dir: rdir, attempt, executor: cfg.id, startedAt, mode, workdir, logFile: log, ...(launch.lastMessageFile ? { lastMessageFile: launch.lastMessageFile } : {}), ...(turn && !resumeSession ? {turnResume: "replayed" as const} : {}) };
   updateTask(ctx, task.id, t => {
     t.run = run;
     if (conversation && agentSession) t.conversation = {...t.conversation, activity: "starting", agentSessionId: agentSession.id};

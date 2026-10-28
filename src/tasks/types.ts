@@ -165,6 +165,7 @@ export interface RunRef {
   interactionMode?: InteractionMode;
   takeover?: boolean;
   agentSession?: {id: string; source: "header" | "assigned" | "lookup"};
+  turnResume?: "replayed";
   host?: string;
   remoteDir?: string;
   remoteWorktree?: string;
