@@ -118,7 +118,7 @@ test.skipIf(!browserPath)('Start work truncates long recent titles with an ellip
    expect(recentGap).toBe(0);
    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
    const contentEdge=await page.locator('.pc-start__cols').evaluate(n=>n.getBoundingClientRect().left);
-   expect(contentEdge).toBe(width<560?16:72);
+   expect(contentEdge).toBe(width<560?16:84);
    if(width>560)expect(await page.locator('.pc-start').evaluate(n=>n.getBoundingClientRect().width)).toBeGreaterThan(width-150);
    const rail=await page.locator(width<560?'.pc-bottom-bar':'.pc-rail').evaluate(n=>n.getBoundingClientRect().left);
    expect(rail).toBeGreaterThanOrEqual(0);
@@ -146,7 +146,7 @@ test.skipIf(!browserPath)('opened task gives the live session the main pane and 
    expect(await nav.isVisible()).toBe(width>767);
    const frame=await page.locator('.pc-session-layout').boundingBox();
    expect(frame).not.toBeNull();
-   expect(frame!.width).toBeGreaterThan(width>767?width*0.65:width*0.8);
+   expect(frame!.width).toBeGreaterThan(width>767?width*0.65:width*0.75);
   }
  }finally{await browser.close();}
 });

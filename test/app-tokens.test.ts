@@ -36,7 +36,8 @@ test("provisional tokens are appended to their group", () => {
 test("provisional entries are listed", () => {
   const entries = provisionalEntries(local);
   if (entries.length) console.info("Provisional design tokens still pending in the design system:", entries);
-  expect(entries).toEqual([]);
+  // The app-frame chrome board values, until the design system carries them.
+  expect(entries.map(entry => entry.name)).toEqual(["radius-xs", "size-3", "size-4", "size-5", "size-10", "size-14", "size-52", "size-84", "size-420", "size-neg-6"]);
 });
 
 test("ds-sync rejects an export missing a dark value and writes nothing", () => {

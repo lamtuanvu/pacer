@@ -169,3 +169,74 @@ browserTest("panels_and_dock_not_offered_where_hidden", async () => {
     expect(await page.getByRole("region", { name: "Terminal panel" }).count()).toBe(0);
   } finally { await browser.close(); }
 }, 20_000);
+
+browserTest("frame_chrome_measures_to_the_board", async () => {
+  const built = await frame();
+  const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    await open(page, built, "#/settings");
+    const m = await page.evaluate(() => {
+      const q = (s: string) => document.querySelector(s) as HTMLElement, css = (e: Element, p?: string) => getComputedStyle(e, p);
+      const size = (e: Element) => { const r = e.getBoundingClientRect(); return [r.width, r.height]; };
+      const top = q(".pc-topbar"), rail = q(".pc-rail"), status = q(".pc-statusbar"), on = q(".pc-rail__item.on");
+      const badge = q(".pc-rail__badge--count"), chip = q(".pc-planner"), toggles = [...document.querySelectorAll(".pc-layout-toggles button")];
+      return {
+        top: { h: size(top)[1], pad: css(top).padding, bg: css(top).backgroundColor, card: css(rail).backgroundColor, h1: size(q(".pc-topbar h1")) },
+        mark: size(q(".pc-topbar__brand svg")), chip: { h: size(chip)[1], r: css(chip).borderTopLeftRadius, mode: !!chip.querySelector(".pc-pill") },
+        toggles: toggles.map(size), names: toggles.map(t => t.getAttribute("aria-label")), group: q(".pc-layout-toggles").getAttribute("aria-label"),
+        rail: { w: size(rail)[0], pad: css(rail).padding, gap: css(rail).rowGap, item: size(on), bar: [css(on, "::before").width, css(on, "::before").height, css(on, "::before").left, css(on, "::before").backgroundColor], onBg: css(on).backgroundColor, lane: css(q(".pc-rail__divider")).height },
+        badge: { size: size(badge), bg: css(badge).backgroundColor, radius: css(badge).borderTopLeftRadius },
+        status: { h: size(status)[1], pad: css(status).padding, gap: css(status).columnGap, meter: size(q(".pc-statusbar .pc-meter--mini")), mark: size(q(".pc-statusbar__item .pc-agent-mark")), work: q(".pc-statusbar__work").textContent, keys: q(".pc-statusbar__keys").textContent, family: css(q(".pc-statusbar__keys")).fontFamily },
+        overflow: document.scrollingElement!.scrollWidth <= document.scrollingElement!.clientWidth,
+      };
+    });
+    expect(m.top.h).toBe(44);
+    expect(m.top.pad).toBe("0px 10px 0px 8px");
+    expect(m.top.bg).toBe(m.top.card);
+    expect(m.top.h1[0]).toBeLessThanOrEqual(1); // visually hidden: the page title stays for assistive technology
+    expect(m.mark).toEqual([18, 18]);
+    expect(m.chip.h).toBe(28);
+    expect(m.chip.r).not.toBe("0px");
+    expect(m.chip.mode).toBe(true);
+    expect(m.group).toBe("Layout");
+    expect(m.toggles).toEqual([[32, 32], [32, 32]]); // left panel and terminal; no right panel on this route
+    expect(m.names).toEqual(["Toggle left panel", "Toggle terminal panel (Ctrl+`)"]);
+    expect(m.rail.w).toBe(52);
+    expect(m.rail.pad).toBe("8px 0px");
+    expect(m.rail.gap).toBe("4px");
+    expect(m.rail.item).toEqual([40, 40]);
+    expect(m.rail.bar.slice(0, 3)).toEqual(["3px", "20px", "-6px"]);
+    expect(m.badge.size[1]).toBe(16);
+    expect(m.badge.radius).not.toBe("0px");
+    expect(m.status.h).toBe(28);
+    expect(m.status.pad).toBe("0px 10px");
+    expect(m.status.gap).toBe("14px");
+    expect(m.status.meter).toEqual([28, 4]);
+    expect(m.status.mark).toEqual([16, 16]);
+    expect(m.status.work).toMatch(/^\d+ running · \d+ queued$/);
+    expect(m.status.keys).toBe("Ctrl+`");
+    expect(m.overflow).toBe(true);
+    // The toggles drive the real panels and dock, and report their state.
+    await expect(page.getByRole("button", { name: "Toggle left panel" }).getAttribute("aria-pressed")).resolves.toBe("true");
+    await expect(page.getByRole("button", { name: "Toggle terminal panel (Ctrl+`)" }).getAttribute("aria-pressed")).resolves.toBe("false");
+    await page.getByRole("button", { name: "Toggle left panel" }).click();
+    await expect(page.getByRole("complementary", { name: "Settings" }).count()).resolves.toBe(0);
+    await expect(page.getByRole("button", { name: "Toggle left panel" }).getAttribute("aria-pressed")).resolves.toBe("false");
+    await page.getByRole("button", { name: "Toggle terminal panel (Ctrl+`)" }).click();
+    await page.getByRole("region", { name: "Terminal panel" }).waitFor();
+    await expect(page.getByRole("button", { name: "Toggle terminal panel (Ctrl+`)" }).getAttribute("aria-pressed")).resolves.toBe("true");
+    // A route without panels or dock offers no toggles; narrow layouts keep their own chrome.
+    await page.evaluate(() => { location.hash = "#/terminal"; });
+    await page.locator(".pc-layout-toggles button").first().waitFor({ state: "detached" });
+    // Below 768px panels and the dock are hidden, so their toggles go too, and nothing overflows.
+    await page.evaluate(() => { location.hash = "#/settings"; });
+    await page.setViewportSize({ width: 767, height: 800 });
+    await page.waitForFunction(() => !document.querySelector(".pc-layout-toggles button"), null, { timeout: 2000 });
+    expect(await noHorizontalOverflow(page)).toBe(true);
+    await page.setViewportSize({ width: 375, height: 800 });
+    await page.waitForFunction(() => !document.querySelector(".pc-statusbar"), null, { timeout: 2000 });
+    await expect(page.locator(".pc-rail, .pc-statusbar, .pc-layout-toggles").count()).resolves.toBe(0);
+    expect(await noHorizontalOverflow(page)).toBe(true);
+  } finally { await browser.close(); }
+}, 30_000);

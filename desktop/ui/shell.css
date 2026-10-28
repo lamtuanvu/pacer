@@ -100,6 +100,7 @@
   --radius-lg: 10px;
   --radius-xl: 14px;
   --radius-full: 999px;
+  --radius-xs: 2px;
   --control-compact: 28px;
   --control-settings: 32px;
   --control-normal: 44px;
@@ -165,6 +166,15 @@
   --size-300: 300px;
   --size-260: 260px;
   --size-180: 180px;
+  --size-3: 3px;
+  --size-4: 4px;
+  --size-5: 5px;
+  --size-10: 10px;
+  --size-14: 14px;
+  --size-52: 52px;
+  --size-84: 84px;
+  --size-420: 420px;
+  --size-neg-6: -6px;
   --shadow-popover: 0 6px 24px rgb(0 0 0 / .13);
   --shadow-status-outline: 0 0 0 1px var(--ink-muted);
   --layer-base: 1;
