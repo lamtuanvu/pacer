@@ -14,12 +14,14 @@ export const RESULT_CAP_BYTES = 32 * 1024;
  * holds a short pacer-owned value (ids, states, names). Goals, context, reports, summaries, commands, paths and every
  * other free-text field are dropped by default, so a field added to an op later stays out until it is listed here.
  */
-const STRING_KEYS = new Set(["id", "task_id", "taskId", "title", "state", "kind", "executor", "requested_executor", "backend", "runner", "account", "name", "verdict", "mode", "severity", "window", "status", "phase", "label", "version", "strategy", "planner", "agent", "model", "step", "rule", "ladder_rule", "next", "before", "host", "source", "tone", "acceptanceState", "protocol", "previous", "level", "outcome", "relation", "code", "subject", "of", "value", "revision"]);
+const STRING_KEYS = new Set(["id", "task_id", "taskId", "title", "state", "kind", "executor", "requested_executor", "backend", "runner", "account", "name", "verdict", "mode", "severity", "window", "status", "phase", "label", "version", "strategy", "planner", "agent", "model", "step", "rule", "ladder_rule", "next", "before", "host", "source", "tone", "acceptanceState", "protocol", "previous", "level", "outcome", "relation"]);
+/** Extra short keys that only the route explanation uses; they never widen the other tools. */
+const EXPLAIN_KEYS = new Set(["code", "subject", "of", "value", "revision"]);
 const ENUM_KEYS = new Set(["reason", "note", "resolved"]);
 const SAFE_KEY = /^[A-Za-z0-9_.-]{1,64}$/;
 const clipText = (text: string, max: number) => text.length > max ? `${text.slice(0, max - 1)}…` : text;
 
-export function project(value: unknown, o: { text?: boolean } = {}, depth = 0): unknown {
+export function project(value: unknown, o: { text?: boolean; keys?: ReadonlySet<string> } = {}, depth = 0): unknown {
   if (depth > 10) return undefined;
   if (Array.isArray(value)) return value.slice(0, 200).map(v => project(v, o, depth + 1));
   if (!value || typeof value !== "object") return typeof value === "number" || typeof value === "boolean" ? value : undefined;
@@ -27,7 +29,7 @@ export function project(value: unknown, o: { text?: boolean } = {}, depth = 0): 
   for (const [key, v] of Object.entries(value)) {
     if (!SAFE_KEY.test(key)) continue;
     if (typeof v === "string") {
-      if (STRING_KEYS.has(key)) out[key] = clipText(v, key === "title" ? 80 : 160);
+      if (STRING_KEYS.has(key) || o.keys?.has(key)) out[key] = clipText(v, key === "title" ? 80 : 160);
       else if (ENUM_KEYS.has(key) && /^[a-z][a-z0-9_]{0,31}$/.test(v)) out[key] = v;
       else if (o.text && key === "text") out[key] = clipText(v, 240);
     } else if (v === null || typeof v === "number" || typeof v === "boolean") out[key] = v;
@@ -104,7 +106,7 @@ export const READ_TOOLS: ReadTool[] = [
       if (scope.kind === "task") return out("Route explanations are outside a single-task scope; task_get shows where this task went.");
       const repo = scope.kind === "repo" ? scope.repo : String(p.repo);
       // pacer's own sentences ("Dispatch is paused until …") are safe text; the request itself is a neutral placeholder.
-      return project(await read(ctx, "dispatch.explain", { repo, goal: "Explain how work like this would be routed.", ...(p.kind ? { kind: p.kind } : {}), ...(p.executor ? { executor: p.executor } : {}) }), { text: true });
+      return project(await read(ctx, "dispatch.explain", { repo, goal: "Explain how work like this would be routed.", ...(p.kind ? { kind: p.kind } : {}), ...(p.executor ? { executor: p.executor } : {}) }), { text: true, keys: EXPLAIN_KEYS });
     } },
   { name: "strategies", description: "Strategy names and summaries.", params: z.object({}), run: async (ctx, _p, read, scope) => {
     if (scope.kind === "task") return out("Strategies are outside a single-task scope.");

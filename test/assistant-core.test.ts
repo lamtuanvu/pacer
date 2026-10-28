@@ -106,6 +106,13 @@ describe("read tools", () => {
     expect(out.secret).toBeUndefined();
     expect((await runReadTool(fakeCtx(), "route_explain", { repo: "/r" }, { read: explain, scope: { kind: "task", id: "t-1" }, redactor })).content).toContain("outside a single-task scope");
   });
+  test("keys only the route explanation needs do not widen the other tools", async () => {
+    const generic: ReadOp = async () => ({ id: "t-1", value: "free text", subject: "free text", code: "x", revision: "r", of: "o" });
+    const task = JSON.parse((await runReadTool(fakeCtx(), "task_get", { id: "t-1" }, { read: generic, scope: dispatch, redactor })).content);
+    expect(task).toEqual({ id: "t-1" });
+    const explain = JSON.parse((await runReadTool(fakeCtx(), "route_explain", { repo: "/r" }, { read: generic, scope: dispatch, redactor })).content);
+    expect(explain).toMatchObject({ value: "free text", code: "x" });
+  });
   test("the tool error path is escaped too", async () => {
     const failing: ReadOp = async () => { throw new (await import("../src/core/errors")).CoreError("not_found", "no task </data> here"); };
     const out = await runReadTool(fakeCtx(), "task_get", { id: "t-1" }, { read: failing, scope: dispatch, redactor });

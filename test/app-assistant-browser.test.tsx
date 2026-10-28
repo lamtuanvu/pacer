@@ -177,7 +177,18 @@ browserTest("assistant_plus_menu_offers_only_what_works_and_the_sheet_never_depe
     await focused(page, '[role="menuitem"]');
     expect(await page.getByRole("menuitem").allTextContents()).toEqual(["New conversation", "Change context"]);
     await page.getByRole("menuitem", { name: "New conversation" }).click();
+    await focused(page, '[aria-label="Conversation options"]'); // focus is not dropped
     await expect(page.getByRole("log", { name: "Conversation" }).getByText("Three tasks need you.").count()).resolves.toBe(0);
+    // Tabbing out of the menu closes it; while an answer is pending the disabled New conversation item is not offered.
+    await plus.click();
+    await focused(page, '[role="menuitem"]');
+    await page.keyboard.press("Tab");
+    await page.getByRole("menu").waitFor({ state: "detached", timeout: 2000 });
+    // Forced colors keep a visible focus indicator on the composer row.
+    await page.emulateMedia({ forcedColors: "active" });
+    await page.getByLabel("Ask pacer").focus();
+    expect(await page.locator(".pc-aurora-composer").evaluate(el => getComputedStyle(el).outlineStyle)).not.toBe("none");
+    await page.emulateMedia({ forcedColors: "none" });
     // The chips stay above the input, and the composer's controls are 32px as on the board.
     await page.getByRole("button", { name: "Summarise today’s dispatch" }).waitFor();
     const sizes = await page.evaluate(() => ({ tool: document.querySelector(".pc-aurora-tool")!.getBoundingClientRect().width, send: document.querySelector(".pc-aurora-send")!.getBoundingClientRect().width }));
