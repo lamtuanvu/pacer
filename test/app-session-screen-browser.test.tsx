@@ -250,7 +250,7 @@ async function assertTitleBarFits(page: Page) {
   const geometry = await page.evaluate(() => {
     const box = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
     const title = box("h1.pc-topbar__heading"), search = box("[data-command-trigger]");
-    const delegate = [...document.querySelectorAll(".pc-topbar button")].find(node => node.textContent === "Delegate")!.getBoundingClientRect();
+    const delegate = [...document.querySelectorAll(".pc-topbar button")].find(node => node.textContent === "New task")!.getBoundingClientRect();
     return { scroll: document.scrollingElement!.scrollWidth, width: innerWidth, title: title.width, search: search.width, searchRight: search.right, delegate: delegate.right };
   });
   expect(geometry.scroll).toBeLessThanOrEqual(geometry.width);
