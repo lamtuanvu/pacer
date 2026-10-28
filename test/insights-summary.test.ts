@@ -50,7 +50,9 @@ test("subtasks, retries, first-try acceptance and the agent spread", () => {
   expect(s.spread.find(g => g.agent === "codex")!.subtasks).toBe(1);
   expect(s.spread.find(g => g.agent === "claude-code")!.subtasks).toBe(0);
   expect(s.skipReasons).toEqual([{ agent: "cursor", reason: "stale", count: 1 }]);
-  expect(s.ladder).toEqual([{ rule: "capable", count: 4 }]);
+  expect(s.rules).toEqual([{ rule: "capable", count: 4 }]);
+  expect(s.ladder).toEqual([{ step: "1", name: "Capable model with spare capacity", count: 4 }]);
+  expect(s.retryTokens).toEqual({ attempts: 1, total: 0, unknownAttempts: 1 });
   expect(s.kindByAgent[0]!.byAgent.codex).toBe(2);
   expect(s.ranOutsidePlanner).toBeNull();
   expect(s.planner.coverage).toBe("unknown");

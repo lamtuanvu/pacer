@@ -9,7 +9,7 @@ import { executorLabel } from "../../../../src/view-model/words";
 import { markAgent, runnerAgent } from "../../../../src/view-model/agents";
 import type { Account } from "../../model/accounts";
 import { withQuery, type RouteQuery } from "../../router";
-import { agentSlot, bars, CHART_DAYS, chartRange, compact, dayLabel, fullDay, niceMax, percent, periodRange, PERIODS, rangeLabel, slotClass, summaryCsv, versus, type PeriodKey, type Summary } from "./model";
+import { agentSlot, axisLabel, bars, CHART_DAYS, chartRange, compact, dayLabel, fullDay, niceMax, percent, periodRange, PERIODS, rangeLabel, slotClass, summaryCsv, versus, type PeriodKey, type Summary } from "./model";
 
 type Tone = "good" | "warn" | "bad";
 function Kpi({ label, value, delta, tone, note }: { label: string; value: string; delta?: string; tone?: Tone; note?: string }) {
@@ -87,13 +87,13 @@ export function Insights({ query }: { query: RouteQuery }) {
         <Kpi label="Tokens" value={compact(total)} {...change(total, prev!.tokens.total, "warn", "%")} note={`${versusWord}${atLeast}`} />
         <Kpi label="Per root task" value={s.rootTasksHandled && total ? compact(Math.round(total / s.rootTasksHandled)) : "—"} {...(s.rootTasksHandled && prev!.rootTasksHandled && prev!.tokens.total ? change(total / s.rootTasksHandled, prev!.tokens.total / prev!.rootTasksHandled, "warn", "%") : {})} note={`${versusWord}${atLeast}`} />
         <Kpi label="Accepted first try" value={percent(s.acceptedFirstTryRate)} {...(s.acceptedFirstTryRate !== null && prev!.acceptedFirstTryRate !== null ? (() => { const pts = Math.round((s.acceptedFirstTryRate! - prev!.acceptedFirstTryRate!) * 100); return { delta: `${pts >= 0 ? "+" : "−"}${Math.abs(pts)} pts`, tone: (pts === 0 ? undefined : pts > 0 ? "good" : "warn") as Tone | undefined }; })() : {})} note={s.reviewedRoots ? `${s.acceptedFirstTry} of ${s.reviewedRoots} reviewed` : "none reviewed yet"} />
-        <Kpi label="Retries" value={String(retried)} delta={retried ? "extra attempts" : undefined} tone={retried ? "bad" : undefined} />
+        <Kpi label="Retries" value={String(retried)} {...(retried && s.retryTokens.total > 0 ? { delta: compact(s.retryTokens.total), tone: "bad" as Tone, note: `tokens spent${s.retryTokens.unknownAttempts ? " · at least" : ""}` } : retried ? { delta: "extra attempts", tone: "bad" as Tone } : {})} />
       </section>
       <section className="pc-insights__card" aria-labelledby="daily-h">
         <div className="pc-insights__cardhead"><h2 id="daily-h">Tokens per day, by agent</h2>
           <ul className="pc-insights__legend" aria-label="Agents">{agents.map(a => <li key={a}><span className={`pc-insights__swatch ${slotClass(agentSlot(a))}`} />{label(a)}</li>)}</ul></div>
         {series.data ? <div className="pc-insights__chart" aria-hidden="true">
-          <div className="pc-insights__axis"><span>{compact(max)}</span><span>{compact(max / 2)}</span><span>0</span></div>
+          <div className="pc-insights__axis"><span>{axisLabel(max)}</span><span>{axisLabel(max / 2)}</span><span>0</span></div>
           <ol className="pc-insights__bars">{days.map(d => <li key={d.at} className={d.at === todayAt ? "pc-insights__today" : undefined}>
             <svg viewBox="0 0 10 100" preserveAspectRatio="none">{d.rects.map(r => <rect key={r.agent} className={slotClass(r.slot)} x={0} width={10} y={r.y} height={r.height} />)}</svg></li>)}</ol>
           <ol className="pc-insights__days">{days.map(d => <li key={d.at} className={d.at === todayAt ? "pc-insights__today" : undefined}>{dayLabel(d.at)}</li>)}</ol></div>
@@ -122,10 +122,10 @@ export function Insights({ query }: { query: RouteQuery }) {
             <tbody>{s.kindByAgent.map(k => <tr key={k.kind}><th scope="row">{k.kind}</th>{agents.map(a => { const n = k.byAgent[a] ?? 0; return <td key={a} className={`pc-insights__cell pc-insights__cell--${n === 0 ? 0 : n < 4 ? 1 : n < 10 ? 2 : 3}`}>{n}</td>; })}</tr>)}</tbody></table></div>
             : <p className="pc-insights__caption">No attempts in this period.</p>}
         </section>
-        <section className="pc-insights__card" aria-labelledby="ladder-h"><h2 id="ladder-h">How the dispatcher decided</h2><span className="pc-insights__caption">{s.ladder.reduce((n, l) => n + l.count, 0)} attempts with a recorded rule · which rule picked the agent</span>
-          <ul className="pc-insights__ladder">{(() => { const sum = s.ladder.reduce((n, l) => n + l.count, 0) || 1; return s.ladder.map((l, i) => <li key={l.rule}>
-            <span className="pc-insights__step">{i + 1}</span>
-            <span className="pc-insights__rule"><span className="pc-insights__rulehead"><strong>{l.rule}</strong><span className="pc-insights__caption">{l.count} decisions</span></span><progress className={i === 0 ? "pc-insights__p-good" : i === 1 ? "pc-insights__p-warn" : "pc-insights__p-muted"} value={Math.round(l.count / sum * 100)} max={100} aria-label={`${l.rule}: ${Math.round(l.count / sum * 100)}% of decisions`} /></span>
+        <section className="pc-insights__card" aria-labelledby="ladder-h"><h2 id="ladder-h">How the dispatcher decided</h2><span className="pc-insights__caption">{s.ladder.reduce((n, l) => n + l.count, 0)} decisions · which ladder step picked the agent</span>
+          <ul className="pc-insights__ladder">{(() => { const sum = s.ladder.reduce((n, l) => n + l.count, 0) || 1; return s.ladder.map(l => <li key={l.step}>
+            <span className="pc-insights__step">{l.step}</span>
+            <span className="pc-insights__rule"><span className="pc-insights__rulehead"><strong>{l.name}</strong><span className="pc-insights__caption">{l.count} decisions</span></span><progress className={`pc-insights__p-${l.step}`} value={Math.round(l.count / sum * 100)} max={100} aria-label={`${l.name}: ${Math.round(l.count / sum * 100)}% of decisions`} /></span>
             <strong>{Math.round(l.count / sum * 100)}%</strong></li>); })()}</ul>
           {s.skipReasons.length > 0 && <div className="pc-insights__skips"><span className="pc-insights__label">Why agents were skipped</span>
             <ul className="pc-insights__skiplist">{s.skipReasons.map(r => <li key={`${r.agent}${r.reason}`}><AgentMark agent={r.agent} size={20} labelled={false} /><span className="pc-insights__why">{label(r.agent)}: {r.reason}</span><Pill tone="warn">{r.count}× skipped</Pill></li>)}</ul></div>}

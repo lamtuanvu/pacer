@@ -16,6 +16,8 @@ export function chartRange(nowMs: number): { from: number; to: number; bucket: "
   return { from: today - (CHART_DAYS - 1) * DAY, to, bucket: "day" };
 }
 export const compact = (n: number): string => n >= 1e6 ? `${(n / 1e6).toFixed(n >= 1e7 ? 0 : 1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : String(n);
+/** Axis labels read 4M / 2M / 0: whole millions and thousands carry no decimal. */
+export const axisLabel = (n: number): string => n >= 1e6 ? `${Number.isInteger(n / 1e6) ? n / 1e6 : (n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Number.isInteger(n / 1e3) ? n / 1e3 : (n / 1e3).toFixed(1)}k` : String(n);
 export const percent = (v: number | null): string => v === null ? "—" : `${Math.round(v * 100)}%`;
 const shortDate = (seconds: number, utc = false) => new Date(seconds * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric", ...(utc ? { timeZone: "UTC" } : {}) });
 export const dayLabel = (at: number) => new Date(at * 1000).toLocaleDateString(undefined, { day: "numeric", timeZone: "UTC" });
@@ -45,7 +47,9 @@ export interface Summary {
   spread: (Sums & { agent: string; rootTasks: number; tasks: number; subtasks: number; attempts: number; share: number | null; tokensPerTask: number | null; acceptanceRate: number | null })[];
   daily: { at: number; byAgent: Record<string, number> }[];
   kindByAgent: { kind: string; byAgent: Record<string, number> }[];
-  ladder: { rule: string; count: number }[];
+  ladder: { step: "1" | "2" | "P" | "Q"; name: string; count: number }[];
+  rules: { rule: string; count: number }[];
+  retryTokens: { attempts: number; total: number; unknownAttempts: number };
   skipReasons: { agent: string; reason: string; count: number }[];
   planner: { coverage: "unknown" }; decision: { coverage: "unknown" }; ranOutsidePlanner: null;
   previous: { rootTasksHandled: number; subtasks: number; retryAttempts: number; acceptedFirstTryRate: number | null; tokens: Sums & { attempts: number; lowerBound: boolean } };

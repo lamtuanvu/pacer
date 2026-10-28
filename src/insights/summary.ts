@@ -21,7 +21,8 @@ export function backfillFirstSettled(ctx: Ctx): number {
 }
 
 interface Row { task_id: string; attempt: number; root_id: string; executor: string; kind: string | null; outcome: string | null; ladder_rule: string | null;
-  ended_at: number; coverage: string; total: number | null; input: number | null; output: number | null; cache_read: number | null; cache_write: number | null; skipped: string | null }
+  ended_at: number; coverage: string; routed: string | null; total: number | null; input: number | null; output: number | null; cache_read: number | null; cache_write: number | null; skipped: string | null; fallback: string | null; why: string | null }
+const STEP_NAMES = { "1": "Capable model with spare capacity", "2": "Usable fallback", P: "Kept on the planner", Q: "Queued until an agent was free" } as const;
 const agentOf = (executor: string) => parseRunnerId(executor)?.agent ?? executor;
 const BUCKET = { day: 86400, week: 7 * 86400 } as const;
 
@@ -56,11 +57,13 @@ function period(ctx: Ctx, from: number, to: number, repo: string | undefined, bu
   // Token spend: attempts that ended in the period.
   const rows = db.query<Row, [number, number, string, string]>(
     `SELECT u.task_id,u.attempt,u.root_id,u.executor,u.kind,u.outcome,u.ladder_rule,u.ended_at,u.coverage,u.total,u.input,u.output,u.cache_read,u.cache_write,
-       json_extract(t.record,'$.attempts['||(u.attempt-1)||'].routing.skipped') AS skipped
+       json_extract(t.record,'$.attempts['||(u.attempt-1)||'].routing.skipped') AS skipped,
+       json_extract(t.record,'$.attempts['||(u.attempt-1)||'].routing.fallback') AS fallback,
+       json_extract(t.record,'$.attempts['||(u.attempt-1)||'].routing.why') AS why
      FROM attempt_usage u LEFT JOIN tasks t ON t.id=u.task_id WHERE u.ended_at>=? AND u.ended_at<? AND (?='' OR u.repo_key=?)`).all(from, to, repo ?? "", repo ?? "");
   const all = sums(), byAgent = new Map<string, { agent: string; tasks: Set<string>; roots: Set<string>; attempts: number; sums: Sums; accepted: number; judged: number }>();
-  const series = new Map<number, Map<string, number>>(), kinds = new Map<string, Map<string, Set<string>>>(), ladder = new Map<string, number>(), skips = new Map<string, number>();
-  const step = BUCKET[bucket];
+  const series = new Map<number, Map<string, number>>(), kinds = new Map<string, Map<string, Set<string>>>(), ladder = new Map<string, number>(), steps = new Map<string, number>(), skips = new Map<string, number>();
+  const step = BUCKET[bucket], retryTokens = { attempts: 0, total: 0, unknownAttempts: 0 };
   for (const r of rows) {
     addRow(all, r);
     const agent = agentOf(r.executor);
@@ -71,7 +74,13 @@ function period(ctx: Ctx, from: number, to: number, repo: string | undefined, bu
     series.set(at, day); day.set(agent, (day.get(agent) ?? 0) + (r.total ?? 0));
     const kind = r.kind ?? "other", row = kinds.get(kind) ?? new Map<string, Set<string>>(), cell = row.get(agent) ?? new Set<string>();
     kinds.set(kind, row); row.set(agent, cell); cell.add(r.task_id);
-    if (r.ladder_rule) ladder.set(r.ladder_rule, (ladder.get(r.ladder_rule) ?? 0) + 1);
+    if (r.ladder_rule) {
+      ladder.set(r.ladder_rule, (ladder.get(r.ladder_rule) ?? 0) + 1);
+      // Ladder step: 2 when the pick was a fallback (uncertain, or other executors were busy), else 1. Steps P (kept on the planner) and Q (queued) are not recorded yet.
+      const key = r.fallback === "uncertain" || /busy/.test(r.why ?? "") ? "2" : "1";
+      steps.set(key, (steps.get(key) ?? 0) + 1);
+    }
+    if (r.attempt > 1) { retryTokens.total += r.total ?? 0; if (r.coverage === "unknown") retryTokens.unknownAttempts++; retryTokens.attempts++; }
     if (r.skipped) try {
       for (const s of JSON.parse(r.skipped) as { executor: string; reason: string }[]) {
         const key = JSON.stringify([agentOf(String(s.executor)), String(s.reason).slice(0, 200)]); skips.set(key, (skips.get(key) ?? 0) + 1);
@@ -91,7 +100,9 @@ function period(ctx: Ctx, from: number, to: number, repo: string | undefined, bu
     spread,
     daily: [...series.entries()].sort((a, b) => a[0] - b[0]).map(([at, m]) => ({ at, byAgent: Object.fromEntries(m) })),
     kindByAgent: [...kinds.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([kind, m]) => ({ kind, byAgent: Object.fromEntries([...m].map(([a, set]) => [a, set.size])) })),
-    ladder: [...ladder.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([rule, count]) => ({ rule, count })),
+    ladder: (["1", "2", "P", "Q"] as const).filter(k => steps.has(k)).map(k => ({ step: k, name: STEP_NAMES[k], count: steps.get(k)! })),
+    rules: [...ladder.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([rule, count]) => ({ rule, count })),
+    retryTokens,
     skipReasons: [...skips.entries()].map(([k, count]) => { const [agent, reason] = JSON.parse(k) as [string, string]; return { agent, reason, count }; }).sort((a, b) => b.count - a.count || a.reason.localeCompare(b.reason)).slice(0, 20),
     rootIds: rootIds.length,
   };
