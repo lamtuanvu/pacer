@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { z } from "zod";
 import { CoreError } from "../core/errors";
 import { readTask, updateTask } from "../tasks/store";
@@ -147,13 +148,34 @@ export function workWaitTotals(ctx:Ctx,ids:string[]){
  }}
  return{queueWaitSeconds:queue,dependencyWaitSeconds:unknownDependency?null:dependency,childWaitSeconds:child,capacityWaitSeconds:measuredCapacity?capacity:null,unknownDependencyWaits:unknownDependency,provisionalWaits:provisional,waitAsOf:ctx.now};
 }
+/** The checked-out branch of a worktree, read from its HEAD file so a list never spawns git. Null when it is gone, detached or unreadable. */
+function headBranch(worktree:string|undefined):string|null{
+ if(!worktree)return null;
+ try{
+  const dot=join(worktree,".git");
+  const dir=statSync(dot).isDirectory()?dot:(()=>{const target=/^gitdir:\s*(.+)$/m.exec(readFileSync(dot,"utf8"))?.[1]?.trim();return target?(isAbsolute(target)?target:resolve(dirname(dot),target)):"";})();
+  const ref=/^ref:\s*refs\/heads\/(.+)$/m.exec(readFileSync(join(dir,"HEAD"),"utf8"))?.[1]?.trim();
+  return ref||null;
+ }catch{return null;}
+}
+function listBranch(task:NonNullable<ReturnType<typeof readTask>>):string|null{
+ const known=task.run?.remoteBranch??(task.run?.mode==="new"?`pacer/${task.id}`:null);
+ if(known||task.run?.host)return known;
+ // Only a worktree the task owns: the shared repository's branch moves on and would mislabel old tasks.
+ return headBranch(task.run?.workdir??task.worktree??task.result?.worktree);
+}
+/** The compact roll-up a list row shows; no usage reading at all is reported as null, never as zero. */
+function listTokens(ctx:Ctx,id:string,attempts:Parameters<typeof attemptsWithTokens>[2]){
+ const {total,lowerBound,measuredAttempts,partialAttempts}=rollupTokens(itemsOf(attemptsWithTokens(ctx,id,attempts)));
+ return measuredAttempts+partialAttempts?{total,lowerBound,measuredAttempts,partialAttempts}:null;
+}
 export function listWork(ctx:Ctx,filter:{relation?:"roots"|"children"|"all";state?:string;repo?:string;before?:string;limit?:number}={}){
  const relation=filter.relation??"roots",limit=Math.min(100,Math.max(1,filter.limit??50));
  const rows=dispatchDatabase(ctx).query<NodeRow,[string,string,string,string,string,string,string,string,string,number]>(
   "SELECT n.* FROM work_nodes n JOIN tasks t ON t.id=n.task_id WHERE (?='all' OR (?='roots' AND n.parent_id IS NULL) OR (?='children' AND n.parent_id IS NOT NULL)) AND (?='' OR t.state=?) AND (?='' OR json_extract(t.record,'$.repo.key')=?) AND (?='' OR n.task_id<?) ORDER BY n.task_id DESC LIMIT ?"
  ).all(relation,relation,relation,filter.state??"",filter.state??"",filter.repo??"",filter.repo??"",filter.before??"",filter.before??"",limit+1);
  const page=rows.slice(0,limit);
- return{tasks:page.flatMap(r=>{const task=readTask(ctx,r.task_id);return task?[{id:task.id,parentId:r.parent_id,rootId:r.root_id,depth:r.depth,title:task.title??task.brief.goal,state:task.state,rev:task.rev,executor:task.executor??task.requestedExecutor,createdAt:task.createdAt,review:task.review??null}]:[];}),next:rows.length>limit?page.at(-1)?.task_id??null:null};
+ return{tasks:page.flatMap(r=>{const task=readTask(ctx,r.task_id);return task?[{id:task.id,parentId:r.parent_id,rootId:r.root_id,depth:r.depth,title:task.title??task.brief.goal,state:task.state,rev:task.rev,executor:task.executor??task.requestedExecutor,createdAt:task.createdAt,review:task.review??null,branch:listBranch(task),tokens:listTokens(ctx,task.id,task.attempts)}]:[];}),next:rows.length>limit?page.at(-1)?.task_id??null:null};
 }
 export function workTree(ctx:Ctx,id:string){
   const root=getWork(ctx,id);if(!root)throw new CoreError("unknown_task","Unknown work");

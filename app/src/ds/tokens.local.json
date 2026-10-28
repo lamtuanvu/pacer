@@ -1,40 +1,12 @@
 {
-  "size": {
-    "tokens": [
-      {
-        "name": "size-14",
-        "value": "14px",
-        "provisional": "File viewer board: header padding, title size and line-number gutter padding."
-      },
-      {
-        "name": "size-10.5",
-        "value": "10.5px",
-        "provisional": "File viewer board: file glyph text."
-      },
-      {
-        "name": "size-12.5",
-        "value": "12.5px",
-        "provisional": "File viewer board: source code text; the design system's code style is 12px."
-      },
-      {
-        "name": "size-5",
-        "value": "5px",
-        "provisional": "File viewer board: Esc key cap padding."
-      },
-      {
-        "name": "size-10",
-        "value": "10px",
-        "provisional": "File viewer board: loading skeleton line height."
-      },
-      {
-        "name": "size-440",
-        "value": "440px",
-        "provisional": "File viewer board: empty-state text width."
-      }
-    ]
-  },
   "radius": {
     "tokens": [
+      {
+        "name": "radius-card",
+        "value": "12px",
+        "usage": "Task cards on the Tasks board.",
+        "provisional": "Tasks board value; not yet in the design system."
+      },
       {
         "name": "radius-4",
         "value": "4px",
@@ -54,6 +26,100 @@
         "name": "radius-7",
         "value": "7px",
         "provisional": "File viewer board: Source/Preview segmented control."
+      }
+    ]
+  },
+  "spacing": {
+    "tokens": [
+      {
+        "name": "space-3.5",
+        "value": "14px",
+        "usage": "Gap between task facts.",
+        "provisional": "Tasks board value; not yet in the design system."
+      },
+      {
+        "name": "space-7",
+        "value": "28px",
+        "usage": "Tasks page top padding and child indent.",
+        "provisional": "Tasks board value; not yet in the design system."
+      },
+      {
+        "name": "space-10",
+        "value": "40px",
+        "usage": "Tasks page side padding.",
+        "provisional": "Tasks board value; not yet in the design system."
+      }
+    ]
+  },
+  "size": {
+    "tokens": [
+      {
+        "name": "size-10",
+        "value": "10px",
+        "usage": "Root task status dot.",
+        "provisional": "Tasks board value; not yet in the design system. File viewer board: loading skeleton line height."
+      },
+      {
+        "name": "size-14",
+        "value": "14px",
+        "usage": "Task fact icons.",
+        "provisional": "Tasks board value; not yet in the design system. File viewer board: header padding, title size and line-number gutter padding."
+      },
+      {
+        "name": "size-15",
+        "value": "15px",
+        "usage": "Root task title.",
+        "provisional": "Tasks board value; not yet in the design system."
+      },
+      {
+        "name": "size-21",
+        "value": "21px",
+        "usage": "Subtask list indent.",
+        "provisional": "Tasks board value; not yet in the design system."
+      },
+      {
+        "name": "size-34",
+        "value": "34px",
+        "usage": "Compact task token column.",
+        "provisional": "Tasks board value; not yet in the design system."
+      },
+      {
+        "name": "size-52",
+        "value": "52px",
+        "usage": "Root task token column.",
+        "provisional": "Tasks board value; not yet in the design system."
+      },
+      {
+        "name": "size-272",
+        "value": "272px",
+        "usage": "Session panel task list width.",
+        "provisional": "Tasks board value; not yet in the design system."
+      },
+      {
+        "name": "size-1240",
+        "value": "1240px",
+        "usage": "Tasks page maximum width.",
+        "provisional": "Tasks board value; not yet in the design system."
+      },
+      {
+        "name": "size-10.5",
+        "value": "10.5px",
+        "provisional": "File viewer board: file glyph text."
+      },
+      {
+        "name": "size-12.5",
+        "value": "12.5px",
+        "provisional": "File viewer board: source code text; the design system's code style is 12px."
+      },
+      {
+        "name": "size-5",
+        "value": "5px",
+        "provisional": "File viewer board: Esc key cap padding."
+      },
+      {
+        "name": "size-440",
+        "value": "440px",
+        "provisional": "File viewer board: empty-state text width."
       }
     ]
   }

@@ -36,7 +36,8 @@ test("provisional tokens are appended to their group", () => {
 test("provisional entries are listed", () => {
   const entries = provisionalEntries(local);
   if (entries.length) console.info("Provisional design tokens still pending in the design system:", entries);
-  // Each provisional entry names the board it serves, so it can be retired when the design system gains it.
+  // Tasks board and file viewer board values, until the design system carries them. Each entry names its board.
+  expect(entries.map(entry => entry.name)).toEqual(["space-3.5", "space-7", "space-10", "radius-card", "radius-4", "radius-5", "radius-2", "radius-7", "size-10", "size-14", "size-15", "size-21", "size-34", "size-52", "size-272", "size-1240", "size-10.5", "size-12.5", "size-5", "size-440"]);
   expect(entries.every(entry => entry.provisional.length > 20)).toBe(true);
 });
 
