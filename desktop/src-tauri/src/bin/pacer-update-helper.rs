@@ -44,6 +44,8 @@ fn main() {
             }
         }
         Some("--ota-pipe")
+        | Some("--ota-takeover")
+        | Some("--ota-recover-takeover")
         | Some("--ota-recover")
         | Some("--ota-recover-adoption")
         | Some("--pacer-helper-runtime-test") => {
@@ -66,12 +68,18 @@ enum NativeMode {
     RuntimeTest,
     UpdateRecovery(String, String),
     AdoptionRecovery(String, String),
+    Takeover,
+    TakeoverRecovery(String),
 }
 
 #[cfg(any(target_os = "macos", test))]
 fn native_mode(arguments: &[String]) -> Result<NativeMode, pacer_desktop::ota::OtaError> {
     match arguments {
         [mode] if mode == "--ota-pipe" => Ok(NativeMode::Pipe),
+        [mode] if mode == "--ota-takeover" => Ok(NativeMode::Takeover),
+        [mode, tx] if mode == "--ota-recover-takeover" => {
+            Ok(NativeMode::TakeoverRecovery(tx.clone()))
+        }
         [mode] if mode == "--pacer-helper-runtime-test" => Ok(NativeMode::RuntimeTest),
         [mode, id, tx] if mode == "--ota-recover" => {
             Ok(NativeMode::UpdateRecovery(id.clone(), tx.clone()))
@@ -131,6 +139,14 @@ mod tests {
     fn native_mode_keeps_service_recovery_separate_and_rejects_extra_arguments() {
         assert_eq!(native_mode(&args(&["--ota-pipe"])), Ok(NativeMode::Pipe));
         assert_eq!(
+            native_mode(&args(&["--ota-takeover"])),
+            Ok(NativeMode::Takeover)
+        );
+        assert_eq!(
+            native_mode(&args(&["--ota-recover-takeover", "transaction"])),
+            Ok(NativeMode::TakeoverRecovery("transaction".into()))
+        );
+        assert_eq!(
             native_mode(&args(&["--pacer-helper-runtime-test"])),
             Ok(NativeMode::RuntimeTest)
         );
@@ -158,6 +174,9 @@ mod tests {
             vec!["--ota-recover"],
             vec!["--ota-recover-adoption", "id"],
             vec!["--ota-recover-adoption", "id", "tx", "extra"],
+            vec!["--ota-takeover", "extra"],
+            vec!["--ota-recover-takeover"],
+            vec!["--ota-recover-takeover", "tx", "extra"],
             vec!["--other"],
         ] {
             assert!(native_mode(&args(&values)).is_err());
@@ -240,6 +259,8 @@ fn run_native() -> Result<(), pacer_desktop::ota::OtaError> {
                                 NativeMode::AdoptionRecovery(id, tx) => {
                                     helper::run_adoption_recovery(trust, &id, &tx).await
                                 }
+                                NativeMode::Takeover => pacer_desktop::ota::helper_takeover::run_takeover(trust),
+                                NativeMode::TakeoverRecovery(tx) => pacer_desktop::ota::helper_takeover::run_recovery(trust, &tx),
                                 NativeMode::Pipe => {
                                     helper::run_pipe(
                                         &handle,

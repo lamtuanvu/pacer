@@ -57,6 +57,8 @@ pub struct TakeoverStep {
     pub intent_boot_id: String,
     #[serde(deserialize_with = "required_nullable")]
     pub completed: Option<AwakeStamp>,
+    #[serde(deserialize_with = "required_nullable")]
+    pub uncertain: Option<AwakeStamp>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -132,17 +134,19 @@ fn validate_manifest(m: &TakeoverManifest) -> Result<(), OtaError> {
             && m.candidate.process.boot_id == m.authorized_at.boot_id,
     )
 }
-fn allowed(from: TakeoverState, to: TakeoverState, no_effects: bool) -> bool {
+fn allowed(from: TakeoverState, to: TakeoverState, no_effects: bool, uncertain: bool) -> bool {
     use TakeoverState::*;
-    matches!(
-        (from, to),
-        (Prepared, Stopping)
-            | (Stopping, Switched)
-            | (Switched, Verifying)
-            | (Verifying, Committed)
-            | (Stopping | Switched | Verifying, Restoring)
-            | (Restoring, Restored | RecoveryFailed)
-    ) || (from == Prepared && ((to == Restored && no_effects) || (to == Restoring && !no_effects)))
+    (!uncertain || from == Restoring || to == Restoring)
+        && (matches!(
+            (from, to),
+            (Prepared, Stopping)
+                | (Stopping, Switched)
+                | (Switched, Verifying)
+                | (Verifying, Committed)
+                | (Stopping | Switched | Verifying, Restoring)
+                | (Restoring, Restored | RecoveryFailed)
+        ) || (from == Prepared
+            && ((to == Restored && no_effects) || (to == Restoring && !no_effects))))
 }
 fn validate_journal(j: &TakeoverJournal, m: &TakeoverManifest, hash: &str) -> Result<(), OtaError> {
     require(
@@ -154,10 +158,32 @@ fn validate_journal(j: &TakeoverJournal, m: &TakeoverManifest, hash: &str) -> Re
             && j.steps.iter().all(|s| {
                 !s.intent_boot_id.is_empty()
                     && s.intent_boot_id.len() <= 128
+                    && !(s.completed.is_some() && s.uncertain.is_some())
+                    && s.uncertain.as_ref().is_none_or(|t| !t.boot_id.is_empty())
                     && s.completed
                         .as_ref()
                         .is_none_or(|t| t.boot_id == s.intent_boot_id)
             }),
+    )?;
+    require(
+        j.steps
+            .iter()
+            .filter(|s| s.completed.is_none() && s.uncertain.is_none())
+            .count()
+            <= 1,
+    )?;
+    require(
+        !j.steps.iter().any(|s| s.uncertain.is_some())
+            || matches!(
+                j.state,
+                TakeoverState::Prepared
+                    | TakeoverState::Stopping
+                    | TakeoverState::Switched
+                    | TakeoverState::Verifying
+                    | TakeoverState::Restoring
+                    | TakeoverState::Restored
+                    | TakeoverState::RecoveryFailed
+            ),
     )?;
     if j.state == TakeoverState::Prepared {
         require(
@@ -269,10 +295,20 @@ impl TakeoverStore {
                 j.state,
                 TakeoverState::Committed | TakeoverState::Restored | TakeoverState::RecoveryFailed
             ))?;
+            require(
+                j.steps
+                    .iter()
+                    .all(|s| s.completed.is_some() || s.uncertain.is_some()),
+            )?;
+            require(
+                !j.steps.iter().any(|s| s.uncertain.is_some())
+                    || j.state == TakeoverState::Restoring,
+            )?;
             j.steps.push(TakeoverStep {
                 action,
                 intent_boot_id: stamp.boot_id,
                 completed: None,
+                uncertain: None,
             });
             Ok(())
         })
@@ -284,16 +320,42 @@ impl TakeoverStore {
                 .steps
                 .iter_mut()
                 .rev()
-                .find(|s| &s.action == action && s.completed.is_none())
+                .find(|s| &s.action == action && s.completed.is_none() && s.uncertain.is_none())
                 .ok_or(OtaError::Invalid)?;
             require(step.intent_boot_id == stamp.boot_id)?;
             step.completed = Some(stamp);
             Ok(())
         })
     }
+    pub fn mark_uncertain(&self) -> Result<TakeoverJournal, OtaError> {
+        // The store holds its exclusive .lock for its entire lifetime. A
+        // recovery caller therefore knows the helper that wrote this intent
+        // is gone, even if the intent was written during this boot.
+        let stamp = crate::ota::native::awake_now().map_err(|_| OtaError::Io)?;
+        self.change(|j| {
+            let step = j
+                .steps
+                .iter_mut()
+                .find(|s| s.completed.is_none() && s.uncertain.is_none())
+                .ok_or(OtaError::Invalid)?;
+            step.uncertain = Some(stamp);
+            Ok(())
+        })
+    }
     pub fn transition(&self, to: TakeoverState) -> Result<TakeoverJournal, OtaError> {
         self.change(|j| {
-            require(allowed(j.state, to, j.steps.is_empty()))?;
+            require(
+                j.steps
+                    .iter()
+                    .all(|s| s.completed.is_some() || s.uncertain.is_some())
+                    || to == TakeoverState::Restoring,
+            )?;
+            require(allowed(
+                j.state,
+                to,
+                j.steps.is_empty(),
+                j.steps.iter().any(|s| s.uncertain.is_some()),
+            ))?;
             j.state = to;
             Ok(())
         })
@@ -474,35 +536,122 @@ mod tests {
         );
     }
     #[test]
+    fn outstanding_intent_is_unique_and_same_boot_can_be_uncertain_under_lock() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = TakeoverStore::create(temp.path(), &manifest()).unwrap();
+        store.intend(TakeoverAction::ArmRecovery).unwrap();
+        assert_eq!(
+            store.intend(TakeoverAction::ArmRecovery).err(),
+            Some(OtaError::Invalid)
+        );
+        let journal = store.mark_uncertain().unwrap();
+        assert!(journal.steps[0].uncertain.is_some());
+        assert_eq!(
+            store.complete(&TakeoverAction::ArmRecovery).err(),
+            Some(OtaError::Invalid)
+        );
+        assert_eq!(
+            store.transition(TakeoverState::Stopping).err(),
+            Some(OtaError::Invalid)
+        );
+        store.transition(TakeoverState::Restoring).unwrap();
+        assert_eq!(store.mark_uncertain().err(), Some(OtaError::Invalid));
+    }
+    #[test]
+    fn stale_intent_is_durably_uncertain_and_requires_restoration() {
+        let temp = tempfile::tempdir().unwrap();
+        let m = manifest();
+        let store = TakeoverStore::create(temp.path(), &m).unwrap();
+        store.intend(TakeoverAction::ArmRecovery).unwrap();
+        let path = TakeoverStore::path(temp.path(), &m.transaction_id)
+            .unwrap()
+            .join(JOURNAL);
+        let mut value: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        value["steps"][0]["intentBootId"] = serde_json::json!("prior-boot");
+        std::fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
+        let journal = store.mark_uncertain().unwrap();
+        assert!(journal.steps[0].uncertain.is_some());
+        assert_eq!(
+            store.complete(&TakeoverAction::ArmRecovery).err(),
+            Some(OtaError::Invalid)
+        );
+        assert_eq!(
+            store.transition(TakeoverState::Restored).err(),
+            Some(OtaError::Invalid)
+        );
+        assert_eq!(
+            store.transition(TakeoverState::Stopping).err(),
+            Some(OtaError::Invalid)
+        );
+        store.transition(TakeoverState::Restoring).unwrap();
+        drop(store);
+        let reopened = TakeoverStore::open(temp.path(), &m.transaction_id).unwrap();
+        assert!(reopened.journal().unwrap().steps[0].uncertain.is_some());
+    }
+    #[test]
+    fn malformed_step_resolution_is_rejected() {
+        let temp = tempfile::tempdir().unwrap();
+        let m = manifest();
+        let store = TakeoverStore::create(temp.path(), &m).unwrap();
+        store.intend(TakeoverAction::ArmRecovery).unwrap();
+        let path = TakeoverStore::path(temp.path(), &m.transaction_id)
+            .unwrap()
+            .join(JOURNAL);
+        let valid: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        let mut missing = valid.clone();
+        missing["steps"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("uncertain");
+        std::fs::write(&path, serde_json::to_vec(&missing).unwrap()).unwrap();
+        assert_eq!(store.journal().err(), Some(OtaError::Invalid));
+        let mut both = valid.clone();
+        both["steps"][0]["completed"] =
+            serde_json::json!({"bootId": valid["steps"][0]["intentBootId"], "millis": 1});
+        both["steps"][0]["uncertain"] = serde_json::json!({"bootId": "prior-boot", "millis": 2});
+        std::fs::write(&path, serde_json::to_vec(&both).unwrap()).unwrap();
+        assert_eq!(store.journal().err(), Some(OtaError::Invalid));
+        std::fs::write(&path, serde_json::to_vec(&valid).unwrap()).unwrap();
+        assert_eq!(store.journal().unwrap().steps.len(), 1);
+    }
+    #[test]
     fn state_graph_rejects_illegal_edges() {
         assert!(allowed(
             TakeoverState::Prepared,
             TakeoverState::Stopping,
+            false,
             false
         ));
         assert!(allowed(
             TakeoverState::Prepared,
             TakeoverState::Restored,
-            true
+            true,
+            false
         ));
         assert!(!allowed(
             TakeoverState::Prepared,
             TakeoverState::Restored,
+            false,
             false
         ));
         assert!(allowed(
             TakeoverState::Stopping,
             TakeoverState::Switched,
+            false,
             false
         ));
         assert!(allowed(
             TakeoverState::Switched,
             TakeoverState::Verifying,
+            false,
             false
         ));
         assert!(allowed(
             TakeoverState::Verifying,
             TakeoverState::Committed,
+            false,
             false
         ));
         for state in [
@@ -510,16 +659,18 @@ mod tests {
             TakeoverState::Switched,
             TakeoverState::Verifying,
         ] {
-            assert!(allowed(state, TakeoverState::Restoring, false));
+            assert!(allowed(state, TakeoverState::Restoring, false, false));
         }
         assert!(allowed(
             TakeoverState::Restoring,
             TakeoverState::Restored,
+            false,
             false
         ));
         assert!(allowed(
             TakeoverState::Restoring,
             TakeoverState::RecoveryFailed,
+            false,
             false
         ));
         for from in [
@@ -537,7 +688,7 @@ mod tests {
                 TakeoverState::Restored,
                 TakeoverState::RecoveryFailed,
             ] {
-                assert!(!allowed(from, to, false));
+                assert!(!allowed(from, to, false, false));
             }
         }
     }

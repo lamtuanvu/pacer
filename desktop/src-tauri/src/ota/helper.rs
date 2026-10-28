@@ -91,6 +91,41 @@ impl Bootstrap {
         }
     }
 }
+#[cfg(target_os = "macos")]
+pub(crate) fn verify_takeover_parent(
+    manifest: &super::takeover::journal::TakeoverManifest,
+    trust: &ReleaseTrust,
+) -> Result<(), OtaError> {
+    let pid = unsafe { libc::getppid() };
+    if pid <= 1 || pid as u32 != manifest.desktop.pid {
+        return Err(OtaError::Identity);
+    }
+    let verified = trust.verify_process(&manifest.desktop, CodeRole::Desktop)?;
+    let app = manifest
+        .bundled_cli
+        .parent()
+        .and_then(std::path::Path::parent)
+        .and_then(std::path::Path::parent)
+        .ok_or(OtaError::Identity)?;
+    let desktop = app.join("Contents/MacOS/pacer");
+    let helper = app.join("Contents/Resources/pacer-update-helper");
+    if verified
+        .details()
+        .executable
+        .canonicalize()
+        .map_err(|_| OtaError::Identity)?
+        != desktop
+        || std::env::current_exe()
+            .map_err(|_| OtaError::Identity)?
+            .canonicalize()
+            .map_err(|_| OtaError::Identity)?
+            != helper
+    {
+        return Err(OtaError::Identity);
+    }
+    trust.verify_static(&manifest.bundled_cli, CodeRole::Cli)?;
+    trust.verify_static(&helper, CodeRole::Helper)
+}
 struct Responses<W: Write> {
     output: W,
     binding: Binding,
