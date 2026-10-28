@@ -6,6 +6,10 @@ with local pages excluded:
   `allow-notifyRoute`, `allow-session-expired`, `allow-session-ready`,
   `allow-desktop-update-connection` (read-only native OTA connection state and public failure reason),
   `allow-desktop-version` (read-only native app version), `allow-native-validation-setup`,
+  `allow-host-file-actions` (read-only: which file hand-offs this platform supports),
+  `allow-open-session-file` (ADR 0011: takes only `{ id, attempt, reference, action }`,
+  resolves it through the service's `session.file.resolve`, re-walks the file with
+  `O_NOFOLLOW` and matches its identity, then launches a fixed argument vector with no shell),
   `allow-rounded-window-supported` (read-only transparent-window capability),
   `allow-native-titlebar-supported` (read-only macOS title-bar overlay capability),
   `allow-windowMinimize`, `allow-windowToggleMaximize`, `allow-windowClose`,

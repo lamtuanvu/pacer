@@ -6,6 +6,18 @@ The working screen embeds the agent's terminal interface. Its commands, tools, p
 
 In a built-in session terminal, HTTP(S) links open in a new browser tab or the system browser. File references such as `src/main.ts:42:7` and local OSC 8 `file://` links open a read-only viewer at the named line. Quote or backtick paths that contain spaces. While you control the terminal, use Ctrl/⌘-click to follow a link; watchers can click directly. The viewer keeps the terminal connected. Code shows selectable source and search; Markdown and HTML offer Source and Preview. HTML preview is isolated and blocks scripts, forms, external resources and local assets, so it may differ from a running page. Files must be local UTF-8 text within the session workspace and below 512 KiB. Symlink paths, Pacer state, remote files, and Orca-owned terminals are unavailable in this viewer.
 
+### Open in your editor
+
+The desktop app can hand a session file to your own editor, including binary and oversized files that the viewer can't show. It can also reveal the file in Finder or the file manager. Browser clients don't offer either action. The service resolves the file with the viewer's rules: it must be a regular file inside the current local attempt's workspace, reached without following symlinks, and outside Pacer state. The desktop checks the file again just before opening it. Terminal text never names a file to native code directly.
+
+By default, macOS opens the file in your default text editor (`open -t`), never in the app associated with its type, so a `.command` or `.app` file is never launched. On Linux, `xdg-open` is used, except for executable files and launcher types. To use a specific editor, create `$PACER_HOME/desktop/editor.json` yourself with mode `0600`:
+
+```json
+{ "command": ["/usr/local/bin/code", "--goto", "{path}:{line}:{column}"] }
+```
+
+The program must be an absolute path. `{path}`, `{line}` and `{column}` are replaced inside individual arguments. One argument never splits into several, and the command never runs through a shell. The line and column default to 1. No API operation writes this file, and the desktop ignores it if another user owns it or can write to it. See [ADR 0011](decisions/0011-open-session-file-in-editor.md).
+
 Pick or drop files, or paste a screenshot into the composer or terminal. Files stay in private Pacer storage outside Git. Limits are 20 files per batch, 25 MiB each and 100 MiB for the conversation. Unclaimed drafts expire after 24 hours. Later attachments provide an explicit reference to copy and paste into the agent input; Pacer does not submit a partly written prompt or send Enter on your behalf.
 
 Interactive adapters support Codex, Claude Code and OpenCode. Pacer inspects the installed CLI's interface in the selected account environment; a version update alone does not disable an executor. Missing executables, required native options, sign-in, account readiness, budget and operator restrictions each report their own reason. Other agents and remote interactive sessions remain unsupported. Ordinary delegated execution keeps its separate support.
