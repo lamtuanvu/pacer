@@ -2,6 +2,7 @@ import { expect, test, describe } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fakeCtx, tmpDir } from "./helpers";
+import { registerJobDaemon, startJob } from "../src/jobs/registry";
 import type { Ctx } from "../src/types";
 import type { Strategy } from "../src/config/strategy";
 import type { CertificateStatus } from "../src/dispatch/enforcement";
@@ -40,7 +41,7 @@ function setupEnforcementContext(ctx: Ctx): string {
   return repo;
 }
 
-function writeStrategyYaml(ctx: Ctx, extra: string = ""): void {
+function writeStrategyYaml(ctx: Ctx, extra: string = "", probe: "ask" | "auto" | "off" = "auto"): void {
   const strategyPath = join(ctx.pacerHome, "strategy.yaml");
   mkdirSync(ctx.pacerHome, { recursive: true });
   writeFileSync(strategyPath, `
@@ -50,7 +51,7 @@ providers:
 routing:
   - default: [claude-code]
 pacing:
-  planner_probe: auto
+  planner_probe: ${probe}
 ${extra}
 `);
 }
@@ -272,6 +273,67 @@ pacing:
     expect(record?.nextEligibleAt).toBeGreaterThan(0);
   });
 
+  test("returns instead of stalling when the probe job was started by someone else", async () => {
+    const ctx = fakeCtx();
+    const repo = setupEnforcementContext(ctx);
+    writeStrategyYaml(ctx);
+    // A daemon makes startJob return without awaiting, which is the shape the
+    // service runs in and the only way to hold a job open here.
+    const unregister = registerJobDaemon(ctx);
+    // A job already running for this target: startJob returns it and never runs
+    // our callback, so nothing would settle the deferred.
+    await startJob(ctx, "enforcement.probe", `claude-code:${repo}`, ["Probe native child control"],
+      () => new Promise<void>(() => {}));
+
+    let probeCalled = false;
+    const deps: TickDeps = {
+      repo,
+      probe: async (): Promise<CertificateStatus> => { probeCalled = true; return certifiedStatus(); },
+      status: async (): Promise<Status> => testStatus({ usedPct: 40 }),
+    };
+
+    const stalled = Symbol("stalled");
+    const raced = await Promise.race([
+      tick(ctx, deps).then(() => "returned"),
+      new Promise(resolve => setTimeout(() => resolve(stalled), 3000)),
+    ]);
+    expect(raced).toBe("returned");
+    expect(probeCalled).toBe(false);
+    unregister();
+  });
+
+  test("tick works in the shape the service runs: a job daemon is registered", async () => {
+    const ctx = fakeCtx();
+    const repo = setupEnforcementContext(ctx);
+    writeStrategyYaml(ctx);
+    const unregister = registerJobDaemon(ctx);
+    try {
+      const deps: TickDeps = {
+        repo,
+        probe: async (): Promise<CertificateStatus> => certifiedStatus(),
+        status: async (): Promise<Status> => testStatus({ usedPct: 40 }),
+      };
+      await tick(ctx, deps);
+      const record = Object.values(readScheduleState(ctx).attempts)[0];
+      expect(record?.probesToday).toBe(1);
+      expect(record?.failures).toBe(0);
+    } finally { unregister(); }
+  });
+
+  test("with probing off, neither the target nor status is resolved", async () => {
+    const ctx = fakeCtx();
+    const repo = setupEnforcementContext(ctx);
+    writeStrategyYaml(ctx, "", "off");
+    let statusCalled = false;
+    const deps: TickDeps = {
+      repo,
+      probe: async (): Promise<CertificateStatus> => certifiedStatus(),
+      status: async (): Promise<Status> => { statusCalled = true; return testStatus({ usedPct: 40 }); },
+    };
+    await tick(ctx, deps);
+    expect(statusCalled).toBe(false);
+  });
+
   test("never throws when the strategy is missing", async () => {
     const ctx = fakeCtx();
     // Note: no strategy file written
@@ -339,7 +401,8 @@ pacing:
     // Most importantly: backoff counter should NOT have increased
     const state = readScheduleState(ctx);
     const attempts = Object.values(state.attempts);
-    // Either no attempts recorded (because dedupe returned early), or if recorded, failures=0
+    // A probe we did not run leaves no trace: no charge, no backoff.
+    expect(attempts.length).toBe(0);
     if (attempts.length > 0) {
       expect(attempts[0].failures).toBe(0);
     }

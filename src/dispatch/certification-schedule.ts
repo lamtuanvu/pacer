@@ -9,7 +9,7 @@ import { loadStrategy, MissingStrategyError } from "../config/strategy";
 import { isPlannerRunner } from "../config/runner-id";
 import { listRepos } from "../core/repos";
 import { computeStatus, type Status } from "../engine/status";
-import { startJob, listJobs } from "../jobs/registry";
+import { startJob } from "../jobs/registry";
 import {
   resolveEnforcementTarget,
   certificateStatus,
@@ -26,6 +26,8 @@ export const MAX_REPO_SWITCHES = 3;
 /** Observed account movement, in percentage points of the probed window. */
 export const MAX_COST_PCT = 2;
 const DAY_S = 86_400;
+/** Upper bound on waiting for a probe we may not own; see the race below. */
+const PROBE_WAIT_MS = 10 * 60_000;
 
 export interface AttemptRecord {
   failures: number; nextEligibleAt: number; lastRepo: string;
@@ -197,6 +199,17 @@ function findPlannerRunner(s: Strategy): { id: string; account: string } | null 
   return null;
 }
 
+/**
+ * The subset of decideProbe's declines that needs only the strategy and the
+ * stored consent, so tick can skip resolving a target or computing status.
+ * decideProbe re-checks all of these; this never admits a probe on its own.
+ */
+export function schedulingBlocked(s: Strategy, runnerId: string, state: ScheduleState): boolean {
+  if (s.pacing.plannerProbe === "off" || !isListedForRouting(s, runnerId)) return true;
+  const consent = state.consent[s.planner.account];
+  return consent === "declined" || (s.pacing.plannerProbe === "ask" && consent !== "granted");
+}
+
 function isListedForRouting(s: Strategy, runnerId: string): boolean {
   for (const rule of s.routing) {
     if (rule.executors.includes(runnerId)) return true;
@@ -276,6 +289,12 @@ export async function tick(ctx: Ctx, deps: TickDeps = {}): Promise<void> {
     const repo = deps.repo ?? getActiveRepo(ctx);
     if (!repo) return;
 
+    // Buy nothing the decision cannot use. Resolving the target spawns
+    // "<agent> --version" and computeStatus is not cheap, while the gates below
+    // need neither. decideProbe stays authoritative: these only skip the
+    // purchase, and schedulingBlocked is derived from the same settings.
+    if (schedulingBlocked(strategy, runnerId, readScheduleState(ctx))) return;
+
     let target: EnforcementTarget;
     let unsupportedReason: string | null;
     let certificate: CertificateStatus;
@@ -321,39 +340,36 @@ export async function tick(ctx: Ctx, deps: TickDeps = {}): Promise<void> {
     const jobKind = "enforcement.probe" as const;
     const jobTarget = `${runnerId}:${repo}`;
 
-    // Check for existing running job BEFORE starting
-    const existingRunning = listJobs(ctx, { target: jobTarget })
-      .find(j => j.kind === jobKind && j.state === "running");
-
     let certResult: CertificateStatus;
     let usedPctAfter: number | null = null;
 
-    if (existingRunning) {
-      // Dedupe: a probe is already running for this (runner, repo).
-      // Do not record an outcome, do not increment backoff.
-      return;
-    }
+    // No pre-check for an already-running job: it was TOCTOU in front of the
+    // lock startJob already holds, and it hid the dedupe path from tests.
+    // startJob is authoritative; the bail-out below handles its verdict.
 
     // Charge the probe against the daily ceiling and set a backoff BEFORE spending
     // anything. Everything after this point can fail, crash or be restarted, and
     // the quota is already gone; a brake recorded only on the success path is no
     // brake at all.
-    await withScheduleLock(ctx, fresh =>
-      [recordProbeOutcome(fresh, key, repo, { certified: false, costPct: null }, ctx.now), null]);
+    const chargedOver = await withScheduleLock(ctx, fresh =>
+      [recordProbeOutcome(fresh, key, repo, { certified: false, costPct: null }, ctx.now),
+       fresh.attempts[key] ?? null]);
 
     // Deferred promise to capture the probe result from inside the callback.
     // Needed because startJob returns immediately when a daemon is registered.
-    let probeSettle: (result: CertificateStatus) => void;
-    const probeComplete = new Promise<CertificateStatus>(resolve => {
+    let probeSettle: (result: CertificateStatus | null) => void;
+    const probeComplete = new Promise<CertificateStatus | null>(resolve => {
       probeSettle = resolve;
     });
+    let callbackRan = false;
 
-    const job = await startJob(
+    await startJob(
       ctx,
       jobKind,
       jobTarget,
       ["Probe native child control"],
       async (step) => {
+        callbackRan = true;
         step.start("Probe native child control");
         // Settle on every path: a throw that left this pending would hang the
         // await below, and with it the service's re-entrancy flag, for good.
@@ -371,8 +387,29 @@ export async function tick(ctx: Ctx, deps: TickDeps = {}): Promise<void> {
       },
     );
 
-    // Await the actual probe completion through our deferred promise
-    certResult = await probeComplete;
+    // startJob re-checks for a running job under its own lock, after our
+    // pre-check, and returns that one WITHOUT running the callback. Nothing
+    // would then settle the deferred, so this await would never return and the
+    // service's re-entrancy flag would stay set for the life of the process.
+    // Bailing out is safe: the provisional record above already applied the
+    // daily charge and the backoff.
+    // startJob invokes the callback synchronously before returning, so a false
+    // flag here means it handed us somebody else's job and ours will never run.
+    // We spent nothing, so give the charge back rather than brake on their probe.
+    if (!callbackRan) {
+      await withScheduleLock(ctx, fresh => {
+        const attempts = { ...fresh.attempts };
+        if (chargedOver) attempts[key] = chargedOver; else delete attempts[key];
+        return [{ ...fresh, attempts }, null];
+      });
+      return;
+    }
+    const settled = await Promise.race([
+      probeComplete,
+      new Promise<null>(resolve => setTimeout(() => resolve(null), PROBE_WAIT_MS).unref?.()),
+    ]);
+    if (settled === null) return;
+    certResult = settled;
 
     // Read status AFTER probe completes for accurate cost measurement
     const statusAfter = await statusFn(ctx, strategy);
@@ -393,8 +430,10 @@ export async function tick(ctx: Ctx, deps: TickDeps = {}): Promise<void> {
     // in that window must survive this write rather than be reverted by it.
     await withScheduleLock(ctx, fresh => [settleProbe(fresh, key, outcome), null]);
 
-  } catch {
-    // tick() never throws
-    return;
+  } catch (error) {
+    // tick never throws, so the service's .catch can never fire. Without this
+    // line a recurring failure means certification silently never happens
+    // while doctor still reports info. No prompts, tokens or output are logged.
+    console.warn(`pacer: certification probe tick failed: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
