@@ -58,7 +58,7 @@ test.skipIf(!browserPath)('Tasks route lays out the board header, filters and tr
    await page.setContent(`<html data-pacer-desktop data-pacer-native-titlebar><style>${css}</style><div id="app">${html}</div></html>`);
    const geometry=await page.evaluate(()=>{
     const box=document.querySelector('.pc-tasks-page')!.getBoundingClientRect();
-    return {title:document.querySelector('h1')?.textContent,width:box.width,left:box.left,columns:getComputedStyle(document.querySelector('.pc-tasks-page__columns')!).display};
+    return {title:document.querySelector('.pc-tasks-page__title')?.textContent,width:box.width,left:box.left,columns:getComputedStyle(document.querySelector('.pc-tasks-page__columns')!).display};
    });
    expect(geometry.title).toBe('Tasks');
    // Measured against the Tasks board: type, padding, card geometry and the quick-action size.
@@ -102,7 +102,7 @@ test.skipIf(!browserPath)('Tasks bounds whole-row links and metadata inside narr
    if(process.env.PACER_LAYOUT_EVIDENCE)await page.screenshot({path:`${process.env.PACER_LAYOUT_EVIDENCE}/tasks-${width}-${theme}.png`});
    const geometry=await page.locator('.pc-sessions-list').evaluate(n=>({width:n.getBoundingClientRect().width,overflow:document.documentElement.scrollWidth>innerWidth}));
    expect(geometry.overflow).toBe(false);
-   const boxes=await page.locator('.pc-task-card,.pc-task-card__title,.pc-task-card__facts,.pc-meta-row__item').evaluateAll(nodes=>nodes.map(n=>({left:n.getBoundingClientRect().left,right:n.getBoundingClientRect().right,width:n.getBoundingClientRect().width})));
+   const boxes=await page.locator('.pc-task-card,.pc-task-card__title,.pc-meta-row__item').evaluateAll(nodes=>nodes.map(n=>({left:n.getBoundingClientRect().left,right:n.getBoundingClientRect().right,width:n.getBoundingClientRect().width})));
    for(const box of boxes){expect(box.left).toBeGreaterThanOrEqual(0);expect(box.right).toBeLessThanOrEqual(width);expect(box.width).toBeGreaterThan(0);}
    expect(await page.locator('.pc-task-card__title').first().getAttribute('title')).toBe(longTitle);
    if(width<1440)expect(await page.locator('.pc-task-card__title').first().evaluate(n=>n.scrollWidth>n.clientWidth)).toBe(true);

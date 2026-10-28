@@ -44,7 +44,8 @@ test('expanded_card_renders_child_rows_with_controls_target', () => {
   const controls = html.match(/aria-controls="([^"]+)"/)![1]!;
   expect(html).toContain(`id="${controls}"`);
   expect(html.match(/<a /g)).toHaveLength(3);
-  expect(html).toMatch(/href="#\/tasks\/t-3"[^>]*aria-current="page"|aria-current="page"[^>]*href="#\/tasks\/t-3"/);
+  // The Tasks board marks its selection with aria-current="true"; only the navigator's route selection is the current page.
+  expect(html).toMatch(/href="#\/tasks\/t-3"[^>]*aria-current="true"|aria-current="true"[^>]*href="#\/tasks\/t-3"/);
 });
 
 test('attention_pill_and_tint_share_one_tone', () => {

@@ -69,7 +69,7 @@ export function TasksPage({ nodes, repos, query, onNew, hasOlder, loadingOlder, 
   return <div className="pc-tasks-page">
     <header className="pc-tasks-page__header">
       <div className="pc-tasks-page__heading">
-        <h1 className="pc-tasks-page__title">Tasks</h1>
+        {/* The title bar still carries the page's h1 until the frame drops its route title; this stays a heading, not a second h1. */}<h2 className="pc-tasks-page__title">Tasks</h2>
         {nodes && <span className="pc-tasks-page__caption">{summary.roots} root task{summary.roots === 1 ? "" : "s"} · {summary.subtasks} subtask{summary.subtasks === 1 ? "" : "s"}{summary.tokens ? ` · ${summary.tokens}` : ""}</span>}
       </div>
       <label className="pc-tasks-page__search"><span className="sr-only">Search tasks</span><Icon name="overview" />

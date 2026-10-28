@@ -17,7 +17,7 @@ export function TaskAside({node,parent,position,href,viewHref}:TaskAsideProps){
  const activity=detail?timelineCopy(detail.timeline).slice(-4).reverse():[];
  return <aside className="pc-task-aside" aria-label="Selected task">
   <div className="pc-task-aside__section pc-task-aside__head">
-   <span className="pc-task-aside__title"><span className={`pc-task-card__dot pc-task-card__dot--${tone(node)}${node.state.live?" pc-status-dot__dot--live":""}`} aria-hidden="true"/><b>{node.title}</b>{agent&&<AgentMark agent={agent} size={20}/>}</span>
+   <span className="pc-task-aside__title"><span className={`pc-task-card__dot pc-task-card__dot--root pc-task-card__dot--${tone(node)}${node.state.live?" pc-status-dot__dot--live":""}`} aria-hidden="true"/><b>{node.title}</b>{agent&&<AgentMark agent={agent} size={20}/>}</span>
    <span className="pc-task-aside__caption">{[position,agent&&agentInfo(agent).name,node.state.label,node.tokens].filter(Boolean).join(" · ")}</span>
    <span className="pc-task-aside__buttons">
     <ButtonLink variant="primary" href={href(node.id)}>Open session</ButtonLink>

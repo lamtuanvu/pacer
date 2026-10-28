@@ -83,7 +83,7 @@ export function Sessions({query}:{query:RouteQuery}) {
  const nodes=snapshot?scopedTaskTree(snapshot,{repo:query.repo||null},{now:Date.now()/1000,extra}):history.length?scopedHistory(history,query.repo||null):undefined;
  return <TasksPage key={query.repo??''} nodes={nodes} repos={snapshot?.repos??[]} query={query} onNew={()=>window.dispatchEvent(new Event("pacer:delegate"))}
   hasOlder={!!page.data?.next} loadingOlder={page.loading} onLoadOlder={()=>setCursor(page.data!.next!)}
-  error={page.error||work.error?<Cluster>{work.error&&<span role="alert">Subtasks and branches could not be loaded.</span>}<Button onClick={()=>{page.error&&page.reload();work.error&&work.reload();}}>Try again</Button></Cluster>:undefined}
+  error={page.error||work.error?<Cluster><span role="alert">{page.error&&work.error?"Tasks and subtasks could not be loaded.":page.error?"Task history could not be loaded.":"Subtasks and branches could not be loaded."}</span><Button onClick={()=>{page.error&&page.reload();work.error&&work.reload();}}>Try again</Button></Cluster>:undefined}
   hasMoreWork={!!work.data?.next} loadingMoreWork={work.loading} onLoadMoreWork={()=>setWorkBefore(work.data!.next!)}/>;
 }
 export function sessionDetail(task:TaskDetail):SessionData {

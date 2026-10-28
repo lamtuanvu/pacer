@@ -30,7 +30,7 @@ function Children({ nodes, selectedId, href, id, onSelect, density }: { nodes: T
   const regular = density === "regular";
   return <ul className="pc-task-card__children" id={id}>{nodes.map(child => <li key={child.id}>
     <a className={classNames("pc-task-card__child", child.id === selectedId && "pc-task-card__child--selected")} href={href(child.id)}
-      aria-current={child.id === selectedId ? "page" : undefined} onFocus={() => onSelect?.(child.id)} title={child.title}>
+      aria-current={child.id === selectedId ? (regular ? "true" : "page") : undefined} onFocus={() => onSelect?.(child.id)} title={child.title}>
       <span className="pc-task-card__row">
         <Dot node={child} size="child" /><span className="sr-only">{words(child)}: </span>
         <span className="pc-task-card__child-title">{child.title}</span>
@@ -62,8 +62,9 @@ export function TaskCard({ density = "regular", node, expanded, onToggle, select
     <div className={classNames("pc-task-card__main", current && "pc-task-card__main--selected")} onClick={() => onSelect?.(node.id)}>
       <div className="pc-task-card__row pc-task-card__row--head">
         <Dot node={node} size="root" /><span className="sr-only">{words(node)}: </span>
-        <a className="pc-task-card__title" href={href(node.id)} aria-current={current ? "page" : undefined} title={node.title} onFocus={() => onSelect?.(node.id)}>{node.title}</a>
+        <a className="pc-task-card__title" href={href(node.id)} aria-current={current ? (regular ? "true" : "page") : undefined} title={node.title} onFocus={() => onSelect?.(node.id)}>{node.title}</a>
         {pill && <Pill tone={pill.tone}>{pill.label}</Pill>}
+        {regular && !pill && <span className={classNames("pc-task-card__status", `pc-task-card__status--${dotTone(node)}`)}>{node.state.label}</span>}
       </div>
       {regular ? <div className="pc-task-card__row pc-task-card__row--facts">
         {node.host && <HostChip name={node.host.name} kind={node.host.kind} />}

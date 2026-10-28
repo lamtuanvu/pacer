@@ -27,7 +27,7 @@ browserTest('header_summary_filters_and_counts_follow_the_board', async () => {
   const page = await browser.newPage();
   try {
     await page.goto(server.url.toString());
-    expect(await page.getByRole('heading', { level: 1, name: 'Tasks' }).count()).toBe(1);
+    expect(await page.getByRole('heading', { level: 2, name: 'Tasks' }).count()).toBe(1);
     expect(await page.locator('.pc-tasks-page__caption').first().textContent()).toBe('26 root tasks · 2 subtasks');
     expect((await page.getByRole('tab').allTextContents()).map(text => text.replace(/\s+/g, ' ').trim())).toEqual(['All 26', 'Needs you 1', 'Running 1', 'Accepted 24', 'Stopped 0']);
     expect(await page.getByRole('searchbox', { name: 'Search tasks' }).getAttribute('placeholder')).toBe('Search goal, repo or branch');
@@ -78,7 +78,7 @@ test('page_renders_header_filters_search_and_empty_state_without_a_browser', () 
   const html = (nodes: ReturnType<typeof taskTree> | undefined) => renderToString(<TaskContext.Provider value={{ state: { ...initialState(), connected: true } as never, api: { call: async () => ({}) } as never }}>
     <TasksPage nodes={nodes} repos={[]} query={{ repo: null, scope: null } as never} onNew={() => {}} hasOlder={false} loadingOlder={false} onLoadOlder={() => {}} /></TaskContext.Provider>);
   const loaded = html(taskTree({ tasks: [{ id: 'a', goal: 'Fix it', title: 'Fix it', state: 'failed', executor: 'codex', backend: null, worktree: null, updatedAt: 1 }] }, { now: 2 }));
-  expect(loaded).toContain('<h1 class="pc-tasks-page__title">Tasks</h1>');
+  expect(loaded).toContain('<h2 class="pc-tasks-page__title">Tasks</h2>');
   expect(loaded).toContain('1 root task · 0 subtasks');
   for (const word of ['All', 'Needs you', 'Running', 'Accepted', 'Stopped', 'New task', 'Search tasks']) expect(loaded).toContain(word);
   expect(loaded).toContain('Showing 1 of 1 root tasks');
