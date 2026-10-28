@@ -53,3 +53,15 @@ test('references carry a positive line only', () => {
   expect(sessionFileReference('a.ts', 0)).toBe('a.ts');
   expect(sessionFileReference('a.ts')).toBe('a.ts');
 });
+
+test('invalid editor settings hide Open but keep Reveal and pass on the reason', async () => {
+  const calls: Call[] = [];
+  const actions = await readHostActions(shell({ open: false, reason: 'Editor settings must be owned by you and not writable by others', reveal: true, revealLabel: 'Reveal in Finder' }, calls));
+  expect(actions?.openInEditor).toBeUndefined();
+  expect(actions?.openUnavailable).toBe('Editor settings must be owned by you and not writable by others');
+  expect(editorHandler(actions, { id: 't-1', attempt: 3 })).toBeUndefined();
+  revealHandler(actions, { id: 't-1', attempt: 3 })!.run('a.ts');
+  await Promise.resolve();
+  expect(calls.slice(1)).toEqual([{ command: 'open_session_file', args: { id: 't-1', attempt: 3, reference: 'a.ts', action: 'reveal' } }]);
+  expect(await readHostActions(shell({ open: false, reason: 'Configure an editor to open files on this platform', reveal: false, revealLabel: null }))).toBe(null);
+});

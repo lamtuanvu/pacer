@@ -6,7 +6,10 @@ export interface SessionFileRef { id: string; attempt: number; reference: string
 
 /** Desktop-only file hand-offs. Browsers and older shells get none, so their buttons are not rendered (UI-13). */
 export interface HostActions {
-  openInEditor(ref: SessionFileRef): Promise<void>;
+  /** Absent when the shell says Open cannot work, for example with invalid editor settings (UI-13). */
+  openInEditor?(ref: SessionFileRef): Promise<void>;
+  /** The shell's reason Open is not offered, for the page to show instead of a button. */
+  openUnavailable?: string;
   reveal?: { label: string; run(ref: SessionFileRef): Promise<void> };
 }
 
@@ -14,17 +17,21 @@ export interface HostActions {
 export async function readHostActions(host: DesktopHost = desktopHost()): Promise<HostActions | null> {
   const invoke = host.__TAURI__?.core?.invoke;
   if (!invoke) return null;
-  let supported: { open?: unknown; reveal?: unknown; revealLabel?: unknown } | null;
+  let supported: { open?: unknown; reason?: unknown; reveal?: unknown; revealLabel?: unknown } | null;
   try { supported = await invoke('host_file_actions') as typeof supported; }
   catch { return null; }
-  if (!supported || supported.open !== true) return null;
+  if (!supported || typeof supported !== 'object') return null;
   const run = (action: 'open' | 'reveal') => async (ref: SessionFileRef) => {
     await invoke('open_session_file', { id: ref.id, attempt: ref.attempt, reference: ref.reference, action });
   };
   const label = typeof supported.revealLabel === 'string' && supported.revealLabel.trim() ? supported.revealLabel : null;
+  const open = supported.open === true;
+  const reveal = supported.reveal === true && label !== null;
+  if (!open && !reveal) return null;
+  const reason = typeof supported.reason === 'string' && supported.reason.trim() ? supported.reason.slice(0, 500) : null;
   return {
-    openInEditor: run('open'),
-    ...(supported.reveal === true && label ? { reveal: { label, run: run('reveal') } } : {}),
+    ...(open ? { openInEditor: run('open') } : reason ? { openUnavailable: reason } : {}),
+    ...(reveal ? { reveal: { label: label!, run: run('reveal') } } : {}),
   };
 }
 
@@ -39,9 +46,10 @@ export const sessionFileReference = (path: string, line?: number) =>
 export function editorHandler(actions: HostActions | null, session: { id: string; attempt?: number | null },
   onError?: (message: string) => void): ((path: string, line?: number) => void) | undefined {
   const attempt = session.attempt;
-  if (!actions || !attempt) return undefined;
+  const openInEditor = actions?.openInEditor;
+  if (!openInEditor || !attempt) return undefined;
   return (path, line) => {
-    actions.openInEditor({ id: session.id, attempt, reference: sessionFileReference(path, line) })
+    openInEditor({ id: session.id, attempt, reference: sessionFileReference(path, line) })
       .catch(error => onError?.(error instanceof Error ? error.message : typeof error === 'string' ? error : 'Unable to open the file'));
   };
 }
