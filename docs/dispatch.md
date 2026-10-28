@@ -110,9 +110,9 @@ Reason codes: `step_match`, `capacity_comfortable`, `capacity_usable`, `capacity
 - `issue.import` params: `repo`, the key of a repository pacer already knows (`repo.list`), and `issue`, a number (`"217"` or `"#217"`) or an issue URL in that repository. Result: `repo`, `github` (`owner/name`), `number`, `title`, `body`, `labels` (names), `url`, `state` (`open` or `closed`) and `truncated: {title, body}`.
 - `issue.search` params: `repo`, `query` (GitHub search syntax), and optionally `state` (`open` by default, `closed` or `all`) and `limit` (1–50, default 20). Result: `repo`, `github` and `issues`, each with `number`, `title`, `labels`, `url` and `state`, but no body.
 
-The GitHub repository comes from the checkout's `origin` remote, never from the request; a URL for another repository is refused, and search results outside the repository are dropped. pacer calls `gh issue view` or `gh issue list` with an argument vector and the user's own `gh` login. It never reads, stores or sends the token.
+The GitHub repository comes from the checkout's `origin` remote, never from the request; a URL for another repository is refused, and anything gh returns that is not this repository's issue (another repository's item, a pull request, a moved issue) is refused or dropped from search results. pacer calls `gh issue view` or `gh issue list` with an argument vector and the user's own `gh` login. It never reads, stores or sends the token.
 
-Issue text is untrusted. It is returned as plain text: control characters and bidirectional overrides are removed, the title is cut to 300 characters and the body to 64 KiB of UTF-8, and `truncated` says when that happened. Clients render it as text, and the user confirms the request before it becomes a task.
+Issue text is untrusted. It is returned as plain text: control characters, invisible format characters (bidirectional overrides, zero-width and tag characters) and variation selectors are removed, the title is cut to 300 characters and the body to 64 KiB of UTF-8, and `truncated` says when that happened. Clients render it as text, and the user confirms the request before it becomes a task.
 
 Errors carry `data.reason` over HTTP:
 
