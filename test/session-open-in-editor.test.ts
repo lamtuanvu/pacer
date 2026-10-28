@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
 import { mkdirSync, realpathSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { resolveSessionFile } from "../src/session/files";
+import { readSessionFile, resolveSessionFile } from "../src/session/files";
+import { assertCallerCanInvoke } from "../src/api/caller-policy";
 import { fakeCtx, tmpDir } from "./helpers";
 import { writeJsonAtomic } from "../src/fsutil";
 import { CoreError } from "../src/core/errors";
@@ -94,4 +95,20 @@ test("in a pacer task worktree, resolves workspace files but not the rest of pri
   symlinkSync(join(ctx.pacerHome, "tasks", `${id}.json`), join(workdir, "task.json"));
   expect(errorCode(() => resolveSessionFile(ctx, { id, attempt: 2, reference: "task.json" }))).toBe("not_allowed");
   expect(errorCode(() => resolveSessionFile(ctx, { id, attempt: 2, reference: `../../../tasks/${id}.json` }))).toBe("not_allowed");
+});
+
+test("refuses executor sessions and work-grant holders for both the read and the resolve", async () => {
+  const { ctx, workdir } = setup();
+  writeFileSync(join(workdir, "a.txt"), "a");
+  const request = { id, attempt: 2, reference: "a.txt" };
+  for (const env of [{ PACER_ROLE: "executor" }, { PACER_WORK_GRANT: "grant" }]) {
+    const caller = { ...ctx, env: { ...ctx.env, ...env } };
+    expect(errorCode(() => resolveSessionFile(caller, request))).toBe("not_allowed");
+    expect(errorCode(() => readSessionFile(caller, request))).toBe("not_allowed");
+    await expect(callOp(caller, "session.file.resolve", request)).rejects.toMatchObject({ code: "not_allowed" });
+    await expect(callOp(caller, "session.file.read", request)).rejects.toMatchObject({ code: "not_allowed" });
+  }
+  for (const name of ["session.file.read", "session.file.resolve"])
+    expect(() => assertCallerCanInvoke({ ...ctx, env: { PACER_ROLE: "executor" } }, name, request)).toThrow(/executor/);
+  expect(readSessionFile(ctx, request).text).toBe("a");
 });

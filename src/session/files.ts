@@ -5,6 +5,7 @@ import { readTask } from "../tasks/store";
 import { CoreError } from "../core/errors";
 import { readWorkspaceFile, resolveWorkspaceFile } from "./openat";
 import { taskWorktreesDir } from "../supervisor/worktree";
+import { isExecutorSession } from "../install/role";
 
 export interface SessionFileRequest { id: string; attempt: number; reference: string }
 export interface SessionFileResult { path: string; kind: "code" | "markdown" | "html"; text: string; size: number; modified: string; line?: number; column?: number }
@@ -33,6 +34,8 @@ interface LocatedFile {
 
 /** Validate a reference against one local attempt's workspace; shared by the read and the desktop hand-off. */
 function locateSessionFile(ctx: Ctx, request: SessionFileRequest): LocatedFile {
+  if (isExecutorSession(ctx) || ctx.env.PACER_WORK_GRANT)
+    throw new CoreError("not_allowed", "Session files are for people viewing sessions, not executor sessions");
   const task = readTask(ctx, request.id);
   if (!task) throw new CoreError("unknown_task", "Session not found");
   const run = task.run;
