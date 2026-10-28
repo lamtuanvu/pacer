@@ -82,7 +82,8 @@ function useRoutePreview(input: { repo: string; goal: string; kind: string; exec
         : { ...r, error: reply.error, loading: false });
     });
   }, [api, state.features.ops, input.repo, goal, input.kind, input.executor, state.connected]);
-  const fresh = !result.loading && !result.error && result.for === JSON.stringify([input.repo, input.goal.trim()]) ? result.last : null;
+  // A refresh for the same request (an override or a reconnect) keeps the detected kind; new text or another repo drops it.
+  const fresh = result.for === JSON.stringify([input.repo, input.goal.trim()]) ? result.last : null;
   return { ...result, fresh, empty: !input.goal.trim() };
 }
 
