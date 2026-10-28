@@ -636,7 +636,12 @@ export function MachineSection({ initialData }: { initialData?: ConfigData }) {
             }}
           />
         </Field>
-        <TaskBackendField value={query.data?.keys["execution.backend"]?.value} disabled={action.busy} run={action.run} />
+        <TaskBackendField
+          value={query.data?.keys["execution.backend"]?.value}
+          source={query.data?.keys["execution.backend"]?.source}
+          disabled={action.busy}
+          run={action.run}
+        />
         <Field label="Preferred terminal" help="Used when opening sessions and other terminal actions on this machine.">
           <ChoicePicker
             aria-label="Preferred terminal"
@@ -651,16 +656,27 @@ export function MachineSection({ initialData }: { initialData?: ConfigData }) {
     </Section>
   );
 }
-const BACKEND_CHOICES = [{value:"direct",label:"Direct"},{value:"orca",label:"Orca"}];
-export function TaskBackendField({value,disabled,run}:{value:unknown;disabled?:boolean;run:(op:string,params:unknown)=>unknown}) {
+const BACKEND_CHOICES = [
+  { value: "direct", label: "Direct" },
+  { value: "orca", label: "Orca" },
+];
+export function TaskBackendField({ value, source, disabled, run }: {
+  value: unknown;
+  source?: string;
+  disabled?: boolean;
+  run: (op: string, params: unknown) => unknown;
+}) {
   return (
-    <Field label="Task backend" help="Orca runs tasks as supervised Orca workers; tasks run directly when Orca isn't running.">
+    <Field
+      label="Task backend"
+      help={<>Orca runs tasks as supervised workers in Orca terminals; tasks run directly when Orca isn't running or the agent isn't supported.{source?.startsWith("env") && <> PACER_BACKEND overrides the saved setting.</>}</>}
+    >
       <ChoicePicker
         aria-label="Task backend"
         value={value === "orca" ? "orca" : "direct"}
         options={BACKEND_CHOICES}
         disabled={disabled}
-        onValueChange={(choice) => void run("config.set", {key:"execution.backend",value:choice})}
+        onValueChange={(choice) => void run("config.set", { key: "execution.backend", value: choice })}
       />
     </Field>
   );

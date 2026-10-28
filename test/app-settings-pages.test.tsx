@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import { renderToString } from 'preact-render-to-string';
 import { SettingsGeneral, TaskBackendField } from '../app/src/screens/settings/General';
-import { Feedback } from '../app/src/screens/settings/shared';
+import { Feedback, shouldNotifySuccess } from '../app/src/screens/settings/shared';
 import { SettingsPanel } from '../app/src/shell/SettingsPanel';
 import { TaskContext } from '../app/src/screens/task-shared';
 import { initialState } from '../app/src/data/store';
@@ -60,9 +60,11 @@ test('task backend picker shows the current backend and sets the chosen one', ()
   const orca={...settings,config:{...settings.config,keys:{...settings.config.keys,'execution.backend':{value:'orca'}}}};
   const html=renderToString(<TaskContext.Provider value={{state,api:{} as any}}><SettingsGeneral section="machine" initialData={orca}/></TaskContext.Provider>);
   expect(html).toContain('Task backend');
-  expect(html).toContain("Orca runs tasks as supervised Orca workers; tasks run directly when Orca isn't running.");
+  expect(html).toContain("Orca runs tasks as supervised workers in Orca terminals; tasks run directly when Orca isn't running or the agent isn't supported.");
   expect(html).toMatch(/aria-label="Task backend"[^>]*>[^<]*<span class="pc-choice-picker__value">Orca</);
   expect(render('machine')).toMatch(/aria-label="Task backend"[^>]*>[^<]*<span class="pc-choice-picker__value">Direct</);
+  const env={...orca,config:{...orca.config,keys:{...orca.config.keys,'execution.backend':{value:'direct',source:'env PACER_BACKEND'}}}};
+  expect(renderToString(<TaskContext.Provider value={{state,api:{} as any}}><SettingsGeneral section="machine" initialData={env}/></TaskContext.Provider>)).toContain('PACER_BACKEND overrides the saved setting.');
   const calls: unknown[][]=[], field=TaskBackendField({value:'direct',run:(...args)=>calls.push(args)}) as any;
   field.props.children.props.onValueChange('orca');
   expect(calls).toEqual([['config.set',{key:'execution.backend',value:'orca'}]]);
@@ -70,4 +72,13 @@ test('task backend picker shows the current backend and sets the chosen one', ()
 test('settings feedback shows a set warning', () => {
   const action={busy:false,error:undefined,result:{data:{},message:'Saved.',warning:"Orca isn't running; tasks run directly until it is."},job:undefined,run:async()=>undefined,clear:()=>{}} as any;
   expect(renderToString(<Feedback action={action}/>)).toContain("Orca isn't running; tasks run directly until it is.");
+});
+
+test('a warning save renders one inline warning without a success toast', () => {
+  const result={data:{},message:'Saved.',warning:"Orca isn't running; tasks run directly until it is."};
+  expect(shouldNotifySuccess(result)).toBe(false);
+  expect(shouldNotifySuccess({...result,warning:undefined})).toBe(true);
+  const html=renderToString(<Feedback action={{result,job:undefined,error:undefined} as any}/>);
+  expect(html).toContain("Orca isn't running");
+  expect(html).not.toContain('Changes saved');
 });

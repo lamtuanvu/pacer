@@ -380,12 +380,13 @@ runner edits ask you to run `pacer config migrate` first. Migration saves the
 original as `<file>.pre-accounts.bak` and prints how to restore it.
 
 `config get` returns each effective value and its source: the strategy filename
-or `default`. With a key, JSON is `{value, source}`; without a key, JSON maps
+or `default` (`env PACER_BACKEND` when that override is set). With a key, JSON is `{value, source}`; without a key, JSON maps
 setting names to those objects. `config set` prints the change and an undo
 command. Account and runner list JSON are arrays (see the accounts guide).
 
 | Key | Value |
 | --- | --- |
+| execution.backend | `orca` or `direct`; unset and `auto` display as `direct`. `PACER_BACKEND` overrides the saved setting. |
 | planner | A runner id, such as `claude-code#work` or `codex`; moves the installed planner integration |
 | pacing.order | Comma-separated runner ids; `opencode` means the OpenCode group; `''` clears the order |
 | pacing.policy | Existing engine policies: `priority`, `even`, `burn-before-reset`, `cheapest-first` |

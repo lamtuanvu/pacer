@@ -20,7 +20,7 @@ import { boundedGitRead, realpathSafe } from "./git";
 import { removeTaskWorktree, taskWorktreePath, taskWorktreesDir, worktreeDirty } from "../supervisor/worktree";
 import { readRun } from "../supervisor/run";
 import { cleanSettledSessions } from "../session/retention";
-import { removeClaudeTrust } from "../exec/trust-clean";
+import { removeClaudeTrust } from "../exec/claude-trust";
 import { sanitizedOrcaEnv } from "../exec/attestation-env";
 import { TERMINAL_STATES } from "../tasks/types";
 

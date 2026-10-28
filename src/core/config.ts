@@ -20,6 +20,7 @@ import { validateExecution } from '../config/execution';
 export const ORCA_NOT_RUNNING = "Orca isn't running; tasks run directly until it is.";
 
 const pendingEdits = new Set<string>();
+const BACKEND_OVERRIDE_HINT = 'PACER_BACKEND overrides the saved task backend setting.';
 
 export const CONFIG_KEYS = ['task_retention_days','execution.local_max_tasks','execution.backend','planner','pacing.order','pacing.policy','pacing.planner_reserve','pacing.accounts','pacing.fill_threshold','update_check','terminal.app','terminal.open'] as const;
 export type ConfigKey = typeof CONFIG_KEYS[number];
@@ -66,7 +67,9 @@ export function get(ctx: Ctx) {
   try {
     const s = loadStrategy(ctx), path = strategyPath(ctx), doc = new StrategyDoc(readFileSync(path, 'utf8')), values = effective(s, doc);
     return {
-      keys: Object.fromEntries(CONFIG_KEYS.map(key => [key, {value: values[key], source: doc.getIn(key.split('.')) === undefined ? 'default' : path}])),
+      keys: Object.fromEntries(CONFIG_KEYS.map(key => [key, key === 'execution.backend' && ctx.env.PACER_BACKEND
+        ? {value: ctx.env.PACER_BACKEND === 'orca' ? 'orca' : 'direct', source: 'env PACER_BACKEND'}
+        : {value: values[key], source: doc.getIn(key.split('.')) === undefined ? 'default' : path}])),
       terminalChoices: process.platform === 'darwin'
         ? [{value:'auto',label:'Automatic'},{value:'terminal-app',label:'Terminal'},{value:'iterm',label:'iTerm'},{value:'ghostty',label:'Ghostty'}]
         : [{value:'auto',label:'Automatic'},{value:'ghostty',label:'Ghostty'},{value:'wezterm',label:'WezTerm'},{value:'kitty',label:'Kitty'},{value:'alacritty',label:'Alacritty'},{value:'gnome-terminal',label:'GNOME Terminal'},{value:'x-terminal-emulator',label:'System terminal'}],
@@ -80,6 +83,7 @@ export async function set(ctx: Ctx, keyInput: string, input: unknown, options: {
   const editKey = `${strategyPath(ctx)}:${keyInput}`;
   if (pendingEdits.has(editKey)) throw new CoreError('conflict', 'This setting is already being changed', 'Refresh and retry.');
   pendingEdits.add(editKey);
+  let ownsEdit = true;
   try {
     const path=strategyPath(ctx), s=loadStrategy(ctx), before=readFileSync(path,'utf8'), doc=new StrategyDoc(before), values=effective(s,doc);
     const applyEdit = (change: Parameters<typeof editStrategy>[1]) => {
@@ -134,12 +138,21 @@ export async function set(ctx: Ctx, keyInput: string, input: unknown, options: {
       }
     } else diff=applyEdit(d=>Array.isArray(value)?d.setList(key.split('.'),value):setValue(d));
     await publishConfigChange(ctx, "config");
-    // Readiness is only a hint: selectBackend falls back to direct until Orca is ready.
+    pendingEdits.delete(editKey);
+    ownsEdit = false;
+    // Readiness is only a hint; never hold the edit lock while probing Orca.
     let warning: string | undefined;
-    if(key==='execution.backend' && value==='orca' && options.backendReady) {
-      const ready=await options.backendReady(ctx,next,value).catch(()=>false);
-      if(!ready) notes.push(warning=ORCA_NOT_RUNNING);
+    let hint: string | undefined;
+    if (key === 'execution.backend' && ctx.env.PACER_BACKEND) {
+      notes.push(hint = BACKEND_OVERRIDE_HINT);
+    } else if (key === 'execution.backend' && value === 'orca' && options.backendReady) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const ready = await Promise.race([
+        Promise.resolve().then(() => options.backendReady!(ctx, next, value)).catch(() => false),
+        new Promise<boolean>(resolve => { timer = setTimeout(() => resolve(false), 3000); }),
+      ]).finally(() => { if (timer) clearTimeout(timer); });
+      if (!ready) notes.push(warning = ORCA_NOT_RUNNING);
     }
-    return {key, value: effective(next,doc)[key], previous: values[key], diff, undo, notes, ...(warning ? {warning} : {})};
-  } catch (e) { throw toCoreError(e); } finally { pendingEdits.delete(editKey); }
+    return {key, value: effective(next,doc)[key], previous: values[key], diff, undo, notes, ...(warning ? {warning} : {}), ...(hint ? {hint} : {})};
+  } catch (e) { throw toCoreError(e); } finally { if (ownsEdit) pendingEdits.delete(editKey); }
 }

@@ -2,8 +2,8 @@ import {expect, test} from "bun:test";
 import {chmodSync, mkdirSync, readFileSync, statSync, writeFileSync} from "node:fs";
 import {join} from "node:path";
 import {fakeCtx} from "./helpers";
-import {trustClaudeWorktree} from "../src/exec/orca/trust";
-import {removeClaudeTrust} from "../src/exec/trust-clean";
+import {trustClaudeWorktree} from "../src/exec/claude-trust";
+import {removeClaudeTrust} from "../src/exec/claude-trust";
 
 test("Claude trust adds only the target and preserves unrelated config and mode", () => {
   const ctx = fakeCtx();

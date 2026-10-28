@@ -38,7 +38,7 @@ Claude usage requires the status-line integration to have received rate-limit da
 
 ## Execution and review
 
-`execution.backend: auto` (default) uses pacer's own supervisor through the direct backend. Selecting `execution.backend: orca` runs Claude Code and Codex as supervised workers in pacer-launched Orca terminals. Interactive runners, connection accounts and unsupported agents run directly. If Orca is unavailable or an agent cannot become idle, pacer runs the attempt directly and records the fallback reason.
+`execution.backend: auto` (default) and `direct` use pacer's own supervisor through the direct backend. Set the backend in Settings › This machine, the TUI or with `pacer config set execution.backend orca|direct`; unset and `auto` display as `direct`. `PACER_BACKEND` overrides the saved choice and is shown as its source. Selecting `execution.backend: orca` runs Claude Code and Codex as supervised workers in pacer-launched Orca terminals. Interactive runners, connection accounts and unsupported agents run directly. If Orca is unavailable or an agent cannot become idle, pacer runs the attempt directly and records the fallback reason.
 
 Each direct attempt records `pid`, live `stdout` and `stderr`, and `exit` under `<pacerHome>/runs/<task-id>/<attempt>/`. New task worktrees live under `<pacerHome>/worktrees/…` on branch `pacer/<task-id>`; current placement uses the selected repository. `pacer clean [--dry-run] [--force] [--json]` removes pacer-owned worktrees and run directories of settled tasks that have been reviewed, dismissed or resolved. Dirty worktrees are kept unless `--force` is given, and branches are always kept.
 

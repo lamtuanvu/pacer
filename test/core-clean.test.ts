@@ -6,7 +6,7 @@ import { gitInfo } from "../src/core/git";
 import * as tasks from "../src/core/tasks";
 import { createTaskWorktree } from "../src/supervisor/worktree";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
-import { trustClaudeWorktree } from "../src/exec/orca/trust";
+import { trustClaudeWorktree } from "../src/exec/claude-trust";
 import { fakeCtx, gitRepo, realRun } from "./helpers";
 
 async function finished(o: { dirty?: boolean; reviewed?: boolean } = {}) {

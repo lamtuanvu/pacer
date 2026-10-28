@@ -207,3 +207,38 @@ test("core config.set warns from injected backend readiness only for orca", asyn
   expect((await set("orca")).warning).toBeUndefined();
   seen.length = 0; expect((await set("direct", ready)).warning).toBeUndefined(); expect(seen).toEqual([]);
 });
+
+test("PACER_BACKEND controls the displayed backend and suppresses readiness warnings", async () => {
+  const ctx = await configured();
+  ctx.env.PACER_BACKEND = "orca";
+  expect(config.get(ctx).keys["execution.backend"]).toEqual({value: "orca", source: "env PACER_BACKEND"});
+  expect(await callOp(ctx, "config.get", {})).toMatchObject({keys: {"execution.backend": {value: "orca", source: "env PACER_BACKEND"}}});
+  let probes = 0;
+  const result = await config.set(ctx, "execution.backend", "direct", {backendReady: async () => { probes++; return false; }});
+  expect(result).toMatchObject({value: "direct", hint: expect.stringContaining("PACER_BACKEND"), notes: [expect.stringContaining("PACER_BACKEND")]});
+  expect(result.warning).toBeUndefined();
+  expect(probes).toBe(0);
+  const apiResult = await callOp(ctx, "config.set", {key: "execution.backend", value: "orca"});
+  expect(apiResult).toMatchObject({hint: expect.stringContaining("PACER_BACKEND")});
+  expect((apiResult as {warning?: string}).warning).toBeUndefined();
+  ctx.env.PACER_BACKEND = "other";
+  expect(config.get(ctx).keys["execution.backend"]).toEqual({value: "direct", source: "env PACER_BACKEND"});
+});
+
+test("backend readiness runs after the edit lock is released and times out", async () => {
+  const ctx = await configured();
+  let start!: () => void;
+  const probeStarted = new Promise<void>(resolve => { start = resolve; });
+  let finish!: (value: boolean) => void;
+  const probe = new Promise<boolean>(resolve => { finish = resolve; });
+  const first = config.set(ctx, "execution.backend", "orca", {backendReady: async () => { start(); return probe; }});
+  await probeStarted;
+  const second = await config.set(ctx, "execution.backend", "direct");
+  expect(second.value).toBe("direct");
+  finish(true);
+  expect((await first).warning).toBeUndefined();
+  const began = Date.now();
+  const timeout = await config.set(ctx, "execution.backend", "orca", {backendReady: async () => new Promise<boolean>(() => {})});
+  expect(timeout.warning).toBe(config.ORCA_NOT_RUNNING);
+  expect(Date.now() - began).toBeLessThan(3500);
+});

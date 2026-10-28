@@ -19,7 +19,7 @@ import type { ExecResult } from "../process";
 import { buildPrompt } from "../prompt";
 import { orcaAgentFor } from "./agents";
 import { OrcaClient, type Placement, isReady } from "./client";
-import { trustClaudeWorktree } from "./trust";
+import { trustClaudeWorktree } from "../claude-trust";
 import { ensureCoordinator, ensureRepo, gitInfo, realpathSafe } from "./setup";
 import { updateOrcaState, withLock } from "./state";
 import { type WaitResult, waitForWorker } from "./wait";

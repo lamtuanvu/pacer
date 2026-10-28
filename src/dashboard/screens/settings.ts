@@ -206,7 +206,7 @@ const machine: Build = (ctx, width) => {
   const toggle = set(ctx, "Task backend", "execution.backend", backend === "orca" ? "direct" : "orca");
   items.push({ id: "setting:backend", actions: [], keys: toggle ? { left: toggle, right: toggle } : {} });
   rows.push(...fieldRows(field(ctx, width, "Task backend", [span(`${glyph(ctx.theme, "‹")} `, { fg: "muted" }), span(backend === "orca" ? "Orca" : "Direct", { bold: true }), span(` ${glyph(ctx.theme, "›")}`, { fg: "muted" })]), "setting:backend"));
-  rows.push(...fieldRows(field(ctx, width, "", [span("Orca runs tasks as supervised Orca workers; tasks run directly when Orca isn't running.", { fg: "muted" })])));
+  rows.push(...fieldRows(field(ctx, width, "", [span("Orca runs tasks as supervised workers in Orca terminals; tasks run directly when Orca isn't running or the agent isn't supported.", { fg: "muted" })])));
   return { rows, items, hints: ["← → adjust"] };
 };
 
