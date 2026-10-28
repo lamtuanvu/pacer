@@ -375,7 +375,7 @@ export function DispatchHome({ query }: { query: RouteQuery }) {
   const canExplain = supported && state.features.ops.has("dispatch.explain") && repo !== null;
   const revision = JSON.stringify([state.snapshot?.executors?.map(e => [e.id, e.state]),
     state.snapshot?.tasks.filter(t => t.state === "running").length, state.snapshot?.tasks.filter(t => t.state === "queued").length]);
-  const routing = useQuery<Routing>(supported ? "routing.route" : "version.get", supported && repo ? { repo } : {}, revision);
+  const routing = useQuery<Routing>(supported ? "routing.route" : "version.get", supported && repo ? { repo } : {}, supported ? revision : "");
   const explain = useQuery<RouteExplanationView>(canExplain ? "dispatch.explain" : "version.get", canExplain ? { repo, goal: "New task" } : {}, revision);
   const accounts = useQuery<Account[]>(state.features.ops.has("account.list") ? "account.list" : "version.get", {});
   const insights = useInsights(period, scope.repo);

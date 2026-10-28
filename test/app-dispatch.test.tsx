@@ -326,7 +326,7 @@ test("an explained pick keeps its ladder step even when readiness is uncertain; 
   const uncertain = { ...eligible, state: "uncertain" as const, availability: "unknown" as const, reasons: [{ code: "availability_unknown", evidenceIds: [] }] };
   const explain = { outcome: "select" as const, strategy: { name: "default" }, engine: { id: "ladder" }, chosen: { runner: "cursor" }, step: { id: "any-capacity-left", index: 1 }, fallbacks: [], reasons: [] };
   const html = section(view(null, snap, { routing: { loading: false, data: { ranked: [{ id: "cursor", verdict: "ok", reason: "ok", eligibility: uncertain }], excluded: [] }, explain } }), "next-task");
-  expect(strip(html)).toContain("Cursor Ladder step 2 · any capacity left");
+  expect(strip(html)).toContain("Cursor Ladder step 2 · any capacity left Executor availability is not confirmed");
   expect(html).toContain("pc-pill");
 });
 

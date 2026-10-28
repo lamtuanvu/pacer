@@ -33,7 +33,7 @@ const GLOBAL: Record<string, Copy> = {
   paused: time => `Dispatch is paused${time("until") ? ` until ${time("until")}` : ""}.`,
   no_step_matched: () => "No agent qualifies for any step of the strategy.",
   step_no_candidates: () => "No agent qualifies for this step of the strategy.",
-  engine_failed: () => "Pacer could not decide where to send it, so nothing was chosen.",
+  engine_failed: () => "Pacer could not decide where new work goes, so nothing was chosen.",
 };
 
 /** Unknown and opaque reasons ignore the subject too: it may contain free-text service copy. */
