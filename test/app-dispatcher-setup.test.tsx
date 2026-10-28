@@ -165,7 +165,7 @@ test("save sequence writes eligibility first, then validates, saves and activate
   expect(calls.map(([op]) => op)).toEqual(["dispatch.config.get", "routing.set", "strategy.preview", "strategy.save", "strategy.use"]);
   expect(calls[1]![1]).toEqual({ rules: [{ executors: ["cursor"] }] });
   expect(calls[3]![1]).toEqual({ name: "night", draft: { from: "default", set: { dispatch: reordered } }, reason: "cheaper" });
-  expect(done).toEqual(["executor rules", "saved setup night, now active"]);
+  expect(done).toEqual(["executor rules", "setup night, now active"]);
   const unchanged = recorder();
   expect(await saveSetup({ call: unchanged.call, setup: globalSetup([], []), profile })).toEqual([]);
   expect(unchanged.calls).toEqual([]);

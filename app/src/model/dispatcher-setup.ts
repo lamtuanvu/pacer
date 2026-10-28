@@ -142,7 +142,7 @@ export async function saveSetup({ call, setup, repo, profile }: SaveSetupInput):
       await call("strategy.save", { name: profile.name, draft, reason: profile.reason.trim() });
       try { await call("strategy.use", { name: profile.name }); }
       catch (failure) { throw new Error(`Saved ${profile.name}, but it could not be activated: ${message(failure)}`); }
-      done.push(`saved setup ${profile.name}, now active`);
+      done.push(`setup ${profile.name}, now active`);
     }
   } catch (failure) {
     if (done.length) throw new PartialSaveError(done, failure);
