@@ -198,6 +198,14 @@
         "provisional": "Command menu board value; not yet in the design system."
       },
       {
+        "name": "session-title",
+        "fontSize": "14px",
+        "lineHeight": "20px",
+        "fontWeight": 650,
+        "usage": "Visible task title in the frame title bar.",
+        "provisional": "Session board title style; not yet in the design system."
+      },
+      {
         "name": "plugin-section",
         "fontSize": "9px",
         "lineHeight": "12px",
