@@ -8,6 +8,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 - Add a persistent built-in terminal with workspace shells, tabs, splits, search and integrated app action sessions.
 - Strict native subagent control for new managed work: Pacer excludes uncertified executors before dispatch, checks again before launch, and exposes certification status and a quota-using canary in Dispatcher and the CLI. Existing managed tasks retain cooperative behavior.
+- Scheduled native control certification. Certificates expire within 24 hours, so the service can now renew them on a timer instead of waiting for a manual canary. **A probe spends the quota of the account it certifies**, so it runs only after you consent: `pacing.planner_probe` defaults to `ask` and nothing is probed until you answer, `auto` allows renewals without asking and `off` disables scheduling entirely. `pacing.planner_reserve_headroom` (default 25 percentage points) is a floor that keeps Pacer from spending the headroom it is protecting; it is separate from `pacing.planner_reserve`, which remains a pace multiplier. Probing also stops on repeated failures, after a daily ceiling, when the last probe cost too much, and when measured headroom is unknown. Dispatcher and `pacer doctor` show the consent state, the next eligible probe and the last measured cost.
 
 ## [0.11.0] - 2026-10-26
 

@@ -18,12 +18,9 @@ test('v2 preserves pre-upgrade goldens while allowing additive snapshot fields',
    expect(value).toMatchObject(golden);
    expect(value).toMatchObject({snapshot:{machine:{used:1,max:2}}});
   } else if (name === 'hello') {
-   // Ops added since the golden was captured are acknowledged here one by one,
-   // so a new op cannot widen the frozen v2 surface unnoticed.
-   const added=['task.request_review','dispatch.enforcement.consent'];
    const live=value as any;
-   for(const op of added) expect(live.ops).toContain(op);
-   expect({...live,pacer:golden.pacer,ops:live.ops.filter((op:string)=>!added.includes(op))}).toEqual(golden);
+   expect(live.ops).toContain('task.request_review');
+   expect({...live,pacer:golden.pacer,ops:live.ops.filter((op:string)=>op!=='task.request_review')}).toEqual(golden);
   } else {
    // The live pacer version changes every release; the golden records pre-upgrade output.
    const live=value as Record<string,unknown>;

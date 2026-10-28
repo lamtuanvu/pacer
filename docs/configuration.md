@@ -81,6 +81,8 @@ Policies are `priority` (default), `even`, `burn-before-reset` and `cheapest-fir
 
 `planner_reserve` defaults to 15 percentage points (valid 0–99). `ahead_threshold` and `behind_threshold` default to 10 and -10 percentage points. Planner verdicts produce relaxed, normal, strict or emergency mode; see the [mode table](../README.md#how-it-works).
 
+Two further settings govern scheduled native control certification, which spends the quota of the account it certifies. `planner_probe` is `ask` (default), `auto` or `off`: on `ask` nothing is probed until you answer the consent question in Dispatcher or through `dispatch.enforcement.consent`, and `off` disables scheduling without affecting manual verification. `planner_reserve_headroom` defaults to 25 percentage points (valid 0–99) and is a separate setting from `planner_reserve`: it is the measured headroom an account must still have before Pacer will spend any of it on a probe. It is checked when a probe is admitted, alongside the runner's `max_tasks`; it is not a guarantee that a quota window cannot fall below it afterwards. Headroom that cannot be measured never satisfies it.
+
 The first matching `kinds` rule wins, otherwise `default` is used:
 
 ```yaml

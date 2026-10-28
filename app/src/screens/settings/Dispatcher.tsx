@@ -100,8 +100,8 @@ function ConsentControl({item,onConsent}:{item:EnforcementRunner;onConsent:(acco
     </div>
   </div>;
 }
-export function DispatcherEnforcementRows({reading,canProbe,probing,onProbe,onConsent}:{
-  reading:EnforcementReading;canProbe:boolean;probing:string|null;
+export function DispatcherEnforcementRows({reading,canProbe,canConsent=true,probing,onProbe,onConsent}:{
+  reading:EnforcementReading;canProbe:boolean;canConsent?:boolean;probing:string|null;
   onProbe:(runner:string)=>void;onConsent:(account:string,granted:boolean)=>void;
 }){
   return <>{reading.runners.map(item=><div className="u3-setting" key={item.runner}>
@@ -116,7 +116,7 @@ export function DispatcherEnforcementRows({reading,canProbe,probing,onProbe,onCo
       {!item.probeSupported&&item.state!=="certified"?
         <div className="u3-muted"><TextAction href="#/settings/executors">View executor setup</TextAction>, then refresh status.</div>
       :null}
-      <ConsentControl item={item} onConsent={onConsent}/>
+      {canConsent?<ConsentControl item={item} onConsent={onConsent}/>:null}
     </div>
     {canProbe&&item.probeSupported&&item.state!=="certified"?
       <Button size="sm" busy={probing===item.runner} disabled={!!probing} onClick={()=>onProbe(item.runner)}>Verify control</Button>
@@ -328,7 +328,7 @@ function DispatcherEnforcement({query}:{query:RouteQuery}){
       {repos.length?<Field label="Repository"><ChoicePicker value={repo} searchable options={repos.map(item=>({value:item.key,label:item.label}))} onValueChange={setRepo}/></Field>:<p>Select a repository to inspect its executor controls.</p>}
       <div><Button size="sm" onClick={()=>reading.reload()} disabled={!repo}>Refresh status</Button></div>
       <DispatcherReadError error={reading.error&&currentReading?reading.error:undefined} reload={reading.reload} subject="native subagent control"/>
-      {currentReading&&<DispatcherEnforcementRows reading={currentReading} canProbe={state.features.ops.has("dispatch.enforcement.probe")&&!!repo} probing={probing} onProbe={runner=>void probe(runner)} onConsent={consent}/>}
+      {currentReading&&<DispatcherEnforcementRows reading={currentReading} canProbe={state.features.ops.has("dispatch.enforcement.probe")&&!!repo} probing={probing} onProbe={runner=>void probe(runner)} canConsent={state.features.ops.has("dispatch.enforcement.consent")} onConsent={consent}/>}
       {!currentReading&&<p role={reading.error?"alert":undefined}>{reading.error?"Native control status could not be loaded.":"Loading native control status…"}</p>}
       <p className="u3-muted">Verification starts the selected agent in a disposable repository and may use account quota.</p>
       {probeNotice&&<p role="status" aria-live="polite">{probeNotice}</p>}<ErrorMessage error={probeError}/>

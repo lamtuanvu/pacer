@@ -1,6 +1,8 @@
-import { join } from "node:path";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { cwd } from "node:process";
-import { readJson, writeJsonAtomic } from "../fsutil";
+import { readJson } from "../fsutil";
+import { withLock } from "../core/lock";
 import type { Ctx } from "../types";
 import type { Strategy } from "../config/strategy";
 import { loadStrategy, MissingStrategyError } from "../config/strategy";
@@ -55,7 +57,41 @@ export function readScheduleState(ctx: Ctx): ScheduleState {
 }
 
 export function writeScheduleState(ctx: Ctx, state: ScheduleState): void {
-  writeJsonAtomic(file(ctx), state);
+  mkdirSync(dirname(file(ctx)), { recursive: true, mode: 0o700 });
+  writeFileSync(file(ctx), JSON.stringify(state), { mode: 0o600 });
+}
+
+/**
+ * Applies the real outcome to an attempt `recordProbeOutcome` already counted,
+ * so a probe is charged against the daily ceiling exactly once.
+ */
+export function settleProbe(
+  state: ScheduleState, key: string, outcome: { certified: boolean; costPct: number | null },
+): ScheduleState {
+  const record = state.attempts[key];
+  if (!record) return state;
+  return { ...state, attempts: { ...state.attempts, [key]: {
+    ...record,
+    ...(outcome.certified ? { failures: 0, nextEligibleAt: 0, repoSwitches: 0 } : {}),
+    lastCostPct: outcome.costPct,
+  } } };
+}
+
+/**
+ * Consent and probe outcomes live in one file and are written minutes apart by
+ * different callers, so every read-modify-write takes the lock and re-reads.
+ */
+function withScheduleLock<T>(ctx: Ctx, update: (state: ScheduleState) => [ScheduleState, T]): Promise<T> {
+  return withLock(ctx, "certification-schedule", async () => {
+    const [next, result] = update(readScheduleState(ctx));
+    writeScheduleState(ctx, next);
+    return result;
+  }, { timeoutMs: 10_000, staleMs: 30_000 });
+}
+
+export function recordConsent(ctx: Ctx, account: string, granted: boolean): Promise<"granted" | "declined"> {
+  const answer = granted ? "granted" as const : "declined" as const;
+  return withScheduleLock(ctx, state => [{ ...state, consent: { ...state.consent, [account]: answer } }, answer]);
 }
 
 /**
@@ -290,6 +326,13 @@ export async function tick(ctx: Ctx, deps: TickDeps = {}): Promise<void> {
       return;
     }
 
+    // Charge the probe against the daily ceiling and set a backoff BEFORE spending
+    // anything. Everything after this point can fail, crash or be restarted, and
+    // the quota is already gone; a brake recorded only on the success path is no
+    // brake at all.
+    await withScheduleLock(ctx, fresh =>
+      [recordProbeOutcome(fresh, key, repo, { certified: false, costPct: null }, ctx.now), null]);
+
     // Deferred promise to capture the probe result from inside the callback.
     // Needed because startJob returns immediately when a daemon is registered.
     let probeSettle: (result: CertificateStatus) => void;
@@ -338,8 +381,9 @@ export async function tick(ctx: Ctx, deps: TickDeps = {}): Promise<void> {
       certified: certResult.state === "certified",
       costPct,
     };
-    const updatedState = recordProbeOutcome(state, key, repo, outcome, ctx.now);
-    writeScheduleState(ctx, updatedState);
+    // Re-read under the lock: the probe took minutes, and a consent answer given
+    // in that window must survive this write rather than be reverted by it.
+    await withScheduleLock(ctx, fresh => [settleProbe(fresh, key, outcome), null]);
 
   } catch {
     // tick() never throws

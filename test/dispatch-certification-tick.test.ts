@@ -8,7 +8,7 @@ import type { CertificateStatus } from "../src/dispatch/enforcement";
 import type { Status } from "../src/engine/status";
 
 // Import the module under test
-import { tick, readScheduleState, type TickDeps } from "../src/dispatch/certification-schedule";
+import { tick, readScheduleState, writeScheduleState, type TickDeps } from "../src/dispatch/certification-schedule";
 
 /**
  * Set up ctx.which and ctx.run so resolveEnforcementTarget works.
@@ -213,6 +213,56 @@ pacing:
     ]);
     expect(raced).toBe("returned");
     expect(Object.values(readScheduleState(ctx).attempts)[0]?.failures).toBe(1);
+  });
+
+  test("a consent answer given during a probe is not reverted by the probe's own write", async () => {
+    const ctx = fakeCtx();
+    const repo = setupEnforcementContext(ctx);
+    writeStrategyYaml(ctx);
+    writeScheduleState(ctx, { consent: { "claude-code": "granted" }, attempts: {} });
+
+    const deps: TickDeps = {
+      repo,
+      probe: async (): Promise<CertificateStatus> => {
+        // Stands in for the consent op running while the probe is in flight.
+        const live = readScheduleState(ctx);
+        writeScheduleState(ctx, { ...live, consent: { ...live.consent, "claude-code": "declined" } });
+        return uncertifiedStatus();
+      },
+      status: async (): Promise<Status> => testStatus(40),
+    };
+
+    await tick(ctx, deps);
+
+    const after = readScheduleState(ctx);
+    expect(after.consent["claude-code"]).toBe("declined");
+    expect(Object.values(after.attempts)[0]?.failures).toBe(1);
+  });
+
+  test("charges the probe against the daily ceiling even if everything after it fails", async () => {
+    const ctx = fakeCtx();
+    const repo = setupEnforcementContext(ctx);
+    writeStrategyYaml(ctx);
+
+    const deps: TickDeps = {
+      repo,
+      probe: async (): Promise<CertificateStatus> => certifiedStatus(),
+      // Succeeds for the pre-probe headroom read, then fails on the post-probe
+      // cost read: a crash, restart or rejection once the quota is already spent.
+      status: (() => {
+        let calls = 0;
+        return async (): Promise<Status> => {
+          if (++calls > 1) throw new Error("status unavailable");
+          return testStatus(40);
+        };
+      })(),
+    };
+
+    await tick(ctx, deps);
+
+    const record = Object.values(readScheduleState(ctx).attempts)[0];
+    expect(record?.probesToday).toBe(1);
+    expect(record?.nextEligibleAt).toBeGreaterThan(0);
   });
 
   test("never throws when the strategy is missing", async () => {

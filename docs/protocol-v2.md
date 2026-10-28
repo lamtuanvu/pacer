@@ -1109,34 +1109,6 @@ Params JSON Schema:
 }
 ```
 
-### `dispatch.enforcement.consent`
-
-Grant or decline consent for scheduled certification probes on an account. Probes spend the account's own quota to certify its enforcement guard.
-
-Params JSON Schema:
-
-```json
-{
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "type": "object",
-  "properties": {
-    "account": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 128
-    },
-    "granted": {
-      "type": "boolean"
-    }
-  },
-  "required": [
-    "account",
-    "granted"
-  ],
-  "additionalProperties": false
-}
-```
-
 ### `executor.setup.candidates`
 
 OpenCode providers, local model servers and catalog providers that can become executors; no secrets.

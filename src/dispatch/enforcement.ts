@@ -150,14 +150,15 @@ export async function enforcementDiagnostics(ctx:Ctx,strategy:Strategy,repo:stri
         probeSupported:!unsupported,
         unsupportedReason: unsupported ?? null,
         probeMode: strategy.pacing.plannerProbe,
-        ...cert,
-        lastProbedAt: cert.probedAt ?? null,
-        expiresAt: cert.expiresAt ?? null,
+        // An unsupported runner reports no certificate at all: carrying a probedAt
+        // or expiresAt beside state "uncertified" would contradict itself.
+        ...(unsupported
+          ? {state:"uncertified" as const,reason:unsupported,lastProbedAt:null,expiresAt:null}
+          : {...cert,lastProbedAt:cert.probedAt ?? null,expiresAt:cert.expiresAt ?? null}),
         nextEligibleAt: attempt?.nextEligibleAt ?? 0,
         probesToday: attempt?.probesToday ?? 0,
         lastCostPct: attempt?.lastCostPct ?? null,
         consent: consentVal ?? "unasked" as const,
-        ...(unsupported?{state:"uncertified" as const,reason:unsupported}:{}),
       });
     } catch(error) {
       rows.push({
