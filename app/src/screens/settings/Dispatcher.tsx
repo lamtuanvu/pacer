@@ -62,17 +62,19 @@ function consentLabel(consent:"granted"|"declined"|"unasked"):string {
   if(consent==="declined")return "consent: declined";
   return "";
 }
-export interface ConsentAction {label:string;ariaLabel:string;granted:boolean;variant:"secondary"|"quiet"}
+export interface ConsentAction {label:string;ariaLabel:string;send:readonly [account:string,granted:boolean];variant:"secondary"|"quiet"}
 /**
- * The buttons each consent state offers, and the value each one sends. The
- * control renders only from this, so an inverted boolean here is an inverted
- * boolean on screen, and a test of this is a test of the wiring.
+ * The buttons each consent state offers, and the exact arguments each one
+ * sends. The control passes `send` through unchanged, so an inverted boolean
+ * or a wrong account here is one on screen, and a test of this is a test of
+ * the wiring.
  */
 export function consentActions(account:string, consent:"granted"|"declined"|"unasked"):ConsentAction[]{
-  const grant:ConsentAction={label:"Grant consent",ariaLabel:`Grant consent for ${account}`,granted:true,variant:"secondary"};
-  if(consent==="granted")return [{label:"Withdraw consent",ariaLabel:`Withdraw consent for ${account}`,granted:false,variant:"quiet"}];
+  const grant:ConsentAction={label:"Grant consent",ariaLabel:`Grant consent for ${account}`,send:[account,true],variant:"secondary"};
+  // Withdrawing is the only way to stop recurring spend, so it is as visible as granting.
+  if(consent==="granted")return [{label:"Withdraw consent",ariaLabel:`Withdraw consent for ${account}`,send:[account,false],variant:"secondary"}];
   if(consent==="declined")return [grant];
-  return [grant,{label:"Decline",ariaLabel:`Decline probes for ${account}`,granted:false,variant:"quiet"}];
+  return [grant,{label:"Decline",ariaLabel:`Decline probes for ${account}`,send:[account,false],variant:"quiet"}];
 }
 export function scopedEnforcementReading(reading:EnforcementReading|undefined,repo:string,repos:readonly {key:string;path:string}[]):EnforcementReading|undefined {
   const path=repos.find(item=>item.key===repo)?.path??repo;
@@ -100,8 +102,10 @@ function ConsentControl({item,onConsent}:{item:EnforcementRunner;onConsent:(acco
   if(!item.probeSupported||item.probeMode==="off")return null;
 
   const actions=consentActions(item.account,item.consent);
-  return <div className="pc-stack pc-stack--compact">
-    {item.consent==="unasked"&&<div className="u3-muted">
+  // Every button that can start quota spend carries its price, whatever state led here.
+  const offersGrant=actions.some(action=>action.send[1]);
+  return <div className="u3-setting-consent pc-stack pc-stack--compact">
+    {offersGrant&&<div className="u3-muted">
       Scheduled certification probes spend <strong>{item.account}</strong>'s quota to verify native child blocking.
       Certificates expire within 24 hours, so this recurs automatically.
       At most {MAX_PROBES_PER_DAY} probes per day. Pacer stops probing if one costs more than {MAX_COST_PCT}% of the account's window.
@@ -109,7 +113,7 @@ function ConsentControl({item,onConsent}:{item:EnforcementRunner;onConsent:(acco
     </div>}
     <div className="pc-cluster">
       {actions.map(action=><Button key={action.label} size="sm" variant={action.variant}
-        onClick={()=>onConsent(item.account,action.granted)} aria-label={action.ariaLabel}>{action.label}</Button>)}
+        onClick={()=>onConsent(...action.send)} aria-label={action.ariaLabel}>{action.label}</Button>)}
     </div>
   </div>;
 }
@@ -129,11 +133,12 @@ export function DispatcherEnforcementRows({reading,canProbe,canConsent=true,prob
       {!item.probeSupported&&item.state!=="certified"?
         <div className="u3-muted"><TextAction href="#/settings/executors">View executor setup</TextAction>, then refresh status.</div>
       :null}
-      {canConsent?<ConsentControl item={item} onConsent={onConsent}/>:null}
     </div>
     {canProbe&&item.probeSupported&&item.state!=="certified"?
       <Button size="sm" busy={probing===item.runner} disabled={!!probing} onClick={()=>onProbe(item.runner)}>Verify control</Button>
     :null}
+    {/* A direct child of the row grid, so the disclosure spans both columns instead of the narrow first one. */}
+    {canConsent?<ConsentControl item={item} onConsent={onConsent}/>:null}
   </div>)}</>;
 }
 

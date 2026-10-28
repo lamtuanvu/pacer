@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import { renderToString } from "preact-render-to-string";
 import { dispatchConfigSchema } from "../src/dispatch/types";
 import { MAX_PROBES_PER_DAY, MAX_COST_PCT } from "../src/view-model/certification-schedule";
@@ -7,18 +8,19 @@ import { DispatcherOverview, DispatcherModelInventory, DispatcherPreviewResult, 
 import { TaskContext } from "../app/src/screens/task-shared";
 import { initialState } from "../app/src/data/store";
 
-// FIX 2 (QA F7): Pin the consent wiring — inverted boolean must fail
-test("each consent button sends the value its label promises", () => {
-  // The control renders only from consentActions, so inverting a boolean here
-  // inverts the button on screen and fails this test.
-  const unasked = consentActions("claude1", "unasked");
-  expect(unasked.find(a => a.label === "Grant consent")?.granted).toBe(true);
-  expect(unasked.find(a => a.label === "Decline")?.granted).toBe(false);
-  expect(consentActions("claude1", "granted").map(a => [a.label, a.granted]))
-    .toEqual([["Withdraw consent", false]]);
-  expect(consentActions("claude1", "declined").map(a => [a.label, a.granted]))
-    .toEqual([["Grant consent", true]]);
+// Pin the consent wiring: the control passes `send` through unchanged, so an
+// inverted boolean or a wrong account in the payload must fail here.
+test("each consent button sends the account and value its label promises", () => {
+  const sends = (account: string, consent: "granted" | "declined" | "unasked") =>
+    consentActions(account, consent).map(a => [a.label, a.send]);
+  expect(sends("claude1", "unasked")).toEqual([["Grant consent", ["claude1", true]], ["Decline", ["claude1", false]]]);
+  expect(sends("claude1", "granted")).toEqual([["Withdraw consent", ["claude1", false]]]);
+  expect(sends("claude1", "declined")).toEqual([["Grant consent", ["claude1", true]]]);
+  expect(sends("team", "declined")).toEqual([["Grant consent", ["team", true]]]);
   expect(consentActions("team", "unasked")[0].ariaLabel).toBe("Grant consent for team");
+});
+test("withdrawing consent is as visible as granting it", () => {
+  expect(consentActions("claude1", "granted")[0].variant).toBe(consentActions("claude1", "unasked")[0].variant);
 });
 
 test("dispatcher settings explain the active planner and built-in ladder", () => {
@@ -254,6 +256,44 @@ test("schedule section distinguishes consent states and presents probing status 
   expect(htmlDeclined).toContain(`aria-label="Grant consent for claude1"`);
   expect(htmlDeclined).not.toContain("Withdraw consent");
   expect(htmlDeclined).not.toContain(`aria-label="Decline probes for claude1"`);
-  // Must not show error/warning language for declined consent
-  expect(htmlDeclined).not.toMatch(/error|fail|warn|problem|broke/i);
+  // Declined is plain state: the schedule line reads exactly that and nothing more.
+  expect(htmlDeclined).toContain(`<div class="u3-muted">consent: declined</div>`);
+});
+const consentRunner=(consent:"granted"|"declined"|"unasked")=>({repo:"/repo",scope:"native",runners:[{
+  runner:"claude-code",account:"claude1",agent:"claude-code",version:"2.1.281",
+  probeSupported:true,probeMode:"ask" as const,state:"uncertified" as const,
+  lastProbedAt:null,expiresAt:null,nextEligibleAt:0,probesToday:0,lastCostPct:null,
+  consent,unsupportedReason:null,
+}]});
+test("a declined account offered a grant sees what the grant costs",()=>{
+  // Consent can be declined from the CLI, so this may be the first time the person sees the price.
+  const html=renderToString(<DispatcherEnforcementRows reading={consentRunner("declined")} canProbe={false} probing={null} onProbe={()=>{}} onConsent={()=>{}}/>);
+  expect(html).toContain(`aria-label="Grant consent for claude1"`);
+  expect(html).toContain("<strong>claude1</strong>'s quota");
+  expect(html).toContain(`${MAX_PROBES_PER_DAY} probes per day`);
+  expect(html).toContain(`more than ${MAX_COST_PCT}% of the account's window`);
+  expect(html).toContain("expire within 24 hours");
+});
+test("the cost disclosure goes with an offered grant, not with withdrawal",()=>{
+  // The disclosure renders in the unasked and declined states, so its absence here can fail.
+  const html=renderToString(<DispatcherEnforcementRows reading={consentRunner("granted")} canProbe={false} probing={null} onProbe={()=>{}} onConsent={()=>{}}/>);
+  expect(html).toContain("Withdraw consent");
+  expect(html).not.toContain("probes per day");
+});
+test("the consent block spans the whole settings row",()=>{
+  // Nested in the first cell, the disclosure was squeezed into a third of the row at desktop width.
+  const html=renderToString(<DispatcherEnforcementRows reading={consentRunner("unasked")} canProbe probing={null} onProbe={()=>{}} onConsent={()=>{}}/>);
+  expect(html).toMatch(/^<div class="u3-setting"><div>(?:(?!<div class="u3-setting-consent).)*<\/div><button[^>]*>Verify control<\/button><div class="u3-setting-consent /s);
+  const css=readFileSync(new URL("../app/src/screens/settings/settings.css",import.meta.url),"utf8");
+  expect(css).toContain(".u3-setting>.u3-setting-consent{grid-column:1/-1}");
+});
+test("renders consent controls only when the consent operation is available",()=>{
+  const props={reading:consentRunner("unasked"),canProbe:false,probing:null,onProbe:()=>{},onConsent:()=>{}};
+  const without=renderToString(<DispatcherEnforcementRows {...props} canConsent={false}/>);
+  const withConsent=renderToString(<DispatcherEnforcementRows {...props} canConsent/>);
+  expect(withConsent).toContain(`aria-label="Grant consent for claude1"`);
+  expect(withConsent).toContain("u3-setting-consent");
+  expect(without).not.toContain("Grant consent");
+  expect(without).not.toContain("u3-setting-consent");
+  expect(without).not.toContain("probes per day");
 });
