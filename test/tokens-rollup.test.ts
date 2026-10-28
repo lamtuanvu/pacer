@@ -5,6 +5,7 @@ import { registerWork, workTree } from "../src/dispatch/work";
 import { dispatchDatabase } from "../src/dispatch/store";
 import { recordAttemptUsage } from "../src/tokens/store";
 import { rollupTokens } from "../src/tokens/rollup";
+import { scopedWorkTree } from "../src/core/work";
 import { taskDetail } from "../src/core/task-detail";
 import type { Attempt, AttemptTokens } from "../src/tasks/types";
 
@@ -60,6 +61,9 @@ test("a node whose record is gone keeps its index rows, or counts as one unknown
   expect(nodes.nodes.filter(n => n.state === "archived")).toHaveLength(2);
   expect([nodes.totals.tokens.total, nodes.totals.tokens.measuredAttempts, nodes.totals.tokens.unknownAttempts]).toEqual([40, 1, 1]);
   expect(nodes.totals.tokens.lowerBound).toBe(true);
+  expect(JSON.stringify(nodes)).not.toContain("tokenItems");
+  expect(JSON.stringify(scopedWorkTree(ctx, root.id).totals.tokens.total)).toBe("40");
+  expect(nodes.totals.tokens.byExecutor.find(g => g.agent === "codex")?.account).toBe("work");
 });
 
 test("null counts add nothing and sums stay separate from cache", () => {
@@ -74,4 +78,15 @@ test("task detail carries the split per agent", async () => {
   expect(detail.tokens?.total).toBe(20);
   expect(detail.tokens?.byExecutor.map(g => g.agent).sort()).toEqual(["claude-code", "codex"]);
   expect(detail.attempts[0]!.tokens?.coverage).toBe("partial");
+});
+
+test("a record's own tokens win over an index row, and task detail falls back to the index", async () => {
+  const { ctx, root } = tree();
+  updateTask(ctx, root.id, t => { t.attempts.push(attempt("codex", tok("measured", 5)), attempt("codex")); });
+  const task = updateTask(ctx, root.id, () => {});
+  recordAttemptUsage(ctx, task, 1, tok("partial", 999));
+  recordAttemptUsage(ctx, task, 2, tok("partial", 7));
+  const detail = await taskDetail(ctx, root.id);
+  expect(detail.attempts.map(a => a.tokens?.total)).toEqual([5, 7]);
+  expect(detail.tokens?.total).toBe(12);
 });

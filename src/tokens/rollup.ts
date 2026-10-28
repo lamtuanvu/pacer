@@ -2,7 +2,8 @@ import { parseRunnerId } from "../config/runner-id";
 import type { Attempt, AttemptTokens } from "../tasks/types";
 import type { Ctx } from "../types";
 import { unknownTokens } from "./extract";
-import { readAttemptUsage } from "./store";
+import { dispatchDatabase } from "../dispatch/store";
+import { attemptTokensFromRow, readAttemptUsage, type AttemptUsageRow } from "./store";
 
 /** One attempt as the roll-up sees it: its tokens and where they were spent. */
 export interface TokenItem { executor: string; account: string | null; model: string | null; tokens: AttemptTokens }
@@ -53,7 +54,7 @@ export function itemsOf(attempts: ItemAttempt[]): TokenItem[] {
 
 /** A node whose task record cannot be read still contributes its index rows; with none it is one unknown attempt. */
 export function itemsFromIndex(ctx: Ctx, taskId: string): TokenItem[] {
-  const rows = readAttemptUsage(ctx, taskId);
-  if (!rows.size) return [{ executor: "unknown", account: null, model: null, tokens: unknownTokens("rollup@1", ctx, "task record is unavailable and has no usage rows") }];
-  return [...rows.values()].map(tokens => ({ executor: "unknown", account: null, model: null, tokens }));
+  const rows = dispatchDatabase(ctx).query<AttemptUsageRow, [string]>("SELECT * FROM attempt_usage WHERE task_id=? ORDER BY attempt").all(taskId);
+  if (!rows.length) return [{ executor: "unknown", account: null, model: null, tokens: unknownTokens("rollup@1", ctx, "task record is unavailable and has no usage rows") }];
+  return rows.map(r => ({ executor: r.executor, account: r.account ?? parseRunnerId(r.executor)?.account ?? null, model: r.model, tokens: attemptTokensFromRow(r) }));
 }

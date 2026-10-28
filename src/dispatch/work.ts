@@ -161,14 +161,16 @@ export function workTree(ctx:Ctx,id:string){
     const work=node(r),task=readTask(ctx,r.task_id);
     const decisions=dispatchDatabase(ctx).query<{attempt:number;data:string},[string]>("SELECT attempt,data FROM work_decisions WHERE task_id=? ORDER BY attempt").all(work.taskId).map(d=>{const p=JSON.parse(d.data);return{attempt:d.attempt,engine:p.engine,proposal:p.proposal,validation:p.validation,recommendedAction:p.recommendedAction,uncertainty:p.uncertainty,selectedCandidateId:p.selectedCandidateId,inputHash:p.inputHash,outputHash:p.outputHash,fallback:p.fallback,...(p.enforcement?{enforcement:p.enforcement}:{})};});
     const waivedChildren=dispatchDatabase(ctx).query<{dependency_id:string},[string]>("SELECT dependency_id FROM work_dependency_waivers WHERE task_id=?").all(work.taskId).map(row=>row.dependency_id);
-    if(!task)return{...work,waivedChildren,title:"Archived work",state:"archived",rev:0,review:null,question:null,retryEligibility:{allowed:false,reason:"Archived work"},executor:null,model:null,actualModel:null,decisions,attempts:[],tokenItems:itemsFromIndex(ctx,work.taskId),createdAt:null,settledAt:null};
+    if(!task)return{...work,waivedChildren,title:"Archived work",state:"archived",rev:0,review:null,question:null,retryEligibility:{allowed:false,reason:"Archived work"},executor:null,model:null,actualModel:null,decisions,attempts:[],[TOKEN_ITEMS]:itemsFromIndex(ctx,work.taskId),createdAt:null,settledAt:null};
     const attempts=attemptsWithTokens(ctx,task.id,task.attempts).map(a=>({tokens:a.tokens,executor:a.executor,model:a.model??null,actualModel:a.actualModel??null,startedAt:a.startedAt,endedAt:a.endedAt,exitCode:a.exitCode,timedOut:a.timedOut,limitHit:a.limitHit,usageAtStart:a.usageAtStart??null,usageAtEnd:a.usageAtEnd??null}));
     return {...work,waivedChildren,title:task.title??task.brief.goal,state:task.state,rev:task.rev,review:task.review??null,question:task.question??null,retryEligibility:workRestartEligibility(ctx,task,work),executor:task.executor??task.requestedExecutor,model:task.result?.model??task.attempts.at(-1)?.model??null,actualModel:task.attempts.at(-1)?.actualModel??null,decisions,attempts,createdAt:task.createdAt,settledAt:task.settledAt??null};
   });
   return {rootId:root.rootId,nodes,totals:workTotals(nodes,workWaitTotals(ctx,nodes.map(n=>n.taskId)))};
 }
+/** Internal: index rows of a node whose record is gone. A symbol key survives spreading but never reaches JSON. */
+const TOKEN_ITEMS=Symbol("tokenItems");
 interface TotalsAttempt {startedAt:number;endedAt:number;executor?:string;model?:string|null;actualModel?:string|null;tokens?:AttemptTokens;usageAtStart?:AttemptUsage|null;usageAtEnd?:AttemptUsage|null}
-interface TotalsNode {state:string;createdAt:number|null;attempts:TotalsAttempt[];tokenItems?:TokenItem[]}
+interface TotalsNode {state:string;createdAt:number|null;attempts:TotalsAttempt[];[TOKEN_ITEMS]?:TokenItem[]}
 export function observedUsageDelta(a?:AttemptUsage|null,b?:AttemptUsage|null):number|null {
  if(!a||!b||!a.poolId||a.poolId!==b.poolId||a.resetEpoch==null||a.resetEpoch!==b.resetEpoch||a.account!==b.account||a.window!==b.window
   ||a.stale!==false||b.stale!==false||!a.observationId||!b.observationId||a.observationId===b.observationId
@@ -196,7 +198,7 @@ function usagePools(attempts:TotalsAttempt[]){
  }).sort((a,b)=>JSON.stringify([a.account,a.poolId,a.resetEpoch]).localeCompare(JSON.stringify([b.account,b.poolId,b.resetEpoch])));
 }
 function tokenItemsOf(n:TotalsNode):TokenItem[]{
- if(n.tokenItems)return n.tokenItems;
+ if(n[TOKEN_ITEMS])return n[TOKEN_ITEMS];
  return itemsOf(n.attempts.map(a=>({executor:a.executor??"unknown",model:a.model,actualModel:a.actualModel,usageAtStart:a.usageAtStart,
   tokens:a.tokens??unknownTokens("rollup@1",{now:a.endedAt},"attempt has no token record")})));
 }
