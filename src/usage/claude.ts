@@ -1,4 +1,5 @@
 import type { AccountCfg } from "../config/accounts";
+import { defaultAccountFolder } from "../exec/account-folder";
 import { chmodSync, existsSync, mkdirSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -80,7 +81,7 @@ export function claudeCachePaths(ctx: Ctx, account?: AccountCfg): string[] {
   if (account && account.source !== "default") return [claudeCacheFile(ctx, account)];
   return [
     claudeCacheFile(ctx, account),
-    join(ctx.home, ".claude", "state", "budget", "claude.json"),
+    join(defaultAccountFolder(ctx, "claude"), "state", "budget", "claude.json"),
   ];
 }
 
