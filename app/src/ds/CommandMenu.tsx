@@ -35,7 +35,7 @@ export function Highlight({ text, ranges = [] }: { text: string; ranges?: [numbe
  * announced through aria-activedescendant. The caller owns the query, scope and options; mounting it opens it and
  * unmounting closes it and returns focus to the element that opened it.
  */
-export function CommandMenu({ label, placeholder, query, onQueryChange, prefix, scopes, scope, onScope, groups, empty, enterHint, hints, onPick, onClose }: {
+export function CommandMenu({ label, placeholder, query, onQueryChange, prefix, scopes, scope, onScope, groups, empty, enterHint, hints, returnFocus, onPick, onClose }: {
   label: string; placeholder: string; query: string; onQueryChange: (query: string) => void;
   /** A badge shown before the input for the active mode, such as "Commands". */
   prefix?: string;
@@ -44,6 +44,8 @@ export function CommandMenu({ label, placeholder, query, onQueryChange, prefix, 
   /** Shown above the options when nothing matched. */
   empty?: { title: string; description: string };
   enterHint: string; hints?: ComponentChildren;
+  /** The element to focus on close. Defaults to the element focused at open, which WebKit leaves on the body after a mouse click on a button. */
+  returnFocus?: () => HTMLElement | null;
   onPick: (id: string) => void; onClose: () => void;
 }) {
   const uid = useId();
@@ -68,7 +70,8 @@ export function CommandMenu({ label, placeholder, query, onQueryChange, prefix, 
     input.current?.focus();
     return () => {
       element.close();
-      if (invoking?.isConnected) invoking.focus();
+      const target = returnFocus?.() ?? invoking;
+      if (target?.isConnected) target.focus();
     };
   }, []);
   useEffect(() => { list.current?.querySelector(`[id="${optionId(active)}"]`)?.scrollIntoView?.({ block: "nearest" }); }, [active, signature]);

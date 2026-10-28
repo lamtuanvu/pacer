@@ -45,7 +45,14 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
       if (wantOpen.current) { wantOpen.current = false; setPalette(true); }
     }, () => { wantOpen.current = false; });
   }, [loadAttempt]);
-  const togglePalette = () => { if (Palette) setPalette(open => !open); else { wantOpen.current = true; setLoadAttempt(n => n + 1); } };
+  // Where focus goes when the menu closes. WebKit (Safari, the desktop shell) does not focus a button on click, so the
+  // title-bar button hands itself over; ⌘K returns to whatever had focus, else to that button.
+  const paletteReturn = useRef<HTMLElement | null>(null);
+  const triggerFor = (trigger?: HTMLElement) => {
+    const here = document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : null;
+    paletteReturn.current = trigger ?? here ?? document.querySelector<HTMLElement>("[data-command-trigger]");
+  };
+  const togglePalette = (trigger?: HTMLElement) => { triggerFor(trigger); if (Palette) setPalette(open => !open); else { wantOpen.current = true; setLoadAttempt(n => n + 1); } };
   const showStatusBar = !narrow && route.name !== "setup";
   // Side panels and the dock show only from 768px, so their shortcuts never toggle something hidden.
   const wide = useMedia(PANEL_MEDIA, true);
@@ -65,7 +72,7 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
   const searchable = route.name !== "setup" && route.name !== "loading";
   useEffect(() => {
     if (!searchable) return;
-    return commands.register({ id: "search.open", title: "Search", group: "Go to", keys: "Mod-k", hidden: true, run: togglePalette });
+    return commands.register({ id: "search.open", title: "Search", group: "Go to", keys: "Mod-k", hidden: true, run: () => togglePalette() });
   }, [searchable, Palette]);
   const firstRun = useRef(true);
   useEffect(() => {
@@ -90,5 +97,5 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
     main={loading ? <Skeleton /> : outdated ? <section className="pc-notice"><SectionHeading>Update pacer to use this view</SectionHeading><p>This screen needs a newer pacer service. Run <code>pacer update</code>, then reload this page.</p></section> : <DensityContext.Provider value={SETTINGS.has(route.name) ? "settings" : "compact"}>{children}</DensityContext.Provider>}
     dock={dockAvailable && dockOpen && <TerminalDock query={route.query} close={toggleDock} />}
     status={showStatusBar && <StatusBar route={route} snapshot={state.snapshot} registry={keys} terminal={dockAvailable ? { open: dockOpen, toggle: toggleDock } : undefined} />}
-  />{palette && Palette && <Palette snapshot={state.snapshot} close={() => setPalette(false)} />}</NarrowContext.Provider>;
+  />{palette && Palette && <Palette snapshot={state.snapshot} returnFocus={() => paletteReturn.current} close={() => setPalette(false)} />}</NarrowContext.Provider>;
 }

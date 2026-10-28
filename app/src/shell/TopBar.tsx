@@ -15,7 +15,7 @@ import { UsageMeter } from "../ds/UsageMeter";
 
 export interface TopBarProps {
   narrow?: boolean; title: string; planner: PlannerMeter | null; mode: string; connected: boolean; lastUpdate: number | null;
-  showActions?: boolean; now?: number; onDelegate: () => void; delegatePrimary?: boolean; onSearch?: () => void;
+  showActions?: boolean; now?: number; onDelegate: () => void; delegatePrimary?: boolean; onSearch?: (trigger: HTMLElement) => void;
 }
 /** One compact page header, including native controls in the desktop shell. */
 export function TopBar({ narrow = false, title, planner, mode, connected, lastUpdate, now: fixedNow, onDelegate, delegatePrimary = true, showActions = true, onSearch }: TopBarProps) {
@@ -28,8 +28,8 @@ export function TopBar({ narrow = false, title, planner, mode, connected, lastUp
     {showActions && <h1 data-tauri-drag-region title={title}>{title}</h1>}
     <span className="grow" data-tauri-drag-region />
     {showActions && onSearch && (narrow
-      ? <IconButton icon="search" aria-label="Search" aria-haspopup="dialog" onClick={onSearch} />
-      : <DensityContext.Provider value="compact"><Button variant="quiet" size="sm" className="pc-topbar__search" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K" aria-label="Search tasks, machines, commands" onClick={onSearch}>
+      ? <IconButton icon="search" aria-label="Search" aria-haspopup="dialog" data-command-trigger="" onClick={event => onSearch(event.currentTarget)} />
+      : <DensityContext.Provider value="compact"><Button variant="quiet" size="sm" className="pc-topbar__search" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K" aria-label="Search tasks, machines, commands" data-command-trigger="" onClick={event => onSearch(event.currentTarget)}>
         <span className="pc-topbar__search-icon" aria-hidden="true"><Icon name="search" /></span>
         <span className="pc-topbar__search-text">Search tasks, machines, commands</span>
         {keyCaps("Mod-k").map(cap => <Kbd key={cap}>{cap}</Kbd>)}

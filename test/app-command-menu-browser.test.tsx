@@ -205,3 +205,20 @@ browserTest("a new query puts the highlight back on the first result", () => wit
   await page.waitForTimeout(150);
   expect((await activeOption(page)).label).toBe((await labels(page))[0]);
 }));
+
+browserTest("escape_returns_focus_to_the_trigger_when_a_click_does_not_focus_it", () => withPage(async (page, built) => {
+  await open(page, built, "#/overview");
+  // WebKit (Safari, the desktop shell) leaves focus on the body when a button is clicked; stopping mousedown does the same here.
+  await page.evaluate(() => document.querySelector(".pc-topbar__search")!.addEventListener("mousedown", event => event.preventDefault()));
+  await page.locator(".pc-topbar__search").click();
+  await page.getByRole("combobox").waitFor();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("combobox").count()).resolves.toBe(0);
+  await focused(page, ".pc-topbar__search");
+  // Cmd-K with nothing focused also lands on the trigger.
+  await page.evaluate(() => (document.activeElement as HTMLElement).blur());
+  await page.keyboard.press("Control+k");
+  await page.getByRole("combobox").waitFor();
+  await page.keyboard.press("Escape");
+  await focused(page, ".pc-topbar__search");
+}));

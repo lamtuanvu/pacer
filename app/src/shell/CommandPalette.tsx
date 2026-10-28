@@ -20,7 +20,7 @@ export function rememberRecent(id: string, before = loadRecent()): string[] {
 }
 
 /** The ⌘K command menu over the app's snapshot and the one command registry. Mount it to open it. */
-export function CommandPalette({ snapshot, registry = commandRegistry, now: fixedNow, close }: { snapshot: ClientSnapshot | null; registry?: CommandRegistry; now?: number; close: () => void }) {
+export function CommandPalette({ snapshot, registry = commandRegistry, now: fixedNow, returnFocus, close }: { snapshot: ClientSnapshot | null; registry?: CommandRegistry; now?: number; returnFocus?: () => HTMLElement | null; close: () => void }) {
   const [query, setQuery] = useState("");
   const [scope, setScope] = useState<MenuScope>("all");
   const [recent] = useState(loadRecent);
@@ -53,5 +53,5 @@ export function CommandPalette({ snapshot, registry = commandRegistry, now: fixe
     scopes={searching ? SCOPES.map(item => ({ ...item, count: menu.counts[item.id] })) : undefined} scope={menu.scope} onScope={id => setScope(id as MenuScope)}
     groups={groups} empty={menu.empty ? { title: `Nothing matches “${parseQuery(query).text}”`, description: "Try fewer words, another scope, or turn it into work:" } : undefined}
     enterHint={menu.enterHint} hints={<span className="pc-command__hint"><Kbd>&gt;</Kbd> commands{ASK_ENABLED && <> · <Kbd>?</Kbd> ask assistant</>}</span>}
-    onPick={pick} onClose={close} />;
+    onPick={pick} onClose={close} returnFocus={returnFocus} />;
 }
