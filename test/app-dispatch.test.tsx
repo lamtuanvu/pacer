@@ -470,6 +470,15 @@ test("a fresh borrowed planner figure shows its meter without a pace pill or a s
   expect(html).toContain("40% used");
   expect(html).not.toMatch(/Usage unknown|Under pace|On pace|Ahead of pace/);
   expect(html).not.toContain("pc-meter--stale");
+  expect(html).toContain('aria-valuetext="40% used"');
+});
+
+test("a live planner reading without a pace keeps its verdict pill", () => {
+  for (const [verdict, usedPct] of [["out", 98], ["ahead", 92]] as const) {
+    const html = plannerHalf(view(null, { ...snap, planner: { ...snap.planner!, verdict, usedPct, pacePct: null, stale: false } }));
+    expect(html).toMatch(verdict === "out" ? /pc-pill[^>]*>[\s\S]*?Out of quota/ : /pc-pill[^>]*>[\s\S]*?Ahead of pace/);
+    expect(html).toContain(`${usedPct}% used`);
+  }
 });
 
 

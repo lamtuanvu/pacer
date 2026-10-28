@@ -189,7 +189,7 @@ test("planner budget keeps the live advice, meter and measured captions", () => 
   const planner = { ...snapshot.planner!, usedPct: 16, pacePct: 38, window: "weekly", stale: false };
   const budget = plannerBudget({ ...snapshot, planner }, now, 4)!;
   expect(budget.lead).toBe(planner.advice);
-  expect(budget.meter).toEqual({ used: 16, pace: 38, stale: false, label: "Claude Code weekly usage" });
+  expect(budget.meter).toEqual({ used: 16, pace: 38, stale: false, live: true, label: "Claude Code weekly usage" });
   expect(budget.caption).toBe(plannerCaption(planner, now, 4));
   expect(budget.caption).toContain("5h window 4%");
 });
@@ -202,7 +202,7 @@ test("planner budget identifies historical readings and their actual capture age
     const historical = { ...snapshot, planner, accounts: [account], executors: [{ ...snapshot.executors![0]!, id: planner.runner, usedPct: 28, stale: true }] };
     const budget = plannerBudget(historical, now, 99)!;
     expect(budget.lead).toBe("Usage reading is out of date.");
-    expect(budget.meter).toEqual({ used: 28, pace: null, stale: true, label: "Claude Code 5h usage" });
+    expect(budget.meter).toEqual({ used: 28, pace: null, stale: true, live: false, label: "Claude Code 5h usage" });
     expect(budget.caption).toBe(`5h window · ${capturedAt === null ? "reading time unknown" : "read 3h ago"}`);
     expect(budget.caption).not.toContain("5h window 99%");
     expect(budget.caption).not.toMatch(/5h window \d+%/);

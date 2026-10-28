@@ -132,9 +132,9 @@ function PlannerHalf({ snapshot, now, shortWindowPct }: { snapshot: ClientSnapsh
   if (!p) return null;
   const name = agentInfo(p.agent).name, pace = paceStatus(p.verdict), words = plannerPace(p.verdict), budget = plannerBudget(snapshot, now, shortWindowPct)!;
   return <div className="pc-dispatch-split__half" id="planner-budget" aria-label="Planner budget" role="group">
-    <div className="pc-dispatch-who"><AgentMark agent={p.agent} size={20} labelled={false} /><strong title={name}>{name}</strong><Pill tone="info">Planner</Pill>{/* Only a live reading has a pace; a borrowed or historical figure would sit under "Usage unknown". */}{(!budget.meter || budget.meter.pace !== null) && <StatusPill status={{ ...pace, label: words.label }} />}</div>
+    <div className="pc-dispatch-who"><AgentMark agent={p.agent} size={20} labelled={false} /><strong title={name}>{name}</strong><Pill tone="info">Planner</Pill>{/* The verdict belongs to the planner's own live reading; a borrowed or historical figure would sit under "Usage unknown". */}{(!budget.meter || budget.meter.live) && <StatusPill status={{ ...pace, label: words.label }} />}</div>
     {budget.lead && <p className="pc-dispatch-advice">{budget.lead}</p>}
-    {budget.meter && <UsageMeter {...budget.meter} tone={budget.meter.stale ? "neutral" : pace.tone} verdict={budget.meter.stale ? undefined : p.verdict} size="bar" now={now} />}
+    {budget.meter && <UsageMeter used={budget.meter.used} pace={budget.meter.pace} stale={budget.meter.stale} label={budget.meter.label} tone={budget.meter.live ? pace.tone : "neutral"} verdict={budget.meter.live ? p.verdict : undefined} size="bar" now={now} />}
     {budget.caption && <span className="muted">{budget.caption}</span>}
   </div>;
 }

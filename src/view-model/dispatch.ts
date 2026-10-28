@@ -171,14 +171,14 @@ export function plannerCaption(meter: { usedPct: number | null; pacePct: number 
 
 /** One planner budget statement; historical figures never borrow a live short-window caption or pace. */
 export function plannerBudget(snapshot: ClientSnapshot, now: number, shortWindowPct?: number | null): {
-  lead: string; meter?: { used: number; pace: number | null; stale: boolean; label: string }; caption: string;
+  lead: string; meter?: { used: number; pace: number | null; stale: boolean; label: string; /** The planner's own current reading, which carries its verdict. */ live: boolean }; caption: string;
 } | null {
   const p = snapshot.planner;
   if (!p) return null;
   const name = agentInfo(p.agent).name;
   if (p.usedPct !== null && !p.stale) return {
     lead: p.advice,
-    meter: { used: p.usedPct, pace: p.pacePct, stale: false, label: `${name} ${p.window ? `${p.window} ` : ""}usage` },
+    meter: { used: p.usedPct, pace: p.pacePct, stale: false, live: true, label: `${name} ${p.window ? `${p.window} ` : ""}usage` },
     caption: plannerCaption(p, now, shortWindowPct),
   };
   const account = snapshot.accounts?.find(a => a.executors.includes(p.runner));
@@ -192,12 +192,12 @@ export function plannerBudget(snapshot: ClientSnapshot, now: number, shortWindow
   const stale = p.usedPct !== null ? true : account?.usedPct != null ? account.stale !== false : executor?.stale !== false;
   if (!stale) return {
     lead: "Planner pace is not measured yet.",
-    meter: { used, pace: null, stale: false, label: `${name} ${window ? `${window} ` : ""}usage` },
+    meter: { used, pace: null, stale: false, live: false, label: `${name} ${window ? `${window} ` : ""}usage` },
     caption: window ? `${window} window` : "",
   };
   return {
     lead: "Usage reading is out of date.",
-    meter: { used, pace: null, stale: true, label: `${name} ${window ? `${window} ` : ""}usage` },
+    meter: { used, pace: null, stale: true, live: false, label: `${name} ${window ? `${window} ` : ""}usage` },
     // The meter states the figure; the caption says which window it was and how old it is (UI-15).
     caption: window ? `${window} window · ${age}` : age.charAt(0).toUpperCase() + age.slice(1),
   };
