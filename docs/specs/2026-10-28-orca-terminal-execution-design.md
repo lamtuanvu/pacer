@@ -22,7 +22,7 @@ A spike against Orca 1.4.241 (2026-10-28) established:
 ### 1. Backend selection (`src/exec/backend.ts`)
 
 - Remove `orcaPermissionFallback`. When the effective backend is `orca` (strategy or `PACER_BACKEND=orca`) and Orca is available, `selectBackend` returns the real `orcaBackend`.
-- Cases that stay direct, each logged in the attempt log as today: interactive runners; accounts with a `connection` (credentials must not appear in a visible Orca terminal command); agents without a supported terminal launch (see 3). Managed (`pacer`/`orca` source) Claude and Codex accounts are supported: their config-folder environment variables are placed in the terminal command, which contains paths only, never keys.
+- Cases that stay direct, each logged in the attempt log as today: interactive runners; accounts with a `connection` (credentials must not appear in a visible Orca terminal command); agents without a supported terminal launch (see 3); tasks that allow delegation (their `PACER_WORK_GRANT` is a secret and must not appear in a visible Orca terminal command), which fall back before any Orca call. Managed (`pacer`/`orca` source) Claude and Codex accounts are supported: their config-folder environment variables are placed in the terminal command, which contains paths only, never keys.
 
 ### 2. Orca attempt (`src/exec/orca/backend.ts`, `client.ts`)
 
@@ -33,7 +33,7 @@ A spike against Orca 1.4.241 (2026-10-28) established:
 3. **Agent terminal.** `orca terminal create --worktree <selector> --title "pacer <task-id>" --command "<cmd>" --json`, where `<cmd>` is `env PACER_ROLE=executor PACER_TASK_ID=<id> [account env] <interactive argv without prompt>` built from a new `launchArgvFor(cfg, worktree, runDir, trustRoot)` in `src/exec/launch.ts` that shares flags with the existing interactive launcher (Claude: `claude --dangerously-skip-permissions [--model m]`; Codex: `codex --no-daemon -c <trust> -C <worktree> --dangerously-bypass-approvals-and-sandbox --add-dir <runDir> [-m m]`). Arguments are shell-quoted with the existing `shq`. Record the handle with the work admission immediately.
 4. **Ready.** `orca terminal wait --terminal <h> --for tui-idle --timeout-ms 60000 --json`. If not satisfied (including `agent-trust-workspace`), close the terminal and fall back to direct with the reason logged (no worker exists yet, so this cannot duplicate work).
 5. **Start.** `worker-start --spec <spec> --terminal <h> --worktree <selector> --run <run> --from <coordinator>` (no `--agent`/`--model`). `workerSpec` no longer rewrites the `pacer ask` line, because the identity variables are in the terminal environment. Existing uncertain-start handling is unchanged.
-6. **Cleanup.** After settlement, timeout or stop: existing `worker-release`/`worker-stop` calls, then always `orca terminal close --terminal <h>` for the handle pacer created (never any other). The current "close orphaned agent terminal" check becomes unconditional for pacer-created terminals.
+6. **Cleanup.** After settlement, timeout or stop: existing `worker-release`/`worker-stop` calls, then always `orca terminal close --terminal <h>` for the handle pacer created. The current "close orphaned agent terminal" check becomes unconditional for pacer-created terminals. In a worktree pacer itself created (new-child), pacer also closes Orca's own initial shell terminal: it lists `orca terminal list --worktree id:<id>` after the create and once more after the idle wait, and closes only rows in that worktree, each with a receipt naming the handle with `ptyKilled`. That shell is not pacer work, so the session work lease is never bound to it. Pacer never closes terminals in any other worktree, nor in an existing or retry placement. If the listing fails or is truncated, pacer records the worktree, and `pacer clean` later closes the remaining non-agent terminals of that pacer-owned worktree after verifying ownership.
 
 ### 3. Supported agents
 
@@ -44,7 +44,7 @@ Claude Code and Codex use the terminal launch. Other agents (Cursor, Antigravity
 Decision (2026-10-28, revised after review and live validation): pacer does not edit Claude configuration files. The Claude terminal command sets `CLAUDE_CODE_SANDBOXED=1`, which Claude Code (2.1.x) treats as an already-isolated environment: the folder-trust check returns trusted without writing `~/.claude.json`.
 
 - The variable is undocumented. `--dangerously-skip-permissions` officially does not skip the trust prompt (anthropics/claude-code#28506, #36342), and the documented `-p` route cannot host an Orca worker. Editing `projects[path].hasTrustDialogAccepted` was rejected because Claude rewrites `~/.claude.json` concurrently and no shared lock exists.
-- Side effect: Claude also applies the repository's own `.claude/` permission grants without its approval prompt. The agent already runs with `--dangerously-skip-permissions`, so the added exposure is small; it is documented for users in `docs/executors.md`.
+- Side effect: Claude also applies the repository's own `.claude/` permission grants, runs its project hooks and starts the MCP servers in its `.mcp.json` without its approval prompt. This matches direct execution, where `claude -p` already skips the trust prompt. The agent already runs with `--dangerously-skip-permissions`, so the added exposure is small; it is documented for users in `docs/executors.md`.
 - Failure is safe: if a Claude release ignores the variable, the idle wait reports `agent-trust-workspace`, pacer closes its terminal and falls back to direct (section 2 step 4).
 - Codex is unchanged: its trust stays in the `-c projects=...` argument.
 
@@ -61,6 +61,8 @@ Decision (2026-10-28, revised after review and live validation): pacer does not 
 
 - Every failure before `worker-start` succeeds closes any terminal pacer created and falls back to direct (logged once per hour as today). After `worker-start`, existing uncertain-start and supervision rules apply; no direct fallback.
 - Terminal close failures are logged and retried during cleanup; a terminal pacer cannot close is reported in the task log with its handle.
+- A terminal Orca shows disconnected needs no further close. When it was killed because pacer removed its worktree (pacer records each removal), that removal and the disconnected terminal are positive evidence its work ended, and cleanup releases the work lease bound to it.
+- A settled worker found after an uncertain start is attached to its task, and the task's review, dismissal and resolution are cleared so the task needs review again before `pacer clean` can remove the worktree.
 
 ## Testing
 

@@ -8,7 +8,7 @@ import {makeOrcaBackend, type OrcaBackendDeps} from "../src/exec/orca/backend";
 import {createTask, updateTask} from "../src/tasks/store";
 import {fakeCtx} from "./helpers";
 import {bindOrcaWorkSync, beginWorkSync, finishOrcaWorkSync, finishWorkSync, reserveIdle, releaseReservation} from "../src/update/desktop/admission";
-import {loadOrcaState} from "../src/exec/orca/state";
+import {loadOrcaState, updateOrcaState} from "../src/exec/orca/state";
 import {reconcileHostWork, cleanHostWorktree} from "../src/exec/cleanup";
 import {randomUUID} from "node:crypto";
 import {fakeRun, raw, type Route} from "./fixtures/orca/fake";
@@ -572,4 +572,125 @@ test("reconciling a settled uncertain worker attaches its worktree and outcome t
   expect(t.worktree).toBe(x.root);
   expect(t.result?.worktree).toBe(x.root);
   expect(t.result?.report).toContain(`Orca worker ctx_9 was found succeeded after the uncertain start; its work is in ${x.root}`);
+});
+
+const gone = (handle: string, worktreeId: string, incarnationId = "inc") =>
+  envelope({terminal: {handle, incarnationId, worktreeId, connected: false, writable: false, exitCause: {kind: "unknown", reason: "stop_unverified"}}});
+
+test("Orca's initial terminal that cannot be closed never holds the session lease; after pacer removes the worktree, clean retires its record", async () => {
+  const x = setup([[O("terminal", "close", "--terminal", "term_shell"), failure("close_failed")]]);
+  const out = await x.backend.runAttempt(x.ctx, x.cfg, x.task);
+  expect(out.backend).toBe("direct");
+  expect(x.f.count(O("terminal", "close", "--terminal", "term_shell"))).toBe(2);
+  expect(has(x.f.calls, "worktree", "rm")).toBe(true);
+  expect(loadOrcaState(x.ctx).unclosed.term_shell).toMatchObject({taskId: x.task.id, worktreeId: x.wt});
+  expect(loadOrcaState(x.ctx).removed[x.wt]).toMatchObject({id: x.wt, path: x.root});
+  const later = fakeRun([[O("terminal", "close"), failure("close_failed")], [O("terminal", "show"), gone("term_shell", x.wt, "shell-inc")]]);
+  x.ctx.run = later.run;
+  await reconcileHostWork(x.ctx);
+  expect(loadOrcaState(x.ctx).unclosed).toEqual({});
+  expect(loadOrcaState(x.ctx).removed).toEqual({});
+  expect(await lease(x)).toBe(false);
+});
+
+test("a pacer terminal whose close failed twice has its lease released once reconcile proves it died with the worktree pacer removed", async () => {
+  const x = setup([[O("terminal", "wait"), failure("timeout")], [O("terminal", "close", "--terminal", terminal), failure("close_failed")]]);
+  await x.backend.runAttempt(x.ctx, x.cfg, x.task);
+  expect(has(x.f.calls, "worktree", "rm")).toBe(true);
+  expect(loadOrcaState(x.ctx).unclosed[terminal]).toMatchObject({worktreeId: x.wt});
+  expect(await lease(x)).toBe(true);
+  // Disconnected in some other worktree, or with another incarnation, is not proof.
+  for (const reply of [gone(terminal, "repo-1::/work/other"), gone(terminal, x.wt, "other-inc")]) {
+    x.ctx.run = fakeRun([[O("terminal", "close"), failure("close_failed")], [O("terminal", "show"), reply]]).run;
+    await reconcileHostWork(x.ctx);
+    expect(await lease(x)).toBe(true);
+    updateOrcaState(x.ctx, s => {s.unclosed[terminal] = {taskId: x.task.id, terminal, worktreeId: x.wt, at: 1}; s.removed[x.wt] = {id: x.wt, path: x.root, at: 1};});
+  }
+  x.ctx.run = fakeRun([[O("terminal", "close"), failure("close_failed")], [O("terminal", "show"), gone(terminal, x.wt)]]).run;
+  await reconcileHostWork(x.ctx);
+  expect(loadOrcaState(x.ctx).unclosed).toEqual({});
+  expect(await lease(x)).toBe(false);
+});
+
+test("a failed close of a terminal in a worktree pacer did not remove keeps its lease", async () => {
+  const x = setup([[O("terminal", "close", "--terminal", terminal), failure("close_failed")]]);
+  await x.backend.runAttempt(x.ctx, x.cfg, x.task);
+  x.ctx.run = fakeRun([[O("terminal", "close"), failure("close_failed")], [O("terminal", "show"), gone(terminal, x.wt)]]).run;
+  await reconcileHostWork(x.ctx);
+  expect(await lease(x)).toBe(true);
+});
+
+test("a reviewed uncertain task whose settled worker is found needs review again, and clean --force keeps its worktree", async () => {
+  const x = setup([[O("orchestration", "worker-start"), failure("timeout")], [O("orchestration", "worker-list"), failure("unavailable")]]);
+  const out = await x.backend.runAttempt(x.ctx, x.cfg, x.task);
+  updateTask(x.ctx, x.task.id, t => {
+    t.state = "done"; t.review = {accepted: true, kind: null, note: null, at: 1}; t.dismissed = true; t.resolved = "resolved";
+    t.result = {status: "done", executor: "codex", model: null, files: "", report: out.report, backend: "orca"};
+  });
+  const later = fakeRun([
+    [O("orchestration", "worker-list"), envelope({workers: [{dispatchId: "ctx_9", agentTerminalHandle: terminal, workerState: "succeeded"}], page: {hasMore: false}})],
+    [O("terminal", "close"), envelope({close: {handle: terminal, ptyKilled: true}})],
+    [O("worktree", "show"), envelope({worktree: {id: x.wt, path: x.root, displayName: `pacer-${x.task.id}-codex`, isMainWorktree: false}})],
+    [O("worktree", "rm"), envelope({})],
+    [["git"], raw(`${x.root}\n`)],
+  ]);
+  x.ctx.run = later.run;
+  const {clean} = await import("../src/core/tasks");
+  for (let pass = 0; pass < 2; pass++) expect((await clean(x.ctx, {force: true})).removed).toEqual([]);
+  expect(has(later.calls, "worktree", "rm")).toBe(false);
+  const t = (await import("../src/tasks/store")).readTask(x.ctx, x.task.id)!;
+  expect(t.worktree).toBe(x.root);
+  expect([t.review, t.dismissed, t.resolved]).toEqual([undefined, undefined, undefined]);
+});
+
+for (const [name, list] of [["failed", failure("unknown_flag")], ["truncated", envelope({terminals: [], totalCount: 40, truncated: true})]] as const) {
+  test(`a ${name} worktree terminal listing records the worktree; clean sweeps its non-agent terminals with proof`, async () => {
+    const x = setup([[O("terminal", "list"), list]]);
+    const out = await x.backend.runAttempt(x.ctx, x.cfg, x.task);
+    expect(out.backend).toBe("orca");
+    expect(readFileSync(out.attempt.log, "utf8")).toContain(`recorded worktree ${x.wt} for a stray terminal sweep by pacer clean`);
+    expect(loadOrcaState(x.ctx).strays[x.wt]).toMatchObject({taskId: x.task.id, id: x.wt, path: x.root});
+    updateTask(x.ctx, x.task.id, t => {t.state = "done";});
+    const owned = [O("worktree", "show"), envelope({worktree: {id: x.wt, path: x.root, displayName: `pacer-${x.task.id}-codex`, isMainWorktree: false}})] as Route;
+    x.ctx.run = fakeRun([owned, [O("terminal", "list"), list]]).run;
+    await reconcileHostWork(x.ctx);
+    expect(loadOrcaState(x.ctx).strays[x.wt]).toBeDefined();
+    updateOrcaState(x.ctx, s => {s.unclosed.term_kept = {taskId: x.task.id, terminal: "term_kept", at: 1};});
+    const sweep = fakeRun([owned,
+      [O("terminal", "list"), envelope({terminals: [{handle: "term_shell", worktreeId: x.wt}, {handle: "term_kept", worktreeId: x.wt}, {handle: "term_elsewhere", worktreeId: "repo-1::/work/other"}], truncated: false})],
+      [O("terminal", "close", "--terminal", "term_shell"), envelope({close: {handle: "term_shell", ptyKilled: true}})],
+      [O("terminal", "close"), failure("close_failed")],
+      [O("terminal", "show"), envelope({terminal: {handle: "term_kept", connected: true, writable: true}})],
+    ]);
+    x.ctx.run = sweep.run;
+    await reconcileHostWork(x.ctx);
+    expect(sweep.count(O("terminal", "close", "--terminal", "term_shell"))).toBe(1);
+    expect(sweep.calls.some(a => a.includes("term_elsewhere"))).toBe(false);
+    expect(sweep.calls.filter(a => a[2] === "close" && a.includes("term_kept"))).toHaveLength(2);
+    expect(loadOrcaState(x.ctx).strays).toEqual({});
+  });
+}
+
+test("the stray sweep waits while a task runs in the worktree", async () => {
+  const x = setup([[O("terminal", "list"), failure("unknown_flag")]]);
+  await x.backend.runAttempt(x.ctx, x.cfg, x.task);
+  updateTask(x.ctx, x.task.id, t => {t.state = "running";});
+  const sweep = fakeRun([[O("worktree", "show"), envelope({worktree: {id: x.wt, path: x.root, displayName: `pacer-${x.task.id}-codex`, isMainWorktree: false}})]]);
+  x.ctx.run = sweep.run;
+  await reconcileHostWork(x.ctx);
+  expect(sweep.calls.some(a => a[1] === "terminal")).toBe(false);
+  expect(loadOrcaState(x.ctx).strays[x.wt]).toBeDefined();
+});
+
+test("an uncertain-start terminal Orca already shows disconnected is reconciled without a close receipt", async () => {
+  const x = setup([[O("orchestration", "worker-start"), failure("timeout")], [O("orchestration", "worker-list"), failure("unavailable")]]);
+  await x.backend.runAttempt(x.ctx, x.cfg, x.task);
+  x.ctx.run = fakeRun([
+    [O("orchestration", "worker-list"), envelope({workers: [], page: {hasMore: false}})],
+    [O("terminal", "close"), failure("terminal_not_found")],
+    [O("terminal", "show"), envelope({terminal: {handle: terminal, connected: false, writable: false}})],
+  ]).run;
+  await reconcileHostWork(x.ctx);
+  expect(loadOrcaState(x.ctx).uncertain).toEqual({});
+  expect(loadOrcaState(x.ctx).stranded[x.task.id]).toMatchObject({id: x.wt});
 });

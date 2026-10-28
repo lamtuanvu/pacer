@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { worktreeDirty } from "../../supervisor/worktree";
-import { updateTask } from "../../tasks/store";
+import { releaseOrcaTerminalWorkSync } from "../../update/desktop/admission";
+import { listTasksWhere, updateTask } from "../../tasks/store";
 import type { TaskRecord } from "../../tasks/types";
 import type { Ctx } from "../../types";
 import type { HostClean, HostCleanOpts } from "../cleanup";
@@ -59,23 +60,33 @@ export async function lookupWorker(c: OrcaClient, run: string, terminal: string,
   }
 }
 
-/** Terminals Orca lists in exactly this worktree, except the given handles. Null when the listing failed. */
+/** Terminals Orca lists in exactly this worktree, except the given handles. Null when the listing failed or was truncated. */
 export async function worktreeTerminals(c: OrcaClient, worktreeId: string, except: string[] = []): Promise<TerminalRow[] | null> {
   try {
     const r = await c.terminalList(`id:${worktreeId}`);
-    if (!r.ok || !Array.isArray(r.result.terminals)) return null;
+    if (!r.ok || !Array.isArray(r.result.terminals) || r.result.truncated === true) return null;
     return r.result.terminals.filter(t => typeof t?.handle === "string" && t.worktreeId === worktreeId && !except.includes(t.handle));
   } catch { return null; }
 }
 
 /** Record a pacer-owned terminal whose close had no receipt proof, so `pacer clean` retries it. */
-export async function recordUnclosed(ctx: Ctx, taskId: string, terminal: string, log: (l: string) => void): Promise<void> {
+export async function recordUnclosed(ctx: Ctx, taskId: string, terminal: string, log: (l: string) => void, worktreeId?: string): Promise<void> {
   try {
     await withLock(ctx, "coordinator", async () => {
-      updateOrcaState(ctx, s => { s.unclosed[terminal] = { taskId, terminal, at: ctx.now }; });
+      updateOrcaState(ctx, s => { s.unclosed[terminal] = { taskId, terminal, ...(worktreeId ? { worktreeId } : {}), at: ctx.now }; });
     });
     log(`recorded terminal ${terminal} for a later close by pacer clean`);
   } catch (e) { log(`recording unclosed terminal ${terminal} failed: ${String(e)}`); }
+}
+
+/** Record a pacer-created worktree whose terminals could not be listed, so `pacer clean` sweeps its strays. */
+export async function recordStrayRisk(ctx: Ctx, taskId: string, w: OwnedWorktree, log: (l: string) => void): Promise<void> {
+  try {
+    await withLock(ctx, "coordinator", async () => {
+      updateOrcaState(ctx, s => { s.strays[w.id] = { taskId, ...w, at: ctx.now }; });
+    });
+    log(`recorded worktree ${w.id} for a stray terminal sweep by pacer clean`);
+  } catch (e) { log(`recording worktree ${w.id} for a stray sweep failed: ${String(e)}`); }
 }
 
 /** Orca's reply proves the selector names this pacer-named, non-main worktree at this path. */
@@ -89,9 +100,13 @@ async function verifyOwned(c: OrcaClient, selector: string, want: { name: string
 }
 
 /** Orca removes worktrees asynchronously: report success only once the directory is gone. */
-async function removeOwned(c: OrcaClient, id: string, path: string, force: boolean, deps: CleanupDeps): Promise<string | null> {
+async function removeOwned(ctx: Ctx, c: OrcaClient, id: string, path: string, force: boolean, deps: CleanupDeps): Promise<string | null> {
   const r = await c.worktreeRemove(id, force);
   if (!r.ok) return r.error.message.trim() || "Orca worktree removal failed";
+  // Removal kills the worktree's terminals without an operator-close receipt; remember that pacer did it.
+  try {
+    await withLock(ctx, "coordinator", async () => { updateOrcaState(ctx, s => { s.removed[id] = { id, path, at: ctx.now }; }); });
+  } catch { /* Without the record, a terminal pacer could not close keeps its lease. */ }
   for (let i = 0; existsSync(path); i++) {
     if (i >= deps.polls) return "Orca is still removing the worktree; run pacer clean again";
     await deps.sleep(500);
@@ -111,7 +126,7 @@ export async function discardCreatedWorktree(ctx: Ctx, c: OrcaClient, taskId: st
   let failure: string | null;
   try {
     const owned = await verifyOwned(c, `id:${w.id}`, w);
-    failure = "error" in owned ? (owned.missing ? null : owned.error) : await removeOwned(c, w.id, w.path, true, deps);
+    failure = "error" in owned ? (owned.missing ? null : owned.error) : await removeOwned(ctx, c, w.id, w.path, true, deps);
   } catch (e) { failure = String(e instanceof Error ? e.message : e); }
   if (!failure) { log(`removed Orca worktree ${w.id}`); return; }
   try { await strand(ctx, taskId, w); } catch (e) { log(`recording Orca worktree ${w.id} failed: ${String(e)}`); }
@@ -120,7 +135,7 @@ export async function discardCreatedWorktree(ctx: Ctx, c: OrcaClient, taskId: st
 
 async function removeStranded(ctx: Ctx, c: OrcaClient, s: StrandedWorktree, force: boolean, deps: CleanupDeps): Promise<string | null> {
   const owned = await verifyOwned(c, `id:${s.id}`, s);
-  const failure = "error" in owned ? (owned.missing ? null : owned.error) : await removeOwned(c, s.id, s.path, force, deps);
+  const failure = "error" in owned ? (owned.missing ? null : owned.error) : await removeOwned(ctx, c, s.id, s.path, force, deps);
   if (failure) return failure;
   await withLock(ctx, "coordinator", async () => { updateOrcaState(ctx, x => { delete x.stranded[s.taskId]; }); });
   return null;
@@ -145,35 +160,71 @@ export async function cleanOrcaTask(ctx: Ctx, t: TaskRecord, o: HostCleanOpts, o
   const owned = await verifyOwned(c, `path:${path}`, { name: `pacer-${t.id}-${t.result.executor}`, path });
   if ("error" in owned) return { kept: owned.error };
   if (o.dryRun) return { removed: true };
-  const failure = await removeOwned(c, owned.id, path, !!o.force, deps);
+  const failure = await removeOwned(ctx, c, owned.id, path, !!o.force, deps);
   return failure ? { kept: failure } : { removed: true };
 }
 
-/** A worker found settled after an uncertain start: show its worktree and outcome on the task for review. */
+/** A worker found settled after an uncertain start: show its worktree and outcome on the task, which needs review again. */
 function attachSettled(ctx: Ctx, u: UncertainStart, dispatchId: string, state: string): void {
   updateTask(ctx, u.taskId, t => {
     const note = `Orca worker ${dispatchId} was found ${state} after the uncertain start${u.worktree ? `; its work is in ${u.worktree.path}` : ""}.`;
     if (u.worktree) { t.worktree ??= u.worktree.path; if (t.result) t.result.worktree ??= u.worktree.path; }
     if (t.result && !t.result.report.includes(note)) t.result.report = `${t.result.report}\n\n${note}`.trim();
+    // Any review covered the "unstarted" result, not this work: `pacer clean` must not remove it unseen.
+    delete t.review; delete t.dismissed; delete t.resolved;
   });
+}
+
+/** Orca's row when it shows the terminal disconnected and unwritable, or null. */
+async function disconnected(c: OrcaClient, terminal: string): Promise<TerminalRow | null> {
+  const shown = await c.terminalShow(terminal).catch(() => null);
+  const row = shown?.ok ? shown.result.terminal : undefined;
+  return row?.handle === terminal && row.connected === false && row.writable === false ? row : null;
+}
+
+/** A dead terminal in a worktree pacer itself removed is positive evidence its work ended: release its lease. */
+function releaseRemoved(ctx: Ctx, row: TerminalRow, worktreeId: string | undefined, removed: Set<string>): void {
+  if (!worktreeId || !removed.has(worktreeId) || (row.worktreeId !== undefined && row.worktreeId !== worktreeId)) return;
+  try { releaseOrcaTerminalWorkSync(ctx, row.handle, row.incarnationId); } catch { /* A later pass retries. */ }
+}
+
+/** Close terminals Orca left in a pacer-created worktree whose listing failed, except pacer's own agent terminals. */
+async function sweepStrays(ctx: Ctx, c: OrcaClient, w: StrandedWorktree): Promise<boolean> {
+  const owned = await verifyOwned(c, `id:${w.id}`, w);
+  if ("error" in owned) return !!owned.missing;
+  const real = realpathSafe(w.path);
+  // A task still running there may own a terminal pacer has not recorded yet.
+  if (listTasksWhere(ctx, { states: ["queued", "running"] }).some(t => {
+    const p = realpathSafe(t.worktree ?? t.result?.worktree ?? t.brief.repo);
+    return p === real || p.startsWith(real + "/");
+  })) return false;
+  const s = loadOrcaState(ctx);
+  const agents = [...Object.values(s.workers).map(x => x.terminal), ...Object.keys(s.uncertain), ...Object.keys(s.unclosed)].filter((x): x is string => !!x);
+  const listed = await worktreeTerminals(c, w.id, agents);
+  if (!listed) return false;
+  let all = true;
+  for (const t of listed) all = (await closeCreatedTerminal(c, t.handle)).proof && all;
+  return all;
 }
 
 /** Later pass: close terminals whose close had no proof, and uncertain-start terminals once no live worker can use them. */
 export async function reconcileOrcaWork(ctx: Ctx): Promise<void> {
   const c = new OrcaClient(ctx.run, ctx.env);
+  const removed = new Set(Object.keys(loadOrcaState(ctx).removed));
+  // A terminal Orca already shows disconnected (for example, killed with its worktree) has nothing left to close.
+  const closedOrGone = async (terminal: string, worktreeId: string | undefined): Promise<boolean> => {
+    if ((await closeCreatedTerminal(c, terminal)).proof) return true;
+    const row = await disconnected(c, terminal);
+    if (row) releaseRemoved(ctx, row, worktreeId, removed);
+    return !!row;
+  };
   for (const u of Object.values(loadOrcaState(ctx).unclosed)) {
-    let done = (await closeCreatedTerminal(c, u.terminal)).proof;
-    if (!done) {
-      // A terminal Orca already shows disconnected (for example, killed with its worktree) has nothing left to close.
-      const shown = await c.terminalShow(u.terminal).catch(() => null);
-      done = !!shown?.ok && shown.result.terminal?.handle === u.terminal && shown.result.terminal.connected === false && shown.result.terminal.writable === false;
-    }
-    if (done) await withLock(ctx, "coordinator", async () => { updateOrcaState(ctx, s => { delete s.unclosed[u.terminal]; }); });
+    if (await closedOrGone(u.terminal, u.worktreeId)) await withLock(ctx, "coordinator", async () => { updateOrcaState(ctx, s => { delete s.unclosed[u.terminal]; }); });
   }
   for (const u of Object.values(loadOrcaState(ctx).uncertain)) {
     const found = await lookupWorker(c, u.run, u.terminal);
     if (found.kind === "unknown" || (found.kind === "found" && !SETTLED.includes(found.state))) continue;
-    if (!(await closeCreatedTerminal(c, u.terminal)).proof) continue;
+    if (!(await closedOrGone(u.terminal, u.worktree?.id))) continue;
     if (found.kind === "found") attachSettled(ctx, u, found.dispatchId, found.state);
     await withLock(ctx, "coordinator", async () => {
       updateOrcaState(ctx, s => {
@@ -183,4 +234,14 @@ export async function reconcileOrcaWork(ctx: Ctx): Promise<void> {
       });
     });
   }
+  for (const w of Object.values(loadOrcaState(ctx).strays)) {
+    if (await sweepStrays(ctx, c, w)) await withLock(ctx, "coordinator", async () => { updateOrcaState(ctx, s => { delete s.strays[w.id]; }); });
+  }
+  // Keep removal evidence only while a recorded terminal may still need it.
+  await withLock(ctx, "coordinator", async () => {
+    updateOrcaState(ctx, s => {
+      const used = new Set([...Object.values(s.unclosed).map(u => u.worktreeId), ...Object.values(s.uncertain).map(u => u.worktree?.id)]);
+      for (const id of Object.keys(s.removed)) if (!used.has(id)) delete s.removed[id];
+    });
+  });
 }

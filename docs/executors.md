@@ -135,7 +135,9 @@ own shell terminal in a new worktree; pacer lists that worktree's terminals and
 closes it before launching the agent, and checks once more after the agent is
 idle. Terminals in other worktrees are never touched. Pacer closes the
 terminal it created when the worker settles. A close that Orca does not confirm
-is recorded and retried by the next `pacer clean`. For a default account, the
+is recorded and retried by the next `pacer clean`. If Orca cannot list the
+worktree's terminals, pacer records the worktree and the next `pacer clean`
+closes the terminals left in it. For a default account, the
 terminal command unsets `CLAUDE_CONFIG_DIR` or `CODEX_HOME` so the agent does
 not inherit another account from Orca's shell. Tasks that allow delegation run
 directly, because their work grant cannot be placed in a visible terminal
@@ -145,7 +147,8 @@ task directly; a worktree it cannot remove is removed by `pacer clean` after
 review. When pacer cannot tell whether Orca started the worker, it does not run
 the task directly: it keeps the terminal and retries the check on the next
 `pacer clean`. If that check finds the worker settled, pacer adds its worktree
-and outcome to the task for review. The attempt log lists each step, with account folder values
+and outcome to the task and marks the task for review again, even if it was
+already reviewed or dismissed. The attempt log lists each step, with account folder values
 replaced by their variable names. `pacer clean` removes reviewed or dismissed
 Orca worktrees once Orca has deleted the directory; Orca may also remove the
 worktree branch when it can prove the branch is merged.

@@ -6,7 +6,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
-- Switch task execution between Direct and Orca in Settings, the TUI or `pacer config`; Orca again runs supported agents as supervised workers in Orca terminals with pacer's permission flags. Claude terminals use `CLAUDE_CODE_SANDBOXED=1` instead of configuration edits; pacer removes worktrees left by failed starts and keeps terminals whose worker start is uncertain for later reconciliation.
+- Switch task execution between Direct and Orca in Settings, the TUI or `pacer config`; Orca again runs supported agents as supervised workers in Orca terminals with pacer's permission flags. Claude terminals use `CLAUDE_CODE_SANDBOXED=1` instead of configuration edits; pacer removes worktrees left by failed starts and keeps terminals whose worker start is uncertain for later reconciliation. Tasks that allow delegation run directly, because their work grant cannot be placed in a visible Orca terminal command.
 - Add a persistent built-in terminal with workspace shells, tabs, splits, search and integrated app action sessions.
 - Strict native subagent control for new managed work: Pacer excludes uncertified executors before dispatch, checks again before launch, and exposes certification status and a quota-using canary in Dispatcher and the CLI. Existing managed tasks retain cooperative behavior.
 - Open HTTP(S), local file and source-location links from the built-in session terminal. A read-only viewer shows code, Markdown and an isolated static HTML preview without disconnecting the session.

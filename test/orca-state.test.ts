@@ -10,10 +10,10 @@ const entry = (subject: string): InboxEntry => ({ outcome: "succeeded", subject,
 
 test("a missing or corrupt orca.json loads as empty state", () => {
   const ctx = fakeCtx();
-  expect(loadOrcaState(ctx)).toEqual({ coordinator: null, run: null, workers: {}, stranded: {}, uncertain: {}, unclosed: {} });
+  expect(loadOrcaState(ctx)).toEqual({ coordinator: null, run: null, workers: {}, stranded: {}, uncertain: {}, unclosed: {}, strays: {}, removed: {} });
   mkdirSync(ctx.pacerHome, { recursive: true });
   writeFileSync(orcaStatePath(ctx), "not json");
-  expect(loadOrcaState(ctx)).toEqual({ coordinator: null, run: null, workers: {}, stranded: {}, uncertain: {}, unclosed: {} });
+  expect(loadOrcaState(ctx)).toEqual({ coordinator: null, run: null, workers: {}, stranded: {}, uncertain: {}, unclosed: {}, strays: {}, removed: {} });
 });
 
 test("updateOrcaState persists coordinator, run and workers", () => {
@@ -24,7 +24,7 @@ test("updateOrcaState persists coordinator, run and workers", () => {
     s.workers.ctx_1 = { dispatchId: "ctx_1", taskId: "t-20261011-150000-ab12", executor: "codex", worktree: "/wt", terminal: "term_2", startedAt: 5 };
   });
   expect(loadOrcaState(ctx)).toEqual({
-    coordinator: "term_1", run: "run_1", stranded: {}, uncertain: {}, unclosed: {},
+    coordinator: "term_1", run: "run_1", stranded: {}, uncertain: {}, unclosed: {}, strays: {}, removed: {},
     workers: { ctx_1: { dispatchId: "ctx_1", taskId: "t-20261011-150000-ab12", executor: "codex", worktree: "/wt", terminal: "term_2", startedAt: 5 } },
   });
   updateOrcaState(ctx, (s) => { delete s.workers.ctx_1; });
@@ -70,14 +70,18 @@ test("a stale lock is taken over; a held lock times out with an error", async ()
   await expect(withLock(ctx, "t", async () => "never", { timeoutMs: 120 })).rejects.toThrow("timed out");
 });
 
-test("stranded worktrees and uncertain starts persist; malformed records are dropped", () => {
+test("stranded worktrees, uncertain starts, stray risks and removals persist; malformed records are dropped", () => {
   const ctx = fakeCtx();
   mkdirSync(ctx.pacerHome, { recursive: true });
   writeFileSync(orcaStatePath(ctx), JSON.stringify({
     stranded: { t1: { taskId: "t1", id: "r::/w", path: "/w", name: "pacer-t1-codex", at: 1 }, bad: { taskId: 3 } },
     uncertain: { term_a: { taskId: "t1", terminal: "term_a", run: "run_1", worktree: null, at: 1 }, term_b: "x" },
+    strays: { "r::/w": { taskId: "t1", id: "r::/w", path: "/w", name: "pacer-t1-codex", at: 1 }, bad: { id: 3 } },
+    removed: { "r::/w": { id: "r::/w", path: "/w", at: 1 }, bad: { id: "r::/x" } },
   }));
   const s = loadOrcaState(ctx);
   expect(Object.keys(s.stranded)).toEqual(["t1"]);
   expect(Object.keys(s.uncertain)).toEqual(["term_a"]);
+  expect(Object.keys(s.strays)).toEqual(["r::/w"]);
+  expect(Object.keys(s.removed)).toEqual(["r::/w"]);
 });

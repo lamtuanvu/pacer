@@ -17,10 +17,15 @@ export interface StrandedWorktree { taskId: string; id: string; path: string; na
 /** A pacer terminal whose worker-start result was uncertain; a later pass reconciles it. */
 export interface UncertainStart { taskId: string; terminal: string; run: string; worktree: Omit<StrandedWorktree, "taskId" | "at"> | null; at: number }
 /** A pacer-owned terminal whose close returned no receipt proof; a later pass retries the close. */
-export interface UnclosedTerminal { taskId: string; terminal: string; at: number }
+export interface UnclosedTerminal { taskId: string; terminal: string; worktreeId?: string; at: number }
+/** A worktree pacer removed through Orca: positive evidence that its terminals died with it. */
+export interface RemovedWorktree { id: string; path: string; at: number }
 export interface OrcaState {
   coordinator: string | null; run: string | null; workers: Record<string, OrcaWorkerEntry>;
   stranded: Record<string, StrandedWorktree>; uncertain: Record<string, UncertainStart>; unclosed: Record<string, UnclosedTerminal>;
+  /** Pacer-created worktrees whose terminal listing failed, keyed by worktree id; `pacer clean` sweeps their strays. */
+  strays: Record<string, StrandedWorktree>;
+  removed: Record<string, RemovedWorktree>;
 }
 export interface InboxEntry { outcome: string; subject: string; body: string; filesModified: string[]; messageId: string }
 
@@ -44,6 +49,8 @@ export function loadOrcaState(ctx: Ctx): OrcaState {
     stranded: records<StrandedWorktree>(o.stranded, v => ["taskId", "id", "path", "name"].every(k => typeof v[k] === "string")),
     uncertain: records<UncertainStart>(o.uncertain, v => ["taskId", "terminal", "run"].every(k => typeof v[k] === "string")),
     unclosed: records<UnclosedTerminal>(o.unclosed, v => ["taskId", "terminal"].every(k => typeof v[k] === "string")),
+    strays: records<StrandedWorktree>(o.strays, v => ["taskId", "id", "path", "name"].every(k => typeof v[k] === "string")),
+    removed: records<RemovedWorktree>(o.removed, v => ["id", "path"].every(k => typeof v[k] === "string")),
   };
 }
 
