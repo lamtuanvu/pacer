@@ -552,9 +552,9 @@ exports[`golden frames (NO_COLOR) settings › This machine at 120x40 1`] = `
      Accounts                   │   
      Executors 2 down           │ › Parallel tasks            ‹ 2 ›  1 busy now                                        
    ▸ This machine               │                             Shared by all executors that run on this machine. 1–16.  
-     Remote hosts 1 needs setup │ 
-     Routing                    │ 
-     Project strategies         │ 
+     Remote hosts 1 needs setup │   Task backend              ‹ Direct ›                                               
+     Routing                    │                             Orca runs tasks as supervised Orca workers; tasks run    
+     Project strategies         │                             directly when Orca isn't running.                        
      Strategies                 │ 
      Updates                    │ 
      Notifications              │ 
@@ -596,9 +596,9 @@ exports[`golden frames (NO_COLOR) settings › This machine at 80x24 1`] = `
  › Parallel tasks            ‹ 2 ›  1 busy now                                 
                              Shared by all executors that run on this machine. 
                              1–16.                                             
- 
- 
- 
+   Task backend              ‹ Direct ›                                        
+                             Orca runs tasks as supervised Orca workers; tasks 
+                             run directly when Orca isn't running.             
  
  
  

@@ -24,6 +24,12 @@ const orcaPermissionFallback: Backend = {
   },
 };
 
+/** Whether the backend with this id reports itself available; unknown ids are not. */
+export async function backendAvailable(ctx: Ctx, s: Strategy, id: string, extras: Backend[] = EXTRA_BACKENDS): Promise<boolean> {
+  const b = [...extras, directBackend].find((b) => b.id === id);
+  return b ? b.available(ctx, s) : false;
+}
+
 /** Managed account folders and connection credentials require direct execution. */
 export async function selectBackend(ctx: Ctx, s: Strategy, extras: Backend[] = EXTRA_BACKENDS, runnerId?: string): Promise<Backend> {
   const runner = runnerId ? resolveRunner(s, runnerId) : undefined;

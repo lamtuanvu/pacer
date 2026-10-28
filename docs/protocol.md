@@ -1413,6 +1413,7 @@ Params JSON Schema:
       "enum": [
         "task_retention_days",
         "execution.local_max_tasks",
+        "execution.backend",
         "planner",
         "pacing.order",
         "pacing.policy",

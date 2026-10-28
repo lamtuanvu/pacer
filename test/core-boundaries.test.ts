@@ -26,3 +26,7 @@ test("only the plugin host imports the bundled plugin list", () => {
   const offenders = files(src).filter(f => !allowed.has(f) && /from\s+["'][^"']*\/plugins\/bundled["']/.test(readFileSync(f, "utf8")));
   expect(offenders).toEqual([]);
 });
+
+test("core config takes backend readiness by injection, not from src/exec", () => {
+  expect(readFileSync(join(import.meta.dir, "..", "src", "core", "config.ts"), "utf8")).not.toMatch(/from\s+["'][^"']*\/exec\//);
+});

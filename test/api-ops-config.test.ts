@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { callOp } from "../src/api/ops";
 import { helloBody, toApiError } from "../src/api/protocol";
 import { eventsSince } from "../src/api/events";
-import { loadStrategy } from "../src/config/strategy";
+import { loadStrategy, type Strategy } from "../src/config/strategy";
 import { emptySnapshot, parseOutboxEvent, reduce } from "../src/link/envelope";
 import * as config from "../src/core/config";
 import * as setup from "../src/core/setup";
@@ -174,4 +174,36 @@ test("concurrent conflicting machine capacity changes return conflict", async ()
   expect((await second).code).toBe("conflict");
   await first;
   expect(await callOp(ctx, "config.get", {})).toMatchObject({keys: {"execution.local_max_tasks": {value: 3}}});
+});
+
+test("execution.backend maps auto and unset to direct, writes orca or direct and the op wires Orca readiness", async () => {
+  const ctx = await configured(), path = join(ctx.pacerHome, "strategy.yaml"), calls: string[][] = [];
+  ctx.run = async argv => { calls.push(argv); return {code: 127, stdout: "", stderr: "not available in tests"}; };
+  expect(await callOp(ctx, "config.get", {})).toMatchObject({keys: {"execution.backend": {value: "direct", source: "default"}}});
+  writeFileSync(path, readFileSync(path, "utf8") + "execution: {backend: auto}\n");
+  expect(await callOp(ctx, "config.get", {})).toMatchObject({keys: {"execution.backend": {value: "direct", source: path}}});
+  expect(calls).toEqual([]);
+  const warned = await callOp(ctx, "config.set", {key: "execution.backend", value: "orca"}) as Record<string, unknown>;
+  expect(warned).toMatchObject({value: "orca", previous: "direct", undo: "pacer config set execution.backend direct", warning: "Orca isn't running; tasks run directly until it is."});
+  expect(warned.notes).toBeUndefined();
+  expect(loadStrategy(ctx).execution).toMatchObject({backend: "orca"});
+  expect(calls[0]?.slice(0, 2)).toEqual(["orca", "status"]);
+  await callOp(ctx, "config.set", {key: "execution.backend", value: "direct"});
+  expect(readFileSync(path, "utf8")).toContain("backend: direct");
+  const before = readFileSync(path, "utf8");
+  for (const value of ["auto", "bogus"]) expect(await error(callOp(ctx, "config.set", {key: "execution.backend", value}))).toMatchObject({code: "invalid_input", message: "execution.backend must be orca or direct"});
+  expect(readFileSync(path, "utf8")).toBe(before);
+});
+
+test("core config.set warns from injected backend readiness only for orca", async () => {
+  const ctx = await configured(), seen: unknown[] = [];
+  ctx.run = async () => { throw Error("core must not query Orca"); };
+  const set = (value: string, backendReady?: (c: typeof ctx, s: Strategy, id: string) => Promise<boolean>) => config.set(ctx, "execution.backend", value, {backendReady});
+  const ready = async (_: unknown, s: Strategy, id: string) => { seen.push([s.execution, id]); return true; };
+  expect((await set("orca", ready)).warning).toBeUndefined();
+  expect(seen).toEqual([[{backend: "orca"}, "orca"]]);
+  expect(await set("orca", async () => false)).toMatchObject({warning: "Orca isn't running; tasks run directly until it is.", notes: ["Orca isn't running; tasks run directly until it is."]});
+  expect(await set("orca", async () => { throw Error("orca crashed"); })).toMatchObject({warning: expect.stringContaining("Orca isn't running")});
+  expect((await set("orca")).warning).toBeUndefined();
+  seen.length = 0; expect((await set("direct", ready)).warning).toBeUndefined(); expect(seen).toEqual([]);
 });

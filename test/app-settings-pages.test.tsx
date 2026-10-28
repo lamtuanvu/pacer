@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 import { renderToString } from 'preact-render-to-string';
-import { SettingsGeneral } from '../app/src/screens/settings/General';
+import { SettingsGeneral, TaskBackendField } from '../app/src/screens/settings/General';
+import { Feedback } from '../app/src/screens/settings/shared';
 import { SettingsPanel } from '../app/src/shell/SettingsPanel';
 import { TaskContext } from '../app/src/screens/task-shared';
 import { initialState } from '../app/src/data/store';
@@ -53,4 +54,20 @@ test('terminal picker shows Linux automatic and an existing custom template', ()
 test('General page destinations preserve scope in the href for native link actions', () => {
   const html = renderToString(<TaskContext.Provider value={{state, api:{} as any}}><SettingsGeneral query={{repo:'',scope:'repo:example'}} initialData={settings}/></TaskContext.Provider>);
   expect(html).toContain('href="#/settings/planner?repo=&amp;scope=repo%3Aexample"');
+});
+
+test('task backend picker shows the current backend and sets the chosen one', () => {
+  const orca={...settings,config:{...settings.config,keys:{...settings.config.keys,'execution.backend':{value:'orca'}}}};
+  const html=renderToString(<TaskContext.Provider value={{state,api:{} as any}}><SettingsGeneral section="machine" initialData={orca}/></TaskContext.Provider>);
+  expect(html).toContain('Task backend');
+  expect(html).toContain("Orca runs tasks as supervised Orca workers; tasks run directly when Orca isn't running.");
+  expect(html).toMatch(/aria-label="Task backend"[^>]*>[^<]*<span class="pc-choice-picker__value">Orca</);
+  expect(render('machine')).toMatch(/aria-label="Task backend"[^>]*>[^<]*<span class="pc-choice-picker__value">Direct</);
+  const calls: unknown[][]=[], field=TaskBackendField({value:'direct',run:(...args)=>calls.push(args)}) as any;
+  field.props.children.props.onValueChange('orca');
+  expect(calls).toEqual([['config.set',{key:'execution.backend',value:'orca'}]]);
+});
+test('settings feedback shows a set warning', () => {
+  const action={busy:false,error:undefined,result:{data:{},message:'Saved.',warning:"Orca isn't running; tasks run directly until it is."},job:undefined,run:async()=>undefined,clear:()=>{}} as any;
+  expect(renderToString(<Feedback action={action}/>)).toContain("Orca isn't running; tasks run directly until it is.");
 });

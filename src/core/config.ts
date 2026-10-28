@@ -17,15 +17,17 @@ import { plannerAccounts } from "../install/init";
 
 import { validateExecution } from '../config/execution';
 
+export const ORCA_NOT_RUNNING = "Orca isn't running; tasks run directly until it is.";
+
 const pendingEdits = new Set<string>();
 
-export const CONFIG_KEYS = ['task_retention_days','execution.local_max_tasks','planner','pacing.order','pacing.policy','pacing.planner_reserve','pacing.accounts','pacing.fill_threshold','update_check','terminal.app','terminal.open'] as const;
+export const CONFIG_KEYS = ['task_retention_days','execution.local_max_tasks','execution.backend','planner','pacing.order','pacing.policy','pacing.planner_reserve','pacing.accounts','pacing.fill_threshold','update_check','terminal.app','terminal.open'] as const;
 export type ConfigKey = typeof CONFIG_KEYS[number];
 function plannerId(s: Strategy): string {
   return formatRunnerId({...s.planner,host:null},{...runnerDefaults(s.accounts),opencode:undefined});
 }
 function effective(s: Strategy, raw: StrategyDoc): Record<ConfigKey, unknown> {
-  return {task_retention_days:s.taskRetentionDays ?? 14,'execution.local_max_tasks':validateExecution(s.execution).localMaxTasks ?? 2,'terminal.open':s.terminal?.open ?? '',planner:plannerId(s),'pacing.order':s.pacing.order,'pacing.policy':s.pacing.policy,
+  return {task_retention_days:s.taskRetentionDays ?? 14,'execution.local_max_tasks':validateExecution(s.execution).localMaxTasks ?? 2,'execution.backend':validateExecution(s.execution).backend==='orca'?'orca':'direct','terminal.open':s.terminal?.open ?? '',planner:plannerId(s),'pacing.order':s.pacing.order,'pacing.policy':s.pacing.policy,
     'pacing.planner_reserve':s.pacing.plannerReserve,'pacing.accounts':s.pacing.accounts,
     'pacing.fill_threshold':s.pacing.fillThreshold,update_check:raw.getIn(['update_check']) ?? true,'terminal.app':raw.getIn(['terminal','app']) ?? 'Terminal'};
 }
@@ -41,6 +43,7 @@ function parseValue(key:ConfigKey, value:string): unknown {
     if(!/^\d+$/.test(value) || !Number.isInteger(n) || n < 1 || n > 16) throw new CoreError('invalid_input', 'execution.local_max_tasks must be an integer from 1 to 16');
     return n;
   }
+  if(key==='execution.backend' && !['orca','direct'].includes(value)) throw new CoreError('invalid_input', 'execution.backend must be orca or direct');
   if(key==='pacing.order') {
     if(value==='') return [];
     const ids=value.split(',').map(v=>v.trim()); if(ids.some(v=>!v)) throw Error('pacing.order requires comma-separated runner ids');
@@ -73,7 +76,7 @@ export function get(ctx: Ctx) {
 }
 
 /** Validate before writing; integration failure rolls back our strategy edit. */
-export async function set(ctx: Ctx, keyInput: string, input: unknown, options: {integrations?: "install" | "skip"; terminalPresetsOnly?: boolean} = {}) {
+export async function set(ctx: Ctx, keyInput: string, input: unknown, options: {integrations?: "install" | "skip"; terminalPresetsOnly?: boolean; backendReady?: (ctx: Ctx, s: Strategy, id: string) => Promise<boolean>} = {}) {
   const editKey = `${strategyPath(ctx)}:${keyInput}`;
   if (pendingEdits.has(editKey)) throw new CoreError('conflict', 'This setting is already being changed', 'Refresh and retry.');
   pendingEdits.add(editKey);
@@ -131,6 +134,12 @@ export async function set(ctx: Ctx, keyInput: string, input: unknown, options: {
       }
     } else diff=applyEdit(d=>Array.isArray(value)?d.setList(key.split('.'),value):setValue(d));
     await publishConfigChange(ctx, "config");
-    return {key, value: effective(next,doc)[key], previous: values[key], diff, undo, notes};
+    // Readiness is only a hint: selectBackend falls back to direct until Orca is ready.
+    let warning: string | undefined;
+    if(key==='execution.backend' && value==='orca' && options.backendReady) {
+      const ready=await options.backendReady(ctx,next,value).catch(()=>false);
+      if(!ready) notes.push(warning=ORCA_NOT_RUNNING);
+    }
+    return {key, value: effective(next,doc)[key], previous: values[key], diff, undo, notes, ...(warning ? {warning} : {})};
   } catch (e) { throw toCoreError(e); } finally { pendingEdits.delete(editKey); }
 }

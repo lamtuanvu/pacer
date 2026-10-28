@@ -49,11 +49,11 @@ export function ResourceState({resource,empty,children}:{resource:{data:unknown;
  if(Array.isArray(resource.data)&&resource.data.length===0)return <EmptyState title={empty??'Nothing here yet.'}/>;
  return <>{children}</>;
 }
-export interface OperationResult {data:unknown;message:string;hint?:string;command?:string;job?:Job;jobId?:string;path?:string;undo?:string}
+export interface OperationResult {data:unknown;message:string;hint?:string;command?:string;job?:Job;jobId?:string;path?:string;undo?:string;warning?:string}
 export async function performOperation(call:BrowserApi['call'],op:string,params:unknown):Promise<OperationResult> {
  const data=await call<unknown>(op,params),r=(data&&typeof data==='object'?data:{}) as Record<string,unknown>;
  const candidate=(r.job??(r.steps&&r.id?r:undefined)) as Job|string|undefined;
- return {data,path:typeof r.path==='string'?r.path:undefined,undo:typeof r.undo==='string'?r.undo:undefined,message:typeof r.message==='string'?r.message:typeof r.opened==='boolean'?r.opened?'Opened in terminal.':'Run this command in a terminal.':candidate?'Check progress below.':'Saved.',hint:typeof r.hint==='string'?r.hint:r.migrated?settingsMigrationMessage:undefined,command:typeof r.command==='string'?r.command:undefined,...(typeof candidate==='string'?{jobId:candidate}:candidate?{job:candidate,jobId:candidate.id}:{})};
+ return {data,path:typeof r.path==='string'?r.path:undefined,undo:typeof r.undo==='string'?r.undo:undefined,message:typeof r.message==='string'?r.message:typeof r.opened==='boolean'?r.opened?'Opened in terminal.':'Run this command in a terminal.':candidate?'Check progress below.':'Saved.',hint:typeof r.hint==='string'?r.hint:r.migrated?settingsMigrationMessage:undefined,command:typeof r.command==='string'?r.command:undefined,warning:typeof r.warning==='string'?r.warning:undefined,...(typeof candidate==='string'?{jobId:candidate}:candidate?{job:candidate,jobId:candidate.id}:{})};
 }
 export function useOperation(onDone?:()=>void, options: {notifySuccess?: boolean} = {}) {
  const notifications=useNotifications();
@@ -82,7 +82,7 @@ export function JobProgress({job}:{job:Job}) {
 }
 export function Feedback({action}:{action:ReturnType<typeof useOperation>}) {
  const notifications=useNotifications();
- return <div className="u3-feedback"><ErrorMessage error={action.error}/>{action.result&&<>{!notifications&&!action.job&&<span>{action.result.message}</span>}{action.result.hint&&<p>{action.result.hint}</p>}{action.result.command&&<pre>{action.result.command}</pre>}{action.result.path&&<p>Path: <code>{action.result.path}</code></p>}{action.result.undo&&<p>Undo: <code>{action.result.undo}</code></p>}</>}{action.job&&<JobProgress job={action.job}/>}</div>;
+ return <div className="u3-feedback"><ErrorMessage error={action.error}/>{action.result&&<>{!notifications&&!action.job&&<span>{action.result.message}</span>}{action.result.warning&&<Alert tone="warning" title={action.result.warning}/>}{action.result.hint&&<p>{action.result.hint}</p>}{action.result.command&&<pre>{action.result.command}</pre>}{action.result.path&&<p>Path: <code>{action.result.path}</code></p>}{action.result.undo&&<p>Undo: <code>{action.result.undo}</code></p>}</>}{action.job&&<JobProgress job={action.job}/>}</div>;
 }
 export function Segment(props:{label:string;value:string;options:{value:string;label:string}[];onChange:(value:string)=>void;disabled?:boolean}) {return <SegmentedControl {...props}/>;}
 export const words=(value:string)=>value.replaceAll('_',' ');
