@@ -33,6 +33,7 @@ import { launchFor, launchModeFor, providerEnv, resumeLaunchFor, type LaunchMode
 import { claudeConfigFile, grantClaudeFolderTrust } from "./claude-trust";
 import { detectLimit } from "./limits";
 import { type ExecResult, executorEnv, execProcess } from "./process";
+import { terminalEnv, terminalEnvNote, type TerminalEnv } from "./login-env";
 import { buildPrompt } from "./prompt";
 import { localRunIO, readOutput, startRun } from "../supervisor/run";
 import { type SuperviseEnd, supervise } from "../supervisor/supervise";
@@ -271,6 +272,12 @@ export async function finishRun(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, ru
   };
 }
 
+/** Where the executor's base environment came from; names the shell or the reason only, never a value. */
+function recordEnvironment(dir: string, base: TerminalEnv): void {
+  try { writeFileSync(join(dir, "environment.json"), JSON.stringify(base.source === "login-shell" ? {source: base.source, shell: base.shell} : {source: base.source, reason: base.reason}), {mode: 0o600}); }
+  catch { /* diagnostics only */ }
+}
+
 /** Claude asks about folder trust before it loads pacer's hooks, so an unattended task would wait unseen. */
 async function preapproveClaudeTrust(ctx: Ctx, env: Record<string, string | undefined>, folder: string, root?: string): Promise<string> {
   const result = await grantClaudeFolderTrust(claudeConfigFile(env, ctx.home), folder, root)
@@ -287,7 +294,9 @@ async function startTakeoverRun(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, pr
     if (typeof request.sessionId !== "string" || !request.sessionId) throw Error("Take over request has no session id");
     run.agentSession = {id:request.sessionId, source:readTask(ctx,task.id)?.run?.agentSession?.source ?? "lookup"};
     await ensureProviderIntegration(ctx, cfg.id);
-    const env = executorEnv(ctx.env, await providerEnv(ctx,cfg), task.id);
+    const base = await terminalEnv(ctx.env, {cwd: ctx.home});
+    note += terminalEnvNote(base);
+    const env = executorEnv(base.env, await providerEnv(ctx,cfg), task.id);
     const agent = cfg.via === "opencode" ? "opencode" : parseRunnerId(cfg.id)?.agent ?? cfg.id;
     if (agent === "codex") await requireCodexInteractive(ctx,env);
     // Codex resolves linked-worktree trust against the main repository root.
@@ -298,6 +307,7 @@ async function startTakeoverRun(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, pr
     env.PACER_HOME = ctx.pacerHome; env.PACER_RUN_DIR = dir; env.PACER_TRANSCRIPT_REPORT = join(dir,"transcript-report.md");
     mkdirSync(dir,{recursive:true,mode:0o700});
     writeFileSync(join(dir,"argv"),launch.argv.join(" "),{mode:0o600});
+    recordEnvironment(dir, base);
     run.startedAt = Date.now()/1000;
     // Publish before spawn so run-bound reports validate even from a fast CLI.
     updateTask(ctx,task.id,t=>{t.run=run;t.takeover={...t.takeover,state:"driving",at:request.at,sessionId:request.sessionId,...(request.by?{by:request.by}:{})};t.progress={lastOutputAt:null,lastChangeAt:null,files:0,commits:0,logBytes:0,host:"local",...t.progress,phase:"driving",updatedAt:Date.now()/1000};});
@@ -323,7 +333,7 @@ export async function runAttempt(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, o
 async function runAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, onSpawn?: (pid: number) => void): Promise<AttemptOutcome> {
   const conversation = task.interactionMode === "conversation";
   const ex = loadExec(ctx);
-  let choice: LaunchModeChoice = conversation ? {mode: "interactive", explicit: true} : launchModeFor(cfg, ex);
+  let choice: LaunchModeChoice = conversation ? {mode: "interactive", explicit: true} : launchModeFor(cfg, ex, {managed: ctx.env.PACER_ENFORCEMENT_MODE === "strict"});
   cfg = {...cfg, session: choice.mode};
   const alias = parseRunnerId(cfg.id)?.host;
   if (alias) {
@@ -334,7 +344,7 @@ async function runAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, 
   const dir = tasksDir(ctx);
   mkdirSync(dir, { recursive: true });
   const startedAt = Date.now() / 1000, log = join(dir, `${task.id}.${cfg.id}.log`);
-  // Certification covers headless launches only; a mode changed after admission must not slip through.
+  // Certification covers headless launches only; an explicit interactive runner set after admission must not slip through.
   if (ctx.env.PACER_ENFORCEMENT_MODE === "strict" && choice.mode === "interactive") {
     return outcome(cfg, startedAt, {code: 1, stdout: "", stderr: STRICT_INTERACTIVE_REASON, timedOut: false}, log, STRICT_INTERACTIVE_REASON);
   }
@@ -400,9 +410,12 @@ async function runAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, 
     : buildPrompt(task.brief, task.id, !!ctx.env.PACER_WORK_GRANT);
   let launch: ReturnType<typeof launchFor>;
   let env: Record<string, string | undefined>;
+  let base: TerminalEnv | undefined;
   let agentSession: RunRef["agentSession"];
   try {
-    env = executorEnv(ctx.env, await providerEnv(ctx, cfg), task.id);
+    base = await terminalEnv(ctx.env, {cwd: ctx.home});
+    note += terminalEnvNote(base);
+    env = executorEnv(base.env, await providerEnv(ctx, cfg), task.id);
     const agent = parseRunnerId(cfg.id)?.agent ?? cfg.id;
     if (choice.mode === "interactive" && !choice.explicit && agent === "codex" && cfg.via !== "opencode") {
       const gap = await codexInteractiveGap(ctx, env);
@@ -457,6 +470,7 @@ async function runAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, 
   }
   mkdirSync(rdir, { recursive: true });
   writeFileSync(join(rdir, "argv"), launch.argv.join(" "));
+  if (base) recordEnvironment(rdir, base);
   const run: RunRef = { interactionMode: task.interactionMode, ...(agentSession ? {agentSession} : {}), dir: rdir, attempt, executor: cfg.id, startedAt, mode, workdir, logFile: log, ...(launch.lastMessageFile ? { lastMessageFile: launch.lastMessageFile } : {}) };
   updateTask(ctx, task.id, t => {
     t.run = run;

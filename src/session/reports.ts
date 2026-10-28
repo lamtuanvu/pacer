@@ -119,8 +119,9 @@ export function prepareInteractive(agent: string, dir: string, launch: Launch): 
   hooks.ElicitationResult = [{hooks: [{type: "command", command}]}];
   hooks.Notification = [{matcher: "permission_prompt|idle_prompt|elicitation_dialog", hooks: [{type: "command", command}]}];
   const settings = join(dir, "claude-settings.json");
-  // Per launch, so the account's settings.json stays untouched: no bypass-permissions acknowledgement dialog.
-  writeFileSync(settings, JSON.stringify({skipDangerousModePermissionPrompt: true, hooks}), {mode: 0o600});
+  // Per launch, so the account's settings.json stays untouched: no bypass-permissions acknowledgement dialog and
+  // no project MCP approval prompt. Claude still rejects servers listed in disabledMcpjsonServers first.
+  writeFileSync(settings, JSON.stringify({skipDangerousModePermissionPrompt: true, enableAllProjectMcpServers: true, hooks}), {mode: 0o600});
   return {...launch, argv: [launch.argv[0], "--settings", settings, ...launch.argv.slice(1)]};
 }
 /** Bind agent reports to the active attempt, including when --task is supplied. */

@@ -132,10 +132,13 @@ no interactive launcher. Endpoint test tasks always run headless. A runner with 
 explicit `session: interactive` still reports these cases as errors.
 Conversations are always interactive.
 
-Managed work with strict native subagent control resolves its mode the same way.
-Strict control is certified only for headless launches, so strict work whose mode
-resolves to interactive fails at once instead of waiting in the queue. Set
-`execution.launch_mode: headless`, or `session: headless` on the runner, to run it.
+Managed work with strict native subagent control stays headless, as it was before
+interactive became the default: `execution.launch_mode` and the default do not
+apply to it, and the attempt note records why. Strict control is certified only for
+headless launches, so a runner with an explicit `session: interactive` cannot take
+strict work. If that runner was requested, or no other runner can take the work, the
+task fails at once and names the setting to change. Pacer does not move requested
+work to a different runner because of its launch mode.
 
 ## Permission policy
 
@@ -168,11 +171,43 @@ answer is never changed. Conversations, which you attend, keep Claude's prompts.
 re-reads the file under Claude's `<file>.lock` lock, changes only those `projects`
 entries and replaces the file atomically. If the file is missing, unreadable or
 locked, the task still starts and its report says the trust prompt may appear.
-Claude's one-time bypass-permissions acknowledgement is skipped per launch through
-the run's `--settings` file; the account's `settings.json` is not edited.
-Claude still asks before using a project MCP server it has not seen, including one
-from a `.mcp.json` in a parent folder of `~/.pacer/worktrees`. Such a task waits for
-an answer from an attached terminal.
+Pacer keeps one trust entry per task worktree and, like Orca, does not remove the
+entries when it removes a worktree.
+
+The run's `--settings` file skips Claude's one-time bypass-permissions
+acknowledgement and approves project MCP servers for that launch
+(`enableAllProjectMcpServers`). This includes a server from a `.mcp.json` in a parent
+folder of `~/.pacer/worktrees`. The account's `settings.json` and `.claude.json` are
+not edited for either. A server you rejected stays off: Claude Code checks
+`disabledMcpjsonServers` in your settings before it applies the approval.
+
+## Session environment
+
+An executor session behaves as if you ran the same agent CLI in a new terminal in the
+task's folder, with pacer's own additions. The service runs under launchd or systemd,
+whose environment lacks most of your shell profile. Pacer therefore starts your login
+shell once (`$SHELL -l -i -c`, with no terminal input and a 5-second limit) and uses
+the environment it prints as the base for headless, interactive, takeover and resumed
+launches. PATH, locale, tool managers, proxies and API keys exported by your profile
+apply as they do in a terminal. Variables that pacer does not own are passed
+unchanged. The result is cached for 60 seconds and held in memory only. Each run
+directory's `environment.json` records the shell used, or the reason pacer fell back
+to the service's own environment; values are never logged or written. If the shell
+cannot be used, the attempt note says so. Set `PACER_LOGIN_ENV=off` in the service
+environment to skip the login shell.
+
+Pacer's overrides on top of that base:
+
+| Area | Override |
+| --- | --- |
+| Environment | `PACER_ROLE`, `PACER_TASK_ID`, `PACER_HOME`; interactive runs also get `PACER_RUN_DIR`, `PACER_TRANSCRIPT_REPORT` and `PACER_REPORT_TOKEN`. Pacer's own tokens are removed. |
+| Account | A named account sets `CLAUDE_CONFIG_DIR` or `CODEX_HOME`. The default account uses the CLI's default folder, so an inherited or profile value for these is removed. |
+| Terminal | Interactive runs use pacer's terminal (`TERM=xterm-256color`, `COLORTERM=truecolor`, 120×40 until a viewer resizes it). `NO_COLOR` and `FORCE_COLOR` are not passed to it. Headless runs have no terminal: input comes from the prompt or `/dev/null`, and output goes to the run's files. |
+| Flags | The permission flags above; `-p`/`exec`/`run` and the output format for headless runs; Codex `--no-daemon`; OpenCode `--standalone` and its `build` agent; the model, if the runner sets one. |
+| Configuration | Claude: interactive runs get the run's `--settings` file (reporting hooks, the acknowledgement and MCP approvals); strict headless runs get a `--settings` file with pacer's subagent guard. Codex: per-run hook, trust and (on resume) update-check overrides, which replace your hooks for those events in that run. Claude folder trust as described above. |
+| Prompt | The brief and pacer's report instructions. |
+
+Remote runners start through a login `bash -l` on the host and are not covered here.
 
 OpenCode model and agent selection are merged into the child's
 `OPENCODE_CONFIG_CONTENT` so full-TUI launches work with both CLI generations.

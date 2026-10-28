@@ -80,8 +80,8 @@ export async function resolveEnforcementTarget(ctx:Ctx,strategy:Strategy,runnerI
     :runner.agent==="codex"?[join(folder,"hooks.json"),join(repo,".codex","hooks.json")]
     :runner.agent==="cursor"?[join(folder,"hooks.json"),join(repo,".cursor","hooks.json")]
     :[opencodeConfigPath(ctx),join(repo,"opencode.json"),join(repo,"opencode.jsonc")];
-  // The same precedence as the attempt: runner session > execution.launch_mode > interactive.
-  const launchMode=launchModeFor(cfg,validateExecution(strategy.execution)).mode;
+  // The same precedence as a strict attempt: only an explicit runner session makes it interactive.
+  const launchMode=launchModeFor(cfg,validateExecution(strategy.execution),{managed:true}).mode;
   const launch=launchFor({...cfg,session:launchMode},"__prompt__","__repo__","__run__","__task__");
   return {runner:runnerId,account:runner.account,agent:runner.agent,version,binary,controlFiles,launchMode,launchArgs:launch.argv,guardArgv:pacerArgv(ctx.env)};
 }
@@ -128,7 +128,7 @@ export function certificateEvidence(ctx:Ctx,target:EnforcementTarget){
     fingerprint:enforcementFingerprint(target),entryPoints:evidence?.entries??[],probedAt:status.probedAt!,expiresAt:status.expiresAt!};
 }
 /** Strict work cannot wait this out: only a configuration change makes the launch certifiable. */
-export const STRICT_INTERACTIVE_REASON="Native subagent control is certified only for headless launches; set execution.launch_mode: headless or the runner's session: headless";
+export const STRICT_INTERACTIVE_REASON="Native subagent control is certified only for headless launches; remove the runner's session: interactive or set it to headless";
 function probeSupportReason(target:EnforcementTarget,repo:string):string|null {
   if(target.launchMode==="interactive")return STRICT_INTERACTIVE_REASON;
   if(target.agent==="codex")return "Native subagent control: Codex tool-result observation is not implemented for this CLI version";

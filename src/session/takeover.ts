@@ -9,6 +9,7 @@ import { loadStrategy } from "../config/strategy";
 import { parseRunnerId } from "../config/runner-id";
 import { providerEnv } from "../exec/launch";
 import { execProcess, executorEnv } from "../exec/process";
+import { terminalEnv } from "../exec/login-env";
 import { stopRun } from "../supervisor/run";
 import { CoreError } from "../core/errors";
 import { validateTaskId } from "./targets";
@@ -60,7 +61,7 @@ async function takeoverTaskAdmitted(ctx: Ctx, id: string, by?: string) {
     try {
       const cfg = loadStrategy(ctx).providers[run.executor];
       if (cfg) {
-        const env = executorEnv(ctx.env, await providerEnv(ctx, cfg), id);
+        const env = executorEnv((await terminalEnv(ctx.env, {cwd: ctx.home})).env, await providerEnv(ctx, cfg), id);
         const list = await execProcess({argv:["opencode", "session", "list", "--standalone", "--format", "json", "-n", "20"], cwd:run.workdir, env, timeoutMs:5000});
         const found = list.code === 0 ? parseOpencodeSessions(list.stdout, id) : undefined;
         if (found) session = {id:found, source:"lookup"};

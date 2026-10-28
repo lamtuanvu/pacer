@@ -114,6 +114,13 @@ function finish(ctx: Ctx, id: string, result: TaskResult): TaskRecord {
 
 const stopped = (ctx: Ctx, id: string) => readTask(ctx, id)?.state === "stopped";
 
+/** The runner whose explicit `session: interactive` alone blocks strict work: the requested one, or every runner. */
+function strictInteractiveRefusal(decision: DispatchPreview, requested: string | null): string | undefined {
+  if (requested) return decision.excluded.find(e => e.id === requested && e.reason === STRICT_INTERACTIVE_REASON)?.id;
+  const blocking = decision.excluded.filter(e => e.reason !== "planner");
+  return blocking.length && !decision.request.candidates.length && blocking.every(e => e.reason === STRICT_INTERACTIVE_REASON) ? blocking[0].id : undefined;
+}
+
 /** Run a delegated task to completion: pick executors, fall back on limits, verify, record the result. */
 export async function runTask(ctx: Ctx, id: string, deps: RunnerDeps = DEFAULTS): Promise<TaskRecord> {
   const inherited = ctx.env.PACER_ADMISSION_TASK === id ? ctx.env.PACER_ADMISSION_LEASE : undefined;
@@ -296,6 +303,15 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
           }
           const refusal = req && !tried.has(req) && excluded.find(e => e.id === req && /Blocked by you|exhausted/.test(e.reason));
           if (refusal) throw new Error(`requested executor "${req}" is unavailable (${refusal.reason})`);
+          // An explicit interactive runner can never be certified, so refuse at once rather than wait or swap it.
+          const refused = work && decision ? strictInteractiveRefusal(decision, req) : undefined;
+          if (refused) {
+            task = updateTask(ctx, id, t => {
+              t.state = "failed"; t.result = {status: "failed", executor: null, model: null, files: "", report: `${refused}: ${STRICT_INTERACTIVE_REASON}`, backend: "direct"};
+              delete t.queue; delete t.runnerPid; delete t.executor; delete t.attemptStartedAt;
+            });
+            return;
+          }
           pick = requested && ids.includes(req!) ? req! : ids.find(e => work ? dispatchCandidates.some(c=>c.runner===e&&!triedCandidates.has(c.id)) : !tried.has(e));
           pickReason = ranking.ranked.find(e => e.id === pick)?.reason;
           if (work && pick && decision) {
@@ -308,13 +324,9 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
               ??decision?.excluded.find(e=>e.reason.includes("Native subagent control")&&e.reason!==STRICT_INTERACTIVE_REASON)
               ??decision?.excluded.find(e=>e.reason.includes("Native subagent control"))
               ??decision?.excluded[0];
-            // Strict work never certifies an interactive launch, so waiting helps only while another runner may free up.
-            const blocking=task.requestedExecutor?decision?.excluded.filter(e=>e.id===task.requestedExecutor):decision?.excluded.filter(e=>e.reason!=="planner");
-            const candidates=!!decision?.request.candidates.length;
-            const interactive=!!blocking?.length&&blocking.every(e=>e.reason===STRICT_INTERACTIVE_REASON)&&!candidates;
             task=updateTask(ctx,id,t=>{
-              if(expired||interactive||decision?.recommendedAction==="fail"){t.state="failed";t.result={status:"failed",executor:null,model:null,files:"",report:expired?"Work expired in queue":interactive?`${exclusion!.id}: ${STRICT_INTERACTIVE_REASON}`:"No dispatch candidate satisfies policy",backend:"direct"};delete t.queue;}
-              else {t.state="queued";t.queue={reason:"waiting_retry",detail:exclusion&&!(candidates&&exclusion.reason===STRICT_INTERACTIVE_REASON)?`${exclusion.id}: ${exclusion.reason}`:"Waiting for dispatch capacity or dependencies",since:initial.queue?.since??now,position:1,nextAt:now+30};}
+              if(expired||decision?.recommendedAction==="fail"){t.state="failed";t.result={status:"failed",executor:null,model:null,files:"",report:expired?"Work expired in queue":"No dispatch candidate satisfies policy",backend:"direct"};delete t.queue;}
+              else {t.state="queued";t.queue={reason:"waiting_retry",detail:exclusion?`${exclusion.id}: ${exclusion.reason}`:"Waiting for dispatch capacity or dependencies",since:initial.queue?.since??now,position:1,nextAt:now+30};}
               delete t.runnerPid;delete t.executor;delete t.attemptStartedAt;
             });return;
           }

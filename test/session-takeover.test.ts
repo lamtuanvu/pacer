@@ -266,7 +266,7 @@ test.skipIf(!canInspect)("a Claude takeover resume is pre-trusted and keeps its 
   await until(()=>readTask(ctx,task.id)?.run?.takeover && existsSync(join(run.workdir,"resumed-id.txt")));
   const takeover=readTask(ctx,task.id)!.run!.dir;
   expect(readFileSync(join(takeover,"argv"),"utf8")).toContain("--dangerously-skip-permissions");
-  expect(JSON.parse(readFileSync(join(takeover,"claude-settings.json"),"utf8")).skipDangerousModePermissionPrompt).toBe(true);
+  expect(JSON.parse(readFileSync(join(takeover,"claude-settings.json"),"utf8"))).toMatchObject({skipDangerousModePermissionPrompt:true,enableAllProjectMcpServers:true});
   const projects=JSON.parse(readFileSync(join(ctx.home,".claude.json"),"utf8")).projects;
   for(const key of folderKeys(run.workdir))expect(projects[key]).toMatchObject({hasTrustDialogAccepted:true});
   writeFileSync(join(run.workdir,"finish-session"),"");
