@@ -9,7 +9,12 @@ const browserTest = test.skipIf(!browserPath);
 async function frame() {
   const build = await Bun.build({ entrypoints: ["test/fixtures/app-frame-browser.tsx"], target: "browser", splitting: false, plugins: [{ name: "stub-pty-view", setup(builder) {
     builder.onResolve({ filter: /term\/LazyTerminal$/ }, () => ({ path: "stub", namespace: "terminal-stub" }));
-    builder.onLoad({ filter: /.*/, namespace: "terminal-stub" }, () => ({ contents: "export const LazyTerminal = () => null;", loader: "js" }));
+    builder.onLoad({ filter: /.*/, namespace: "terminal-stub" }, () => ({ resolveDir: process.cwd(), loader: "js", contents: `import { h } from "preact";
+    // Same structure and classes as the real terminal view, without xterm.
+    export const LazyTerminal = () => h("section", { class: "pc-terminal-view" },
+      h("div", { class: "pc-terminal-search", role: "search" }, h("div", { class: "pc-field field" }, h("label", null, "Search terminal output"), h("input")), h("button", null, "Previous"), h("button", null, "Next")),
+      h("div", { class: "pc-terminal-frame" }, h("div", { class: "pc-terminal-pane" }), h("div", { class: "pc-terminal-strip" }, h("strong", null, "You have control"), h("span", null, "Keystrokes go to your shell."), h("span", null, "80x24"))),
+      h("div", { class: "pc-session-row" }, h("button", null, "Release control"), h("span", { class: "pc-session-muted" }, "Only one window can type into this shell at a time.")));` }));
   } }] });
   expect(build.success).toBe(true);
   const css = [generateTokensCss(readTokens("app/src/ds")), ...await Promise.all(["app/src/ds/components.css", "app/src/ds/feedback.css", "app/src/styles.css", "app/src/screens/session/session.css", "app/src/screens/terminal/terminal.css", "app/src/screens/work/work.css"].map(path => Bun.file(path).text()))].join("\n");
@@ -64,6 +69,16 @@ browserTest("dock_focus_moves_in_and_returns", async () => {
     await page.getByRole("button", { name: "New terminal" }).click();
     await dock.getByRole("navigation", { name: "Terminals" }).getByRole("button", { name: "Shell", exact: true }).waitFor();
     expect(await page.evaluate(() => location.hash)).toBe("#/overview");
+    // The shell gets most of the 320px dock: toolbar, tabs and actions share a few compact rows.
+    const sizes = await page.evaluate(() => {
+      const box = (selector: string) => document.querySelector(selector)!.getBoundingClientRect().height;
+      return { body: box(".pc-dock__body"), panes: box(".pc-workspace-terminal__panes"), pane: box(".pc-workspace-terminal__pane"), term: box(".pc-terminal-pane") };
+    });
+    expect(sizes.panes).toBeGreaterThanOrEqual(sizes.body * 0.55);
+    expect(sizes.panes).toBeGreaterThanOrEqual(150);
+    expect(sizes.pane).toBeLessThanOrEqual(sizes.panes);
+    // The terminal itself keeps several lines (about 16px each) once search, status and controls are compacted.
+    expect(sizes.term).toBeGreaterThanOrEqual(100);
     await expect(dock.getByRole("button", { name: "Shell", exact: true }).getAttribute("aria-current")).resolves.toBe("true");
     await dock.focus();
     await page.getByRole("button", { name: "Hide terminal panel" }).click();
