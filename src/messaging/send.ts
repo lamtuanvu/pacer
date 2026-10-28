@@ -18,14 +18,28 @@ export async function sendMessage(ctx: Ctx, input: SendInput, deps: SendDeps = {
   const body = input.body.trim();
   if (!body) throw new CoreError("invalid_input", "Message body is empty");
   const caller = callerParticipant(ctx, deps);
+  // A retried request returns what it stored before any routing, closing or rate check can refuse it.
+  const prior = input.requestId ? store.byRequest(ctx, caller.id, input.requestId) : null;
+  if (prior) return duplicate(ctx, prior, store.fingerprint(input.to, kind, body), deps);
   assertOpen(ctx, input.to);
   const verdict = checkSend(ctx, { from: caller.id, to: input.to, kind, bytes: Buffer.byteLength(body, "utf8"), hasGrant: !!caller.grant });
   const taskId = taskOf(input.to) ?? taskOf(caller.id);
   const root = taskOf(input.to) ? rootOf(ctx, input.to) : rootOf(ctx, caller.id);
   const r = store.insertMessage(ctx, { taskId, rootId: root, from: caller.id, to: input.to, kind, body, replyTo: input.replyTo ?? null,
     requestId: input.requestId ?? null, status: verdict.hold ? "held" : "pending" });
-  if (r.duplicate) return { ...r, delivery: r.message.status === "held" ? "held" : "queued" };
+  if (r.duplicate) return duplicate(ctx, { ...r.message, fingerprint: store.byRequest(ctx, caller.id, input.requestId!)?.fingerprint ?? null }, store.fingerprint(input.to, kind, body), deps);
   notifyMessage(ctx, r.message);
   const delivery = verdict.hold ? "held" : deliver(ctx, input.to, deps.spawnRunner);
   return { ...r, delivery };
+}
+
+function duplicate(ctx: Ctx, prior: Message & { fingerprint: string | null }, fingerprint: string, deps: SendDeps): { message: Message; duplicate: boolean; delivery: Delivery } {
+  if (prior.fingerprint !== null && prior.fingerprint !== fingerprint) {
+    throw new CoreError("conflict", "That request id was already used for a different message", undefined, { reason: "msg_request_mismatch" });
+  }
+  const { fingerprint: _, ...message } = prior;
+  if (message.status === "held") return { message, duplicate: true, delivery: "held" };
+  // The first delivery never started a turn: try again.
+  if (message.status === "pending") return { message, duplicate: true, delivery: deliver(ctx, message.to, deps.spawnRunner) };
+  return { message, duplicate: true, delivery: "queued" };
 }

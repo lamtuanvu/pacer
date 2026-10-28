@@ -12,7 +12,26 @@ export function participantKind(p: string): ParticipantKind {
 }
 const clean = (key: string) => key.replace(/[^A-Za-z0-9._:-]/g, "-").slice(0, 128);
 
-/** The caller's participant id. Never taken from request fields. */
+/** The participant of the planner session this process runs in, from its environment, or null. */
+export function plannerParticipant(env: Ctx["env"]): string | null {
+  if (env.PACER_PLANNER_SESSION) return `external:${clean(env.PACER_PLANNER_SESSION)}`;
+  if (env.CLAUDECODE) return "external:claude-code";
+  // CODEX_HOME only configures the Codex CLI; any other CODEX_* variable comes from a Codex session.
+  if (Object.keys(env).some(k => k.startsWith("CODEX_") && k !== "CODEX_HOME" && env[k])) return "external:codex";
+  return null;
+}
+
+/** The explicit local human path: an interactive terminal that is neither an executor nor a planner session. */
+export function localHuman(ctx: Ctx, isTTY = !!process.stdin.isTTY): "human" | undefined {
+  return isTTY && !isExecutorSession(ctx) && !plannerParticipant(ctx.env) ? "human" : undefined;
+}
+
+/**
+ * The caller's participant id. Never taken from request fields.
+ * Executor identity comes from PACER_ROLE and PACER_TASK_ID (an accepted exception, see ADR 0011).
+ * An unknown local caller is the non-privileged `external:local`; `human` needs app authentication
+ * or an explicit `participant: "human"` from the local human path ({@link localHuman}).
+ */
 export function callerParticipant(ctx: Ctx, deps: { appAuthenticated?: boolean; participant?: string } = {}): { id: string; grant: WorkNode | null } {
   const token = ctx.env.PACER_WORK_GRANT;
   if (token) { const grant = authorizeWorkGrant(ctx, token); return { id: `task:${grant.taskId}`, grant }; }
@@ -22,11 +41,11 @@ export function callerParticipant(ctx: Ctx, deps: { appAuthenticated?: boolean; 
     return { id: `task:${id}`, grant: null };
   }
   if (deps.appAuthenticated) return { id: "human", grant: null };
+  // A planner session keeps its own identity; an explicit participant applies only outside one.
+  const planner = plannerParticipant(ctx.env);
+  if (planner) return { id: planner, grant: null };
   if (deps.participant) return { id: deps.participant, grant: null };
-  if (ctx.env.PACER_PLANNER_SESSION) return { id: `external:${clean(ctx.env.PACER_PLANNER_SESSION)}`, grant: null };
-  if (ctx.env.CLAUDECODE === "1") return { id: "external:claude-code", grant: null };
-  if (ctx.env.CODEX_THREAD_ID || ctx.env.CODEX_SANDBOX) return { id: "external:codex", grant: null };
-  return { id: "human", grant: null };
+  return { id: "external:local", grant: null };
 }
 
 export function parentOf(ctx: Ctx, p: string): string | null {

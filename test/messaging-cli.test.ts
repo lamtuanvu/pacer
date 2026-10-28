@@ -2,7 +2,8 @@ import { expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fakeCtx, tmpDir } from "./helpers";
-import { main } from "../src/cli";
+import { cliDeps, main } from "../src/cli";
+import { readTask } from "../src/tasks/store";
 import { createTask, updateTask } from "../src/tasks/store";
 
 test("pacer msg send, log and inbox", async () => {
@@ -30,4 +31,54 @@ test("pacer msg send accepts --to", async () => {
   const sent = await main(["msg", "send", "--to", "external:claude-code", "done with step 1", "--json"], exec);
   expect(sent.code).toBe(0);
   expect(JSON.parse(sent.out).message.from).toBe(`task:${t.id}`);
+});
+
+function cliSetup(env: Record<string, string>) {
+  const ctx = fakeCtx({ env });
+  mkdirSync(ctx.pacerHome, { recursive: true });
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders: {claude-code: {}, codex: {}}\n");
+  return ctx;
+}
+async function withTTY<T>(tty: boolean, f: () => Promise<T>): Promise<T> {
+  const prior = Object.getOwnPropertyDescriptor(process.stdin, "isTTY");
+  Object.defineProperty(process.stdin, "isTTY", { value: tty, configurable: true });
+  try { return await f(); } finally { if (prior) Object.defineProperty(process.stdin, "isTTY", prior); else delete (process.stdin as { isTTY?: boolean }).isTTY; }
+}
+
+test("pacer msg is the human only from an interactive terminal outside executor and planner sessions", async () => {
+  const ctx = cliSetup({});
+  const inbox = async () => JSON.parse((await main(["msg", "inbox", "--json"], ctx)).out).participant;
+  expect(await withTTY(true, inbox)).toBe("human");
+  expect(await withTTY(false, inbox)).toBe("external:local");
+  const planner = cliSetup({ CODEX_THREAD_ID: "th" });
+  expect(await withTTY(true, async () => JSON.parse((await main(["msg", "inbox", "--json"], planner)).out).participant)).toBe("external:codex");
+  const local = await withTTY(false, () => main(["msg", "confirm", "m-1"], ctx));
+  expect(local.code).toBe(2);
+  expect(local.err).toContain("Only the human confirms held messages");
+});
+
+test("a pacer msg refusal prints the reason and the hint", async () => {
+  const ctx = cliSetup({});
+  const mk = () => createTask(ctx, { brief: { goal: "g", repo: tmpDir() }, kind: "feature", requestedExecutor: null, timeoutS: 600 });
+  const a = mk(), b = mk();
+  for (const t of [a, b]) updateTask(ctx, t.id, x => { x.origin = "task:t-20261028-000000-0000"; x.state = "running"; });
+  const exec = { ...ctx, env: { PACER_ROLE: "executor", PACER_TASK_ID: a.id } };
+  const r = await main(["msg", "send", b.id, "hi"], exec);
+  expect(r.code).toBe(2);
+  expect(r.err).toContain("is not allowed");
+  expect(r.err).toContain("(msg_forbidden)");
+  expect(r.err).toContain("pacer msg policy --check --from");
+});
+
+test("pacer delegate records the same origin as pacer msg", async () => {
+  const original = cliDeps.spawnRunner;
+  cliDeps.spawnRunner = () => 1;
+  try {
+    for (const [env, tty, want] of [[{}, true, "human"], [{}, false, "external:local"], [{ CLAUDECODE: "1" }, true, "external:claude-code"]] as const) {
+      const ctx = cliSetup({ ...env });
+      const r = await withTTY(tty, () => main(["delegate", "--goal", "g", "--repo", ctx.home, "--json"], ctx));
+      expect(r.code).toBe(0);
+      expect(readTask(ctx, JSON.parse(r.out).id)!.origin).toBe(want);
+    }
+  } finally { cliDeps.spawnRunner = original; }
 });

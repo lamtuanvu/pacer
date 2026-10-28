@@ -18,7 +18,7 @@ test("a question to the human surfaces as attention", () => {
   expect(apiTask(ctx, readTask(ctx, t.id)!).messages?.unreadForHuman).toBe(1);
   const item = deriveItems(input(ctx, [api!])).find(i => i.kind === "message");
   expect(item).toMatchObject({ id: `message:${t.id}`, detail: "Which provider?", severity: "blocked",
-    actions: [{ label: "Reply", op: "msg.send", params: { to: `task:${t.id}` } }, { label: "Open", op: "ui.open", params: { view: "task", id: t.id } }] });
+    actions: [{ label: "Reply", op: "ui.open", params: { view: "task", id: t.id }, style: "primary" }] });
 });
 
 test("a task without unread messages has no messages field or item", () => {

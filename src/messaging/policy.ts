@@ -43,18 +43,26 @@ export function checkSend(ctx: Ctx, s: { from: string; to: string; kind: MsgKind
   const fromTask = taskOf(s.from) ? readTask(ctx, taskOf(s.from)!) : null;
   const toTask = taskOf(s.to) ? readTask(ctx, taskOf(s.to)!) : null;
   if (taskOf(s.to) && !toTask) throw new CoreError("not_found", `Unknown participant ${s.to}`);
-  const index = rules.findIndex(r =>
+  const matches = (r: Layered, grant: boolean) =>
     kindOk(r.from_kind, s.from) && kindOk(r.to_kind, s.to)
     && (!r.from_position || r.from_position === "any" || (participantKind(s.from) !== "human" && r.from_position === position))
     && (!r.relation || r.relation === "any" || r.relation.includes(rel))
     && (!r.kinds || r.kinds.includes(s.kind))
     && (!r.repo || [fromTask?.brief.repo, toTask?.brief.repo].includes(r.repo))
     && (!r.executor || [fromTask?.run?.executor, toTask?.run?.executor].includes(r.executor))
-    && (!r.grant || (r.grant === "required") === s.hasGrant));
+    && (!grant || !r.grant || (r.grant === "required") === s.hasGrant);
+  const index = rules.findIndex(r => matches(r, true));
   const rule = rules[index];
   if (!rule || rule.effect === "deny") {
-    throw new CoreError("not_allowed", `Messaging from ${s.from} to ${s.to} (${rel}) is not allowed`, "Run `pacer msg policy check` to see which rule decides.",
-      { reason: "msg_forbidden", layer: rule?.layer ?? "none", relation: rel });
+    const hint = `Run \`pacer msg policy --check --from ${s.from} --to ${s.to} --kind ${s.kind}\` to see which rule decides.`;
+    if (rule) throw new CoreError("not_allowed", `Messaging from ${s.from} to ${s.to} (${rel}) is not allowed: rule ${index} (${rule.layer}) denies it`, hint,
+      { reason: "msg_forbidden", layer: rule.layer, rule: index, relation: rel });
+    // No rule matched. Name the first allow rule that would have matched but for its grant condition.
+    const near = rules.findIndex(r => r.effect === "allow" && r.grant === "required" && !s.hasGrant && matches(r, false));
+    const closest = near < 0 ? undefined : { rule: near, layer: rules[near]!.layer, grant: "required" };
+    throw new CoreError("not_allowed", `Messaging from ${s.from} to ${s.to} (${rel}) is not allowed: no rule matched`
+      + (closest ? `; rule ${near} (${closest.layer}) allows it with a work grant` : ""), hint,
+      { reason: "msg_forbidden", layer: "none", relation: rel, ...(closest ? { closest } : {}) });
   }
   const maxBytes = Math.min(rule.limits?.max_bytes ?? config.message.max_bytes, config.message.max_bytes);
   if (s.bytes > maxBytes) throw new CoreError("too_large", `Message exceeds ${maxBytes} bytes`, undefined, { reason: "msg_too_large", max: maxBytes });

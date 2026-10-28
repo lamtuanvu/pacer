@@ -1,6 +1,9 @@
 import { CoreError } from "../core/errors";
 import { publish } from "../link/publish";
 import { launchTaskRunner, spawnRunner as defaultSpawn, type SpawnRunner } from "../tasks/api";
+import { loadStrategy, type ProviderCfg } from "../config/strategy";
+import { getWork } from "../dispatch/work";
+import { headlessTurnPath } from "../exec/launch";
 import { readTask, updateTask, withTaskLock } from "../tasks/store";
 import type { TaskRecord } from "../tasks/types";
 import type { Ctx } from "../types";
@@ -21,24 +24,40 @@ export function notifyMessage(ctx: Ctx, m: Message): void {
   void publish(ctx, [{ type: "entity", data: { kind: "message", id: m.id, value: m } }]);
 }
 
-/** Begin a resume turn when the task is settled and has pending messages. */
-export function startTurnIfIdle(ctx: Ctx, id: string, spawn: SpawnRunner = defaultSpawn): Delivery {
+/** The runner config for a turn; an executor that is no longer configured has only its id. */
+function turnRunner(ctx: Ctx, executor: string): Pick<ProviderCfg, "id" | "via"> {
+  try { return loadStrategy(ctx).providers[executor] ?? { id: executor, via: null }; } catch { return { id: executor, via: null }; }
+}
+
+/**
+ * Begin a resume turn when the task is settled and has pending messages. A turn runs headless through the direct backend;
+ * a runner that cannot do that leaves the messages pending. Managed work nodes read theirs with their grant (plan 1).
+ */
+export function startTurnIfIdle(ctx: Ctx, id: string, spawn: SpawnRunner = defaultSpawn, o: { replay?: boolean } = {}): Delivery {
   let start = false;
   const result = withTaskLock(ctx, id, (): Delivery => {
     const t = readTask(ctx, id);
     if (!t || isClosed(t)) return "closed";
+    if (getWork(ctx, id)) return "pull";
     if (t.interactionMode === "conversation") return "live_unavailable";
     if (t.state === "queued" || t.state === "running") return "queued";
     if (!store.pendingFor(ctx, `task:${id}`).length) return "queued";
     const executor = sessionAgent(t);
     if (!executor) return "no_session";
+    if (t.run?.host || (t.result?.backend && t.result.backend !== "direct") || !headlessTurnPath(turnRunner(ctx, executor))) return "no_session";
     const root = rootOf(ctx, `task:${id}`);
     if (store.turnsForRoot(ctx, root) >= effectivePolicy(ctx, { root }).config.tree.max_turns) return "cap";
+    // The runner deletes run when the attempt starts, so the session to resume is captured now.
+    const session = t.run?.executor === executor ? t.run.agentSession : undefined;
+    const turn = o.replay ? `${turnKey(t)}r` : turnKey(t);
+    store.recordTurn(ctx, { id: turn, taskId: id, rootId: root, at: ctx.now });
     updateTask(ctx, id, x => {
-      x.pendingTurn = { id: turnKey(x), executor, at: ctx.now };
+      x.pendingTurn = { id: turn, executor, at: ctx.now, ...(session ? { session } : {}), ...(o.replay ? { replay: true } : {}) };
       x.requestedExecutor = executor;
       x.state = "queued";
-      delete x.result;
+      x.worktree = x.worktree ?? x.result?.worktree;
+      if (!x.worktree) delete x.worktree;
+      delete x.result; delete x.settledAt; delete x.queue; delete x.reviewRequest; delete x.progress; delete x.runnerPid;
       if (x.question && x.question.answer === undefined) delete x.question;
     });
     start = true;
@@ -70,37 +89,74 @@ export function renderTurnPrompt(ctx: Ctx, task: TaskRecord, messages: Message[]
   ].join("\n\n");
 }
 
-/** Called at launch: claim pending messages for this attempt and record the turn. */
+const REPLAY_BYTES = 64 * 1024;
+/** For a fresh launch of a turn: the task's earlier thread, newest kept when it is long. */
+export function renderReplayThread(ctx: Ctx, task: TaskRecord, current: Message[]): string {
+  const skip = new Set(current.map(m => m.id));
+  const blocks = store.thread(ctx, task.id, { limit: 1000 }).filter(m => !skip.has(m.id) && m.status !== "held")
+    .map(m => `--- ${m.kind} ${m.id} from ${label(m.from)} (${m.from}) to ${label(m.to)} (${m.to}) ---\n${m.body}`);
+  const kept: string[] = [];
+  let bytes = 0;
+  for (const b of blocks.reverse()) { bytes += Buffer.byteLength(b); if (bytes > REPLAY_BYTES) break; kept.unshift(b); }
+  if (!kept.length) return "";
+  return [`Your earlier session for this task is unavailable. The conversation so far${kept.length < blocks.length ? " (most recent part)" : ""}:`, ...kept].join("\n\n");
+}
+
+/** Called at launch: claim pending messages for this attempt. The turn was recorded when it started. */
 export function claimTurnMessages(ctx: Ctx, task: TaskRecord): { turnId: string; messages: Message[] } | null {
   if (!task.pendingTurn) return null;
   const turnId = task.pendingTurn.id;
   const messages = store.claimPending(ctx, `task:${task.id}`, turnId);
-  store.recordTurn(ctx, { id: turnId, taskId: task.id, rootId: rootOf(ctx, `task:${task.id}`), at: ctx.now });
   for (const m of messages) notifyMessage(ctx, m);
   return { turnId, messages };
 }
 
-/** After a run settles: report to the parent once per attempt, then deliver anything that arrived meanwhile. */
+function report(ctx: Ctx, id: string, parent: string, head: string, body: string, requestId: string, spawn?: SpawnRunner): void {
+  const r = store.insertMessage(ctx, { taskId: id, rootId: rootOf(ctx, `task:${id}`), from: `task:${id}`, to: parent, kind: "report",
+    body: `${head} ${body.slice(-REPORT_BYTES)}`.trim(), replyTo: null, requestId });
+  if (!r.duplicate) { notifyMessage(ctx, r.message); deliver(ctx, parent, spawn); }
+}
+
+/** Who reads this task's run-end report: its origin. Work children report through dispatch.review; legacy tasks have no reader. */
+function reportReader(ctx: Ctx, t: TaskRecord): string | null {
+  const work = getWork(ctx, t.id);
+  if (work?.parentId) return null;
+  return t.origin ?? null;
+}
+
+/**
+ * After a run settles: report to the parent once per attempt, then deliver anything that arrived meanwhile.
+ * A turn whose run never claimed its messages is not restarted; a failed resume is retried once as a replay.
+ */
 export function onRunEnded(ctx: Ctx, id: string, spawn?: SpawnRunner): void {
   const t = readTask(ctx, id);
   if (!t || t.interactionMode === "conversation" || ["queued", "running"].includes(t.state)) return;
   const turnId = t.pendingTurn?.id ?? `${id}#${t.attempts.length}`;
   const limited = t.state === "limit" || !!t.attempts.at(-1)?.limitHit;
+  const parent = reportReader(ctx, t);
+  // Messages a run never picked up wait for the next send instead of relaunching on their own.
+  let restart = !limited && store.lastTurnOutcome(ctx, id) !== "undelivered";
   if (t.pendingTurn) {
-    store.endTurn(ctx, turnId, t.state, ctx.now);
-    if (limited) store.releaseTurn(ctx, turnId);
+    const claimed = store.claimedBy(ctx, turnId) > 0;
+    store.endTurn(ctx, turnId, claimed ? t.state : "undelivered", ctx.now);
     updateTask(ctx, id, x => { delete x.pendingTurn; });
+    if (limited) store.releaseTurn(ctx, turnId);
+    else if (!claimed) {
+      // The run ended before it picked up the messages: they stay pending, and the sender learns why.
+      const why = (t.result?.report ?? "").trim().split("\n").filter(Boolean).slice(-5).join("\n");
+      if (parent) report(ctx, id, parent, `[not delivered] The run for task ${id} ended (${t.state}) before it received your messages; they are still pending.`, why ? `\n\n${why}` : "", `undelivered:${turnId}`, spawn);
+      return;
+    } else if (t.state === "failed" && !t.pendingTurn.replay && t.run?.turnResume !== "replayed") {
+      // A rejected resume (unknown session, missing history): put the messages back and replay the thread once.
+      store.releaseTurn(ctx, turnId);
+      if (startTurnIfIdle(ctx, id, spawn, { replay: true }) === "turn_started") return;
+      restart = false;
+    }
   }
-  const parent = parentOf(ctx, `task:${id}`);
-  const started = t.attempts.at(-1)?.startedAt ?? t.createdAt;
-  const spoke = store.sentSince(ctx, `task:${id}`, started).some(m => m.to === parent && ["report", "question", "message"].includes(m.kind));
-  if (parent && !spoke && !limited && t.state !== "needs_input") {
-    const body = (t.result?.report ?? `Run ended: ${t.state}`).slice(-REPORT_BYTES);
-    const r = store.insertMessage(ctx, { taskId: id, rootId: rootOf(ctx, `task:${id}`), from: `task:${id}`, to: parent, kind: "report",
-      body: `[${t.state}] ${body}`.trim(), replyTo: null, requestId: `report:${turnId}` });
-    if (!r.duplicate) { notifyMessage(ctx, r.message); deliver(ctx, parent, spawn); }
-  }
-  if (!limited) startTurnIfIdle(ctx, id, spawn);
+  const since = t.pendingTurn?.at ?? t.attempts[0]?.startedAt ?? t.createdAt;
+  const spoke = store.sentSince(ctx, `task:${id}`, since).some(m => m.to === parent && ["report", "question", "message"].includes(m.kind));
+  if (parent && !spoke && !limited && t.state !== "needs_input") report(ctx, id, parent, `[${t.state}]`, t.result?.report ?? `Run ended: ${t.state}`, `report:${turnId}`, spawn);
+  if (restart) startTurnIfIdle(ctx, id, spawn);
 }
 
 export function assertOpen(ctx: Ctx, to: string): void {

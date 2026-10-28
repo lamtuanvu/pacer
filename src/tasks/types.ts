@@ -265,8 +265,11 @@ export interface TaskRecord {
   dismissed?: boolean;
   /** Participant that started this task when it has no work parent: "human" or "external:<key>". */
   origin?: string;
-  /** Set while a message turn is queued or running; cleared when the run ends. */
-  pendingTurn?: { id: string; executor: string; at: number };
+  /**
+   * Set while a message turn is queued or running; cleared when the run ends. `session` is the native session captured
+   * when the turn started; `replay` launches fresh with the brief and the thread after a failed resume.
+   */
+  pendingTurn?: { id: string; executor: string; at: number; session?: { id: string; source: "header" | "assigned" | "lookup" }; replay?: boolean };
   /** Closed for messaging by its parent; no more turns. */
   msgClosed?: boolean;
   /** Per-tree guardrail override given at delegate time; read from the tree's root task. */

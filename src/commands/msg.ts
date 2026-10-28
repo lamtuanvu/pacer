@@ -1,4 +1,6 @@
 import { callOp } from "../api/ops";
+import { CoreError } from "../core/errors";
+import { localHuman } from "../messaging/participants";
 import { spawnRunner } from "../tasks/api";
 import type { Ctx } from "../types";
 import { commandArgs } from "./accounts";
@@ -10,11 +12,17 @@ const MSG_USAGE = "usage: pacer msg send|inbox|log|read|confirm|close|policy";
 
 // In-process on purpose: the sender identity comes from this process's environment,
 // which a service handling an HTTP call would not see. State is shared through the task store.
-const call = (ctx: Ctx, op: string, params: Record<string, unknown>): Promise<any> => Promise.resolve(callOp(ctx, op, params, { spawnRunner }));
+// The caller is the human only from an interactive terminal outside executor and planner sessions.
+const call = (ctx: Ctx, op: string, params: Record<string, unknown>): Promise<any> =>
+  Promise.resolve(callOp(ctx, op, params, { spawnRunner, participant: localHuman(ctx) }));
 const show = (messages: Array<{ id: string; from: string; to: string; kind: string; body: string }>) =>
   messages.map(m => `${m.id}  ${m.kind}  ${m.from} -> ${m.to}\n${m.body}\n`).join("\n") || "(no messages)";
 const out = (json: boolean, value: unknown, text: string): Result => ({ code: 0, out: json ? JSON.stringify(value, null, 2) : text, err: "" });
-const fail = (e: unknown): Result => ({ code: 2, out: "", err: `pacer: ${e instanceof Error ? e.message : String(e)}` });
+const fail = (e: unknown): Result => {
+  const reason = e instanceof CoreError && typeof e.data?.reason === "string" ? ` (${e.data.reason})` : "";
+  const hint = e instanceof CoreError && e.hint ? `\n${e.hint}` : "";
+  return { code: 2, out: "", err: `pacer: ${e instanceof Error ? e.message : String(e)}${reason}${hint}` };
+};
 
 async function msgCmd(args: string[], ctx: Ctx): Promise<Result> {
   try {

@@ -2,12 +2,12 @@ import { z } from "zod";
 import type { OpDef } from "./ops";
 import { CoreError } from "../core/errors";
 import { workTree } from "../dispatch/work";
-import { callerParticipant, rootOf, taskOf } from "../messaging/participants";
+import { callerParticipant, parentOf, rootOf, taskOf } from "../messaging/participants";
 import { checkSend, effectivePolicy } from "../messaging/policy";
 import { sendMessage } from "../messaging/send";
 import * as store from "../messaging/store";
 import { deliver, isClosed } from "../messaging/turns";
-import { MSG_KINDS, participantSchema } from "../messaging/types";
+import { MSG_KINDS, participantSchema, type Message } from "../messaging/types";
 import { readTask, updateTask } from "../tasks/store";
 
 const op = <P extends z.ZodTypeAny>(def: OpDef<P>) => def as unknown as OpDef;
@@ -41,10 +41,19 @@ export const msgOps: Record<string, OpDef> = {
     handler: async (ctx, p, deps) => {
       const me = callerParticipant(ctx, deps).id;
       const until = Date.now() + (p.timeout_s ?? 600) * 1000;
+      const original = p.reply_to ? store.getMessage(ctx, p.reply_to) : null;
+      // A reply names the message, or is the recipient's later report or answer.
+      const replies = (m: Message) => m.replyTo === p.reply_to || (!!original && m.from === original.to && (m.kind === "report" || m.kind === "answer")
+        && (m.createdAt > original.createdAt || (m.createdAt === original.createdAt && m.id > original.id)));
       for (;;) {
         const unread = store.inbox(ctx, me, { unreadOnly: true });
-        const hits = p.reply_to ? unread.filter(m => m.replyTo === p.reply_to || m.kind === "report") : unread;
-        if (hits.length || Date.now() >= until) return { participant: me, messages: hits, timedOut: !hits.length };
+        const hits = p.reply_to ? unread.filter(replies) : unread;
+        if (hits.length) {
+          // Waiting consumes what it returns; msg.inbox does not.
+          store.markRead(ctx, me, hits.map(m => m.id));
+          return { participant: me, messages: hits.map(m => store.getMessage(ctx, m.id) ?? m), timedOut: false };
+        }
+        if (Date.now() >= until) return { participant: me, messages: [], timedOut: true };
         await sleep(500);
       }
     },
@@ -72,8 +81,11 @@ export const msgOps: Record<string, OpDef> = {
     description: "Close a task for further messages. Records no review verdict.",
     params: z.object({ task: taskId }).strict(),
     handler: (ctx, p, deps) => {
-      const me = callerParticipant(ctx, deps).id;
-      checkSend(ctx, { from: me, to: `task:${p.task}`, kind: "close", bytes: 0, hasGrant: !!callerParticipant(ctx, deps).grant });
+      // Closing is not a send: only the node's parent, the tree's origin or the human may close it.
+      const me = callerParticipant(ctx, deps).id, node = `task:${p.task}`;
+      if (!readTask(ctx, p.task)) throw new CoreError("not_found", `Unknown participant ${node}`);
+      if (me !== "human" && me !== parentOf(ctx, node) && me !== parentOf(ctx, rootOf(ctx, node)))
+        throw new CoreError("not_allowed", `Only the parent of ${node}, its tree's origin or the human may close it`, undefined, { reason: "msg_forbidden", layer: "protocol" });
       const t = updateTask(ctx, p.task, x => { x.msgClosed = true; });
       return { task: t.id, closed: true };
     },

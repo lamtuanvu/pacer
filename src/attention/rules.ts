@@ -55,8 +55,8 @@ export function deriveItems(input: RuleInput): AttentionItem[] {
     if (t.messages?.unreadForHuman && !t.dismissed && !legacyQuestion) {
       const q = t.messages.question, n = t.messages.unreadForHuman;
       add("message", t.id, t.goal, q ? q.text.slice(0, 200) : `${n} unread message${n === 1 ? "" : "s"}`, [
-        { label: "Reply", op: "msg.send", params: { to: `task:${t.id}` }, style: "primary" },
-        open("Open", { view: "task", id: t.id }),
+        // No composer yet: like the question item, replying starts from the task.
+        { ...open("Reply", { view: "task", id: t.id }), style: "primary" },
       ], { ...extra, severity: q ? "blocked" : "decide", since: q?.at ?? t.updatedAt, raisedAt: q?.at ?? t.updatedAt });
     }
   }

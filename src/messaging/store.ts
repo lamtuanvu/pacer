@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import type { Database } from "bun:sqlite";
 import { CoreError } from "../core/errors";
 import { taskDatabase } from "../tasks/store";
@@ -6,10 +6,12 @@ import type { Ctx } from "../types";
 import type { Message, MsgKind, MsgStatus } from "./types";
 
 interface Row { id: string; task_id: string | null; root_id: string; sender: string; recipient: string; kind: string; body: string; reply_to: string | null;
-  request_id: string | null; status: string; created_at: number; delivered_at: number | null; read_at: number | null; turn_id: string | null }
+  request_id: string | null; status: string; created_at: number; delivered_at: number | null; read_at: number | null; turn_id: string | null; fingerprint?: string | null }
 
+const ready = new WeakSet<Database>();
 export function messagesDatabase(ctx: Ctx): Database {
   const db = taskDatabase(ctx);
+  if (ready.has(db)) return db;
   db.exec(`CREATE TABLE IF NOT EXISTS messages(
     id TEXT PRIMARY KEY, task_id TEXT NULL, root_id TEXT NOT NULL, sender TEXT NOT NULL, recipient TEXT NOT NULL,
     kind TEXT NOT NULL, body TEXT NOT NULL, reply_to TEXT NULL, request_id TEXT NULL, status TEXT NOT NULL,
@@ -20,7 +22,18 @@ export function messagesDatabase(ctx: Ctx): Database {
   CREATE INDEX IF NOT EXISTS messages_turn ON messages(turn_id);
   CREATE TABLE IF NOT EXISTS msg_turns(id TEXT PRIMARY KEY, task_id TEXT NOT NULL, root_id TEXT NOT NULL, started_at REAL NOT NULL, ended_at REAL NULL, outcome TEXT NULL);
   CREATE INDEX IF NOT EXISTS msg_turns_root ON msg_turns(root_id);`);
+  // Added after the first schema; existing databases gain the column in place.
+  if (!db.query<{ name: string }, []>("PRAGMA table_info(messages)").all().some(c => c.name === "fingerprint")) db.exec("ALTER TABLE messages ADD COLUMN fingerprint TEXT NULL");
+  ready.add(db);
   return db;
+}
+
+/** What a request id stands for: the same recipient, kind and body. */
+export const fingerprint = (to: string, kind: string, body: string) => createHash("sha256").update(JSON.stringify([to, kind, createHash("sha256").update(body).digest("hex")])).digest("hex");
+
+export function byRequest(ctx: Ctx, from: string, requestId: string): (Message & { fingerprint: string | null }) | null {
+  const r = messagesDatabase(ctx).query<Row, [string, string]>("SELECT * FROM messages WHERE sender=? AND request_id=?").get(from, requestId);
+  return r ? { ...toMessage(r), fingerprint: r.fingerprint ?? null } : null;
 }
 
 const toMessage = (r: Row): Message => ({ id: r.id, taskId: r.task_id, rootId: r.root_id, from: r.sender, to: r.recipient, kind: r.kind as MsgKind, body: r.body,
@@ -41,8 +54,8 @@ export function insertMessage(ctx: Ctx, m: Omit<Message, "id" | "status" | "crea
       if (prior) return { message: toMessage(prior), duplicate: true };
     }
     const id = newId(ctx.now);
-    db.query("INSERT INTO messages(id,task_id,root_id,sender,recipient,kind,body,reply_to,request_id,status,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)")
-      .run(id, m.taskId, m.rootId, m.from, m.to, m.kind, m.body, m.replyTo, m.requestId, m.status ?? "pending", ctx.now);
+    db.query("INSERT INTO messages(id,task_id,root_id,sender,recipient,kind,body,reply_to,request_id,status,created_at,fingerprint) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)")
+      .run(id, m.taskId, m.rootId, m.from, m.to, m.kind, m.body, m.replyTo, m.requestId, m.status ?? "pending", ctx.now, fingerprint(m.to, m.kind, m.body));
     return { message: getMessage(ctx, id)!, duplicate: false };
   }).immediate();
 }
@@ -70,6 +83,9 @@ export function claimPending(ctx: Ctx, to: string, turnId: string): Message[] {
     return db.query<Row, [string, string]>("SELECT * FROM messages WHERE turn_id=? AND recipient=? ORDER BY id").all(turnId, to).map(toMessage);
   }).immediate();
 }
+export function claimedBy(ctx: Ctx, turnId: string): number {
+  return messagesDatabase(ctx).query<{ n: number }, [string]>("SELECT COUNT(*) AS n FROM messages WHERE turn_id=?").get(turnId)!.n;
+}
 export function releaseTurn(ctx: Ctx, turnId: string): number {
   return messagesDatabase(ctx).query("UPDATE messages SET status='pending', delivered_at=NULL, turn_id=NULL WHERE turn_id=? AND status='delivered'").run(turnId).changes;
 }
@@ -89,6 +105,9 @@ export function recordTurn(ctx: Ctx, t: { id: string; taskId: string; rootId: st
 }
 export function endTurn(ctx: Ctx, id: string, outcome: string, at: number): void {
   messagesDatabase(ctx).query("UPDATE msg_turns SET ended_at=?, outcome=? WHERE id=? AND ended_at IS NULL").run(at, outcome, id);
+}
+export function lastTurnOutcome(ctx: Ctx, taskId: string): string | null {
+  return messagesDatabase(ctx).query<{ outcome: string | null }, [string]>("SELECT outcome FROM msg_turns WHERE task_id=? ORDER BY started_at DESC, rowid DESC LIMIT 1").get(taskId)?.outcome ?? null;
 }
 export function turnsForRoot(ctx: Ctx, rootId: string): number {
   return messagesDatabase(ctx).query<{ n: number }, [string]>("SELECT COUNT(*) AS n FROM msg_turns WHERE root_id=?").get(rootId)!.n;

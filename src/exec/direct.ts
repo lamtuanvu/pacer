@@ -29,8 +29,8 @@ import { RemoteRunIO } from "../remote/run-io";
 import { runRemoteAttempt } from "../remote/attempt";
 import { SCRIPTS } from "../remote/scripts";
 import { runRemote } from "../remote/ssh";
-import { launchFor, launchModeFor, providerEnv, resumeHeadlessFor, resumeLaunchFor, type LaunchModeChoice } from "./launch";
-import { claimTurnMessages, renderTurnPrompt } from "../messaging/turns";
+import { headlessTurnPath, launchFor, launchModeFor, providerEnv, resumeHeadlessFor, resumeLaunchFor, type LaunchModeChoice } from "./launch";
+import { claimTurnMessages, renderReplayThread, renderTurnPrompt } from "../messaging/turns";
 import { parseOpencodeSessions } from "../session/takeover";
 import { claudeConfigFile, grantClaudeFolderTrust, projectMcpChoices, type McpChoices } from "./claude-trust";
 import { detectLimit } from "./limits";
@@ -215,6 +215,8 @@ export async function finishRun(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, ru
       },
     });
   } finally { if (eligible) withdrawHandover(ctx, task.id); }
+  // A run that exits before the first poll still records its session for the next message turn.
+  if (onPoll) discoverSession(ctx, task, run);
   if (!run.host && !run.takeover && cfg.session !== "interactive" && (parseRunnerId(cfg.id)?.agent ?? cfg.id) === "claude-code") {
     const path = join(run.dir, "stdout");
     try {
@@ -396,6 +398,9 @@ async function runAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, 
   const conversation = task.interactionMode === "conversation";
   const ex = loadExec(ctx);
   let choice: LaunchModeChoice = conversation ? {mode: "interactive", explicit: true} : launchModeFor(cfg, ex, {managed: ctx.env.PACER_ENFORCEMENT_MODE === "strict"});
+  // A message turn runs headless: one prompt in, one report out, then the run settles.
+  const pendingTurn = conversation ? undefined : task.pendingTurn;
+  if (pendingTurn && choice.mode === "interactive" && headlessTurnPath(cfg)) choice = {mode: "headless", explicit: false, fallback: "message turns run headless"};
   cfg = {...cfg, session: choice.mode};
   const alias = parseRunnerId(cfg.id)?.host;
   if (alias) {
@@ -500,7 +505,9 @@ async function runAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, 
     turn = !interactive && !conversation && task.pendingTurn ? claimTurnMessages(ctx, task) : null;
     if (turn) prompt = renderTurnPrompt(ctx, task, turn.messages);
     const instructions = interactive && !conversation ? `\n\nInteractive pacer session: completion requires running pacer report --task ${task.id} --outcome done --summary "<result>" (or --outcome failed). Run pacer report with the launch environment unchanged; do not override PACER_HOME or HOME for it. Before asking the user, run pacer report --status needs-input --summary "<question>"; when resuming use --status running. Do not infer completion from the terminal. PACER_RUN_DIR identifies this attempt. You may write a longer Markdown result to $PACER_TRANSCRIPT_REPORT.\n` : "";
-    const priorSession = turn && task.run?.executor === cfg.id ? task.run.agentSession : undefined;
+    // The session captured when the turn started; the runner has already cleared task.run.
+    const priorSession = turn && !pendingTurn?.replay
+      ? (pendingTurn?.executor === cfg.id ? pendingTurn.session : undefined) ?? (task.run?.executor === cfg.id ? task.run.agentSession : undefined) : undefined;
     if (!interactive && cfg.via !== "opencode") {
       if (priorSession) agentSession = priorSession;
       else if (agent === "claude-code") agentSession = {id:crypto.randomUUID(),source:"assigned"};
@@ -512,7 +519,7 @@ async function runAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, 
         } catch { /* best effort: launch unchanged */ }
       }
     }
-    if (turn && !agentSession && cfg.via === "opencode") {
+    if (turn && !pendingTurn?.replay && !agentSession && cfg.via === "opencode") {
       if (priorSession) agentSession = priorSession;
       else {
         const list = await execProcess({argv:["opencode","session","list","--standalone","--format","json","-n","20"], cwd:workdir, env, timeoutMs:5000});
@@ -541,9 +548,16 @@ async function runAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, 
         workspace: workdir, runDir: rdir, ...(task.sessionDraftId ? {attachmentDir: attachmentDirectory(ctx, task.sessionDraftId)} : {}), attachments: resolveAttachments(ctx, task.id), permissionPolicy: "native",
         ...(task.conversation?.agentSessionId ? {sessionId: task.conversation.agentSessionId} : agentSession ? {newSessionId: agentSession.id} : {}), ...(cfg.model ? {model: cfg.model} : {})});
       materializeAgentReporting(rdir, launch, env);
-    } else launch = resumeSession
-      ? resumeHeadlessFor(cfg, resumeSession.id, prompt, workdir, rdir, task.id)
-      : launchFor(cfg, turn ? `${brief}\n\n${prompt}` : prompt + instructions, workdir, rdir, task.id, agentSession?.id, "error" in git ? task.brief.repo : git.main);
+    } else {
+      let resumed: ReturnType<typeof resumeHeadlessFor> | undefined;
+      if (resumeSession) {
+        // No headless resume for this agent: replay the thread in a fresh session instead.
+        try { resumed = resumeHeadlessFor(cfg, resumeSession.id, prompt, workdir, rdir, task.id); }
+        catch { if (agentSession === resumeSession) agentSession = undefined; resumeSession = undefined; }
+      }
+      launch = resumed ?? launchFor(cfg, turn ? [brief, renderReplayThread(ctx, task, turn.messages), prompt].filter(Boolean).join("\n\n") : prompt + instructions,
+        workdir, rdir, task.id, agentSession?.id, "error" in git ? task.brief.repo : git.main);
+    }
     if(env.PACER_ENFORCEMENT_MODE==="strict"&&agent==="claude-code")launch={...launch,argv:strictClaudeLaunch(ctx,launch.argv,rdir)};
     if (interactive) {
       if (agent === "codex" && !conversation && choice.explicit) await requireCodexInteractive(ctx, env);

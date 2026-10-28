@@ -42,7 +42,7 @@ A participant is anything that can send or receive messages. There are three kin
 | `external` | a Claude Code or Codex planner calling `pacer delegate` | pull only: inbox, MCP, planner hooks |
 | `human` | the user in the app, TUI or terminal | notify only: attention, badge, thread view |
 
-An `external` participant is registered on first contact with a stable identity: the planner kind plus its native session id when the hook supplies one, otherwise the calling process's planner identity. A `human` participant is the local user; one per pacer home.
+An `external` participant is registered on first contact with a stable identity: the planner kind plus its native session id when the hook supplies one, otherwise the calling process's planner identity. A `human` participant is the local user; one per pacer home. A caller is `human` only through app authentication or the explicit local path: the CLI in an interactive terminal that is neither an executor session nor a planner session. Any other unknown local caller is `external:local`, which has no human privileges (see [ADR 0011](../decisions/0011-agent-messaging.md)).
 
 ### Tree
 
@@ -74,7 +74,7 @@ A rule matches on:
 | `from` position | `top` (origin of a tree), `child`, `any` |
 | relation of `to` to `from` | `parent`, `child`, `sibling`, `descendant`, `ancestor`, `same_tree`, `top_peer` (another top-level session), `any` |
 | message `kind` | `message`, `question`, `answer`, `report`, `nudge`, `close` |
-| scope | repo, executor, account, tree id |
+| scope | repo, executor (account and tree id are deferred; see ADR 0011) |
 | grant | sender holds an API-5 work grant: `required`, `not_required` |
 
 A rule's effect is `allow` or `deny`, plus optional limits: maximum messages per minute, maximum turns it may cause, maximum body size, and whether it requires human confirmation before delivery.
@@ -106,7 +106,7 @@ Under the default, a parent reaches deeper descendants through the child in betw
 
 Wherever a policy lets a message cross trees, the recipient's turn runs in the recipient's tree, under that tree's caps and budget admission. The wait-for graph spans all trees, so a cycle across trees is detected like one inside a tree.
 
-`pacer msg policy [--json]` prints the effective policy for the current repo with the layer each rule came from. `pacer msg policy check --from <p> --to <p> --kind <k>` explains which rule decides, without sending.
+`pacer msg policy [--json]` prints the effective policy for the current repo with the layer each rule came from. `pacer msg policy --check --from <p> --to <p> --kind <k>` explains which rule decides, without sending. A refusal's hint gives this command for the refused send. When no rule matched, the refusal says so (`data.layer: none`) and names the closest allow rule that would have matched with a work grant (`data.closest`).
 
 ### Messages
 
@@ -240,7 +240,7 @@ The wait-for graph is built from `awaiting_reply` edges and unread blocking mess
 | `msg.wait` | block until a message for the caller, or a reply to a message id, arrives; with a timeout |
 | `msg.log` | a task's thread, paged |
 | `msg.read` | mark messages read |
-| `msg.close` | close a node or tree; no verdict |
+| `msg.close` | close a node or tree; no verdict. Only the node's parent, the tree's origin or the human may close it; closing is not a send and does not pass the routing guardrail. |
 | `tree.status` | per-node turn state, next mover and stall counters |
 
 SSE events: one entity kind, `message`, whose value is the message row including `status`. `node.stalled` arrives with the broker in plan 2. Refusals reuse existing codes with `data.reason`: `not_allowed`/`msg_forbidden` (with `data.layer`), `too_large`/`msg_too_large`, `conflict`/`msg_cap_reached`, `conflict`/`msg_node_closed`, `conflict`/`msg_live_unavailable`.

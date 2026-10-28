@@ -33,7 +33,7 @@ test("lists planner and strategy tools", async () => {
   const { client } = await connect();
   expect((await client.listTools()).tools.map((t) => t.name).sort()).toEqual([
     "budget_status", "dispatch_preview", "delegate", "guard_feedback", "report_limit", "route", "task_answer", "task_review", "task_request_review", "task_send", "task_status", "task_stop", "task_wait", "work_answer", "work_retry",
-    "msg_inbox", "msg_log", "msg_send", "msg_wait", "tree_status",
+    "msg_inbox", "msg_log", "msg_read", "msg_send", "msg_wait", "tree_status",
     "strategy_list", "strategy_preview", "strategy_save", "strategy_show", "strategy_use",
   ].sort());
 });
@@ -216,7 +216,7 @@ test("human handoff records a request without a verdict", async () => {
 test("planner MCP lists messaging tools", async () => {
   const { client } = await connect();
   const names = (await client.listTools()).tools.map(t => t.name);
-  for (const n of ["msg_send", "msg_inbox", "msg_wait", "msg_log", "tree_status"]) expect(names).toContain(n);
+  for (const n of ["msg_send", "msg_inbox", "msg_wait", "msg_log", "msg_read", "tree_status"]) expect(names).toContain(n);
 });
 
 test("planner MCP msg_send and msg_inbox share the Claude Code inbox", async () => {
@@ -236,6 +236,39 @@ test("grant MCP lists messaging tools", async () => {
   await client.connect(ct);
   try {
     const names = (await client.listTools()).tools.map(t => t.name);
-    for (const n of ["msg_send", "msg_inbox", "msg_wait", "msg_log", "tree_status"]) expect(names).toContain(n);
+    for (const n of ["msg_send", "msg_inbox", "msg_wait", "msg_log", "msg_read", "tree_status"]) expect(names).toContain(n);
   } finally { await client.close(); await server.close(); }
+});
+
+test("planner MCP resolves the same participant as the CLI and delegate records it as origin", async () => {
+  for (const [env, want] of [[{ CODEX_THREAD_ID: "th" }, "external:codex"], [{ PACER_PLANNER_SESSION: "p1" }, "external:p1"], [{}, "external:mcp"]] as const) {
+    const { ctx, call, client } = await connect();
+    Object.assign(ctx.env, env);
+    const d = await call("delegate", { goal: "g", repo: tmpDir(), executor: "codex" });
+    const id = d.structuredContent.task_id;
+    expect(readTask(ctx, id)!.origin).toBe(want);
+    expect((await call("msg_inbox")).structuredContent.participant).toBe(want);
+    updateTask(ctx, id, t => { t.state = "running"; });
+    const sent = await call("msg_send", { to: `task:${id}`, body: "status?" });
+    expect(sent.isError).toBeFalsy();
+    expect(sent.structuredContent.message.from).toBe(want);
+    await client.close();
+  }
+});
+
+test("planner MCP msg_read marks inbox messages read", async () => {
+  const { ctx, call, client } = await connect();
+  ctx.env.CLAUDECODE = "1";
+  const d = await call("delegate", { goal: "g", repo: tmpDir(), executor: "codex" });
+  const id = d.structuredContent.task_id;
+  updateTask(ctx, id, t => { t.state = "running"; });
+  const exec = { ...ctx, env: { PACER_ROLE: "executor", PACER_TASK_ID: id } };
+  const { sendMessage } = await import("../src/messaging/send");
+  const m = (await sendMessage(exec, { to: "external:claude-code", body: "hi" }, { spawnRunner: () => 1 })).message;
+  expect((await call("msg_inbox")).structuredContent.messages.map((x: { id: string }) => x.id)).toContain(m.id);
+  const r = await call("msg_read", { ids: [m.id] });
+  expect(r.isError).toBeFalsy();
+  expect(r.structuredContent.read).toBe(1);
+  expect((await call("msg_inbox")).structuredContent.messages).toEqual([]);
+  await client.close();
 });

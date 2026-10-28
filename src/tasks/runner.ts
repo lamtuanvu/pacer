@@ -94,7 +94,8 @@ const DEFAULTS: RunnerDeps = {
  * Strict enforcement forces direct for both.
  */
 export function needsDirectBackend(task: TaskRecord, strict: boolean): boolean {
-  return strict || (task.interactionMode === "conversation" && !task.interactive);
+  // A pending message turn resumes the native session headlessly in the task's own worktree.
+  return strict || !!task.pendingTurn || (task.interactionMode === "conversation" && !task.interactive);
 }
 
 function finish(ctx: Ctx, id: string, result: TaskResult): TaskRecord {

@@ -178,6 +178,15 @@ export function resumeLaunchFor(cfg: ProviderCfg, sessionId: string, worktree: s
   return {cwd: worktree, argv};
 }
 
+const HEADLESS_RESUME = ["codex", "claude-code", "cursor"], HEADLESS_LAUNCH = [...HEADLESS_RESUME, "agy"];
+/** How a message turn reaches this runner headless: resume its session, replay the thread in a fresh launch, or not at all. */
+export function headlessTurnPath(cfg: Pick<ProviderCfg, "id" | "via">): "resume" | "replay" | null {
+  if (parseRunnerId(cfg.id)?.host) return null;
+  if (cfg.via === "opencode") return "resume";
+  const agent = parseRunnerId(cfg.id)?.agent ?? cfg.id;
+  return HEADLESS_RESUME.includes(agent) ? "resume" : HEADLESS_LAUNCH.includes(agent) ? "replay" : null;
+}
+
 /** Continue a headless agent's native session with one new prompt; the process exits when the turn ends. */
 export function resumeHeadlessFor(cfg: ProviderCfg, sessionId: string, prompt: string, workdir: string, taskDir: string, taskId: string): Launch {
   const model = cfg.model;

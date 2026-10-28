@@ -17,7 +17,7 @@ For a failed or incomplete child, use \`pacer dispatch retry --id CHILD_ID --req
    To avoid shell quoting, pipe the JSON to \`pacer delegate --brief-file - --json\`.
    Use \`pacer watch <id> --json\` to stream output until settled, \`pacer wait <id> --json\` for completion only,
    or \`pacer tasks <id> --json\` for a snapshot, instead of polling private task files or executor logs.
-3. Converse. \`pacer msg inbox --wait\` shows reports and questions from your tasks. \`pacer msg send <task> "<text>" --wait\` continues the same agent session in the same worktree and returns its reply. Answer a question with \`pacer msg send <task> "<text>" --answer <message-id>\` (or \`pacer answer <task> "<text>"\`).
+3. Converse. \`pacer msg inbox --wait\` shows reports and questions from your tasks; after handling them, run \`pacer msg read <message-id>...\` so the next \`--wait\` blocks for new ones. \`pacer msg send <task> "<text>" --wait\` continues the same agent session in the same worktree and returns its reply. Answer a question with \`pacer msg send <task> "<text>" --answer <message-id>\` (or \`pacer answer <task> "<text>"\`).
 4. Review the diff and run acceptance. \`pacer review <id> --accept|--reject\`. \`--send-back --note\` continues the same session with your feedback. \`--retry-on <executor>\` starts over on another executor.
 5. \`pacer msg log <task>\` shows the conversation. \`pacer msg close <task>\` ends it without a verdict.
 

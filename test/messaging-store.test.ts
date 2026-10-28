@@ -37,3 +37,24 @@ test("turn counting per root", () => {
   store.recordTurn(ctx, { id: "x#2", taskId: base.taskId, rootId: base.rootId, at: 2 });
   expect(store.turnsForRoot(ctx, base.rootId)).toBe(2);
 });
+
+test("the messages schema is created once per connection", () => {
+  const ctx = fakeCtx();
+  const db = store.messagesDatabase(ctx);
+  let execs = 0;
+  const exec = db.exec.bind(db);
+  db.exec = ((sql: string) => { execs++; return exec(sql); }) as typeof db.exec;
+  try {
+    store.messagesDatabase(ctx);
+    store.inbox(ctx, base.to);
+    expect(execs).toBe(0);
+  } finally { db.exec = exec; }
+});
+
+test("insert stores a fingerprint of recipient, kind and body", () => {
+  const ctx = fakeCtx();
+  store.insertMessage(ctx, { ...base, requestId: "f1" });
+  const prior = store.byRequest(ctx, base.from, "f1")!;
+  expect(prior.fingerprint).toBe(store.fingerprint(base.to, "message", "hi"));
+  expect(store.fingerprint(base.to, "message", "hi")).not.toBe(store.fingerprint(base.to, "message", "hi!"));
+});

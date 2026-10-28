@@ -54,3 +54,17 @@ test("tree override sits above global rules, and confirm holds", () => {
   expect(r.layer).toBe("tree");
   expect(effectivePolicy(s.ctx, { root: s.top }).rules[0]!.layer).toBe("tree");
 });
+
+test("a refusal with no matching rule says so, names the closest grant rule and gives the check command", () => {
+  const { ctx, a, b, user } = setup();
+  const err = (f: () => unknown) => { try { f(); } catch (e) { return e as CoreError; } throw new Error("allowed"); };
+  const sibling = err(() => checkSend(ctx, send(a, b)));
+  expect(sibling.data).toMatchObject({ reason: "msg_forbidden", layer: "none", relation: "sibling", closest: { rule: 4, layer: "default", grant: "required" } });
+  expect(sibling.message).toContain("no rule matched");
+  expect(sibling.message).toContain("rule 4 (default) allows it with a work grant");
+  expect(sibling.hint).toBe(`Run \`pacer msg policy --check --from ${a} --to ${b} --kind message\` to see which rule decides.`);
+  const unrelated = err(() => checkSend(ctx, send(a, user)));
+  expect(unrelated.message).toContain("no rule matched");
+  expect(unrelated.message).not.toContain("work grant");
+  expect(unrelated.data?.closest).toBeUndefined();
+});
