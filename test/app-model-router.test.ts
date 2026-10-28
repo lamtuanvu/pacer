@@ -96,7 +96,7 @@ test("canonical route targets generate URLs that round-trip with metadata", () =
   [routes.needsYou(), "#/needs-you", "Needs you", "review", null],
   [routes.tasks(), "#/tasks", "Tasks", "sessions", null],
   [routes.task("a b/c"), "#/tasks/a%20b%2Fc", "Task", "sessions", routes.tasks()],
-  [routes.settings("executors"), "#/settings/executors", "Executors", "settings", routes.settings()],
+  [routes.settings("executors"), "#/settings/executors", "Agents", "settings", routes.settings()],
   [routes.hosts(), "#/settings/hosts", "Remote hosts", "settings", routes.settings()],
   [routes.host("dev box/a"), "#/settings/hosts/dev%20box%2Fa", "Host", "settings", routes.hosts()],
   [routes.addExecutor(), "#/settings/add-executor", "Add executor", "settings", routes.settings()],
