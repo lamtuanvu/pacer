@@ -9,9 +9,13 @@ type Viewer = typeof import("./FileViewer")["FileViewer"];
 interface Viewing { reference: string; file?: SessionFileResult; error?: { code: string; message: string }; loading?: boolean }
 
 /** Keeps the PTY viewer mounted while a linked file is inspected. Layout, loading and error states live in the lazy viewer. */
-export function LinkedTerminal({ attempt, readFile, ...terminal }: TerminalViewProps & {
+export function LinkedTerminal({ attempt, readFile, workspace, agent, ...terminal }: TerminalViewProps & {
   attempt: number | null;
   readFile?: ReadSessionFile;
+  /** The worktree or repository that linked paths are relative to. */
+  workspace?: string;
+  /** Display name of the agent whose terminal printed the path. */
+  agent?: string;
 }) {
   const [viewing, setViewing] = useState<Viewing | null>(null);
   const [View, setView] = useState<Viewer | null>(null);
@@ -46,7 +50,7 @@ export function LinkedTerminal({ attempt, readFile, ...terminal }: TerminalViewP
     <div className="pc-linked-terminal__layout">
       <div className="pc-linked-terminal__term"><LazyTerminal {...terminal} onOpenFile={(path, line, column) => { void open(path, line, column); }}/></div>
       {viewing && <div className="pc-linked-terminal__viewer">
-        {View ? <View key={viewing.reference} {...viewing} onClose={close} onRefresh={() => { void open(viewing.reference); }} onOpenFile={path => { void open(path); }}/>
+        {View ? <View key={viewing.reference} {...viewing} workspace={workspace} agent={agent && agent[0]!.toUpperCase() + agent.slice(1)} running={terminal.live ?? true} onClose={close} onRefresh={() => { void open(viewing.reference); }} onOpenFile={path => { void open(path); }}/>
           : loadFailed ? <div><p role="alert">Could not load the file viewer.</p><Button size="sm" onClick={load}>Try again</Button> <Button size="sm" variant="quiet" onClick={close}>Back to terminal</Button></div>
           : <p role="status">Opening file…</p>}
       </div>}

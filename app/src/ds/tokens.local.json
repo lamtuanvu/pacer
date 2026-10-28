@@ -1,1 +1,60 @@
-{}
+{
+  "size": {
+    "tokens": [
+      {
+        "name": "size-14",
+        "value": "14px",
+        "provisional": "File viewer board: header padding, title size and line-number gutter padding."
+      },
+      {
+        "name": "size-10.5",
+        "value": "10.5px",
+        "provisional": "File viewer board: file glyph text."
+      },
+      {
+        "name": "size-12.5",
+        "value": "12.5px",
+        "provisional": "File viewer board: source code text; the design system's code style is 12px."
+      },
+      {
+        "name": "size-5",
+        "value": "5px",
+        "provisional": "File viewer board: Esc key cap padding."
+      },
+      {
+        "name": "size-10",
+        "value": "10px",
+        "provisional": "File viewer board: loading skeleton line height."
+      },
+      {
+        "name": "size-440",
+        "value": "440px",
+        "provisional": "File viewer board: empty-state text width."
+      }
+    ]
+  },
+  "radius": {
+    "tokens": [
+      {
+        "name": "radius-4",
+        "value": "4px",
+        "provisional": "File viewer board: Esc key cap."
+      },
+      {
+        "name": "radius-5",
+        "value": "5px",
+        "provisional": "File viewer board: Line and Session running chips."
+      },
+      {
+        "name": "radius-2",
+        "value": "2px",
+        "provisional": "File viewer board: search match highlight."
+      },
+      {
+        "name": "radius-7",
+        "value": "7px",
+        "provisional": "File viewer board: Source/Preview segmented control."
+      }
+    ]
+  }
+}

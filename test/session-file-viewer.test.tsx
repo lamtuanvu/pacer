@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { renderToString } from "preact-render-to-string";
 import {
-  FileViewer, HtmlPreview, PAGE_LINES, PREVIEW_LIMIT_BYTES, describeFileError, fileGlyph, findMatches, formatSize,
+  FileViewer, HtmlPreview, PAGE_LINES, PREVIEW_LIMIT_BYTES, describeFileError, fileGlyph, fileMeta, findMatches, formatSize, initialLoaded,
   languageName, pageOfLine, parseReference, resolvePreviewReference, splitLines, viewerLayout,
 } from "../app/src/screens/session/FileViewer";
 import { INLINE_STYLES, blockedResources } from "../app/src/screens/session/preview-html";
@@ -17,24 +17,49 @@ test("code viewer shows a selected line, header actions, search entry and return
   expect(html).toContain("Back to terminal");
   expect(html).toContain('aria-label="Search"');
   expect(html).toContain('aria-label="Copy path"');
-  expect(html).toContain('aria-label="Refresh"');
+  expect(html).not.toContain('aria-label="Refresh"');
+  expect(html).not.toContain("Open in editor");
   expect(html).toContain("Read-only");
   expect(html).toContain('<kbd class="pc-kbd">Esc</kbd>');
   expect(html).toContain("aria-current=\"location\"");
   expect(html).toContain("s<mark");
   expect(html).toContain("Column 2");
   expect(html).toContain("Line 2</span>");
-  expect(html).toMatch(/<footer[^>]*>.*TypeScript.*0\.1 KB.*2 lines.*Ln 2.*<\/footer>/);
+  expect(html).toMatch(/<footer[^>]*>.*TypeScript.*UTF-8 · LF · 2 lines · 0\.1 KB.*Ln 2 · Opened from terminal.*<\/footer>/);
 });
 
-test("large source limits rendered lines and keeps a requested location visible", () => {
-  const html = renderToString(<FileViewer file={{ ...file, text: Array.from({ length: 3000 }, (_, index) => `line ${index + 1}`).join("\n"), line: 2800 }} onClose={noop} onRefresh={noop} />);
-  expect(html).toContain("Showing lines 2001–3000 of 3000; search covers the whole file");
-  expect(html).toContain("pc-file-viewer__banner--warn");
-  expect(html).toContain("Previous lines");
-  expect(html).toContain("Next lines");
-  expect(html).toContain("line 2800");
-  expect(html).not.toContain("line 1</span>");
+test("large source loads the first pages, enough to include the requested location, and says what search covers", () => {
+  const text = Array.from({ length: 5000 }, (_, index) => `line ${index + 1}`).join("\n");
+  const first = renderToString(<FileViewer file={{ ...file, text, line: 10 }} onClose={noop} onRefresh={noop} />);
+  expect(first).toContain("Large file: showing the first 2,000 lines");
+  expect(first).toContain("(5,000 lines). Search covers the lines shown.");
+  expect(first).toContain("pc-file-viewer__banner--warn");
+  expect(first).toContain("Show next 2,000 lines");
+  expect(first).toContain("line 2000");
+  expect(first).not.toContain("line 2001");
+  const located = renderToString(<FileViewer file={{ ...file, text, line: 2800 }} onClose={noop} onRefresh={noop} />);
+  expect(located).toContain("Large file: showing the first 4,000 lines");
+  expect(located).toContain("line 2800");
+  expect(located).not.toContain("line 4001");
+  const all = renderToString(<FileViewer file={{ ...file, text: text.split("\n").slice(0, 3000).join("\n"), line: 2800 }} onClose={noop} onRefresh={noop} />);
+  expect(all).toContain("Large file: showing the first 3,000 lines");
+  expect(all).not.toContain("Show next");
+  expect(initialLoaded()).toBe(PAGE_LINES);
+  expect(initialLoaded(PAGE_LINES + 1)).toBe(PAGE_LINES * 2);
+});
+
+test("the footer meta line reads encoding, line ending, lines and size", () => {
+  expect(fileMeta("a\nb\n", 2, 1024)).toBe("UTF-8 · LF · 2 lines · 1.0 KB");
+  expect(fileMeta("a\r\nb", 1, 2048)).toBe("UTF-8 · CRLF · 1 line · 2.0 KB");
+});
+
+test("the header shows the worktree, a Session running chip only while the session runs, and Open in editor only with a host", () => {
+  const plain = renderToString(<FileViewer file={file} workspace="validate/pwa-drop" running agent="Codex" onClose={noop} onRefresh={noop} onOpenInEditor={noop} />);
+  expect(plain).toContain('<span class="pc-file-viewer__workspace">validate/pwa-drop / </span>');
+  expect(plain).toContain("Session running");
+  expect(plain).toContain('aria-label="Open in editor"');
+  expect(plain).toContain("Opened from Codex terminal");
+  expect(renderToString(<FileViewer file={file} onClose={noop} onRefresh={noop} />)).not.toContain("Session running");
 });
 
 test("out-of-range line requests retain visible source", () => {
@@ -62,7 +87,7 @@ test("HTML preview is sandboxed and names what it blocked", () => {
   expect(html).toMatch(/<iframe[^>]*\ssandbox(?:\s|>|="")/);
   expect(html).toContain('role="note"');
   expect(html).toContain("Preview is isolated from pacer");
-  expect(html).toContain("Scripts don't run, inline styles aren't applied and nothing loads from the network. 2 scripts and 1 external request were blocked.");
+  expect(html).toContain("Scripts don’t run, inline styles aren’t applied and nothing loads from the network. 2 scripts and 1 external request were blocked.");
   expect(html).toMatch(/<iframe[^>]*tabindex="-1"/i);
   expect(html).toContain("inline script");
   expect(html).toContain("local asset not loaded");
@@ -123,7 +148,7 @@ test("blocked-resource scanner covers srcset, poster, audio, embed and object, a
 test("server errors map to titled states with only actions that can work", () => {
   const path = "src/gone.ts";
   expect(describeFileError({ code: "not_found", message: "File no longer exists in this session workspace" }, path))
-    .toEqual({ glyph: "missing", title: "This file isn't in the workspace", body: "src/gone.ts may have been moved, deleted or not written yet.", copy: true, retry: true });
+    .toEqual({ glyph: "missing", title: "This file isn’t in the workspace", body: "The agent printed src/gone.ts, but there is no file at that path in this workspace. It may have been moved, deleted, or not written yet.", copy: true, retry: true });
   expect(describeFileError({ code: "not_allowed", message: "File is outside the session workspace" }, path))
     .toMatchObject({ title: "Outside this workspace", body: "pacer only opens files inside the session workspace.", copy: true, retry: false });
   expect(describeFileError({ code: "not_allowed", message: "Private Pacer state cannot be previewed" }, path))
@@ -131,14 +156,14 @@ test("server errors map to titled states with only actions that can work", () =>
   expect(describeFileError({ code: "too_large", message: "File is too large to preview" }, path))
     .toMatchObject({ title: "Too large to preview", body: "pacer previews files up to 512 KB.", copy: true });
   for (const message of ["Binary files cannot be previewed", "File is not UTF-8 text"])
-    expect(describeFileError({ code: "invalid_input", message }, path)).toMatchObject({ title: "pacer can't show this file", body: "It's a binary file or isn't UTF-8 text." });
+    expect(describeFileError({ code: "invalid_input", message }, path)).toMatchObject({ title: "pacer can’t show this file", body: "gone.ts is a binary file or isn’t UTF-8 text. The viewer shows text files only." });
   expect(describeFileError({ code: "conflict", message: "This session attempt has changed; refresh it" }, path))
     .toEqual({ glyph: "changed", title: "This session changed", body: "The agent's attempt moved on. Refresh the session.", copy: false, retry: false });
   expect(describeFileError({ code: "not_found", message: "Session workspace is unavailable" }, path))
     .toMatchObject({ title: "Workspace unavailable", body: "This session's workspace is no longer available; it may have been removed or cleaned up." });
   // Without a typed code (for example a proxy error), the message still selects the state.
-  expect(describeFileError({ code: "internal", message: "File no longer exists in this session workspace" }, path).title).toBe("This file isn't in the workspace");
-  expect(describeFileError({ code: "internal", message: "File is not UTF-8 text" }, path).title).toBe("pacer can't show this file");
+  expect(describeFileError({ code: "internal", message: "File no longer exists in this session workspace" }, path).title).toBe("This file isn’t in the workspace");
+  expect(describeFileError({ code: "internal", message: "File is not UTF-8 text" }, path).title).toBe("pacer can’t show this file");
 });
 
 test("the too-large copy uses the service's read limit", () => {
@@ -152,7 +177,9 @@ test("errors keep the header and Back to terminal; Retry appears only for missin
   const missing = renderToString(<FileViewer reference="src/gone.ts:4" error={{ code: "not_found", message: "File no longer exists in this session workspace" }} onClose={noop} onRefresh={noop} />);
   expect(missing).toContain("gone.ts");
   expect(missing).toContain("Back to terminal");
-  expect(missing).toContain("This file isn't in the workspace");
+  expect(missing).toContain("This file isn’t in the workspace");
+  expect(renderToString(<FileViewer reference="src/gone.ts:4" workspace="validate/pwa-drop" error={{ code: "not_found", message: "File no longer exists in this session workspace" }} onClose={noop} onRefresh={noop} />))
+    .toContain("The agent printed src/gone.ts:4, but there is no file at that path in validate/pwa-drop. It may have been moved, deleted, or not written yet.");
   expect(missing).toContain(">Retry<");
   expect(missing).toContain(">Copy path<");
   expect(missing).toContain("Line 4");
@@ -171,7 +198,7 @@ test("loading shows the reference's name and path at once with a polite status",
   const html = renderToString(<FileViewer reference="docs/guide.md:12:3" onClose={noop} onRefresh={noop} />);
   expect(html).toContain("<strong title=\"docs/guide.md\">guide.md</strong>");
   expect(html).toContain("Line 12");
-  expect(html).toMatch(/role="status" aria-live="polite"[^>]*>Reading docs\/guide\.md…/);
+  expect(html).toMatch(/role="status" aria-live="polite"[^>]*>.*Reading docs\/guide\.md…/);
   expect(html).toContain("Back to terminal");
   expect(html).not.toContain("pc-file-viewer__skeleton");
 });

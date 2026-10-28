@@ -19,13 +19,14 @@ async function readFile({reference}:SessionFileRequest):Promise<SessionFileResul
  const path=location?reference.slice(0,location.index):reference;
  if(deferred)await new Promise<void>(resolve=>pending.set(path,resolve));
  const file=files[path];
+ if(path==="dist/engine.wasm")throw Object.assign(new Error("File is binary or not valid UTF-8"),{code:"invalid_input"});
  if(!file)throw Object.assign(new Error("File no longer exists in this session workspace"),{code:"not_found"});
  return {...file,...(location?{line:Number(location[1])}:{})};
 }
 let setAttempt:(attempt:number)=>void=()=>{};
 function App(){
  const [attempt,set]=useState(1);setAttempt=set;
- return <LinkedTerminal id="t-files" attempt={attempt} readFile={readFile}/>;
+ return <LinkedTerminal id="t-files" attempt={attempt} readFile={readFile} workspace="validate/pwa-drop" agent="codex"/>;
 }
 const host=document.getElementById("root")!;
 (globalThis as Record<string,unknown>).fileViewerTest={

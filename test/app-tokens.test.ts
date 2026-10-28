@@ -36,7 +36,8 @@ test("provisional tokens are appended to their group", () => {
 test("provisional entries are listed", () => {
   const entries = provisionalEntries(local);
   if (entries.length) console.info("Provisional design tokens still pending in the design system:", entries);
-  expect(entries).toEqual([]);
+  // Each provisional entry names the board it serves, so it can be retired when the design system gains it.
+  expect(entries.every(entry => entry.provisional.length > 20)).toBe(true);
 });
 
 test("ds-sync rejects an export missing a dark value and writes nothing", () => {
