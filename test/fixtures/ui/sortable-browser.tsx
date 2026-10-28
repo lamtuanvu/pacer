@@ -58,7 +58,7 @@ function Try() {
   } };
   return <TaskContext.Provider value={{ state: mode === '#try-preview' ? { ...tryState, features: { ...tryState.features, ops: new Set(['routing.get', 'routing.set', 'dispatch.preview']) } } : tryState, api } as never}>
     <main>
-      <SetupEditor view={view} eligibility={{ kind: 'global', rules: [{ executors: ['codex'] }], available: ['codex'] }} onDirtyChange={() => {}} onSaved={() => {}} onLadderDraft={setDraft} />
+      <SetupEditor view={mode === '#try-no-saved' ? { ...view, strategy: '' } : view} eligibility={{ kind: 'global', rules: [{ executors: ['codex'] }], available: ['codex'] }} onDirtyChange={() => {}} onSaved={() => {}} onLadderDraft={setDraft} />
       <DispatcherPreviewForm query={{} as never} draft={draft} />
       <output data-testid="sent">{sent}</output>
       <output data-testid="called">{called}</output>

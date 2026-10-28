@@ -441,6 +441,9 @@ body:has(.pc-app--narrow) .pc-toasts{bottom:calc(var(--size-56) + var(--space-5)
 .pc-strategy-popup__summary-text .u3-muted{font-size:var(--type-caption-size)}
 .pc-strategy-popup__project-order{margin-top:var(--space-2);padding:var(--space-2);background:var(--surface-lane);border-radius:var(--radius-md)}
 .pc-strategy-popup__project-order>.u3-muted{display:block;margin-bottom:var(--space-1)}
+/* Try a task candidate rows: the glyph is the marker, so no list bullet. */
+.u3-candidates{margin:var(--space-1) 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:var(--space-1)}
+.u3-candidates__ok{color:var(--good-fg)}.u3-candidates__out{color:var(--ink-muted)}
 .pc-strategy-popup__executors{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:var(--space-1)}
 .pc-strategy-popup__executor{display:flex;align-items:center;gap:var(--space-2)}
 .pc-strategy-popup__executor-order{display:flex;align-items:center;justify-content:center;width:var(--size-18);height:var(--size-18);font-size:var(--type-caption-size);font-weight:var(--type-body-strong-weight);background:var(--surface-card);border-radius:var(--radius-full);border:1px solid var(--line);color:var(--ink-secondary)}

@@ -289,3 +289,17 @@ browserTest('Try a task names an eligible fallback without a chosen executor', a
     expect(await card.textContent()).not.toContain('the choice above');
   } finally { await page.close(); }
 });
+
+browserTest('without a saved strategy, Try a task explains the saved settings and says why', async () => {
+  const page = await browser.newPage();
+  try {
+    await page.goto(`${server.url.href}#try-no-saved`);
+    await page.getByRole('button', { name: 'Move up: Usable fallback' }).click();
+    expect(await page.getByLabel('Use my unsaved choice ladder').count()).toBe(0);
+    await page.getByText('Save the choice ladder once to try unsaved changes here.').waitFor();
+    await page.getByLabel('Task', { exact: true }).fill('Fix the login bug');
+    await page.getByRole('button', { name: 'Preview selection' }).click();
+    await page.getByText('Would go to').waitFor();
+    expect(await page.getByTestId('sent').textContent()).not.toContain('strategyDraft');
+  } finally { await page.close(); }
+});

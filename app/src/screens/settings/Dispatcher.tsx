@@ -74,7 +74,7 @@ export function RouteExplanationResult({result}:{result:RouteExplanation}) {
     {result.step&&<p>Matched: Step {result.step.index+1} · {stepTitle(result.step.id)}</p>}
     {result.strategy.draft&&<p className="u3-muted">Uses your unsaved choice ladder.</p>}
     {!!result.reasons.length&&<ul>{result.reasons.map((item,index)=><li key={`${item.code}:${index}`}>{copyReason(item)}</li>)}</ul>}
-    {!!fallbacks.length&&<div><strong>Also considered</strong><ul>{fallbacks.map((item,index)=><li key={`${item.runner}:${index}`}><span aria-hidden="true">{item.state==="eligible"?"✓":"×"}</span> <strong>{executorLabel(item.runner)}</strong>: {item.state==="eligible"?(result.chosen?"Could take it if the choice above cannot.":"Could take it."):item.reason?reasonCopy(item.reason,labels):"Left out."}</li>)}</ul></div>}
+    {!!fallbacks.length&&<div><strong>Also considered</strong><ul className="u3-candidates">{fallbacks.map((item,index)=><li key={`${item.runner}:${index}`}><span aria-hidden="true" className={item.state==="eligible"?"u3-candidates__ok":"u3-candidates__out"}>{item.state==="eligible"?"✓":"×"}</span> <strong>{executorLabel(item.runner)}</strong>: {item.state==="eligible"?(result.chosen?"Could take it if the choice above cannot.":"Could take it."):item.reason?reasonCopy(item.reason,labels):"Left out."}</li>)}</ul></div>}
     <p className="u3-muted">{plannerCopy(result.planner,labels)}</p>
     {!!result.uncertainty.length&&<Disclosure summary="What could change this"><ul>{result.uncertainty.map((item,index)=><li key={`${item.code}:${index}`}>{copyReason(item)}</li>)}</ul></Disclosure>}
   </div>;
@@ -248,7 +248,7 @@ export function DispatcherPreviewForm({query,draft}:{query:RouteQuery;draft?:Str
     const params={repo,goal:goal.trim(),...(kind.trim()?{kind:kind.trim()}:{}),requirements:{...(tier?{minTier:tier}:{}),...(tools?{tools:true}:{})}};
     try{
       if(explain){
-        const next=await api.call<RouteExplanation>("dispatch.explain",{...params,...(draft&&useDraft?{strategyDraft:draft}:{})});
+        const next=await api.call<RouteExplanation>("dispatch.explain",{...params,...(draft?.from&&useDraft?{strategyDraft:draft}:{})});
         if(id===request.current){setExplained(next);setAnnouncement(explainHeadline(next,{executor:executorLabel,step:stepTitle,now:Date.now()/1000,outcome:next.outcome}));}
       }else{
         const next=await api.call<DispatchPreview>("dispatch.preview",params);
@@ -265,7 +265,7 @@ export function DispatcherPreviewForm({query,draft}:{query:RouteQuery;draft?:Str
       <Field label="Task kind" help="Optional. Use this to check a specialist step."><TextInput value={kind} maxLength={256} placeholder="For example, architecture" onInput={event=>setKind(event.currentTarget.value)}/></Field>
       <Field label="Minimum model tier"><ChoicePicker value={tier} options={tierOptions} onValueChange={setTier}/></Field>
       <Checkbox label="Needs tools" checked={tools} onChange={event=>setTools(event.currentTarget.checked)}/>
-      {explain&&draft&&<Checkbox label="Use my unsaved choice ladder" help="Changes to Who may do the work count only after you save them." checked={useDraft} onChange={event=>setUseDraft(event.currentTarget.checked)}/>}
+      {explain&&draft?.from&&<Checkbox label="Use my unsaved choice ladder" help="Changes to Who may do the work count only after you save them." checked={useDraft} onChange={event=>setUseDraft(event.currentTarget.checked)}/>}
       {explain&&draft&&!draft.from&&<p className="u3-muted">Save the choice ladder once to try unsaved changes here.</p>}
       <div><Button type="submit" variant="primary" busy={busy} disabled={!repo||!goal.trim()}>Preview selection</Button></div>
     </form>
