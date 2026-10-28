@@ -2,12 +2,13 @@
 import { appendFileSync, readFileSync } from "node:fs";
 import { PluginError, serve, stdinLines, type PluginManifest } from "@pacer/plugin";
 
-interface Fixture { pingProbe?: "serial" | "barrier"; pingDelayMs?: number; slowPings?: number; crashAfterPings?: number; exitAtStart?: boolean; ignoreCancel?: boolean; claimContributes?: string[]; callCapability?: string }
+interface Fixture { pingProbe?: "serial" | "barrier"; pingDelayMs?: number; slowPings?: number; crashAfterPings?: number; exitAtStart?: boolean; ignoreCancel?: boolean; claimContributes?: string[]; callCapability?: string; renderDelayMs?: number; uiDocument?: unknown; renderCrash?: boolean; invalidateOnRender?: boolean; actionMessage?: string; validateErrors?: { path: string; message: string }[] }
 
 const manifest = JSON.parse(readFileSync("pacer-plugin.json", "utf8")) as PluginManifest;
 const fixture = JSON.parse(readFileSync("fixture.json", "utf8")) as Fixture;
 if (fixture.exitAtStart) process.exit(3);
 let pings = 0, active = 0, sequence = 0;
+let renders = 0;
 let activePings = 0;
 let peakConcurrentPings = 0;
 let releaseBarrier: (() => void) | undefined;
@@ -19,6 +20,15 @@ function receipt(ping: number, phase: "enter" | "exit" | "abort"): void {
 await serve({
   manifest, contributes: fixture.claimContributes, input: stdinLines(),
   handlers: {
+    "ui.render": async (_params, host) => {
+      renders++;
+      if (fixture.renderCrash) setTimeout(() => process.exit(9), 10);
+      if (fixture.renderDelayMs) await new Promise<void>(r => setTimeout(r, fixture.renderDelayMs));
+      if (fixture.invalidateOnRender) for (let i = 0; i < 5; i++) host.invalidate();
+      return { document: fixture.uiDocument ?? { type: "text", text: `render ${renders}` }, ttlS: 0 };
+    },
+    "ui.action": async () => ({ result: "refresh", message: fixture.actionMessage ?? "done" }),
+    "ui.settings.validate": async () => fixture.validateErrors ? { ok: false, errors: fixture.validateErrors } : { ok: true },
     "diagnostic.ping": async (_params, host, signal) => {
       const ping = ++pings;
       const measured = fixture.pingProbe !== undefined && ping > 1;
