@@ -7,6 +7,7 @@ import { dispatchConfigSchema, previewInputSchema } from "../dispatch/types";
 import { explainDispatch } from "../core/dispatch-explain";
 import { explainInputSchema } from "../dispatch/explain-input";
 import { filesSearchInputSchema, searchFiles } from "../core/files-search";
+import { importIssue, issueImportParams, issueSearchParams, searchIssues, type IssueDeps } from "../core/issue-import";
 import { enforcementDiagnostics, probeNativeControl } from "../dispatch/enforcement";
 import { recordConsent } from "../dispatch/certification-schedule";
 import { authorizeEnforcementToken } from "../dispatch/enforcement-token";
@@ -90,6 +91,7 @@ export interface OpDeps {
   openTerminal?: typeof openInTerminal;
   runUpdate?: typeof runUpdate;
   update?: Partial<Pick<UpdateDeps, "standalone" | "execPath">>;
+  gh?: IssueDeps["gh"];
 }
 export interface OpDef<P extends z.ZodTypeAny = z.ZodTypeAny> { description: string; params: P; handler: (ctx: Ctx, p: z.infer<P>, deps: OpDeps) => unknown }
 
@@ -474,6 +476,8 @@ export const OPS: Record<string, OpDef> = {
   }}),
   "dispatch.preview": op({ description: "Preview account/model dispatch using cached observations and the replaceable decision engine. Does not reserve capacity or launch work.", params: previewInputSchema, handler: (ctx, p) => core.dispatch.previewDispatch(ctx, p) }),
   "dispatch.explain": op({ description: "Explain, read-only, which executor a request would go to: the ladder step, the reasons, the fallbacks and the planner's cost. Starts, reserves and writes nothing.", params: explainInputSchema, handler: (ctx, p) => explainDispatch(ctx, p) }),
+  "issue.import": op({ description: "Read one GitHub issue (title, body, labels, URL, state) of a registered repository through the user's gh login, as capped plain text for a new task. The GitHub repository comes from the checkout's origin remote. Writes nothing.", params: issueImportParams, handler: (ctx, p, deps) => importIssue(ctx, p, { gh: deps.gh }) }),
+  "issue.search": op({ description: "Search a registered repository's GitHub issues for a picker (number, title, labels, URL, state) through the user's gh login. Writes nothing.", params: issueSearchParams, handler: (ctx, p, deps) => searchIssues(ctx, p, { gh: deps.gh }) }),
   "dispatch.submit": op({ description: "Submit a root work item to the dispatcher.", params: z.object({goal:z.string().min(1).max(20000),repo:z.string().min(1).max(4096),title:z.string().max(500).optional(),kind:id.optional(),acceptance:z.string().max(20000).optional(),context:z.string().max(20000).optional(),constraints:z.string().max(20000).optional(),executor:id.optional(),requestId:id.optional(),options:workOptionsSchema.partial().optional()}),handler:async(ctx,p,deps)=>summarizeTask(await submitWork(ctx,p,deps.spawnRunner??spawnRunner)) }),
   "dispatch.child": op({ description: "Delegate a scoped child work item using the current attempt's grant and an idempotency key.", params: z.object({goal:z.string().min(1).max(20000),title:z.string().max(500).optional(),kind:id.optional(),acceptance:z.string().max(20000).optional(),context:z.string().max(20000).optional(),constraints:z.string().max(20000).optional(),executor:id.optional(),requestId:id,options:workOptionsSchema.partial().optional()}),handler:async(ctx,p,deps)=>summarizeTask(await delegateChild(ctx,p,deps.spawnRunner??spawnRunner)) }),
   "dispatch.tree": op({ description: "Scoped nested work tree, selected decisions, dependencies and aggregate execution time.", params:z.object({id}),handler:(ctx,p)=>scopedWorkTree(ctx,p.id) }),
