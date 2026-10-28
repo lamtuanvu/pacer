@@ -1,6 +1,6 @@
 # ADR 0009: Terminal file links use a bounded service read
 
-Status: Proposed, 2026-10-27
+Status: Proposed, 2026-10-27. Amended by [ADR 0011](0011-open-session-file-in-editor.md) (desktop editor hand-off).
 
 ## Context
 
