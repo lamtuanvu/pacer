@@ -156,7 +156,7 @@ export function taskTree(snapshot: TreeSnapshot, opts: { now: number; extra?: Tr
       for (const agent of child.agents) if (!agents.includes(agent)) agents.push(agent);
     }
     const { attentionLabel: _label, tokens: _tokens, ...rest } = node;
-    const bucket: TaskBucket = attention !== "none" ? "needs" : node.active ? "running" : node.accepted ? "accepted" : node.stopped ? "stopped" : "other";
+    const bucket: TaskBucket = attention !== "none" ? "needs" : node.active || children.some(child => child.active) ? "running" : node.accepted ? "accepted" : node.stopped ? "stopped" : "other";
     const text = node.children.length || children.length ? tokenText(tok) : node.tokens;
     return { ...rest, attention, ...(attentionLabel ? { attentionLabel } : {}), agents, bucket, ...(text ? { tokens: text } : {}), ...(tok ? { tokenCount: tok.total } : {}), tok, children: children.map(strip), urgency: nodeUrgency };
   };
@@ -176,9 +176,9 @@ export function scopedTaskTree(snapshot: ClientSnapshot, scope: Scope, opts: { n
 }
 
 /** The work rows `dispatch.list` returns, as tree tasks: they carry the parent link, branch and token roll-up the snapshot lacks. */
-export interface WorkRow { id: string; parentId: string | null; rootId: string; depth: number; title: string; state: string; executor: string | null; rev: number; branch?: string | null; tokens?: TreeTokens | null }
+export interface WorkRow { id: string; parentId: string | null; rootId: string; depth: number; title: string; state: string; executor: string | null; rev: number; branch?: string | null; tokens?: TreeTokens | null; review?: TreeTask["review"] | null }
 export function workTasks(rows: WorkRow[]): TreeTask[] {
-  return rows.map((row): TreeTask => ({ id: row.id, goal: row.title, title: row.title, executor: row.executor, backend: null, worktree: null, updatedAt: 0, state: row.state, parentId: row.parentId, branch: row.branch ?? null, tokens: row.tokens ?? null }));
+  return rows.map((row): TreeTask => ({ id: row.id, goal: row.title, title: row.title, executor: row.executor, backend: null, worktree: null, updatedAt: 0, state: row.state, parentId: row.parentId, branch: row.branch ?? null, tokens: row.tokens ?? null, ...(row.review ? { review: row.review } : {}) }));
 }
 
 /** The Tasks page caption: roots, subtasks and tokens across the roots shown. Tokens appear only when some were measured. */

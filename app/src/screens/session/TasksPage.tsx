@@ -40,10 +40,12 @@ export interface TasksPageProps {
   nodes: TaskNodeView[] | undefined; repos: RepoRef[]; query: RouteQuery; onNew(): void;
   /** True when older tasks can still be fetched from the service. */
   hasOlder: boolean; loadingOlder: boolean; onLoadOlder(): void; error?: ComponentChildren;
+  /** More work rows (subtask links, branches, tokens) than one page held. */
+  hasMoreWork?: boolean; loadingMoreWork?: boolean; onLoadMoreWork?(): void;
 }
 
 /** The Tasks board: header, filters and the task tree beside the selected task. */
-export function TasksPage({ nodes, repos, query, onNew, hasOlder, loadingOlder, onLoadOlder, error }: TasksPageProps) {
+export function TasksPage({ nodes, repos, query, onNew, hasOlder, loadingOlder, onLoadOlder, error, hasMoreWork, loadingMoreWork, onLoadMoreWork }: TasksPageProps) {
   const [filter, setFilter] = useState<Filter>("all");
   const [search, setSearch] = useState("");
   const [shown, setShown] = useState(PAGE);
@@ -60,7 +62,8 @@ export function TasksPage({ nodes, repos, query, onNew, hasOlder, loadingOlder, 
   const summary = treeSummary(roots);
   const href = taskHref(query.repo ? `repo=${encodeURIComponent(query.repo)}` : "");
   const viewHref = (id: string, view: TaskCardView) => `${href(id)}${href(id).includes("?") ? "&" : "?"}tab=${view}`;
-  const here = find(roots, selected) ?? (page[0] ? find(roots, page[0].id) : undefined);
+  // The panel follows the selection only while that task is still listed; a filter or search that hides it hands the panel to the first card.
+  const here = find(page, selected) ?? (page[0] ? find(page, page[0].id) : undefined);
   const go = (repo: string | null) => { location.hash = withQuery(location.hash.split("?")[0] || "#/", { ...query, repo }); };
   const repoLabel = repos.find(repo => repo.key === query.repo)?.label ?? "All repos";
   return <div className="pc-tasks-page">
@@ -87,7 +90,8 @@ export function TasksPage({ nodes, repos, query, onNew, hasOlder, loadingOlder, 
         {nodes && roots.length > 0 && <div className="pc-tasks-page__more">
           <span className="pc-tasks-page__caption" role="status">Showing {Math.min(shown, visible.length)} of {visible.length} root tasks</span>
           {visible.length > shown ? <Button size="sm" onClick={() => setShown(shown + PAGE)}>Show {Math.min(PAGE, visible.length - shown)} more</Button>
-            : hasOlder && <Button size="sm" busy={loadingOlder} onClick={onLoadOlder}>Load older tasks</Button>}
+            : hasOlder ? <Button size="sm" busy={loadingOlder} onClick={onLoadOlder}>Load older tasks</Button>
+            : hasMoreWork && <Button size="sm" busy={loadingMoreWork} onClick={onLoadMoreWork}>Load more subtasks</Button>}
         </div>}
       </section>
       {here && <LazyTaskAside key={here.node.id} node={here.node} parent={here.parent} position={here.parent ? `Subtask ${here.index + 1} of ${here.siblings}` : "Root task"} href={href} viewHref={viewHref} />}

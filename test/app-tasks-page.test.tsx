@@ -1,5 +1,10 @@
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { chromium, type Browser } from 'playwright-core';
+import { renderToString } from 'preact-render-to-string';
+import { TasksPage } from '../app/src/screens/session/TasksPage';
+import { TaskContext } from '../app/src/screens/task-shared';
+import { initialState } from '../app/src/data/store';
+import { taskTree } from '../src/view-model/task-tree';
 
 const browserPath = process.env.PACER_TEST_BROWSER;
 const browserTest = test.skipIf(!browserPath);
@@ -68,3 +73,15 @@ browserTest('filters_wrap_and_nothing_overflows_at_375', async () => {
     expect(await page.getByRole('complementary', { name: 'Selected task' }).isVisible()).toBe(false);
   } finally { await page.close(); }
 }, 30_000);
+
+test('page_renders_header_filters_search_and_empty_state_without_a_browser', () => {
+  const html = (nodes: ReturnType<typeof taskTree> | undefined) => renderToString(<TaskContext.Provider value={{ state: { ...initialState(), connected: true } as never, api: { call: async () => ({}) } as never }}>
+    <TasksPage nodes={nodes} repos={[]} query={{ repo: null, scope: null } as never} onNew={() => {}} hasOlder={false} loadingOlder={false} onLoadOlder={() => {}} /></TaskContext.Provider>);
+  const loaded = html(taskTree({ tasks: [{ id: 'a', goal: 'Fix it', title: 'Fix it', state: 'failed', executor: 'codex', backend: null, worktree: null, updatedAt: 1 }] }, { now: 2 }));
+  expect(loaded).toContain('<h1 class="pc-tasks-page__title">Tasks</h1>');
+  expect(loaded).toContain('1 root task · 0 subtasks');
+  for (const word of ['All', 'Needs you', 'Running', 'Accepted', 'Stopped', 'New task', 'Search tasks']) expect(loaded).toContain(word);
+  expect(loaded).toContain('Showing 1 of 1 root tasks');
+  expect(html(undefined)).toContain('Loading tasks…');
+  expect(html([])).toContain('No tasks yet.');
+});

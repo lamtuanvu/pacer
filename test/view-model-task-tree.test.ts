@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import fixture from "./fixtures/ui/snapshot.json";
-import { scopedTaskTree, taskTree, type TaskNodeView, type TreeSnapshot } from "../src/view-model/task-tree";
+import { scopedTaskTree, taskTree, treeSummary, workTasks, type TaskNodeView, type TreeSnapshot, type TreeTask } from "../src/view-model/task-tree";
 import { taskStatus } from "../src/view-model/words";
 
 const now = 1800000000;
@@ -247,4 +247,45 @@ test("stuck_run_gets_attention_words_not_its_calm_status", () => {
   const ids = nodes.map(node => node.id);
   expect(ids.indexOf("t-0420")).toBeLessThan(ids.indexOf("t-0415"));
   expect(ids.indexOf("t-0409")).toBeLessThan(ids.indexOf("t-0420"));
+});
+
+const plain = (id: string, over: Partial<TreeTask> = {}): TreeTask => ({ id, goal: id, title: id, state: "done", executor: null, backend: null, worktree: null, updatedAt: 1, ...over });
+const own = (total: number, lowerBound = false) => ({ total, lowerBound, measuredAttempts: 1, partialAttempts: 0 });
+
+test("tokens_roll_up_through_three_levels_once_and_carry_the_lower_bound", () => {
+  const nodes = taskTree({ tasks: [
+    plain("root", { tokens: own(100) }), plain("child", { parentId: "root", tokens: own(50) }), plain("grand", { parentId: "child", tokens: own(25, true) }),
+  ] }, { now });
+  const root = find(nodes, "root")!;
+  expect(root.tokens).toBe("≥ 175 tokens");
+  expect(root.tokenCount).toBe(175);
+  expect(find(nodes, "child")!.tokens).toBe("≥ 75 tokens");
+  expect(find(nodes, "grand")!.tokens).toBe("≥ 25 tokens");
+});
+
+test("summary_counts_roots_subtasks_and_measured_tokens_only", () => {
+  const withTokens = taskTree({ tasks: [plain("a", { tokens: own(1200) }), plain("b", { parentId: "a", tokens: own(300) }), plain("c")] }, { now });
+  expect(treeSummary(withTokens)).toEqual({ roots: 2, subtasks: 1, tokens: "1.5k tokens" });
+  expect(treeSummary(taskTree({ tasks: [plain("x")] }, { now }))).toEqual({ roots: 1, subtasks: 0 });
+});
+
+test("merge_keeps_branch_parent_and_tokens_from_work_rows_when_the_snapshot_lacks_them", () => {
+  const rows = [{ id: "t-1", parentId: null, rootId: "t-1", depth: 0, title: "t-1", state: "done", executor: null, rev: 1, branch: "pacer/t-1", tokens: own(900) },
+    { id: "t-2", parentId: "t-1", rootId: "t-1", depth: 1, title: "t-2", state: "done", executor: null, rev: 1 }];
+  const nodes = taskTree({ tasks: [plain("t-1", { updatedAt: 5 }), plain("t-2", { updatedAt: 6 })] }, { now, extra: workTasks(rows) });
+  expect(nodes).toHaveLength(1);
+  expect(nodes[0]!.branch).toBe("pacer/t-1");
+  expect(nodes[0]!.children.map(child => child.id)).toEqual(["t-2"]);
+  expect(nodes[0]!.tokens).toBe("900 tokens");
+});
+
+test("work_rows_keep_their_review_so_old_roots_land_in_accepted_or_stopped", () => {
+  const row = (id: string, accepted: boolean) => ({ id, parentId: null, rootId: id, depth: 0, title: id, state: "done", executor: null, rev: 1, review: { accepted, kind: null, note: null, at: 1 } });
+  const nodes = taskTree({ tasks: [] }, { now, extra: workTasks([row("ok", true), row("no", false)]) });
+  expect(Object.fromEntries(nodes.map(node => [node.id, node.bucket]))).toEqual({ ok: "accepted", no: "stopped" });
+});
+
+test("a_settled_root_with_a_running_subtask_counts_as_running", () => {
+  const nodes = taskTree({ tasks: [plain("root", { state: "done" }), plain("kid", { parentId: "root", state: "running" })] }, { now });
+  expect(nodes[0]!.bucket).toBe("running");
 });

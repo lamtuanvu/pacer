@@ -75,12 +75,16 @@ export function Sessions({query}:{query:RouteQuery}) {
   });
   return () => cancelAnimationFrame(frame);
  }, [snapshot, page.loading, history]);
- const work=useQuery<{tasks:WorkRow[];next:string|null}>("dispatch.list",{relation:"all",limit:100,...(query.repo?{repo:query.repo}:{})});
- const extra=useMemo(()=>[...workTasks(work.data?.tasks??[]),...history],[work.data,history]);
+ const [workBefore,setWorkBefore]=useState<string|undefined>();
+ const [workRows,setWorkRows]=useState<WorkRow[]>([]);
+ const work=useQuery<{tasks:WorkRow[];next:string|null}>("dispatch.list",{relation:"all",limit:100,...(workBefore?{before:workBefore}:{}),...(query.repo?{repo:query.repo}:{})});
+ useEffect(()=>{if(work.data)setWorkRows(previous=>[...new Map([...(workBefore?previous:[]),...work.data!.tasks].map(row=>[row.id,row])).values()]);},[work.data,workBefore]);
+ const extra=useMemo(()=>[...workTasks(workRows),...history],[workRows,history]);
  const nodes=snapshot?scopedTaskTree(snapshot,{repo:query.repo||null},{now:Date.now()/1000,extra}):history.length?scopedHistory(history,query.repo||null):undefined;
- return <TasksPage nodes={nodes} repos={snapshot?.repos??[]} query={query} onNew={()=>window.dispatchEvent(new Event("pacer:delegate"))}
+ return <TasksPage key={query.repo??''} nodes={nodes} repos={snapshot?.repos??[]} query={query} onNew={()=>window.dispatchEvent(new Event("pacer:delegate"))}
   hasOlder={!!page.data?.next} loadingOlder={page.loading} onLoadOlder={()=>setCursor(page.data!.next!)}
-  error={page.error?<Cluster><Button onClick={page.reload}>Try again</Button></Cluster>:undefined}/>;
+  error={page.error||work.error?<Cluster>{work.error&&<span role="alert">Subtasks and branches could not be loaded.</span>}<Button onClick={()=>{page.error&&page.reload();work.error&&work.reload();}}>Try again</Button></Cluster>:undefined}
+  hasMoreWork={!!work.data?.next} loadingMoreWork={work.loading} onLoadMoreWork={()=>setWorkBefore(work.data!.next!)}/>;
 }
 export function sessionDetail(task:TaskDetail):SessionData {
  return {...sessionRow(task),branch:task.branch,machine:task.machine,started:task.startedAt?clock(task.startedAt,Date.now()/1000):undefined,
