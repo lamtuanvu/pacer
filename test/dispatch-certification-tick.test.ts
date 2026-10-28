@@ -55,7 +55,14 @@ ${extra}
 `);
 }
 
-function testStatus(usedPct: number | null): Status {
+interface TestStatusOptions {
+  usedPct: number | null;
+  stale?: boolean;
+  accountMissing?: boolean;
+}
+
+function testStatus(options: TestStatusOptions): Status {
+  const { usedPct, stale = false, accountMissing = false } = options;
   return {
     generatedAt: Date.now() / 1000,
     strategy: "test",
@@ -65,7 +72,7 @@ function testStatus(usedPct: number | null): Status {
     calendarPace: false,
     providers: [],
     executors: { ranked: [], excluded: [] },
-    accounts: [
+    accounts: accountMissing ? [] : [
       {
         name: "claude-code",
         kind: "claude",
@@ -74,7 +81,7 @@ function testStatus(usedPct: number | null): Status {
         pacePct: null,
         resetsAt: null,
         window: null,
-        stale: false,
+        stale,
         source: null,
         capturedAt: null,
         runners: ["claude-code"],
@@ -106,7 +113,7 @@ describe("certification tick", () => {
         return certifiedStatus();
       },
       status: async (): Promise<Status> => {
-        return testStatus(40); // 40% used = 60% headroom > 25% reserve
+        return testStatus({ usedPct: 40 }); // 40% used = 60% headroom > 25% reserve
       },
     };
 
@@ -131,7 +138,7 @@ describe("certification tick", () => {
         // Return beforeUsed first call, afterUsed second call
         const used = beforeUsed;
         beforeUsed = afterUsed;
-        return testStatus(used);
+        return testStatus({ usedPct: used });
       },
     };
 
@@ -161,7 +168,7 @@ pacing:
         return certifiedStatus();
       },
       status: async (): Promise<Status> => {
-        return testStatus(40);
+        return testStatus({ usedPct: 40 });
       },
     };
 
@@ -181,7 +188,7 @@ pacing:
         return uncertifiedStatus();
       },
       status: async (): Promise<Status> => {
-        return testStatus(40);
+        return testStatus({ usedPct: 40 });
       },
     };
 
@@ -201,7 +208,7 @@ pacing:
     const deps: TickDeps = {
       repo,
       probe: async (): Promise<CertificateStatus> => { throw new Error("launch failed"); },
-      status: async (): Promise<Status> => testStatus(40),
+      status: async (): Promise<Status> => testStatus({ usedPct: 40 }),
     };
 
     // A thrown probe must still settle the completion the tick awaits, or the
@@ -229,7 +236,7 @@ pacing:
         writeScheduleState(ctx, { ...live, consent: { ...live.consent, "claude-code": "declined" } });
         return uncertifiedStatus();
       },
-      status: async (): Promise<Status> => testStatus(40),
+      status: async (): Promise<Status> => testStatus({ usedPct: 40 }),
     };
 
     await tick(ctx, deps);
@@ -253,7 +260,7 @@ pacing:
         let calls = 0;
         return async (): Promise<Status> => {
           if (++calls > 1) throw new Error("status unavailable");
-          return testStatus(40);
+          return testStatus({ usedPct: 40 });
         };
       })(),
     };
@@ -276,7 +283,7 @@ pacing:
         return certifiedStatus();
       },
       status: async (): Promise<Status> => {
-        return testStatus(40);
+        return testStatus({ usedPct: 40 });
       },
     };
 
@@ -316,7 +323,7 @@ pacing:
         return certifiedStatus();
       },
       status: async (): Promise<Status> => {
-        return testStatus(40);
+        return testStatus({ usedPct: 40 });
       },
     };
 
@@ -336,5 +343,118 @@ pacing:
     if (attempts.length > 0) {
       expect(attempts[0].failures).toBe(0);
     }
+  });
+
+  test("no registered repository means no probe", async () => {
+    const ctx = fakeCtx();
+    writeStrategyYaml(ctx);
+    let probeCalled = false;
+
+    const deps: TickDeps = {
+      // Do NOT provide repo: tick will call getActiveRepo which returns null
+      probe: async (): Promise<CertificateStatus> => {
+        probeCalled = true;
+        return certifiedStatus();
+      },
+      status: async (): Promise<Status> => {
+        return testStatus({ usedPct: 40 });
+      },
+    };
+
+    await tick(ctx, deps);
+
+    // Without a registered repo, tick should return early and not probe
+    expect(probeCalled).toBe(false);
+  });
+
+  test("a stale planner account reading means no probe", async () => {
+    const ctx = fakeCtx();
+    const repo = setupEnforcementContext(ctx);
+    writeStrategyYaml(ctx);
+    let probeCalled = false;
+
+    const deps: TickDeps = {
+      repo,
+      probe: async (): Promise<CertificateStatus> => {
+        probeCalled = true;
+        return certifiedStatus();
+      },
+      status: async (): Promise<Status> => {
+        return testStatus({ usedPct: 40, stale: true });
+      },
+    };
+
+    await tick(ctx, deps);
+
+    // Stale reading should be treated as unknown headroom → no probe
+    expect(probeCalled).toBe(false);
+  });
+
+  test("a fresh planner account reading still probes", async () => {
+    const ctx = fakeCtx();
+    const repo = setupEnforcementContext(ctx);
+    writeStrategyYaml(ctx);
+    let probeCalled = false;
+
+    const deps: TickDeps = {
+      repo,
+      probe: async (): Promise<CertificateStatus> => {
+        probeCalled = true;
+        return certifiedStatus();
+      },
+      status: async (): Promise<Status> => {
+        return testStatus({ usedPct: 40, stale: false });
+      },
+    };
+
+    await tick(ctx, deps);
+
+    expect(probeCalled).toBe(true);
+  });
+
+  test("an unknown account yields no probe", async () => {
+    const ctx = fakeCtx();
+    const repo = setupEnforcementContext(ctx);
+    writeStrategyYaml(ctx);
+    let probeCalled = false;
+
+    const deps: TickDeps = {
+      repo,
+      probe: async (): Promise<CertificateStatus> => {
+        probeCalled = true;
+        return certifiedStatus();
+      },
+      status: async (): Promise<Status> => {
+        return testStatus({ usedPct: 40, accountMissing: true });
+      },
+    };
+
+    await tick(ctx, deps);
+
+    // Unknown account → null usedPct → unknown headroom → no probe
+    expect(probeCalled).toBe(false);
+  });
+
+  test("a null usedPct yields no probe", async () => {
+    const ctx = fakeCtx();
+    const repo = setupEnforcementContext(ctx);
+    writeStrategyYaml(ctx);
+    let probeCalled = false;
+
+    const deps: TickDeps = {
+      repo,
+      probe: async (): Promise<CertificateStatus> => {
+        probeCalled = true;
+        return certifiedStatus();
+      },
+      status: async (): Promise<Status> => {
+        return testStatus({ usedPct: null });
+      },
+    };
+
+    await tick(ctx, deps);
+
+    // Null usedPct → unknown headroom → no probe
+    expect(probeCalled).toBe(false);
   });
 });

@@ -1,7 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { cwd } from "node:process";
 import { readJson } from "../fsutil";
 import { withLock } from "../core/lock";
 import type { Ctx } from "../types";
@@ -205,10 +204,10 @@ function isListedForRouting(s: Strategy, runnerId: string): boolean {
   return false;
 }
 
-function getActiveRepo(ctx: Ctx): string {
+function getActiveRepo(ctx: Ctx): string | null {
   const repos = listRepos(ctx);
   if (repos.length > 0) return repos[0].path;
-  return cwd();
+  return null;
 }
 
 /**
@@ -224,7 +223,7 @@ function plannerAccountUsedPct(status: Status, plannerAccount: string): number |
   let maxUsed: number | null = null;
 
   // Check the account's binding window (existing behavior)
-  if (account.usedPct !== null) {
+  if (account.usedPct !== null && !account.stale) {
     maxUsed = account.usedPct;
   }
 
@@ -275,6 +274,7 @@ export async function tick(ctx: Ctx, deps: TickDeps = {}): Promise<void> {
     const plannerAccount = planner.account;
 
     const repo = deps.repo ?? getActiveRepo(ctx);
+    if (!repo) return;
 
     let target: EnforcementTarget;
     let unsupportedReason: string | null;
