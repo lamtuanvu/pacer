@@ -1,4 +1,5 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { randomBytes } from "node:crypto";
+import { mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { cwd } from "node:process";
 import { readJson } from "../fsutil";
@@ -56,9 +57,16 @@ export function readScheduleState(ctx: Ctx): ScheduleState {
   return { consent: stored?.consent ?? {}, attempts: stored?.attempts ?? {} };
 }
 
+/** 0600 and atomic: readers outside the lock must never see a torn file, because a
+ *  parse failure reads as "no consent and no probe recorded" and spends quota again. */
 export function writeScheduleState(ctx: Ctx, state: ScheduleState): void {
-  mkdirSync(dirname(file(ctx)), { recursive: true, mode: 0o700 });
-  writeFileSync(file(ctx), JSON.stringify(state), { mode: 0o600 });
+  const path = file(ctx);
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+  const temporary = `${path}.${randomBytes(6).toString("hex")}.tmp`;
+  try {
+    writeFileSync(temporary, JSON.stringify(state), { mode: 0o600, flag: "wx" });
+    renameSync(temporary, path);
+  } finally { rmSync(temporary, { force: true }); }
 }
 
 /**
