@@ -29,7 +29,7 @@ A spike against Orca 1.4.241 (2026-10-28) established:
 `runOrcaAttempt` keeps its existing structure (prepare, admission, supervision via `waitForWorker`, fingerprinting, reports, fallback rules) with these changes:
 
 1. **Placement.** For `new-child`, create the worktree first with `orca worktree create --name pacer-<task>-<executor> --repo id:<repoId> --base-branch <base> --setup skip --json` and read its worktree id. `existing` placement resolves the worktree id with `orca worktree show --worktree path:<realpath> --json`. Both yield the `id:<repo>::<path>` selector used below.
-2. **Trust.** Pre-trust the worktree for the agent (section 4).
+2. **Trust.** Claude terminals carry `CLAUDE_CODE_SANDBOXED=1` (section 4); no configuration file is edited.
 3. **Agent terminal.** `orca terminal create --worktree <selector> --title "pacer <task-id>" --command "<cmd>" --json`, where `<cmd>` is `env PACER_ROLE=executor PACER_TASK_ID=<id> [account env] <interactive argv without prompt>` built from a new `launchArgvFor(cfg, worktree, runDir, trustRoot)` in `src/exec/launch.ts` that shares flags with the existing interactive launcher (Claude: `claude --dangerously-skip-permissions [--model m]`; Codex: `codex --no-daemon -c <trust> -C <worktree> --dangerously-bypass-approvals-and-sandbox --add-dir <runDir> [-m m]`). Arguments are shell-quoted with the existing `shq`. Record the handle with the work admission immediately.
 4. **Ready.** `orca terminal wait --terminal <h> --for tui-idle --timeout-ms 60000 --json`. If not satisfied (including `agent-trust-workspace`), close the terminal and fall back to direct with the reason logged (no worker exists yet, so this cannot duplicate work).
 5. **Start.** `worker-start --spec <spec> --terminal <h> --worktree <selector> --run <run> --from <coordinator>` (no `--agent`/`--model`). `workerSpec` no longer rewrites the `pacer ask` line, because the identity variables are in the terminal environment. Existing uncertain-start handling is unchanged.
@@ -39,14 +39,14 @@ A spike against Orca 1.4.241 (2026-10-28) established:
 
 Claude Code and Codex use the terminal launch. Other agents (Cursor, Antigravity, OpenCode) fall back to direct with a logged reason until their trust and idle behavior is verified; extending the table is a follow-up.
 
-### 4. Claude workspace trust (`src/exec/orca/trust.ts`, new)
+### 4. Claude workspace trust
 
-- Before creating a Claude terminal, set `projects["<realpath worktree>"].hasTrustDialogAccepted = true` in the account's Claude config file: `~/.claude.json` for the default account, `<CLAUDE_CONFIG_DIR>/.claude.json` for managed accounts.
-- Only the exact worktree path pacer is about to use. Read-modify-write with an atomic replace, preserving all other content and the file mode; retry once if the file changed between read and write. If the entry already exists and is trusted, do nothing and record nothing.
-- Record each entry pacer added in `<pacerHome>/orca/trusted.json` (`{path, configFile, taskId, at}`).
-- Remove pacer-added entries when the task's worktree is removed by `pacer clean` (or the task is dismissed with its worktree gone), and only if the entry still equals what pacer wrote. Never remove entries pacer did not add.
-- Codex needs no file edit: its trust stays in the `-c projects=...` argument.
-- Failure to write trust falls back to direct with the reason logged.
+Decision (2026-10-28, revised after review and live validation): pacer does not edit Claude configuration files. The Claude terminal command sets `CLAUDE_CODE_SANDBOXED=1`, which Claude Code (2.1.x) treats as an already-isolated environment: the folder-trust check returns trusted without writing `~/.claude.json`.
+
+- The variable is undocumented. `--dangerously-skip-permissions` officially does not skip the trust prompt (anthropics/claude-code#28506, #36342), and the documented `-p` route cannot host an Orca worker. Editing `projects[path].hasTrustDialogAccepted` was rejected because Claude rewrites `~/.claude.json` concurrently and no shared lock exists.
+- Side effect: Claude also applies the repository's own `.claude/` permission grants without its approval prompt. The agent already runs with `--dangerously-skip-permissions`, so the added exposure is small; it is documented for users in `docs/executors.md`.
+- Failure is safe: if a Claude release ignores the variable, the idle wait reports `agent-trust-workspace`, pacer closes its terminal and falls back to direct (section 2 step 4).
+- Codex is unchanged: its trust stays in the `-c projects=...` argument.
 
 ### 5. Switch follow-ups (review of 18f240b1)
 
@@ -65,8 +65,8 @@ Claude Code and Codex use the terminal launch. Other agents (Cursor, Antigravity
 ## Testing
 
 - Unit tests with a fake `ctx.run` for: terminal command construction and quoting per agent and account; new-child and existing placement; idle wait success, timeout and trust block (terminal closed, direct fallback); worker-start argument shape with `--terminal`; cleanup always closes exactly the created handle; `selectBackend` returns the Orca backend for `orca` + ready, direct otherwise, and direct for connection accounts and unsupported agents.
-- Trust module: adds only the target entry, preserves other content and mode, no-op when already trusted, records and removes only its own entries, handles concurrent modification.
-- Live validation (CT-11): the sandbox forces `PACER_BACKEND=direct` and refuses `orca`, so the Orca path is validated with the user's authorization against the real Orca in a disposable repository, one Claude task and one Codex task (if Codex budget allows), recording the worker lifecycle, trust entry add/remove and terminal cleanup. Surfaces not exercised are reported UNVERIFIED.
+- Claude terminal command contains `CLAUDE_CODE_SANDBOXED=1`; Codex command does not; no code path writes Claude configuration.
+- Live validation (CT-11): the sandbox forces `PACER_BACKEND=direct` and refuses `orca`, so the Orca path is validated with the user's authorization against the real Orca in a disposable repository, one Claude task and one Codex task (if Codex budget allows), recording the worker lifecycle, absence of a trust prompt, an unchanged `~/.claude.json` trust state for the worktree, and terminal and worktree cleanup. Surfaces not exercised are reported UNVERIFIED.
 
 ## Out of scope
 
