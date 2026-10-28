@@ -1,17 +1,27 @@
 import type { DispatchConfig, DispatchPreview, ModelRecord } from "../../../../src/dispatch/types";
 import { MAX_PROBES_PER_DAY, MAX_COST_PCT } from "../../../../src/view-model/certification-schedule";
 import { executorLabel } from "../../../../src/view-model/words";
+import type { RouteExplanation } from "../../../../src/core/dispatch-explain";
+import { explainHeadline, modelCopy, plannerCopy, reasonCopy, reasonSeverity, type ExplainLabels } from "../../../../src/view-model/route-explain";
+import type { StrategyDraft } from "../../model/dispatcher-setup";
 import { clock } from "../../../../src/view-model/time";
 import type { RouteQuery } from "../../router";
 import type { BrowserApi } from "../../data/api";
-import type { ComponentChildren } from "preact";
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useLayoutEffect, useRef, useState, useId } from "preact/hooks";
+import { SortableList, useStableKeys } from "../../ds/SortableList";
+import { DispatcherGuidedSetup } from "./DispatcherSetup";
 import { Button, TextAction } from "../../ds/Button";
-import { Checkbox, Disclosure, Field, TextInput } from "../../ds/Controls";
+import { Checkbox, Disclosure, Field, TextInput, TextArea } from "../../ds/Controls";
 import { ChoicePicker } from "../../ds/ChoicePicker";
+import { AgentMark } from "../../ds/AgentMark";
+import { Identicon } from "../../ds/Identicon";
+import { Pill } from "../../ds/Pill";
+import { SettingRow } from "../../ds/SettingRow";
+import type { StrategyRow } from "../../model/strategy";
+import type { ProjectStrategyView } from "../../model/project-strategies";
 import { SectionHeading } from "../../ds/SectionHeading";
 import { ErrorMessage, useTaskContext } from "../task-shared";
-import { Section, useResource } from "./shared";
+import { Section, useResource, useOperation, ResourceState, Feedback } from "./shared";
 
 const now = () => Date.now() / 1000;
 const formatTime = (seconds: number | null): string => seconds === null ? "Never" : clock(seconds, now());
@@ -134,23 +144,18 @@ export function DispatcherEnforcementRows({reading,canProbe,canConsent=true,prob
   reading:EnforcementReading;canProbe:boolean;canConsent?:boolean;probing:string|null;
   onProbe:(runner:string)=>void;onConsent:(account:string,granted:boolean)=>void;
 }){
-  return <>{reading.runners.map(item=><div className="u3-setting" key={item.runner}>
-    <div>
-      <strong>{executorLabel(item.runner)}</strong>
-      <div className="u3-muted">
-        Account {item.account} · {item.version??"version unknown"} · {!item.probeSupported&&item.state!=="certified"?"Unavailable":enforcementStateCopy[item.state]}
-        {item.reason?` · ${nativeControlReasonCopy(item.reason,item.probeSupported)}`:""}
-      </div>
-      {item.probeSupported?<CertificationSchedule item={item}/>:null}
-      {/* The reason is already on the line above; repeating it only adds noise. */}
-      {!item.probeSupported&&item.state!=="certified"?
-        <div className="u3-muted"><TextAction href="#/settings/executors">View executor setup</TextAction>, then refresh status.</div>
+  return <>{reading.runners.map(item=><div className="pc-stack pc-stack--compact" key={item.runner}>
+    <SettingRow variant="board" label={executorLabel(item.runner)}
+      description={<>Account {item.account} · {item.version??"version unknown"}{item.reason?` · ${nativeControlReasonCopy(item.reason,item.probeSupported)}`:""}</>}
+      status={{tone:item.state==="certified"?"good":"neutral",label:!item.probeSupported&&item.state!=="certified"?"Unavailable":enforcementStateCopy[item.state]}}>
+      {canProbe&&item.probeSupported&&item.state!=="certified"?
+        <Button size="sm" busy={probing===item.runner} disabled={!!probing} onClick={()=>onProbe(item.runner)}>Verify control</Button>
       :null}
-    </div>
-    {canProbe&&item.probeSupported&&item.state!=="certified"?
-      <Button size="sm" busy={probing===item.runner} disabled={!!probing} onClick={()=>onProbe(item.runner)}>Verify control</Button>
+    </SettingRow>
+    {item.probeSupported?<CertificationSchedule item={item}/>:null}
+    {!item.probeSupported&&item.state!=="certified"?
+      <div className="u3-muted"><TextAction href="#/settings/executors">View executor setup</TextAction>, then refresh status.</div>
     :null}
-    {/* A direct child of the row grid, so the disclosure spans both columns instead of the narrow first one. */}
     {canConsent?<ConsentControl item={item} onConsent={onConsent}/>:null}
   </div>)}</>;
 }
@@ -158,7 +163,10 @@ export function DispatcherEnforcementRows({reading,canProbe,canConsent=true,prob
 export function DispatcherModelInventory({inventory}:{inventory:DispatcherInventory}) {
   return <div className="pc-card">
     <p>These models can be considered by the dispatcher. A declared tier is a configuration choice, not a measured quality score. <TextAction href="#/settings/executors">View executors</TextAction></p>
-    {inventory.models.length?<div className="pc-stack pc-stack--compact">{inventory.models.map(model=><div className="u3-setting" key={`${model.runner}:${modelLabel(model)}`}><div><strong>{executorLabel(model.executor)}</strong> · {modelLabel(model)}<div className="u3-muted">Account {model.account} · {model.tier==="unknown"?"Tier unknown":`${model.tier} tier`} · {model.actualModel?`Observed model ${model.actualModel}`:"Exact model unknown"}</div></div><div>{model.provenance==="observed"?"Allowed from discovery":"Configured"}</div></div>)}</div>:<p>No allowed models are configured for this profile.</p>}
+    {inventory.models.length?<div className="pc-stack pc-stack--compact">{inventory.models.map(model=><SettingRow variant="board" key={`${model.runner}:${modelLabel(model)}`}
+      label={<>{executorLabel(model.executor)} · {modelLabel(model)}</>}
+      description={<>Account {model.account} · {model.tier==="unknown"?"Tier unknown":`${model.tier} tier`} · {model.actualModel?`Observed model ${model.actualModel}`:"Exact model unknown"}</>}
+      status={{tone:"neutral",label:model.provenance==="observed"?"Allowed from discovery":"Configured"}}>{null}</SettingRow>)}</div>:<p>No allowed models are configured for this saved setup.</p>}
     {!!inventory.advertised.filter(model=>!model.authorized).length&&<p className="u3-muted">Other advertised models are suggestions only; they are not enabled automatically.</p>}
   </div>;
 }
@@ -172,10 +180,38 @@ function excludedCopy(reason:string):string {
   if(reason.startsWith("Native subagent control")||reason.includes("native control"))return nativeControlReasonCopy(reason);
   return "This executor is not eligible for this task";
 }
+/** A `dispatch.explain` answer: the choice, why, who else was considered and what could change it. */
+export function RouteExplanationResult({result}:{result:RouteExplanation}) {
+  const labels:ExplainLabels={executor:executorLabel,step:stepTitle,now:Date.now()/1000,outcome:result.outcome};
+  const copyReason=(item:RouteExplanation["reasons"][number])=>reasonCopy(item,labels,item.subject&&(item.subject!==result.chosen?.runner||item.code==="capacity_unmeasured"||item.code==="default_model_unresolved")?executorLabel(item.subject):undefined);
+  const fallbacks=result.fallbacks.filter(item=>item.executor!==result.chosen?.executor||item.runner!==result.chosen?.runner);
+  return <div className="pc-route-result">
+    <div className="pc-route-result__header">{result.chosen?<div className="pc-route-result__choice"><span className="pc-current-setup__label">Would go to</span><strong className="pc-route-result__name">{executorLabel(result.chosen.runner)}</strong><span className="u3-muted">{result.chosen.account} · {modelCopy(result.chosen)} · {result.chosen.host?`Host ${result.chosen.host}`:"This machine"}</span></div>:<p><strong>{explainHeadline(result,labels)}</strong></p>}
+    {result.step&&<p>Matched: Step {result.step.index+1} · {stepTitle(result.step.id)}</p>}</div>
+    <div className="pc-route-result__body pc-stack pc-stack--compact">
+    {result.strategy.draft&&<p className="u3-muted">Uses your unsaved choice ladder.</p>}
+    {!!result.reasons.length&&<ul>{result.reasons.map((item,index)=><li key={`${item.code}:${index}`}>{copyReason(item)}</li>)}</ul>}
+    {!!fallbacks.length&&<div><strong>Also considered</strong><ul className="pc-route-result__candidates">{fallbacks.map((item,index)=>{
+      const severity=item.state==="eligible"?"good":reasonSeverity(item.reason?.code);
+      return <li key={`${item.runner}:${index}`}><span aria-hidden="true" className={`pc-route-result__glyph pc-route-result__glyph--${severity}`}>{({good:"✓",neutral:"–",soft:"◐",hard:"✕"})[severity]}</span><span><strong>{executorLabel(item.runner)}</strong>: {item.state==="eligible"?(result.chosen?"Could take it if the choice above cannot.":"Could take it."):item.reason?reasonCopy(item.reason,labels):"Left out."}</span></li>;
+    })}</ul></div>}
+    <p className="u3-muted">{plannerCopy(result.planner,labels)}</p>
+    {!!result.uncertainty.length&&<Disclosure summary="What could change this"><ul>{result.uncertainty.map((item,index)=><li key={`${item.code}:${index}`}>{copyReason(item)}</li>)}</ul></Disclosure>}
+    </div>
+  </div>;
+}
+
+function previewHeadline(preview:DispatchPreview):string {
+  const proposal=preview.proposal;
+  const top=preview.validation==="valid"&&proposal?.state==="ranked"?preview.request.candidates.find(candidate=>candidate.id===proposal.choices[0]?.id):undefined;
+  if(top)return `Pacer would choose ${executorLabel(top.runner??top.executor)}`;
+  return preview.recommendedAction==="queue"?"Pacer would hold this task until an executor can take it":"No executor can take this task now";
+}
+
 export function DispatcherPreviewResult({preview}:{preview:DispatchPreview}) {
   const proposal=preview.proposal;
   const top=proposal?.state==="ranked"?preview.request.candidates.find(candidate=>candidate.id===proposal.choices[0]?.id):undefined;
-  return <div className="pc-card" role="status" aria-live="polite">
+  return <div className="pc-card">
     <SectionHeading>Preview result</SectionHeading>
     {preview.validation!=="valid"?<p>{preview.validation==="timeout"?"The decision engine timed out.":"The decision engine returned an invalid choice."} Pacer {preview.recommendedAction==="queue"?"would queue this work.":"cannot select an executor."}</p>:proposal?.state==="ranked"&&top?<><p><strong>{executorLabel(top.executor)}</strong> · {modelLabel(top)} · {top.headroom===null?"Capacity unknown":`${Math.round(top.headroom)}% spare capacity`}</p><p>Matched step: {stepTitle(proposal.step)}. {top.actualModel?`Observed model ${top.actualModel}.`:"Exact model unknown."}</p>{proposal.choices.length>1&&<p>{proposal.choices.length-1} other eligible choice{proposal.choices.length===2?"":"s"}.</p>}</>:<p>{preview.recommendedAction==="queue"?"No eligible choice now. Pacer would queue this work.":"No eligible choice is available."}</p>}
     {!!preview.excluded.length&&<div><strong>Not considered</strong><ul>{preview.excluded.map((item,index)=><li key={`${item.id}:${index}`}>{executorLabel(item.id)}: {excludedCopy(item.reason)}</li>)}</ul></div>}
@@ -193,127 +229,113 @@ const splitList=(value:string)=>value.split(",").map(item=>item.trim()).filter(B
 const optionalList=(value:string)=>{const items=splitList(value);return items.length?items:undefined;};
 export const candidateRestriction=(candidate: LadderStep["candidates"], field:"executors"|"models", value:string):LadderStep["candidates"]=>({...candidate,[field]:optionalList(value)});
 const rankLabel=(value:string)=>rankOptions.find(option=>option.value===value)?.label??"Other criterion";
+/** A comma-separated list field: keeps the typed text (commas, spaces) while focused and reports it on each input. */
+export function ListField({label,help,value,onText,disabled,placeholder,marker}:{label:string;help?:string;value:readonly string[]|undefined;onText:(text:string)=>void;disabled?:boolean;placeholder?:string;marker?:string}){
+  const joined=value?.join(", ")??"",[text,setText]=useState(joined),focused=useRef(false);
+  useEffect(()=>{if(!focused.current)setText(joined);},[joined]);
+  return <Field label={label} help={help}><TextInput value={text} disabled={disabled} placeholder={placeholder} data-list-field={marker}
+    onFocus={()=>{focused.current=true;}} onBlur={()=>{focused.current=false;setText(joined);}}
+    onInput={event=>{const next=event.currentTarget.value;setText(next);onText(next);}}/></Field>;
+}
 type LadderStep=DispatchConfig["steps"][number];
-export function DispatcherLadderFields({config,onChange}:{config:DispatchConfig;onChange:(config:DispatchConfig)=>void}) {
+const listFields:[string,string,(step:LadderStep)=>string[]|undefined,(step:LadderStep,value:string)=>LadderStep][]=[
+  ["Only these executors","Optional hard restriction. Use executor IDs separated by commas.",step=>step.candidates.executors,(step,value)=>({...step,candidates:candidateRestriction(step.candidates,"executors",value)})],
+  ["Only these models","Optional hard restriction. Model IDs must already be allowed by the strategy.",step=>step.candidates.models,(step,value)=>({...step,candidates:candidateRestriction(step.candidates,"models",value)})],
+  ["Prefer these models","A preference ranks eligible models but does not exclude others.",step=>step.prefer.models,(step,value)=>({...step,prefer:{...step.prefer,models:splitList(value)}})],
+];
+export function DispatcherLadderFields({config,onChange,disabled}:{config:DispatchConfig;onChange:(config:DispatchConfig)=>void;disabled?:boolean}) {
+  const keys=useStableKeys(config.steps.length);
   const patch=(index:number,change:(step:LadderStep)=>LadderStep)=>onChange({...config,steps:config.steps.map((step,at)=>at===index?change(step):step)});
-  const reorder=(index:number,direction:-1|1)=>{const steps=[...config.steps],next=index+direction;[steps[index],steps[next]]=[steps[next]!,steps[index]!];onChange({...config,steps});};
+  const reorder=(order:string[])=>{const byKey=new Map(keys.current.map((key,at)=>[key,config.steps[at]!]));keys.current=order;onChange({...config,steps:order.map(key=>byKey.get(key)!)});};
+  const remove=(key:string)=>{const at=keys.current.indexOf(key);if(at<0)return;keys.current=keys.current.filter(item=>item!==key);onChange({...config,steps:config.steps.filter((_,index)=>index!==at)});};
   const add=()=>{let number=config.steps.length+1;while(config.steps.some(step=>step.id===`step-${number}`))number++;onChange({...config,steps:[...config.steps,{id:`step-${number}`,match:{},require:{},prefer:{models:[],strengths:[]},candidates:{},capacity:"comfortable",rank:["task-fit","spare-capacity"]}]});};
   return <div className="pc-stack pc-stack--section">
-    <Field label="Spare capacity threshold" help="A step requiring spare capacity uses this percentage as its minimum."><TextInput type="number" min="0" max="100" value={String(config.comfortablePct)} onInput={event=>onChange({...config,comfortablePct:Number(event.currentTarget.value)})}/></Field>
-    <Field label="Keep capacity in reserve" help="Percentage Pacer leaves unused when selecting a model."><TextInput type="number" min="0" max="100" value={String(config.reservePct)} onInput={event=>onChange({...config,reservePct:Number(event.currentTarget.value)})}/></Field>
-    {config.steps.map((step,index)=><div className="pc-card pc-stack pc-stack--normal" key={index}>
-      <div className="u3-row"><strong>Step {index+1}: {stepTitle(step.id)}</strong><div className="u3-actions">{index>0&&<Button size="sm" onClick={()=>reorder(index,-1)}>Move up</Button>}{index<config.steps.length-1&&<Button size="sm" onClick={()=>reorder(index,1)}>Move down</Button>}{config.steps.length>1&&<Button size="sm" onClick={()=>onChange({...config,steps:config.steps.filter((_,at)=>at!==index)})}>Remove</Button>}</div></div>
-      <Field label={`Step ${index+1} name`}><TextInput value={step.id} maxLength={256} onInput={event=>patch(index,item=>({...item,id:event.currentTarget.value}))}/></Field>
-      <Field label="Task kind" help="Optional. Leave empty to match any task kind."><TextInput value={step.match.kind??""} onInput={event=>patch(index,item=>({...item,match:event.currentTarget.value.trim()?{kind:event.currentTarget.value.trim()}:{}}))}/></Field>
-      <Field label="Capacity needed"><ChoicePicker value={step.capacity} options={capacityOptions} onValueChange={value=>patch(index,item=>({...item,capacity:value as LadderStep["capacity"]}))}/></Field>
-      <Field label="Minimum model tier"><ChoicePicker value={step.require.minTier??""} options={tierOptions} onValueChange={value=>patch(index,item=>({...item,require:{...item.require,minTier:value?value as NonNullable<LadderStep["require"]["minTier"]>:undefined}}))}/></Field>
-      <Checkbox label="Model must support tools" checked={step.require.tools===true} onChange={event=>patch(index,item=>({...item,require:{...item.require,tools:event.currentTarget.checked?true:undefined}}))}/>
-      <Field label="Only these executors" help="Optional hard restriction. Use executor IDs separated by commas."><TextInput value={step.candidates.executors?.join(", ")??""} onInput={event=>patch(index,item=>({...item,candidates:candidateRestriction(item.candidates,"executors",event.currentTarget.value)}))}/></Field>
-      <Field label="Only these models" help="Optional hard restriction. Model IDs must already be allowed by the strategy."><TextInput value={step.candidates.models?.join(", ")??""} onInput={event=>patch(index,item=>({...item,candidates:candidateRestriction(item.candidates,"models",event.currentTarget.value)}))}/></Field>
-      <Field label="Prefer these models" help="A preference ranks eligible models but does not exclude others."><TextInput value={step.prefer.models.join(", ")} onInput={event=>patch(index,item=>({...item,prefer:{...item.prefer,models:splitList(event.currentTarget.value)}}))}/></Field>
-      <Field label="Rank first by"><ChoicePicker value={step.rank[0]} options={rankOptions} onValueChange={value=>patch(index,item=>({...item,rank:[value as LadderStep["rank"][number],...item.rank.filter(rank=>rank!==value)]}))}/></Field>
-    </div>)}
-    <div><Button onClick={add}>Add ladder step</Button></div>
-    <Field label="When no step matches"><ChoicePicker value={config.onNoMatch} options={[{value:"queue",label:"Queue the work"},{value:"fail",label:"Report no eligible choice"}]} onValueChange={value=>onChange({...config,onNoMatch:value as DispatchConfig["onNoMatch"]})}/></Field>
+    <SettingRow variant="board" label="Spare capacity threshold" description="A step requiring spare capacity uses this percentage as its minimum."><TextInput type="number" min="0" max="100" disabled={disabled} value={String(config.comfortablePct)} onInput={event=>onChange({...config,comfortablePct:Number(event.currentTarget.value)})}/></SettingRow>
+    <SettingRow variant="board" label="Keep capacity in reserve" description="Percentage Pacer leaves unused when selecting a model."><TextInput type="number" min="0" max="100" disabled={disabled} value={String(config.reservePct)} onInput={event=>onChange({...config,reservePct:Number(event.currentTarget.value)})}/></SettingRow>
+    <SortableList iconControls label="Ladder steps, first match wins" disabled={disabled} onReorder={reorder} onRemove={config.steps.length>1?remove:undefined}
+      items={config.steps.map((step,index)=>({key:keys.current[index]!,label:stepTitle(step.id),leading:<span className={`pc-ladder-number pc-ladder-number--${step.capacity==="comfortable"?"good":step.capacity==="usable"?"warn":"muted"}`} aria-hidden="true">{index+1}</span>,detail:<span className="u3-muted">Step {index+1} · {capacityLabel(step.capacity)}{step.match.kind?` · ${step.match.kind} tasks`:" · any task kind"} · Rank by {step.rank.map(rankLabel).join(", ")}</span>}))}
+      renderExtra={(_,index)=>{const step=config.steps[index]!;return <Disclosure className="pc-disclosure-panel" summary={`Edit step ${index+1}`}><div className="pc-disclosure-panel__body pc-stack pc-stack--normal">
+      <Field label={`Step ${index+1} name`}><TextInput value={step.id} maxLength={256} disabled={disabled} onInput={event=>patch(index,item=>({...item,id:event.currentTarget.value}))}/></Field>
+      <Field label="Task kind" help="Optional. Leave empty to match any task kind."><TextInput value={step.match.kind??""} disabled={disabled} onInput={event=>patch(index,item=>({...item,match:event.currentTarget.value.trim()?{kind:event.currentTarget.value.trim()}:{}}))}/></Field>
+      <Field label="Capacity needed"><ChoicePicker value={step.capacity} disabled={disabled} options={capacityOptions} onValueChange={value=>patch(index,item=>({...item,capacity:value as LadderStep["capacity"]}))}/></Field>
+      <Field label="Minimum model tier"><ChoicePicker value={step.require.minTier??""} disabled={disabled} options={tierOptions} onValueChange={value=>patch(index,item=>({...item,require:{...item.require,minTier:value?value as NonNullable<LadderStep["require"]["minTier"]>:undefined}}))}/></Field>
+      <Checkbox label="Model must support tools" disabled={disabled} checked={step.require.tools===true} onChange={event=>patch(index,item=>({...item,require:{...item.require,tools:event.currentTarget.checked?true:undefined}}))}/>
+      {listFields.map(([label,help,read,write])=><ListField key={label} label={label} help={help} value={read(step)} disabled={disabled} onText={value=>patch(index,item=>write(item,value))}/>)}
+      <Field label="Rank first by"><ChoicePicker value={step.rank[0]} disabled={disabled} options={rankOptions} onValueChange={value=>patch(index,item=>({...item,rank:[value as LadderStep["rank"][number],...item.rank.filter(rank=>rank!==value)]}))}/></Field>
+    </div></Disclosure>;}}/>
+    <div><Button disabled={disabled} onClick={add}>Add ladder step</Button></div>
+    <SettingRow variant="board" label="When no step matches"><ChoicePicker value={config.onNoMatch} disabled={disabled} options={[{value:"queue",label:"Queue the work"},{value:"fail",label:"Report no eligible choice"}]} onValueChange={value=>onChange({...config,onNoMatch:value as DispatchConfig["onNoMatch"]})}/></SettingRow>
   </div>;
 }
 
-export function DispatcherEditor({view,onActivated,call}:{view:DispatcherConfigView;onActivated:(name:string)=>void;call:BrowserApi["call"]}) {
-  const [draft,setDraft]=useState<DispatchConfig>(()=>structuredClone(view.config));
-  const [name,setName]=useState(""),[reason,setReason]=useState(""),[busy,setBusy]=useState(false),[error,setError]=useState(""),[notice,setNotice]=useState("");
-  const changed=JSON.stringify(draft)!==JSON.stringify(view.config);
-  const save=async(event:Event)=>{
-    event.preventDefault();if(busy||!changed)return;
-    setBusy(true);setError("");setNotice("");
-    try{
-      if(!/^[a-z0-9][a-z0-9-]{0,39}$/.test(name)||name==="default")throw new Error("Choose a new profile name using lowercase letters, numbers or hyphens.");
-      if(!reason.trim())throw new Error("Explain why you are changing the dispatcher.");
-      const latest=await call<DispatcherConfigView>("dispatch.config.get",{});
-      if(latest.strategy!==view.strategy||JSON.stringify(latest.config)!==JSON.stringify(view.config))throw new Error("The active profile changed in another client. Reload this page before saving.");
-      const strategyDraft={from:view.strategy,set:{dispatch:draft}};
-      const validation=await call<{ok:boolean;errors:string[]}>("strategy.preview",{draft:strategyDraft});
-      if(!validation.ok)throw new Error(validation.errors.join(" ")||"The ladder needs changes before it can be saved.");
-      await call("strategy.save",{name,draft:strategyDraft,reason:reason.trim()});
-      setNotice(`Saved ${name}. Activating it…`);
-      try{await call("strategy.use",{name});onActivated(name);}
-      catch(failure){throw new Error(`Saved ${name}, but activation failed: ${failure instanceof Error?failure.message:String(failure)}`);}
-    }catch(failure){setError(failure instanceof Error?failure.message:String(failure));}
-    finally{setBusy(false);}
-  };
-  return <Disclosure className="pc-disclosure-panel" summary="Edit decision ladder">
-    <div className="pc-disclosure-panel__body">
-      {view.config.engine!=="ladder"?<p>This profile uses a plugin decision engine. Edit its plugin configuration in the strategy file; the ladder shown here is not active.</p>:<form className="pc-stack pc-stack--section" onSubmit={event=>void save(event)}>
-        <p>Change the steps, validate them, then save as a new profile. The current profile remains active until the new one is saved and activated.</p>
-        <DispatcherLadderFields config={draft} onChange={setDraft}/>
-        <div className="pc-card pc-stack pc-stack--normal">
-          <SectionHeading>Save and use a new profile</SectionHeading>
-          <Field label="Profile name" help="Lowercase letters, numbers and hyphens. The default profile stays unchanged."><TextInput value={name} maxLength={40} onInput={event=>setName(event.currentTarget.value)}/></Field>
-          <Field label="Reason for change"><TextInput value={reason} maxLength={500} onInput={event=>setReason(event.currentTarget.value)}/></Field>
-          {!changed&&<p className="u3-muted">Change at least one ladder setting before saving.</p>}
-          <div><Button type="submit" variant="primary" busy={busy} disabled={!changed||!name||!reason.trim()}>Validate and activate</Button></div>
-          {notice&&<p role="status" aria-live="polite">{notice}</p>}{error&&<p role="alert">{error}</p>}
-        </div>
-      </form>}
-    </div>
-  </Disclosure>;
+function RepositoryChoices() {
+  const query=useResource<ProjectStrategyView[]>("project.strategy.list");
+  const count=query.data?.filter(item=>!!item.executors).length;
+  return <>
+    {query.error&&(query.data?<DispatcherReadError error={query.error} reload={query.reload} subject="repository choices"/>:<div><p role="alert">Repository choices could not be loaded.</p><Button onClick={query.reload}>Try again</Button></div>)}
+    {count!==undefined&&<div className="pc-current-setup__cell"><div><span className="pc-current-setup__label">Repository choices</span><strong>{count?`${count} ${count===1?"repository":"repositories"}`:"No repository lists"}</strong></div><span className="u3-muted">Kept when setup changes</span></div>}
+  </>;
 }
-
-export function DispatcherOverview({view}:{view:DispatcherConfigView}) {
-  const ladderActive=view.config.engine==="ladder",ladderFallback=view.config.engineFallback==="ladder";
+export function DispatcherOverview({view,repositoryChoices=false}:{view:DispatcherConfigView;repositoryChoices?:boolean}) {
   return <Section id="dispatcher" title="Dispatcher" detail="See who plans work and how Pacer chooses an executor and model.">
-    <div className="pc-stack pc-stack--section">
-      <div className="pc-card">
-        <SectionHeading>Who plans work</SectionHeading>
-        <p><strong>{executorLabel(view.planner)}</strong> on account <strong>{view.plannerAccount}</strong> is the default planner for a new session. Any executor with a valid work grant can plan child work by asking Pacer to delegate it. Pacer still chooses the child's executor and model.</p>
-      </div>
-      <div className="pc-card">
-        <SectionHeading>How a choice is made</SectionHeading>
-        <ol>
-          <li><strong>Project override</strong> limits executors for a repository when one is selected.</li>
-          <li><strong>Global eligibility rules</strong> choose the executor list by task kind when no project override is selected.</li>
-          <li><strong>Dispatcher decision engine</strong> ranks eligible accounts and models from that list. The default engine uses the first matching ladder step.</li>
-        </ol>
-        <p>Manage saved profiles and executor eligibility below.</p>
-      </div>
-      <div className="pc-card">
-        <SectionHeading>{ladderActive?"Decision ladder":"Decision engine"}</SectionHeading>
-        <p>Active profile: <strong>{view.strategy}</strong> · {view.source === "built-in" ? "built-in defaults" : "saved configuration"} · {ladderActive?"ordered ladder":`plugin ${view.config.engine.slice(7)}`}</p>
-        {!ladderActive&&<p>{ladderFallback?"If the plugin cannot decide, Pacer uses this fallback ladder.":"If the plugin cannot decide, Pacer queues the work."}</p>}
-        {(ladderActive||ladderFallback)&&<><ol>{view.config.steps.map(step=><li key={step.id}><strong>{stepTitle(step.id)}</strong> · {capacityLabel(step.capacity)}{step.match.kind?` · ${step.match.kind} tasks`:" · any task kind"}<br/><span className="u3-muted">Rank by {step.rank.map(rankLabel).join(", ")}</span></li>)}</ol>
-        <p>If no step matches, Pacer {view.config.onNoMatch === "queue" ? "queues the work" : "reports that no eligible executor is available"}.</p></>}
-      </div>
-    </div>
+    <section aria-label="Current setup" className="pc-current-setup">
+      <div className="pc-current-setup__cell"><AgentMark agent={view.planner} size={28} labelled={false}/><div><span className="pc-current-setup__label">Planner</span><strong>{executorLabel(view.planner)}</strong></div><TextAction href="#/settings/planner">Planner &amp; pacing</TextAction></div>
+      <div className="pc-current-setup__cell"><span className="pc-setup-icon"><Identicon seed={view.strategy}/></span><div><span className="pc-current-setup__label">Active saved setup</span><strong>{view.strategy}</strong></div><TextAction href="#saved-profiles" onClick={event=>{
+        const target=document.getElementById("saved-profiles");
+        if(target){event.preventDefault();target.tabIndex=-1;target.focus();target.scrollIntoView({block:"start"});}
+      }}>Switch setup</TextAction></div>
+      {repositoryChoices&&<RepositoryChoices/>}
+    </section>
   </Section>;
 }
 
-export function DispatcherSection({query,children}:{query:RouteQuery;children?:ComponentChildren}) {
+/** Same saved-profile operations as the guided setup, composed as the board's bordered list. */
+export function SavedSetups({onActivated,initialData}:{onActivated?:()=>void;initialData?:StrategyRow[]}) {
+  const query=useResource<StrategyRow[]>("strategy.list",{},initialData),action=useOperation(query.reload);
+  const [building,setBuilding]=useState(false),[brief,setBrief]=useState("");
+  return <Section id="saved-profiles" title="Saved setups" detail="Each setup saves global planner, pacing, eligibility and dispatcher settings. Repository choices are kept when you switch."
+    actions={<Button size="sm" onClick={()=>setBuilding(value=>!value)} aria-expanded={building}>New from a brief</Button>}>
+    <ResourceState resource={query} empty="No saved setups yet.">
+      <div className="pc-saved-setups">{query.data?.map(strategy=><div key={strategy.name} className={`pc-saved-setups__row${strategy.active?" pc-saved-setups__row--active":""}`}>
+        <span className="pc-setup-icon"><Identicon seed={strategy.name}/></span><strong>{strategy.name}</strong><span>{strategy.summary}</span>
+        <div>{strategy.active?<Pill tone="good">Active</Pill>:<Button size="sm" aria-label={`Use ${strategy.name}`} disabled={action.busy} onClick={()=>void action.run("strategy.use",{name:strategy.name},onActivated)}>Use</Button>}</div>
+      </div>)}</div>
+    </ResourceState>
+    {building&&<form className="pc-card" onSubmit={event=>{event.preventDefault();void action.run("strategy.build",{brief});}}>
+      <Field label="What should this setup do?"><TextArea value={brief} maxLength={2000} required onInput={event=>setBrief(event.currentTarget.value)}/></Field>
+      <div><Button type="submit" disabled={action.busy}>Build setup</Button></div><p className="u3-muted">Opens a planning session or returns a command to run.</p>
+    </form>}
+    <Feedback action={action}/>
+  </Section>;
+}
+
+export function DispatcherSection({query}:{query:RouteQuery}) {
   const {state}=useTaskContext();
-  if(!state.features.ops.has("dispatch.config.get"))return <><Section id="dispatcher" title="Dispatcher"><p>This service does not support dispatcher settings yet. Update the service to view the decision ladder.</p></Section>{children}</>;
-  return <DispatcherContent query={query}>{children}</DispatcherContent>;
+  if(!state.features.ops.has("dispatch.config.get"))return <><Section id="dispatcher" title="Dispatcher"><p>This service does not support dispatcher settings yet. Update the service to view the decision ladder.</p></Section><SavedSetups/></>;
+  return <DispatcherContent query={query}/>;
 }
 export function DispatcherReadError({error,reload,subject}:{error:unknown;reload:()=>void;subject:string}){
   if(!error)return null;
   return <div className="pc-stack pc-stack--compact"><p>Could not refresh {subject}. Showing the last loaded reading.</p><ErrorMessage error={error}/><div><Button onClick={reload}>Try again</Button></div></div>;
 }
-function DispatcherContent({query,children}:{query:RouteQuery;children?:ComponentChildren}){
+function DispatcherContent({query}:{query:RouteQuery}){
   const {state,api}=useTaskContext();
   const config=useResource<DispatcherConfigView>("dispatch.config.get");
   const models=useResource<DispatcherInventory>("dispatch.models");
+  const [setupsRevision,setSetupsRevision]=useState(0),[ladderDraft,setLadderDraft]=useState<StrategyDraft>();
   const [refreshing,setRefreshing]=useState(false),[refreshError,setRefreshError]=useState<unknown>();
-  const [activationNotice,setActivationNotice]=useState("");
   const refresh=async()=>{setRefreshing(true);setRefreshError(undefined);try{await api.call("dispatch.refresh",{});models.reload();}catch(error){setRefreshError(error);}finally{setRefreshing(false);}};
-  return config.data?<><DispatcherReadError error={config.error} reload={config.reload} subject="dispatcher settings"/><DispatcherOverview view={config.data}/>
-    {children}
-    <DispatcherEditor key={config.data.strategy} view={config.data} call={api.call.bind(api)} onActivated={name=>{setActivationNotice(`${name} is active. Future dispatch decisions use this ladder.`);config.reload();models.reload();}}/>
-    {activationNotice&&<p role="status" aria-live="polite">{activationNotice}</p>}
+  return config.data?<><DispatcherReadError error={config.error} reload={config.reload} subject="dispatcher settings"/><DispatcherOverview view={config.data} repositoryChoices={state.features.ops.has("project.strategy.list")}/>
+    <DispatcherGuidedSetup view={config.data} onLadderDraft={setLadderDraft} onSaved={()=>{config.reload();models.reload();setSetupsRevision(value=>value+1);}}/>
+    {(state.features.ops.has("dispatch.explain")||state.features.ops.has("dispatch.preview"))&&<DispatcherPreviewForm query={query} draft={ladderDraft}/>}
     {state.features.ops.has("dispatch.enforcement")?<DispatcherEnforcement query={query}/>:<Section id="native-control" title="Native subagent control"><p>Update the service to inspect managed delegation enforcement.</p></Section>}
     <Section id="model-choices" title="Model choices" actions={state.features.ops.has("dispatch.refresh")?<Button busy={refreshing} onClick={()=>void refresh()}>Refresh readings</Button>:undefined}>
       <DispatcherReadError error={models.error&&models.data?models.error:undefined} reload={models.reload} subject="model choices"/>
       {models.data?<DispatcherModelInventory inventory={models.data}/>:<p role={models.error?"alert":undefined}>{models.error?"Model choices could not be loaded.":"Loading model choices…"}</p>}
       <ErrorMessage error={refreshError}/>
     </Section>
-    {state.features.ops.has("dispatch.preview")&&<DispatcherPreviewForm query={query}/>}
-  </>:<><Section id="dispatcher" title="Dispatcher"><p role={config.error?"alert":undefined}>{config.error?"Dispatcher settings could not be loaded.":"Loading dispatcher settings…"}</p></Section>{children}</>;
+    <SavedSetups key={setupsRevision} onActivated={()=>{config.reload();models.reload();}}/>
+  </>:<><Section id="dispatcher" title="Dispatcher"><p role={config.error?"alert":undefined}>{config.error?"Dispatcher settings could not be loaded.":"Loading dispatcher settings…"}</p></Section><SavedSetups/></>;
 }
 
 function DispatcherEnforcement({query}:{query:RouteQuery}){
@@ -356,7 +378,7 @@ function DispatcherEnforcement({query}:{query:RouteQuery}){
   return <Section id="native-control" title="Native subagent control" detail="Pacer checks native child blocking before admitting strict managed work.">
     <div className="pc-card pc-stack pc-stack--normal">
       <p>New managed work requires verified native subagent control. Executors can ask Pacer to delegate child work; Pacer selects and records it. This check covers supported native subagent tools when work starts, not arbitrary AI commands run through a shell.</p>
-      {repos.length?<Field label="Repository"><ChoicePicker value={repo} searchable options={repos.map(item=>({value:item.key,label:item.label}))} onValueChange={setRepo}/></Field>:<p>Select a repository to inspect its executor controls.</p>}
+      {repos.length?<SettingRow variant="board" label="Repository"><ChoicePicker value={repo} searchable options={repos.map(item=>({value:item.key,label:item.label}))} onValueChange={setRepo}/></SettingRow>:<p>Select a repository to inspect its executor controls.</p>}
       <div><Button size="sm" onClick={()=>reading.reload()} disabled={!repo}>Refresh status</Button></div>
       <DispatcherReadError error={reading.error&&currentReading?reading.error:undefined} reload={reading.reload} subject="native subagent control"/>
       {currentReading&&<DispatcherEnforcementRows reading={currentReading} canProbe={state.features.ops.has("dispatch.enforcement.probe")&&!!repo} probing={probing} onProbe={runner=>void probe(runner)} canConsent={state.features.ops.has("dispatch.enforcement.consent")} onConsent={consent}/>}
@@ -367,23 +389,56 @@ function DispatcherEnforcement({query}:{query:RouteQuery}){
   </Section>;
 }
 
-function DispatcherPreviewForm({query}:{query:RouteQuery}) {
+export function DispatcherPreviewForm({query,draft}:{query:RouteQuery;draft?:StrategyDraft}) {
   const {state,api}=useTaskContext();
   const repos=state.snapshot?.repos??[];
   const [repo,setRepo]=useState(query.repo??""),[goal,setGoal]=useState(""),[kind,setKind]=useState(""),[tier,setTier]=useState(""),[tools,setTools]=useState(false);
-  const [busy,setBusy]=useState(false),[error,setError]=useState<unknown>(),[result,setResult]=useState<DispatchPreview>();
+  const [busy,setBusy]=useState(false),[error,setError]=useState<unknown>(),[result,setResult]=useState<DispatchPreview>(),[explained,setExplained]=useState<RouteExplanation>();
+  const explain=state.features.ops.has("dispatch.explain"),[useDraft,setUseDraft]=useState(true);
+  const request=useRef(0),inFlight=useRef(false);
+  const [announcement,setAnnouncement]=useState("");
+  const [goalError,setGoalError]=useState("");
+  const draftHelpId=useId();
   useEffect(()=>{if(!repo&&repos.length)setRepo(repos[0]!.key);},[repo,repos.length]);
-  const submit=async(event:Event)=>{event.preventDefault();if(!repo||!goal.trim()||busy)return;setBusy(true);setError(undefined);setResult(undefined);try{setResult(await api.call<DispatchPreview>("dispatch.preview",{repo,goal:goal.trim(),...(kind.trim()?{kind:kind.trim()}:{}),requirements:{...(tier?{minTier:tier}:{}),...(tools?{tools:true}:{})}}));}catch(failure){setError(failure);}finally{setBusy(false);}};
-  return <Section id="dispatch-preview" title="Try a task" detail="Preview a choice using recent readings. This does not start work or reserve capacity.">
-    <form className="pc-card pc-stack pc-stack--normal" onSubmit={event=>void submit(event)}>
-      {repos.length?<Field label="Repository"><ChoicePicker value={repo} searchable options={repos.map(item=>({value:item.key,label:item.label}))} onValueChange={setRepo}/></Field>:<p>Choose a repository from the repository picker before previewing.</p>}
-      <Field label="Task"><TextInput value={goal} maxLength={8000} placeholder="What work should Pacer assign?" onInput={event=>setGoal(event.currentTarget.value)}/></Field>
-      <Field label="Task kind" help="Optional. Use this to check a specialist step."><TextInput value={kind} maxLength={256} placeholder="For example, architecture" onInput={event=>setKind(event.currentTarget.value)}/></Field>
-      <Field label="Minimum model tier"><ChoicePicker value={tier} options={[{value:"",label:"Any tier"},{value:"small",label:"Small"},{value:"medium",label:"Medium"},{value:"frontier",label:"Frontier"}]} onValueChange={setTier}/></Field>
-      <Checkbox label="Needs tools" checked={tools} onChange={event=>setTools(event.currentTarget.checked)}/>
-      <div><Button type="submit" variant="primary" busy={busy} disabled={!repo||!goal.trim()}>Preview selection</Button></div>
+  useLayoutEffect(()=>{
+    request.current++;inFlight.current=false;setBusy(false);setResult(undefined);setExplained(undefined);setError(undefined);setAnnouncement("");
+    return ()=>{request.current++;};
+  },[draft,useDraft,repo,goal,kind,tier,tools,explain]);
+  const submit=async(event:Event)=>{
+    event.preventDefault();if(inFlight.current)return;
+    if(!goal.trim()){setGoalError("Describe the task to preview where it would go.");return;}
+    setGoalError("");if(!repo)return;
+    const id=++request.current;inFlight.current=true;setBusy(true);setError(undefined);setResult(undefined);setExplained(undefined);setAnnouncement("Previewing…");
+    const params={repo,goal:goal.trim(),...(kind.trim()?{kind:kind.trim()}:{}),requirements:{...(tier?{minTier:tier}:{}),...(tools?{tools:true}:{})}};
+    try{
+      if(explain){
+        const next=await api.call<RouteExplanation>("dispatch.explain",{...params,...(draft?.from&&useDraft?{strategyDraft:draft}:{})});
+        if(id===request.current){setExplained(next);setAnnouncement(explainHeadline(next,{executor:executorLabel,step:stepTitle,now:Date.now()/1000,outcome:next.outcome}));}
+      }else{
+        const next=await api.call<DispatchPreview>("dispatch.preview",params);
+        if(id===request.current){setResult(next);setAnnouncement(previewHeadline(next));}
+      }
+    }catch(failure){if(id===request.current){setError(failure);setAnnouncement("Preview could not be loaded.");}}
+    finally{if(id===request.current){inFlight.current=false;setBusy(false);}}
+  };
+  return <Section step={4} id="dispatch-preview" title="Try a task" detail={explain?"See where a task would go, using recent readings. This does not start work or reserve capacity.":"See where a task would go, using saved settings and recent readings. This does not start work or reserve capacity."}>
+    <span className="sr-only" role="status">{announcement}</span>
+    <form className="dispatcher-preview-form pc-dispatcher-preview" onSubmit={event=>void submit(event)}>
+      <div className="dispatcher-preview-row">
+        {repos.length?<Field label="Repository"><ChoicePicker className="pc-choice-picker--mono" value={repo} searchable options={repos.map(item=>({value:item.key,label:item.label}))} onValueChange={setRepo}/></Field>:<p>Choose a repository from the repository picker before previewing.</p>}
+        <Field label="Task kind"><TextInput value={kind} maxLength={256} placeholder="Any kind" onInput={event=>setKind(event.currentTarget.value)}/></Field>
+        <Field label="Task" error={goalError}><TextInput value={goal} maxLength={8000} placeholder="What work should Pacer assign?" onInput={event=>{setGoal(event.currentTarget.value);setGoalError("");}}/></Field>
+        <div className="dispatcher-preview-submit"><Button type="submit" variant="primary" busy={busy}>Preview selection</Button></div>
+      </div>
+      <div className="dispatcher-preview-options">
+        <Field label="Minimum model tier"><ChoicePicker value={tier} options={tierOptions} onValueChange={setTier}/></Field>
+        <Checkbox label="Needs tools" checked={tools} onChange={event=>setTools(event.currentTarget.checked)}/>
+        {explain&&draft?.from&&<div className="pc-stack pc-stack--compact"><Checkbox label="Use my unsaved choice ladder" aria-describedby={draftHelpId} checked={useDraft} onChange={event=>setUseDraft(event.currentTarget.checked)}/><small id={draftHelpId} className="u3-muted">Changes to Who may do the work count only after you save them.</small></div>}
+        {explain&&draft&&!draft.from&&<p className="u3-muted">Save the choice ladder once to try unsaved changes here.</p>}
+      </div>
     </form>
     <ErrorMessage error={error}/>
     {result&&<DispatcherPreviewResult preview={result}/>}
+    {explained&&<RouteExplanationResult result={explained}/>}
   </Section>;
 }

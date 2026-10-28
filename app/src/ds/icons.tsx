@@ -1,4 +1,4 @@
-export type IconName = "chevron-left" | "settings-home" | "settings-agents" | "settings-routing" | "settings-budget" | "settings-machines" | "settings-app" | "settings-diagnostics" | "home" | "tasks" | "executors" | "accounts" | "strategy" | "hosts" | "settings" | "menu" | "overview" | "review" | "sessions" | "terminal" | "sliders" | "gauge" | "servers" | "routing" | "layers" | "download" | "bell" | "palette" | "diagnostics" | "plus" | "pr" | "commit" | "files" | "checks" | "time" | "retry" | "notes" | "branch" | "panel-left" | "panel-bottom" | "panel-right" | "split" | "external" | "end-session" | "insights" | "dispatch" | "plugin" | "search" | "stack" | "bolt" | "fork" | "check-circle" | "chevron-right";
+export type IconName = "chevron-left" | "settings-home" | "settings-agents" | "settings-routing" | "settings-budget" | "settings-machines" | "settings-app" | "settings-diagnostics" | "home" | "tasks" | "executors" | "accounts" | "strategy" | "hosts" | "settings" | "menu" | "overview" | "review" | "sessions" | "terminal" | "sliders" | "gauge" | "servers" | "routing" | "layers" | "download" | "bell" | "palette" | "diagnostics" | "plus" | "pr" | "commit" | "files" | "checks" | "time" | "retry" | "notes" | "branch" | "panel-left" | "panel-bottom" | "panel-right" | "split" | "external" | "end-session" | "insights" | "dispatch" | "plugin" | "search" | "stack" | "bolt" | "fork" | "check-circle" | "chevron-right" | "info";
 export function Icon({ name }: { name: IconName }) {
   const paths: Partial<Record<IconName, string>> = {
     "chevron-left": "M15 6l-6 6 6 6",
@@ -15,6 +15,7 @@ export function Icon({ name }: { name: IconName }) {
     "files": "M8 3h8l4 4v14H8zM16 3v5h4M4 7v14",
     "checks": "m3 6 2 2 4-4M12 6h9m-18 8 2 2 4-4m3 2h9M3 21h18",
     "time": "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18m0 4v5l3 2",
+    "info": "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18m0 8v5m0-8.5v.5",
     "retry": "M3 10a9 9 0 1 1 2 9M3 4v6h6",
     "notes": "M5 3h14v18H5zM8 7h8M8 11h8M8 15h5",
     "branch": "M6 7v10m0-16a3 3 0 1 0 0 6 3 3 0 0 0 0-6m0 16a3 3 0 1 0 0 6 3 3 0 0 0 0-6M9 17a9 9 0 0 0 9-9V7m0-6a3 3 0 1 0 0 6 3 3 0 0 0 0-6",
