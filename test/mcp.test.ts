@@ -33,6 +33,7 @@ test("lists planner and strategy tools", async () => {
   const { client } = await connect();
   expect((await client.listTools()).tools.map((t) => t.name).sort()).toEqual([
     "budget_status", "dispatch_preview", "delegate", "guard_feedback", "report_limit", "route", "task_answer", "task_review", "task_request_review", "task_send", "task_status", "task_stop", "task_wait", "work_answer", "work_retry",
+    "msg_inbox", "msg_log", "msg_send", "msg_wait", "tree_status",
     "strategy_list", "strategy_preview", "strategy_save", "strategy_show", "strategy_use",
   ].sort());
 });
@@ -210,4 +211,31 @@ test("human handoff records a request without a verdict", async () => {
   expect(readTask(ctx,id)?.reviewRequest?.note).toBe("Check access");
   expect(readTask(ctx,id)?.review).toBeUndefined();
   await client.close();
+});
+
+test("planner MCP lists messaging tools", async () => {
+  const { client } = await connect();
+  const names = (await client.listTools()).tools.map(t => t.name);
+  for (const n of ["msg_send", "msg_inbox", "msg_wait", "msg_log", "tree_status"]) expect(names).toContain(n);
+});
+
+test("planner MCP msg_send and msg_inbox share the Claude Code inbox", async () => {
+  const { ctx, call } = await connect();
+  ctx.env.CLAUDECODE = "1";
+  const inbox = await call("msg_inbox");
+  expect(inbox.isError).toBeFalsy();
+  expect(inbox.structuredContent.participant).toBe("external:claude-code");
+});
+
+test("grant MCP lists messaging tools", async () => {
+  const ctx = fakeCtx({ env: { PACER_WORK_GRANT: "grant-token" } });
+  const server = createMcpServer(() => ctx);
+  const [ct, st] = InMemoryTransport.createLinkedPair();
+  await server.connect(st);
+  const client = new Client({ name: "test", version: "0.0.1" });
+  await client.connect(ct);
+  try {
+    const names = (await client.listTools()).tools.map(t => t.name);
+    for (const n of ["msg_send", "msg_inbox", "msg_wait", "msg_log", "tree_status"]) expect(names).toContain(n);
+  } finally { await client.close(); await server.close(); }
 });
