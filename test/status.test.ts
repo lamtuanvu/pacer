@@ -91,12 +91,14 @@ test("a binary only on the login shell's PATH counts as installed once that PATH
   chmodSync(join(bin, "codex"), 0o755);
   const env = { SHELL: "/bin/sh", PATH: "/usr/bin:/bin", PACER_LOGIN_ENV: "on" };
   const ctx = withLoginIndicators(fakeCtx({ now, run, home, env, which: (b) => (b === "codex" ? null : "/bin/" + b) }));
-  const installed = async (c: typeof ctx) => (await computeStatus(c, s, { profile: null })).providers.find((p) => p.id === "codex")?.installed;
+  const installed = async (c: typeof ctx, servicePath?: boolean) => (await computeStatus(c, s, { profile: null, servicePath })).providers.find((p) => p.id === "codex")?.installed;
   // Nothing read yet: the service PATH decides, and status does not wait on a shell.
   expect(await installed(ctx)).toBe(false);
   await terminalEnv(ctx.env, { cwd: ctx.home, run: async () => ({ code: 0, stdout: `__PACER_LOGIN_ENV__\nPATH=${bin}:/usr/bin:/bin\0`, stderr: "", timedOut: false }) });
   expect(await installed(ctx)).toBe(true);
-  expect(await installed({ ...ctx, env: { ...ctx.env, PACER_ENFORCEMENT_MODE: "strict" } })).toBe(false);
+  // Routing for strict work passes servicePath; PACER_ENFORCEMENT_MODE is only set later, for the attempt.
+  expect(await installed(ctx, true)).toBe(false);
+  expect(await installed({ ...ctx, env: { ...ctx.env, PACER_ENFORCEMENT_MODE: "strict" } })).toBe(true);
   clearTerminalEnvCache();
 });
 

@@ -124,6 +124,10 @@ test("an in-place Claude Code run is not pre-trusted and says the trust prompt m
   expect(readTask(ctx, task.id)!.run!.mode).toBe("current");
   expect(out.report).toContain("claude folder trust: not pre-approved (only pacer-created task worktrees are); Claude may ask whether to trust this folder");
   expect(JSON.parse(readFileSync(join(ctx.home, ".claude.json"), "utf8"))).toEqual({oauthAccount: {}});
+  // Claude reads the checkout's own MCP answers in place; pacer reads none and approves nothing.
+  expect(out.report).toContain("claude project MCP servers: not pre-approved (only pacer-created task worktrees are); Claude may ask whether to use this project's MCP servers");
+  const settings = JSON.parse(readFileSync(join(readTask(ctx, task.id)!.run!.dir, "claude-settings.json"), "utf8"));
+  for (const key of ["enableAllProjectMcpServers", "disabledMcpjsonServers", "enabledMcpjsonServers"]) expect(settings).not.toHaveProperty(key);
 });
 
 test("MCP servers the user rejected in the source checkout stay off in a task worktree", async () => {
@@ -152,9 +156,29 @@ test("an attended Claude launch keeps Claude's own project MCP prompt; an unatte
   const conversation = JSON.parse(readFileSync(join(dir, "claude-settings.json"), "utf8"));
   expect(conversation.skipDangerousModePermissionPrompt).toBe(true);
   for (const key of ["enableAllProjectMcpServers", "disabledMcpjsonServers", "enabledMcpjsonServers"]) expect(conversation).not.toHaveProperty(key);
-  prepareInteractive("claude-code", dir, launch);
+  prepareInteractive("claude-code", dir, launch, {mcp: {enabled: [], disabled: []}});
   expect(JSON.parse(readFileSync(join(dir, "claude-settings.json"), "utf8"))).toMatchObject({skipDangerousModePermissionPrompt: true, enableAllProjectMcpServers: true});
   expect(JSON.parse(readFileSync(join(dir, "claude-settings.json"), "utf8"))).not.toHaveProperty("disabledMcpjsonServers");
+  // Without the source checkout's answers nothing is approved, so Claude keeps its prompt.
+  prepareInteractive("claude-code", dir, launch);
+  const unanswered = JSON.parse(readFileSync(join(dir, "claude-settings.json"), "utf8"));
+  expect(unanswered.skipDangerousModePermissionPrompt).toBe(true);
+  for (const key of ["enableAllProjectMcpServers", "disabledMcpjsonServers", "enabledMcpjsonServers"]) expect(unanswered).not.toHaveProperty(key);
+});
+
+test("a task worktree run approves no MCP servers when the source checkout's answers cannot be parsed", async () => {
+  const {ctx, task} = setup("claude", 'bun "$PACER_TEST_CLI" report --task "$(basename "$(dirname "$PACER_RUN_DIR")")" --outcome done --summary "ran"');
+  const repo = gitRepo();
+  mkdirSync(join(repo, ".claude"));
+  writeFileSync(join(repo, ".claude", "settings.local.json"), "{broken");
+  mkdirSync(ctx.home, {recursive: true});
+  writeFileSync(join(ctx.home, ".claude.json"), JSON.stringify({oauthAccount: {}}), {mode: 0o600});
+  updateTask(ctx, task.id, t => {t.state = "running"; t.brief.repo = repo; t.brief.worktreeBase = "head"; t.placement = {requested: "new"};});
+  const out = await runAttempt({...ctx, run: realRun, env: {...ctx.env, PACER_TEST_CLI: join(import.meta.dir, "..", "src", "cli.ts")}}, s.providers["claude-code"], readTask(ctx, task.id)!);
+  expect(out.exec.code).toBe(0);
+  expect(out.report).toContain("claude project MCP servers: not pre-approved (a source checkout's .claude/settings.local.json is not a valid JSON object); Claude may ask whether to use this project's MCP servers");
+  const settings = JSON.parse(readFileSync(join(readTask(ctx, task.id)!.run!.dir, "claude-settings.json"), "utf8"));
+  for (const key of ["enableAllProjectMcpServers", "disabledMcpjsonServers", "enabledMcpjsonServers"]) expect(settings).not.toHaveProperty(key);
 });
 
 test("an agent without an interactive launcher runs headless with the reason in the attempt note", async () => {

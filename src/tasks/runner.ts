@@ -223,9 +223,11 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
         selection = snapshot.selection;
         if (!tried.has(task.requestedExecutor ?? "")) requireProjectExecutor(selection, task.requestedExecutor);
         const now = Date.now() / 1000;
-        // Read the login environment before routing, so the installed check sees the PATH the attempt will use.
-        if (ctx.env.PACER_ENFORCEMENT_MODE !== "strict") await terminalEnv(ctx.env, {cwd: ctx.home}).catch(() => undefined);
-        const st = await deps.computeStatus({ ...ctx, now }, s, {includePlannerSignIn: task.interactionMode === "conversation"});
+        // The installed check uses the PATH the attempt will: strict work runs with the service's environment;
+        // other work reads the login environment first.
+        const servicePath = work?.options.delegationEnforcement === "strict";
+        if (!servicePath) await terminalEnv(ctx.env, {cwd: ctx.home}).catch(() => undefined);
+        const st = await deps.computeStatus({ ...ctx, now }, s, {includePlannerSignIn: task.interactionMode === "conversation", servicePath});
         startStatus = st;
         const blocked = readBlocked({ ...ctx, now });
         const broken = readBroken({ ...ctx, now });

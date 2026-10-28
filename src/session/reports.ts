@@ -126,9 +126,10 @@ export function prepareInteractive(agent: string, dir: string, launch: Launch, o
   hooks.Notification = [{matcher: "permission_prompt|idle_prompt|elicitation_dialog", hooks: [{type: "command", command}]}];
   const settings = join(dir, "claude-settings.json");
   // Per launch, so the account's settings.json stays untouched: no bypass-permissions acknowledgement dialog and, for
-  // unattended tasks, no project MCP approval prompt. The source checkout's answers travel along, because its
-  // untracked settings.local.json is not in a task worktree; Claude rejects disabledMcpjsonServers before enabling all.
-  const mcp = options.attended ? {} : {enableAllProjectMcpServers: true,
+  // unattended task-worktree runs given the source checkout's answers, no project MCP approval prompt. The answers
+  // travel along because its untracked settings.local.json is not in a task worktree; Claude rejects
+  // disabledMcpjsonServers before enabling all. Without them (in-place runs, unreadable answers) Claude keeps its prompt.
+  const mcp = options.attended || !options.mcp ? {} : {enableAllProjectMcpServers: true,
     ...(options.mcp?.disabled.length ? {disabledMcpjsonServers: options.mcp.disabled} : {}),
     ...(options.mcp?.enabled.length ? {enabledMcpjsonServers: options.mcp.enabled} : {})};
   writeFileSync(settings, JSON.stringify({skipDangerousModePermissionPrompt: true, ...mcp, hooks}), {mode: 0o600});

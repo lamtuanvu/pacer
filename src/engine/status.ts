@@ -68,7 +68,7 @@ export function binaryFor(cfg: ProviderCfg): string {
 export { displayName } from "../render/accounts";
 
 export async function computeStatus(
-  ctx: Ctx, s: Strategy, opts: { includePlannerSignIn?: boolean; cacheOnly?: boolean; profile?: ActivityProfile | null; readings?: Map<string, UsageReading>; refreshAccounts?: readonly string[] } = {},
+  ctx: Ctx, s: Strategy, opts: { includePlannerSignIn?: boolean; cacheOnly?: boolean; servicePath?: boolean; profile?: ActivityProfile | null; readings?: Map<string, UsageReading>; refreshAccounts?: readonly string[] } = {},
 ): Promise<Status & { accounts: AccountStatus[] }> {
   const trace = statusTimer(ctx);
   const warnings = Object.values(s.accounts).filter(a => a.usageSource === "orca")
@@ -148,8 +148,9 @@ export async function computeStatus(
   trace("budgets");
   const byAccount = Object.fromEntries(budgets.map(b => [b.account.name, b]));
   // The PATH a local run would use: the login shell's once read (never waited on here), else the service's.
-  // Strict work runs with the service's environment, and its certification checks the binary there.
-  const loginPath = ctx.env.PACER_ENFORCEMENT_MODE === "strict" ? undefined : cachedLoginPath(ctx.env, ctx.home);
+  // Strict work (the caller passes `servicePath`) runs with the service's environment, and its certification checks
+  // the binary there.
+  const loginPath = opts.servicePath ? undefined : cachedLoginPath(ctx.env, ctx.home);
   const installed = (bin: string) => loginPath !== undefined ? onPath({PATH: loginPath}, bin) !== null : ctx.which(bin) !== null;
   const providers: ProviderStatus[] = Object.values(s.runners).map(runner => {
     const { account, reading, endpointReason, endpointNotTested, scope, snapshot, usage, unlimited } = byAccount[runner.account];

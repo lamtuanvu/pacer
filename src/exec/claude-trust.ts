@@ -146,20 +146,36 @@ const names = (value: unknown): string[] => Array.isArray(value) ? value.filter(
 /**
  * Collects `enabledMcpjsonServers` / `disabledMcpjsonServers` for the source checkouts from their untracked
  * `.claude/settings.local.json` (where Claude stores dialog answers) and from their `projects` entries in the
- * account's config. Read-only; no other key is used. A server rejected anywhere stays rejected.
+ * account's config. Read-only; no other key is used. A server rejected anywhere stays rejected. A file that
+ * exists but cannot be read or parsed may hold a rejection, so the result is a reason instead (fail closed).
  */
-export function projectMcpChoices(configFile: string, roots: string[]): McpChoices {
+export function projectMcpChoices(configFile: string, roots: string[]): McpChoices | {reason: string} {
   const enabled = new Set<string>(), disabled = new Set<string>();
-  const take = (source: unknown) => {
-    if (!isObject(source)) return;
+  const take = (source: Json) => {
     for (const name of names(source.enabledMcpjsonServers)) enabled.add(name);
     for (const name of names(source.disabledMcpjsonServers)) disabled.add(name);
   };
   const keys = [...new Set(roots.flatMap(folderKeys))];
   for (const root of keys) {
-    try { take(JSON.parse(readFileSync(join(root, ".claude", "settings.local.json"), "utf8"))); } catch { /* no local answers */ }
+    let text: string;
+    try { text = readFileSync(join(root, ".claude", "settings.local.json"), "utf8"); }
+    catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === "ENOENT" || code === "ENOTDIR") continue;
+      return {reason: "a source checkout's .claude/settings.local.json is unreadable"};
+    }
+    let local: unknown;
+    try { local = JSON.parse(text); } catch { local = undefined; }
+    if (!isObject(local)) return {reason: "a source checkout's .claude/settings.local.json is not a valid JSON object"};
+    take(local);
   }
   const config = readConfig(configFile);
-  if ("config" in config && isObject(config.config.projects)) for (const key of keys) take(config.config.projects[key]);
+  if ("reason" in config) {
+    if (config.reason !== "the Claude config file does not exist yet") return {reason: config.reason};
+  } else if (config.config.projects !== undefined) {
+    if (!isObject(config.config.projects)) return {reason: "the Claude config has a malformed projects entry"};
+    const projects = config.config.projects;
+    for (const key of keys) if (isObject(projects[key])) take(projects[key] as Json);
+  }
   return {enabled: [...enabled].filter(name => !disabled.has(name)).sort(), disabled: [...disabled].sort()};
 }

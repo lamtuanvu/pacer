@@ -179,10 +179,10 @@ Pacer keeps one trust entry per task worktree and, like Orca, does not remove th
 entries when it removes a worktree.
 
 The run's `--settings` file skips Claude's one-time bypass-permissions
-acknowledgement. For an unattended task launch it also approves project MCP servers for
-that launch (`enableAllProjectMcpServers`), including a server from a `.mcp.json` in a
-parent folder of `~/.pacer/worktrees`. Takeovers and conversations, where you are at the
-terminal, keep Claude's own MCP prompt. The account's `settings.json` and `.claude.json`
+acknowledgement. For an unattended launch in a task worktree pacer created, it also
+approves project MCP servers for that launch (`enableAllProjectMcpServers`), including a server from a `.mcp.json` in a
+parent folder of `~/.pacer/worktrees`. In-place runs, takeovers and conversations keep
+Claude's own MCP prompt. The account's `settings.json` and `.claude.json`
 are not edited for either.
 
 A server you rejected stays off. Claude Code stores your answers in the checkout's
@@ -192,7 +192,8 @@ and a new task worktree has neither. Before the launch, Pacer reads only
 `.claude/settings.local.json` and from the source repository's entries in the account's
 `.claude.json`, and writes them into the run's `--settings` file. Claude Code 2.1.281
 applies `disabledMcpjsonServers` before `enableAllProjectMcpServers`, also when both
-come from the per-run file.
+come from the per-run file. If either file exists but cannot be read or parsed, pacer
+approves nothing for that launch and the attempt note says Claude's MCP prompt may appear.
 
 ## Session environment
 

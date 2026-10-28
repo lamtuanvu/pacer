@@ -130,11 +130,24 @@ test("MCP answers are read from the source checkouts' local settings and config 
   const repo = tmpDir(), other = tmpDir();
   mkdirSync(join(repo, ".claude"));
   writeFileSync(join(repo, ".claude", "settings.local.json"), JSON.stringify({disabledMcpjsonServers: ["off"], enabledMcpjsonServers: ["on", "off"]}));
-  mkdirSync(join(other, ".claude"));
-  writeFileSync(join(other, ".claude", "settings.local.json"), "not json");
   const {file} = account({projects: {[realpathSync(repo)]: {disabledMcpjsonServers: ["cfg-off", null], enabledMcpjsonServers: "on"}, "/elsewhere": {disabledMcpjsonServers: ["unrelated"]}}});
   expect(projectMcpChoices(file, [repo, other])).toEqual({enabled: ["on"], disabled: ["cfg-off", "off"]});
   expect(projectMcpChoices(join(tmpDir(), "missing.json"), [tmpDir()])).toEqual({enabled: [], disabled: []});
+});
+
+test("MCP answers fail closed when a source file exists but cannot be parsed", () => {
+  const repo = tmpDir(), broken = tmpDir();
+  mkdirSync(join(broken, ".claude"));
+  writeFileSync(join(broken, ".claude", "settings.local.json"), "not json");
+  const {file} = account({projects: {}});
+  expect(projectMcpChoices(file, [repo, broken])).toEqual({reason: "a source checkout's .claude/settings.local.json is not a valid JSON object"});
+  writeFileSync(join(broken, ".claude", "settings.local.json"), "[]");
+  expect(projectMcpChoices(file, [broken])).toHaveProperty("reason");
+  const bad = join(tmpDir(), ".claude.json");
+  writeFileSync(bad, "{not json");
+  expect(projectMcpChoices(bad, [repo])).toEqual({reason: "the Claude config file is not valid JSON"});
+  writeFileSync(bad, JSON.stringify({projects: []}));
+  expect(projectMcpChoices(bad, [repo])).toEqual({reason: "the Claude config has a malformed projects entry"});
 });
 
 test("concurrent grants for one file all land", async () => {

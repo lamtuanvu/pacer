@@ -30,7 +30,7 @@ import { runRemoteAttempt } from "../remote/attempt";
 import { SCRIPTS } from "../remote/scripts";
 import { runRemote } from "../remote/ssh";
 import { launchFor, launchModeFor, providerEnv, resumeLaunchFor, type LaunchModeChoice } from "./launch";
-import { claudeConfigFile, grantClaudeFolderTrust, projectMcpChoices } from "./claude-trust";
+import { claudeConfigFile, grantClaudeFolderTrust, projectMcpChoices, type McpChoices } from "./claude-trust";
 import { detectLimit } from "./limits";
 import { type ExecResult, executorEnv, execProcess } from "./process";
 import { profileColor, profileKeys, strictServiceEnv, terminalEnv, terminalEnvNote, terminalEnvRecord, terminalUmask, type TerminalEnv } from "./login-env";
@@ -301,6 +301,15 @@ async function preapproveClaudeTrust(ctx: Ctx, env: Record<string, string | unde
   return result.status === "skipped" ? `claude folder trust: not pre-approved (${result.reason}); Claude may ask whether to trust this folder\n\n` : "";
 }
 
+/**
+ * The source checkout's MCP answers, read only for a pacer-created task worktree, whose untracked settings.local.json
+ * is not in the worktree. An in-place run is left to Claude, which reads that checkout's own answers and may prompt.
+ */
+function projectMcpAnswers(ctx: Ctx, env: Record<string, string | undefined>, mode: "current" | "new", folder: string, roots: string[]): McpChoices | {reason: string} {
+  if (!pacerTaskWorktree(ctx, mode, folder)) return {reason: "only pacer-created task worktrees are"};
+  return projectMcpChoices(claudeConfigFile(env, ctx.home), roots);
+}
+
 /** The second run belongs to the original attempt and always uses its worktree. */
 async function startTakeoverRun(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, previous: RunRef, note: string): Promise<AttemptOutcome> {
   const dir = runDir(ctx, task.id, previous.attempt) + "-takeover";
@@ -480,8 +489,12 @@ async function runAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, 
     if (interactive) {
       if (agent === "codex" && !conversation && choice.explicit) await requireCodexInteractive(ctx, env);
       if (agent === "claude-code" && !conversation) note += await preapproveClaudeTrust(ctx, env, mode, launch.cwd, "error" in git ? undefined : git.main);
-      // The source checkout's MCP answers; its untracked settings.local.json is not in the task worktree.
-      const mcp = agent === "claude-code" && !conversation ? projectMcpChoices(claudeConfigFile(env, ctx.home), [task.brief.repo, ...("error" in git ? [] : [git.top, git.main])]) : undefined;
+      let mcp: McpChoices | undefined;
+      if (agent === "claude-code" && !conversation) {
+        const answers = projectMcpAnswers(ctx, env, mode, launch.cwd, [task.brief.repo, ...("error" in git ? [] : [git.top, git.main])]);
+        if ("reason" in answers) note += `claude project MCP servers: not pre-approved (${answers.reason}); Claude may ask whether to use this project's MCP servers\n\n`;
+        else mcp = answers;
+      }
       launch = prepareInteractive(agent, rdir, launch, {attended: conversation, ...(mcp ? {mcp} : {})});
       env.PACER_HOME = ctx.pacerHome;
       env.PACER_RUN_DIR = rdir;
