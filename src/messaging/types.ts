@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CoreError } from "../core/errors";
 
 export const MSG_KINDS = ["message", "question", "answer", "report", "nudge", "close"] as const;
 export type MsgKind = typeof MSG_KINDS[number];
@@ -55,3 +56,9 @@ export const messagingOverrideSchema = z.object({
   max_turns: z.number().int().positive().max(10000).optional(),
 }).strict();
 export type MessagingOverride = z.infer<typeof messagingOverrideSchema>;
+
+export function parseMessagingConfig(raw: unknown): MessagingConfig {
+  const parsed = messagingConfigSchema.safeParse(raw ?? {});
+  if (!parsed.success) throw new CoreError("invalid_input", "Invalid messaging configuration", undefined, { issues: parsed.error.issues.map(i => ({ path: i.path, message: i.message })) });
+  return parsed.data;
+}
