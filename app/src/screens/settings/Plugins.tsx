@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useRef, useState } from "preact/hooks";
 import type { PluginInfo, SurfaceKind } from "../../../../src/plugins/registry";
 import { Switch } from "../../ds/Controls";
 import { Icon } from "../../ds/icons";
 import { Pill } from "../../ds/Pill";
 import { useDialogs } from "../../ds/useDialogs";
+import { ErrorMessage } from "../task-shared";
 import { Feedback, useOperation, useResource } from "./shared";
 
 type EnableResult = { state: string; needs?: string[]; surfaces?: SurfaceKind[] };
@@ -30,18 +31,12 @@ export function PluginsSection() {
   const dialogs = useDialogs();
   const pending = useRef(false);
   const [busy, setBusy] = useState(false);
-  const restoreFocus = useRef<{ control: HTMLInputElement; data: typeof resource.data }>();
-  useEffect(() => {
-    const restore = restoreFocus.current;
-    if (restore && resource.data !== restore.data && !resource.loading && !busy) {
-      restoreFocus.current = undefined;
-      if (restore.control.isConnected) restore.control.focus();
-    }
-  }, [resource.data, resource.loading, busy]);
   async function toggle(plugin: PluginInfo, control: HTMLInputElement) {
-    if (pending.current) return;
+    if (pending.current || resource.loading || plugin.state === "refused") {
+      control.checked = plugin.enabled;
+      return;
+    }
     pending.current = true; setBusy(true);
-    restoreFocus.current = { control, data: resource.data };
     try {
       const result = await action.run(plugin.enabled ? "plugin.disable" : "plugin.enable", { id: plugin.id });
       const enabled = result?.data as EnableResult | undefined;
@@ -56,22 +51,24 @@ export function PluginsSection() {
       resource.reload(); pending.current = false; setBusy(false);
     }
   }
-  if (resource.error || !resource.data) return null;
+  if (!resource.data) return null;
   return <section className="pc-settings-plugins" aria-labelledby="plugins-h">
     <h2 id="plugins-h" className="pc-settings-board__label">Plugins</h2>
-    {resource.data.plugins.length ? <div className="pc-settings-plugins__list">{resource.data.plugins.map(plugin => {
+    {resource.data.plugins.length ? <ul className="pc-settings-plugins__list" aria-label="Plugins" role="list">{resource.data.plugins.map(plugin => {
       const adds = additions(plugin);
-      return <div className="pc-settings-plugin" key={plugin.id}>
+      const errorId = `plugin-${plugin.id}-error`;
+      return <li className="pc-settings-plugin" key={plugin.id}>
         <span className="pc-settings-plugin__icon" aria-hidden="true"><Icon name="plugin" /></span>
         <div className="pc-settings-plugin__copy"><div className="pc-settings-plugin__name"><b>{plugin.id}</b><span className="pc-settings-board__caption">{plugin.version}</span></div>
           {adds && <span className="pc-settings-board__caption">{adds}</span>}
-          {plugin.error && <span className="pc-settings-board__caption">{plugin.error}</span>}
+          {plugin.error && <span id={errorId} className="pc-settings-board__caption">{plugin.error}</span>}
         </div>
         <span>{plugin.bundled && <Pill tone="neutral">Built in</Pill>}</span>
-        <Switch size="sm" aria-label={`Enable ${plugin.id}`} checked={plugin.enabled} disabled={busy || resource.loading || plugin.state === "refused"} onChange={event => void toggle(plugin, event.currentTarget)} />
-      </div>;
-    })}</div> : <p className="pc-settings-board__caption">No plugins installed.</p>}
+        <Switch size="sm" aria-label={`Enable ${plugin.id}`} aria-describedby={plugin.error ? errorId : undefined} checked={plugin.enabled} disabled={plugin.state === "refused"} aria-disabled={busy || resource.loading || plugin.state === "refused"} onChange={event => void toggle(plugin, event.currentTarget)} />
+      </li>;
+    })}</ul> : <p className="pc-settings-board__caption">No plugins installed.</p>}
     <span className="pc-settings-board__caption">A plugin can add a settings page, an activity-bar view, a side-panel tab, routing engines or usage readers. Each one is listed here with what it adds.</span>
+    <ErrorMessage error={resource.error} />
     <Feedback action={action} />{dialogs.dialog}
   </section>;
 }

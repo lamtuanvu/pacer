@@ -122,7 +122,7 @@ a.pc-btn{text-decoration:none}
 .pc-checkbox__input:checked::before {transform:rotate(45deg) scale(1);
 }
 
-.pc-checkbox__input:disabled {opacity:.5;
+.pc-checkbox__input:disabled,.pc-checkbox__input[aria-disabled=true] {opacity:.5;
 }
 
 .pc-text-action:focus-visible,.pc-disclosure>summary:focus-visible,.pc-checkbox__input:focus-visible {outline:var(--stroke-focus) solid var(--focus);outline-offset:var(--stroke-focus);

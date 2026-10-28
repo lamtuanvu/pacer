@@ -22,6 +22,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Changed
 
+- Keep App plugin switches focused during changes and reloads, label the plugin list, describe refused plugins, and preserve loaded rows and inline errors when a reload fails.
+
 - Add the service-backed App Plugins list with explicit capability grants, content-sized Terminal selection, and semantic Budget row headings through additive design-system options.
 
 - Refine the terminal file viewer: it opens beside the terminal when there is room (a full sheet on narrow screens), starts on Source, adds whole-file search with match stepping (⌘F/Ctrl+F), lists what the isolated HTML preview blocked, explains missing, outside, too-large, binary and changed-session files, and closes with Esc or Back to terminal.

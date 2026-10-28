@@ -347,3 +347,8 @@ App Plugins composes DS Icon, Pill, Switch (small) and confirmation Dialog; its
 service-owned list uses 32px lane tiles, 8px tile radius, 12px gaps, 12px/16px row
 padding and a 10px list radius. The plugin glyph uses the nearest 16px token to
 the board's 17px glyph. Plugin data and grant flow stay in the lazy settings chunk.
+The rows form a labelled Plugins list. During changes and reloads, switches use
+`aria-disabled` with the shared Checkbox/Switch disabled opacity, preserving
+keyboard focus; consumers must ignore input while unavailable. Permanently
+refused plugins retain native disabled semantics and describe their error.
+Reload errors leave the last loaded list and inline operation feedback visible.
