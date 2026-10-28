@@ -51,6 +51,10 @@ for (const width of [340, 260]) browserTest(`tray planner identity never runs un
     expect(state.y).toBeLessThan(identity.y + identity.height);
     expect(identity.x + identity.width).toBeLessThanOrEqual(state.x);
     expect(labelBox.x + labelBox.width <= identity.x + identity.width || ellipsized).toBe(true);
+    const name = page.locator(".tray-identity strong");
+    const nameBox = (await name.boundingBox())!;
+    const nameEllipsized = await name.evaluate(node => node.scrollWidth > node.clientWidth && getComputedStyle(node).textOverflow === "ellipsis");
+    expect(nameBox.x + nameBox.width <= identity.x + identity.width + 0.5 || nameEllipsized).toBe(true);
     expect(state.x).toBeGreaterThanOrEqual(0);
     expect(state.y).toBeGreaterThanOrEqual(0);
     expect(state.x + state.width).toBeLessThanOrEqual(width);

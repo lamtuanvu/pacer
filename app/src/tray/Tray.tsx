@@ -94,7 +94,7 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
   const timeOnly = (at: number) => clock(at, snapshot?.at ?? Date.now() / 1000);
   return <DensityProvider value="compact"><main className="tray" ref={root} aria-label="pacer tray" aria-busy={busy}>
     <header className="tray-planner">
-      <div className="tray-line"><div className="tray-identity">{planner && <AgentMark agent={planner.agent} size={18} labelled={false} />}<strong>{planner ? agentInfo(planner.agent).name : "pacer"}</strong><span className="tray-planner-label">planner</span></div><div className="tray-state"><StatusPill status={paceStatus(planner?.verdict ?? "unknown")} /><span className="tray-mode">{mode}</span></div></div>
+      <div className="tray-line"><div className="tray-identity" title={`${planner ? agentInfo(planner.agent).name : "pacer"} planner`}>{planner && <AgentMark agent={planner.agent} size={18} labelled={false} />}<strong>{planner ? agentInfo(planner.agent).name : "pacer"}</strong><span className="tray-planner-label">planner</span></div><div className="tray-state"><StatusPill status={paceStatus(planner?.verdict ?? "unknown")} /><span className="tray-mode">{mode}</span></div></div>
       <UsageMeter used={planner?.usedPct ?? null} pace={planner?.pacePct ?? null} tone={tone} size="bar" label="Planner usage" text="none" stale={planner?.stale} />
       <div className="tray-caption"><span>{meterText(planner?.usedPct ?? null, planner?.pacePct ?? null, "full")}</span><span>{planner?.resetsAt != null ? `resets ${clock(planner.resetsAt, snapshot!.at)}` : backIn(null, snapshot?.at ?? 0)}{snapshot?.pause?.until != null && ` · paused until ${timeOnly(snapshot.pause.until)}`}</span></div>
     </header>
