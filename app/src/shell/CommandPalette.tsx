@@ -61,6 +61,6 @@ export function CommandPalette({ snapshot, registry = commandRegistry, now: fixe
     query={text} onQueryChange={edit} onBackspaceEmpty={commandMode ? () => setCommandMode(false) : undefined} prefix={menu.mode === "commands" ? "Commands" : menu.mode === "ask" ? "Ask" : undefined}
     scopes={searching ? SCOPES.map(item => ({ ...item, count: menu.counts[item.id] })) : undefined} scope={menu.scope} onScope={id => setScope(id as MenuScope)}
     groups={groups} empty={menu.empty ? { title: `Nothing matches “${text.trim()}”`, description: "Try fewer words, another scope, or turn it into work:" } : undefined}
-    enterHint={menu.enterHint} modEnterHint={menu.modEnterHint} modEnterKeys={keyCaps("Mod-Enter")} hints={<span className="pc-command__hint"><Kbd>&gt;</Kbd> commands{ASK_ENABLED && <> · <Kbd>?</Kbd> ask assistant</>}</span>}
+    enterHint={menu.enterHint} modEnterHint={menu.modEnterHint} modEnterSoon={menu.modEnterSoon} modEnterKeys={keyCaps("Mod-Enter")} hints={<span className="pc-command__hint"><Kbd>&gt;</Kbd> commands{ASK_ENABLED && <> · <Kbd>?</Kbd> ask assistant</>}</span>}
     onPick={pick} onClose={close} returnFocus={returnFocus} />;
 }

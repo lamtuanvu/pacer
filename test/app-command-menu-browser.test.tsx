@@ -233,14 +233,19 @@ browserTest("mod_enter_runs_a_command_and_keeps_the_menu_open", () => withPage(a
   await open(page, built, "#/overview");
   await page.keyboard.press("Control+k");
   const input = page.getByRole("combobox");
-  // Outside commands mode there is no ⌘↵ hint and the key does nothing.
-  await expect(page.locator(".pc-command__footer").textContent()).resolves.not.toContain("keep open");
+  // Outside commands mode ⌘↵ "open beside" is announced as coming soon and does nothing.
+  const footer = await page.locator(".pc-command__footer").textContent();
+  expect(footer).toContain("open beside");
+  expect(footer).toContain("Coming soon");
+  expect(footer).not.toContain("keep open");
+  await expect(page.locator('.pc-command__hint[aria-disabled="true"]').count()).resolves.toBe(1);
   await input.fill("fix");
   await page.keyboard.press("Control+Enter");
   await expect(page.getByRole("combobox").count()).resolves.toBe(1);
   expect(await page.evaluate(() => location.hash)).toBe("#/overview");
   await input.fill(">count");
   await expect(page.locator(".pc-command__footer").textContent()).resolves.toContain("run and keep open");
+  await expect(page.locator(".pc-command__footer").textContent()).resolves.not.toContain("Coming soon");
   await page.keyboard.press("Control+Enter");
   await page.waitForFunction(() => (window as any).counted === 1);
   await expect(page.getByRole("combobox").count()).resolves.toBe(1);

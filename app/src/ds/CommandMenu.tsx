@@ -35,7 +35,7 @@ export function Highlight({ text, ranges = [] }: { text: string; ranges?: [numbe
  * announced through aria-activedescendant. The caller owns the query, scope and options; mounting it opens it and
  * unmounting closes it and returns focus to the element that opened it.
  */
-export function CommandMenu({ label, placeholder, query, onQueryChange, prefix, scopes, scope, onScope, groups, empty, enterHint, modEnterHint, modEnterKeys, hints, returnFocus, onBackspaceEmpty, onPick, onClose }: {
+export function CommandMenu({ label, placeholder, query, onQueryChange, prefix, scopes, scope, onScope, groups, empty, enterHint, modEnterHint, modEnterSoon, modEnterKeys, hints, returnFocus, onBackspaceEmpty, onPick, onClose }: {
   label: string; placeholder: string; query: string; onQueryChange: (query: string) => void;
   /** A badge shown before the input for the active mode, such as "Commands". */
   prefix?: string;
@@ -47,6 +47,8 @@ export function CommandMenu({ label, placeholder, query, onQueryChange, prefix, 
   /** What ⌘↵ does in this mode, such as "run and keep open". Without it ⌘↵ does nothing and no hint shows. */
   modEnterHint?: string;
   /** Key caps for that shortcut, such as ["⌘", "↵"]. */
+  /** The ⌘↵ action does not exist yet: the hint shows with a "Coming soon" label and the key does nothing. */
+  modEnterSoon?: boolean;
   modEnterKeys?: string[];
   hints?: ComponentChildren;
   /** The element to focus on close. Defaults to the element focused at open, which WebKit leaves on the body after a mouse click on a button. */
@@ -95,7 +97,7 @@ export function CommandMenu({ label, placeholder, query, onQueryChange, prefix, 
     else if (key === "End") setActive(Math.max(0, options.length - 1));
     else if (key === "Enter") {
       const option = options[activeRef.current], mod = event.metaKey || event.ctrlKey;
-      if (option && (!mod || modEnterHint)) onPick(option.id, mod ? { keepOpen: true } : undefined);
+      if (option && (!mod || (modEnterHint && !modEnterSoon))) onPick(option.id, mod ? { keepOpen: true } : undefined);
     }
     else if (key === "Tab" && scopes?.length && onScope) {
       const at = Math.max(0, scopes.findIndex(item => item.id === scope));
@@ -148,7 +150,7 @@ export function CommandMenu({ label, placeholder, query, onQueryChange, prefix, 
     <div className="pc-command__footer">
       <span className="pc-command__hint"><Kbd size="sm">↑</Kbd> <Kbd size="sm">↓</Kbd> move</span>
       <span className="pc-command__hint"><Kbd size="sm">↵</Kbd> {enterHint}</span>
-      {modEnterHint && modEnterKeys && <span className="pc-command__hint">{modEnterKeys.map((cap, at) => <Kbd key={at} size="sm">{cap}</Kbd>)} {modEnterHint}</span>}
+      {modEnterHint && modEnterKeys && <span className="pc-command__hint" aria-disabled={modEnterSoon || undefined}>{modEnterKeys.map((cap, at) => <Kbd key={at} size="sm">{cap}</Kbd>)} {modEnterHint}{modEnterSoon && <Pill tone="neutral">Coming soon</Pill>}</span>}
       <span className="pc-command__spacer" />
       {hints}
     </div>

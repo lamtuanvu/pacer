@@ -69,9 +69,9 @@ test("> lists only commands, grouped, and ignores tasks", () => {
   expect(titles(everything)).not.toContain("New task");
   expect(everything.enterHint).toBe("run");
   expect(everything.modEnterHint).toBe("run and keep open");
-  // ⌘↵ has nothing to do outside commands mode, so no hint is offered.
-  expect(menu("fix").modEnterHint).toBeUndefined();
-  expect(menu("").modEnterHint).toBeUndefined();
+  // ⌘↵ "open beside" is announced as coming soon in search and recent modes (no right panel yet); it is not a live action.
+  for (const result of [menu("fix"), menu(""), menu("xyzzy plugin")]) expect(result).toMatchObject({ modEnterHint: "open beside", modEnterSoon: true });
+  expect(everything.modEnterSoon).toBeUndefined();
 });
 
 test("recent shows picked items that still exist, else the latest tasks, then ordered command groups", () => {

@@ -144,7 +144,11 @@ export interface MenuResult {
   enterHint: string;
   /** Footer wording for ⌘↵, present only where it does something. */
   modEnterHint?: string;
+  /** The ⌘↵ action is announced but not built yet. */
+  modEnterSoon?: boolean;
 }
+/** ⌘↵ will open a task beside the current one once a right panel exists; until then it is announced and inert. */
+const OPEN_BESIDE = { modEnterHint: "open beside", modEnterSoon: true } as const;
 export interface MenuInput { query: string; scope: MenuScope; snapshot: ClientSnapshot | null; commands: Command[]; recent: string[]; now: number }
 
 export function buildMenu({ query, scope, snapshot, commands, recent, now }: MenuInput): MenuResult {
@@ -167,7 +171,7 @@ export function buildMenu({ query, scope, snapshot, commands, recent, now }: Men
     const offered = [...commandItems(commands).filter(item => !listed.has(item.id)), ...(suggestion && !listed.has(suggestion.id) ? [suggestion] : [])]
       .filter(item => RECENT_COMMAND_GROUPS.includes(item.group ?? item.command!.group));
     const groups: MenuGroup[] = [...(recentItems.length ? [{ title: "Recent", items: recentItems }] : []), ...groupBy(offered, item => item.group ?? item.command!.group).sort(orderOf(RECENT_COMMAND_GROUPS))];
-    return { mode, groups, counts: zero, empty: false, scope: "all", enterHint: "open" };
+    return { mode, groups, counts: zero, empty: false, scope: "all", enterHint: "open", ...OPEN_BESIDE };
   }
   const matched = rankAndMark(everything, text);
   const counts = { ...zero, all: matched.length };
@@ -177,11 +181,11 @@ export function buildMenu({ query, scope, snapshot, commands, recent, now }: Men
   const shown = only === "all" ? matched : matched.filter(item => item.scope === only);
   // Each group is capped while browsing All; a single scope lists everything it matched.
   const groups = groupBy(shown, item => item.group ?? GROUP_TITLES[item.scope], only === "all" ? PER_GROUP : shown.length).sort(orderOf(SEARCH_GROUP_ORDER));
-  if (shown.length) return { mode, groups, counts, empty: false, scope: only, enterHint: "open" };
+  if (shown.length) return { mode, groups, counts, empty: false, scope: only, enterHint: "open", ...OPEN_BESIDE };
   const start = commands.find(command => command.id === "task.new");
   const instead: MenuItem[] = [
     ...(start ? [{ ...commandItems([start])[0]!, title: "New task", sub: `Describe “${text}” and pacer routes it` }] : []),
     { id: "action:tasks", scope: "tasks" as const, title: "Browse all tasks", icon: "tasks" as const, target: routes.tasks() },
   ];
-  return { mode, groups: [{ title: "Instead", items: instead }], counts, empty: true, scope: "all", enterHint: "open" };
+  return { mode, groups: [{ title: "Instead", items: instead }], counts, empty: true, scope: "all", enterHint: "open", ...OPEN_BESIDE };
 }
