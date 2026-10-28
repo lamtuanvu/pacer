@@ -267,26 +267,47 @@ function useAttentionKeys(query: RouteQuery) {
 
 /** Two `insights.summary` reads: the period and today. The op arrives with attempt token accounting; without it the strip says so. */
 const REANCHOR_S = 300;
+type Read = { op: string; params: unknown };
+/**
+ * The two reads behind the strip: the period, and today unless Today is the period. A read that is not needed asks `version.get`,
+ * never `insights.summary` without a range. `to` is exclusive, so a range that starts at the anchor still covers one second.
+ */
+export function insightsReads(period: Period, anchor: number, repo: string | null, supported: boolean): { current: Read; today: Read } {
+  const none: Read = { op: "version.get", params: {} };
+  if (!supported) return { current: none, today: none };
+  const range = periodRange(period, anchor);
+  const read = (r: { from: number; to: number }): Read => ({ op: "insights.summary", params: { from: r.from, to: Math.max(r.to, r.from + 1), bucket: "day", ...(repo ? { repo } : {}) } });
+  return { current: read(range), today: period === "today" ? none : read(range.today) };
+}
+export interface HeldInsights { key: string; current?: InsightsSummary; today?: InsightsSummary }
+/**
+ * Keeps the last figures for this period and repo while a moved range loads, so the strip neither blanks nor reflows;
+ * figures from another period or repo are never shown.
+ */
+export function holdInsights(held: HeldInsights, period: Period, repo: string | null, current: { data?: InsightsSummary; loading: boolean; error?: unknown }, today: { data?: InsightsSummary }): { held: HeldInsights; state: InsightsState } {
+  const key = `${period}|${repo ?? ""}`;
+  const next: HeldInsights = held.key === key ? { ...held } : { key };
+  if (current.data) next.current = current.data;
+  if (today.data && period !== "today") next.today = today.data;
+  const shown = current.data ?? next.current;
+  return { held: next, state: { supported: true, loading: current.loading && !shown, error: shown ? undefined : current.error, current: shown, today: period === "today" ? undefined : today.data ?? next.today } };
+}
+
 function useInsights(period: Period, repo: string | null): InsightsState {
   const { state } = useTaskContext();
   const supported = state.features.ops.has("insights.summary");
-  // The range ends at an anchor that moves every five minutes, not on every render; task events refetch the same range in between.
+  // The range ends at an anchor that moves when a task settles and at least every five minutes, not on every render.
   const [anchor, setAnchor] = useState(() => Math.floor(Date.now() / 1000));
+  const settled = state.snapshot?.tasks.filter(task => task.state !== "running" && task.state !== "queued").map(task => `${task.id}:${task.state}`).join(",") ?? "";
+  useEffect(() => { setAnchor(Math.floor(Date.now() / 1000)); }, [settled]);
   useEffect(() => { const t = setInterval(() => setAnchor(Math.floor(Date.now() / 1000)), REANCHOR_S * 1000); return () => clearInterval(t); }, []);
-  const range = periodRange(period, anchor);
-  const params = (r: { from: number; to: number }) => supported ? { from: r.from, to: Math.max(r.to, r.from + 1), bucket: "day", ...(repo ? { repo } : {}) } : {};
-  const op = supported ? "insights.summary" : "version.get";
-  // Today's own read is the period itself when Today is selected.
-  const current = useQuery<InsightsSummary>(op, params(range)), today = useQuery<InsightsSummary>(op, period === "today" ? {} : params(range.today));
-  // A new anchor keeps showing the last figures for this period and repo until the new range answers, so nothing blanks or reflows.
-  const last = useRef<{ key: string; current?: InsightsSummary; today?: InsightsSummary }>({ key: "" });
-  const key = `${period}|${repo ?? ""}`;
-  if (last.current.key !== key) last.current = { key };
-  if (current.data) last.current.current = current.data;
-  if (today.data && period !== "today") last.current.today = today.data;
+  const reads = insightsReads(period, anchor, repo, supported);
+  const current = useQuery<InsightsSummary>(reads.current.op, reads.current.params), today = useQuery<InsightsSummary>(reads.today.op, reads.today.params);
+  const held = useRef<HeldInsights>({ key: "" });
   if (!supported) return NO_INSIGHTS;
-  const shown = current.data ?? last.current.current;
-  return { supported, loading: current.loading && !shown, error: shown ? undefined : current.error, current: shown, today: period === "today" ? undefined : today.data ?? last.current.today };
+  const result = holdInsights(held.current, period, repo, current, period === "today" ? {} : today);
+  held.current = result.held;
+  return result.state;
 }
 
 export function DispatchHome({ query }: { query: RouteQuery }) {

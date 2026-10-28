@@ -5,7 +5,7 @@ import type { ClientSnapshot } from "../src/view-model/snapshot";
 import type { InsightsSummary } from "../src/view-model/dispatch";
 import { DelegateContext } from "../app/src/shell/delegate";
 import { createActionRunner } from "../app/src/data/actions";
-import { DispatchView, type InsightsState, type RoutingPreview } from "../app/src/screens/dispatch/Dispatch";
+import { DispatchView, holdInsights, insightsReads, type InsightsState, type RoutingPreview } from "../app/src/screens/dispatch/Dispatch";
 import { RepoFilter, repoChoices } from "../app/src/screens/RepoFilter";
 
 const snap = fixture as unknown as ClientSnapshot;
@@ -245,3 +245,33 @@ test("today's repos can fill spare chips, while zero-work repos are only in the 
   expect(repoChoices(snapshot, null).all.find(repo => repo.key === 'repo-29')?.count).toBe(0);
 });
 
+
+test("insights reads always carry a range, and Today reads only itself", () => {
+  const anchor = 1_800_000_000;
+  expect(insightsReads("7d", anchor, null, false)).toEqual({ current: { op: "version.get", params: {} }, today: { op: "version.get", params: {} } });
+  const week = insightsReads("7d", anchor, "github.com/acme/api", true);
+  expect(week.current).toEqual({ op: "insights.summary", params: { from: anchor - 7 * 86400, to: anchor, bucket: "day", repo: "github.com/acme/api" } });
+  expect(week.today.op).toBe("insights.summary");
+  const today = insightsReads("today", anchor, null, true);
+  expect(today.today).toEqual({ op: "version.get", params: {} });
+  // Right at midnight the range is never empty (`to` is exclusive).
+  const midnight = new Date(anchor * 1000); midnight.setHours(0, 0, 0, 0);
+  const start = midnight.getTime() / 1000, atMidnight = insightsReads("today", start, null, true).current.params as { from: number; to: number };
+  expect(atMidnight.to).toBeGreaterThan(atMidnight.from);
+});
+
+test("a moved range keeps the last figures for the same period and repo, never another's", () => {
+  const first = holdInsights({ key: "" }, "7d", null, { data: summary(), loading: false }, { data: summary(9) });
+  expect(first.state.current?.rootTasksHandled).toBe(42);
+  // The anchor moved: the new range is loading, the last figures stay and nothing says loading.
+  const moved = holdInsights(first.held, "7d", null, { loading: true }, {});
+  expect(moved.state).toMatchObject({ loading: false, current: { rootTasksHandled: 42 }, today: { rootTasksHandled: 9 } });
+  expect(moved.state.error).toBeUndefined();
+  // Another repo or period starts empty, so its strip says it is loading instead of showing the wrong figures.
+  for (const [period, repo] of [["7d", "github.com/acme/api"], ["30d", null]] as const) {
+    const other = holdInsights(moved.held, period, repo, { loading: true }, {});
+    expect(other.state).toEqual({ supported: true, loading: true, error: undefined, current: undefined, today: undefined });
+  }
+  // A failed first read with nothing to hold shows the error.
+  expect(holdInsights({ key: "" }, "7d", null, { loading: false, error: new Error("x") }, {}).state.error).toBeInstanceOf(Error);
+});
