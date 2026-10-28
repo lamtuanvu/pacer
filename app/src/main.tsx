@@ -95,6 +95,8 @@ function App() {
       keys.register({ keys: ",", label: "Open Settings", scope: "global", run: go("#/settings") }),
       keys.register({ keys: "?", label: "Show keyboard shortcuts", scope: "global", run: () => setHelp(true) }),
       keys.register({ keys: "d", label: "Delegate a task", scope: "global", run: () => setDelegate(true) }),
+      // Screens with a "New task" button ask the shell to open the delegate dialog.
+      (() => { const open = () => setDelegate(true); window.addEventListener("pacer:delegate", open); return () => window.removeEventListener("pacer:delegate", open); })(),
       // Escape closes the settings panel only on settings screens; elsewhere it stays with the page.
       ...[...SETTINGS].map(scope => keys.register({ keys: "Escape", label: "Close the settings panel", scope, run: () => { location.hash = lastWork.current; } })),
     ];
