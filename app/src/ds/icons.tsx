@@ -1,4 +1,4 @@
-export type IconName = "home" | "tasks" | "executors" | "accounts" | "strategy" | "hosts" | "settings" | "menu" | "overview" | "review" | "sessions" | "terminal" | "sliders" | "gauge" | "servers" | "routing" | "layers" | "download" | "bell" | "palette" | "diagnostics" | "plus" | "pr" | "commit" | "files" | "checks" | "time" | "retry" | "notes" | "branch" | "panel-left" | "panel-right" | "split" | "external" | "end-session" | "insights" | "dispatch" | "plugin" | "send" | "spark";
+export type IconName = "home" | "tasks" | "executors" | "accounts" | "strategy" | "hosts" | "settings" | "menu" | "overview" | "review" | "sessions" | "terminal" | "sliders" | "gauge" | "servers" | "routing" | "layers" | "download" | "bell" | "palette" | "diagnostics" | "plus" | "pr" | "commit" | "files" | "checks" | "time" | "retry" | "notes" | "branch" | "panel-left" | "panel-bottom" | "panel-right" | "split" | "external" | "end-session" | "insights" | "dispatch" | "plugin" | "send" | "spark";
 export function Icon({ name }: { name: IconName }) {
   const paths: Partial<Record<IconName, string>> = {
     "send": "M12 19V5m-7 7 7-7 7 7",
@@ -12,6 +12,7 @@ export function Icon({ name }: { name: IconName }) {
     "notes": "M5 3h14v18H5zM8 7h8M8 11h8M8 15h5",
     "branch": "M6 7v10m0-16a3 3 0 1 0 0 6 3 3 0 0 0 0-6m0 16a3 3 0 1 0 0 6 3 3 0 0 0 0-6M9 17a9 9 0 0 0 9-9V7m0-6a3 3 0 1 0 0 6 3 3 0 0 0 0-6",
     "panel-left": "M3 4h18v16H3zM9 4v16",
+    "panel-bottom": "M3 4h18v16H3zM3 14h18",
     "panel-right": "M3 4h18v16H3zM15 4v16",
     "split": "M3 4h18v16H3zM12 4v16",
     "external": "M14 3h7v7m0-7L10 14M10 3H3v18h18v-7",
