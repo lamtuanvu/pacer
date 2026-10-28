@@ -155,7 +155,7 @@ test("planner budget and next task share one split section; the planner half is 
   expect(strip(plannerHalf(renderToString(<DispatchView snapshot={snap} query={{ repo: null, scope: null }} now={snap.at} runner={runner} shortWindowPct={4} />)))).toContain("· 5h window 4%");
   expect(view(null, { ...snap, planner: null })).not.toContain("planner-budget");
   // With no reading, the pill says so once; there is no empty meter repeating "usage unknown".
-  const unknown = plannerHalf(view(null, { ...snap, planner: { ...snap.planner!, usedPct: null, pacePct: null, verdict: "unknown" } }));
+  const unknown = plannerHalf(view(null, { ...snap, accounts: [], executors: [], planner: { ...snap.planner!, usedPct: null, pacePct: null, verdict: "unknown" } }));
   expect(unknown).not.toContain("pc-meter");
   expect(strip(unknown).match(/usage unknown/gi)).toHaveLength(1);
 });
@@ -435,3 +435,18 @@ test.skipIf(!process.env.PACER_TEST_BROWSER)("DispatchHome gates explain, aligns
     expect(errors).toEqual([]);
   } finally { await browser.close(); }
 }, 30000);
+
+
+test("planner half shows a missing planner reading's historical figure as stale once", () => {
+  const planner = { ...snap.planner!, runner: "codex#team", agent: "codex", usedPct: null, stale: true, advice: "No usage reading for the planner yet." };
+  const historical = { ...snap, planner, accounts: [{ ...snap.accounts![0]!, executors: [planner.runner], usedPct: 28, window: "5h", stale: true, capturedAt: null }],
+    executors: [{ ...snap.executors![0]!, id: planner.runner, usedPct: 28, stale: true }] };
+  const html = plannerHalf(renderToString(<DispatchView snapshot={historical} query={{ repo: null, scope: null }} now={snap.at} runner={runner} shortWindowPct={99} />));
+  expect(html).toContain("Usage reading is out of date.");
+  expect(html).toContain("pc-meter--stale");
+  expect(html).toContain('aria-valuenow="28"');
+  expect(html).toContain("Historical reading · 28% of the 5h window used · reading time unknown");
+  expect(html).not.toContain("No usage reading");
+  expect(html).not.toContain("5h window 99%");
+  expect(html).not.toContain("as of");
+});

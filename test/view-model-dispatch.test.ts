@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import fixture from "./fixtures/ui/snapshot.json";
-import { explainRepo, nextFromExplanation, queueReason, kpiTiles, plannerCaption, needsYouCards, periodHeading, periodRange, tokenSpread, type InsightsSummary, type RouteExplanationView } from "../src/view-model/dispatch";
+import { explainRepo, explanationApplies, nextFromExplanation, queueReason, kpiTiles, plannerBudget, plannerCaption, needsYouCards, periodHeading, periodRange, tokenSpread, type InsightsSummary, type RouteExplanationView } from "../src/view-model/dispatch";
 import type { ClientSnapshot } from "../src/view-model/snapshot";
 
 import { clock } from "../src/view-model/time";
@@ -173,4 +173,54 @@ test("a paused dispatcher outranks a busy executor as the reason work waits", ()
     fallbacks: [{ runner: "codex", state: "excluded" as const, reason: { code: "executor_busy", facts: {} } }],
     reasons: [{ outcome: "fail" as const, code: "paused", facts: {} }] };
   expect(queueReason(e, 1_800_000_000)).toBe("Dispatch is paused.");
+});
+
+test("the ladder explanation applies only when the strategy has its own dispatch block", () => {
+  const e = { outcome: "queue" as const, engine: { id: "ladder" }, chosen: null, step: null, fallbacks: [], reasons: [] };
+  // A built-in dispatch config means delegated tasks are not managed work and are ranked as routing.route ranks them.
+  expect(explanationApplies({ ...e, strategy: { name: "default", source: "built-in" } })).toBe(false);
+  expect(explanationApplies({ ...e, strategy: { name: "default", source: "strategy" } })).toBe(true);
+  expect(explanationApplies({ ...e, strategy: { name: "team", source: "project" } })).toBe(true);
+});
+
+
+test("planner budget keeps the live advice, meter and measured captions", () => {
+  const snapshot = fixture as unknown as ClientSnapshot;
+  const planner = { ...snapshot.planner!, usedPct: 16, pacePct: 38, window: "weekly", stale: false };
+  const budget = plannerBudget({ ...snapshot, planner }, now, 4)!;
+  expect(budget.lead).toBe(planner.advice);
+  expect(budget.meter).toEqual({ used: 16, pace: 38, stale: false, label: "Claude Code weekly usage" });
+  expect(budget.caption).toBe(plannerCaption(planner, now, 4));
+  expect(budget.caption).toContain("5h window 4%");
+});
+
+test("planner budget identifies historical readings and their actual capture age", () => {
+  const snapshot = fixture as unknown as ClientSnapshot;
+  const planner = { ...snapshot.planner!, usedPct: null, stale: true, advice: "No usage reading for the planner yet." };
+  for (const capturedAt of [null, now - 10800]) {
+    const account = { ...snapshot.accounts![0]!, executors: [planner.runner], usedPct: 28, window: "5h", stale: true, capturedAt };
+    const historical = { ...snapshot, planner, accounts: [account], executors: [{ ...snapshot.executors![0]!, id: planner.runner, usedPct: 28, stale: true }] };
+    const budget = plannerBudget(historical, now, 99)!;
+    expect(budget.lead).toBe("Usage reading is out of date.");
+    expect(budget.meter).toEqual({ used: 28, pace: null, stale: true, label: "Claude Code 5h usage" });
+    expect(budget.caption).toBe(`Historical reading · 28% of the 5h window used · ${capturedAt === null ? "reading time unknown" : "read 3h ago"}`);
+    expect(budget.caption).not.toContain("5h window 99%");
+    expect(budget.caption).not.toMatch(/5h window \d+%/);
+    // The fallback remains historical even if the planner merely lacks a reading, without its stale flag.
+    expect(plannerBudget({ ...historical, planner: { ...planner, stale: false } }, now, 99)).toEqual(budget);
+    expect(plannerBudget({ ...historical, executors: [] }, now, 99)).toEqual(budget);
+  }
+  const executorOnly = plannerBudget({ ...snapshot, planner, accounts: [], executors: [{ ...snapshot.executors![0]!, id: planner.runner, usedPct: 28 }] }, now, 99)!;
+  expect(executorOnly.meter).toMatchObject({ used: 28, stale: true, pace: null });
+  expect(executorOnly.caption).toBe("Historical reading · 28% of the budget used · reading time unknown");
+  const stalePlanner = plannerBudget({ ...snapshot, planner: { ...planner, usedPct: 16, window: "weekly" }, accounts: [], executors: [] }, now, 99)!;
+  expect(stalePlanner.meter).toMatchObject({ used: 16, stale: true, pace: null });
+  expect(stalePlanner.caption).not.toContain("5h window");
+});
+
+test("planner budget without any figure keeps the no-reading lead and omits the caption", () => {
+  const snapshot = fixture as unknown as ClientSnapshot;
+  const planner = { ...snapshot.planner!, usedPct: null, stale: true, advice: "No usage reading for the planner yet." };
+  expect(plannerBudget({ ...snapshot, planner, accounts: [], executors: [] }, now, 28)).toEqual({ lead: planner.advice, caption: "" });
+  expect(plannerBudget({ ...snapshot, planner: null }, now)).toBeNull();
 });

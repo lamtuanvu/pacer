@@ -99,3 +99,18 @@ test("shortcut registry notifies the status bar when screens mount and unmount",
   stopListening();
   expect(updates).toBe(2);
 });
+
+
+test("Dispatch keeps the planner mark without a figure when its main reading is missing", () => {
+  const historical = { ...snapshot, planner: { ...snapshot.planner!, runner: "codex#team", agent: "codex", usedPct: null, stale: true },
+    executors: [{ ...snapshot.executors![0]!, id: "codex#team", account: "team", usedPct: 28, stale: true }] };
+  const html = renderToString(<StatusBar route={route("dispatch")} snapshot={historical} registry={registry} />);
+  const usage = html.match(/<button[^>]*aria-label="Usage details[^"]*"[^>]*>.*?<\/button>/)?.[0] ?? "";
+  expect(usage).toContain("pc-agent-mark");
+  expect(usage).toContain("Codex planner, shown in Planner budget");
+  expect(usage).not.toContain("28%");
+  expect(usage).not.toContain("pc-meter");
+  const elsewhere = renderToString(<StatusBar route={route("review")} snapshot={historical} registry={registry} />);
+  expect(elsewhere).toContain("Codex · team 28% historical usage");
+  expect(elsewhere).toContain("pc-meter--mini");
+});

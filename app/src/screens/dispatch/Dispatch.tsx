@@ -2,7 +2,7 @@ import type { ComponentChildren } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { AttentionItem } from "../../../../src/api/read-model/types";
 import { agentInfo, markAgent } from "../../../../src/view-model/agents";
-import { explainRepo, kpiTiles, needsYouCards, nextFromExplanation, queueReason, periodHeading, periodRange, PERIODS, plannerCaption, plannerPace, tokenSpread, type InsightsSummary, type KpiTile, type NeedsYouCard, type Period, type RouteExplanationView } from "../../../../src/view-model/dispatch";
+import { explainRepo, explanationApplies, kpiTiles, needsYouCards, nextFromExplanation, queueReason, periodHeading, periodRange, PERIODS, plannerBudget, plannerPace, tokenSpread, type InsightsSummary, type KpiTile, type NeedsYouCard, type Period, type RouteExplanationView } from "../../../../src/view-model/dispatch";
 import { executorPace } from "../../../../src/view-model/capacity";
 import { eligibilityPresentation } from "../../../../src/view-model/eligibility";
 import { capacity, counts, needsYou, otherReposNeedingYou, plannerMeter, type Scope } from "../../../../src/view-model/selectors";
@@ -130,12 +130,12 @@ export interface RoutingPreview { data?: Routing; loading: boolean; error?: unkn
 function PlannerHalf({ snapshot, now, shortWindowPct }: { snapshot: ClientSnapshot; now: number; shortWindowPct?: number | null }) {
   const p = plannerMeter(snapshot);
   if (!p) return null;
-  const name = agentInfo(p.agent).name, pace = paceStatus(p.verdict), words = plannerPace(p.verdict), caption = plannerCaption(p, now, shortWindowPct);
+  const name = agentInfo(p.agent).name, pace = paceStatus(p.verdict), words = plannerPace(p.verdict), budget = plannerBudget(snapshot, now, shortWindowPct)!;
   return <div className="pc-dispatch-split__half" id="planner-budget" aria-label="Planner budget" role="group">
     <div className="pc-dispatch-who"><AgentMark agent={p.agent} size={20} labelled={false} /><strong title={name}>{name}</strong><Pill tone="info">Planner</Pill><StatusPill status={{ ...pace, label: words.label }} /></div>
-    {p.advice && <p className="pc-dispatch-advice">{p.advice}</p>}
-    {p.usedPct !== null && <UsageMeter used={p.usedPct} pace={p.pacePct} tone={pace.tone} verdict={p.verdict} size="bar" label={`${name} ${p.window ? `${p.window} ` : ""}usage`} stale={p.stale} staleAt={snapshot.at} now={now} />}
-    {caption && <span className="muted">{caption}</span>}
+    {budget.lead && <p className="pc-dispatch-advice">{budget.lead}</p>}
+    {budget.meter && <UsageMeter {...budget.meter} tone={budget.meter.stale ? "neutral" : pace.tone} verdict={budget.meter.stale ? undefined : p.verdict} size="bar" now={now} />}
+    {budget.caption && <span className="muted">{budget.caption}</span>}
   </div>;
 }
 
@@ -380,7 +380,7 @@ export function DispatchHome({ query }: { query: RouteQuery }) {
   const accounts = useQuery<Account[]>(state.features.ops.has("account.list") ? "account.list" : "version.get", {});
   const insights = useInsights(period, scope.repo);
   if (!state.snapshot) return null;
-  return <DispatchView snapshot={state.snapshot} query={query} now={Date.now() / 1000} runner={runner} routing={supported ? { ...routing, ...(canExplain && explain.data && !explain.error ? { explain: explain.data } : {}) } : null}
+  return <DispatchView snapshot={state.snapshot} query={query} now={Date.now() / 1000} runner={runner} routing={supported ? { ...routing, ...(canExplain && explain.data && !explain.error && explanationApplies(explain.data) ? { explain: explain.data } : {}) } : null}
     period={period} onPeriod={setPeriod} insights={insights} connected={state.connected}
     shortWindowPct={Array.isArray(accounts.data) ? plannerShortWindow(accounts.data, state.snapshot.planner?.runner) : null} startWork={<StartWork />} />;
 }

@@ -1,11 +1,11 @@
 /** Descriptors for the Dispatch home: Needs you cards, the at-a-glance strip and the token spread. Facts pacer lacks are left out, never shown as zero. */
 import type { AttentionItem } from "../attention/types";
 import type { ClientSnapshot } from "./snapshot";
-import { markAgent } from "./agents";
+import { agentInfo, markAgent } from "./agents";
 import { attentionOrder, needsYou, type Scope } from "./selectors";
 import { compactCount, scopedTaskTree, type TaskAttention, type TaskNodeView } from "./task-tree";
 import { attentionStatus, executorLabel, paceStatus } from "./words";
-import { clock } from "./time";
+import { ago, clock } from "./time";
 import { knownRouteReason, routeReasonCopy, type RouteReason } from "./route-explanation";
 
 export type NeedsYouCard =
@@ -169,16 +169,46 @@ export function plannerCaption(meter: { usedPct: number | null; pacePct: number 
   ].filter(Boolean).join(" · ");
 }
 
+/** One planner budget statement; historical figures never borrow a live short-window caption or pace. */
+export function plannerBudget(snapshot: ClientSnapshot, now: number, shortWindowPct?: number | null): {
+  lead: string; meter?: { used: number; pace: number | null; stale: boolean; label: string }; caption: string;
+} | null {
+  const p = snapshot.planner;
+  if (!p) return null;
+  const name = agentInfo(p.agent).name;
+  if (p.usedPct !== null && !p.stale) return {
+    lead: p.advice,
+    meter: { used: p.usedPct, pace: p.pacePct, stale: false, label: `${name} ${p.window ? `${p.window} ` : ""}usage` },
+    caption: plannerCaption(p, now, shortWindowPct),
+  };
+  const account = snapshot.accounts?.find(a => a.executors.includes(p.runner));
+  const executor = snapshot.executors?.find(e => e.id === p.runner);
+  const used = p.usedPct ?? account?.usedPct ?? executor?.usedPct;
+  if (used == null) return { lead: p.advice, caption: "" };
+  const window = p.usedPct !== null ? p.window : account?.usedPct != null ? account.window : null;
+  const capturedAt = account?.capturedAt;
+  return {
+    lead: "Usage reading is out of date.",
+    meter: { used, pace: null, stale: true, label: `${name} ${window ? `${window} ` : ""}usage` },
+    caption: `Historical reading · ${plannerCaption({ usedPct: used, pacePct: null, window, resetsAt: null }, now)} · ${capturedAt == null ? "reading time unknown" : `read ${ago(capturedAt, now)}`}`,
+  };
+}
+
 /** The parts of a `dispatch.explain` answer the Next task half uses. */
 export interface RouteExplanationView {
   outcome: "select" | "queue" | "fail" | "override";
-  strategy: { name: string };
+  strategy: { name: string; source?: "project" | "strategy" | "built-in" };
   engine: { id: string };
   chosen: { runner: string } | null;
   step: { id: string; index: number } | null;
   fallbacks: { runner: string; state: "eligible" | "excluded"; reason?: RouteReason }[];
   reasons: (RouteReason & { outcome: "pass" | "fail" | "info" })[];
 }
+/**
+ * Whether the explanation describes what delegating would do. Without a dispatch block in the strategy, delegated
+ * tasks are not managed work: the runner ranks executors as `routing.route` does, not by the ladder the explanation runs.
+ */
+export const explanationApplies = (e: RouteExplanationView): boolean => e.strategy.source !== "built-in";
 /** The repository a "where would new work go" explanation is asked for: the active one, or the only one registered. */
 export function explainRepo(scopeRepo: string | null, repos: { key: string }[] | undefined): string | null {
   return scopeRepo ?? (repos?.length === 1 ? repos[0]!.key : null);
