@@ -50,15 +50,17 @@ export function CommandMenu({ label, placeholder, query, onQueryChange, prefix, 
   const dialog = useRef<HTMLDialogElement>(null), input = useRef<HTMLInputElement>(null), list = useRef<HTMLDivElement>(null);
   const options = groups.flatMap(group => group.options);
   const signature = options.map(option => option.id).join("\n");
-  const [active, setActive] = useState(0);
+  // The position lives in a ref and is settled during render: keys can arrive faster than Preact re-renders, and a new
+  // query must reset it before any later key acts on it. Results that change under the same query keep the highlighted option.
+  const [, rerender] = useState(0), activeRef = useRef(0), seen = useRef({ query, signature, id: undefined as string | undefined });
+  const setActive = (next: number) => { activeRef.current = next; rerender(n => n + 1); };
+  if (seen.current.query !== query || seen.current.signature !== signature) {
+    const kept = seen.current.query === query && seen.current.id !== undefined ? options.findIndex(option => option.id === seen.current.id) : -1;
+    activeRef.current = kept >= 0 ? kept : 0;
+  }
+  const active = activeRef.current;
+  seen.current = { query, signature, id: options[active]?.id };
   const optionId = (index: number) => `${uid}-option-${index}`;
-  // New results start at the top, unless the highlighted option is still in them (a live update keeps the user's place).
-  const activeKey = useRef<string | undefined>(undefined);
-  useEffect(() => {
-    const kept = activeKey.current === undefined ? -1 : options.findIndex(option => option.id === activeKey.current);
-    setActive(kept >= 0 ? kept : 0);
-  }, [signature]);
-  activeKey.current = options[active]?.id;
   useLayoutEffect(() => {
     const element = dialog.current!;
     const invoking = element.ownerDocument.activeElement as HTMLElement | null;
@@ -75,10 +77,10 @@ export function CommandMenu({ label, placeholder, query, onQueryChange, prefix, 
     const key = event.key;
     // Enter that confirms an IME candidate (Telex, Pinyin) belongs to the composition, not to the menu.
     if (event.isComposing || event.keyCode === 229) return;
-    if (key === "ArrowDown" || key === "ArrowUp") setActive(options.length ? (active + (key === "ArrowDown" ? 1 : -1) + options.length) % options.length : 0);
+    if (key === "ArrowDown" || key === "ArrowUp") setActive(options.length ? (activeRef.current + (key === "ArrowDown" ? 1 : -1) + options.length) % options.length : 0);
     else if (key === "Home") setActive(0);
     else if (key === "End") setActive(Math.max(0, options.length - 1));
-    else if (key === "Enter") { const option = options[active]; if (!option) return; onPick(option.id); }
+    else if (key === "Enter") { const option = options[activeRef.current]; if (!option) return; onPick(option.id); }
     else if (key === "Tab" && scopes?.length && onScope) {
       const at = Math.max(0, scopes.findIndex(item => item.id === scope));
       onScope(scopes[(at + (event.shiftKey ? -1 : 1) + scopes.length) % scopes.length]!.id);

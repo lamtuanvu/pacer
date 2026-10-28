@@ -37,9 +37,15 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
   const [palette, setPalette] = useState(false);
   // The menu is its own chunk; it loads once the shell is up, so opening it is instant but it stays out of app.js.
   const [Palette, setLoaded] = useState<typeof import("./CommandPalette").CommandPalette | null>(null);
-  const [loadAttempt, setLoadAttempt] = useState(0);
-  // A failed chunk load is retried the next time the menu is asked for, so it never stays dead.
-  useEffect(() => { void import("./CommandPalette").then(module => setLoaded(() => module.CommandPalette), () => {}); }, [loadAttempt]);
+  const [loadAttempt, setLoadAttempt] = useState(0), wantOpen = useRef(false);
+  // A failed chunk load is retried the next time the menu is asked for, and that request opens it once the chunk arrives.
+  useEffect(() => {
+    void import("./CommandPalette").then(module => {
+      setLoaded(() => module.CommandPalette);
+      if (wantOpen.current) { wantOpen.current = false; setPalette(true); }
+    }, () => { wantOpen.current = false; });
+  }, [loadAttempt]);
+  const togglePalette = () => { if (Palette) setPalette(open => !open); else { wantOpen.current = true; setLoadAttempt(n => n + 1); } };
   const showStatusBar = !narrow && route.name !== "setup";
   // Side panels and the dock show only from 768px, so their shortcuts never toggle something hidden.
   const wide = useMedia(PANEL_MEDIA, true);
@@ -59,8 +65,8 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
   const searchable = route.name !== "setup" && route.name !== "loading";
   useEffect(() => {
     if (!searchable) return;
-    return commands.register({ id: "search.open", title: "Search", group: "Go to", keys: "Mod-k", hidden: true, run: () => { setPalette(open => !open); setLoadAttempt(n => n + 1); } });
-  }, [searchable]);
+    return commands.register({ id: "search.open", title: "Search", group: "Go to", keys: "Mod-k", hidden: true, run: togglePalette });
+  }, [searchable, Palette]);
   const firstRun = useRef(true);
   useEffect(() => {
     if (firstRun.current) { firstRun.current = false; return; }
@@ -71,7 +77,7 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
   const counts = state.snapshot ? snapshotCounts(state.snapshot) : null;
   const loading = route.name === "loading" || !state.snapshot;
   const outdated = !loading && NEEDS_READ_MODEL.has(route.name) && !state.features.readModel;
-  const topBar = <TopBar narrow={narrow} title={title} planner={state.snapshot?.planner ?? null} mode={state.snapshot?.mode?.mode ?? ""} connected={state.connected} lastUpdate={state.snapshot?.at ?? null} onDelegate={onDelegate} onSearch={searchable ? () => { setPalette(true); setLoadAttempt(n => n + 1); } : undefined} delegatePrimary={!["review", "start", "sessions"].includes(route.name)} showActions={route.name !== "setup"} />;
+  const topBar = <TopBar narrow={narrow} title={title} planner={state.snapshot?.planner ?? null} mode={state.snapshot?.mode?.mode ?? ""} connected={state.connected} lastUpdate={state.snapshot?.at ?? null} onDelegate={onDelegate} onSearch={searchable ? togglePalette : undefined} delegatePrimary={!["review", "start", "sessions"].includes(route.name)} showActions={route.name !== "setup"} />;
   const settings = SETTINGS.has(route.name) && (hasLeft
     ? <SidePanel side="left" label="Settings" open={leftOpen} onToggle={setLeftOpen}><Panel route={route} counts={counts} snapshot={state.snapshot} embedded /></SidePanel>
     : <Panel route={route} counts={counts} snapshot={state.snapshot} />);

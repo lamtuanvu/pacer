@@ -112,6 +112,8 @@ const groupBy = (items: MenuItem[], title: (item: MenuItem) => string, limit = P
 
 export interface MenuResult {
   mode: MenuMode; groups: MenuGroup[]; counts: Record<MenuScope, number>; empty: boolean;
+  /** The scope actually shown: the chosen one, or All when the chosen one has no matches. */
+  scope: MenuScope;
   /** Footer wording for Enter. */
   enterHint: string;
 }
@@ -121,11 +123,11 @@ export function buildMenu({ query, scope, snapshot, commands, recent, now }: Men
   const { mode, text } = parseQuery(query);
   const everything = [...snapshotItems(snapshot, now), ...commandItems(commands)];
   const zero = { all: 0, tasks: 0, machines: 0, repos: 0, commands: 0 };
-  if (mode === "ask") return { mode, groups: [], counts: zero, empty: false, enterHint: "ask" };
+  if (mode === "ask") return { mode, groups: [], counts: zero, empty: false, scope: "all", enterHint: "ask" };
   if (mode === "commands") {
     const matched = rankAndMark(commandItems(commands), text);
     const groups = groupBy(matched, item => item.command!.group, matched.length);
-    return { mode, groups, counts: { ...zero, all: matched.length, commands: matched.length }, empty: !matched.length, enterHint: "run" };
+    return { mode, groups, counts: { ...zero, all: matched.length, commands: matched.length }, empty: !matched.length, scope: "all", enterHint: "run" };
   }
   if (mode === "recent") {
     const byId = new Map(everything.map(item => [item.id, item]));
@@ -133,7 +135,7 @@ export function buildMenu({ query, scope, snapshot, commands, recent, now }: Men
     const latest = picked.length ? [] : (snapshot?.tasks ?? []).filter(task => !task.archived).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 3).flatMap(task => byId.get(`task:${task.id}`) ?? []);
     const recentItems = picked.length ? picked : latest, listed = new Set(recentItems.map(item => item.id));
     const groups: MenuGroup[] = [...(recentItems.length ? [{ title: "Recent", items: recentItems }] : []), ...groupBy(commandItems(commands).filter(item => !listed.has(item.id)), item => item.command!.group).sort(byCommandGroup)];
-    return { mode, groups, counts: zero, empty: false, enterHint: "open" };
+    return { mode, groups, counts: zero, empty: false, scope: "all", enterHint: "open" };
   }
   const matched = rankAndMark(everything, text);
   const counts = { ...zero, all: matched.length };
@@ -145,11 +147,11 @@ export function buildMenu({ query, scope, snapshot, commands, recent, now }: Men
   const groups = groupBy(shown, item => GROUP_TITLES[item.scope], only === "all" ? PER_GROUP : shown.length);
   const order = Object.values(GROUP_TITLES);
   groups.sort((a, b) => order.indexOf(a.title) - order.indexOf(b.title));
-  if (shown.length) return { mode, groups, counts, empty: false, enterHint: "open" };
+  if (shown.length) return { mode, groups, counts, empty: false, scope: only, enterHint: "open" };
   const start = commands.find(command => command.id === "task.new");
   const instead: MenuItem[] = [
     ...(start ? [{ ...commandItems([start])[0]!, title: "New task", sub: `Describe “${text}” and pacer routes it` }] : []),
     { id: "action:tasks", scope: "tasks" as const, title: "Browse all tasks", icon: "tasks" as const, target: routes.tasks() },
   ];
-  return { mode, groups: [{ title: "Instead", items: instead }], counts, empty: true, enterHint: "open" };
+  return { mode, groups: [{ title: "Instead", items: instead }], counts, empty: true, scope: "all", enterHint: "open" };
 }

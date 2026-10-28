@@ -50,7 +50,7 @@ export function CommandPalette({ snapshot, registry = commandRegistry, now: fixe
   const searching = menu.mode === "search";
   return <CommandMenu label="Search tasks, machines, repos or run a command" placeholder="Search tasks, machines, repos or type > for commands"
     query={query} onQueryChange={setQuery} prefix={menu.mode === "commands" ? "Commands" : menu.mode === "ask" ? "Ask" : undefined}
-    scopes={searching ? SCOPES.map(item => ({ ...item, count: menu.counts[item.id] })) : undefined} scope={scope} onScope={id => setScope(id as MenuScope)}
+    scopes={searching ? SCOPES.map(item => ({ ...item, count: menu.counts[item.id] })) : undefined} scope={menu.scope} onScope={id => setScope(id as MenuScope)}
     groups={groups} empty={menu.empty ? { title: `Nothing matches “${parseQuery(query).text}”`, description: "Try fewer words, another scope, or turn it into work:" } : undefined}
     enterHint={menu.enterHint} hints={<span className="pc-command__hint"><Kbd>&gt;</Kbd> commands{ASK_ENABLED && <> · <Kbd>?</Kbd> ask assistant</>}</span>}
     onPick={pick} onClose={close} />;

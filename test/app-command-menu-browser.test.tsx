@@ -134,6 +134,7 @@ browserTest("tab_cycles_scopes_and_empty_state_offers_new_task", () => withPage(
   await expect(pressed()).resolves.toMatch(/^Machines/);
   await input.fill("keepalive");
   expect(await labels(page)).toEqual(["Add SSH keepalive to remote runs"]);
+  await expect(pressed()).resolves.toMatch(/^All/);
   // Nothing matches: say so, offer New task, and let Enter run it.
   await input.fill("xyzzy plugin");
   await expect(page.getByRole("status").filter({ hasText: "Nothing matches" }).textContent()).resolves.toContain("xyzzy plugin");
@@ -186,4 +187,21 @@ browserTest("shift_ctrl_k_and_clicks", () => withPage(async (page, built) => {
   await page.getByRole("combobox").fill("devbox");
   await page.getByRole("option", { name: /devbox/ }).first().click();
   await expect(page.getByRole("combobox").count()).resolves.toBe(0);
+}));
+
+browserTest("a new query puts the highlight back on the first result", () => withPage(async (page, built) => {
+  await open(page, built, "#/overview");
+  await page.keyboard.press("Control+k");
+  const input = page.getByRole("combobox");
+  await input.fill("a");
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowDown");
+  expect((await activeOption(page)).label).toBe((await labels(page))[2]);
+  await input.fill("ab");
+  await page.waitForTimeout(150);
+  const after = await labels(page);
+  if (after.length) expect((await activeOption(page)).label).toBe(after[0]);
+  await input.fill("fix");
+  await page.waitForTimeout(150);
+  expect((await activeOption(page)).label).toBe((await labels(page))[0]);
 }));
