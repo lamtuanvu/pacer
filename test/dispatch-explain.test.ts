@@ -109,7 +109,8 @@ test("kind: given, detected and unknown; unknown kind and executor are errors", 
 
 test("revision is stable over the same facts and changes with them", async () => {
   const { ctx, deps } = setup({ "claude-code": 10, codex: 20, cursor: 30 });
-  const a = await explainDispatch(ctx, input(), deps), b = await explainDispatch(ctx, input(), deps);
+  const a = await explainDispatch(ctx, input(), deps), b = await explainDispatch(ctx, input(), deps), later = await explainDispatch({ ...ctx, now: ctx.now + 5 }, input(), deps);
+  expect(later.revision).toBe(a.revision);
   expect(a.revision).toBe(b.revision);
   const other = setup({ "claude-code": 10, codex: 60, cursor: 30 });
   expect((await explainDispatch(other.ctx, input(), other.deps)).revision).not.toBe(a.revision);

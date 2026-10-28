@@ -128,6 +128,8 @@ function build(ctx: Ctx, strategy: Strategy, p: z.output<typeof explainInputSche
     else {
       const why = excludedByRunner.get(requested);
       if (why && (why.code === "blocked_by_user" || why.code === "quota_exhausted")) { reasons.push(why); top = null; outcome = "fail"; refused = true; }
+      // A full slot makes the runner queue the task for that executor rather than fall back.
+      else if (why && (why.code === "executor_busy" || why.code === "machine_busy")) { reasons.push(why); top = null; outcome = "queue"; refused = true; }
       else reasons.push(reason("override_unavailable", "fail", { requested, reason: why?.code ?? "not_ranked" }, requested), ...(why ? [why] : []));
     }
   }
@@ -180,8 +182,13 @@ function build(ctx: Ctx, strategy: Strategy, p: z.output<typeof explainInputSche
   const planner: RouteExplanation["planner"] = { state: "unknown", reason: chosen?.account === plannerAccount ? "planner_is_executor" : "planner_not_measured", window };
 
   const observed = preview.request.observations.filter(o => o.state === "known").map(o => o.observedAt);
-  const stripped = preview.request.observations.map(o => o.state === "known" ? o : { ...o, observedAt: 0, expiresAt: 0 });
-  const revision = decisionHash({ task: preview.request.task, candidates: preview.request.candidates, strategyHash: preview.request.strategyHash, observations: stripped,
+  // Time passing alone must not change the revision: drop the clock-derived fields (hoursLeft, burn) and the
+  // timestamps of observations that are not known.
+  const stripped = preview.request.observations.map(o => o.state === "known"
+    ? { ...o, value: o.value && { ...o.value, windows: o.value.windows?.map(({ hoursLeft: _h, ...w }) => w) }, observedAt: 0, expiresAt: 0 }
+    : { ...o, observedAt: 0, expiresAt: 0 });
+  const candidates = preview.request.candidates.map(({ burn: _b, ...c }) => c);
+  const revision = decisionHash({ task: preview.request.task, candidates, strategyHash: preview.request.strategyHash, observations: stripped,
     exclusions: ro.exclusions.map(e => [e.runner, e.reason.code, e.reason.facts]), paused: pause?.until ?? null, requested });
   const source = draft ? "strategy" : strategy.dispatch ? "strategy" : "built-in";
   return {
