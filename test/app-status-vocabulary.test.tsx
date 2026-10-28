@@ -57,8 +57,8 @@ test('planner, footer and tray agree on a ready executor at 37 percent', () => {
   expect(html).toContain('Ahead of pace');
   const status = renderToString(<StatusBar route={{name:'overview',query:{repo:null,scope:null}}} snapshot={snapshot} registry={createKeyRegistry({controlActive:()=>false})} />);
   expect(status).toContain('37%');
-  expect(status).not.toContain('pc-meter'); // The footer is a compact trigger for the detailed panel.
-  expect(status.match(/class="pc-num">37%/g)).toHaveLength(1); // Planner and its executor share one reading.
+  expect(status).toContain('pc-meter--mini'); // The footer shows only the 28x4 mini meter; the full meter lives in the usage panel.
+  expect(status.match(/pc-statusbar__pct">37%/g)).toHaveLength(1); // Planner and its executor share one reading.
   const top = renderToString(<TopBar title="Overview" planner={snapshot.planner} mode="normal" connected lastUpdate={snapshot.at} now={snapshot.at} onDelegate={()=>{}} />);
   expect(top).not.toContain('pc-meter');
   const tray = renderToString(<Tray snapshot={snapshot} api={createApi()} ipc={createTrayIpc({location:{assign(){}}})} />);

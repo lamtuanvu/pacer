@@ -49,8 +49,8 @@ test("bottom bar keeps all four icons, badges and scope on every destination", (
     expect(html).toContain('class="pc-bottom-bar"');
     expect(html).not.toContain('class="pc-rail"');
     expect(html).toContain('aria-label="Overview"');
-    expect(html).toContain('aria-label="Needs you · 4 need you"');
-    expect(html).toContain('aria-label="Tasks · 2 running"');
+    expect(html).toContain('aria-label="Needs you, 4 items"');
+    expect(html).toContain('aria-label="Tasks, 2 running"');
     expect(html).toContain(`href="#/settings?scope=repo%3Agithub.com%2Facme%2Fapi"`);
     expect(html).toContain("pc-planner");
     expect(html).toContain("63%·77");

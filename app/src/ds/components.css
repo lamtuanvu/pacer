@@ -23,6 +23,7 @@ a.pc-btn{text-decoration:none}
 .pc-usage__text{font-size:var(--type-caption-size);line-height:var(--type-caption-line);color:var(--ink-secondary);white-space:nowrap}
 .pc-meter{position:relative;display:block;flex:none;overflow:hidden;border-radius:var(--radius-full);background:var(--surface-lane)}
 .pc-meter--top{width:var(--size-80);height:var(--size-6)}
+.pc-meter--mini{width:var(--size-28);height:var(--size-4)}
 .pc-meter--bar{flex:1;height:var(--size-8)}
 .pc-meter--row{flex:1;height:var(--size-6)}
 .pc-meter--stale{opacity:.55}
@@ -215,7 +216,7 @@ a.pc-btn{text-decoration:none}
 .pc-switch:checked::before{transform:translateX(var(--switch-travel))}
 .pc-dialog{width:min(var(--dialog-width),calc(100% - var(--space-8)));max-height:90vh;overflow:auto;border:1px solid var(--line);border-radius:var(--radius-lg);padding:var(--space-5);background:var(--surface-page);color:var(--ink)}
 .pc-dialog::backdrop{background:var(--backdrop)}
-.pc-dialog-popover{position:fixed;inset:auto auto calc(var(--size-32) + var(--space-2)) var(--space-3);margin:0;width:min(var(--size-560),calc(100vw - var(--space-6)));max-height:min(70vh,var(--size-560));overflow:auto;padding:var(--space-3);border:1px solid var(--line);border-radius:var(--radius-lg);background:var(--surface-card);box-shadow:var(--shadow-popover);color:var(--ink);font-size:var(--type-body-size);line-height:var(--type-body-line)}
+.pc-dialog-popover{position:fixed;inset:auto auto calc(var(--size-28) + var(--space-2)) var(--space-3);margin:0;width:min(var(--size-560),calc(100vw - var(--space-6)));max-height:min(70vh,var(--size-560));overflow:auto;padding:var(--space-3);border:1px solid var(--line);border-radius:var(--radius-lg);background:var(--surface-card);box-shadow:var(--shadow-popover);color:var(--ink);font-size:var(--type-body-size);line-height:var(--type-body-line)}
 .pc-dialog-popover::backdrop{background:transparent}
 .pc-dialog__head{display:flex;justify-content:space-between;align-items:center;gap:var(--space-4);margin-bottom:var(--space-5)}
 .pc-text-row{display:flex;align-items:center;justify-content:space-between;gap:var(--space-4);min-height:var(--control-normal);padding:var(--space-2) 0;min-width:0}

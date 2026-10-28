@@ -31,8 +31,9 @@ test("mode chip always shows, in words, warn only when not normal, with the hold
   expect(held).toContain("Strict · held until");
 });
 
-test("live dot says when it last updated, and Reconnecting while down", () => {
-  expect(renderToString(<TopBar {...base} />)).toContain("updated 8s ago");
+test("the chip carries no freshness text; the bar says Reconnecting only while down", () => {
+  expect(renderToString(<TopBar {...base} />)).not.toContain("updated");
+  expect(renderToString(<TopBar {...base} />)).not.toContain("pc-live");
   const down = renderToString(<TopBar {...base} connected={false} />);
   expect(down).toContain("Reconnecting…");
   expect(down).toContain("pc-live-dot--off");
@@ -46,15 +47,10 @@ test("unknown and stale planners still show their name without duplicated usage"
   expect(renderToString(<TopBar {...base} planner={{ ...planner, stale: true }} />)).not.toContain("pc-meter");
 });
 
-test("Delegate is the one primary button, secondary when the screen owns the primary", () => {
+test("Delegate is a secondary button, so the screen keeps the one primary action", () => {
   const html = renderToString(<TopBar {...base} />);
-  expect(html.match(/pc-btn--primary/g)?.length).toBe(1);
-  expect(html).toContain(">Delegate<");
-  expect(renderToString(<TopBar {...base} delegatePrimary={false} />)).not.toContain("pc-btn--primary");
-});
-
-test("the top bar shows the current time", () => {
-  expect(renderToString(<TopBar {...base} />)).toMatch(/pc-clock[^>]*>\d{2}:\d{2}</);
+  expect(html).not.toContain("pc-btn--primary");
+  expect(html).toMatch(/pc-btn--secondary[^>]*>Delegate</);
 });
 
 test("setup leaves the step's page heading and actions to the setup flow", () => {
