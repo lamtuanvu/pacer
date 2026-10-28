@@ -105,15 +105,17 @@ pub fn parse_resolution(value: &Value) -> Result<Resolved, String> {
 }
 
 /// True when `path` is Pacer's private state: `home` (as given or canonical)
-/// or under it, except a task worktree (`<home>/worktrees/<repo>/<task>/...`).
+/// or under it, except a task worktree directory (`<home>/worktrees/<repo>/<task>/...`);
+/// a plain file directly under `worktrees/<repo>/` is not exempt.
 fn private_state(path: &Path, home: &Path) -> bool {
     let homes = [Some(home.to_path_buf()), std::fs::canonicalize(home).ok()];
     homes.iter().flatten().any(|home| {
         path.strip_prefix(home).is_ok_and(|rest| {
-            let mut parts = rest.components();
-            let worktree = parts.next().is_some_and(|c| c.as_os_str() == "worktrees")
-                && parts.next().is_some()
-                && parts.next().is_some();
+            let parts: Vec<_> = rest.components().collect();
+            let worktree = parts.len() >= 3
+                && parts[0].as_os_str() == "worktrees"
+                && (parts.len() > 3
+                    || std::fs::symlink_metadata(path).is_ok_and(|info| info.is_dir()));
             !worktree
         })
     })
@@ -133,12 +135,15 @@ pub fn check_root(root: &Path, home: &Path) -> Result<(), String> {
 
 /// The root check plus the same rule for the file: a root such as `$HOME` must
 /// not reach Pacer's private state through the path (`.pacer/secrets/...`).
-/// `verify` walks the components without following links, so the lexical join
-/// is the file it opens.
+/// The join is checked as typed and as canonicalized, since a case-insensitive
+/// or normalization-insensitive volume opens `.PACER/...` as `.pacer/...`.
+/// `verify` repeats the rule on the directories it actually opens.
 pub fn check_target(resolved: &Resolved, home: &Path) -> Result<(), String> {
     check_root(&resolved.root, home)?;
-    if private_state(&resolved.absolute, home) {
-        return Err("The session file cannot be opened from the desktop".into());
+    let refused = || "The session file cannot be opened from the desktop".to_string();
+    let real = std::fs::canonicalize(&resolved.absolute).map_err(|_| refused())?;
+    if private_state(&resolved.absolute, home) || private_state(&real, home) {
+        return Err(refused());
     }
     Ok(())
 }
@@ -160,12 +165,37 @@ fn open_fd(dir: Option<&OwnedFd>, name: &Path, flags: libc::c_int) -> Result<Own
     Ok(unsafe { OwnedFd::from_raw_fd(fd) })
 }
 
+fn identity(fd: &OwnedFd) -> Result<(u64, u64), String> {
+    let info = File::from(fd.try_clone().map_err(|_| "File unavailable")?)
+        .metadata()
+        .map_err(|_| "File unavailable")?;
+    Ok((info.dev(), info.ino()))
+}
+
 /// Re-walk from the root without following symlinks and require the resolved
-/// regular file.
-pub fn verify(resolved: &Resolved) -> Result<(), String> {
+/// regular file. Every directory opened is compared by `dev`/`ino` with
+/// `home` (as given and canonical), so a name the volume matches without
+/// regard to case or normalization cannot reach Pacer's private state; only a
+/// task worktree directory (`worktrees/<repo>/<task>/`) below it is allowed.
+pub fn verify(resolved: &Resolved, home: &Path) -> Result<(), String> {
+    let refused = || "The session file cannot be opened from the desktop".to_string();
+    let homes: Vec<(u64, u64)> = [Some(home.to_path_buf()), std::fs::canonicalize(home).ok()]
+        .iter()
+        .flatten()
+        .filter_map(|home| std::fs::metadata(home).ok())
+        .map(|info| (info.dev(), info.ino()))
+        .collect();
     let mut dir = open_fd(None, &resolved.root, libc::O_DIRECTORY)?;
+    // Some(depth): `dir` is PACER_HOME (0), its `worktrees` (1) or a `<repo>` (2).
+    let mut inside = homes.contains(&identity(&dir)?).then_some(0);
     for (index, name) in resolved.components.iter().enumerate() {
         let last = index + 1 == resolved.components.len();
+        if inside.is_some() && last {
+            return Err(refused());
+        }
+        if inside == Some(0) && name != "worktrees" {
+            return Err(refused());
+        }
         let flags = if last {
             libc::O_NONBLOCK
         } else {
@@ -179,6 +209,14 @@ pub fn verify(resolved: &Resolved) -> Result<(), String> {
             }
             return Ok(());
         }
+        inside = if homes.contains(&identity(&fd)?) {
+            Some(0)
+        } else {
+            match inside {
+                Some(depth) if depth < 2 => Some(depth + 1),
+                _ => None,
+            }
+        };
         dir = fd;
     }
     Err("File unavailable".into())
@@ -345,7 +383,7 @@ pub fn hand_off(resolution: &Value, action: Action, home: &Path) -> Result<(), S
         Action::Open => load_editor(home)?,
         Action::Reveal => None,
     };
-    verify(&resolved)?;
+    verify(&resolved, home)?;
     spawn(&argv(
         action,
         &resolved,
@@ -458,6 +496,11 @@ mod tests {
         json!({"root": root, "path": path, "absolute": root.join(path), "dev": info.dev(), "ino": info.ino(), "line": 12})
     }
 
+    /// A PACER_HOME that does not exist, for tests about the walk itself.
+    fn no_home(root: &Path) -> PathBuf {
+        root.join("no-pacer-home")
+    }
+
     fn workspace() -> (tempfile::TempDir, PathBuf) {
         let dir = tempfile::tempdir().unwrap();
         let root = std::fs::canonicalize(dir.path()).unwrap();
@@ -472,7 +515,7 @@ mod tests {
         let resolved = parse_resolution(&resolution(&root, "src/main.rs")).unwrap();
         assert_eq!(resolved.absolute, root.join("src/main.rs"));
         assert_eq!((resolved.line, resolved.column), (12, 1));
-        verify(&resolved).unwrap();
+        verify(&resolved, &no_home(&root)).unwrap();
     }
 
     #[test]
@@ -507,7 +550,7 @@ mod tests {
         std::fs::write(root.join("other"), "x").unwrap();
         std::fs::write(root.join("src/main.rs"), "replaced").unwrap();
         assert!(
-            verify(&resolved).is_err(),
+            verify(&resolved, &no_home(&root)).is_err(),
             "a replaced file kept its identity"
         );
 
@@ -517,13 +560,16 @@ mod tests {
         let mut linked = parse_resolution(&resolution(&root, "other")).unwrap();
         linked.components = vec!["link.txt".into()];
         (linked.dev, linked.ino) = (info.dev(), info.ino());
-        assert!(verify(&linked).is_err(), "a symlinked file was followed");
+        assert!(
+            verify(&linked, &no_home(&root)).is_err(),
+            "a symlinked file was followed"
+        );
 
         symlink(root.join("src"), root.join("dir-link")).unwrap();
         let mut through = parse_resolution(&resolution(&root, "src/main.rs")).unwrap();
         through.components = vec!["dir-link".into(), "main.rs".into()];
         assert!(
-            verify(&through).is_err(),
+            verify(&through, &no_home(&root)).is_err(),
             "a symlinked directory was followed"
         );
 
@@ -531,7 +577,10 @@ mod tests {
         directory.components = vec!["src".into()];
         let src = std::fs::metadata(root.join("src")).unwrap();
         (directory.dev, directory.ino) = (src.dev(), src.ino());
-        assert!(verify(&directory).is_err(), "a directory was accepted");
+        assert!(
+            verify(&directory, &no_home(&root)).is_err(),
+            "a directory was accepted"
+        );
     }
 
     #[test]
@@ -761,6 +810,95 @@ mod tests {
         let through_link =
             parse_resolution(&resolution(&base, "home-link/secrets/github.key")).unwrap();
         assert!(check_target(&through_link, &linked_home).is_err());
+    }
+
+    #[test]
+    fn open_in_editor_refuses_a_case_variant_of_private_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = std::fs::canonicalize(dir.path()).unwrap();
+        let home = base.join(".pacer");
+        std::fs::create_dir_all(home.join("secrets")).unwrap();
+        std::fs::write(home.join("secrets/github.key"), "secret").unwrap();
+        if std::fs::symlink_metadata(base.join(".PACER")).is_err() {
+            eprintln!(
+                "skipped: the temp volume is case-sensitive, so .PACER does not reach .pacer"
+            );
+            return;
+        }
+        let variant = parse_resolution(&resolution(&base, ".PACER/secrets/github.key")).unwrap();
+        assert!(
+            check_target(&variant, &home).is_err(),
+            "a case variant passed the path check"
+        );
+        assert!(
+            verify(&variant, &home).is_err(),
+            "a case variant passed the identity walk"
+        );
+        let worktree = home.join("worktrees/repo-0123abcd/t-20261028-120000-abcd");
+        std::fs::create_dir_all(&worktree).unwrap();
+        std::fs::write(worktree.join("README.md"), "ok").unwrap();
+        let allowed = parse_resolution(&resolution(
+            &base,
+            ".PACER/worktrees/repo-0123abcd/t-20261028-120000-abcd/README.md",
+        ))
+        .unwrap();
+        check_target(&allowed, &home).unwrap();
+        verify(&allowed, &home).unwrap();
+    }
+
+    #[test]
+    fn open_in_editor_walk_refuses_directories_that_are_pacer_home() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = std::fs::canonicalize(dir.path()).unwrap();
+        let home = base.join(".pacer");
+        let repo = home.join("worktrees/repo-0123abcd");
+        let worktree = repo.join("t-20261028-120000-abcd");
+        std::fs::create_dir_all(home.join("secrets")).unwrap();
+        std::fs::create_dir_all(worktree.join("src")).unwrap();
+        std::fs::write(home.join("secrets/github.key"), "secret").unwrap();
+        std::fs::write(home.join("worktrees/index.json"), "{}").unwrap();
+        std::fs::write(repo.join("meta.json"), "{}").unwrap();
+        std::fs::write(worktree.join("src/lib.rs"), "ok").unwrap();
+        std::fs::write(base.join("notes.md"), "ok").unwrap();
+        let linked_home = base.join("home-link");
+        symlink(&home, &linked_home).unwrap();
+
+        for home in [&home, &linked_home] {
+            for refused in [
+                ".pacer/secrets/github.key",
+                ".pacer/worktrees/index.json",
+                ".pacer/worktrees/repo-0123abcd/meta.json",
+            ] {
+                let resolved = parse_resolution(&resolution(&base, refused)).unwrap();
+                assert!(
+                    verify(&resolved, home).is_err(),
+                    "{refused} walked via {home:?}"
+                );
+            }
+            for allowed in [
+                ".pacer/worktrees/repo-0123abcd/t-20261028-120000-abcd/src/lib.rs",
+                "notes.md",
+            ] {
+                let resolved = parse_resolution(&resolution(&base, allowed)).unwrap();
+                verify(&resolved, home).unwrap();
+            }
+            let inside = parse_resolution(&resolution(&worktree, "src/lib.rs")).unwrap();
+            verify(&inside, home).unwrap();
+            // The walk compares identity, not names: a lexical check that
+            // missed the home still leaves the opened directory refused.
+            let mut renamed =
+                parse_resolution(&resolution(&base, ".pacer/secrets/github.key")).unwrap();
+            renamed.absolute = base.join("elsewhere/secrets/github.key");
+            assert!(verify(&renamed, home).is_err());
+        }
+
+        // A plain file directly under worktrees/<repo>/ is not exempt from the path check.
+        let meta = parse_resolution(&resolution(
+            &base,
+            ".pacer/worktrees/repo-0123abcd/meta.json",
+        ))
+        .unwrap();
+        assert!(check_target(&meta, &home).is_err());
     }
 
     #[test]
