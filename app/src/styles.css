@@ -145,7 +145,32 @@ html[data-pacer-native-titlebar] .pc-traffic__btn{display:none}
 /* Dispatch home, laid out as the canvas Dispatch board. */
 .pc-dispatch{display:flex;flex-direction:column;gap:var(--space-4)}
 .pc-dispatch__header{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-3)}
+.pc-dispatch--narrow .pc-dispatch-split__half+.pc-dispatch-split__half{border-left:0;border-top:1px solid var(--line)}
 .pc-dispatch__controls{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-3)}
+.pc-dispatch__title{display:flex;flex-direction:column;gap:var(--space-half);flex:1 1 auto;min-width:0}
+.pc-dispatch__title>h1{margin:0;font-size:var(--type-display-size);line-height:var(--type-display-line);font-weight:var(--type-display-weight)}
+.pc-dispatch__live{display:inline-flex;align-items:center;gap:var(--space-1\.5);font-size:var(--type-caption-size);line-height:var(--type-caption-line)}
+/* Planner budget and the next decision: one bordered section split in two halves, as on the board. */
+.pc-dispatch-split{display:flex;flex-wrap:wrap;border:1px solid var(--line);border-radius:var(--radius-lg);background:var(--surface-card);overflow:hidden}
+.pc-dispatch-split__half{flex:1 1 var(--size-340);min-width:0;display:flex;flex-direction:column;gap:var(--space-2\.5);padding:var(--space-5) var(--space-6)}
+.pc-dispatch-split__half+.pc-dispatch-split__half{border-left:1px solid var(--line)}
+.pc-dispatch-split__half--page{background:var(--surface-page)}
+.pc-dispatch-label{color:var(--ink-muted);font-size:var(--type-label-size);line-height:var(--type-label-line);font-weight:var(--type-body-strong-weight);letter-spacing:var(--type-label-tracking);text-transform:uppercase}
+.pc-dispatch-next{display:flex;align-items:center;gap:var(--space-2\.5);min-width:0}
+.pc-dispatch-next__who{display:flex;flex-direction:column;min-width:0}
+.pc-dispatch-next__who>strong{font-size:var(--type-headline-size);line-height:var(--type-headline-line)}
+.pc-dispatch-chain{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1\.5);min-width:0}
+.pc-dispatch-chain>ol{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1\.5);min-width:0;margin:0;padding:0;list-style:none}
+.pc-dispatch-chain li{display:inline-flex;align-items:center;gap:var(--space-1\.5)}
+.pc-dispatch-chain__sep{display:inline-flex;color:var(--ink-muted)}
+.pc-dispatch-chip--queue{color:var(--ink-muted)}
+.pc-dispatch-chip__tile{display:inline-flex;align-items:center;justify-content:center;width:var(--size-18);height:var(--size-18);border-radius:var(--radius-sm);background:var(--surface-lane);font-size:var(--type-label-size);font-weight:var(--type-body-strong-weight)}
+.pc-count--bad{background:var(--bad-fill);color:var(--ink-on-ink)}
+/* Compact Needs you cards: glyph, title, one caption line and one action. */
+.pc-attn-card{align-items:flex-start}
+.pc-attn-card__title{display:flex;min-width:0;font-weight:var(--type-body-strong-weight)}
+.pc-attn-card__title>.pc-text-action{min-width:0;color:inherit;font-weight:inherit}
+.pc-attn-card__caption{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--type-caption-size);line-height:var(--type-caption-line)}
 /* Two regions side by side that wrap to one column; each keeps its own height. */
 .pc-dispatch__pair{display:flex;flex-wrap:wrap;gap:var(--space-4);align-items:flex-start}
 .pc-dispatch__pair>*{flex:1 1 var(--size-340);min-width:0;max-width:100%}
@@ -264,7 +289,7 @@ html[data-pacer-native-titlebar] .pc-traffic__btn{display:none}
 .pc-app--narrow .pc-panel__item{flex:none;min-height:var(--size-44);white-space:nowrap}
 /* Narrow Dispatch stacks every region across the column; long titles stay within it. */
 .pc-dispatch>section{min-width:0;max-width:100%}
-.pc-dispatch--narrow>section[aria-labelledby]{align-self:stretch}
+.pc-dispatch--narrow>section{align-self:stretch}
 .pc-scope-toggle{flex-wrap:nowrap;gap:0}
 .pc-scope-toggle .pc-chip:first-child{border-radius:var(--radius-md) 0 0 var(--radius-md)}
 .pc-scope-toggle .pc-chip:last-child{border-radius:0 var(--radius-md) var(--radius-md) 0}
@@ -344,7 +369,7 @@ html[data-pacer-native-titlebar] .pc-traffic__btn{display:none}
 .pc-dispatch-card{min-width:0;border-radius:var(--radius-lg)}
 .pc-dispatch-card:focus-visible{outline:var(--stroke-focus) solid var(--focus);outline-offset:var(--stroke-focus)}
 .pc-dispatch-budget{display:flex;flex-direction:column;gap:var(--space-2);min-width:0}
-.pc-dispatch-who{display:flex;align-items:center;gap:var(--space-2);min-width:0}
+.pc-dispatch-who{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2);min-width:0}
 .pc-dispatch-who>strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pc-dispatch-advice{margin:0;font-size:var(--type-body-strong-size);line-height:var(--type-body-strong-line);font-weight:var(--type-body-strong-weight)}
 .pc-dispatch-then{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1\.5);min-width:0}
@@ -353,10 +378,18 @@ html[data-pacer-native-titlebar] .pc-traffic__btn{display:none}
 .pc-dispatch-agents{display:flex;flex-direction:column;min-width:0;margin:0;padding:0;list-style:none}
 .pc-dispatch-agents>li+li{border-top:1px solid var(--line)}
 .pc-dispatch-agent__name{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.pc-glance{display:grid;grid-template-columns:repeat(auto-fit,minmax(var(--size-120),1fr));gap:var(--space-3);margin:0;padding:var(--space-3)}
-.pc-glance__tile{display:flex;flex-direction:column;gap:var(--space-half);min-width:0}
-.pc-glance__tile>dd{margin:0;font-variant-numeric:tabular-nums}
-.pc-glance__label{color:var(--ink-muted);font-size:var(--type-label-size);line-height:var(--type-label-line);font-weight:var(--type-body-strong-weight)}
+/* The at-a-glance strip: four tiles in one bordered row, named by aria-label (no visible heading). */
+.pc-glance-strip{border:1px solid var(--line);border-radius:var(--radius-lg);overflow:hidden}
+.pc-glance-strip__state{margin:0;padding:var(--space-4) var(--space-5)}
+.pc-glance{display:grid;grid-template-columns:repeat(auto-fit,minmax(var(--size-200),1fr));gap:var(--size-1);margin:0;background:var(--line)}
+.pc-glance__tile{display:flex;gap:var(--space-3);align-items:flex-start;min-width:0;padding:var(--space-4) var(--space-5);background:var(--surface-page)}
+.pc-glance__body{display:flex;flex-direction:column;gap:var(--space-half);min-width:0}
+.pc-glance__body>dd{margin:0;font-variant-numeric:tabular-nums}
+.pc-glance__icon{flex:none;display:inline-flex;align-items:center;justify-content:center;width:var(--size-32);height:var(--size-32);border-radius:var(--radius-md);background:var(--surface-lane);color:var(--ink)}
+.pc-glance__icon--info{background:var(--info-bg);color:var(--info-fg)}.pc-glance__icon--good{background:var(--good-bg);color:var(--good-fg)}
+.pc-glance__value{font-size:var(--type-number-lg-size);line-height:var(--type-number-lg-line);font-weight:var(--type-number-lg-weight)}
+.pc-glance__note{color:var(--ink-muted);font-size:var(--type-caption-size);line-height:var(--type-caption-line)}
+.pc-glance__label{color:var(--ink-muted);font-size:var(--type-label-size);line-height:var(--type-label-line);font-weight:var(--type-body-strong-weight);letter-spacing:var(--type-label-tracking);text-transform:uppercase}
 .pc-glance__delta{font-weight:var(--type-body-strong-weight);color:var(--ink)}
 .pc-glance__delta--good{color:var(--good-fg)}.pc-glance__delta--bad{color:var(--bad-fg)}
 .pc-dispatch-attention .pc-bulk-review{padding:var(--space-2) var(--space-3)}

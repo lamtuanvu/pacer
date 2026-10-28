@@ -20,7 +20,7 @@ export interface ListRowProps extends JSX.HTMLAttributes<HTMLDivElement> {
   leading?: ComponentChildren; content?: ComponentChildren; meta?: ComponentChildren; actions?: ComponentChildren;
   density?: 'normal' | 'compact' | 'touch';
   layout?: 'aligned';
-  outlined?: boolean; tone?: 'bad';
+  outlined?: boolean; tone?: 'bad' | 'warn';
 }
 /** Sibling slots keep navigation and secondary actions from nesting interactive elements. */
 export function ListRow({ leading, content, meta, actions, children, className, density, layout, outlined, tone, ...props }: ListRowProps) {

@@ -99,8 +99,8 @@ test("cross-surface vocabulary uses shared verdicts, phases and acceptance words
       const phase = phaseWords(task.progress!.phase);
       expect(text).toContain(phase);
     }
-    // Task cards state the acceptance summary itself ("38 passed"); the tray and TUI use the outcome words.
-    if (name === "app") expect(text).toContain("38 passed"); else expect(text).toContain("Tests passed");
+    // Every surface states the acceptance outcome in the same words.
+    expect(text).toContain("Tests passed");
     expect(text).not.toMatch(/\b(?:ON_PACE|BEHIND|AHEAD|EXHAUSTED|NEAR_LIMIT|EXPIRING_SOON|UNMETERED|needs_input|on_pace|host_down|executor_down|no_slot|working|testing|lost-contact)\b/);
   }
   // Compact lines intentionally omit behind/on-pace verdict text and phases.
@@ -124,10 +124,12 @@ test("the TUI order is Needs you, Running, Capacity, Done today", () => {
 });
 
 test("app follows the board on desktop: planner budget, the week's figures, Needs you, then live work", () => {
-  expect(headings(app.slice(app.indexOf("pc-dispatch"))).filter(h => h !== "Nothing running. Start work, delegate a task, or ask your planner to.").slice(0, 4)).toEqual(["Planner budget", "Last 7 days at a glance", "Needs you", "Live dispatch"]);
+  const at = ["<h1>Dispatch</h1>", 'aria-label="Planner budget and next decision"', 'aria-label="This week at a glance"', 'aria-labelledby="needs-you"', 'aria-labelledby="live-dispatch"'].map(marker => app.indexOf(marker));
+  expect(at.every(i => i >= 0)).toBe(true);
+  expect(at).toEqual([...at].sort((a, b) => a - b));
   // No token reading yet: Where the tokens went is not rendered, and the glance strip invents no token figure.
   expect(app).not.toContain('aria-labelledby="token-share"');
-  expect(strip(app.slice(app.indexOf('aria-labelledby="glance"'), app.indexOf('aria-labelledby="needs-you"')))).not.toMatch(/tokens/i);
+  expect(strip(app.slice(app.indexOf('id="glance"'), app.indexOf('aria-labelledby="needs-you"')))).not.toMatch(/tokens/i);
 });
 
 test("tray orders Needs you, Running, executors with done today only in counts", () => {

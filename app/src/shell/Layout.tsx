@@ -34,7 +34,7 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
   const loading = route.name === "loading" || !state.snapshot;
   const outdated = !loading && NEEDS_READ_MODEL.has(route.name) && !state.features.readModel;
   const showStatusBar = !narrow && route.name !== "setup";
-  const topBar = <TopBar narrow={narrow} title={title} planner={state.snapshot?.planner ?? null} mode={state.snapshot?.mode?.mode ?? ""} connected={state.connected} lastUpdate={state.snapshot?.at ?? null} onDelegate={onDelegate} delegatePrimary={!["review", "sessions"].includes(route.name)} delegate={route.name !== "dispatch"} showActions={route.name !== "setup"} plannerFigure={route.name !== "dispatch"} />;
+  const topBar = <TopBar narrow={narrow} title={title} planner={state.snapshot?.planner ?? null} mode={state.snapshot?.mode?.mode ?? ""} connected={state.connected} lastUpdate={state.snapshot?.at ?? null} onDelegate={onDelegate} delegatePrimary={!["review", "sessions"].includes(route.name)} delegate={route.name !== "dispatch"} pageTitle={route.name !== "dispatch"} showActions={route.name !== "setup"} plannerFigure={route.name !== "dispatch"} />;
   return <NarrowContext.Provider value={narrow}><div className={`pc-app${narrow ? " pc-app--narrow" : ""}${showStatusBar ? " pc-app--with-status" : ""}`}>
     <TextAction href="#main-content" className="skip-link" onClick={event => { event.preventDefault(); document.getElementById("main-content")?.focus(); }}>Skip to content</TextAction>
     {!narrow && topBar}

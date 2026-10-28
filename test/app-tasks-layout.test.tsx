@@ -128,7 +128,7 @@ test.skipIf(!browserPath)('Dispatch clips long titles, keeps the composer to one
    expect(await page.locator('.pc-start-composer textarea').count()).toBe(1);
    expect(await page.locator('.pc-start-fields').count()).toBe(0);
    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
-   const contentEdge=await page.locator('#repo-filter').evaluate(n=>n.getBoundingClientRect().left);
+   const contentEdge=await page.locator('.pc-dispatch h1').evaluate(n=>n.getBoundingClientRect().left);
    expect(contentEdge).toBe(width<560?16:72);
    if(withTokens){
     const bar=page.locator('.pc-share-bar__bar');

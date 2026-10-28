@@ -4,7 +4,8 @@ import type { ClientSnapshot } from "./snapshot";
 import { markAgent } from "./agents";
 import { attentionOrder, needsYou, type Scope } from "./selectors";
 import { compactCount, scopedTaskTree, type TaskAttention, type TaskNodeView } from "./task-tree";
-import { attentionStatus, executorLabel } from "./words";
+import { attentionStatus, executorLabel, paceStatus } from "./words";
+import { clock } from "./time";
 
 export type NeedsYouCard =
   | { kind: "task"; id: string; node: TaskNodeView; items: AttentionItem[] }
@@ -74,9 +75,9 @@ export function periodRange(period: Period, now: number): { from: number; to: nu
   const from = period === "today" ? start : now - (period === "7d" ? 7 : 30) * DAY;
   return { from, to: now, today: { from: start, to: now } };
 }
-/** Rolling windows are named as such: 7 days is the last seven days, not the calendar week. */
-export const periodHeading = (period: Period) => period === "today" ? "Today at a glance" : period === "7d" ? "Last 7 days at a glance" : "Last 30 days at a glance";
-const versus = (period: Period) => period === "today" ? "vs the hours before" : period === "7d" ? "vs the 7 days before" : "vs the 30 days before";
+/** The board's wording: 7 days reads as "this week" (a rolling seven days); Today and 30 days follow the same pattern. */
+export const periodHeading = (period: Period) => period === "today" ? "Today at a glance" : period === "7d" ? "This week at a glance" : "Last 30 days at a glance";
+const versus = (period: Period) => period === "today" ? "vs the hours before" : period === "7d" ? "vs last week" : "vs the 30 days before";
 
 export interface KpiTile { id: "handled" | "tokens" | "outside" | "accepted"; label: string; value: string; delta?: { text: string; tone: "good" | "bad" | "neutral" }; note?: string }
 const pct = (part: number, whole: number) => `${Math.round(part / whole * 100)}%`;
@@ -104,13 +105,13 @@ export function kpiTiles(current: InsightsSummary, period: Period, opts: { today
     }
   }
   if (current.acceptedFirstTryRate !== null && current.reviewedRoots > 0) tiles.push({ id: "accepted", label: "Accepted first try", value: `${Math.round(current.acceptedFirstTryRate * 100)}%`,
-    delta: { text: `${current.acceptedFirstTry} of ${current.reviewedRoots}`, tone: "neutral" }, note: current.retryAttempts ? `reviewed · ${current.retryAttempts} ${current.retryAttempts === 1 ? "retry" : "retries"}` : "reviewed" });
+    delta: { text: `${current.acceptedFirstTry} of ${current.reviewedRoots}`, tone: "neutral" }, ...(current.retryAttempts ? { note: `· ${current.retryAttempts} retried` } : {}) });
   return tiles;
 }
 
 export type ChartSeries = 1 | 2 | 3 | 4 | 5;
 export interface ShareSegment { id: string; label: string; agent?: string; role?: string; share: number; tasks: number; tokens: string; series: ChartSeries }
-export interface TokenSpread { caption: string; partial: boolean; segments: ShareSegment[] }
+export interface TokenSpread { caption: string; partial: boolean; segments: ShareSegment[]; /** Says the planner's own tokens are not measured yet, instead of a number. */ plannerNote?: string }
 
 /** Largest-remainder rounding, so the legend's percentages add up to 100. */
 function percents(values: number[]): number[] {
@@ -123,15 +124,16 @@ function percents(values: number[]): number[] {
 
 /**
  * Where the tokens went: shown only with a measured or partial reading. Five chart series at most; the rest group as "Other agents".
- * Shares are token volume, never cost. The planner is not in the spread until planner attribution exists.
+ * Shares are token volume, never cost. Roles come from config: the configured planner is "planner", every other agent "executor".
+ * The planner's own planning and review tokens are unknown until planner attribution exists, and the spread says so.
  */
-export function tokenSpread(summary: InsightsSummary | null | undefined): TokenSpread | null {
+export function tokenSpread(summary: InsightsSummary | null | undefined, planner: string | null = null): TokenSpread | null {
   if (!summary || coverage(summary.tokens) === "unknown") return null;
   const tokens = summary.tokens;
   const rows = summary.spread.filter(row => row.total > 0).sort((a, b) => b.total - a.total);
   if (!rows.length) return null;
   const top = rows.length > 5 ? rows.slice(0, 4) : rows, rest = rows.slice(top.length);
-  const groups = [...top.map(row => ({ id: row.agent, label: executorLabel(row.agent), agent: markAgent(row.agent), role: "executor" as string | undefined, total: row.total, tasks: row.tasks })),
+  const groups = [...top.map(row => ({ id: row.agent, label: executorLabel(row.agent), agent: markAgent(row.agent), role: (planner && (row.agent === planner || markAgent(row.agent) === planner) ? "planner" : "executor") as string | undefined, total: row.total, tasks: row.tasks })),
     ...rest.length ? [{ id: "other", label: "Other agents", agent: undefined, role: undefined, total: rest.reduce((n, r) => n + r.total, 0), tasks: rest.reduce((n, r) => n + r.tasks, 0) }] : []];
   const shares = percents(groups.map(g => g.total));
   const partial = coverage(tokens) === "partial", lower = partial ? "At least " : "", handled = summary.rootTasksHandled;
@@ -141,5 +143,26 @@ export function tokenSpread(summary: InsightsSummary | null | undefined): TokenS
     caption: `${lower}${compactCount(tokens.total)} tokens on ${handled} root task${handled === 1 ? "" : "s"}${outside}${partial ? " · some attempts were not measured" : ""}`,
     segments: groups.map((g, i) => ({ id: g.id, label: g.label, ...(g.agent ? { agent: g.agent } : {}), ...(g.role ? { role: g.role } : {}), share: shares[i]!, series: (i + 1) as ChartSeries,
       tasks: g.tasks, tokens: compactCount(g.total) })),
+    ...(planner && summary.planner.coverage === "unknown" ? { plannerNote: `${executorLabel(planner)} (planner): planning and review tokens are not measured yet.` } : {}),
   };
+}
+
+/** Planner pace in the board's words; tone and glyph come from the shared vocabulary. */
+export function plannerPace(verdict: string): { label: string; tone: string } {
+  const pace = paceStatus(verdict);
+  const words: Record<string, string> = { behind: "Under pace · spend it", on_pace: "On pace", ahead: "Ahead of pace · save it" };
+  return { label: words[verdict] ?? pace.label, tone: pace.tone };
+}
+/**
+ * The planner caption under its meter, as on the board: "16% of week used · pace 38% · resets Thu 14:00 · 5h window 4%".
+ * Each part shows only when measured; the short window comes from the planner account's own reading.
+ */
+export function plannerCaption(meter: { usedPct: number | null; pacePct: number | null; window: string | null; resetsAt: number | null }, now: number, shortWindowPct?: number | null): string {
+  const span = meter.window === "weekly" ? "week" : meter.window === "monthly" ? "month" : meter.window;
+  return [
+    meter.usedPct !== null ? `${Math.round(meter.usedPct)}% of ${span ? span : "budget"} used` : null,
+    meter.pacePct !== null ? `pace ${Math.round(meter.pacePct)}%` : null,
+    meter.resetsAt ? `resets ${clock(meter.resetsAt, now)}` : null,
+    typeof shortWindowPct === "number" ? `5h window ${Math.round(shortWindowPct)}%` : null,
+  ].filter(Boolean).join(" · ");
 }

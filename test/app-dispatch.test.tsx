@@ -21,19 +21,24 @@ const summary = (handled = 42): InsightsSummary => ({ rootTasksHandled: handled,
   spread: [{ agent: "codex", total: 980_000, tasks: 4 }, { agent: "claude-code", total: 520_000, tasks: 6 }, { agent: "agy", total: 340_000, tasks: 2 }],
   planner: { coverage: "unknown" }, ranOutsidePlanner: null, previous: { rootTasksHandled: handled - 8 } });
 const measured: InsightsState = { supported: true, loading: false, current: summary(), today: summary(9) };
-const view = (repo: string | null = null, s: ClientSnapshot = snap, extra: { routing?: RoutingPreview | null; insights?: InsightsState; delegate?: () => void } = {}) =>
-  renderToString(<DelegateContext.Provider value={extra.delegate ?? null}><DispatchView snapshot={s} query={{ repo, scope: null }} now={snap.at} runner={runner} routing={extra.routing === undefined ? routing : extra.routing} insights={extra.insights} onPeriod={() => {}} startWork={<p>start work composer</p>} /></DelegateContext.Provider>);
+const view = (repo: string | null = null, s: ClientSnapshot = snap, extra: { routing?: RoutingPreview | null; insights?: InsightsState; delegate?: () => void; connected?: boolean } = {}) =>
+  renderToString(<DelegateContext.Provider value={extra.delegate ?? null}><DispatchView snapshot={s} query={{ repo, scope: null }} now={snap.at} runner={runner} routing={extra.routing === undefined ? routing : extra.routing} insights={extra.insights} onPeriod={() => {}} connected={extra.connected ?? true} startWork={<p>start work composer</p>} /></DelegateContext.Provider>);
 const order = (html: string, words: string[]) => words.map(w => html.indexOf(w));
 const section = (html: string, id: string) => { const at = html.indexOf(`aria-labelledby="${id}"`); return at < 0 ? "" : html.slice(html.indexOf(">", at) + 1, html.indexOf("</section>", at)); };
 const strip = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+/** The at-a-glance strip is named by aria-label, so it is found by its id. */
+const glance = (html: string) => { const at = html.indexOf('id="glance"'); return at < 0 ? "" : html.slice(html.indexOf(">", at) + 1, html.indexOf("</section>", at)); };
+const plannerHalf = (html: string) => { const at = html.indexOf('id="planner-budget"'); return at < 0 ? "" : html.slice(at, html.indexOf('aria-labelledby="next-task"') > at ? html.indexOf('aria-labelledby="next-task"') : html.indexOf("</section>", at)); };
 
-test("regions follow the board: header, planner and next task, the period's figures, tokens and Needs you, then live work", () => {
+test("regions follow the board: title, period, repos and New task, then planner and next task, the period's figures, tokens and Needs you, live work", () => {
   const html = view(null, snap, { insights: measured, delegate: () => {} });
-  const at = order(html, ['aria-label="Period"', ">New task", ">Planner budget<", ">Next task goes to<", ">Last 7 days at a glance<", ">Where the tokens went<", ">Needs you<", ">Live dispatch<", "start work composer"]);
+  const at = order(html, ["<h1>Dispatch</h1>", "Live · ", 'aria-label="Period"', "All repos · 3", ">New task", 'aria-label="Planner budget and next decision"', ">Next task goes to<", 'aria-label="This week at a glance"', ">Where the tokens went<", ">Needs you<", ">Live dispatch<", "start work composer"]);
   expect(at.every(i => i >= 0)).toBe(true);
   expect([...at].sort((a, b) => a - b)).toEqual(at);
-  // The page title is the top bar's; sections use the DS heading only (UI-9).
-  expect(html).not.toContain("<h1");
+  // The page carries the one title; the top bar drops its own on Dispatch (UI-9).
+  expect(html.match(/<h1/g)).toHaveLength(1);
+  expect(strip(html.slice(html.indexOf("Live · "), html.indexOf("</span>", html.indexOf("Live · "))))).toMatch(/^Live · \d+ agents? connected · updated /);
+  expect(view(null, snap, { connected: false })).toContain("Reconnecting…");
 });
 
 test("period switch offers Today, 7 days and 30 days with 7 days selected, only with task insights", () => {
@@ -44,7 +49,8 @@ test("period switch offers Today, 7 days and 30 days with 7 days selected, only 
   expect(strip(group)).toBe("Today 7 days 30 days");
   expect(group).toMatch(/aria-pressed="true"[^>]*>7 days</);
   expect(group.match(/aria-pressed="true"/g)).toHaveLength(1);
-  expect(strip(section(view(null, snap, { insights: measured }).replace("pc-dispatch", ""), "glance"))).toContain("Last 7 days at a glance");
+  for (const [period, label] of [["today", "Today at a glance"], ["7d", "This week at a glance"], ["30d", "Last 30 days at a glance"]] as const)
+    expect(renderToString(<DispatchView snapshot={snap} query={{ repo: null, scope: null }} now={snap.at} runner={runner} period={period} insights={measured} />)).toContain(`aria-label="${label}"`);
 });
 
 test("New task is the primary action and opens the Delegate dialog until the composer lands", () => {
@@ -55,28 +61,32 @@ test("New task is the primary action and opens the Delegate dialog until the com
   expect(view()).not.toContain(">New task");
 });
 
-test("kpi_strip_shows_the_week_from_insights", () => {
-  expect(strip(section(view(null, snap, { insights: measured }), "glance"))).toBe(
-    "Last 7 days at a glance Root tasks handled 42 +8 vs the 7 days before · 9 today Tokens spent 1.8M 43.8k per root task Accepted first try 78% 31 of 40 reviewed · 6 retries");
+test("kpi_strip_shows_the_week_from_insights with the board's icon tiles and no visible heading", () => {
+  const strip_ = glance(view(null, snap, { insights: measured }));
+  expect(strip(strip_)).toBe("Root tasks handled 42 +8 vs last week · 9 today Tokens spent 1.8M 43.8k per root task Accepted first try 78% 31 of 40 · 6 retried");
+  expect(strip_).not.toMatch(/<h[1-6]/);
+  expect(strip_.match(/class="pc-glance__icon pc-glance__icon--[a-z]+"/g)).toHaveLength(3);
+  for (const icon of strip_.match(/<span class="pc-glance__icon[^"]*"><svg[^>]*>/g) ?? []) expect(icon).toContain('aria-hidden="true"');
 });
 
 test("kpi_strip_without_insights_says_why_and_never_invents_numbers", () => {
   const states: [InsightsState | undefined, string][] = [
-    [undefined, "Last 7 days at a glance These figures need a newer pacer service with task insights."],
-    [{ supported: true, loading: true }, "Last 7 days at a glance Loading figures…"],
-    [{ supported: true, loading: false, error: new Error("boom") }, "Last 7 days at a glance Could not load these figures. They are checked again on the next update."],
+    [undefined, "These figures need a newer pacer service with task insights."],
+    [{ supported: true, loading: true }, "Loading figures…"],
+    [{ supported: true, loading: false, error: new Error("boom") }, "Could not load these figures. They are checked again on the next update."],
   ];
   for (const [insights, words] of states) {
     const html = view(null, snap, { insights });
-    expect(strip(section(html, "glance"))).toBe(words);
+    expect(strip(glance(html))).toBe(words);
+    expect(html).toContain('aria-label="This week at a glance"');
     expect(html).not.toContain('aria-labelledby="token-share"');
-    expect(section(html, "glance")).not.toMatch(/>\s*(0|0%|—)\s*</);
+    expect(glance(html)).not.toMatch(/>\s*(0|0%|—)\s*</);
   }
   // A summary with no measured tokens shows the root count only, and no token share.
   const unmeasured = { ...summary(0), acceptedFirstTry: 0, reviewedRoots: 0, acceptedFirstTryRate: null, previous: null,
     tokens: { total: 0, measuredAttempts: 0, partialAttempts: 0, unknownAttempts: 2, attempts: 2, lowerBound: true } };
   const html = view(null, snap, { insights: { supported: true, loading: false, current: unmeasured } });
-  expect(strip(section(html, "glance"))).toBe("Last 7 days at a glance Root tasks handled 0");
+  expect(strip(glance(html))).toBe("Root tasks handled 0");
   expect(html).not.toContain("Tokens spent");
   expect(html).not.toContain("pc-share-bar");
 });
@@ -88,33 +98,34 @@ test("token share appears only with a reading, as a table by agent", () => {
   expect(share).toContain('aria-label="Token share: Codex 53%, Claude Code 28%, Antigravity 19%"');
   expect(strip(share)).toContain("1.8M tokens on 42 root tasks");
   expect(strip(share)).toContain("Agent Tasks Tokens Share Codex executor 4 980k 53%");
+  // Roles come from config: the configured planner is "planner"; its own tokens stay unknown until attribution exists.
+  expect(strip(share)).toContain("Claude Code planner 6 520k 28%");
+  expect(strip(share)).toContain("Claude Code (planner): planning and review tokens are not measured yet.");
 });
 
-test("needs you cards are task tree nodes, most urgent first, with the service's words and actions", () => {
+test("needs you cards are compact as on the board: glyph, title, one caption line and one action, most urgent first", () => {
   const html = section(view(), "needs-you");
-  expect(html).toContain('<span class="pc-count pc-count--warn">4</span>');
+  expect(html).toContain('<span class="pc-count pc-count--bad">4</span>');
   const at = order(html, ["buildbox is not answering", "Retry budget refresh on 429", "Fix flaky retry test in the payments client", "Add dark mode to the web header"]);
   expect(at.every(i => i >= 0)).toBe(true);
   expect([...at].sort((a, b) => a - b)).toEqual(at);
-  // Task items render as the shared composite, tinted, with words beside the tint (UI-2, UI-10).
-  expect(html.match(/class="pc-task-node pc-task-node--regular pc-task-node--bad"/g)).toHaveLength(1);
-  expect(html.match(/class="pc-task-node pc-task-node--regular pc-task-node--warn"/g)).toHaveLength(2);
-  expect(html.match(/>Review requested</g)?.length).toBe(2);
-  const failed = html.slice(html.indexOf("Retry budget refresh on 429") - 400, html.indexOf("Fix flaky retry test"));
+  // Tinted by tone, with the status words beside the glyph for assistive technology (UI-2, UI-10).
+  expect(html.match(/pc-list-row--outlined pc-list-row--bad/g)).toHaveLength(2);
+  expect(html.match(/pc-list-row--outlined pc-list-row--warn/g)).toHaveLength(2);
+  expect(html.match(/<span class="sr-only">Review requested: <\/span>/g)).toHaveLength(2);
+  const failed = html.slice(html.indexOf('data-attention-id="failed:t-0409"'), html.indexOf("Fix flaky retry test"));
   expect(failed).toContain("Failed twice on Antigravity · test timed out after 120 s");
-  expect(failed).toContain(">Retry on Codex<");
-  expect(failed).toContain(">See error<");
   expect(failed).toContain('href="#/tasks/t-0409"');
-  expect(html.match(/>Retry on [A-Z]/g)?.length).toBe(1);
-  // A host problem has no task, so it keeps its row with the glyph and the label.
-  const host = html.slice(html.indexOf('data-attention-id="host_down:buildbox"'), html.indexOf("Retry budget refresh on 429"));
-  expect(host).toContain("pc-list-row--bad");
-  expect(host).toContain("✕");
-  expect(host).toContain(">Run checks<");
+  // One action per card; a failure's action is the card's primary.
+  expect(failed).toMatch(/pc-btn--primary[^>]*>Retry on Codex</);
+  expect(failed).not.toContain(">See error<");
+  expect(html.match(/pc-btn--primary/g)).toHaveLength(2);
+  expect(html.slice(html.indexOf("Fix flaky retry test"))).not.toContain("pc-btn--primary");
   // Each card is a keyboard stop for j/k.
   expect(html.match(/data-attention-id="[^"]+" tabindex="0"/g)).toHaveLength(4);
-  expect(html).toContain('href="#/needs-you"');
-  expect(html).not.toContain("pc-btn--primary");
+  expect(html).toMatch(/href="#\/needs-you"[^>]*>All open items</);
+  // One page of cards has no range footer.
+  expect(html).not.toContain("Needs you pages");
 });
 
 test("live dispatch shows running and queued work as compact cards with their actions", () => {
@@ -129,27 +140,30 @@ test("live dispatch shows running and queued work as compact cards with their ac
   expect(html).not.toContain("pc-btn--primary");
 });
 
-test("planner budget is the one place that states the planner figure", () => {
-  const html = section(view(), "planner-budget-h");
-  expect(strip(html)).toContain("Claude Code");
+test("planner budget and next task share one split section; the planner half is the one place that states the planner figure", () => {
+  const html = plannerHalf(view());
+  expect(strip(html)).toContain("Claude Code Planner");
   expect(html).toContain("14 pts under pace — spend it.");
-  expect(html).toContain(">Behind pace<");
-  expect(html).toContain('aria-label="Claude Code planner usage"');
-  expect(html).toContain("63% used · pace 77%");
+  expect(html).toContain(">Under pace · spend it<");
+  expect(html).toContain('aria-label="Claude Code weekly usage"');
+  expect(strip(html)).toContain("63% of week used · pace 77% · resets");
+  expect(strip(html)).not.toContain("5h window");
+  expect(strip(plannerHalf(renderToString(<DispatchView snapshot={snap} query={{ repo: null, scope: null }} now={snap.at} runner={runner} shortWindowPct={4} />)))).toContain("· 5h window 4%");
   expect(view(null, { ...snap, planner: null })).not.toContain("planner-budget");
   // With no reading, the pill says so once; there is no empty meter repeating "usage unknown".
-  const unknown = section(view(null, { ...snap, planner: { ...snap.planner!, usedPct: null, pacePct: null, verdict: "unknown" } }), "planner-budget-h");
+  const unknown = plannerHalf(view(null, { ...snap, planner: { ...snap.planner!, usedPct: null, pacePct: null, verdict: "unknown" } }));
   expect(unknown).not.toContain("pc-meter");
   expect(strip(unknown).match(/usage unknown/gi)).toHaveLength(1);
 });
 
-test("next task goes to names the next agent and the order after it, without internal reasons", () => {
+test("next task goes to names the next agent, then the chain with chevrons ending in the queue, and the strategy", () => {
   const html = section(view(), "next-task");
   expect(strip(html)).toContain("Codex · team on devbox");
   expect(html).toContain(">Eligible<");
-  expect(strip(html)).toMatch(/Then Cursor Claude Code/);
+  expect(strip(html)).toMatch(/Then: Cursor Claude Code Q Queue/);
+  expect(html.match(/pc-dispatch-chain__sep/g)).toHaveLength(2);
   expect(html).not.toContain("ok, used 0%");
-  expect(html).toContain('href="#/settings/dispatcher"');
+  expect(html).toMatch(/href="#\/settings\/dispatcher"[^>]*>Strategy: default · change</);
   expect(strip(section(view(null, snap, { routing: { loading: false, data: { ranked: [], excluded: [] } } }), "next-task"))).toContain("No agent can take new work now.");
   expect(strip(section(view(null, snap, { routing: { loading: true } }), "next-task"))).toContain("Checking routing…");
   expect(view(null, snap, { routing: null })).not.toContain('aria-labelledby="next-task"');
@@ -172,11 +186,12 @@ test("narrow Dispatch keeps executor usage and pace while the status bar is abse
   expect(strip(stale)).toContain("Historical usage");
 });
 
-test("repo chips show counts, pressed state and the shared-budget note", () => {
-  const html = view("github.com/acme/api");
-  expect(html).toContain("All repos");
-  expect(html).toMatch(/aria-pressed="true"[^>]*><span[^>]*>acme\/api<\/span><span[^>]*aria-label="3 work items"[^>]*>3</);
-  expect(html).toContain("Budgets are shared across repos; the filter only narrows work.");
+test("repos are one All repos button that opens the repository menu", () => {
+  const html = view();
+  expect(html).toMatch(/aria-expanded="false"[^>]*>All repos · 3<span aria-hidden="true">⌄<\/span>/);
+  expect(view("github.com/acme/api")).toMatch(/aria-expanded="false"[^>]*>acme\/api<span/);
+  expect(html).not.toContain("Budgets are shared across repos");
+  expect(html).not.toContain('aria-label="Repository filter"');
 });
 
 test("a repo scope filters Needs you and Live dispatch", () => {

@@ -15,18 +15,20 @@ export interface TopBarProps {
   showActions?: boolean; now?: number; onDelegate: () => void; delegatePrimary?: boolean;
   /** False where the page has its own New task button, so the action is offered once. */
   delegate?: boolean;
+  /** False where the page carries its own h1 (Dispatch), so the title appears once (UI-9). */
+  pageTitle?: boolean;
   /** False where the page itself states the planner figure (Dispatch), so the narrow meter is not repeated (UI-15). */
   plannerFigure?: boolean;
 }
 /** One compact page header, including native controls in the desktop shell. */
-export function TopBar({ narrow = false, title, planner, mode, connected, lastUpdate, now: fixedNow, onDelegate, delegatePrimary = true, delegate = true, showActions = true, plannerFigure = true }: TopBarProps) {
+export function TopBar({ narrow = false, title, planner, mode, connected, lastUpdate, now: fixedNow, onDelegate, delegatePrimary = true, delegate = true, pageTitle = true, showActions = true, plannerFigure = true }: TopBarProps) {
   const [tick, setTick] = useState(() => Date.now() / 1000);
   useEffect(() => { if (fixedNow !== undefined) return; const t = setInterval(() => setTick(Date.now() / 1000), 1000); return () => clearInterval(t); }, [fixedNow]);
   const now = fixedNow ?? tick;
   const narrowMeter = narrow && plannerFigure && planner && planner.verdict !== "unknown" && planner.usedPct !== null;
   return <header className="pc-topbar" data-tauri-drag-region>
     {!narrow && <TitleBar />}
-    {showActions && <h1 data-tauri-drag-region title={title}>{title}</h1>}
+    {showActions && pageTitle && <h1 data-tauri-drag-region title={title}>{title}</h1>}
     <span className="grow" data-tauri-drag-region />
     {showActions && <>
     {planner && <span className="pc-planner">

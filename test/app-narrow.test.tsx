@@ -36,7 +36,8 @@ test("shell switches below 560 px and repo scope forces narrow at desktop width"
     expect(html.includes('class="pc-bottom-bar"')).toBe(narrow);
     expect(html.includes('class="pc-rail"')).toBe(!narrow);
     expect(html.match(/<header/g)).toHaveLength(1);
-    expect(html.match(/<h1/g)).toHaveLength(1);
+    // On Dispatch the page carries the one h1, so the shell itself has none (UI-9).
+    expect(html.match(/<h1/g) ?? []).toHaveLength(0);
     expect(html.includes("pc-app--narrow")).toBe(narrow);
     expect(html.includes("pc-btn--touch")).toBe(narrow);
   }
@@ -65,7 +66,7 @@ test("bottom bar keeps all four icons, badges and scope on every destination", (
 
 test("narrow Dispatch keeps the spec order, repo default, other-repo count and touch actions", () => {
   const html = atWidth(1200, () => overview({ repo: "another", scope: `repo:${repo}` }));
-  const sections = ['aria-label="Scope"', '>Needs you<', '>Live dispatch<', '>Planner budget<', '>Executors<', '>Last 7 days at a glance<'].map(s => html.indexOf(s));
+  const sections = ['<h1>Dispatch</h1>', 'aria-label="Scope"', '>Needs you<', '>Live dispatch<', 'aria-label="Planner budget"', '>Executors<', 'id="glance"'].map(s => html.indexOf(s));
   expect(sections.every(at => at >= 0)).toBe(true);
   expect(sections).toEqual([...sections].sort((a, b) => a - b));
   expect(html).toMatch(/aria-pressed="true"[^>]*>This repo · acme\/api/);
@@ -109,18 +110,16 @@ test("scope toggle has exactly two 44px controls", async () => {
 test("narrow Dispatch stretches every section across the column", async () => {
   const html = atWidth(400, () => overview({ repo: null, scope: `repo:${repo}` }));
   expect(html).toContain('pc-dispatch--narrow');
-  for (const id of ['needs-you', 'live-dispatch', 'planner-budget-h', 'glance']) {
-    expect(html).toContain(`aria-labelledby="${id}"`);
-  }
+  for (const marker of ['aria-labelledby="needs-you"', 'aria-labelledby="live-dispatch"', 'aria-label="Planner budget and next decision"', 'id="glance"']) expect(html).toContain(marker);
   const css = await Bun.file(new URL('../app/src/styles.css', import.meta.url)).text();
   // Stretches even when scope forces narrow above 560px.
-  expect(css).toMatch(/\.pc-dispatch--narrow>section\[aria-labelledby\]\s*\{[^}]*align-self:stretch/);
+  expect(css).toMatch(/\.pc-dispatch--narrow>section\s*\{[^}]*align-self:stretch/);
 });
 
 test("narrow Dispatch never shows snapshot counts as the period's figures", () => {
   for (const width of [400, 1200]) {
     const html = atWidth(width, () => overview({ repo: null, scope: `repo:${repo}` }));
-    const section = html.slice(html.indexOf('aria-labelledby="glance"'), html.indexOf("</section>", html.indexOf('aria-labelledby="glance"')));
+    const section = html.slice(html.indexOf('id="glance"'), html.indexOf("</section>", html.indexOf('id="glance"')));
     expect(section).toContain("These figures need a newer pacer service with task insights.");
     expect(section).not.toMatch(/>\s*\d+\s*</);
   }
