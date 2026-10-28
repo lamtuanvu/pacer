@@ -32,20 +32,29 @@ test("matching needs every word, prefers title starts and reports title highligh
 test("search covers tasks, machines, repos and commands from the snapshot only", () => {
   const items = snapshotItems(snapshot, NOW);
   expect(items.filter(item => item.scope === "tasks").length).toBe(snapshot.tasks.length);
-  const machines = menu("box", "machines");
-  expect(titles(machines)).toEqual(["devbox", "buildbox"]);
-  expect(machines.groups[0]!.items[0]).toMatchObject({ pill: { label: "Online", tone: "good" }, sub: "2 of 3 slots free" });
-  expect(machines.groups[0]!.items[1]).toMatchObject({ pill: { label: "Offline", tone: "bad" } });
+  const machines = menu("box", "agents");
+  // The Agents scope holds both agents and machines, as separate groups.
+  expect(machines.groups.map(group => group.title)).toEqual(["Agents", "Machines"]);
+  const hosts = machines.groups[1]!.items;
+  expect(hosts.map(item => item.title)).toEqual(["devbox", "buildbox"]);
+  expect(hosts[0]).toMatchObject({ pill: { label: "Online", tone: "good" }, sub: "2 of 3 slots free" });
+  expect(hosts[1]).toMatchObject({ pill: { label: "Offline", tone: "bad" } });
   expect(menu("buildbox").groups.map(group => group.title)).toEqual(["Machines"]);
+  // Agents are the snapshot's executors, with their status words.
+  const agents = menu("codex", "agents");
+  expect(agents.groups.map(group => group.title)).toEqual(["Agents"]);
+  expect(agents.groups[0]!.items.map(item => item.id)).toContain("agent:codex#team@devbox");
+  expect(agents.groups[0]!.items.find(item => item.id === "agent:codex#team@devbox")).toMatchObject({ id: "agent:codex#team@devbox", agent: "codex", pill: { tone: "good" } });
   expect(titles(menu("keepalive"))).toEqual(["Add SSH keepalive to remote runs"]);
-  expect(titles(menu("acme/web", "repos"))).toEqual(["acme/web"]);
+  // Repositories are not part of the menu: the board has no repository group.
+  expect(menu("acme/web").groups.flatMap(group => group.items).some(item => item.id.startsWith("repo:"))).toBe(false);
   expect(titles(menu("sidebar"))).toEqual(["Toggle side panel"]);
 });
 
 test("scope tabs filter results and counts stay for every scope", () => {
   const all = menu("a");
   const tasksOnly = menu("a", "tasks");
-  expect(all.counts.all).toBe(all.counts.tasks + all.counts.machines + all.counts.repos + all.counts.commands);
+  expect(all.counts.all).toBe(all.counts.tasks + all.counts.agents + all.counts.commands);
   expect(tasksOnly.groups.map(group => group.title)).toEqual(["Tasks"]);
   expect(tasksOnly.counts).toEqual(all.counts);
 });
@@ -55,15 +64,25 @@ test("> lists only commands, grouped, and ignores tasks", () => {
   expect(result.mode).toBe("commands");
   expect(titles(result)).toEqual(["New task"]);
   const everything = menu(">");
-  expect(everything.groups.map(group => group.title)).toEqual(["Go to", "View", "Suggested"]);
+  expect(everything.groups.map(group => group.title)).toEqual(["Go to", "Suggested", "View"]);
   expect(everything.enterHint).toBe("run");
+  expect(everything.modEnterHint).toBe("run and keep open");
+  // ⌘↵ has nothing to do outside commands mode, so no hint is offered.
+  expect(menu("fix").modEnterHint).toBeUndefined();
+  expect(menu("").modEnterHint).toBeUndefined();
 });
 
 test("recent shows picked items that still exist, else the latest tasks, then ordered command groups", () => {
   const fresh = menu("");
   expect(fresh.mode).toBe("recent");
-  expect(fresh.groups.map(group => group.title)).toEqual(["Recent", "Go to", "Suggested", "View"]);
+  // View and Help commands are reachable with > but not listed here.
+  expect(fresh.groups.map(group => group.title)).toEqual(["Recent", "Go to", "Suggested"]);
   expect(fresh.groups[0]!.items.length).toBe(3);
+  // The oldest item waiting on the user is suggested next to New task, with the agent's mark.
+  const suggested = fresh.groups.find(group => group.title === "Suggested")!.items;
+  expect(suggested.map(item => item.title)).toEqual(["New task", "Review Codex on “Fix flaky retry test in the payments client”"]);
+  expect(suggested[1]).toMatchObject({ agent: "codex", target: { name: "sessions", id: "t-0412" } });
+  expect(suggested[1]!.sub).toMatch(/^It has been waiting \d+m$/);
   const picked = menu("", "all", ["machine:devbox", "task:gone", "task:t-0420"]);
   expect(picked.groups[0]!.items.map(item => item.id)).toEqual(["machine:devbox", "task:t-0420"]);
 });
@@ -102,5 +121,6 @@ test("recent does not list a picked command a second time", () => {
   const result = menu("", "all", ["command:task.new"]);
   const all = titles(result);
   expect(all.filter(title => title === "New task").length).toBe(1);
-  expect(result.groups.map(group => group.title)).not.toContain("Suggested");
+  // New task is listed once, under Recent; Suggested keeps only the waiting item.
+  expect(result.groups.find(group => group.title === "Suggested")!.items.map(item => item.id)).toEqual(["attention:" + snapshot.attention.find((item: any) => item.kind === "review").id]);
 });

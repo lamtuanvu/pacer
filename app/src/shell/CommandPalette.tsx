@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "preact/hooks";
 import type { ClientSnapshot } from "../../../src/view-model/snapshot";
+import { AgentMark } from "../ds/AgentMark";
 import { CommandMenu, type CommandMenuGroup } from "../ds/CommandMenu";
 import { Kbd } from "../ds/Kbd";
 import { commands as commandRegistry } from "../keys/instance";
@@ -36,11 +37,14 @@ export function CommandPalette({ snapshot, registry = commandRegistry, now: fixe
   const byId = new Map<string, MenuItem>(menu.groups.flatMap(group => group.items.map(item => [item.id, item] as const)));
   const groups: CommandMenuGroup[] = menu.groups.map(group => ({ title: group.title, options: group.items.map(item => ({
     id: item.id, label: item.title, ranges: item.ranges, sub: item.sub, icon: item.icon, pill: item.pill,
+    leading: item.agent ? <AgentMark agent={item.agent} size={20} labelled={false} /> : undefined,
     keys: item.command?.keys ? keyCaps(item.command.keys) : undefined,
   })) }));
-  const pick = (id: string) => {
+  const pick = (id: string, options?: { keepOpen: boolean }) => {
     const item = byId.get(id);
     if (!item) return;
+    // ⌘↵ runs a command and leaves the menu open, so several can be run in a row.
+    if (options?.keepOpen) { if (item.command) setTimeout(item.command.run, 0); return; }
     close();
     rememberRecent(item.id, recent);
     // After the menu has closed, so a command that opens a dialog starts from the restored focus.
@@ -48,10 +52,10 @@ export function CommandPalette({ snapshot, registry = commandRegistry, now: fixe
     else if (item.target) navigate(item.target);
   };
   const searching = menu.mode === "search";
-  return <CommandMenu label="Search tasks, machines, repos or run a command" placeholder="Search tasks, machines, repos or type > for commands"
+  return <CommandMenu label="Search tasks, agents or run a command" placeholder="Search tasks, agents or type > for commands"
     query={query} onQueryChange={setQuery} prefix={menu.mode === "commands" ? "Commands" : menu.mode === "ask" ? "Ask" : undefined}
     scopes={searching ? SCOPES.map(item => ({ ...item, count: menu.counts[item.id] })) : undefined} scope={menu.scope} onScope={id => setScope(id as MenuScope)}
     groups={groups} empty={menu.empty ? { title: `Nothing matches “${parseQuery(query).text}”`, description: "Try fewer words, another scope, or turn it into work:" } : undefined}
-    enterHint={menu.enterHint} hints={<span className="pc-command__hint"><Kbd>&gt;</Kbd> commands{ASK_ENABLED && <> · <Kbd>?</Kbd> ask assistant</>}</span>}
+    enterHint={menu.enterHint} modEnterHint={menu.modEnterHint} modEnterKeys={keyCaps("Mod-Enter")} hints={<span className="pc-command__hint"><Kbd>&gt;</Kbd> commands{ASK_ENABLED && <> · <Kbd>?</Kbd> ask assistant</>}</span>}
     onPick={pick} onClose={close} returnFocus={returnFocus} />;
 }

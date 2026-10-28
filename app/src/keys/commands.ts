@@ -37,11 +37,14 @@ export function createCommandRegistry(keyRegistry: KeyRegistry) {
 }
 export type CommandRegistry = ReturnType<typeof createCommandRegistry>;
 
-/** Registry keys as separate key caps: "Ctrl-b" → Ctrl B, "g o" → G O, "Mod-k" → ⌘ K (Ctrl K off macOS). */
+const MAC_MODS: Record<string, string> = { Mod: "⌘", Ctrl: "⌃", Alt: "⌥", Shift: "⇧" };
+/** Registry keys as separate key caps: "Ctrl-b" → ⌃ B on macOS and Ctrl B elsewhere, "g o" → G O, "Mod-k" → ⌘ K (Ctrl K elsewhere). */
 export function keyCaps(keys: string, mac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform)): string[] {
   return keys.split(" ").flatMap(step => {
-    const [mod, key] = step.length > 1 && step.includes("-") && !step.endsWith("-") ? [step.slice(0, step.indexOf("-")), step.slice(step.indexOf("-") + 1)] : [null, step];
-    const cap = key.length === 1 ? key.toUpperCase() : key;
-    return mod === null ? [cap] : [mod === "Mod" ? (mac ? "⌘" : "Ctrl") : mod, cap];
+    const at = step.length > 1 && !step.endsWith("-") ? step.indexOf("-") : -1;
+    const [mod, key] = at > 0 ? [step.slice(0, at), step.slice(at + 1)] : [null, step];
+    const cap = key === "Enter" ? "↵" : key.length === 1 ? key.toUpperCase() : key;
+    if (mod === null) return [cap];
+    return [mac ? MAC_MODS[mod] ?? mod : mod === "Mod" ? "Ctrl" : mod, cap];
   });
 }

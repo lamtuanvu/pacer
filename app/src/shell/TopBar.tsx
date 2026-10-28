@@ -29,11 +29,11 @@ export function TopBar({ narrow = false, title, planner, mode, connected, lastUp
     <span className="grow" data-tauri-drag-region />
     {showActions && onSearch && (narrow
       ? <IconButton icon="search" aria-label="Search" aria-haspopup="dialog" data-command-trigger="" onClick={event => onSearch(event.currentTarget)} />
-      : <DensityContext.Provider value="compact"><Button variant="quiet" size="sm" className="pc-topbar__search" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K" aria-label="Search tasks, machines, commands" data-command-trigger="" onClick={event => onSearch(event.currentTarget)}>
+      : <><DensityContext.Provider value="compact"><Button variant="quiet" size="sm" className="pc-topbar__search" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K" data-command-trigger="" onClick={event => onSearch(event.currentTarget)}>
         <span className="pc-topbar__search-icon" aria-hidden="true"><Icon name="search" /></span>
-        <span className="pc-topbar__search-text">Search tasks, machines, commands</span>
-        {keyCaps("Mod-k").map(cap => <Kbd key={cap}>{cap}</Kbd>)}
-      </Button></DensityContext.Provider>)}
+        <span className="pc-topbar__search-text">Search tasks, agents or run a command</span>
+        <Kbd>{(caps => caps[0] === "⌘" ? caps.join("") : caps.join(" "))(keyCaps("Mod-k"))}</Kbd>
+      </Button></DensityContext.Provider><span className="grow" data-tauri-drag-region /></>)}
     {showActions && <>
     {planner && <span className="pc-planner">
       <AgentMark agent={planner.agent} size={18} labelled={false} />

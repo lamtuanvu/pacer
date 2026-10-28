@@ -69,11 +69,15 @@ test("Mod-k answers to Cmd-K and Ctrl-K, also from a text field, but not to Cmd 
 });
 
 test("key caps split modifiers and sequences", () => {
-  expect(keyCaps("Ctrl-b")).toEqual(["Ctrl", "B"]);
-  expect(keyCaps("Ctrl-`")).toEqual(["Ctrl", "`"]);
-  expect(keyCaps("g o")).toEqual(["G", "O"]);
-  expect(keyCaps(",")).toEqual([","]);
+  expect(keyCaps("Ctrl-b", false)).toEqual(["Ctrl", "B"]);
+  expect(keyCaps("Ctrl-`", false)).toEqual(["Ctrl", "`"]);
+  expect(keyCaps("g o", false)).toEqual(["G", "O"]);
+  expect(keyCaps(",", false)).toEqual([","]);
   expect(keyCaps("Mod-k", true)).toEqual(["⌘", "K"]);
   expect(keyCaps("Mod-k", false)).toEqual(["Ctrl", "K"]);
-  expect(keyCaps("Escape")).toEqual(["Escape"]);
+  expect(keyCaps("Escape", false)).toEqual(["Escape"]);
+  expect(keyCaps("Mod-Enter", true)).toEqual(["⌘", "↵"]);
+  // macOS draws modifiers as symbols.
+  expect(keyCaps("Ctrl-b", true)).toEqual(["⌃", "B"]);
+  expect(keyCaps("Ctrl-`", true)).toEqual(["⌃", "`"]);
 });

@@ -35,7 +35,7 @@ export function Highlight({ text, ranges = [] }: { text: string; ranges?: [numbe
  * announced through aria-activedescendant. The caller owns the query, scope and options; mounting it opens it and
  * unmounting closes it and returns focus to the element that opened it.
  */
-export function CommandMenu({ label, placeholder, query, onQueryChange, prefix, scopes, scope, onScope, groups, empty, enterHint, hints, returnFocus, onPick, onClose }: {
+export function CommandMenu({ label, placeholder, query, onQueryChange, prefix, scopes, scope, onScope, groups, empty, enterHint, modEnterHint, modEnterKeys, hints, returnFocus, onPick, onClose }: {
   label: string; placeholder: string; query: string; onQueryChange: (query: string) => void;
   /** A badge shown before the input for the active mode, such as "Commands". */
   prefix?: string;
@@ -43,10 +43,15 @@ export function CommandMenu({ label, placeholder, query, onQueryChange, prefix, 
   groups: CommandMenuGroup[];
   /** Shown above the options when nothing matched. */
   empty?: { title: string; description: string };
-  enterHint: string; hints?: ComponentChildren;
+  enterHint: string;
+  /** What ⌘↵ does in this mode, such as "run and keep open". Without it ⌘↵ does nothing and no hint shows. */
+  modEnterHint?: string;
+  /** Key caps for that shortcut, such as ["⌘", "↵"]. */
+  modEnterKeys?: string[];
+  hints?: ComponentChildren;
   /** The element to focus on close. Defaults to the element focused at open, which WebKit leaves on the body after a mouse click on a button. */
   returnFocus?: () => HTMLElement | null;
-  onPick: (id: string) => void; onClose: () => void;
+  onPick: (id: string, options?: { keepOpen: boolean }) => void; onClose: () => void;
 }) {
   const uid = useId();
   const dialog = useRef<HTMLDialogElement>(null), input = useRef<HTMLInputElement>(null), list = useRef<HTMLDivElement>(null);
@@ -83,7 +88,10 @@ export function CommandMenu({ label, placeholder, query, onQueryChange, prefix, 
     if (key === "ArrowDown" || key === "ArrowUp") setActive(options.length ? (activeRef.current + (key === "ArrowDown" ? 1 : -1) + options.length) % options.length : 0);
     else if (key === "Home") setActive(0);
     else if (key === "End") setActive(Math.max(0, options.length - 1));
-    else if (key === "Enter") { const option = options[activeRef.current]; if (!option) return; onPick(option.id); }
+    else if (key === "Enter") {
+      const option = options[activeRef.current], mod = event.metaKey || event.ctrlKey;
+      if (option && (!mod || modEnterHint)) onPick(option.id, mod ? { keepOpen: true } : undefined);
+    }
     else if (key === "Tab" && scopes?.length && onScope) {
       const at = Math.max(0, scopes.findIndex(item => item.id === scope));
       onScope(scopes[(at + (event.shiftKey ? -1 : 1) + scopes.length) % scopes.length]!.id);
@@ -104,8 +112,8 @@ export function CommandMenu({ label, placeholder, query, onQueryChange, prefix, 
         value={query} onInput={event => onQueryChange(event.currentTarget.value)} onKeyDown={onKeyDown} />
       <Kbd>Esc</Kbd>
     </div>
-    {scopes && scopes.length > 0 && <div className="pc-command__scopes" role="group" aria-label="Search in">
-      {scopes.map(item => <button key={item.id} type="button" tabIndex={-1} className="pc-command__scope" aria-pressed={item.id === scope}
+    {scopes && scopes.length > 0 && <div className="pc-command__scopes" role="tablist" aria-label="Search in">
+      {scopes.map(item => <button key={item.id} type="button" role="tab" tabIndex={-1} className="pc-command__scope" aria-selected={item.id === scope} aria-controls={`${uid}-list`}
         onMouseDown={event => event.preventDefault()} onClick={() => onScope?.(item.id)}>{item.label}{item.count !== undefined && <span className="pc-command__count"> {item.count}</span>}</button>)}
       <span className="pc-command__spacer" />
       <span className="pc-command__hint"><Kbd>Tab</Kbd> switch</span>
@@ -133,6 +141,7 @@ export function CommandMenu({ label, placeholder, query, onQueryChange, prefix, 
     <div className="pc-command__footer">
       <span className="pc-command__hint"><Kbd>↑</Kbd> <Kbd>↓</Kbd> move</span>
       <span className="pc-command__hint"><Kbd>↵</Kbd> {enterHint}</span>
+      {modEnterHint && modEnterKeys && <span className="pc-command__hint">{modEnterKeys.map((cap, at) => <Kbd key={at}>{cap}</Kbd>)} {modEnterHint}</span>}
       <span className="pc-command__spacer" />
       {hints}
     </div>

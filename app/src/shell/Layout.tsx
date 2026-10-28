@@ -11,6 +11,12 @@ import { Rail } from "./Rail";
 import { TaskContext } from "../screens/task-shared";
 import { SettingsPanel, SettingsPanelData } from "./SettingsPanel";
 import { NarrowContext, PANEL_MEDIA, useMedia, useNarrow } from "./narrow";
+import { agentInfo } from "../../../src/view-model/agents";
+import { modeWords } from "../../../src/view-model/words";
+import { StrategyQuickAccessPopup } from "./StrategyQuickAccess";
+import { useNotifications } from "../data/notification-context";
+import { useNavigation } from "../navigation";
+import { routes } from "../router";
 import { TopBar } from "./TopBar";
 import { StatusBar } from "./StatusBar";
 import { commands, keys } from "../keys/instance";
@@ -34,7 +40,8 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
   const [leftOpen, setLeftOpen] = usePanelState("settings", true);
   const [dockOpen, setDockOpen] = usePanelState("dock", false);
   const opener = useRef<HTMLElement | null>(null);
-  const [palette, setPalette] = useState(false);
+  const [palette, setPalette] = useState(false), [setupOpen, setSetupOpen] = useState(false);
+  const { navigate } = useNavigation(), notifications = useNotifications(), [activeSetup, setActiveSetup] = useState<string | null>(null);
   // The menu is its own chunk; it loads once the shell is up, so opening it is instant but it stays out of app.js.
   const [Palette, setLoaded] = useState<typeof import("./CommandPalette").CommandPalette | null>(null);
   const [loadAttempt, setLoadAttempt] = useState(0), wantOpen = useRef(false);
@@ -69,6 +76,29 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
     const offs = panelCommands(hasLeft ? () => setLeftOpen(!leftOpen) : undefined, dockAvailable ? toggleDock : undefined).map(command => commands.register(command));
     return () => offs.forEach(off => off());
   }, [hasLeft, leftOpen, dockAvailable, dockOpen]);
+  // Dispatcher commands exist only where the service offers the operation (UI-13).
+  const paused = !!state.snapshot?.pause, ops = state.features.ops, api = context?.api;
+  const planner = state.snapshot?.planner, mode = state.snapshot?.mode?.mode;
+  const pacing = planner && mode ? `Settings · ${agentInfo(planner.agent).name} is in ${modeWords(mode)} mode` : "Settings";
+  // The active saved setup is read (an existing operation) when the menu opens, so its row can say which one is on.
+  useEffect(() => {
+    if (!palette || !api || !ops.has("strategy.list")) return;
+    let live = true;
+    void api.call<{ name: string; active?: boolean }[]>("strategy.list", {}).then(rows => { if (live) setActiveSetup(rows.find(row => row.active)?.name ?? null); }, () => {});
+    return () => { live = false; };
+  }, [palette, api, ops]);
+  useEffect(() => {
+    if (!api || !state.snapshot) return;
+    const fail = (error: unknown) => notifications?.notify({ key: "dispatch-command", tone: "error", title: "Could not change dispatching", message: error instanceof Error ? error.message : undefined });
+    const offs = [
+      ...(ops.has(paused ? "delegation.resume" : "delegation.pause") ? [commands.register(paused
+        ? { id: "dispatch.resume", title: "Resume dispatch", sub: "New tasks start again", group: "Dispatcher", icon: "dispatch", keywords: "unpause continue", run: () => { void api.call("delegation.resume", {}).catch(fail); } }
+        : { id: "dispatch.pause", title: "Pause dispatch", sub: "Running tasks finish; nothing new starts", group: "Dispatcher", icon: "dispatch", keywords: "stop hold", run: () => { void api.call("delegation.pause", { for: "1h" }).catch(fail); } })] : []),
+      ...(ops.has("strategy.use") ? [commands.register({ id: "dispatch.setup", title: "Switch saved setup…", sub: activeSetup ? `Active: ${activeSetup}` : undefined, group: "Dispatcher", icon: "routing", keywords: "strategy routing profile", run: () => setSetupOpen(true) })] : []),
+      commands.register({ id: "dispatch.budget", title: "Budget & pacing", sub: pacing, group: "Dispatcher", icon: "gauge", keywords: "planner quota limit", run: () => navigate(routes.settings("planner")) }),
+    ];
+    return () => offs.forEach(off => off());
+  }, [api, paused, ops, !state.snapshot, notifications, activeSetup, pacing]);
   const searchable = route.name !== "setup" && route.name !== "loading";
   useEffect(() => {
     if (!searchable) return;
@@ -97,5 +127,5 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
     main={loading ? <Skeleton /> : outdated ? <section className="pc-notice"><SectionHeading>Update pacer to use this view</SectionHeading><p>This screen needs a newer pacer service. Run <code>pacer update</code>, then reload this page.</p></section> : <DensityContext.Provider value={SETTINGS.has(route.name) ? "settings" : "compact"}>{children}</DensityContext.Provider>}
     dock={dockAvailable && dockOpen && <TerminalDock query={route.query} close={toggleDock} />}
     status={showStatusBar && <StatusBar route={route} snapshot={state.snapshot} registry={keys} terminal={dockAvailable ? { open: dockOpen, toggle: toggleDock } : undefined} />}
-  />{palette && Palette && <Palette snapshot={state.snapshot} returnFocus={() => paletteReturn.current} close={() => setPalette(false)} />}</NarrowContext.Provider>;
+  />{setupOpen && <StrategyQuickAccessPopup route={route} close={() => setSetupOpen(false)} />}{palette && Palette && <Palette snapshot={state.snapshot} returnFocus={() => paletteReturn.current} close={() => setPalette(false)} />}</NarrowContext.Provider>;
 }

@@ -100,12 +100,14 @@ browserTest("greater_than_switches_to_commands_and_runs_one", () => withPage(asy
   const input = page.getByRole("combobox");
   await input.fill(">panel");
   await expect(page.locator(".pc-command__prefix").textContent()).resolves.toBe("Commands");
-  await expect(page.getByRole("group", { name: "Search in" }).count()).resolves.toBe(0);
+  await expect(page.getByRole("tablist", { name: "Search in" }).count()).resolves.toBe(0);
   const options = await labels(page);
   expect(options).toContain("Toggle side panel");
   expect(options).not.toContain("Add SSH keepalive to remote runs");
   // The shortcut shows as key caps next to the command.
-  await expect(page.locator('[role="option"]', { hasText: "Toggle side panel" }).locator(".pc-command__keys kbd").allTextContents()).resolves.toEqual(["Ctrl", "B"]);
+  // macOS draws the modifier as a symbol, other platforms as Ctrl.
+  const mac = await page.evaluate(() => /Mac|iPhone|iPad/.test(navigator.platform));
+  await expect(page.locator('[role="option"]', { hasText: "Toggle side panel" }).locator(".pc-command__keys kbd").allTextContents()).resolves.toEqual([mac ? "⌃" : "Ctrl", "B"]);
   await page.keyboard.press("Enter");
   await page.getByRole("button", { name: "Show Settings" }).waitFor();
   // Back to a bare query: recents with the Go to commands.
@@ -119,9 +121,11 @@ browserTest("tab_cycles_scopes_and_empty_state_offers_new_task", () => withPage(
   await page.keyboard.press("Control+k");
   const input = page.getByRole("combobox");
   await input.fill("a");
-  const tabs = page.getByRole("group", { name: "Search in" }).getByRole("button");
-  await expect(tabs.allTextContents()).resolves.toEqual(expect.arrayContaining([expect.stringMatching(/^All \d+$/), expect.stringMatching(/^Tasks \d+$/)]));
-  const pressed = () => page.locator('.pc-command__scope[aria-pressed="true"]').textContent();
+  const tabs = page.getByRole("tablist", { name: "Search in" }).getByRole("tab");
+  await expect(tabs.allTextContents()).resolves.toEqual([expect.stringMatching(/^All \d+$/), expect.stringMatching(/^Tasks \d+$/), expect.stringMatching(/^Agents \d+$/), expect.stringMatching(/^Commands \d+$/)]);
+  // The tabs control the results listbox.
+  await expect(tabs.first().getAttribute("aria-controls")).resolves.toBe(await page.getByRole("combobox").getAttribute("aria-controls"));
+  const pressed = () => page.locator('.pc-command__scope[aria-selected="true"]').textContent();
   await expect(pressed()).resolves.toMatch(/^All/);
   await page.keyboard.press("Tab");
   await expect(pressed()).resolves.toMatch(/^Tasks/);
@@ -130,8 +134,8 @@ browserTest("tab_cycles_scopes_and_empty_state_offers_new_task", () => withPage(
   await page.keyboard.press("Shift+Tab");
   await expect(pressed()).resolves.toMatch(/^All/);
   // A scope with no matches falls back to All instead of showing an empty list.
-  await page.getByRole("button", { name: /^Machines/ }).click();
-  await expect(pressed()).resolves.toMatch(/^Machines/);
+  await page.getByRole("tab", { name: /^Agents/ }).click();
+  await expect(pressed()).resolves.toMatch(/^Agents/);
   await input.fill("keepalive");
   expect(await labels(page)).toEqual(["Add SSH keepalive to remote runs"]);
   await expect(pressed()).resolves.toMatch(/^All/);
@@ -221,4 +225,46 @@ browserTest("escape_returns_focus_to_the_trigger_when_a_click_does_not_focus_it"
   await page.getByRole("combobox").waitFor();
   await page.keyboard.press("Escape");
   await focused(page, ".pc-topbar__search");
+}));
+
+browserTest("mod_enter_runs_a_command_and_keeps_the_menu_open", () => withPage(async (page, built) => {
+  await open(page, built, "#/overview");
+  await page.keyboard.press("Control+k");
+  const input = page.getByRole("combobox");
+  // Outside commands mode there is no ⌘↵ hint and the key does nothing.
+  await expect(page.locator(".pc-command__footer").textContent()).resolves.not.toContain("keep open");
+  await input.fill("fix");
+  await page.keyboard.press("Control+Enter");
+  await expect(page.getByRole("combobox").count()).resolves.toBe(1);
+  expect(await page.evaluate(() => location.hash)).toBe("#/overview");
+  await input.fill(">new");
+  await expect(page.locator(".pc-command__footer").textContent()).resolves.toContain("run and keep open");
+  await page.keyboard.press("Control+Enter");
+  await page.waitForFunction(() => (window as any).newTask === 1);
+  await expect(page.getByRole("combobox").count()).resolves.toBe(1);
+  await page.keyboard.press("Control+Enter");
+  await page.waitForFunction(() => (window as any).newTask === 2);
+  // Plain Enter runs it and closes the menu.
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(() => (window as any).newTask === 3);
+  await expect(page.getByRole("combobox").count()).resolves.toBe(0);
+}));
+
+browserTest("menu_and_trigger_match_the_board_measurements", () => withPage(async (page, built) => {
+  await open(page, built, "#/overview");
+  const trigger = page.locator(".pc-topbar__search");
+  const t = await trigger.evaluate(element => { const r = element.getBoundingClientRect(), css = getComputedStyle(element); return { w: Math.round(r.width), h: Math.round(r.height), radius: css.borderTopLeftRadius, border: css.borderTopWidth, padL: css.paddingLeft, caps: element.querySelectorAll("kbd").length, text: element.querySelector(".pc-topbar__search-text")!.textContent }; });
+  expect(t).toMatchObject({ w: 420, h: 30, radius: "8px", border: "1px", padL: "10px", caps: 1, text: "Search tasks, agents or run a command" });
+  await trigger.click();
+  await page.getByRole("combobox").fill("fix");
+  await page.waitForTimeout(100);
+  const m = await page.evaluate(() => {
+    const css = (selector: string) => getComputedStyle(document.querySelector(selector)!), box = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
+    return { dialogW: Math.round(box("dialog.pc-command").width), dialogTop: Math.round(box("dialog.pc-command").top), dialogRadius: css("dialog.pc-command").borderTopLeftRadius, rowH: Math.round(box(".pc-command__search").height), inputOutline: css(".pc-command__input").outlineStyle,
+      optionRadius: css(".pc-command__option").borderTopLeftRadius, glyph: [Math.round(box(".pc-command__glyph").width), css(".pc-command__glyph").borderTopLeftRadius], markWeight: css(".pc-command__label mark").fontWeight,
+      scopeH: Math.round(box(".pc-command__scope").height), scopeRadius: css(".pc-command__scope").borderTopLeftRadius, kbd: [css(".pc-command__footer kbd").borderTopLeftRadius, css(".pc-command__footer kbd").fontSize, Math.round(box(".pc-command__footer kbd").height)],
+      placeholder: document.querySelector<HTMLInputElement>('input[role="combobox"]')!.placeholder, label: document.querySelector('input[role="combobox"]')!.getAttribute("aria-label") };
+  });
+  expect(m).toMatchObject({ dialogW: 640, dialogTop: 72, dialogRadius: "14px", rowH: 52, inputOutline: "none", optionRadius: "8px", glyph: [28, "7px"], markWeight: "700", scopeH: 24, scopeRadius: "6px", kbd: ["4px", "11px", 18],
+    placeholder: "Search tasks, agents or type > for commands", label: "Search tasks, agents or run a command" });
 }));
