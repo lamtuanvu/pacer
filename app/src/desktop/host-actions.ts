@@ -8,7 +8,7 @@ export interface SessionFileRef { id: string; attempt: number; reference: string
 export interface HostActions {
   /** Absent when the shell says Open cannot work, for example with invalid editor settings (UI-13). */
   openInEditor?(ref: SessionFileRef): Promise<void>;
-  /** The shell's reason Open is not offered, for the page to show instead of a button. */
+  /** The shell's reason Open is not offered. No page renders it yet; Open is only hidden. */
   openUnavailable?: string;
   reveal?: { label: string; run(ref: SessionFileRef): Promise<void> };
 }
