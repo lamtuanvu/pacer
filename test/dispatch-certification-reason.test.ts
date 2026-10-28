@@ -212,6 +212,20 @@ function taskIn(ctx: Ctx, repo: string) {
 }
 
 describe("schedule repository follows managed work", () => {
+  test("running work older than 24 hours still determines the scheduled repository", () => {
+    const ctx = fakeCtx();
+    const first = realpathSync(tmpDir()), working = realpathSync(tmpDir());
+    registerRepos(ctx, first, working);
+    const startedAt = ctx.now - 2 * 86_400;
+    const task = taskIn({ ...ctx, now: startedAt }, working);
+    updateTask(ctx, task.id, t => {
+      t.state = "running";
+      t.attemptStartedAt = startedAt;
+    });
+
+    expect(scheduledRepo(ctx)).toBe(working);
+  });
+
   test("real diagnostics names the most recently active task repository despite viewing another", async () => {
     const ctx = fakeCtx();
     const shown = setupEnforcementContext(ctx, false), working = realpathSync(tmpDir());

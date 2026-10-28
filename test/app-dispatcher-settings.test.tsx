@@ -333,12 +333,24 @@ test("cross-repository schedule uses a label and maps unsupported copy in the mu
   const render = (row: typeof runner) => renderToString(<DispatcherEnforcementRows reading={{ ...reading, runners: [row] }}
     canProbe={false} probing={null} onProbe={()=>{}} onConsent={()=>{}}/>);
   const html = render(runner);
-  expect(html).toMatch(/<div class="u3-muted">scheduled probing certifies team\/project ·/);
+  expect(html).toMatch(/<div class="u3-muted">scheduled probing certifies team\/project, not this repository ·/);
   expect(html).toContain("not probing now: Verification is not available for this executor yet");
   expect(html).not.toContain("Project-level native control overrides");
   expect(html).not.toContain("exact-environment canary");
   const paused = render({ ...runner, scheduleUnsupportedReason: null,
     scheduleReason: "the last probe cost 12% of the account window", schedulePaused: true });
-  expect(paused).toMatch(/<div class="u3-muted">scheduled probing certifies team\/project ·[^<]*probing paused: the last probe cost/);
+  expect(paused).toMatch(/<div class="u3-muted">scheduled probing certifies team\/project, not this repository ·[^<]*probing paused: the last probe cost/);
   expect(paused).not.toContain('role="alert"');
+});
+
+test("a routing hold takes precedence over scheduled repository probe support", () => {
+  const reading = consentRunner("granted");
+  const scheduleReason = "claude-code is not listed in a routing rule or project selection";
+  const runner = { ...reading.runners[0], probeMode: "auto" as const,
+    scheduleRepo: "team/project", schedulePaused: false, scheduleReason,
+    scheduleUnsupportedReason: "Project-level native control overrides need an exact-environment canary" };
+  const html = renderToString(<DispatcherEnforcementRows reading={{ ...reading, runners: [runner] }}
+    canProbe={false} probing={null} onProbe={()=>{}} onConsent={()=>{}}/>);
+  expect(html).toContain(`not probing now: ${scheduleReason}`);
+  expect(html).not.toContain("Verification is not available for this executor yet");
 });
