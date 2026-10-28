@@ -99,6 +99,8 @@ export function fileItems(result: FilesSearchResult): MenuItem[] {
     };
   });
 }
+/** A repository key such as github.com/acme/web read as acme/web; keys without a host stay as they are. */
+const shortRepoKey = (key: string): string => { const parts = key.split("/"); return !key.startsWith("local:") && parts.length > 1 && parts[0]!.includes(".") ? parts.slice(1).join("/") : key; };
 /** Why some of the repositories were not searched, in plain words, and whether the list was cut short. */
 export function filesNotice(result: FilesSearchResult, repoLabel: (key: string) => string): string | undefined {
   const parts: string[] = [];
@@ -210,10 +212,10 @@ export function buildMenu({ query, scope, snapshot, commands, recent, now, files
   for (const item of matched) counts[item.scope]++;
   const labels = new Map((snapshot?.repos ?? []).map(repo => [repo.key, repo.label]));
   const filesLoading = files.status === "loading";
-  const notice = files.status === "ready" ? filesNotice(files.result, key => labels.get(key) ?? key)
+  const notice = files.status === "ready" ? filesNotice(files.result, key => labels.get(key) ?? shortRepoKey(key))
     : filesLoading ? "Searching files…" : files.status === "error" ? "Files could not be searched just now." : undefined;
   // A scope with nothing in it falls back to All, so the tab never hides matches that exist elsewhere (the Files tab stays while files load).
-  const only = scope !== "all" && (counts[scope] > 0 || (scope === "files" && files.status !== "off")) ? scope : "all";
+  const only = scope !== "all" && (counts[scope] > 0 || (scope === "files" && filesLoading)) ? scope : "all";
   const shown = only === "all" ? matched : matched.filter(item => item.scope === only);
   // Each group is capped while browsing All; a single scope lists everything it matched.
   const groups = groupBy(shown, item => item.group ?? GROUP_TITLES[item.scope], only === "all" ? PER_GROUP : shown.length).sort(orderOf(SEARCH_GROUP_ORDER));

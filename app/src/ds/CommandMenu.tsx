@@ -120,7 +120,7 @@ export function CommandMenu({ label, placeholder, query, onQueryChange, prefix, 
     <div className="pc-command__search">
       <span className="pc-command__icon" aria-hidden="true"><Icon name="search" /></span>
       {prefix && <span className="pc-command__prefix" id={`${uid}-mode`}>{prefix}</span>}
-      <input ref={input} className="pc-command__input" type="text" role="combobox" aria-expanded="true" aria-autocomplete="list" aria-controls={`${uid}-list`} aria-describedby={prefix ? `${uid}-mode` : undefined}
+      <input ref={input} className="pc-command__input" type="text" role="combobox" aria-expanded="true" aria-autocomplete="list" aria-controls={`${uid}-list`} aria-describedby={[prefix ? `${uid}-mode` : "", `${uid}-enter`].filter(Boolean).join(" ")}
         aria-activedescendant={options.length ? optionId(active) : undefined} aria-label={label} placeholder={placeholder} autocomplete="off" spellcheck={false}
         value={query} onInput={event => onQueryChange(event.currentTarget.value)} onKeyDown={onKeyDown} />
       <Kbd size="sm">Esc</Kbd>
@@ -153,10 +153,12 @@ export function CommandMenu({ label, placeholder, query, onQueryChange, prefix, 
         })}
       </div>)}
     </div>
-    {notice && <div className="pc-command__notice" role="status">{notice}</div>}
+    {notice && <div className="pc-command__notice">{notice}</div>}
+    {/* A region that is always mounted, so screen readers announce results arriving and sources that could not be searched. */}
+    <div className="sr-only" role="status" aria-live="polite">{options.length === 0 ? (empty ? empty.title : "") : `${options.length} ${options.length === 1 ? "result" : "results"}`}{notice ? `. ${notice}` : ""}</div>
     <div className="pc-command__footer">
       <span className="pc-command__hint"><Kbd size="sm">↑</Kbd> <Kbd size="sm">↓</Kbd> move</span>
-      <span className="pc-command__hint"><Kbd size="sm">↵</Kbd> {enterHint}</span>
+      <span className="pc-command__hint" id={`${uid}-enter`}><Kbd size="sm">↵</Kbd> {enterHint}</span>
       {modEnterHint && modEnterKeys && <span className="pc-command__hint">{modEnterKeys.map((cap, at) => <Kbd key={at} size="sm">{cap}</Kbd>)} {modEnterHint}{modEnterSoon && <Pill tone="neutral">Coming soon</Pill>}</span>}
       <span className="pc-command__spacer" />
       {hints}

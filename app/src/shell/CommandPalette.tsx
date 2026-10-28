@@ -110,7 +110,7 @@ export function CommandPalette({ snapshot, registry = commandRegistry, now: fixe
   const searching = menu.mode === "search";
   return <CommandMenu label="Search tasks, agents or run a command" placeholder="Search tasks, agents or type > for commands"
     query={text} onQueryChange={edit} onBackspaceEmpty={commandMode ? () => setCommandMode(false) : undefined} prefix={menu.mode === "commands" ? "Commands" : menu.mode === "ask" ? "Ask" : undefined}
-    scopes={searching ? scopesFor(filesOn).map(item => ({ ...item, count: menu.counts[item.id] })) : undefined} scope={menu.scope} onScope={id => setScope(id as MenuScope)}
+    scopes={searching ? scopesFor(filesOn).map(item => ({ ...item, count: item.id === "files" && files.status === "loading" ? undefined : menu.counts[item.id] })) : undefined} scope={menu.scope} onScope={id => setScope(id as MenuScope)}
     groups={groups} empty={menu.empty ? { title: `Nothing matches “${text.trim()}”`, description: "Try fewer words, another scope, or turn it into work:" } : undefined}
     enterHint={active?.copy !== undefined ? "copy path" : menu.enterHint} onActiveChange={setActiveId} notice={menu.notice} modEnterHint={menu.modEnterHint} modEnterSoon={menu.modEnterSoon} modEnterKeys={keyCaps("Mod-Enter")} hints={<span className="pc-command__hint"><Kbd>&gt;</Kbd> commands{ASK_ENABLED && <> · <Kbd>?</Kbd> ask assistant</>}</span>}
     onPick={pick} onClose={close} returnFocus={returnFocus} />;

@@ -492,8 +492,7 @@ a.pc-btn{text-decoration:none}
 .pc-command__empty strong{color:var(--ink);font-size:var(--type-body-size);line-height:var(--type-body-line)}
 .pc-command__notice{flex-shrink:0;padding:var(--space-2) var(--space-4);border-top:1px solid var(--surface-lane);color:var(--ink-secondary);font-size:var(--type-caption-size);line-height:var(--type-caption-line)}
 .pc-command__footer{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) calc(var(--space-3) + var(--space-half));padding:var(--space-2) calc(var(--space-3) + var(--space-half));border-top:1px solid var(--line);background:var(--surface-page);flex-shrink:0}
-@media(max-width:559px){.pc-command{inset:var(--space-3) 0 auto;width:calc(100% - var(--space-6));max-height:calc(100vh - var(--space-6))}.pc-command__sub{display:none}.pc-command__keys{display:none}.pc-command__scopes .pc-command__hint{display:none}}
-||||||| 7d90a3bb
+@media(max-width:559px){.pc-command{inset:var(--space-3) 0 auto;width:calc(100% - var(--space-6));max-height:calc(100vh - var(--space-6))}.pc-command__keys{display:none}.pc-command__scopes .pc-command__hint{display:none}.pc-command__scopes{overflow-x:visible}.pc-command__tabs{flex-wrap:wrap}.pc-command__label{white-space:normal;overflow-wrap:anywhere}}
 .pc-task-tree{display:flex;flex-direction:column;gap:var(--space-2);min-width:0;margin:0;padding:0;list-style:none}
 .pc-task-tree--compact{gap:var(--space-1)}
 .pc-task-tree>li{min-width:0}
