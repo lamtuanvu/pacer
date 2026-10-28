@@ -11,7 +11,7 @@ model integration to the host (P13 keeps the host minimal) and would let model o
 
 ## Decisions
 
-- **D1. `assistant` is a plugin extension point** with one method, `assistant.respond` (plugin protocol 1.2.0). The host
+- **D1. `assistant` is a plugin extension point** with one method, `assistant.respond` (plugin protocol 1.3.0). The host
   runs every read tool itself and calls the plugin again with the results, up to `maxToolRounds`. A returned tool call is a
   request. The plugin never calls client ops and never receives an API token, grant or session.
 - **D2. Bundled only.** Plugins are unsandboxed child processes today, so the host refuses an installed plugin whose
