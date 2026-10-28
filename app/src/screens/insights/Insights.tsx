@@ -42,7 +42,7 @@ export function Insights({ query }: { query: RouteQuery }) {
         {s.daily.length ? <><ol className="pc-insights__bars" aria-hidden="true">{bars(s.daily, agents).map(d => <li key={d.at} >
           <svg viewBox="0 0 10 100" preserveAspectRatio="none" aria-hidden="true">{d.rects.map(r => <rect key={r.agent} className={agentClass(r.index)} x={0} width={10} y={r.y} height={r.height} />)}</svg>
           <small>{new Date(d.at * 1000).toLocaleDateString(undefined, { month: "numeric", day: "numeric" })}</small></li>)}</ol>
-          <table className="sr-only"><caption>Tokens per {s.bucket}, by agent</caption><thead><tr><th scope="col">Date</th>{agents.map(a => <th scope="col" key={a}>{label(a)}</th>)}</tr></thead><tbody>{s.daily.map(d => <tr key={d.at}><th scope="row">{new Date(d.at * 1000).toLocaleDateString()}</th>{agents.map(a => <td key={a}>{compact(d.byAgent[a] ?? 0)}</td>)}</tr>)}</tbody></table></>
+          <div className="sr-only"><table><caption>Tokens per {s.bucket}, by agent</caption><thead><tr><th scope="col">Date</th>{agents.map(a => <th scope="col" key={a}>{label(a)}</th>)}</tr></thead><tbody>{s.daily.map(d => <tr key={d.at}><th scope="row">{new Date(d.at * 1000).toLocaleDateString()}</th>{agents.map(a => <td key={a}>{compact(d.byAgent[a] ?? 0)}</td>)}</tr>)}</tbody></table></div></>
           : <p className="pc-insights__note">No tokens recorded in this period.</p>}
       </Section>
       <Section title="Agents, ranked by tokens" description="A root task is what was asked for; subtasks are what it was split into.">
