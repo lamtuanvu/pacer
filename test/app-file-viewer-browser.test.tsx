@@ -32,7 +32,7 @@ beforeAll(async()=>{
  server=Bun.serve({port:0,hostname:"127.0.0.1",fetch:request=>new URL(request.url).pathname==="/fixture.js"?new Response(script,{headers:{"Content-Type":"text/javascript"}}):new Response(`<meta charset="utf-8"><style>${styles}</style><div id="root"></div><script type="module" src="/fixture.js"></script>`,{headers:{"Content-Type":"text/html"}})});
  browser=await chromium.launch({executablePath:browserPath,headless:true});
 },60_000);
-afterAll(async()=>{await browser?.close();server?.stop(true)});
+afterAll(async()=>{await browser?.close();server?.stop(true)},30_000);
 
 async function open(page:Page,width:number,path:string,query=""){
  const errors:string[]=[];page.on("pageerror",error=>errors.push(error.message));
@@ -82,6 +82,12 @@ browserTest("below 1100 px the viewer replaces the terminal; below 768 px it is 
   await page.keyboard.press("Escape");
   await expect(more.getAttribute("aria-expanded")).resolves.toBe("false");
   expect(await viewer.isVisible()).toBe(true);
+  // The search field keeps room for a query beside the 36 px buttons.
+  await viewer.getByRole("button",{name:"Search",exact:true}).click();
+  const field=await viewer.getByRole("textbox",{name:"Search file"}).boundingBox();
+  expect(field!.width).toBeGreaterThan(150);
+  for(const name of ["Next match","Match case","Close search"]){const b=await viewer.getByRole("button",{name}).boundingBox();expect(b!.width).toBeGreaterThanOrEqual(36);}
+  await viewer.getByRole("button",{name:"Close search"}).click();
  }finally{await page.close()}
 },30_000);
 
@@ -102,7 +108,11 @@ browserTest("a large file loads in pages; search covers the lines loaded and Esc
   await viewer.getByText("2 of 2",{exact:true}).waitFor();
   await input.press("Shift+Enter");
   await viewer.getByText("1 of 2",{exact:true}).waitFor();
+  const before=await viewer.locator(".pc-file-viewer__source").evaluate(element=>{element.scrollTop+=300;return element.scrollTop;});
   await viewer.getByRole("button",{name:"Show next 1,000 lines"}).click();
+  await viewer.getByText("Large file: showing the first 5,000 lines").waitFor();
+  // Loading more keeps the reader's place.
+  expect(await viewer.locator(".pc-file-viewer__source").evaluate(element=>element.scrollTop)).toBe(before);
   await viewer.getByText("Large file: showing the first 5,000 lines").waitFor();
   await viewer.getByText("1 of 3",{exact:true}).waitFor();
   await expect(viewer.getByRole("button",{name:/Show next/}).count()).resolves.toBe(0);

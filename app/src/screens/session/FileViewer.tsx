@@ -302,7 +302,7 @@ export function FileViewer({ file, reference, error, loading = false, workspace,
       const top = anchor.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop;
       container.scrollTop = Math.max(0, top - container.clientHeight / 3);
     } else if (container) container.scrollTop = 0;
-  }, [tab, active?.line, active?.start, file?.path, layout, loaded]);
+  }, [tab, active?.line, active?.start, file?.path, file?.line, layout]);
 
   const step = (delta: number) => {
     if (!matches.length) return;
@@ -360,7 +360,7 @@ export function FileViewer({ file, reference, error, loading = false, workspace,
     {line && line > lines.length && <p className="pc-file-viewer__notice" role="status">Line {line} is beyond the end of this file ({plural(lines.length, "line")}).</p>}
     {large && <Banner tone="warn" icon="info" title={`Large file: showing the first ${count(shownCount)} lines`} label="Large file"
       actions={<>
-        {shownCount < lines.length && <Button size="sm" onClick={() => setLoaded(shownCount + PAGE_LINES)}>Show next {count(Math.min(PAGE_LINES, lines.length - shownCount))} lines</Button>}
+        {shownCount < lines.length && <Button size="sm" onClick={() => setLoaded(shownCount + PAGE_LINES)}>Show next {count(Math.min(PAGE_LINES, lines.length - shownCount))} {lines.length - shownCount === 1 ? "line" : "lines"}</Button>}
         {openInEditor && <Button size="sm" variant="ghost" onClick={openInEditor}>Open in editor</Button>}
       </>}>
       <span role="status">{name} is {formatSize(file.size)} ({count(lines.length)} lines). Search covers the lines shown.</span>
