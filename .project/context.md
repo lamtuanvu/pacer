@@ -31,6 +31,7 @@ pacer paces AI coding work across subscription budgets. A planner plans and revi
 | `crates/foundation` | `pacer-foundation`: ctx, file rules, lock, `CoreError`, op registry types |
 | `crates/client-control-protocol` | `pacer-client-control-protocol`: generated agent discovery and connected-page control types, split under CRATE-3 |
 | `crates/limits-protocol` | `pacer-limits-protocol`: generated limits operation types, split under CRATE-3 |
+| `crates/plugin-ops-protocol` | `pacer-plugin-ops-protocol`: generated `plugin.*` client operation types, split under CRATE-3 |
 | `crates/session-protocol` | `pacer-session-protocol`: generated interactive-session operation types, split from the client schema under CRATE-3 |
 | `crates/terminal-protocol` | `pacer-terminal-protocol`: generated terminal and host-terminal operation types, split from the client schema under CRATE-3 |
 | `crates/cli` | `pacer-cli`: argv dispatch, core exec, status line, self-repair |
@@ -62,6 +63,8 @@ REPO-10 (amendment 0.10.0, pending maintainer merge; authorized for this setup t
 requires independent scoped review, fixes and final-content re-review. The reviewer
 index selects specialist criteria; it does not waive the general review gate.
 Recommendations and merge approval remain distinct from required evidence.
+
+Agent work routing: REPO-11 to REPO-14 in [rules/repository.md](rules/repository.md#repo-11-to-repo-14-agent-work-routing) (amendment 0.15.0, pending maintainer merge).
 
 CI job selection: [docs/testing/ci-selection.md](../docs/testing/ci-selection.md), amendment 0.11.0 (pending maintainer merge). Local validation rules remain applicable.
 

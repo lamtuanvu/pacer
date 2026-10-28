@@ -39,6 +39,15 @@
   --traffic-close: #ff5f56;
   --traffic-min: #ffbd2e;
   --traffic-max: #27ca40;
+  --chart-1: #4f7a94;
+  --chart-2: #b97d5a;
+  --chart-3: #7588c7;
+  --chart-4: #7f8f6f;
+  --chart-5: #918977;
+  --aurora-1: #a5b4fc;
+  --aurora-2: #f0abfc;
+  --aurora-3: #99f6e4;
+  --ink-on-fill: #ffffff;
   --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   --type-display-size: 28px;
@@ -76,6 +85,12 @@
   --type-code-size: 12px;
   --type-code-line: 18px;
   --type-code-weight: 400;
+  --type-count-badge-size: 10px;
+  --type-count-badge-line: 16px;
+  --type-count-badge-weight: 700;
+  --type-match-strong-size: 13px;
+  --type-match-strong-line: 19px;
+  --type-match-strong-weight: 700;
   --space-1: 4px;
   --space-1\.5: 6px;
   --space-2: 8px;
@@ -87,11 +102,20 @@
   --space-2\.5: 10px;
   --space-half: 2px;
   --space-6: 24px;
+  --space-3\.5: 14px;
+  --space-7: 28px;
+  --space-10: 40px;
   --radius-sm: 6px;
   --radius-md: 8px;
   --radius-lg: 10px;
   --radius-xl: 14px;
   --radius-full: 999px;
+  --radius-card: 12px;
+  --radius-xs: 2px;
+  --radius-4: 4px;
+  --radius-5: 5px;
+  --radius-2: 2px;
+  --radius-7: 7px;
   --control-compact: 28px;
   --control-settings: 32px;
   --control-normal: 44px;
@@ -157,6 +181,24 @@
   --size-300: 300px;
   --size-260: 260px;
   --size-180: 180px;
+  --size-10: 10px;
+  --size-14: 14px;
+  --size-15: 15px;
+  --size-21: 21px;
+  --size-34: 34px;
+  --size-52: 52px;
+  --size-272: 272px;
+  --size-1240: 1240px;
+  --size-3: 3px;
+  --size-4: 4px;
+  --size-5: 5px;
+  --size-84: 84px;
+  --size-420: 420px;
+  --size-neg-6: -6px;
+  --size-10\.5: 10.5px;
+  --size-12\.5: 12.5px;
+  --size-440: 440px;
+  --size-72: 72px;
   --shadow-popover: 0 6px 24px rgb(0 0 0 / .13);
   --shadow-status-outline: 0 0 0 1px var(--ink-muted);
   --layer-base: 1;
@@ -209,6 +251,15 @@
   --traffic-close: #ff5f56;
   --traffic-min: #ffbd2e;
   --traffic-max: #27ca40;
+  --chart-1: #7da4bb;
+  --chart-2: #d5a68a;
+  --chart-3: #a5b2df;
+  --chart-4: #9baa8b;
+  --chart-5: #c6c1b5;
+  --aurora-1: #818cf8;
+  --aurora-2: #d58be8;
+  --aurora-3: #5ed8c4;
+  --ink-on-fill: #18181b;
 }
 }
 :root[data-theme="dark"] {
@@ -250,4 +301,13 @@
   --traffic-close: #ff5f56;
   --traffic-min: #ffbd2e;
   --traffic-max: #27ca40;
+  --chart-1: #7da4bb;
+  --chart-2: #d5a68a;
+  --chart-3: #a5b2df;
+  --chart-4: #9baa8b;
+  --chart-5: #c6c1b5;
+  --aurora-1: #818cf8;
+  --aurora-2: #d58be8;
+  --aurora-3: #5ed8c4;
+  --ink-on-fill: #18181b;
 }

@@ -36,7 +36,9 @@ test("provisional tokens are appended to their group", () => {
 test("provisional entries are listed", () => {
   const entries = provisionalEntries(local);
   if (entries.length) console.info("Provisional design tokens still pending in the design system:", entries);
-  expect(entries).toEqual([]);
+  // The Tasks, app-frame chrome, command menu and file viewer board values, until the design system carries them. Each entry names its board.
+  expect(entries.map(entry => entry.name)).toEqual(["ink-on-fill", "space-3.5", "space-7", "space-10", "radius-card", "radius-xs", "radius-4", "radius-5", "radius-2", "radius-7", "size-10", "size-14", "size-15", "size-21", "size-34", "size-52", "size-272", "size-1240", "size-3", "size-4", "size-5", "size-84", "size-420", "size-neg-6", "size-10.5", "size-12.5", "size-440", "size-72", "count-badge", "match-strong"]);
+  expect(entries.every(entry => entry.provisional.length > 20)).toBe(true);
 });
 
 test("ds-sync rejects an export missing a dark value and writes nothing", () => {
@@ -104,4 +106,12 @@ test('button theme backgrounds change immediately rather than transitioning stal
  const css = read('components.css');
  expect(css).toContain('transition:opacity var(--motion-fast) var(--motion-ease)');
  expect(css).not.toContain('transition:background-color var(--motion-fast) var(--motion-ease),opacity');
+});
+
+test("a provisional type style the design system now has is rejected", () => {
+  const known = tokens.type.groups[0]!.styles[0]!;
+  const style = { ...known, provisional: "until the design system adds it" };
+  expect(() => mergeTokens(tokens, { type: { styles: [style] } })).toThrow(`type-${known.name} is now in the design system`);
+  const merged = mergeTokens(tokens, { type: { styles: [{ ...known, name: "count-badge-test", provisional: "x" }] } });
+  expect(generateTokensCss(merged)).toContain("--type-count-badge-test-size:");
 });

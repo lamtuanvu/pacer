@@ -1,28 +1,20 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { ago, clock } from "../../../src/view-model/time";
 import { agentInfo, markAgent } from "../../../src/view-model/agents";
-import { capacity, plannerMeter } from "../../../src/view-model/selectors";
+import { capacity, counts as snapshotCounts, plannerMeter } from "../../../src/view-model/selectors";
 import type { ClientSnapshot } from "../../../src/view-model/snapshot";
-import { executorLabel } from "../../../src/view-model/words";
+import { executorLabel, paceStatus } from "../../../src/view-model/words";
 import { AgentMark } from "../ds/AgentMark";
 import { Kbd } from "../ds/Kbd";
+import { Icon } from "../ds/icons";
 import { UsageMeter } from "../ds/UsageMeter";
 import { Button } from "../ds/Button";
 import { PopoverDialog } from "../ds/Dialog";
 import type { Account } from "../model/accounts";
 import { useQuery, useTaskContext } from "../screens/task-shared";
-import type { KeyRegistry, Shortcut } from "../keys/registry";
+import type { KeyRegistry } from "../keys/registry";
 import type { Route } from "../router";
 
-export interface StatusHint { keys: string; label: string }
-
-const shortLabels: Record<string, string> = {
-  "Delegate a task": "delegate",
-  "Show keyboard shortcuts": "shortcuts",
-  "Focus the repo filter": "focus filter",
-  "Close the settings panel": "close settings",
-  "Stop session": "stop session",
-};
 const usageSources: Record<string, string> = { "status-line": "Status line", "session-log": "Session logs", "provider-cli": "Provider reading", metered: "Measured spend", reactive: "Observed limits", unmetered: "No quota limit" };
 
 export function dismissUsageOnEscape(event: Pick<KeyboardEvent, "key" | "preventDefault" | "stopPropagation">, close: () => void) {
@@ -32,37 +24,13 @@ export function dismissUsageOnEscape(event: Pick<KeyboardEvent, "key" | "prevent
   close();
 }
 
-function compactKeys(keys: string[]): string {
-  return keys.length > 1 && keys.every((key, index) => key === String(index + Number(keys[0])))
-    ? `${keys[0]}–${keys.at(-1)}`
-    : keys.join(" ");
-}
-
-/** The compact hint bar only advertises keys actually registered for this screen. */
-export function screenHints(shortcuts: Shortcut[], route: Route): StatusHint[] {
-  const local = shortcuts.filter(shortcut => shortcut.scope === route.name);
-  const global = shortcuts.filter(shortcut => shortcut.scope === "global" && ["d", "?"].includes(shortcut.keys));
-  const selected = local.length ? [...local, ...global] : global;
-  const byLabel = new Map<string, string[]>();
-  for (const shortcut of selected) {
-    const keys = byLabel.get(shortcut.label) ?? [];
-    if (!keys.includes(shortcut.keys)) keys.push(shortcut.keys);
-    byLabel.set(shortcut.label, keys);
-  }
-  const hints = [...byLabel].map(([label, keys]) => ({
-    label: shortLabels[label] ?? label,
-    keys: compactKeys(keys),
-  }));
-  // Keep the status bar short; the help dialog has the complete key list.
-  return hints.length > 6 ? [...hints.slice(0, 5), { keys: "?", label: "shortcuts" }] : hints;
-}
-
-export function StatusBar({ route, snapshot, registry }: { route: Route; snapshot: ClientSnapshot | null; registry: KeyRegistry }) {
-  const [shortcuts, setShortcuts] = useState(() => registry.list());
+/** `terminal` adds the dock toggle; it is omitted wherever the dock cannot open. */
+export function StatusBar({ snapshot, registry, terminal }: { route?: Route; snapshot: ClientSnapshot | null; registry: KeyRegistry; terminal?: { open: boolean; toggle: () => void } }) {
+  const [help, setHelp] = useState(() => registry.list().find(shortcut => shortcut.keys === "?"));
+  useEffect(() => { const update = () => setHelp(registry.list().find(shortcut => shortcut.keys === "?")); update(); return registry.subscribe(update); }, [registry]);
   const [usageOpen, setUsageOpen] = useState(false);
   const usageButton = useRef<HTMLButtonElement>(null);
   const [now, setNow] = useState(() => Date.now() / 1000);
-  useEffect(() => { const update = () => setShortcuts(registry.list()); const unsubscribe = registry.subscribe(update); update(); return unsubscribe; }, [registry]);
   useEffect(() => {
     if (!usageOpen) return;
     setNow(Date.now() / 1000);
@@ -73,17 +41,29 @@ export function StatusBar({ route, snapshot, registry }: { route: Route; snapsho
   const visiblePlanner = planner?.usedPct !== null ? planner : null;
   const executors = snapshot ? capacity(snapshot).filter(executor => executor.usedPct !== null && !(visiblePlanner && executor.id === visiblePlanner.runner)) : [];
   const usageNames = [
-    ...(visiblePlanner ? [`${agentInfo(visiblePlanner.agent).name} planner ${Math.round(visiblePlanner.usedPct!)}%${visiblePlanner.stale ? " historical usage" : ""}`] : []),
+    ...(visiblePlanner ? [`${agentInfo(visiblePlanner.agent).name} planner ${Math.round(visiblePlanner.usedPct!)}%${visiblePlanner.verdict === "ahead" ? ", ahead of pace" : ""}${visiblePlanner.stale ? " historical usage" : ""}`] : []),
     ...executors.map(executor => `${executorLabel(executor.id)} ${Math.round(executor.usedPct!)}%${executor.stale ? " historical usage" : ""}`),
   ];
-  const hints = usageOpen ? [{ keys: "Escape", label: "close usage" }] : screenHints(shortcuts, route);
+  const counts = snapshot ? snapshotCounts(snapshot) : null;
+  const hints = usageOpen ? [{ keys: "Escape", label: "close usage" }] : [];
+  const budget = (key: string, agent: string, name: string, used: number, stale: boolean | undefined, ahead: boolean) => {
+    const warning = stale ? "Stale reading" : ahead ? "Ahead of pace" : null;
+    return <span className="pc-statusbar__item" key={key} title={`${name} · ${Math.round(used)}%${ahead ? " · ahead of pace" : ""}${stale ? " · stale reading" : ""}`}>
+      <AgentMark agent={agent} size={16} labelled={false} /><span className="pc-num pc-statusbar__pct">{Math.round(used)}%</span>
+      <UsageMeter used={used} pace={null} tone={ahead ? "warn" : "good"} size="mini" text="none" label={`${name} usage`} stale={stale} />
+      {warning && <span className="pc-statusbar__stale" role="img" aria-label={warning}>!</span>}
+    </span>;
+  };
   return <footer className="pc-statusbar" aria-label="Status bar">
     <Button ref={usageButton} size="sm" className="pc-statusbar__usage-button" aria-label={`Usage details${usageNames.length ? `: ${usageNames.join(", ")}` : ": unavailable"}`} aria-expanded={usageOpen} aria-controls="pc-usage-details" onClick={() => setUsageOpen(open => !open)}>
-      {visiblePlanner && <span className="pc-statusbar__item" aria-hidden="true"><AgentMark agent={visiblePlanner.agent} size={16} labelled={false} /><span className="pc-num">{Math.round(visiblePlanner.usedPct!)}%</span>{visiblePlanner.stale && <span className="pc-statusbar__stale" title="Stale usage reading">!</span>}</span>}
-      {executors.map(executor => <span className="pc-statusbar__item" aria-hidden="true" key={executor.id}><AgentMark agent={markAgent(executor.id, executor.account)} size={16} labelled={false} /><span className="pc-num">{Math.round(executor.usedPct!)}%</span>{executor.stale && <span className="pc-statusbar__stale" title="Stale usage reading">!</span>}</span>)}
+      {visiblePlanner && budget("planner", visiblePlanner.agent, agentInfo(visiblePlanner.agent).name, visiblePlanner.usedPct!, visiblePlanner.stale, paceStatus(visiblePlanner.verdict).label === paceStatus("ahead").label)}
+      {executors.map(executor => budget(executor.id, markAgent(executor.id, executor.account), executorLabel(executor.id), executor.usedPct!, executor.stale, false))}
       {!usageNames.length && <span>Usage</span>}
     </Button>
-    <div className="pc-statusbar__hints" aria-label="Shortcuts">{hints.map(hint => <span className="pc-statusbar__hint" key={`${hint.keys}:${hint.label}`}><Kbd>{hint.keys === "Enter" ? "⏎" : hint.keys === "Escape" ? "Esc" : hint.keys}</Kbd> {hint.label}</span>)}</div>
+    <span className="grow" />
+    {counts && <span className="pc-statusbar__work"><span className="pc-statusbar__dot" aria-hidden="true" />{counts.running} running · {counts.queued} queued</span>}
+    {terminal && <Button size="sm" variant="quiet" className="pc-statusbar__terminal" aria-label="Terminal" aria-keyshortcuts="Control+`" aria-expanded={terminal.open} aria-controls={terminal.open ? "pc-terminal-dock" : undefined} onClick={terminal.toggle}><Icon name="terminal" />Terminal <span className="pc-statusbar__keys">Ctrl+`</span></Button>}
+    <div className="pc-statusbar__hints">{hints.length ? hints.map(hint => <span className="pc-statusbar__hint" key={`${hint.keys}:${hint.label}`}><Kbd>{hint.keys === "Escape" ? "Esc" : hint.keys}</Kbd> {hint.label}</span>) : help && <Button size="sm" variant="quiet" className="pc-statusbar__help" onClick={help.run}>? shortcuts</Button>}</div>
     <span className="pc-statusbar__version">pacer {snapshot?.service?.version ?? ""}</span>
     {usageOpen && <PopoverDialog id="pc-usage-details" title="Usage details" close={() => setUsageOpen(false)}><UsagePopover close={() => setUsageOpen(false)} now={now} /></PopoverDialog>}
   </footer>;

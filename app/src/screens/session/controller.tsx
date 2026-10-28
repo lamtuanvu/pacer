@@ -1,15 +1,14 @@
 import { Button } from "../../ds/Button";
-import { RepoFilter } from "../RepoFilter";
 import type { ApiTask } from "../../../../src/api/read-model/types";
 import { reasonCopy, sessionTime, timelineCopy } from "../../../../src/view-model/copy";
 import { useDialogs } from "../../ds/useDialogs";
-import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { TaskDetail } from '../../../../src/core/task-detail';
 import type { ClientTask } from '../../../../src/view-model/snapshot';
 import type { SessionInfo } from '../../../../src/session/service';
 import { markAgent } from "../../../../src/view-model/agents";
 import { clock } from "../../../../src/view-model/time";
-import { running } from "../../../../src/view-model/selectors";
+import { scopedTaskTree, taskTree, workTasks, type WorkRow } from "../../../../src/view-model/task-tree";
 import { withQuery, type RouteQuery } from "../../router";
 import { keys } from "../../keys/instance";
 import { useActions } from "../../data/action-context";
@@ -17,12 +16,14 @@ import { useQuery, useTaskContext } from "../task-shared";
 import { Session } from "./Session";
 import { onPageScroll, pageScrollY, scrollPageTo } from "../../shell/page-scroll";
 import { takeoverSession, type TakeoverState } from "./takeover";
-import { SessionsList } from "./SessionsList";
-import { WorkList } from "./WorkList";
-import { Tabs } from "../../ds/Patterns";
+import { TasksPage } from "./TasksPage";
 import { Cluster, Page } from "../../ds/Page";
 import { Conversation } from "./Conversation";
 import type { SessionData, Action } from './types';
+/** Before the first snapshot arrives, history alone still renders, with the same descriptor. */
+function scopedHistory(history:ApiTask[],repo:string|null){
+ return taskTree({tasks:history.filter(t=>!repo||t.repo?.key===repo)},{now:Date.now()/1000}).filter(node=>!node.active);
+}
 export function sessionRow(task:ClientTask):SessionData {
  return {id:task.id,title:task.fullTitle ?? task.title,goal:task.goal,state:task.state,reviewRequest:task.reviewRequest,review:task.review,resolved:task.resolved,dismissed:task.dismissed,retriedBy:task.retriedBy,executor:task.executor,agent:markAgent(task.executor??'unknown'),repo:task.repo?.label??'Repository unknown',machine:task.host,
  phase:task.progress?.phase,elapsed:sessionTime(task,Date.now()/1000),
@@ -40,7 +41,6 @@ export function conversationChanges(diff:TaskDiff):{diff:string;untracked:string
 
 export function Sessions({query}:{query:RouteQuery}) {
  const {state}=useTaskContext(),snapshot=state.snapshot;
- const [listMode,setListMode]=useState("all");
  const scrollKey = JSON.stringify(query);
  const savedPosition = useRef(taskListPositions.get(scrollKey));
  const savedScroll = useRef(savedPosition.current?.scroll ?? 0);
@@ -75,17 +75,16 @@ export function Sessions({query}:{query:RouteQuery}) {
   });
   return () => cancelAnimationFrame(frame);
  }, [snapshot, page.loading, history]);
- const recent=[...new Map([...history,...(snapshot?.tasks.filter(t=>!query.repo||t.repo?.key===query.repo)??[])].map(t=>[t.id,t])).values()]
-  .filter(t=>!['running','queued'].includes(t.state)).sort((a,b)=>b.updatedAt-a.updatedAt);
- const resource=(data:SessionData[]|undefined)=>({data,loading:!snapshot});
- return <Page width="full" className="pc-page-body">{snapshot&&<RepoFilter snapshot={snapshot} query={query}/>}<Tabs label="Task list" id="task-list" value={listMode} options={[{value:"all",label:"All tasks"},{value:"work",label:"Dispatched work"}]} onChange={setListMode}/>
- <div role="tabpanel" id={`task-list-${listMode}-panel`} aria-labelledby={`task-list-${listMode}-tab`}>
- {listMode==="work"?<WorkList key={query.repo??""} query={query}/>:<><SessionsList running={resource(snapshot?running(snapshot,{repo:query.repo||null}).map(sessionRow):undefined)} recent={{data:recent.map(sessionRow),loading:page.loading&&!history.length,error:page.error?'Could not load task history.':undefined}} query={withQuery('',query)}/>
- {(page.data?.next||page.error)&&<Cluster>
-  {page.data?.next&&<Button busy={page.loading} onClick={()=>setCursor(page.data!.next!)}>Load older tasks</Button>}
-  {page.error&&<Button onClick={page.reload}>Try again</Button>}
- </Cluster>}</>}
- </div></Page>;
+ const [workBefore,setWorkBefore]=useState<string|undefined>();
+ const [workRows,setWorkRows]=useState<WorkRow[]>([]);
+ const work=useQuery<{tasks:WorkRow[];next:string|null}>("dispatch.list",{relation:"all",limit:100,...(workBefore?{before:workBefore}:{}),...(query.repo?{repo:query.repo}:{})});
+ useEffect(()=>{if(work.data)setWorkRows(previous=>[...new Map([...(workBefore?previous:[]),...work.data!.tasks].map(row=>[row.id,row])).values()]);},[work.data,workBefore]);
+ const extra=useMemo(()=>[...workTasks(workRows),...history],[workRows,history]);
+ const nodes=snapshot?scopedTaskTree(snapshot,{repo:query.repo||null},{now:Date.now()/1000,extra}):history.length?scopedHistory(history,query.repo||null):undefined;
+ return <TasksPage key={query.repo??''} nodes={nodes} repos={snapshot?.repos??[]} query={query} onNew={()=>window.dispatchEvent(new Event("pacer:delegate"))}
+  hasOlder={!!page.data?.next} loadingOlder={page.loading} onLoadOlder={()=>setCursor(page.data!.next!)}
+  error={page.error||work.error?<Cluster><span role="alert">{page.error&&work.error?"Tasks and subtasks could not be loaded.":page.error?"Task history could not be loaded.":"Subtasks and branches could not be loaded."}</span><Button onClick={()=>{page.error&&page.reload();work.error&&work.reload();}}>Try again</Button></Cluster>:undefined}
+  hasMoreWork={!!work.data?.next} loadingMoreWork={work.loading} onLoadMoreWork={()=>setWorkBefore(work.data!.next!)}/>;
 }
 export function sessionDetail(task:TaskDetail):SessionData {
  return {...sessionRow(task),branch:task.branch,machine:task.machine,started:task.startedAt?clock(task.startedAt,Date.now()/1000):undefined,
@@ -148,6 +147,6 @@ export function SessionRoute({id, embedded = false, view}:{id:string; embedded?:
  const handler=useRef(()=>{});handler.current=()=>{if(stop)void invoke(stop).catch(error=>setShortcutError(message(error)??'Action failed'));};
  useEffect(()=>keys.register({keys:'s',label:'Stop session',scope:'sessions',run:()=>handler.current()}),[]);
  if(task.data?.interactionMode==='conversation' && (!view || view==='terminal'))return <Conversation key={id} task={task.data} session={session.data} onReload={()=>{task.reload();session.reload();}}/>;
- return <>{dialogs.dialog}{shortcutError&&<p role="status">{shortcutError}</p>}<Session embedded={embedded} view={view} key={id} onTakeSent={()=>setTakeRequested(false)} onTakeover={()=>void takeOver()} takeoverBusy={takeoverBusy} takeoverStarting={takeoverStarting} takeoverError={takeoverError} takeRequested={takeRequested} data={data} loading={task.loading} error={message(task.error)} onAction={invoke} onAttach={async(_,target)=>{const key=`attach:${id}:${target}`;const outcome=await runner.run(key,{label:'Open viewer',op:'task.attach',params:{id,target}});if(outcome.status==='error'||outcome.status==='handled')throw new Error(outcome.message);return runner.result(key) as {opened:boolean;command?:string};}} onReload={task.reload}/></>;
+ return <>{dialogs.dialog}{shortcutError&&<p role="status">{shortcutError}</p>}<Session embedded={embedded} view={view} key={id} onTakeSent={()=>setTakeRequested(false)} onTakeover={()=>void takeOver()} takeoverBusy={takeoverBusy} takeoverStarting={takeoverStarting} takeoverError={takeoverError} takeRequested={takeRequested} data={data} loading={task.loading} error={message(task.error)} onAction={invoke} onReadFile={request=>api.call('session.file.read',request)} onAttach={async(_,target)=>{const key=`attach:${id}:${target}`;const outcome=await runner.run(key,{label:'Open viewer',op:'task.attach',params:{id,target}});if(outcome.status==='error'||outcome.status==='handled')throw new Error(outcome.message);return runner.result(key) as {opened:boolean;command?:string};}} onReload={task.reload}/></>;
 }
 const message=(error:unknown)=>error instanceof Error?error.message:error?String(error):undefined;

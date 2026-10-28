@@ -1,0 +1,13 @@
+$ codex exec -C $HOME/repo --skip-git-repo-check -o $HOME/runs/last.md -
+--- stdout
+the test printed:
+tokens used
+999
+then more output
+tokens used
+12,345
+
+--- exit 0
+
+--- routing
+skipped cursor: broken

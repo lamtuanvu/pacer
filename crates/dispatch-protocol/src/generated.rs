@@ -2624,6 +2624,1232 @@ impl<'de> ::serde::Deserialize<'de> for DispatchEventsParamsId {
             })
     }
 }
+///`DispatchExplainParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "goal",
+///    "preferences",
+///    "repo",
+///    "requirements"
+///  ],
+///  "properties": {
+///    "delegationEnforcement": {
+///      "type": "string",
+///      "enum": [
+///        "strict",
+///        "cooperative"
+///      ]
+///    },
+///    "difficulty": {
+///      "type": "string",
+///      "enum": [
+///        "simple",
+///        "standard",
+///        "complex"
+///      ]
+///    },
+///    "executor": {
+///      "type": "string",
+///      "maxLength": 128,
+///      "minLength": 1
+///    },
+///    "goal": {
+///      "type": "string",
+///      "maxLength": 20000,
+///      "minLength": 1
+///    },
+///    "kind": {
+///      "type": "string",
+///      "maxLength": 256,
+///      "minLength": 1
+///    },
+///    "model": {
+///      "type": "string",
+///      "maxLength": 256,
+///      "minLength": 1
+///    },
+///    "preferences": {
+///      "default": {
+///        "models": [],
+///        "strengths": []
+///      },
+///      "type": "object",
+///      "required": [
+///        "models",
+///        "strengths"
+///      ],
+///      "properties": {
+///        "models": {
+///          "default": [],
+///          "type": "array",
+///          "items": {
+///            "type": "string",
+///            "maxLength": 256,
+///            "minLength": 1
+///          },
+///          "maxItems": 256
+///        },
+///        "strengths": {
+///          "default": [],
+///          "type": "array",
+///          "items": {
+///            "type": "string",
+///            "maxLength": 256,
+///            "minLength": 1
+///          },
+///          "maxItems": 64
+///        }
+///      },
+///      "additionalProperties": false
+///    },
+///    "repo": {
+///      "type": "string",
+///      "maxLength": 4096,
+///      "minLength": 1
+///    },
+///    "requirements": {
+///      "default": {},
+///      "type": "object",
+///      "properties": {
+///        "context": {
+///          "type": "integer",
+///          "maximum": 9007199254740991.0,
+///          "exclusiveMinimum": 0.0
+///        },
+///        "minTier": {
+///          "type": "string",
+///          "enum": [
+///            "small",
+///            "medium",
+///            "frontier"
+///          ]
+///        },
+///        "tools": {
+///          "type": "boolean"
+///        }
+///      },
+///      "additionalProperties": false
+///    },
+///    "strategyDraft": {
+///      "type": "object",
+///      "required": [
+///        "from"
+///      ],
+///      "properties": {
+///        "description": {
+///          "type": "string",
+///          "maxLength": 1000
+///        },
+///        "from": {
+///          "type": "string",
+///          "maxLength": 128,
+///          "minLength": 1
+///        },
+///        "set": {
+///          "type": "object",
+///          "additionalProperties": {
+///            "$ref": "#/$defs/DispatchExplainParams___schema0"
+///          },
+///          "propertyNames": {
+///            "type": "string",
+///            "maxLength": 256
+///          }
+///        },
+///        "unset": {
+///          "type": "array",
+///          "items": {
+///            "type": "string",
+///            "maxLength": 256
+///          },
+///          "maxItems": 256
+///        }
+///      },
+///      "additionalProperties": false
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct DispatchExplainParams {
+    #[serde(
+        rename = "delegationEnforcement",
+        default,
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub delegation_enforcement: ::std::option::Option<DispatchExplainParamsDelegationEnforcement>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub difficulty: ::std::option::Option<DispatchExplainParamsDifficulty>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub executor: ::std::option::Option<DispatchExplainParamsExecutor>,
+    pub goal: DispatchExplainParamsGoal,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub kind: ::std::option::Option<DispatchExplainParamsKind>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub model: ::std::option::Option<DispatchExplainParamsModel>,
+    pub preferences: DispatchExplainParamsPreferences,
+    pub repo: DispatchExplainParamsRepo,
+    pub requirements: DispatchExplainParamsRequirements,
+    #[serde(
+        rename = "strategyDraft",
+        default,
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub strategy_draft: ::std::option::Option<DispatchExplainParamsStrategyDraft>,
+}
+///`DispatchExplainParamsDelegationEnforcement`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "enum": [
+///    "strict",
+///    "cooperative"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum DispatchExplainParamsDelegationEnforcement {
+    #[serde(rename = "strict")]
+    Strict,
+    #[serde(rename = "cooperative")]
+    Cooperative,
+}
+impl ::std::convert::From<&Self> for DispatchExplainParamsDelegationEnforcement {
+    fn from(value: &DispatchExplainParamsDelegationEnforcement) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for DispatchExplainParamsDelegationEnforcement {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Strict => f.write_str("strict"),
+            Self::Cooperative => f.write_str("cooperative"),
+        }
+    }
+}
+impl ::std::str::FromStr for DispatchExplainParamsDelegationEnforcement {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "strict" => Ok(Self::Strict),
+            "cooperative" => Ok(Self::Cooperative),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for DispatchExplainParamsDelegationEnforcement {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`DispatchExplainParamsDifficulty`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "enum": [
+///    "simple",
+///    "standard",
+///    "complex"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum DispatchExplainParamsDifficulty {
+    #[serde(rename = "simple")]
+    Simple,
+    #[serde(rename = "standard")]
+    Standard,
+    #[serde(rename = "complex")]
+    Complex,
+}
+impl ::std::convert::From<&Self> for DispatchExplainParamsDifficulty {
+    fn from(value: &DispatchExplainParamsDifficulty) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for DispatchExplainParamsDifficulty {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Simple => f.write_str("simple"),
+            Self::Standard => f.write_str("standard"),
+            Self::Complex => f.write_str("complex"),
+        }
+    }
+}
+impl ::std::str::FromStr for DispatchExplainParamsDifficulty {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "simple" => Ok(Self::Simple),
+            "standard" => Ok(Self::Standard),
+            "complex" => Ok(Self::Complex),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for DispatchExplainParamsDifficulty {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`DispatchExplainParamsExecutor`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 128,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct DispatchExplainParamsExecutor(::std::string::String);
+impl ::std::ops::Deref for DispatchExplainParamsExecutor {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<DispatchExplainParamsExecutor> for ::std::string::String {
+    fn from(value: DispatchExplainParamsExecutor) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for DispatchExplainParamsExecutor {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 128usize {
+            return Err("longer than 128 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for DispatchExplainParamsExecutor {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for DispatchExplainParamsExecutor {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`DispatchExplainParamsGoal`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 20000,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct DispatchExplainParamsGoal(::std::string::String);
+impl ::std::ops::Deref for DispatchExplainParamsGoal {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<DispatchExplainParamsGoal> for ::std::string::String {
+    fn from(value: DispatchExplainParamsGoal) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for DispatchExplainParamsGoal {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 20000usize {
+            return Err("longer than 20000 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for DispatchExplainParamsGoal {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for DispatchExplainParamsGoal {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`DispatchExplainParamsKind`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 256,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct DispatchExplainParamsKind(::std::string::String);
+impl ::std::ops::Deref for DispatchExplainParamsKind {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<DispatchExplainParamsKind> for ::std::string::String {
+    fn from(value: DispatchExplainParamsKind) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for DispatchExplainParamsKind {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 256usize {
+            return Err("longer than 256 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for DispatchExplainParamsKind {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for DispatchExplainParamsKind {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`DispatchExplainParamsModel`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 256,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct DispatchExplainParamsModel(::std::string::String);
+impl ::std::ops::Deref for DispatchExplainParamsModel {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<DispatchExplainParamsModel> for ::std::string::String {
+    fn from(value: DispatchExplainParamsModel) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for DispatchExplainParamsModel {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 256usize {
+            return Err("longer than 256 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for DispatchExplainParamsModel {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for DispatchExplainParamsModel {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`DispatchExplainParamsPreferences`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "default": {
+///    "models": [],
+///    "strengths": []
+///  },
+///  "type": "object",
+///  "required": [
+///    "models",
+///    "strengths"
+///  ],
+///  "properties": {
+///    "models": {
+///      "default": [],
+///      "type": "array",
+///      "items": {
+///        "type": "string",
+///        "maxLength": 256,
+///        "minLength": 1
+///      },
+///      "maxItems": 256
+///    },
+///    "strengths": {
+///      "default": [],
+///      "type": "array",
+///      "items": {
+///        "type": "string",
+///        "maxLength": 256,
+///        "minLength": 1
+///      },
+///      "maxItems": 64
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct DispatchExplainParamsPreferences {
+    pub models: ::std::vec::Vec<DispatchExplainParamsPreferencesModelsItem>,
+    pub strengths: ::std::vec::Vec<DispatchExplainParamsPreferencesStrengthsItem>,
+}
+impl ::std::default::Default for DispatchExplainParamsPreferences {
+    fn default() -> Self {
+        DispatchExplainParamsPreferences {
+            models: vec![],
+            strengths: vec![],
+        }
+    }
+}
+///`DispatchExplainParamsPreferencesModelsItem`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 256,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct DispatchExplainParamsPreferencesModelsItem(::std::string::String);
+impl ::std::ops::Deref for DispatchExplainParamsPreferencesModelsItem {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<DispatchExplainParamsPreferencesModelsItem> for ::std::string::String {
+    fn from(value: DispatchExplainParamsPreferencesModelsItem) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for DispatchExplainParamsPreferencesModelsItem {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 256usize {
+            return Err("longer than 256 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for DispatchExplainParamsPreferencesModelsItem {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for DispatchExplainParamsPreferencesModelsItem {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`DispatchExplainParamsPreferencesStrengthsItem`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 256,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct DispatchExplainParamsPreferencesStrengthsItem(::std::string::String);
+impl ::std::ops::Deref for DispatchExplainParamsPreferencesStrengthsItem {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<DispatchExplainParamsPreferencesStrengthsItem> for ::std::string::String {
+    fn from(value: DispatchExplainParamsPreferencesStrengthsItem) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for DispatchExplainParamsPreferencesStrengthsItem {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 256usize {
+            return Err("longer than 256 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for DispatchExplainParamsPreferencesStrengthsItem {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for DispatchExplainParamsPreferencesStrengthsItem {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`DispatchExplainParamsRepo`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 4096,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct DispatchExplainParamsRepo(::std::string::String);
+impl ::std::ops::Deref for DispatchExplainParamsRepo {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<DispatchExplainParamsRepo> for ::std::string::String {
+    fn from(value: DispatchExplainParamsRepo) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for DispatchExplainParamsRepo {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 4096usize {
+            return Err("longer than 4096 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for DispatchExplainParamsRepo {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for DispatchExplainParamsRepo {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`DispatchExplainParamsRequirements`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "default": {},
+///  "type": "object",
+///  "properties": {
+///    "context": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "exclusiveMinimum": 0.0
+///    },
+///    "minTier": {
+///      "type": "string",
+///      "enum": [
+///        "small",
+///        "medium",
+///        "frontier"
+///      ]
+///    },
+///    "tools": {
+///      "type": "boolean"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct DispatchExplainParamsRequirements {
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub context: ::std::option::Option<::std::num::NonZeroU64>,
+    #[serde(
+        rename = "minTier",
+        default,
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub min_tier: ::std::option::Option<DispatchExplainParamsRequirementsMinTier>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub tools: ::std::option::Option<bool>,
+}
+impl ::std::default::Default for DispatchExplainParamsRequirements {
+    fn default() -> Self {
+        DispatchExplainParamsRequirements {
+            context: Default::default(),
+            min_tier: Default::default(),
+            tools: Default::default(),
+        }
+    }
+}
+///`DispatchExplainParamsRequirementsMinTier`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "enum": [
+///    "small",
+///    "medium",
+///    "frontier"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum DispatchExplainParamsRequirementsMinTier {
+    #[serde(rename = "small")]
+    Small,
+    #[serde(rename = "medium")]
+    Medium,
+    #[serde(rename = "frontier")]
+    Frontier,
+}
+impl ::std::convert::From<&Self> for DispatchExplainParamsRequirementsMinTier {
+    fn from(value: &DispatchExplainParamsRequirementsMinTier) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for DispatchExplainParamsRequirementsMinTier {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Small => f.write_str("small"),
+            Self::Medium => f.write_str("medium"),
+            Self::Frontier => f.write_str("frontier"),
+        }
+    }
+}
+impl ::std::str::FromStr for DispatchExplainParamsRequirementsMinTier {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "small" => Ok(Self::Small),
+            "medium" => Ok(Self::Medium),
+            "frontier" => Ok(Self::Frontier),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for DispatchExplainParamsRequirementsMinTier {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`DispatchExplainParamsSchema0`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "anyOf": [
+///    {
+///      "type": "string"
+///    },
+///    {
+///      "type": "number"
+///    },
+///    {
+///      "type": "boolean"
+///    },
+///    {
+///      "type": "null"
+///    },
+///    {
+///      "type": "array",
+///      "items": {
+///        "$ref": "#/$defs/DispatchExplainParams___schema0"
+///      }
+///    },
+///    {
+///      "type": "object",
+///      "additionalProperties": {
+///        "$ref": "#/$defs/DispatchExplainParams___schema0"
+///      },
+///      "propertyNames": {
+///        "type": "string"
+///      }
+///    }
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(untagged)]
+pub enum DispatchExplainParamsSchema0 {
+    Variant0(::std::string::String),
+    Variant1(f64),
+    Variant2(bool),
+    Variant3,
+    Variant4(::std::vec::Vec<DispatchExplainParamsSchema0>),
+    Variant5(::std::collections::HashMap<::std::string::String, DispatchExplainParamsSchema0>),
+}
+impl ::std::convert::From<&Self> for DispatchExplainParamsSchema0 {
+    fn from(value: &DispatchExplainParamsSchema0) -> Self {
+        value.clone()
+    }
+}
+impl ::std::convert::From<f64> for DispatchExplainParamsSchema0 {
+    fn from(value: f64) -> Self {
+        Self::Variant1(value)
+    }
+}
+impl ::std::convert::From<bool> for DispatchExplainParamsSchema0 {
+    fn from(value: bool) -> Self {
+        Self::Variant2(value)
+    }
+}
+impl ::std::convert::From<::std::vec::Vec<DispatchExplainParamsSchema0>>
+    for DispatchExplainParamsSchema0
+{
+    fn from(value: ::std::vec::Vec<DispatchExplainParamsSchema0>) -> Self {
+        Self::Variant4(value)
+    }
+}
+impl
+    ::std::convert::From<
+        ::std::collections::HashMap<::std::string::String, DispatchExplainParamsSchema0>,
+    > for DispatchExplainParamsSchema0
+{
+    fn from(
+        value: ::std::collections::HashMap<::std::string::String, DispatchExplainParamsSchema0>,
+    ) -> Self {
+        Self::Variant5(value)
+    }
+}
+///`DispatchExplainParamsStrategyDraft`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "from"
+///  ],
+///  "properties": {
+///    "description": {
+///      "type": "string",
+///      "maxLength": 1000
+///    },
+///    "from": {
+///      "type": "string",
+///      "maxLength": 128,
+///      "minLength": 1
+///    },
+///    "set": {
+///      "type": "object",
+///      "additionalProperties": {
+///        "$ref": "#/$defs/DispatchExplainParams___schema0"
+///      },
+///      "propertyNames": {
+///        "type": "string",
+///        "maxLength": 256
+///      }
+///    },
+///    "unset": {
+///      "type": "array",
+///      "items": {
+///        "type": "string",
+///        "maxLength": 256
+///      },
+///      "maxItems": 256
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct DispatchExplainParamsStrategyDraft {
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub description: ::std::option::Option<DispatchExplainParamsStrategyDraftDescription>,
+    pub from: DispatchExplainParamsStrategyDraftFrom,
+    #[serde(
+        default,
+        skip_serializing_if = ":: std :: collections :: HashMap::is_empty"
+    )]
+    pub set: ::std::collections::HashMap<
+        DispatchExplainParamsStrategyDraftSetKey,
+        DispatchExplainParamsSchema0,
+    >,
+    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
+    pub unset: ::std::vec::Vec<DispatchExplainParamsStrategyDraftUnsetItem>,
+}
+///`DispatchExplainParamsStrategyDraftDescription`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 1000
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct DispatchExplainParamsStrategyDraftDescription(::std::string::String);
+impl ::std::ops::Deref for DispatchExplainParamsStrategyDraftDescription {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<DispatchExplainParamsStrategyDraftDescription> for ::std::string::String {
+    fn from(value: DispatchExplainParamsStrategyDraftDescription) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for DispatchExplainParamsStrategyDraftDescription {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 1000usize {
+            return Err("longer than 1000 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for DispatchExplainParamsStrategyDraftDescription {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for DispatchExplainParamsStrategyDraftDescription {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`DispatchExplainParamsStrategyDraftFrom`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 128,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct DispatchExplainParamsStrategyDraftFrom(::std::string::String);
+impl ::std::ops::Deref for DispatchExplainParamsStrategyDraftFrom {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<DispatchExplainParamsStrategyDraftFrom> for ::std::string::String {
+    fn from(value: DispatchExplainParamsStrategyDraftFrom) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for DispatchExplainParamsStrategyDraftFrom {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 128usize {
+            return Err("longer than 128 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for DispatchExplainParamsStrategyDraftFrom {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for DispatchExplainParamsStrategyDraftFrom {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`DispatchExplainParamsStrategyDraftSetKey`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 256
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct DispatchExplainParamsStrategyDraftSetKey(::std::string::String);
+impl ::std::ops::Deref for DispatchExplainParamsStrategyDraftSetKey {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<DispatchExplainParamsStrategyDraftSetKey> for ::std::string::String {
+    fn from(value: DispatchExplainParamsStrategyDraftSetKey) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for DispatchExplainParamsStrategyDraftSetKey {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 256usize {
+            return Err("longer than 256 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for DispatchExplainParamsStrategyDraftSetKey {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for DispatchExplainParamsStrategyDraftSetKey {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`DispatchExplainParamsStrategyDraftUnsetItem`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 256
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct DispatchExplainParamsStrategyDraftUnsetItem(::std::string::String);
+impl ::std::ops::Deref for DispatchExplainParamsStrategyDraftUnsetItem {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<DispatchExplainParamsStrategyDraftUnsetItem> for ::std::string::String {
+    fn from(value: DispatchExplainParamsStrategyDraftUnsetItem) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for DispatchExplainParamsStrategyDraftUnsetItem {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 256usize {
+            return Err("longer than 256 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for DispatchExplainParamsStrategyDraftUnsetItem {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for DispatchExplainParamsStrategyDraftUnsetItem {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
 ///`DispatchLearningResetParams`
 ///
 /// <details><summary>JSON schema</summary>
