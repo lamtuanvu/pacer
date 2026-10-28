@@ -4,6 +4,7 @@ import { renderToString } from 'preact-render-to-string';
 import { ActionContext } from '../app/src/data/action-context';
 import { createActionRunner } from '../app/src/data/actions';
 import { Screen } from '../app/src/screens/Screen';
+import { AddExecutor } from '../app/src/screens/settings/AddExecutor';
 import { TaskContext } from '../app/src/screens/task-shared';
 import { initialState } from '../app/src/data/store';
 import { resolveRoute, SETTINGS_SECTIONS, type Route } from '../app/src/router';
@@ -20,6 +21,7 @@ function destination(hash:string):Route {
 }
 const runner=createActionRunner({call:async<T,>()=>({}) as T,waitFor:async()=>true,refetch:()=>{},navigate:()=>{}});
 const html=(hash:string)=>renderToString(<TaskContext.Provider value={{state,api:{call:async()=>({})} as any}}><ActionContext.Provider value={runner}><Screen route={destination(hash)}/></ActionContext.Provider></TaskContext.Provider>);
+const wrapped=(node:any)=>renderToString(<TaskContext.Provider value={{state,api:{call:async()=>({})} as any}}><ActionContext.Provider value={runner}>{node}</ActionContext.Provider></TaskContext.Provider>);
 test('shell mounts the U3 settings screens and U4 sessions screens',()=>{
  expect(html('#/settings')).toContain('Loading settings');
  for(const section of SETTINGS_SECTIONS) {
@@ -29,7 +31,8 @@ test('shell mounts the U3 settings screens and U4 sessions screens',()=>{
  }
  expect(html('#/settings/hosts')).toContain('Connect and check');
  expect(html('#/settings/hosts/devbox')).toContain('Remote hosts</a>');
- expect(html('#/settings/add-executor')).toContain('Step 1 of 4');
+ expect(html('#/settings/add-executor')).toContain('Loading executor setup');
+ expect(wrapped(<AddExecutor/>)).toContain('Step 1 of 4');
  expect(html('#/sessions')).toContain('Completed');
  expect(html('#/sessions/t1')).toContain('Loading task');
 });
@@ -42,7 +45,8 @@ test('legacy and unknown routes mount Overview',()=>{
 });
 test('Add executor keeps the host prefill from host detail links',()=>{
  expect(destination('#/settings/add-executor?host=dev%20box')).toMatchObject({name:'add-executor',host:'dev box'});
- expect(html('#/settings/add-executor?host=devbox')).toContain('codex@devbox');
+ expect(html('#/settings/add-executor?host=devbox')).toContain('Loading executor setup');
+ expect(wrapped(<AddExecutor host="devbox"/>)).toContain('codex@devbox');
 });
 test('host full live sessions switch follows service capability and dispatches both host.set values',()=>{
  const calls:unknown[]=[];

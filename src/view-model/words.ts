@@ -138,5 +138,9 @@ export function attentionStatus(item: { kind: string; taskId?: string }, tasks: 
 
 /** Compact status-line vocabulary, shared with integrations. */
 export const offlineWords = "pacer not running · pacer serve";
+/** The name shown for the machine pacer runs on, wherever a host is named. */
+export const localHostWords = "This Mac";
+/** Attention raised by a subtask, shown on its collapsed parent so the tint is never the only signal. */
+export const subtaskAttentionWords = (label: string): string => `Subtask: ${label}`;
 export const compactVerdictWords = (verdict: string): string =>
   verdict === "out" || verdict === "EXHAUSTED" ? "out" : verdict === "ahead" || verdict === "AHEAD" ? "ahead" : "";

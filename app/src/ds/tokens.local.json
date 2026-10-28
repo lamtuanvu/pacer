@@ -1,6 +1,105 @@
 {
+  "color": {
+    "tokens": [
+      {
+        "name": "ink-on-fill",
+        "value": {
+          "light": "#ffffff",
+          "dark": "#18181b"
+        },
+        "usage": "Text on solid status fills such as count badges; dark text keeps 4.5:1 on the lighter dark fill.",
+        "provisional": "App frame chrome board value; not yet in the design system."
+      }
+    ]
+  },
+  "spacing": {
+    "tokens": [
+      {
+        "name": "space-3.5",
+        "value": "14px",
+        "usage": "Gap between task facts.",
+        "provisional": "Tasks board value; not yet in the design system."
+      },
+      {
+        "name": "space-7",
+        "value": "28px",
+        "usage": "Tasks page top padding and child indent.",
+        "provisional": "Tasks board value; not yet in the design system."
+      },
+      {
+        "name": "space-10",
+        "value": "40px",
+        "usage": "Tasks page side padding.",
+        "provisional": "Tasks board value; not yet in the design system."
+      }
+    ]
+  },
+  "radius": {
+    "tokens": [
+      {
+        "name": "radius-card",
+        "value": "12px",
+        "usage": "Task cards on the Tasks board.",
+        "provisional": "Tasks board value; not yet in the design system."
+      },
+      {
+        "name": "radius-xs",
+        "value": "2px",
+        "usage": "Indicator bars and tiny meters.",
+        "provisional": "App frame chrome board value; not yet in the design system."
+      }
+    ]
+  },
   "size": {
     "tokens": [
+      {
+        "name": "size-10",
+        "value": "10px",
+        "usage": "Root task status dot; title and status bar horizontal padding.",
+        "provisional": "Tasks and app frame chrome board value; not yet in the design system."
+      },
+      {
+        "name": "size-14",
+        "value": "14px",
+        "usage": "Task fact icons; status bar item gap and glyph size.",
+        "provisional": "Tasks and app frame chrome board value; not yet in the design system."
+      },
+      {
+        "name": "size-15",
+        "value": "15px",
+        "usage": "Root task title.",
+        "provisional": "Tasks board value; not yet in the design system."
+      },
+      {
+        "name": "size-21",
+        "value": "21px",
+        "usage": "Subtask list indent.",
+        "provisional": "Tasks board value; not yet in the design system."
+      },
+      {
+        "name": "size-34",
+        "value": "34px",
+        "usage": "Compact task token column.",
+        "provisional": "Tasks board value; not yet in the design system."
+      },
+      {
+        "name": "size-52",
+        "value": "52px",
+        "usage": "Root task token column; activity bar width.",
+        "provisional": "Tasks and app frame chrome board value; not yet in the design system."
+      },
+      {
+        "name": "size-272",
+        "value": "272px",
+        "usage": "Session panel task list width.",
+        "provisional": "Tasks board value; not yet in the design system."
+      },
+      {
+        "name": "size-1240",
+        "value": "1240px",
+        "usage": "Tasks page maximum width.",
+        "provisional": "Tasks board value; not yet in the design system."
+      },
       {
         "name": "size-3",
         "value": "3px",
@@ -20,24 +119,6 @@
         "provisional": "App frame chrome board value; not yet in the design system."
       },
       {
-        "name": "size-10",
-        "value": "10px",
-        "usage": "Title and status bar horizontal padding.",
-        "provisional": "App frame chrome board value; not yet in the design system."
-      },
-      {
-        "name": "size-14",
-        "value": "14px",
-        "usage": "Status bar item gap and glyph size.",
-        "provisional": "App frame chrome board value; not yet in the design system."
-      },
-      {
-        "name": "size-52",
-        "value": "52px",
-        "usage": "Activity bar width.",
-        "provisional": "App frame chrome board value; not yet in the design system."
-      },
-      {
         "name": "size-84",
         "value": "84px",
         "usage": "Title bar inset that leaves room for the native window controls.",
@@ -53,29 +134,6 @@
         "name": "size-neg-6",
         "value": "-6px",
         "usage": "Activity bar active indicator offset.",
-        "provisional": "App frame chrome board value; not yet in the design system."
-      }
-    ]
-  },
-  "radius": {
-    "tokens": [
-      {
-        "name": "radius-xs",
-        "value": "2px",
-        "usage": "Indicator bars and tiny meters.",
-        "provisional": "App frame chrome board value; not yet in the design system."
-      }
-    ]
-  },
-  "color": {
-    "tokens": [
-      {
-        "name": "ink-on-fill",
-        "value": {
-          "light": "#ffffff",
-          "dark": "#18181b"
-        },
-        "usage": "Text on solid status fills such as count badges; dark text keeps 4.5:1 on the lighter dark fill.",
         "provisional": "App frame chrome board value; not yet in the design system."
       }
     ]
