@@ -262,6 +262,14 @@ export interface TaskRecord {
   backend?: string;
   attemptStartedAt?: number;
   dismissed?: boolean;
+  /** Participant that started this task when it has no work parent: "human" or "external:<key>". */
+  origin?: string;
+  /** Set while a message turn is queued or running; cleared when the run ends. */
+  pendingTurn?: { id: string; executor: string; at: number };
+  /** Closed for messaging by its parent; no more turns. */
+  msgClosed?: boolean;
+  /** Per-tree guardrail override given at delegate time; read from the tree's root task. */
+  messaging?: import("../messaging/types").MessagingOverride;
   retryOf?: string;
   retriedBy?: string;
   force?: boolean;
