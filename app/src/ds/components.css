@@ -779,3 +779,5 @@ a.pc-btn{text-decoration:none}
 @media(pointer:coarse){.pc-icon-button--bad.pc-btn--quiet.pc-icon-button{width:var(--control-touch);height:var(--control-touch);min-height:var(--control-touch)}}
 
 .pc-icon-button--bad.pc-btn--quiet.pc-icon-button:hover{color:var(--bad-fg)}
+
+.pc-settings-nav__plugin{font-size:var(--type-count-badge-size);font-weight:var(--type-label-weight);padding:0 var(--space-1\.5);border:1px solid var(--line);border-radius:var(--radius-full);color:var(--ink-secondary)}

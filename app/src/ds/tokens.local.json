@@ -225,6 +225,14 @@
         "fontWeight": 650,
         "usage": "Visible task title in the frame title bar.",
         "provisional": "Session board title style; not yet in the design system."
+      },
+      {
+        "name": "plugin-section",
+        "fontSize": "9px",
+        "lineHeight": "12px",
+        "fontWeight": 600,
+        "letterSpacing": "0.04em",
+        "provisional": "ActivityBar board Plugins section label; not yet in the design system."
       }
     ]
   }
