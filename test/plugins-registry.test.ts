@@ -182,12 +182,23 @@ test("renders are limited to two a second per surface, actions run through the p
   expect(await r.actionSurface(ctx, "fx-ui", "activity", "checklist", "run", ctxRoute, "req-1")).toEqual({ result: "refresh", message: "done" });
 });
 
-test("ui.invalidate is coalesced into one plugin event per second", async () => {
+test("ui.invalidate is coalesced to one event per second, with a trailing event so the last change is not lost", async () => {
   const { ctx, r } = await uiPlugin({ invalidateOnRender: true });
   const before = eventsSince(ctx, 0, 3).events.length;
   await r.renderSurface(ctx, "fx-ui", "activity", "checklist", ctxRoute);
-  await Bun.sleep(200);
+  await Bun.sleep(1400);
   await r.shutdown();
   const withUi = eventsSince(ctx, 0, 3).events.slice(before).filter(e => e.type === "plugin" && "ui" in (e.data as object));
-  expect(withUi.length).toBe(1);
+  expect(withUi.length).toBe(2);
+});
+
+test("an invalid ui.action result is refused, not passed to the app", async () => {
+  const { ctx, r } = await uiPlugin({ actionMessage: "x".repeat(300) });
+  expect(await codeOf(r.actionSurface(ctx, "fx-ui", "activity", "checklist", "run", ctxRoute, "r1"))).toBe("invalid_input");
+});
+
+test("ten actions a minute per plugin, then conflict", async () => {
+  const { ctx, r } = await uiPlugin();
+  for (let i = 0; i < 10; i++) await r.actionSurface(ctx, "fx-ui", "activity", "checklist", "run", ctxRoute, `r${i}`);
+  expect(await codeOf(r.actionSurface(ctx, "fx-ui", "activity", "checklist", "run", ctxRoute, "r11"))).toBe("conflict");
 });

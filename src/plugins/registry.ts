@@ -5,7 +5,7 @@ import { appendActivity } from "../activity/log";
 import { CoreError } from "../core/errors";
 import { publish } from "../link/publish";
 import type { Ctx } from "../types";
-import { readPluginSettings } from "./settings";
+import { forgetSettings, readPluginSettings } from "./settings";
 import { type PluginGrant, pluginsConfig, setPluginDisabled, setPluginGrant } from "./config";
 import { answerCapability, appendPluginLog } from "./host";
 import { hostRangeAccepts, readManifestFile } from "./manifest";
@@ -33,9 +33,10 @@ interface Entry {
   state: PluginState; error: string | null; served: string[]; pluginProtocol: string | null;
   process?: PluginProcess; starting?: Promise<PluginProcess>; queue: Promise<unknown>;
   crashes: number[]; nextStartAt: number; stopping: boolean;
-  invalidatedAt: number; invalidatePending: string | null | undefined; renders: Map<string, number[]>; actions: number[]; inflight: Set<string>; cache: Map<string, { document: ViewDocument; at: number; ttlS: number }>;
+  invalidatedAt: number; invalidatePending: string | null | undefined; invalidateTimer?: ReturnType<typeof setTimeout>; lastInvalidLog: Map<string, number>; renders: Map<string, number[]>; actions: number[]; inflight: Set<string>; cache: Map<string, { document: ViewDocument; at: number; ttlS: number }>;
 }
 const ENABLED: ReadonlySet<PluginState> = new Set(["idle", "starting", "ready"]);
+const MAX_CACHE_ENTRIES = 64;
 const CRASH_WINDOW_S = 60, CRASH_LIMIT = 3, MAX_BACKOFF_MS = 30_000, HELLO_DEADLINE_MS = 10_000;
 
 export class PluginRegistry {
@@ -46,7 +47,7 @@ export class PluginRegistry {
 
   private entry(id: string, manifest: PluginManifest | null, bundled: boolean, dir: string | null): Entry {
     let e = this.entries.get(id);
-    if (!e) { e = { id, manifest, bundled, dir, state: "idle", error: null, served: [], pluginProtocol: null, queue: Promise.resolve(), crashes: [], nextStartAt: 0, stopping: false, invalidatedAt: 0, invalidatePending: undefined, renders: new Map(), actions: [], inflight: new Set(), cache: new Map() }; this.entries.set(id, e); }
+    if (!e) { e = { id, manifest, bundled, dir, state: "idle", error: null, served: [], pluginProtocol: null, queue: Promise.resolve(), crashes: [], nextStartAt: 0, stopping: false, invalidatedAt: 0, invalidatePending: undefined, lastInvalidLog: new Map(), renders: new Map(), actions: [], inflight: new Set(), cache: new Map() }; this.entries.set(id, e); }
     e.manifest = manifest; e.bundled = bundled; e.dir = dir;
     return e;
   }
@@ -54,6 +55,7 @@ export class PluginRegistry {
   private setState(ctx: Ctx, e: Entry, state: PluginState, error: string | null = null): void {
     if (e.state === state && e.error === error) return;
     e.state = state; e.error = error;
+    if (state === "disabled" || state === "needs_grant" || state === "refused" || state === "failing") e.cache.clear();
     this.published = this.published.then(() => publish(ctx, [{ type: "entity", data: { kind: "plugin", id: e.id, value: { id: e.id, state, error } } }])).catch(() => {});
     if (state === "failing") appendActivity(ctx, { kind: "plugin_state", level: "warn", text: `Plugin ${e.id} is failing · ${error ?? "unknown error"}` });
   }
@@ -203,13 +205,33 @@ export class PluginRegistry {
     const parsed = def.params.safeParse(params);
     if (!parsed.success) return;
     const id = (parsed.data as { id?: string }).id ?? null;
-    if (id !== null) { const hidden = uiOf(e.manifest!); if (!hidden) return; }
-    for (const k of [...e.cache.keys()]) if (id === null || k.startsWith(`${id}\u0000`)) e.cache.delete(k);
-    const now = Date.now();
-    if (now - e.invalidatedAt < 1000) return; // coalesced: one `plugin` event per plugin per second
-    e.invalidatedAt = now;
-    this.published = this.published.then(() => publish(ctx, [{ type: "entity", data: { kind: "plugin", id: e.id, value: { id: e.id, state: e.state, error: e.error, ui: id === null ? {} : { id } } } }])).catch(() => {});
+    const ui = e.manifest ? uiOf(e.manifest) : null;
+    if (!ui) return;
+    if (id !== null) {
+      const kind = KINDS.find(k => ui[k].some(x => x.id === id));
+      if (!kind) return;
+      if (readPluginSettings(ctx, e.id).hidden.includes(`${kind}:${id}`)) return; // hidden surfaces drop invalidations
+    }
+    this.invalidate(ctx, e, id);
   }
+
+  /** Drop cached documents and tell clients to re-render. Coalesced to one event per second with a trailing event, so the last change is never lost. */
+  invalidate(ctx: Ctx, e: Entry, id: string | null): void {
+    for (const k of [...e.cache.keys()]) if (id === null || k.startsWith(`${id}\u0000`)) e.cache.delete(k);
+    e.invalidatePending = e.invalidatePending === undefined ? id : (e.invalidatePending === id ? id : null);
+    const fire = () => {
+      const target = e.invalidatePending; e.invalidatePending = undefined; e.invalidatedAt = Date.now();
+      this.published = this.published.then(() => publish(ctx, [{ type: "entity", data: { kind: "plugin", id: e.id, value: { id: e.id, state: e.state, error: e.error, ui: target === null || target === undefined ? {} : { id: target } } } }])).catch(() => {});
+    };
+    const wait = 1000 - (Date.now() - e.invalidatedAt);
+    if (wait <= 0) { fire(); return; }
+    if (e.invalidateTimer) return;
+    e.invalidateTimer = setTimeout(() => { e.invalidateTimer = undefined; if (e.invalidatePending !== undefined) fire(); }, wait);
+    e.invalidateTimer.unref?.();
+  }
+
+  /** Called after a settings save: re-render every surface of the plugin. */
+  invalidatePlugin(ctx: Ctx, id: string): void { this.invalidate(ctx, this.find(ctx, id), null); }
 
   private surfaceDef(e: Entry, surface: "activity" | "panelTab" | "status", id: string): { title: string; view?: string } {
     const ui = e.manifest ? uiOf(e.manifest) : null;
@@ -224,6 +246,7 @@ export class PluginRegistry {
     const e = this.find(ctx, id);
     const def = this.surfaceDef(e, surface, surfaceId);
     const key = `${surfaceId}\u0000${context.route}\u0000${context.taskId ?? ""}\u0000${context.theme}`;
+    if (!ENABLED.has(e.state)) throw new CoreError("plugin_unavailable", `plugin ${id} is ${e.state}${e.error ? `: ${e.error}` : ""}`);
     const hit = e.cache.get(key);
     const now = Date.now();
     if (hit && now - hit.at < hit.ttlS * 1000) return { document: hit.document, renderedAt: hit.at, ttlS: hit.ttlS, stale: false };
@@ -231,15 +254,19 @@ export class PluginRegistry {
     const recent = (e.renders.get(surfaceId) ?? []).filter(t => now - t < 1000);
     if (recent.length >= 2) throw new CoreError("conflict", `surface ${surfaceId} is rendering too often`, "Retry in a second.");
     e.renders.set(surfaceId, [...recent, now]);
+    if (e.renders.size > 16) e.renders.delete(e.renders.keys().next().value as string);
     try {
       const raw = await this.call<{ document: unknown; ttlS?: number }>(ctx, id, "ui.render", { surface, id: surfaceId, view: (def as { view: string }).view, context });
       const doc = (surface === "status" ? parseStatusItemDocument : parseViewDocument)(raw.document);
-      if (!doc.ok) { appendPluginLog(ctx, id, "stderr", `invalid ui.render document for ${surfaceId}: ${doc.error}`); throw new CoreError("invalid_input", "This plugin's view couldn't be shown"); }
+      if (!doc.ok) {
+        if (now - (e.lastInvalidLog.get(surfaceId) ?? 0) >= 60_000) { e.lastInvalidLog.set(surfaceId, now); appendPluginLog(ctx, id, "stderr", `invalid ui.render document for ${surfaceId}: ${doc.error}`); } throw new CoreError("invalid_input", "This plugin's view couldn't be shown"); }
       const ttlS = Math.min(Math.max(raw.ttlS ?? 60, surface === "status" ? 30 : 0), 3600);
+      for (const [k, v] of e.cache) if (now - v.at >= v.ttlS * 1000 * 10) e.cache.delete(k);
+      while (e.cache.size >= MAX_CACHE_ENTRIES) e.cache.delete(e.cache.keys().next().value as string);
       e.cache.set(key, { document: doc.document, at: now, ttlS });
       return { document: doc.document, renderedAt: now, ttlS, stale: false };
     } catch (err) {
-      if (hit && err instanceof CoreError && err.code !== "invalid_input") return { document: hit.document, renderedAt: hit.at, ttlS: hit.ttlS, stale: true };
+      if (hit && err instanceof CoreError && err.code !== "invalid_input" && now - hit.at < Math.max(hit.ttlS, 30) * 1000 * 10) return { document: hit.document, renderedAt: hit.at, ttlS: hit.ttlS, stale: true };
       throw err;
     }
   }
@@ -289,7 +316,11 @@ export class PluginRegistry {
       const proc = await this.start(ctx, e);
       const point = method.split(".")[0]!;
       if (!e.served.includes(point)) throw new CoreError("plugin_unavailable", `plugin ${id} does not serve ${point}`);
-      return proc.request<T>(method, params, def.deadlineMs);
+      const out = await proc.request<unknown>(method, params, def.deadlineMs);
+      if (!method.startsWith("ui.")) return out as T;
+      const checked = def.result.safeParse(out);
+      if (!checked.success) { appendPluginLog(ctx, id, "stderr", `invalid ${method} result: ${checked.error.issues[0]?.path.join(".") || "result"}`); throw new CoreError("invalid_input", `plugin ${id} returned an invalid ${method} result`); }
+      return checked.data as T;
     };
     if (e.manifest?.reentrant) return run();
     const result = e.queue.then(run, run);
@@ -331,6 +362,7 @@ export class PluginRegistry {
     rmSync(e.dir!, { recursive: true, force: true });
     await setPluginGrant(ctx, id, null);
     await setPluginDisabled(ctx, id, false);
+    await forgetSettings(ctx, id);
     this.refresh(ctx);
     return { id, removed: true };
   }

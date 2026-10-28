@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { CoreError } from "../core/errors";
@@ -18,16 +19,26 @@ function readStore(ctx: Pick<Ctx, "pacerHome">): Store {
   if (!existsSync(path)) return {};
   try {
     const raw: unknown = JSON.parse(readFileSync(path, "utf8"));
-    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
-    return raw as Store;
-  } catch { return {}; }
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("not an object");
+    const store: Store = Object.create(null);
+    for (const [id, r] of Object.entries(raw as Record<string, unknown>)) {
+      const rec = r as Partial<PluginSettingsRecord> | null;
+      if (!rec || typeof rec.rev !== "number" || !rec.values || typeof rec.values !== "object" || Array.isArray(rec.values)) continue;
+      store[id] = { rev: rec.rev, values: rec.values, hidden: Array.isArray(rec.hidden) ? rec.hidden.filter((k): k is string => typeof k === "string") : [] };
+    }
+    return store;
+  } catch {
+    // Keep a corrupt store for the user instead of silently overwriting every plugin's settings on the next save.
+    try { renameSync(path, `${path}.corrupt-${Date.now()}`); } catch { /* already gone */ }
+    return {};
+  }
 }
 
 /** Write a temp file beside the store and rename it over, so a crash never leaves a half-written store. */
 function writeStore(ctx: Pick<Ctx, "pacerHome">, store: Store): void {
   mkdirSync(ctx.pacerHome, { recursive: true, mode: 0o700 });
-  const tmp = `${file(ctx)}.tmp`;
-  writeFileSync(tmp, JSON.stringify(store), { mode: 0o600 });
+  const tmp = `${file(ctx)}.${randomBytes(6).toString("hex")}.tmp`;
+  writeFileSync(tmp, JSON.stringify(store), { mode: 0o600, flag: "wx" });
   chmodSync(tmp, 0o600);
   renameSync(tmp, file(ctx));
 }
@@ -75,7 +86,7 @@ function checkField(name: string, f: SettingsField, v: unknown, errors: FieldErr
 export function validateSettings(schema: SettingsSchema, values: Record<string, unknown>): FieldError[] {
   const errors: FieldError[] = [];
   for (const [name, v] of Object.entries(values)) {
-    const f = schema.fields[name];
+    const f = Object.hasOwn(schema.fields, name) ? schema.fields[name] : undefined;
     if (!f) errors.push({ path: name, message: "is not a setting of this plugin" });
     else checkField(name, f, v, errors);
   }
@@ -102,5 +113,15 @@ export function setSurfaceHidden(ctx: Ctx, id: string, key: string, visible: boo
     const next = { ...cur, rev: cur.rev + 1, hidden };
     writeStore(ctx, { ...store, [id]: next });
     return next;
+  });
+}
+
+/** Forget a removed plugin's settings, so a plugin later installed under the same id starts clean. */
+export function forgetSettings(ctx: Ctx, id: string): Promise<void> {
+  return withLock(ctx, LOCK, async () => {
+    const store = readStore(ctx);
+    if (!Object.hasOwn(store, id)) return;
+    const { [id]: _gone, ...rest } = store;
+    writeStore(ctx, rest);
   });
 }

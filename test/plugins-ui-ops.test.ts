@@ -103,3 +103,43 @@ test("executor sessions cannot use plugin ui or settings ops", () => {
   for (const op of ["plugin.ui.list", "plugin.ui.render", "plugin.ui.action", "plugin.ui.visibility", "plugin.settings.get", "plugin.settings.set"]) expect(() => assertCallerCanInvoke(executor, op, {})).toThrow();
   expect(() => assertCallerCanInvoke(executor, "plugin.list", {})).not.toThrow();
 });
+
+test("settings validation rejects prototype-chain keys and the store survives corruption", async () => {
+  const { validateSettings } = await import("../src/plugins/settings");
+  const schema = { fields: { a: { type: "boolean" as const, title: "A" } } };
+  expect(validateSettings(schema, JSON.parse('{"constructor":{"a":1},"toString":5,"__proto__":{"x":1}}')).map(e => e.path).sort()).toEqual(["__proto__", "constructor", "toString"]);
+  const ctx = home();
+  installFixture("ui", join(ctx.pacerHome, "plugins"));
+  await callOp(ctx, "plugin.enable", { id: "fx-ui", grant: true });
+  writeFileSync(join(ctx.pacerHome, "plugin-settings.json"), "{broken");
+  expect(((await callOp(ctx, "plugin.settings.get", { plugin: "fx-ui" })) as { rev: number }).rev).toBe(0);
+  const kept = (await import("node:fs")).readdirSync(ctx.pacerHome).filter(f => f.startsWith("plugin-settings.json.corrupt-"));
+  expect(kept.length).toBe(1);
+});
+
+test("removing a plugin forgets its settings", async () => {
+  const ctx = home();
+  installFixture("ui", join(ctx.pacerHome, "plugins"));
+  await callOp(ctx, "plugin.enable", { id: "fx-ui", grant: true });
+  await callOp(ctx, "plugin.settings.set", { plugin: "fx-ui", values: { required: true }, expect_rev: 0 });
+  await callOp(ctx, "plugin.remove", { id: "fx-ui" });
+  expect(effectiveConfig(ctx, "fx-ui")).toEqual({});
+}, 30000);
+
+test("a disabled plugin's cached documents are not served", async () => {
+  const ctx = home();
+  installFixture("ui", join(ctx.pacerHome, "plugins"), { fixture: {} });
+  await callOp(ctx, "plugin.enable", { id: "fx-ui", grant: true });
+  await callOp(ctx, "plugin.ui.render", { plugin: "fx-ui", surface: "status", id: "open-items", context }).catch(() => undefined);
+  await callOp(ctx, "plugin.ui.render", { plugin: "fx-ui", surface: "activity", id: "checklist", context });
+  await callOp(ctx, "plugin.ui.render", { plugin: "fx-ui", surface: "status", id: "open-items", context });
+  await callOp(ctx, "plugin.disable", { id: "fx-ui" });
+  expect((await errOf(callOp(ctx, "plugin.ui.render", { plugin: "fx-ui", surface: "status", id: "open-items", context })))?.code).toBe("plugin_unavailable");
+}, 30000);
+
+test("executor sessions cannot grant plugins", () => {
+  const ctx = home();
+  const executor = { ...ctx, env: { ...ctx.env, PACER_ROLE: "executor" } };
+  expect(() => assertCallerCanInvoke(executor, "plugin.enable", { id: "x", grant: true })).toThrow();
+  expect(() => assertCallerCanInvoke(executor, "plugin.enable", { id: "x" })).not.toThrow();
+});

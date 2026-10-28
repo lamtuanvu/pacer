@@ -11,20 +11,23 @@ export const UI_LIMITS = { activity: 2, panelTabs: 3, settings: 1, status: 1 } a
 export const DOC_LIMITS = { bytes: 64 * 1024, nodes: 500, depth: 8, label: 80, text: 2000, code: 16 * 1024, keyValue: 50, list: 200, statusItemText: 24 } as const;
 
 const surfaceId = z.string().regex(/^[a-z0-9][a-z0-9-]{0,31}$/, "id is 1-32 lowercase letters, digits and hyphens");
-const title = z.string().min(1).max(40);
+/** Manifest display text: cleaned like view text, so control and bidi characters never reach a client. */
+const plain = (min: number, max: number) => z.string().transform(s => s.normalize("NFC").replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF]/g, "")).pipe(z.string().min(min).max(max));
+const title = plain(1, 40);
+const taskIdText = z.string().regex(/^[A-Za-z0-9._:-]{1,128}$/, "taskId uses letters, digits and . _ : -");
 const view = z.string().min(1).max(64);
 const icon = z.enum(UI_ICONS);
 const unique = (items: { id: string }[]) => new Set(items.map(i => i.id)).size === items.length;
 
-const secretLike = /key|token|secret|password/i;
+const secretLike = /key|token|secret|pass|pwd|cred|auth|bearer|private|cookie|session/i;
 
 export const settingsFieldSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("boolean"), title: z.string().min(1).max(80), description: z.string().max(200).optional(), default: z.boolean().optional() }).strict(),
-  z.object({ type: z.literal("string"), title: z.string().min(1).max(80), description: z.string().max(200).optional(), enum: z.array(z.string().min(1).max(80)).min(1).max(20).optional(), maxLength: z.number().int().min(1).max(2000).optional(), default: z.string().max(2000).optional() }).strict(),
-  z.object({ type: z.literal("secretRef"), title: z.string().min(1).max(80), description: z.string().max(200).optional() }).strict(),
-  z.object({ type: z.literal("integer"), title: z.string().min(1).max(80), description: z.string().max(200).optional(), minimum: z.number().int(), maximum: z.number().int(), default: z.number().int().optional() }).strict(),
-  z.object({ type: z.literal("array"), items: z.object({ type: z.literal("string") }).strict(), title: z.string().min(1).max(80), description: z.string().max(200).optional(), maxItems: z.number().int().min(1).max(100) }).strict(),
-  z.object({ type: z.literal("repos"), title: z.string().min(1).max(80), description: z.string().max(200).optional(), maxItems: z.number().int().min(1).max(100).optional() }).strict(),
+  z.object({ type: z.literal("boolean"), title: plain(1, 80), description: plain(0, 200).optional(), default: z.boolean().optional() }).strict(),
+  z.object({ type: z.literal("string"), title: plain(1, 80), description: plain(0, 200).optional(), enum: z.array(plain(1, 80)).min(1).max(20).optional(), maxLength: z.number().int().min(1).max(2000).optional(), default: z.string().max(2000).optional() }).strict(),
+  z.object({ type: z.literal("secretRef"), title: plain(1, 80), description: plain(0, 200).optional() }).strict(),
+  z.object({ type: z.literal("integer"), title: plain(1, 80), description: plain(0, 200).optional(), minimum: z.number().int(), maximum: z.number().int(), default: z.number().int().optional() }).strict(),
+  z.object({ type: z.literal("array"), items: z.object({ type: z.literal("string") }).strict(), title: plain(1, 80), description: plain(0, 200).optional(), maxItems: z.number().int().min(1).max(100) }).strict(),
+  z.object({ type: z.literal("repos"), title: plain(1, 80), description: plain(0, 200).optional(), maxItems: z.number().int().min(1).max(100).optional() }).strict(),
 ]);
 export type SettingsField = z.infer<typeof settingsFieldSchema>;
 
@@ -32,8 +35,8 @@ export const settingsSchemaSchema = z.object({ fields: z.record(z.string().regex
   .superRefine((s, ctx) => {
     if (Object.keys(s.fields).length > 30) ctx.addIssue({ code: "custom", message: "a settings page has at most 30 fields" });
     for (const [name, f] of Object.entries(s.fields)) {
-      if (f.type === "string" && (secretLike.test(name) || secretLike.test(f.title)))
-        ctx.addIssue({ code: "custom", path: ["fields", name], message: "a plain string field cannot be a key, token, secret or password; use a secretRef field" });
+      if (f.type !== "secretRef" && f.type !== "boolean" && f.type !== "integer" && (secretLike.test(name) || secretLike.test(f.title)))
+        ctx.addIssue({ code: "custom", path: ["fields", name], message: "a plain field cannot hold a key, token, secret or password; use a secretRef field" });
       if (f.type === "integer" && f.minimum > f.maximum) ctx.addIssue({ code: "custom", path: ["fields", name], message: "minimum exceeds maximum" });
     }
   });
@@ -62,7 +65,7 @@ const text = (max: number, min = 0) => z.string().transform(cleanText).pipe(z.st
 const label = text(DOC_LIMITS.label, 1);
 const tone = z.enum(["neutral", "info", "good", "warn", "bad"]);
 const pct = z.number().min(0).max(100);
-const to = z.object({ route: z.enum(UI_ROUTES), taskId: z.string().min(1).max(128).optional() }).strict();
+const to = z.object({ route: z.enum(UI_ROUTES), taskId: taskIdText.optional() }).strict();
 const actionName = z.string().regex(/^[A-Za-z0-9._-]{1,64}$/);
 const confirm = z.object({ title: label, body: text(DOC_LIMITS.text, 1) }).strict();
 
@@ -133,14 +136,14 @@ export function parseStatusItemDocument(raw: unknown): ParsedDocument {
 
 // ── Host methods ──────────────────────────────────────────────────────────────
 
-const context = z.object({ route: z.enum(UI_ROUTES), taskId: z.string().min(1).max(128).optional(), theme: z.enum(["light", "dark"]) }).strict();
+const context = z.object({ route: z.enum(UI_ROUTES), taskId: taskIdText.optional(), theme: z.enum(["light", "dark"]) }).strict();
 export const uiRenderParams = z.object({ surface: z.enum(["activity", "panelTab", "status"]), id: surfaceId, view, context }).strict();
 export const uiRenderResult = z.object({ document: z.unknown(), ttlS: z.number().int().min(0).max(3600).optional() });
 const scalar = z.union([z.string().max(2000), z.number(), z.boolean(), z.null()]);
 export const uiActionParams = z.object({ surface: z.enum(["activity", "panelTab", "status"]), id: surfaceId, action: actionName, context, requestId: z.string().min(1).max(128), values: z.record(z.string().max(64), scalar).refine(v => Object.keys(v).length <= 20, "at most 20 values").optional() }).strict();
 export const uiActionResult = z.object({ result: z.enum(["done", "refresh"]), message: text(200).optional() });
 export const uiValidateParams = z.object({ id: surfaceId, values: z.record(z.string(), z.json()) }).strict();
-export const uiValidateResult = z.union([z.object({ ok: z.literal(true) }), z.object({ ok: z.literal(false), errors: z.array(z.object({ path: z.string().max(200), message: text(200) })).max(50) })]);
+export const uiValidateResult = z.union([z.object({ ok: z.literal(true) }), z.object({ ok: z.literal(false), errors: z.array(z.object({ path: text(200), message: text(200) })).max(50) })]);
 
 /** Plugin → host notifications and the extension point that may send each. */
 export const NOTIFICATIONS: Record<string, { point: string; params: z.ZodTypeAny }> = {

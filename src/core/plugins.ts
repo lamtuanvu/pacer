@@ -40,5 +40,6 @@ export async function settingsSet(ctx: Ctx, p: { plugin: string; values: Record<
   if (!errors.length) errors.push(...await reg.validateWithPlugin(ctx, p.plugin, page.id, p.values));
   if (errors.length) throw new CoreError("invalid_input", `plugin ${p.plugin} settings are invalid: ${errors.slice(0, 3).map(e => `${e.path} ${e.message}`).join("; ")}`, undefined, { errors: errors.slice(0, 50) });
   const rec = await saveSettings(ctx, p.plugin, p.values, p.expect_rev);
+  reg.invalidatePlugin(ctx, p.plugin);
   return { values: rec.values, rev: rec.rev };
 }

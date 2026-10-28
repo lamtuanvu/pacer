@@ -1,5 +1,6 @@
 import { createInterface } from "node:readline";
-import { callOp } from "../api/ops";
+import { assertCallerCanInvoke } from "../api/caller-policy";
+import { callOp as rawCallOp } from "../api/ops";
 import { CoreError } from "../core/errors";
 import { pluginCli } from "../plugin/cli";
 import { shutdownPlugins } from "../plugins";
@@ -11,6 +12,8 @@ import type { Command, Result } from "./types";
 const USAGE = "usage: pacer plugin list [--json] | enable <id> [--yes] | disable <id> | remove <id> | doctor [<id>] [--json]\n       pacer plugin settings get <id> | set <id> --values <json> [--rev <n>]   |   pacer plugin ui list [--json]\n       pacer plugin uninstall   (removes the Orca plugin an earlier pacer installed)";
 /** Orca plugin verbs retired in 0.5.0: `uninstall` still cleans up an old install; the others explain the retirement. */
 const ORCA_VERBS = ["uninstall", "install", "status", "set"];
+/** Plugin commands share the service's executor-session policy. */
+const callOp = (ctx: Ctx, name: string, params: Record<string, unknown>) => { assertCallerCanInvoke(ctx, name, params); return rawCallOp(ctx, name, params); };
 const fail = (code: number, e: unknown): Result => ({ code, out: "", err: `pacer: ${e instanceof Error ? e.message : String(e)}` });
 
 async function confirm(question: string): Promise<boolean> {
@@ -41,9 +44,10 @@ export async function pluginsCmd(args: string[], ctx: Ctx): Promise<Result> {
       }
       case "enable": {
         if (pos.length !== 1) throw Error(USAGE);
-        let r = await callOp(ctx, "plugin.enable", { id: pos[0] }) as { id: string; state: string; needs?: string[] };
+        let r = await callOp(ctx, "plugin.enable", { id: pos[0] }) as { id: string; state: string; needs?: string[]; surfaces?: string[] };
         if (r.state === "needs_grant" && r.needs) {
-          const ask = `${pos[0]} asks for: ${r.needs.join(", ") || "no capabilities"}. Grant and enable?`;
+          const adds = r.surfaces?.length ? ` and adds UI: ${r.surfaces.join(", ")}` : "";
+          const ask = `${pos[0]} asks for: ${r.needs.join(", ") || "no capabilities"}${adds}. It runs as you, with your access, until plugin sandboxing lands. Grant and enable?`;
           if (!flags.yes && !(await confirm(ask))) return { code: 1, out: "", err: `pacer: ${pos[0]} not enabled. ${ask} Re-run with --yes to grant.` };
           r = await callOp(ctx, "plugin.enable", { id: pos[0], grant: true }) as typeof r;
         }
