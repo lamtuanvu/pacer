@@ -10,8 +10,9 @@ import { createApi } from '../app/src/data/api';
 import { OverviewView } from '../app/src/screens/Overview';
 import { ReviewView } from '../app/src/screens/Review';
 import { initialReview, reviewReducer } from '../app/src/screens/review/model';
-import { sessionRow, sessionDetail } from '../app/src/screens/session/controller';
-import { SessionsList } from '../app/src/screens/session/SessionsList';
+import { sessionDetail } from '../app/src/screens/session/controller';
+import { SessionsList } from './fixtures/ui/sessions-list';
+import { taskTree } from '../src/view-model/task-tree';
 import { Session } from '../app/src/screens/session/Session';
 import { StatusPill } from '../app/src/ds/StatusPill';
 import { TopBar } from '../app/src/shell/TopBar';
@@ -39,7 +40,11 @@ test('session list and detail retain review verdicts and ignore phases from ende
   for (const accepted of [true,false]) {
     const task = {...detail,title:detail.goal,state:'done',review:{accepted,at:0,kind:null,note:null},progress:{phase:'testing',lastOutputAt:0,files:0,commits:0,logBytes:0}} as TaskDetail;
     const badge = renderToString(<StatusPill status={taskStatus(task)} />);
-    expect(renderToString(<SessionsList recent={{data:[sessionRow(task)]}} />)).toContain(badge);
+    const list = renderToString(<SessionsList recent={{data:taskTree({tasks:[task]},{now:0})}} />);
+    expect(list).toContain(`>${taskStatus(task).label}<`);
+    expect(list).toContain(`pc-pill--${taskStatus(task).tone}`);
+    expect(list).toContain(`>${accepted ? 'Accepted' : 'Rejected'}<`);
+    expect(list).not.toContain('Testing');
     expect(renderToString(<Session data={sessionDetail(task)} />)).toContain(badge);
   }
 });
