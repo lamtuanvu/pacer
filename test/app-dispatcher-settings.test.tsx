@@ -304,13 +304,21 @@ test("a paused schedule says why, as plain state, and probing turned off does no
     probeSupported:true,probeMode:"auto" as const,state:"stale" as const,reason:"Native subagent control verification expired",
     lastProbedAt:now-90000,expiresAt:null,nextEligibleAt:now+80000,probesToday:1,lastCostPct:12,
     consent:"granted" as const,unsupportedReason:null,
-    scheduleReason:"the last probe cost 12% of the account window",
+    scheduleReason:"the last probe cost 12% of the account window",schedulePaused:true as boolean,
   };
   const render=(runner:typeof row|(Omit<typeof row,"probeMode">&{probeMode:"off"}))=>renderToString(<DispatcherEnforcementRows reading={{repo:"/repo",scope:"native",runners:[runner]}} canProbe={false} probing={null} onProbe={()=>{}} onConsent={()=>{}}/>);
   const paused=render(row);
-  expect(paused).toContain("not probing now: the last probe cost 12% of the account window");
+  // The doctor's word for the same fact.
+  expect(paused).toContain("probing paused: the last probe cost 12% of the account window");
+  expect(paused).not.toContain("not probing now");
   // An explanation, not an alarm: it shares the muted schedule line.
-  expect(paused).toMatch(/<div class="u3-muted">[^<]*not probing now: the last probe cost/);
+  expect(paused).toMatch(/<div class="u3-muted">[^<]*probing paused: the last probe cost/);
+  expect(paused).not.toContain(`role="alert"`);
+  const backoff=render({...row,schedulePaused:false,scheduleReason:"waiting out the backoff from an earlier failed probe"});
+  expect(backoff).toMatch(/<div class="u3-muted">[^<]*not probing now: waiting out the backoff/);
+  // An older service sends no flag; that is not a pause.
+  const {schedulePaused:_,...older}=row;
+  expect(render(older as typeof row)).toContain("not probing now: the last probe cost");
   const off=render({...row,probeMode:"off",scheduleReason:"certification probing is turned off"});
   expect(off).toContain("scheduled probing: off");
   expect(off).not.toContain("not probing now");

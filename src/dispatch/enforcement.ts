@@ -15,7 +15,7 @@ import pkg from "../../package.json";
 import { pacerArgv } from "../install/self";
 import { shellCommand } from "../install/fsx";
 import { withLock } from "../core/lock";
-import { readScheduleState, scheduleReason } from "./certification-schedule";
+import { isScheduledRunner, readScheduleState, scheduledRepo, scheduleReason, type ScheduleState } from "./certification-schedule";
 
 export interface EnforcementTarget {runner:string;account:string;agent:string;version:string;binary:string;controlFiles:string[];launchMode:string;launchArgs:string[];guardArgv?:string[]}
 export type CertificateStatus = {state:"certified"|"uncertified"|"stale";reason?:string;probedAt?:number;expiresAt?:number};
@@ -61,15 +61,19 @@ export async function resolveEnforcementTarget(ctx:Ctx,strategy:Strategy,runnerI
   const versionResult=await ctx.run([binary,"--version"],5000);
   const version=/\d+(?:\.\d+){1,3}(?:-[A-Za-z0-9]+)?/.exec(versionResult.stdout)?.[0];
   if(versionResult.code!==0||!version)throw new CoreError("not_allowed",`Could not verify ${runner.agent} version`);
-  const account=strategy.accounts[runner.account];
-  if(!account)throw new CoreError("not_allowed","Executor account is unavailable");
+  if(!strategy.accounts[runner.account])throw new CoreError("not_allowed","Executor account is unavailable");
+  const controlFiles=controlFilesFor(ctx,strategy,runnerId,repo);
+  const launch=launchFor(cfg,"__prompt__","__repo__","__run__","__task__");
+  return {runner:runnerId,account:runner.account,agent:runner.agent,version,binary,controlFiles,launchMode:cfg.session??"headless",launchArgs:launch.argv,guardArgv:pacerArgv(ctx.env)};
+}
+/** The native control files a probe of `runnerId` in `repo` depends on; reads no process. */
+function controlFilesFor(ctx:Ctx,strategy:Strategy,runnerId:string,repo:string):string[] {
+  const runner=strategy.runners[runnerId]!,account=strategy.accounts[runner.account]!;
   const folder=accountFolder(ctx,account)??join(ctx.home,runner.agent==="claude-code"?".claude":`.${runner.agent}`);
-  const controlFiles=runner.agent==="claude-code"?[join(folder,"settings.json"),join(repo,".claude","settings.json"),join(repo,".claude","settings.local.json")]
+  return runner.agent==="claude-code"?[join(folder,"settings.json"),join(repo,".claude","settings.json"),join(repo,".claude","settings.local.json")]
     :runner.agent==="codex"?[join(folder,"hooks.json"),join(repo,".codex","hooks.json")]
     :runner.agent==="cursor"?[join(folder,"hooks.json"),join(repo,".cursor","hooks.json")]
     :[opencodeConfigPath(ctx),join(repo,"opencode.json"),join(repo,"opencode.jsonc")];
-  const launch=launchFor(cfg,"__prompt__","__repo__","__run__","__task__");
-  return {runner:runnerId,account:runner.account,agent:runner.agent,version,binary,controlFiles,launchMode:cfg.session??"headless",launchArgs:launch.argv,guardArgv:pacerArgv(ctx.env)};
 }
 const digest=(value:unknown)=>createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const key=(target:EnforcementTarget)=>JSON.stringify([target.runner,target.account,target.launchMode]);
@@ -132,8 +136,25 @@ export async function enforcementExclusion(ctx:Ctx,strategy:Strategy,runnerId:st
     return error instanceof Error?error.message:"Native subagent control is unverified";
   }
 }
+/**
+ * What the schedule will do for this row. tick probes the scheduled repository,
+ * and the certificate fingerprint covers that repository's control files, so a
+ * row for another repository is evaluated there and says which one it is.
+ */
+function scheduleFor(ctx:Ctx,strategy:Strategy,target:EnforcementTarget,repo:string,scheduled:string|null,
+  unsupported:string|null,cert:CertificateStatus,state:ScheduleState):{reason:string;paused:boolean}|null {
+  if(!isScheduledRunner(strategy,target.runner)||scheduled===repo)return scheduleReason(strategy,target.runner,key(target),cert,unsupported,state,ctx.now);
+  // Turned off is the setting a person chose, and it holds wherever the schedule would run.
+  if(scheduled===null)return strategy.pacing.plannerProbe==="off"?scheduleReason(strategy,target.runner,key(target),cert,unsupported,state,ctx.now)
+    :{reason:"no repository is registered, so there is nothing to certify",paused:false};
+  const there={...target,controlFiles:controlFilesFor(ctx,strategy,target.runner,scheduled)};
+  const hold=scheduleReason(strategy,target.runner,key(there),certificateStatus(ctx,there),probeSupportReason(there,scheduled),state,ctx.now);
+  const prefix=`scheduled probing certifies ${scheduled}, not this repository`;
+  return {reason:hold?`${prefix}; there: ${hold.reason}`:prefix,paused:hold?.paused??false};
+}
 export async function enforcementDiagnostics(ctx:Ctx,strategy:Strategy,repo:string){
   const state = readScheduleState(ctx);
+  const scheduled = scheduledRepo(ctx);
   const rows=[];
   for(const runner of Object.values(strategy.runners)){
     try {
@@ -160,7 +181,7 @@ export async function enforcementDiagnostics(ctx:Ctx,strategy:Strategy,repo:stri
         lastCostPct: attempt?.lastCostPct ?? null,
         consent: consentVal ?? "unasked" as const,
         // Computed, not stored: a stored reason goes stale between ticks.
-        scheduleReason: scheduleReason(strategy,runner.id,key(target),cert,unsupported,state,ctx.now),
+        ...scheduleFields(scheduleFor(ctx,strategy,target,repo,scheduled,unsupported,cert,state)),
       });
     } catch(error) {
       rows.push({
@@ -181,11 +202,13 @@ export async function enforcementDiagnostics(ctx:Ctx,strategy:Strategy,repo:stri
         consent: "unasked" as const,
         // The target could not be resolved, so tick cannot probe it either.
         scheduleReason: error instanceof Error?error.message:String(error),
+        schedulePaused: false,
       });
     }
   }
   return {repo,scope:"native subagent entry points at admission",runners:rows};
 }
+const scheduleFields=(hold:{reason:string;paused:boolean}|null)=>({scheduleReason:hold?.reason??null,schedulePaused:hold?.paused??false});
 export async function certifyExecutor(ctx:Ctx,target:EnforcementTarget,probe:()=>Promise<CanaryResult>):Promise<CertificateStatus> {
  return withLock(ctx,`enforcement-${digest(key(target))}`,async()=>{
   const before=enforcementFingerprint(target),result=await probe();

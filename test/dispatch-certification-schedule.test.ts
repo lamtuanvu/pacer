@@ -4,7 +4,7 @@ import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, 
 import { join } from "node:path";
 import {
   BACKOFF_BASE_S, BACKOFF_MAX_S, MAX_COST_PCT, MAX_PROBES_PER_DAY, MAX_REPO_SWITCHES,
-  decideProbe, readScheduleState, recordProbeOutcome, settleProbe, writeScheduleState, type ProbeInputs, type ScheduleState,
+  attemptHold, decideProbe, readScheduleState, recordProbeOutcome, settleProbe, writeScheduleState, type ProbeInputs, type ScheduleState,
 } from "../src/dispatch/certification-schedule";
 import { fakeCtx } from "./helpers";
 
@@ -101,6 +101,33 @@ test("repository switching pauses for the maximum backoff, then retries", () => 
   expect(paused.attempts["planner-key"].nextEligibleAt).toBe(now + BACKOFF_MAX_S);
   expect(decideProbe(inputs(), paused, now + BACKOFF_MAX_S - 1).probe).toBe(false);
   expect(decideProbe(inputs(), paused, now + BACKOFF_MAX_S)).toEqual({ probe: true });
+});
+
+test("a certified repository-switch pause keeps its cause after the counters reset", () => {
+  const now = 1_000;
+  const charged = recordProbeOutcome(state({ repoSwitches: MAX_REPO_SWITCHES - 1 }),
+    "planner-key", "/other", { certified: false, costPct: null }, now);
+  const settled = settleProbe(charged, "planner-key", { certified: true, costPct: 0 }, now);
+  // The reset is correct; the cause has to survive it.
+  expect(settled.attempts["planner-key"].repoSwitches).toBe(0);
+  expect(attemptHold(settled.attempts["planner-key"], now + 10)).toEqual({
+    reason: "the certificate keeps being invalidated by switching repositories", paused: true,
+  });
+});
+
+test("a certified cost pause keeps its cause", () => {
+  const now = 1_000;
+  const charged = recordProbeOutcome(state(), "planner-key", "/repo", { certified: false, costPct: null }, now);
+  const settled = settleProbe(charged, "planner-key", { certified: true, costPct: MAX_COST_PCT + 3 }, now);
+  expect(attemptHold(settled.attempts["planner-key"], now + 10)).toEqual({
+    reason: `the last probe cost ${MAX_COST_PCT + 3}% of the account window`, paused: true,
+  });
+});
+
+test("a record stored before the cause was kept still reads its pause from its counters", () => {
+  const legacy = { failures: 0, nextEligibleAt: 2_000, lastRepo: "/repo", repoSwitches: MAX_REPO_SWITCHES,
+    dayStartedAt: 0, probesToday: 1, lastCostPct: null };
+  expect(attemptHold(legacy, 1_000)?.paused).toBe(true);
 });
 
 test("an over-ceiling settlement pauses for the maximum backoff, then retries", () => {

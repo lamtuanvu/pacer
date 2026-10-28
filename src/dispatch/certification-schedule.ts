@@ -36,7 +36,14 @@ export interface AttemptRecord {
   failures: number; nextEligibleAt: number; lastRepo: string;
   repoSwitches: number; dayStartedAt: number; probesToday: number;
   lastCostPct: number | null;
+  /**
+   * Why `nextEligibleAt` is a maximum-length pause, if it is one. Stored rather
+   * than inferred, because a certified settlement resets the counters that
+   * caused the pause while keeping the pause itself. Absent from older files.
+   */
+  pauseCause?: PauseCause | null;
 }
+export type PauseCause = "cost" | "repo-switches";
 export interface ScheduleState {
   consent: Record<string, "granted" | "declined">;
   attempts: Record<string, AttemptRecord>;
@@ -51,7 +58,7 @@ export type ProbeDecision = { probe: true } | { probe: false; reason: string; ne
 
 const empty: AttemptRecord = {
   failures: 0, nextEligibleAt: 0, lastRepo: "", repoSwitches: 0,
-  dayStartedAt: 0, probesToday: 0, lastCostPct: null,
+  dayStartedAt: 0, probesToday: 0, lastCostPct: null, pauseCause: null,
 };
 
 const file = (ctx: Ctx) => join(ctx.pacerHome, "state", "certification-schedule.json");
@@ -82,15 +89,19 @@ export function settleProbe(
 ): ScheduleState {
   const record = state.attempts[key];
   if (!record) return state;
+  const overCost = outcome.costPct !== null && outcome.costPct > MAX_COST_PCT;
+  const switching = record.repoSwitches >= MAX_REPO_SWITCHES;
   return { ...state, attempts: { ...state.attempts, [key]: {
     ...record,
     ...(outcome.certified ? { failures: 0, repoSwitches: 0 } : {}),
     // Certification success must not erase a spending/thrashing pause.
-    nextEligibleAt: outcome.costPct !== null && outcome.costPct > MAX_COST_PCT
-      ? now + BACKOFF_MAX_S
-      : record.repoSwitches >= MAX_REPO_SWITCHES ? record.nextEligibleAt
+    nextEligibleAt: overCost ? now + BACKOFF_MAX_S
+      : switching ? record.nextEligibleAt
       : outcome.certified ? 0 : record.nextEligibleAt,
     lastCostPct: outcome.costPct,
+    // The pause outlives the counters reset above, so its cause must too.
+    pauseCause: overCost ? "cost" : switching ? "repo-switches"
+      : outcome.certified ? null : record.pauseCause ?? null,
   } } };
 }
 
@@ -132,10 +143,14 @@ const HEADROOM_UNKNOWN = "planner headroom is unknown";
 export function attemptHold(record: AttemptRecord | undefined, now: number): { reason: string; paused: boolean } | null {
   const attempt = record ?? empty;
   if (now < attempt.nextEligibleAt) {
-    if (attempt.repoSwitches >= MAX_REPO_SWITCHES) {
+    // A record written before the cause was stored still carries its counters.
+    const cause = attempt.pauseCause !== undefined ? attempt.pauseCause
+      : attempt.repoSwitches >= MAX_REPO_SWITCHES ? "repo-switches"
+      : attempt.lastCostPct !== null && attempt.lastCostPct > MAX_COST_PCT ? "cost" : null;
+    if (cause === "repo-switches") {
       return { reason: "the certificate keeps being invalidated by switching repositories", paused: true };
     }
-    if (attempt.lastCostPct !== null && attempt.lastCostPct > MAX_COST_PCT) {
+    if (cause === "cost") {
       return { reason: `the last probe cost ${attempt.lastCostPct}% of the account window`, paused: true };
     }
     return { reason: "waiting out the backoff from an earlier failed probe",
@@ -175,26 +190,34 @@ export function decideProbe(inputs: ProbeInputs, state: ScheduleState, now: numb
 }
 
 /**
- * Why the schedule is not probing `runnerId` right now, for display. Derived
- * from the strategy, the stored state and the certificate alone, because it
- * renders a settings page and a status read is not cheap. The one gate it
- * cannot evaluate is live planner headroom: when that is all that remains it
- * says so instead of guessing. `key` is the runner's enforcement key.
+ * Why the schedule is not probing `runnerId` right now, for display, and
+ * whether that is a pause in the doctor's sense. Derived from the strategy,
+ * the stored state and the certificate alone, because it renders a settings
+ * page and a status read is not cheap. The one gate it cannot evaluate is live
+ * planner headroom: when every other gate passes it returns null, because a
+ * probe may be imminent and a missing reading is not a reason not to probe.
+ * `key` is the runner's enforcement key.
  */
 export function scheduleReason(
   s: Strategy, runnerId: string, key: string, certificate: CertificateStatus,
   unsupportedReason: string | null, state: ScheduleState, now: number,
-): string | null {
+): { reason: string; paused: boolean } | null {
   // tick only ever probes the planner's own runner.
-  const planner = findPlannerRunner(s);
-  if (!planner || planner.id !== runnerId) return "scheduled probing covers only the planner's own executor";
+  if (!isScheduledRunner(s, runnerId)) return { reason: "scheduled probing covers only the planner's own executor", paused: false };
   const decision = decideProbe({
-    key, account: planner.account, runner: runnerId, repo: "", certificate, unsupportedReason,
+    key, account: findPlannerRunner(s)!.account, runner: runnerId, repo: "", certificate, unsupportedReason,
     headroomPct: null, reserveHeadroomPct: s.pacing.plannerReserveHeadroom, mode: s.pacing.plannerProbe,
     plannerExecutes: true, listedForRouting: isListedForRouting(s, runnerId),
   }, state, now);
-  if (decision.probe) return null;
-  return decision.reason === HEADROOM_UNKNOWN ? "waiting for a planner headroom reading" : decision.reason;
+  if (decision.probe || decision.reason === HEADROOM_UNKNOWN) return null;
+  // decideProbe reaches the hold only once every earlier gate has passed.
+  const hold = attemptHold(state.attempts[key], now);
+  return { reason: decision.reason, paused: hold !== null && hold.paused && hold.reason === decision.reason };
+}
+
+/** Whether `runnerId` is the one runner tick probes. */
+export function isScheduledRunner(s: Strategy, runnerId: string): boolean {
+  return findPlannerRunner(s)?.id === runnerId;
 }
 
 /** The planner runner's enforcement key, derived from the strategy as resolveEnforcementTarget would. */
@@ -213,7 +236,9 @@ export function recordProbeOutcome(
   const { dayStartedAt, probesToday } = dayWindow(record, now);
   const failures = outcome.certified ? 0 : record.failures + 1;
   const repoSwitches = previous && previous.lastRepo !== repo ? record.repoSwitches + 1 : record.repoSwitches;
-  const paused = repoSwitches >= MAX_REPO_SWITCHES || (outcome.costPct !== null && outcome.costPct > MAX_COST_PCT);
+  const pauseCause: PauseCause | null = repoSwitches >= MAX_REPO_SWITCHES ? "repo-switches"
+    : outcome.costPct !== null && outcome.costPct > MAX_COST_PCT ? "cost" : null;
+  const paused = pauseCause !== null;
   const updated: AttemptRecord = {
     failures,
     nextEligibleAt: paused ? now + BACKOFF_MAX_S : outcome.certified ? 0 : now + Math.min(BACKOFF_BASE_S * 2 ** (failures - 1), BACKOFF_MAX_S),
@@ -222,6 +247,7 @@ export function recordProbeOutcome(
     dayStartedAt,
     probesToday: probesToday + 1,
     lastCostPct: outcome.costPct,
+    pauseCause,
   };
   return { consent: { ...state.consent }, attempts: { ...state.attempts, [key]: updated } };
 }
@@ -272,6 +298,11 @@ function isListedForRouting(s: Strategy, runnerId: string): boolean {
     if (rule.executors.includes(runnerId)) return true;
   }
   return false;
+}
+
+/** The repository tick certifies, or null when none is registered and tick does nothing. */
+export function scheduledRepo(ctx: Ctx): string | null {
+  return getActiveRepo(ctx);
 }
 
 function getActiveRepo(ctx: Ctx): string | null {
