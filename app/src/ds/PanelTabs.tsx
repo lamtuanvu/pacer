@@ -8,9 +8,12 @@ export interface PanelTab { id: string; label: string; icon?: IconName; badge?: 
 const content = (tab: PanelTab) => <>{tab.icon && <Icon name={tab.icon} />}<span className="pc-panel-tabs__label">{tab.label}</span>
   {!!tab.badge && <CountBadge count={tab.badge} label={tab.badge === 1 ? "item" : "items"} />}</>;
 
-/** Compact panel tablist. Tabs past maxVisible move into a "+N" menu; the selected tab always stays in the strip. */
-export function PanelTabs({ label, tabs, value, onChange, maxVisible = 4 }: {
-  label: string; tabs: readonly PanelTab[]; value: string; onChange: (id: string) => void; maxVisible?: number;
+/**
+ * Compact panel tablist. Tabs past maxVisible move into a "+N" menu; the selected tab always stays in the strip.
+ * With `id`, tab `id`s and `aria-controls` point at the consumer's panels: `<id>-<tab>-tab` and `<id>-<tab>-panel`.
+ */
+export function PanelTabs({ id, label, tabs, value, onChange, maxVisible = 4 }: {
+  id?: string; label: string; tabs: readonly PanelTab[]; value: string; onChange: (id: string) => void; maxVisible?: number;
 }) {
   const [menu, setMenu] = useState(false);
   const list = useRef<HTMLDivElement>(null), more = useRef<HTMLButtonElement>(null), wrap = useRef<HTMLDivElement>(null);
@@ -27,7 +30,7 @@ export function PanelTabs({ label, tabs, value, onChange, maxVisible = 4 }: {
   const close = () => { setMenu(false); more.current?.focus(); };
   return <div className="pc-panel-tabs">
     <div ref={list} role="tablist" aria-label={label} className="pc-tabs pc-panel-tabs__list">
-      {visible.map((tab, at) => <Button key={tab.id} size="sm" role="tab" aria-selected={tab.id === current} tabIndex={tab.id === current ? 0 : -1} title={tab.label}
+      {visible.map((tab, at) => <Button key={tab.id} size="sm" role="tab" id={id && `${id}-${tab.id}-tab`} aria-controls={id && `${id}-${tab.id}-panel`} aria-selected={tab.id === current} tabIndex={tab.id === current ? 0 : -1} title={tab.label}
         onClick={() => onChange(tab.id)} onKeyDown={event => {
           const next = tabStep(event.key, at, visible.length);
           if (next === undefined) return;

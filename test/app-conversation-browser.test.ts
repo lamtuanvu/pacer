@@ -26,9 +26,18 @@ browserTest('conversation terminal portals its controls to the footer and never 
   await page.locator('#session-panel .xterm-helper-textarea').focus();
   await page.keyboard.press('Tab');
   expect(await page.evaluate(()=>document.activeElement?.closest('#footer')!==null)).toBe(true);
+  // A watcher's Ctrl combinations reach the app (its frame shortcuts), not the terminal; a driver's stay with the agent.
+  await page.evaluate(()=>{(window as any).seen=[];addEventListener('keydown',(e:Event)=>{const k=e as KeyboardEvent;if(k.key==='b')(window as any).seen.push([k.key,k.defaultPrevented]);});});
+  await page.locator('#session-panel .xterm-helper-textarea').focus();
+  await page.keyboard.press('Control+b');
+  expect(await page.evaluate(()=>(window as any).seen)).toEqual([['b',false]]);
   await footer.getByRole('button',{name:'Take control',exact:true}).click();
   await footer.getByText('You have control',{exact:true}).waitFor();
   await page.waitForFunction(()=>(window as any).conversationFixture.sizes().length>0);
+  await page.evaluate(()=>{(window as any).seen=[];});
+  await page.locator('#session-panel .xterm-helper-textarea').focus();
+  await page.keyboard.press('Control+b');
+  expect(await page.evaluate(()=>(window as any).seen)).toEqual([]);
   const fitted=await page.evaluate(()=>(window as any).conversationFixture.sizes().at(-1));
 
   // Another tab hides the panel: the pane measures 0×0 and must not shrink the agent's PTY.
