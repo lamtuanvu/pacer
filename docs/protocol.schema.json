@@ -3008,6 +3008,46 @@
       ],
       "additionalProperties": false
     },
+    "IssueImportParams": {
+      "type": "object",
+      "properties": {
+        "repo": {
+          "type": "string"
+        },
+        "issue": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "repo",
+        "issue"
+      ],
+      "additionalProperties": false
+    },
+    "IssueSearchParams": {
+      "type": "object",
+      "properties": {
+        "repo": {
+          "type": "string"
+        },
+        "query": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "repo",
+        "query"
+      ],
+      "additionalProperties": false
+    },
     "JobCancelParams": {
       "type": "object",
       "properties": {

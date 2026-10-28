@@ -2,15 +2,21 @@ import { HostsSection } from "./HostsSection";
 export { HostsSection } from "./HostsSection";
 import { ExecutorsSection } from "./Executors";
 export { ExecutorsSection } from "./Executors";
+import { PluginsSection } from "./Plugins";
 import { UpdatesSection } from "./Updates";
 import { LazyDispatcher } from "./LazyDispatcher";
 import { LazyAssistantSettings } from "./LazyAssistantSettings";
 
 import { withQuery, type RouteQuery } from "../../router";
 import { DensityContext } from "../../ds/Density";
-import { SETTINGS_PAGES } from "../../settings-pages";
+import { settingsPageId } from "../../settings-pages";
+import { SettingRow } from "../../ds/SettingRow";
 import { Page, Stack } from "../../ds/Page";
-import { Icon } from "../../ds/icons";
+import { Card } from "../../ds/Patterns";
+import { UsageMeter } from "../../ds/UsageMeter";
+import { modeWords, toneFor } from "../../../../src/view-model/words";
+import { StatusDot } from "../../ds/StatusDot";
+import { desktopUpdateIndicator } from "../../../../src/view-model/updates";
 import { DiagnosticsSection } from "./Diagnostics";
 import { ProjectStrategies } from "./ProjectStrategies";
 import {
@@ -59,6 +65,7 @@ import {
   useResource,
   words,
   SettingsPageContext,
+  useSettingsStyles,
 } from "./shared";
 export interface SettingsData {
   config?: ConfigData;
@@ -74,6 +81,8 @@ export interface SettingsData {
     disabled?: boolean;
   };
 }
+/** Pages whose changes reach routing; Overview, App preferences and Diagnostics do not. */
+const DISPATCH_NOTE = new Set([ "accounts", "machine", "dispatcher"]);
 /** Mount only the selected editor: inactive pages must not fetch or run effects. */
 export function SettingsGeneral({
   section,
@@ -88,16 +97,16 @@ export function SettingsGeneral({
   let content: ComponentChildren;
   switch (section) {
     case "planner":
-      content = <PlannerPacing initialData={initialData.config} />;
+      content = <PlannerPacing initialData={initialData.config} initialAccounts={initialData.accounts} />;
       break;
     case "accounts":
       content = <AccountsSection initialData={initialData.accounts} />;
       break;
     case "executors":
-      content = <ExecutorsSection />;
+      content = <ExecutorsSection query={query} />;
       break;
     case "machine":
-      content = <MachineSection initialData={initialData.config} />;
+      content = <MachineSection initialData={initialData.config} query={query} />;
       break;
     case "dispatcher":
       content = <LazyDispatcher key={dispatchRevision} query={query}>
@@ -105,16 +114,11 @@ export function SettingsGeneral({
         <RoutingSection initialData={initialData.routing} />
       </LazyDispatcher>;
       break;
+    case "app":
     case "updates":
-      content = <UpdatesSection initialData={initialData.updates} />;
-      break;
     case "notifications":
-      content = (
-        <NotificationsSection initialData={initialData.notifications} />
-      );
-      break;
     case "appearance":
-      content = <AppearanceSection />;
+      content = <AppPreferences section={section} initialData={initialData} />;
       break;
     case "assistant":
       content = <LazyAssistantSettings />;
@@ -123,16 +127,16 @@ export function SettingsGeneral({
       content = <DiagnosticsSection />;
       break;
     default:
-      content = <GeneralOverview query={query} />;
+      content = <GeneralOverview query={query} initialData={initialData} />;
   }
   return (
     <DensityContext.Provider value="settings">
       <SettingsPageContext.Provider
-        value={section === "planner" ? "pacing" : (section ?? null)}
+        value={section === "planner" ? "pacing" : section ? settingsPageId(section) : null}
       >
         <Page width="full" className="u3-settings u3-settings-page">
           <div className="u3-general-sections">{content}</div>
-          {section !== "executors" && (
+          {DISPATCH_NOTE.has(section ?? "") && (
             <p className="u3-settings-note">
               Changes apply on the next routing decision.
             </p>
@@ -143,182 +147,170 @@ export function SettingsGeneral({
   );
 }
 
-function GeneralOverview({ query }: { query: RouteQuery }) {
-  return (
-    <Section
-      id="general"
-      title="Preferences"
-      detail="Manage how pacer plans, delegates, and keeps you informed."
-    >
-      <div className="u3-settings-links">
-        {SETTINGS_PAGES.filter(
-          (page) => page.id && page.id !== "add-executor",
-        ).map((page) => (
-          <TextAction
-            key={page.id}
-            href={withQuery(`#/settings/${page.id}`, query)}
-            className="u3-settings-link"
-          >
-            <Icon name={page.icon} />
-            {page.label}
-          </TextAction>
-        ))}
-      </div>
-    </Section>
-  );
+/** Readiness uses service facts only; missing capabilities do not become placeholder rows. */
+function GeneralOverview({ query, initialData }: { query: RouteQuery; initialData: SettingsData }) {
+  useSettingsStyles();
+  const { state } = useTaskContext();
+  const config = useResource<ConfigData>("config.get", {}, initialData.config);
+  const snapshot = state.snapshot;
+  const executors = snapshot?.executors;
+  const stale = (e: ExecutorRow) => e.stale || snapshot?.accounts?.some(a => a.name === e.account && a.stale);
+  // Busy executors can still take work: only down, failing, blocked or unknown states are unable.
+  const available = ["ready", "busy", "full", "checking"];
+  const ready = executors?.filter(e => ["ready", "busy"].includes(e.state) && !stale(e)) ?? [];
+  const needs = executors?.filter(e => stale(e) || ["down", "failing", "blocked"].includes(e.state)) ?? [];
+  const active = snapshot?.strategies?.find(s => typeof s !== "string" && s.active);
+  const setup = typeof active === "object" ? active : initialData.strategies?.find(s => s.active);
+  const value = (key: string) => config.data?.keys[key]?.value;
+  const href = (page: string) => withQuery(`#/settings/${page}`, query);
+  const update = desktopUpdateIndicator(snapshot?.desktopUpdates);
+  const checks: { title: string; detail?: string; tone: "good" | "bad" | "warn" | "neutral"; page: string; link: string }[] = [];
+  for (const e of executors ?? []) {
+    if (stale(e)) checks.push({ title: `${e.id} usage reading is stale`, detail: e.reason || e.sub, tone: "warn", page: "executors", link: "Open agent" });
+    else if (!available.includes(e.state)) checks.push({ title: `${e.id} cannot take work`, detail: e.reason || e.sub || words(e.state), tone: ["down", "failing", "blocked"].includes(e.state) ? "bad" : "warn", page: "executors", link: "Open agent" });
+  }
+  for (const account of snapshot?.accounts ?? []) {
+    if (account.stale && !executors?.some(e => e.account === account.name && stale(e))) checks.push({ title: `${account.name} usage reading is stale`, detail: accountUsageFreshness(account) ?? undefined, tone: "warn", page: "executors", link: "Agents" });
+  }
+  if (snapshot?.console) checks.push({ title: "Planner connection observed", detail: `Last seen ${time(snapshot.console.heartbeatAt)}`, tone: "neutral", page: "executors", link: "Agents" });
+  if (executors) checks.push({ title: `${ready.length} ${ready.length === 1 ? "executor" : "executors"} ready`, detail: ready.map(e => e.id).join(", "), tone: ready.length ? "good" : "warn", page: "executors", link: "Agents" });
+  if (setup) checks.push({ title: `Saved setup ${setup.name} is active`, detail: setup.summary, tone: "good", page: "dispatcher", link: "Dispatcher" });
+  if (update) checks.push({ title: update.label, tone: update.tone === "bad" ? "bad" : "warn", page: "app", link: "App" });
+  else if (initialData.updates?.available && initialData.updates.latest) checks.push({ title: `pacer ${initialData.updates.latest} is available`, detail: `You have ${initialData.updates.current}`, tone: "warn", page: "app", link: "App" });
+  const tiles: { label: string; value: string; note?: string; page: string }[] = [];
+  if (executors) tiles.push({ label: "Agents", value: `${snapshot?.planner ? `${executorLabel(snapshot.planner.agent)} plans · ` : ""}${executors.length} executors`, note: ready.length ? `${ready.length} ready to take work` : "No executors ready", page: "executors" });
+  if (setup) tiles.push({ label: "Dispatcher", value: `Saved setup ${setup.name}`, note: setup.summary, page: "dispatcher" });
+  if (value("pacing.planner_reserve") != null) tiles.push({ label: "Budget", value: `${value("pacing.planner_reserve")}% planner reserve`, note: [value("pacing.accounts") ? `${words(String(value("pacing.accounts")))} accounts` : "", value("pacing.fill_threshold") != null ? `move on at ${value("pacing.fill_threshold")}%` : ""].filter(Boolean).join(" · "), page: "planner" });
+  if (snapshot?.machine) tiles.push({ label: "Machines", value: `${snapshot.machine.max} parallel`, note: snapshot.hosts ? `${snapshot.hosts.length} remote hosts` : undefined, page: "machine" });
+  return <div className="pc-settings-board pc-settings-board--overview">
+    <header className="pc-settings-board__header"><h1>Overview</h1><p>What pacer needs before it can dispatch freely.</p></header>
+    {executors && <Card tone="sunken"><div className="pc-readiness-summary">
+      <div className="pc-readiness-summary__copy"><strong>{ready.length} of {executors.length} agents can take work. {needs.length} {needs.length === 1 ? "needs" : "need"} you.</strong>
+        {needs.some(e => e.reason) && <p>{needs.filter(e => e.reason).map(e => `${e.id}: ${e.reason}`).join(" · ")}</p>}
+      </div><div className="pc-readiness-marks">{executors.map(e => <span key={e.id} className="pc-readiness-mark" title={`${e.id} · ${stale(e) ? "Stale reading" : words(e.state)}`}><AgentMark agent={e.agent} size={28}/><StatusDot tone={stale(e) ? "warn" : e.tone === "muted" ? "neutral" : e.tone} label={`${e.id}: ${stale(e) ? "Stale reading" : words(e.state)}`} paired="glyph"/></span>)}</div>
+    </div></Card>}
+    {checks.length > 0 && <section className="pc-settings-board__section" aria-labelledby="readiness-h"><h2 id="readiness-h" className="pc-settings-board__label">Readiness</h2><div className="pc-readiness-list">{checks.map((c, i) => <div key={i} className={`pc-readiness-row pc-readiness-row--${c.tone}`}><span className="pc-readiness-glyph" aria-hidden="true">{({good:"✓",bad:"✕",warn:"◐",neutral:"○"})[c.tone]}</span><span className="pc-readiness-row__copy"><strong>{c.title}</strong>{c.detail && <span className="pc-settings-board__caption">{c.detail}</span>}</span><a className="pc-inline-link" href={href(c.page)}>{c.link}</a></div>)}</div></section>}
+    {tiles.length > 0 && <section className="pc-settings-board__section" aria-labelledby="setup-h"><h2 id="setup-h" className="pc-settings-board__label">Current setup</h2><div className="pc-settings-tiles">{tiles.map(t => <a key={t.label} className="pc-inline-link pc-settings-tile" href={href(t.page)}><span className="pc-settings-board__label">{t.label}</span><strong>{t.value}</strong>{t.note && <span className="pc-settings-board__caption">{t.note}</span>}</a>)}</div></section>}
+  </div>;
 }
 
-function Setting({
-  label,
-  help,
-  children,
-}: {
-  label: string;
-  help: string;
-  children: ComponentChildren;
-}) {
+/** Updates, notifications and appearance share one page; their old deep links scroll to their section. */
+function AppPreferences({ section, initialData }: { section: string; initialData: SettingsData }) {
+  useEffect(() => {
+    if (section === "app") return;
+    // The shell focuses the main region after this effect, and sections above may still be loading:
+    // keep the target aligned until it settles, the user scrolls, or two seconds pass.
+    const target = () => document.getElementById(section);
+    const align = () => target()?.scrollIntoView({ block: "start" });
+    const frame = requestAnimationFrame(align);
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(align);
+    const page = target()?.parentElement;
+    if (page) observer?.observe(page);
+    const stop = () => { observer?.disconnect(); cancelAnimationFrame(frame); };
+    const timer = setTimeout(stop, 2000);
+    const events = ["wheel", "touchstart", "keydown", "pointerdown"] as const;
+    events.forEach(name => addEventListener(name, stop, { once: true, passive: true }));
+    return () => { stop(); clearTimeout(timer); events.forEach(name => removeEventListener(name, stop)); };
+  }, [section]);
   return (
-    <div className="u3-setting">
-      <div>
-        <strong>{label}</strong>
-        <div className="u3-muted">{help}</div>
-      </div>
-      <div>{children}</div>
+    <div className="pc-settings-board pc-settings-board--app">
+      <header className="pc-settings-board__header"><h1>App preferences</h1><p>How the app looks and talks to you.</p></header>
+      <AppearanceSection />
+      <NotificationsSection initialData={initialData.notifications} />
+      <WorkspacePreferences initialData={initialData.config} />
+      <UpdatesSection initialData={initialData.updates} initialConfig={initialData.config} />
+      <PluginsSection />
     </div>
   );
 }
-export function PlannerPacing({ initialData }: { initialData?: ConfigData }) {
+
+/** Budget controls use only existing service operations; account readings supply all windows. */
+export function PlannerPacing({ initialData, initialAccounts }: { initialData?: ConfigData; initialAccounts?: Account[] }) {
   const query = useResource("config.get", {}, initialData),
+    accounts = useResource<Account[]>("account.list", {}, initialAccounts),
     action = useOperation(query.reload),
     { state } = useTaskContext();
   const [chosen, setChosen] = useState("");
-  const config = query.data,
+  const config = query.data, planner = state.snapshot?.planner,
     value = (key: string) => String(config?.keys[key]?.value ?? "");
-  const save = (key: string, value: string | number) =>
-    void action.run("config.set", { key, value });
-  return (
-    <Section id="pacing" title="Planner & pacing">
-      <ResourceState resource={query}>
-        {config && (
-          <>
-            <Setting label="Planner" help="Plans and reviews; paced weekly">
-              <div className="u3-agent">
-                <AgentMark
-                  agent={
-                    state.snapshot?.planner?.agent ??
-                    plannerAgent(value("planner"))
-                  }
-                />
-                <ChoicePicker
-                  aria-label="Planner"
-                  value={value("planner")}
-                  placeholder="Choose a planner"
-                  options={config.planners.map((planner) => ({ value: planner, label: planner }))}
-                  onValueChange={setChosen}
-                />
-              </div>
-              <p className="u3-muted">{state.snapshot?.planner?.advice}</p>
-              <Button
-                disabled={!value("planner")}
-                onClick={() => setChosen(value("planner"))}
-              >
-                Review integration changes
-              </Button>
-            </Setting>
-            <Setting label="Policy" help="How work spreads across executors">
-              <Segment
-                label="Pacing policy"
-                value={value("pacing.policy")}
-                disabled={action.busy}
-                onChange={(v) => save("pacing.policy", v)}
-                options={[
-                  { value: "priority", label: "Priority" },
-                  { value: "even", label: "Even" },
-                  { value: "burn-before-reset", label: "Burn before reset" },
-                  { value: "cheapest-first", label: "Cheapest first" },
-                ]}
-              />
-              <p className="u3-muted">
-                {value("pacing.policy") === "priority"
-                  ? "Use the order on the Executors page; skip one only when it’s out of quota or ahead of pace."
-                  : "pacer applies this policy on the next routing decision."}
-              </p>
-            </Setting>
-            <Setting
-              label="Planner reserve"
-              help="Kept back for planning and review"
-            >
-              <div className="u3-reserve">
-                <Range
-                  aria-label="Planner reserve (%)"
-                  min="0"
-                  max="50"
-                  step="5"
-                  value={value("pacing.planner_reserve")}
-                  disabled={action.busy}
-                  onChange={(e) => {
-                    if (e.currentTarget.validity.valid)
-                      save(
-                        "pacing.planner_reserve",
-                        Number(e.currentTarget.value),
-                      );
-                  }}
-                />
-                <output>{value("pacing.planner_reserve")}%</output>
-                <span className="u3-muted">0–50%</span>
-              </div>
-            </Setting>
-            <Setting
-              label="Multiple accounts"
-              help="When one agent has several"
-            >
-              <div className="u3-accounts-mode">
-                <Segment
-                  label="Account mode"
-                  value={value("pacing.accounts")}
-                  disabled={action.busy}
-                  onChange={(v) => save("pacing.accounts", v)}
-                  options={[
-                    { value: "spread", label: "Spread" },
-                    { value: "fill", label: "Fill" },
-                  ]}
-                />
-                <label className="u3-fill">
-                  Move to the next account at{" "}
-                  <TextInput
-                    type="number"
-                    min="50"
-                    max="100"
-                    disabled={
-                      action.busy || value("pacing.accounts") !== "fill"
-                    }
-                    value={value("pacing.fill_threshold") || "80"}
-                    onChange={(e) => {
-                      if (e.currentTarget.validity.valid)
-                        save(
-                          "pacing.fill_threshold",
-                          Number(e.currentTarget.value),
-                        );
-                    }}
-                  />
-                  <span>% used</span>
-                </label>
-              </div>
-            </Setting>
-          </>
-        )}
-      </ResourceState>
-      <Feedback action={action} />
-      {chosen && (
-        <PlannerConsent
-          planner={chosen}
-          close={() => setChosen("")}
-          done={query.reload}
-        />
-      )}
-    </Section>
-  );
+  const save = (key: string, value: string | number) => void action.run("config.set", { key, value });
+  const agent = planner?.agent ?? plannerAgent(value("planner")), name = executorLabel(agent);
+  const modes = ["emergency", "strict", "normal", "relaxed"];
+  const mode = planner?.mode;
+  const delta = planner?.usedPct != null && planner.pacePct != null ? Math.round(planner.usedPct - planner.pacePct) : null;
+  const modeCopy = mode === "relaxed" ? "so it may do small edits itself." : mode === "normal" ? "so it delegates substantial work." : mode === "strict" ? "so it delegates everything." : mode === "emergency" ? "so it reserves quota for planning and review." : "";
+  const sentence = planner?.stale ? `${name} has a stale usage reading.` : delta !== null
+    ? `${name} is ${delta === 0 ? "on pace" : `${Math.abs(delta)} points ${delta < 0 ? "under" : "ahead of"} pace`}${modeCopy ? `, ${modeCopy}` : "."}`
+    : planner?.advice;
+  const summary = state.snapshot?.accounts ?? [];
+  // account.list exposes every measured window; the snapshot supplies pace/verdict only for its binding window.
+  const windows = (accounts.data ?? []).flatMap(account => {
+    const binding = summary.find(row => row.name === account.name);
+    const readings = account.usageReading?.windows.length ? account.usageReading.windows : (binding?.window ? [{ name: binding.window, usedPct: binding.usedPct, resetsAt: binding.resetsAt }] : []);
+    return readings.map(window => {
+      const matched = binding?.window === window.name ? binding : undefined;
+      const stale = window.stale ?? account.usageReading?.stale ?? matched?.stale;
+      const capturedAt = account.usageReading?.capturedAt ?? matched?.capturedAt;
+      const note = stale ? `Stale${capturedAt != null ? ` · ${Math.floor(Math.max(0, Date.now() / 1000 - capturedAt) / 3600)}h old` : ""}`
+        : [window.usedPct != null ? `${Math.round(window.usedPct)}%` : "Usage unknown", matched?.pacePct != null ? `pace ${Math.round(matched.pacePct)}%` : null, matched?.verdict === "AHEAD" ? "ahead" : null].filter(Boolean).join(" · ");
+      return { account, window, binding: matched, stale, capturedAt, note };
+    });
+  });
+  return <div id="pacing" className="pc-settings-board pc-settings-board--budget">
+    <header className="pc-settings-board__header"><h1>Budget &amp; pacing</h1><p>How much of each subscription pacer may use, and how fast. Changes apply to the next decision.</p></header>
+    {planner && <Card tone="sunken"><div className="pc-budget-summary">
+      <div className="pc-budget-summary__copy">
+        <div className="pc-budget-identity"><AgentMark agent={agent} size={20}/><b>{name}</b><Pill tone="info">Planner</Pill>{mode && <Pill tone={mode === "relaxed" ? "good" : mode === "strict" ? "warn" : mode === "emergency" ? "bad" : "neutral"}>{modeWords(mode)} mode</Pill>}</div>
+        {sentence && <strong className="pc-budget-sentence">{sentence}</strong>}
+        <UsageMeter used={planner.usedPct ?? null} pace={planner.pacePct ?? null} tone={toneFor(planner.verdict)} size="bar" label={`${name} ${planner.window ?? "budget"} usage`} stale={planner.stale} text="none"/>
+        <span className="pc-settings-board__caption">{[planner.usedPct != null ? `${planner.usedPct}%${planner.window ? ` of ${planner.window}` : ""} used` : null, planner.pacePct != null ? `pace ${planner.pacePct}%` : null, value("pacing.planner_reserve") ? `${value("pacing.planner_reserve")}% kept for planning and review` : null, planner.resetsAt != null ? `resets ${time(planner.resetsAt)}` : null].filter(Boolean).join(" · ")}</span>
+      </div>
+      <div className="pc-budget-modes" role="img" aria-label={`Pace modes: Emergency, Strict, Normal, Relaxed; ${mode && modes.includes(mode) ? `${modeWords(mode)} is active` : "active mode unavailable"}`}>
+        <span className="pc-settings-board__label">Mode is set by pace</span>
+        <div className="pc-budget-modes__bar">{modes.map(m => <span key={m} className={`pc-budget-mode pc-budget-mode--${m}${mode === m ? " pc-budget-mode--active" : ""}`}><span className="pc-budget-mode__fill"/><span>{modeWords(m)}</span></span>)}</div>
+        <span className="pc-settings-board__caption">Strict delegates everything; relaxed lets the planner do small work when it has quota to spare.</span>
+      </div>
+    </div></Card>}
+    <ResourceState resource={query}>{config && <>
+      <section className="pc-preferences-section" aria-labelledby="budget-planner-h"><h2 id="budget-planner-h" className="pc-settings-board__label">Planner</h2>
+        <SettingRow headingLevel={3} variant="budget" label="Keep back for planning and review" description="The planner never delegates this share away. Raise it if reviews get cut short.">
+          <div className="pc-budget-reserve"><Range aria-label="Keep back for planning and review" min="0" max="50" step="5" value={value("pacing.planner_reserve")} disabled={action.busy} onChange={e => { if (e.currentTarget.validity.valid) save("pacing.planner_reserve", Number(e.currentTarget.value)); }}/><output>{value("pacing.planner_reserve")}%</output><span className="pc-settings-board__caption">0–50%</span></div>
+        </SettingRow>
+        <SettingRow headingLevel={3} variant="budget" label="Mode" description="Automatic follows the pace above. Hold keeps one mode until the planner window resets.">
+          <Segment variant="board" label="Mode" value={planner?.modeHeldUntil != null ? mode ?? "" : "auto"} disabled={action.busy} options={[{ value: "auto", label: "Automatic" }, { value: "strict", label: "Hold strict" }, { value: "relaxed", label: "Hold relaxed" }]} onChange={v => { void action.run(v === "auto" ? "mode.release" : "mode.hold", v === "auto" ? {} : { mode: v }); }}/>
+          {mode && <span className="pc-settings-board__caption">Now: {modeWords(mode).toLowerCase()}{planner?.modeHeldUntil != null ? `, held until ${time(planner.modeHeldUntil)}` : ""}.</span>}
+        </SettingRow>
+        <SettingRow headingLevel={3} variant="budget" label="Planner" description="Plans and reviews; paced weekly">
+          <div className="u3-agent"><AgentMark agent={agent}/><ChoicePicker aria-label="Planner" value={value("planner")} placeholder="Choose a planner" options={config.planners.map(planner => ({ value: planner, label: planner }))} onValueChange={setChosen}/></div>
+          <Button disabled={!value("planner")} onClick={() => setChosen(value("planner"))}>Review integration changes</Button>
+        </SettingRow>
+      </section>
+      <section className="pc-preferences-section" aria-labelledby="budget-executors-h"><h2 id="budget-executors-h" className="pc-settings-board__label">Executors</h2>
+        <SettingRow headingLevel={3} variant="budget" label="Pacing policy" description="How work spreads across executors">
+          <Segment variant="board" label="Pacing policy" value={value("pacing.policy")} disabled={action.busy} onChange={v => save("pacing.policy", v)} options={[{ value: "priority", label: "Priority" }, { value: "even", label: "Even" }, { value: "burn-before-reset", label: "Burn before reset" }, { value: "cheapest-first", label: "Cheapest first" }]}/>
+          <span className="pc-settings-board__caption">{value("pacing.policy") === "priority" ? "Use the order on the Agents page; skip one only when it’s out of quota or ahead of pace." : "pacer applies this policy on the next routing decision."}</span>
+        </SettingRow>
+        <SettingRow headingLevel={3} variant="budget" label="Multiple accounts" description="When one agent has several">
+          <Segment variant="board" label="Account mode" value={value("pacing.accounts")} disabled={action.busy} onChange={v => save("pacing.accounts", v)} options={[{ value: "spread", label: "Spread" }, { value: "fill", label: "Fill" }]}/>
+        </SettingRow>
+        <SettingRow headingLevel={3} variant="budget" label="Move to the next account at" description="Percent of quota used; applies when filling accounts">
+          <div className="pc-budget-threshold"><TextInput type="number" min="50" max="100" disabled={action.busy || value("pacing.accounts") !== "fill"} value={value("pacing.fill_threshold") || "80"} onChange={e => { if (e.currentTarget.validity.valid) save("pacing.fill_threshold", Number(e.currentTarget.value)); }}/><span>% used</span></div>
+        </SettingRow>
+      </section>
+    </>}</ResourceState>
+    <section className="pc-settings-board__section" aria-labelledby="budget-windows-h"><h2 id="budget-windows-h" className="pc-settings-board__label">Budget windows</h2>
+      <ResourceState resource={accounts}>{windows.length ? <div className="pc-budget-windows">{windows.map(({ account, window, binding, stale, capturedAt, note }) => <div className="pc-budget-window" key={`${account.name}:${window.name}`}>
+        <span className="pc-budget-identity"><AgentMark agent={binding?.agent ?? account.kind} size={20}/><b>{account.name}</b></span>
+        <span className="pc-settings-board__caption">{words(window.name)}</span>
+        <span className="pc-budget-window__usage"><UsageMeter used={window.usedPct} pace={binding?.pacePct ?? null} tone={toneFor(binding?.verdict ?? "unknown")} size="row" label={`${account.name} ${window.name} usage`} stale={stale} staleAt={capturedAt ?? undefined} text="none"/><span className="pc-settings-board__caption">{note}</span></span>
+        <span className="pc-settings-board__caption">{window.resetsAt != null ? time(window.resetsAt) : ""}</span>
+      </div>)}</div> : <span className="pc-settings-board__caption">No budget windows reported.</span>}</ResourceState>
+    </section>
+    <Feedback action={action}/>
+    {chosen && <PlannerConsent planner={chosen} close={() => setChosen("")} done={query.reload}/>}
+  </div>;
 }
+
 function PlannerConsent({
   planner,
   close,
@@ -599,26 +591,14 @@ export function AccountsSection({ initialData }: { initialData?: Account[] }) {
     </Section>
   );
 }
-export function MachineSection({ initialData }: { initialData?: ConfigData }) {
+export function MachineSection({ initialData, query: routeQuery = { repo: null, scope: null } }: { initialData?: ConfigData; query?: RouteQuery }) {
   const query = useResource("config.get", {}, initialData),
     action = useOperation(query.reload);
   const value = query.data?.keys["execution.local_max_tasks"]?.value;
   const launchMode = String(query.data?.keys["execution.launch_mode"]?.value ?? "interactive");
-  const terminal = String(query.data?.keys["terminal.open"]?.value ?? "");
-  const legacy = String(query.data?.keys["terminal.app"]?.value ?? "Terminal");
-  const choices = query.data?.terminalChoices ?? [
-    {value:"auto",label:"Automatic"},{value:"terminal-app",label:"Terminal"},
-    {value:"iterm",label:"iTerm"},{value:"ghostty",label:"Ghostty"},
-  ];
-  const legacyPreset = query.data?.keys["terminal.app"]?.source === "default"
-    ? undefined
-    : ({Terminal:"terminal-app",iTerm:"iterm",Ghostty:"ghostty"} as Record<string,string>)[legacy];
-  const selectedTerminal = terminal || (legacyPreset && choices.some(choice => choice.value === legacyPreset) ? legacyPreset : "auto");
-  const terminalChoices = choices.some(choice => choice.value === selectedTerminal)
-    ? choices
-    : [...choices, {value:selectedTerminal,label:"Custom terminal (CLI)",disabled:true,reason:"Configured from the CLI"}];
+  const { selectedTerminal, terminalChoices } = terminalPreference(query.data);
   return (
-    <Section id="machine" title="This machine">
+    <Section id="machine" title="This machine" actions={<TextAction href={withQuery("#/settings/hosts", routeQuery)}>Remote hosts</TextAction>}>
       <ResourceState resource={query}>
         <Field
           label="Parallel tasks on this machine"
@@ -861,23 +841,25 @@ function NotificationsSection({
   const query = useResource("notifications.get", {}, initialData),
     action = useOperation(query.reload);
   return (
-    <Section id="notifications" title="Notifications">
+    <section id="notifications" className="pc-preferences-section" aria-labelledby="notifications-h">
+      <h2 id="notifications-h" className="pc-settings-board__label">Notifications</h2>
       <ResourceState resource={query}>
-        <Segment
-          label="Notifications"
-          value={query.data?.level ?? ""}
-          disabled={action.busy}
-          options={[
-            { value: "off", label: "Off" },
-            { value: "important", label: "Important" },
-            { value: "all", label: "All" },
-          ]}
-          onChange={(level) => void action.run("notifications.set", { level })}
-        />
-        <p className="u3-muted">Failures, stuck tasks and reviews</p>
+        <SettingRow variant="board" label="Notify me about" description="Important: failures, stuck tasks and results waiting for review.">
+          <Segment
+            variant="board" label="Notify me about"
+            value={query.data?.level ?? ""}
+            disabled={action.busy}
+            options={[
+              { value: "off", label: "Nothing" },
+              { value: "important", label: "Important" },
+              { value: "all", label: "Everything" },
+            ]}
+            onChange={(level) => void action.run("notifications.set", { level })}
+          />
+        </SettingRow>
       </ResourceState>
       <Feedback action={action} />
-    </Section>
+    </section>
   );
 }
 function AppearanceSection() {
@@ -902,9 +884,11 @@ function AppearanceSection() {
     return () => window.removeEventListener("storage", sync);
   }, []);
   return (
-    <Section id="appearance" title="Appearance" detail="Stored on this device.">
+    <section id="appearance" className="pc-preferences-section" aria-labelledby="look-h">
+      <h2 id="look-h" className="pc-settings-board__label">Look</h2>
+      <SettingRow variant="board" label="Theme" description="System follows your device.">
       <Segment
-        label="Appearance"
+        variant="board" label="Theme"
         value={theme}
         options={["system", "light", "dark"].map((value) => ({
           value,
@@ -923,7 +907,34 @@ function AppearanceSection() {
           }
         }}
       />
+      </SettingRow>
       <p role="status">{message}</p>
-    </Section>
+    </section>
   );
+}
+
+/** Shares the machine editor's terminal choices and exact config operation. */
+function WorkspacePreferences({ initialData }: { initialData?: ConfigData }) {
+  const query = useResource<ConfigData>("config.get", {}, initialData), action = useOperation(query.reload);
+  const config = query.data;
+  if (!config?.keys["terminal.open"] && !config?.terminalChoices) return null;
+  const { selectedTerminal, terminalChoices } = terminalPreference(config);
+  return <section className="pc-preferences-section" aria-labelledby="workspace-h"><h2 id="workspace-h" className="pc-settings-board__label">Workspace</h2><SettingRow variant="board" label="Terminal" description="Used when opening sessions and other terminal actions on this machine."><ChoicePicker sizing="content" value={selectedTerminal} options={terminalChoices} disabled={action.busy} onValueChange={choice => void action.run("config.set", {key:"terminal.open",value:choice})}/></SettingRow><Feedback action={action}/></section>;
+}
+
+function terminalPreference(config?: ConfigData) {
+  const terminal = String(config?.keys["terminal.open"]?.value ?? "");
+  const legacy = String(config?.keys["terminal.app"]?.value ?? "Terminal");
+  const choices = config?.terminalChoices ?? [
+    {value:"auto",label:"Automatic"},{value:"terminal-app",label:"Terminal"},
+    {value:"iterm",label:"iTerm"},{value:"ghostty",label:"Ghostty"},
+  ];
+  const legacyPreset = config?.keys["terminal.app"]?.source === "default"
+    ? undefined
+    : ({Terminal:"terminal-app",iTerm:"iterm",Ghostty:"ghostty"} as Record<string,string>)[legacy];
+  const selectedTerminal = terminal || (legacyPreset && choices.some(choice => choice.value === legacyPreset) ? legacyPreset : "auto");
+  const terminalChoices = choices.some(choice => choice.value === selectedTerminal)
+    ? choices
+    : [...choices, {value:selectedTerminal,label:"Custom terminal (CLI)",disabled:true,reason:"Configured from the CLI"}];
+  return { selectedTerminal, terminalChoices };
 }
