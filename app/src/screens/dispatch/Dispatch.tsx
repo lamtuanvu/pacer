@@ -158,7 +158,7 @@ function NextHalf({ routing, query, strategy, now }: { routing: RoutingPreview; 
       : routing.error ? <span className="muted">Could not check routing. It is checked again on the next update.</span>
       : nextId && (readiness || explained) ? <>
         <div className="pc-dispatch-next"><AgentMark agent={markAgent(nextId)} size={32} labelled={false} />
-          <div className="pc-dispatch-next__who"><strong>{executorLabel(nextId)}</strong>{/* The step says why this agent; the pill already flags uncertain readiness. */}{explained?.step ? <span className="muted">{explained.step}</span> : readiness && readiness.tone !== "good" && readiness.detail ? <span className="muted">{readiness.detail}</span> : routing.data?.policy ? <span className="muted">Project order for this repository</span> : null}</div>
+          <div className="pc-dispatch-next__who"><strong>{executorLabel(nextId)}</strong>{/* The step says why this agent; an uncertain readiness keeps its detail on the next line. */}{explained?.step && <span className="muted">{explained.step}</span>}{readiness && readiness.tone !== "good" && readiness.detail ? <span className="muted">{readiness.detail}</span> : explained?.step ? null : routing.data?.policy ? <span className="muted">Project order for this repository</span> : null}</div>
           {readiness && <StatusPill status={readiness} />}</div>
         {routing.explain?.outcome !== "fail" && <div className="pc-dispatch-chain"><span className="muted">Then:</span><ol aria-label="Then, in order">
           {then.map(id => <li key={id}><span className="pc-dispatch-chip"><AgentMark agent={markAgent(id)} size={18} labelled={false} />{executorLabel(id)}</span>{chevron}</li>)}
@@ -372,10 +372,10 @@ export function DispatchHome({ query }: { query: RouteQuery }) {
   const supported = state.features.ops.has("routing.route"), scope = dispatchScope(query, useNarrow(query));
   // The explanation needs a repository and a goal; new work has no goal yet, so it asks about a generic one.
   const repo = explainRepo(scope.repo, state.snapshot?.repos);
-  const routing = useQuery<Routing>(supported ? "routing.route" : "version.get", supported && repo ? { repo } : {});
   const canExplain = supported && state.features.ops.has("dispatch.explain") && repo !== null;
   const revision = JSON.stringify([state.snapshot?.executors?.map(e => [e.id, e.state]),
     state.snapshot?.tasks.filter(t => t.state === "running").length, state.snapshot?.tasks.filter(t => t.state === "queued").length]);
+  const routing = useQuery<Routing>(supported ? "routing.route" : "version.get", supported && repo ? { repo } : {}, revision);
   const explain = useQuery<RouteExplanationView>(canExplain ? "dispatch.explain" : "version.get", canExplain ? { repo, goal: "New task" } : {}, revision);
   const accounts = useQuery<Account[]>(state.features.ops.has("account.list") ? "account.list" : "version.get", {});
   const insights = useInsights(period, scope.repo);

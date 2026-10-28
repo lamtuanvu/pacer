@@ -34,7 +34,7 @@ test("a known exclusion without a subject names its fallback runner", () => {
 test("dispatcher-wide reasons name no executor", () => {
   expect(routeReasonCopy({ code: "no_step_matched", subject: "codex", facts: {} }, now)).toBe("No agent qualifies for any step of the strategy.");
   expect(routeReasonCopy({ code: "step_no_candidates", facts: {} }, now, "codex")).toBe("No agent qualifies for this step of the strategy.");
-  expect(routeReasonCopy({ code: "engine_failed", facts: {} }, now)).toBe("The decision engine failed, so nothing was chosen.");
+  expect(routeReasonCopy({ code: "engine_failed", facts: {} }, now)).toBe("Pacer could not decide where to send it, so nothing was chosen.");
   expect(routeReasonCopy({ code: "paused", facts: { until: now + 3600 } }, now)).toBe(`Dispatch is paused until ${clock(now + 3600, now)}.`);
 });
 test("a busy executor states its running count when the service gives one", () => {

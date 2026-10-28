@@ -6,7 +6,7 @@ import { attentionOrder, needsYou, type Scope } from "./selectors";
 import { compactCount, scopedTaskTree, type TaskAttention, type TaskNodeView } from "./task-tree";
 import { attentionStatus, executorLabel, paceStatus } from "./words";
 import { clock } from "./time";
-import { routeReasonCopy, type RouteReason } from "./route-explanation";
+import { knownRouteReason, routeReasonCopy, type RouteReason } from "./route-explanation";
 
 export type NeedsYouCard =
   | { kind: "task"; id: string; node: TaskNodeView; items: AttentionItem[] }
@@ -197,9 +197,13 @@ export function nextFromExplanation(e: RouteExplanationView): { next: string; st
 }
 /** Structural exclusions do not explain why new work waits. */
 const STRUCTURAL = new Set(["planner_account", "local_grant_required", "needs_new_worktree"]);
+/** Dispatcher-wide reasons outrank any one executor's: a paused dispatcher is why work waits, not a busy agent. */
+const DISPATCHER = new Set(["paused", "engine_failed"]);
 export function queueReason(e: RouteExplanationView, now: number): string | null {
+  const global = e.reasons.find(r => r.outcome === "fail" && DISPATCHER.has(r.code));
+  if (global) return routeReasonCopy(global, now);
   const fallback = e.fallbacks.find(f => f.state === "excluded" && f.reason && !STRUCTURAL.has(f.reason.code));
   if (fallback?.reason) return routeReasonCopy(fallback.reason, now, fallback.runner);
-  const reason = e.reasons.find(r => r.outcome === "fail" && !STRUCTURAL.has(r.code));
+  const reason = e.reasons.find(r => r.outcome === "fail" && !STRUCTURAL.has(r.code) && knownRouteReason(r.code));
   return reason ? routeReasonCopy(reason, now) : null;
 }

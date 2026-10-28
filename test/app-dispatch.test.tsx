@@ -342,7 +342,7 @@ test("a failed dispatch refuses new tasks without promising a queue", () => {
   const explain = { outcome: "fail" as const, engine: { id: "ladder" }, strategy: { name: "default" }, chosen: null, step: null,
     fallbacks: [{ runner: "codex", state: "excluded" as const, reason: { code: "quota_exhausted", facts: {} } }], reasons: [] };
   const html = section(view(null, snap, { routing: { ...routing, explain } }), "next-task");
-  expect(strip(html)).toContain("new tasks are refused rather than queued. Codex has used its budget. Change the strategy or make an agent available to accept new tasks.");
+  expect(strip(html)).toContain("new tasks are refused rather than queued. Codex is out of budget. Change the strategy or make an agent available to accept new tasks.");
   expect(html).not.toContain("waits in the queue");
   expect(html).not.toContain("Then:");
   expect(html).not.toContain("pc-dispatch-chip--queue");

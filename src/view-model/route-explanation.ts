@@ -12,7 +12,7 @@ type Copy = (time: (key: string) => string | null, fact: (key: string) => string
 const COPY: Record<string, Copy> = {
   executor_busy: (_t, fact) => `is busy${typeof fact("used") === "number" && typeof fact("limit") === "number" ? ` (${fact("used")} of ${fact("limit")} running)` : " with other work"}.`,
   machine_busy: () => "is waiting for space on this machine.",
-  quota_exhausted: time => `has used its budget${time("resetsAt") ? ` until ${time("resetsAt")}` : ""}.`,
+  quota_exhausted: time => `is out of budget${time("resetsAt") ? ` until ${time("resetsAt")}` : ""}.`,
   runner_disabled: () => "is switched off.",
   blocked_by_user: () => "is blocked by you.",
   signed_out: () => "is signed out.",
@@ -33,7 +33,7 @@ const GLOBAL: Record<string, Copy> = {
   paused: time => `Dispatch is paused${time("until") ? ` until ${time("until")}` : ""}.`,
   no_step_matched: () => "No agent qualifies for any step of the strategy.",
   step_no_candidates: () => "No agent qualifies for this step of the strategy.",
-  engine_failed: () => "The decision engine failed, so nothing was chosen.",
+  engine_failed: () => "Pacer could not decide where to send it, so nothing was chosen.",
 };
 
 /** Unknown and opaque reasons ignore the subject too: it may contain free-text service copy. */
@@ -48,3 +48,5 @@ export function routeReasonCopy(reason: RouteReason, now: number, runner?: strin
   const name = executorLabel((copy ? reason.subject : undefined) ?? runner ?? "Executor");
   return `${name} ${copy ? copy(time, fact) : "is not available right now."}`;
 }
+/** Whether a reason has app copy of its own; unknown reasons with no executor are better left unsaid. */
+export const knownRouteReason = (code: string): boolean => Object.hasOwn(COPY, code) || Object.hasOwn(GLOBAL, code);

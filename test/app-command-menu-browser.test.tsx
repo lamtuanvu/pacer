@@ -347,7 +347,7 @@ browserTest("select_all_works_in_the_input", () => withPage(async (page, built) 
 const filesAnswer = (page: Page, answer: object) => page.evaluate(value => { (window as any).filesAnswer = value; (window as any).fileCalls = []; }, answer);
 
 browserTest("files_search_is_debounced_and_results_show_ranges_repo_and_changed_by_subtitle", () => withPage(async (page, built) => {
-  await open(page, built, "#/overview");
+  await open(page, built, "#/");
   await filesAnswer(page, { results: [
     { repo: "github.com/acme/api", repoLabel: "acme/api", path: "src/ssh/keepalive.ts", ranges: [[4, 7]], changedBy: [{ task: "t-0420", title: "Add SSH keepalive" }] },
     { repo: "github.com/acme/api", repoLabel: "acme/api", path: "docs/ssh.md", ranges: [[5, 8]] },
@@ -384,7 +384,7 @@ browserTest("files_search_is_debounced_and_results_show_ranges_repo_and_changed_
 }));
 
 browserTest("a file no running task changed copies its path on Enter and says so", () => withPage(async (page, built) => {
-  await open(page, built, "#/overview");
+  await open(page, built, "#/");
   await page.evaluate(() => { Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (text: string) => { (window as any).copied = text; } } }); });
   await filesAnswer(page, { results: [{ repo: "github.com/acme/api", repoLabel: "acme/api", path: "docs/ssh.md", ranges: [[5, 8]] }] });
   await page.keyboard.press("Control+k");
@@ -399,12 +399,12 @@ browserTest("a file no running task changed copies its path on Enter and says so
   await page.keyboard.press("Enter");
   await expect(page.getByRole("combobox").count()).resolves.toBe(0);
   expect(await page.evaluate(() => (window as any).copied)).toBe("docs/ssh.md");
-  expect(await page.evaluate(() => location.hash)).toBe("#/overview");
+  expect(await page.evaluate(() => location.hash)).toBe("#/");
   await page.waitForFunction(() => document.querySelector(".pc-toasts")?.textContent?.includes("Path copied"));
 }));
 
 browserTest("a failed copy says so", () => withPage(async (page, built) => {
-  await open(page, built, "#/overview");
+  await open(page, built, "#/");
   await page.evaluate(() => { Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async () => { throw new Error("denied"); } } }); document.execCommand = () => false; });
   await filesAnswer(page, { results: [{ repo: "github.com/acme/api", repoLabel: "acme/api", path: "docs/ssh.md", ranges: [[5, 8]] }] });
   await page.keyboard.press("Control+k");
@@ -415,7 +415,7 @@ browserTest("a failed copy says so", () => withPage(async (page, built) => {
 }));
 
 browserTest("repositories that could not be searched are named with a reason and an error is explained", () => withPage(async (page, built) => {
-  await open(page, built, "#/overview");
+  await open(page, built, "#/");
   await filesAnswer(page, { truncated: true, repos: [{ key: "github.com/acme/web", state: "too_large" }, { key: "github.com/lamtuanvu/pacer", state: "timeout" }],
     results: [{ repo: "github.com/acme/api", repoLabel: "acme/api", path: "src/ssh.ts", ranges: [[4, 7]] }] });
   await page.keyboard.press("Control+k");
@@ -438,7 +438,7 @@ browserTest("repositories that could not be searched are named with a reason and
 }));
 
 browserTest("a webview that refuses the clipboard API still copies through the fallback", () => withPage(async (page, built) => {
-  await open(page, built, "#/overview");
+  await open(page, built, "#/");
   await page.evaluate(() => {
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async () => { throw new Error("denied"); } } });
     document.execCommand = (name: string) => { (window as any).copiedBy = [name, window.getSelection()?.toString() ?? null]; return true; };
@@ -455,7 +455,7 @@ browserTest("a webview that refuses the clipboard API still copies through the f
 }));
 
 browserTest("results arrive in a polite live region and an empty Files answer falls back to All", () => withPage(async (page, built) => {
-  await open(page, built, "#/overview");
+  await open(page, built, "#/");
   await filesAnswer(page, { results: [] });
   await page.keyboard.press("Control+k");
   const input = page.getByRole("combobox");

@@ -154,9 +154,10 @@ test("the explanation is asked for the active repository, or the only registered
 test("queue reasons skip structural exclusions, use failing reasons and format pause times", () => {
   const e: RouteExplanationView = { outcome: "queue", strategy: { name: "default" }, engine: { id: "ladder" }, chosen: null, step: null,
     fallbacks: ["planner_account", "local_grant_required", "needs_new_worktree", "executor_busy"].map(code => ({ runner: "codex", state: "excluded", reason: { code, facts: {} } })),
-    reasons: [{ outcome: "fail", code: "paused", facts: { until: now + 3600 } }] };
+    reasons: [{ outcome: "fail", code: "no_step_matched", facts: {} }] };
   expect(queueReason(e, now)).toBe("Codex is busy with other work.");
-  expect(queueReason({ ...e, fallbacks: e.fallbacks.slice(0, 3) }, now)).toBe(`Dispatch is paused until ${clock(now + 3600, now)}.`);
+  expect(queueReason({ ...e, fallbacks: e.fallbacks.slice(0, 3) }, now)).toBe("No agent qualifies for any step of the strategy.");
+  expect(queueReason({ ...e, fallbacks: [], reasons: [{ outcome: "fail", code: "paused", facts: { until: now + 3600 } }] }, now)).toBe(`Dispatch is paused until ${clock(now + 3600, now)}.`);
   expect(queueReason({ ...e, fallbacks: [], reasons: [] }, now)).toBeNull();
 });
 
@@ -165,4 +166,11 @@ test("step copy uses plain words and reserves numbered ladder prefixes for ladde
   expect(nextFromExplanation(e)?.step).toBe("Ladder step 1 · capable with spare capacity");
   expect(nextFromExplanation({ ...e, step: { ...e.step!, index: -1 } })?.step).toBe("capable with spare capacity");
   expect(nextFromExplanation({ ...e, engine: { id: "plugin:custom" } })?.step).toBe("capable with spare capacity");
+});
+
+test("a paused dispatcher outranks a busy executor as the reason work waits", () => {
+  const e = { outcome: "queue" as const, strategy: { name: "default" }, engine: { id: "ladder" }, chosen: null, step: null,
+    fallbacks: [{ runner: "codex", state: "excluded" as const, reason: { code: "executor_busy", facts: {} } }],
+    reasons: [{ outcome: "fail" as const, code: "paused", facts: {} }] };
+  expect(queueReason(e, 1_800_000_000)).toBe("Dispatch is paused.");
 });

@@ -25,9 +25,6 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 ### Changed
 
 - The Needs you page shows task items as task cards, most urgent first. Agent capacity and recent activity left the home; capacity lives in Settings › Executors. The quick delegate form is replaced by the top bar's Delegate. While Dispatch is open, the status bar shows the planner's mark without its figure, because the Planner budget states it.
-
-### Changed
-
 - Refine the terminal file viewer: it opens beside the terminal when there is room (a full sheet on narrow screens), starts on Source, adds whole-file search with match stepping (⌘F/Ctrl+F), lists what the isolated HTML preview blocked, explains missing, outside, too-large, binary and changed-session files, and closes with Esc or Back to terminal.
 
 ### Fixed
