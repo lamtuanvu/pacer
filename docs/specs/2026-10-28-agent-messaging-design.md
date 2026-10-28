@@ -165,7 +165,7 @@ When a recipient is not `working`, the broker batches all its undelivered messag
 
 Messages to a `working` node queue and are delivered as one batch when its turn ends.
 
-The agent-session plugin supplies resume argv for headless mode in addition to its existing interactive resume plans. Session identity gaps are closed:
+Headless resume argv is built by the host's `resumeHeadlessFor` in `src/exec/launch.ts`, next to `launchFor`. The plugin keeps owning interactive launches. Session identity gaps are closed:
 - opencode headless: capture the session id when the run starts, rather than by title lookup during takeover.
 - claude-code: keep one session id for the node's lifetime instead of a fresh UUID per attempt. A fallback to another executor starts a new node.
 
@@ -243,7 +243,7 @@ The wait-for graph is built from `awaiting_reply` edges and unread blocking mess
 | `msg.close` | close a node or tree; no verdict |
 | `tree.status` | per-node turn state, next mover and stall counters |
 
-SSE events: `msg.created`, `msg.delivered`, `node.turn`, `node.stalled`. New error codes: `MSG_FORBIDDEN`, `MSG_TOO_LARGE`, `MSG_CAP_REACHED`, `MSG_NODE_CLOSED`.
+SSE events: one entity kind, `message`, whose value is the message row including `status`. `node.stalled` arrives with the broker in plan 2. Refusals reuse existing codes with `data.reason`: `not_allowed`/`msg_forbidden` (with `data.layer`), `too_large`/`msg_too_large`, `conflict`/`msg_cap_reached`, `conflict`/`msg_node_closed`, `conflict`/`msg_live_unavailable`.
 
 ### CLI
 
@@ -279,9 +279,9 @@ The task detail gets a thread view: messages, turns and nudges in order, with a 
 
 Three plans, each shippable on its own.
 
-1. **Messaging core and drivers.** Participants, the `messages` table, turn state, the guardrail policy evaluator with the default policy and `msg policy`, `msg.*` ops, CLI and MCP, the resume driver, the live driver for conversation top agents, session-identity fixes, re-expressing ask, answer and send-back, and the ADR.
-2. **Liveness broker.** The broker loop, stall detection, nudges, the wait-for graph and cycle handling, planner `Stop` and `UserPromptSubmit` hooks and doctor probes, escalation to attention and `request_review`.
-3. **Surfaces.** App and TUI thread view and states, skill, policy and executor contract rewrite, live driver for interactive executors, and docs.
+1. **Messaging core.** Participants and identity (with each task's recorded `origin`), the message store, the guardrail evaluator with global and per-tree layers and the default policy, `msg.*` ops, CLI and MCP, headless resume turns, report-on-run-end, ask, answer and send-back expressed as messages, human attention for messages, skill and executor contract text, and the ADR.
+2. **Liveness broker and planner hooks.** The broker loop, stall detection, nudges, the wait-for graph, `SessionStart` per-session planner identity (`PACER_PLANNER_SESSION`), `Stop` and `UserPromptSubmit` hooks and their doctor probes, escalation.
+3. **Live driver and surfaces.** The live driver for conversations and interactive executors, project-level guardrail rules, grants for user-started tasks by default, the app and TUI thread view.
 
 ## Testing
 
