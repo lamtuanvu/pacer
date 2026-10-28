@@ -9,7 +9,9 @@ with local pages excluded:
   `allow-host-file-actions` (read-only: which file hand-offs this platform and editor settings support),
   `allow-open-session-file` (ADR 0011: takes only `{ id, attempt, reference, action }`,
   resolves it through the service's `session.file.resolve`, re-walks the file with
-  `O_NOFOLLOW` and matches its identity, then launches a fixed argument vector with no shell),
+  `O_NOFOLLOW` and matches its identity under a canonical root outside Pacer state, then launches
+  a fixed argument vector with no shell, an allowlisted environment and a launch rate limit;
+  `editor.json` trust stops other users, not same-user processes),
   `allow-rounded-window-supported` (read-only transparent-window capability),
   `allow-native-titlebar-supported` (read-only macOS title-bar overlay capability),
   `allow-windowMinimize`, `allow-windowToggleMaximize`, `allow-windowClose`,
