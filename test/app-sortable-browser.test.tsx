@@ -372,6 +372,8 @@ browserTest('scope pressed buttons switch repositories and explain a dirty lock'
     expect(await scope.getByRole('button', { name: 'One repository' }).getAttribute('aria-pressed')).toBe('true');
     await page.getByText('Has its own list', { exact: true }).waitFor();
     expect(await page.getByLabel('Repository', { exact: true }).count()).toBe(1);
+    // The picker button carries the name itself, so no separate hidden label is announced before it.
+    expect(await page.locator('.dispatcher-repo-picker').evaluate(node => [...node.querySelectorAll('label, .sr-only')].length)).toBe(0);
     await page.getByRole('button', { name: 'Add Claude Code' }).click();
     // The dirty lock arrives after the editor reports its change, so wait for it.
     await scope.getByRole('button', { name: 'All repositories', disabled: true }).waitFor({ timeout: 3000 });
@@ -414,6 +416,8 @@ browserTest('ladder icon actions preserve move focus, announcements and numbered
     await page.goto(`${server.url.href}#try`);
     const ladder=page.locator('#decision-ladder');
     expect(await ladder.locator('.pc-ladder-number').allTextContents()).toEqual(['1','2']);
+    // Ladder step names wrap instead of truncating.
+    expect(await ladder.locator('.pc-sortable__label').first().evaluate(node => getComputedStyle(node).whiteSpace)).toBe('normal');
     await ladder.getByRole('button',{name:'Move up: Usable fallback'}).focus();
     await page.keyboard.press('Enter');
     expect(await focusedLabel(page)).toBe('Move down: Usable fallback');

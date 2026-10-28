@@ -285,7 +285,7 @@ function GuidedSetup({ view, onSaved, onLadderDraft, repos, listError }: { view:
           describedBy={dirty ? "dispatcher-scope-reason" : !repos.length ? "dispatcher-scope-no-repo" : undefined}
           options={[{ value: "all", label: "All repositories" }, { value: "one", label: "One repository", disabled: !repos.length }]}
           onChange={value => pickScope(value === "one")} />
-        {oneRepo && <div className="dispatcher-repo-picker"><Field label={<span className="sr-only">Repository</span>}><ChoicePicker className="pc-choice-picker--mono" value={scope} searchable={repos.length > 8} disabled={dirty} options={repos} onValueChange={value => { setScope(value); setNotice(""); }} /></Field></div>}
+        {oneRepo && <div className="dispatcher-repo-picker"><ChoicePicker aria-label="Repository" className="pc-choice-picker--mono" value={scope} searchable={repos.length > 8} disabled={dirty} options={repos} onValueChange={value => { setScope(value); setNotice(""); }} /></div>}
         {oneRepo && repos.find(repo => repo.value === scope)?.ownList && <Pill tone="info">Has its own list</Pill>}
       </div>
       {dirty && <p id="dispatcher-scope-reason">Save or discard your changes to switch scope.</p>}

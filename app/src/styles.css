@@ -607,6 +607,8 @@ body:has(.pc-app--narrow) .pc-toasts{bottom:calc(var(--size-56) + var(--space-5)
 /* Ladder rows share icon actions, but have one numbered cell rather than executor metadata. */
 .pc-sortable--icons .pc-sortable__row:has(.pc-ladder-number){grid-template-columns:var(--size-16) var(--size-24) minmax(var(--size-64),1fr) auto}
 .pc-sortable--icons .pc-ladder-number{grid-column:2;grid-row:1}
+/* Ladder step names wrap rather than truncate; executor names keep the ellipsis. */
+.pc-sortable--icons .pc-sortable__row:has(.pc-ladder-number) .pc-sortable__label{white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere}
 .pc-sortable--icons .pc-sortable__row:has(.pc-ladder-number) .pc-sortable__content{grid-column:3}
 .pc-sortable--icons .pc-sortable__row:has(.pc-ladder-number) .pc-sortable__actions{grid-column:4}
 /* Dispatcher supplemental sections share the question heading type without a step badge. */
