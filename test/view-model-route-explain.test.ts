@@ -23,6 +23,8 @@ test('headline and planner cost follow the outcome', () => {
   expect(explainHeadline({ outcome: 'select', chosen }, labels)).toBe('Pacer would choose CODEX');
   expect(explainHeadline({ outcome: 'override', chosen }, labels)).toBe('CODEX, as you asked');
   expect(explainHeadline({ outcome: 'queue', chosen: null }, labels)).toBe('Pacer would queue this task');
+  // The runner, not the agent, names the choice, so two accounts of one agent stay distinct.
+  expect(explainHeadline({ outcome: 'select', chosen: { ...chosen, runner: 'codex#team' } }, labels)).toBe('Pacer would choose CODEX#TEAM');
   expect(explainHeadline({ outcome: 'fail', chosen: null }, labels)).toBe('No executor can take this task');
   expect(plannerCopy({ state: 'unknown', reason: 'too_few_samples' }, labels)).toContain('not enough similar reviewed tasks');
   expect(plannerCopy({ state: 'estimate', tokens: { median: 1200, p80: 3400 }, samples: 25, basis: 'kind', window: null }, labels)).toBe('Planner cost: about 1,200 tokens (80% of tasks under 3,400), from 25 similar tasks.');

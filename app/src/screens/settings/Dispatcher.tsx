@@ -73,7 +73,7 @@ export function RouteExplanationResult({result}:{result:RouteExplanation}) {
     {result.chosen&&<p>{modelCopy(result.chosen)} · {result.chosen.host?`Host ${result.chosen.host}`:"This machine"}{result.step?` · ${stepTitle(result.step.id)} step`:""}</p>}
     {result.strategy.draft&&<p className="u3-muted">Uses your unsaved choice ladder.</p>}
     {!!result.reasons.length&&<ul>{result.reasons.map((item,index)=><li key={`${item.code}:${index}`}>{reasonCopy(item,labels)}</li>)}</ul>}
-    {!!fallbacks.length&&<div><strong>Also considered</strong><ul>{fallbacks.map((item,index)=><li key={`${item.runner}:${index}`}>{executorLabel(item.executor)}: {item.state==="eligible"?"Could take it if the choice above cannot.":item.reason?reasonCopy(item.reason,labels):"Left out."}</li>)}</ul></div>}
+    {!!fallbacks.length&&<div><strong>Also considered</strong><ul>{fallbacks.map((item,index)=><li key={`${item.runner}:${index}`}>{executorLabel(item.runner)}: {item.state==="eligible"?"Could take it if the choice above cannot.":item.reason?reasonCopy(item.reason,labels):"Left out."}</li>)}</ul></div>}
     <p className="u3-muted">{plannerCopy(result.planner,labels)}</p>
     {!!result.uncertainty.length&&<Disclosure summary="What could change this"><ul>{result.uncertainty.map((item,index)=><li key={`${item.code}:${index}`}>{reasonCopy(item,labels)}</li>)}</ul></Disclosure>}
   </div>;

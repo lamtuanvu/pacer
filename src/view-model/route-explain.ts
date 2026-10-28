@@ -62,7 +62,8 @@ export function reasonCopy(reason: ExplainReason, labels: ExplainLabels): string
 }
 
 export function explainHeadline(result: Pick<RouteExplanation, "outcome" | "chosen">, labels: ExplainLabels): string {
-  const who = result.chosen ? labels.executor(result.chosen.executor) : "";
+  // The runner names the account too ("Codex · team"), which tells apart two accounts of one agent.
+  const who = result.chosen ? labels.executor(result.chosen.runner) : "";
   if (result.outcome === "override" && who) return `${who}, as you asked`;
   if (result.outcome === "select" && who) return `Pacer would choose ${who}`;
   if (result.outcome === "queue") return "Pacer would queue this task";
