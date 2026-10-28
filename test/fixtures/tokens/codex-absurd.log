@@ -1,0 +1,6 @@
+$ codex exec -C $HOME/repo --skip-git-repo-check -o $HOME/runs/last.md -
+--- stdout
+tokens used
+99999999999999
+
+--- exit 0

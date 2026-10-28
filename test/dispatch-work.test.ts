@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { rmSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { fakeCtx, gitRepo, realRun, tmpDir } from "./helpers";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
 import { registerWork, getWork, workOptionsSchema, workTree, workTotals, listWork, issueWorkGrant, authorizeWorkGrant, revokeWorkGrants, setWorkDependencies, waiveWorkDependency, pendingChildren, pendingDependencies, workEvents,beginChildWait,endChildWait } from "../src/dispatch/work";
@@ -78,6 +79,13 @@ test("work list filters roots, children, and state with a stable page cursor",()
  expect(listWork(ctx,{relation:"roots"}).tasks.map(t=>t.id)).toEqual([task.id]);
  expect(listWork(ctx,{relation:"children",state:"queued"}).tasks.map(t=>t.id)).toEqual([child.id]);
  expect(listWork(ctx,{relation:"all",limit:1}).next).toBeTruthy();
+});
+test("work list rows carry the branch and an honest token roll-up",()=>{
+ const {ctx,task}=root();
+ const row=listWork(ctx,{relation:"all"}).tasks.find(t=>t.id===task.id)!;
+ expect(row).toHaveProperty("branch");
+ // A task with no usage reading reports null, never a zero total.
+ expect(row.tokens).toBeNull();
 });
 test("owner can waive a required child with an audited reason",()=>{
  const {ctx,task}=root();updateTask(ctx,task.id,t=>{t.state="running";});
@@ -231,4 +239,25 @@ test("retry preserves independent review evidence for each attempt",async()=>{
  await reviewWork(ctx,task.id,true,undefined,readTask(ctx,task.id)!.rev);
  expect(dispatchDatabase(ctx).query<{n:number},[string]>("SELECT count(*) AS n FROM work_reviews WHERE task_id=?").get(task.id)?.n).toBe(2);
  expect(workTree(ctx,task.id).nodes[0]?.attempts).toHaveLength(2);
+});
+
+test("work list rows show the checked-out branch read from the worktree HEAD, for plain and linked worktrees", () => {
+ const {ctx,task}=root();
+ const repo=task.brief.repo;
+ mkdirSync(join(repo,".git"),{recursive:true});writeFileSync(join(repo,".git","HEAD"),"ref: refs/heads/feat/board\n");
+ // The shared repository's branch is not the task's: with no worktree of its own the row shows none.
+ expect(listWork(ctx,{relation:"all"}).tasks.find(t=>t.id===task.id)!.branch).toBeNull();
+ const own=tmpDir();mkdirSync(join(own,".git"),{recursive:true});writeFileSync(join(own,".git","HEAD"),"ref: refs/heads/feat/board\n");
+ updateTask(ctx,task.id,t=>{t.worktree=own;});
+ expect(listWork(ctx,{relation:"all"}).tasks.find(t=>t.id===task.id)!.branch).toBe("feat/board");
+ // A linked worktree has a .git file pointing at its own git dir, relative or absolute; a missing path shows none.
+ updateTask(ctx,task.id,t=>{t.worktree=join(own,"gone");});
+ expect(listWork(ctx,{relation:"all"}).tasks.find(t=>t.id===task.id)!.branch).toBeNull();
+ const linked=tmpDir(),gitDir=join(tmpDir(),"wt");mkdirSync(gitDir,{recursive:true});
+ writeFileSync(join(gitDir,"HEAD"),"ref: refs/heads/fix/linked\n");writeFileSync(join(linked,".git"),`gitdir: ${gitDir}\n`);
+ updateTask(ctx,task.id,t=>{t.worktree=linked;});
+ expect(listWork(ctx,{relation:"all"}).tasks.find(t=>t.id===task.id)!.branch).toBe("fix/linked");
+ // A detached HEAD has no branch to show.
+ writeFileSync(join(gitDir,"HEAD"),"0123456789abcdef0123456789abcdef01234567\n");
+ expect(listWork(ctx,{relation:"all"}).tasks.find(t=>t.id===task.id)!.branch).toBeNull();
 });

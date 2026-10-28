@@ -1,9 +1,12 @@
 import { createHash, randomBytes } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { z } from "zod";
 import { CoreError } from "../core/errors";
 import { readTask, updateTask } from "../tasks/store";
-import type { TaskRecord,AttemptUsage } from "../tasks/types";
+import type { TaskRecord,AttemptUsage,AttemptTokens } from "../tasks/types";
+import { attemptsWithTokens,itemsFromIndex,itemsOf,rollupTokens,type TokenItem } from "../tokens/rollup";
+import { unknownTokens } from "../tokens/extract";
 import type { Ctx } from "../types";
 import { requirementsSchema, preferencesSchema } from "./types";
 import { appendWorkEvent, boundedJson, dispatchDatabase } from "./store";
@@ -145,13 +148,34 @@ export function workWaitTotals(ctx:Ctx,ids:string[]){
  }}
  return{queueWaitSeconds:queue,dependencyWaitSeconds:unknownDependency?null:dependency,childWaitSeconds:child,capacityWaitSeconds:measuredCapacity?capacity:null,unknownDependencyWaits:unknownDependency,provisionalWaits:provisional,waitAsOf:ctx.now};
 }
+/** The checked-out branch of a worktree, read from its HEAD file so a list never spawns git. Null when it is gone, detached or unreadable. */
+function headBranch(worktree:string|undefined):string|null{
+ if(!worktree)return null;
+ try{
+  const dot=join(worktree,".git");
+  const dir=statSync(dot).isDirectory()?dot:(()=>{const target=/^gitdir:\s*(.+)$/m.exec(readFileSync(dot,"utf8"))?.[1]?.trim();return target?(isAbsolute(target)?target:resolve(dirname(dot),target)):"";})();
+  const ref=/^ref:\s*refs\/heads\/(.+)$/m.exec(readFileSync(join(dir,"HEAD"),"utf8"))?.[1]?.trim();
+  return ref||null;
+ }catch{return null;}
+}
+function listBranch(task:NonNullable<ReturnType<typeof readTask>>):string|null{
+ const known=task.run?.remoteBranch??(task.run?.mode==="new"?`pacer/${task.id}`:null);
+ if(known||task.run?.host)return known;
+ // Only a worktree the task owns: the shared repository's branch moves on and would mislabel old tasks.
+ return headBranch(task.run?.workdir??task.worktree??task.result?.worktree);
+}
+/** The compact roll-up a list row shows; no usage reading at all is reported as null, never as zero. */
+function listTokens(ctx:Ctx,id:string,attempts:Parameters<typeof attemptsWithTokens>[2]){
+ const {total,lowerBound,measuredAttempts,partialAttempts}=rollupTokens(itemsOf(attemptsWithTokens(ctx,id,attempts)));
+ return measuredAttempts+partialAttempts?{total,lowerBound,measuredAttempts,partialAttempts}:null;
+}
 export function listWork(ctx:Ctx,filter:{relation?:"roots"|"children"|"all";state?:string;repo?:string;before?:string;limit?:number}={}){
  const relation=filter.relation??"roots",limit=Math.min(100,Math.max(1,filter.limit??50));
  const rows=dispatchDatabase(ctx).query<NodeRow,[string,string,string,string,string,string,string,string,string,number]>(
   "SELECT n.* FROM work_nodes n JOIN tasks t ON t.id=n.task_id WHERE (?='all' OR (?='roots' AND n.parent_id IS NULL) OR (?='children' AND n.parent_id IS NOT NULL)) AND (?='' OR t.state=?) AND (?='' OR json_extract(t.record,'$.repo.key')=?) AND (?='' OR n.task_id<?) ORDER BY n.task_id DESC LIMIT ?"
  ).all(relation,relation,relation,filter.state??"",filter.state??"",filter.repo??"",filter.repo??"",filter.before??"",filter.before??"",limit+1);
  const page=rows.slice(0,limit);
- return{tasks:page.flatMap(r=>{const task=readTask(ctx,r.task_id);return task?[{id:task.id,parentId:r.parent_id,rootId:r.root_id,depth:r.depth,title:task.title??task.brief.goal,state:task.state,rev:task.rev,executor:task.executor??task.requestedExecutor,createdAt:task.createdAt,review:task.review??null}]:[];}),next:rows.length>limit?page.at(-1)?.task_id??null:null};
+ return{tasks:page.flatMap(r=>{const task=readTask(ctx,r.task_id);return task?[{id:task.id,parentId:r.parent_id,rootId:r.root_id,depth:r.depth,title:task.title??task.brief.goal,state:task.state,rev:task.rev,executor:task.executor??task.requestedExecutor,createdAt:task.createdAt,review:task.review??null,branch:listBranch(task),tokens:listTokens(ctx,task.id,task.attempts)}]:[];}),next:rows.length>limit?page.at(-1)?.task_id??null:null};
 }
 export function workTree(ctx:Ctx,id:string){
   const root=getWork(ctx,id);if(!root)throw new CoreError("unknown_task","Unknown work");
@@ -159,14 +183,16 @@ export function workTree(ctx:Ctx,id:string){
     const work=node(r),task=readTask(ctx,r.task_id);
     const decisions=dispatchDatabase(ctx).query<{attempt:number;data:string},[string]>("SELECT attempt,data FROM work_decisions WHERE task_id=? ORDER BY attempt").all(work.taskId).map(d=>{const p=JSON.parse(d.data);return{attempt:d.attempt,engine:p.engine,proposal:p.proposal,validation:p.validation,recommendedAction:p.recommendedAction,uncertainty:p.uncertainty,selectedCandidateId:p.selectedCandidateId,inputHash:p.inputHash,outputHash:p.outputHash,fallback:p.fallback,...(p.enforcement?{enforcement:p.enforcement}:{})};});
     const waivedChildren=dispatchDatabase(ctx).query<{dependency_id:string},[string]>("SELECT dependency_id FROM work_dependency_waivers WHERE task_id=?").all(work.taskId).map(row=>row.dependency_id);
-    if(!task)return{...work,waivedChildren,title:"Archived work",state:"archived",rev:0,review:null,question:null,retryEligibility:{allowed:false,reason:"Archived work"},executor:null,model:null,actualModel:null,decisions,attempts:[],createdAt:null,settledAt:null};
-    const attempts=task.attempts.map(a=>({executor:a.executor,model:a.model??null,actualModel:a.actualModel??null,startedAt:a.startedAt,endedAt:a.endedAt,exitCode:a.exitCode,timedOut:a.timedOut,limitHit:a.limitHit,usageAtStart:a.usageAtStart??null,usageAtEnd:a.usageAtEnd??null}));
+    if(!task)return{...work,waivedChildren,title:"Archived work",state:"archived",rev:0,review:null,question:null,retryEligibility:{allowed:false,reason:"Archived work"},executor:null,model:null,actualModel:null,decisions,attempts:[],[TOKEN_ITEMS]:itemsFromIndex(ctx,work.taskId),createdAt:null,settledAt:null};
+    const attempts=attemptsWithTokens(ctx,task.id,task.attempts).map(a=>({tokens:a.tokens,executor:a.executor,model:a.model??null,actualModel:a.actualModel??null,startedAt:a.startedAt,endedAt:a.endedAt,exitCode:a.exitCode,timedOut:a.timedOut,limitHit:a.limitHit,usageAtStart:a.usageAtStart??null,usageAtEnd:a.usageAtEnd??null}));
     return {...work,waivedChildren,title:task.title??task.brief.goal,state:task.state,rev:task.rev,review:task.review??null,question:task.question??null,retryEligibility:workRestartEligibility(ctx,task,work),executor:task.executor??task.requestedExecutor,model:task.result?.model??task.attempts.at(-1)?.model??null,actualModel:task.attempts.at(-1)?.actualModel??null,decisions,attempts,createdAt:task.createdAt,settledAt:task.settledAt??null};
   });
   return {rootId:root.rootId,nodes,totals:workTotals(nodes,workWaitTotals(ctx,nodes.map(n=>n.taskId)))};
 }
-interface TotalsAttempt {startedAt:number;endedAt:number;usageAtStart?:AttemptUsage|null;usageAtEnd?:AttemptUsage|null}
-interface TotalsNode {state:string;createdAt:number|null;attempts:TotalsAttempt[]}
+/** Internal: index rows of a node whose record is gone. A symbol key survives spreading but never reaches JSON. */
+const TOKEN_ITEMS=Symbol("tokenItems");
+interface TotalsAttempt {startedAt:number;endedAt:number;executor?:string;model?:string|null;actualModel?:string|null;tokens?:AttemptTokens;usageAtStart?:AttemptUsage|null;usageAtEnd?:AttemptUsage|null}
+interface TotalsNode {state:string;createdAt:number|null;attempts:TotalsAttempt[];[TOKEN_ITEMS]?:TokenItem[]}
 export function observedUsageDelta(a?:AttemptUsage|null,b?:AttemptUsage|null):number|null {
  if(!a||!b||!a.poolId||a.poolId!==b.poolId||a.resetEpoch==null||a.resetEpoch!==b.resetEpoch||a.account!==b.account||a.window!==b.window
   ||a.stale!==false||b.stale!==false||!a.observationId||!b.observationId||a.observationId===b.observationId
@@ -193,6 +219,11 @@ function usagePools(attempts:TotalsAttempt[]){
   return{account:group.account,poolId:group.poolId,resetEpoch:group.resetEpoch,observedDeltaPct:group.unknownAttempts||inconsistent?null:merged.reduce((sum,interval)=>sum+interval.endPct-interval.startPct,0),measuredIntervals:merged.length,unknownAttempts:group.unknownAttempts+(inconsistent?1:0),attribution:"shared-account-observation" as const};
  }).sort((a,b)=>JSON.stringify([a.account,a.poolId,a.resetEpoch]).localeCompare(JSON.stringify([b.account,b.poolId,b.resetEpoch])));
 }
+function tokenItemsOf(n:TotalsNode):TokenItem[]{
+ if(n[TOKEN_ITEMS])return n[TOKEN_ITEMS];
+ return itemsOf(n.attempts.map(a=>({executor:a.executor??"unknown",model:a.model,actualModel:a.actualModel,usageAtStart:a.usageAtStart,
+  tokens:a.tokens??unknownTokens("rollup@1",{now:a.endedAt},"attempt has no token record")})));
+}
 export function workTotals(nodes:TotalsNode[],waits?:ReturnType<typeof workWaitTotals>){
  const attempts=nodes.flatMap(n=>n.attempts);
  const pools=usagePools(attempts);
@@ -200,6 +231,7 @@ export function workTotals(nodes:TotalsNode[],waits?:ReturnType<typeof workWaitT
   executionSeconds:attempts.reduce((sum,a)=>sum+Math.max(0,a.endedAt-a.startedAt),0),
   queueWaitSeconds:waits?.queueWaitSeconds??nodes.reduce((sum,n)=>sum+(n.createdAt!==null&&n.attempts.length?Math.max(0,n.attempts[0]!.startedAt-n.createdAt):0),0),
   dependencyWaitSeconds:waits?.dependencyWaitSeconds??null,childWaitSeconds:waits?.childWaitSeconds??null,capacityWaitSeconds:waits?.capacityWaitSeconds??null,provisionalWaits:waits?.provisionalWaits??0,waitAsOf:waits?.waitAsOf??null,
+  tokens:rollupTokens(nodes.flatMap(tokenItemsOf)),
   usagePools:pools,usageMeasuredAttempts:attempts.length-pools.reduce((sum,p)=>sum+p.unknownAttempts,0),
   usageUnknownAttempts:pools.reduce((sum,p)=>sum+p.unknownAttempts,0)};
 }

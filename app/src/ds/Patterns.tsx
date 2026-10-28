@@ -58,6 +58,11 @@ export function SegmentedControl({ label, value, options, onChange, disabled, cl
       aria-pressed={value === option.value} onClick={() => onChange(option.value)}>{option.label}</Button>)}
   </div>;
 }
+/** Roving tablist movement shared by Tabs and PanelTabs: the target index, or undefined for other keys. */
+export function tabStep(key: string, at: number, length: number): number | undefined {
+  return key === 'ArrowRight' ? (at + 1) % length : key === 'ArrowLeft' ? (at + length - 1) % length
+    : key === 'Home' ? 0 : key === 'End' ? length - 1 : undefined;
+}
 export function Tabs({ label, id, value, options, onChange }: {
   label: string; id: string; value: string; options: readonly SegmentOption[]; onChange: (value: string) => void;
 }) {
@@ -67,10 +72,7 @@ export function Tabs({ label, id, value, options, onChange }: {
       aria-selected={value === option.value} aria-controls={`${id}-${option.value}-panel`}
       tabIndex={value === option.value ? 0 : -1} disabled={option.disabled}
       onClick={() => onChange(option.value)} onKeyDown={event => {
-        const at = available.indexOf(option);
-        const next = event.key === 'ArrowRight' ? (at + 1) % available.length
-          : event.key === 'ArrowLeft' ? (at + available.length - 1) % available.length
-          : event.key === 'Home' ? 0 : event.key === 'End' ? available.length - 1 : undefined;
+        const next = tabStep(event.key, available.indexOf(option), available.length);
         if (next === undefined) return;
         event.preventDefault();
         const target = available[next]!;
