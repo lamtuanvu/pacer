@@ -12,7 +12,7 @@ import { SortableList, useFocusAfterRender, useStableKeys } from "../../ds/Sorta
 import type { Rule } from "../../model/executors";
 import type { ProjectStrategyView } from "../../model/project-strategies";
 import type { StrategyRow } from "../../model/strategy";
-import { countSetupChanges, discardSetup, eligibilityChanges, ladderChanges, PartialSaveError, reconcileSetup, saveSetup, type EligibilityDraft, type SetupDraft } from "../../model/dispatcher-setup";
+import { countSetupChanges, discardSetup, eligibilityChanges, ladderChanges, PartialSaveError, reconcileSetup, saveSetup, strategyDraft, type EligibilityDraft, type SetupDraft, type StrategyDraft } from "../../model/dispatcher-setup";
 import { ErrorMessage, useTaskContext } from "../task-shared";
 import { DispatcherLadderFields, DispatcherReadError, ListField, type DispatcherConfigView } from "./Dispatcher";
 import { Feedback, ResourceState, Section, useOperation, useResource } from "./shared";
@@ -141,7 +141,7 @@ function blockedReason(setup: SetupDraft, ladderDirty: boolean, name: string, re
  * Steps 2 and 3 of the guided setup with one SaveBar. Freshly loaded settings merge into the
  * open draft part by part (see reconcileSetup), so a refetch or a partial save never drops edits.
  */
-export function SetupEditor({ view, eligibility: source, onSaved, onDirtyChange, notice }: { view: DispatcherConfigView; eligibility: EligibilitySource; onSaved: (notice: string) => void; onDirtyChange: (dirty: boolean) => void; notice?: string }) {
+export function SetupEditor({ view, eligibility: source, onSaved, onDirtyChange, onLadderDraft, notice }: { view: DispatcherConfigView; eligibility: EligibilitySource; onSaved: (notice: string) => void; onDirtyChange: (dirty: boolean) => void; onLadderDraft?: (draft: StrategyDraft | undefined) => void; notice?: string }) {
   const { state, api } = useTaskContext();
   const incoming = initialSetup(view, source);
   const latest = useRef(incoming); latest.current = incoming;
@@ -154,6 +154,10 @@ export function SetupEditor({ view, eligibility: source, onSaved, onDirtyChange,
   }, [signature]);
   const count = countSetupChanges(setup), ladderDirty = ladderChanges(setup.savedLadder, setup.ladder) > 0;
   useEffect(() => onDirtyChange(count > 0), [count > 0]);
+  // Try a task can preview the unsaved ladder; report it whenever it changes.
+  const draft = strategyDraft(setup), draftKey = JSON.stringify(draft ?? null);
+  useEffect(() => { onLadderDraft?.(draft); }, [draftKey]);
+  useEffect(() => () => onLadderDraft?.(undefined), []);
   // With nothing left to save, follow the latest saved settings, so a later edit never builds on a stale base.
   useEffect(() => { if (!count) { setSetup(discardSetup(latest.current)); setConflict(false); setName(""); setReason(""); } }, [count]);
   const disabled = busy || !state.connected;
@@ -207,7 +211,7 @@ export function SetupEditor({ view, eligibility: source, onSaved, onDirtyChange,
   </>;
 }
 
-function ScopedEditor({ view, scope, repoLabel, onSaved, onDirtyChange, notice }: { view: DispatcherConfigView; scope: string; repoLabel: string; onSaved: (notice: string) => void; onDirtyChange: (dirty: boolean) => void; notice: string }) {
+function ScopedEditor({ view, scope, repoLabel, onSaved, onDirtyChange, onLadderDraft, notice }: { view: DispatcherConfigView; scope: string; repoLabel: string; onSaved: (notice: string) => void; onDirtyChange: (dirty: boolean) => void; onLadderDraft?: (draft: StrategyDraft | undefined) => void; notice: string }) {
   const query = useResource<{ rules: Rule[]; available: string[] } | ProjectStrategyView>(scope ? "project.strategy.get" : "routing.get", scope ? { repo: scope } : {});
   const data = query.data;
   if (!data) return <Section id="executor-eligibility" title="2. Who may do the work">
@@ -217,7 +221,7 @@ function ScopedEditor({ view, scope, repoLabel, onSaved, onDirtyChange, notice }
   const source: EligibilitySource = scope && "repo" in data ? { kind: "project", repo: scope, repoLabel, view: data } : { kind: "global", rules: (data as { rules: Rule[] }).rules, available: (data as { available: string[] }).available };
   return <>
     <DispatcherReadError error={query.error} reload={query.reload} subject="executor settings" />
-    <SetupEditor view={view} eligibility={source} onDirtyChange={onDirtyChange} notice={notice}
+    <SetupEditor view={view} eligibility={source} onDirtyChange={onDirtyChange} onLadderDraft={onLadderDraft} notice={notice}
       onSaved={message => { onSaved(message); query.reload(); }} />
   </>;
 }
@@ -234,15 +238,15 @@ function ProjectScopeOptions({ children }: { children: (options: ScopeOption[], 
 }
 
 /** The guided dispatcher setup: scope, who may work, the choice ladder; Try a task follows it. */
-export function DispatcherGuidedSetup({ view, onSaved }: { view: DispatcherConfigView; onSaved: () => void }) {
+export function DispatcherGuidedSetup({ view, onSaved, onLadderDraft }: { view: DispatcherConfigView; onSaved: () => void; onLadderDraft?: (draft: StrategyDraft | undefined) => void }) {
   const { state } = useTaskContext();
   const ops = state.features.ops;
   const projectOps = ["get", "list", "set", "remove"].every(op => ops.has(`project.strategy.${op}`));
   if (!ops.has("routing.get") || !ops.has("routing.set")) return <Section id="dispatcher-scope" title="Guided setup"><p>Update the service to edit executor rules here.</p></Section>;
-  return projectOps ? <ProjectScopeOptions>{(repos, listError) => <GuidedSetup view={view} onSaved={onSaved} repos={repos} listError={listError} />}</ProjectScopeOptions>
-    : <GuidedSetup view={view} onSaved={onSaved} repos={[]} />;
+  return projectOps ? <ProjectScopeOptions>{(repos, listError) => <GuidedSetup view={view} onSaved={onSaved} onLadderDraft={onLadderDraft} repos={repos} listError={listError} />}</ProjectScopeOptions>
+    : <GuidedSetup view={view} onSaved={onSaved} onLadderDraft={onLadderDraft} repos={[]} />;
 }
-function GuidedSetup({ view, onSaved, repos, listError }: { view: DispatcherConfigView; onSaved: () => void; repos: ScopeOption[]; listError?: ComponentChildren }) {
+function GuidedSetup({ view, onSaved, onLadderDraft, repos, listError }: { view: DispatcherConfigView; onSaved: () => void; onLadderDraft?: (draft: StrategyDraft | undefined) => void; repos: ScopeOption[]; listError?: ComponentChildren }) {
   const [scope, setScope] = useState(""), [dirty, setDirty] = useState(false), [notice, setNotice] = useState("");
   const options = [{ value: "", label: "All repositories" }, ...repos];
   return <>
@@ -253,6 +257,6 @@ function GuidedSetup({ view, onSaved, repos, listError }: { view: DispatcherConf
       {listError}
     </Section>
     <ScopedEditor key={scope} view={view} scope={scope} notice={notice} repoLabel={options.find(option => option.value === scope)?.label ?? scope}
-      onDirtyChange={setDirty} onSaved={message => { setNotice(message); onSaved(); }} />
+      onDirtyChange={setDirty} onLadderDraft={onLadderDraft} onSaved={message => { setNotice(message); onSaved(); }} />
   </>;
 }

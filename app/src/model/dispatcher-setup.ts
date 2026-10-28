@@ -20,6 +20,9 @@ export type EligibilityDraft = { kind: "global"; saved: Rule[]; draft: Rule[] } 
 export interface SetupDraft { eligibility: EligibilityDraft; savedLadder: DispatchConfig; ladder: DispatchConfig; strategy?: string }
 export const eligibilityChanges = (eligibility: EligibilityDraft) => eligibility.kind === "global"
   ? ruleChanges(eligibility.saved, eligibility.draft) : orderChanges(eligibility.saved, eligibility.draft);
+/** The unsaved choice ladder as a strategy draft, as `strategy.preview` and `dispatch.explain` take it; none when the ladder is saved. */
+export const strategyDraft = (setup: SetupDraft) => ladderChanges(setup.savedLadder, setup.ladder) ? { from: setup.strategy, set: { dispatch: setup.ladder } } : undefined;
+export type StrategyDraft = NonNullable<ReturnType<typeof strategyDraft>>;
 export const countSetupChanges = (setup: SetupDraft) => eligibilityChanges(setup.eligibility) + ladderChanges(setup.savedLadder, setup.ladder);
 /** Discard returns fresh copies of the saved values so later edits never mutate them. */
 export function discardSetup(setup: SetupDraft): SetupDraft {
@@ -95,8 +98,8 @@ export async function saveSetup({ call, setup, repo, profile }: SaveSetupInput):
         done.push(`removal of the project order; ${repo.label} now uses the global rules`);
       }
     }
-    if (ladderDirty) {
-      const draft = { from: setup.strategy, set: { dispatch: setup.ladder } };
+    const draft = strategyDraft(setup);
+    if (draft) {
       const validation = await call<{ ok: boolean; errors: string[] }>("strategy.preview", { draft });
       if (!validation.ok) throw new Error(validation.errors.join(" ") || "The ladder needs changes before it can be saved.");
       await call("strategy.save", { name: profile.name, draft, reason: profile.reason.trim() });

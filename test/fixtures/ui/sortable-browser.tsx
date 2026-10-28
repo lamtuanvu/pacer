@@ -4,6 +4,8 @@ import { SortableList } from '../../../app/src/ds/SortableList';
 import { SaveBar } from '../../../app/src/ds/SaveBar';
 import { orderChanges } from '../../../app/src/model/dispatcher-setup';
 import { SetupEditor } from '../../../app/src/screens/settings/DispatcherSetup';
+import { DispatcherPreviewForm } from '../../../app/src/screens/settings/Dispatcher';
+import type { StrategyDraft } from '../../../app/src/model/dispatcher-setup';
 import { TaskContext } from '../../../app/src/screens/task-shared';
 import { initialState } from '../../../app/src/data/store';
 import { dispatchConfigSchema } from '../../../src/dispatch/types';
@@ -29,6 +31,32 @@ const view = { strategy: 'default', planner: 'codex', plannerAccount: 'work', so
 const state = { ...initialState(), connected: true, features: { readModel: true, ops: new Set(['routing.get', 'routing.set']) } };
 
 let pending: Rule[] | undefined;
+const explained = {
+  schemaVersion: 1, revision: 'r1', at: 0, observedAt: null, outcome: 'select', kind: { value: 'tests', source: 'given' },
+  strategy: { name: 'default', draft: true, source: 'strategy' }, engine: { id: 'ladder', version: '1' },
+  chosen: { executor: 'codex', account: 'work', runner: 'codex', model: { kind: 'executor-default' }, host: null },
+  step: { id: 'usable-fallback', index: 1, skipped: [] },
+  reasons: [{ code: 'step_match', outcome: 'pass', facts: { stepId: 'usable-fallback', kind: 'tests' } }, { code: 'brand_new_code', outcome: 'info', facts: {} }],
+  fallbacks: [{ executor: 'claude-code', runner: 'claude-code', account: 'team', state: 'excluded', reason: { code: 'quota_exhausted', outcome: 'fail', facts: {} } }],
+  planner: { state: 'unknown', reason: 'planner_not_measured' }, uncertainty: [{ code: 'cached_preview', outcome: 'info', facts: {} }],
+};
+const tryState = { ...state, snapshot: { ...initialState().snapshot, repos: [{ key: 'repo-a', label: 'repo-a' }] }, features: { readModel: true, ops: new Set(['routing.get', 'routing.set', 'dispatch.explain']) } };
+/** `#try`: the editor's unsaved ladder flows into Try a task, which calls dispatch.explain. */
+function Try() {
+  const [draft, setDraft] = useState<StrategyDraft>();
+  const [sent, setSent] = useState('');
+  const api = { call: async (op: string, params: unknown) => {
+    if (op === 'dispatch.explain') { setSent(JSON.stringify(params)); return explained; }
+    return {};
+  } };
+  return <TaskContext.Provider value={{ state: tryState, api } as never}>
+    <main>
+      <SetupEditor view={view} eligibility={{ kind: 'global', rules: [{ executors: ['codex'] }], available: ['codex'] }} onDirtyChange={() => {}} onSaved={() => {}} onLadderDraft={setDraft} />
+      <DispatcherPreviewForm query={{} as never} draft={draft} />
+      <output data-testid="sent">{sent}</output>
+    </main>
+  </TaskContext.Provider>;
+}
 /** The real guided-setup editor against a fake service; `#setup-fail` makes strategy.save fail. */
 function Setup() {
   const [rules, setRules] = useState<Rule[]>([{ kinds: ['tests'], executors: ['codex'] }, { executors: ['claude-code'] }]);
@@ -51,4 +79,4 @@ function Setup() {
   </TaskContext.Provider>;
 }
 
-render(location.hash.startsWith('#setup') ? <Setup /> : <Fixture />, document.getElementById('root')!);
+render(location.hash === '#try' ? <Try /> : location.hash.startsWith('#setup') ? <Setup /> : <Fixture />, document.getElementById('root')!);

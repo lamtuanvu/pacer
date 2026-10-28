@@ -1,5 +1,8 @@
 import type { DispatchConfig, DispatchPreview, ModelRecord } from "../../../../src/dispatch/types";
 import { executorLabel } from "../../../../src/view-model/words";
+import type { RouteExplanation } from "../../../../src/core/dispatch-explain";
+import { explainHeadline, modelCopy, plannerCopy, reasonCopy, type ExplainLabels } from "../../../../src/view-model/route-explain";
+import type { StrategyDraft } from "../../model/dispatcher-setup";
 import type { RouteQuery } from "../../router";
 import type { BrowserApi } from "../../data/api";
 import { useEffect, useRef, useState } from "preact/hooks";
@@ -61,6 +64,21 @@ function excludedCopy(reason:string):string {
   if(reason.startsWith("Native subagent control")||reason.includes("native control"))return nativeControlReasonCopy(reason);
   return "This executor is not eligible for this task";
 }
+/** A `dispatch.explain` answer: the choice, why, who else was considered and what could change it. */
+export function RouteExplanationResult({result}:{result:RouteExplanation}) {
+  const labels:ExplainLabels={executor:executorLabel,step:stepTitle,now:Date.now()/1000};
+  const fallbacks=result.fallbacks.filter(item=>item.executor!==result.chosen?.executor||item.runner!==result.chosen?.runner);
+  return <div className="pc-card pc-stack pc-stack--compact" role="status" aria-live="polite">
+    <SectionHeading>{explainHeadline(result,labels)}</SectionHeading>
+    {result.chosen&&<p>{modelCopy(result.chosen)} · {result.chosen.host?`Host ${result.chosen.host}`:"This machine"}{result.step?` · ${stepTitle(result.step.id)} step`:""}</p>}
+    {result.strategy.draft&&<p className="u3-muted">Uses your unsaved choice ladder.</p>}
+    {!!result.reasons.length&&<ul>{result.reasons.map((item,index)=><li key={`${item.code}:${index}`}>{reasonCopy(item,labels)}</li>)}</ul>}
+    {!!fallbacks.length&&<div><strong>Also considered</strong><ul>{fallbacks.map((item,index)=><li key={`${item.runner}:${index}`}>{executorLabel(item.executor)}: {item.state==="eligible"?"Could take it if the choice above cannot.":item.reason?reasonCopy(item.reason,labels):"Left out."}</li>)}</ul></div>}
+    <p className="u3-muted">{plannerCopy(result.planner,labels)}</p>
+    {!!result.uncertainty.length&&<Disclosure summary="What could change this"><ul>{result.uncertainty.map((item,index)=><li key={`${item.code}:${index}`}>{reasonCopy(item,labels)}</li>)}</ul></Disclosure>}
+  </div>;
+}
+
 export function DispatcherPreviewResult({preview}:{preview:DispatchPreview}) {
   const proposal=preview.proposal;
   const top=proposal?.state==="ranked"?preview.request.candidates.find(candidate=>candidate.id===proposal.choices[0]?.id):undefined;
@@ -146,13 +164,13 @@ function DispatcherContent({query}:{query:RouteQuery}){
   const {state,api}=useTaskContext();
   const config=useResource<DispatcherConfigView>("dispatch.config.get");
   const models=useResource<DispatcherInventory>("dispatch.models");
-  const [setupsRevision,setSetupsRevision]=useState(0);
+  const [setupsRevision,setSetupsRevision]=useState(0),[ladderDraft,setLadderDraft]=useState<StrategyDraft>();
   const [refreshing,setRefreshing]=useState(false),[refreshError,setRefreshError]=useState<unknown>();
   const refresh=async()=>{setRefreshing(true);setRefreshError(undefined);try{await api.call("dispatch.refresh",{});models.reload();}catch(error){setRefreshError(error);}finally{setRefreshing(false);}};
   return config.data?<><DispatcherReadError error={config.error} reload={config.reload} subject="dispatcher settings"/><DispatcherOverview view={config.data}/>
     <SavedSetups key={setupsRevision} onActivated={()=>{config.reload();models.reload();}}/>
-    <DispatcherGuidedSetup view={config.data} onSaved={()=>{config.reload();models.reload();setSetupsRevision(value=>value+1);}}/>
-    {state.features.ops.has("dispatch.preview")&&<DispatcherPreviewForm query={query}/>}
+    <DispatcherGuidedSetup view={config.data} onLadderDraft={setLadderDraft} onSaved={()=>{config.reload();models.reload();setSetupsRevision(value=>value+1);}}/>
+    {(state.features.ops.has("dispatch.explain")||state.features.ops.has("dispatch.preview"))&&<DispatcherPreviewForm query={query} draft={ladderDraft}/>}
     {state.features.ops.has("dispatch.enforcement")?<DispatcherEnforcement query={query}/>:<Section id="native-control" title="Native subagent control"><p>Update the service to inspect managed delegation enforcement.</p></Section>}
     <Section id="model-choices" title="Model choices" actions={state.features.ops.has("dispatch.refresh")?<Button busy={refreshing} onClick={()=>void refresh()}>Refresh readings</Button>:undefined}>
       <DispatcherReadError error={models.error&&models.data?models.error:undefined} reload={models.reload} subject="model choices"/>
@@ -203,23 +221,28 @@ function DispatcherEnforcement({query}:{query:RouteQuery}){
   </Section>;
 }
 
-function DispatcherPreviewForm({query}:{query:RouteQuery}) {
+export function DispatcherPreviewForm({query,draft}:{query:RouteQuery;draft?:StrategyDraft}) {
   const {state,api}=useTaskContext();
   const repos=state.snapshot?.repos??[];
   const [repo,setRepo]=useState(query.repo??""),[goal,setGoal]=useState(""),[kind,setKind]=useState(""),[tier,setTier]=useState(""),[tools,setTools]=useState(false);
-  const [busy,setBusy]=useState(false),[error,setError]=useState<unknown>(),[result,setResult]=useState<DispatchPreview>();
+  const [busy,setBusy]=useState(false),[error,setError]=useState<unknown>(),[result,setResult]=useState<DispatchPreview>(),[explained,setExplained]=useState<RouteExplanation>();
+  const explain=state.features.ops.has("dispatch.explain"),[useDraft,setUseDraft]=useState(true);
   useEffect(()=>{if(!repo&&repos.length)setRepo(repos[0]!.key);},[repo,repos.length]);
-  const submit=async(event:Event)=>{event.preventDefault();if(!repo||!goal.trim()||busy)return;setBusy(true);setError(undefined);setResult(undefined);try{setResult(await api.call<DispatchPreview>("dispatch.preview",{repo,goal:goal.trim(),...(kind.trim()?{kind:kind.trim()}:{}),requirements:{...(tier?{minTier:tier}:{}),...(tools?{tools:true}:{})}}));}catch(failure){setError(failure);}finally{setBusy(false);}};
-  return <Section id="dispatch-preview" title="4. Try a task" detail="Preview a choice using saved settings and recent readings. This does not start work or reserve capacity.">
+  const submit=async(event:Event)=>{event.preventDefault();if(!repo||!goal.trim()||busy)return;setBusy(true);setError(undefined);setResult(undefined);setExplained(undefined);
+    const params={repo,goal:goal.trim(),...(kind.trim()?{kind:kind.trim()}:{}),requirements:{...(tier?{minTier:tier}:{}),...(tools?{tools:true}:{})}};
+    try{if(explain)setExplained(await api.call<RouteExplanation>("dispatch.explain",{...params,...(draft?.from&&useDraft?{strategyDraft:draft}:{})}));else setResult(await api.call<DispatchPreview>("dispatch.preview",params));}catch(failure){setError(failure);}finally{setBusy(false);}};
+  return <Section id="dispatch-preview" title="4. Try a task" detail="See where a task would go, using recent readings. This does not start work or reserve capacity.">
     <form className="pc-card pc-stack pc-stack--normal" onSubmit={event=>void submit(event)}>
       {repos.length?<Field label="Repository"><ChoicePicker value={repo} searchable options={repos.map(item=>({value:item.key,label:item.label}))} onValueChange={setRepo}/></Field>:<p>Choose a repository from the repository picker before previewing.</p>}
       <Field label="Task"><TextInput value={goal} maxLength={8000} placeholder="What work should Pacer assign?" onInput={event=>setGoal(event.currentTarget.value)}/></Field>
       <Field label="Task kind" help="Optional. Use this to check a specialist step."><TextInput value={kind} maxLength={256} placeholder="For example, architecture" onInput={event=>setKind(event.currentTarget.value)}/></Field>
       <Field label="Minimum model tier"><ChoicePicker value={tier} options={tierOptions} onValueChange={setTier}/></Field>
       <Checkbox label="Needs tools" checked={tools} onChange={event=>setTools(event.currentTarget.checked)}/>
+      {explain&&draft?.from&&<Checkbox label="Use my unsaved choice ladder" help="Executor rule changes count once they are saved." checked={useDraft} onChange={event=>setUseDraft(event.currentTarget.checked)}/>}
       <div><Button type="submit" variant="primary" busy={busy} disabled={!repo||!goal.trim()}>Preview selection</Button></div>
     </form>
     <ErrorMessage error={error}/>
     {result&&<DispatcherPreviewResult preview={result}/>}
+    {explained&&<RouteExplanationResult result={explained}/>}
   </Section>;
 }

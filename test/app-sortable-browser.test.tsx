@@ -206,3 +206,28 @@ browserTest('task kinds and ladder lists accept typed commas and spaces', async 
     expect(await prefer.inputValue()).toBe('provider/a, provider/b');
   } finally { await page.close(); }
 });
+
+browserTest('Try a task explains the route with the unsaved choice ladder', async () => {
+  const page = await browser.newPage();
+  try {
+    await page.goto(`${server.url.href}#try`);
+    expect(await page.getByLabel('Use my unsaved choice ladder').count()).toBe(0);
+    await page.getByRole('button', { name: 'Move up: Usable fallback' }).click();
+    const useDraft = page.getByLabel('Use my unsaved choice ladder');
+    expect(await useDraft.isChecked()).toBe(true);
+    await page.getByLabel('Task', { exact: true }).fill('Fix the login bug');
+    await page.getByRole('button', { name: 'Preview selection' }).click();
+    await page.getByText('Pacer would choose Codex').waitFor();
+    const sent = JSON.parse((await page.getByTestId('sent').textContent())!);
+    expect(sent.strategyDraft.from).toBe('default');
+    expect(sent.strategyDraft.set.dispatch.steps[0].id).toBe('usable-fallback');
+    const card = page.locator('[role="status"]', { hasText: 'Pacer would choose Codex' });
+    for (const text of ['Uses your unsaved choice ladder.', 'It matched the Usable fallback step for tests tasks.', 'Another condition applies.', 'Its budget is used up.', 'Planner tokens are not measured yet.'])
+      expect(await card.getByText(text).count()).toBeGreaterThan(0);
+    expect(await card.textContent()).not.toContain('brand_new_code');
+    // Unchecked, the saved settings are explained.
+    await useDraft.uncheck();
+    await page.getByRole('button', { name: 'Preview selection' }).click();
+    await page.waitForFunction(() => !document.querySelector('[data-testid="sent"]')!.textContent!.includes('strategyDraft'));
+  } finally { await page.close(); }
+});
