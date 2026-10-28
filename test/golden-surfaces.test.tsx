@@ -6,7 +6,7 @@ import fixture from "./fixtures/ui/snapshot.json";
 import type { ClientSnapshot } from "../src/view-model/snapshot";
 import { phaseWords, verdictWords } from "../src/view-model/words";
 import { needsYou, running } from "../src/view-model/selectors";
-import { Overview } from "../app/src/screens/Overview";
+import { DispatchHome } from "../app/src/screens/dispatch/Dispatch";
 import { TaskContext } from "../app/src/screens/task-shared";
 import { ActionContext } from "../app/src/data/action-context";
 import { createActionRunner } from "../app/src/data/actions";
@@ -50,7 +50,7 @@ const state = reduceStore(initialState(), { type: "snapshot", snapshot });
 const runner = createActionRunner({ call: async <T,>() => ({} as T), waitFor: async () => true, refetch() {}, navigate() {} });
 const frozenNow = spyOn(Date, "now").mockReturnValue(snapshot.at * 1000);
 let app: string;
-try { app = renderToString(<TaskContext.Provider value={{ state, api }}><ActionContext.Provider value={runner}><Overview query={{ repo: null, scope: null }} /></ActionContext.Provider></TaskContext.Provider>); } finally { frozenNow.mockRestore(); }
+try { app = renderToString(<TaskContext.Provider value={{ state, api }}><ActionContext.Provider value={runner}><DispatchHome query={{ repo: null, scope: null }} /></ActionContext.Provider></TaskContext.Provider>); } finally { frozenNow.mockRestore(); }
 const tray = renderToString(<Tray snapshot={snapshot} api={api} ipc={createTrayIpc({ location: { assign() {} } })} />);
 const tui = renderDashboard(snapshot, 120, 50, snapshot.at, { selected: 0, noColor: true, version: "0.3.0" });
 const line120 = renderLine(snapshot, { width: 120, color: false });
@@ -76,10 +76,10 @@ test("golden --line --json fields use the fixture through the local link", async
 test("cross-surface counts use service totals and repo totals", () => {
   const c = snapshot.counts!, today = snapshot.today!;
   const text = Object.fromEntries(Object.entries(surfaces).map(([name, html]) => [name, strip(html).toLowerCase()]));
-  expect(text.app).toContain(`${c.attention} need you ${c.running} running ${today.done} done today`);
-  expect(text.app).toContain(`running ${c.running} `);
   expect(text.app).toContain(`needs you ${c.attention} `);
-  expect(text.app).toContain(`done today ${today.done} · ${today.accepted} accepted`);
+  expect(text.app).toContain(`live dispatch ${c.running} running ${c.queued} queued`);
+  // The app's period figures come from insights.summary, not the snapshot's daily counts; without it the strip says so.
+  expect(text.app).toContain("these figures need a newer pacer service with task insights.");
   expect(text.tray).toContain(`${c.attention} needs you ${c.running} running ${c.queued} waiting ${today.done} done today`);
   expect(text.tui).toContain(`needs you ${c.attention}`);
   expect(text.tui).toContain(`running ${c.running} · ${c.queued} queued`);
@@ -99,13 +99,14 @@ test("cross-surface vocabulary uses shared verdicts, phases and acceptance words
       const phase = phaseWords(task.progress!.phase);
       expect(text).toContain(phase);
     }
+    // Every surface states the acceptance outcome in the same words.
     expect(text).toContain("Tests passed");
     expect(text).not.toMatch(/\b(?:ON_PACE|BEHIND|AHEAD|EXHAUSTED|NEAR_LIMIT|EXPIRING_SOON|UNMETERED|needs_input|on_pace|host_down|executor_down|no_slot|working|testing|lost-contact)\b/);
   }
   // Compact lines intentionally omit behind/on-pace verdict text and phases.
   for (const line of [line120, line20]) expect(strip(line)).not.toMatch(/\b(?:ON_PACE|BEHIND|needs_input|on_pace)\b/);
   const advice = snapshot.planner!.advice;
-  expect(app).toContain(`class="pc-planner-strip__advice">${advice}</span>`);
+  expect(app).toContain(`class="pc-dispatch-advice">${advice}</p>`);
 });
 
 const headings = (output: string) => [...output.matchAll(/<h2\b[^>]*>([\s\S]*?)<\/h2>/g)].map(match => strip(match[1]!));
@@ -122,10 +123,13 @@ test("the TUI order is Needs you, Running, Capacity, Done today", () => {
   }
 });
 
-test("app keeps work in the main column and capacity beside it on desktop", () => {
-  const [main, side] = app.split('class="pc-overview__main">')[1]!.split('class="pc-overview__side">');
-  expect(headings(main!.replace(/<section\b[^>]*class="pc-empty"[^>]*>[\s\S]*?<\/section>/g, ""))).toEqual(["Needs you", "Running", "Done today"]);
-  expect(headings(side!.replace(/<section\b[^>]*class="pc-empty"[^>]*>[\s\S]*?<\/section>/g, ""))).toEqual(["Capacity", "Quick delegate", "Activity"]);
+test("app follows the board on desktop: planner budget, the week's figures, Needs you, then live work", () => {
+  const at = ["<h1>Dispatch</h1>", 'aria-label="Planner budget and next decision"', 'aria-label="This week at a glance"', 'aria-labelledby="needs-you"', 'aria-labelledby="live-dispatch"'].map(marker => app.indexOf(marker));
+  expect(at.every(i => i >= 0)).toBe(true);
+  expect(at).toEqual([...at].sort((a, b) => a - b));
+  // No token reading yet: Where the tokens went is not rendered, and the glance strip invents no token figure.
+  expect(app).not.toContain('aria-labelledby="token-share"');
+  expect(strip(app.slice(app.indexOf('id="glance"'), app.indexOf('aria-labelledby="needs-you"')))).not.toMatch(/tokens/i);
 });
 
 test("tray orders Needs you, Running, executors with done today only in counts", () => {
@@ -155,28 +159,23 @@ function anchorRows(output: string, className: string): string[] {
   });
 }
 
-test("tray and Overview agree on unknown and unavailable capacity from the same rows", () => {
+// Capacity left the home with the Dispatch merge (it lives in Settings › Executors); the tray keeps its compact rows.
+test("tray shows unknown and unavailable capacity from the same rows", () => {
   const unknown = snapshot.executors!.find(row => row.state === "ready" && row.usedPct === null)!;
   expect(unknown.paceReason).toBe("no limit reported");
-  const overviewRow = anchorRows(app, 'pc-cap').find(row => row.includes(`aria-label="${unknown.slots.used} of ${unknown.slots.max} parallel tasks"`) && strip(row).includes("Usage unknown · no limit reported"));
-  expect(overviewRow).toBeDefined();
   const trayRow = anchorRows(tray, 'tray-executor').find(row => row.includes(` · ${unknown.slots.used}/${unknown.slots.max} parallel tasks`) && row.includes("Usage unknown"));
   expect(trayRow).toContain("pc-glyph pc-status--neutral");
   expect(trayRow).toContain(">?</span>");
 
   const unavailable = { ...unknown, state: "down" as const, tone: "bad" as const, reason: "no active coding-plan subscription", sub: "Unavailable" };
   const unavailableSnapshot = { ...snapshot, executors: [unavailable] };
-  const unavailableState = reduceStore(initialState(), { type: "snapshot", snapshot: unavailableSnapshot });
-  const overview = renderToString(<TaskContext.Provider value={{ state: unavailableState, api }}><ActionContext.Provider value={runner}><Overview query={{ repo: null, scope: null }} /></ActionContext.Provider></TaskContext.Provider>);
   const popover = renderToString(<Tray snapshot={unavailableSnapshot} api={api} ipc={createTrayIpc({ location: { assign() {} } })} />);
-  expect(anchorRows(overview, 'pc-cap--off')).toHaveLength(1);
-  expect(overview).toContain("no active coding-plan subscription");
   expect(anchorRows(popover, 'tray-executor--off')).toHaveLength(1);
   expect(popover).toContain(">off</span>");
   expect(popover).not.toContain(">free</span>");
 });
 
-test("Overview, tray and redesigned TUI preserve uncertain historical eligibility", () => {
+test("tray and redesigned TUI preserve uncertain historical eligibility", () => {
   const executor = {
     ...snapshot.executors![1]!, state: "ready" as const, usedPct: 100, stale: true,
     eligibility: {
@@ -186,12 +185,10 @@ test("Overview, tray and redesigned TUI preserve uncertain historical eligibilit
     },
   };
   const s = { ...snapshot, tasks: [], attention: [], executors: [executor] };
-  const current = reduceStore(initialState(), { type: "snapshot", snapshot: s });
-  const overview = renderToString(<TaskContext.Provider value={{ state: current, api }}><ActionContext.Provider value={runner}><Overview query={{ repo: null, scope: null }} /></ActionContext.Provider></TaskContext.Provider>);
   const popover = renderToString(<Tray snapshot={s} api={api} ipc={createTrayIpc({ location: { assign() {} } })} />);
   const terminal = renderDashboard(s, 120, 40, s.at, { noColor: true });
   // Tray puts the complete compact-row explanation in its accessible label.
-  for (const output of [strip(overview), popover, strip(terminal)]) {
+  for (const output of [popover, strip(terminal)]) {
     expect(output).toContain("Uncertain fallback");
     expect(output).toContain("Historical usage");
     expect(output).toContain("observed 1h ago");

@@ -20,7 +20,7 @@ export interface ListRowProps extends JSX.HTMLAttributes<HTMLDivElement> {
   leading?: ComponentChildren; content?: ComponentChildren; meta?: ComponentChildren; actions?: ComponentChildren;
   density?: 'normal' | 'compact' | 'touch';
   layout?: 'aligned';
-  outlined?: boolean; tone?: 'bad';
+  outlined?: boolean; tone?: 'bad' | 'warn';
 }
 /** Sibling slots keep navigation and secondary actions from nesting interactive elements. */
 export function ListRow({ leading, content, meta, actions, children, className, density, layout, outlined, tone, ...props }: ListRowProps) {
@@ -104,10 +104,10 @@ export function LoadingState({ label = 'Loading…', updating = false }: { label
     </span>{label}
   </div>;
 }
-export function EmptyState({ title, description, children }: {
-  title: string; description?: ComponentChildren; children?: ComponentChildren;
+export function EmptyState({ title, description, children, bodyTitle = false }: {
+  title: string; description?: ComponentChildren; children?: ComponentChildren; bodyTitle?: boolean;
 }) {
-  return <section className="pc-empty"><SectionHeading>{title}</SectionHeading>
+  return <section className="pc-empty">{bodyTitle ? <strong className="pc-empty__body-title">{title}</strong> : <SectionHeading>{title}</SectionHeading>}
     {description && <p>{description}</p>}{children}
   </section>;
 }

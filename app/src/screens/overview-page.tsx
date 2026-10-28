@@ -8,7 +8,8 @@ export function useOverviewPage<T>(rows: readonly T[], label: string, pageSize: 
   if (position.scope !== scope || position.page !== page) setPosition({ scope, page });
   return {
     rows: rows.slice(page * pageSize, (page + 1) * pageSize),
-    footer: <Pagination label={label} page={page} pageSize={pageSize} total={rows.length}
-      onChange={next => setPosition({ scope, page: next })} />,
+    // One page needs no range or navigation, as on the Dispatch board.
+    footer: rows.length > pageSize ? <Pagination label={label} page={page} pageSize={pageSize} total={rows.length}
+      onChange={next => setPosition({ scope, page: next })} /> : null,
   };
 }

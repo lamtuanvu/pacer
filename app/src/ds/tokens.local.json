@@ -23,14 +23,14 @@
       {
         "name": "space-7",
         "value": "28px",
-        "usage": "Tasks page top padding and child indent.",
-        "provisional": "Tasks board value; not yet in the design system."
+        "usage": "Tasks and Dispatch page top padding and child indent.",
+        "provisional": "Tasks board value; not yet in the design system. Dispatch board value; not yet in the design system."
       },
       {
         "name": "space-10",
         "value": "40px",
-        "usage": "Tasks page side padding.",
-        "provisional": "Tasks board value; not yet in the design system."
+        "usage": "Tasks and Dispatch page side padding.",
+        "provisional": "Tasks board value; not yet in the design system. Dispatch board value; not yet in the design system."
       }
     ]
   },
@@ -117,8 +117,8 @@
       {
         "name": "size-1240",
         "value": "1240px",
-        "usage": "Tasks page maximum width.",
-        "provisional": "Tasks board value; not yet in the design system."
+        "usage": "Tasks and Dispatch page maximum width.",
+        "provisional": "Tasks board value; not yet in the design system. Dispatch board value; not yet in the design system."
       },
       {
         "name": "size-3",
@@ -191,6 +191,12 @@
         "name": "size-110",
         "value": "110px",
         "provisional": "Dispatcher board: saved setup action column width."
+      },
+      {
+        "name": "size-9",
+        "value": "9px",
+        "usage": "Flush TaskCard row vertical padding.",
+        "provisional": "Dispatch board value; not yet in the design system."
       }
     ]
   },

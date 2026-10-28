@@ -256,7 +256,7 @@ a.pc-btn{text-decoration:none}
 .pc-search-picker__empty{padding:var(--space-3);margin:0;color:var(--ink-secondary);font-size:var(--type-caption-size)}
 @media(max-width:559px){.pc-search-picker{width:100%}.pc-search-picker__popover,.pc-search-picker[data-align=start] .pc-search-picker__popover{left:0;right:auto;width:100%}}
 .pc-segmented{display:inline-flex;flex-wrap:wrap;gap:var(--space-half);padding:var(--space-half);background:var(--surface-lane);border:1px solid var(--line);border-radius:var(--radius-lg)}
-.pc-segmented .pc-btn{flex:1;border-color:transparent;background:transparent;color:var(--ink-secondary)}
+.pc-segmented .pc-btn{flex:1;white-space:nowrap;border-color:transparent;background:transparent;color:var(--ink-secondary)}
 .pc-segmented [aria-pressed=true]{background:var(--surface-page);color:var(--ink);border-color:var(--line)}
 .pc-tabs{display:flex;gap:var(--space-1);border-bottom:1px solid var(--line)}
 .pc-tabs .pc-btn{background:transparent;border:0;border-bottom:var(--stroke-focus) solid transparent;border-radius:0;color:var(--ink-secondary)}
@@ -313,7 +313,8 @@ a.pc-btn{text-decoration:none}
 .pc-pagination:focus-visible{outline:var(--stroke-focus) solid var(--focus);outline-offset:calc(-1 * var(--stroke-focus))}
 
 .pc-list-row--outlined,.pc-list-row--outlined:last-child{border:1px solid var(--line);border-radius:var(--radius-md);background:var(--surface-page)}
-.pc-list-row--bad{border-color:var(--bad-line);background:var(--bad-tint)}
+.pc-list-row--bad,.pc-list-row--outlined.pc-list-row--bad{border-color:var(--bad-line);background:var(--bad-tint)}
+.pc-list-row--warn,.pc-list-row--outlined.pc-list-row--warn{border-color:var(--warn-line);background:var(--warn-tint)}
 /* Settings forms sit between compact tray/table actions and normal app controls. */
 .pc-btn--settings{min-height:var(--control-settings);padding:var(--space-1) var(--space-3);font-size:var(--type-body-size);line-height:var(--type-body-line);border-radius:var(--radius-md)}
 .pc-btn--settings.pc-btn--sm{min-height:var(--control-compact);font-size:var(--type-caption-size);line-height:var(--type-caption-line);padding:var(--space-1) var(--space-2)}
@@ -626,6 +627,32 @@ a.pc-btn{text-decoration:none}
 .pc-task-card--compact .pc-task-card__row--child-facts{padding-left:var(--size-15)}
 .pc-task-card--compact .pc-task-card__row--child-facts .pc-task-card__status{flex:1 1 auto}
 .pc-task-card__row--head>.pc-task-card__status{flex:none}
+.pc-task-card__controls{display:flex;flex:none;align-items:center;gap:var(--space-2);margin-left:auto}
+/* Phones put the task's buttons on their own line under the title. */
+@media(max-width:767px){.pc-task-card__row--head:has(>.pc-task-card__controls){flex-wrap:wrap}.pc-task-card__controls{flex-basis:100%;padding-left:var(--space-4)}}
+.pc-share-bar{display:flex;flex-direction:column;gap:var(--space-3);min-width:0}
+.pc-share-bar__bar{display:block;width:100%;height:var(--space-3);border-radius:var(--radius-sm)}
+.pc-share-bar__seg--1{fill:var(--chart-1);background:var(--chart-1)}.pc-share-bar__seg--2{fill:var(--chart-2);background:var(--chart-2)}
+.pc-share-bar__seg--3{fill:var(--chart-3);background:var(--chart-3)}.pc-share-bar__seg--4{fill:var(--chart-4);background:var(--chart-4)}
+.pc-share-bar__seg--5{fill:var(--chart-5);background:var(--chart-5)}
+.pc-share-bar__legend{width:100%;border-collapse:collapse;font-size:var(--type-body-size);line-height:var(--type-body-line);font-variant-numeric:tabular-nums}
+.pc-share-bar__legend th,.pc-share-bar__legend td{padding:var(--space-1\.5) 0 var(--space-1\.5) var(--space-3);border-top:1px solid var(--surface-lane);text-align:right;font-weight:var(--type-body-weight);white-space:nowrap}
+.pc-share-bar__legend thead th{padding-top:0;border-top:0;color:var(--ink-muted);font-size:var(--type-caption-size);line-height:var(--type-caption-line);font-weight:var(--type-body-strong-weight)}
+.pc-share-bar__legend th:first-child{padding-left:0;text-align:left;width:100%;max-width:0}
+.pc-share-bar__agent{display:flex;align-items:center;gap:var(--space-2);min-width:0}
+.pc-share-bar__swatch{flex:none;width:var(--space-2\.5);height:var(--space-2\.5);border-radius:var(--radius-sm)}
+.pc-share-bar__name{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:var(--type-body-strong-weight)}
+.pc-share-bar__role{flex:none;color:var(--ink-muted);font-size:var(--type-caption-size);line-height:var(--type-caption-line)}
+.pc-share-bar__tokens{font-weight:var(--type-body-strong-weight)}
+.pc-share-bar__share{color:var(--ink-secondary)}
+/* Phones keep the agent name; the role is the first fact to go. */
+@media(max-width:559px){.pc-share-bar__role{display:none}}
+
+/* Flush task rows share their containing section's frame. */
+.pc-task-card.pc-task-card--flush{padding:0;border:0;border-radius:0;background:transparent}
+.pc-task-card--flush+.pc-task-card--flush,li+li>.pc-task-card.pc-task-card--flush{border-top:1px solid var(--surface-lane)}
+.pc-task-card--flush .pc-task-card__main{padding:var(--size-9) var(--space-5);border-radius:0}
+.pc-empty__body-title{font-size:var(--type-body-strong-size);line-height:var(--type-body-strong-line);font-weight:var(--type-body-strong-weight)}
 
 
 /* SortableList icon mode and SaveBar status: additive variants of the DS components. */
