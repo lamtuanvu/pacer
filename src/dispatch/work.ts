@@ -3,7 +3,9 @@ import { existsSync } from "node:fs";
 import { z } from "zod";
 import { CoreError } from "../core/errors";
 import { readTask, updateTask } from "../tasks/store";
-import type { TaskRecord,AttemptUsage } from "../tasks/types";
+import type { TaskRecord,AttemptUsage,AttemptTokens } from "../tasks/types";
+import { attemptsWithTokens,itemsFromIndex,itemsOf,rollupTokens,type TokenItem } from "../tokens/rollup";
+import { unknownTokens } from "../tokens/extract";
 import type { Ctx } from "../types";
 import { requirementsSchema, preferencesSchema } from "./types";
 import { appendWorkEvent, boundedJson, dispatchDatabase } from "./store";
@@ -159,14 +161,14 @@ export function workTree(ctx:Ctx,id:string){
     const work=node(r),task=readTask(ctx,r.task_id);
     const decisions=dispatchDatabase(ctx).query<{attempt:number;data:string},[string]>("SELECT attempt,data FROM work_decisions WHERE task_id=? ORDER BY attempt").all(work.taskId).map(d=>{const p=JSON.parse(d.data);return{attempt:d.attempt,engine:p.engine,proposal:p.proposal,validation:p.validation,recommendedAction:p.recommendedAction,uncertainty:p.uncertainty,selectedCandidateId:p.selectedCandidateId,inputHash:p.inputHash,outputHash:p.outputHash,fallback:p.fallback,...(p.enforcement?{enforcement:p.enforcement}:{})};});
     const waivedChildren=dispatchDatabase(ctx).query<{dependency_id:string},[string]>("SELECT dependency_id FROM work_dependency_waivers WHERE task_id=?").all(work.taskId).map(row=>row.dependency_id);
-    if(!task)return{...work,waivedChildren,title:"Archived work",state:"archived",rev:0,review:null,question:null,retryEligibility:{allowed:false,reason:"Archived work"},executor:null,model:null,actualModel:null,decisions,attempts:[],createdAt:null,settledAt:null};
-    const attempts=task.attempts.map(a=>({executor:a.executor,model:a.model??null,actualModel:a.actualModel??null,startedAt:a.startedAt,endedAt:a.endedAt,exitCode:a.exitCode,timedOut:a.timedOut,limitHit:a.limitHit,usageAtStart:a.usageAtStart??null,usageAtEnd:a.usageAtEnd??null}));
+    if(!task)return{...work,waivedChildren,title:"Archived work",state:"archived",rev:0,review:null,question:null,retryEligibility:{allowed:false,reason:"Archived work"},executor:null,model:null,actualModel:null,decisions,attempts:[],tokenItems:itemsFromIndex(ctx,work.taskId),createdAt:null,settledAt:null};
+    const attempts=attemptsWithTokens(ctx,task.id,task.attempts).map(a=>({tokens:a.tokens,executor:a.executor,model:a.model??null,actualModel:a.actualModel??null,startedAt:a.startedAt,endedAt:a.endedAt,exitCode:a.exitCode,timedOut:a.timedOut,limitHit:a.limitHit,usageAtStart:a.usageAtStart??null,usageAtEnd:a.usageAtEnd??null}));
     return {...work,waivedChildren,title:task.title??task.brief.goal,state:task.state,rev:task.rev,review:task.review??null,question:task.question??null,retryEligibility:workRestartEligibility(ctx,task,work),executor:task.executor??task.requestedExecutor,model:task.result?.model??task.attempts.at(-1)?.model??null,actualModel:task.attempts.at(-1)?.actualModel??null,decisions,attempts,createdAt:task.createdAt,settledAt:task.settledAt??null};
   });
   return {rootId:root.rootId,nodes,totals:workTotals(nodes,workWaitTotals(ctx,nodes.map(n=>n.taskId)))};
 }
-interface TotalsAttempt {startedAt:number;endedAt:number;usageAtStart?:AttemptUsage|null;usageAtEnd?:AttemptUsage|null}
-interface TotalsNode {state:string;createdAt:number|null;attempts:TotalsAttempt[]}
+interface TotalsAttempt {startedAt:number;endedAt:number;executor?:string;model?:string|null;actualModel?:string|null;tokens?:AttemptTokens;usageAtStart?:AttemptUsage|null;usageAtEnd?:AttemptUsage|null}
+interface TotalsNode {state:string;createdAt:number|null;attempts:TotalsAttempt[];tokenItems?:TokenItem[]}
 export function observedUsageDelta(a?:AttemptUsage|null,b?:AttemptUsage|null):number|null {
  if(!a||!b||!a.poolId||a.poolId!==b.poolId||a.resetEpoch==null||a.resetEpoch!==b.resetEpoch||a.account!==b.account||a.window!==b.window
   ||a.stale!==false||b.stale!==false||!a.observationId||!b.observationId||a.observationId===b.observationId
@@ -193,6 +195,11 @@ function usagePools(attempts:TotalsAttempt[]){
   return{account:group.account,poolId:group.poolId,resetEpoch:group.resetEpoch,observedDeltaPct:group.unknownAttempts||inconsistent?null:merged.reduce((sum,interval)=>sum+interval.endPct-interval.startPct,0),measuredIntervals:merged.length,unknownAttempts:group.unknownAttempts+(inconsistent?1:0),attribution:"shared-account-observation" as const};
  }).sort((a,b)=>JSON.stringify([a.account,a.poolId,a.resetEpoch]).localeCompare(JSON.stringify([b.account,b.poolId,b.resetEpoch])));
 }
+function tokenItemsOf(n:TotalsNode):TokenItem[]{
+ if(n.tokenItems)return n.tokenItems;
+ return itemsOf(n.attempts.map(a=>({executor:a.executor??"unknown",model:a.model,actualModel:a.actualModel,usageAtStart:a.usageAtStart,
+  tokens:a.tokens??unknownTokens("rollup@1",{now:a.endedAt},"attempt has no token record")})));
+}
 export function workTotals(nodes:TotalsNode[],waits?:ReturnType<typeof workWaitTotals>){
  const attempts=nodes.flatMap(n=>n.attempts);
  const pools=usagePools(attempts);
@@ -200,6 +207,7 @@ export function workTotals(nodes:TotalsNode[],waits?:ReturnType<typeof workWaitT
   executionSeconds:attempts.reduce((sum,a)=>sum+Math.max(0,a.endedAt-a.startedAt),0),
   queueWaitSeconds:waits?.queueWaitSeconds??nodes.reduce((sum,n)=>sum+(n.createdAt!==null&&n.attempts.length?Math.max(0,n.attempts[0]!.startedAt-n.createdAt):0),0),
   dependencyWaitSeconds:waits?.dependencyWaitSeconds??null,childWaitSeconds:waits?.childWaitSeconds??null,capacityWaitSeconds:waits?.capacityWaitSeconds??null,provisionalWaits:waits?.provisionalWaits??0,waitAsOf:waits?.waitAsOf??null,
+  tokens:rollupTokens(nodes.flatMap(tokenItemsOf)),
   usagePools:pools,usageMeasuredAttempts:attempts.length-pools.reduce((sum,p)=>sum+p.unknownAttempts,0),
   usageUnknownAttempts:pools.reduce((sum,p)=>sum+p.unknownAttempts,0)};
 }

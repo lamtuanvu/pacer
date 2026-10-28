@@ -112,3 +112,9 @@ Extractors in this release:
 `total` is the provider's own total, or input plus output when the provider splits them. Cache reads and cache writes are stored separately and left out of `total`. Counts that are negative, fractional or above 10⁹ are rejected and the attempt is recorded as `unknown`.
 
 The numbers are stored with the attempt and indexed in the `attempt_usage` table of the task database. On start, the service fills the index for existing history from logs (gzipped archives included). The backfill only adds rows: it never edits task files, task records or logs, and running it again changes nothing.
+
+### Roll-up
+
+Each attempt belongs to exactly one work node, so totals never count an attempt twice and a parent's total is never added on top of its children's. `totals.tokens` on a work tree sums every node's attempts into `total`, `input`, `cacheRead`, `cacheWrite` and `output`, with `measuredAttempts`, `partialAttempts` and `unknownAttempts`. `lowerBound` is true whenever any attempt is `partial` or `unknown`, so show the number as "at least". Unreported fields add nothing; they are never counted as zero.
+
+`byExecutor` groups the same sums by agent, account and model, largest first. Task detail returns the same block as `tokens` for that task, and each attempt carries `tokens`. An attempt whose task record has no tokens (backfilled history) takes them from the `attempt_usage` index, so every view shows the same numbers. A node whose task record can no longer be read keeps its index rows, or counts as one `unknown` attempt. `planner` and `decision` report `coverage: "unknown"` until planner attribution exists.
