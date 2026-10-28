@@ -70,7 +70,8 @@ export function bars(daily: Summary["daily"], agents: string[], from: number, da
 
 /** CSV of the summary response; the client builds it and the service is not involved. */
 export function summaryCsv(s: Summary, label: (agent: string) => string): string {
-  const cell = (v: unknown) => { const t = v === null || v === undefined ? "" : String(v); return /[",\n]/.test(t) ? `"${t.replaceAll('"', '""')}"` : /^[=+\-@]/.test(t) ? `'${t}` : t; };
+  // Neutralize spreadsheet formulas first, then quote.
+  const cell = (v: unknown) => { let t = v === null || v === undefined ? "" : String(v); if (/^[=+\-@\t\r]/.test(t) && typeof v === "string") t = `'${t}`; return /[",\n\r]/.test(t) ? `"${t.replaceAll('"', '""')}"` : t; };
   const rows: unknown[][] = [
     ["agent", "root_tasks", "subtasks", "attempts", "tokens", "measured_attempts", "partial_attempts", "unknown_attempts", "share", "tokens_per_task", "acceptance_rate"],
     ...s.spread.map(g => [label(g.agent), g.rootTasks, g.subtasks, g.attempts, g.total, g.measuredAttempts, g.partialAttempts, g.unknownAttempts, g.share ?? "", g.tokensPerTask ?? "", g.acceptanceRate ?? ""]),

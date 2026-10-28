@@ -50,8 +50,13 @@ export function Insights({ query }: { query: RouteQuery }) {
   const agents = useMemo(() => [...new Set([...(s?.spread.map(g => g.agent) ?? []), ...(series.data?.daily.flatMap(d => Object.keys(d.byAgent)) ?? []), ...(s?.kindByAgent.flatMap(k => Object.keys(k.byAgent)) ?? [])])].sort((a, b) => agentSlot(a) - agentSlot(b) || a.localeCompare(b)), [s, series.data]);
   const repos = state.snapshot?.repos ?? [];
   const goRepo = (value: string | null) => { location.hash = withQuery(location.hash.split("?")[0] || "#/insights", { ...query, repo: value }); };
-  const csv = useMemo(() => s ? URL.createObjectURL(new Blob([summaryCsv(s, label)], { type: "text/csv" })) : null, [s]);
-  useEffect(() => () => { if (csv) URL.revokeObjectURL(csv); }, [csv]);
+  const [csv, setCsv] = useState<string | null>(null);
+  useEffect(() => {
+    if (!s) { setCsv(null); return; }
+    const url = URL.createObjectURL(new Blob([summaryCsv(s, label)], { type: "text/csv" }));
+    setCsv(url);
+    return () => URL.revokeObjectURL(url);
+  }, [s]);
   const versusWord = versus(period);
   const atLeast = s?.tokens.lowerBound ? " · at least" : "";
   const prev = s?.previous;
