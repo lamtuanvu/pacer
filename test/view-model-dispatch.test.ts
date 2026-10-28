@@ -203,7 +203,7 @@ test("planner budget identifies historical readings and their actual capture age
     const budget = plannerBudget(historical, now, 99)!;
     expect(budget.lead).toBe("Usage reading is out of date.");
     expect(budget.meter).toEqual({ used: 28, pace: null, stale: true, label: "Claude Code 5h usage" });
-    expect(budget.caption).toBe(`Historical reading of the 5h window · ${capturedAt === null ? "reading time unknown" : "read 3h ago"}`);
+    expect(budget.caption).toBe(`5h window · ${capturedAt === null ? "reading time unknown" : "read 3h ago"}`);
     expect(budget.caption).not.toContain("5h window 99%");
     expect(budget.caption).not.toMatch(/5h window \d+%/);
     // The fallback remains historical even if the planner merely lacks a reading, without its stale flag.
@@ -212,7 +212,7 @@ test("planner budget identifies historical readings and their actual capture age
   }
   const executorOnly = plannerBudget({ ...snapshot, planner, accounts: [], executors: [{ ...snapshot.executors![0]!, id: planner.runner, usedPct: 28 }] }, now, 99)!;
   expect(executorOnly.meter).toMatchObject({ used: 28, stale: true, pace: null });
-  expect(executorOnly.caption).toBe("Historical reading · reading time unknown");
+  expect(executorOnly.caption).toBe("Reading time unknown");
   const stalePlanner = plannerBudget({ ...snapshot, planner: { ...planner, usedPct: 16, window: "weekly" }, accounts: [], executors: [] }, now, 99)!;
   expect(stalePlanner.meter).toMatchObject({ used: 16, stale: true, pace: null });
   expect(stalePlanner.caption).not.toContain("5h window");

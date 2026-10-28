@@ -454,7 +454,9 @@ test("planner half shows a missing planner reading's historical figure as stale 
   expect(html).toContain("Usage reading is out of date.");
   expect(html).toContain("pc-meter--stale");
   expect(html).toContain('aria-valuenow="28"');
-  expect(html).toContain("Historical reading of the 5h window · reading time unknown");
+  expect(html).toContain("5h window · reading time unknown");
+  // A historical reading has no current pace, so no pace pill sits above the meter.
+  expect(html).not.toMatch(/Usage unknown|Under pace|On pace|Ahead of pace/);
   expect(html).not.toContain("No usage reading");
   expect(html).not.toContain("5h window 99%");
   expect(html).not.toContain("as of");

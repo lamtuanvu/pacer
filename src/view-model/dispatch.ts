@@ -187,11 +187,12 @@ export function plannerBudget(snapshot: ClientSnapshot, now: number, shortWindow
   if (used == null) return { lead: p.advice, caption: "" };
   const window = p.usedPct !== null ? p.window : account?.usedPct != null ? account.window : null;
   const capturedAt = account?.capturedAt;
+  const age = capturedAt == null ? "reading time unknown" : `read ${ago(capturedAt, now)}`;
   return {
     lead: "Usage reading is out of date.",
     meter: { used, pace: null, stale: true, label: `${name} ${window ? `${window} ` : ""}usage` },
     // The meter states the figure; the caption says which window it was and how old it is (UI-15).
-    caption: `Historical reading${window ? ` of the ${window} window` : ""} · ${capturedAt == null ? "reading time unknown" : `read ${ago(capturedAt, now)}`}`,
+    caption: window ? `${window} window · ${age}` : age.charAt(0).toUpperCase() + age.slice(1),
   };
 }
 
