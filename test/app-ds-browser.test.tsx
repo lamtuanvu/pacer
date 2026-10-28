@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { SavedSetups } from '../app/src/screens/settings/DispatcherSetup';
+import { SavedSetups } from '../app/src/screens/settings/Dispatcher';
 import { chromium } from 'playwright-core';
 import { renderToString } from 'preact-render-to-string';
 import { Dialog } from '../app/src/ds/Dialog';
@@ -55,7 +55,7 @@ browserTest('Dialog keyboard order includes native disclosure summaries and resp
   } finally { await browser.close(); }
 });
 
-browserTest('Saved profile rows keep their bottom border when operation feedback follows them', async () => {
+browserTest('Saved setups keep their bordered list when operation feedback follows them', async () => {
   const state = { ...initialState(), snapshot: { executors: [], accounts: [], hosts: [], repos: [] } } as any;
   const api = { call: async () => ({}), hello: async () => ({}), snapshot: async () => ({}) } as any;
   const markup = renderToString(<TaskContext.Provider value={{ state, api }}>
@@ -67,12 +67,12 @@ browserTest('Saved profile rows keep their bottom border when operation feedback
   try {
     const page = await browser.newPage({ viewport: { width: 375, height: 700 } });
     await page.setContent(`<style>${styles.join('\n')}</style><div class="u3-general-sections">${markup}</div>`);
-    const rows = page.locator('#saved-profiles .u3-setting');
-    expect(await rows.count()).toBe(2);
-    const last = rows.last();
-    expect(await last.evaluate(node => node.nextElementSibling?.classList.contains('u3-feedback'))).toBe(true);
-    expect(await last.evaluate(node => getComputedStyle(node).borderBottomWidth)).toBe('1px');
-    expect(await last.evaluate(node => getComputedStyle(node).borderBottomStyle)).toBe('solid');
-    expect(await rows.first().evaluate(node => getComputedStyle(node).borderBottomWidth)).toBe('1px');
+    const list = page.locator('#saved-profiles .pc-saved-setups');
+    expect(await list.locator('.pc-saved-setups__row').count()).toBe(2);
+    expect(await list.evaluate(node => node.nextElementSibling?.classList.contains('u3-feedback'))).toBe(true);
+    for (const side of ['Top', 'Bottom'] as const) {
+      expect(await list.evaluate((node, s) => getComputedStyle(node).getPropertyValue(`border-${s.toLowerCase()}-width`), side)).toBe('1px');
+      expect(await list.evaluate((node, s) => getComputedStyle(node).getPropertyValue(`border-${s.toLowerCase()}-style`), side)).toBe('solid');
+    }
   } finally { await browser.close(); }
 });

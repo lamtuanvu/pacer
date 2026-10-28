@@ -4,7 +4,8 @@ import { dispatchConfigSchema } from "../src/dispatch/types";
 import { SortableList } from "../app/src/ds/SortableList";
 import { SaveBar } from "../app/src/ds/SaveBar";
 import { countSetupChanges, discardSetup, ladderChanges, moveKey, orderChanges, PartialSaveError, positionAnnouncement, reconcileSetup, ruleChanges, saveSetup, type SetupDraft } from "../app/src/model/dispatcher-setup";
-import { SavedSetups, SetupEditor } from "../app/src/screens/settings/DispatcherSetup";
+import { SetupEditor } from "../app/src/screens/settings/DispatcherSetup";
+import { SavedSetups } from "../app/src/screens/settings/Dispatcher";
 import { TaskContext } from "../app/src/screens/task-shared";
 import { initialState } from "../app/src/data/store";
 

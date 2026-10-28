@@ -21,31 +21,6 @@ import { ErrorMessage, useTaskContext } from "../task-shared";
 import { DispatcherLadderFields, DispatcherReadError, ListField, type DispatcherConfigView } from "./Dispatcher";
 import { Feedback, ResourceState, Section, useOperation, useResource } from "./shared";
 
-/** Saved setups are named strategy profiles; each is marked with a deterministic identicon. */
-export function SavedSetups({ initialData, onActivated }: { initialData?: StrategyRow[]; onActivated?: () => void }) {
-  const query = useResource("strategy.list", {}, initialData), action = useOperation(query.reload);
-  const [building, setBuilding] = useState(false), [brief, setBrief] = useState("");
-  return <Section id="saved-profiles" title="Saved setups" detail="Each setup saves global planner, pacing, eligibility and dispatcher settings. Switch anytime."
-    actions={<Button onClick={() => setBuilding(value => !value)} aria-expanded={building}>New from a brief</Button>}>
-    <ResourceState resource={query} empty="No saved setups yet.">
-      {query.data?.map(strategy => <div className="u3-setting" key={strategy.name}>
-        <div><span className="u3-actions"><Identicon seed={strategy.name} /><strong>{strategy.name}</strong></span></div>
-        <div className="u3-row">
-          <span>{strategy.summary}</span>
-          {strategy.active ? <Pill tone="good">Active</Pill>
-            : <Button aria-label={`Use ${strategy.name}`} disabled={action.busy} onClick={() => void action.run("strategy.use", { name: strategy.name }, onActivated)}>Use</Button>}
-        </div>
-      </div>)}
-    </ResourceState>
-    {building && <form className="pc-card" onSubmit={event => { event.preventDefault(); void action.run("strategy.build", { brief }); }}>
-      <Field label="What should this setup do?"><TextArea value={brief} maxLength={2000} required onInput={event => setBrief(event.currentTarget.value)} /></Field>
-      <div><Button type="submit" disabled={action.busy}>Build setup</Button></div>
-      <p className="u3-muted">Opens a planning session or returns a command to run.</p>
-    </form>}
-    <Feedback action={action} />
-  </Section>;
-}
-
 export type EligibilitySource =
   | { kind: "global"; rules: Rule[]; available: string[] }
   | { kind: "project"; repo: string; repoLabel: string; view: ProjectStrategyView };
