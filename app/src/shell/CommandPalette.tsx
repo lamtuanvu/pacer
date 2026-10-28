@@ -22,7 +22,7 @@ export function rememberRecent(id: string, before = loadRecent()): string[] {
 
 /** The ⌘K command menu over the app's snapshot and the one command registry. Mount it to open it. */
 export function CommandPalette({ snapshot, registry = commandRegistry, now: fixedNow, returnFocus, close }: { snapshot: ClientSnapshot | null; registry?: CommandRegistry; now?: number; returnFocus?: () => HTMLElement | null; close: () => void }) {
-  // The leading ">" (or "?") is the chip, not text: the input shows only what follows it, and Backspace on an empty input removes the chip.
+  // The leading ">" is the chip, not text ("?" ask stays in the text while it is gated off): the input shows only what follows it, and Backspace on an empty input removes the chip.
   const [text, setText] = useState(""), [commandMode, setCommandMode] = useState(false);
   const query = commandMode ? `>${text}` : text;
   const edit = (next: string) => {

@@ -8,7 +8,7 @@ const press = (key: string, mods: { ctrlKey?: boolean; metaKey?: boolean; altKey
 };
 function setup(control = false) {
   const state = { control }, ran: string[] = [];
-  const keys = createKeyRegistry({ controlActive: () => state.control });
+  const keys = createKeyRegistry({ controlActive: () => state.control, mac: false });
   return { keys, commands: createCommandRegistry(keys), ran, state };
 }
 

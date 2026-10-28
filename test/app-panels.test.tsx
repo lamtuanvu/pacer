@@ -88,7 +88,7 @@ test("ctrl_backtick_toggles_dock", () => {
 
 test("ctrl_b_toggles_left_panel", () => {
   let control = false, lefts = 0;
-  const registry = createKeyRegistry({ controlActive: () => control });
+  const registry = createKeyRegistry({ controlActive: () => control, mac: false });
   register(registry, panelCommands(() => lefts++));
   // Ctrl combinations work in text fields.
   expect(registry.handle(press("b", { target: { tagName: "INPUT", type: "text" } }))).toBe(true);
@@ -100,14 +100,37 @@ test("ctrl_b_toggles_left_panel", () => {
   expect(panelCommands()).toEqual([]);
 });
 
+test("cmd_b_toggles_left_panel_on_macos_and_leaves_ctrl_b_to_the_shell", () => {
+  let control = false, lefts = 0;
+  const registry = createKeyRegistry({ controlActive: () => control, mac: true });
+  register(registry, panelCommands(() => lefts++));
+  expect(registry.handle(press("b", { metaKey: true, ctrlKey: false }))).toBe(true);
+  expect(registry.handle(press("b", { metaKey: true, ctrlKey: false, target: { tagName: "INPUT", type: "text" } }))).toBe(true);
+  expect(lefts).toBe(2);
+  // Ctrl-b is not bound on macOS, with or without a shell in control, so the shell gets it.
+  expect(registry.handle(press("b"))).toBe(false);
+  control = true;
+  expect(registry.handle(press("b"))).toBe(false);
+  expect(registry.handle(press("b", { metaKey: true, ctrlKey: false }))).toBe(false);
+  expect(lefts).toBe(2);
+  // Elsewhere Cmd-b is not a binding.
+  const other = createKeyRegistry({ controlActive: () => false, mac: false });
+  register(other, panelCommands(() => lefts++));
+  expect(other.handle(press("b", { metaKey: true, ctrlKey: false }))).toBe(false);
+  expect(lefts).toBe(2);
+});
+
 test("shortcuts_listed_in_command_help", () => {
   const registry = createKeyRegistry({ controlActive: () => false });
   register(registry, panelCommands(() => {}, () => {}));
-  const html = renderToString(<CommandHelp registry={registry} close={() => {}} />);
-  expect(html).toMatch(/<kbd[^>]*>Ctrl-`<\/kbd><\/dt><dd>Terminal panel<\/dd>/);
-  expect(html).toMatch(/<kbd[^>]*>Ctrl-b<\/kbd><\/dt><dd>Side panel<\/dd>/);
+  const words = renderToString(<CommandHelp registry={registry} close={() => {}} mac={false} />);
+  expect(words).toMatch(/<kbd[^>]*>Ctrl `<\/kbd><\/dt><dd>Terminal panel<\/dd>/);
+  expect(words).toMatch(/<kbd[^>]*>Ctrl B<\/kbd><\/dt><dd>Side panel<\/dd>/);
+  const symbols = renderToString(<CommandHelp registry={registry} close={() => {}} mac />);
+  expect(symbols).toMatch(/<kbd[^>]*>⌃ `<\/kbd><\/dt><dd>Terminal panel<\/dd>/);
+  expect(symbols).toMatch(/<kbd[^>]*>⌘ B<\/kbd><\/dt><dd>Side panel<\/dd>/);
   expect(registry.list().find(shortcut => shortcut.keys === "Ctrl-`")?.allowInControl).toBe(true);
-  expect(registry.list().find(shortcut => shortcut.keys === "Ctrl-b")?.allowInControl).toBeUndefined();
+  expect(registry.list().find(shortcut => shortcut.keys === "Mod-b")?.allowInControl).toBeUndefined();
 });
 
 test("a docked terminal holds keyboard control only while focus is inside the dock", () => {

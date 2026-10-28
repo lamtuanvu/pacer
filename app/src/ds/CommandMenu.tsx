@@ -88,7 +88,7 @@ export function CommandMenu({ label, placeholder, query, onQueryChange, prefix, 
     // Enter that confirms an IME candidate (Telex, Pinyin) belongs to the composition, not to the menu.
     if (event.isComposing || event.keyCode === 229) return;
     if (key === "ArrowDown" || key === "ArrowUp") setActive(options.length ? (activeRef.current + (key === "ArrowDown" ? 1 : -1) + options.length) % options.length : 0);
-    else if (key === "Backspace" && query === "" && onBackspaceEmpty) onBackspaceEmpty();
+    else if (key === "Backspace" && query === "" && onBackspaceEmpty) { if (event.repeat) return; onBackspaceEmpty(); }
     // Select all works in the input even where the host (a webview without an Edit menu) does not provide it.
     else if (key.toLowerCase() === "a" && (isMac ? event.metaKey : event.ctrlKey) && !event.altKey && !event.shiftKey) input.current?.select();
     else if (key === "Home") setActive(0);
@@ -111,8 +111,8 @@ export function CommandMenu({ label, placeholder, query, onQueryChange, prefix, 
     onClick={event => { if (event.target === event.currentTarget) onClose(); }}>
     <div className="pc-command__search">
       <span className="pc-command__icon" aria-hidden="true"><Icon name="search" /></span>
-      {prefix && <span className="pc-command__prefix">{prefix}</span>}
-      <input ref={input} className="pc-command__input" type="text" role="combobox" aria-expanded="true" aria-autocomplete="list" aria-controls={`${uid}-list`}
+      {prefix && <span className="pc-command__prefix" id={`${uid}-mode`}>{prefix}</span>}
+      <input ref={input} className="pc-command__input" type="text" role="combobox" aria-expanded="true" aria-autocomplete="list" aria-controls={`${uid}-list`} aria-describedby={prefix ? `${uid}-mode` : undefined}
         aria-activedescendant={options.length ? optionId(active) : undefined} aria-label={label} placeholder={placeholder} autocomplete="off" spellcheck={false}
         value={query} onInput={event => onQueryChange(event.currentTarget.value)} onKeyDown={onKeyDown} />
       <Kbd size="sm">Esc</Kbd>

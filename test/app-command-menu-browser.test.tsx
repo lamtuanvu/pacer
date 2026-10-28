@@ -105,9 +105,9 @@ browserTest("greater_than_switches_to_commands_and_runs_one", () => withPage(asy
   expect(options).toContain("Toggle left panel");
   expect(options).not.toContain("Add SSH keepalive to remote runs");
   // The shortcut shows as key caps next to the command.
-  // macOS draws the modifier as a symbol, other platforms as Ctrl.
+  // macOS draws the modifier as a symbol (⌘ B there), other platforms as Ctrl B.
   const mac = await page.evaluate(() => /Mac|iPhone|iPad/.test(navigator.platform));
-  await expect(page.locator('[role="option"]', { hasText: "Toggle left panel" }).locator(".pc-command__keys kbd").allTextContents()).resolves.toEqual([mac ? "⌃" : "Ctrl", "B"]);
+  await expect(page.locator('[role="option"]', { hasText: "Toggle left panel" }).locator(".pc-command__keys kbd").allTextContents()).resolves.toEqual([mac ? "⌘" : "Ctrl", "B"]);
   await page.keyboard.press("Enter");
   await page.getByRole("button", { name: "Show Settings" }).waitFor();
   // Back to a bare query: recents with the Go to commands.
