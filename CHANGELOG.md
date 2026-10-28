@@ -6,6 +6,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
+- Add a New task composer at `#/tasks/new`, opened with ⌘N (Ctrl+N elsewhere). Write the request, attach files or mention paths, pick the repository, where it runs, the kind and acceptance checks, optionally send it to a specific agent, and delegate with ⌘↵. A "Will go to" card previews the route with the read-only `dispatch.explain` op and says so when the connected service doesn't offer it yet. Below 560px the composer is a full-screen sheet whose rows open their own choice sheets. The draft is kept until the task starts.
 - Record token usage for each attempt with a `measured`, `partial` or `unknown` coverage label. Codex gets its final `tokens used` total as a partial, self-reported figure and Claude Code gets measured usage from its `stream-json` result. The service indexes existing history in the new `attempt_usage` table without touching task files. See [Token accounting](docs/dispatch.md#token-accounting).
 - Roll token usage up through work trees (`totals.tokens`, with coverage counts, a lower-bound flag and a split per agent) and show it in task detail. `Attempt.tokens` is added to task and work-tree results; the change is additive.
 - Add collapsible side panels (the Settings navigation collapses with its panel button or Ctrl-b), a terminal dock below the work area (Ctrl-` or the status-bar Terminal button), and a `PanelTabs` design-system tablist with a "+N" overflow menu.
