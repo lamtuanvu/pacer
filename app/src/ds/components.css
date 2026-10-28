@@ -697,3 +697,5 @@ a.pc-btn{text-decoration:none}
 .pc-choice-picker--content .pc-choice-picker__popover{width:max-content;min-width:100%}
 .pc-setting-row__h3{margin:0;font:inherit}
 @media(max-width:560px){.pc-choice-picker--content .pc-choice-picker__trigger{min-height:var(--control-touch)}}
+
+.pc-settings-nav__plugin{font-size:var(--type-count-badge-size);font-weight:var(--type-label-weight);padding:0 var(--space-1\.5);border:1px solid var(--line);border-radius:var(--radius-full);color:var(--ink-muted)}

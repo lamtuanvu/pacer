@@ -38,7 +38,7 @@ test.skipIf(!browserPath)('Plugins loads empty state and hides an unavailable op
     await mount(page, { plugins: [] });
     expect(await page.getByText('No plugins installed.', { exact: true }).count()).toBe(1);
     expect(await page.locator('.pc-settings-plugin').count()).toBe(0);
-    expect(await page.getByText('Manage in Plugins').count()).toBe(0);
+    expect(await page.getByRole('link', {name:'Manage in Plugins'}).getAttribute('href')).toBe('#/settings/plugins');
     await mount(page, { plugins: [], failList: true });
     expect(await page.locator('section').count()).toBe(0);
   } finally { await browser.close(); }

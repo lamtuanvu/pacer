@@ -352,3 +352,7 @@ The rows form a labelled Plugins list. During changes and reloads, switches use
 keyboard focus; consumers must ignore input while unavailable. Permanently
 refused plugins retain native disabled semantics and describe their error.
 Reload errors leave the last loaded list and inline operation feedback visible.
+
+### ActionMenu
+
+`ActionMenu({ label, items: [{ label, onSelect }] })` is the compact overflow menu used by Plugins cards. It owns its trigger, menu semantics, arrow/Home/End navigation, Escape/outside dismissal and return focus. Enter/Space use native buttons; Tab closes the menu and continues through the page. Styles load with its lazy consumer through an adopted stylesheet. It is authored in-repo, with no upstream dependency. SettingsNav items may set `plugin: true` to show a text marker, included in their accessible name as “, plugin”.

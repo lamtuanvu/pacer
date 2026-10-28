@@ -34,6 +34,7 @@ export const routes = {
   terminal: (id?: string | TargetQuery, query?: TargetQuery) => typeof id === "string"
     ? withTargetQuery({ name: "terminal", id } as const, query)
     : withTargetQuery({ name: "terminal" } as const, id),
+  pluginSettings: (plugin: string, query?: TargetQuery) => withTargetQuery({ name: "settings", section: `plugins/${plugin}` } as const, query),
   settings: (section?: string, query?: TargetQuery) => withTargetQuery({ name: "settings", ...(section ? { section } : {}) } as const, query),
   hosts: (query?: TargetQuery) => withTargetQuery({ name: "hosts" } as const, query),
   host: (alias: string, query?: TargetQuery) => withTargetQuery({ name: "hosts", alias } as const, query),
@@ -53,7 +54,7 @@ export function hrefFor(target: RouteTarget, current: RouteQuery = EMPTY_QUERY):
     case "review": href = "#/needs-you"; break;
     case "sessions": href = target.id ? `#/tasks/${encodeURIComponent(target.id)}` : "#/tasks"; break;
     case "terminal": href = target.id ? `#/terminal/${encodeURIComponent(target.id)}` : "#/terminal"; break;
-    case "settings": href = target.section ? `#/settings/${encodeURIComponent(target.section)}` : "#/settings"; break;
+    case "settings": href = target.section?.startsWith("plugins/") ? `#/settings/plugins/${encodeURIComponent(target.section.slice(8))}` : target.section ? `#/settings/${encodeURIComponent(target.section)}` : "#/settings"; break;
     case "hosts": href = target.alias ? `#/settings/hosts/${encodeURIComponent(target.alias)}` : "#/settings/hosts"; break;
     case "add-executor": href = "#/settings/add-executor"; break;
     case "setup": href = "#/setup"; break;
@@ -68,7 +69,7 @@ export function hrefFor(target: RouteTarget, current: RouteQuery = EMPTY_QUERY):
 export function parentFor(route: Route): RouteTarget | null {
   if (route.name === "sessions" && route.id) return routes.tasks(route.query);
   if (route.name === "terminal" && route.id) return routes.terminal(route.query);
-  if (route.name === "settings" && route.section) return routes.settings(undefined, route.query);
+  if (route.name === "settings" && route.section) return routes.settings(route.section.startsWith("plugins/") ? "plugins" : undefined, route.query);
   if (route.name === "hosts") return route.alias ? routes.hosts(route.query) : routes.settings(undefined, route.query);
   if (route.name === "add-executor") return routes.settings(undefined, route.query);
   return null;
@@ -78,7 +79,7 @@ export function titleFor(route: Route): string {
   if (route.name === "sessions" && route.id) return "Task";
   if (route.name === "terminal") return "Terminal";
   if (route.name === "hosts" && route.alias) return "Host";
-  if (route.name === "settings") return settingsPageTitle(route.section);
+  if (route.name === "settings") return route.section?.startsWith("plugins/") ? "Plugin settings" : settingsPageTitle(route.section);
   return route.name === "overview" ? "Overview" : route.name === "review" ? "Needs you" : route.name === "sessions" ? "Tasks" : route.name === "hosts" ? "Remote hosts" : route.name === "add-executor" ? "Add executor" : route.name === "setup" ? "Set up pacer" : "pacer";
 }
 export function primaryFor(route: Route): PrimaryRoute {
@@ -145,6 +146,8 @@ function match(path: string): RouteBase {
     const id = decode(parts[2]);
     return id === null ? { name: "overview" } : { name: parts[1] === "tasks" ? "sessions" : parts[1] as "review" | "sessions", id };
   }
+  const settingsPlugin = /^\/settings\/plugins\/([^/]+)$/.exec(path);
+  if (settingsPlugin) { const id = decode(settingsPlugin[1]!); return id ? { name: "settings", section: `plugins/${id}` } : { name: "overview" }; }
   const host = /^\/settings\/hosts\/([^/]+)$/.exec(path);
   if (host) { const alias = decode(host[1]!); return alias === null ? { name: "overview" } : { name: "hosts", alias }; }
   const section = /^\/settings\/([^/]+)$/.exec(path)?.[1];
