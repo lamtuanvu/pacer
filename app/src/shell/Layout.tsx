@@ -29,7 +29,7 @@ import { FrameContext, type FrameHeading } from "./slots";
 import { DOCK_ID, TerminalDock } from "./TerminalDock";
 
 const SETTINGS = new Set(["settings", "hosts", "add-executor"]);
-const NEEDS_READ_MODEL = new Set(["start", "overview", "review"]);
+const NEEDS_READ_MODEL = new Set(["dispatch", "review"]);
 function Skeleton() {
   const [slow, setSlow] = useState(false);
   useEffect(() => { const t = setTimeout(() => setSlow(true), 1000); return () => clearTimeout(t); }, []);
@@ -131,7 +131,7 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
   const counts = state.snapshot ? snapshotCounts(state.snapshot) : null;
   const loading = route.name === "loading" || !state.snapshot;
   const outdated = !loading && NEEDS_READ_MODEL.has(route.name) && !state.features.readModel;
-  const topBar = <TopBar narrow={narrow} title={title} planner={state.snapshot?.planner ?? null} mode={state.snapshot?.mode?.mode ?? ""} connected={state.connected} lastUpdate={state.snapshot?.at ?? null} onDelegate={onDelegate} search={searchable ? <CommandTrigger onOpen={togglePalette} /> : undefined} narrowSearch={searchable ? <CommandTrigger narrow onOpen={togglePalette} /> : undefined} brand={<AppLink className="pc-topbar__home" to={routes.overview()} query={route.query} aria-label="pacer home"><Mark size={18} wordmark={false} /></AppLink>} panels={{ ...(hasLeft ? { left: { open: leftOpen, toggle: () => setLeftOpen(!leftOpen) } } : taskPanels ? { left: { open: tasksOpen, toggle: () => setTasksOpen(!tasksOpen) } } : {}),
+  const topBar = <TopBar narrow={narrow} title={title} planner={state.snapshot?.planner ?? null} mode={state.snapshot?.mode?.mode ?? ""} connected={state.connected} lastUpdate={state.snapshot?.at ?? null} onDelegate={onDelegate} delegate={route.name !== "dispatch"} pageTitle={route.name !== "dispatch" && route.name !== "review"} plannerFigure={route.name !== "dispatch"} search={searchable ? <CommandTrigger onOpen={togglePalette} /> : undefined} narrowSearch={searchable ? <CommandTrigger narrow onOpen={togglePalette} /> : undefined} brand={<AppLink className="pc-topbar__home" to={routes.dispatch()} query={route.query} aria-label="pacer home"><Mark size={18} wordmark={false} /></AppLink>} panels={{ ...(hasLeft ? { left: { open: leftOpen, toggle: () => setLeftOpen(!leftOpen) } } : taskPanels ? { left: { open: tasksOpen, toggle: () => setTasksOpen(!tasksOpen) } } : {}),
       ...(dockAvailable ? { dock: { open: dockOpen, toggle: toggleDock } } : {}), ...(taskPanels ? { right: { open: detailsOpen, toggle: () => setDetailsOpen(!detailsOpen), label: "details panel", keys: "Control+Shift+B" } } : {}) }}
     heading={heading} context={setTitleSlot} actions={setActionSlot} showActions={route.name !== "setup"} />;
   const settings = SETTINGS.has(route.name) && (hasLeft
@@ -145,7 +145,7 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
     left={settings || tasks}
     right={details}
     live={!state.connected && state.snapshot && <div className="connection-bar">pacer isn't responding. Retrying…</div>}
-    mainClass={`pc-main${!loading && !outdated && ["start","overview","review","settings","hosts","add-executor","sessions","terminal","setup"].includes(route.name)?" pc-main--canvas":""}`}
+    mainClass={`pc-main${!loading && !outdated && ["dispatch","review","settings","hosts","add-executor","sessions","terminal","setup"].includes(route.name)?" pc-main--canvas":""}`}
     main={loading ? <Skeleton /> : outdated ? <section className="pc-notice"><SectionHeading>Update pacer to use this view</SectionHeading><p>This screen needs a newer pacer service. Run <code>pacer update</code>, then reload this page.</p></section> : <DensityContext.Provider value={SETTINGS.has(route.name) ? "settings" : "compact"}>{children}</DensityContext.Provider>}
     dock={dockAvailable && dockOpen && <TerminalDock query={route.query} close={toggleDock} />}
     status={showStatusBar && <StatusBar route={route} snapshot={state.snapshot} registry={keys} terminal={dockAvailable ? { open: dockOpen, toggle: toggleDock } : undefined} />}

@@ -1,4 +1,4 @@
-export type IconName = "chevron-left" | "settings-home" | "settings-agents" | "settings-routing" | "settings-budget" | "settings-machines" | "settings-app" | "settings-diagnostics" | "home" | "tasks" | "executors" | "accounts" | "strategy" | "hosts" | "settings" | "menu" | "overview" | "review" | "sessions" | "terminal" | "sliders" | "gauge" | "servers" | "routing" | "layers" | "download" | "bell" | "palette" | "diagnostics" | "plus" | "pr" | "commit" | "files" | "checks" | "time" | "retry" | "notes" | "branch" | "panel-left" | "panel-bottom" | "panel-right" | "split" | "external" | "end-session" | "insights" | "dispatch" | "plugin" | "search";
+export type IconName = "chevron-left" | "settings-home" | "settings-agents" | "settings-routing" | "settings-budget" | "settings-machines" | "settings-app" | "settings-diagnostics" | "home" | "tasks" | "executors" | "accounts" | "strategy" | "hosts" | "settings" | "menu" | "overview" | "review" | "sessions" | "terminal" | "sliders" | "gauge" | "servers" | "routing" | "layers" | "download" | "bell" | "palette" | "diagnostics" | "plus" | "pr" | "commit" | "files" | "checks" | "time" | "retry" | "notes" | "branch" | "panel-left" | "panel-bottom" | "panel-right" | "split" | "external" | "end-session" | "insights" | "dispatch" | "plugin" | "search" | "stack" | "bolt" | "fork" | "check-circle" | "chevron-right";
 export function Icon({ name }: { name: IconName }) {
   const paths: Partial<Record<IconName, string>> = {
     "chevron-left": "M15 6l-6 6 6 6",
@@ -26,6 +26,11 @@ export function Icon({ name }: { name: IconName }) {
     "end-session": "M9 4H3v16h6m6-13 5 5-5 5M8 12h12",
     "insights": "M4 3v18h17M8 16v-5m5 5V6m5 10V9",
     "dispatch": "m3 3 18 9-18 9 4-9zM7 12h14",
+    "stack": "M12 3l9 5-9 5-9-5 9-5zM3 13l9 5 9-5",
+    "bolt": "M13 2 4 14h7l-1 8 9-12h-7l1-8z",
+    "fork": "M4 12h6m0 0 6-6h4m-10 6 6 6h4m-10-6h10",
+    "check-circle": "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18M8 12l3 3 5-6",
+    "chevron-right": "m9 6 6 6-6 6",
     "search": "M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14m9 16-4.5-4.5",
     "plugin": "M9 4H4v5a3 3 0 1 1 0 6v5h5a3 3 0 1 0 6 0h5v-5a3 3 0 1 0 0-6V4h-5a3 3 0 1 0-6 0z",
     sliders: "M4 6h6m4 0h6M4 12h10m4 0h2M4 18h2m4 0h10M10 3v6m4 0v6M6 15v6",

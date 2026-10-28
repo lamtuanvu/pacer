@@ -117,8 +117,8 @@ All registry operations have discoverable input schemas; inspect before calling.
 
 | User capability | Desktop/TUI source | Agent interface | Prerequisite and result observation |
 | --- | --- | --- | --- |
-| Overview, budgets, pace, counts, attention, activity | app Overview/tray; TUI Home | `snapshot.get`, `routing.status`, `activity.list` | Snapshot sequence; same public state |
-| Search/filter/paginate repositories and sessions | app Overview/Sessions/Review; TUI screens | `repo.list`, `task.list` | Structured fields and cursor; filter returned rows for client-only searches |
+| Overview, budgets, pace, counts, attention, activity | app Dispatch/tray; TUI Home | `snapshot.get`, `routing.status`, `activity.list` | Snapshot sequence; same public state |
+| Search/filter/paginate repositories and sessions | app Dispatch/Sessions/Review; TUI screens | `repo.list`, `task.list` | Structured fields and cursor; filter returned rows for client-only searches |
 | Task details, brief, outcomes and changes | app TaskResult; TUI detail | `task.get`, `task.diff`, `task.log` | Task ID; same public detail/patch/byte offsets |
 | Snooze/dismiss attention | app/tray/TUI attention | `attention.snooze`, `attention.dismiss` | Current attention ID; new snapshot |
 | Delegate and observe | app Delegate; TUI new work | `task.delegate`; `delegate`, `watch`, `wait` | Budget/role; task state, output, acceptance |
