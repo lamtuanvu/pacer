@@ -14,7 +14,7 @@ import { defaultHooks } from "../classify/hooks";
 import { runGuard } from "../guard/guard";
 import { renderHook } from "../render/hook";
 import { loadStrategy, MissingStrategyError } from "../config/strategy";
-import { readScheduleState, BACKOFF_MAX_S } from "../dispatch/certification-schedule";
+import { readScheduleState, attemptHold, plannerScheduleKey } from "../dispatch/certification-schedule";
 
 /** A different planner does not require Claude hooks unless a Claude integration remains installed. */
 export function claudeHooksApplicable(ctx: Ctx, strategy?: Strategy): boolean {
@@ -127,7 +127,7 @@ export async function probeClaudeHandlers(): Promise<Check> {
 
 /** Enforcement probe schedule doctor check. Reports mode, consent, last probe, expiry, next eligible time and measured cost.
  * level: "info" when scheduling is healthy OR deliberately off;
- * level: "warn" only when consent was declined or backoff has reached BACKOFF_MAX_S.
+ * level: "warn" only when consent was declined or a maximum-length pause is in effect.
  */
 export function enforcementProbeScheduleCheck(ctx: Ctx): Check {
   let strategy: Strategy;
@@ -149,9 +149,11 @@ export function enforcementProbeScheduleCheck(ctx: Ctx): Check {
   }
 
   const consent = state.consent[strategy.planner.account];
-  /** A wait already at the cap cannot grow, so probing has stopped rather than slowed. */
-  const atMaxBackoff = Object.values(state.attempts)
-    .some(attempt => attempt.nextEligibleAt - ctx.now >= BACKOFF_MAX_S);
+  // Only the planner's own attempt: another repository's runner keeps its own
+  // record, and its figures would be misreported as this schedule's.
+  const key = plannerScheduleKey(strategy);
+  const attempt = key ? state.attempts[key] : undefined;
+  const hold = attempt ? attemptHold(attempt, ctx.now) : null;
 
   // Build detail message
   const details: string[] = [];
@@ -165,11 +167,7 @@ export function enforcementProbeScheduleCheck(ctx: Ctx): Check {
     details.push("consent: not yet asked");
   }
 
-  // Check if any attempts exist
-  const attemptKeys = Object.keys(state.attempts);
-  if (attemptKeys.length > 0) {
-    // Get the first attempt (typically there's only one for the planner)
-    const attempt = state.attempts[attemptKeys[0]]!;
+  if (attempt) {
     if (attempt.nextEligibleAt > 0) {
       details.push(`next eligible: in ${Math.max(0, Math.round((attempt.nextEligibleAt - ctx.now) / 60))} minutes`);
     }
@@ -184,13 +182,16 @@ export function enforcementProbeScheduleCheck(ctx: Ctx): Check {
     }
   }
 
-  // Determine level: warn only when declined or at max backoff
+  // A pause is a considered stop, but a person has to know probing stopped
+  // and why; a short backoff or the daily ceiling clears on its own.
   let level: "info" | "warn" = "info";
   if (consent === "declined") {
     level = "warn";
-  } else if (atMaxBackoff) {
+  } else if (hold?.paused) {
     level = "warn";
-    details.push("(note: backoff has reached maximum; probes are effectively paused)");
+    details.push(`probing paused: ${hold.reason}`);
+  } else if (hold) {
+    details.push(`not probing now: ${hold.reason}`);
   }
 
   return {

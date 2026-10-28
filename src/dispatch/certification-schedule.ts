@@ -121,6 +121,31 @@ function dayWindow(record: AttemptRecord, now: number): { dayStartedAt: number; 
     : { dayStartedAt: record.dayStartedAt, probesToday: record.probesToday };
 }
 
+const HEADROOM_UNKNOWN = "planner headroom is unknown";
+
+/**
+ * The decline an attempt record alone imposes: a backoff or pause, or the daily
+ * ceiling. `paused` marks a wait that has stopped probing for the maximum
+ * period, for spending, for repository switching or for repeated failures,
+ * rather than a short backoff that will clear on its own soon.
+ */
+export function attemptHold(record: AttemptRecord | undefined, now: number): { reason: string; paused: boolean } | null {
+  const attempt = record ?? empty;
+  if (now < attempt.nextEligibleAt) {
+    if (attempt.repoSwitches >= MAX_REPO_SWITCHES) {
+      return { reason: "the certificate keeps being invalidated by switching repositories", paused: true };
+    }
+    if (attempt.lastCostPct !== null && attempt.lastCostPct > MAX_COST_PCT) {
+      return { reason: `the last probe cost ${attempt.lastCostPct}% of the account window`, paused: true };
+    }
+    return { reason: "waiting out the backoff from an earlier failed probe",
+      paused: attempt.failures > 0 && BACKOFF_BASE_S * 2 ** (attempt.failures - 1) >= BACKOFF_MAX_S };
+  }
+  const { probesToday } = dayWindow(attempt, now);
+  if (probesToday >= MAX_PROBES_PER_DAY) return { reason: `already probed ${probesToday} times today`, paused: false };
+  return null;
+}
+
 /**
  * Mostly a list of reasons not to probe: a probe spends the quota of the very
  * account it certifies, so every decline carries its own reason for display.
@@ -140,23 +165,43 @@ export function decideProbe(inputs: ProbeInputs, state: ScheduleState, now: numb
     return no(`certification probing needs your consent for ${inputs.account}`, true);
   }
 
-  const record = state.attempts[inputs.key] ?? empty;
-  if (now < record.nextEligibleAt) {
-    if (record.repoSwitches >= MAX_REPO_SWITCHES) {
-      return no("the certificate keeps being invalidated by switching repositories");
-    }
-    if (record.lastCostPct !== null && record.lastCostPct > MAX_COST_PCT) {
-      return no(`the last probe cost ${record.lastCostPct}% of the account window`);
-    }
-    return no("waiting out the backoff from an earlier failed probe");
-  }
-  const { probesToday } = dayWindow(record, now);
-  if (probesToday >= MAX_PROBES_PER_DAY) return no(`already probed ${probesToday} times today`);
-  if (inputs.headroomPct === null) return no("planner headroom is unknown");
+  const hold = attemptHold(state.attempts[inputs.key], now);
+  if (hold) return no(hold.reason);
+  if (inputs.headroomPct === null) return no(HEADROOM_UNKNOWN);
   if (inputs.headroomPct <= inputs.reserveHeadroomPct) {
     return no(`planner reserve: ${inputs.headroomPct}% headroom is at or below the ${inputs.reserveHeadroomPct}% reserve`);
   }
   return { probe: true };
+}
+
+/**
+ * Why the schedule is not probing `runnerId` right now, for display. Derived
+ * from the strategy, the stored state and the certificate alone, because it
+ * renders a settings page and a status read is not cheap. The one gate it
+ * cannot evaluate is live planner headroom: when that is all that remains it
+ * says so instead of guessing. `key` is the runner's enforcement key.
+ */
+export function scheduleReason(
+  s: Strategy, runnerId: string, key: string, certificate: CertificateStatus,
+  unsupportedReason: string | null, state: ScheduleState, now: number,
+): string | null {
+  // tick only ever probes the planner's own runner.
+  const planner = findPlannerRunner(s);
+  if (!planner || planner.id !== runnerId) return "scheduled probing covers only the planner's own executor";
+  const decision = decideProbe({
+    key, account: planner.account, runner: runnerId, repo: "", certificate, unsupportedReason,
+    headroomPct: null, reserveHeadroomPct: s.pacing.plannerReserveHeadroom, mode: s.pacing.plannerProbe,
+    plannerExecutes: true, listedForRouting: isListedForRouting(s, runnerId),
+  }, state, now);
+  if (decision.probe) return null;
+  return decision.reason === HEADROOM_UNKNOWN ? "waiting for a planner headroom reading" : decision.reason;
+}
+
+/** The planner runner's enforcement key, derived from the strategy as resolveEnforcementTarget would. */
+export function plannerScheduleKey(s: Strategy): string | null {
+  const planner = findPlannerRunner(s);
+  if (!planner) return null;
+  return JSON.stringify([planner.id, planner.account, s.providers[planner.id]?.session ?? "headless"]);
 }
 
 export function recordProbeOutcome(

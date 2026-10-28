@@ -15,7 +15,7 @@ import pkg from "../../package.json";
 import { pacerArgv } from "../install/self";
 import { shellCommand } from "../install/fsx";
 import { withLock } from "../core/lock";
-import { readScheduleState } from "./certification-schedule";
+import { readScheduleState, scheduleReason } from "./certification-schedule";
 
 export interface EnforcementTarget {runner:string;account:string;agent:string;version:string;binary:string;controlFiles:string[];launchMode:string;launchArgs:string[];guardArgv?:string[]}
 export type CertificateStatus = {state:"certified"|"uncertified"|"stale";reason?:string;probedAt?:number;expiresAt?:number};
@@ -159,6 +159,8 @@ export async function enforcementDiagnostics(ctx:Ctx,strategy:Strategy,repo:stri
         probesToday: attempt?.probesToday ?? 0,
         lastCostPct: attempt?.lastCostPct ?? null,
         consent: consentVal ?? "unasked" as const,
+        // Computed, not stored: a stored reason goes stale between ticks.
+        scheduleReason: scheduleReason(strategy,runner.id,key(target),cert,unsupported,state,ctx.now),
       });
     } catch(error) {
       rows.push({
@@ -177,6 +179,8 @@ export async function enforcementDiagnostics(ctx:Ctx,strategy:Strategy,repo:stri
         probesToday: 0,
         lastCostPct: null,
         consent: "unasked" as const,
+        // The target could not be resolved, so tick cannot probe it either.
+        scheduleReason: error instanceof Error?error.message:String(error),
       });
     }
   }

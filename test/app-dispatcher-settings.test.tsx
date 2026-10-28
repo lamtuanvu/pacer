@@ -297,3 +297,21 @@ test("renders consent controls only when the consent operation is available",()=
   expect(without).not.toContain("u3-setting-consent");
   expect(without).not.toContain("probes per day");
 });
+test("a paused schedule says why, as plain state, and probing turned off does not",()=>{
+  const now=Date.now()/1000;
+  const row={
+    runner:"claude-code",account:"claude1",agent:"claude-code",version:"2.1.281",
+    probeSupported:true,probeMode:"auto" as const,state:"stale" as const,reason:"Native subagent control verification expired",
+    lastProbedAt:now-90000,expiresAt:null,nextEligibleAt:now+80000,probesToday:1,lastCostPct:12,
+    consent:"granted" as const,unsupportedReason:null,
+    scheduleReason:"the last probe cost 12% of the account window",
+  };
+  const render=(runner:typeof row|(Omit<typeof row,"probeMode">&{probeMode:"off"}))=>renderToString(<DispatcherEnforcementRows reading={{repo:"/repo",scope:"native",runners:[runner]}} canProbe={false} probing={null} onProbe={()=>{}} onConsent={()=>{}}/>);
+  const paused=render(row);
+  expect(paused).toContain("not probing now: the last probe cost 12% of the account window");
+  // An explanation, not an alarm: it shares the muted schedule line.
+  expect(paused).toMatch(/<div class="u3-muted">[^<]*not probing now: the last probe cost/);
+  const off=render({...row,probeMode:"off",scheduleReason:"certification probing is turned off"});
+  expect(off).toContain("scheduled probing: off");
+  expect(off).not.toContain("not probing now");
+});

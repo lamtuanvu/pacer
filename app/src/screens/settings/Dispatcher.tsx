@@ -45,6 +45,8 @@ interface EnforcementRunner {
   lastProbedAt:number|null;expiresAt:number|null;
   nextEligibleAt:number;probesToday:number;lastCostPct:number|null;
   consent:"granted"|"declined"|"unasked";
+  /** Absent from a service older than this app. */
+  scheduleReason?:string|null;
 }
 interface EnforcementReading {repo:string;scope:string;runners:EnforcementRunner[]}
 const enforcementStateCopy={certified:"Verified",uncertified:"Needs verification",stale:"Verification expired"};
@@ -93,6 +95,9 @@ function CertificationSchedule({item}:{item:EnforcementRunner}){
   if(item.lastCostPct!==null)parts.push(`last probe cost: ${item.lastCostPct.toFixed(1)}% of account window`);
   const consentText=consentLabel(item.consent);
   if(consentText)parts.push(consentText);
+  // Why renewal is not happening. A pause is Pacer's own decision, so it reads
+  // as plain state; "off" and a current certificate already say it above.
+  if(item.scheduleReason&&item.probeMode!=="off"&&item.state!=="certified")parts.push(`not probing now: ${item.scheduleReason}`);
   if(!parts.length)return null;
   return <div className="u3-muted">{parts.join(" · ")}</div>;
 }
