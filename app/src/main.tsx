@@ -10,7 +10,7 @@ import { TaskContext } from "./screens/task-shared";
 import { createStore } from "./data/store";
 import { inheritQuery, resolveRoute, setupCompleteFrom, titleFor, type Route } from "./router";
 import { attachKeyRegistry } from "./keys/registry";
-import { keys } from "./keys/instance";
+import { commands, keys } from "./keys/instance";
 import { ActionContext } from "./data/action-context";
 import { createActionRunner, storeWaiter } from "./data/actions";
 import { useNarrow, activeRepo } from "./shell/narrow";
@@ -87,13 +87,13 @@ function App() {
     keys.setScope(route.name);
     const go = (to: string) => () => { location.hash = inheritQuery(to, location.hash); };
     const offs = [
-      keys.register({ keys: "g o", label: "Go to Overview", scope: "global", run: go("#/overview") }),
-      keys.register({ keys: "g r", label: "Go to Needs you", scope: "global", run: go("#/needs-you") }),
-      keys.register({ keys: "g s", label: "Go to Tasks", scope: "global", run: go("#/tasks") }),
-      keys.register({ keys: "g t", label: "Go to Terminal", scope: "global", run: go("#/terminal") }),
-      keys.register({ keys: ",", label: "Open Settings", scope: "global", run: go("#/settings") }),
-      keys.register({ keys: "?", label: "Show keyboard shortcuts", scope: "global", run: () => setHelp(true) }),
-      keys.register({ keys: "d", label: "Delegate a task", scope: "global", run: () => setDelegate(true) }),
+      commands.register({ id: "go.overview", title: "Go to Overview", group: "Go to", icon: "overview", keys: "g o", run: go("#/overview") }),
+      commands.register({ id: "go.needs-you", title: "Go to Needs you", group: "Go to", icon: "review", keys: "g r", run: go("#/needs-you") }),
+      commands.register({ id: "go.tasks", title: "Go to Tasks", group: "Go to", icon: "tasks", keys: "g s", run: go("#/tasks") }),
+      commands.register({ id: "go.terminal", title: "Go to Terminal", group: "Go to", icon: "terminal", keys: "g t", run: go("#/terminal") }),
+      commands.register({ id: "go.settings", title: "Open Settings", group: "Go to", icon: "settings", keys: ",", run: go("#/settings") }),
+      commands.register({ id: "help.shortcuts", title: "Show keyboard shortcuts", group: "Help", icon: "notes", keys: "?", run: () => setHelp(true) }),
+      commands.register({ id: "task.new", title: "New task", sub: "Describe it and pacer routes it", group: "Suggested", icon: "plus", keywords: "delegate start", keys: "d", shortcutLabel: "Delegate a task", run: () => setDelegate(true) }),
       // Escape closes the settings panel only on settings screens; elsewhere it stays with the page.
       ...[...SETTINGS].map(scope => keys.register({ keys: "Escape", label: "Close the settings panel", scope, run: () => { location.hash = lastWork.current; } })),
     ];

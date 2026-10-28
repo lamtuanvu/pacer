@@ -7,7 +7,7 @@ import { NavigationProvider } from "../../app/src/navigation";
 import { initialState } from "../../app/src/data/store";
 import { resolveRoute, type Route } from "../../app/src/router";
 import { attachKeyRegistry } from "../../app/src/keys/registry";
-import { keys } from "../../app/src/keys/instance";
+import { commands, keys } from "../../app/src/keys/instance";
 import { Field, TextInput } from "../../app/src/ds/Controls";
 import { Page, PageBody, Section } from "../../app/src/ds/Page";
 import { Button } from "../../app/src/ds/Button";
@@ -36,5 +36,8 @@ function App() {
     </Layout>
   </NavigationProvider></TaskContext.Provider>;
 }
+// The commands main.tsx registers for the real app, so the command menu has something to run.
+commands.register({ id: "go.tasks", title: "Go to Tasks", group: "Go to", icon: "tasks", keys: "g s", run: () => { location.hash = "#/tasks"; } });
+commands.register({ id: "task.new", title: "New task", sub: "Describe it and pacer routes it", group: "Suggested", icon: "plus", keys: "d", shortcutLabel: "Delegate a task", run: () => { (window as any).newTask = ((window as any).newTask ?? 0) + 1; } });
 attachKeyRegistry(keys, window);
 render(<App />, document.getElementById("app")!);

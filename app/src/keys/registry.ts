@@ -32,11 +32,14 @@ export function createKeyRegistry(opts: { controlActive: () => boolean; blocked?
     scope: (): string | null => scope,
     list: (): Shortcut[] => [...shortcuts],
     handle(e: KeyInput): boolean {
-      if (e.defaultPrevented || e.metaKey || e.altKey || opts.blocked?.()) return false;
-      const token = e.ctrlKey ? `Ctrl-${e.key}` : e.key;
+      if (e.defaultPrevented || e.altKey || opts.blocked?.()) return false;
+      // Mod-k is the one combination that also answers to Cmd, so ⌘K and Ctrl-K are one binding.
+      const modK = (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k";
+      if (e.metaKey && !modK) return false;
+      const token = modK ? "Mod-k" : e.ctrlKey ? `Ctrl-${e.key}` : e.key;
       if (e.ctrlKey && e.key === "Control") return false;
-      // Escape and Ctrl combinations stay available in text fields; plain keys do not.
-      if (!e.ctrlKey && token !== "Escape" && isTextTarget(e.target)) { pending = null; return false; }
+      // Escape, Mod-k and Ctrl combinations stay available in text fields; plain keys do not.
+      if (!e.ctrlKey && token !== "Escape" && token !== "Mod-k" && isTextTarget(e.target)) { pending = null; return false; }
       if (pending && now() - pending.at > timeout) pending = null;
       const candidates = active();
       for (const keys of pending ? [`${pending.keys} ${token}`, token] : [token]) {

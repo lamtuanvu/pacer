@@ -13,10 +13,10 @@ import { SettingsPanel, SettingsPanelData } from "./SettingsPanel";
 import { NarrowContext, PANEL_MEDIA, useMedia, useNarrow } from "./narrow";
 import { TopBar } from "./TopBar";
 import { StatusBar } from "./StatusBar";
-import { keys } from "../keys/instance";
+import { commands, keys } from "../keys/instance";
 import { SidePanel } from "../ds/SidePanel";
 import { AppFrame } from "./AppFrame";
-import { panelShortcuts, usePanelState } from "./panels";
+import { panelCommands, usePanelState } from "./panels";
 import { DOCK_ID, TerminalDock } from "./TerminalDock";
 
 const SETTINGS = new Set(["settings", "hosts", "add-executor"]);
@@ -34,6 +34,10 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
   const [leftOpen, setLeftOpen] = usePanelState("settings", true);
   const [dockOpen, setDockOpen] = usePanelState("dock", false);
   const opener = useRef<HTMLElement | null>(null);
+  const [palette, setPalette] = useState(false);
+  // The menu is its own chunk; it loads once the shell is up, so opening it is instant but it stays out of app.js.
+  const [Palette, setLoaded] = useState<typeof import("./CommandPalette").CommandPalette | null>(null);
+  useEffect(() => { void import("./CommandPalette").then(module => setLoaded(() => module.CommandPalette), () => {}); }, []);
   const showStatusBar = !narrow && route.name !== "setup";
   // Side panels and the dock show only from 768px, so their shortcuts never toggle something hidden.
   const wide = useMedia(PANEL_MEDIA, true);
@@ -47,9 +51,14 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
     setDockOpen(!dockOpen);
   };
   useEffect(() => {
-    const offs = panelShortcuts(hasLeft ? () => setLeftOpen(!leftOpen) : undefined, dockAvailable ? toggleDock : undefined).map(shortcut => keys.register(shortcut));
+    const offs = panelCommands(hasLeft ? () => setLeftOpen(!leftOpen) : undefined, dockAvailable ? toggleDock : undefined).map(command => commands.register(command));
     return () => offs.forEach(off => off());
   }, [hasLeft, leftOpen, dockAvailable, dockOpen]);
+  const searchable = route.name !== "setup" && route.name !== "loading";
+  useEffect(() => {
+    if (!searchable) return;
+    return commands.register({ id: "search.open", title: "Search", group: "Go to", keys: "Mod-k", hidden: true, run: () => setPalette(open => !open) });
+  }, [searchable]);
   const firstRun = useRef(true);
   useEffect(() => {
     if (firstRun.current) { firstRun.current = false; return; }
@@ -60,7 +69,7 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
   const counts = state.snapshot ? snapshotCounts(state.snapshot) : null;
   const loading = route.name === "loading" || !state.snapshot;
   const outdated = !loading && NEEDS_READ_MODEL.has(route.name) && !state.features.readModel;
-  const topBar = <TopBar narrow={narrow} title={title} planner={state.snapshot?.planner ?? null} mode={state.snapshot?.mode?.mode ?? ""} connected={state.connected} lastUpdate={state.snapshot?.at ?? null} onDelegate={onDelegate} delegatePrimary={!["review", "start", "sessions"].includes(route.name)} showActions={route.name !== "setup"} />;
+  const topBar = <TopBar narrow={narrow} title={title} planner={state.snapshot?.planner ?? null} mode={state.snapshot?.mode?.mode ?? ""} connected={state.connected} lastUpdate={state.snapshot?.at ?? null} onDelegate={onDelegate} onSearch={searchable ? () => setPalette(true) : undefined} delegatePrimary={!["review", "start", "sessions"].includes(route.name)} showActions={route.name !== "setup"} />;
   const settings = SETTINGS.has(route.name) && (hasLeft
     ? <SidePanel side="left" label="Settings" open={leftOpen} onToggle={setLeftOpen}><Panel route={route} counts={counts} snapshot={state.snapshot} embedded /></SidePanel>
     : <Panel route={route} counts={counts} snapshot={state.snapshot} />);
@@ -73,5 +82,5 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
     main={loading ? <Skeleton /> : outdated ? <section className="pc-notice"><SectionHeading>Update pacer to use this view</SectionHeading><p>This screen needs a newer pacer service. Run <code>pacer update</code>, then reload this page.</p></section> : <DensityContext.Provider value={SETTINGS.has(route.name) ? "settings" : "compact"}>{children}</DensityContext.Provider>}
     dock={dockAvailable && dockOpen && <TerminalDock query={route.query} close={toggleDock} />}
     status={showStatusBar && <StatusBar route={route} snapshot={state.snapshot} registry={keys} terminal={dockAvailable ? { open: dockOpen, toggle: toggleDock } : undefined} />}
-  /></NarrowContext.Provider>;
+  />{palette && Palette && <Palette snapshot={state.snapshot} close={() => setPalette(false)} />}</NarrowContext.Provider>;
 }

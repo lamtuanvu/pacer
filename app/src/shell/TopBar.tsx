@@ -6,16 +6,19 @@ import { modeWords, paceStatus } from "../../../src/view-model/words";
 import { AgentMark } from "../ds/AgentMark";
 import { DensityContext } from "../ds/Density";
 import { TitleBar } from "./TitleBar";
-import { Button } from "../ds/Button";
+import { Button, IconButton } from "../ds/Button";
+import { Icon } from "../ds/icons";
+import { Kbd } from "../ds/Kbd";
+import { keyCaps } from "../keys/commands";
 import { Pill } from "../ds/Pill";
 import { UsageMeter } from "../ds/UsageMeter";
 
 export interface TopBarProps {
   narrow?: boolean; title: string; planner: PlannerMeter | null; mode: string; connected: boolean; lastUpdate: number | null;
-  showActions?: boolean; now?: number; onDelegate: () => void; delegatePrimary?: boolean;
+  showActions?: boolean; now?: number; onDelegate: () => void; delegatePrimary?: boolean; onSearch?: () => void;
 }
 /** One compact page header, including native controls in the desktop shell. */
-export function TopBar({ narrow = false, title, planner, mode, connected, lastUpdate, now: fixedNow, onDelegate, delegatePrimary = true, showActions = true }: TopBarProps) {
+export function TopBar({ narrow = false, title, planner, mode, connected, lastUpdate, now: fixedNow, onDelegate, delegatePrimary = true, showActions = true, onSearch }: TopBarProps) {
   const [tick, setTick] = useState(() => Date.now() / 1000);
   useEffect(() => { if (fixedNow !== undefined) return; const t = setInterval(() => setTick(Date.now() / 1000), 1000); return () => clearInterval(t); }, [fixedNow]);
   const now = fixedNow ?? tick;
@@ -24,6 +27,13 @@ export function TopBar({ narrow = false, title, planner, mode, connected, lastUp
     {!narrow && <TitleBar />}
     {showActions && <h1 data-tauri-drag-region title={title}>{title}</h1>}
     <span className="grow" data-tauri-drag-region />
+    {showActions && onSearch && (narrow
+      ? <IconButton icon="search" aria-label="Search" aria-haspopup="dialog" onClick={onSearch} />
+      : <DensityContext.Provider value="compact"><Button variant="quiet" size="sm" className="pc-topbar__search" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K" aria-label="Search tasks, machines, commands" onClick={onSearch}>
+        <span className="pc-topbar__search-icon" aria-hidden="true"><Icon name="search" /></span>
+        <span className="pc-topbar__search-text">Search tasks, machines, commands</span>
+        {keyCaps("Mod-k").map(cap => <Kbd key={cap}>{cap}</Kbd>)}
+      </Button></DensityContext.Provider>)}
     {showActions && <>
     {planner && <span className="pc-planner">
       <AgentMark agent={planner.agent} size={18} labelled={false} />

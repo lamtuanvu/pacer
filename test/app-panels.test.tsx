@@ -1,7 +1,10 @@
 import { afterEach, expect, test } from "bun:test";
 import { renderToString } from "preact-render-to-string";
 import { SidePanel } from "../app/src/ds/SidePanel";
-import { panelShortcuts, usePanelState } from "../app/src/shell/panels";
+import { createCommandRegistry } from "../app/src/keys/commands";
+import { panelCommands, usePanelState } from "../app/src/shell/panels";
+/** The same registration path the shell uses: commands register their shortcut on the key registry. */
+const register = (registry: ReturnType<typeof createKeyRegistry>, commands: ReturnType<typeof panelCommands>) => { const all = createCommandRegistry(registry); for (const command of commands) all.register(command); };
 import { createKeyRegistry, type KeyInput } from "../app/src/keys/registry";
 import { sessionControlActive } from "../app/src/keys/instance";
 import { CommandHelp } from "../app/src/shell/CommandHelp";
@@ -69,7 +72,7 @@ test("panel_state_survives_storage_errors", () => {
 test("ctrl_backtick_toggles_dock", () => {
   let control = false, docks = 0;
   const registry = createKeyRegistry({ controlActive: () => control });
-  for (const shortcut of panelShortcuts(undefined, () => docks++)) registry.register(shortcut);
+  register(registry, panelCommands(undefined, () => docks++));
   let prevented = false;
   expect(registry.handle(press("`", { preventDefault: () => { prevented = true; } }))).toBe(true);
   expect(prevented).toBe(true);
@@ -86,7 +89,7 @@ test("ctrl_backtick_toggles_dock", () => {
 test("ctrl_b_toggles_left_panel", () => {
   let control = false, lefts = 0;
   const registry = createKeyRegistry({ controlActive: () => control });
-  for (const shortcut of panelShortcuts(() => lefts++)) registry.register(shortcut);
+  register(registry, panelCommands(() => lefts++));
   // Ctrl combinations work in text fields.
   expect(registry.handle(press("b", { target: { tagName: "INPUT", type: "text" } }))).toBe(true);
   expect(lefts).toBe(1);
@@ -94,12 +97,12 @@ test("ctrl_b_toggles_left_panel", () => {
   control = true;
   expect(registry.handle(press("b"))).toBe(false);
   expect(lefts).toBe(1);
-  expect(panelShortcuts()).toEqual([]);
+  expect(panelCommands()).toEqual([]);
 });
 
 test("shortcuts_listed_in_command_help", () => {
   const registry = createKeyRegistry({ controlActive: () => false });
-  for (const shortcut of panelShortcuts(() => {}, () => {})) registry.register(shortcut);
+  register(registry, panelCommands(() => {}, () => {}));
   const html = renderToString(<CommandHelp registry={registry} close={() => {}} />);
   expect(html).toMatch(/<kbd[^>]*>Ctrl-`<\/kbd><\/dt><dd>Terminal panel<\/dd>/);
   expect(html).toMatch(/<kbd[^>]*>Ctrl-b<\/kbd><\/dt><dd>Side panel<\/dd>/);
