@@ -45,15 +45,23 @@ const tryState = { ...state, snapshot: { ...initialState().snapshot, repos: [{ k
 function Try() {
   const [draft, setDraft] = useState<StrategyDraft>();
   const [sent, setSent] = useState('');
+  const [called, setCalled] = useState('');
+  const mode = location.hash;
   const api = { call: async (op: string, params: unknown) => {
-    if (op === 'dispatch.explain') { setSent(JSON.stringify(params)); return explained; }
+    if (op === 'dispatch.explain' || op === 'dispatch.preview') {
+      setSent(JSON.stringify(params)); setCalled(op);
+      if (op === 'dispatch.preview') return { validation: 'valid', proposal: null, recommendedAction: 'queue', excluded: [], uncertainty: [] };
+      const result = { ...explained, strategy: { ...explained.strategy, draft: !!(params as { strategyDraft?: unknown }).strategyDraft } };
+      return mode === '#try-no-choice' ? { ...result, chosen: null, outcome: 'fail', reasons: [], fallbacks: [{ executor: 'codex', runner: 'codex#team', account: 'team', state: 'eligible' }] } : result;
+    }
     return {};
   } };
-  return <TaskContext.Provider value={{ state: tryState, api } as never}>
+  return <TaskContext.Provider value={{ state: mode === '#try-preview' ? { ...tryState, features: { ...tryState.features, ops: new Set(['routing.get', 'routing.set', 'dispatch.preview']) } } : tryState, api } as never}>
     <main>
       <SetupEditor view={view} eligibility={{ kind: 'global', rules: [{ executors: ['codex'] }], available: ['codex'] }} onDirtyChange={() => {}} onSaved={() => {}} onLadderDraft={setDraft} />
       <DispatcherPreviewForm query={{} as never} draft={draft} />
       <output data-testid="sent">{sent}</output>
+      <output data-testid="called">{called}</output>
     </main>
   </TaskContext.Provider>;
 }
@@ -79,4 +87,4 @@ function Setup() {
   </TaskContext.Provider>;
 }
 
-render(location.hash === '#try' ? <Try /> : location.hash.startsWith('#setup') ? <Setup /> : <Fixture />, document.getElementById('root')!);
+render(location.hash.startsWith('#try') ? <Try /> : location.hash.startsWith('#setup') ? <Setup /> : <Fixture />, document.getElementById('root')!);

@@ -217,11 +217,14 @@ browserTest('Try a task explains the route with the unsaved choice ladder', asyn
     expect(await useDraft.isChecked()).toBe(true);
     await page.getByLabel('Task', { exact: true }).fill('Fix the login bug');
     await page.getByRole('button', { name: 'Preview selection' }).click();
-    await page.getByText('Pacer would choose Codex').waitFor();
+    await page.getByText('Would go to', { exact: true }).waitFor();
     const sent = JSON.parse((await page.getByTestId('sent').textContent())!);
     expect(sent.strategyDraft.from).toBe('default');
     expect(sent.strategyDraft.set.dispatch.steps[0].id).toBe('usable-fallback');
-    const card = page.locator('[role="status"]', { hasText: 'Pacer would choose Codex' });
+    const card = page.locator('.pc-card', { has: page.getByText('Would go to', { exact: true }) });
+    expect(await card.getAttribute('role')).toBeNull();
+    expect(await card.getByText('Matched: Step 2 · Usable fallback', { exact: true }).count()).toBe(1);
+    expect(await page.locator('#dispatch-preview [role="status"]').textContent()).toBe('Pacer would choose Codex');
     for (const text of ['Uses your unsaved choice ladder.', 'It matched the Usable fallback step for tests tasks.', 'Another condition applies.', 'Its budget is used up.', 'Planner tokens are not measured yet.'])
       expect(await card.getByText(text).count()).toBeGreaterThan(0);
     expect(await card.textContent()).not.toContain('brand_new_code');
@@ -229,5 +232,60 @@ browserTest('Try a task explains the route with the unsaved choice ladder', asyn
     await useDraft.uncheck();
     await page.getByRole('button', { name: 'Preview selection' }).click();
     await page.waitForFunction(() => !document.querySelector('[data-testid="sent"]')!.textContent!.includes('strategyDraft'));
+  } finally { await page.close(); }
+});
+
+
+browserTest('Try a task uses dispatch.preview with saved settings when explain is unavailable', async () => {
+  const page = await browser.newPage();
+  try {
+    await page.goto(`${server.url.href}#try-preview`);
+    await page.getByRole('button', { name: 'Move up: Usable fallback' }).click();
+    expect(await page.getByLabel('Use my unsaved choice ladder').count()).toBe(0);
+    expect(await page.getByText('See where a task would go, using saved settings and recent readings.', { exact: false }).count()).toBe(1);
+    await page.getByLabel('Task', { exact: true }).fill('Check saved settings');
+    await page.getByRole('button', { name: 'Preview selection' }).click();
+    await page.getByText('Preview result', { exact: true }).waitFor();
+    expect(await page.getByTestId('called').textContent()).toBe('dispatch.preview');
+    expect(JSON.parse((await page.getByTestId('sent').textContent())!)).not.toHaveProperty('strategyDraft');
+    await page.getByLabel('Task', { exact: true }).fill('A different task');
+    await page.getByText('Preview result', { exact: true }).waitFor({ state: 'hidden' });
+  } finally { await page.close(); }
+});
+
+for (const discard of [false, true]) {
+  browserTest(`Try a task omits strategyDraft for a ${discard ? 'discarded' : 'clean'} ladder`, async () => {
+    const page = await browser.newPage();
+    try {
+      await page.goto(`${server.url.href}#try`);
+      if (discard) {
+        await page.getByRole('button', { name: 'Move up: Usable fallback' }).click();
+        await page.getByLabel('Use my unsaved choice ladder').waitFor();
+        await page.getByRole('button', { name: 'Discard', exact: true }).click();
+        await page.getByLabel('Use my unsaved choice ladder').waitFor({ state: 'hidden' });
+      }
+      await page.getByLabel('Task', { exact: true }).fill('Check the route');
+      await page.getByRole('button', { name: 'Preview selection' }).click();
+      await page.getByText('Would go to', { exact: true }).waitFor();
+      expect(await page.getByTestId('called').textContent()).toBe('dispatch.explain');
+      expect(JSON.parse((await page.getByTestId('sent').textContent())!)).not.toHaveProperty('strategyDraft');
+      await page.getByLabel('Task', { exact: true }).fill('A different task');
+      await page.getByText('Would go to', { exact: true }).waitFor({ state: 'hidden' });
+      expect(await page.locator('#dispatch-preview [role="status"]').textContent()).toBe('');
+    } finally { await page.close(); }
+  });
+}
+
+browserTest('Try a task names an eligible fallback without a chosen executor', async () => {
+  const page = await browser.newPage();
+  try {
+    await page.goto(`${server.url.href}#try-no-choice`);
+    await page.getByLabel('Task', { exact: true }).fill('Check available executors');
+    await page.getByRole('button', { name: 'Preview selection' }).click();
+    const card = page.locator('.pc-card', { has: page.getByText('Also considered', { exact: true }) });
+    await card.waitFor();
+    expect(await card.textContent()).toContain('Codex · team');
+    expect(await card.textContent()).toContain('Could take it.');
+    expect(await card.textContent()).not.toContain('the choice above');
   } finally { await page.close(); }
 });
