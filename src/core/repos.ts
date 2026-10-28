@@ -81,7 +81,7 @@ async function canonicalAsync(path: string): Promise<string> {
  }
  rememberPath(p,result);return result;
 }
-async function registerRepo(ctx: Ctx,path: string, strict = false): Promise<RepoRef> {
+async function registerRepo(ctx: Ctx,path: string, strict = false, persist = true): Promise<RepoRef> {
  const unresolved = () => {
   if (strict) throw new CoreError("invalid_input", "Cannot establish repository identity for project routing", "Restore Git access and retry; project policy cannot safely fall back to global routing.");
   return { ...repoFor(ctx,path), identityUnverified: true as const };
@@ -114,6 +114,8 @@ async function registerRepo(ctx: Ctx,path: string, strict = false): Promise<Repo
  }
  const reg=registry(ctx);
  const entry={key:key??reg[main]?.key??fallback(main).key,path:main,lastUsed:ctx.now};
+ // A read-only caller gets the identity without recording the repository or its aliases.
+ if(!persist)return {key:entry.key,path:main,label:labelsFor([...Object.values(reg).filter(e=>e.key!==entry.key),entry]).get(entry.key)!};
  reg[main]=entry;
  // Persist linked checkout aliases so arbitrary worktree locations need no git on reads.
  if(top!==main){
@@ -127,6 +129,14 @@ export async function backfillRepos(ctx: Ctx,paths: string[]): Promise<void> {
  await Promise.all([...new Set(paths)].filter(path=>!registered(ctx,path)).map(path=>
   registerRepo(ctx,path).catch(()=>{})
  ));
+}
+
+/** Like resolveRepoInput, but writes nothing: no repository registration, aliases or task-store access. */
+export async function resolveRepoInputReadOnly(ctx: Ctx, value: string, strict = false): Promise<RepoRef> {
+ if(isAbsolute(value))return { ...await registerRepo({...ctx,readOnly:true},value,strict,false), path: await canonicalAsync(value) };
+ const known=listRepos({...ctx,readOnly:true},[]).find(r=>r.key===value);
+ if(known)return known;
+ throw new CoreError("invalid_input","repo must be an absolute path or a registered repo key");
 }
 
 /** Resolve a picker key without treating it as a relative filesystem path. */

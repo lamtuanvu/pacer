@@ -6,6 +6,7 @@ import type {Candidate} from "./types";
 import {decisionHash} from "./engines";
 import {getWork,observedUsageDelta} from "./work";
 import {boundedJson,dispatchDatabase} from "./store";
+import type {ReadOnlyStore} from "./readonly";
 
 interface ReviewEvidence {taskId:string;attempt:number;repo:string;kind:string|null;difficulty:string;runner:string;model:string|null;settings:string;accepted:boolean;durationS:number|null;usagePct:number|null;at:number;provenance:"human"|"requesting-agent"}
 export function dispatchSettingsHash(strategy:Strategy,executor:string):string {
@@ -24,12 +25,14 @@ export function recordWorkReview(ctx:Ctx,id:string,provenance:ReviewEvidence["pr
  const row=evidence(ctx,id,provenance);if(!row)return;
  dispatchDatabase(ctx).query("INSERT OR REPLACE INTO work_reviews(task_id,attempt,at,provenance,data) VALUES(?,?,?,?,?)").run(id,row.attempt,row.at,provenance,boundedJson(row));
 }
-function rows(ctx:Ctx):ReviewEvidence[]{
- const db=dispatchDatabase(ctx);
- return db.query<{data:string},[] >("SELECT data FROM work_reviews").all().flatMap(r=>{try{return[JSON.parse(r.data) as ReviewEvidence];}catch{return[];}})
+/** The review rows learning uses. `read` lets a caller supply a read-only store (dispatch.explain); the default opens the writable one. */
+export interface ReviewReader{all(sql:string):{data:string}[];get(sql:string,repo:string):{at:number}|null|undefined;has(repo:string,table:string):boolean}
+const writableReader=(ctx:Ctx):ReviewReader=>{const db=dispatchDatabase(ctx);return{all:sql=>db.query<{data:string},[]>(sql).all(),get:(sql,repo)=>db.query<{at:number},[string]>(sql).get(repo),has:(repo,table)=>!!db.query(`SELECT 1 FROM ${table} WHERE repo=?`).get(repo)};};
+function rows(ctx:Ctx,read:ReviewReader=writableReader(ctx)):ReviewEvidence[]{
+ return read.all("SELECT data FROM work_reviews").flatMap(r=>{try{return[JSON.parse(r.data) as ReviewEvidence];}catch{return[];}})
   .filter(r=>r.provenance==="human"||r.provenance==="requesting-agent")
-  .filter(r=>!db.query("SELECT 1 FROM work_learning_exclusions WHERE repo=?").get(r.repo))
-  .filter(r=>r.at>(db.query<{at:number},[string]>("SELECT at FROM work_learning_reset WHERE repo=?").get(r.repo)?.at??0));
+  .filter(r=>!read.has(r.repo,"work_learning_exclusions"))
+  .filter(r=>r.at>(read.get("SELECT at FROM work_learning_reset WHERE repo=?",r.repo)?.at??0));
 }
 function aggregate(items:ReviewEvidence[]){
  const n=items.length,wins=items.filter(r=>r.accepted).length,p=n?wins/n:0,z=1.96;
@@ -47,9 +50,9 @@ export function dispatchAnalytics(ctx:Ctx,filter:{repo?:string;kind?:string}={})
 export function learningRevision(ctx:Ctx,repo:string):number {
  return dispatchDatabase(ctx).query<{at:number},[string]>("SELECT at FROM work_learning_reset WHERE repo=?").get(repo)?.at??0;
 }
-export function applyLearnedFit(ctx:Ctx,strategy:Strategy,candidates:Candidate[],kind:string|null,difficulty:string):Candidate[]{
+export function applyLearnedFit(ctx:Ctx,strategy:Strategy,candidates:Candidate[],kind:string|null,difficulty:string,read?:ReviewReader):Candidate[]{
  const config=strategy.dispatch?.learning;if(!config?.enabled)return candidates;
- const reviews=rows(ctx).filter(r=>r.at>=ctx.now-config.maxAgeDays*86400),minimum=config.minSamples;
+ const reviews=rows(ctx,read).filter(r=>r.at>=ctx.now-config.maxAgeDays*86400),minimum=config.minSamples;
  return candidates.map(c=>{
   const model=c.actualModel;
   if(!model)return c;
@@ -71,4 +74,10 @@ export function resetLearning(ctx:Ctx,repo:string,excluded:boolean,expectRev:num
   else db.query("DELETE FROM work_learning_exclusions WHERE repo=?").run(repo);
   return next;
  }).immediate();
+}
+/** Review rows from a read-only store; a store without the tables yields no history rather than creating them. */
+export function readOnlyReviewReader(store:ReadOnlyStore):ReviewReader{
+ return{all:sql=>store.has("work_reviews")?store.query<{data:string}>(sql):[],
+  get:(sql,repo)=>store.has("work_learning_reset")?store.query<{at:number}>(sql,repo)[0]:undefined,
+  has:(repo,table)=>store.has(table)&&store.query(`SELECT 1 FROM ${table} WHERE repo=?`,repo).length>0};
 }

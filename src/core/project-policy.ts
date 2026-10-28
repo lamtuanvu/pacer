@@ -1,5 +1,5 @@
 import { isAbsolute } from "node:path";
-import { resolveRepoInput } from "./repos";
+import { resolveRepoInput, resolveRepoInputReadOnly } from "./repos";
 import type { Strategy } from "../config/strategy";
 import { projectRevision, readProjectStrategies } from "../config/project-strategies";
 import { resolveProjectSelection, type ProjectSelection } from "../engine/project-routing";
@@ -25,6 +25,14 @@ export async function resolvePolicyRepo(ctx: Ctx, path: string) {
 }
 export async function resolvePolicyRepoInput(ctx: Ctx, value: string) {
   return isAbsolute(value) ? resolvePolicyRepo(ctx, value) : resolveRepoInput(ctx, value);
+}
+
+/** The read-only form of resolvePolicyRepoInput, for operations that must write nothing. */
+export async function resolvePolicyRepoInputReadOnly(ctx: Ctx, value: string) {
+  const strict = isAbsolute(value) && Object.values(readProjectStrategies(ctx).projects).some(p => p.executors !== null);
+  const repo = await resolveRepoInputReadOnly(ctx, value, strict);
+  requirePolicyIdentity(ctx, repo);
+  return repo;
 }
 
 export function requirePolicyIdentity(ctx: Ctx, repo: import("../api/read-model/types").RepoRef): void {
