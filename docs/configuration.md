@@ -120,6 +120,10 @@ Save named YAML files under `~/.pacer/strategies/`. `pacer strategy list` and `p
 ## Capacity, pause and executor settings
 
 `execution.local_max_tasks` limits all local executors together (1–16, default 2).
+`execution.launch_mode` sets how delegated tasks start: `interactive` (the default) or
+`headless`. A runner's own `session:` setting overrides it. Change it with
+`pacer config set execution.launch_mode headless` or in
+**Settings → This machine → Delegated task launch**. See [Launch mode](executors.md#launch-mode).
 In the app, use **Settings → Executors → Parallel tasks** to set each executor’s limit,
 and **Settings → This machine → Parallel tasks on this machine** for the shared local limit.
 Remote host limits are under **Settings → Remote hosts**. The app explains when a machine

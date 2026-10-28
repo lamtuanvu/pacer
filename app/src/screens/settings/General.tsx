@@ -591,6 +591,7 @@ export function MachineSection({ initialData, query: routeQuery = { repo: null, 
   const query = useResource("config.get", {}, initialData),
     action = useOperation(query.reload);
   const value = query.data?.keys["execution.local_max_tasks"]?.value;
+  const launchMode = String(query.data?.keys["execution.launch_mode"]?.value ?? "interactive");
   const { selectedTerminal, terminalChoices } = terminalPreference(query.data);
   return (
     <Section id="machine" title="This machine" actions={<TextAction href={withQuery("#/settings/hosts", routeQuery)}>Remote hosts</TextAction>}>
@@ -614,6 +615,18 @@ export function MachineSection({ initialData, query: routeQuery = { repo: null, 
                   value: Number(e.currentTarget.value),
                 });
             }}
+          />
+        </Field>
+        <Field
+          label="Delegated task launch"
+          help="Interactive runs open in the agent's terminal UI and finish when the agent reports its result. Headless runs the agent's non-interactive CLI. A runner's own session setting overrides this."
+        >
+          <ChoicePicker
+            aria-label="Delegated task launch"
+            value={launchMode}
+            options={[{value:"interactive",label:"Interactive"},{value:"headless",label:"Headless"}]}
+            disabled={action.busy}
+            onValueChange={(choice) => void action.run("config.set", {key:"execution.launch_mode",value:choice})}
           />
         </Field>
         <Field label="Preferred terminal" help="Used when opening sessions and other terminal actions on this machine.">

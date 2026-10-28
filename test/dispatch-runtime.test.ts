@@ -13,6 +13,7 @@ import { join } from "node:path";
 import type { Ctx } from "../src/types";
 import type { Strategy } from "../src/config/strategy";
 import { resolvePolicyRepoInput } from "../src/core/project-policy";
+// Strict work certifies headless launches only; these strategies set execution.launch_mode: headless.
 async function certifiedClaude(ctx:Ctx,strategy:Strategy,repo:string){
  const binary=join(ctx.home,"claude-bin");writeFileSync(binary,"claude");
  ctx.which=(name)=>name==="claude"?binary:null;
@@ -36,7 +37,7 @@ test("shared-pool reservations prevent simultaneous over-admission",async()=>{
 test("queued managed work explains missing native control",async()=>{
  const {validateStrategy}=await import("../src/config/strategy");const {runTask}=await import("../src/tasks/runner");const {defaultHooks}=await import("../src/classify/hooks");
  const ctx=fakeCtx({now:Date.now()/1000}),repo=tmpDir();
- const s=validateStrategy({planner:"claude-code",accounts:{"claude-code":{kind:"claude"},codex:{kind:"codex",usage:"unmetered"}},runners:{codex:{models:[{id:"provider/deep",tier:"frontier"}]}}},"test");
+ const s=validateStrategy({execution:{launch_mode:"headless"},planner:"claude-code",accounts:{"claude-code":{kind:"claude"},codex:{kind:"codex",usage:"unmetered"}},runners:{codex:{models:[{id:"provider/deep",tier:"frontier"}]}}},"test");
  const binary=join(ctx.home,"codex-bin");writeFileSync(binary,"codex");ctx.which=name=>name==="codex"?binary:null;
  const previousRun=ctx.run;ctx.run=(argv,timeout,options)=>argv[0]===binary?Promise.resolve({code:0,stdout:"codex-cli 0.164.0",stderr:""}):previousRun(argv,timeout,options);
  const task=createTask(ctx,{brief:{goal:"debug",repo},kind:"debug",requestedExecutor:null,timeoutS:60});registerWork(ctx,task.id);
@@ -46,7 +47,7 @@ test("queued managed work explains missing native control",async()=>{
 test("work runner executes the model selected by the decision engine",async()=>{
  const {validateStrategy}=await import("../src/config/strategy");const {runTask}=await import("../src/tasks/runner");const {defaultHooks}=await import("../src/classify/hooks");
  const ctx=fakeCtx({now:Date.now()/1000}),repo=tmpDir();
- const s=validateStrategy({planner:"codex",accounts:{"claude-code":{kind:"claude"},codex:{kind:"codex",usage:"unmetered"}},runners:{"claude-code":{models:[{id:"provider/fast",tier:"small"},{id:"provider/deep",tier:"frontier",tools:true}]}},dispatch:{timeoutMs:5000}},"test");
+ const s=validateStrategy({execution:{launch_mode:"headless"},planner:"codex",accounts:{"claude-code":{kind:"claude"},codex:{kind:"codex",usage:"unmetered"}},runners:{"claude-code":{models:[{id:"provider/fast",tier:"small"},{id:"provider/deep",tier:"frontier",tools:true}]}},dispatch:{timeoutMs:5000}},"test");
  const task=createTask(ctx,{brief:{goal:"debug",repo},kind:"debug",requestedExecutor:null,timeoutS:60});registerWork(ctx,task.id,{requirements:{minTier:"medium",tools:true}});
  await certifiedClaude(ctx,s,repo);
  const launched:string[]=[];
@@ -63,7 +64,7 @@ test("work runner executes the model selected by the decision engine",async()=>{
 test("a guard report failure is recorded as enforcement loss after the attempt",async()=>{
  const {validateStrategy}=await import("../src/config/strategy");const {runTask}=await import("../src/tasks/runner");const {defaultHooks}=await import("../src/classify/hooks");
  const ctx=fakeCtx({now:Date.now()/1000}),repo=tmpDir();
- const s=validateStrategy({planner:"codex",accounts:{"claude-code":{kind:"claude"},codex:{kind:"codex",usage:"unmetered"}},runners:{"claude-code":{models:[{id:"provider/deep",tier:"frontier"}]}},dispatch:{timeoutMs:5000}},"test");
+ const s=validateStrategy({execution:{launch_mode:"headless"},planner:"codex",accounts:{"claude-code":{kind:"claude"},codex:{kind:"codex",usage:"unmetered"}},runners:{"claude-code":{models:[{id:"provider/deep",tier:"frontier"}]}},dispatch:{timeoutMs:5000}},"test");
  const task=createTask(ctx,{brief:{goal:"debug",repo},kind:"debug",requestedExecutor:null,timeoutS:60});registerWork(ctx,task.id);
  await certifiedClaude(ctx,s,repo);
  await runTask(ctx,task.id,{loadStrategy:()=>s,hooks:defaultHooks,computeStatus:async(statusCtx)=>({generatedAt:statusCtx.now,strategy:"test",planner:"codex",mode:"normal",disabled:false,calendarPace:false,providers:[{id:"claude-code",usage:"unmetered",windows:[],binding:null,verdict:"OK",installed:true,stale:false}],executors:{ranked:[],excluded:[]}}),
@@ -75,7 +76,7 @@ test("a guard report failure is recorded as enforcement loss after the attempt",
 test("managed work honors the cumulative attempt cap inside one runner invocation",async()=>{
  const {validateStrategy}=await import("../src/config/strategy");const {runTask}=await import("../src/tasks/runner");const {defaultHooks}=await import("../src/classify/hooks");
  const ctx=fakeCtx({now:Date.now()/1000}),repo=tmpDir();
- const s=validateStrategy({planner:"codex",accounts:{"claude-code":{kind:"claude"},codex:{kind:"codex",usage:"unmetered"}},runners:{"claude-code":{models:[{id:"provider/fast",tier:"small"},{id:"provider/deep",tier:"frontier"}]}},dispatch:{timeoutMs:5000}},"test");
+ const s=validateStrategy({execution:{launch_mode:"headless"},planner:"codex",accounts:{"claude-code":{kind:"claude"},codex:{kind:"codex",usage:"unmetered"}},runners:{"claude-code":{models:[{id:"provider/fast",tier:"small"},{id:"provider/deep",tier:"frontier"}]}},dispatch:{timeoutMs:5000}},"test");
  const task=createTask(ctx,{brief:{goal:"debug",repo},kind:"debug",requestedExecutor:null,timeoutS:60});registerWork(ctx,task.id,{maxAttempts:3});
  await certifiedClaude(ctx,s,repo);
  updateTask(ctx,task.id,t=>{for(let i=0;i<2;i++)t.attempts.push({executor:"prior",model:null,startedAt:ctx.now-4+i,endedAt:ctx.now-3+i,exitCode:1,timedOut:false,limitHit:true,log:""});});
