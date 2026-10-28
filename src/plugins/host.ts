@@ -3,7 +3,7 @@ import { appendFileSync, mkdirSync, renameSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { CoreError } from "../core/errors";
 import type { Ctx } from "../types";
-import { pluginsConfig } from "./config";
+import { effectiveConfig } from "./settings";
 import { CAPABILITY_METHODS, type PluginManifest, capabilityOf } from "./protocol";
 
 export const pluginLogPath = (ctx: Pick<Ctx, "pacerHome">, id: string) => join(ctx.pacerHome, "logs", "plugins", `${id}.log`);
@@ -27,7 +27,7 @@ export async function answerCapability(ctx: Ctx, plugin: { id: string; manifest:
   if (!parsed.success) throw new CoreError("invalid_input", parsed.error.issues.map(i => `${i.path.join(".") || "params"}: ${i.message}`).join("; "));
   switch (name) {
     case "log": { const p = parsed.data as { level: string; message: string }; appendPluginLog(ctx, plugin.id, p.level, p.message); return { ok: true }; }
-    case "config.get": return { config: pluginsConfig(ctx).config[plugin.id] ?? {} };
+    case "config.get": return { config: effectiveConfig(ctx, plugin.id) as never };
     default: throw new CoreError("capability_denied", `${name} is not available in this pacer yet`);
   }
 }

@@ -8,7 +8,7 @@ import type { Ctx } from "../types";
 import { commandArgs } from "./accounts";
 import type { Command, Result } from "./types";
 
-const USAGE = "usage: pacer plugin list [--json] | enable <id> [--yes] | disable <id> | remove <id> | doctor [<id>] [--json]\n       pacer plugin uninstall   (removes the Orca plugin an earlier pacer installed)";
+const USAGE = "usage: pacer plugin list [--json] | enable <id> [--yes] | disable <id> | remove <id> | doctor [<id>] [--json]\n       pacer plugin settings get <id> | set <id> --values <json> [--rev <n>]   |   pacer plugin ui list [--json]\n       pacer plugin uninstall   (removes the Orca plugin an earlier pacer installed)";
 /** Orca plugin verbs retired in 0.5.0: `uninstall` still cleans up an old install; the others explain the retirement. */
 const ORCA_VERBS = ["uninstall", "install", "status", "set"];
 const fail = (code: number, e: unknown): Result => ({ code, out: "", err: `pacer: ${e instanceof Error ? e.message : String(e)}` });
@@ -31,7 +31,7 @@ export async function pluginsCmd(args: string[], ctx: Ctx): Promise<Result> {
       const code = await runBundledPlugin(rest[0]);
       return { code, out: "", err: code === 0 ? "" : `pacer: no bundled plugin ${rest[0]}`, keepAlive: code === 0 };
     }
-    const { pos, flags } = commandArgs(rest, [], ["json", "yes"]);
+    const { pos, flags } = commandArgs(rest, ["values", "rev"], ["json", "yes"]);
     switch (verb) {
       case "list": {
         const { plugins } = await callOp(ctx, "plugin.list", {}) as { plugins: Info[] };
@@ -64,6 +64,25 @@ export async function pluginsCmd(args: string[], ctx: Ctx): Promise<Result> {
         if (flags.json) return { code: 0, out: JSON.stringify({ reports }, null, 2), err: "" };
         const lines = reports.map(r => `${r.id.padEnd(24)} ${r.ok ? "ok" : "FAIL"}  ${r.state}  protocol ${r.protocol.plugin ?? "?"} (host ${r.protocol.host})  serves ${r.served.join(", ") || "-"}  restarts ${r.restarts}${r.error ? `\n  ${r.error}${r.needs && r.state === "refused" && !r.error.includes("needs host") ? ` (needs host ${r.needs})` : ""}` : ""}`);
         return { code: reports.every(r => r.ok) ? 0 : 1, out: lines.join("\n") || "no plugins", err: "" };
+      }
+      case "ui": {
+        if (pos[0] !== "list") return { code: 2, out: "", err: USAGE };
+        const { surfaces } = await callOp(ctx, "plugin.ui.list", {}) as { surfaces: { plugin: string; surface: string; id: string; title: string; visible: boolean }[] };
+        if (flags.json) return { code: 0, out: JSON.stringify({ surfaces }, null, 2), err: "" };
+        return { code: 0, out: surfaces.map(s => `${s.plugin.padEnd(24)} ${s.surface.padEnd(10)} ${s.id.padEnd(20)} ${s.title}${s.visible ? "" : "  (hidden)"}`).join("\n") || "no plugin surfaces", err: "" };
+      }
+      case "settings": {
+        const [action, id] = pos;
+        if (!id || (action !== "get" && action !== "set")) return { code: 2, out: "", err: USAGE };
+        const current = await callOp(ctx, "plugin.settings.get", { plugin: id }) as { values: Record<string, unknown>; rev: number };
+        if (action === "get") return { code: 0, out: JSON.stringify(current, null, 2), err: "" };
+        if (typeof flags.values !== "string") return { code: 2, out: "", err: "usage: pacer plugin settings set <id> --values '<json object>' [--rev <n>]" };
+        let values: unknown;
+        try { values = JSON.parse(flags.values); } catch { return { code: 2, out: "", err: "pacer: --values is not valid JSON" }; }
+        if (!values || typeof values !== "object" || Array.isArray(values)) return { code: 2, out: "", err: "pacer: --values must be a JSON object" };
+        const expect_rev = typeof flags.rev === "string" ? Number(flags.rev) : current.rev;
+        const saved = await callOp(ctx, "plugin.settings.set", { plugin: id, values, expect_rev }) as { rev: number };
+        return { code: 0, out: `saved ${id} settings (revision ${saved.rev})`, err: "" };
       }
       default: return { code: 2, out: "", err: USAGE };
     }

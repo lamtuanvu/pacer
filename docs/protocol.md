@@ -150,7 +150,7 @@ Executor questions settle tasks as `needs_input` (label: Needs your answer). `ta
 
 ## Events
 
-The advertised v3 event types are `task`, `mode`, `config`, `pause`, `reset`, `planner`, `executor`, `account`, `host`, `repo`, `counts`, `attention`, `activity`, `job` and `notify`. A `config` event `{ area, at }` follows every successful configuration change (`area` is one of `config`, `accounts`, `runners`, `routing`, `strategy`, `hosts`, `setup`, `update`); clients refetch that area. Events have `{ seq, at, type, data }`; `seq` is the resume cursor, `at` is the publication time (legacy entries fall back to read time), and `data` carries the event payload.
+The advertised v3 event types are `task`, `mode`, `config`, `pause`, `reset`, `planner`, `executor`, `account`, `host`, `repo`, `counts`, `attention`, `activity`, `job` and `notify`. A `config` event `{ area, at }` follows every successful configuration change (`area` is one of `config`, `accounts`, `runners`, `routing`, `strategy`, `hosts`, `setup`, `update`, `plugins`); clients refetch that area. Events have `{ seq, at, type, data }`; `seq` is the resume cursor, `at` is the publication time (legacy entries fall back to read time), and `data` carries the event payload.
 
 The additive `pause` event carries `{ until, reason, by }` (PauseState, with a Unix-seconds deadline and nullable fields) after `delegation.pause`. `delegation.resume` and timed pause expiry publish `{ removed: true }`; expiry is published once. Clients update their pause state directly.
 
@@ -3830,6 +3830,347 @@ Params JSON Schema:
   },
   "required": [
     "id"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `plugin.settings.get`
+
+A plugin's settings schema (from its manifest), saved values and revision.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "plugin": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{1,63}$"
+    }
+  },
+  "required": [
+    "plugin"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `plugin.settings.set`
+
+Validate and save a plugin's settings against its manifest schema. A stale expect_rev returns conflict; invalid values return invalid_input with field errors in data.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "plugin": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{1,63}$"
+    },
+    "values": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/__schema0"
+      }
+    },
+    "expect_rev": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "plugin",
+    "values",
+    "expect_rev"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "__schema0": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/__schema0"
+          }
+        },
+        {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema0"
+          }
+        }
+      ]
+    }
+  }
+}
+```
+
+### `plugin.ui.action`
+
+Send a user action on a plugin surface to the plugin. requestId makes a repeat safe.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "plugin": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{1,63}$"
+    },
+    "surface": {
+      "type": "string",
+      "enum": [
+        "activity",
+        "panelTab",
+        "status"
+      ]
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,31}$"
+    },
+    "action": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._-]{1,64}$"
+    },
+    "context": {
+      "type": "object",
+      "properties": {
+        "route": {
+          "type": "string",
+          "enum": [
+            "start",
+            "overview",
+            "review",
+            "sessions",
+            "terminal",
+            "settings",
+            "hosts",
+            "add-executor",
+            "setup"
+          ]
+        },
+        "taskId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "theme": {
+          "type": "string",
+          "enum": [
+            "light",
+            "dark"
+          ]
+        }
+      },
+      "required": [
+        "route",
+        "theme"
+      ],
+      "additionalProperties": false
+    },
+    "requestId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "values": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "maxLength": 64
+      },
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "type": "string",
+            "maxLength": 2000
+          },
+          {
+            "type": "number"
+          },
+          {
+            "type": "boolean"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      }
+    }
+  },
+  "required": [
+    "plugin",
+    "surface",
+    "id",
+    "action",
+    "context",
+    "requestId"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `plugin.ui.list`
+
+Every UI surface of every enabled, granted plugin: activity items, panel tabs, settings pages and status items, with visibility. Starts nothing.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}
+```
+
+### `plugin.ui.render`
+
+Render one plugin surface to a validated view document. Starts the plugin if idle, except for status items, which render only while the plugin is ready.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "plugin": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{1,63}$"
+    },
+    "surface": {
+      "type": "string",
+      "enum": [
+        "activity",
+        "panelTab",
+        "status"
+      ]
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,31}$"
+    },
+    "context": {
+      "type": "object",
+      "properties": {
+        "route": {
+          "type": "string",
+          "enum": [
+            "start",
+            "overview",
+            "review",
+            "sessions",
+            "terminal",
+            "settings",
+            "hosts",
+            "add-executor",
+            "setup"
+          ]
+        },
+        "taskId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "theme": {
+          "type": "string",
+          "enum": [
+            "light",
+            "dark"
+          ]
+        }
+      },
+      "required": [
+        "route",
+        "theme"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "plugin",
+    "surface",
+    "id",
+    "context"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `plugin.ui.visibility`
+
+Show or hide one plugin surface. Service state, so every client agrees. A stale expect_rev returns conflict.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "plugin": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{1,63}$"
+    },
+    "surface": {
+      "type": "string",
+      "enum": [
+        "activity",
+        "panelTab",
+        "settings",
+        "status"
+      ]
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,31}$"
+    },
+    "visible": {
+      "type": "boolean"
+    },
+    "expect_rev": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "plugin",
+    "surface",
+    "id",
+    "visible",
+    "expect_rev"
   ],
   "additionalProperties": false
 }

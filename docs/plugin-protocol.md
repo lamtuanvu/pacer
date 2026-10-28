@@ -158,6 +158,887 @@ SDKs: `@pacer/plugin` (TypeScript) and `pacer-plugin` (Rust).
 
 Extension points: `diagnostic`, `agentSession`, `observation`, `decision`, `ui` (every plugin serves `diagnostic`). Capabilities: `tasks.read`, `events.subscribe`, `process.spawn`, `fs.read`, `net.http`, `secrets.resolve`, `config.get`, `entitlement.report`, `log`.
 
+## UI contributions
+
+`contributes.ui` has a fixed schema. Plugins contribute data only: the host validates it and the app draws it with its own components. A plugin ships no CSS, JavaScript, HTML, images or URLs. A manifest with `contributes.ui` sets `host` to `>=1.2.0`, and a plugin with a settings page declares `config.get`.
+
+Limits per plugin: 2 activity, 3 panelTabs, 1 settings, 1 status. Icons (closed set): `check-square`, `list`, `bell`, `chart`, `clock`, `cog`, `file`, `folder`, `git-branch`, `key`, `link`, `shield`, `tag`, `terminal`, `users`, `zap`, `plugin`. Routes a document may link to: `start`, `overview`, `review`, `sessions`, `terminal`, `settings`, `hosts`, `add-executor`, `setup`.
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "activity": {
+      "default": [],
+      "maxItems": 2,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,31}$"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40
+          },
+          "icon": {
+            "type": "string",
+            "enum": [
+              "check-square",
+              "list",
+              "bell",
+              "chart",
+              "clock",
+              "cog",
+              "file",
+              "folder",
+              "git-branch",
+              "key",
+              "link",
+              "shield",
+              "tag",
+              "terminal",
+              "users",
+              "zap",
+              "plugin"
+            ]
+          },
+          "view": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "icon",
+          "view"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "panelTabs": {
+      "default": [],
+      "maxItems": 3,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,31}$"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40
+          },
+          "icon": {
+            "type": "string",
+            "enum": [
+              "check-square",
+              "list",
+              "bell",
+              "chart",
+              "clock",
+              "cog",
+              "file",
+              "folder",
+              "git-branch",
+              "key",
+              "link",
+              "shield",
+              "tag",
+              "terminal",
+              "users",
+              "zap",
+              "plugin"
+            ]
+          },
+          "view": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "context": {
+            "default": "global",
+            "type": "string",
+            "enum": [
+              "global",
+              "task"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "icon",
+          "view",
+          "context"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "settings": {
+      "default": [],
+      "maxItems": 1,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,31}$"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40
+          },
+          "schema": {
+            "type": "object",
+            "properties": {
+              "fields": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z][A-Za-z0-9_]{0,31}$"
+                },
+                "additionalProperties": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "const": "boolean"
+                        },
+                        "title": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 80
+                        },
+                        "description": {
+                          "type": "string",
+                          "maxLength": 200
+                        },
+                        "default": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "const": "string"
+                        },
+                        "title": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 80
+                        },
+                        "description": {
+                          "type": "string",
+                          "maxLength": 200
+                        },
+                        "enum": {
+                          "minItems": 1,
+                          "maxItems": 20,
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 80
+                          }
+                        },
+                        "maxLength": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 2000
+                        },
+                        "default": {
+                          "type": "string",
+                          "maxLength": 2000
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "const": "secretRef"
+                        },
+                        "title": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 80
+                        },
+                        "description": {
+                          "type": "string",
+                          "maxLength": 200
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "const": "integer"
+                        },
+                        "title": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 80
+                        },
+                        "description": {
+                          "type": "string",
+                          "maxLength": 200
+                        },
+                        "minimum": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "maximum": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "default": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "minimum",
+                        "maximum"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "const": "array"
+                        },
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "const": "string"
+                            }
+                          },
+                          "required": [
+                            "type"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "title": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 80
+                        },
+                        "description": {
+                          "type": "string",
+                          "maxLength": 200
+                        },
+                        "maxItems": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 100
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "items",
+                        "title",
+                        "maxItems"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "const": "repos"
+                        },
+                        "title": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 80
+                        },
+                        "description": {
+                          "type": "string",
+                          "maxLength": 200
+                        },
+                        "maxItems": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 100
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            },
+            "required": [
+              "fields"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "schema"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "status": {
+      "default": [],
+      "maxItems": 1,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,31}$"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40
+          },
+          "view": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "view"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "activity",
+    "panelTabs",
+    "settings",
+    "status"
+  ],
+  "additionalProperties": false
+}
+```
+
+A view document is a tree of typed nodes, at most 65536 bytes, 500 nodes and depth 8. Strings are text: the host normalizes them to NFC and strips control, zero-width and bidirectional-override characters. An invalid document replaces the whole surface with a host-drawn error. A status item's document is one `status`, `text` or `button` node of at most 24 characters.
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "section"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#"
+          }
+        }
+      },
+      "required": [
+        "type",
+        "children"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "stack"
+        },
+        "gap": {
+          "type": "string",
+          "enum": [
+            "related",
+            "content"
+          ]
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#"
+          }
+        }
+      },
+      "required": [
+        "type",
+        "gap",
+        "children"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "heading"
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "level": {
+          "anyOf": [
+            {
+              "type": "number",
+              "const": 2
+            },
+            {
+              "type": "number",
+              "const": 3
+            }
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "text",
+        "level"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "text"
+        },
+        "text": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 2000
+        },
+        "tone": {
+          "type": "string",
+          "const": "muted"
+        }
+      },
+      "required": [
+        "type",
+        "text"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "keyValue"
+        },
+        "items": {
+          "maxItems": 50,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              },
+              "value": {
+                "type": "string",
+                "minLength": 0,
+                "maxLength": 80
+              }
+            },
+            "required": [
+              "label",
+              "value"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "type",
+        "items"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "list"
+        },
+        "empty": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 80
+        },
+        "items": {
+          "maxItems": 200,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
+              },
+              "subtitle": {
+                "type": "string",
+                "minLength": 0,
+                "maxLength": 200
+              },
+              "status": {
+                "type": "object",
+                "properties": {
+                  "label": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80
+                  },
+                  "tone": {
+                    "type": "string",
+                    "enum": [
+                      "neutral",
+                      "info",
+                      "good",
+                      "warn",
+                      "bad"
+                    ]
+                  }
+                },
+                "required": [
+                  "label",
+                  "tone"
+                ],
+                "additionalProperties": false
+              },
+              "action": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9._-]{1,64}$"
+              }
+            },
+            "required": [
+              "title"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "type",
+        "empty",
+        "items"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "status"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "tone": {
+          "type": "string",
+          "enum": [
+            "neutral",
+            "info",
+            "good",
+            "warn",
+            "bad"
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "label",
+        "tone"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "meter"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "usedPct": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "pacePct": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        }
+      },
+      "required": [
+        "type",
+        "label",
+        "usedPct"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "code"
+        },
+        "text": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 16384
+        }
+      },
+      "required": [
+        "type",
+        "text"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "link"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "to": {
+          "type": "object",
+          "properties": {
+            "route": {
+              "type": "string",
+              "enum": [
+                "start",
+                "overview",
+                "review",
+                "sessions",
+                "terminal",
+                "settings",
+                "hosts",
+                "add-executor",
+                "setup"
+              ]
+            },
+            "taskId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          "required": [
+            "route"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "type",
+        "label",
+        "to"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "button"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "action": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._-]{1,64}$"
+        },
+        "variant": {
+          "type": "string",
+          "enum": [
+            "secondary",
+            "quiet",
+            "danger"
+          ]
+        },
+        "confirm": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80
+            },
+            "body": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2000
+            }
+          },
+          "required": [
+            "title",
+            "body"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "type",
+        "label",
+        "action",
+        "variant"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "checkbox"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "name": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._-]{1,64}$"
+        },
+        "checked": {
+          "type": "boolean"
+        },
+        "action": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._-]{1,64}$"
+        }
+      },
+      "required": [
+        "type",
+        "label",
+        "name",
+        "checked",
+        "action"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "empty"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "body": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 2000
+        }
+      },
+      "required": [
+        "type",
+        "title"
+      ],
+      "additionalProperties": false
+    }
+  ]
+}
+```
+
+Plugin → host notifications (no reply): `ui.invalidate` (extension point `ui`). The host coalesces `ui.invalidate` to one `plugin` event per plugin per second.
+
 ## Lifecycle
 
 States: `disabled`, `refused`, `needs_grant`, `idle`, `starting`, `ready`, `failing`. Bundled plugins are enabled unless listed in `plugins.disabled`; installed plugins need a recorded grant covering their capability set and drop back to `needs_grant` when a new version asks for more. A crash restarts the plugin after 1 s, doubling to 30 s; three crashes within a minute mark it `failing` until `plugin.enable` or a service restart. Calls to one plugin run one at a time unless the manifest sets `reentrant`. Service stop sends SIGTERM, then SIGKILL after 2 s.
