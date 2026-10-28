@@ -188,6 +188,13 @@ export function plannerBudget(snapshot: ClientSnapshot, now: number, shortWindow
   const window = p.usedPct !== null ? p.window : account?.usedPct != null ? account.window : null;
   const capturedAt = account?.capturedAt;
   const age = capturedAt == null ? "reading time unknown" : `read ${ago(capturedAt, now)}`;
+  // A borrowed figure is stale only when its own source says so; a fresh one just lacks the planner's pace.
+  const stale = p.usedPct !== null ? true : account?.usedPct != null ? account.stale !== false : executor?.stale !== false;
+  if (!stale) return {
+    lead: "Planner pace is not measured yet.",
+    meter: { used, pace: null, stale: false, label: `${name} ${window ? `${window} ` : ""}usage` },
+    caption: window ? `${window} window` : "",
+  };
   return {
     lead: "Usage reading is out of date.",
     meter: { used, pace: null, stale: true, label: `${name} ${window ? `${window} ` : ""}usage` },
@@ -210,6 +217,8 @@ export interface RouteExplanationView {
  * Whether the explanation describes what delegating would do. Without a dispatch block in the strategy, delegated
  * tasks are not managed work: the runner ranks executors as `routing.route` does, not by the ladder the explanation runs.
  */
+// Next task describes work delegated from the app (Delegate, New task), which sends no dispatch options of its own;
+// dispatch.submit and MCP child delegation always pass them and are managed work whatever the strategy says.
 export const explanationApplies = (e: RouteExplanationView): boolean => e.strategy.source !== "built-in";
 /** The repository a "where would new work go" explanation is asked for: the active one, or the only one registered. */
 export function explainRepo(scopeRepo: string | null, repos: { key: string }[] | undefined): string | null {

@@ -224,3 +224,13 @@ test("planner budget without any figure keeps the no-reading lead and omits the 
   expect(plannerBudget({ ...snapshot, planner, accounts: [], executors: [] }, now, 28)).toEqual({ lead: planner.advice, caption: "" });
   expect(plannerBudget({ ...snapshot, planner: null }, now)).toBeNull();
 });
+
+test("a fresh borrowed planner figure is not called out of date", () => {
+  const base = snapshot();
+  const snap = { ...base, planner: { ...base.planner!, usedPct: null, pacePct: null, verdict: "unknown" as const, stale: false },
+    accounts: [{ name: "team", agent: "claude-code", source: "pacer", usedPct: 40, pacePct: null, window: "5h", resetsAt: null, verdict: "UNKNOWN", signedIn: true, executors: [base.planner!.runner], stale: false, capturedAt: null, spendUsdWeek: null, capUsdWeek: null }] } as unknown as ClientSnapshot;
+  const budget = plannerBudget(snap, 1_800_000_000)!;
+  expect(budget.lead).toBe("Planner pace is not measured yet.");
+  expect(budget.meter).toMatchObject({ used: 40, stale: false });
+  expect(budget.caption).toBe("5h window");
+});
