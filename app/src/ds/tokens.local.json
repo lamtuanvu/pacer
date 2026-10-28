@@ -178,6 +178,21 @@
         "provisional": "Command menu board value; not yet in the design system."
       },
       {
+        "name": "size-220",
+        "value": "220px",
+        "provisional": "Dispatcher board: minimum available-executor pool column width."
+      },
+      {
+        "name": "size-140",
+        "value": "140px",
+        "provisional": "Dispatcher board: task-kind input column width."
+      },
+      {
+        "name": "size-110",
+        "value": "110px",
+        "provisional": "Dispatcher board: saved setup action column width."
+      },
+      {
         "name": "size-9",
         "value": "9px",
         "usage": "Flush TaskCard row vertical padding.",
