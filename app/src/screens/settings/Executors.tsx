@@ -1,3 +1,4 @@
+import { withQuery, type RouteQuery } from '../../router';
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import type { ExecutorRow } from '../../../../src/api/read-model/types';
 import { executorLabel } from '../../../../src/view-model/words';
@@ -7,7 +8,7 @@ import { useTaskContext, ErrorMessage } from '../task-shared';
 import { registerNavigationGuard, canLeaveScreen } from '../../data/navigation-guard';
 import { useNotifications } from '../../data/notification-context';
 import { Alert } from '../../ds/Alert';
-import { Button, ButtonLink, TextAction } from '../../ds/Button';
+import { Button, TextAction } from '../../ds/Button';
 import { AgentMark } from '../../ds/AgentMark';
 import { Checkbox, Disclosure, Field, TextInput } from '../../ds/Controls';
 import { Dialog } from '../../ds/Dialog';
@@ -16,7 +17,7 @@ import { Pill } from '../../ds/Pill';
 import { useDialogs } from '../../ds/useDialogs';
 import { Section, useResource, useOperation, Feedback, time } from './shared';
 
-export function ExecutorsSection() {
+export function ExecutorsSection({ query: routeQuery = { repo: null, scope: null } }: { query?: RouteQuery }) {
   const {state, api} = useTaskContext(), query = useResource<ExecutorSettings>('runner.settings.get');
   const notifications = useNotifications(), dialogs = useDialogs();
   const [saved, setSaved] = useState<ExecutorSettings>(), [draft, setDraft] = useState<ExecutorDraft>();
@@ -85,7 +86,7 @@ export function ExecutorsSection() {
     await action();
   };
   const ordered = rows ? [ ...rows.filter(r=>r.rank==='planner'&&!draft?.order.includes(r.id)), ...(draft?.order ?? rows.filter(r=>r.rank!=='planner').map(r=>r.id)).map(id=>rows.find(r=>r.id===id)??knownRows.current.get(id)).filter((r):r is ExecutorRow=>!!r)] : [];
-  return <Section id="executors" title="Executors" detail="Set executor priority and capacity, then save your changes." actions={<ButtonLink size="sm" href="#/settings/add-executor">Add executor</ButtonLink>}>
+  return <Section id="executors" title="Agents" detail="Set executor priority and capacity, then save your changes." actions={<><TextAction href={withQuery("#/settings/accounts", routeQuery)}>Accounts</TextAction><TextAction href={withQuery("#/settings/add-executor", routeQuery)}>Add executor</TextAction></>}>
     {dialogs.dialog}
     {leaving&&<Dialog title="Unsaved executor changes" close={()=>finishLeave(false)}><p>Save your executor settings before leaving?</p><div className="u3-actions"><Button disabled={busy} onClick={()=>finishLeave(false)}>Stay</Button><Button disabled={busy} onClick={()=>{reload();finishLeave(true);}}>Discard changes</Button><Button variant="primary" busy={busy} disabled={!state.connected||!!conflict||Object.keys(errors).length>0} onClick={async()=>{if(await current.current.save())finishLeave(true);}}>Save and leave</Button></div><ErrorMessage error={error}/></Dialog>}
     <ErrorMessage error={query.error}/><ErrorMessage error={error}/>

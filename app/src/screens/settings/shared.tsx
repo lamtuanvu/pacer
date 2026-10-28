@@ -17,7 +17,7 @@ import { ErrorMessage, useTaskContext } from "../task-shared";
 import styles from './settings.css' with {type:'text'};
 const styledDocuments = new WeakSet<Document>();
 /** Constructed sheets keep these standalone screens compatible with the app's strict style CSP. */
-function useSettingsStyles() {
+export function useSettingsStyles() {
  useEffect(()=>{if(styledDocuments.has(document))return;const sheet=new CSSStyleSheet();sheet.replaceSync(styles);document.adoptedStyleSheets=[...document.adoptedStyleSheets,sheet];styledDocuments.add(document);},[]);
 }
 export function latestJob(event:Job|undefined,polled:Job|undefined):Job|undefined {
@@ -84,7 +84,7 @@ export function Feedback({action}:{action:ReturnType<typeof useOperation>}) {
  const notifications=useNotifications();
  return <div className="u3-feedback"><ErrorMessage error={action.error}/>{action.result&&<>{!notifications&&!action.job&&<span>{action.result.message}</span>}{action.result.hint&&<p>{action.result.hint}</p>}{action.result.command&&<pre>{action.result.command}</pre>}{action.result.path&&<p>Path: <code>{action.result.path}</code></p>}{action.result.undo&&<p>Undo: <code>{action.result.undo}</code></p>}</>}{action.job&&<JobProgress job={action.job}/>}</div>;
 }
-export function Segment(props:{label:string;value:string;options:{value:string;label:string}[];onChange:(value:string)=>void;disabled?:boolean}) {return <SegmentedControl {...props}/>;}
+export function Segment(props:{variant?:"board";label:string;value:string;options:{value:string;label:string}[];onChange:(value:string)=>void;disabled?:boolean}) {return <SegmentedControl {...props}/>;}
 export const words=(value:string)=>value.replaceAll('_',' ');
 export const time=(value:number|null)=>value===null?'Not checked':clock(value,Date.now()/1000);
 /** Keep host jobs visible after navigation or a service reconnect. */

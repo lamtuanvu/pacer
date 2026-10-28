@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
-import { Checkbox, Disclosure } from "../../ds/Controls";
+import { Checkbox, Disclosure, Switch } from "../../ds/Controls";
 import type { UpdateStatus } from "../../../../src/update/desktop/types";
 import { desktopUpdateView, desktopUpdateFeedback, desktopAdoptionConfirmation, updateIntent, type DesktopAction } from "../../../../src/view-model/updates";
 import { useActions } from "../../data/action-context";
@@ -12,7 +12,8 @@ import { DesktopUpdateConnection } from "./DesktopUpdateConnection";
 import { desktopHost, readDesktopVersion, readDesktopUpdateConnection, type DesktopUpdateConnection as Connection } from "../../data/desktop";
 import { updateModel } from "../../model/settings";
 import { desktopUpdateModel } from "../../../../src/view-model/updates";
-import { Feedback, ResourceState, Section, time, useOperation, useResource } from "./shared";
+import { SettingRow } from "../../ds/SettingRow";
+import { Feedback, ResourceState, time, useOperation, useResource, useSettingsStyles } from "./shared";
 
 /** Offers a line break after each `/`, so long paths wrap between segments rather than mid-name. */
 function PathText({ path }: { path: string }) {
@@ -75,13 +76,14 @@ export function DesktopUpdate({ status, showIdentity = false }: { status: Update
   </div>;
 }
 
-export function UpdatesSection({ initialData }: { initialData?: UpdateReport }) {
+export function UpdatesSection({ initialData, initialConfig }: { initialData?: UpdateReport; initialConfig?: ConfigData }) {
+  useSettingsStyles();
   const { state } = useTaskContext();
   const updates = state.snapshot?.desktopUpdates;
-  return updates?.length ? <DesktopUpdates updates={updates} serviceVersion={state.version ?? initialData?.current}/> : <LegacyUpdatesSection initialData={initialData}/>;
+  return updates?.length ? <DesktopUpdates updates={updates} serviceVersion={state.version ?? initialData?.current} initialConfig={initialConfig}/> : <LegacyUpdatesSection initialData={initialData} initialConfig={initialConfig}/>;
 }
-function DesktopUpdates({ updates, serviceVersion }: { updates: UpdateStatus[]; serviceVersion?: string | null }) {
-  return <Section id="updates" title="Updates">{serviceVersion && <p>Service {serviceVersion}</p>}{updates.map(status => <DesktopUpdate key={status.installationId} status={status} showIdentity={updates.length > 1}/>)}</Section>;
+function DesktopUpdates({ updates, serviceVersion, initialConfig }: { updates: UpdateStatus[]; serviceVersion?: string | null; initialConfig?: ConfigData }) {
+  return <section id="updates" className="pc-preferences-section" aria-labelledby="updates-h"><h2 id="updates-h" className="pc-settings-board__label">Updates</h2>{serviceVersion && <p>Service {serviceVersion}</p>}{updates.map(status => <DesktopUpdate key={status.installationId} status={status} showIdentity={updates.length > 1}/>) }<AutomaticUpdateCheck initialData={initialConfig}/></section>;
 }
 export interface UpdateReport {
   current: string;
@@ -109,10 +111,9 @@ export function DesktopVersionRow({version, loading, report}: {
   </div>;
 }
 
-function LegacyUpdatesSection({initialData}: {initialData?: UpdateReport}) {
+function LegacyUpdatesSection({initialData, initialConfig}: {initialData?: UpdateReport; initialConfig?: ConfigData}) {
   const dialogs = useDialogs();
   const query = useResource('update.check', {}, initialData);
-  const config = useResource<ConfigData>('config.get');
   const action = useOperation(query.reload);
   const [native] = useState(() => !!desktopHost().__TAURI__);
   const [desktop, setDesktop] = useState<{version:string|null;loading:boolean}>({version:null,loading:true});
@@ -141,26 +142,29 @@ function LegacyUpdatesSection({initialData}: {initialData?: UpdateReport}) {
     return () => { active = false; clearInterval(timer); };
   }, [native]);
   const service = updateModel(query.data, false);
-  return <Section id="updates" title="Updates" actions={
-    <Button busy={action.busy} onClick={() => void action.run('update.check', {force:true})}>Check now</Button>
-  }>
+  return <section id="updates" className="pc-preferences-section" aria-labelledby="updates-h"><h2 id="updates-h" className="pc-settings-board__label">Updates</h2>
     {dialogs.dialog}
     {native && <>
       <p>Desktop app{desktop.version ? ` ${desktop.version}` : ""}</p>
       <DesktopUpdateConnection connection={connection}/>
       <Disclosure summary="Manual desktop update options"><DesktopVersionRow {...desktop} report={query.data}/></Disclosure>
     </>}
-    <ResourceState resource={query}>{query.data && <>
-      <p role="status">Service {query.data.current} · {service.label}</p>
-      {query.data.error && <p role="status">{query.data.error}</p>}
-      {service.canUpdate && <Button busy={action.busy} onClick={async () => {
-        if (await dialogs.confirm('Update the service and restart it? The desktop app is updated separately.', 'Update service', 'Update service and restart')) {
-          void action.run('update.apply', {});
-        }
-      }}>Update service and restart</Button>}
-    </>}</ResourceState>
-    <label className="pc-checkbox"><span>Check for updates <small className="u3-muted">Once a day, in the background</small></span><Checkbox className="pc-checkbox__input" aria-label="Check for updates" checked={config.data?.keys.update_check?.value !== false} disabled={!config.data || action.busy} onChange={e => void action.run('config.set', {key:'update_check',value:e.currentTarget.checked})}/></label>
-    <ResourceState resource={config}><span/></ResourceState>
+    <ResourceState resource={query}>{query.data && <SettingRow variant="board" label={`pacer ${query.data.current}`} description={<span role="status">{query.data.disabled ? "Update checks are turned off here, by this setting or the environment" : service.label}{query.data.error ? ` · ${query.data.error}` : ""}</span>}>
+      <div className="u3-actions">
+        {service.canUpdate && <Button size="sm" variant="primary" busy={action.busy} onClick={async () => {
+          if (await dialogs.confirm('Update the service and restart it? The desktop app is updated separately.', 'Update service', 'Update service and restart')) {
+            void action.run('update.apply', {});
+          }
+        }}>Install {query.data.latest}</Button>}
+        <Button size="sm" busy={action.busy} onClick={() => void action.run('update.check', {force:true})}>Check now</Button>
+      </div>
+    </SettingRow>}</ResourceState>
+    <AutomaticUpdateCheck busy={action.busy} initialData={initialConfig}/>
     <Feedback action={action}/>
-  </Section>;
+  </section>;
+}
+
+function AutomaticUpdateCheck({ busy = false, initialData }: { busy?: boolean; initialData?: ConfigData }) {
+  const config = useResource<ConfigData>("config.get", {}, initialData), action = useOperation(config.reload);
+  return <><SettingRow variant="board" label="Check automatically" description="Once a day, in the background"><Switch size="sm" aria-label="Check automatically" checked={config.data?.keys.update_check?.value !== false} disabled={!config.data || busy || action.busy} onChange={e => void action.run("config.set", {key:"update_check",value:e.currentTarget.checked})}/></SettingRow><ResourceState resource={config}><span/></ResourceState><Feedback action={action}/></>;
 }

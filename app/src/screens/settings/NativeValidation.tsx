@@ -1,7 +1,7 @@
 import {useState} from "preact/hooks";
 import {createValidationIpc,type NativeValidationSetupResult} from "../../desktop/validation";
 import {Button} from "../../ds/Button";
-import {SectionHeading} from "../../ds/SectionHeading";
+import {SettingRow} from "../../ds/SettingRow";
 import {ErrorMessage} from "../task-shared";
 const messages:Partial<Record<NativeValidationSetupResult["status"],string>>={
   already_open:"Setup is already open beside Settings.",
@@ -18,9 +18,9 @@ export function NativeValidationSetup() {
     try{const result=await ipc.setup();setState({message:messages[result.status]??"Access was not verified. Reopen setup to try again."});}catch(error){setState({error});}
   };
   return <div>
-    <div className="u3-setting"><div><SectionHeading>Native validation</SectionHeading><p>Enable macOS access for native controls and VoiceOver.</p></div>
+    <SettingRow label="Native validation" description="Enable macOS access for native controls and VoiceOver.">
       <Button disabled={state.busy} aria-describedby="native-validation-status" onClick={()=>void setup()}>{state.busy?"Setup open…":"Enable native checks"}</Button>
-    </div>
+    </SettingRow>
     <p id="native-validation-status" role="status" aria-live="polite">{state.busy?"Drag the app into the list in Settings, then enable it. Pacer will verify access.":state.message??"Open setup to enable macOS access."}</p>
     <ErrorMessage error={state.error}/>
   </div>;

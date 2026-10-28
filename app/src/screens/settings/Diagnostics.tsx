@@ -1,64 +1,65 @@
 import { NativeValidationSetup } from "./NativeValidation";
 import { useState } from "preact/hooks";
 import type { Check } from "../../../../src/install/doctor";
-import { diagnosticEvidence, diagnosticGroups, diagnosticGuidance, diagnosticLevel, diagnosticRepair, diagnosticSetupLink, diagnosticTitle } from "../../../../src/view-model/diagnostics";
-import { Button, TextAction } from "../../ds/Button";
+import { diagnosticEvidence, diagnosticGroups, diagnosticLevel, diagnosticRepair, diagnosticSetupLink, diagnosticTitle } from "../../../../src/view-model/diagnostics";
+import { Button, ButtonLink } from "../../ds/Button";
 import { Disclosure } from "../../ds/Controls";
-import { Pill } from "../../ds/Pill";
+import { DiagnosticRow } from "../../ds/DiagnosticRow";
 import { SectionHeading } from "../../ds/SectionHeading";
 import { ErrorMessage, useTaskContext } from "../task-shared";
-import { Section, time, useOperation } from "./shared";
+import { time, useOperation } from "./shared";
 
 export interface DoctorReport { checkedAt: number; checks: Check[]; planner?: string; repairAvailable?: boolean }
 interface RepairPreview { revision: string; agent: string; files: string[]; undo: string; detail?: string }
 
-function TechnicalDetails({ check }: { check: Check }) {
-  return <Disclosure className="pc-disclosure pc-disclosure--wrap" summary="Technical details">
-    <pre>{check.name}{"\n"}{check.detail}</pre>
-    {check.fix && <><strong>Suggested next step</strong><pre>{check.fix}</pre></>}
-  </Disclosure>;
+const glyphs = {good: "✓", warn: "!", bad: "✕", neutral: "–"} as const;
+export function diagnosticReportText(report: DoctorReport): string {
+  return [`Diagnostics · Last run ${time(report.checkedAt)}`, ...report.checks.map(check =>
+    `${diagnosticLevel[check.level].label}: ${diagnosticTitle(check.name)}${check.evidence ? ` · ${diagnosticEvidence[check.evidence]}` : ""}\n${check.detail}${check.fix ? `\nSuggested next step: ${check.fix}` : ""}`)].join("\n\n");
 }
-function CheckList({ checks }: { checks: Check[] }) {
-  return <ul className="u3-checks">{checks.map((check, index) => <li key={`${index}:${check.name}`}>
-    <div className="u3-actions"><span>{diagnosticTitle(check.name)}</span><Pill tone={diagnosticLevel[check.level].tone}>{diagnosticLevel[check.level].label}</Pill>
-      {check.evidence && <span>{diagnosticEvidence[check.evidence]}</span>}</div>
-    <TechnicalDetails check={check}/>
-  </li>)}</ul>;
+function reportGroup(check: Check, planner?: string) {
+  if (check.name.startsWith("Claude ") || check.name === "Legacy guard" ||
+      planner && ["Install", "Skill"].some(prefix => check.name === `${prefix} ${planner}`)) return "Planner";
+  if (/^(Binary|CLI|Login|Usage|Install|Skill) /.test(check.name) || check.name === "Executor") return "Executors";
+  return "Service";
 }
 export function DiagnosticResults({ report, busy = false, onRepair }: { report: DoctorReport; busy?: boolean; onRepair?: (agent: string) => void }) {
   const groups = diagnosticGroups(report.checks);
-  return <div className="u3-diagnostics">
-    <div className="u3-actions" aria-label="Check summary">
-      <Pill tone={groups.issueCount ? "warn" : "good"}>{groups.issueCount} {groups.issueCount === 1 ? "issue" : "issues"}</Pill>
-      <span>{groups.passed.length} passed</span><span>{groups.unverifiedCount} unverified</span>
-      <span className="u3-muted">Checked {time(report.checkedAt)}</span>
-    </div>
-    {groups.issues.length ? <><SectionHeading>Needs attention</SectionHeading>
-      {groups.issues.map(group => <section className="pc-card" aria-label={`${group.title} issues`} key={group.title}>
-        <SectionHeading as="h3">{group.title}</SectionHeading>
-        {group.checks.map((check, index) => {
-          const repair = diagnosticRepair(check, report.repairAvailable ? report.planner : undefined), setup = diagnosticSetupLink(check);
-          return <div key={`${index}:${check.name}`}>
-            <div className="u3-actions"><strong>{diagnosticTitle(check.name)}</strong><Pill tone={diagnosticLevel[check.level].tone}>{diagnosticLevel[check.level].label}</Pill></div>
-            <p>{diagnosticGuidance(check)}</p>
-            {check.evidence && <p>{diagnosticEvidence[check.evidence]}</p>}
-            <div className="u3-actions">{repair && onRepair
-              ? <Button disabled={busy} onClick={() => onRepair(repair.agent)}>Repair<span className="sr-only"> {diagnosticTitle(check.name)}</span></Button>
-              : setup && <TextAction href={setup.href}>{setup.label}</TextAction>}</div>
-            <TechnicalDetails check={check}/>
-          </div>;
-        })}
-      </section>)}</> : <p>No issues found in these checks.</p>}
-    {!!groups.unverified.length && <section aria-label="Unverified checks"><SectionHeading>Unverified checks</SectionHeading>
-      <p>Configuration and fixture tests do not prove live invocation. Confirm these checks in the intended agent session.</p>
-      <CheckList checks={groups.unverified}/></section>}
-    {!!groups.passed.length && <Disclosure className="pc-disclosure pc-disclosure--wrap" summary="Passed checks"><CheckList checks={groups.passed}/></Disclosure>}
-    {!!groups.information.length && <Disclosure className="pc-disclosure pc-disclosure--wrap" summary="Other information"><CheckList checks={groups.information}/></Disclosure>}
+  const issues = groups.issues.flatMap(group => group.checks);
+  const totals = [
+    {tone: "good", count: groups.passed.length, label: "Passed"},
+    {tone: "warn", count: issues.filter(check => check.level === "warn").length, label: "Need a look"},
+    {tone: "bad", count: issues.filter(check => check.level === "fail").length, label: "Failed"},
+    {tone: "neutral", count: groups.unverified.length, label: "Not checked"},
+  ] as const;
+  return <div className="pc-diagnostic-results">
+    <div className="pc-diagnostic-totals" aria-label="Check summary">{totals.map(total => <div key={total.label} className="pc-diagnostic-total" data-count={total.count}>
+      <span aria-hidden="true" className={`pc-diagnostic-glyph pc-diagnostic-glyph--${total.tone}`}>{glyphs[total.tone]}</span>
+      <span><b>{total.count}</b><span className="pc-diagnostic-caption">{total.label}</span></span>
+    </div>)}</div>
+    {["Planner", "Executors", "Service"].map(name => {
+      const checks = report.checks.filter(check => reportGroup(check, report.planner) === name);
+      return !!checks.length && <section key={name} aria-label={name} className="pc-diagnostic-group">
+        <SectionHeading>{name}</SectionHeading><div className="pc-diagnostic-list">{checks.map((check, index) => {
+          const repair = diagnosticRepair(check, report.repairAvailable ? report.planner : undefined);
+          const setup = ["warn", "fail"].includes(check.level) ? diagnosticSetupLink(check) : undefined;
+          const tone = check.evidence === "unverified" && !["warn", "fail"].includes(check.level) ? "neutral" : diagnosticLevel[check.level].tone;
+          return <DiagnosticRow key={`${index}:${check.name}`} title={diagnosticTitle(check.name)}
+            caption={`${check.detail}${check.evidence ? ` · ${diagnosticEvidence[check.evidence]}` : ""}`}
+            tone={tone} glyph={glyphs[tone]} status={diagnosticLevel[check.level].label} open={check.level === "fail"}
+            action={repair && onRepair ? <Button size="sm" disabled={busy} onClick={() => onRepair(repair.agent)}>Repair<span className="sr-only"> {diagnosticTitle(check.name)}</span></Button>
+              : setup ? <ButtonLink size="sm" href={setup.href}>{setup.label}</ButtonLink> : undefined}>
+            <pre>{check.name}{"\n"}{check.detail}{check.fix && `\n\nSuggested next step\n${check.fix}`}</pre>
+          </DiagnosticRow>;
+        })}</div>
+      </section>;
+    })}
   </div>;
 }
 export function DiagnosticsSection() {
   const {api} = useTaskContext();
   const [report, setReport] = useState<DoctorReport>();
+  const [copyError, setCopyError] = useState<unknown>();
   const [preview, setPreview] = useState<RepairPreview>();
   const [progress, setProgress] = useState("No checks run yet.");
   const action = useOperation(undefined, {notifySuccess: false});
@@ -85,12 +86,22 @@ export function DiagnosticsSection() {
     if (!result) setPreview(undefined);
     setProgress(result ? "Repair applied and checks refreshed. Review any remaining issues." : "Repair or recheck failed. Review the error and run checks again.");
   }
-  return <Section id="diagnostics" title="Diagnostics" detail="Check setup and repair supported integrations."
-    actions={<Button variant="primary" disabled={action.busy} aria-describedby={action.busy ? "diagnostics-progress" : undefined}
-      onClick={() => void runChecks()}>{action.busy ? "Working…" : "Run checks"}</Button>}>
+  async function copyReport() {
+    if (!report) return;
+    setCopyError(undefined);
+    try { await navigator.clipboard.writeText(diagnosticReportText(report)); setProgress("Report copied."); }
+    catch (error) { setCopyError(error); setProgress("Could not copy the report."); }
+  }
+  return <section id="diagnostics" aria-label="Diagnostics" className="pc-diagnostics">
+    <header className="pc-diagnostics-header">
+      <div><h1>Diagnostics</h1><p className="pc-diagnostic-caption">Checks that pacer, your planner and every executor are wired up.{report && ` Last run ${time(report.checkedAt)}.`}</p></div>
+      {report && <Button onClick={() => void copyReport()}>Copy report</Button>}
+      <Button variant="primary" disabled={action.busy} aria-describedby={action.busy ? "diagnostics-progress" : undefined}
+        onClick={() => void runChecks()}>Run all checks</Button>
+    </header>
     {!report && <p>Configuration and fixture tests do not prove hook invocation. It stays unverified until observed in Claude.</p>}
     <div role="status" aria-live="polite" id="diagnostics-progress">{progress}</div>
-    <ErrorMessage error={action.error}/>
+    <ErrorMessage error={action.error}/><ErrorMessage error={copyError}/>
     {preview && <section className="pc-card" aria-label="Repair preview" aria-busy={action.busy}>
       <SectionHeading>Review repair</SectionHeading>
       <p>Reconnect the selected planner integration. Review the files that will change before applying this repair.</p>
@@ -102,5 +113,5 @@ export function DiagnosticsSection() {
     </section>}
     {report && <div aria-busy={action.busy}><DiagnosticResults report={report} busy={action.busy} onRepair={agent => void previewRepair(agent)}/></div>}
     <NativeValidationSetup/>
-  </Section>;
+  </section>;
 }

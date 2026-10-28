@@ -17,21 +17,24 @@ export const TextArea = forwardRef<HTMLTextAreaElement, JSX.TextareaHTMLAttribut
   return <textarea {...props} ref={ref} className={classes('pc-input', 'pc-textarea', `pc-control--${density}`, className)} />;
 });
 type FieldNode = VNode<{ id?: string; children?: ComponentChildren; 'aria-describedby'?: string; 'aria-invalid'?: boolean }>;
-function findControl(children: ComponentChildren): FieldNode | undefined {
+/** `skip` names elements not searched, e.g. a control's own native label. */
+export function findControl(children: ComponentChildren, skip: readonly string[] = []): FieldNode | undefined {
   for (const child of toChildArray(children)) {
     if (!isValidElement(child)) continue;
     const node = child as FieldNode;
     if ([TextInput, TextArea, ChoicePicker, Checkbox, Switch, Range].includes(node.type as never)) return node;
-    const nested = findControl(node.props.children);
+    if (typeof node.type === 'string' && skip.includes(node.type)) continue;
+    const nested = findControl(node.props.children, skip);
     if (nested) return nested;
   }
 }
-function connectControl(children: ComponentChildren, target: FieldNode, attributes: Partial<FieldNode['props']>): ComponentChildren {
+/** `wrap` optionally places the connected control inside another element. */
+export function connectControl(children: ComponentChildren, target: FieldNode, attributes: Partial<FieldNode['props']>, wrap?: (control: VNode) => VNode): ComponentChildren {
   return toChildArray(children).map(child => {
     if (!isValidElement(child)) return child;
     const node = child as FieldNode;
-    if (node === target) return cloneElement(node, attributes);
-    return node.props.children ? cloneElement(node, { children: connectControl(node.props.children, target, attributes) }) : node;
+    if (node === target) { const connected = cloneElement(node, attributes); return wrap ? wrap(connected) : connected; }
+    return node.props.children ? cloneElement(node, { children: connectControl(node.props.children, target, attributes, wrap) }) : node;
   });
 }
 /** Labels the first canonical control, including within layout elements; keeps sibling feedback intact. */
@@ -67,8 +70,8 @@ export const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(function Che
 export function Radio({ className, ...props }: InputProps) {
   return <input {...props} type="radio" className={classes('pc-radio', className)} />;
 }
-export const Switch = forwardRef<HTMLInputElement, CheckboxProps>(function Switch(props, ref) {
-  return <Checkbox {...props} ref={ref} role="switch" className={classes('pc-switch', props.className)} />;
+export const Switch = forwardRef<HTMLInputElement, Omit<CheckboxProps, "size"> & { size?: CheckboxProps["size"] | "sm" }>(function Switch({ size, ...props }, ref) {
+  return <Checkbox {...props} size={size === "sm" ? undefined : size} ref={ref} role="switch" aria-checked={props.checked === undefined ? props["aria-checked"] : !!props.checked} className={classes('pc-switch', size === "sm" && 'pc-switch--sm', props.className)} />;
 });
 export const Range = forwardRef<HTMLInputElement, InputProps & { label?: ComponentChildren }>(function Range({ label, id, className, ...props }, ref) {
   const generated = useId();

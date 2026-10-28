@@ -5,7 +5,7 @@ export interface Account {
   name: string; kind: string; folder?: string; source?: string; quotaSource?: string | null; signedIn?: boolean | null; signin_command?: string; runners?: string[];
   state?: string | { state?: string; detail?: string }; detail?: string;
   connection?: { base_url_host?: string; key?: string; models: Model[]; checked_at?: string | number };
-  usageReading?: { windows: { name: string; usedPct: number | null; resetsAt: number | null }[]; capturedAt?: number | null; stale?: boolean; source?: string; error?: string; availability?: { state: string; reason: string } };
+  usageReading?: { windows: { name: string; usedPct: number | null; resetsAt: number | null; stale?: boolean }[]; capturedAt?: number | null; stale?: boolean; source?: string; error?: string; availability?: { state: string; reason: string } };
 }
 export const arkcliSignInRequired = (account: Account) => account.quotaSource === "arkcli" && account.usageReading?.availability?.reason === "authentication_failed";
 export function arkcliRefreshMessage(result: { accounts?: { account: string; outcome: string; error?: string | null }[] }, name: string): string {

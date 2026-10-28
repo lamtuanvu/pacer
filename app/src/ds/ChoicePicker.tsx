@@ -13,6 +13,7 @@ export interface ChoiceOption {
 }
 
 export interface ChoicePickerProps {
+  sizing?: "content";
   value: string;
   options: readonly ChoiceOption[];
   onValueChange(value: string): void;
@@ -31,7 +32,7 @@ export interface ChoicePickerProps {
 /** Controlled single-choice field; the trigger is the labeled and focusable control. */
 export const ChoicePicker = forwardRef<HTMLButtonElement, ChoicePickerProps>(function ChoicePicker({
   value, options, onValueChange, placeholder = 'Choose…', searchable,
-  required, disabled, name, id, className, ...aria
+  required, disabled, name, id, className, sizing, ...aria
 }, ref) {
   const generated = useId();
   const density = useDensity();
@@ -149,7 +150,7 @@ export const ChoicePicker = forwardRef<HTMLButtonElement, ChoicePickerProps>(fun
     if (target.bottom > container.bottom) box.scrollTop += target.bottom - container.bottom;
     else if (target.top < container.top) box.scrollTop -= container.top - target.top;
   }, [open, active, query]);
-  return <span ref={root} className={classes('pc-choice-picker', `pc-choice-picker--${density}`, className)}>
+  return <span ref={root} className={classes('pc-choice-picker', `pc-choice-picker--${density}`, sizing === "content" && "pc-choice-picker--content", className)}>
     <Button ref={(node: HTMLButtonElement | null) => {
       trigger.current = node;
       if (typeof ref === 'function') ref(node);
