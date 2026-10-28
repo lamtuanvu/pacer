@@ -24,14 +24,16 @@ export interface TopBarProps {
   /** Only regions that exist on this route get a button. */
   panels?: { left?: PanelToggle; dock?: PanelToggle; right?: PanelToggle };
   narrow?: boolean; title: string; planner: PlannerMeter | null; mode: string; connected: boolean; lastUpdate: number | null;
-  showActions?: boolean; now?: number; onDelegate: () => void;
+  showActions?: boolean;
+  /** False when the screen renders its own h1, so the page title appears once (UI-9). */
+  showTitle?: boolean; now?: number; onDelegate: () => void;
 }
 const modeTone = (mode: string) => ({ normal: "neutral", relaxed: "good" } as const)[mode.toLowerCase() as "normal"] ?? "warn";
 function LayoutToggle({ icon, label, keys, toggle }: { icon: "panel-left" | "panel-bottom" | "panel-right"; label: string; keys: string; toggle: PanelToggle }) {
   return <IconButton icon={icon} size="sm" variant="quiet" aria-label={label} title={label} aria-keyshortcuts={keys} aria-pressed={toggle.open} onClick={toggle.toggle} />;
 }
 /** One compact page header, including native controls in the desktop shell. */
-export function TopBar({ brand, search, narrowSearch, panels = {}, narrow = false, title, planner, mode, connected, lastUpdate, now: fixedNow, onDelegate, showActions = true }: TopBarProps) {
+export function TopBar({ brand, search, narrowSearch, panels = {}, narrow = false, title, planner, mode, connected, lastUpdate, now: fixedNow, onDelegate, showActions = true, showTitle = true }: TopBarProps) {
   const [tick, setTick] = useState(() => Date.now() / 1000);
   useEffect(() => { if (fixedNow !== undefined) return; const t = setInterval(() => setTick(Date.now() / 1000), 1000); return () => clearInterval(t); }, [fixedNow]);
   const now = fixedNow ?? tick;
@@ -39,7 +41,7 @@ export function TopBar({ brand, search, narrowSearch, panels = {}, narrow = fals
   return <header className="pc-topbar" data-tauri-drag-region>
     {!narrow && <TitleBar />}
     {!narrow && brand && <span className="pc-topbar__brand">{brand}</span>}
-    {showActions && <h1 data-tauri-drag-region title={title}>{title}</h1>}
+    {showActions && showTitle && <h1 data-tauri-drag-region title={title}>{title}</h1>}
     <span className="grow" data-tauri-drag-region />
     {!narrow && showActions && <div className="pc-topbar__search">{search}</div>}
     {!narrow && showActions && <span className="grow" data-tauri-drag-region />}

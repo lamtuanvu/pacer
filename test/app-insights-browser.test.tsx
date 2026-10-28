@@ -25,8 +25,8 @@ for (const [width, scheme] of [[375, "light"], [375, "dark"], [768, "light"], [1
       await page.getByRole("heading", { name: "Agents, ranked by tokens" }).waitFor();
       const widths = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, inner: window.innerWidth }));
       expect(widths.scroll).toBeLessThanOrEqual(widths.inner);
-      // The page title is the shell's h1; the screen adds none (the test fixture has no shell).
-      expect(await page.locator("h1").count()).toBe(0);
+      // The board puts the title in the page; the shell's top bar omits its h1 here (pageOwnsTitle), so there is one.
+      expect(await page.locator("h1").allTextContents()).toEqual(["Insights"]);
       // The wide tables scroll inside their own focusable regions.
       for (const name of ["Agents table, scrollable", "Task kinds table, scrollable"]) {
         const region = page.getByRole("region", { name });

@@ -71,6 +71,10 @@ export function parentFor(route: Route): RouteTarget | null {
   if (route.name === "add-executor") return routes.settings(undefined, route.query);
   return null;
 }
+/** Screens whose design puts the page title in the page itself; the top bar then omits its h1. */
+export function pageOwnsTitle(route: Route): boolean {
+  return route.name === "insights";
+}
 export function titleFor(route: Route): string {
   if (route.name === "start") return "Start work";
   if (route.name === "insights") return "Insights";

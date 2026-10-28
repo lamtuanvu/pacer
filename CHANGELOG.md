@@ -27,6 +27,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- The Tasks tree refreshes work rows when a task starts, settles or appears, so a running work tree's token total includes each subtask as it finishes instead of waiting for a reload. The `--seed ui` live sandbox now includes a running work tree with measured subtask tokens.
 - The session file viewer opens files in sessions that run in a Pacer task worktree instead of refusing them as private state.
 
 ## [0.11.0] - 2026-10-26
