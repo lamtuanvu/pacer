@@ -1,7 +1,7 @@
 /** The app's one shortcut registry. Pure apart from attachKeyRegistry, so tests need no DOM. */
 export interface Shortcut { keys: string; label: string; scope: "global" | string; run: () => void; allowInControl?: boolean }
 export interface KeyInput {
-  key: string; ctrlKey: boolean; metaKey: boolean; altKey: boolean;
+  key: string; ctrlKey: boolean; metaKey: boolean; altKey: boolean; shiftKey?: boolean;
   target: unknown; preventDefault(): void; defaultPrevented?: boolean;
 }
 const NOT_TEXT_INPUTS = new Set(["checkbox", "radio", "button", "submit", "reset", "range", "color", "file"]);
@@ -34,7 +34,7 @@ export function createKeyRegistry(opts: { controlActive: () => boolean; blocked?
     handle(e: KeyInput): boolean {
       if (e.defaultPrevented || e.altKey || opts.blocked?.()) return false;
       // Mod-k is the one combination that also answers to Cmd, so ⌘K and Ctrl-K are one binding.
-      const modK = (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k";
+      const modK = (e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === "k";
       if (e.metaKey && !modK) return false;
       const token = modK ? "Mod-k" : e.ctrlKey ? `Ctrl-${e.key}` : e.key;
       if (e.ctrlKey && e.key === "Control") return false;

@@ -52,8 +52,13 @@ export function CommandMenu({ label, placeholder, query, onQueryChange, prefix, 
   const signature = options.map(option => option.id).join("\n");
   const [active, setActive] = useState(0);
   const optionId = (index: number) => `${uid}-option-${index}`;
-  // New results start at the top, but a re-render with the same results keeps the user's place.
-  useEffect(() => { setActive(0); }, [signature]);
+  // New results start at the top, unless the highlighted option is still in them (a live update keeps the user's place).
+  const activeKey = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const kept = activeKey.current === undefined ? -1 : options.findIndex(option => option.id === activeKey.current);
+    setActive(kept >= 0 ? kept : 0);
+  }, [signature]);
+  activeKey.current = options[active]?.id;
   useLayoutEffect(() => {
     const element = dialog.current!;
     const invoking = element.ownerDocument.activeElement as HTMLElement | null;
@@ -68,6 +73,8 @@ export function CommandMenu({ label, placeholder, query, onQueryChange, prefix, 
 
   const onKeyDown = (event: KeyboardEvent) => {
     const key = event.key;
+    // Enter that confirms an IME candidate (Telex, Pinyin) belongs to the composition, not to the menu.
+    if (event.isComposing || event.keyCode === 229) return;
     if (key === "ArrowDown" || key === "ArrowUp") setActive(options.length ? (active + (key === "ArrowDown" ? 1 : -1) + options.length) % options.length : 0);
     else if (key === "Home") setActive(0);
     else if (key === "End") setActive(Math.max(0, options.length - 1));
@@ -92,14 +99,14 @@ export function CommandMenu({ label, placeholder, query, onQueryChange, prefix, 
         value={query} onInput={event => onQueryChange(event.currentTarget.value)} onKeyDown={onKeyDown} />
       <Kbd>Esc</Kbd>
     </div>
-    {scopes && scopes.length > 0 && <div className="pc-command__scopes" role="tablist" aria-label="Search in">
-      {scopes.map(item => <button key={item.id} type="button" role="tab" tabIndex={-1} className="pc-command__scope" aria-selected={item.id === scope}
+    {scopes && scopes.length > 0 && <div className="pc-command__scopes" role="group" aria-label="Search in">
+      {scopes.map(item => <button key={item.id} type="button" tabIndex={-1} className="pc-command__scope" aria-pressed={item.id === scope}
         onMouseDown={event => event.preventDefault()} onClick={() => onScope?.(item.id)}>{item.label}{item.count !== undefined && <span className="pc-command__count"> {item.count}</span>}</button>)}
       <span className="pc-command__spacer" />
       <span className="pc-command__hint"><Kbd>Tab</Kbd> switch</span>
     </div>}
+    {empty && <div className="pc-command__empty" role="status"><strong>{empty.title}</strong><span>{empty.description}</span></div>}
     <div className="pc-command__list" id={`${uid}-list`} role="listbox" aria-label="Results" ref={list}>
-      {empty && <div className="pc-command__empty" role="status"><strong>{empty.title}</strong><span>{empty.description}</span></div>}
       {groups.map((group, at) => <div key={group.title} role="group" aria-labelledby={`${uid}-group-${at}`} className="pc-command__group">
         <span className="pc-command__heading" id={`${uid}-group-${at}`}>{group.title}</span>
         {group.options.map(option => {

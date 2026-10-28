@@ -100,7 +100,7 @@ browserTest("greater_than_switches_to_commands_and_runs_one", () => withPage(asy
   const input = page.getByRole("combobox");
   await input.fill(">panel");
   await expect(page.locator(".pc-command__prefix").textContent()).resolves.toBe("Commands");
-  await expect(page.getByRole("tab").count()).resolves.toBe(0);
+  await expect(page.getByRole("group", { name: "Search in" }).count()).resolves.toBe(0);
   const options = await labels(page);
   expect(options).toContain("Toggle side panel");
   expect(options).not.toContain("Add SSH keepalive to remote runs");
@@ -119,15 +119,21 @@ browserTest("tab_cycles_scopes_and_empty_state_offers_new_task", () => withPage(
   await page.keyboard.press("Control+k");
   const input = page.getByRole("combobox");
   await input.fill("a");
-  const tabs = page.getByRole("tab");
+  const tabs = page.getByRole("group", { name: "Search in" }).getByRole("button");
   await expect(tabs.allTextContents()).resolves.toEqual(expect.arrayContaining([expect.stringMatching(/^All \d+$/), expect.stringMatching(/^Tasks \d+$/)]));
-  await expect(page.getByRole("tab", { selected: true }).textContent()).resolves.toMatch(/^All/);
+  const pressed = () => page.locator('.pc-command__scope[aria-pressed="true"]').textContent();
+  await expect(pressed()).resolves.toMatch(/^All/);
   await page.keyboard.press("Tab");
-  await expect(page.getByRole("tab", { selected: true }).textContent()).resolves.toMatch(/^Tasks/);
+  await expect(pressed()).resolves.toMatch(/^Tasks/);
   expect(await page.locator(".pc-command__heading").allTextContents()).toEqual(["Tasks"]);
   await focused(page, 'input[role="combobox"]');
   await page.keyboard.press("Shift+Tab");
-  await expect(page.getByRole("tab", { selected: true }).textContent()).resolves.toMatch(/^All/);
+  await expect(pressed()).resolves.toMatch(/^All/);
+  // A scope with no matches falls back to All instead of showing an empty list.
+  await page.getByRole("button", { name: /^Machines/ }).click();
+  await expect(pressed()).resolves.toMatch(/^Machines/);
+  await input.fill("keepalive");
+  expect(await labels(page)).toEqual(["Add SSH keepalive to remote runs"]);
   // Nothing matches: say so, offer New task, and let Enter run it.
   await input.fill("xyzzy plugin");
   await expect(page.getByRole("status").filter({ hasText: "Nothing matches" }).textContent()).resolves.toContain("xyzzy plugin");
@@ -152,3 +158,32 @@ browserTest("menu_fits_a_375px_screen", () => withPage(async (page, built) => {
   expect(box!.x + box!.width).toBeLessThanOrEqual(375);
   expect(await page.evaluate(() => document.scrollingElement!.scrollWidth <= document.scrollingElement!.clientWidth)).toBe(true);
 }, { width: 375, height: 700 }));
+
+browserTest("enter_while_composing_does_not_pick", () => withPage(async (page, built) => {
+  await open(page, built, "#/overview");
+  await page.keyboard.press("Control+k");
+  const input = page.getByRole("combobox");
+  await input.fill("fix");
+  // An IME candidate confirmation arrives as Enter with isComposing set.
+  await input.evaluate(element => element.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", isComposing: true, bubbles: true, cancelable: true })));
+  await expect(page.getByRole("combobox").count()).resolves.toBe(1);
+  expect(await page.evaluate(() => location.hash)).toBe("#/overview");
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("combobox").count()).resolves.toBe(0);
+}));
+
+browserTest("shift_ctrl_k_and_clicks", () => withPage(async (page, built) => {
+  await open(page, built, "#/overview");
+  await page.keyboard.press("Control+Shift+K");
+  await expect(page.getByRole("combobox").count()).resolves.toBe(0);
+  await page.keyboard.press("Control+k");
+  await page.getByRole("combobox").fill(">");
+  // A mouse pick runs the command and closes the menu.
+  await page.getByRole("option", { name: /^New task/ }).click();
+  await expect(page.getByRole("combobox").count()).resolves.toBe(0);
+  await page.waitForFunction(() => (window as any).newTask === 1);
+  await page.keyboard.press("Control+k");
+  await page.getByRole("combobox").fill("devbox");
+  await page.getByRole("option", { name: /devbox/ }).first().click();
+  await expect(page.getByRole("combobox").count()).resolves.toBe(0);
+}));

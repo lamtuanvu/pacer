@@ -58,6 +58,7 @@ test("Mod-k answers to Cmd-K and Ctrl-K, also from a text field, but not to Cmd 
   expect(e1.prevented).toBe(true);
   expect(keys.handle(press("k", { ctrlKey: true }, { tagName: "INPUT", type: "text" }))).toBe(true);
   expect(keys.handle(press("K", { metaKey: true }, { tagName: "TEXTAREA" }))).toBe(true);
+  expect(keys.handle({ ...press("K", { ctrlKey: true }), shiftKey: true })).toBe(false);
   expect(keys.handle(press("k"))).toBe(false);
   expect(keys.handle(press("j", { metaKey: true }))).toBe(false);
   expect(keys.handle(press("k", { metaKey: true, altKey: true }))).toBe(false);

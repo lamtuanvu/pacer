@@ -83,3 +83,24 @@ test("no snapshot yet still lists commands", () => {
   const result = buildMenu({ query: "tasks", scope: "all", snapshot: null, commands, recent: [], now: NOW });
   expect(titles(result)).toEqual(["Go to Tasks"]);
 });
+
+test("a single scope lists every match while All caps each group", () => {
+  const many = { ...snapshot, tasks: Array.from({ length: 20 }, (_, i) => ({ ...snapshot.tasks[0], id: `t-${i}`, goal: `Fix thing ${i}`, title: `Fix thing ${i}` })) };
+  const run = (scope: any) => buildMenu({ query: "fix", scope, snapshot: many, commands, recent: [], now: NOW });
+  expect(run("all").groups[0]!.items.length).toBe(8);
+  expect(run("all").counts.tasks).toBe(20);
+  expect(run("tasks").groups[0]!.items.length).toBe(20);
+});
+
+test("a scope without matches falls back to All", () => {
+  const result = menu("keepalive", "machines");
+  expect(titles(result)).toEqual(["Add SSH keepalive to remote runs"]);
+  expect(result.empty).toBe(false);
+});
+
+test("recent does not list a picked command a second time", () => {
+  const result = menu("", "all", ["command:task.new"]);
+  const all = titles(result);
+  expect(all.filter(title => title === "New task").length).toBe(1);
+  expect(result.groups.map(group => group.title)).not.toContain("Suggested");
+});

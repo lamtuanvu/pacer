@@ -20,14 +20,18 @@ export function rememberRecent(id: string, before = loadRecent()): string[] {
 }
 
 /** The ⌘K command menu over the app's snapshot and the one command registry. Mount it to open it. */
-export function CommandPalette({ snapshot, registry = commandRegistry, now = Date.now() / 1000, close }: { snapshot: ClientSnapshot | null; registry?: CommandRegistry; now?: number; close: () => void }) {
+export function CommandPalette({ snapshot, registry = commandRegistry, now: fixedNow, close }: { snapshot: ClientSnapshot | null; registry?: CommandRegistry; now?: number; close: () => void }) {
   const [query, setQuery] = useState("");
   const [scope, setScope] = useState<MenuScope>("all");
   const [recent] = useState(loadRecent);
   const { navigate } = useNavigation();
-  const commands = useMemo(() => registry.list(), [registry]);
-  const menu = useMemo(() => buildMenu({ query, scope, snapshot, commands, recent, now }), [query, scope, snapshot, commands, recent]);
-  // Typing a new query returns to All, so a scope never hides the only matches.
+  // Commands come and go with the screen (a panel toggle exists only where its panel does), so follow the registry while open.
+  const [revision, setRevision] = useState(0);
+  useEffect(() => registry.subscribe(() => setRevision(n => n + 1)), [registry]);
+  const commands = useMemo(() => registry.list(), [registry, revision]);
+  const [opened] = useState(() => Date.now() / 1000), now = fixedNow ?? opened;
+  const menu = useMemo(() => buildMenu({ query, scope, snapshot, commands, recent, now }), [query, scope, snapshot, commands, recent, now]);
+  // A new mode starts at All; within search, an empty scope falls back to All in buildMenu.
   useEffect(() => { setScope("all"); }, [parseQuery(query).mode]);
   const byId = new Map<string, MenuItem>(menu.groups.flatMap(group => group.items.map(item => [item.id, item] as const)));
   const groups: CommandMenuGroup[] = menu.groups.map(group => ({ title: group.title, options: group.items.map(item => ({

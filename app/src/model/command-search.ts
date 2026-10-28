@@ -131,14 +131,18 @@ export function buildMenu({ query, scope, snapshot, commands, recent, now }: Men
     const byId = new Map(everything.map(item => [item.id, item]));
     const picked = recent.flatMap(id => byId.get(id) ?? []).slice(0, 5);
     const latest = picked.length ? [] : (snapshot?.tasks ?? []).filter(task => !task.archived).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 3).flatMap(task => byId.get(`task:${task.id}`) ?? []);
-    const groups: MenuGroup[] = [...((picked.length ? picked : latest).length ? [{ title: "Recent", items: picked.length ? picked : latest }] : []), ...groupBy(commandItems(commands), item => item.command!.group).sort(byCommandGroup)];
+    const recentItems = picked.length ? picked : latest, listed = new Set(recentItems.map(item => item.id));
+    const groups: MenuGroup[] = [...(recentItems.length ? [{ title: "Recent", items: recentItems }] : []), ...groupBy(commandItems(commands).filter(item => !listed.has(item.id)), item => item.command!.group).sort(byCommandGroup)];
     return { mode, groups, counts: zero, empty: false, enterHint: "open" };
   }
   const matched = rankAndMark(everything, text);
   const counts = { ...zero, all: matched.length };
   for (const item of matched) counts[item.scope]++;
-  const shown = scope === "all" ? matched : matched.filter(item => item.scope === scope);
-  const groups = groupBy(shown, item => GROUP_TITLES[item.scope]);
+  // A scope with nothing in it falls back to All, so the tab never hides matches that exist elsewhere.
+  const only = scope !== "all" && counts[scope] > 0 ? scope : "all";
+  const shown = only === "all" ? matched : matched.filter(item => item.scope === only);
+  // Each group is capped while browsing All; a single scope lists everything it matched.
+  const groups = groupBy(shown, item => GROUP_TITLES[item.scope], only === "all" ? PER_GROUP : shown.length);
   const order = Object.values(GROUP_TITLES);
   groups.sort((a, b) => order.indexOf(a.title) - order.indexOf(b.title));
   if (shown.length) return { mode, groups, counts, empty: false, enterHint: "open" };
