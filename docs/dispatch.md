@@ -118,3 +118,18 @@ The numbers are stored with the attempt and indexed in the `attempt_usage` table
 Each attempt belongs to exactly one work node, so totals never count an attempt twice and a parent's total is never added on top of its children's. `totals.tokens` on a work tree sums every node's attempts into `total`, `input`, `cacheRead`, `cacheWrite` and `output`, with `measuredAttempts`, `partialAttempts` and `unknownAttempts`. `lowerBound` is true whenever any attempt is `partial` or `unknown`, so show the number as "at least". Unreported fields add nothing; they are never counted as zero.
 
 `byExecutor` groups the same sums by agent, account and model, largest first. Task detail returns the same block as `tokens` for that task, and each attempt carries `tokens`. An attempt whose task record has no tokens (backfilled history) takes them from the `attempt_usage` index, so every view shows the same numbers. A node whose task record can no longer be read keeps its index rows, or counts as one `unknown` attempt. `planner` and `decision` report `coverage: "unknown"` until planner attribution exists.
+
+### Insights
+
+`insights.summary { from, to, repo?, bucket }` (Unix seconds, `to` exclusive, `bucket` is `day` or `week`) answers where the work and tokens went. It reads the `attempt_usage` index and the task store; it needs only the normal read scope and never writes. The app shows it on the Insights screen (Today, 7 days or 30 days).
+
+Definitions, so every client counts the same way:
+
+- **Root task:** a work node with no parent, or a task with no work node.
+- **Handled in a period:** the root task's first settle falls in the period. `settledAt` is overwritten when a task settles again, so the first settle is kept in `task_first_settle`. Older history is filled on service start from `settledAt`, or from the first attempt's end for tasks with several attempts. A later retry never counts the task again.
+- **Subtasks, attempts, retries:** descendants of the handled roots, their attempts, and attempts beyond the first on any task (`retryAttempts`).
+- **Accepted first try:** the root was accepted at review, and no task in its tree needed a second attempt. The rate is over reviewed roots; with none reviewed it is `null`, not 0.
+- **Tokens:** attempts that ended in the period, with `measured`/`partial`/`unknown` counts and `lowerBound`. Cache tokens are kept out of `total`.
+- **Spread:** per agent, root tasks, tasks, attempts, tokens, `share` (of this period's tokens; `null` when there are none), tokens per task and acceptance rate (accepted over reviewed attempts).
+- **Also returned:** a series per bucket by agent, task kinds by agent, the ladder rule that picked each attempt, skip reasons, and the same headline figures for the previous period of equal length (`previous`).
+- **Planner:** `planner` and `decision` report `coverage: "unknown"` and `ranOutsidePlanner` is `null` until planner attribution exists. Shares and the executor split never depend on it, and token volumes are never presented as savings or cost.

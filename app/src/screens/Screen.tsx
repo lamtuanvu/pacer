@@ -6,6 +6,7 @@ import type { Route } from '../router';
 import { TaskRoute } from "./TaskResult";
 import { Overview, NeedsYouPage } from "./Overview";
 import { LazyStartSession } from "./LazyStartSession";
+import { LazyInsights } from "./LazyInsights";
 
 import { RemoteHosts, HostDetail } from "./settings/Hosts";
 import { AddExecutor } from "./settings/AddExecutor";
@@ -17,6 +18,7 @@ export function Screen({route}:{route:Route}) {
  switch(route.name) {
  case 'start': return <LazyStartSession/>;
  case 'setup': return <LazySetup query={route.query}/>;
+ case 'insights': return <LazyInsights query={route.query}/>;
  case 'overview': return <Overview query={route.query}/>;
  case 'review': return <NeedsYouPage query={route.query}/>;
  case 'sessions': return route.id?<>{running?.id === route.id && <p role="status">Running on {running.executor}</p>}<TaskRoute key={route.id} id={route.id} query={route.query}/></>:<Sessions key={JSON.stringify(route.query)} query={route.query}/>;

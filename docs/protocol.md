@@ -3463,6 +3463,48 @@ Params JSON Schema:
 }
 ```
 
+### `insights.summary`
+
+Where the work and tokens went in a period: root tasks handled (first settle in the period), token totals with coverage, the spread per agent, a series per bucket, task kinds by agent, ladder rules and skip reasons, plus the previous period for comparison.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "from": {
+      "type": "number",
+      "minimum": 0
+    },
+    "to": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "repo": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "bucket": {
+      "default": "day",
+      "type": "string",
+      "enum": [
+        "day",
+        "week"
+      ]
+    }
+  },
+  "required": [
+    "from",
+    "to",
+    "bucket"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### `job.cancel`
 
 Cancel a job that supports cancellation.

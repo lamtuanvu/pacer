@@ -3,7 +3,7 @@ import { settingsPageTitle } from "./settings-pages";
 /** Hash routes for the redesigned shell. Unknown hashes fall back to Overview. */
 export interface RouteQuery { repo: string | null; scope: string | null }
 type RouteBase =
-  | { name: "start" | "overview" | "loading" | "setup" }
+  | { name: "start" | "overview" | "loading" | "setup" | "insights" }
   | { name: "add-executor"; host?: string }
   | { name: "review" | "sessions" | "terminal"; id?: string }
   | { name: "settings"; section?: string }
@@ -11,10 +11,10 @@ type RouteBase =
   ;
 export type Route = RouteBase & { query: RouteQuery };
 export type RouteName = Route["name"];
-export type PrimaryRoute = "start" | "overview" | "review" | "sessions" | "terminal" | "settings" | null;
+export type PrimaryRoute = "start" | "overview" | "insights" | "review" | "sessions" | "terminal" | "settings" | null;
 type TargetQuery = Partial<RouteQuery>;
 export type RouteTarget =
-  | { name: "start" | "overview" | "review" | "setup"; query?: TargetQuery }
+  | { name: "start" | "overview" | "review" | "setup" | "insights"; query?: TargetQuery }
   | { name: "sessions" | "terminal"; id?: string; query?: TargetQuery }
   | { name: "settings"; section?: string; query?: TargetQuery }
   | { name: "hosts"; alias?: string; query?: TargetQuery }
@@ -35,6 +35,7 @@ export const routes = {
   hosts: (query?: TargetQuery) => withTargetQuery({ name: "hosts" } as const, query),
   host: (alias: string, query?: TargetQuery) => withTargetQuery({ name: "hosts", alias } as const, query),
   addExecutor: (host?: string, query?: TargetQuery) => withTargetQuery({ name: "add-executor", ...(host ? { host } : {}) } as const, query),
+  insights: (query?: TargetQuery) => withTargetQuery({ name: "insights" } as const, query),
   setup: (query?: TargetQuery) => withTargetQuery({ name: "setup" } as const, query),
 };
 
@@ -53,6 +54,7 @@ export function hrefFor(target: RouteTarget, current: RouteQuery = EMPTY_QUERY):
     case "hosts": href = target.alias ? `#/settings/hosts/${encodeURIComponent(target.alias)}` : "#/settings/hosts"; break;
     case "add-executor": href = "#/settings/add-executor"; break;
     case "setup": href = "#/setup"; break;
+    case "insights": href = "#/insights"; break;
   }
   const query = mergedQuery(target, current);
   if (target.name !== "add-executor" || !target.host) return withQuery(href, query);
@@ -71,6 +73,7 @@ export function parentFor(route: Route): RouteTarget | null {
 }
 export function titleFor(route: Route): string {
   if (route.name === "start") return "Start work";
+  if (route.name === "insights") return "Insights";
   if (route.name === "sessions" && route.id) return "Task";
   if (route.name === "terminal") return "Terminal";
   if (route.name === "hosts" && route.alias) return "Host";
@@ -79,6 +82,7 @@ export function titleFor(route: Route): string {
 }
 export function primaryFor(route: Route): PrimaryRoute {
   if (route.name === "start") return "start";
+  if (route.name === "insights") return "insights";
   return route.name === "overview" || route.name === "review" || route.name === "sessions" || route.name === "terminal" ? route.name : route.name === "settings" || route.name === "hosts" || route.name === "add-executor" ? "settings" : null;
 }
 
@@ -125,6 +129,7 @@ function match(path: string): RouteBase {
   if (path === "/setup") return { name: "setup" };
   if (path === "/") return { name: "start" };
   if (path === "/overview") return { name: "overview" };
+  if (path === "/insights") return { name: "insights" };
   if (path === "/settings") return { name: "settings" };
   if (path === "/settings/hosts") return { name: "hosts" };
   if (path === "/settings/add-executor") return { name: "add-executor" };

@@ -147,6 +147,8 @@ function connection(ctx: Ctx) {
       if (!fields.some(field => field.name === "json_mtime")) db.run("ALTER TABLE tasks ADD COLUMN json_mtime REAL");
       if (!fields.some(field => field.name === "archived")) db.run("ALTER TABLE tasks ADD COLUMN archived INTEGER NOT NULL DEFAULT 0");
       db.run("CREATE INDEX IF NOT EXISTS tasks_retention ON tasks(archived, settled_at)");
+      // settledAt is overwritten when a task settles again; Insights counts a task once, at its first settle.
+      db.run("CREATE TABLE IF NOT EXISTS task_first_settle(task_id TEXT PRIMARY KEY, at REAL NOT NULL)");
     }).immediate();
   } catch (error) { db.close(); throw error; }
   for (const [key, entry] of connections) {
@@ -253,6 +255,7 @@ export function updateTask(ctx: Ctx, id: string, mutate: (t: TaskRecord) => void
       t.rev = rev + 1;
       // JSON first: a crash before SQLite commits is recovered by the next import.
       const mtime = writeCompatibilityJson(ctx, t);
+      if (t.settledAt !== undefined) db.query("INSERT OR IGNORE INTO task_first_settle(task_id,at) VALUES(?,?)").run(id, t.settledAt);
       db.query(`UPDATE tasks SET rev=?, state=?, created_at=?, updated_at=?, settled_at=?, repo=?, record=?, archived=?, json_mtime=? WHERE id=?`)
         .run(...values(t, Number.isFinite(ctx.now) ? ctx.now : Date.now() / 1000).slice(1), mtime, id);
       return t;
