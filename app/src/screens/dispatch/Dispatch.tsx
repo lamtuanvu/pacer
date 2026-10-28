@@ -8,7 +8,7 @@ import { eligibilityPresentation } from "../../../../src/view-model/eligibility"
 import { capacity, counts, needsYou, otherReposNeedingYou, plannerMeter, type Scope } from "../../../../src/view-model/selectors";
 import type { ClientSnapshot } from "../../../../src/view-model/snapshot";
 import { scopedTaskTree, type TaskNodeView } from "../../../../src/view-model/task-tree";
-import { clock } from "../../../../src/view-model/time";
+import { ago, clock } from "../../../../src/view-model/time";
 import { attentionStatus, executorLabel, paceStatus } from "../../../../src/view-model/words";
 import { useActions } from "../../data/action-context";
 import type { ActionRunner } from "../../data/actions";
@@ -195,7 +195,7 @@ const KPI_TONE: Record<KpiTile["id"], string> = { handled: "info", tokens: "neut
 function Glance({ period, insights }: { period: Period; insights: InsightsState }) {
   const tiles = insights.current ? kpiTiles(insights.current, period, { today: insights.today ?? null }) : [];
   return <section className="pc-glance-strip" aria-label={periodHeading(period)} id="glance">
-    {tiles.length ? <ul className="pc-glance">{tiles.map(tile => <li key={tile.id} className="pc-glance__tile">
+    {tiles.length ? <ul className="pc-glance" role="list">{tiles.map(tile => <li key={tile.id} className="pc-glance__tile">
       <span className={`pc-glance__icon pc-glance__icon--${KPI_TONE[tile.id]}`}><Icon name={KPI_ICON[tile.id]} /></span>
       <div className="pc-glance__body"><span className="pc-glance__label">{tile.label}</span><span className="pc-glance__value">{tile.value}</span>
       {(tile.delta || tile.note) && <span className="pc-glance__note">{tile.delta && <span className={`pc-glance__delta pc-glance__delta--${tile.delta.tone}`}>{tile.delta.text}</span>}{tile.delta && tile.note ? " " : ""}{tile.note}</span>}</div>
@@ -220,8 +220,8 @@ function TokenShare({ summary, planner }: { summary?: InsightsSummary; planner: 
 function DispatchHeader({ snapshot, query, narrow, period, onPeriod, connected, now }: { snapshot: ClientSnapshot; query: RouteQuery; narrow: boolean; period: Period; onPeriod?: (period: Period) => void; connected: boolean; now: number }) {
   const delegate = useDelegate();
   const agents = capacity(snapshot).filter(row => row.rank !== "planner" && row.usedPct !== null).length + (snapshot.planner ? 1 : 0);
-  // The top bar states when the snapshot was updated, so the page line does not repeat it (UI-15).
-  const live = connected ? ["Live", agents ? `${agents} agent${agents === 1 ? "" : "s"} connected` : null].filter(Boolean).join(" · ") : "Reconnecting…";
+  // The page line carries the update age, as on the board; the top bar drops its own on Dispatch (UI-15). No snapshot time, no age.
+  const live = connected ? ["Live", agents ? `${agents} agent${agents === 1 ? "" : "s"} connected` : null, snapshot.at > 0 ? `updated ${ago(snapshot.at, now)}` : null].filter(Boolean).join(" · ") : "Reconnecting…";
   // The period only changes figures from task insights, so the switch shows only when the service has them.
   const controls = <div className="pc-dispatch__controls">
     {onPeriod && <SegmentedControl label="Period" value={period} options={PERIODS} onChange={value => onPeriod(value as Period)} />}

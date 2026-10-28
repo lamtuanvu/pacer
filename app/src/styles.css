@@ -190,7 +190,6 @@ html[data-pacer-native-titlebar] .pc-traffic__btn{display:none}
 
 
 
-.pc-attn__title{display:flex;align-items:center;gap:var(--space-2);min-width:0;font-weight:var(--type-body-strong-weight)}
 
 
 .pc-row .pc-pill,.pc-topbar .pc-pill{align-self:center}
@@ -260,8 +259,7 @@ html[data-pacer-native-titlebar] .pc-traffic__btn{display:none}
 .pc-repo-chip{display:inline-block;flex:none;max-width:35%;overflow:hidden;text-overflow:ellipsis;margin-left:0;padding:0 var(--space-1\.5);border-radius:var(--radius-sm);background:var(--surface-lane);font-size:var(--type-label-size);color:var(--ink-secondary);font-weight:var(--type-body-weight)}
 .pc-review-hints{text-align:right}.pc-review-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--space-3)}.pc-review-cards section{min-width:0;border:1px solid var(--line);border-radius:var(--radius-lg);padding:var(--space-2\.5) var(--space-3);overflow-wrap:anywhere}.pc-review-cards p{margin:var(--space-1) 0}
 .pc-verdict-pair{display:grid;grid-template-columns:1fr 1fr;gap:var(--space-2)}.pc-review-verdict .pc-retry{display:flex;flex-direction:column;gap:var(--space-2)}.pc-retry select{flex:1;min-width:0;width:0}.pc-good-text{color:var(--good-fg)}
-.pc-attn:focus-visible{outline:var(--stroke-focus) solid var(--focus);outline-offset:var(--stroke-focus)}
-@media(max-width:767px){.pc-panel{display:none}.pc-review-cards{grid-template-columns:minmax(0,1fr)}.pc-attn>.grow{flex-basis:65%}.pc-attn .row-actions{width:100%;flex-wrap:wrap}.pc-main{min-width:0;padding:var(--space-3)}.pc-app{width:100%}.pc-work{max-width:100%}.pc-main--canvas{padding:0}.pc-attn__title,.pc-row__goal,.pc-session-header{overflow-wrap:anywhere}.pc-form,.form-row{min-width:0}pre{max-width:100%;overflow:auto}.pc-review-run{word-break:normal}}
+@media(max-width:767px){.pc-panel{display:none}.pc-review-cards{grid-template-columns:minmax(0,1fr)}.pc-main{min-width:0;padding:var(--space-3)}.pc-app{width:100%}.pc-work{max-width:100%}.pc-main--canvas{padding:0}.pc-row__goal,.pc-session-header{overflow-wrap:anywhere}.pc-form,.form-row{min-width:0}pre{max-width:100%;overflow:auto}.pc-review-run{word-break:normal}}
 .pc-review-queue{gap:var(--space-1)}
 
 
@@ -382,8 +380,7 @@ html[data-pacer-native-titlebar] .pc-traffic__btn{display:none}
 .pc-glance{display:grid;grid-template-columns:repeat(auto-fit,minmax(var(--size-200),1fr));margin:0;padding:0;list-style:none}
 .pc-glance__tile{display:flex;gap:var(--space-3);align-items:flex-start;min-width:0;padding:var(--space-4) var(--space-5);box-shadow:var(--size-1) 0 0 var(--line),0 var(--size-1) 0 var(--line)}
 /* Dividers sit on the right and bottom of each tile; the strip clips the outer ones, so empty cells stay blank. */
-.pc-glance__body{display:flex;flex-direction:column;gap:var(--space-half);min-width:0}
-.pc-glance__body{font-variant-numeric:tabular-nums}
+.pc-glance__body{display:flex;flex-direction:column;gap:var(--space-half);min-width:0;font-variant-numeric:tabular-nums}
 .pc-glance__icon{flex:none;display:inline-flex;align-items:center;justify-content:center;width:var(--size-32);height:var(--size-32);border-radius:var(--radius-md);background:var(--surface-lane);color:var(--ink)}
 .pc-glance__icon--info{background:var(--info-bg);color:var(--info-fg)}.pc-glance__icon--good{background:var(--good-bg);color:var(--good-fg)}
 .pc-glance__value{font-size:var(--type-number-lg-size);line-height:var(--type-number-lg-line);font-weight:var(--type-number-lg-weight)}

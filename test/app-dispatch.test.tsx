@@ -37,8 +37,8 @@ test("regions follow the board: title, period, repos and New task, then planner 
   expect([...at].sort((a, b) => a - b)).toEqual(at);
   // The page carries the one title; the top bar drops its own on Dispatch (UI-9).
   expect(html.match(/<h1/g)).toHaveLength(1);
-  // The top bar states the update age, so the page line names only the connection (UI-15).
-  expect(strip(html.slice(html.indexOf("Live · "), html.indexOf("</span>", html.indexOf("Live · "))))).toMatch(/^Live · \d+ agents? connected$/);
+  // The page line carries the connection and update age, as on the board; the top bar drops its own on Dispatch (UI-15).
+  expect(strip(html.slice(html.indexOf("Live · "), html.indexOf("</span>", html.indexOf("Live · "))))).toMatch(/^Live · \d+ agents? connected · updated \S+ ago$/);
   expect(view(null, snap, { connected: false })).toContain("Reconnecting…");
   // No snapshot time: no invented age.
   expect(strip(view(null, { ...snap, at: 0 }))).not.toMatch(/updated \d+d ago/);

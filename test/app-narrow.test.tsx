@@ -57,6 +57,8 @@ test("bottom bar keeps all four icons, badges and scope on every destination", (
     if (screen === "/") { expect(html).toContain("pc-planner"); expect(html).not.toContain("63%·77"); }
     else expect(html).toContain("63%·77");
     // Dispatch offers New task in its header instead of the top bar's Delegate.
+    // Dispatch's page line states the connection and update age, so the top bar drops its own there (UI-15).
+    expect(html.includes('class="pc-live"')).toBe(screen !== "/");
     if (screen === "/") expect(html).not.toMatch(/pc-btn--touch[^>]*>Delegate</);
     else expect(html).toMatch(/pc-btn--touch[^>]*>Delegate</);
   }
