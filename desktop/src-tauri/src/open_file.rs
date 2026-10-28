@@ -14,11 +14,6 @@ use std::process::{Command, Stdio};
 const MAX_EDITOR_CONFIG_BYTES: u64 = 64 * 1024;
 const MAX_EDITOR_ARGS: usize = 64;
 const MAX_ARG_BYTES: usize = 4096;
-/// Files a desktop's default handler may execute rather than display.
-const LAUNCHER_EXTENSIONS: &[&str] = &[
-    "desktop", "appimage", "run", "bin", "sh", "bash", "zsh", "command", "tool", "jar", "exe",
-    "bat", "cmd", "com", "msi", "lnk", "ps1", "vbs", "wsf", "hta", "scr", "reg", "url",
-];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
@@ -123,8 +118,8 @@ fn open_fd(dir: Option<&OwnedFd>, name: &Path, flags: libc::c_int) -> Result<Own
 }
 
 /// Re-walk from the root without following symlinks and require the resolved
-/// regular file. Returns its permission bits.
-pub fn verify(resolved: &Resolved) -> Result<u32, String> {
+/// regular file.
+pub fn verify(resolved: &Resolved) -> Result<(), String> {
     let mut dir = open_fd(None, &resolved.root, libc::O_DIRECTORY)?;
     for (index, name) in resolved.components.iter().enumerate() {
         let last = index + 1 == resolved.components.len();
@@ -139,36 +134,66 @@ pub fn verify(resolved: &Resolved) -> Result<u32, String> {
             if !info.is_file() || info.dev() != resolved.dev || info.ino() != resolved.ino {
                 return Err("File changed since it was checked".into());
             }
-            return Ok(info.mode());
+            return Ok(());
         }
         dir = fd;
     }
     Err("File unavailable".into())
 }
 
+fn private_to_user(info: &std::fs::Metadata) -> bool {
+    // SAFETY: getuid has no preconditions.
+    info.uid() == unsafe { libc::getuid() } && info.mode() & 0o022 == 0
+}
+
 /// The user's editor from `<home>/desktop/editor.json`, which no API operation
-/// writes. A file another user could have written is refused.
+/// writes. The file and both directories above it must be the user's and not
+/// writable by others; the file is reached without following symlinks.
 pub fn load_editor(home: &Path) -> Result<Option<Vec<String>>, String> {
-    let path = home.join("desktop").join("editor.json");
-    let fd = match open_fd(None, &path, libc::O_NONBLOCK) {
+    let untrusted =
+        || "Editor settings must be owned by you and not writable by others".to_string();
+    let Ok(home_fd) = open_fd(None, home, libc::O_DIRECTORY).or_else(|_| {
+        // PACER_HOME itself may be a link the user made; its target is checked below.
+        let real = std::fs::canonicalize(home).map_err(|_| String::new())?;
+        open_fd(None, &real, libc::O_DIRECTORY)
+    }) else {
+        return Ok(None);
+    };
+    let home_info = File::from(home_fd.try_clone().map_err(|_| untrusted())?)
+        .metadata()
+        .map_err(|_| untrusted())?;
+    let desktop = match open_fd(Some(&home_fd), Path::new("desktop"), libc::O_DIRECTORY) {
         Ok(fd) => fd,
-        Err(_) if !path.exists() && path.symlink_metadata().is_err() => return Ok(None),
+        Err(_) if home.join("desktop").symlink_metadata().is_err() => return Ok(None),
+        Err(_) => return Err(untrusted()),
+    };
+    let desktop_info = File::from(desktop.try_clone().map_err(|_| untrusted())?)
+        .metadata()
+        .map_err(|_| untrusted())?;
+    let path = home.join("desktop").join("editor.json");
+    let fd = match open_fd(Some(&desktop), Path::new("editor.json"), libc::O_NONBLOCK) {
+        Ok(fd) => fd,
+        Err(_) if path.symlink_metadata().is_err() => return Ok(None),
         Err(_) => return Err("Editor settings must be a regular file, not a link".into()),
     };
-    let mut file = File::from(fd);
+    let file = File::from(fd);
     let info = file
         .metadata()
         .map_err(|_| "Editor settings are unreadable")?;
-    // SAFETY: getuid has no preconditions.
-    if !info.is_file() || info.uid() != unsafe { libc::getuid() } || info.mode() & 0o022 != 0 {
-        return Err("Editor settings must be owned by you and not writable by others".into());
-    }
-    if info.len() > MAX_EDITOR_CONFIG_BYTES {
-        return Err("Editor settings are too large".into());
+    if !private_to_user(&home_info)
+        || !private_to_user(&desktop_info)
+        || !info.is_file()
+        || !private_to_user(&info)
+    {
+        return Err(untrusted());
     }
     let mut text = String::new();
-    file.read_to_string(&mut text)
+    file.take(MAX_EDITOR_CONFIG_BYTES + 1)
+        .read_to_string(&mut text)
         .map_err(|_| "Editor settings are unreadable")?;
+    if text.len() as u64 > MAX_EDITOR_CONFIG_BYTES {
+        return Err("Editor settings are too large".into());
+    }
     let value: Value =
         serde_json::from_str(&text).map_err(|_| "Editor settings are not valid JSON")?;
     parse_editor(&value).map(Some)
@@ -222,19 +247,10 @@ pub fn editor_argv(template: &[String], resolved: &Resolved) -> Vec<OsString> {
     argv
 }
 
-fn launcher(path: &Path, mode: u32) -> bool {
-    mode & 0o111 != 0
-        || path
-            .extension()
-            .and_then(|e| e.to_str())
-            .is_some_and(|e| LAUNCHER_EXTENSIONS.contains(&e.to_ascii_lowercase().as_str()))
-}
-
 /// The argument vector for an action. Only `Open` uses a configured editor.
 pub fn argv(
     action: Action,
     resolved: &Resolved,
-    mode: u32,
     editor: Option<&[String]>,
     os: &str,
 ) -> Result<Vec<OsString>, String> {
@@ -244,10 +260,10 @@ pub fn argv(
         // LaunchServices' text editor, never the type's handler, so nothing is executed.
         (Action::Open, None, "macos") => Ok(vec!["/usr/bin/open".into(), "-t".into(), path]),
         (Action::Reveal, _, "macos") => Ok(vec!["/usr/bin/open".into(), "-R".into(), path]),
-        (Action::Open, None, "linux") if launcher(&resolved.absolute, mode) => {
-            Err("This file could run when opened; configure an editor to open it".into())
+        // xdg-open picks a handler by content type and may run it; Linux needs a configured editor.
+        (Action::Open, None, "linux") => {
+            Err("Configure an editor to open files on this platform".into())
         }
-        (Action::Open, None, "linux") => Ok(vec!["/usr/bin/xdg-open".into(), path]),
         (Action::Reveal, _, "linux") => {
             let parent = resolved.absolute.parent().ok_or("File unavailable")?;
             Ok(vec![
@@ -260,16 +276,18 @@ pub fn argv(
 }
 
 /// What the shell can do, for the page's capability check.
-pub fn supported(os: &str) -> Value {
+pub fn supported(os: &str, editor_configured: bool) -> Value {
     match os {
         "macos" => json!({"open": true, "reveal": true, "revealLabel": "Reveal in Finder"}),
-        "linux" => json!({"open": true, "reveal": true, "revealLabel": "Show in folder"}),
+        "linux" => {
+            json!({"open": editor_configured, "reveal": true, "revealLabel": "Show in folder"})
+        }
         _ => json!({"open": false, "reveal": false, "revealLabel": null}),
     }
 }
 
-/// Launch without a shell, with null stdio and no Pacer environment, and reap it.
-pub fn spawn(argv: Vec<OsString>) -> Result<(), String> {
+/// A launch without a shell, with null stdio and no Pacer environment.
+pub fn command(argv: &[OsString]) -> Result<Command, String> {
     let (program, args) = argv.split_first().ok_or("Missing program")?;
     let mut command = Command::new(program);
     command
@@ -283,7 +301,14 @@ pub fn spawn(argv: Vec<OsString>) -> Result<(), String> {
             command.env_remove(key);
         }
     }
-    let mut child = command.spawn().map_err(|_| "Unable to start the editor")?;
+    Ok(command)
+}
+
+/// Launch and reap the hand-off.
+pub fn spawn(argv: &[OsString]) -> Result<(), String> {
+    let mut child = command(argv)?
+        .spawn()
+        .map_err(|_| "Unable to start the editor")?;
     std::thread::spawn(move || {
         let _ = child.wait();
     });
@@ -402,6 +427,18 @@ mod tests {
     }
 
     #[test]
+    fn open_in_editor_never_expands_placeholders_inside_the_path() {
+        let (_dir, root) = workspace();
+        std::fs::write(root.join("{line}{column}"), "x").unwrap();
+        let resolved = parse_resolution(&resolution(&root, "{line}{column}")).unwrap();
+        let template: Vec<String> = ["/usr/bin/vim", "{path}"].map(String::from).into();
+        assert_eq!(
+            editor_argv(&template, &resolved)[1],
+            OsString::from(root.join("{line}{column}"))
+        );
+    }
+
+    #[test]
     fn open_in_editor_settings_require_an_absolute_program_and_a_private_file() {
         assert!(parse_editor(&json!({"command": ["code", "{path}"]})).is_err());
         assert!(parse_editor(&json!({"command": ["/bin/{path}"]})).is_err());
@@ -417,19 +454,30 @@ mod tests {
 
         let home = tempfile::tempdir().unwrap();
         assert_eq!(load_editor(home.path()).unwrap(), None);
-        std::fs::create_dir(home.path().join("desktop")).unwrap();
-        let config = home.path().join("desktop/editor.json");
+        assert_eq!(load_editor(&home.path().join("missing")).unwrap(), None);
+        let desktop = home.path().join("desktop");
+        std::fs::create_dir(&desktop).unwrap();
+        assert_eq!(load_editor(home.path()).unwrap(), None);
+        let config = desktop.join("editor.json");
         std::fs::write(&config, r#"{"command":["/usr/bin/vim","{path}"]}"#).unwrap();
         std::fs::set_permissions(&config, std::fs::Permissions::from_mode(0o600)).unwrap();
         assert_eq!(
             load_editor(home.path()).unwrap().unwrap()[0],
             "/usr/bin/vim"
         );
+
+        std::fs::set_permissions(&desktop, std::fs::Permissions::from_mode(0o777)).unwrap();
+        assert!(
+            load_editor(home.path()).is_err(),
+            "a world-writable settings directory was trusted"
+        );
+        std::fs::set_permissions(&desktop, std::fs::Permissions::from_mode(0o700)).unwrap();
         std::fs::set_permissions(&config, std::fs::Permissions::from_mode(0o666)).unwrap();
         assert!(
             load_editor(home.path()).is_err(),
             "a world-writable editor file was trusted"
         );
+
         std::fs::remove_file(&config).unwrap();
         let target = home.path().join("elsewhere.json");
         std::fs::write(&target, r#"{"command":["/usr/bin/vim"]}"#).unwrap();
@@ -438,6 +486,41 @@ mod tests {
             load_editor(home.path()).is_err(),
             "a linked editor file was trusted"
         );
+
+        std::fs::remove_file(&config).unwrap();
+        std::fs::create_dir(&config).unwrap();
+        assert!(load_editor(home.path()).is_err(), "a directory was trusted");
+        std::fs::remove_dir(&config).unwrap();
+        let fifo = CString::new(config.as_os_str().as_bytes()).unwrap();
+        // SAFETY: fifo is a valid NUL-terminated path.
+        assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o600) }, 0);
+        assert!(load_editor(home.path()).is_err(), "a FIFO was trusted");
+        std::fs::remove_file(&config).unwrap();
+
+        std::fs::write(
+            &config,
+            format!(
+                r#"{{"command":["/usr/bin/vim"],"pad":"{}"}}"#,
+                "x".repeat(70_000)
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&config, std::fs::Permissions::from_mode(0o600)).unwrap();
+        assert!(
+            load_editor(home.path()).is_err(),
+            "an oversized file was read"
+        );
+    }
+
+    #[test]
+    fn open_in_editor_launch_has_no_pacer_environment_or_stdio() {
+        std::env::set_var("PACER_OPEN_FILE_TEST", "secret");
+        let command = command(&["/usr/bin/true".into(), "x".into()]).unwrap();
+        assert!(command
+            .get_envs()
+            .any(|(key, value)| key == "PACER_OPEN_FILE_TEST" && value.is_none()));
+        assert_eq!(command.get_current_dir(), Some(Path::new("/")));
+        assert!(super::command(&[]).is_err());
     }
 
     #[test]
@@ -447,36 +530,33 @@ mod tests {
         let resolved = parse_resolution(&resolution(&root, "run.command")).unwrap();
         let path = OsString::from(root.join("run.command"));
         assert_eq!(
-            argv(Action::Open, &resolved, 0o644, None, "macos").unwrap(),
+            argv(Action::Open, &resolved, None, "macos").unwrap(),
             vec!["/usr/bin/open".into(), "-t".into(), path.clone()]
         );
         assert_eq!(
-            argv(Action::Reveal, &resolved, 0o644, None, "macos").unwrap(),
+            argv(Action::Reveal, &resolved, None, "macos").unwrap(),
             vec!["/usr/bin/open".into(), "-R".into(), path.clone()]
         );
-        assert!(argv(Action::Open, &resolved, 0o644, None, "linux").is_err());
         let main = parse_resolution(&resolution(&root, "src/main.rs")).unwrap();
-        assert!(argv(Action::Open, &main, 0o755, None, "linux").is_err());
+        assert!(argv(Action::Open, &main, None, "linux").is_err());
         assert_eq!(
-            argv(Action::Open, &main, 0o644, None, "linux").unwrap()[0],
-            "/usr/bin/xdg-open"
+            argv(Action::Reveal, &main, None, "linux").unwrap(),
+            vec!["/usr/bin/xdg-open".into(), OsString::from(root.join("src"))]
         );
-        assert_eq!(
-            argv(Action::Reveal, &main, 0o644, None, "linux").unwrap()[1],
-            OsString::from(root.join("src"))
-        );
-        assert!(argv(Action::Open, &main, 0o644, None, "windows").is_err());
+        assert!(argv(Action::Open, &main, None, "windows").is_err());
         let editor = vec!["/usr/bin/vim".to_string(), "{path}".to_string()];
         assert_eq!(
-            argv(Action::Open, &resolved, 0o755, Some(&editor), "linux").unwrap(),
+            argv(Action::Open, &resolved, Some(&editor), "linux").unwrap(),
             vec!["/usr/bin/vim".into(), path]
         );
         assert_eq!(
-            argv(Action::Reveal, &main, 0o644, Some(&editor), "macos").unwrap()[0],
+            argv(Action::Reveal, &main, Some(&editor), "macos").unwrap()[0],
             "/usr/bin/open"
         );
-        assert_eq!(supported("windows")["open"], false);
-        assert_eq!(supported("macos")["revealLabel"], "Reveal in Finder");
+        assert_eq!(supported("windows", true)["open"], false);
+        assert_eq!(supported("linux", false)["open"], false);
+        assert_eq!(supported("linux", true)["open"], true);
+        assert_eq!(supported("macos", false)["revealLabel"], "Reveal in Finder");
         assert_eq!(
             (Action::parse("open"), Action::parse("exec")),
             (Some(Action::Open), None)

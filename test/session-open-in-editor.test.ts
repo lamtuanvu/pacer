@@ -78,3 +78,20 @@ test("is a v3-only versioned operation", async () => {
   await expect(callOp(ctx, "session.file.resolve", { id, attempt: 2, reference: "" })).rejects.toMatchObject({ code: "invalid_input" });
   expect(v2Hello().ops).not.toContain("session.file.resolve");
 });
+
+test("in a pacer task worktree, resolves workspace files but not the rest of private state", () => {
+  const home = tmpDir();
+  const ctx = fakeCtx({ home, pacerHome: join(home, ".pacer") });
+  const workdir = join(ctx.pacerHome, "worktrees", "repo-0123abcd", id);
+  mkdirSync(join(workdir, "src"), { recursive: true });
+  writeFileSync(join(workdir, "src", "main.ts"), "export {};\n");
+  writeJsonAtomic(join(ctx.pacerHome, "tasks", `${id}.json`), {
+    id, rev: 1, state: "running", createdAt: 1,
+    brief: { goal: "edit", repo: workdir }, attempts: [],
+    run: { attempt: 2, workdir, dir: join(ctx.pacerHome, "runs", id, "2"), host: null, mode: "worktree" },
+  } as any);
+  expect(resolveSessionFile(ctx, { id, attempt: 2, reference: "src/main.ts" }).path).toBe("src/main.ts");
+  symlinkSync(join(ctx.pacerHome, "tasks", `${id}.json`), join(workdir, "task.json"));
+  expect(errorCode(() => resolveSessionFile(ctx, { id, attempt: 2, reference: "task.json" }))).toBe("not_allowed");
+  expect(errorCode(() => resolveSessionFile(ctx, { id, attempt: 2, reference: `../../../tasks/${id}.json` }))).toBe("not_allowed");
+});

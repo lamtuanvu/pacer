@@ -153,7 +153,8 @@ fn desktop_version(window: WebviewWindow, app: AppHandle) -> Result<String, Stri
 #[tauri::command]
 fn host_file_actions(window: WebviewWindow, app: AppHandle) -> Result<Value, String> {
     authorized(&window, &app)?;
-    Ok(open_file::supported(std::env::consts::OS))
+    let editor = open_file::load_editor(&client::pacer_home()).ok().flatten().is_some();
+    Ok(open_file::supported(std::env::consts::OS, editor))
 }
 /// Hand a session file to the user's editor or file manager (ADR 0011). The page
 /// names only a session reference; the service resolves it by the bounded read's
@@ -189,9 +190,9 @@ async fn open_session_file(
         open_file::Action::Open => open_file::load_editor(&client::pacer_home())?,
         open_file::Action::Reveal => None,
     };
-    let mode = open_file::verify(&resolved)?;
-    let argv = open_file::argv(action, &resolved, mode, editor.as_deref(), std::env::consts::OS)?;
-    open_file::spawn(argv)
+    open_file::verify(&resolved)?;
+    let argv = open_file::argv(action, &resolved, editor.as_deref(), std::env::consts::OS)?;
+    open_file::spawn(&argv)
 }
 #[tauri::command]
 fn rounded_window_supported(window: WebviewWindow, app: AppHandle) -> Result<bool, String> {
