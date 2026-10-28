@@ -1,5 +1,8 @@
 import type { ComponentChildren } from "preact";
 import { useEffect, useRef } from "preact/hooks";
+import type { TaskDetail } from "../../../../src/core/task-detail";
+import { executorLabel } from "../../../../src/view-model/words";
+import { Icon } from "../../ds/icons";
 import type { Status } from "../../../../src/view-model/words";
 import { Button } from "../../ds/Button";
 import { PanelTabs } from "../../ds/PanelTabs";
@@ -15,8 +18,8 @@ export interface ChangedFile { path: string; added: number; removed: number; sta
 export interface TaskDiff { patch: string; untracked: string[]; truncated: boolean; files?: ChangedFile[]; note?: string }
 
 /** Title-bar facts and actions for a task's session: status, elapsed time, repository, the details toggle, then actions. */
-export function SessionTitle({ status, live, facts, actions, next }: {
-  status: Status; live: boolean; facts: string[]; actions?: ComponentChildren;
+export function SessionTitle({ status, live, facts, repo, branch, actions, next }: {
+  status: Status; live: boolean; facts: string[]; repo?: string; branch?: string | null; actions?: ComponentChildren;
   /** The task's next step, which lives in the right panel. While that panel is closed it stays reachable here. */
   next?: { label: string; tab: SessionPanelTab; open: (tab: SessionPanelTab) => void };
 }) {
@@ -28,6 +31,8 @@ export function SessionTitle({ status, live, facts, actions, next }: {
   });
   return <>
     <span className="pc-session-title-facts"><StatusDot tone={status.tone} live={live} label={status.label} />
+      {repo && <span className="pc-session-title-repo" title="Repository">{repo}</span>}
+      {branch && <span className="pc-session-title-branch" title={branch}><Icon name="branch" /><span>{branch}</span></span>}
       {facts.filter(Boolean).map(fact => <span key={fact} title={fact}>{fact}</span>)}</span>
     <div ref={group} className="pc-session-title-actions" role="group" aria-label="Session actions" onFocusIn={() => { within.current = true; }}
       onFocusOut={event => { if (event.relatedTarget) within.current = group.current!.contains(event.relatedTarget as Node); }}>
@@ -71,4 +76,26 @@ export function SessionPanel({ id, tab, onTab, changes, details, work }: {
       {current === "changes" ? changes : current === "work" ? work : details}
     </div>
   </div>;
+}
+
+/** Workspace facts are exactly the optional values returned by task.get. */
+export function SessionWorkspace({ task }: { task: TaskDetail }) {
+  const fields = [["Repo", task.repo?.label], ["Branch", task.branch], ["Base", task.base], ["Worktree", task.worktree], ["Machine", task.machine]].filter(([, value]) => !!value);
+  if (!fields.length) return null;
+  return <section className="pc-session-workspace"><SectionHeading as="h3">Workspace</SectionHeading>
+    <dl>{fields.map(([label, value]) => <><dt key={`${label}-label`}>{label}</dt><dd key={label}>{value}</dd></>)}</dl>
+  </section>;
+}
+
+/** No capacity estimates or invented usage: only the routing explanation and reported tokens. */
+export function SessionInsights({ task }: { task: TaskDetail }) {
+  const tokens = task.tokens, reported = tokens && tokens.measuredAttempts + tokens.partialAttempts > 0;
+  return <>
+    {task.routing?.why && <section><SectionHeading as="h3">Why {executorLabel(task.routing.chosen)}</SectionHeading><p>{task.routing.why}</p></section>}
+    {reported && <section><SectionHeading as="h3">Tokens</SectionHeading>
+      <p className="mono">{tokens.lowerBound ? "≥ " : ""}{tokens.total.toLocaleString("en-US")}</p>
+      <dl className="pc-session-token-counts">{([["Input", tokens.input], ["Cache read", tokens.cacheRead], ["Cache write", tokens.cacheWrite], ["Output", tokens.output]] as const).map(([label, value]) => <><dt key={`${label}-label`}>{label}</dt><dd key={label}>{value.toLocaleString("en-US")}</dd></>)}</dl>
+      {tokens.lowerBound && <p className="muted">Partial usage; some attempt tokens are not reported.</p>}
+    </section>}
+  </>;
 }

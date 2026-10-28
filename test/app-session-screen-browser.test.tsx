@@ -308,3 +308,32 @@ browserTest("session_status_dot_retains_tone_and_reduced_motion", async () => wi
     await page.close();
   }
 }), 30_000);
+
+browserTest("details workspace and brief wrap repository labels without horizontal scroll", async () => withBrowser(async browser => {
+  const page = await openSession(browser, "conversation");
+  const panel = page.getByRole("complementary", { name: "Session details" });
+  await panel.getByRole("heading", { name: "Workspace", exact: true }).waitFor();
+  const captionRepo = page.locator('.pc-session-title-repo[title="Repository"]');
+  expect(await captionRepo.innerText()).toBe("acme/api");
+  const branch = page.locator('.pc-session-title-branch[title="pacer/review"]');
+  expect(await branch.innerText()).toBe("pacer/review");
+  expect(await branch.locator("svg").count()).toBe(1);
+  expect(await branch.locator("span").evaluate(node => getComputedStyle(node).textOverflow)).toBe("ellipsis");
+  expect(await captionRepo.evaluate(node => getComputedStyle(node).fontFamily)).toContain("mono");
+  const repo = panel.locator(".pc-session-workspace dd").first();
+  expect(await repo.innerText()).toBe("acme/api");
+  const briefRepo = panel.locator(".pc-session-repository");
+  expect(await briefRepo.innerText()).toBe("acme/api");
+  for (const value of [repo, briefRepo]) {
+    expect(await value.evaluate(node => getComputedStyle(node).overflowWrap)).toBe("anywhere");
+    // Exercise an unbroken repository label wider than the panel without changing fixture data.
+    expect(await value.evaluate(node => { node.textContent = "repository/".repeat(40); return node.scrollWidth <= node.clientWidth && node.getBoundingClientRect().height > 18; })).toBe(true);
+  }
+  expect(await panel.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+  const sections = await panel.locator(".pc-session-details section").evaluateAll(nodes => nodes.map(node => ({ title: node.querySelector("h3")?.textContent, border: getComputedStyle(node).borderTopWidth, padding: getComputedStyle(node).paddingTop })));
+  expect(sections[0]).toMatchObject({ title: "Workspace", border: "0px", padding: "0px" });
+  for (const section of sections.slice(1)) expect(section).toMatchObject({ border: "1px", padding: "14px" });
+  const command = panel.locator(".pc-session-command code");
+  expect(await command.evaluate(node => ({ font: getComputedStyle(node).fontSize, padding: getComputedStyle(node).padding, radius: getComputedStyle(node).borderRadius }))).toEqual({ font: "12px", padding: "6px 8px", radius: "6px" });
+  await page.close();
+}), 20_000);

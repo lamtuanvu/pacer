@@ -28,7 +28,7 @@ export interface SessionSlots {
   /** Title-bar facts plus the given actions. */
   title: (actions: ComponentChildren) => ComponentChildren;
   /** Right-panel tabs with session-specific details and, for conversations, the files strip in Changes. */
-  panel: (details: ComponentChildren, files?: ComponentChildren) => ComponentChildren;
+  panel: (details: ComponentChildren, files?: ComponentChildren, access?: ComponentChildren) => ComponentChildren;
   /** Brings the Changes tab forward, opening the panel when it is closed. */
   showChanges: () => void;
 }
@@ -162,11 +162,11 @@ export function Conversation({
         aria-label="Session control"
       />
     </article>
-    <FrameSlot name="right">{slots?.panel(session?.targets.includes("terminal") && <section className="pc-stack pc-stack--compact">
+    <FrameSlot name="right">{slots?.panel(null, draftId && <section className="pc-stack pc-stack--compact"><SectionHeading as="h3">Files</SectionHeading>
+      <SessionAttachments id={task.id} draftId={draftId} active={active} uploads={uploads} /></section>, session?.targets.includes("terminal") && <section className="pc-stack pc-stack--compact">
       <SectionHeading as="h3">Open elsewhere</SectionHeading>
       <div><Button size="sm" onClick={() => void open()}>Open in terminal</Button></div>
       {notice ? <TerminalOpenFallback command={notice} /> : <p className="muted">The session keeps running here, and both windows stay in sync.</p>}
-    </section>, draftId && <section className="pc-stack pc-stack--compact"><SectionHeading as="h3">Files</SectionHeading>
-      <SessionAttachments id={task.id} draftId={draftId} active={active} uploads={uploads} /></section>)}</FrameSlot>
+    </section>)}</FrameSlot>
   </>);
 }

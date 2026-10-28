@@ -1,10 +1,13 @@
 import { expect, test } from "bun:test";
 import { renderToString } from "preact-render-to-string";
-import { SessionPanel, SessionTitle, WorktreeChanges } from "../app/src/screens/session/SessionPanel";
+import { SessionPanel, SessionTitle, SessionWorkspace, SessionInsights, WorktreeChanges } from "../app/src/screens/session/SessionPanel";
 import { SidePanel } from "../app/src/ds/SidePanel";
 import { PanelTabs } from "../app/src/ds/PanelTabs";
 import { FrameContext } from "../app/src/shell/slots";
 import { panelCommands } from "../app/src/shell/panels";
+import { Brief } from "../app/src/screens/session/Session";
+import { sessionDetail } from "../app/src/screens/session/controller";
+import taskDetail from "./fixtures/ui/task-get.json";
 import { taskStatus } from "../src/view-model/words";
 
 const noop = () => {};
@@ -60,4 +63,43 @@ test("next step is offered in the title bar only while the details panel is clos
   expect(render(true)).not.toContain("Review result");
   // Narrow layouts have no panel to reopen, so no button.
   expect(renderToString(<FrameContext.Provider value={{ ...frame(false), details: undefined }}><SessionTitle status={status} live={false} facts={[]} next={next} /></FrameContext.Provider>)).not.toContain("Review result");
+});
+
+// Workspace reads only the public task.get fields; missing facts have no placeholder rows.
+test("workspace shows available task detail fields only", () => {
+  const task = { repo: { label: "acme/api" }, branch: "feature/session", base: "main", worktree: "/tmp/worktree", machine: "devbox" };
+  const html = renderToString(<SessionWorkspace task={task as never} />);
+  expect(html).toContain("Workspace</h3>");
+  expect(html).toContain("<dl");
+  for (const [label, value] of [["Repo", "acme/api"], ["Branch", "feature/session"], ["Base", "main"], ["Worktree", "/tmp/worktree"], ["Machine", "devbox"]]) {
+    expect(html).toContain(`<dt>${label}</dt><dd>${value}</dd>`);
+  }
+  const sparse = renderToString(<SessionWorkspace task={{ repo: { label: "acme/api" } } as never} />);
+  for (const label of ["Branch", "Base", "Worktree", "Machine"]) expect(sparse).not.toContain(`<dt>${label}</dt>`);
+});
+
+test("routing and tokens sections exist only with reported data", () => {
+  expect(renderToString(<SessionInsights task={{} as never} />)).toBe("");
+  const html = renderToString(<SessionInsights task={{ routing: { chosen: "codex", why: "Spare capacity" }, tokens: { total: 1234, input: 1000, output: 234, cacheRead: 0, cacheWrite: 0, measuredAttempts: 1, partialAttempts: 0, unknownAttempts: 0, lowerBound: false } } as never} />);
+  expect(html).toContain("Why Codex"); expect(html).toContain("Spare capacity");
+  expect(html).toContain("Tokens"); expect(html).toContain("1,234");
+  expect(renderToString(<SessionInsights task={{ tokens: { measuredAttempts: 0, partialAttempts: 0, unknownAttempts: 1 } } as never} />)).toBe("");
+});
+
+test("caption orders repository and branch before time and omits absent facts", () => {
+  const html = renderToString(<SessionTitle status={taskStatus({ state: "running" } as never)} live facts={["12m"]} repo="acme/api" branch="feature/session" />);
+  expect(html).toMatch(/title="Repository"[^>]*>acme\/api/);
+  expect(html).toContain('title="feature/session"');
+  expect(html.indexOf("acme/api")).toBeLessThan(html.indexOf("feature/session"));
+  expect(html.indexOf("feature/session")).toBeLessThan(html.indexOf("12m"));
+  expect(renderToString(<SessionTitle status={taskStatus({ state: "done" } as never)} live={false} facts={[]} />)).not.toContain('title="Repository"');
+});
+
+test("details group keeps workspace first and the brief uses a wrapping label and acceptance code", () => {
+  const task = taskDetail as never;
+  const html = renderToString(<div className="pc-session-details"><SessionWorkspace task={task} /><SessionInsights task={task} /><Brief data={sessionDetail(task)} /></div>);
+  expect(html.indexOf("Workspace</h3>")).toBeLessThan(html.indexOf("Why Codex"));
+  expect(html).toContain('class="pc-session-repository">acme/api</code>');
+  expect(html).toContain('class="pc-session-command"><code>bun test</code>');
+  expect(html).not.toContain('class="pc-code-scroll" tabindex="0">/tmp/fixture/api</code>');
 });

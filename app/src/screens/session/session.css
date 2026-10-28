@@ -135,3 +135,20 @@
 @media(max-width:767px){.pc-tasks-page{padding:var(--space-4) var(--space-4) var(--space-6)}.pc-tasks-page__search{flex:1 1 100%;min-width:0}.pc-task-aside{display:none}}
 .pc-tasks-page .pc-tabs{flex-wrap:wrap}
 .pc-tasks-page .pc-tabs .pc-btn{min-height:var(--control-settings);padding:0 var(--space-3)}
+
+/* Session board: caption facts yield to the title and actions in the frame. */
+.pc-session-title-repo,.pc-session-title-branch{font-family:var(--font-mono);color:var(--ink-secondary)}
+.pc-session-title-branch{display:flex;align-items:center;gap:var(--space-1);min-width:0}
+.pc-session-title-branch>svg{flex:none;width:var(--size-14);height:var(--size-14)}
+.pc-session-title-branch>span{min-width:0;overflow:hidden;text-overflow:ellipsis}
+/* Session board details: one rhythm through the optional sections and groups. */
+.pc-session-details{display:flex;flex-direction:column;gap:var(--space-4);min-width:0;overflow-wrap:anywhere}
+.pc-session-details .pc-session-detail-group,.pc-session-details .pc-session-brief{display:contents}
+.pc-session-details section{display:flex;flex-direction:column;gap:var(--space-1\.5);min-width:0;padding-top:var(--space-3\.5);border-top:var(--size-1) solid var(--line)}
+.pc-session-details .pc-session-workspace{padding-top:0;border-top:0}
+.pc-session-workspace dl,.pc-session-token-counts{display:grid;grid-template-columns:auto minmax(0,1fr);gap:var(--space-1) var(--space-2\.5);margin:0;font-size:var(--type-code-size);line-height:var(--type-code-line)}
+.pc-session-workspace dt,.pc-session-token-counts dt{color:var(--ink-secondary)}
+.pc-session-workspace dd,.pc-session-token-counts dd{min-width:0;margin:0;font-family:var(--font-mono);overflow-wrap:anywhere}
+.pc-session-brief .pc-session-repository{font-family:var(--font-mono);font-size:var(--type-code-size);line-height:var(--type-code-line);white-space:pre-wrap;overflow-wrap:anywhere}
+.pc-session-command{padding:0;border:0;background:transparent}
+.pc-session-command code{display:block;font-family:var(--font-mono);font-size:var(--type-code-size);line-height:var(--type-code-line);padding:var(--space-1\.5) var(--space-2);border-radius:var(--radius-sm);background:var(--surface-lane);white-space:pre-wrap;overflow-wrap:anywhere}

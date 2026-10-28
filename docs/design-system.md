@@ -259,3 +259,20 @@ gap instead of adding their legacy outer margins. An empty project executor list
 is hidden so it does not insert a second grid gap. The start composer keeps its
 intentional landing-page offset; rail dividers retain extra separation between
 navigation groups. These specialized layouts do not override shared primitives.
+
+### Session details and caption
+
+The Session board caption shows status, the repository label and optional branch
+in mono, then elapsed time. Repository text uses `ink-secondary` and the
+Repository tooltip; branch text truncates with ellipsis. The frame keeps its
+existing title and action priorities when facts run out of space.
+
+The Details tab starts with Workspace, using only available `task.get` fields
+(Repo label, Branch, Base, Worktree, Machine). Values wrap anywhere in a
+12px/18px mono definition list. Routing explanation and reported token totals
+appear only when present; partial totals retain their lower-bound label. The
+Changes tab remains separate. Detail sections use a 16px gap and, after Workspace,
+a 14px top inset with a line divider. The brief shows the repository label with
+wrapping; Done when uses 12px mono, 6px/8px padding, a 6px radius and the lane
+surface. Open elsewhere follows the task details. These screen compositions reuse
+existing tokens and primitives; no shared component, token or provenance changed.

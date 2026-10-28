@@ -82,7 +82,7 @@ export function Sessions({query}:{query:RouteQuery}) {
 export function sessionDetail(task:TaskDetail):SessionData {
  return {...sessionRow(task),branch:task.branch,machine:task.machine,started:task.startedAt?clock(task.startedAt,Date.now()/1000):undefined,
  briefSections:([
-  ['Goal',task.brief.goal],['Repository',task.brief.repo],['Scope',task.brief.scope],
+  ['Goal',task.brief.goal],['Repository',task.repo.label],['Scope',task.brief.scope],
   ['Constraints',task.brief.constraints],['Context',task.brief.context],['Feedback',task.brief.feedback],['Base',task.brief.base],
   ['Questions and answers',task.brief.qa?.map(item=>`${item.q}\n${item.a}`).join('\n\n')],
  ] as const).filter((item):item is readonly [typeof item[0],string]=>!!item[1]).map(([label,text])=>({label,text})),report:task.summary,

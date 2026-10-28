@@ -54,9 +54,9 @@ export function TaskResultView({ task, verdict, changes, question, onChanges, em
         {task.work ? <p>Use the Work tab for decisions and history.</p> : question ?? (openReview || problem ? <><p>{task.reviewRequest?.note ?? (task.acceptance.state === "failed" ? "Inspect the failed checks before continuing." : task.state === "partial" ? "Inspect the incomplete work before continuing." : "Inspect the failure and retry when ready.")}</p>{verdict}</> : <><p className="muted">{task.acceptance.state === "failed" ? "Inspect the failed checks before deciding how to continue." : task.state === "partial" ? "Inspect the incomplete work before continuing." : task.review ? "This result has a recorded verdict." : "No acknowledgment required."}</p>{verdict && <Disclosure className="pc-disclosure" summary="Optional verdict">{verdict}</Disclosure>}</>)}
       </section>
   </>;
-  if (compact) return <Stack space="section">{next}{results}
+  if (compact) return <div className="pc-session-detail-group">{next}{results}
       <section className="pc-section"><SectionHeading>Delivery</SectionHeading><p className="muted">Integration not recorded</p>{task.branch && <code className="pc-code-scroll">{task.branch}</code>}<p className="muted">Accepting records a verdict. Integrate changes separately.</p></section>
-  </Stack>;
+  </div>;
   return <Page width="full" embedded={embedded}>
     {!embedded && <TaskHeading task={task}/>}
     <div className="pc-page-columns"><div className="pc-page-columns__main"><div className="pc-stack pc-stack--section">

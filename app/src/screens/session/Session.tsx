@@ -36,12 +36,12 @@ export function Brief({ data }: { data: SessionData }) {
     {data.briefSections?.length ? data.briefSections.map(section => <section key={section.label}>
       <SectionHeading as="h3">{section.label}</SectionHeading>
       {section.label === 'Repository' || section.label === 'Base'
-        ? <code className="pc-code-scroll" tabIndex={0}>{section.text}</code>
+        ? <code className="pc-session-repository">{section.text}</code>
         : <Prose text={section.text}/>}
     </section>) : <ResourceView value={data.brief} loading="Loading brief…" empty="No brief available.">{text => <Prose text={text}/>}</ResourceView>}
     <section><SectionHeading as="h3">Done when</SectionHeading>
       <ResourceView value={data.doneWhen} loading="Loading done-when command…" empty="No done-when command.">{text => <>
-        <div className="pc-session-command"><code className="pc-code-scroll" tabIndex={0}>{text}</code></div>
+        <div className="pc-session-command"><code>{text}</code></div>
         <p className="pc-session-muted">pacer runs this after the executor exits and records the checks with the result.</p>
       </>}</ResourceView>
     </section>
@@ -174,7 +174,7 @@ export function Session({ embedded = false, data, loading, error, initialTab, vi
             <ResourceView value={data.changes} loading="Loading changes…" empty="No changes so far.">{text => <pre tabIndex={0} aria-label="Changes">{text}</pre>}</ResourceView>
           </div> : <Brief data={data}/>}
       </div>
-    </div>{slots ? <FrameSlot name="right">{slots.panel(<div className="pc-stack pc-stack--section">{aside}</div>)}</FrameSlot>
+    </div>{slots ? <FrameSlot name="right">{slots.panel(<div className="pc-session-detail-group">{aside}</div>)}</FrameSlot>
       : <aside className="pc-session-aside" aria-label="Session activity and actions">{aside}</aside>}</div>
     {retryOpen && <Dialog title={active ? 'Stop and retry session' : 'Retry session'} close={() => setRetryOpen(false)}>
       <div className="pc-form">

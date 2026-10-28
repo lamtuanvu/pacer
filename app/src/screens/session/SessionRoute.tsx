@@ -14,7 +14,7 @@ import { takeoverSession, type TakeoverState } from "./takeover";
 import { sessionChangeText, sessionDetail } from "./controller";
 import { Brief, Session } from "./Session";
 import { Conversation, type SessionSlots } from "./Conversation";
-import { SessionPanel, SessionTitle, WorktreeChanges, type SessionPanelTab, type TaskDiff } from "./SessionPanel";
+import { SessionPanel, SessionTitle, SessionWorkspace, SessionInsights, WorktreeChanges, type SessionPanelTab, type TaskDiff } from "./SessionPanel";
 import type { Action } from './types';
 
 /** A task's session: the terminal in the page, its facts and End session in the title bar, Changes and Details in the right panel. */
@@ -78,10 +78,10 @@ export function SessionRoute({id, result, work, tab}:{id:string; result?:Compone
   :t.state==='needs_input'&&t.question&&t.question.answer===undefined?{label:'Answer question',tab:'details'}
   :t.reviewRequest||t.acceptance.state==='failed'||['partial','failed','limit'].includes(t.state)?{label:'Review result',tab:'details'}:undefined;
  const slots:SessionSlots|undefined=task.data&&{
-  title:actions=><SessionTitle status={taskStatus(task.data!)} live={active} facts={[sessionTime(task.data!,Date.now()/1000),task.data!.repo.label]} actions={actions} next={next&&{...next,open:openPanel}}/>,
-  panel:(details,files)=><SessionPanel id={id} tab={panelTab} onTab={setPanelTab} work={work}
+  title:actions=><SessionTitle status={taskStatus(task.data!)} live={active} repo={task.data!.repo.label} branch={task.data!.branch} facts={[sessionTime(task.data!,Date.now()/1000)]} actions={actions} next={next&&{...next,open:openPanel}}/>,
+  panel:(details,files,access)=><SessionPanel id={id} tab={panelTab} onTab={setPanelTab} work={work}
    changes={<><WorktreeChanges diff={diff.data} loading={diff.loading} error={diff.error?'Could not load changes. The worktree may have been removed.':undefined}/>{files}</>}
-   details={<div className="pc-stack pc-stack--section">{result}{details}{data&&<Brief data={data}/>}</div>}/>,
+   details={<div className="pc-session-details"><SessionWorkspace task={task.data!}/><SessionInsights task={task.data!}/>{details}{data&&<Brief data={data}/>}<div className="pc-session-detail-group">{result}</div>{access}</div>}/>,
   showChanges:()=>openPanel('changes'),
  };
  if(task.data?.interactionMode==='conversation')return <Conversation key={id} task={task.data} session={session.data} slots={slots} onReload={()=>{task.reload();session.reload();}}/>;
