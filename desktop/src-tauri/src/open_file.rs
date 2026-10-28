@@ -104,26 +104,41 @@ pub fn parse_resolution(value: &Value) -> Result<Resolved, String> {
     })
 }
 
+/// True when `path` is Pacer's private state: `home` (as given or canonical)
+/// or under it, except a task worktree (`<home>/worktrees/<repo>/<task>/...`).
+fn private_state(path: &Path, home: &Path) -> bool {
+    let homes = [Some(home.to_path_buf()), std::fs::canonicalize(home).ok()];
+    homes.iter().flatten().any(|home| {
+        path.strip_prefix(home).is_ok_and(|rest| {
+            let mut parts = rest.components();
+            let worktree = parts.next().is_some_and(|c| c.as_os_str() == "worktrees")
+                && parts.next().is_some()
+                && parts.next().is_some();
+            !worktree
+        })
+    })
+}
+
 /// The shell does not take the service's word for the workspace: the root must
 /// be a real directory that is its own canonical path, not `/`, and not Pacer's
 /// private state except a task worktree (`<home>/worktrees/<repo>/<task>/...`).
 pub fn check_root(root: &Path, home: &Path) -> Result<(), String> {
     let refused = || "The session workspace cannot be opened from the desktop".to_string();
     let real = std::fs::canonicalize(root).map_err(|_| refused())?;
-    if real != root || real == Path::new("/") || !real.is_dir() {
+    if real != root || real == Path::new("/") || !real.is_dir() || private_state(&real, home) {
         return Err(refused());
     }
-    let homes = [Some(home.to_path_buf()), std::fs::canonicalize(home).ok()];
-    for home in homes.iter().flatten() {
-        if let Ok(rest) = real.strip_prefix(home) {
-            let mut parts = rest.components();
-            let worktree = parts.next().is_some_and(|c| c.as_os_str() == "worktrees")
-                && parts.next().is_some()
-                && parts.next().is_some();
-            if !worktree {
-                return Err(refused());
-            }
-        }
+    Ok(())
+}
+
+/// The root check plus the same rule for the file: a root such as `$HOME` must
+/// not reach Pacer's private state through the path (`.pacer/secrets/...`).
+/// `verify` walks the components without following links, so the lexical join
+/// is the file it opens.
+pub fn check_target(resolved: &Resolved, home: &Path) -> Result<(), String> {
+    check_root(&resolved.root, home)?;
+    if private_state(&resolved.absolute, home) {
+        return Err("The session file cannot be opened from the desktop".into());
     }
     Ok(())
 }
@@ -325,7 +340,7 @@ pub fn host_actions(home: &Path) -> Value {
 /// Re-check a service resolution and launch the action (ADR 0011).
 pub fn hand_off(resolution: &Value, action: Action, home: &Path) -> Result<(), String> {
     let resolved = parse_resolution(resolution)?;
-    check_root(&resolved.root, home)?;
+    check_target(&resolved, home)?;
     let editor = match action {
         Action::Open => load_editor(home)?,
         Action::Reveal => None,
@@ -710,6 +725,42 @@ mod tests {
         assert!(check_root(&home.join("tasks"), &linked_home).is_err());
         check_root(&worktree, &linked_home).unwrap();
         check_root(&workspace, &linked_home).unwrap();
+    }
+
+    #[test]
+    fn open_in_editor_refuses_a_file_under_private_state_from_an_outer_root() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = std::fs::canonicalize(dir.path()).unwrap();
+        let home = base.join(".pacer");
+        let worktree = home.join("worktrees/repo-0123abcd/t-20261028-120000-abcd");
+        std::fs::create_dir_all(home.join("secrets")).unwrap();
+        std::fs::create_dir_all(&worktree).unwrap();
+        std::fs::write(home.join("secrets/github.key"), "secret").unwrap();
+        std::fs::write(worktree.join("README.md"), "ok").unwrap();
+        std::fs::write(base.join("notes.md"), "ok").unwrap();
+        let linked_home = base.join("home-link");
+        symlink(&home, &linked_home).unwrap();
+
+        for home in [&home, &linked_home] {
+            let secret = parse_resolution(&resolution(&base, ".pacer/secrets/github.key")).unwrap();
+            assert!(
+                check_target(&secret, home).is_err(),
+                "secret accepted via {home:?}"
+            );
+            for allowed in [
+                ".pacer/worktrees/repo-0123abcd/t-20261028-120000-abcd/README.md",
+                "notes.md",
+            ] {
+                let resolved = parse_resolution(&resolution(&base, allowed)).unwrap();
+                check_target(&resolved, home).unwrap();
+            }
+            let inside = parse_resolution(&resolution(&worktree, "README.md")).unwrap();
+            check_target(&inside, home).unwrap();
+        }
+        // The given PACER_HOME is checked as well as its target.
+        let through_link =
+            parse_resolution(&resolution(&base, "home-link/secrets/github.key")).unwrap();
+        assert!(check_target(&through_link, &linked_home).is_err());
     }
 
     #[test]
