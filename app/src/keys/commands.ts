@@ -39,9 +39,10 @@ export function createCommandRegistry(keyRegistry: KeyRegistry) {
 }
 export type CommandRegistry = ReturnType<typeof createCommandRegistry>;
 
+export const isMacPlatform = (): boolean => typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
 const MAC_MODS: Record<string, string> = { Mod: "⌘", Ctrl: "⌃", Alt: "⌥", Shift: "⇧" };
 /** Registry keys as separate key caps: "Ctrl-b" → ⌃ B on macOS and Ctrl B elsewhere, "g o" → G O, "Mod-k" → ⌘ K (Ctrl K elsewhere). */
-export function keyCaps(keys: string, mac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform)): string[] {
+export function keyCaps(keys: string, mac = isMacPlatform()): string[] {
   return keys.split(" ").flatMap(step => {
     const at = step.length > 1 && !step.endsWith("-") ? step.indexOf("-") : -1;
     const [mod, key] = at > 0 ? [step.slice(0, at), step.slice(at + 1)] : [null, step];

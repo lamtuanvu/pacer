@@ -23,13 +23,14 @@ export type TokenFile = z.infer<typeof tokenFileSchema>;
 type Provisional = { provisional: string };
 export interface LocalTokenFile {
   color?: { tokens: (z.infer<typeof colorToken> & Provisional)[] };
-  type?: { styles: (z.infer<typeof typeStyle> & Provisional)[] };
   spacing?: { tokens: (z.infer<typeof valueToken> & Provisional)[] };
   radius?: { tokens: (z.infer<typeof valueToken> & Provisional)[] };
   size?: { tokens: (z.infer<typeof valueToken> & Provisional)[] };
   shadow?: { tokens: (z.infer<typeof valueToken> & Provisional)[] };
   layer?: { tokens: (z.infer<typeof valueToken> & Provisional)[] };
   motion?: { tokens: (z.infer<typeof valueToken> & Provisional)[] };
+  /** Provisional type styles; they become `--type-<name>-size|line|weight`. */
+  type?: { styles: (z.infer<typeof typeStyle> & Provisional)[] };
 
 }
 const GROUPS = ["color", "spacing", "radius", "size", "shadow", "layer", "motion"] as const;
@@ -43,20 +44,15 @@ export function mergeTokens(base: TokenFile, local: LocalTokenFile): TokenFile {
     for (const token of extra) if (names.has(token.name)) throw new Error(`${token.name} is now in the design system; remove it from tokens.local.json`);
     (merged[group].tokens as unknown[]).push(...extra);
   }
-  // Provisional type styles form their own group after the design system's, with the same duplicate guard.
   const styles = local.type?.styles ?? [];
-  if (styles.length) {
-    const taken = new Set(base.type.groups.flatMap(g => g.styles.map(style => style.name)));
-    for (const style of styles) if (taken.has(style.name)) throw new Error(`${style.name} is now in the design system; remove it from tokens.local.json`);
-    merged.type.groups.push({ name: "Provisional", styles });
-  }
+  const known = new Set(base.type.groups.flatMap(g => g.styles.map(style => style.name)));
+  for (const style of styles) if (known.has(style.name)) throw new Error(`type-${style.name} is now in the design system; remove it from tokens.local.json`);
+  if (styles.length) merged.type.groups.push({ name: "provisional", styles });
   return merged;
 }
 export function provisionalEntries(local: LocalTokenFile): { group: string; name: string; provisional: string }[] {
-  const typed = (local.type?.styles ?? []).map(style => ({ group: "type", name: style.name, provisional: style.provisional }));
-  // Color first, then type, then the value groups, as tokens.json orders them.
-  return [...GROUPS.slice(0, 1).flatMap(group => (local[group]?.tokens ?? []).map(t => ({ group, name: t.name, provisional: t.provisional }))), ...typed,
-    ...GROUPS.slice(1).flatMap(group => (local[group]?.tokens ?? []).map(t => ({ group, name: t.name, provisional: t.provisional })))];
+  return [...GROUPS.flatMap(group => (local[group]?.tokens ?? []).map(t => ({ group, name: t.name, provisional: t.provisional }))),
+    ...(local.type?.styles ?? []).map(t => ({ group: "type", name: t.name, provisional: t.provisional }))];
 }
 
 /** Escapes token names such as space-1.5. */

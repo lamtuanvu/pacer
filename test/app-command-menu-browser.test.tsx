@@ -77,7 +77,7 @@ browserTest("escape_returns_focus_to_the_opener", () => withPage(async (page, bu
   await page.getByRole("combobox").waitFor();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("combobox").count()).resolves.toBe(0);
-  await focused(page, ".pc-topbar__search");
+  await focused(page, ".pc-command-trigger");
   // Cmd-K and Ctrl-K open it from anywhere and a second press closes it; focus goes back to where it was.
   await page.locator("#main-content").focus();
   await page.keyboard.press("Control+k");
@@ -112,7 +112,7 @@ browserTest("greater_than_switches_to_commands_and_runs_one", () => withPage(asy
   await page.getByRole("button", { name: "Show Settings" }).waitFor();
   // Back to a bare query: recents with the Go to commands.
   await page.keyboard.press("Control+k");
-  await expect(page.getByRole("group").first().getAttribute("aria-labelledby")).resolves.toBeTruthy();
+  await expect(page.locator(".pc-command__group").first().getAttribute("aria-labelledby")).resolves.toBeTruthy();
   expect((await page.locator(".pc-command__heading").allTextContents())[0]).toBe("Recent");
 }));
 
@@ -215,18 +215,18 @@ browserTest("a new query puts the highlight back on the first result", () => wit
 browserTest("escape_returns_focus_to_the_trigger_when_a_click_does_not_focus_it", () => withPage(async (page, built) => {
   await open(page, built, "#/overview");
   // WebKit (Safari, the desktop shell) leaves focus on the body when a button is clicked; stopping mousedown does the same here.
-  await page.evaluate(() => document.querySelector(".pc-topbar__search")!.addEventListener("mousedown", event => event.preventDefault()));
-  await page.locator(".pc-topbar__search").click();
+  await page.evaluate(() => document.querySelector(".pc-command-trigger")!.addEventListener("mousedown", event => event.preventDefault()));
+  await page.locator(".pc-command-trigger").click();
   await page.getByRole("combobox").waitFor();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("combobox").count()).resolves.toBe(0);
-  await focused(page, ".pc-topbar__search");
+  await focused(page, ".pc-command-trigger");
   // Cmd-K with nothing focused also lands on the trigger.
   await page.evaluate(() => (document.activeElement as HTMLElement).blur());
   await page.keyboard.press("Control+k");
   await page.getByRole("combobox").waitFor();
   await page.keyboard.press("Escape");
-  await focused(page, ".pc-topbar__search");
+  await focused(page, ".pc-command-trigger");
 }));
 
 browserTest("mod_enter_runs_a_command_and_keeps_the_menu_open", () => withPage(async (page, built) => {
@@ -296,8 +296,8 @@ browserTest("dispatcher_commands_follow_the_service_operations", () => withPage(
 
 browserTest("menu_and_trigger_match_the_board_measurements", () => withPage(async (page, built) => {
   await open(page, built, "#/overview");
-  const trigger = page.locator(".pc-topbar__search");
-  const t = await trigger.evaluate(element => { const r = element.getBoundingClientRect(), css = getComputedStyle(element); return { w: Math.round(r.width), h: Math.round(r.height), radius: css.borderTopLeftRadius, border: css.borderTopWidth, padL: css.paddingLeft, caps: element.querySelectorAll("kbd").length, text: element.querySelector(".pc-topbar__search-text")!.textContent }; });
+  const trigger = page.locator(".pc-command-trigger");
+  const t = await trigger.evaluate(element => { const r = element.getBoundingClientRect(), css = getComputedStyle(element); return { w: Math.round(r.width), h: Math.round(r.height), radius: css.borderTopLeftRadius, border: css.borderTopWidth, padL: css.paddingLeft, caps: element.querySelectorAll("kbd").length, text: element.querySelector(".pc-command-trigger__text")!.textContent }; });
   expect(t).toMatchObject({ w: 420, h: 30, radius: "8px", border: "1px", padL: "10px", caps: 1, text: "Search tasks, agents or run a command" });
   await trigger.click();
   await page.getByRole("combobox").fill("fix");

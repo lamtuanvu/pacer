@@ -33,20 +33,11 @@ test("provisional tokens are appended to their group", () => {
   expect(provisionalEntries({ color: { tokens: [term] } })).toEqual([{ group: "color", name: "terminal-ground", provisional: term.provisional }]);
 });
 
-test("a provisional type style becomes a Provisional group and the duplicate guard covers type", () => {
-  const style = { name: "match-strong", fontSize: "13px", lineHeight: "19px", fontWeight: 700, usage: "x", provisional: "x" };
-  const merged = mergeTokens(tokens, { type: { styles: [style] } });
-  expect(merged.type.groups.at(-1)).toMatchObject({ name: "Provisional", styles: [{ name: "match-strong" }] });
-  expect(generateTokensCss(merged)).toContain("--type-match-strong-weight: 700;");
-  expect(provisionalEntries({ type: { styles: [style] } })).toEqual([{ group: "type", name: "match-strong", provisional: "x" }]);
-  expect(() => mergeTokens(tokens, { type: { styles: [{ ...style, name: "body-strong" }] } })).toThrow("body-strong is now in the design system");
-});
-
 test("provisional entries are listed", () => {
   const entries = provisionalEntries(local);
   if (entries.length) console.info("Provisional design tokens still pending in the design system:", entries);
-  // The Tasks board and command menu values, until the design system carries them: type, then spacing, radius and size.
-  expect(entries.map(entry => entry.name)).toEqual(["match-strong", "space-3.5", "space-7", "space-10", "radius-card", "radius-xs", "radius-tile", "size-10", "size-14", "size-15", "size-21", "size-34", "size-52", "size-272", "size-1240", "size-72", "size-420"]);
+  // The Tasks, app-frame chrome and command menu board values, until the design system carries them.
+  expect(entries.map(entry => entry.name)).toEqual(["ink-on-fill", "space-3.5", "space-7", "space-10", "radius-card", "radius-xs", "radius-key", "radius-tile", "size-10", "size-14", "size-15", "size-21", "size-34", "size-52", "size-272", "size-1240", "size-3", "size-4", "size-5", "size-84", "size-420", "size-neg-6", "size-72", "count-badge", "match-strong"]);
 });
 
 test("ds-sync rejects an export missing a dark value and writes nothing", () => {
@@ -114,4 +105,12 @@ test('button theme backgrounds change immediately rather than transitioning stal
  const css = read('components.css');
  expect(css).toContain('transition:opacity var(--motion-fast) var(--motion-ease)');
  expect(css).not.toContain('transition:background-color var(--motion-fast) var(--motion-ease),opacity');
+});
+
+test("a provisional type style the design system now has is rejected", () => {
+  const known = tokens.type.groups[0]!.styles[0]!;
+  const style = { ...known, provisional: "until the design system adds it" };
+  expect(() => mergeTokens(tokens, { type: { styles: [style] } })).toThrow(`type-${known.name} is now in the design system`);
+  const merged = mergeTokens(tokens, { type: { styles: [{ ...known, name: "count-badge-test", provisional: "x" }] } });
+  expect(generateTokensCss(merged)).toContain("--type-count-badge-test-size:");
 });

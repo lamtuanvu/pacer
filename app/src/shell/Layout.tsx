@@ -7,16 +7,18 @@ import { useContext, useEffect, useRef, useState } from "preact/hooks";
 import { Mark } from "../ds/Mark";
 import type { StoreState } from "../data/store";
 import type { Route } from "../router";
-import { Rail } from "./Rail";
+import { AppLink } from "../navigation";
+import { routes } from "../router";
+import { Rail, settingsAttention } from "./Rail";
 import { TaskContext } from "../screens/task-shared";
 import { SettingsPanel, SettingsPanelData } from "./SettingsPanel";
 import { NarrowContext, PANEL_MEDIA, useMedia, useNarrow } from "./narrow";
 import { agentInfo } from "../../../src/view-model/agents";
 import { modeWords } from "../../../src/view-model/words";
+import { CommandTrigger } from "./CommandTrigger";
 import { StrategyQuickAccessPopup } from "./StrategyQuickAccess";
 import { useNotifications } from "../data/notification-context";
 import { useNavigation } from "../navigation";
-import { routes } from "../router";
 import { TopBar } from "./TopBar";
 import { StatusBar } from "./StatusBar";
 import { commands, keys } from "../keys/instance";
@@ -115,13 +117,13 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
   const counts = state.snapshot ? snapshotCounts(state.snapshot) : null;
   const loading = route.name === "loading" || !state.snapshot;
   const outdated = !loading && NEEDS_READ_MODEL.has(route.name) && !state.features.readModel;
-  const topBar = <TopBar narrow={narrow} title={title} planner={state.snapshot?.planner ?? null} mode={state.snapshot?.mode?.mode ?? ""} connected={state.connected} lastUpdate={state.snapshot?.at ?? null} onDelegate={onDelegate} onSearch={searchable ? togglePalette : undefined} delegatePrimary={!["review", "start", "sessions"].includes(route.name)} showActions={route.name !== "setup"} />;
+  const topBar = <TopBar narrow={narrow} title={title} planner={state.snapshot?.planner ?? null} mode={state.snapshot?.mode?.mode ?? ""} connected={state.connected} lastUpdate={state.snapshot?.at ?? null} onDelegate={onDelegate} search={searchable ? <CommandTrigger onOpen={togglePalette} /> : undefined} narrowSearch={searchable ? <CommandTrigger narrow onOpen={togglePalette} /> : undefined} brand={<AppLink className="pc-topbar__home" to={routes.overview()} query={route.query} aria-label="pacer home"><Mark size={18} wordmark={false} /></AppLink>} panels={{ ...(hasLeft ? { left: { open: leftOpen, toggle: () => setLeftOpen(!leftOpen) } } : {}), ...(dockAvailable ? { dock: { open: dockOpen, toggle: toggleDock } } : {}) }} showActions={route.name !== "setup"} />;
   const settings = SETTINGS.has(route.name) && (hasLeft
     ? <SidePanel side="left" label="Settings" open={leftOpen} onToggle={setLeftOpen}><Panel route={route} counts={counts} snapshot={state.snapshot} embedded /></SidePanel>
     : <Panel route={route} counts={counts} snapshot={state.snapshot} />);
   return <NarrowContext.Provider value={narrow}><AppFrame narrow={narrow}
     top={narrow && route.name === "setup" ? null : topBar}
-    activity={<Rail route={route} counts={counts} narrow={narrow} />}
+    activity={<Rail route={route} counts={counts} narrow={narrow} settingsAttention={settingsAttention(state.snapshot)} />}
     left={settings}
     live={!state.connected && state.snapshot && <div className="connection-bar">pacer isn't responding. Retrying…</div>}
     mainClass={`pc-main${!loading && !outdated && ["start","overview","review","settings","hosts","add-executor","sessions","terminal","setup"].includes(route.name)?" pc-main--canvas":""}`}

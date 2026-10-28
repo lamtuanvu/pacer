@@ -47,6 +47,7 @@
   --aurora-1: #a5b4fc;
   --aurora-2: #f0abfc;
   --aurora-3: #99f6e4;
+  --ink-on-fill: #ffffff;
   --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   --type-display-size: 28px;
@@ -84,6 +85,9 @@
   --type-code-size: 12px;
   --type-code-line: 18px;
   --type-code-weight: 400;
+  --type-count-badge-size: 10px;
+  --type-count-badge-line: 16px;
+  --type-count-badge-weight: 700;
   --type-match-strong-size: 13px;
   --type-match-strong-line: 19px;
   --type-match-strong-weight: 700;
@@ -107,7 +111,8 @@
   --radius-xl: 14px;
   --radius-full: 999px;
   --radius-card: 12px;
-  --radius-xs: 4px;
+  --radius-xs: 2px;
+  --radius-key: 4px;
   --radius-tile: 7px;
   --control-compact: 28px;
   --control-settings: 32px;
@@ -182,8 +187,13 @@
   --size-52: 52px;
   --size-272: 272px;
   --size-1240: 1240px;
-  --size-72: 72px;
+  --size-3: 3px;
+  --size-4: 4px;
+  --size-5: 5px;
+  --size-84: 84px;
   --size-420: 420px;
+  --size-neg-6: -6px;
+  --size-72: 72px;
   --shadow-popover: 0 6px 24px rgb(0 0 0 / .13);
   --shadow-status-outline: 0 0 0 1px var(--ink-muted);
   --layer-base: 1;
@@ -244,6 +254,7 @@
   --aurora-1: #818cf8;
   --aurora-2: #d58be8;
   --aurora-3: #5ed8c4;
+  --ink-on-fill: #18181b;
 }
 }
 :root[data-theme="dark"] {
@@ -293,6 +304,7 @@
   --aurora-1: #818cf8;
   --aurora-2: #d58be8;
   --aurora-3: #5ed8c4;
+  --ink-on-fill: #18181b;
 }
 /* Bundled copy of app/src/ds/tokens.css above; keep in sync with the pacer tokens. */
 * { box-sizing: border-box; }
