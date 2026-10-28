@@ -1,5 +1,4 @@
 import { CoreError } from "../core/errors";
-import type { EntityData } from "../link/envelope";
 import { publish } from "../link/publish";
 import { launchTaskRunner, spawnRunner as defaultSpawn, type SpawnRunner } from "../tasks/api";
 import { readTask, updateTask, withTaskLock } from "../tasks/store";
@@ -19,7 +18,7 @@ export const turnKey = (t: TaskRecord) => `${t.id}#${t.attempts.length + 1}`;
 
 export function notifyMessage(ctx: Ctx, m: Message): void {
   // Task 7 registers the "message" entity kind in src/link/envelope.ts.
-  void publish(ctx, [{ type: "entity", data: { kind: "message" as EntityData["kind"], id: m.id, value: m } }]);
+  void publish(ctx, [{ type: "entity", data: { kind: "message", id: m.id, value: m } }]);
 }
 
 /** Begin a resume turn when the task is settled and has pending messages. */

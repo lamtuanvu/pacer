@@ -3325,6 +3325,183 @@
       "properties": {},
       "additionalProperties": false
     },
+    "MsgCloseParams": {
+      "type": "object",
+      "properties": {
+        "task": {
+          "type": "string",
+          "pattern": "^t-\\d{8}-\\d{6}-[0-9a-f]{4}$"
+        }
+      },
+      "required": [
+        "task"
+      ],
+      "additionalProperties": false
+    },
+    "MsgConfirmParams": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 64
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "MsgInboxParams": {
+      "type": "object",
+      "properties": {
+        "unread_only": {
+          "type": "boolean"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000
+        }
+      },
+      "additionalProperties": false
+    },
+    "MsgLogParams": {
+      "type": "object",
+      "properties": {
+        "task": {
+          "type": "string",
+          "pattern": "^t-\\d{8}-\\d{6}-[0-9a-f]{4}$"
+        },
+        "after": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000
+        }
+      },
+      "required": [
+        "task"
+      ],
+      "additionalProperties": false
+    },
+    "MsgPolicyParams": {
+      "type": "object",
+      "properties": {
+        "task": {
+          "type": "string",
+          "pattern": "^t-\\d{8}-\\d{6}-[0-9a-f]{4}$"
+        },
+        "check": {
+          "type": "object",
+          "properties": {
+            "from": {
+              "type": "string",
+              "pattern": "^(human|external:[A-Za-z0-9._:-]{1,128}|task:t-\\d{8}-\\d{6}-[0-9a-f]{4})$"
+            },
+            "to": {
+              "type": "string",
+              "pattern": "^(human|external:[A-Za-z0-9._:-]{1,128}|task:t-\\d{8}-\\d{6}-[0-9a-f]{4})$"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "message",
+                "question",
+                "answer",
+                "report",
+                "nudge",
+                "close"
+              ]
+            },
+            "grant": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "from",
+            "to",
+            "kind"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "MsgReadParams": {
+      "type": "object",
+      "properties": {
+        "ids": {
+          "minItems": 1,
+          "maxItems": 500,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 64
+          }
+        }
+      },
+      "required": [
+        "ids"
+      ],
+      "additionalProperties": false
+    },
+    "MsgSendParams": {
+      "type": "object",
+      "properties": {
+        "to": {
+          "type": "string",
+          "pattern": "^(human|external:[A-Za-z0-9._:-]{1,128}|task:t-\\d{8}-\\d{6}-[0-9a-f]{4})$"
+        },
+        "body": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1048576
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "message",
+            "question",
+            "answer",
+            "report",
+            "nudge",
+            "close"
+          ]
+        },
+        "reply_to": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "request_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      },
+      "required": [
+        "to",
+        "body"
+      ],
+      "additionalProperties": false
+    },
+    "MsgWaitParams": {
+      "type": "object",
+      "properties": {
+        "reply_to": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "timeout_s": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3000
+        }
+      },
+      "additionalProperties": false
+    },
     "NotificationsGetParams": {
       "type": "object",
       "properties": {},
@@ -5282,6 +5459,19 @@
         "id",
         "title",
         "expect_rev"
+      ],
+      "additionalProperties": false
+    },
+    "TreeStatusParams": {
+      "type": "object",
+      "properties": {
+        "task": {
+          "type": "string",
+          "pattern": "^t-\\d{8}-\\d{6}-[0-9a-f]{4}$"
+        }
+      },
+      "required": [
+        "task"
       ],
       "additionalProperties": false
     },

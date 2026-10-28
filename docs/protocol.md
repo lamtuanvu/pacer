@@ -4668,6 +4668,263 @@ Params JSON Schema:
 }
 ```
 
+### `msg.close`
+
+Close a task for further messages. Records no review verdict.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "task": {
+      "type": "string",
+      "pattern": "^t-\\d{8}-\\d{6}-[0-9a-f]{4}$"
+    }
+  },
+  "required": [
+    "task"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `msg.confirm`
+
+Release a message that a guardrail held for human confirmation.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "maxLength": 64
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `msg.inbox`
+
+Messages addressed to the caller.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "unread_only": {
+      "type": "boolean"
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1000
+    }
+  },
+  "additionalProperties": false
+}
+```
+
+### `msg.log`
+
+A task's message thread.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "task": {
+      "type": "string",
+      "pattern": "^t-\\d{8}-\\d{6}-[0-9a-f]{4}$"
+    },
+    "after": {
+      "type": "string",
+      "maxLength": 64
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1000
+    }
+  },
+  "required": [
+    "task"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `msg.policy`
+
+The effective messaging guardrail, or which rule decides a hypothetical send.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "task": {
+      "type": "string",
+      "pattern": "^t-\\d{8}-\\d{6}-[0-9a-f]{4}$"
+    },
+    "check": {
+      "type": "object",
+      "properties": {
+        "from": {
+          "type": "string",
+          "pattern": "^(human|external:[A-Za-z0-9._:-]{1,128}|task:t-\\d{8}-\\d{6}-[0-9a-f]{4})$"
+        },
+        "to": {
+          "type": "string",
+          "pattern": "^(human|external:[A-Za-z0-9._:-]{1,128}|task:t-\\d{8}-\\d{6}-[0-9a-f]{4})$"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "message",
+            "question",
+            "answer",
+            "report",
+            "nudge",
+            "close"
+          ]
+        },
+        "grant": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "from",
+        "to",
+        "kind"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}
+```
+
+### `msg.read`
+
+Mark the caller's messages read.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "ids": {
+      "minItems": 1,
+      "maxItems": 500,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 64
+      }
+    }
+  },
+  "required": [
+    "ids"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `msg.send`
+
+Send a message to another participant. A message to a settled task starts a turn that resumes its native session.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "to": {
+      "type": "string",
+      "pattern": "^(human|external:[A-Za-z0-9._:-]{1,128}|task:t-\\d{8}-\\d{6}-[0-9a-f]{4})$"
+    },
+    "body": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1048576
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "message",
+        "question",
+        "answer",
+        "report",
+        "nudge",
+        "close"
+      ]
+    },
+    "reply_to": {
+      "type": "string",
+      "maxLength": 64
+    },
+    "request_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    }
+  },
+  "required": [
+    "to",
+    "body"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `msg.wait`
+
+Block until a message for the caller arrives, or a reply to reply_to, or timeout_s passes (max 3000).
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "reply_to": {
+      "type": "string",
+      "maxLength": 64
+    },
+    "timeout_s": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 3000
+    }
+  },
+  "additionalProperties": false
+}
+```
+
 ### `notifications.get`
 
 Current notification level.
@@ -7469,6 +7726,29 @@ Params JSON Schema:
     "id",
     "title",
     "expect_rev"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `tree.status`
+
+Turn state of every node in a task's tree.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "task": {
+      "type": "string",
+      "pattern": "^t-\\d{8}-\\d{6}-[0-9a-f]{4}$"
+    }
+  },
+  "required": [
+    "task"
   ],
   "additionalProperties": false
 }

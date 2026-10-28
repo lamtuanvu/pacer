@@ -46,6 +46,7 @@ import * as delegationPause from "../core/pause";
 import * as modeHold from "../core/mode-hold";
 import { checkRunner, type RunnerCheckDeps } from "../core/runner-check";
 import { sessionOps } from "./ops-session";
+import { msgOps } from "./ops-msg";
 import { terminalOps } from "./ops-terminal";
 import { assistantOps } from "./ops-assistant";
 import { discoveryOps } from "./ops-discovery";
@@ -224,7 +225,7 @@ export const OPS: Record<string, OpDef> = {
         description: OPS[p.name].description, params: z.toJSONSchema(OPS[p.name].params) };
     },
   }),
- ...sessionOps, ...terminalOps, ...desktopOps, ...assistantOps, ...discoveryOps,
+ ...sessionOps, ...msgOps, ...terminalOps, ...desktopOps, ...assistantOps, ...discoveryOps,
   ...desktopUpdateOps,
   "project.strategy.list": op({
     description: "List repository executor overrides, including policies for absent checkouts.", params: z.object({}),
@@ -405,7 +406,7 @@ export const OPS: Record<string, OpDef> = {
     params: z.object({ id, text: z.string().min(1).max(2000), expect_rev }),
     handler: (ctx,p,deps) => {
       if(getWork(ctx,p.id))throw new CoreError("not_allowed","Use dispatch.answer with a requestId and revision for managed work");
-      return core.tasks.answer(ctx,p.id,p.text,{expectRev:p.expect_rev},{delegate:(c,input)=>core.tasks.delegate(c,input,deps.spawnRunner ?? spawnRunner)});
+      return core.tasks.answer(ctx,p.id,p.text,{expectRev:p.expect_rev},{delegate:(c,input)=>core.tasks.delegate(c,input,deps.spawnRunner ?? spawnRunner),spawnRunner:deps.spawnRunner});
     },
   }),
   "task.send": op({
@@ -466,7 +467,7 @@ export const OPS: Record<string, OpDef> = {
         if(p.verdict!=="accept"&&p.verdict!=="reject")throw new CoreError("not_allowed","Use dispatch.review for work results");
         return taskMutation(ctx,p.id,p.expect_rev,()=>reviewWork(ctx,p.id,p.verdict==="accept",p.note,p.expect_rev));
       }
-      return taskMutation(ctx, p.id, p.expect_rev, async () => {const result=await core.tasks.review(ctx, p.id, p, { delegate: (c, input) => core.tasks.delegate(c, input, deps.spawnRunner ?? spawnRunner) });if(getWork(ctx,p.id))recordWorkReview(ctx,p.id,"human");return result;});
+      return taskMutation(ctx, p.id, p.expect_rev, async () => {const result=await core.tasks.review(ctx, p.id, p, { delegate: (c, input) => core.tasks.delegate(c, input, deps.spawnRunner ?? spawnRunner), spawnRunner: deps.spawnRunner });if(getWork(ctx,p.id))recordWorkReview(ctx,p.id,"human");return result;});
     },
   }),
   "attention.dismiss": op({ description: "Dismiss a raised attention item.", params: z.object({id:z.string().min(1).max(256)}), handler: (ctx,p) => attention.dismiss(ctx,p.id) }),
