@@ -39,6 +39,8 @@ test("regions follow the board: title, period, repos and New task, then planner 
   expect(html.match(/<h1/g)).toHaveLength(1);
   expect(strip(html.slice(html.indexOf("Live · "), html.indexOf("</span>", html.indexOf("Live · "))))).toMatch(/^Live · \d+ agents? connected · updated /);
   expect(view(null, snap, { connected: false })).toContain("Reconnecting…");
+  // No snapshot time: no invented age.
+  expect(strip(view(null, { ...snap, at: 0 }))).not.toMatch(/updated \d+d ago/);
 });
 
 test("period switch offers Today, 7 days and 30 days with 7 days selected, only with task insights", () => {

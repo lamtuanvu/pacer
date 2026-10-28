@@ -148,7 +148,7 @@ function NextHalf({ routing, query, strategy }: { routing: RoutingPreview; query
       : next && readiness ? <>
         <div className="pc-dispatch-next"><AgentMark agent={markAgent(next.id)} size={32} labelled={false} />
           <div className="pc-dispatch-next__who"><strong>{executorLabel(next.id)}</strong>{readiness.tone !== "good" && readiness.detail ? <span className="muted">{readiness.detail}</span> : routing.data?.policy ? <span className="muted">Project order for this repository</span> : null}</div>
-          <span className="grow" /><StatusPill status={readiness} /></div>
+          <StatusPill status={readiness} /></div>
         <div className="pc-dispatch-chain"><span className="muted">Then:</span><ol aria-label="Then, in order">
           {then.map(row => <li key={row.id}><span className="pc-dispatch-chip"><AgentMark agent={markAgent(row.id)} size={18} labelled={false} />{executorLabel(row.id)}</span>{chevron}</li>)}
           {more > 0 && <li><span className="muted">+{more} more</span>{chevron}</li>}
@@ -219,7 +219,8 @@ function TokenShare({ summary, planner }: { summary?: InsightsSummary; planner: 
 function DispatchHeader({ snapshot, query, narrow, period, onPeriod, connected, now }: { snapshot: ClientSnapshot; query: RouteQuery; narrow: boolean; period: Period; onPeriod?: (period: Period) => void; connected: boolean; now: number }) {
   const delegate = useDelegate();
   const agents = capacity(snapshot).filter(row => row.rank !== "planner" && row.usedPct !== null).length + (snapshot.planner ? 1 : 0);
-  const live = connected ? ["Live", agents ? `${agents} agent${agents === 1 ? "" : "s"} connected` : null, `updated ${ago(snapshot.at, now)}`].filter(Boolean).join(" · ") : "Reconnecting…";
+  const live = connected ? ["Live", agents ? `${agents} agent${agents === 1 ? "" : "s"} connected` : null, // A service that sends no snapshot time gets no "updated" part, as in the top bar.
+    snapshot.at > 0 ? `updated ${ago(snapshot.at, now)}` : null].filter(Boolean).join(" · ") : "Reconnecting…";
   // The period only changes figures from task insights, so the switch shows only when the service has them.
   const controls = <div className="pc-dispatch__controls">
     {onPeriod && <SegmentedControl label="Period" value={period} options={PERIODS} onChange={value => onPeriod(value as Period)} />}
