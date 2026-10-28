@@ -47,9 +47,9 @@ test("roots_order_attention_then_running_then_recent", () => {
 test("unknown_tokens_omitted", () => {
   const snap = snapshot();
   const withTokens = snap.tasks.find(t => t.id === "t-0405")!;
-  withTokens.tokens = { coverage: "measured", total: 1234567 };
-  snap.tasks.find(t => t.id === "t-0403")!.tokens = { coverage: "unknown", total: null };
-  snap.tasks.find(t => t.id === "t-0412")!.tokens = { coverage: "partial", total: 42000 };
+  withTokens.tokens = { total: 1234567, lowerBound: false, measuredAttempts: 1, partialAttempts: 0 };
+  snap.tasks.find(t => t.id === "t-0403")!.tokens = { total: 0, lowerBound: true, measuredAttempts: 0, partialAttempts: 0 };
+  snap.tasks.find(t => t.id === "t-0412")!.tokens = { total: 42000, lowerBound: true, measuredAttempts: 0, partialAttempts: 1 };
   const nodes = taskTree(snap, { now });
   expect(find(nodes, "t-0420")!.tokens).toBeUndefined();
   expect(find(nodes, "t-0403")!.tokens).toBeUndefined();

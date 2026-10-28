@@ -1,5 +1,6 @@
 /** The one descriptor for "a task in a tree". Tasks, the Session panel, Needs you and the tray all build it here (UI-10). */
 import type { AttentionItem } from "../attention/types";
+import type { TokenRollup } from "../tokens/rollup";
 import type { ClientSnapshot, ClientTask } from "./snapshot";
 import { markAgent } from "./agents";
 import { needsYou, type Scope } from "./selectors";
@@ -22,8 +23,8 @@ export interface TaskNodeView {
   agents: string[]; tokens?: string;
   meta: TaskMetaItem[]; children: TaskNodeView[];
 }
-/** Token readings follow the attempt-token-accounting spec; a missing or unknown reading is never shown. */
-export interface TreeTokens { coverage: "measured" | "partial" | "unknown"; total: number | null }
+/** The token roll-up (src/tokens/rollup.ts); a task with no measured or partial attempt shows nothing, never 0. */
+export type TreeTokens = Pick<TokenRollup, "total" | "lowerBound" | "measuredAttempts" | "partialAttempts">;
 export type TreeTask = ClientTask & {
   parentId?: string | null; branch?: string | null; pr?: { number: number } | null; tokens?: TreeTokens | null;
   acceptance?: { state?: string; summary?: string } | null; diffstat?: { files: number; added: number; removed: number } | null;
@@ -38,8 +39,8 @@ function compact(n: number): string {
   return `${value >= 100 || div === 1 ? Math.round(value) : Math.round(value * 10) / 10}${unit}`;
 }
 function tokenText(tokens: TreeTokens | null | undefined): string | undefined {
-  if (!tokens || tokens.coverage === "unknown" || tokens.total == null) return undefined;
-  return `${tokens.coverage === "partial" ? "≥ " : ""}${compact(tokens.total)} tokens`;
+  if (!tokens || tokens.measuredAttempts + tokens.partialAttempts === 0) return undefined;
+  return `${tokens.lowerBound ? "≥ " : ""}${compact(tokens.total)} tokens`;
 }
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
