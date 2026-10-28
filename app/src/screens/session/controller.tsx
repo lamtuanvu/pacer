@@ -1,15 +1,14 @@
 import { Button } from "../../ds/Button";
-import { RepoFilter } from "../RepoFilter";
 import type { ApiTask } from "../../../../src/api/read-model/types";
 import { reasonCopy, sessionTime, timelineCopy } from "../../../../src/view-model/copy";
 import { useDialogs } from "../../ds/useDialogs";
-import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { TaskDetail } from '../../../../src/core/task-detail';
 import type { ClientTask } from '../../../../src/view-model/snapshot';
 import type { SessionInfo } from '../../../../src/session/service';
 import { markAgent } from "../../../../src/view-model/agents";
 import { clock } from "../../../../src/view-model/time";
-import { scopedTaskTree, taskTree } from "../../../../src/view-model/task-tree";
+import { scopedTaskTree, taskTree, workTasks, type WorkRow } from "../../../../src/view-model/task-tree";
 import { withQuery, type RouteQuery } from "../../router";
 import { keys } from "../../keys/instance";
 import { useActions } from "../../data/action-context";
@@ -17,9 +16,7 @@ import { useQuery, useTaskContext } from "../task-shared";
 import { Session } from "./Session";
 import { onPageScroll, pageScrollY, scrollPageTo } from "../../shell/page-scroll";
 import { takeoverSession, type TakeoverState } from "./takeover";
-import { SessionsList } from "./SessionsList";
-import { LazyWorkList } from "./LazyWorkList";
-import { Tabs } from "../../ds/Patterns";
+import { TasksPage } from "./TasksPage";
 import { Cluster, Page } from "../../ds/Page";
 import { Conversation } from "./Conversation";
 import type { SessionData, Action } from './types';
@@ -44,7 +41,6 @@ export function conversationChanges(diff:TaskDiff):{diff:string;untracked:string
 
 export function Sessions({query}:{query:RouteQuery}) {
  const {state}=useTaskContext(),snapshot=state.snapshot;
- const [listMode,setListMode]=useState("all");
  const scrollKey = JSON.stringify(query);
  const savedPosition = useRef(taskListPositions.get(scrollKey));
  const savedScroll = useRef(savedPosition.current?.scroll ?? 0);
@@ -79,15 +75,12 @@ export function Sessions({query}:{query:RouteQuery}) {
   });
   return () => cancelAnimationFrame(frame);
  }, [snapshot, page.loading, history]);
- const nodes=snapshot?scopedTaskTree(snapshot,{repo:query.repo||null},{now:Date.now()/1000,extra:history}):undefined;
- return <Page width="full" className="pc-page-body">{snapshot&&<RepoFilter snapshot={snapshot} query={query}/>}<Tabs label="Task list" id="task-list" value={listMode} options={[{value:"all",label:"All tasks"},{value:"work",label:"Dispatched work"}]} onChange={setListMode}/>
- <div role="tabpanel" id={`task-list-${listMode}-panel`} aria-labelledby={`task-list-${listMode}-tab`}>
- {listMode==="work"?<LazyWorkList key={query.repo??""} query={query}/>:<><SessionsList running={{data:nodes?.filter(node=>node.active),loading:!snapshot}} recent={{data:nodes?.filter(node=>!node.active)??(history.length?scopedHistory(history,query.repo||null):[]),loading:page.loading&&!history.length,error:page.error?'Could not load task history.':undefined}} query={withQuery('',query)}/>
- {(page.data?.next||page.error)&&<Cluster>
-  {page.data?.next&&<Button busy={page.loading} onClick={()=>setCursor(page.data!.next!)}>Load older tasks</Button>}
-  {page.error&&<Button onClick={page.reload}>Try again</Button>}
- </Cluster>}</>}
- </div></Page>;
+ const work=useQuery<{tasks:WorkRow[];next:string|null}>("dispatch.list",{relation:"all",limit:100,...(query.repo?{repo:query.repo}:{})});
+ const extra=useMemo(()=>[...workTasks(work.data?.tasks??[]),...history],[work.data,history]);
+ const nodes=snapshot?scopedTaskTree(snapshot,{repo:query.repo||null},{now:Date.now()/1000,extra}):history.length?scopedHistory(history,query.repo||null):undefined;
+ return <TasksPage nodes={nodes} repos={snapshot?.repos??[]} query={query} onNew={()=>window.dispatchEvent(new Event("pacer:delegate"))}
+  hasOlder={!!page.data?.next} loadingOlder={page.loading} onLoadOlder={()=>setCursor(page.data!.next!)}
+  error={page.error?<Cluster><Button onClick={page.reload}>Try again</Button></Cluster>:undefined}/>;
 }
 export function sessionDetail(task:TaskDetail):SessionData {
  return {...sessionRow(task),branch:task.branch,machine:task.machine,started:task.startedAt?clock(task.startedAt,Date.now()/1000):undefined,

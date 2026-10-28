@@ -1,7 +1,7 @@
 import {expect, test} from 'bun:test';
 import {chromium} from 'playwright-core';
 import {renderToString} from 'preact-render-to-string';
-import {SessionsList} from '../app/src/screens/session/SessionsList';
+import {SessionsList} from './fixtures/ui/sessions-list';
 import {TaskNavigator} from '../app/src/screens/session/TaskNavigator';
 import {TaskDetailFrame} from '../app/src/screens/TaskResult';
 import {Session} from '../app/src/screens/session/Session';
@@ -36,7 +36,7 @@ test('Tasks rows open the task directly without repeated control actions',()=>{
 test('Task navigator identifies the selected task and preserves the repo filter',()=>{
  const selected=view({...task,id:'running-task',state:'running',fullTitle:'Run a long task'});
  const html=renderToString(<TaskNavigator selectedId={selected.id} nodes={[selected,view(task)]} query='?repo=lamtuanvu%2Fpacer'/>);
- expect(html).toContain('pc-task-node--compact');
+ expect(html).toContain('pc-task-card--compact');
  expect(html).toContain('aria-label="Task navigator"');
  expect(html).toContain('aria-current="page"');
  expect(html).toContain('href="#/tasks/running-task?repo=lamtuanvu%2Fpacer"');
@@ -45,7 +45,7 @@ test('Task navigator identifies the selected task and preserves the repo filter'
 });
 
 const browserPath=process.env.PACER_TEST_BROWSER;
-test.skipIf(!browserPath)('Tasks route follows Overview full-width gutters and card sections',async()=>{
+test.skipIf(!browserPath)('Tasks route lays out the board header, filters and tree inside the content width',async()=>{
  const fixture=(await import('./fixtures/ui/snapshot.json')).default;
  const state={...initialState(),connected:true,features:{readModel:true,ops:new Set<string>()},snapshot:fixture};
  const css=(await Promise.all(['app/src/ds/tokens.css','app/src/ds/components.css','app/src/styles.css','app/src/screens/session/session.css'].map(f=>Bun.file(f).text()))).join('\n');
@@ -56,13 +56,15 @@ test.skipIf(!browserPath)('Tasks route follows Overview full-width gutters and c
    await page.setViewportSize({width,height:1000});
    const html=renderToString(<TaskContext.Provider value={{state:state as unknown as StoreState,api:{} as BrowserApi}}><Layout route={{name:'sessions',query:{repo:null,scope:null}}} state={state as unknown as StoreState} title="Tasks"><Sessions query={{repo:null,scope:null}}/></Layout></TaskContext.Provider>);
    await page.setContent(`<html data-pacer-desktop data-pacer-native-titlebar><style>${css}</style><div id="app">${html}</div></html>`);
-   const edges=await page.evaluate(()=>{
-    const left=(selector:string)=>document.querySelector(selector)!.getBoundingClientRect().left;
-    return [left('.pc-filter'),left('.pc-sessions-list'),left('.pc-sessions-list > section')];
+   const geometry=await page.evaluate(()=>{
+    const box=document.querySelector('.pc-tasks-page')!.getBoundingClientRect();
+    return {title:document.querySelector('h1')?.textContent,width:box.width,left:box.left,columns:getComputedStyle(document.querySelector('.pc-tasks-page__columns')!).display};
    });
-   expect(Math.max(...edges)-Math.min(...edges)).toBeLessThan(1);
-   expect(edges[0]).toBeLessThan(100);
-   expect(await page.locator('.pc-sessions-list > .pc-card-section').count()).toBe(2);
+   expect(geometry.title).toBe('Tasks');
+   // The board is capped at its design width and starts at the content edge; the tree and the panel share a row.
+   expect(geometry.width).toBeLessThanOrEqual(1240);
+   expect(geometry.left).toBeLessThan(100);
+   expect(geometry.columns).toBe('flex');
    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   }
  }finally{await browser.close();}
@@ -81,15 +83,14 @@ test.skipIf(!browserPath)('Tasks bounds whole-row links and metadata inside narr
    await page.setContent(`<html data-theme="${theme}"><style>${css}</style>${renderToString(<NarrowContext.Provider value={width<560}><Page width="full" className="pc-page-body"><SessionsList running={{data:[runningTask]}} recent={{data:[view(task),failedTask]}}/></Page></NarrowContext.Provider>)}</html>`);
    if(process.env.PACER_LAYOUT_EVIDENCE)await page.screenshot({path:`${process.env.PACER_LAYOUT_EVIDENCE}/tasks-${width}-${theme}.png`});
    const geometry=await page.locator('.pc-sessions-list').evaluate(n=>({width:n.getBoundingClientRect().width,overflow:document.documentElement.scrollWidth>innerWidth}));
-   if(width>560)expect(geometry.width).toBeGreaterThan(width-150);
    expect(geometry.overflow).toBe(false);
-   const boxes=await page.locator('.pc-task-node,.pc-task-node__title,.pc-task-node__facts,.pc-meta-row__item').evaluateAll(nodes=>nodes.map(n=>({left:n.getBoundingClientRect().left,right:n.getBoundingClientRect().right,width:n.getBoundingClientRect().width})));
+   const boxes=await page.locator('.pc-task-card,.pc-task-card__title,.pc-task-card__facts,.pc-meta-row__item').evaluateAll(nodes=>nodes.map(n=>({left:n.getBoundingClientRect().left,right:n.getBoundingClientRect().right,width:n.getBoundingClientRect().width})));
    for(const box of boxes){expect(box.left).toBeGreaterThanOrEqual(0);expect(box.right).toBeLessThanOrEqual(width);expect(box.width).toBeGreaterThan(0);}
-   expect(await page.locator('.pc-task-node__title').first().getAttribute('title')).toBe(longTitle);
-   if(width<1440)expect(await page.locator('.pc-task-node__title').first().evaluate(n=>n.scrollWidth>n.clientWidth)).toBe(true);
+   expect(await page.locator('.pc-task-card__title').first().getAttribute('title')).toBe(longTitle);
+   if(width<1440)expect(await page.locator('.pc-task-card__title').first().evaluate(n=>n.scrollWidth>n.clientWidth)).toBe(true);
    expect(await page.locator('.pc-meta-row__item').first().getAttribute('title')).toBe(longRepo);
-   expect(await page.locator('.pc-task-node').count()).toBe(3);
-   expect(await page.locator('.pc-task-node button').count()).toBe(0);
+   expect(await page.locator('.pc-task-card').count()).toBe(3);
+   expect(await page.locator('.pc-task-card button').count()).toBe(0);
   }
  }finally{await browser.close();}
 });

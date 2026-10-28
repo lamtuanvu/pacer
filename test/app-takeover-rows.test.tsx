@@ -2,7 +2,7 @@ import {expect,test} from 'bun:test';
 import {options} from 'preact';
 import {renderToString} from 'preact-render-to-string';
 import {OverviewView} from '../app/src/screens/Overview';
-import {SessionsList} from '../app/src/screens/session/SessionsList';
+import {SessionsList} from './fixtures/ui/sessions-list';
 import {taskTree} from '../src/view-model/task-tree';
 import {createActionRunner} from '../app/src/data/actions';
 import snapshot from './fixtures/ui/snapshot.json';

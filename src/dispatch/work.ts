@@ -147,13 +147,18 @@ export function workWaitTotals(ctx:Ctx,ids:string[]){
  }}
  return{queueWaitSeconds:queue,dependencyWaitSeconds:unknownDependency?null:dependency,childWaitSeconds:child,capacityWaitSeconds:measuredCapacity?capacity:null,unknownDependencyWaits:unknownDependency,provisionalWaits:provisional,waitAsOf:ctx.now};
 }
+/** The compact roll-up a list row shows; no usage reading at all is reported as null, never as zero. */
+function listTokens(ctx:Ctx,id:string,attempts:Parameters<typeof attemptsWithTokens>[2]){
+ const {total,lowerBound,measuredAttempts,partialAttempts}=rollupTokens(itemsOf(attemptsWithTokens(ctx,id,attempts)));
+ return measuredAttempts+partialAttempts?{total,lowerBound,measuredAttempts,partialAttempts}:null;
+}
 export function listWork(ctx:Ctx,filter:{relation?:"roots"|"children"|"all";state?:string;repo?:string;before?:string;limit?:number}={}){
  const relation=filter.relation??"roots",limit=Math.min(100,Math.max(1,filter.limit??50));
  const rows=dispatchDatabase(ctx).query<NodeRow,[string,string,string,string,string,string,string,string,string,number]>(
   "SELECT n.* FROM work_nodes n JOIN tasks t ON t.id=n.task_id WHERE (?='all' OR (?='roots' AND n.parent_id IS NULL) OR (?='children' AND n.parent_id IS NOT NULL)) AND (?='' OR t.state=?) AND (?='' OR json_extract(t.record,'$.repo.key')=?) AND (?='' OR n.task_id<?) ORDER BY n.task_id DESC LIMIT ?"
  ).all(relation,relation,relation,filter.state??"",filter.state??"",filter.repo??"",filter.repo??"",filter.before??"",filter.before??"",limit+1);
  const page=rows.slice(0,limit);
- return{tasks:page.flatMap(r=>{const task=readTask(ctx,r.task_id);return task?[{id:task.id,parentId:r.parent_id,rootId:r.root_id,depth:r.depth,title:task.title??task.brief.goal,state:task.state,rev:task.rev,executor:task.executor??task.requestedExecutor,createdAt:task.createdAt,review:task.review??null}]:[];}),next:rows.length>limit?page.at(-1)?.task_id??null:null};
+ return{tasks:page.flatMap(r=>{const task=readTask(ctx,r.task_id);return task?[{id:task.id,parentId:r.parent_id,rootId:r.root_id,depth:r.depth,title:task.title??task.brief.goal,state:task.state,rev:task.rev,executor:task.executor??task.requestedExecutor,createdAt:task.createdAt,review:task.review??null,branch:task.run?.remoteBranch??(task.run?.mode==="new"?`pacer/${task.id}`:null),tokens:listTokens(ctx,task.id,task.attempts)}]:[];}),next:rows.length>limit?page.at(-1)?.task_id??null:null};
 }
 export function workTree(ctx:Ctx,id:string){
   const root=getWork(ctx,id);if(!root)throw new CoreError("unknown_task","Unknown work");

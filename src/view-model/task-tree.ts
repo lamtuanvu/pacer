@@ -19,10 +19,15 @@ export interface TaskNodeView {
   active: boolean;
   attention: TaskAttention; attentionLabel?: string;
   /** Omitted while the machine is not known (queued work, or a source that does not report it). */
-  host?: { name: string; kind: "local" | "remote" }; branch?: string;
+  host?: { name: string; kind: "local" | "remote" }; branch?: string; repo?: string;
   agents: string[]; tokens?: string;
+  /** Which Tasks filter holds this card; a root counts its subtasks' attention. */
+  bucket: TaskBucket;
+  /** Measured tokens for this card and its subtasks, when any were measured. */
+  tokenCount?: number;
   meta: TaskMetaItem[]; children: TaskNodeView[];
 }
+export type TaskBucket = "needs" | "running" | "accepted" | "stopped" | "other";
 /** The token roll-up (src/tokens/rollup.ts); a task with no measured or partial attempt shows nothing, never 0. */
 export type TreeTokens = Pick<TokenRollup, "total" | "lowerBound" | "measuredAttempts" | "partialAttempts">;
 export type TreeTask = ClientTask & {
@@ -38,10 +43,11 @@ function compact(n: number): string {
   const value = n / div;
   return `${value >= 100 || div === 1 ? Math.round(value) : Math.round(value * 10) / 10}${unit}`;
 }
-function tokenText(tokens: TreeTokens | null | undefined): string | undefined {
-  if (!tokens || tokens.measuredAttempts + tokens.partialAttempts === 0) return undefined;
-  return `${tokens.lowerBound ? "≥ " : ""}${compact(tokens.total)} tokens`;
+function tokenOf(tokens: TreeTokens | null | undefined): Tok | null {
+  if (!tokens || tokens.measuredAttempts + tokens.partialAttempts === 0) return null;
+  return { total: tokens.total, lower: tokens.lowerBound };
 }
+const tokenText = (tok: Tok | null): string | undefined => tok ? `${tok.lower ? "≥ " : ""}${compact(tok.total)} tokens` : undefined;
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 /** Tint, pill colour and words come from one vocabulary status, so they never disagree (UI-10). */
@@ -83,7 +89,8 @@ function meta(task: TreeTask, now: number): TaskMetaItem[] {
   return items;
 }
 
-type Sortable = TaskNodeView & { at: number; queued: boolean; urgency: number };
+type Sortable = TaskNodeView & { at: number; queued: boolean; urgency: number; tok: Tok | null; stopped: boolean; accepted: boolean };
+interface Tok { total: number; lower: boolean }
 /** Roots are ordered attention first (bad, then warn; Needs you severity within each), then running and queued work, then the rest by recency. */
 function order(a: Sortable, b: Sortable): number {
   return rank[b.attention] - rank[a.attention]
@@ -95,10 +102,11 @@ function order(a: Sortable, b: Sortable): number {
 
 export function taskTree(snapshot: TreeSnapshot, opts: { now: number; extra?: TreeTask[] }): TaskNodeView[] {
   const byId = new Map<string, TreeTask>();
-  // Snapshot rows are fresher, but only a fetched detail or work page knows the parent link, so keep it.
+  // Snapshot rows are fresher, but only a fetched detail or work page knows the parent link, branch and tokens, so keep them.
   for (const task of [...(opts.extra ?? []), ...snapshot.tasks]) {
     const previous = byId.get(task.id);
-    byId.set(task.id, previous?.parentId != null && task.parentId == null ? { ...task, parentId: previous.parentId } : task);
+    const kept = previous ? (["parentId", "branch", "tokens"] as const).filter(key => previous[key] != null && task[key] == null) : [];
+    byId.set(task.id, previous && kept.length ? { ...task, ...Object.fromEntries(kept.map(key => [key, previous[key]])) } : task);
   }
   const tasks = [...byId.values()];
   const items = snapshot.attention;
@@ -108,19 +116,21 @@ export function taskTree(snapshot: TreeSnapshot, opts: { now: number; extra?: Tr
     const status = taskStatus(task);
     const attention = ownAttention(task, items, tasks);
     const branch = task.branch ?? undefined;
-    const tokens = tokenText(task.tokens);
+    const tok = tokenOf(task.tokens);
+    const tokens = tokenText(tok);
     built.set(task.id, {
       id: task.id, title: task.fullTitle ?? task.title ?? task.goal,
       state: { tone: status.tone, live: task.state === "running", label: status.label },
       active: task.state === "running" || task.state === "queued",
       attention: attention.level, ...(attention.label ? { attentionLabel: attention.label } : {}),
       ...(task.host ? { host: { name: task.host, kind: "remote" as const } } : task.host === null && task.state !== "queued" ? { host: { name: localHostWords, kind: "local" as const } } : {}),
-      ...(branch ? { branch } : {}), agents: task.executor ? [markAgent(task.executor)] : [], ...(tokens ? { tokens } : {}),
-      meta: meta(task, opts.now), children: [], at: task.updatedAt, queued: task.state === "queued",
+      ...(branch ? { branch } : {}), ...(task.repo?.label ? { repo: task.repo.label } : {}), agents: task.executor ? [markAgent(task.executor)] : [], ...(tokens ? { tokens } : {}),
+      meta: meta(task, opts.now), children: [], at: task.updatedAt, queued: task.state === "queued", bucket: "other", tok,
+      accepted: task.review?.accepted === true, stopped: ["failed", "limit", "partial", "stopped", "cancelled"].includes(task.state) || task.review?.accepted === false,
       urgency: attention.level === "none" ? calm : attention.urgency ?? urgency.problem,
     });
   }
-  const strip = ({ at: _at, queued: _queued, urgency: _urgency, ...view }: Sortable): TaskNodeView => view;
+  const strip = ({ at: _at, queued: _queued, urgency: _urgency, tok: _tok, accepted: _accepted, stopped: _stopped, ...view }: Sortable): TaskNodeView => view;
   const roots: Built[] = [];
   for (const task of tasks) {
     const node = built.get(task.id)!;
@@ -137,14 +147,18 @@ export function taskTree(snapshot: TreeSnapshot, opts: { now: number; extra?: Tr
     const children = (node.children as Built[]).filter(child => !seen.has(child.id)).map(child => finish(child, seen)).sort(order);
     let attention = node.attention, attentionLabel = node.attentionLabel, nodeUrgency = node.urgency;
     const agents = [...node.agents];
+    let tok = node.tok;
     for (const child of children) {
+      if (child.tok) tok = { total: (tok?.total ?? 0) + child.tok.total, lower: (tok?.lower ?? false) || child.tok.lower };
       // A worse subtask lends its words along with its tint, so a collapsed card never shows colour alone (UI-2).
       if (rank[child.attention] > rank[attention]) { attention = child.attention; attentionLabel = child.attentionLabel && subtaskAttentionWords(child.attentionLabel.replace(/^Subtask: /, "")); }
       if (child.attention === attention) nodeUrgency = Math.min(nodeUrgency, child.urgency);
       for (const agent of child.agents) if (!agents.includes(agent)) agents.push(agent);
     }
-    const { attentionLabel: _label, ...rest } = node;
-    return { ...rest, attention, ...(attentionLabel ? { attentionLabel } : {}), agents, children: children.map(strip), urgency: nodeUrgency };
+    const { attentionLabel: _label, tokens: _tokens, ...rest } = node;
+    const bucket: TaskBucket = attention !== "none" ? "needs" : node.active ? "running" : node.accepted ? "accepted" : node.stopped ? "stopped" : "other";
+    const text = node.children.length || children.length ? tokenText(tok) : node.tokens;
+    return { ...rest, attention, ...(attentionLabel ? { attentionLabel } : {}), agents, bucket, ...(text ? { tokens: text } : {}), ...(tok ? { tokenCount: tok.total } : {}), tok, children: children.map(strip), urgency: nodeUrgency };
   };
   // Roll attention up before ordering roots, so a root with a failing child sorts with the problems.
   const seen = new Set<string>();
@@ -159,4 +173,18 @@ export function scopedTaskTree(snapshot: ClientSnapshot, scope: Scope, opts: { n
   const keep = (task: TreeTask) => task.id === opts.pinned || (scope.repo === null || !task.repo || task.repo.key === scope.repo)
     && !(task.dismissed && (task.state === "running" || task.state === "queued"));
   return taskTree({ tasks: snapshot.tasks.filter(keep), attention: needsYou(snapshot, scope) }, { now: opts.now, extra: opts.extra?.filter(keep) });
+}
+
+/** The work rows `dispatch.list` returns, as tree tasks: they carry the parent link, branch and token roll-up the snapshot lacks. */
+export interface WorkRow { id: string; parentId: string | null; rootId: string; depth: number; title: string; state: string; executor: string | null; rev: number; branch?: string | null; tokens?: TreeTokens | null }
+export function workTasks(rows: WorkRow[]): TreeTask[] {
+  return rows.map((row): TreeTask => ({ id: row.id, goal: row.title, title: row.title, executor: row.executor, backend: null, worktree: null, updatedAt: 0, state: row.state, parentId: row.parentId, branch: row.branch ?? null, tokens: row.tokens ?? null }));
+}
+
+/** The Tasks page caption: roots, subtasks and tokens across the roots shown. Tokens appear only when some were measured. */
+export function treeSummary(nodes: TaskNodeView[]): { roots: number; subtasks: number; tokens?: string } {
+  const count = (list: TaskNodeView[]): number => list.reduce((total, node) => total + node.children.length + count(node.children), 0);
+  const measured = nodes.filter(node => node.tokenCount != null);
+  const total = measured.reduce((sum, node) => sum + node.tokenCount!, 0);
+  return { roots: nodes.length, subtasks: count(nodes), ...(measured.length ? { tokens: `${compact(total)} tokens` } : {}) };
 }

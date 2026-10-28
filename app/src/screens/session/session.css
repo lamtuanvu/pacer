@@ -42,12 +42,11 @@
 .pc-detail-panel .pc-session-main>.pc-tabs{position:static}
 
 /* Tasks remains the primary destination; this layout only arranges its selected task. */
-.pc-task-workspace{display:grid;grid-template-columns:var(--size-260) minmax(0,1fr);min-width:0;height:calc(100dvh - var(--size-64));min-height:var(--size-520);background:var(--surface-page)}
+.pc-task-workspace{display:grid;grid-template-columns:var(--size-272) minmax(0,1fr);min-width:0;height:calc(100dvh - var(--size-64));min-height:var(--size-520);background:var(--surface-page)}
 .pc-task-nav{display:flex;flex-direction:column;min-width:0;min-height:0;border-right:1px solid var(--line);background:var(--surface-card)}
-.pc-task-nav__head{display:flex;align-items:center;justify-content:space-between;gap:var(--space-2);min-height:var(--size-44);padding:0 var(--space-3);border-bottom:1px solid var(--line)}
-.pc-task-nav__head span{font-size:var(--type-label-size);color:var(--ink-muted);font-variant-numeric:tabular-nums}
-.pc-task-nav__scroll{overflow:auto;min-height:0;padding:var(--space-2)}
-.pc-task-nav section{display:flex;flex-direction:column;gap:var(--space-1);min-width:0;padding-top:var(--space-3)}.pc-task-nav h3{padding-inline:var(--space-2)}
+.pc-task-nav__head{display:flex;align-items:center;height:var(--size-38);padding:0 var(--space-2) 0 var(--space-3\.5)}
+.pc-task-nav__head strong{font-size:var(--type-label-size);line-height:var(--type-label-line);font-weight:var(--type-label-weight);letter-spacing:var(--type-label-tracking);text-transform:uppercase;color:var(--ink-muted)}
+.pc-task-nav__scroll{overflow:auto;min-height:0;padding:0 var(--space-2) var(--space-3)}
 .pc-task-workspace__main{display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden}
 .pc-task-workspace__navigation{display:flex;flex-direction:column;border-bottom:1px solid var(--line);background:var(--surface-page)}
 .pc-task-workspace__breadcrumb{display:flex;align-items:center;gap:var(--space-2);padding:var(--space-2) var(--space-4) 0;color:var(--ink-muted);font-size:var(--type-caption-size)}
@@ -107,3 +106,36 @@
 /* A driver must always see how to leave the terminal. */
 .pc-session-control--driving .pc-session-control__hint{display:block;flex:1 0 100%}
 }
+/* Tasks page: header, filters, tree and the selected-task panel. */
+.pc-tasks-page{display:flex;flex-direction:column;gap:var(--space-4);min-width:0;max-width:var(--size-1240);box-sizing:border-box;padding:var(--space-7) var(--space-10) var(--space-12)}
+.pc-tasks-page__header{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-3)}
+.pc-tasks-page__heading{display:flex;flex:1 1 auto;flex-direction:column;gap:var(--space-half);min-width:0}
+.pc-tasks-page__title{margin:0;font-size:var(--type-display-size);line-height:var(--type-display-line);font-weight:var(--type-display-weight);letter-spacing:var(--type-display-tracking)}
+.pc-tasks-page__caption{font-size:var(--type-caption-size);line-height:var(--type-caption-line);color:var(--ink-muted)}
+.pc-tasks-page__search{position:relative;display:flex;align-items:center;min-width:var(--size-260);color:var(--ink-muted)}
+.pc-tasks-page__search>svg{position:absolute;left:var(--space-3);pointer-events:none}
+.pc-tasks-page__search .pc-input{flex:1 1 auto;min-height:var(--size-36);padding-left:var(--space-8)}
+.pc-tasks-page__dot{display:inline-block;flex:none;width:var(--space-2);height:var(--space-2);border-radius:var(--radius-full);background:var(--ink-muted)}
+.pc-tasks-page__dot--bad{background:var(--bad-fill)}.pc-tasks-page__dot--info{background:var(--info-fg)}.pc-tasks-page__dot--good{background:var(--good-fill)}
+.pc-tasks-page__count{font-size:var(--type-caption-size);color:var(--ink-muted)}
+.pc-tasks-page__columns{display:flex;flex-wrap:wrap;gap:var(--space-5);align-items:flex-start;min-width:0}
+.pc-tasks-page__tree{display:flex;flex:1 1 var(--size-520);flex-direction:column;gap:var(--space-1);min-width:0}
+.pc-tasks-page__tree .pc-task-tree{gap:var(--space-1)}
+.pc-tasks-page__more{display:flex;align-items:center;gap:var(--space-3);padding:var(--space-2) var(--space-1)}
+.pc-tasks-page__more .pc-tasks-page__caption{flex:1 1 auto}
+.pc-task-aside{flex:0 1 var(--size-360);min-width:0;position:sticky;top:var(--space-4);box-sizing:border-box;border:1px solid var(--line);border-radius:var(--radius-card);background:var(--surface-card);overflow:hidden}
+.pc-task-aside__section{display:flex;flex-direction:column;gap:var(--space-1\.5);padding:var(--space-3) var(--space-4);border-bottom:1px solid var(--line)}
+.pc-task-aside__section:last-child{border-bottom:0}
+.pc-task-aside__head{padding:var(--space-3\.5) var(--space-4)}
+.pc-task-aside__title{display:flex;align-items:center;gap:var(--space-2);min-width:0}
+.pc-task-aside__title b{flex:1 1 auto;min-width:0}
+.pc-task-aside__caption{font-size:var(--type-caption-size);line-height:var(--type-caption-line);color:var(--ink-muted)}
+.pc-task-aside__buttons{display:flex;gap:var(--space-1\.5)}
+.pc-task-aside__label{display:flex;align-items:center;gap:var(--space-1\.5);font-size:var(--type-label-size);line-height:var(--type-label-line);font-weight:var(--type-label-weight);letter-spacing:var(--type-label-tracking);text-transform:uppercase;color:var(--ink-muted)}
+.pc-task-aside__label svg{width:var(--size-14);height:var(--size-14)}
+.pc-task-aside__mono{font-family:var(--font-mono);font-size:var(--type-code-size);color:var(--ink-secondary)}
+.pc-task-aside__notes{color:var(--ink-secondary)}
+.pc-task-aside__activity{display:flex;align-items:baseline;gap:var(--space-2)}
+.pc-task-aside__what{flex:1 1 auto;min-width:0;font-weight:var(--type-body-strong-weight)}
+@media(max-width:767px){.pc-tasks-page{padding:var(--space-4) var(--space-4) var(--space-6)}.pc-tasks-page__search{flex:1 1 100%;min-width:0}.pc-task-aside{display:none}}
+.pc-tasks-page .pc-tabs .pc-btn{min-height:var(--control-settings);padding:0 var(--space-3)}

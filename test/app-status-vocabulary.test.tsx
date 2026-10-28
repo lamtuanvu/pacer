@@ -11,7 +11,7 @@ import { OverviewView } from '../app/src/screens/Overview';
 import { ReviewView } from '../app/src/screens/Review';
 import { initialReview, reviewReducer } from '../app/src/screens/review/model';
 import { sessionDetail } from '../app/src/screens/session/controller';
-import { SessionsList } from '../app/src/screens/session/SessionsList';
+import { SessionsList } from './fixtures/ui/sessions-list';
 import { taskTree } from '../src/view-model/task-tree';
 import { Session } from '../app/src/screens/session/Session';
 import { StatusPill } from '../app/src/ds/StatusPill';
@@ -42,7 +42,7 @@ test('session list and detail retain review verdicts and ignore phases from ende
     const badge = renderToString(<StatusPill status={taskStatus(task)} />);
     const list = renderToString(<SessionsList recent={{data:taskTree({tasks:[task]},{now:0})}} />);
     expect(list).toContain(`>${taskStatus(task).label}<`);
-    expect(list).toContain(`pc-status-dot--${taskStatus(task).tone}`);
+    expect(list).toContain(`pc-pill--${taskStatus(task).tone}`);
     expect(list).toContain(`>${accepted ? 'Accepted' : 'Rejected'}<`);
     expect(list).not.toContain('Testing');
     expect(renderToString(<Session data={sessionDetail(task)} />)).toContain(badge);

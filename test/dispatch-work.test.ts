@@ -79,6 +79,13 @@ test("work list filters roots, children, and state with a stable page cursor",()
  expect(listWork(ctx,{relation:"children",state:"queued"}).tasks.map(t=>t.id)).toEqual([child.id]);
  expect(listWork(ctx,{relation:"all",limit:1}).next).toBeTruthy();
 });
+test("work list rows carry the branch and an honest token roll-up",()=>{
+ const {ctx,task}=root();
+ const row=listWork(ctx,{relation:"all"}).tasks.find(t=>t.id===task.id)!;
+ expect(row).toHaveProperty("branch");
+ // A task with no usage reading reports null, never a zero total.
+ expect(row.tokens).toBeNull();
+});
 test("owner can waive a required child with an audited reason",()=>{
  const {ctx,task}=root();updateTask(ctx,task.id,t=>{t.state="running";});
  const child=createTask(ctx,{brief:{goal:"child",repo:task.brief.repo},kind:"debug",requestedExecutor:null,timeoutS:60});registerWork(ctx,child.id,{},task.id);
