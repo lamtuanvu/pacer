@@ -79,7 +79,7 @@ function period(ctx: Ctx, from: number, to: number, repo: string | undefined, bu
     } catch { /* malformed routing note: not counted */ }
   }
   const spread = [...byAgent.values()].sort((a, b) => b.sums.total - a.sums.total || a.agent.localeCompare(b.agent)).map(g => ({
-    agent: g.agent, rootTasks: g.roots.size, tasks: g.tasks.size, attempts: g.attempts, ...g.sums,
+    agent: g.agent, rootTasks: g.roots.size, tasks: g.tasks.size, subtasks: [...g.tasks].filter(id => !g.roots.has(id)).length, attempts: g.attempts, ...g.sums,
     // A share of zero tokens is unknown, not 0%.
     share: all.total > 0 ? g.sums.total / all.total : null, tokensPerTask: g.tasks.size ? Math.round(g.sums.total / g.tasks.size) : null,
     acceptanceRate: g.judged ? g.accepted / g.judged : null,

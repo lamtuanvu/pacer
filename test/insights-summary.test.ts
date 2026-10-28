@@ -47,6 +47,8 @@ test("subtasks, retries, first-try acceptance and the agent spread", () => {
   expect(s.acceptedFirstTryRate).toBe(0.5);
   expect([s.tokens.total, s.tokens.unknownAttempts, s.tokens.lowerBound]).toEqual([300, 1, true]);
   expect(s.spread.map(g => [g.agent, g.total, g.share])).toEqual([["codex", 260, 260 / 300], ["claude-code", 40, 40 / 300]]);
+  expect(s.spread.find(g => g.agent === "codex")!.subtasks).toBe(1);
+  expect(s.spread.find(g => g.agent === "claude-code")!.subtasks).toBe(0);
   expect(s.skipReasons).toEqual([{ agent: "cursor", reason: "stale", count: 1 }]);
   expect(s.ladder).toEqual([{ rule: "capable", count: 4 }]);
   expect(s.kindByAgent[0]!.byAgent.codex).toBe(2);

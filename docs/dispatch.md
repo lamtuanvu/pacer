@@ -130,7 +130,7 @@ Definitions, so every client counts the same way:
 - **Subtasks, attempts, retries:** descendants of the handled roots, their attempts, and attempts beyond the first on any task (`retryAttempts`).
 - **Accepted first try:** the root was accepted at review, and no task in its tree needed a second attempt. The rate is over reviewed roots; with none reviewed it is `null`, not 0.
 - **Tokens:** attempts that ended in the period, with `measured`/`partial`/`unknown` counts and `lowerBound`. Cache tokens are kept out of `total`.
-- **Spread:** per agent, root tasks, tasks, attempts, tokens, `share` (of this period's tokens; `null` when there are none), tokens per task and acceptance rate (accepted over reviewed attempts).
+- **Spread:** per agent, root tasks, tasks, subtasks, attempts, tokens, `share` (of this period's tokens; `null` when there are none), tokens per task and acceptance rate (accepted over reviewed attempts).
 - **Also returned:** a series per bucket by agent, task kinds by agent, the ladder rule that picked each attempt, skip reasons, and the same headline figures for the previous period of equal length (`previous`).
 - **Buckets:** days and weeks are aligned to the Unix epoch in UTC (weeks start on Thursday), not to a local calendar. A task reopened before first-settle tracking existed has no recorded first settle, so its later settle counts as its first.
 - **Planner:** `planner` and `decision` report `coverage: "unknown"` and `ranOutsidePlanner` is `null` until planner attribution exists. Shares and the executor split never depend on it, and token volumes are never presented as savings or cost.

@@ -1,1 +1,12 @@
-{}
+{
+  "color": {
+    "tokens": [
+      {
+        "name": "chart-6",
+        "value": { "light": "#8a6fb0", "dark": "#b9a8dc" },
+        "usage": "Sixth categorical chart series, for agents beyond the five identity series. Insights only; keeps at least 3:1 against surface-page and surface-lane.",
+        "provisional": "The design system defines five chart colors; Insights needs a sixth for OpenCode, BytePlus and Gemini. Remove when the design system adds one."
+      }
+    ]
+  }
+}
