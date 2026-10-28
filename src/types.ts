@@ -29,8 +29,8 @@ export interface UsageReading {
   spendUsd?: number; // 7-day spend for the account's model, from opencode stats
 }
 
-export interface RunResult { timedOut?: boolean; code: number; stdout: string; stderr: string }
-export type RunFn = (argv: string[], timeoutMs: number, options?: { env?: Record<string, string | undefined>; stdin?: string; stdinUntilResponseId?: number }) => Promise<RunResult>;
+export interface RunResult { timedOut?: boolean; stdoutOverflow?: boolean; code: number; stdout: string; stderr: string }
+export type RunFn = (argv: string[], timeoutMs: number, options?: { env?: Record<string, string | undefined>; stdin?: string; stdinUntilResponseId?: number; maxStdoutBytes?: number }) => Promise<RunResult>;
 
 export interface Ctx {
   readOnly?: boolean; // Suppress cache writes for strategy previews.
