@@ -106,3 +106,11 @@ test('button theme backgrounds change immediately rather than transitioning stal
  expect(css).toContain('transition:opacity var(--motion-fast) var(--motion-ease)');
  expect(css).not.toContain('transition:background-color var(--motion-fast) var(--motion-ease),opacity');
 });
+
+test("a provisional type style the design system now has is rejected", () => {
+  const known = tokens.type.groups[0]!.styles[0]!;
+  const style = { ...known, provisional: "until the design system adds it" };
+  expect(() => mergeTokens(tokens, { type: { styles: [style] } })).toThrow(`type-${known.name} is now in the design system`);
+  const merged = mergeTokens(tokens, { type: { styles: [{ ...known, name: "count-badge-test", provisional: "x" }] } });
+  expect(generateTokensCss(merged)).toContain("--type-count-badge-test-size:");
+});

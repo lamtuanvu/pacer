@@ -73,9 +73,9 @@
         "name": "ink-on-fill",
         "value": {
           "light": "#ffffff",
-          "dark": "#ffffff"
+          "dark": "#18181b"
         },
-        "usage": "Text on solid status fills such as count badges.",
+        "usage": "Text on solid status fills such as count badges; dark text keeps 4.5:1 on the lighter dark fill.",
         "provisional": "App frame chrome board value; not yet in the design system."
       }
     ]

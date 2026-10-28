@@ -47,11 +47,10 @@ test("unknown and stale planners still show their name without duplicated usage"
   expect(renderToString(<TopBar {...base} planner={{ ...planner, stale: true }} />)).not.toContain("pc-meter");
 });
 
-test("Delegate is the one primary button, secondary when the screen owns the primary", () => {
+test("Delegate is a secondary button, so the screen keeps the one primary action", () => {
   const html = renderToString(<TopBar {...base} />);
-  expect(html.match(/pc-btn--primary/g)?.length).toBe(1);
-  expect(html).toContain(">Delegate<");
-  expect(renderToString(<TopBar {...base} delegatePrimary={false} />)).not.toContain("pc-btn--primary");
+  expect(html).not.toContain("pc-btn--primary");
+  expect(html).toMatch(/pc-btn--secondary[^>]*>Delegate</);
 });
 
 test("setup leaves the step's page heading and actions to the setup flow", () => {

@@ -183,7 +183,7 @@ browserTest("frame_chrome_measures_to_the_board", async () => {
       const badge = q(".pc-rail__badge--count"), chip = q(".pc-planner"), toggles = [...document.querySelectorAll(".pc-layout-toggles button")];
       return {
         top: { h: size(top)[1], pad: css(top).padding, bg: css(top).backgroundColor, card: css(rail).backgroundColor, h1: size(q(".pc-topbar h1")) },
-        mark: size(q(".pc-topbar__brand svg")), delegate: [...document.querySelectorAll(".pc-topbar .pc-btn")].find(b => b.textContent === "Delegate")!.className, toggleRadius: css(toggles[0]!).borderTopLeftRadius,
+        mark: size(q(".pc-topbar__brand svg")), delegate: (() => { const b = [...document.querySelectorAll(".pc-topbar .pc-btn")].find(x => x.textContent === "Delegate")!; return [b.className, getComputedStyle(b).backgroundColor, getComputedStyle(document.querySelector(".pc-topbar")!).backgroundColor]; })(), toggleRadius: css(toggles[0]!).borderTopLeftRadius,
         badgeType: [css(badge).fontSize, css(badge).fontWeight, css(badge).color], chip: { h: size(chip)[1], r: css(chip).borderTopLeftRadius, mode: !!chip.querySelector(".pc-pill") },
         toggles: toggles.map(size), names: toggles.map(t => t.getAttribute("aria-label")), group: q(".pc-layout-toggles").getAttribute("aria-label"),
         rail: { w: size(rail)[0], pad: css(rail).padding, gap: css(rail).rowGap, item: size(on), bar: [css(on, "::before").width, css(on, "::before").height, css(on, "::before").left, css(on, "::before").backgroundColor], onBg: css(on).backgroundColor, lane: css(q(".pc-rail__divider")).height },
@@ -209,8 +209,10 @@ browserTest("frame_chrome_measures_to_the_board", async () => {
     expect(m.rail.item).toEqual([40, 40]);
     expect(m.rail.bar.slice(0, 3)).toEqual(["3px", "20px", "-6px"]);
     expect(m.badge.size[1]).toBe(16);
-    expect(m.badgeType).toEqual(["10px", "700", "rgb(255, 255, 255)"]);
-    expect(m.delegate).toContain("pc-btn--secondary");
+    expect(m.badgeType.slice(0, 3)).toEqual(["10px", "700", "rgb(255, 255, 255)"]); // light theme; dark is covered by the contrast test
+    expect(m.delegate[0]).toContain("pc-btn--secondary");
+    expect(m.delegate[1]).not.toBe("rgb(24, 24, 27)"); // not the filled primary
+    expect(m.delegate[1]).not.toBe("rgb(9, 9, 11)");
     expect(m.toggleRadius).toBe("6px");
     expect(m.badge.radius).not.toBe("0px");
     expect(m.status.h).toBe(28);
@@ -260,6 +262,22 @@ browserTest("settings_attention_dot_measures_to_the_board", async () => {
       expect(dot.border).toEqual(["2px", true]);
       expect(dot.box).toEqual([12, 12]);
       expect(dot.fill).toBe(scheme === "light" ? "rgb(220, 38, 38)" : "rgb(239, 68, 68)");
+      await page.close();
+    }
+  } finally { await browser.close(); }
+}, 30_000);
+
+browserTest("count_badge_text_keeps_contrast_in_both_themes", async () => {
+  const built = await frame();
+  const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
+  try {
+    const luminance = (rgb: string) => { const [r, g, b] = rgb.match(/\d+/g)!.map(Number).map(v => { const c = v / 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!; };
+    for (const scheme of ["light", "dark"] as const) {
+      const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, colorScheme: scheme });
+      await open(page, built, "#/settings");
+      const colors = await page.locator(".pc-rail__badge--count").first().evaluate(node => ({ fg: getComputedStyle(node).color, bg: getComputedStyle(node).backgroundColor }));
+      const [hi, lo] = [luminance(colors.fg), luminance(colors.bg)].sort((a, b) => b - a);
+      expect((hi! + 0.05) / (lo! + 0.05)).toBeGreaterThanOrEqual(4.5);
       await page.close();
     }
   } finally { await browser.close(); }

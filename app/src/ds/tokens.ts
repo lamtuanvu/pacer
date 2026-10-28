@@ -94,5 +94,5 @@ export const colorTokens: Record<ColorToken, { light: string; dark: string }> = 
   "aurora-1": { light: "#a5b4fc", dark: "#818cf8" },
   "aurora-2": { light: "#f0abfc", dark: "#d58be8" },
   "aurora-3": { light: "#99f6e4", dark: "#5ed8c4" },
-  "ink-on-fill": { light: "#ffffff", dark: "#ffffff" },
+  "ink-on-fill": { light: "#ffffff", dark: "#18181b" },
 };

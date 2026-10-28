@@ -21,14 +21,14 @@ export interface TopBarProps {
   /** Only regions that exist on this route get a button. */
   panels?: { left?: PanelToggle; dock?: PanelToggle; right?: PanelToggle };
   narrow?: boolean; title: string; planner: PlannerMeter | null; mode: string; connected: boolean; lastUpdate: number | null;
-  showActions?: boolean; now?: number; onDelegate: () => void; delegatePrimary?: boolean;
+  showActions?: boolean; now?: number; onDelegate: () => void;
 }
 const modeTone = (mode: string) => ({ normal: "neutral", relaxed: "good" } as const)[mode.toLowerCase() as "normal"] ?? "warn";
 function LayoutToggle({ icon, label, keys, toggle }: { icon: "panel-left" | "panel-bottom" | "panel-right"; label: string; keys: string; toggle: PanelToggle }) {
   return <IconButton icon={icon} size="sm" variant="quiet" aria-label={label} title={label} aria-keyshortcuts={keys} aria-pressed={toggle.open} onClick={toggle.toggle} />;
 }
 /** One compact page header, including native controls in the desktop shell. */
-export function TopBar({ brand, search, panels = {}, narrow = false, title, planner, mode, connected, lastUpdate, now: fixedNow, onDelegate, delegatePrimary = true, showActions = true }: TopBarProps) {
+export function TopBar({ brand, search, panels = {}, narrow = false, title, planner, mode, connected, lastUpdate, now: fixedNow, onDelegate, showActions = true }: TopBarProps) {
   const [tick, setTick] = useState(() => Date.now() / 1000);
   useEffect(() => { if (fixedNow !== undefined) return; const t = setInterval(() => setTick(Date.now() / 1000), 1000); return () => clearInterval(t); }, [fixedNow]);
   const now = fixedNow ?? tick;
@@ -53,7 +53,7 @@ export function TopBar({ brand, search, panels = {}, narrow = false, title, plan
       {panels.right && <LayoutToggle icon="panel-right" label="Toggle right panel" keys="Alt+Meta+B" toggle={panels.right} />}
     </div>}
     {!connected && <span className="pc-live" role="status"><span className="pc-live-dot pc-live-dot--off" aria-hidden="true" />Reconnecting…</span>}
-    <DensityContext.Provider value="compact"><Button variant={delegatePrimary ? "primary" : "secondary"} size="sm" onClick={onDelegate}>Delegate</Button></DensityContext.Provider>
+    <DensityContext.Provider value="compact"><Button variant="secondary" size="sm" onClick={onDelegate}>Delegate</Button></DensityContext.Provider>
     </>}
   </header>;
 }
