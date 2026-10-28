@@ -276,7 +276,9 @@ a second row inside the title bar, preserving title, search and action space.
 The Details tab starts with Workspace, using only available `task.get` fields
 (Repo label, Branch, Base, Worktree, Machine). Values wrap anywhere in a
 12px/18px mono definition list. Routing explanation and reported token totals
-appear only when present; unreported token fields are omitted, and partial totals
+appear only when present; unreported token fields are omitted. A field reported by
+only some attempts shows "≥ N" with "Some attempts did not report this field.";
+fields reported by every attempt stay exact. Partial totals
 show only their lower-bound total and partial note. Detail paragraphs have zero
 block margins so the existing 6px section gap owns heading-to-text spacing. The
 Changes tab remains separate. Detail sections use a 16px gap and, after Workspace,

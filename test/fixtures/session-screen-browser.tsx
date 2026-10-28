@@ -18,11 +18,13 @@ const scenario = (window as any).SCENARIO as "conversation" | "supervised" | "en
 const calls: { op: string; params: unknown }[] = ((window as any).CALLS = []);
 const running = scenario !== "ended" && scenario !== "failed";
 let state = running ? "running" : scenario === "failed" ? "failed" : "done";
+const tokenMode = (window as any).TOKEN_MODE as string | undefined;
 const task = () => ({ ...detail, state, interactionMode: scenario === "conversation" ? "conversation" : undefined,
   conversation: scenario === "conversation" ? { agentSessionId: "agent-1", activity: "working" } : undefined,
-  tokens: { total: 1234, input: 1000, output: 234, cacheRead: 0, cacheWrite: 0,
-    reported: { input: true, output: true, cacheRead: false, cacheWrite: false },
-    measuredAttempts: 1, partialAttempts: 0, unknownAttempts: 0, lowerBound: false, byExecutor: [], planner: { coverage: "unknown" }, decision: { coverage: "unknown" } },
+  tokens: { total: 1234, input: 1000, output: 234, cacheRead: tokenMode === "mixed" || tokenMode === "all-present" ? 100 : 0, cacheWrite: 0,
+    reported: { input: true, output: true, cacheRead: tokenMode === "mixed" || tokenMode === "all-present", cacheWrite: tokenMode === "mixed" || tokenMode === "all-present" },
+    complete: { input: true, output: true, cacheRead: tokenMode === "all-present", cacheWrite: tokenMode === "all-present" },
+    measuredAttempts: tokenMode === "partial" ? 0 : tokenMode === "mixed" ? 2 : 1, partialAttempts: tokenMode === "partial" ? 1 : 0, unknownAttempts: 0, lowerBound: tokenMode === "partial", byExecutor: [], planner: { coverage: "unknown" }, decision: { coverage: "unknown" } },
   attemptStartedAt: detail.startedAt, title: "Run demo-stages flow with WebGL enabled and report every console error" });
 const session = { host: scenario === "conversation" ? "builtin" : "none", targets: ["terminal"], live: running, cols: 80, rows: 24, controller: null,
   capabilities: { control: true, resize: true }, takeover: { available: scenario !== "conversation", reason: "Already interactive" }, attach: { ws: "/v3/x", cli: "pacer attach t-0412" }, machine: "devbox" };

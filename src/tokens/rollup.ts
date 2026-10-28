@@ -8,7 +8,13 @@ import { attemptTokensFromRow, readAttemptUsage, type AttemptUsageRow } from "./
 /** One attempt as the roll-up sees it: its tokens and where they were spent. */
 export interface TokenItem { executor: string; account: string | null; model: string | null; tokens: AttemptTokens }
 
-export interface TokenReporting { reported: { input: boolean; output: boolean; cacheRead: boolean; cacheWrite: boolean } }
+type TokenFields = { input: boolean; output: boolean; cacheRead: boolean; cacheWrite: boolean };
+export interface TokenReporting {
+  /** At least one attempt supplied this field. */
+  reported: TokenFields;
+  /** Every attempt supplied this field; false for an empty roll-up. */
+  complete: TokenFields;
+}
 export interface TokenSums { total: number; input: number; cacheRead: number; cacheWrite: number; output: number }
 export interface TokenCounts { measuredAttempts: number; partialAttempts: number; unknownAttempts: number }
 export interface TokenSplit extends TokenSums, TokenCounts, TokenReporting { agent: string; account: string | null; model: string | null; attempts: number }
@@ -21,11 +27,18 @@ export interface TokenRollup extends TokenSums, TokenCounts, TokenReporting {
 }
 
 const zero = (): TokenSums => ({ total: 0, input: 0, cacheRead: 0, cacheWrite: 0, output: 0 });
-const unreported = (): TokenReporting => ({ reported: { input: false, output: false, cacheRead: false, cacheWrite: false } });
+const unreported = (): TokenReporting => ({
+  reported: { input: false, output: false, cacheRead: false, cacheWrite: false },
+  complete: { input: false, output: false, cacheRead: false, cacheWrite: false },
+});
 function add(into: TokenSums & TokenCounts & TokenReporting, t: AttemptTokens): void {
+  // Initialize completeness from the first attempt, then retain it only while all report.
+  const first = into.measuredAttempts + into.partialAttempts + into.unknownAttempts === 0;
   // Keep the numeric sums compatible, while preserving null-means-not-reported per field.
   for (const field of ["input", "output", "cacheRead", "cacheWrite"] as const) {
-    into.reported[field] ||= t[field] !== null;
+    const reported = t[field] !== null;
+    into.complete[field] = (first || into.complete[field]) && reported;
+    into.reported[field] ||= reported;
   }
   into.total += t.total ?? 0; into.input += t.input ?? 0; into.cacheRead += t.cacheRead ?? 0;
   into.cacheWrite += t.cacheWrite ?? 0; into.output += t.output ?? 0;

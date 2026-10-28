@@ -19,12 +19,12 @@ function sessionScreen() {
     return { source: await build.outputs[0]!.text(), css };
   })();
 }
-async function openSession(browser: Browser, scenario: Scenario, viewport = { width: 1440, height: 900 }, colorScheme: "light" | "dark" = "light") {
+async function openSession(browser: Browser, scenario: Scenario, viewport = { width: 1440, height: 900 }, colorScheme: "light" | "dark" = "light", tokenMode?: string) {
   const { source, css } = await sessionScreen();
   const page = await browser.newPage({ viewport, colorScheme });
   await page.route("http://pacer.test/**", route => route.fulfill({ contentType: "text/html", body: '<!doctype html><title>session</title><div id="app"></div>' }));
   await page.goto("http://pacer.test/#/tasks/t-0412");
-  await page.evaluate(([css, scenario]) => { document.head.insertAdjacentHTML("beforeend", `<style>${css}</style>`); (window as any).SCENARIO = scenario; }, [css, scenario] as const);
+  await page.evaluate(([css, scenario, tokenMode]) => { document.head.insertAdjacentHTML("beforeend", `<style>${css}</style>`); (window as any).SCENARIO = scenario; (window as any).TOKEN_MODE = tokenMode; }, [css, scenario, tokenMode] as const);
   await page.evaluate(async code => { const url = URL.createObjectURL(new Blob([code], { type: "text/javascript" })); await import(url); URL.revokeObjectURL(url); }, source);
   await page.locator(".pc-session-title-actions").first().waitFor({ state: "attached" });
   return page;
@@ -461,3 +461,16 @@ browserTest("long status labels retain their intrinsic width ahead of later capt
     await page.close();
   }
 }), 40_000);
+
+browserTest("Session details distinguish mixed field sums from exact and absent counts", async () => withBrowser(async browser => {
+  for (const mode of ["mixed", "partial", "all-present", "not-reported"]) {
+    const page = await openSession(browser, "supervised", { width: 1440, height: 900 }, "light", mode);
+    await page.getByRole("tab", { name: "Details", exact: true }).click();
+    const section = page.locator(".pc-session-details section").filter({ has: page.getByRole("heading", { name: "Tokens", exact: true }) });
+    expect(await section.locator("p.mono").innerText()).toBe(mode === "partial" ? "≥ 1,234" : "1,234");
+    const values = await section.locator("dd").allTextContents();
+    expect(values).toEqual(mode === "partial" ? [] : mode === "not-reported" ? ["1,000", "234"] : mode === "mixed" ? ["1,000", "≥ 100Some attempts did not report this field.", "≥ 0Some attempts did not report this field.", "234"] : ["1,000", "100", "0", "234"]);
+    expect((await section.innerText()).includes("Partial usage")).toBe(mode === "partial");
+    await page.close();
+  }
+}), 20_000);

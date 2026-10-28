@@ -117,3 +117,25 @@ for (const [name, extra, labels] of [
   }
   expect(html.includes("Partial usage")).toBe(tokens.lowerBound);
 });
+
+for (const mode of ["mixed", "partial", "all-present", "not-reported"] as const) test(`insights field completeness: ${mode}`, () => {
+  const tokens = { total: 1234, input: 1000, output: 234, cacheRead: 100, cacheWrite: 0,
+    measuredAttempts: 2, partialAttempts: 0, lowerBound: mode === "partial",
+    reported: { input: true, output: true, cacheRead: mode !== "not-reported", cacheWrite: mode !== "not-reported" },
+    complete: { input: true, output: true, cacheRead: mode === "all-present", cacheWrite: mode === "all-present" } };
+  const html = renderToString(<SessionInsights task={{ tokens } as never} />);
+  expect(html).toContain(`<p class="mono">${mode === "partial" ? "≥ " : ""}1,234</p>`);
+  if (mode === "partial") {
+    expect(html).not.toContain("<dt>");
+    expect(html).toContain("Partial usage; some attempt tokens are not reported.");
+  } else {
+    expect(html).toContain("<dt>Input</dt><dd>1,000</dd>");
+    expect(html).toContain("<dt>Output</dt><dd>234</dd>");
+    if (mode === "not-reported") expect(html).not.toContain("<dt>Cache");
+    else {
+      expect(html).toContain(`<dt>Cache read</dt><dd>${mode === "mixed" ? "≥ " : ""}100`);
+      expect(html).toContain(`<dt>Cache write</dt><dd>${mode === "mixed" ? "≥ " : ""}0`);
+    }
+  }
+  expect(html.includes("Some attempts did not report this field.")).toBe(mode === "mixed");
+});

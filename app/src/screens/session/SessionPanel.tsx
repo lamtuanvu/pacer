@@ -124,7 +124,7 @@ export function SessionInsights({ task }: { task: TaskDetail }) {
     {task.routing?.why && <section><SectionHeading as="h3">Why {executorLabel(task.routing.chosen)}</SectionHeading><p>{task.routing.why}</p></section>}
     {reported && <section><SectionHeading as="h3">Tokens</SectionHeading>
       <p className="mono">{tokens.lowerBound ? "≥ " : ""}{tokens.total.toLocaleString("en-US")}</p>
-      {!tokens.lowerBound && <dl className="pc-session-token-counts">{([["Input", "input"], ["Cache read", "cacheRead"], ["Cache write", "cacheWrite"], ["Output", "output"]] as const).filter(([, field]) => tokens.reported?.[field]).map(([label, field]) => <><dt key={`${label}-label`}>{label}</dt><dd key={label}>{tokens[field].toLocaleString("en-US")}</dd></>)}</dl>}
+      {!tokens.lowerBound && <dl className="pc-session-token-counts">{([["Input", "input"], ["Cache read", "cacheRead"], ["Cache write", "cacheWrite"], ["Output", "output"]] as const).filter(([, field]) => tokens.reported?.[field]).map(([label, field]) => <><dt key={`${label}-label`}>{label}</dt><dd key={label}>{tokens.complete?.[field] === false ? "≥ " : ""}{tokens[field].toLocaleString("en-US")}{tokens.complete?.[field] === false && <div className="muted">Some attempts did not report this field.</div>}</dd></>)}</dl>}
       {tokens.lowerBound && <p className="muted">Partial usage; some attempt tokens are not reported.</p>}
     </section>}
   </>;

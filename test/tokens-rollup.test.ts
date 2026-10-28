@@ -110,6 +110,8 @@ for (const [name, coverage, extra, reported] of [
 ] as const) test(`rollup preserves field reporting: ${name}`, () => {
   const tokens = tok(coverage, coverage === "unknown" ? null : 20, extra);
   const result = rollupTokens([{ executor: "codex", account: null, model: null, tokens }]);
+  expect(result.complete).toEqual(reported);
+  expect(result.byExecutor[0]!.complete).toEqual(reported);
   expect(result.reported).toEqual(reported);
   expect(result.byExecutor[0]!.reported).toEqual(reported);
 });
@@ -121,4 +123,33 @@ test("field reporting accumulates across attempts without leaking between execut
   ]);
   expect(result.reported).toEqual({ input: true, output: true, cacheRead: true, cacheWrite: false });
   expect(result.byExecutor.find(group => group.agent === "codex")!.reported.input).toBe(false);
+});
+
+for (const reverse of [false, true]) test(`mixed measured fields remain lower bounds in either attempt order: ${reverse}`, () => {
+  const items = [
+    { executor: "codex", account: null, model: null, tokens: tok("measured", 20, { cacheRead: 100, cacheWrite: 0 }) },
+    { executor: "codex", account: null, model: null, tokens: tok("measured", 30) },
+  ];
+  const result = rollupTokens(reverse ? items.reverse() : items);
+  expect(result.reported).toEqual({ input: true, output: true, cacheRead: true, cacheWrite: true });
+  expect(result.complete).toEqual({ input: true, output: true, cacheRead: false, cacheWrite: false });
+  expect(result.byExecutor[0]!.complete).toEqual(result.complete);
+  expect([result.total, result.input, result.output, result.cacheRead, result.cacheWrite, result.lowerBound]).toEqual([50, 30, 20, 100, 0, false]);
+  const separate = rollupTokens([...items, { executor: "claude-code", account: null, model: null, tokens: tok("measured", 40, { cacheRead: 0, cacheWrite: 5 }) }]);
+  expect(separate.complete.cacheRead).toBe(false);
+  expect(separate.byExecutor.find(group => group.agent === "codex")!.complete.cacheRead).toBe(false);
+  expect(separate.byExecutor.find(group => group.agent === "claude-code")!.complete).toEqual({ input: true, output: true, cacheRead: true, cacheWrite: true });
+});
+
+test("all attempts reporting fields including zero makes the sums complete", () => {
+  const result = rollupTokens([20, 30].map(total => ({ executor: "codex", account: null, model: null, tokens: tok("measured", total, { cacheRead: 0, cacheWrite: 5 }) })));
+  expect(result.complete).toEqual({ input: true, output: true, cacheRead: true, cacheWrite: true });
+  expect(result.byExecutor[0]!.complete).toEqual(result.complete);
+});
+
+test("empty rollups do not claim complete reporting", () => {
+  const result = rollupTokens([]);
+  expect(result.complete).toEqual({ input: false, output: false, cacheRead: false, cacheWrite: false });
+  expect(result.reported).toEqual(result.complete);
+  expect(result.byExecutor).toEqual([]);
 });
