@@ -1856,6 +1856,8 @@ Params JSON Schema:
         "pacing.order",
         "pacing.policy",
         "pacing.planner_reserve",
+        "pacing.planner_reserve_headroom",
+        "pacing.planner_probe",
         "pacing.accounts",
         "pacing.fill_threshold",
         "update_check",
@@ -2793,6 +2795,34 @@ Params JSON Schema:
   },
   "required": [
     "repo"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `dispatch.enforcement.consent`
+
+Grant or decline consent for scheduled certification probes on an account. Probes spend the account's own quota to certify its enforcement guard.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "account": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "granted": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "account",
+    "granted"
   ],
   "additionalProperties": false
 }
