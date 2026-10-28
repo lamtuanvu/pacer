@@ -24,3 +24,4 @@
 .pc-insights__pair{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(var(--size-360),100%),1fr));gap:var(--space-5);align-items:start}
 .pc-insights__list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:var(--space-2)}
 .pc-insights__list li{display:flex;justify-content:space-between;gap:var(--space-3)}
+.pc-insights__scroll:focus-visible{outline:var(--stroke-focus) solid var(--focus);outline-offset:var(--stroke-focus)}
