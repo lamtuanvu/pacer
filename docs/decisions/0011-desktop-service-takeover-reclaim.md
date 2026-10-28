@@ -12,7 +12,7 @@ ADR 0001 says an attached or unverifiable job is never removed, and the legacy b
 
 When the app's consent record shows the user chose the app's service, and the registered service now runs an unverifiable executable, the desktop may stop that one exact job and move its registration to the bundled signed CLI. It does this only after explicit user confirmation that names both executables and states that running work may be interrupted.
 
-The change is a `takeover` variant of the native adoption journal. It uses the existing independent recovery job and readiness proof. Before commit, failure restores the exact original registration. The source build is never executed by the desktop, deleted, overwritten or granted native-session or OTA authority. The repaired registration names the bundle path, not the terminal link.
+The change is a separate native transaction (`transaction_kind: "takeover"`), driven by the signed desktop through the bundled update helper, which verifies its parent is the signed desktop. It has its own journal and independent recovery job. The adoption engine and its authority chain are unchanged, because they require a signed source service. Before commit, failure restores the exact original registration; the restore proof is the original program's captured file and code identity plus a service answer, since an unverifiable build has no native channel. The source build is never executed by the desktop, deleted, overwritten or granted native-session or OTA authority. The repaired registration names the bundle path, not the terminal link. The confirmation is a bundled shell page, because the service's web app is served by the unverified build.
 
 ## Consequences
 
@@ -25,3 +25,4 @@ Services the app never owned are unaffected: ADR 0001 and the legacy bootstrap d
 - Reclaim only when the old service is already stopped: safe, but leaves a running takeover permanently unrepaired unless the user knows to stop it.
 - Wait for the legacy bootstrap allowlist: local and modified builds never match an official digest.
 - Reuse the first-run `pacer service install`: no reservation or independent recovery on a live service.
+- Add a variant to the adoption journal: the adoption helper, recovery authority and restore proof all require a release-signed source service.
