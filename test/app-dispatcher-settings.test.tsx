@@ -377,7 +377,7 @@ test("cross-repository schedule uses a label and maps unsupported copy in the mu
   const render = (row: typeof runner) => renderToString(<DispatcherEnforcementRows reading={{ ...reading, runners: [row] }}
     canProbe={false} probing={null} onProbe={()=>{}} onConsent={()=>{}}/>);
   const html = render(runner);
-  expect(html).toMatch(/<div class="u3-muted">scheduled probing certifies team\/project, not this repository ·/);
+  expect(html).toMatch(/<div class="u3-muted">scheduled probing targets team\/project, not this repository ·/);
   expect(html).toContain("not probing now: verification is not available in team/project");
   // The executor-level sentence belongs to a genuinely unverifiable executor on another
   // row of this same card; repeating it here would say two things with one sentence.
@@ -386,7 +386,7 @@ test("cross-repository schedule uses a label and maps unsupported copy in the mu
   expect(html).not.toContain("exact-environment canary");
   const paused = render({ ...runner, scheduleUnsupportedReason: null,
     scheduleReason: "the last probe cost 12% of the account window", schedulePaused: true });
-  expect(paused).toMatch(/<div class="u3-muted">scheduled probing certifies team\/project, not this repository ·[^<]*probing paused: the last probe cost/);
+  expect(paused).toMatch(/<div class="u3-muted">scheduled probing targets team\/project, not this repository ·[^<]*probing paused: the last probe cost/);
   expect(paused).not.toContain('role="alert"');
 });
 

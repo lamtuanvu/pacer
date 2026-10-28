@@ -99,7 +99,7 @@ export function scopedEnforcementReading(reading:EnforcementReading|undefined,re
 function CertificationSchedule({item}:{item:EnforcementRunner}){
   const t=now();
   const parts:string[]=[];
-  if(item.scheduleRepo)parts.push(`scheduled probing certifies ${item.scheduleRepo}, not this repository`);
+  if(item.scheduleRepo)parts.push(`scheduled probing targets ${item.scheduleRepo}, not this repository`);
   // Turning scheduling off is a setting, not a fault, so it reads as plain state.
   if(item.probeMode==="off")parts.push("scheduled probing: off");
   if(item.lastProbedAt)parts.push(`last probe: ${formatTime(item.lastProbedAt)}`);
