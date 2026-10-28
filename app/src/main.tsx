@@ -1,4 +1,5 @@
 import { PluginContext, usePluginCatalog } from "./plugins/catalog";
+import { updateNoticeHiddenOn } from "./settings-pages";
 import { startClientControl } from "./data/control";
 import { canLeaveScreen } from "./data/navigation-guard";
 import { NotificationProvider } from "./data/notification-context";
@@ -122,7 +123,7 @@ function App() {
       <PluginContext.Provider value={plugins}><NavigationProvider route={route}><Layout route={route} state={{ ...state, sessionEnded: state.sessionEnded || sessionEnded }} title={route.name === "plugin" ? plugins.surfaces.find(s => s.plugin === route.plugin && s.id === route.id && s.surface === "activity")?.title ?? "Plugin view" : titleFor(route)} onDelegate={() => setDelegate(true)}><Screen route={route} /></Layout></NavigationProvider></PluginContext.Provider>
     </SetupContext.Provider>
     {UpdateNotice && (
-      <UpdateNotice narrow={narrow} hidden={delegate || help || sessionEnded || (route.name === "settings" && route.section === "updates")} />
+      <UpdateNotice narrow={narrow} hidden={delegate || help || sessionEnded || updateNoticeHiddenOn(route)} />
     )}
     {delegate && <Delegate close={() => setDelegate(false)} filterRepo={activeRepo(route.query)} />}
     {help && <CommandHelp registry={keys} close={() => setHelp(false)} />}

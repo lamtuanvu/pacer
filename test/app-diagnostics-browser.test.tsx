@@ -21,7 +21,7 @@ beforeAll(async()=>{
  const styles=(await Promise.all(['app/src/ds/tokens.css','app/src/ds/components.css','app/src/styles.css'].map(path=>Bun.file(path).text()))).join('\n');
  server=Bun.serve({port:0,hostname:'127.0.0.1',async fetch(req){
   const path=new URL(req.url).pathname;
-  if(!path.startsWith('/ops/'))return new Response(`<div id="root"></div><style>${styles}</style><script type="module">${script}</script>`,{headers:{'Content-Type':'text/html'}});
+  if(!path.startsWith('/ops/'))return new Response(`<meta charset="utf-8"><div id="root"></div><style>${styles}</style><script type="module">${script}</script>`,{headers:{'Content-Type':'text/html'}});
   const op=path.slice(5),params=await req.json();calls.push({op,params});
   if(op==='doctor.run'){
    reads++;
@@ -48,7 +48,7 @@ browserTest('repair previews before consent, cancels without writes, prevents du
  const page=await browser.newPage();
  try{
   await page.goto(String(server.url));
-  await page.getByRole('button',{name:'Run checks',exact:true}).click();
+  await page.getByRole('button',{name:'Run all checks',exact:true}).click();
   await page.getByRole('button',{name:/^Repair/}).click();
   await page.getByRole('region',{name:'Repair preview'}).waitFor();
   expect(calls.map(c=>c.op)).toEqual(['doctor.run','agent.preview']);
@@ -61,7 +61,7 @@ browserTest('repair previews before consent, cancels without writes, prevents du
   await page.getByRole('button',{name:'Apply repair',exact:true}).click();
   await page.waitForFunction(()=>document.querySelector('#diagnostics-progress')?.textContent?.includes('Repairing'));
   expect(await page.getByRole('button',{name:'Apply repair',exact:true}).isDisabled()).toBe(true);
-  expect(await page.locator('#diagnostics > .u3-heading button').isDisabled()).toBe(true);
+  expect(await page.getByRole('button',{name:'Run all checks',exact:true}).isDisabled()).toBe(true);
   release();
   await page.getByText('Repair applied and checks refreshed. Review any remaining issues.',{exact:true}).waitFor();
   expect(calls.filter(c=>c.op==='agent.connect')).toEqual([{op:'agent.connect',params:{agent:'codex',consent:true,preview_revision:'reviewed-account'}}]);
@@ -76,7 +76,7 @@ for(const failure of ['preview-error','connect-error','recheck-error'])browserTe
  const page=await browser.newPage();
  try{
   await page.goto(String(server.url));
-  await page.getByRole('button',{name:'Run checks',exact:true}).click();
+  await page.getByRole('button',{name:'Run all checks',exact:true}).click();
   await page.getByRole('button',{name:/^Repair/}).click();
   if(failure!=='preview-error')await page.getByRole('button',{name:'Apply repair',exact:true}).click();
   const message=failure==='preview-error'?'Preview unavailable':failure==='connect-error'?'The integration target changed after preview':'Recheck unavailable';
@@ -84,7 +84,40 @@ for(const failure of ['preview-error','connect-error','recheck-error'])browserTe
   if(failure==='connect-error')expect(await page.getByRole('button',{name:'Apply repair',exact:true}).count()).toBe(0);
   expect(reads).toBe(failure==='recheck-error'?2:1);
   mode='success';
-  await page.getByRole('button',{name:'Run checks',exact:true}).click();
+  await page.getByRole('button',{name:'Run all checks',exact:true}).click();
   await page.getByText('Checks complete.',{exact:true}).waitFor();
+ }finally{await page.close();}
+},15000);
+
+browserTest('board rows retain keyboard disclosures, clipboard backing and responsive geometry',async()=>{
+ calls=[];reads=0;mode='success';
+ const page=await browser.newPage({viewport:{width:1440,height:900}});
+ try{
+  await page.addInitScript(()=>{
+   Object.defineProperty(navigator,'clipboard',{value:{writeText:async(text:string)=>{(window as any).copiedReport=text;}}});
+  });
+  await page.goto(String(server.url));
+  expect(await page.getByRole('button',{name:'Copy report',exact:true}).count()).toBe(0);
+  expect(await page.getByText(/Last run/).count()).toBe(0);
+  await page.getByRole('button',{name:'Run all checks',exact:true}).click();
+  await page.getByText('Checks complete.',{exact:true}).waitFor();
+  await page.getByRole('button',{name:'Copy report',exact:true}).click();
+  expect(await page.evaluate(()=>(window as any).copiedReport)).toContain('missing integration');
+  expect(await page.evaluate(()=>(window as any).copiedReport)).not.toContain('took');
+  const summary=page.locator('.pc-diagnostic-row summary').first();
+  await summary.focus();await page.keyboard.press('Enter');
+  expect(await page.locator('.pc-diagnostic-row details').first().getAttribute('open')).not.toBeNull();
+  expect(await page.locator('summary button,summary a').count()).toBe(0);
+  expect(await page.locator('.pc-page').evaluate(node=>{const style=getComputedStyle(node);return {width:style.width,padding:style.padding};})).toEqual({width:'1080px',padding:'28px 40px 48px'});
+  expect(await page.locator('#diagnostics h1').evaluate(node=>{const style=getComputedStyle(node);return {size:style.fontSize,line:style.lineHeight,weight:style.fontWeight};})).toEqual({size:'28px',line:'34px',weight:'650'});
+  const geometry=await page.locator('.pc-diagnostic-totals').evaluate(node=>{
+   const totals=getComputedStyle(node),glyph=getComputedStyle(node.querySelector('.pc-diagnostic-glyph')!);
+   return {radius:totals.borderRadius,columns:node.children.length,glyph:glyph.width};
+  });
+  expect(geometry).toEqual({radius:'10px',columns:4,glyph:'26px'});
+  await page.setViewportSize({width:375,height:900});
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  const titleBox=await page.locator('#diagnostics h1').boundingBox(),runBox=await page.getByRole('button',{name:'Run all checks',exact:true}).boundingBox();
+  expect(runBox!.y).toBeGreaterThan(titleBox!.y+titleBox!.height);
  }finally{await page.close();}
 },15000);

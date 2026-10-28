@@ -5,8 +5,6 @@ The web app, desktop webview and tray use the Preact foundation in `app/src/ds/`
 ## Tokens and density
 
 Author `app/src/ds/tokens.json`; `app/tokens-gen.ts` validates the explicit color, type, spacing, radius, size, shadow, layer and motion groups. `tokens.local.json` holds documented provisional additions only; it currently holds the Tasks board values the design system lacks: `radius-card` (12 px), `space-3.5`, `space-7`, `space-10` (14, 28, 40 px) and `size-10`, `size-14`, `size-15`, `size-21`, `size-34`, `size-52`, `size-272`, `size-1240`, plus the app-frame chrome values `size-3/4/5/84/420/neg-6` (`size-10/14/52` are shared), `radius-xs`, the colour `ink-on-fill` (white in light, `#18181b` in dark to keep 4.5:1 on the lighter dark fill) and the type style `count-badge` (10px/700), plus the command menu values `size-72` and the type style `match-strong` (13/19, weight 700), until the design system adds them. The command menu also reuses the frame chrome's `size-420`, the Tasks board's `size-15` and `size-52`, and the file viewer board's `radius-4` (key caps) and `radius-7` (row glyph tiles). The file viewer board adds `size-12.5`, `size-10.5`, `size-5`, `size-440`, `radius-2`, `radius-4`, `radius-5` and `radius-7`. Generate CSS and TypeScript with `bun scripts/ds-sync.ts app/src/ds/tokens.json` or `bun run app:build`. Never edit generated `tokens.css`/`tokens.ts` or embedded app assets manually. The app build also refreshes the generated token prefix in `desktop/ui/shell.css`, preserving the handwritten startup-shell suffix at its existing boundary comment; a missing boundary fails the build rather than overwriting it.
-||||||| 74101da2
-Author `app/src/ds/tokens.json`; `app/tokens-gen.ts` validates the explicit color, type, spacing, radius, size, shadow, layer and motion groups. `tokens.local.json` holds documented provisional additions only; it currently holds the Tasks board values the design system lacks: `radius-card` (12 px), `space-3.5`, `space-7`, `space-10` (14, 28, 40 px) and `size-10`, `size-14`, `size-15`, `size-21`, `size-34`, `size-52`, `size-272`, `size-1240`, plus the app-frame chrome values `size-3/4/5/84/420/neg-6` (`size-10/14/52` are shared), `radius-xs`, the colour `ink-on-fill` (white in light, `#18181b` in dark to keep 4.5:1 on the lighter dark fill) and the type style `count-badge` (10px/700), plus the command menu values `size-72`, and uses the frame chrome's `size-420` and the type style `match-strong` (13/19, weight 700), until the design system adds them. Generate CSS and TypeScript with `bun scripts/ds-sync.ts app/src/ds/tokens.json` or `bun run app:build`. Never edit generated `tokens.css`/`tokens.ts` or embedded app assets manually. The app build also refreshes the generated token prefix in `desktop/ui/shell.css`, preserving the handwritten startup-shell suffix at its existing boundary comment; a missing boundary fails the build rather than overwriting it.
 
 `chart-1`–`chart-5` provide a calm categorical series and identity fills. Every value reaches at least 3:1 against `surface-page` and `surface-lane` in both themes. Neighbouring series can have similar luminance, so charts separate segments with gaps and carry a text legend. `aurora-1`–`aurora-3` reserve soft assistant-sheet glows; they are decorative only, never status. Neither palette replaces semantic status tokens.
 
@@ -27,10 +25,12 @@ Compact is the desktop default, including dialogs outside the shell. `DensityPro
 | `MetaRow` | `items: MetaItem[]`, `label`; item `icon`, `text`, optional `tone`, `emphasis`, `title` | DS-owned labelled group of facts, wrapping between items. Blank text is omitted; empty groups render nothing. Each item stays on one line and clips long text with ellipsis; title defaults to full text. Semantic foregrounds and strong weight supply variants; tone is never the only signal, so the text states the fact ("2 checks failing"). Passive; production consumer: TaskCard. |
 | `AgentStack` | `agents: string[]`, `size=16\|18\|20` (default 18) | DS-owned inline group reuses AgentMark; canonical identities/aliases are deduplicated in input order. Exposed as one `role="img"` whose name lists the agent display names; inner marks are decorative. Empty stacks render nothing. Passive; production consumer: TaskCard. |
 | `Identicon` | `seed`, `size=16\|24\|32` (default 24) | DS-owned decorative SVG: stable FNV-1a UTF-16 hash, mirrored 5×5 cells from hash bits 8–22 (never empty; the centre cell is the fallback), one categorical chart fill chosen independently on surface-lane. Hidden from accessibility APIs; accompany it with visible identity text. No keyboard target or production consumers yet. |
+| `SettingRow` | `label`, optional `headingLevel={3}`, `description`, `status: {tone,label}` and the control as children | Settings Overview, Budget & pacing, App preferences and Diagnostics. The single settings row grammar: label, description and status on the left, control on the right, stacked at 700px and below. A canonical labelable control (TextInput, TextArea, ChoicePicker, Checkbox, Switch, Range) outside its own `<label>` and without its own `label` prop gets `<label for>` and the description appended to its `aria-describedby`, with no extra group; a bare Checkbox or Switch is wrapped in an empty `pc-checkbox` label so it keeps the settings and touch hit area. Other controls (segmented groups, buttons, links, self-labelled controls) keep their own names, and the row becomes a `role="group"` named by its label and described by its description. Give a segmented group the same label as its row. Status is a text Pill, never colour alone. |
+| `SettingsNav` | `label`, `groups: {id,label,items}[]`; item `id`, `label`, `href`, `icon`, optional `current`, `badge: {text,label?,tone?}` | The grouped settings menu in the settings panel. A labelled `nav` of lists, each named by a visible group label (not a heading, so page headings stay first); links stay in document order so Tab follows the groups, and the current item scrolls into view in the narrow strip. The current page carries `aria-current="page"`. Glyph and count badges are visually shown and announced by their `label` through screen-reader text, with `title` for pointer users. The shell lays groups out in a row on narrow layouts. |
 | `TaskCard`, `TaskTree` | `TaskCard`: one `TaskNodeView` from `src/view-model/task-tree.ts`, `density="regular\|compact"`, controlled `expanded` and `onToggle(id)`, `selectedId`, `href(id)`, optional `viewHref(id, view)` for the quick actions and `onSelect(id)`. `TaskTree`: `nodes`, `density`, `selectedId`, `href`, `label`, `viewHref`, `onSelect`, and owns expansion by task id | DS-owned composite for "a task in a tree", drawn as the Tasks and Session boards draw it. Regular: a 10 px status dot, the title link (15/21/600), an attention pill (or the outcome for settled work), then `HostChip`, branch in mono, `AgentStack`, tokens in a right-aligned column and three icon links (Notes, Open terminal, Changes), then a `MetaRow` of measured facts. Compact (the 272 px Session panel): 8 px dot and title, host and repository, then the status words, agents and tokens. A quiet "N subtasks" toggle (`aria-expanded`, `aria-controls`, name "N subtasks of <title>") opens indented child rows. The dot carries its words for assistive technology, and the pill or status text carries them for sighted users. Tint, pill colour and words come from one vocabulary status; a subtask's worse attention rolls up with its words ("Subtask: Failed"). Roots sort by tint (bad, then warn), then Needs you severity, then running and queued work, then recency. A root's tokens add up its subtasks'. Facts the descriptor omits render nothing, and their columns keep their width. The selected row takes the lane surface; `TaskTree` opens a root holding the selection. Expansion is keyed by id. Titles clip on one line with the full text in `title`. Touch height below 768 px. Production consumers: Tasks (regular), Session panel (compact). |
 | `Field` | `label`, optional `help`, `error`, children and className | Delegate, Quick Delegate, verdict and settings forms. Finds the first canonical labelable control through layout/fragment children, preserves every sibling, and assigns stable label/help/error IDs. Explicit child IDs win; existing `aria-describedby` values are retained. A Field owns one control; use separate Fields for several controls. Custom opaque child components must supply their own label contract. |
 | `TextInput`, `TextArea` | Native attributes, events and native element refs | Form validation, autocomplete, disabled state, required, min/max, selection and keyboard behavior remain native. TextArea owns resize/minimum height. |
-| `ChoicePicker` | Controlled `value`, `options: {value,label,disabled?,reason?,description?}[]`, `onValueChange`, optional `placeholder`, `searchable`, `required`, `disabled`, `name`, `id`, ARIA attributes and button ref | Shared single-choice menu for app forms. `Field` labels the trigger and connects help/errors. A missing value stays unselected; disabled options expose reasons and cannot be committed. Trigger/search keyboard supports arrows, Home/End, typeahead for short lists, Enter, Escape and Tab; the active option scrolls into view, Tab advances correctly inside dialogs, and outside pointer dismisses. Search is opt-in for long lists. The listbox stays inside its native dialog when modal; the popup chooses the roomier side and caps its scrollable height to the available space. A named hidden input bridges form data only while enabled; owning forms show field errors and focus the first missing required picker. Compact/settings/touch sizes use density tokens. |
+| `ChoicePicker` | Controlled `value`, `options: {value,label,disabled?,reason?,description?}[]`, `onValueChange`, optional `sizing="content"`, `placeholder`, `searchable`, `required`, `disabled`, `name`, `id`, ARIA attributes and button ref | Shared single-choice menu for app forms. `Field` labels the trigger and connects help/errors. A missing value stays unselected; disabled options expose reasons and cannot be committed. Trigger/search keyboard supports arrows, Home/End, typeahead for short lists, Enter, Escape and Tab; the active option scrolls into view, Tab advances correctly inside dialogs, and outside pointer dismisses. Search is opt-in for long lists. The listbox stays inside its native dialog when modal; the popup chooses the roomier side and caps its scrollable height to the available space. A named hidden input bridges form data only while enabled; owning forms show field errors and focus the first missing required picker. Compact/settings/touch sizes use density tokens. |
 | `Checkbox`, `Switch`, `Range` | Native input props/ref; optional visible `label`; Checkbox/Switch `help` and `mixed` | Bulk selection, executor/update settings, host sessions, terminal screen-reader mode and planner reserve. A Checkbox without `label` requires a surrounding label or `aria-label`. `mixed` sets DOM indeterminate and `aria-checked="mixed"`; Switch uses a native checkbox with switch role. Range accepts its accessible label via Field, visible label or aria-label. |
 | `Disclosure` | `summary`, native details attributes and children | Technical routing, cost, log, acceptance and CLI details. Native summary retains keyboard and expanded behavior; full code remains selectable. |
 | `Dialog`, `PopoverDialog`, `useDialogs` | `Dialog`: `title`, `close`, content; shared confirmation/prompt orchestration. `PopoverDialog`: stable `id`, `title`, `close`, content. | Native modal dialogs own Escape cancellation, Tab cycling and focus return. The compact popover variant anchors above the status bar, focuses its first enabled button, and closes on backdrop click. Dialog/Field styles are DS-owned and available to tray. Use an explicit visible submit label, and preserve whitespace validation on required rejection notes. |
@@ -146,8 +146,11 @@ retain the 28px compact minimum; segmented choices use 32px. Body/field text sta
 controls outside the shell also retain 48px targets at narrow/coarse-pointer sizes.
 The existing compact tray density and normal app density are unchanged.
 
-Settings screens mount one editor per route. `settings-pages.ts` owns category
-labels/icons for the sidebar, General links and shell titles. The bounded settings
+Settings screens mount one editor per route. `settings-pages.ts` owns page
+labels, icons, menu groups, Overview descriptions, shell titles and the
+attention badges shared by the menu and Overview. Sections folded into another
+page (`updates`, `notifications`, `appearance` → App preferences) keep their
+routes and scroll to their section. Settings rows use `SettingRow`. The bounded settings
 canvas owns label/control grids and semantic table columns. Primary page titles
 remain in the shell; nested sections retain `SectionHeading`. Navigation icons
 are decorative beside named links, with one current category. No new upstream
@@ -255,3 +258,97 @@ gap instead of adding their legacy outer margins. An empty project executor list
 is hidden so it does not insert a second grid gap. The start composer keeps its
 intentional landing-page offset; rail dividers retain extra separation between
 navigation groups. These specialized layouts do not override shared primitives.
+
+### Settings navigation board
+
+`SettingsNav` adds optional `backHref` to compose the Back to Dispatch link,
+Settings headline and save guidance card. SettingsPanel supplies the scoped home
+link. Its seven destinations use 34px rows, 10px insets/gaps, 8px corners and
+uppercase group labels inside a 240px panel with 14px/10px padding. Embedded
+SidePanel removes duplicate insets/borders and keeps its collapse control beside
+the header. Narrow strips hide the header/footer and retain touch targets.
+The shared Icon catalog adds settings board paths and `chevron-left`; existing
+icons retain their paths. This is original project code; provenance is unchanged.
+
+Agents points to executors; Accounts and Add executor select that category.
+Machines points to This machine; Remote hosts selects that category. Secondary
+page links live in those editors. Page titles remain independent of nav labels.
+Only Agents has a nav attention badge; Overview retains real machine/update
+status. Unsupported plugin and diagnostics badges are omitted.
+Board values without exact tokens use 16px icons for 17px, weight 650 for the
+badge's 700 and radius-full (999px) for 99px pills (both fully round).
+
+### Diagnostics board
+
+`DiagnosticRow({title, caption, glyph, tone, status, action, open, children})` composes
+the canonical native Disclosure with a 20px status glyph and report detail.
+Tones are good, warn, bad and neutral; warn/bad rows use the corresponding tint.
+Actions are siblings of the disclosure, so keyboard users can toggle the row
+and activate repair/setup independently. Native Enter/Space disclosure semantics
+and DS focus rings remain; failures initially open. Its output uses mono text.
+The Diagnostics consumer owns report state and all operations; DS receives props
+only. The four-cell totals use 26px glyphs, 18/22px numbers and 12/16px captions.
+The bounded Diagnostics canvas uses 28/40/48px padding, an 18px gap and a
+1080px maximum width (three size-360 tokens). Narrow layouts use 16px gutters,
+two totals columns and actions below the disclosure. Weight 650 substitutes for
+the board's 700; radius-full substitutes for 99px circles. This is original code
+with no upstream adaptation. Native validation retains its existing controls.
+
+### Overview and App preferences boards
+
+`SettingRow variant="board"` adds the 300px label column, 24px control gap,
+14px vertical padding and lane-colored top separator. Its existing label/help
+association remains intact; narrow layouts stack the columns. `SegmentedControl
+variant="board"` (also exposed by the settings `Segment`) adds a bordered,
+3px-padded group with 30px buttons and 6px corners; touch targets expand to 48px.
+`Card tone="sunken"` uses the card surface. `Switch size="sm"` reuses the native
+checkbox keyboard and label behavior with role=switch, explicit aria-checked,
+a 36×20px track, a 16px white thumb and good-fill on state. The default Switch
+geometry is unchanged. These are additive original adaptations; provenance is
+unchanged and no dependency is added.
+
+Overview composes Card, AgentMark and StatusDot with DS-owned readiness rows and
+link tiles. App preferences composes SettingRow, SegmentedControl, Switch and
+ChoicePicker; consumer code owns service data and exact existing operations.
+Both canvases use 28/40/48px padding and max-width 1080px; Overview uses a 20px
+gap, App a 24px gap. Heading typography is 28/34px at 650, summary 16/22px at
+650, tile values 15/20px at 650 and muted uppercase labels 11/14px at 600.
+The board's glyph weight 700 uses the nearest 650 token; fully round corners use
+radius-full instead of 99px. All other measured dimensions use exact existing
+tokens or sums of tokens (3px group padding; 1080px canvas). Unsupported controls
+and claims are omitted, including diagnostic history and release links without
+data. Legacy App section hashes retain their section IDs and scroll alignment.
+
+### Budget & pacing board
+
+`SettingRow variant="budget"` is an additive board variant: the same 300px
+label column, 24px gap, 14px vertical padding and lane top border, with top
+alignment and 14/20px labels at 650. Other row variants retain their geometry.
+The budget canvas uses 28/40/48px padding, max-width 1080px and an 18px gap.
+It composes sunken Card, Pill, AgentMark (20px), UsageMeter, Range and board
+SegmentedControl. The lazy settings stylesheet owns the summary, mode strip
+and window-list composition; no dependency or eager JavaScript is added.
+The summary uses 16/22px at 650, a 20px column gap and 8px copy gap. The mode
+strip has four 6px bars, a 3px gap, and a 2px active outline with 2px offset.
+The board's active weight 700 uses the nearest 650 typography token. The
+window list uses radius 10px, 10/14px row padding and 12px column gaps.
+Only measured windows appear; pace markers require matching service window
+data. Missing window settings do not produce inert switches. Mode holds use
+the service's existing hold/release operations and reset-bound lifetime.
+
+Settings follow-up: `SettingRow headingLevel={3}` wraps its existing label in an h3,
+resetting heading margins and inheriting row typography; label-for and description
+association remain unchanged. Budget rows use this opt-in semantic structure.
+`ChoicePicker sizing="content"` keeps its trigger content-sized (bounded by its
+container), with a 32px desktop minimum height, 0/10px padding and 6px radius;
+the narrow layout retains the shared touch minimum height. It preserves
+the default menu keyboard and focus behavior; App Workspace Terminal uses it.
+App Plugins composes DS Icon, Pill, Switch (small) and confirmation Dialog; its
+service-owned list uses 32px lane tiles, 8px tile radius, 12px gaps, 12px/16px row
+padding and a 10px list radius. The plugin glyph uses the nearest 16px token to
+the board's 17px glyph. Plugin data and grant flow stay in the lazy settings chunk.
+The rows form a labelled Plugins list. During changes and reloads, switches use
+`aria-disabled` with the shared Checkbox/Switch disabled opacity, preserving
+keyboard focus; consumers must ignore input while unavailable. Permanently
+refused plugins retain native disabled semantics and describe their error.
+Reload errors leave the last loaded list and inline operation feedback visible.
