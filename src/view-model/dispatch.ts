@@ -190,7 +190,8 @@ export function plannerBudget(snapshot: ClientSnapshot, now: number, shortWindow
   return {
     lead: "Usage reading is out of date.",
     meter: { used, pace: null, stale: true, label: `${name} ${window ? `${window} ` : ""}usage` },
-    caption: `Historical reading · ${plannerCaption({ usedPct: used, pacePct: null, window, resetsAt: null }, now)} · ${capturedAt == null ? "reading time unknown" : `read ${ago(capturedAt, now)}`}`,
+    // The meter states the figure; the caption says which window it was and how old it is (UI-15).
+    caption: `Historical reading${window ? ` of the ${window} window` : ""} · ${capturedAt == null ? "reading time unknown" : `read ${ago(capturedAt, now)}`}`,
   };
 }
 

@@ -124,7 +124,7 @@ function LiveDispatch({ snapshot, scope, now, runner, query }: { snapshot: Clien
  * `explain` is the dispatcher's own explanation (`dispatch.explain`) when the service has it and a repository is known;
  * it names the ladder step and the chain. Readiness still comes from the preview.
  */
-export interface RoutingPreview { data?: Routing; loading: boolean; error?: unknown; explain?: RouteExplanationView }
+export interface RoutingPreview { data?: Routing; loading: boolean; error?: unknown; explain?: RouteExplanationView; strategy?: string }
 
 /** The planner half: the one place on Dispatch that states the planner's budget (UI-15); the status bar shows only its mark here. */
 function PlannerHalf({ snapshot, now, shortWindowPct }: { snapshot: ClientSnapshot; now: number; shortWindowPct?: number | null }) {
@@ -149,7 +149,7 @@ function NextHalf({ routing, query, strategy, now }: { routing: RoutingPreview; 
   const then = chain.slice(0, 3), more = chain.length - then.length;
   const row = ranked.find(r => r.id === nextId);
   const readiness = row ? eligibilityPresentation(row.eligibility, now) : null;
-  const shown = routing.explain?.strategy.name ?? strategy;
+  const shown = routing.explain?.strategy.name ?? routing.strategy ?? strategy;
   const waits = routing.explain && !explained ? queueReason(routing.explain, now) : null;
   const chevron = <span className="pc-dispatch-chain__sep"><Icon name="chevron-right" /></span>;
   return <div className="pc-dispatch-split__half pc-dispatch-split__half--page" role="group" aria-labelledby="next-task">
@@ -380,7 +380,7 @@ export function DispatchHome({ query }: { query: RouteQuery }) {
   const accounts = useQuery<Account[]>(state.features.ops.has("account.list") ? "account.list" : "version.get", {});
   const insights = useInsights(period, scope.repo);
   if (!state.snapshot) return null;
-  return <DispatchView snapshot={state.snapshot} query={query} now={Date.now() / 1000} runner={runner} routing={supported ? { ...routing, ...(canExplain && explain.data && !explain.error && explanationApplies(explain.data) ? { explain: explain.data } : {}) } : null}
+  return <DispatchView snapshot={state.snapshot} query={query} now={Date.now() / 1000} runner={runner} routing={supported ? { ...routing, ...(canExplain && explain.data && !explain.error ? explanationApplies(explain.data) ? { explain: explain.data } : { strategy: explain.data.strategy.name } : {}) } : null}
     period={period} onPeriod={setPeriod} insights={insights} connected={state.connected}
     shortWindowPct={Array.isArray(accounts.data) ? plannerShortWindow(accounts.data, state.snapshot.planner?.runner) : null} startWork={<StartWork />} />;
 }

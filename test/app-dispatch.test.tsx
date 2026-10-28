@@ -333,6 +333,12 @@ test("an explained pick keeps its ladder step even when readiness is uncertain; 
   expect(html).toContain("pc-pill");
 });
 
+test("an explanation that does not apply still names the strategy beside the preview's pick", () => {
+  const html = section(view(null, snap, { routing: { ...routing, strategy: "team" } }), "next-task");
+  expect(strip(html)).toContain("Codex · team on devbox");
+  expect(html).toMatch(/>Strategy: team · change</);
+});
+
 test("a chosen agent with no eligible fallback goes straight to the queue after it", () => {
   const explain = { outcome: "select" as const, strategy: { name: "default" }, engine: { id: "ladder" }, chosen: { runner: "claude-code" }, step: { id: "only", index: 0 },
     fallbacks: [{ runner: "cursor", state: "excluded" as const, reason: { code: "signed_out", facts: {} } }], reasons: [] };
@@ -448,7 +454,7 @@ test("planner half shows a missing planner reading's historical figure as stale 
   expect(html).toContain("Usage reading is out of date.");
   expect(html).toContain("pc-meter--stale");
   expect(html).toContain('aria-valuenow="28"');
-  expect(html).toContain("Historical reading · 28% of the 5h window used · reading time unknown");
+  expect(html).toContain("Historical reading of the 5h window · reading time unknown");
   expect(html).not.toContain("No usage reading");
   expect(html).not.toContain("5h window 99%");
   expect(html).not.toContain("as of");
