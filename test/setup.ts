@@ -27,6 +27,8 @@ const realPacerHome = canonical(join(userInfo().homedir, ".pacer"));
 const isolatedHome = mkdtempSync(join(tmpdir(), "pacer-test-home-"));
 process.env.HOME = isolatedHome;
 process.env.PACER_HOME = join(isolatedHome, ".pacer");
+delete process.env.PACER_ROLE;
+delete process.env.PACER_TASK_ID;
 
 // Global teardown for the whole `bun test` run (preloaded via bunfig.toml).
 // Removing a large run root (release fixtures) can outlast the default 5 s hook limit under disk load.

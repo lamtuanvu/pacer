@@ -38,7 +38,7 @@ Claude usage requires the status-line integration to have received rate-limit da
 
 ## Execution and review
 
-`execution.backend: auto` (default) uses pacer's own supervisor through the direct backend. Selecting `execution.backend: orca` also uses direct execution so pacer can enforce the permission policy below. Orca remains available for opening terminals and account sign-in.
+`execution.backend: auto` (default) uses pacer's own supervisor through the direct backend. Selecting `execution.backend: orca` runs Claude Code and Codex as supervised workers in pacer-launched Orca terminals. Interactive runners, connection accounts and unsupported agents run directly. If Orca is unavailable or an agent cannot become idle, pacer runs the attempt directly and records the fallback reason.
 
 Each direct attempt records `pid`, live `stdout` and `stderr`, and `exit` under `<pacerHome>/runs/<task-id>/<attempt>/`. New task worktrees live under `<pacerHome>/worktrees/…` on branch `pacer/<task-id>`; current placement uses the selected repository. `pacer clean [--dry-run] [--force] [--json]` removes pacer-owned worktrees and run directories of settled tasks that have been reviewed, dismissed or resolved. Dirty worktrees are kept unless `--force` is given, and branches are always kept.
 
@@ -129,6 +129,9 @@ Native configuration files are unchanged.
 Cursor and OpenCode still enforce explicit deny rules. These launch options do
 not change operating system permissions or managed organization policies.
 
-Orca's worker-start API cannot carry a permission policy, so selecting the Orca
-backend (including `PACER_BACKEND=orca`) uses direct execution instead. The
-attempt log records the fallback. The direct backend owns worktree placement.
+For Orca tasks, pacer creates or resolves the worktree, pre-trusts Claude's exact
+worktree folder, launches an idle agent with its unattended-permission flags, then
+attaches the worker. Pacer closes the terminal it created when the worker settles.
+`pacer clean` removes reviewed or dismissed Orca worktrees and their pacer-added
+Claude trust entries; Orca may also remove the worktree branch when it can prove
+the branch is merged.

@@ -1,5 +1,7 @@
 import type { RunFn } from "../../types";
 import { isObj } from "../../util";
+import { sanitizedOrcaEnv } from "../attestation-env";
+export { sanitizedOrcaEnv } from "../attestation-env";
 
 export interface OrcaError { code: string; message: string }
 export type OrcaReply<T> = { ok: true; result: T } | { ok: false; error: OrcaError };
@@ -31,7 +33,7 @@ export interface CheckResult { deliveryId?: string | null; messages: OrcaMessage
 export type Placement =
   | { kind: "new-child"; repoId: string; baseBranch: string; name: string }
   | { kind: "existing"; selector: string };
-export interface WorkerStartOpts { spec: string; agent: string; model: string | null; placement: Placement; run: string; from: string }
+export interface WorkerStartOpts { spec: string; terminal: string; worktree: string; run: string; from: string }
 
 export const WAKE_TYPES = "worker_done,escalation,question";
 export const CALL_TIMEOUT_MS = 30_000;
@@ -54,13 +56,9 @@ export function parseOrcaOutput(stdout: string): unknown {
 }
 
 export function workerStartArgs(o: WorkerStartOpts): string[] {
-  const place = o.placement.kind === "new-child"
-    ? ["--worktree", "new-child", "--repo", `id:${o.placement.repoId}`, "--base-branch", o.placement.baseBranch,
-      "--name", o.placement.name, "--setup", "skip"]
-    : ["--worktree", o.placement.selector];
   return [
-    "orchestration", "worker-start", "--spec", o.spec, "--agent", o.agent, ...(o.model ? ["--model", o.model] : []),
-    ...place, "--run", o.run, "--from", o.from,
+    "orchestration", "worker-start", "--spec", o.spec, "--terminal", o.terminal,
+    "--worktree", o.worktree, "--run", o.run, "--from", o.from,
   ];
 }
 
@@ -95,15 +93,6 @@ export function isLiveTerminal(r: OrcaReply<{ terminal?: TerminalRow }>): boolea
   return r.ok && r.result.terminal?.connected === true && r.result.terminal?.writable === true;
 }
 
-/** Remove caller attestation: pacer owns its coordinator identity. */
-export function sanitizedOrcaEnv(source: Record<string,string|undefined> = process.env): Record<string,string|undefined> {
-  const env = {...source}, named = source.ORCA_AGENT_SESSION_ID_ENV;
-  for (const key of Object.keys(env)) {
-    if (["ORCA_AGENT_SESSION_ID","ORCA_AGENT_SESSION_ID_ENV","ORCA_TERMINAL_HANDLE","ORCA_PANE_KEY","ORCA_TAB_ID","ORCA_WORKTREE_ID","ORCA_AGENT_LAUNCH_TOKEN",named].includes(key) || key.startsWith("ORCA_AGENT_HOOK_") || key.startsWith("ORCA_SESSION_")) delete env[key];
-  }
-  return env;
-}
-
 /** Every orca CLI call pacer makes. `run` is injectable (Ctx.run), so tests answer from recorded receipts. */
 export class OrcaClient {
   constructor(private readonly run: RunFn, private readonly env: Record<string,string|undefined> = process.env) {}
@@ -128,9 +117,15 @@ export class OrcaClient {
   status() { return this.call<StatusResult>(["status"], 15_000); }
   repoList() { return this.call<{ repos?: RepoRow[] }>(["repo", "list"]); }
   repoAdd(path: string) { return this.call<{ repo: RepoRow }>(["repo", "add", "--path", path]); }
-  terminalCreate(worktree: string, title: string) {
-    return this.call<{ terminal: TerminalRow }>(["terminal", "create", "--worktree", worktree, "--title", title]);
+  terminalCreate(worktree: string, title: string, command?: string) {
+    return this.call<{ terminal: TerminalRow }>(["terminal", "create", "--worktree", worktree, "--title", title,
+      ...(command ? ["--command", command] : [])]);
   }
+  terminalWait(handle: string) { return this.call<{ wait?: { satisfied?: boolean; blockedReason?: string | null; status?: string } }>(
+    ["terminal", "wait", "--terminal", handle, "--for", "tui-idle", "--timeout-ms", "60000"], 65_000); }
+  worktreeCreate(p: Extract<Placement, {kind: "new-child"}>) { return this.call<{worktree?: {id?: string; path?: string}; terminal?: TerminalRow; terminalHandle?: string; initialTerminalHandle?: string}>(
+    ["worktree", "create", "--name", p.name, "--repo", `id:${p.repoId}`, "--base-branch", p.baseBranch, "--setup", "skip"]); }
+  worktreeShow(path: string) { return this.call<{worktree?: {id?: string; path?: string}; terminal?: TerminalRow; terminalHandle?: string; initialTerminalHandle?: string}>(["worktree", "show", "--worktree", `path:${path}`]); }
   terminalShow(handle: string) { return this.call<{ terminal?: TerminalRow }>(["terminal", "show", "--terminal", handle]); }
   terminalClose(handle: string) { return this.call<Record<string, unknown>>(["terminal", "close", "--terminal", handle]); }
   terminalSend(handle: string, text: string) { return this.call<Record<string, unknown>>(["terminal", "send", "--terminal", handle, "--text", text, "--enter"]); }

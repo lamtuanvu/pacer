@@ -16,10 +16,12 @@ import { repoKey } from "../config/hosts";
 import { SCRIPTS } from "../remote/scripts";
 import { runRemote } from "../remote/ssh";
 import { transferred } from "../remote/transfer";
-import { boundedGitRead } from "./git";
+import { boundedGitRead, realpathSafe } from "./git";
 import { removeTaskWorktree, taskWorktreePath, taskWorktreesDir, worktreeDirty } from "../supervisor/worktree";
 import { readRun } from "../supervisor/run";
 import { cleanSettledSessions } from "../session/retention";
+import { removeClaudeTrust } from "../exec/trust-clean";
+import { sanitizedOrcaEnv } from "../exec/attestation-env";
 import { TERMINAL_STATES } from "../tasks/types";
 
 import type { Strategy } from "../config/strategy";
@@ -341,6 +343,31 @@ export async function answer(ctx: Ctx, id: string, text: string, o: { expectRev?
 export async function clean(ctx: Ctx, o: { dryRun?: boolean; force?: boolean } = {}): Promise<{ removed: string[]; kept: { id: string; reason: string }[] }> {
   const removed: string[] = [], kept: { id: string; reason: string }[] = [], root = taskWorktreesDir(ctx) + "/";
   for (const t of listTasksWhere(ctx, { states: TERMINAL_STATES })) {
+    if (TERMINAL_STATES.includes(t.state) && (t.review || t.dismissed || t.resolved) && t.result?.backend === "orca" && t.placement?.mode === "new" && t.worktree) {
+      const top = await ctx.run(["git", "-C", t.worktree, "rev-parse", "--show-toplevel"], 10_000);
+      const path = top.code === 0 ? top.stdout.trim() : "";
+      if (!path || cachedPath(path).real === cachedPath(t.brief.repo).real) { kept.push({id: t.id, reason: "Orca worktree path could not be resolved"}); continue; }
+      const shared = listTasksWhere(ctx).some(other => other.id !== t.id
+        && cachedPath(other.worktree ?? other.result?.worktree ?? other.brief.repo).real === cachedPath(t.worktree!).real
+        && (!TERMINAL_STATES.includes(other.state) || !(other.review || other.dismissed || other.resolved)));
+      if (shared) { kept.push({id: t.id, reason: "worktree is shared with an active or unreviewed task"}); continue; }
+      if (!o.force && await worktreeDirty(ctx, path) !== false) { kept.push({id: t.id, reason: "uncommitted changes; use --force"}); continue; }
+      const shown = await ctx.run(["orca", "worktree", "show", "--worktree", `path:${path}`, "--json"], 30_000, {env: sanitizedOrcaEnv(ctx.env)});
+      let worktree: {id?: string; path?: string; displayName?: string; isMainWorktree?: boolean} | undefined;
+      try { worktree = JSON.parse(shown.stdout).result?.worktree; } catch { /* Keep an unverified worktree. */ }
+      const expectedName = `pacer-${t.id}-${t.result.executor}`;
+      if (shown.code !== 0 || !worktree?.id || worktree.displayName !== expectedName || worktree.isMainWorktree === true
+        || realpathSafe(worktree.path ?? "") !== realpathSafe(path)) {
+        kept.push({id: t.id, reason: "Orca worktree ownership could not be verified"}); continue;
+      }
+      if (o.dryRun) { removed.push(t.id); continue; }
+      const result = await ctx.run(["orca", "worktree", "rm", "--worktree", `id:${worktree.id}`, ...(o.force ? ["--force"] : []), "--json"], 60_000, {env: sanitizedOrcaEnv(ctx.env)});
+      if (result.code !== 0) { kept.push({id: t.id, reason: result.stderr.trim() || "Orca worktree removal failed"}); continue; }
+      removeClaudeTrust(ctx, t.id, entry => (entry === path || path.endsWith(entry) || entry === t.worktree) && !existsSync(path));
+      cleanTaskRuns(ctx, t);
+      removed.push(t.id);
+      continue;
+    }
     if (!TERMINAL_STATES.includes(t.state) || !(t.review || t.dismissed || t.resolved) || t.run?.mode !== "new") continue;
     const top = await withTimeout(() => repoFs.realpath(t.brief.repo));
     const wt = t.run.host ? taskWorktreePath(ctx, top, t.id) : t.run.workdir;
@@ -369,7 +396,11 @@ export async function clean(ctx: Ctx, o: { dryRun?: boolean; force?: boolean } =
       if ("error" in r) { kept.push({ id: t.id, reason: r.error }); continue; }
     }
     cleanTaskRuns(ctx, t);
+    removeClaudeTrust(ctx, t.id, entry => !existsSync(entry));
     removed.push(t.id);
+  }
+  if (!o.dryRun) for (const t of listTasksWhere(ctx, { states: TERMINAL_STATES })) {
+    if (t.dismissed) removeClaudeTrust(ctx, t.id, entry => !existsSync(entry));
   }
   if (!o.dryRun) cleanSettledSessions(ctx);
   return { removed, kept };

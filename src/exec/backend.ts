@@ -3,7 +3,7 @@ import { resolveRunner } from "../config/runner-id";
 import type { ProviderCfg, Strategy } from "../config/strategy";
 import type { TaskRecord } from "../tasks/types";
 import type { Ctx } from "../types";
-import { EXTRA_BACKENDS } from "./backends-extra";
+import { defaultBackends } from "./backends-extra";
 import { type AttemptOutcome, runAttempt } from "./direct";
 
 export interface Backend {
@@ -14,45 +14,40 @@ export interface Backend {
 
 export const directBackend: Backend = { id: "direct", available: async () => true, runAttempt };
 
-/** Orca worker-start cannot carry a permission policy; only direct launch can enforce bypass. */
-const orcaPermissionFallback: Backend = {
-  ...directBackend,
-  runAttempt: async (ctx, cfg, task, onSpawn) => {
-    const out = await directBackend.runAttempt(ctx, cfg, task, onSpawn);
-    appendFileSync(out.attempt.log, "direct backend: Orca worker-start cannot enforce permission bypass\n");
-    return out;
-  },
-};
-
 /** Whether the backend with this id reports itself available; unknown ids are not. */
-export async function backendAvailable(ctx: Ctx, s: Strategy, id: string, extras: Backend[] = EXTRA_BACKENDS): Promise<boolean> {
+export async function backendAvailable(ctx: Ctx, s: Strategy, id: string, extras: Backend[] = defaultBackends()): Promise<boolean> {
   const b = [...extras, directBackend].find((b) => b.id === id);
   return b ? b.available(ctx, s) : false;
 }
 
-/** Managed account folders and connection credentials require direct execution. */
-export async function selectBackend(ctx: Ctx, s: Strategy, extras: Backend[] = EXTRA_BACKENDS, runnerId?: string): Promise<Backend> {
+/** Connections and unsupported agent TUIs require direct execution. */
+export async function selectBackend(ctx: Ctx, s: Strategy, extras: Backend[] = defaultBackends(), runnerId?: string): Promise<Backend> {
   const runner = runnerId ? resolveRunner(s, runnerId) : undefined;
   if (runner?.session === "interactive") return directBackend;
   const account = runner ? s.accounts[runner.account] : undefined;
-  if (account?.source === "pacer" || account?.source === "orca" || account?.connection) {
+  const wantsOrca = ctx.env.PACER_BACKEND === "orca" || (!ctx.env.PACER_BACKEND && s.execution?.backend === "orca");
+  if (wantsOrca && (account?.connection || (runner && !["claude-code", "codex"].includes(runner.agent)))) {
     return {
       ...directBackend,
       runAttempt: async (ctx, cfg, task, onSpawn) => {
         const out = await directBackend.runAttempt(ctx, cfg, task, onSpawn);
-        appendFileSync(out.attempt.log, account.connection
+        appendFileSync(out.attempt.log, account?.connection
           ? "direct backend: connection endpoint (credentials stay in the OpenCode child environment)\n"
-          : "direct backend: non-default account (Orca launch can't pre-approve folder trust)\n");
+          : `direct backend: unsupported Orca terminal agent (${runner?.agent})\n`);
         return out;
       },
     };
   }
   const forced = ctx.env.PACER_BACKEND;
-  if (forced === "orca") return orcaPermissionFallback;
+  if (forced === "orca") {
+    const orca = extras.find(b => b.id === "orca");
+    try { return orca && await orca.available(ctx, s) ? orca : directBackend; }
+    catch { return directBackend; }
+  }
   if (forced) return [...extras, directBackend].find((b) => b.id === forced) ?? directBackend;
   for (const b of extras) {
     try {
-      if (await b.available(ctx, s)) return b.id === "orca" ? orcaPermissionFallback : b;
+      if (await b.available(ctx, s)) return b;
     } catch {
       // an unavailable backend never blocks execution
     }

@@ -62,6 +62,16 @@ function codexTrust(repo: string, root: string): string {
 
 export interface Launch { argv: string[]; cwd: string; stdin?: string; lastMessageFile?: string }
 
+/** An idle agent for Orca to attach to; Orca injects the task prompt after startup. */
+export function launchArgvFor(cfg: ProviderCfg, worktree: string, runDir: string, trustRoot = worktree): string[] {
+  const agent = parseRunnerId(cfg.id)?.agent ?? cfg.id;
+  const models = cfg.model ? [agent === "codex" ? "-m" : "--model", cfg.model] : [];
+  if (agent === "codex") return ["codex", "--no-daemon", "-c", codexTrust(worktree, trustRoot), "-C", worktree,
+    "--dangerously-bypass-approvals-and-sandbox", "--add-dir", runDir, ...models];
+  if (agent === "claude-code") return ["claude", "--dangerously-skip-permissions", ...models];
+  throw Error(`no Orca terminal launcher for provider "${cfg.id}"`);
+}
+
 export function launchFor(cfg: ProviderCfg, prompt: string, repo: string, taskDir: string, taskId: string, sessionId?: string, trustRoot = repo): Launch {
   const model = cfg.model;
   if (cfg.session === "interactive") {
@@ -74,8 +84,7 @@ export function launchFor(cfg: ProviderCfg, prompt: string, repo: string, taskDi
     const agent = parseRunnerId(cfg.id)?.agent ?? cfg.id;
     const models = model ? [agent === "codex" || agent === "opencode" ? "-m" : "--model", model] : [];
     const argv = cfg.via === "opencode" ? ["opencode", "--standalone", "--auto", "--prompt", prompt]
-      : agent === "codex" ? ["codex", "--no-daemon", "-c", codexTrust(repo, trustRoot), "-C", repo, "--dangerously-bypass-approvals-and-sandbox", "--add-dir", taskDir, ...models, "--", prompt]
-      : agent === "claude-code" ? ["claude", "--dangerously-skip-permissions", ...models, "--", prompt]
+      : agent === "codex" || agent === "claude-code" ? [...launchArgvFor(cfg, repo, taskDir, trustRoot), "--", prompt]
       : agent === "cursor" ? ["cursor-agent", "--force", "--sandbox", "disabled", "--workspace", repo, ...models, "--", prompt]
       : agent === "agy" ? ["agy", "--dangerously-skip-permissions", "--add-dir", repo, ...models, "--prompt-interactive", prompt] : null;
     if (!argv) throw new Error(`no interactive launcher for provider "${cfg.id}"`);

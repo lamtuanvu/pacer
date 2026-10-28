@@ -94,7 +94,7 @@ Kinds: `boilerplate`, `tests`, `docs`, `rename`, `migration`, `feature`, `debug`
 
 ## Execution and classification
 
-`execution.backend` is `auto` (default), `orca` or `direct`. `auto` and `direct` run agents under pacer's own supervisor, with pacer-owned worktrees for new placement. `orca` runs agents as supervised Orca workers in visible Orca terminals. `PACER_BACKEND=orca` still forces the Orca backend.
+`execution.backend` is `auto` (default), `orca` or `direct`. `auto` and `direct` run agents under pacer's own supervisor, with pacer-owned worktrees for new placement. `orca` runs Claude Code and Codex as supervised Orca workers in pacer-launched terminals. Interactive runners, connection accounts and unsupported agents run directly; pacer also falls back to direct when Orca is unavailable or the terminal does not become idle. `PACER_BACKEND=orca` selects the same Orca behavior.
 
 `execution.worktree` is `child-of-current` (default), `new-child` or `current`; `base_branch` selects a base ref and implies `new-child` when worktree is omitted. New worktrees fetch and use the remote default branch tip unless `base_branch`, a brief `base`, or `worktree_base: head` explicitly selects another base. Automatic `child-of-current` placement in a local-only repository without origin preserves its HEAD base; explicit `worktree: new` or `worktree_base: default` still requires origin. A failed fetch never falls back to HEAD. Individual briefs use `worktree: current|new|auto` and an optional reason; safety checks can veto current placement. See [placement](executors.md#execution-and-review).
 

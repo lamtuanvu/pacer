@@ -6,6 +6,7 @@ import { gitInfo } from "../src/core/git";
 import * as tasks from "../src/core/tasks";
 import { createTaskWorktree } from "../src/supervisor/worktree";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
+import { trustClaudeWorktree } from "../src/exec/orca/trust";
 import { fakeCtx, gitRepo, realRun } from "./helpers";
 
 async function finished(o: { dirty?: boolean; reviewed?: boolean } = {}) {
@@ -75,4 +76,46 @@ test("clean prunes settled in-place recordings, preserves logs and respects dry-
     for(const name of ["session.log","session.log.1","session.ckpt"])expect(existsSync(join(dir,name))).toBe(!prune);
     for(const name of ["stdout","stderr","exit"])expect(existsSync(join(dir,name))).toBe(true);
   }
+});
+
+test("clean removes an Orca worktree and its pacer-added Claude trust", async () => {
+  const {ctx, t, w, repo} = await finished();
+  const config = join(ctx.home, ".claude.json");
+  trustClaudeWorktree(ctx, w.path, config, t.id);
+  updateTask(ctx, t.id, x => {
+    x.result = {status: "done", executor: "claude-code", model: null, files: "", report: "", backend: "orca", worktree: w.path};
+    x.placement = {requested: "new", mode: "new", why: "test"};
+  });
+  const calls: string[][] = [];
+  ctx.run = async (argv, timeout) => {
+    if (argv[0] !== "orca") return realRun(argv, timeout);
+    calls.push(argv);
+    if (argv[2] === "show") return {code: 0, stdout: JSON.stringify({ok: true, result: {worktree: {
+      id: `repo-id::${w.path}`, path: w.path, displayName: `pacer-${t.id}-claude-code`, isMainWorktree: false,
+    }}}), stderr: ""};
+    const removed = await realRun(["git", "-C", repo, "worktree", "remove", w.path], timeout);
+    return {code: removed.code, stdout: '{"ok":true,"result":{}}', stderr: removed.stderr};
+  };
+  expect((await tasks.clean(ctx)).removed).toEqual([t.id]);
+  expect(calls).toHaveLength(2);
+  expect(calls[1]).toEqual(["orca", "worktree", "rm", "--worktree", `id:repo-id::${w.path}`, "--json"]);
+  expect(existsSync(w.path)).toBe(false);
+  expect(JSON.parse(await Bun.file(config).text()).projects[w.path]).toBeUndefined();
+});
+
+test("clean keeps an Orca worktree whose ownership name changed", async () => {
+  const {ctx, t, w} = await finished();
+  updateTask(ctx, t.id, x => {
+    x.result = {status: "done", executor: "codex", model: null, files: "", report: "", backend: "orca", worktree: w.path};
+    x.placement = {requested: "new", mode: "new", why: "test"};
+  });
+  let removed = false;
+  ctx.run = async (argv, timeout) => {
+    if (argv[0] !== "orca") return realRun(argv, timeout);
+    if (argv[2] === "rm") removed = true;
+    return {code: 0, stdout: JSON.stringify({ok: true, result: {worktree: {id: `repo::${w.path}`, path: w.path, displayName: "someone-else"}}}), stderr: ""};
+  };
+  expect((await tasks.clean(ctx)).kept).toEqual([{id: t.id, reason: "Orca worktree ownership could not be verified"}]);
+  expect(removed).toBe(false);
+  expect(existsSync(w.path)).toBe(true);
 });

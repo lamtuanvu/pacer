@@ -66,7 +66,9 @@ test.each([
   ["codex", "current", "codex"],
   ["claude-code", "new-child", "claude"],
   ["codex", "new-child", "codex"],
-] as const)("default-account Orca %s on %s keeps agent supervision", async (id, worktree, agent) => {
+  ["claude-code#team", "current", "claude"],
+  ["codex#work", "current", "codex"],
+] as const)("Orca %s on %s keeps agent supervision", async (id, worktree, agent) => {
   const {ctx, s} = setup();
   const f = fakeRun([
     [["git", "-C", "/work/app", "rev-parse", "--verify"], raw("a".repeat(40))],
@@ -76,7 +78,12 @@ test.each([
     [["git", "-C", "/work/app", "status"], raw("")],
     [["orca", "status"], ok("status-ready.json")],
     [["orca", "repo", "list"], raw('{"ok":true,"result":{"repos":[{"id":"repo1","path":"/work/app"}]}}')],
+    [["orca", "worktree", "show"], raw('{"ok":true,"result":{"worktree":{"id":"repo1::/work/app","path":"/work/app"}}}')],
+    [["orca", "worktree", "create"], raw('{"ok":true,"result":{"worktree":{"id":"repo1::/work/new","path":"/work/new"}}}')],
+    [["orca", "terminal", "create", "--worktree", "id:repo1::/work/app"], raw('{"ok":true,"result":{"terminal":{"handle":"term_agent"}}}')],
+    [["orca", "terminal", "create", "--worktree", "id:repo1::/work/new"], raw('{"ok":true,"result":{"terminal":{"handle":"term_agent"}}}')],
     [["orca", "terminal", "create"], ok("coordinator-terminal.json")],
+    [["orca", "terminal", "wait"], raw('{"ok":true,"result":{"wait":{"satisfied":true}}}')],
     [["orca", "terminal", "show"], ok("terminal-show-live.json")],
     [["orca", "orchestration", "run-create"], ok("run-create.json")],
     [["orca", "orchestration", "worker-start"], ok("worker-start-t1-auto.json")],
@@ -89,15 +96,22 @@ test.each([
   const backend = makeOrcaBackend({loadExecution: () => ({...DEFAULT_EXECUTION, worktree}), sleep: async () => {}});
   const out = await backend.runAttempt(ctx, s.providers[id], task);
   expect(out.backend).toBe("orca");
-  expect(f.calls.some(a => a[1] === "terminal" && a[2] === "create" && a.includes("--command"))).toBe(false);
+  expect(f.calls.some(a => a[1] === "terminal" && a[2] === "create" && a.includes("--command"))).toBe(true);
+  const command = f.calls.find(a => a[1] === "terminal" && a[2] === "create" && a.includes("--command"))!;
+  const text = command[command.indexOf("--command") + 1];
+  if (id.includes("#")) {
+    expect(text).toContain(`'${agent === "claude" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME"}=`);
+    expect(text).toContain("'\\''s $(unsafe) home'");
+    expect(text).not.toContain("PACER_KEY_");
+  }
   const start = f.calls.find(a => a[2] === "worker-start")!;
-  expect(start).not.toContain("--terminal");
-  expect(start[start.indexOf("--agent") + 1]).toBe(agent);
+  expect(start[start.indexOf("--terminal") + 1]).toBe("term_agent");
+  expect(start).not.toContain("--agent");
   if (worktree === "new-child") {
-    expect(start[start.indexOf("--worktree") + 1]).toBe("new-child");
-    expect(out.worktree).toBeTruthy();
+    expect(start[start.indexOf("--worktree") + 1]).toBe("id:repo1::/work/new");
+    expect(out.worktree).toBe("/work/new");
   } else {
-    expect(start[start.indexOf("--worktree") + 1]).toBe("path:/work/app");
+    expect(start[start.indexOf("--worktree") + 1]).toBe("id:repo1::/work/app");
     expect(out.worktree).toBe("/work/app");
   }
 
