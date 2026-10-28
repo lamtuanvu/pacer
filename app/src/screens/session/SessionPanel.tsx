@@ -24,7 +24,7 @@ export function SessionTitle({ status, live, facts, actions, next }: {
   // An action that can no longer work disappears (End session once ended); focus then stays in the group.
   const group = useRef<HTMLDivElement>(null), within = useRef(false);
   useEffect(() => {
-    if (within.current && document.activeElement === document.body) (group.current?.querySelector<HTMLElement>("button") ?? document.querySelector<HTMLElement>('[aria-label="Toggle session details"]'))?.focus();
+    if (within.current && document.activeElement === document.body) (group.current?.querySelector<HTMLElement>("button") ?? document.querySelector<HTMLElement>('[aria-label="Toggle details panel"]'))?.focus();
   });
   return <>
     <span className="pc-session-title-facts"><StatusDot tone={status.tone} live={live} label={status.label} />

@@ -88,8 +88,10 @@ browserTest("no_actions_on_ended_session", async () => withBrowser(async browser
   const actions = page.getByRole("banner").getByRole("group", { name: "Session actions" });
   // Nothing in the title bar would act on a session that has ended; only the frame's details toggle remains.
   await expect(actions.getByRole("button").count()).resolves.toBe(0);
-  await expect(page.getByRole("button", { name: "Toggle session details" }).count()).resolves.toBe(1);
+  await expect(page.getByRole("button", { name: "Toggle details panel" }).count()).resolves.toBe(1);
   for (const name of ["End session", "Stop", "Take over", "Resume conversation", "Open in terminal"]) await expect(page.getByRole("button", { name, exact: true }).count()).resolves.toBe(0);
+  // The task's title shows in the title bar (the frame hides the route's own heading).
+  await expect(page.getByRole("banner").getByRole("heading", { level: 1 }).isVisible()).resolves.toBe(true);
   // The terminal fills the centre without a view switch.
   await expect(page.getByRole("main").getByRole("tablist").count()).resolves.toBe(0);
   // Ended results show their outcome in Details.
@@ -100,7 +102,7 @@ browserTest("no_actions_on_ended_session", async () => withBrowser(async browser
 browserTest("session_details_toggle_keyboard_and_focus", async () => withBrowser(async browser => {
   const page = await openSession(browser, "conversation");
   const panel = page.getByRole("complementary", { name: "Session details" });
-  const hide = page.getByRole("button", { name: "Toggle session details" });
+  const hide = page.getByRole("button", { name: "Toggle details panel" });
   await expect(hide.getAttribute("aria-pressed")).resolves.toBe("true");
   await expect(page.locator("#pc-side-panel-right").count()).resolves.toBe(1);
   // Keyboard activation keeps focus on the persistent title-bar toggle.
@@ -108,7 +110,7 @@ browserTest("session_details_toggle_keyboard_and_focus", async () => withBrowser
   await page.keyboard.press("Enter");
   await expect(panel.count()).resolves.toBe(0);
   await expect(hide.getAttribute("aria-pressed")).resolves.toBe("false");
-  await focused(page, '[aria-label="Toggle session details"]');
+  await focused(page, '[aria-label="Toggle details panel"]');
   expect(await page.evaluate(() => localStorage.getItem("pacer.panel.session-details"))).toBe("0");
   // Ctrl-Shift-B toggles it from anywhere outside a text field.
   await page.locator("#main-content").focus();
@@ -149,7 +151,7 @@ browserTest("closed_panel_keeps_next_step_reachable", async () => withBrowser(as
   const actions = page.getByRole("banner").getByRole("group", { name: "Session actions" });
   // Open panel: the next step is in the panel, so the title bar offers nothing extra.
   await expect(actions.getByRole("button", { name: "Review result" }).count()).resolves.toBe(0);
-  await page.getByRole("button", { name: "Toggle session details" }).click();
+  await page.getByRole("button", { name: "Toggle details panel" }).click();
   const next = actions.getByRole("button", { name: "Review result" });
   await expect(next.getAttribute("class")).resolves.toContain("pc-btn--primary");
   // Keyboard activation reopens the panel on Details, where the verdict actions are.
@@ -162,7 +164,7 @@ browserTest("closed_panel_keeps_next_step_reachable", async () => withBrowser(as
   await expect(actions.getByRole("button", { name: "Review result" }).count()).resolves.toBe(0);
   // A running session has no next step to surface, even with the panel closed.
   const running = await openSession(browser, "supervised");
-  await running.getByRole("button", { name: "Toggle session details" }).click();
+  await running.getByRole("button", { name: "Toggle details panel" }).click();
   await expect(running.getByRole("banner").getByRole("button", { name: "Review result" }).count()).resolves.toBe(0);
   await page.close(); await running.close();
 }), 30_000);

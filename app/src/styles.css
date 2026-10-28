@@ -136,6 +136,8 @@ html[data-pacer-native-titlebar] .pc-topbar{padding-left:var(--size-84)}
 @media(pointer:coarse){.pc-layout-toggles .pc-icon-button{width:var(--control-touch);height:var(--control-touch)}}
 .pc-layout-toggles .pc-icon-button svg{width:var(--size-18);height:var(--size-18)}
 .pc-layout-toggles .pc-icon-button:hover,.pc-layout-toggles .pc-icon-button[aria-pressed="true"]{background:var(--surface-lane);color:var(--ink)}
+/* A screen's own heading (a task's title) is shown in the bar, as on the Session board. */
+.pc-app:not(.pc-app--narrow)>.pc-topbar h1.pc-topbar__heading{position:static;width:auto;height:auto;clip:auto;overflow:hidden;text-overflow:ellipsis;flex:0 1 auto;min-width:var(--size-80)}
 .pc-topbar h1{font-size:var(--type-body-size);line-height:var(--type-body-line);font-weight:var(--type-body-strong-weight);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pc-topbar>.grow{align-self:stretch;flex:1}
 /* A screen's title-bar facts and actions take the free space; the bar's own spacer then steps aside. */

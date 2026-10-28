@@ -51,7 +51,7 @@ export function TopBar({ brand, search, narrowSearch, panels = {}, narrow = fals
     {!narrow && <TitleBar />}
     {!narrow && brand && <span className="pc-topbar__brand">{brand}</span>}
     {showActions && heading?.agent && <AgentMark agent={heading.agent} size={18} />}
-    {showActions && <h1 data-tauri-drag-region title={heading?.title ?? title}>{heading?.title ?? title}</h1>}
+    {showActions && <h1 data-tauri-drag-region className={heading ? "pc-topbar__heading" : undefined} title={heading?.title ?? title}>{heading?.title ?? title}</h1>}
     {showActions && context && <div ref={context} className="pc-topbar__context" />}
     <span className="grow" data-tauri-drag-region />
     {!narrow && showActions && <div className="pc-topbar__search">{search}</div>}
