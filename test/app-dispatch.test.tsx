@@ -175,7 +175,8 @@ test("next task goes to names the next agent, then the chain with chevrons endin
 
 test("with dispatch.explain the next task states its ladder step, the dispatcher's own chain and strategy", () => {
   const explain = { outcome: "select" as const, strategy: { name: "balanced" }, chosen: { runner: "claude-code" }, step: { id: "capable-spare", index: 0 },
-    fallbacks: [{ runner: "claude-code", state: "eligible" as const }, { runner: "cursor", state: "eligible" as const }, { runner: "local", state: "excluded" as const }] };
+    fallbacks: [{ runner: "claude-code", state: "eligible" as const }, { runner: "cursor", state: "eligible" as const }, { runner: "local", state: "excluded" as const, reason: { text: "Local is busy (1/1 running)." } }],
+    reasons: [{ outcome: "pass" as const, text: "Ladder step matched." }] };
   const html = section(view(null, snap, { routing: { ...routing, explain } }), "next-task");
   expect(strip(html)).toContain("Claude Code Ladder step 1 · capable-spare");
   expect(html).toContain(">Eligible<");
@@ -183,7 +184,7 @@ test("with dispatch.explain the next task states its ladder step, the dispatcher
   expect(html).not.toContain("Local");
   expect(html).toMatch(/href="#\/settings\/dispatcher"[^>]*>Strategy: balanced · change</);
   // An explanation that would queue the work names nobody, whatever the preview ranks first.
-  expect(strip(section(view(null, snap, { routing: { ...routing, explain: { ...explain, outcome: "queue", chosen: null } } }), "next-task"))).toContain("No agent can take new work now.");
+  expect(strip(section(view(null, snap, { routing: { ...routing, explain: { ...explain, outcome: "queue", chosen: null } } }), "next-task"))).toContain("No agent can take new work now. It waits in the queue. Local is busy (1/1 running).");
 });
 
 test("narrow Dispatch keeps executor usage and pace while the status bar is absent", () => {

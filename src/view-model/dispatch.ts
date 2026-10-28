@@ -174,7 +174,8 @@ export interface RouteExplanationView {
   strategy: { name: string };
   chosen: { runner: string } | null;
   step: { id: string; index: number } | null;
-  fallbacks: { runner: string; state: "eligible" | "excluded" }[];
+  fallbacks: { runner: string; state: "eligible" | "excluded"; reason?: { text: string } }[];
+  reasons: { outcome: "pass" | "fail" | "info"; text: string }[];
 }
 /** The repository a "where would new work go" explanation is asked for: the active one, or the only one registered. */
 export function explainRepo(scopeRepo: string | null, repos: { key: string }[] | undefined): string | null {
@@ -189,4 +190,8 @@ export function nextFromExplanation(e: RouteExplanationView): { next: string; st
   const seen = new Set([e.chosen.runner]), then: string[] = [];
   for (const f of e.fallbacks) if (f.state === "eligible" && !seen.has(f.runner)) { seen.add(f.runner); then.push(f.runner); }
   return { next: e.chosen.runner, step: e.step ? `Ladder step ${e.step.index + 1} · ${e.step.id}` : null, then, strategy: e.strategy.name };
+}
+/** Why new work would wait: the first executor the dispatcher ruled out, else its own failing reason. */
+export function queueReason(e: RouteExplanationView): string | null {
+  return e.fallbacks.find(f => f.state === "excluded" && f.reason)?.reason!.text ?? e.reasons.find(r => r.outcome === "fail")?.text ?? null;
 }

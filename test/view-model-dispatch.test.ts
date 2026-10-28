@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import fixture from "./fixtures/ui/snapshot.json";
-import { explainRepo, nextFromExplanation, kpiTiles, plannerCaption, needsYouCards, periodHeading, periodRange, tokenSpread, type InsightsSummary } from "../src/view-model/dispatch";
+import { explainRepo, nextFromExplanation, queueReason, kpiTiles, plannerCaption, needsYouCards, periodHeading, periodRange, tokenSpread, type InsightsSummary } from "../src/view-model/dispatch";
 import type { ClientSnapshot } from "../src/view-model/snapshot";
 
 const now = 1800000000;
@@ -134,7 +134,8 @@ test("planner caption states each measured part and the 5-hour window once", () 
 
 test("the next-task explanation keeps the dispatcher's order and drops excluded and repeated runners", () => {
   const e = { outcome: "select" as const, strategy: { name: "default" }, chosen: { runner: "codex" }, step: { id: "cheap", index: 2 },
-    fallbacks: [{ runner: "codex", state: "eligible" as const }, { runner: "agy", state: "excluded" as const }, { runner: "cursor", state: "eligible" as const }, { runner: "cursor", state: "eligible" as const }] };
+    fallbacks: [{ runner: "codex", state: "eligible" as const }, { runner: "agy", state: "excluded" as const }, { runner: "cursor", state: "eligible" as const }, { runner: "cursor", state: "eligible" as const }],
+    reasons: [] as { outcome: "pass" | "fail" | "info"; text: string }[] };
   expect(nextFromExplanation(e)).toEqual({ next: "codex", step: "Ladder step 3 · cheap", then: ["cursor"], strategy: "default" });
   expect(nextFromExplanation({ ...e, step: null })?.step).toBeNull();
   expect(nextFromExplanation({ ...e, outcome: "fail" })).toBeNull();
@@ -146,4 +147,13 @@ test("the explanation is asked for the active repository, or the only registered
   expect(explainRepo(null, [{ key: "github.com/acme/api" }])).toBe("github.com/acme/api");
   expect(explainRepo(null, [{ key: "a" }, { key: "b" }])).toBeNull();
   expect(explainRepo(null, undefined)).toBeNull();
+});
+
+test("a queued explanation says why from the first ruled-out executor, else the dispatcher's failing reason", () => {
+  const e = { outcome: "queue" as const, strategy: { name: "default" }, chosen: null, step: null,
+    fallbacks: [{ runner: "codex", state: "excluded" as const, reason: { text: "Codex (personal) is busy (1/1 running)." } }],
+    reasons: [{ outcome: "fail" as const, text: "No ladder step has a qualifying executor." }] };
+  expect(queueReason(e)).toBe("Codex (personal) is busy (1/1 running).");
+  expect(queueReason({ ...e, fallbacks: [] })).toBe("No ladder step has a qualifying executor.");
+  expect(queueReason({ ...e, fallbacks: [], reasons: [] })).toBeNull();
 });

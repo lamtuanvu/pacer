@@ -2,7 +2,7 @@ import type { ComponentChildren } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { AttentionItem } from "../../../../src/api/read-model/types";
 import { agentInfo, markAgent } from "../../../../src/view-model/agents";
-import { explainRepo, kpiTiles, needsYouCards, nextFromExplanation, periodHeading, periodRange, PERIODS, plannerCaption, plannerPace, tokenSpread, type InsightsSummary, type KpiTile, type NeedsYouCard, type Period, type RouteExplanationView } from "../../../../src/view-model/dispatch";
+import { explainRepo, kpiTiles, needsYouCards, nextFromExplanation, queueReason, periodHeading, periodRange, PERIODS, plannerCaption, plannerPace, tokenSpread, type InsightsSummary, type KpiTile, type NeedsYouCard, type Period, type RouteExplanationView } from "../../../../src/view-model/dispatch";
 import { executorPace } from "../../../../src/view-model/capacity";
 import { eligibilityPresentation } from "../../../../src/view-model/eligibility";
 import { capacity, counts, needsYou, otherReposNeedingYou, plannerMeter, type Scope } from "../../../../src/view-model/selectors";
@@ -149,7 +149,8 @@ function NextHalf({ routing, query, strategy }: { routing: RoutingPreview; query
   const then = chain.slice(0, 3), more = chain.length - then.length;
   const row = ranked.find(r => r.id === nextId);
   const readiness = row ? eligibilityPresentation(row.eligibility, Date.now() / 1000) : null;
-  const shown = explained?.strategy ?? strategy;
+  const shown = routing.explain?.strategy.name ?? strategy;
+  const waits = routing.explain && !explained ? queueReason(routing.explain) : null;
   const chevron = <span className="pc-dispatch-chain__sep"><Icon name="chevron-right" /></span>;
   return <div className="pc-dispatch-split__half pc-dispatch-split__half--page" role="group" aria-labelledby="next-task">
     <span className="pc-dispatch-label" id="next-task">Next task goes to</span>
@@ -164,7 +165,7 @@ function NextHalf({ routing, query, strategy }: { routing: RoutingPreview; query
           {more > 0 && <li><span className="muted">+{more} more</span>{chevron}</li>}
           <li><span className="pc-dispatch-chip pc-dispatch-chip--queue"><span className="pc-dispatch-chip__tile" aria-hidden="true">Q</span>Queue</span></li>
         </ol></div>
-      </> : <span className="muted">No agent can take new work now. It waits in the queue.</span>}
+      </> : <span className="muted">No agent can take new work now. It waits in the queue.{waits ? ` ${waits}` : ""}</span>}
     <TextAction className="pc-text-action" href={withQuery("#/settings/dispatcher", query)}>{shown ? `Strategy: ${shown} · change` : "Change strategy"}</TextAction>
   </div>;
 }
