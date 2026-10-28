@@ -1,5 +1,6 @@
 import { requirePolicyIdentity } from "./project-policy";
 import { getWork } from "../dispatch/work";
+import { attemptsWithTokens, itemsOf, rollupTokens, type TokenRollup } from "../tokens/rollup";
 import { remoteExclusion } from "../remote/eligibility";
 import { projectSnapshot } from "./project-policy";
 import { repoFor, registeredRepo } from "./repos";
@@ -31,6 +32,8 @@ export interface TaskDetail extends ApiTask {
   work?: {rootId:string;parentId:string|null;depth:number};
   brief: Brief;
   attempts: (Attempt & { log: string })[];
+  /** Token roll-up for this task, with the split per agent. */
+  tokens?: TokenRollup;
   routing: RoutingNote | null;
   cost: Cost;
   acceptance: { cmd: string | null; state: "pending" | "running" | "passed" | "failed" | "none"; tail: string; durationS?: number; summary?: string; machine: string | null };
@@ -144,12 +147,13 @@ export async function taskDetail(ctx: Ctx, id: string): Promise<TaskDetail> {
   const task = get(ctx, id), last = task.attempts.at(-1), work=getWork(ctx,id);
   let policyError: string | undefined;
   const [changes, retryOptions] = await Promise.all([gitSummary(ctx, task), optionsFor(ctx, task, true).catch(error => { policyError = error instanceof Error ? error.message : String(error); return []; })]);
+  const attempts = attemptsWithTokens(ctx, task.id, task.attempts);
   const acceptance = task.result?.acceptance, terminal = TERMINAL_STATES.includes(task.state);
   const cmd = acceptance?.cmd ?? task.brief.acceptance ?? null;
   return {
     ...(work ? {work:{rootId:work.rootId,parentId:work.parentId,depth:work.depth}} : {}),
     ...(policyError ? { policyError } : {}),
-    ...apiTask(ctx, task), brief: task.brief, attempts: task.attempts,
+    ...apiTask(ctx, task), brief: task.brief, attempts, tokens: rollupTokens(itemsOf(attempts)),
     routing: task.pendingAttempt?.routing ?? last?.routing ?? null, cost: costFor(ctx, task),
     acceptance: { cmd, state: acceptance ? acceptance.passed ? "passed" : "failed" : !cmd ? "none" : task.progress?.phase === "testing" ? "running" : "pending", tail: Buffer.from(acceptance?.tail ?? "").subarray(-4096).toString("utf8"), machine: acceptance?.machine ?? null, ...(acceptance?.durationS !== undefined ? { durationS: acceptance.durationS } : {}), ...(acceptance?.summary ? { summary: acceptance.summary } : {}) },
     summary: task.result?.report ?? null, branch: changes.branch, base: task.baseBranch ?? null, machine: task.run?.host ?? null,
