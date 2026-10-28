@@ -174,6 +174,16 @@ test("the default interactive launch mode selects the builtin PTY; launch_mode h
   expect((await selectBackend(ctx, headless, [extra], "codex")).id).toBe("extra");
 });
 
+test("backend selection uses the attempt's launch mode: strict enforcement keeps a default-derived interactive mode headless", async () => {
+  const extra = fake("extra", async () => true), ctx = withLoginIndicators(fakeCtx());
+  const interactive = validateStrategy({planner: "claude-code", providers: {"claude-code": {}, codex: {}}}, "/x");
+  const strict = {...ctx, env: {...ctx.env, PACER_ENFORCEMENT_MODE: "strict"}};
+  expect((await selectBackend(strict, interactive, [extra], "codex")).id).toBe("extra");
+  // An explicit runner session is not default-derived and still selects the builtin PTY.
+  const explicit = validateStrategy({planner: "codex", accounts: {main: {kind: "codex"}}, runners: {codex: {session: "interactive"}}}, "/x");
+  expect((await selectBackend(strict, explicit, [extra], "codex")).id).toBe("direct");
+});
+
 test("Orca permission fallback executes directly and logs why", async () => {
   const bin = tmpDir(), repo = tmpDir();
   writeFileSync(join(bin, "codex"), '#!/bin/sh\nprintf "%s\\n" "$@" > launch-args\nprintf "done"\n', {mode: 0o755});

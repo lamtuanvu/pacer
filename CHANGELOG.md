@@ -29,6 +29,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Executor sessions now match a terminal more closely: the login shell's `umask` applies to the agent, direnv and mise apply for the task folder as their own trust allows (pacer never allows or trusts a folder), interactive sessions keep `NO_COLOR`/`FORCE_COLOR` from your profile, and the default account honours `CLAUDE_CONFIG_DIR`/`CODEX_HOME` from your profile for the run, its folder trust and usage readers. Backend selection now uses the same launch mode as the attempt under strict enforcement. See [Session environment](docs/executors.md#session-environment).
 - The session file viewer opens files in sessions that run in a Pacer task worktree instead of refusing them as private state.
 
 ## [0.11.0] - 2026-10-26

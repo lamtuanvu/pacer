@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
+import { withDefaultFolder } from "../exec/account-folder";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -216,7 +217,8 @@ export async function probeNativeControl(ctx:Ctx,strategy:Strategy,runnerId:stri
         delete env.PACER_AUTH_TOKEN;
         delete env.CLAUDE_CONFIG_DIR;
         delete env.CODEX_HOME;
-        if(account.source!=="default"){
+        if(account.source==="default")Object.assign(env,withDefaultFolder(ctx,target.agent,env));
+        else{
           const folder=accountFolder(ctx,account);
           if(!folder)return {attempted:false,blocked:false,childStarted:false,reason:"The selected account has no resolvable configuration folder"};
           if(account.kind==="claude")env.CLAUDE_CONFIG_DIR=folder;

@@ -33,7 +33,8 @@ import { launchFor, launchModeFor, providerEnv, resumeLaunchFor, type LaunchMode
 import { claudeConfigFile, grantClaudeFolderTrust } from "./claude-trust";
 import { detectLimit } from "./limits";
 import { type ExecResult, executorEnv, execProcess } from "./process";
-import { terminalEnv, terminalEnvNote, type TerminalEnv } from "./login-env";
+import { profileColor, profileKeys, terminalEnv, terminalEnvNote, terminalEnvRecord, terminalUmask, type TerminalEnv } from "./login-env";
+import { recordDefaultFolder, withDefaultFolder } from "./account-folder";
 import { buildPrompt } from "./prompt";
 import { localRunIO, readOutput, startRun } from "../supervisor/run";
 import { type SuperviseEnd, supervise } from "../supervisor/supervise";
@@ -260,7 +261,7 @@ export async function finishRun(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, ru
     const failedReport = signal?.status === "failed";
     exec.code = failedReport || startupFailed || end.kind === "timeout" || end.kind === "stopped" ? exec.code || 1 : 0;
     report = failedReport ? signal!.summary : startupFailed ? exec.stderr.trim() || exec.stdout.trim() || "Take over resume failed to start"
-      : transcriptReport(run.dir) || (run.agentSession ? sessionTranscript(cfg.via === "opencode" ? "opencode" : parseRunnerId(cfg.id)?.agent ?? cfg.id, run.agentSession.id, executorEnv(ctx.env, await providerEnv(ctx, cfg).catch(() => ({})), task.id), ctx.home) : "") || "You drove this task; the agent left no summary";
+      : transcriptReport(run.dir) || (run.agentSession ? sessionTranscript(cfg.via === "opencode" ? "opencode" : parseRunnerId(cfg.id)?.agent ?? cfg.id, run.agentSession.id, withDefaultFolder(ctx, parseRunnerId(cfg.id)?.agent ?? cfg.id, executorEnv(ctx.env, await providerEnv(ctx, cfg).catch(() => ({})), task.id)), ctx.home) : "") || "You drove this task; the agent left no summary";
     updateTask(ctx, task.id, t => { if (t.takeover) t.takeover.state = "ended"; });
     const result = outcome({...cfg, session:"interactive"}, task.attemptStartedAt ?? run.startedAt, exec, run.logFile, note + report, true);
     result.attempt.limitHit = false;
@@ -274,7 +275,7 @@ export async function finishRun(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, ru
 
 /** Where the executor's base environment came from; names the shell or the reason only, never a value. */
 function recordEnvironment(dir: string, base: TerminalEnv): void {
-  try { writeFileSync(join(dir, "environment.json"), JSON.stringify(base.source === "login-shell" ? {source: base.source, shell: base.shell} : {source: base.source, reason: base.reason}), {mode: 0o600}); }
+  try { writeFileSync(join(dir, "environment.json"), JSON.stringify(terminalEnvRecord(base)), {mode: 0o600}); }
   catch { /* diagnostics only */ }
 }
 
@@ -294,10 +295,12 @@ async function startTakeoverRun(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, pr
     if (typeof request.sessionId !== "string" || !request.sessionId) throw Error("Take over request has no session id");
     run.agentSession = {id:request.sessionId, source:readTask(ctx,task.id)?.run?.agentSession?.source ?? "lookup"};
     await ensureProviderIntegration(ctx, cfg.id);
-    const base = await terminalEnv(ctx.env, {cwd: ctx.home});
+    const base = await terminalEnv(ctx.env, {cwd: ctx.home, workdir: run.workdir});
     note += terminalEnvNote(base);
-    const env = executorEnv(base.env, await providerEnv(ctx,cfg), task.id);
+    const account = await providerEnv(ctx,cfg);
+    const env = executorEnv(base.env, account, task.id, profileKeys(base));
     const agent = cfg.via === "opencode" ? "opencode" : parseRunnerId(cfg.id)?.agent ?? cfg.id;
+    recordDefaultFolder(ctx, agent, account, env);
     if (agent === "codex") await requireCodexInteractive(ctx,env);
     // Codex resolves linked-worktree trust against the main repository root.
     const trust = agent === "codex" || agent === "claude-code" ? await gitInfo(ctx.run, run.workdir) : null;
@@ -311,7 +314,7 @@ async function startTakeoverRun(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, pr
     run.startedAt = Date.now()/1000;
     // Publish before spawn so run-bound reports validate even from a fast CLI.
     updateTask(ctx,task.id,t=>{t.run=run;t.takeover={...t.takeover,state:"driving",at:request.at,sessionId:request.sessionId,...(request.by?{by:request.by}:{})};t.progress={lastOutputAt:null,lastChangeAt:null,files:0,commits:0,logBytes:0,host:"local",...t.progress,phase:"driving",updatedAt:Date.now()/1000};});
-    const started = startRun({dir,argv:launch.argv,cwd:run.workdir,env,session:"interactive",takeover:true});
+    const started = startRun({dir,argv:launch.argv,cwd:run.workdir,env,session:"interactive",takeover:true,umask:terminalUmask(base),keepColor:profileColor(base)});
     if ("error" in started) throw Error(started.error);
     return await finishRun(ctx,cfg,task,run,note,progressPoller(ctx,task,run));
   } catch (e) {
@@ -413,10 +416,12 @@ async function runAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, 
   let base: TerminalEnv | undefined;
   let agentSession: RunRef["agentSession"];
   try {
-    base = await terminalEnv(ctx.env, {cwd: ctx.home});
+    base = await terminalEnv(ctx.env, {cwd: ctx.home, workdir});
     note += terminalEnvNote(base);
-    env = executorEnv(base.env, await providerEnv(ctx, cfg), task.id);
+    const account = await providerEnv(ctx, cfg);
+    env = executorEnv(base.env, account, task.id, profileKeys(base));
     const agent = parseRunnerId(cfg.id)?.agent ?? cfg.id;
+    if (cfg.via !== "opencode") recordDefaultFolder(ctx, agent, account, env);
     if (choice.mode === "interactive" && !choice.explicit && agent === "codex" && cfg.via !== "opencode") {
       const gap = await codexInteractiveGap(ctx, env);
       if (gap) { choice = {mode: "headless", explicit: false, fallback: gap}; cfg = {...cfg, session: "headless"}; }
@@ -476,7 +481,8 @@ async function runAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, 
     t.run = run;
     if (conversation && agentSession) t.conversation = {...t.conversation, activity: "starting", agentSessionId: agentSession.id};
   });
-  const started = startRun({ interactionMode: task.interactionMode, dir: rdir, argv: launch.argv, cwd: launch.cwd, stdin: launch.stdin, env, ...(cfg.session === "interactive" ? {session: "interactive" as const} : {}) });
+  const started = startRun({ interactionMode: task.interactionMode, dir: rdir, argv: launch.argv, cwd: launch.cwd, stdin: launch.stdin, env, ...(cfg.session === "interactive" ? {session: "interactive" as const} : {}),
+    ...(base ? {umask: terminalUmask(base), keepColor: profileColor(base)} : {}) });
   if ("error" in started) {
     const exec = { code: 127, stdout: "", stderr: started.error, timedOut: false };
     return outcome(cfg, startedAt, exec, log, note + started.error);

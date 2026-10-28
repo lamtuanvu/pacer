@@ -3,7 +3,7 @@ import { chmodSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 
 import { dirname, join } from "node:path";
 import type { ProviderCfg } from "../src/config/strategy";
 import { runAttempt } from "../src/exec/direct";
-import { clearTerminalEnvCache, terminalEnv } from "../src/exec/login-env";
+import { clearTerminalEnvCache, profileKeys, terminalEnv } from "../src/exec/login-env";
 import { executorEnv } from "../src/exec/process";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
 import { fakeCtx, fakeLoginShell, tmpDir } from "./helpers";
@@ -48,11 +48,13 @@ async function launch(agent: Agent, mode: "interactive" | "headless") {
   mkdirSync(dump);
   // The agent is reachable only through the profile's PATH, as with a tool manager.
   const report = mode === "interactive" ? `bun "$PACER_TEST_CLI" report --task "$PACER_TASK_ID" --outcome done --summary parity` : "";
-  writeFileSync(join(profileBin, BINARY[agent]), `#!/bin/sh\n[ "$1" = create-chat ] && { echo chat-1; exit 0; }\n[ "$1" = --version ] && { echo "codex-cli 0.164.0"; exit 0; }\n/usr/bin/env -0 > ${JSON.stringify(join(dump, "env"))}\nprintf '%s\\0' "$@" > ${JSON.stringify(join(dump, "argv"))}\n${report}\n`);
+  writeFileSync(join(profileBin, BINARY[agent]), `#!/bin/sh\n[ "$1" = create-chat ] && { echo chat-1; exit 0; }\n[ "$1" = --version ] && { echo "codex-cli 0.164.0"; exit 0; }\n/usr/bin/env -0 > ${JSON.stringify(join(dump, "env"))}\numask > ${JSON.stringify(join(dump, "umask"))}\nprintf '%s\\0' "$@" > ${JSON.stringify(join(dump, "argv"))}\n${report}\n`);
   chmodSync(join(profileBin, BINARY[agent]), 0o755);
-  const shell = fakeLoginShell(root, `export PATH="${profileBin}:${dirname(process.execPath)}:$PATH" PROFILE_ONLY=from-profile LANG=en_US.UTF-8 HTTPS_PROXY=http://proxy.invalid:3128 PACER_HOME=/profile/must/not/win`);
+  const shell = fakeLoginShell(root, `export PATH="${profileBin}:${dirname(process.execPath)}:$PATH" PROFILE_ONLY=from-profile LANG=en_US.UTF-8 HTTPS_PROXY=http://proxy.invalid:3128 PACER_HOME=/profile/must/not/win NO_COLOR=1 CLAUDE_CONFIG_DIR="${join(root, "profile-claude")}"\numask 027`);
   const ctx = fakeCtx();
-  ctx.env = {PATH: "/usr/bin:/bin", HOME: ctx.home, SHELL: shell, SERVICE_ONLY: "kept", PACER_HOME: ctx.pacerHome, PACER_LOGIN_ENV: "on", PACER_TEST_CLI: cli, PACER_AUTH_TOKEN: "service-secret"};
+  ctx.env = {PATH: "/usr/bin:/bin", HOME: ctx.home, SHELL: shell, SERVICE_ONLY: "kept", PACER_HOME: ctx.pacerHome, PACER_LOGIN_ENV: "on", PACER_TEST_CLI: cli, PACER_AUTH_TOKEN: "service-secret",
+    // Service-only automation flag and account folder: a terminal would not have them.
+    FORCE_COLOR: "1", CODEX_HOME: "/service/codex"};
   ctx.run = async () => ({code: 0, stdout: "codex-cli 0.164.0", stderr: ""});
   const task = createTask(ctx, {brief: {goal: "Parity check", repo: tmpDir()}, kind: null, requestedExecutor: null, timeoutS: 30});
   updateTask(ctx, task.id, t => {t.state = "running";});
@@ -61,14 +63,15 @@ async function launch(agent: Agent, mode: "interactive" | "headless") {
   const env = Object.fromEntries(readFileSync(join(dump, "env"), "utf8").split("\0").filter(Boolean).map(e => [e.slice(0, e.indexOf("=")), e.slice(e.indexOf("=") + 1)]));
   const argv = readFileSync(join(dump, "argv"), "utf8").split("\0").slice(0, -1);
   // The terminal baseline: the same login shell's environment, with pacer's account selection applied.
-  const terminal = executorEnv((await terminalEnv(ctx.env, {cwd: ctx.home})).env, {}, task.id);
-  return {out, run, env, argv, terminal, id: task.id};
+  const base = await terminalEnv(ctx.env, {cwd: ctx.home});
+  const terminal = executorEnv(base.env, {}, task.id, profileKeys(base));
+  return {out, run, env, argv, terminal, id: task.id, umask: readFileSync(join(dump, "umask"), "utf8").trim(), root};
 }
 
 for (const agent of ["claude-code", "codex", "cursor", "agy", "opencode"] as Agent[]) {
   for (const mode of ["headless", "interactive"] as const) {
     test(`${agent} ${mode}: argv and environment match the terminal launch plus pacer's overrides`, async () => {
-      const {out, run, env, argv, terminal, id} = await launch(agent, mode);
+      const {out, run, env, argv, terminal, id, umask, root} = await launch(agent, mode);
       expect(out.exec.code).toBe(0);
       const flags = expectedArgv(agent, mode, {workdir: run.workdir, dir: run.dir, id, session: run.agentSession?.id});
       const prompted = !(agent === "codex" && mode === "headless");
@@ -78,13 +81,20 @@ for (const agent of ["claude-code", "codex", "cursor", "agy", "opencode"] as Age
       expect(env).toMatchObject({PROFILE_ONLY: "from-profile", LANG: "en_US.UTF-8", HTTPS_PROXY: "http://proxy.invalid:3128", SERVICE_ONLY: "kept", PACER_HOME: terminal.PACER_HOME});
       expect(env.PATH).toBe(terminal.PATH!);
       expect(env.PACER_AUTH_TOKEN).toBeUndefined();
-      const overrides = new Set([...PACER_ENV, ...(mode === "interactive" ? INTERACTIVE_ENV : []), "PWD"]);
+      // The interactive PTY drops the service's color flag but keeps the profile's NO_COLOR.
+      const overrides = new Set([...PACER_ENV, ...(mode === "interactive" ? [...INTERACTIVE_ENV, "FORCE_COLOR"] : []), "PWD"]);
       const changed = Object.keys({...env, ...terminal}).filter(key => !SCRIPT_STATE.has(key) && env[key] !== terminal[key]).sort();
       expect(changed.filter(key => !overrides.has(key))).toEqual([]);
       // The headless /bin/sh wrapper may report the physical path.
       expect(realpathSync(env.PWD)).toBe(realpathSync(run.workdir));
       if (mode === "interactive") expect(env).toMatchObject({TERM: "xterm-256color", COLORTERM: "truecolor", PACER_RUN_DIR: run.dir});
-      expect(JSON.parse(readFileSync(join(run.dir, "environment.json"), "utf8"))).toEqual({source: "login-shell", shell: terminal.SHELL});
+      expect(env.NO_COLOR).toBe("1");
+      if (mode === "interactive") expect(env.FORCE_COLOR).toBeUndefined();
+      // The default account: the profile's CLAUDE_CONFIG_DIR is honoured, the service's CODEX_HOME is not.
+      expect(env.CLAUDE_CONFIG_DIR).toBe(join(root, "profile-claude"));
+      expect(env.CODEX_HOME).toBeUndefined();
+      expect(umask).toBe("0027");
+      expect(JSON.parse(readFileSync(join(run.dir, "environment.json"), "utf8"))).toEqual({source: "login-shell", shell: terminal.SHELL, umask: "login", profileKeys: ["NO_COLOR", "CLAUDE_CONFIG_DIR"], folder: []});
     }, 30_000);
   }
 }

@@ -14,7 +14,7 @@ import { SecretMasker } from "./masking";
 import { killTree } from "../exec/process";
 import { WRAPPER_SH } from "../supervisor/wrapper";
 import type { InteractionMode } from "../tasks/types";
-export interface SessionLaunch { interactionMode?:InteractionMode; completionNonce?:string; takeover?:boolean; interactive?:boolean; argv:string[]; cwd:string; capBytes?:number; pacerHome?:string }
+export interface SessionLaunch { interactionMode?:InteractionMode; completionNonce?:string; takeover?:boolean; interactive?:boolean; argv:string[]; cwd:string; capBytes?:number; pacerHome?:string; keepColor?:string[] }
 export function socketPath(dir:string):string {
   const direct=join(dir,"session.sock");
   if(Buffer.byteLength(direct) < 104) return direct;
@@ -115,7 +115,7 @@ async function sessionHostAdmitted(dir:string):Promise<number> {
   try {
     if(typeof Bun.Terminal !== "function") throw Error("PTY unavailable");
     proc=Bun.spawn(launch.interactive ? launch.argv : ["/bin/sh","-c",'input="$1"; shift; exec "$@" < "$input"',"pacer-session",existsSync(join(dir,"stdin"))?join(dir,"stdin"):"/dev/null",...launch.argv],{
-      cwd:launch.cwd,env:{...nativeTerminalEnv(process.env),PWD:launch.cwd},
+      cwd:launch.cwd,env:{...nativeTerminalEnv(process.env,Array.isArray(launch.keepColor)?launch.keepColor:[]),PWD:launch.cwd},
       terminal:{cols:120,rows:40,name:"xterm-256color",data(_term,data){
         try {
           // Count every redraw, even while masking or line normalization buffers output.

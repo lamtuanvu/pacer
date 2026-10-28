@@ -1,9 +1,13 @@
 import { closeSync, openSync, writeSync } from "node:fs";
-/** Executor accounts must not inherit the planner's selected account. */
-export function executorEnv(base: Record<string, string | undefined>, account: Record<string, string>, taskId?: string): Record<string, string | undefined> {
+/**
+ * Executor accounts must not inherit the planner's selected account: the service's CLAUDE_CONFIG_DIR/CODEX_HOME
+ * are removed. A value the user's login profile set (`profileKeys`) stays, as in a terminal, unless the account
+ * (a named account folder) overrides it.
+ */
+export function executorEnv(base: Record<string, string | undefined>, account: Record<string, string>, taskId?: string, profileKeys: readonly string[] = []): Record<string, string | undefined> {
   const env = {...base};
-  delete env.CLAUDE_CONFIG_DIR;
-  delete env.CODEX_HOME;
+  if (!profileKeys.includes("CLAUDE_CONFIG_DIR")) delete env.CLAUDE_CONFIG_DIR;
+  if (!profileKeys.includes("CODEX_HOME")) delete env.CODEX_HOME;
   delete env.PACER_RUN_DIR;
   delete env.PACER_REPORT_TOKEN;
   delete env.PACER_INTERNAL_TOKEN;

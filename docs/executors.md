@@ -196,13 +196,32 @@ to the service's own environment; values are never logged or written. If the she
 cannot be used, the attempt note says so. Set `PACER_LOGIN_ENV=off` in the service
 environment to skip the login shell.
 
+The same login-shell command prints the shell's `umask`. Pacer applies it to the agent
+process only, through a fixed `/bin/sh` wrapper, for headless, interactive, takeover and
+resumed launches; the service's own umask does not change. If the shell prints no valid
+octal mask, the agent keeps the service's umask and the attempt note says why.
+
+After the login shell, pacer applies what a terminal `cd` into the task folder would:
+
+1. **direnv**: if `direnv` is on the login PATH and the folder (or a parent) has an
+   `.envrc`, pacer runs `direnv export json` in the folder and applies the changes,
+   including unsets. direnv decides trust itself: a blocked or unallowed `.envrc` is
+   skipped. Pacer never runs `direnv allow`.
+2. **mise**: if `mise` is on the login PATH, pacer runs `mise env --json` in the folder
+   and applies it. An untrusted config is skipped; pacer never runs `mise trust`.
+3. **asdf**: only its shims apply, through the login PATH.
+
+Each tool has a 5-second limit and runs for every launch (never cached across folders).
+A skipped tool is named with a one-line reason, without values, in the attempt note and
+`environment.json`. Pacer's overrides are applied last.
+
 Pacer's overrides on top of that base:
 
 | Area | Override |
 | --- | --- |
 | Environment | `PACER_ROLE`, `PACER_TASK_ID`, `PACER_HOME`; interactive runs also get `PACER_RUN_DIR`, `PACER_TRANSCRIPT_REPORT` and `PACER_REPORT_TOKEN`. Pacer's own tokens are removed. |
-| Account | A named account sets `CLAUDE_CONFIG_DIR` or `CODEX_HOME`. The default account uses the CLI's default folder, so an inherited or profile value for these is removed. |
-| Terminal | Interactive runs use pacer's terminal (`TERM=xterm-256color`, `COLORTERM=truecolor`, 120×40 until a viewer resizes it). `NO_COLOR` and `FORCE_COLOR` are not passed to it. Headless runs have no terminal: input comes from the prompt or `/dev/null`, and output goes to the run's files. |
+| Account | A named account sets `CLAUDE_CONFIG_DIR` or `CODEX_HOME` to its folder. The default account keeps the value your login profile (or the folder's direnv/mise) sets, as a terminal would; a value that only the service environment carries is removed, so the CLI's default folder applies. Pacer records the default account's folder from the last run and uses it for Claude folder trust, transcript lookup, usage readers and the enforcement canary, so they all read the same folder. |
+| Terminal | Interactive runs use pacer's terminal (`TERM=xterm-256color`, `COLORTERM=truecolor`, 120×40 until a viewer resizes it). `NO_COLOR` and `FORCE_COLOR` set by your login profile are kept; values that only the service environment carries are not passed to it. Headless runs have no terminal: input comes from the prompt or `/dev/null`, and output goes to the run's files. |
 | Flags | The permission flags above; `-p`/`exec`/`run` and the output format for headless runs; Codex `--no-daemon`; OpenCode `--standalone` and its `build` agent; the model, if the runner sets one. |
 | Configuration | Claude: interactive runs get the run's `--settings` file (reporting hooks, the acknowledgement and MCP approvals); strict headless runs get a `--settings` file with pacer's subagent guard. Codex: per-run hook, trust and (on resume) update-check overrides, which replace your hooks for those events in that run. Claude folder trust as described above. |
 | Prompt | The brief and pacer's report instructions. |
