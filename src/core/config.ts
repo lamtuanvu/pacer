@@ -15,17 +15,17 @@ import { CoreError, toCoreError } from "./errors";
 import { PLANNERS } from "../config/strategy";
 import { plannerAccounts } from "../install/init";
 
-import { validateExecution } from '../config/execution';
+import { LAUNCH_MODES, validateExecution } from '../config/execution';
 
 const pendingEdits = new Set<string>();
 
-export const CONFIG_KEYS = ['task_retention_days','execution.local_max_tasks','planner','pacing.order','pacing.policy','pacing.planner_reserve','pacing.planner_reserve_headroom','pacing.planner_probe','pacing.accounts','pacing.fill_threshold','update_check','terminal.app','terminal.open'] as const;
+export const CONFIG_KEYS = ['task_retention_days','execution.local_max_tasks','execution.launch_mode','planner','pacing.order','pacing.policy','pacing.planner_reserve','pacing.planner_reserve_headroom','pacing.planner_probe','pacing.accounts','pacing.fill_threshold','update_check','terminal.app','terminal.open'] as const;
 export type ConfigKey = typeof CONFIG_KEYS[number];
 function plannerId(s: Strategy): string {
   return formatRunnerId({...s.planner,host:null},{...runnerDefaults(s.accounts),opencode:undefined});
 }
 function effective(s: Strategy, raw: StrategyDoc): Record<ConfigKey, unknown> {
-  return {task_retention_days:s.taskRetentionDays ?? 14,'execution.local_max_tasks':validateExecution(s.execution).localMaxTasks ?? 2,'terminal.open':s.terminal?.open ?? '',planner:plannerId(s),'pacing.order':s.pacing.order,'pacing.policy':s.pacing.policy,
+  return {task_retention_days:s.taskRetentionDays ?? 14,'execution.local_max_tasks':validateExecution(s.execution).localMaxTasks ?? 2,'execution.launch_mode':validateExecution(s.execution).launchMode ?? 'interactive','terminal.open':s.terminal?.open ?? '',planner:plannerId(s),'pacing.order':s.pacing.order,'pacing.policy':s.pacing.policy,
     'pacing.planner_reserve':s.pacing.plannerReserve,'pacing.planner_reserve_headroom':s.pacing.plannerReserveHeadroom,'pacing.planner_probe':s.pacing.plannerProbe,'pacing.accounts':s.pacing.accounts,
     'pacing.fill_threshold':s.pacing.fillThreshold,update_check:raw.getIn(['update_check']) ?? true,'terminal.app':raw.getIn(['terminal','app']) ?? 'Terminal'};
 }
@@ -41,6 +41,7 @@ function parseValue(key:ConfigKey, value:string): unknown {
     if(!/^\d+$/.test(value) || !Number.isInteger(n) || n < 1 || n > 16) throw new CoreError('invalid_input', 'execution.local_max_tasks must be an integer from 1 to 16');
     return n;
   }
+  if(key==='execution.launch_mode' && !(LAUNCH_MODES as readonly string[]).includes(value)) throw new CoreError('invalid_input', 'execution.launch_mode must be interactive or headless');
   if(key==='pacing.order') {
     if(value==='') return [];
     const ids=value.split(',').map(v=>v.trim()); if(ids.some(v=>!v)) throw Error('pacing.order requires comma-separated runner ids');

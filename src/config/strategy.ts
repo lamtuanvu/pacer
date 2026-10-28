@@ -259,6 +259,8 @@ export function validateStrategy(raw: unknown, path: string, name = "default"): 
 
   const localMax = isObj(raw.execution) ? raw.execution.local_max_tasks : undefined;
   if (localMax !== undefined && (typeof localMax !== "number" || !Number.isInteger(localMax) || localMax < 1 || localMax > 16)) p.push("execution.local_max_tasks must be 1..16");
+  const launchMode = isObj(raw.execution) ? raw.execution.launch_mode : undefined;
+  if (launchMode !== undefined && launchMode !== "interactive" && launchMode !== "headless") p.push("execution.launch_mode must be interactive or headless");
   const taskRetentionDays = raw.task_retention_days ?? 14;
   if (typeof taskRetentionDays !== "number" || !Number.isSafeInteger(taskRetentionDays) || taskRetentionDays < 0) p.push("task_retention_days must be a non-negative integer");
   const plugins = parsePlugins(raw.plugins, p);
