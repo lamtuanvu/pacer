@@ -131,11 +131,11 @@ browserTest("session_details_toggle_keyboard_and_focus", async () => withBrowser
   await expect(tab.getAttribute("aria-selected")).resolves.toBe("true");
   const controls = await tab.getAttribute("aria-controls");
   await expect(page.locator(`#${controls}`).getAttribute("aria-labelledby")).resolves.toBe(await tab.getAttribute("id"));
-  // Ctrl-b collapses the Tasks list and keeps the session usable.
+  // Ctrl-b collapses the Sessions list and keeps the session usable.
   await page.locator("#main-content").focus();
   await page.keyboard.press("ControlOrMeta+b");
-  await expect(page.getByRole("complementary", { name: "Tasks" }).count()).resolves.toBe(0);
-  await expect(page.getByRole("button", { name: "Show Tasks" }).getAttribute("aria-expanded")).resolves.toBe("false");
+  await expect(page.getByRole("complementary", { name: "Sessions" }).count()).resolves.toBe(0);
+  await expect(page.getByRole("button", { name: "Show Sessions" }).getAttribute("aria-expanded")).resolves.toBe("false");
   await page.close();
 }), 20_000);
 
@@ -337,3 +337,51 @@ browserTest("details workspace and brief wrap repository labels without horizont
   expect(await command.evaluate(node => ({ font: getComputedStyle(node).fontSize, padding: getComputedStyle(node).padding, radius: getComputedStyle(node).borderRadius }))).toEqual({ font: "12px", padding: "6px 8px", radius: "6px" });
   await page.close();
 }), 20_000);
+
+
+browserTest("sessions navigator matches board geometry and retains panel focus", async () => withBrowser(async browser => {
+  for (const colorScheme of ["light", "dark"] as const) {
+    const page = await openSession(browser, "conversation", { width: 1440, height: 900 }, colorScheme);
+    const panel = page.getByRole("complementary", { name: "Sessions", exact: true });
+    const hide = panel.getByRole("button", { name: "Hide Sessions" });
+    const geometry = await panel.evaluate(node => {
+      const nav = node.querySelector(".pc-task-nav")!, head = node.querySelector(".pc-task-nav__head")!;
+      const card = node.querySelector(".pc-task-card")!, scroll = node.querySelector(".pc-task-nav__scroll")!;
+      return { width: node.getBoundingClientRect().width, cardX: card.getBoundingClientRect().x, cardWidth: card.getBoundingClientRect().width,
+        headTop: head.getBoundingClientRect().top, headHeight: head.getBoundingClientRect().height, headPadding: getComputedStyle(head).padding,
+        listPadding: getComputedStyle(scroll).padding, navBorder: getComputedStyle(nav).borderRightWidth,
+        barCount: node.querySelectorAll(".pc-side-panel__bar").length,
+        toggleInHead: !!head.querySelector('[aria-label="Hide Sessions"]') };
+    });
+    expect(geometry).toEqual({ width: 272, cardX: 60, cardWidth: 256, headTop: 44, headHeight: 38, headPadding: "0px 8px 0px 14px",
+      listPadding: "0px 8px 12px", navBorder: "0px", barCount: 0, toggleInHead: true });
+    await expect(hide.getAttribute("aria-expanded")).resolves.toBe("true");
+    await expect(hide.getAttribute("aria-controls")).resolves.toBe("pc-side-panel-left");
+    await expect(panel.locator('.pc-task-card__branch--repo').first().getAttribute("title")).resolves.toBe("Repository");
+    const selected = panel.locator('.pc-task-card__main--selected');
+    expect(await selected.locator('.pc-task-card__title').evaluate(node => getComputedStyle(node).fontWeight)).toBe("650");
+    expect(await selected.evaluate(node => (() => { const sample = document.createElement("span"); sample.style.background = "var(--surface-page)"; node.append(sample); const matches = getComputedStyle(node).backgroundColor === getComputedStyle(sample).backgroundColor; sample.remove(); return matches; })())).toBe(true);
+    await hide.focus(); await page.keyboard.press("Enter");
+    await focused(page, '[aria-label="Show Sessions"]');
+    const show = page.getByRole("button", { name: "Show Sessions" });
+    await expect(show.getAttribute("aria-expanded")).resolves.toBe("false");
+    await expect(show.getAttribute("aria-controls")).resolves.toBe(null);
+    expect(await page.locator('.pc-side-panel--left').evaluate(node => node.getBoundingClientRect().width)).toBe(40);
+    await page.keyboard.press("Enter");
+    await focused(page, '[aria-label="Hide Sessions"]');
+    // Collapsing while a row has focus moves focus into the retained closed strip.
+    await panel.locator('[aria-current="page"]').focus();
+    await page.keyboard.press("ControlOrMeta+b");
+    await focused(page, '[aria-label="Show Sessions"]');
+    await page.keyboard.press("Enter");
+    await focused(page, '[aria-label="Hide Sessions"]');
+    // The persistent frame control continues to work and keeps focus.
+    const frameToggle = page.getByRole("button", { name: "Toggle left panel" });
+    await frameToggle.click();
+    await expect(panel.count()).resolves.toBe(0);
+    await focused(page, '[aria-label="Toggle left panel"]');
+    await frameToggle.click();
+    await panel.waitFor();
+    await page.close();
+  }
+}), 30_000);

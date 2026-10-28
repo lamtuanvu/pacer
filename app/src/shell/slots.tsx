@@ -16,6 +16,8 @@ export interface FrameSlots {
   right: HTMLElement | null;
   /** Side panels cannot show (narrow layouts); a screen may then provide its own in-page `right` target. */
   inline: boolean;
+  /** Left Sessions panel state, for the navigator header toggle. */
+  sessions?: { open: boolean; toggle: () => void };
   /** The right panel's open state, for the title-bar toggle. Absent when there is no right panel. */
   details?: { open: boolean; toggle: () => void };
   heading: (value: FrameHeading | null) => void;

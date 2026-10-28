@@ -68,7 +68,7 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
   // Side panels and the dock show only from 768px, so their shortcuts never toggle something hidden.
   const wide = useMedia(PANEL_MEDIA, true);
   const hasLeft = !narrow && wide && SETTINGS.has(route.name) && !state.sessionEnded;
-  // A task's screen fills the Tasks list on the left and its session details on the right.
+  // A task's screen fills the Sessions list on the left and its session details on the right.
   const taskPanels = !narrow && wide && route.name === "sessions" && !!route.id && !!context && !state.sessionEnded;
   const [tasksOpen, setTasksOpen] = usePanelState("tasks", true);
   const [detailsOpen, setDetailsOpen] = usePanelState("session-details", true);
@@ -76,7 +76,8 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
   const [titleSlot, setTitleSlot] = useState<HTMLElement | null>(null), [leftSlot, setLeftSlot] = useState<HTMLElement | null>(null);
   const [rightSlot, setRightSlot] = useState<HTMLElement | null>(null), [heading, setHeading] = useState<FrameHeading | null>(null);
   const slots = useMemo(() => ({ title: titleSlot, actions: actionSlot, left: leftSlot, right: rightSlot, inline: !taskPanels, heading: setHeading,
-    details: taskPanels ? { open: detailsOpen, toggle: () => setDetailsOpen(!detailsOpen) } : undefined }), [titleSlot, actionSlot, leftSlot, rightSlot, taskPanels, detailsOpen]);
+    sessions: taskPanels ? { open: tasksOpen, toggle: () => setTasksOpen(!tasksOpen) } : undefined,
+    details: taskPanels ? { open: detailsOpen, toggle: () => setDetailsOpen(!detailsOpen) } : undefined }), [titleSlot, actionSlot, leftSlot, rightSlot, taskPanels, tasksOpen, detailsOpen]);
   // One terminal screen at a time, and only where the full desktop frame (and a service connection) exists.
   const dockAvailable = showStatusBar && wide && !!context && route.name !== "terminal" && !state.sessionEnded;
   const toggleDock = () => {
@@ -134,7 +135,7 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
   const settings = SETTINGS.has(route.name) && (hasLeft
     ? <SidePanel side="left" label="Settings" open={leftOpen} onToggle={setLeftOpen}><Panel route={route} counts={counts} snapshot={state.snapshot} embedded /></SidePanel>
     : <Panel route={route} counts={counts} snapshot={state.snapshot} />);
-  const tasks = taskPanels && <SidePanel side="left" label="Tasks" wide open={tasksOpen} onToggle={setTasksOpen}><div ref={setLeftSlot} className="pc-frame-slot" /></SidePanel>;
+  const tasks = taskPanels && <SidePanel side="left" label="Sessions" wide bar={false} contentToggle open={tasksOpen} onToggle={setTasksOpen}><div ref={setLeftSlot} className="pc-frame-slot" /></SidePanel>;
   const details = taskPanels && <SidePanel side="right" label="Session details" open={detailsOpen} onToggle={setDetailsOpen} bar={false}><div ref={setRightSlot} className="pc-frame-slot" /></SidePanel>;
   return <NarrowContext.Provider value={narrow}><FrameContext.Provider value={slots}><AppFrame narrow={narrow}
     top={narrow && route.name === "setup" ? null : topBar}

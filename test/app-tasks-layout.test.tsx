@@ -77,7 +77,9 @@ test.skipIf(!browserPath)('Tasks route lays out the board header, filters and tr
      aside:[box('.pc-task-aside')?.width,style('.pc-task-aside')?.position],
     };
    });
-   expect(board).toEqual({h1:['28px','34px','650'],page:['28px','40px','48px','16px'],search:[36,260],card:['12px','4px'],main:['10px','10px','12px'],title:['15px','21px','600'],dot:[10,10],host:[22],action:[26,26],aside:[360,'sticky']});
+   expect(board).toEqual({h1:['28px','34px','650'],page:['28px','40px','48px','16px'],search:[36,260],card:['12px','4px'],main:['10px','10px','12px'],title:['15px','21px','650'],dot:[10,10],host:[22],action:[26,26],aside:[360,'sticky']});
+   // Only the selected title adopts the Session board's stronger selection weight.
+   expect(await page.locator('.pc-task-card__main:not(.pc-task-card__main--selected) .pc-task-card__title').first().evaluate(node=>getComputedStyle(node).fontWeight)).toBe('600');
    // The board is capped at its design width and starts at the content edge; the tree and the panel share a row.
    expect(geometry.width).toBeLessThanOrEqual(1240);
    expect(geometry.left).toBeLessThan(100);
