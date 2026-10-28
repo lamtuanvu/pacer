@@ -3323,6 +3323,1687 @@ pub struct ApiError {
     pub hint: ::std::option::Option<::std::string::String>,
     pub message: ::std::string::String,
 }
+///`AssistantAskParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "requestId",
+///    "scope",
+///    "text"
+///  ],
+///  "properties": {
+///    "conversationId": {
+///      "type": "string",
+///      "maxLength": 128,
+///      "minLength": 1
+///    },
+///    "requestId": {
+///      "type": "string",
+///      "maxLength": 128,
+///      "minLength": 1
+///    },
+///    "scope": {
+///      "oneOf": [
+///        {
+///          "type": "object",
+///          "required": [
+///            "days",
+///            "kind"
+///          ],
+///          "properties": {
+///            "days": {
+///              "default": 7,
+///              "type": "integer",
+///              "maximum": 90.0,
+///              "minimum": 1.0
+///            },
+///            "kind": {
+///              "type": "string",
+///              "const": "dispatch"
+///            }
+///          },
+///          "additionalProperties": false
+///        },
+///        {
+///          "type": "object",
+///          "required": [
+///            "id",
+///            "kind"
+///          ],
+///          "properties": {
+///            "id": {
+///              "type": "string",
+///              "maxLength": 128,
+///              "minLength": 1
+///            },
+///            "kind": {
+///              "type": "string",
+///              "const": "task"
+///            }
+///          },
+///          "additionalProperties": false
+///        },
+///        {
+///          "type": "object",
+///          "required": [
+///            "kind",
+///            "repo"
+///          ],
+///          "properties": {
+///            "kind": {
+///              "type": "string",
+///              "const": "repo"
+///            },
+///            "repo": {
+///              "type": "string",
+///              "maxLength": 4096,
+///              "minLength": 1
+///            }
+///          },
+///          "additionalProperties": false
+///        }
+///      ]
+///    },
+///    "text": {
+///      "type": "string",
+///      "maxLength": 4000,
+///      "minLength": 1
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct AssistantAskParams {
+    #[serde(
+        rename = "conversationId",
+        default,
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub conversation_id: ::std::option::Option<AssistantAskParamsConversationId>,
+    #[serde(rename = "requestId")]
+    pub request_id: AssistantAskParamsRequestId,
+    pub scope: AssistantAskParamsScope,
+    pub text: AssistantAskParamsText,
+}
+///`AssistantAskParamsConversationId`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 128,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AssistantAskParamsConversationId(::std::string::String);
+impl ::std::ops::Deref for AssistantAskParamsConversationId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AssistantAskParamsConversationId> for ::std::string::String {
+    fn from(value: AssistantAskParamsConversationId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AssistantAskParamsConversationId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 128usize {
+            return Err("longer than 128 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AssistantAskParamsConversationId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AssistantAskParamsConversationId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`AssistantAskParamsRequestId`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 128,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AssistantAskParamsRequestId(::std::string::String);
+impl ::std::ops::Deref for AssistantAskParamsRequestId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AssistantAskParamsRequestId> for ::std::string::String {
+    fn from(value: AssistantAskParamsRequestId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AssistantAskParamsRequestId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 128usize {
+            return Err("longer than 128 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AssistantAskParamsRequestId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AssistantAskParamsRequestId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`AssistantAskParamsScope`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "oneOf": [
+///    {
+///      "type": "object",
+///      "required": [
+///        "days",
+///        "kind"
+///      ],
+///      "properties": {
+///        "days": {
+///          "default": 7,
+///          "type": "integer",
+///          "maximum": 90.0,
+///          "minimum": 1.0
+///        },
+///        "kind": {
+///          "type": "string",
+///          "const": "dispatch"
+///        }
+///      },
+///      "additionalProperties": false
+///    },
+///    {
+///      "type": "object",
+///      "required": [
+///        "id",
+///        "kind"
+///      ],
+///      "properties": {
+///        "id": {
+///          "type": "string",
+///          "maxLength": 128,
+///          "minLength": 1
+///        },
+///        "kind": {
+///          "type": "string",
+///          "const": "task"
+///        }
+///      },
+///      "additionalProperties": false
+///    },
+///    {
+///      "type": "object",
+///      "required": [
+///        "kind",
+///        "repo"
+///      ],
+///      "properties": {
+///        "kind": {
+///          "type": "string",
+///          "const": "repo"
+///        },
+///        "repo": {
+///          "type": "string",
+///          "maxLength": 4096,
+///          "minLength": 1
+///        }
+///      },
+///      "additionalProperties": false
+///    }
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(tag = "kind", deny_unknown_fields)]
+pub enum AssistantAskParamsScope {
+    #[serde(rename = "dispatch")]
+    Dispatch { days: ::std::num::NonZeroU64 },
+    #[serde(rename = "task")]
+    Task { id: AssistantAskParamsScopeId },
+    #[serde(rename = "repo")]
+    Repo { repo: AssistantAskParamsScopeRepo },
+}
+impl ::std::convert::From<&Self> for AssistantAskParamsScope {
+    fn from(value: &AssistantAskParamsScope) -> Self {
+        value.clone()
+    }
+}
+///`AssistantAskParamsScopeId`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 128,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AssistantAskParamsScopeId(::std::string::String);
+impl ::std::ops::Deref for AssistantAskParamsScopeId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AssistantAskParamsScopeId> for ::std::string::String {
+    fn from(value: AssistantAskParamsScopeId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AssistantAskParamsScopeId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 128usize {
+            return Err("longer than 128 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AssistantAskParamsScopeId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AssistantAskParamsScopeId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`AssistantAskParamsScopeRepo`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 4096,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AssistantAskParamsScopeRepo(::std::string::String);
+impl ::std::ops::Deref for AssistantAskParamsScopeRepo {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AssistantAskParamsScopeRepo> for ::std::string::String {
+    fn from(value: AssistantAskParamsScopeRepo) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AssistantAskParamsScopeRepo {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 4096usize {
+            return Err("longer than 4096 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AssistantAskParamsScopeRepo {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AssistantAskParamsScopeRepo {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`AssistantAskParamsText`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 4000,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AssistantAskParamsText(::std::string::String);
+impl ::std::ops::Deref for AssistantAskParamsText {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AssistantAskParamsText> for ::std::string::String {
+    fn from(value: AssistantAskParamsText) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AssistantAskParamsText {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 4000usize {
+            return Err("longer than 4000 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AssistantAskParamsText {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AssistantAskParamsText {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`AssistantCancelParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "turnId"
+///  ],
+///  "properties": {
+///    "turnId": {
+///      "type": "string",
+///      "maxLength": 128,
+///      "minLength": 1
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct AssistantCancelParams {
+    #[serde(rename = "turnId")]
+    pub turn_id: AssistantCancelParamsTurnId,
+}
+///`AssistantCancelParamsTurnId`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 128,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AssistantCancelParamsTurnId(::std::string::String);
+impl ::std::ops::Deref for AssistantCancelParamsTurnId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AssistantCancelParamsTurnId> for ::std::string::String {
+    fn from(value: AssistantCancelParamsTurnId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AssistantCancelParamsTurnId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 128usize {
+            return Err("longer than 128 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AssistantCancelParamsTurnId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AssistantCancelParamsTurnId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`AssistantCandidatesParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct AssistantCandidatesParams {}
+impl ::std::default::Default for AssistantCandidatesParams {
+    fn default() -> Self {
+        Self {}
+    }
+}
+///`AssistantCardRecordParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "cardId",
+///    "state",
+///    "turnId"
+///  ],
+///  "properties": {
+///    "cardId": {
+///      "type": "string",
+///      "maxLength": 128,
+///      "minLength": 1
+///    },
+///    "result": {
+///      "type": "string",
+///      "maxLength": 500
+///    },
+///    "state": {
+///      "type": "string",
+///      "enum": [
+///        "done",
+///        "failed",
+///        "dismissed",
+///        "stale"
+///      ]
+///    },
+///    "turnId": {
+///      "type": "string",
+///      "maxLength": 128,
+///      "minLength": 1
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct AssistantCardRecordParams {
+    #[serde(rename = "cardId")]
+    pub card_id: AssistantCardRecordParamsCardId,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub result: ::std::option::Option<AssistantCardRecordParamsResult>,
+    pub state: AssistantCardRecordParamsState,
+    #[serde(rename = "turnId")]
+    pub turn_id: AssistantCardRecordParamsTurnId,
+}
+///`AssistantCardRecordParamsCardId`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 128,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AssistantCardRecordParamsCardId(::std::string::String);
+impl ::std::ops::Deref for AssistantCardRecordParamsCardId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AssistantCardRecordParamsCardId> for ::std::string::String {
+    fn from(value: AssistantCardRecordParamsCardId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AssistantCardRecordParamsCardId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 128usize {
+            return Err("longer than 128 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AssistantCardRecordParamsCardId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AssistantCardRecordParamsCardId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`AssistantCardRecordParamsResult`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 500
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AssistantCardRecordParamsResult(::std::string::String);
+impl ::std::ops::Deref for AssistantCardRecordParamsResult {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AssistantCardRecordParamsResult> for ::std::string::String {
+    fn from(value: AssistantCardRecordParamsResult) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AssistantCardRecordParamsResult {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 500usize {
+            return Err("longer than 500 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AssistantCardRecordParamsResult {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AssistantCardRecordParamsResult {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`AssistantCardRecordParamsState`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "enum": [
+///    "done",
+///    "failed",
+///    "dismissed",
+///    "stale"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum AssistantCardRecordParamsState {
+    #[serde(rename = "done")]
+    Done,
+    #[serde(rename = "failed")]
+    Failed,
+    #[serde(rename = "dismissed")]
+    Dismissed,
+    #[serde(rename = "stale")]
+    Stale,
+}
+impl ::std::convert::From<&Self> for AssistantCardRecordParamsState {
+    fn from(value: &AssistantCardRecordParamsState) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for AssistantCardRecordParamsState {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Done => f.write_str("done"),
+            Self::Failed => f.write_str("failed"),
+            Self::Dismissed => f.write_str("dismissed"),
+            Self::Stale => f.write_str("stale"),
+        }
+    }
+}
+impl ::std::str::FromStr for AssistantCardRecordParamsState {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "done" => Ok(Self::Done),
+            "failed" => Ok(Self::Failed),
+            "dismissed" => Ok(Self::Dismissed),
+            "stale" => Ok(Self::Stale),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for AssistantCardRecordParamsState {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`AssistantCardRecordParamsTurnId`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 128,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AssistantCardRecordParamsTurnId(::std::string::String);
+impl ::std::ops::Deref for AssistantCardRecordParamsTurnId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AssistantCardRecordParamsTurnId> for ::std::string::String {
+    fn from(value: AssistantCardRecordParamsTurnId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AssistantCardRecordParamsTurnId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 128usize {
+            return Err("longer than 128 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AssistantCardRecordParamsTurnId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AssistantCardRecordParamsTurnId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`AssistantCardRefreshParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "cardId",
+///    "turnId"
+///  ],
+///  "properties": {
+///    "cardId": {
+///      "type": "string",
+///      "maxLength": 128,
+///      "minLength": 1
+///    },
+///    "turnId": {
+///      "type": "string",
+///      "maxLength": 128,
+///      "minLength": 1
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct AssistantCardRefreshParams {
+    #[serde(rename = "cardId")]
+    pub card_id: AssistantCardRefreshParamsCardId,
+    #[serde(rename = "turnId")]
+    pub turn_id: AssistantCardRefreshParamsTurnId,
+}
+///`AssistantCardRefreshParamsCardId`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 128,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AssistantCardRefreshParamsCardId(::std::string::String);
+impl ::std::ops::Deref for AssistantCardRefreshParamsCardId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AssistantCardRefreshParamsCardId> for ::std::string::String {
+    fn from(value: AssistantCardRefreshParamsCardId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AssistantCardRefreshParamsCardId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 128usize {
+            return Err("longer than 128 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AssistantCardRefreshParamsCardId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AssistantCardRefreshParamsCardId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`AssistantCardRefreshParamsTurnId`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 128,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AssistantCardRefreshParamsTurnId(::std::string::String);
+impl ::std::ops::Deref for AssistantCardRefreshParamsTurnId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AssistantCardRefreshParamsTurnId> for ::std::string::String {
+    fn from(value: AssistantCardRefreshParamsTurnId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AssistantCardRefreshParamsTurnId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 128usize {
+            return Err("longer than 128 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AssistantCardRefreshParamsTurnId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AssistantCardRefreshParamsTurnId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`AssistantConversationParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "id"
+///  ],
+///  "properties": {
+///    "id": {
+///      "type": "string",
+///      "maxLength": 128,
+///      "minLength": 1
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct AssistantConversationParams {
+    pub id: AssistantConversationParamsId,
+}
+///`AssistantConversationParamsId`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 128,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AssistantConversationParamsId(::std::string::String);
+impl ::std::ops::Deref for AssistantConversationParamsId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AssistantConversationParamsId> for ::std::string::String {
+    fn from(value: AssistantConversationParamsId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AssistantConversationParamsId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 128usize {
+            return Err("longer than 128 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AssistantConversationParamsId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AssistantConversationParamsId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`AssistantConversationsParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "properties": {
+///    "before": {
+///      "type": "number"
+///    },
+///    "limit": {
+///      "type": "integer",
+///      "maximum": 100.0,
+///      "minimum": 1.0
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct AssistantConversationsParams {
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub before: ::std::option::Option<f64>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub limit: ::std::option::Option<::std::num::NonZeroU64>,
+}
+impl ::std::default::Default for AssistantConversationsParams {
+    fn default() -> Self {
+        Self {
+            before: Default::default(),
+            limit: Default::default(),
+        }
+    }
+}
+///`AssistantDeleteParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "properties": {
+///    "id": {
+///      "type": "string",
+///      "maxLength": 128,
+///      "minLength": 1
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct AssistantDeleteParams {
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub id: ::std::option::Option<AssistantDeleteParamsId>,
+}
+impl ::std::default::Default for AssistantDeleteParams {
+    fn default() -> Self {
+        Self {
+            id: Default::default(),
+        }
+    }
+}
+///`AssistantDeleteParamsId`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 128,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AssistantDeleteParamsId(::std::string::String);
+impl ::std::ops::Deref for AssistantDeleteParamsId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AssistantDeleteParamsId> for ::std::string::String {
+    fn from(value: AssistantDeleteParamsId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AssistantDeleteParamsId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 128usize {
+            return Err("longer than 128 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AssistantDeleteParamsId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AssistantDeleteParamsId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`AssistantSettingsGetParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct AssistantSettingsGetParams {}
+impl ::std::default::Default for AssistantSettingsGetParams {
+    fn default() -> Self {
+        Self {}
+    }
+}
+///`AssistantSettingsSetParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "account",
+///    "expect_rev",
+///    "runner"
+///  ],
+///  "properties": {
+///    "account": {
+///      "anyOf": [
+///        {
+///          "type": "string",
+///          "maxLength": 64,
+///          "minLength": 1
+///        },
+///        {
+///          "type": "null"
+///        }
+///      ]
+///    },
+///    "expect_rev": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "exclusiveMinimum": 0.0
+///    },
+///    "limits": {
+///      "type": "object",
+///      "properties": {
+///        "deadlineMs": {
+///          "default": 120000,
+///          "type": "integer",
+///          "maximum": 120000.0,
+///          "minimum": 1000.0
+///        },
+///        "maxInputTokens": {
+///          "default": 32000,
+///          "type": "integer",
+///          "maximum": 200000.0,
+///          "minimum": 1000.0
+///        },
+///        "maxOutputTokens": {
+///          "default": 8000,
+///          "type": "integer",
+///          "maximum": 32000.0,
+///          "minimum": 100.0
+///        },
+///        "maxToolRounds": {
+///          "default": 6,
+///          "type": "integer",
+///          "maximum": 6.0,
+///          "minimum": 0.0
+///        },
+///        "turnsPerDay": {
+///          "default": 50,
+///          "type": "integer",
+///          "maximum": 1000.0,
+///          "minimum": 1.0
+///        }
+///      },
+///      "additionalProperties": false
+///    },
+///    "retention": {
+///      "type": "object",
+///      "properties": {
+///        "conversations": {
+///          "default": 200,
+///          "type": "integer",
+///          "maximum": 1000.0,
+///          "minimum": 1.0
+///        },
+///        "days": {
+///          "default": 30,
+///          "type": "integer",
+///          "maximum": 365.0,
+///          "minimum": 1.0
+///        }
+///      },
+///      "additionalProperties": false
+///    },
+///    "runner": {
+///      "anyOf": [
+///        {
+///          "type": "string",
+///          "maxLength": 128,
+///          "minLength": 1
+///        },
+///        {
+///          "type": "null"
+///        }
+///      ]
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct AssistantSettingsSetParams {
+    pub account: ::std::option::Option<AssistantSettingsSetParamsAccount>,
+    pub expect_rev: ::std::num::NonZeroU64,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub limits: ::std::option::Option<AssistantSettingsSetParamsLimits>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub retention: ::std::option::Option<AssistantSettingsSetParamsRetention>,
+    pub runner: ::std::option::Option<AssistantSettingsSetParamsRunner>,
+}
+///`AssistantSettingsSetParamsAccount`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 64,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AssistantSettingsSetParamsAccount(::std::string::String);
+impl ::std::ops::Deref for AssistantSettingsSetParamsAccount {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AssistantSettingsSetParamsAccount> for ::std::string::String {
+    fn from(value: AssistantSettingsSetParamsAccount) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AssistantSettingsSetParamsAccount {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 64usize {
+            return Err("longer than 64 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AssistantSettingsSetParamsAccount {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AssistantSettingsSetParamsAccount {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`AssistantSettingsSetParamsLimits`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "properties": {
+///    "deadlineMs": {
+///      "default": 120000,
+///      "type": "integer",
+///      "maximum": 120000.0,
+///      "minimum": 1000.0
+///    },
+///    "maxInputTokens": {
+///      "default": 32000,
+///      "type": "integer",
+///      "maximum": 200000.0,
+///      "minimum": 1000.0
+///    },
+///    "maxOutputTokens": {
+///      "default": 8000,
+///      "type": "integer",
+///      "maximum": 32000.0,
+///      "minimum": 100.0
+///    },
+///    "maxToolRounds": {
+///      "default": 6,
+///      "type": "integer",
+///      "maximum": 6.0,
+///      "minimum": 0.0
+///    },
+///    "turnsPerDay": {
+///      "default": 50,
+///      "type": "integer",
+///      "maximum": 1000.0,
+///      "minimum": 1.0
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct AssistantSettingsSetParamsLimits {
+    #[serde(
+        rename = "deadlineMs",
+        default = "defaults::default_u64::<i64, 120000>"
+    )]
+    pub deadline_ms: i64,
+    #[serde(
+        rename = "maxInputTokens",
+        default = "defaults::default_u64::<i64, 32000>"
+    )]
+    pub max_input_tokens: i64,
+    #[serde(
+        rename = "maxOutputTokens",
+        default = "defaults::default_u64::<i64, 8000>"
+    )]
+    pub max_output_tokens: i64,
+    #[serde(rename = "maxToolRounds", default = "defaults::default_u64::<i64, 6>")]
+    pub max_tool_rounds: i64,
+    #[serde(
+        rename = "turnsPerDay",
+        default = "defaults::default_nzu64::<::std::num::NonZeroU64, 50>"
+    )]
+    pub turns_per_day: ::std::num::NonZeroU64,
+}
+impl ::std::default::Default for AssistantSettingsSetParamsLimits {
+    fn default() -> Self {
+        Self {
+            deadline_ms: defaults::default_u64::<i64, 120000>(),
+            max_input_tokens: defaults::default_u64::<i64, 32000>(),
+            max_output_tokens: defaults::default_u64::<i64, 8000>(),
+            max_tool_rounds: defaults::default_u64::<i64, 6>(),
+            turns_per_day: defaults::default_nzu64::<::std::num::NonZeroU64, 50>(),
+        }
+    }
+}
+///`AssistantSettingsSetParamsRetention`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "properties": {
+///    "conversations": {
+///      "default": 200,
+///      "type": "integer",
+///      "maximum": 1000.0,
+///      "minimum": 1.0
+///    },
+///    "days": {
+///      "default": 30,
+///      "type": "integer",
+///      "maximum": 365.0,
+///      "minimum": 1.0
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct AssistantSettingsSetParamsRetention {
+    #[serde(default = "defaults::default_nzu64::<::std::num::NonZeroU64, 200>")]
+    pub conversations: ::std::num::NonZeroU64,
+    #[serde(default = "defaults::default_nzu64::<::std::num::NonZeroU64, 30>")]
+    pub days: ::std::num::NonZeroU64,
+}
+impl ::std::default::Default for AssistantSettingsSetParamsRetention {
+    fn default() -> Self {
+        Self {
+            conversations: defaults::default_nzu64::<::std::num::NonZeroU64, 200>(),
+            days: defaults::default_nzu64::<::std::num::NonZeroU64, 30>(),
+        }
+    }
+}
+///`AssistantSettingsSetParamsRunner`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 128,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AssistantSettingsSetParamsRunner(::std::string::String);
+impl ::std::ops::Deref for AssistantSettingsSetParamsRunner {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AssistantSettingsSetParamsRunner> for ::std::string::String {
+    fn from(value: AssistantSettingsSetParamsRunner) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AssistantSettingsSetParamsRunner {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 128usize {
+            return Err("longer than 128 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AssistantSettingsSetParamsRunner {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AssistantSettingsSetParamsRunner {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`AssistantStatusParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct AssistantStatusParams {}
+impl ::std::default::Default for AssistantStatusParams {
+    fn default() -> Self {
+        Self {}
+    }
+}
+///`AssistantTurnParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "turnId"
+///  ],
+///  "properties": {
+///    "turnId": {
+///      "type": "string",
+///      "maxLength": 128,
+///      "minLength": 1
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct AssistantTurnParams {
+    #[serde(rename = "turnId")]
+    pub turn_id: AssistantTurnParamsTurnId,
+}
+///`AssistantTurnParamsTurnId`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 128,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AssistantTurnParamsTurnId(::std::string::String);
+impl ::std::ops::Deref for AssistantTurnParamsTurnId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AssistantTurnParamsTurnId> for ::std::string::String {
+    fn from(value: AssistantTurnParamsTurnId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AssistantTurnParamsTurnId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 128usize {
+            return Err("longer than 128 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AssistantTurnParamsTurnId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AssistantTurnParamsTurnId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
 ///`AttentionDismissParams`
 ///
 /// <details><summary>JSON schema</summary>
@@ -16249,5 +17930,22 @@ pub struct VersionGetParams {}
 impl ::std::default::Default for VersionGetParams {
     fn default() -> Self {
         Self {}
+    }
+}
+/// Generation of default values for serde.
+pub mod defaults {
+    pub(super) fn default_u64<T, const V: u64>() -> T
+    where
+        T: ::std::convert::TryFrom<u64>,
+        <T as ::std::convert::TryFrom<u64>>::Error: ::std::fmt::Debug,
+    {
+        T::try_from(V).unwrap()
+    }
+    pub(super) fn default_nzu64<T, const V: u64>() -> T
+    where
+        T: ::std::convert::TryFrom<::std::num::NonZeroU64>,
+        <T as ::std::convert::TryFrom<::std::num::NonZeroU64>>::Error: ::std::fmt::Debug,
+    {
+        T::try_from(::std::num::NonZeroU64::try_from(V).unwrap()).unwrap()
     }
 }

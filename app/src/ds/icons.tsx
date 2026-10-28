@@ -1,6 +1,8 @@
-export type IconName = "home" | "tasks" | "executors" | "accounts" | "strategy" | "hosts" | "settings" | "menu" | "overview" | "review" | "sessions" | "terminal" | "sliders" | "gauge" | "servers" | "routing" | "layers" | "download" | "bell" | "palette" | "diagnostics" | "plus" | "pr" | "commit" | "files" | "checks" | "time" | "retry" | "notes" | "branch" | "panel-left" | "panel-right" | "split" | "external" | "end-session" | "insights" | "dispatch" | "plugin";
+export type IconName = "home" | "tasks" | "executors" | "accounts" | "strategy" | "hosts" | "settings" | "menu" | "overview" | "review" | "sessions" | "terminal" | "sliders" | "gauge" | "servers" | "routing" | "layers" | "download" | "bell" | "palette" | "diagnostics" | "plus" | "pr" | "commit" | "files" | "checks" | "time" | "retry" | "notes" | "branch" | "panel-left" | "panel-right" | "split" | "external" | "end-session" | "insights" | "dispatch" | "plugin" | "send" | "spark";
 export function Icon({ name }: { name: IconName }) {
   const paths: Partial<Record<IconName, string>> = {
+    "send": "M12 19V5m-7 7 7-7 7 7",
+    "spark": "M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z",
     "pr": "M6 8v8m0-14a3 3 0 1 0 0 6 3 3 0 0 0 0-6m0 14a3 3 0 1 0 0 6 3 3 0 0 0 0-6M15 2l-3 3 3 3M12 5h4a3 3 0 0 1 3 3v8m0 0a3 3 0 1 0 0 6 3 3 0 0 0 0-6",
     "commit": "M3 12h5m8 0h5m-9-4a4 4 0 1 0 0 8 4 4 0 0 0 0-8",
     "files": "M8 3h8l4 4v14H8zM16 3v5h4M4 7v14",

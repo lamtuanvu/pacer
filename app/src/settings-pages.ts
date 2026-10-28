@@ -12,6 +12,7 @@ export const SETTINGS_PAGES: readonly { id: string; label: string; icon: IconNam
   { id: 'updates', label: 'Updates', icon: 'download' },
   { id: 'notifications', label: 'Notifications', icon: 'bell' },
   { id: 'appearance', label: 'Appearance', icon: 'palette' },
+  { id: 'assistant', label: 'Assistant', icon: 'spark' },
   { id: 'diagnostics', label: 'Diagnostics', icon: 'diagnostics' },
   { id: 'add-executor', label: 'Add executor', icon: 'plus' },
 ];

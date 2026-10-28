@@ -4,6 +4,7 @@ import { ExecutorsSection } from "./Executors";
 export { ExecutorsSection } from "./Executors";
 import { UpdatesSection } from "./Updates";
 import { LazyDispatcher } from "./LazyDispatcher";
+import { LazyAssistantSettings } from "./LazyAssistantSettings";
 
 import { withQuery, type RouteQuery } from "../../router";
 import { DensityContext } from "../../ds/Density";
@@ -114,6 +115,9 @@ export function SettingsGeneral({
       break;
     case "appearance":
       content = <AppearanceSection />;
+      break;
+    case "assistant":
+      content = <LazyAssistantSettings />;
       break;
     case "diagnostics":
       content = <DiagnosticsSection />;

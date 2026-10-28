@@ -75,6 +75,7 @@ export class PluginRegistry {
       if (m.id !== folder) refusal = `manifest id ${m.id} does not match folder ${folder}`;
       else if (!PLUGIN_ID.test(folder)) refusal = `invalid folder name ${folder}`;
       else if (!m.entry || isAbsolute(m.entry) || normalize(m.entry).startsWith("..")) refusal = "entry must be a relative path inside the plugin folder";
+      else if (Object.hasOwn(m.contributes, "assistant")) refusal = "only bundled plugins may serve the assistant extension point until installed plugins are sandboxed";
       else if (!hostRangeAccepts(m.host, PLUGIN_PROTOCOL_VERSION)) refusal = `needs host ${m.host}; this pacer serves ${PLUGIN_PROTOCOL_VERSION}`;
       apply(this.entry(folder, refusal ? null : m, false, dir), refusal, cfg.installed[folder] ?? null);
     }
@@ -161,7 +162,7 @@ export class PluginRegistry {
     try { await proc.terminate(); } finally { e.stopping = false; e.process = undefined; }
   }
 
-  async call<T>(ctx: Ctx, id: string, method: string, params: unknown): Promise<T> {
+  async call<T>(ctx: Ctx, id: string, method: string, params: unknown, o: { deadlineMs?: number; signal?: AbortSignal } = {}): Promise<T> {
     const e = this.find(ctx, id);
     if (!ENABLED.has(e.state)) throw new CoreError("plugin_unavailable", `plugin ${id} is ${e.state}${e.error ? `: ${e.error}` : ""}`);
     const def = EXTENSION_METHODS[method];
@@ -170,7 +171,7 @@ export class PluginRegistry {
       const proc = await this.start(ctx, e);
       const point = method.split(".")[0]!;
       if (!e.served.includes(point)) throw new CoreError("plugin_unavailable", `plugin ${id} does not serve ${point}`);
-      return proc.request<T>(method, params, def.deadlineMs);
+      return proc.request<T>(method, params, Math.min(o.deadlineMs ?? def.deadlineMs, def.deadlineMs), o.signal);
     };
     if (e.manifest?.reentrant) return run();
     const result = e.queue.then(run, run);
