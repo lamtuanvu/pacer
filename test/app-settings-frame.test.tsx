@@ -133,6 +133,13 @@ test('App preferences holds updates, notifications and appearance as headed sect
   }
 });
 
+test('Overview treats a busy executor as able to take work', () => {
+  const busy = { ...executor, id: 'busy', state: 'busy' };
+  const html = render(<SettingsGeneral initialData={settings} />, { ...state, snapshot: { ...state.snapshot, executors: [executor, busy], machine: { used: 0, max: 4 } } });
+  expect(html).toContain('2 of 2 agents can take work. 0 need you.');
+  expect(html).not.toContain('busy cannot take work');
+});
+
 test('Overview shows only real readiness and setup facts', () => {
   const down = { ...executor, state: 'down', reason: 'No subscription' };
   const stale = { ...executor, id: 'stale', stale: true };
@@ -242,8 +249,8 @@ test('update, reserve and threshold controls send the same operations', async ()
     old?.(node);
     const props = node.props as any;
     if (props?.children === 'Check now' && props.onClick) handlers.check = props.onClick;
-    if (props?.['aria-label'] === 'Check for updates automatically' && 'checked' in props && props.onChange) handlers.autoCheck = props.onChange;
-    if (props?.['aria-label'] === 'Planner reserve (%)' && props.onChange) handlers.reserve = props.onChange;
+    if (props?.['aria-label'] === 'Check automatically' && 'checked' in props && props.onChange) handlers.autoCheck = props.onChange;
+    if (props?.['aria-label'] === 'Keep back for planning and review' && props.onChange) handlers.reserve = props.onChange;
     if (props?.type === 'number' && props.max === '100' && props.onChange) handlers.threshold = props.onChange;
   };
   const calls: unknown[] = [];

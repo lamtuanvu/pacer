@@ -150,7 +150,9 @@ function GeneralOverview({ query, initialData }: { query: RouteQuery; initialDat
   const snapshot = state.snapshot;
   const executors = snapshot?.executors;
   const stale = (e: ExecutorRow) => e.stale || snapshot?.accounts?.some(a => a.name === e.account && a.stale);
-  const ready = executors?.filter(e => e.state === "ready" && !stale(e)) ?? [];
+  // Busy executors can still take work: only down, failing, blocked or unknown states are unable.
+  const available = ["ready", "busy", "full", "checking"];
+  const ready = executors?.filter(e => ["ready", "busy"].includes(e.state) && !stale(e)) ?? [];
   const needs = executors?.filter(e => stale(e) || ["down", "failing", "blocked"].includes(e.state)) ?? [];
   const active = snapshot?.strategies?.find(s => typeof s !== "string" && s.active);
   const setup = typeof active === "object" ? active : initialData.strategies?.find(s => s.active);
@@ -160,7 +162,7 @@ function GeneralOverview({ query, initialData }: { query: RouteQuery; initialDat
   const checks: { title: string; detail?: string; tone: "good" | "bad" | "warn" | "neutral"; page: string; link: string }[] = [];
   for (const e of executors ?? []) {
     if (stale(e)) checks.push({ title: `${e.id} usage reading is stale`, detail: e.reason || e.sub, tone: "warn", page: "executors", link: "Open agent" });
-    else if (e.state !== "ready") checks.push({ title: `${e.id} cannot take work`, detail: e.reason || e.sub || words(e.state), tone: ["down", "failing", "blocked"].includes(e.state) ? "bad" : "warn", page: "executors", link: "Open agent" });
+    else if (!available.includes(e.state)) checks.push({ title: `${e.id} cannot take work`, detail: e.reason || e.sub || words(e.state), tone: ["down", "failing", "blocked"].includes(e.state) ? "bad" : "warn", page: "executors", link: "Open agent" });
   }
   for (const account of snapshot?.accounts ?? []) {
     if (account.stale && !executors?.some(e => e.account === account.name && stale(e))) checks.push({ title: `${account.name} usage reading is stale`, detail: accountUsageFreshness(account) ?? undefined, tone: "warn", page: "executors", link: "Agents" });
@@ -266,7 +268,7 @@ export function PlannerPacing({ initialData, initialAccounts }: { initialData?: 
     <ResourceState resource={query}>{config && <>
       <section className="pc-preferences-section" aria-labelledby="budget-planner-h"><h2 id="budget-planner-h" className="pc-settings-board__label">Planner</h2>
         <SettingRow variant="budget" label="Keep back for planning and review" description="The planner never delegates this share away. Raise it if reviews get cut short.">
-          <div className="pc-budget-reserve"><Range aria-label="Planner reserve (%)" min="0" max="50" step="5" value={value("pacing.planner_reserve")} disabled={action.busy} onChange={e => { if (e.currentTarget.validity.valid) save("pacing.planner_reserve", Number(e.currentTarget.value)); }}/><output>{value("pacing.planner_reserve")}%</output><span className="pc-settings-board__caption">0–50%</span></div>
+          <div className="pc-budget-reserve"><Range aria-label="Keep back for planning and review" min="0" max="50" step="5" value={value("pacing.planner_reserve")} disabled={action.busy} onChange={e => { if (e.currentTarget.validity.valid) save("pacing.planner_reserve", Number(e.currentTarget.value)); }}/><output>{value("pacing.planner_reserve")}%</output><span className="pc-settings-board__caption">0–50%</span></div>
         </SettingRow>
         <SettingRow variant="budget" label="Mode" description="Automatic follows the pace above. Hold keeps one mode until the planner window resets.">
           <Segment variant="board" label="Mode" value={planner?.modeHeldUntil != null ? mode ?? "" : "auto"} disabled={action.busy} options={[{ value: "auto", label: "Automatic" }, { value: "strict", label: "Hold strict" }, { value: "relaxed", label: "Hold relaxed" }]} onChange={v => { void action.run(v === "auto" ? "mode.release" : "mode.hold", v === "auto" ? {} : { mode: v }); }}/>

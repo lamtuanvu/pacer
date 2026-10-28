@@ -149,7 +149,7 @@ function LegacyUpdatesSection({initialData, initialConfig}: {initialData?: Updat
       <DesktopUpdateConnection connection={connection}/>
       <Disclosure summary="Manual desktop update options"><DesktopVersionRow {...desktop} report={query.data}/></Disclosure>
     </>}
-    <ResourceState resource={query}>{query.data && <SettingRow variant="board" label={`pacer ${query.data.current}`} description={<span role="status">{service.label}{query.data.error ? ` · ${query.data.error}` : ""}</span>}>
+    <ResourceState resource={query}>{query.data && <SettingRow variant="board" label={`pacer ${query.data.current}`} description={<span role="status">{query.data.disabled ? "Update checks are turned off here, by this setting or the environment" : service.label}{query.data.error ? ` · ${query.data.error}` : ""}</span>}>
       <div className="u3-actions">
         {service.canUpdate && <Button size="sm" variant="primary" busy={action.busy} onClick={async () => {
           if (await dialogs.confirm('Update the service and restart it? The desktop app is updated separately.', 'Update service', 'Update service and restart')) {
@@ -166,5 +166,5 @@ function LegacyUpdatesSection({initialData, initialConfig}: {initialData?: Updat
 
 function AutomaticUpdateCheck({ busy = false, initialData }: { busy?: boolean; initialData?: ConfigData }) {
   const config = useResource<ConfigData>("config.get", {}, initialData), action = useOperation(config.reload);
-  return <><SettingRow variant="board" label="Check automatically" description="Once a day, in the background"><Switch size="sm" aria-label="Check for updates automatically" checked={config.data?.keys.update_check?.value !== false} disabled={!config.data || busy || action.busy} onChange={e => void action.run("config.set", {key:"update_check",value:e.currentTarget.checked})}/></SettingRow><ResourceState resource={config}><span/></ResourceState><Feedback action={action}/></>;
+  return <><SettingRow variant="board" label="Check automatically" description="Once a day, in the background"><Switch size="sm" aria-label="Check automatically" checked={config.data?.keys.update_check?.value !== false} disabled={!config.data || busy || action.busy} onChange={e => void action.run("config.set", {key:"update_check",value:e.currentTarget.checked})}/></SettingRow><ResourceState resource={config}><span/></ResourceState><Feedback action={action}/></>;
 }
