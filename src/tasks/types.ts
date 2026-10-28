@@ -52,7 +52,37 @@ export interface AttemptUsage {
   stale?: boolean;
 }
 
+export type TokenCoverage = "measured" | "partial" | "unknown";
+
+/**
+ * Token usage of one attempt. `null` means "not reported", never zero. `total` is the provider's own
+ * total, or input + output when the provider splits them; cache reads and writes stay out of it.
+ */
+export interface AttemptTokens {
+  coverage: TokenCoverage;
+  /** Fresh input tokens, excluding cached reads. */
+  input: number | null;
+  cacheRead: number | null;
+  cacheWrite: number | null;
+  /** Including reasoning tokens. */
+  output: number | null;
+  /** Subset of `output`, where reported. */
+  reasoning: number | null;
+  total: number | null;
+  /** Model requests made during the attempt, where reported. */
+  turns: number | null;
+  source: "executor-json" | "executor-text" | "endpoint-response" | "adapter";
+  /** True when stdout that repository code could also write was the source. */
+  selfReported: boolean;
+  /** Extractor id and version, e.g. "claude-stream-json@1". */
+  extractor: string;
+  capturedAt: number;
+  /** Why coverage is partial or unknown. */
+  note?: string;
+}
+
 export interface Attempt {
+  tokens?: AttemptTokens;
   routing?: RoutingNote;
   usageAtStart?: AttemptUsage;
   usageAtEnd?: AttemptUsage;

@@ -1,0 +1,4 @@
+$ codex exec -C $HOME/repo --skip-git-repo-check -o $HOME/runs/last.md -
+--- stdout
+still working
+--- exit 124 (timed out)

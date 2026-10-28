@@ -90,3 +90,25 @@ Learning is opt in. Accepted/rejected reviews are grouped by task kind, difficul
 `dispatch.list` pages work roots, child work, or all work by status; the app shows these filters in Tasks. `dispatch.tree` returns the bounded work subtree, per-attempt decisions, requested and observed models, reviews, dependencies, and measured/unknown totals. Queued time across attempts, execution time, dependency wait, capacity wait and parent time waiting for children are shown separately. Open wait intervals are provisional. Account usage is grouped by account, quota window and reset epoch; overlapping parent and child observation intervals are merged before reporting observed percentage movement. It is a shared-account reading, not usage attributed solely to this work. Missing or stale readings remain unknown. `dispatch.events` returns at most 500 ordered events and a monotonic `next` cursor plus `hasMore`; keep requesting while `hasMore` is true, even when a scoped page contains no visible events. The app's Work panel and TUI use the same service data. Work event and decision rows are retained with the local service state; task archival can leave an `Archived work` lineage placeholder. There is no automatic work-history pruning in this version.
 
 Root delegation limits default to depth 3, 20 descendants, and four concurrent tasks. Children inherit hard requirements and can narrow those limits; they cannot broaden an ancestor's permissions. A child request is rejected when it cannot make progress because its parent and other running work occupy the eligible slots. Remote executors do not yet carry scoped child grants, so delegated planners run locally. Model-list and exact-model evidence varies by provider; unknown facts are shown explicitly.
+
+## Token accounting
+
+Pacer records how many tokens each attempt used, next to the quota percentage it already tracks. Tokens describe work volume; they are not a cost, and different providers' counts are not comparable. Pacer never converts one into the other.
+
+After an attempt ends, an extractor for its executor reads the run log pacer already wrote and keeps only numeric usage fields. Prompt text, output text, tool paths and keys are never copied. Each attempt gets a coverage label:
+
+| Coverage | Meaning |
+| --- | --- |
+| `measured` | The executor reported input and output usage for the whole run. |
+| `partial` | A total without a breakdown, or usage up to the point the run was killed. Treat it as a lower bound. |
+| `unknown` | The log was empty, unreadable, malformed or from an executor that reports no usage. Never shown as zero. |
+
+Extractors in this release:
+
+- **Codex** (`partial`): the `tokens used` total that Codex prints as the last output of a run. Only that final trailer counts, and it is marked self-reported because stdout text can be written by repository code.
+- **Claude Code** (`measured`): the `usage` on the final `result` event of its `stream-json` output. A run that ended without one keeps the usage of the assistant messages seen so far, as `partial`. Pacer replaces the raw stream with its result text when it writes the log, so it keeps the numeric usage in a `usage.jsonl` file beside the run. Claude history from before this release, and remote Claude runs (plain text), stay `unknown`.
+- Other executors are `unknown` until their output can be read.
+
+`total` is the provider's own total, or input plus output when the provider splits them. Cache reads and cache writes are stored separately and left out of `total`. Counts that are negative, fractional or above 10⁹ are rejected and the attempt is recorded as `unknown`.
+
+The numbers are stored with the attempt and indexed in the `attempt_usage` table of the task database. On start, the service fills the index for existing history from logs (gzipped archives included). The backfill only adds rows: it never edits task files, task records or logs, and running it again changes nothing.

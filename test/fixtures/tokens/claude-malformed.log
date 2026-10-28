@@ -1,0 +1,9 @@
+$ claude -p --output-format stream-json --verbose prompt
+--- stdout
+{"type":"result","usage":{"input_tokens":-5,"output_tokens":3.5}}
+{"type":"result","usage":{"input_tokens":"many","output_tokens":10}}
+{"type":"result","usage":{"input_tokens":5
+not json at all
+--- stderr
+
+--- exit 0

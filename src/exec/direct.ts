@@ -9,7 +9,7 @@ import { resolveAttachments } from "../attachments/claims";
 import { attachmentDirectory } from "../attachments/store";
 import { executorExclusion } from "../executors/availability";
 import { prepareInteractive, requireCodexInteractive, cleanSummary, readReport, transcriptReport, sessionTranscript } from "../session/reports";
-import { mkdirSync, existsSync, readFileSync, writeFileSync, appendFileSync, openSync, readSync, closeSync, renameSync, unlinkSync } from "node:fs";
+import { mkdirSync, existsSync, readFileSync, writeFileSync, appendFileSync, openSync, readSync, closeSync, renameSync, unlinkSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { loadStrategy, strategyPath, type ProviderCfg } from "../config/strategy";
@@ -22,6 +22,7 @@ import { resolvePlacement, type Attempt, type RunRef, type TaskRecord } from "..
 import type { Ctx } from "../types";
 import { parseRunnerId } from "../config/runner-id";
 import { resolveRunner } from "../config/runner-id";
+import { reduceClaudeStream, USAGE_FILE } from "../tokens/extract";
 import { claudeResultFromStream, captureClaudeStreamUsageFile } from "../usage/claude";
 import { readAccountUsage } from "../usage";
 import { RemoteRunIO } from "../remote/run-io";
@@ -196,7 +197,11 @@ export async function finishRun(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, ru
           } catch { /* The captured cache remains available for the next status refresh. */ }
         }
       }
-      const result = claudeResultFromStream(readOutput(run.dir).stdout);
+      const raw = readOutput(run.dir).stdout;
+      // The stream is about to be replaced by its result text; keep its numeric usage for token accounting.
+      const usage = reduceClaudeStream(raw);
+      if (usage) { const file = join(run.dir, USAGE_FILE); rmSync(file, {force: true}); writeFileSync(file, usage, {flag: "wx", mode: 0o600}); }
+      const result = claudeResultFromStream(raw);
       if (result !== null) {
         const temp = `${path}.${randomUUID()}.tmp`;
         try {

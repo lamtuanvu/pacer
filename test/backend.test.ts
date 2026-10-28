@@ -8,6 +8,7 @@ import type { Status } from "../src/engine/status";
 import { type Backend, directBackend, selectBackend } from "../src/exec/backend";
 import { EXTRA_BACKENDS } from "../src/exec/backends-extra";
 import type { AttemptOutcome } from "../src/exec/direct";
+import { readAttemptUsage } from "../src/tokens/store";
 import { runTask } from "../src/tasks/runner";
 import { createTask } from "../src/tasks/store";
 import { fakeCtx, tmpDir } from "./helpers";
@@ -57,6 +58,20 @@ test("the runner records the backend and worktree and verifies in the worktree",
   });
   expect(verified).toEqual(["/wt/task"]);
   expect(r.result).toMatchObject({ status: "done", backend: "orca", worktree: "/wt/task" });
+});
+
+test("the runner stores each attempt's tokens with the attempt and in the usage index", async () => {
+  const ctx = withLoginIndicators(fakeCtx());
+  const t = createTask(ctx, { brief: { goal: "g", repo: "/repo" }, kind: null, requestedExecutor: null, timeoutS: 60 });
+  const log = join(tmpDir(), "attempt.log");
+  writeFileSync(log, "$ codex exec -\n--- stdout\ndone\ntokens used\n1,234\n\n--- exit 0\n");
+  const r = await runTask(ctx, t.id, {
+    loadStrategy: () => s, computeStatus: async () => status(),
+    runAttempt: async () => ({ ...ok, attempt: { ...ok.attempt, log } }),
+    verifyRepo: async () => ({ files: "" }),
+  });
+  expect(r.attempts[0]!.tokens).toMatchObject({ coverage: "partial", total: 1234, selfReported: true });
+  expect(readAttemptUsage(ctx, t.id).get(1)).toMatchObject({ coverage: "partial", total: 1234 });
 });
 
 test("extra backend error finishes failed", async () => {
