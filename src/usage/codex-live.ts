@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { defaultAccountFolder } from "../exec/account-folder";
 import type { AccountCfg } from "../config/accounts";
 import { orcaAccountHome } from "../orca/accounts";
 import type { Ctx, UsageReading, UsageWindow } from "../types";
@@ -6,7 +7,7 @@ import { isObj } from "../util";
 
 function accountHome(ctx: Ctx, account: AccountCfg): string | null {
   if (account.source === "orca") return orcaAccountHome(ctx, "codex", account.orcaAccount ?? "");
-  return account.home ? account.home.replace(/^~(?=\/|$)/, ctx.home) : join(ctx.home, ".codex");
+  return account.home ? account.home.replace(/^~(?=\/|$)/, ctx.home) : defaultAccountFolder(ctx, "codex");
 }
 
 function window(value: unknown): UsageWindow | null {

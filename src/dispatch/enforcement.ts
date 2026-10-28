@@ -9,7 +9,8 @@ import type { Strategy } from "../config/strategy";
 import { CoreError } from "../core/errors";
 import { accountFolder } from "../install/role";
 import { opencodeConfigPath } from "../install/opencode";
-import { launchFor } from "../exec/launch";
+import { launchFor, launchModeFor } from "../exec/launch";
+import { validateExecution } from "../config/execution";
 import { execProcess } from "../exec/process";
 import { agentDelegationControl } from "../plugins/agent-session";
 import pkg from "../../package.json";
@@ -79,8 +80,10 @@ export async function resolveEnforcementTarget(ctx:Ctx,strategy:Strategy,runnerI
     :runner.agent==="codex"?[join(folder,"hooks.json"),join(repo,".codex","hooks.json")]
     :runner.agent==="cursor"?[join(folder,"hooks.json"),join(repo,".cursor","hooks.json")]
     :[opencodeConfigPath(ctx),join(repo,"opencode.json"),join(repo,"opencode.jsonc")];
-  const launch=launchFor(cfg,"__prompt__","__repo__","__run__","__task__");
-  return {runner:runnerId,account:runner.account,agent:runner.agent,version,binary,controlFiles,launchMode:cfg.session??"headless",launchArgs:launch.argv,guardArgv:pacerArgv(ctx.env)};
+  // The same precedence as a strict attempt: only an explicit runner session makes it interactive.
+  const launchMode=launchModeFor(cfg,validateExecution(strategy.execution),{managed:true}).mode;
+  const launch=launchFor({...cfg,session:launchMode},"__prompt__","__repo__","__run__","__task__");
+  return {runner:runnerId,account:runner.account,agent:runner.agent,version,binary,controlFiles,launchMode,launchArgs:launch.argv,guardArgv:pacerArgv(ctx.env)};
 }
 const digest=(value:unknown)=>createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const key=(target:EnforcementTarget)=>JSON.stringify([target.runner,target.account,target.launchMode]);
@@ -124,8 +127,10 @@ export function certificateEvidence(ctx:Ctx,target:EnforcementTarget){
   return {policy:"strict" as const,adapter:target.agent,version:target.version,account:target.account,
     fingerprint:enforcementFingerprint(target),entryPoints:evidence?.entries??[],probedAt:status.probedAt!,expiresAt:status.expiresAt!};
 }
+/** Strict work cannot wait this out: only a configuration change makes the launch certifiable. */
+export const STRICT_INTERACTIVE_REASON="Native subagent control is certified only for headless launches; remove the runner's session: interactive or set it to headless";
 function probeSupportReason(target:EnforcementTarget,repo:string):string|null {
-  if(target.launchMode==="interactive")return "Native child blocking for interactive launches has not been verified";
+  if(target.launchMode==="interactive")return STRICT_INTERACTIVE_REASON;
   if(target.agent==="codex")return "Native subagent control: Codex tool-result observation is not implemented for this CLI version";
   if(target.agent==="cursor")return "Cursor has not proven that subagentStart denial prevents child startup";
   if(target.agent==="opencode")return "OpenCode permission denial needs a host-observed native canary";
@@ -211,6 +216,7 @@ export async function probeNativeControl(ctx:Ctx,strategy:Strategy,runnerId:stri
         delete env.PACER_AUTH_TOKEN;
         delete env.CLAUDE_CONFIG_DIR;
         delete env.CODEX_HOME;
+        // A default account runs strict work in the service's own folder (no login profile), as certified here.
         if(account.source!=="default"){
           const folder=accountFolder(ctx,account);
           if(!folder)return {attempted:false,blocked:false,childStarted:false,reason:"The selected account has no resolvable configuration folder"};

@@ -554,7 +554,7 @@ a.pc-btn{text-decoration:none}
 .pc-command__input{flex:1;min-width:0;border:0;outline:0;background:transparent;color:var(--ink);font:inherit;font-size:var(--type-headline-size);line-height:var(--type-headline-line)}
 .pc-command .pc-command__input:focus-visible{outline:none}
 .pc-command__input::placeholder{color:var(--ink-muted)}
-.pc-kbd--sm{display:inline-block;box-sizing:border-box;min-width:var(--size-18);padding:0 var(--space-1);border-radius:var(--radius-key);background:var(--surface-page);color:var(--ink-muted);font-size:var(--type-label-size);line-height:var(--type-caption-line);text-align:center}
+.pc-kbd--sm{display:inline-block;box-sizing:border-box;min-width:var(--size-18);padding:0 var(--space-1);border-radius:var(--radius-4);background:var(--surface-page);color:var(--ink-muted);font-size:var(--type-label-size);line-height:var(--type-caption-line);text-align:center}
 .pc-btn .pc-kbd--sm{border-color:var(--line);background:transparent}
 .pc-command__scopes{display:flex;align-items:center;gap:var(--space-1);padding:var(--space-2) var(--space-3);border-bottom:1px solid var(--surface-lane);flex-shrink:0;overflow-x:auto}
 .pc-command__tabs{display:flex;align-items:center;gap:var(--space-1)}
@@ -568,7 +568,7 @@ a.pc-btn{text-decoration:none}
 .pc-command__heading{padding:var(--space-2) var(--space-2\.5) var(--space-1);color:var(--ink-muted);font-size:var(--type-label-size);line-height:var(--type-label-line);font-weight:var(--type-label-weight);letter-spacing:var(--type-label-tracking);text-transform:uppercase}
 .pc-command__option{display:flex;align-items:center;gap:var(--space-2\.5);min-height:var(--size-40);padding:var(--space-1\.5) var(--space-2\.5);border-radius:var(--radius-md);cursor:pointer}
 .pc-command__option[aria-selected=true]{background:var(--surface-lane);box-shadow:inset var(--size-2) 0 0 var(--ink)}
-.pc-command__glyph{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;width:var(--size-28);height:var(--size-28);border-radius:var(--radius-tile);background:var(--surface-lane);color:var(--ink-secondary)}
+.pc-command__glyph{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;width:var(--size-28);height:var(--size-28);border-radius:var(--radius-7);background:var(--surface-lane);color:var(--ink-secondary)}
 .pc-command__text{flex:1;min-width:0;display:flex;flex-direction:column}
 .pc-command__label,.pc-command__sub{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pc-command__label{font-weight:var(--type-body-strong-weight)}
@@ -577,8 +577,9 @@ a.pc-btn{text-decoration:none}
 .pc-command__keys{display:inline-flex;gap:var(--size-2)}
 .pc-command__empty{display:flex;flex-direction:column;align-items:center;gap:var(--space-1\.5);padding:var(--size-28) var(--space-4) var(--size-20);text-align:center;color:var(--ink-muted);font-size:var(--type-caption-size);line-height:var(--type-caption-line)}
 .pc-command__empty strong{color:var(--ink);font-size:var(--type-body-size);line-height:var(--type-body-line)}
+.pc-command__notice{flex-shrink:0;padding:var(--space-2) var(--space-4);border-top:1px solid var(--surface-lane);color:var(--ink-secondary);font-size:var(--type-caption-size);line-height:var(--type-caption-line)}
 .pc-command__footer{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) calc(var(--space-3) + var(--space-half));padding:var(--space-2) calc(var(--space-3) + var(--space-half));border-top:1px solid var(--line);background:var(--surface-page);flex-shrink:0}
-@media(max-width:559px){.pc-command{inset:var(--space-3) 0 auto;width:calc(100% - var(--space-6));max-height:calc(100vh - var(--space-6))}.pc-command__sub{display:none}.pc-command__keys{display:none}.pc-command__scopes .pc-command__hint{display:none}}
+@media(max-width:559px){.pc-command{inset:var(--space-3) 0 auto;width:calc(100% - var(--space-6));max-height:calc(100vh - var(--space-6))}.pc-command__keys{display:none}.pc-command__scopes .pc-command__hint{display:none}.pc-command__scopes{overflow-x:visible}.pc-command__tabs{flex-wrap:wrap}.pc-command__label{white-space:normal;overflow-wrap:anywhere}}
 .pc-task-tree{display:flex;flex-direction:column;gap:var(--space-2);min-width:0;margin:0;padding:0;list-style:none}
 .pc-task-tree--compact{gap:var(--space-1)}
 .pc-task-tree>li{min-width:0}

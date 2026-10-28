@@ -1,4 +1,5 @@
 import type { Stats } from "node:fs";
+import { defaultAccountFolder } from "../exec/account-folder";
 import { CursorStore, reusable, type Cursor } from "./cursors";
 import { statusTimer } from "./trace";
 import type { AccountCfg } from "../config/accounts";
@@ -126,7 +127,7 @@ async function incrementalRateLimits(path: string, previous: Cursor<RateAggregat
 export async function readCodex(ctx: Ctx, account?: AccountCfg): Promise<UsageReading> {
   const trace = statusTimer(ctx);
   const home = account?.source === "orca" ? orcaAccountHome(ctx, "codex", account.orcaAccount ?? "")
-    : account?.home ? account.home.replace(/^~(?=\/|$)/, ctx.home) : join(ctx.home, ".codex");
+    : account?.home ? account.home.replace(/^~(?=\/|$)/, ctx.home) : defaultAccountFolder(ctx, "codex");
   if (!home) return { windows: [], capturedAt: null, stale: false, error: "Orca account folder not found" };
   const root = join(home, "sessions");
   if (!existsSync(root)) return { windows: [], capturedAt: null, stale: false, error: "no Codex session logs" };
