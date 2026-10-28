@@ -257,7 +257,7 @@ A single registry (`app/src/keys/`) owns shortcuts, shows them in a `?` overlay,
 
 | Keys | Where | Does |
 | --- | --- | --- |
-| `g o` / `g r` / `g s` | anywhere | Overview / Review / Sessions |
+| `g o` / `g r` / `g t` | anywhere | Overview / Review / Tasks (`g t` was `g s`; Terminal is `g e`) |
 | `,` | anywhere | open Settings |
 | `d` | anywhere | Delegate dialog |
 | `/` | Overview | focus the repo filter |

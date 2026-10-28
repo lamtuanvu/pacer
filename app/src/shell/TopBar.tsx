@@ -9,6 +9,7 @@ import { DensityContext } from "../ds/Density";
 import { TitleBar } from "./TitleBar";
 import { Button, IconButton } from "../ds/Button";
 import { Pill } from "../ds/Pill";
+import { isMacPlatform } from "../keys/commands";
 import { UsageMeter } from "../ds/UsageMeter";
 
 /** A frame region the top bar can show or hide; `open` is its current state. */
@@ -18,6 +19,8 @@ export interface TopBarProps {
   brand?: ComponentChildren;
   /** Centre slot, such as the command search. Empty by default. */
   search?: ComponentChildren;
+  /** The search as a single button where the centre slot does not fit (narrow screens). */
+  narrowSearch?: ComponentChildren;
   /** Only regions that exist on this route get a button. */
   panels?: { left?: PanelToggle; dock?: PanelToggle; right?: PanelToggle };
   narrow?: boolean; title: string; planner: PlannerMeter | null; mode: string; connected: boolean; lastUpdate: number | null;
@@ -28,7 +31,7 @@ function LayoutToggle({ icon, label, keys, toggle }: { icon: "panel-left" | "pan
   return <IconButton icon={icon} size="sm" variant="quiet" aria-label={label} title={label} aria-keyshortcuts={keys} aria-pressed={toggle.open} onClick={toggle.toggle} />;
 }
 /** One compact page header, including native controls in the desktop shell. */
-export function TopBar({ brand, search, panels = {}, narrow = false, title, planner, mode, connected, lastUpdate, now: fixedNow, onDelegate, showActions = true }: TopBarProps) {
+export function TopBar({ brand, search, narrowSearch, panels = {}, narrow = false, title, planner, mode, connected, lastUpdate, now: fixedNow, onDelegate, showActions = true }: TopBarProps) {
   const [tick, setTick] = useState(() => Date.now() / 1000);
   useEffect(() => { if (fixedNow !== undefined) return; const t = setInterval(() => setTick(Date.now() / 1000), 1000); return () => clearInterval(t); }, [fixedNow]);
   const now = fixedNow ?? tick;
@@ -40,6 +43,7 @@ export function TopBar({ brand, search, panels = {}, narrow = false, title, plan
     <span className="grow" data-tauri-drag-region />
     {!narrow && showActions && <div className="pc-topbar__search">{search}</div>}
     {!narrow && showActions && <span className="grow" data-tauri-drag-region />}
+    {narrow && showActions && narrowSearch}
     {showActions && <>
     {planner && <span className="pc-planner">
       <AgentMark agent={planner.agent} size={narrow ? 18 : 20} labelled={false} />
@@ -48,7 +52,7 @@ export function TopBar({ brand, search, panels = {}, narrow = false, title, plan
       {narrowMeter && <UsageMeter used={planner.usedPct} pace={planner.pacePct} tone={paceStatus(planner.verdict).tone} verdict={planner.verdict} size="top" text="compact" label={`${agentInfo(planner.agent).name} planner usage`} stale={planner.stale} staleAt={lastUpdate ?? undefined} now={now} />}
     </span>}
     {!narrow && <div role="group" aria-label="Layout" className="pc-layout-toggles">
-      {panels.left && <LayoutToggle icon="panel-left" label="Toggle left panel" keys="Control+B" toggle={panels.left} />}
+      {panels.left && <LayoutToggle icon="panel-left" label="Toggle left panel" keys={isMacPlatform() ? "Meta+B" : "Control+B"} toggle={panels.left} />}
       {panels.dock && <LayoutToggle icon="panel-bottom" label="Toggle terminal panel (Ctrl+`)" keys="Control+`" toggle={panels.dock} />}
       {panels.right && <LayoutToggle icon="panel-right" label="Toggle right panel" keys="Alt+Meta+B" toggle={panels.right} />}
     </div>}
