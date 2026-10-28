@@ -158,7 +158,7 @@ function NextHalf({ routing, query, strategy, now }: { routing: RoutingPreview; 
       : routing.error ? <span className="muted">Could not check routing. It is checked again on the next update.</span>
       : nextId && (readiness || explained) ? <>
         <div className="pc-dispatch-next"><AgentMark agent={markAgent(nextId)} size={32} labelled={false} />
-          <div className="pc-dispatch-next__who"><strong>{executorLabel(nextId)}</strong>{readiness && readiness.tone !== "good" && readiness.detail ? <span className="muted">{readiness.detail}</span> : explained?.step ? <span className="muted">{explained.step}</span> : routing.data?.policy ? <span className="muted">Project order for this repository</span> : null}</div>
+          <div className="pc-dispatch-next__who"><strong>{executorLabel(nextId)}</strong>{/* The step says why this agent; the pill already flags uncertain readiness. */}{explained?.step ? <span className="muted">{explained.step}</span> : readiness && readiness.tone !== "good" && readiness.detail ? <span className="muted">{readiness.detail}</span> : routing.data?.policy ? <span className="muted">Project order for this repository</span> : null}</div>
           {readiness && <StatusPill status={readiness} />}</div>
         {routing.explain?.outcome !== "fail" && <div className="pc-dispatch-chain"><span className="muted">Then:</span><ol aria-label="Then, in order">
           {then.map(id => <li key={id}><span className="pc-dispatch-chip"><AgentMark agent={markAgent(id)} size={18} labelled={false} />{executorLabel(id)}</span>{chevron}</li>)}
