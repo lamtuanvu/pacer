@@ -176,7 +176,7 @@ export function routeCard(explanation: RouteExplanation, accounts: Account[] = [
     planner: {
       agent: planner?.agent ?? null,
       cost: cost.state === "estimate" ? `≈ ${tokens(cost.tokens.median)} tokens` : "Not measured yet",
-      note: [week, cost.state === "estimate" ? `median of ${cost.samples} similar tasks` : "Planner: not measured yet"].filter(Boolean).join(" · "),
+      note: [week, cost.state === "estimate" ? `median of ${cost.samples} similar tasks` : ""].filter(Boolean).join(" · "),
       ...window,
     },
   };

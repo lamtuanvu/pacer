@@ -47,9 +47,11 @@ function useNewTaskDraft(filterRepo: string | null) {
   const [draft, update] = useState<NewTaskDraft>(() => { const saved = storage.read(); return saved.repo || !filterRepo ? saved : { ...saved, repo: filterRepo }; });
   const [savedAt, setSavedAt] = useState<number | null>(() => storage.read().request ? Date.now() : null);
   const current = useRef(draft);
-  const set = (change: Partial<NewTaskDraft> | ((previous: NewTaskDraft) => NewTaskDraft)) => {
+  /** `quiet` changes (a default the composer picked itself) are stored without claiming the user's draft was saved. */
+  const set = (change: Partial<NewTaskDraft> | ((previous: NewTaskDraft) => NewTaskDraft), quiet = false) => {
     const next = typeof change === "function" ? change(current.current) : { ...current.current, ...change };
-    current.current = next; storage.write(next); update(next); setSavedAt(Date.now());
+    current.current = next; storage.write(next); update(next);
+    if (!quiet) setSavedAt(Date.now());
   };
   const save = () => { storage.write(current.current); setSavedAt(Date.now()); };
   const clear = () => { current.current = blankNewTask; storage.clear(); update(blankNewTask); setSavedAt(null); };
@@ -93,7 +95,7 @@ export function NewTask({ query }: { query: RouteQuery }) {
   useEffect(() => {
     if (draft.repo || !choices.length) return;
     const last = lastRepo();
-    set({ repo: (choices.find(r => r.key === last) ?? choices[0]!).key });
+    set({ repo: (choices.find(r => r.key === last) ?? choices[0]!).key }, true);
   }, [choices.length]);
   const base = draft.base || repo?.branches?.[0] || "";
   const routing = useQuery<Routing>("routing.route", draft.repo ? { repo: draft.repo } : {});
@@ -267,12 +269,12 @@ function RouteBody({ p, compact }: { p: ViewProps; compact?: boolean }) {
 function PlannerRow({ p }: { p: ViewProps }) {
   const planner = p.planner;
   if (!planner || p.preview.empty) return null;
-  const view = p.card?.planner ?? { cost: "Not measured yet", used: planner.usedPct, pace: planner.pacePct, note: [planner.usedPct === null ? "" : `Week ${Math.round(planner.usedPct)}%${planner.pacePct === null ? "" : ` · pace ${Math.round(planner.pacePct)}%`}`, "Planner: not measured yet"].filter(Boolean).join(" · ") };
+  const view = p.card?.planner ?? { cost: "Not measured yet", used: planner.usedPct, pace: planner.pacePct, note: planner.usedPct === null ? "" : `Week ${Math.round(planner.usedPct)}%${planner.pacePct === null ? "" : ` · pace ${Math.round(planner.pacePct)}%`}` };
   const name = agentInfo(planner.agent).name;
   return <div className="pc-route-card__planner">
     <span className="pc-route-card__planner-head"><AgentMark agent={planner.agent} size={18} labelled={false} /><span className="pc-route-card__planner-title">Planner cost</span><span className="pc-route-card__planner-cost">{view.cost}</span></span>
     <UsageMeter used={view.used} pace={view.pace} tone={paceStatus(planner.verdict).tone} verdict={planner.verdict} size="row" text="none" label={`${name} weekly usage`} />
-    <span className="pc-caption">{view.note}</span>
+    {view.note && <span className="pc-caption">{view.note}</span>}
   </div>;
 }
 
@@ -398,7 +400,7 @@ function NewTaskSheet(p: ViewProps) {
       </div>
       <section aria-label="Where this task goes" className="pc-route-card pc-route-card--compact">
         <div className="pc-route-card__body"><span className="pc-label">Will go to</span><RouteBody p={p} compact /></div>
-        {p.planner && !p.preview.empty && <span className="pc-caption pc-route-card__compact-planner">{p.card ? `Planner ${p.card.planner.cost} · ${p.card.planner.note}` : `Planner: not measured yet${p.planner.usedPct === null ? "" : ` · week ${Math.round(p.planner.usedPct)}%`}`}</span>}
+        {p.planner && !p.preview.empty && <span className="pc-caption pc-route-card__compact-planner">{p.card ? [`Planner ${p.card.planner.cost}`, p.card.planner.note].filter(Boolean).join(" · ") : `Planner: not measured yet${p.planner.usedPct === null ? "" : ` · week ${Math.round(p.planner.usedPct)}%`}`}</span>}
       </section>
       <StrictNotice p={p} />
       <div className="pc-new-task-sheet__rows">

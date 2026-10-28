@@ -41,7 +41,7 @@
 .pc-request-box{display:flex;flex-direction:column;min-width:0;border:1px solid var(--line);border-radius:var(--radius-lg);background:var(--surface-page)}
 .pc-request-box--filled{border-color:var(--ink)}
 .pc-request-box:focus-within{border-color:var(--ink);outline:1px solid var(--ink)}
-.pc-request-box .pc-request-box__input{width:100%;min-height:calc(var(--size-120) + var(--space-3));padding:var(--space-3) calc(var(--space-3) + var(--space-half));border:0;border-radius:var(--radius-lg);outline:0;resize:vertical;background:transparent;color:var(--ink)}
+.pc-request-box .pc-request-box__input{width:100%;font-size:var(--type-body-size);line-height:var(--type-body-line);min-height:calc(var(--size-120) + var(--space-3));padding:var(--space-3) calc(var(--space-3) + var(--space-half));border:0;border-radius:var(--radius-lg);outline:0;resize:vertical;background:transparent;color:var(--ink)}
 .pc-request-box__chips{display:flex;flex-wrap:wrap;gap:var(--space-1\.5);padding:0 var(--space-3) var(--space-2\.5)}
 .pc-request-box__mention{display:flex;align-items:center;gap:var(--space-2);padding:0 var(--space-3) var(--space-2\.5)}
 .pc-request-box__mention .pc-input{flex-grow:1;min-height:var(--control-compact);padding:var(--space-1) var(--space-2)}
@@ -80,7 +80,7 @@
 .pc-new-task__override>summary{box-sizing:border-box;width:100%;padding:var(--space-3) var(--space-4)}
 .pc-new-task__agents{display:flex;flex-direction:column;gap:var(--space-half);padding:0 var(--space-2) var(--space-2)}
 .pc-new-task__submit{display:flex;flex-direction:column;gap:var(--space-2);padding-top:var(--space-1)}
-.pc-new-task__delegate.pc-btn{width:100%}
+.pc-new-task__delegate.pc-btn{width:100%;min-height:var(--control-normal)}
 .pc-new-task__delegate .pc-kbd{margin-left:var(--space-2);opacity:.7}
 .pc-new-task__submit-note{text-align:center}
 
@@ -90,7 +90,7 @@
 .pc-new-task-sheet .pc-request-box{background:var(--surface-card)}
 .pc-new-task-sheet .pc-request-box .pc-request-box__input{padding:var(--space-3);resize:none}
 .pc-new-task-sheet .pc-request-box__tools{gap:0;padding:0}
-.pc-new-task-sheet .pc-request-box__tool.pc-btn,.pc-new-task-sheet .pc-request-box__tools .pc-attachment-picker--tool .pc-attachment-picker__trigger{width:var(--size-44);height:var(--size-44);padding:0;justify-content:center;border-radius:var(--radius-md)}
+.pc-new-task-sheet .pc-request-box__tool.pc-btn,.pc-new-task-sheet .pc-request-box__tools .pc-attachment-picker--tool .pc-attachment-picker__trigger{width:var(--size-44);min-width:var(--size-44);height:var(--size-44);padding:0;justify-content:center;border-radius:var(--radius-md)}
 .pc-new-task-sheet .pc-request-box__tools svg{width:var(--size-18);height:var(--size-18)}
 .pc-new-task-sheet .pc-request-box__at{font-size:var(--type-headline-size)}
 .pc-new-task-sheet .pc-request-box__tool-word{display:none}
@@ -104,3 +104,5 @@
 .pc-new-task-sheet .pc-sheet__foot .pc-new-task__submit-note{text-align:center}
 .pc-new-task-sheet__choice{display:flex;flex-direction:column;gap:var(--space-4)}
 .pc-new-task-sheet__choice .pc-new-task__workspaces{grid-template-columns:minmax(0,1fr)}
+/* Board 3b: 44px header and toolbar targets inside the 52px header, where the narrow DS default is 48px. */
+.pc-new-task-sheet .pc-sheet__close.pc-btn{min-width:var(--size-44);min-height:var(--size-44)}
