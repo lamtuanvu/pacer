@@ -1,0 +1,8 @@
+$ codex exec -C $HOME/repo --skip-git-repo-check -o $HOME/runs/last.md -
+--- stdout
+Done. Changed two files.
+hook: Stop
+tokens used
+59,460
+
+--- exit 0

@@ -20,8 +20,8 @@ test("rail labels carry counts and mark the current screen", () => {
   expect(html).toContain('aria-label="Dispatch"');
   expect(html).not.toContain('aria-label="Overview"');
   expect(html).not.toContain('aria-label="Start work"');
-  expect(html).toContain('aria-label="Needs you · 4 need you"');
-  expect(html).toContain('aria-label="Tasks · 2 running"');
+  expect(html).toContain('aria-label="Needs you, 4 items"');
+  expect(html).toContain('aria-label="Tasks, 2 running"');
   expect(html).toMatch(/aria-current="page"[^>]*aria-label="Needs you|aria-label="Needs you[^"]*"[^>]*aria-current="page"/);
   expect(html).toContain('role="tooltip"');
 });

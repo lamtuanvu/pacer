@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import { renderToString } from 'preact-render-to-string';
 import { Session, type SessionData } from '../app/src/screens/session/Session';
-import { SessionsList } from '../app/src/screens/session/SessionsList';
+import { SessionsList } from './fixtures/ui/sessions-list';
 import { conversationChanges, sessionChangeText } from '../app/src/screens/session/controller';
 import fixture from './fixtures/ui/session.json';
 import { taskTree, type TreeTask } from '../src/view-model/task-tree';
@@ -102,7 +102,7 @@ test('Sessions list renders running and ended work as labelled task trees', () =
  const html = renderToString(<SessionsList running={{data:[node({id:'r',state:'running'})]}} recent={{data:[node({id:'ended',state:'done'})]}}/>);
  expect(html).toContain('aria-label="Running tasks"');
  expect(html).toContain('aria-label="Completed tasks"');
- expect(html.match(/pc-task-node--regular/g)).toHaveLength(2);
+ expect(html.match(/pc-task-card--regular/g)).toHaveLength(2);
 });
 
 test('headless sessions explain the run and offer one prominent takeover action without watch options', () => {
@@ -180,7 +180,7 @@ test('running headless takeover occupies its own area outside the explanatory se
 
 test('ended task link preserves route query and accessible title', async () => {
  const html=renderToString(<SessionsList recent={{data:[node({id:'ended task',state:'done',title:'Finished task'})]}} query="repo=project"/>);
- expect(html).toContain('pc-task-node__title');
+ expect(html).toContain('pc-task-card__title');
  expect(html).toContain('title="Finished task"');
  expect(html).toContain('href="#/tasks/ended%20task?repo=project"');
  expect(html).not.toContain('View result');

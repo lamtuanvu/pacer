@@ -11,7 +11,7 @@ import { DispatchView } from "../app/src/screens/dispatch/Dispatch";
 import { ReviewView } from '../app/src/screens/Review';
 import { initialReview, reviewReducer } from '../app/src/screens/review/model';
 import { sessionDetail } from '../app/src/screens/session/controller';
-import { SessionsList } from '../app/src/screens/session/SessionsList';
+import { SessionsList } from './fixtures/ui/sessions-list';
 import { taskTree } from '../src/view-model/task-tree';
 import { Session } from '../app/src/screens/session/Session';
 import { StatusPill } from '../app/src/ds/StatusPill';
@@ -42,7 +42,7 @@ test('session list and detail retain review verdicts and ignore phases from ende
     const badge = renderToString(<StatusPill status={taskStatus(task)} />);
     const list = renderToString(<SessionsList recent={{data:taskTree({tasks:[task]},{now:0})}} />);
     expect(list).toContain(`>${taskStatus(task).label}<`);
-    expect(list).toContain(`pc-status-dot--${taskStatus(task).tone}`);
+    expect(list).toContain(`pc-pill--${taskStatus(task).tone}`);
     expect(list).toContain(`>${accepted ? 'Accepted' : 'Rejected'}<`);
     expect(list).not.toContain('Testing');
     expect(renderToString(<Session data={sessionDetail(task)} />)).toContain(badge);
@@ -57,8 +57,8 @@ test('planner, footer and tray agree on a ready executor at 37 percent', () => {
   expect(html).toContain('Ahead of pace');
   const status = renderToString(<StatusBar route={{name:'sessions',query:{repo:null,scope:null}}} snapshot={snapshot} registry={createKeyRegistry({controlActive:()=>false})} />);
   expect(status).toContain('37%');
-  expect(status).not.toContain('pc-meter'); // The footer is a compact trigger for the detailed panel.
-  expect(status.match(/class="pc-num">37%/g)).toHaveLength(1); // Planner and its executor share one reading.
+  expect(status).toContain('pc-meter--mini'); // The footer shows only the 28x4 mini meter; the full meter lives in the usage panel.
+  expect(status.match(/pc-statusbar__pct">37%/g)).toHaveLength(1); // Planner and its executor share one reading.
   const top = renderToString(<TopBar title="Overview" planner={snapshot.planner} mode="normal" connected lastUpdate={snapshot.at} now={snapshot.at} onDelegate={()=>{}} />);
   expect(top).not.toContain('pc-meter');
   const tray = renderToString(<Tray snapshot={snapshot} api={createApi()} ipc={createTrayIpc({location:{assign(){}}})} />);

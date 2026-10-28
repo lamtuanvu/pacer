@@ -4,7 +4,7 @@ import { TaskTree } from '../../../app/src/ds/TaskTreeNode';
 import type { TaskNodeView } from '../../../src/view-model/task-tree';
 
 const leaf = (id: string, title: string, over: Partial<TaskNodeView> = {}): TaskNodeView => ({
-  id, title, state: { tone: 'info', live: true, label: 'Working' }, active: true, attention: 'none',
+  id, title, state: { tone: 'info', live: true, label: 'Working' }, active: true, attention: 'none', bucket: 'running',
   host: { name: 'This Mac', kind: 'local' }, agents: ['codex'], meta: [{ icon: 'time', text: 'running for 4m' }], children: [], ...over,
 });
 const root = (title: string, extra: TaskNodeView[] = []): TaskNodeView => leaf('t-1', title, {

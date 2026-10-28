@@ -3,7 +3,6 @@ import { renderToString } from "preact-render-to-string";
 import fixture from "./fixtures/ui/snapshot.json";
 import type { ClientSnapshot } from "../src/view-model/snapshot";
 import type { InsightsSummary } from "../src/view-model/dispatch";
-import { DelegateContext } from "../app/src/shell/delegate";
 import { createActionRunner } from "../app/src/data/actions";
 import { DispatchView, holdInsights, insightsReads, NeedsYouList, type InsightsState, type RoutingPreview } from "../app/src/screens/dispatch/Dispatch";
 import { RepoFilter, repoChoices } from "../app/src/screens/RepoFilter";
@@ -21,8 +20,8 @@ const summary = (handled = 42): InsightsSummary => ({ rootTasksHandled: handled,
   spread: [{ agent: "codex", total: 980_000, tasks: 4 }, { agent: "claude-code", total: 520_000, tasks: 6 }, { agent: "agy", total: 340_000, tasks: 2 }],
   planner: { coverage: "unknown" }, ranOutsidePlanner: null, previous: { rootTasksHandled: handled - 8 } });
 const measured: InsightsState = { supported: true, loading: false, current: summary(), today: summary(9) };
-const view = (repo: string | null = null, s: ClientSnapshot = snap, extra: { routing?: RoutingPreview | null; insights?: InsightsState; delegate?: () => void; connected?: boolean } = {}) =>
-  renderToString(<DelegateContext.Provider value={extra.delegate ?? null}><DispatchView snapshot={s} query={{ repo, scope: null }} now={snap.at} runner={runner} routing={extra.routing === undefined ? routing : extra.routing} insights={extra.insights} onPeriod={() => {}} connected={extra.connected ?? true} startWork={<p>start work composer</p>} /></DelegateContext.Provider>);
+const view = (repo: string | null = null, s: ClientSnapshot = snap, extra: { routing?: RoutingPreview | null; insights?: InsightsState; connected?: boolean } = {}) =>
+  renderToString(<DispatchView snapshot={s} query={{ repo, scope: null }} now={snap.at} runner={runner} routing={extra.routing === undefined ? routing : extra.routing} insights={extra.insights} onPeriod={() => {}} connected={extra.connected ?? true} startWork={<p>start work composer</p>} />);
 const order = (html: string, words: string[]) => words.map(w => html.indexOf(w));
 const section = (html: string, id: string) => { const at = html.indexOf(`aria-labelledby="${id}"`); return at < 0 ? "" : html.slice(html.indexOf(">", at) + 1, html.indexOf("</section>", at)); };
 const strip = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
@@ -31,7 +30,7 @@ const glance = (html: string) => { const at = html.indexOf('id="glance"'); retur
 const plannerHalf = (html: string) => { const at = html.indexOf('id="planner-budget"'); return at < 0 ? "" : html.slice(at, html.indexOf('aria-labelledby="next-task"') > at ? html.indexOf('aria-labelledby="next-task"') : html.indexOf("</section>", at)); };
 
 test("regions follow the board: title, period, repos and New task, then planner and next task, the period's figures, tokens and Needs you, live work", () => {
-  const html = view(null, snap, { insights: measured, delegate: () => {} });
+  const html = view(null, snap, { insights: measured });
   const at = order(html, ["<h1>Dispatch</h1>", "Live · ", 'aria-label="Period"', "All repos · 3", ">New task", 'aria-label="Planner budget and next decision"', ">Next task goes to<", 'aria-label="This week at a glance"', ">Where the tokens went<", ">Needs you<", ">Live dispatch<", "start work composer"]);
   expect(at.every(i => i >= 0)).toBe(true);
   expect([...at].sort((a, b) => a - b)).toEqual(at);
@@ -57,11 +56,10 @@ test("period switch offers Today, 7 days and 30 days with 7 days selected, only 
 });
 
 test("New task is the primary action and opens the Delegate dialog until the composer lands", () => {
-  const html = view(null, snap, { delegate: () => {} });
+  const html = view();
   expect(html).toMatch(/<button aria-keyshortcuts="d" type="button" class="[^"]*pc-btn--primary[^"]*">New task <kbd class="pc-kbd">D<\/kbd>/);
   // No quick-delegate box: the board has none.
   expect(html).not.toContain("Quick delegate");
-  expect(view()).not.toContain(">New task");
 });
 
 test("kpi_strip_shows_the_week_from_insights with the board's icon tiles and no visible heading", () => {

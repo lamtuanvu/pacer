@@ -7,7 +7,7 @@ import { TaskRoute } from "./TaskResult";
 import { LazyDispatch } from "./dispatch/LazyDispatch";
 
 import { RemoteHosts, HostDetail } from "./settings/Hosts";
-import { AddExecutor } from "./settings/AddExecutor";
+import { LazyAddExecutor } from "./settings/LazyAddExecutor";
 import { Sessions, SessionRoute } from "./session/controller";
 import { TerminalScreen } from "./terminal/Terminal";
 /** Route mounting lives separately from browser bootstrap so every destination can be verified. */
@@ -21,7 +21,7 @@ export function Screen({route}:{route:Route}) {
  case 'terminal': return <TerminalScreen id={route.id} query={route.query}/>;
  case 'settings': return <LazySettings key={route.section ?? "general"} section={route.section} query={route.query}/>;
  case 'hosts': return route.alias?<HostDetail key={route.alias} alias={route.alias}/>:<RemoteHosts/>;
- case 'add-executor': return <AddExecutor host={route.host}/>;
+ case 'add-executor': return <LazyAddExecutor host={route.host}/>;
  case 'loading': return null;
  }
 }

@@ -23,14 +23,13 @@ import { SectionHeading } from "../../ds/SectionHeading";
 import { StackedShareBar } from "../../ds/StackedShareBar";
 import { StatusGlyph } from "../../ds/StatusGlyph";
 import { StatusPill } from "../../ds/StatusPill";
-import { TaskTreeNode } from "../../ds/TaskTreeNode";
+import { TaskCard } from "../../ds/TaskCard";
 import { UsageMeter } from "../../ds/UsageMeter";
 import { keys } from "../../keys/instance";
 import { overviewHints } from "../../keys/registry";
 import type { Account } from "../../model/accounts";
 import type { Routing } from "../../model/home";
 import { withQuery, type RouteQuery } from "../../router";
-import { useDelegate } from "../../shell/delegate";
 import { activeRepo, NarrowContext, useNarrow } from "../../shell/narrow";
 import { ActionButton } from "../ActionButton";
 import { useOverviewPage } from "../overview-page";
@@ -113,7 +112,7 @@ function LiveDispatch({ snapshot, scope, now, runner, query }: { snapshot: Clien
       const actions = task?.state === "queued"
         ? <ActionButton runner={runner} id={`${node.id}:stop`} action={{ label: "Stop", op: "task.stop", params: { id: node.id } }} confirmDone={s => !s.snapshot?.tasks.some(x => x.id === node.id && x.state === "queued")} />
         : task?.state === "running" ? <ActionButton runner={runner} id={`${node.id}:takeover`} action={{ label: "Take over", op: "task.takeover", params: { id: node.id } }} /> : null;
-      return <li key={node.id}><TaskTreeNode node={node} density="compact" expanded={expansion.expanded(node.id)} onToggle={expansion.toggle} href={taskLink(query)} actions={actions} /></li>;
+      return <li key={node.id}><TaskCard node={node} density="compact" expanded={expansion.expanded(node.id)} onToggle={expansion.toggle} href={taskLink(query)} actions={actions} /></li>;
     })}</ul>}
     {!nodes.length && <EmptyState title="Nothing running. Start work, delegate a task, or ask your planner to." />}
     {page.footer}
@@ -225,7 +224,6 @@ export function useTick(from: number): number {
 
 /** The page title with its live line, then the period, repos and the primary New task. New task opens Delegate until the New task composer lands. */
 function DispatchHeader({ snapshot, query, narrow, period, onPeriod, connected, now }: { snapshot: ClientSnapshot; query: RouteQuery; narrow: boolean; period: Period; onPeriod?: (period: Period) => void; connected: boolean; now: number }) {
-  const delegate = useDelegate();
   const age = useTick(now);
   const agents = capacity(snapshot).filter(row => row.rank !== "planner" && row.usedPct !== null).length + (snapshot.planner ? 1 : 0);
   // The page line carries the update age, as on the board; the top bar drops its own on Dispatch (UI-15). No snapshot time, no age.
@@ -234,7 +232,7 @@ function DispatchHeader({ snapshot, query, narrow, period, onPeriod, connected, 
   const controls = <div className="pc-dispatch__controls">
     {onPeriod && <SegmentedControl label="Period" value={period} options={PERIODS} onChange={value => onPeriod(value as Period)} />}
     {!narrow && <RepoFilter snapshot={snapshot} query={query} menu />}
-    {delegate && <Button variant="primary" onClick={delegate} aria-keyshortcuts="d">New task{!narrow && <> <Kbd>D</Kbd></>}</Button>}
+    <Button variant="primary" onClick={() => window.dispatchEvent(new Event("pacer:delegate"))} aria-keyshortcuts="d">New task{!narrow && <> <Kbd>D</Kbd></>}</Button>
   </div>;
   const title = <div className="pc-dispatch__title"><h1>Dispatch</h1><span className="pc-dispatch__live muted"><span className={`pc-live-dot${connected ? "" : " pc-live-dot--off"}`} aria-hidden="true" />{live}</span></div>;
   // Phones keep the scope toggle on its own row; the controls follow on the next.
