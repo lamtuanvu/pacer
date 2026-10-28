@@ -564,7 +564,8 @@ body:has(.pc-app--narrow) .pc-toasts{bottom:calc(var(--size-56) + var(--space-5)
 /* Step role, as on the board: spare capacity, usable capacity, anything else. */
 .pc-ladder-number--good{background:var(--good-bg);color:var(--good-fg)}
 .pc-ladder-number--warn{background:var(--warn-bg);color:var(--warn-fg)}
-.pc-ladder-number--muted{background:var(--surface-lane);color:var(--ink-muted)}
+/* ink-secondary rather than the board's ink-muted, which is 4.4:1 on surface-lane in light (UI-2). */
+.pc-ladder-number--muted{background:var(--surface-lane);color:var(--ink-secondary)}
 .pc-saved-setups{container: saved-setups / inline-size;border:1px solid var(--line);border-radius:var(--radius-lg);overflow:hidden}
 .pc-saved-setups__row{display:grid;grid-template-columns:var(--size-28) minmax(0,var(--size-180)) minmax(0,1fr) var(--size-110);align-items:center;gap:var(--space-3);padding:var(--space-2\.5) var(--space-3\.5);overflow-wrap:anywhere}
 .pc-saved-setups__row+ .pc-saved-setups__row{border-top:1px solid var(--line)}
