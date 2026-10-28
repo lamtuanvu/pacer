@@ -65,7 +65,7 @@ test("bottom bar keeps all four icons, badges and scope on every destination", (
 
 test("narrow Dispatch keeps the spec order, repo default, other-repo count and touch actions", () => {
   const html = atWidth(1200, () => overview({ repo: "another", scope: `repo:${repo}` }));
-  const sections = ['aria-label="Scope"', '>Needs you<', '>Live dispatch<', '>Planner budget<', '>Executors<', '>This week at a glance<'].map(s => html.indexOf(s));
+  const sections = ['aria-label="Scope"', '>Needs you<', '>Live dispatch<', '>Planner budget<', '>Executors<', '>Last 7 days at a glance<'].map(s => html.indexOf(s));
   expect(sections.every(at => at >= 0)).toBe(true);
   expect(sections).toEqual([...sections].sort((a, b) => a - b));
   expect(html).toMatch(/aria-pressed="true"[^>]*>This repo · acme\/api/);

@@ -29,20 +29,22 @@ const strip = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " 
 
 test("regions follow the board: header, planner and next task, the period's figures, tokens and Needs you, then live work", () => {
   const html = view(null, snap, { insights: measured, delegate: () => {} });
-  const at = order(html, ['aria-label="Period"', ">New task", ">Planner budget<", ">Next task goes to<", ">This week at a glance<", ">Where the tokens went<", ">Needs you<", ">Live dispatch<", "start work composer"]);
+  const at = order(html, ['aria-label="Period"', ">New task", ">Planner budget<", ">Next task goes to<", ">Last 7 days at a glance<", ">Where the tokens went<", ">Needs you<", ">Live dispatch<", "start work composer"]);
   expect(at.every(i => i >= 0)).toBe(true);
   expect([...at].sort((a, b) => a - b)).toEqual(at);
   // The page title is the top bar's; sections use the DS heading only (UI-9).
   expect(html).not.toContain("<h1");
 });
 
-test("period switch offers Today, 7 days and 30 days with 7 days selected", () => {
-  const html = view();
+test("period switch offers Today, 7 days and 30 days with 7 days selected, only with task insights", () => {
+  // Without insights.summary the period changes nothing, so there is no switch.
+  expect(view()).not.toContain('aria-label="Period"');
+  const html = view(null, snap, { insights: measured });
   const group = html.slice(html.indexOf(">", html.indexOf('aria-label="Period"')) + 1, html.indexOf("</div>", html.indexOf('aria-label="Period"')));
   expect(strip(group)).toBe("Today 7 days 30 days");
   expect(group).toMatch(/aria-pressed="true"[^>]*>7 days</);
   expect(group.match(/aria-pressed="true"/g)).toHaveLength(1);
-  expect(strip(section(view(null, snap, { insights: measured }).replace("pc-dispatch", ""), "glance"))).toContain("This week at a glance");
+  expect(strip(section(view(null, snap, { insights: measured }).replace("pc-dispatch", ""), "glance"))).toContain("Last 7 days at a glance");
 });
 
 test("New task is the primary action and opens the Delegate dialog until the composer lands", () => {
@@ -55,14 +57,14 @@ test("New task is the primary action and opens the Delegate dialog until the com
 
 test("kpi_strip_shows_the_week_from_insights", () => {
   expect(strip(section(view(null, snap, { insights: measured }), "glance"))).toBe(
-    "This week at a glance Root tasks handled 42 +8 vs last week · 9 today Tokens spent 1.8M 43.8k per root task Accepted first try 78% 31 of 40 reviewed · 6 retries");
+    "Last 7 days at a glance Root tasks handled 42 +8 vs the 7 days before · 9 today Tokens spent 1.8M 43.8k per root task Accepted first try 78% 31 of 40 reviewed · 6 retries");
 });
 
 test("kpi_strip_without_insights_says_why_and_never_invents_numbers", () => {
   const states: [InsightsState | undefined, string][] = [
-    [undefined, "This week at a glance These figures need a newer pacer service with task insights."],
-    [{ supported: true, loading: true }, "This week at a glance Loading figures…"],
-    [{ supported: true, loading: false, error: new Error("boom") }, "This week at a glance Could not load these figures. They are checked again on the next update."],
+    [undefined, "Last 7 days at a glance These figures need a newer pacer service with task insights."],
+    [{ supported: true, loading: true }, "Last 7 days at a glance Loading figures…"],
+    [{ supported: true, loading: false, error: new Error("boom") }, "Last 7 days at a glance Could not load these figures. They are checked again on the next update."],
   ];
   for (const [insights, words] of states) {
     const html = view(null, snap, { insights });
@@ -74,7 +76,7 @@ test("kpi_strip_without_insights_says_why_and_never_invents_numbers", () => {
   const unmeasured = { ...summary(0), acceptedFirstTry: 0, reviewedRoots: 0, acceptedFirstTryRate: null, previous: null,
     tokens: { total: 0, measuredAttempts: 0, partialAttempts: 0, unknownAttempts: 2, attempts: 2, lowerBound: true } };
   const html = view(null, snap, { insights: { supported: true, loading: false, current: unmeasured } });
-  expect(strip(section(html, "glance"))).toBe("This week at a glance Root tasks handled 0");
+  expect(strip(section(html, "glance"))).toBe("Last 7 days at a glance Root tasks handled 0");
   expect(html).not.toContain("Tokens spent");
   expect(html).not.toContain("pc-share-bar");
 });

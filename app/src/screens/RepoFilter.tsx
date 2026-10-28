@@ -33,10 +33,11 @@ export function RepoFilter({ snapshot, query, narrow = false }: { snapshot: Clie
     const here = scopeRepo(query) ?? (query.repo || lastRepo.current) ?? null;
     const selected = activeRepo(query);
     const label = snapshot.repos?.find(repo => repo.key === here)?.label ?? here;
-    return <div className="pc-chips pc-scope-toggle" role="group" aria-label="Scope" id="repo-filter">
-      <FilterChip disabled={!here} className={`pc-chip pc-btn--touch${selected ? " on" : ""}`} aria-pressed={!!selected} onClick={() => go(here)} aria-describedby={!here?"repo-scope-reason":undefined}>This repo{label ? ` · ${label}` : ""}</FilterChip>{!here&&<span id="repo-scope-reason" className="muted">Choose a repository to use this scope.</span>}
+    // The reason follows the two chips, so they stay one joined toggle.
+    return <><div className="pc-chips pc-scope-toggle" role="group" aria-label="Scope" id="repo-filter">
+      <FilterChip disabled={!here} className={`pc-chip pc-btn--touch${selected ? " on" : ""}`} aria-pressed={!!selected} onClick={() => go(here)} aria-describedby={!here?"repo-scope-reason":undefined}>This repo{label ? ` · ${label}` : ""}</FilterChip>
       <FilterChip className={`pc-chip pc-btn--touch${!selected ? " on" : ""}`} aria-pressed={!selected} onClick={() => go("")}>All repos</FilterChip>
-    </div>;
+    </div>{!here&&<span id="repo-scope-reason" className="muted">Choose a repository to use this scope.</span>}</>;
   }
   const chip = (repo: string | null, label: string, n?: number) =>
     <FilterChip key={repo ?? "all"} title={label} className={`pc-chip${(query.repo || null) === repo ? " on" : ""}`} aria-pressed={(query.repo || null) === repo ? "true" : "false"} onClick={() => go(repo)}><span className="pc-chip__label">{label}</span>{n !== undefined && <CountBadge count={n} />}</FilterChip>;

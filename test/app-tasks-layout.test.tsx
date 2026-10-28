@@ -106,7 +106,7 @@ test.skipIf(!browserPath)('Dispatch clips long titles, keeps the composer to one
  const snapshot={...fixture,tasks:fixture.tasks.map((t,i)=>i===0||t.id==='t-0409'?{...t,fullTitle:long}:t)};
  const state={...initialState(),connected:true,features:{readModel:true,ops:new Set<string>(["session.create"])},snapshot};
  const runner=createActionRunner({call:async<T,>()=>({} as T),waitFor:async()=>true,refetch(){},navigate(){}});
- const summary={rootTasksHandled:12,acceptedFirstTry:9,reviewedRoots:11,acceptedFirstTryRate:9/11,retryAttempts:2,tokens:{total:1_840_000,measuredAttempts:4,partialAttempts:1,unknownAttempts:1,attempts:6,lowerBound:true},spread:[{agent:'codex#team@devbox',total:980_000,tasks:4},{agent:'claude-code',total:520_000,tasks:6},{agent:'agy',total:340_000,tasks:2}],planner:{coverage:'unknown' as const},ranOutsidePlanner:null,previous:{rootTasksHandled:10}};
+ const summary={rootTasksHandled:12,acceptedFirstTry:9,reviewedRoots:11,acceptedFirstTryRate:9/11,retryAttempts:2,tokens:{total:1_840_000,measuredAttempts:4,partialAttempts:1,unknownAttempts:1,attempts:6,lowerBound:true},spread:[{agent:'codex',total:980_000,tasks:4},{agent:'claude-code',total:520_000,tasks:6},{agent:'agy',total:340_000,tasks:2}],planner:{coverage:'unknown' as const},ranOutsidePlanner:null,previous:{rootTasksHandled:10}};
  const insights={supported:true,loading:false,current:summary,today:summary};
  const css=(await Promise.all(['app/src/ds/tokens.css','app/src/ds/components.css','app/src/styles.css'].map(f=>Bun.file(f).text()))).join('\n');
  const browser=await chromium.launch({executablePath:browserPath!,headless:true});
@@ -128,7 +128,7 @@ test.skipIf(!browserPath)('Dispatch clips long titles, keeps the composer to one
    expect(await page.locator('.pc-start-composer textarea').count()).toBe(1);
    expect(await page.locator('.pc-start-fields').count()).toBe(0);
    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
-   const contentEdge=await page.locator('.pc-dispatch__header').evaluate(n=>n.getBoundingClientRect().left);
+   const contentEdge=await page.locator('#repo-filter').evaluate(n=>n.getBoundingClientRect().left);
    expect(contentEdge).toBe(width<560?16:72);
    if(withTokens){
     const bar=page.locator('.pc-share-bar__bar');

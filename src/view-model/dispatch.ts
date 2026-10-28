@@ -74,8 +74,9 @@ export function periodRange(period: Period, now: number): { from: number; to: nu
   const from = period === "today" ? start : now - (period === "7d" ? 7 : 30) * DAY;
   return { from, to: now, today: { from: start, to: now } };
 }
-export const periodHeading = (period: Period) => period === "today" ? "Today at a glance" : period === "7d" ? "This week at a glance" : "Last 30 days at a glance";
-const versus = (period: Period) => period === "today" ? "vs the hours before" : period === "7d" ? "vs last week" : "vs the 30 days before";
+/** Rolling windows are named as such: 7 days is the last seven days, not the calendar week. */
+export const periodHeading = (period: Period) => period === "today" ? "Today at a glance" : period === "7d" ? "Last 7 days at a glance" : "Last 30 days at a glance";
+const versus = (period: Period) => period === "today" ? "vs the hours before" : period === "7d" ? "vs the 7 days before" : "vs the 30 days before";
 
 export interface KpiTile { id: "handled" | "tokens" | "outside" | "accepted"; label: string; value: string; delta?: { text: string; tone: "good" | "bad" | "neutral" }; note?: string }
 const pct = (part: number, whole: number) => `${Math.round(part / whole * 100)}%`;

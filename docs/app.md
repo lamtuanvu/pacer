@@ -100,8 +100,9 @@ banner dismissal lasts until the pending recommended items change.
 ## Needs you and Tasks
 
 Dispatch follows the canvas board. Its header holds the repository filter, the
-period switch (Today, 7 days or 30 days; 7 days by default) and New task, which
-opens the Delegate dialog (shortcut D) until the New task composer lands. Below it:
+period switch (Today, 7 days or 30 days; 7 days by default, shown only when the
+service has task insights) and New task, which opens the Delegate dialog (shortcut
+D) until the New task composer lands. 7 and 30 days are rolling windows. Below it:
 Planner budget beside Next task goes to; the period at a glance (root tasks handled
 with the change against the previous period and today's count, tokens spent with
 tokens per root task, ran outside the planner, and accepted first try); Where the

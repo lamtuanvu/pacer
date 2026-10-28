@@ -124,7 +124,7 @@ test("the TUI order is Needs you, Running, Capacity, Done today", () => {
 });
 
 test("app follows the board on desktop: planner budget, the week's figures, Needs you, then live work", () => {
-  expect(headings(app.slice(app.indexOf("pc-dispatch"))).filter(h => h !== "Nothing running. Start work, delegate a task, or ask your planner to.").slice(0, 4)).toEqual(["Planner budget", "This week at a glance", "Needs you", "Live dispatch"]);
+  expect(headings(app.slice(app.indexOf("pc-dispatch"))).filter(h => h !== "Nothing running. Start work, delegate a task, or ask your planner to.").slice(0, 4)).toEqual(["Planner budget", "Last 7 days at a glance", "Needs you", "Live dispatch"]);
   // No token reading yet: Where the tokens went is not rendered, and the glance strip invents no token figure.
   expect(app).not.toContain('aria-labelledby="token-share"');
   expect(strip(app.slice(app.indexOf('aria-labelledby="glance"'), app.indexOf('aria-labelledby="needs-you"')))).not.toMatch(/tokens/i);

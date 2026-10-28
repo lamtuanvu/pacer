@@ -145,9 +145,7 @@ html[data-pacer-native-titlebar] .pc-traffic__btn{display:none}
 /* Dispatch home, laid out as the canvas Dispatch board. */
 .pc-dispatch{display:flex;flex-direction:column;gap:var(--space-4)}
 .pc-dispatch__header{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-3)}
-.pc-dispatch__header .pc-kbd{margin-left:var(--space-1)}
-.pc-dispatch__header .pc-segmented .pc-btn{white-space:nowrap}
-.pc-dispatch--narrow .pc-dispatch__header .pc-segmented{flex:1 1 auto}.pc-dispatch--narrow .pc-dispatch__header .pc-segmented .pc-btn{flex:1 1 0}
+.pc-dispatch__controls{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-3)}
 /* Two regions side by side that wrap to one column; each keeps its own height. */
 .pc-dispatch__pair{display:flex;flex-wrap:wrap;gap:var(--space-4);align-items:flex-start}
 .pc-dispatch__pair>*{flex:1 1 var(--size-340);min-width:0;max-width:100%}

@@ -20,10 +20,10 @@ const unknownTokens = { total: 0, measuredAttempts: 0, partialAttempts: 0, unkno
 test("kpi_strip_states_the_week's_root_tasks_tokens_and_first-try_acceptance", () => {
   const tiles = kpiTiles(summary(), "7d", { today: summary({}, { rootTasksHandled: 9 }) });
   expect(tiles.map(t => t.id)).toEqual(["handled", "tokens", "accepted"]);
-  expect(tiles[0]).toEqual({ id: "handled", label: "Root tasks handled", value: "42", delta: { text: "+8", tone: "good" }, note: "vs last week · 9 today" });
+  expect(tiles[0]).toEqual({ id: "handled", label: "Root tasks handled", value: "42", delta: { text: "+8", tone: "good" }, note: "vs the 7 days before · 9 today" });
   expect(tiles[1]).toEqual({ id: "tokens", label: "Tokens spent", value: "1.8M", delta: { text: "43.8k", tone: "neutral" }, note: "per root task" });
   expect(tiles[2]).toEqual({ id: "accepted", label: "Accepted first try", value: "78%", delta: { text: "31 of 40", tone: "neutral" }, note: "reviewed · 6 retries" });
-  expect(periodHeading("7d")).toBe("This week at a glance");
+  expect(periodHeading("7d")).toBe("Last 7 days at a glance");
 });
 
 test("kpi_strip_ran_outside_planner_only_with_planner_attribution", () => {

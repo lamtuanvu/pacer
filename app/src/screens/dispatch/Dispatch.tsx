@@ -198,12 +198,14 @@ function TokenShare({ summary }: { summary?: InsightsSummary }) {
 /** Repo filter, period and the primary New task action. New task opens the Delegate dialog until the New task composer lands. */
 function DispatchHeader({ snapshot, query, narrow, period, onPeriod }: { snapshot: ClientSnapshot; query: RouteQuery; narrow: boolean; period: Period; onPeriod?: (period: Period) => void }) {
   const delegate = useDelegate();
-  return <div className="pc-dispatch__header">
-    <RepoFilter snapshot={snapshot} query={query} narrow={narrow} />
-    <span className="grow" />
+  // The period only changes figures from task insights, so the switch shows only when the service has them.
+  const controls = (onPeriod || delegate) && <div className="pc-dispatch__controls">
     {onPeriod && <SegmentedControl label="Period" value={period} options={PERIODS} onChange={value => onPeriod(value as Period)} />}
-    {delegate && <Button variant="primary" onClick={delegate} aria-keyshortcuts="d">New task <Kbd>D</Kbd></Button>}
+    {delegate && <Button variant="primary" onClick={delegate} aria-keyshortcuts="d">New task{!narrow && <> <Kbd>D</Kbd></>}</Button>}
   </div>;
+  // Phones give the scope toggle its own row; the controls follow on the next.
+  return narrow ? <><RepoFilter snapshot={snapshot} query={query} narrow />{controls}</>
+    : <div className="pc-dispatch__header"><RepoFilter snapshot={snapshot} query={query} /><span className="grow" />{controls}</div>;
 }
 
 export interface DispatchProps {
@@ -225,7 +227,7 @@ export function DispatchView({ snapshot, query, now, runner, routing = null, per
   const liveWork = <LiveDispatch snapshot={snapshot} scope={scope} now={now} runner={runner} query={query} />;
   return <NarrowContext.Provider value={narrow}><Page width="full" className={`pc-dispatch${narrow ? " pc-dispatch--narrow" : ""}`}>
     <SetupBanner />
-    <DispatchHeader snapshot={snapshot} query={query} narrow={narrow} period={period} onPeriod={onPeriod} />
+    <DispatchHeader snapshot={snapshot} query={query} narrow={narrow} period={period} onPeriod={insights.supported ? onPeriod : undefined} />
     {narrow ? <>
       {/* Phones lead with what needs action; the figures and budgets follow. */}
       {needs}{liveWork}{budget}{next}<AgentUsage snapshot={snapshot} query={query} />{glance}{share}
@@ -264,16 +266,27 @@ function useAttentionKeys(query: RouteQuery) {
 }
 
 /** Two `insights.summary` reads: the period and today. The op arrives with attempt token accounting; without it the strip says so. */
+const REANCHOR_S = 300;
 function useInsights(period: Period, repo: string | null): InsightsState {
   const { state } = useTaskContext();
   const supported = state.features.ops.has("insights.summary");
-  // Minute resolution, so the range does not change on every render.
-  const range = periodRange(period, Math.floor(Date.now() / 60000) * 60);
-  const params = (r: { from: number; to: number }) => supported ? { from: r.from, to: r.to, bucket: "day", ...(repo ? { repo } : {}) } : {};
+  // The range ends at an anchor that moves every five minutes, not on every render; task events refetch the same range in between.
+  const [anchor, setAnchor] = useState(() => Math.floor(Date.now() / 1000));
+  useEffect(() => { const t = setInterval(() => setAnchor(Math.floor(Date.now() / 1000)), REANCHOR_S * 1000); return () => clearInterval(t); }, []);
+  const range = periodRange(period, anchor);
+  const params = (r: { from: number; to: number }) => supported ? { from: r.from, to: Math.max(r.to, r.from + 1), bucket: "day", ...(repo ? { repo } : {}) } : {};
   const op = supported ? "insights.summary" : "version.get";
-  const current = useQuery<InsightsSummary>(op, params(range)), today = useQuery<InsightsSummary>(op, params(range.today));
+  // Today's own read is the period itself when Today is selected.
+  const current = useQuery<InsightsSummary>(op, params(range)), today = useQuery<InsightsSummary>(op, period === "today" ? {} : params(range.today));
+  // A new anchor keeps showing the last figures for this period and repo until the new range answers, so nothing blanks or reflows.
+  const last = useRef<{ key: string; current?: InsightsSummary; today?: InsightsSummary }>({ key: "" });
+  const key = `${period}|${repo ?? ""}`;
+  if (last.current.key !== key) last.current = { key };
+  if (current.data) last.current.current = current.data;
+  if (today.data && period !== "today") last.current.today = today.data;
   if (!supported) return NO_INSIGHTS;
-  return { supported, loading: current.loading, error: current.error, current: current.data, today: today.data };
+  const shown = current.data ?? last.current.current;
+  return { supported, loading: current.loading && !shown, error: shown ? undefined : current.error, current: shown, today: period === "today" ? undefined : today.data ?? last.current.today };
 }
 
 export function DispatchHome({ query }: { query: RouteQuery }) {
