@@ -11,13 +11,14 @@ import { Prose } from "../../ds/Prose";
 import { DensityContext } from "../../ds/Density";
 import { TaskContext } from "../../screens/task-shared";
 import { assistantEntry } from "../assistant-entry";
+import { ComposerMenu } from "./ComposerMenu";
 import { ActionCardView } from "./ActionCardView";
 import { type ScopeChoice, defaultScope, parseFrames, requestId, scopeChoices } from "./model";
 
 interface Status { available: boolean; configured: boolean; account?: string; reason?: string; hint?: string }
 interface Pending { question: string; status: string; partial: string }
 
-const SUGGESTIONS = ["What needs me today?", "Summarise today’s dispatch", "How much budget is left this week?"];
+const SUGGESTIONS = ["What needs me today?", "Summarise today’s dispatch", "How much of my week is left?"];
 const isMac = () => typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
 
 /** Reads the per-turn SSE stream until it ends. Rejects when streaming is unavailable, so the caller can poll instead. */
@@ -49,7 +50,7 @@ export default function AssistantHost({ route, narrow, repo, repoLabel, onNewTas
   const [text, setText] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
   const [scopeValue, setScopeValue] = useState("dispatch");
-  const turnRef = useRef<string | null>(null), abort = useRef<AbortController | null>(null), loaded = useRef(false);
+  const scopeButton = useRef<HTMLButtonElement>(null), turnRef = useRef<string | null>(null), abort = useRef<AbortController | null>(null), loaded = useRef(false);
   const taskId = route.name === "sessions" && route.id ? route.id : null;
   const choices: ScopeChoice[] = useMemo(() => scopeChoices({ taskId, repo, repoLabel }), [taskId, repo, repoLabel]);
   const scope: AssistantScope = (choices.find(c => c.value === scopeValue) ?? choices[choices.length - 1]!).scope;
@@ -138,14 +139,14 @@ export default function AssistantHost({ route, narrow, repo, repoLabel, onNewTas
         {notice && <Alert tone="error" title="The assistant could not answer">{notice}</Alert>}
         {!available && status && <Alert tone="warning" title="The assistant is unavailable">{status.reason}{status.hint ? ` ${status.hint}` : ""}</Alert>}
       </>}
-      suggestions={!turns.length && !pending && available ? SUGGESTIONS.map(s => <Button key={s} size="sm" className="pc-aurora-chip" onClick={() => void send(s)}>{s}</Button>) : undefined}
+      suggestions={!pending && available ? SUGGESTIONS.map(s => <Button key={s} size="sm" className="pc-aurora-chip" onClick={() => void send(s)}>{s}</Button>) : undefined}
       composer={<form className="pc-aurora-composer" onSubmit={event => { event.preventDefault(); void send(text); }}>
-        {(turns.length > 0 || !!conversationId) && <IconButton icon="plus" size="sm" variant="quiet" aria-label="New conversation" title="New conversation" disabled={!!pending} onClick={() => { setTurns([]); setConversationId(undefined); setNotice(null); }} />}
+        <ComposerMenu canStartNew={turns.length > 0 || !!conversationId} busy={!!pending} onNew={() => { setTurns([]); setConversationId(undefined); setNotice(null); }} onContext={() => scopeButton.current?.click()} />
         <TextInput data-autofocus value={text} aria-label="Ask pacer" placeholder="Ask about your tasks, dispatch or budget" disabled={!available} onInput={event => setText(event.currentTarget.value)} />
-        <ChoicePicker className="pc-aurora-scope" aria-label="Change context" value={choices.some(c => c.value === scopeValue) ? scopeValue : "dispatch"} options={pickerOptions} onValueChange={setScopeValue} />
+        <ChoicePicker ref={scopeButton} className="pc-aurora-scope" aria-label="Change context" value={choices.some(c => c.value === scopeValue) ? scopeValue : "dispatch"} options={pickerOptions} onValueChange={setScopeValue} />
         {pending
-          ? <IconButton icon="end-session" size="sm" variant="secondary" aria-label="Stop answer" onClick={stop} />
-          : <IconButton type="submit" icon="send" size="sm" variant={hasCard ? "secondary" : "primary"} aria-label="Send" disabled={!available || !text.trim()} />}
+          ? <IconButton icon="end-session" size="sm" className="pc-aurora-send" variant="secondary" aria-label="Stop answer" onClick={stop} />
+          : <IconButton type="submit" icon="send" size="sm" className="pc-aurora-send" variant={hasCard ? "secondary" : "primary"} aria-label="Send" disabled={!available || !text.trim()} />}
       </form>} />
     {!(narrow && open) && <AuroraLauncher open={open} shortcut={narrow ? undefined : isMac() ? "⌘J" : "Ctrl J"} onClick={() => toggle()} className={open ? "pc-aurora-launcher--open" : undefined} />}
   </div></DensityContext.Provider>;

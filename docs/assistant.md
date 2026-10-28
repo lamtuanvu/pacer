@@ -13,7 +13,7 @@ the planner's pacing: it answers in relaxed and normal mode and pauses in strict
 ## What it can read, and what it cannot
 
 It reads through fixed tools, in-process, from pacer's own data: counts and attention, task titles, states, executors,
-times, decisions and review state, cached usage and pace, reviewed outcomes, recent activity, and strategy names.
+times, decisions and review state, cached usage and pace, reviewed outcomes, recent activity, strategy names, and read-only route explanations (`dispatch.explain`) for a repository.
 Results keep numbers and short pacer-owned names only. Goals, context, constraints, reports, output, diffs, files, keys,
 terminal screens and session transcripts are never sent, secrets and your home path are removed, and each result is cut at
 32 KiB. What it reads, and your question, go to the account's model.
@@ -36,8 +36,8 @@ turn's token usage is recorded as assistant use, apart from your tasks, with a `
 Not built yet, and recorded here so nobody looks for them: the ⌘K menu's `?` ask mode, its "Ask: …" result and footer hint,
 and a top-bar "Ask pacer" button. The command menu is a separate change; it calls `assistantEntry.ask({ text,
 newConversation })` and reads `assistantEntry.available()` (`app/src/shell/assistant-entry.ts`), which is the whole contract.
-Also deferred: streamed model tokens (the plugin returns the whole answer until plugins can stream), the route-explanation
-read tool, retrying on a different executor, an Insights row for assistant use, and a native agent CLI backend.
+Also deferred: streamed model tokens (the plugin returns the whole answer until plugins can stream), retrying on a different
+executor, an Insights row for assistant use, and a native agent CLI backend.
 
 ## The per-turn stream
 

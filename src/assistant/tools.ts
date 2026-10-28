@@ -14,7 +14,7 @@ export const RESULT_CAP_BYTES = 32 * 1024;
  * holds a short pacer-owned value (ids, states, names). Goals, context, reports, summaries, commands, paths and every
  * other free-text field are dropped by default, so a field added to an op later stays out until it is listed here.
  */
-const STRING_KEYS = new Set(["id", "task_id", "taskId", "title", "state", "kind", "executor", "requested_executor", "backend", "runner", "account", "name", "verdict", "mode", "severity", "window", "status", "phase", "label", "version", "strategy", "planner", "agent", "model", "step", "rule", "ladder_rule", "next", "before", "host", "source", "tone", "acceptanceState", "protocol", "previous", "level", "outcome", "relation"]);
+const STRING_KEYS = new Set(["id", "task_id", "taskId", "title", "state", "kind", "executor", "requested_executor", "backend", "runner", "account", "name", "verdict", "mode", "severity", "window", "status", "phase", "label", "version", "strategy", "planner", "agent", "model", "step", "rule", "ladder_rule", "next", "before", "host", "source", "tone", "acceptanceState", "protocol", "previous", "level", "outcome", "relation", "code", "subject", "of", "value", "revision"]);
 const ENUM_KEYS = new Set(["reason", "note", "resolved"]);
 const SAFE_KEY = /^[A-Za-z0-9_.-]{1,64}$/;
 const clipText = (text: string, max: number) => text.length > max ? `${text.slice(0, max - 1)}…` : text;
@@ -99,6 +99,13 @@ export const READ_TOOLS: ReadTool[] = [
     if (scope.kind === "repo") params.repo = scope.repo;
     return project(await read(ctx, "activity.list", params), { text: true });
   } },
+  { name: "route_explain", description: "Which executor work like this would go to, and why: the ladder step, the reasons, the fallbacks. Read-only; starts and reserves nothing.", params: z.object({ repo: z.string().min(1).max(4096), kind: z.string().min(1).max(64).optional(), executor: z.string().min(1).max(128).optional() }),
+    run: async (ctx, p, read, scope) => {
+      if (scope.kind === "task") return out("Route explanations are outside a single-task scope; task_get shows where this task went.");
+      const repo = scope.kind === "repo" ? scope.repo : String(p.repo);
+      // pacer's own sentences ("Dispatch is paused until …") are safe text; the request itself is a neutral placeholder.
+      return project(await read(ctx, "dispatch.explain", { repo, goal: "Explain how work like this would be routed.", ...(p.kind ? { kind: p.kind } : {}), ...(p.executor ? { executor: p.executor } : {}) }), { text: true });
+    } },
   { name: "strategies", description: "Strategy names and summaries.", params: z.object({}), run: async (ctx, _p, read, scope) => {
     if (scope.kind === "task") return out("Strategies are outside a single-task scope.");
     const list = await read(ctx, "strategy.list", {}) as { name: string; active: boolean; summary: string }[];

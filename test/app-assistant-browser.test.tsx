@@ -1,10 +1,12 @@
 import { expect, test } from "bun:test";
-import { chromium, type Page } from "playwright-core";
+import { chromium, webkit, type Page } from "playwright-core";
 import { generateTokensCss, readTokens } from "../app/tokens-gen";
 
 // Run with PACER_TEST_BROWSER pointing to a local Chromium/Chrome executable; without it these checks skip.
 const browserPath = process.env.PACER_TEST_BROWSER;
 const browserTest = test.skipIf(!browserPath);
+// The desktop app is a WebKit window. Run with PACER_TEST_WEBKIT=1 after `bunx playwright-core install webkit`.
+const webkitTest = test.skipIf(!process.env.PACER_TEST_WEBKIT);
 
 async function build() {
   const result = await Bun.build({ entrypoints: ["test/fixtures/app-assistant-browser.tsx"], target: "browser", splitting: false });
@@ -149,3 +151,59 @@ browserTest("assistant_sheet_fits_phone_width_with_a_visible_input_and_forced_co
     expect(await page.locator(".pc-aurora__glow").evaluate(el => getComputedStyle(el).display)).toBe("none");
   } finally { await browser.close(); }
 }, 20_000);
+
+browserTest("assistant_plus_menu_offers_only_what_works_and_the_sheet_never_depends_on_an_opacity_transition", async () => {
+  const built = await build();
+  const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    await open(page, built);
+    await openSheet(page);
+    // A stalled animation clock (a background WebKit window) must not leave the sheet invisible: no opacity transition.
+    const sheet = await page.locator(".pc-aurora").evaluate(el => ({ opacity: getComputedStyle(el).opacity, property: getComputedStyle(el).transitionProperty }));
+    expect(sheet.opacity).toBe("1");
+    expect(sheet.property).not.toContain("opacity");
+    // Before any conversation the menu offers only the context choice.
+    const plus = page.getByRole("button", { name: "Conversation options" });
+    await plus.click();
+    expect(await page.getByRole("menuitem").allTextContents()).toEqual(["Change context"]);
+    await focused(page, '[role="menuitem"]');
+    await page.keyboard.press("Escape");
+    await focused(page, '[aria-label="Conversation options"]');
+    expect(await page.locator(".pc-aurora").getAttribute("data-state")).toBe("open"); // Escape closed the menu only
+    await page.getByRole("button", { name: "What needs me today?" }).click();
+    await page.getByRole("log", { name: "Conversation" }).getByText("Three tasks need you.").waitFor();
+    await plus.click();
+    await focused(page, '[role="menuitem"]');
+    expect(await page.getByRole("menuitem").allTextContents()).toEqual(["New conversation", "Change context"]);
+    await page.getByRole("menuitem", { name: "New conversation" }).click();
+    await expect(page.getByRole("log", { name: "Conversation" }).getByText("Three tasks need you.").count()).resolves.toBe(0);
+    // The chips stay above the input, and the composer's controls are 32px as on the board.
+    await page.getByRole("button", { name: "Summarise today’s dispatch" }).waitFor();
+    const sizes = await page.evaluate(() => ({ tool: document.querySelector(".pc-aurora-tool")!.getBoundingClientRect().width, send: document.querySelector(".pc-aurora-send")!.getBoundingClientRect().width }));
+    expect(sizes).toEqual({ tool: 32, send: 32 });
+  } finally { await browser.close(); }
+}, 30_000);
+
+webkitTest("assistant_sheet_is_drawn_in_webkit_with_the_desktop_frame_and_the_launcher_rises_above_it", async () => {
+  const built = await build();
+  const browser = await webkit.launch();
+  try {
+    for (const reducedMotion of ["no-preference", "reduce"] as const) {
+      const page = await browser.newPage({ viewport: { width: 1100, height: 700 }, reducedMotion });
+      await open(page, built);
+      await page.evaluate(() => document.documentElement.setAttribute("data-pacer-desktop", ""));
+      await openSheet(page);
+      const probe = await page.evaluate(() => {
+        const sheet = document.querySelector(".pc-aurora")!, input = document.querySelector('input[aria-label="Ask pacer"]')!.getBoundingClientRect(), pill = document.querySelector(".pc-aurora-launcher")!.getBoundingClientRect();
+        const hit = document.elementFromPoint(input.left + input.width / 2, input.top + input.height / 2);
+        return { opacity: getComputedStyle(sheet).opacity, drawn: !!hit && sheet.contains(hit), inputBottom: input.bottom, pillBottom: pill.bottom, sheetTop: sheet.getBoundingClientRect().top, viewport: innerHeight };
+      });
+      expect(probe.opacity).toBe("1");
+      expect(probe.drawn).toBe(true);
+      expect(probe.inputBottom).toBeLessThanOrEqual(probe.viewport);
+      expect(probe.pillBottom).toBeLessThanOrEqual(probe.sheetTop); // the launcher sits above the open sheet
+      await page.close();
+    }
+  } finally { await browser.close(); }
+}, 40_000);

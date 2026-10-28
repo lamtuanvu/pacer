@@ -21,7 +21,7 @@ import { type ActionCard, type AssistantMessage, type AssistantScope, type Assis
 export const ASSISTANT_PLUGIN = "pacer-assistant";
 
 /** The only ops the read tools may call. A tool can never reach a write op through this list. */
-export const READ_OPS = ["snapshot.get", "dispatch.list", "task.list", "task.get", "dispatch.tree", "dispatch.events", "dispatch.analytics", "activity.list", "strategy.list", "assistant.budget"] as const;
+export const READ_OPS = ["snapshot.get", "dispatch.list", "task.list", "task.get", "dispatch.tree", "dispatch.events", "dispatch.analytics", "dispatch.explain", "activity.list", "strategy.list", "assistant.budget"] as const;
 
 export interface AssistantDeps {
   status?: (ctx: Ctx, strategy: Strategy) => Promise<Status>;

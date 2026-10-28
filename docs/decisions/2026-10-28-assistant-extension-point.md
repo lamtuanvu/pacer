@@ -35,5 +35,5 @@ model integration to the host (P13 keeps the host minimal) and would let model o
 - The ⌘K `?` mode, its footer hint and a top-bar button are not part of this change: the command menu is separate, and
   `assistantEntry` (`app/src/shell/assistant-entry.ts`) is the hook it wires. The launcher is the design board's floating
   pill, which differs from the spec's "top bar" wording.
-- Streamed model tokens, a route-explanation read tool and the Insights row for assistant usage depend on work that has not
-  landed (plugin notification dispatch, `dispatch.explain`, Insights); see the spec's open decisions and the PR notes.
+- Streamed model tokens and the Insights row for assistant usage depend on work that has not
+  landed (plugin notification dispatch, Insights); see the spec's open decisions and the PR notes.
