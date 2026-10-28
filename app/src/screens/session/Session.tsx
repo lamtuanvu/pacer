@@ -8,7 +8,9 @@ import { SectionHeading } from '../../ds/SectionHeading';
 import { useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
 import { AgentMark } from '../../ds/AgentMark';
-import { Button } from '../../ds/Button';
+import { Button, IconButton } from '../../ds/Button';
+import { FrameSlot } from '../../shell/slots';
+import type { SessionSlots } from './Conversation';
 import { Page, Stack } from '../../ds/Page';
 import { AppButtonLink, AppLink } from '../../navigation';
 import { routes } from '../../router';
@@ -23,27 +25,23 @@ export interface SessionProps extends SessionActions {
   embedded?: boolean; data?: SessionData | null; loading?: boolean; error?: string | null; initialTab?: SessionTab; view?:SessionTab;
   onReload?: () => void; onTakeover?: () => void; takeoverBusy?: boolean; takeoverStarting?: boolean;
   takeoverError?: string; takeRequested?: boolean; onTakeSent?: () => void;
+  /** Embedded in a task's screen: End session goes to the title bar and the activity and actions to the right panel. */
+  slots?: SessionSlots;
 }
-export function ResourceView<T>({ value, empty, loading, children }: {
-  value?: Resource<T>; empty: string; loading: string; children: (value: T) => ComponentChildren;
-}) {
-  if (value?.error) return <p role="alert">{value.error}</p>;
-  if (value?.loading && value.data == null) return <LoadingState label={loading}/>;
-  if (value?.data == null || value.data === '' || (Array.isArray(value.data) && !value.data.length)) return <EmptyState title={empty}/>;
-  return <>{value.loading && <LoadingState updating label="Updating…"/>}{children(value.data)}</>;
-}
+export { ResourceView } from './resource';
+import { ResourceView } from './resource';
 
-function Brief({ data }: { data: SessionData }) {
+export function Brief({ data }: { data: SessionData }) {
   return <div className="pc-session-brief">
     {data.briefSections?.length ? data.briefSections.map(section => <section key={section.label}>
       <SectionHeading as="h3">{section.label}</SectionHeading>
       {section.label === 'Repository' || section.label === 'Base'
-        ? <code className="pc-code-scroll" tabIndex={0}>{section.text}</code>
+        ? <code className="pc-session-repository">{section.text}</code>
         : <Prose text={section.text}/>}
     </section>) : <ResourceView value={data.brief} loading="Loading brief…" empty="No brief available.">{text => <Prose text={text}/>}</ResourceView>}
     <section><SectionHeading as="h3">Done when</SectionHeading>
       <ResourceView value={data.doneWhen} loading="Loading done-when command…" empty="No done-when command.">{text => <>
-        <div className="pc-session-command"><code className="pc-code-scroll" tabIndex={0}>{text}</code></div>
+        <div className="pc-session-command"><code>{text}</code></div>
         <p className="pc-session-muted">pacer runs this after the executor exits and records the checks with the result.</p>
       </>}</ResourceView>
     </section>
@@ -54,7 +52,7 @@ function Brief({ data }: { data: SessionData }) {
 }
 
 export function Session({ embedded = false, data, loading, error, initialTab, view, onAction, onAttach, onReload, onTakeover,
-  takeoverBusy, takeoverStarting, takeoverError, takeRequested, onTakeSent, onReadFile }: SessionProps) {
+  takeoverBusy, takeoverStarting, takeoverError, takeRequested, onTakeSent, slots, onReadFile }: SessionProps) {
   const [chosenTab, setTab] = useState<SessionTab | undefined>(initialTab);
   const [selected, setSelected] = useState(''), [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState(''), [notice, setNotice] = useState('');
@@ -111,10 +109,38 @@ export function Session({ embedded = false, data, loading, error, initialTab, vi
         control={active && session.capabilities.control} resize={active && session.capabilities.resize} live={active && session.live}
         controller={session.controller} driving={driving} takeRequested={active && takeRequested} onTakeSent={onTakeSent} takeover={takeover}/>}
   </Stack>;
+  const aside = <>
+      <section><SectionHeading as="h3">Activity</SectionHeading>
+        <ResourceView value={data.timeline} loading="Loading timeline…" empty="No timeline events yet.">{events => <>
+          <ol className="pc-session-timeline">{events.map((event, index) => <li key={index}><time>{event.at}</time><span>{event.text}</span></li>)}</ol>
+          {events.some(event => event.raw) && <Disclosure className="pc-disclosure" summary="Technical event details">
+            {events.filter(event => event.raw).map((event, index) => <div key={index}><time>{event.at}</time><pre tabIndex={0}>{event.raw}</pre></div>)}
+          </Disclosure>}
+        </>}</ResourceView>
+      </section>
+      {!embedded && session && session.host !== 'none' && <section><SectionHeading as="h3">Session access</SectionHeading>
+        {session.targets.includes('orca') && <Button disabled={!canAttach('orca')} onClick={() => void attach('orca')}>Open in Orca terminal</Button>}
+        {!slots && session.targets.includes('terminal') && <Button onClick={() => setTab('terminal')}>View in Pacer</Button>}
+        <div className="pc-session-copy"><code className="pc-code-scroll" tabIndex={0}>{session.attach.cli}</code>
+          <Button size="sm" onClick={() => { void navigator.clipboard.writeText(session.attach.cli).then(() => setNotice('Attach command copied.')).catch(() => setActionError('Could not copy. Select the command and copy it.')); }}>Copy</Button>
+        </div>
+        <p className="pc-session-muted">Any terminal, tmux or SSH session works. Everyone sees the same stream.</p>
+      </section>}
+      <section className="pc-session-retry">
+        {data.retryLoading ? <LoadingState label="Loading retry options…"/>
+          : data.retryError ? <p role="alert">{data.retryError}</p>
+          : retries.length ? <>
+            <Button disabled={busy || !onAction} onClick={() => { setActionError(''); setRetryOpen(true); }}>{active ? 'Stop and retry…' : 'Retry session…'}</Button>
+            {!onAction && <p className="pc-session-muted">Retry actions are unavailable in this view.</p>}
+          </> : <p className="pc-session-muted">No retry options available.</p>}
+      </section>
+</>;
   return <Page width="full" embedded={embedded} className="pc-session">
     {!embedded && <nav aria-label="Breadcrumb" className="pc-session-breadcrumb"><AppLink to={routes.tasks()}>Tasks</AppLink></nav>}
     {loading && <LoadingState updating label="Updating session…"/>}
-    {(!embedded || (active && data.stop)) && <header className="pc-session-header">
+    {slots && <><FrameSlot name="title">{slots.title(null)}</FrameSlot><FrameSlot name="actions">{active && data.stop && onAction && <IconButton size="sm" variant="quiet" tone="bad" icon="end-session"
+      aria-label="End session" title="End session (asks to confirm)" onClick={() => void run(data.stop!)}/>}</FrameSlot></>}
+    {(!embedded || (!slots && active && data.stop)) && <header className="pc-session-header">
       {!embedded && <AgentMark agent={data.agent} size={28}/>}
       {!embedded && <div className="pc-session-heading">
         <div className="pc-session-identity"><span>{data.executor ?? 'Executor unknown'}</span><span>{data.repo}</span></div>
@@ -148,32 +174,8 @@ export function Session({ embedded = false, data, loading, error, initialTab, vi
             <ResourceView value={data.changes} loading="Loading changes…" empty="No changes so far.">{text => <pre tabIndex={0} aria-label="Changes">{text}</pre>}</ResourceView>
           </div> : <Brief data={data}/>}
       </div>
-    </div><aside className="pc-session-aside" aria-label="Session activity and actions">
-      <section><SectionHeading as="h3">Activity</SectionHeading>
-        <ResourceView value={data.timeline} loading="Loading timeline…" empty="No timeline events yet.">{events => <>
-          <ol className="pc-session-timeline">{events.map((event, index) => <li key={index}><time>{event.at}</time><span>{event.text}</span></li>)}</ol>
-          {events.some(event => event.raw) && <Disclosure className="pc-disclosure" summary="Technical event details">
-            {events.filter(event => event.raw).map((event, index) => <div key={index}><time>{event.at}</time><pre tabIndex={0}>{event.raw}</pre></div>)}
-          </Disclosure>}
-        </>}</ResourceView>
-      </section>
-      {!embedded && session && session.host !== 'none' && <section><SectionHeading as="h3">Session access</SectionHeading>
-        {session.targets.includes('orca') && <Button disabled={!canAttach('orca')} onClick={() => void attach('orca')}>Open in Orca terminal</Button>}
-        {session.targets.includes('terminal') && <Button onClick={() => setTab('terminal')}>View in Pacer</Button>}
-        <div className="pc-session-copy"><code className="pc-code-scroll" tabIndex={0}>{session.attach.cli}</code>
-          <Button size="sm" onClick={() => { void navigator.clipboard.writeText(session.attach.cli).then(() => setNotice('Attach command copied.')).catch(() => setActionError('Could not copy. Select the command and copy it.')); }}>Copy</Button>
-        </div>
-        <p className="pc-session-muted">Any terminal, tmux or SSH session works. Everyone sees the same stream.</p>
-      </section>}
-      <section className="pc-session-retry">
-        {data.retryLoading ? <LoadingState label="Loading retry options…"/>
-          : data.retryError ? <p role="alert">{data.retryError}</p>
-          : retries.length ? <>
-            <Button disabled={busy || !onAction} onClick={() => { setActionError(''); setRetryOpen(true); }}>{active ? 'Stop and retry…' : 'Retry session…'}</Button>
-            {!onAction && <p className="pc-session-muted">Retry actions are unavailable in this view.</p>}
-          </> : <p className="pc-session-muted">No retry options available.</p>}
-      </section>
-    </aside></div>
+    </div>{slots ? <FrameSlot name="right">{slots.panel(<div className="pc-session-detail-group">{aside}</div>)}</FrameSlot>
+      : <aside className="pc-session-aside" aria-label="Session activity and actions">{aside}</aside>}</div>
     {retryOpen && <Dialog title={active ? 'Stop and retry session' : 'Retry session'} close={() => setRetryOpen(false)}>
       <div className="pc-form">
         <p>{active ? 'The current run will stop before a new attempt starts.' : 'Start a new attempt with an available executor.'}</p>

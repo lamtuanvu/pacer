@@ -1,7 +1,12 @@
+import type { ComponentChildren } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import type { TaskDetail } from "../../../../src/core/task-detail";
 import type { SessionInfo } from "../../../../src/session/service";
-import { Button } from "../../ds/Button";
+import { Button, IconButton } from "../../ds/Button";
+import { SectionHeading } from "../../ds/SectionHeading";
+import { useDialogs } from "../../ds/useDialogs";
+import { useMedia } from "../../shell/narrow";
+import { FrameSlot } from "../../shell/slots";
 import { Alert } from "../../ds/Alert";
 import { DisclosurePanel } from "../../ds/Page";
 import { useAttachments } from "../../model/attachments";
@@ -19,61 +24,24 @@ export function TerminalOpenFallback({ command }: { command: string }) {
   );
 }
 
-/** Conversation actions. The task workspace header already shows title, executor and status. */
-export function ConversationActions({
-  active,
-  busy,
-  canOpen,
-  canResume,
-  filesOpen,
-  onFiles,
-  onOpen,
-  onResume,
-  onEnd,
-}: {
-  active: boolean;
-  busy: boolean;
-  canOpen: boolean;
-  canResume: boolean;
-  filesOpen: boolean;
-  onFiles?: () => void;
-  onOpen: () => void;
-  onResume: () => void;
-  onEnd: () => void;
-}) {
-  return (
-    <div className="pc-conversation-actions" role="group" aria-label="Session actions">
-      {onFiles && (
-        <Button size="sm" variant="quiet" aria-expanded={filesOpen} aria-controls="conversation-files" onClick={onFiles}>
-          Files
-        </Button>
-      )}
-      {canOpen && (
-        <Button size="sm" onClick={onOpen}>
-          Open in terminal
-        </Button>
-      )}
-      {canResume && (
-        <Button size="sm" disabled={busy} onClick={onResume}>
-          Resume conversation
-        </Button>
-      )}
-      {active && (
-        <Button size="sm" variant="danger" disabled={busy} onClick={onEnd}>
-          {busy ? "Ending…" : "End session"}
-        </Button>
-      )}
-    </div>
-  );
+export interface SessionSlots {
+  /** Title-bar facts plus the given actions. */
+  title: (actions: ComponentChildren) => ComponentChildren;
+  /** Right-panel tabs with session-specific details and, for conversations, the files strip in Changes. */
+  panel: (details: ComponentChildren, files?: ComponentChildren, access?: ComponentChildren) => ComponentChildren;
+  /** Brings the Changes tab forward, opening the panel when it is closed. */
+  showChanges: () => void;
 }
 export function Conversation({
   task,
   session,
   onReload,
+  slots,
 }: {
   task: TaskDetail;
   session?: SessionInfo;
   onReload: () => void;
+  slots?: SessionSlots;
 }) {
   const { api } = useTaskContext(),
     context = useQuery<{
@@ -81,8 +49,8 @@ export function Conversation({
       attachments: unknown[];
       rev: number;
     }>("session.context", { id: task.id });
+  const dialogs = useDialogs();
   const [footer, setFooter] = useState<HTMLElement | null>(null),
-    [filesOpen, setFilesOpen] = useState(false),
     [busy, setBusy] = useState(false),
     [error, setError] = useState<unknown>(),
     [notice, setNotice] = useState("");
@@ -92,6 +60,7 @@ export function Conversation({
       "start",
   );
   const uploads = useAttachments(api, context.data?.draftId ?? "", () => {});
+  const narrowTitle = useMedia("(width < 1000px)");
   const active = ["queued", "running"].includes(task.state);
   useEffect(() => {
     if (!take) return;
@@ -103,7 +72,7 @@ export function Conversation({
     history.replaceState(null, "", url);
   }, []);
   const end = async () => {
-    if (busy) return;
+    if (busy || !await dialogs.confirm("End this session? The agent stops. Its output and changes are kept.", "End session", "End session")) return;
     setBusy(true);
     setError(undefined);
     try {
@@ -143,19 +112,14 @@ export function Conversation({
   const repairTarget = task.executor && task.summary?.includes(`Integration ${task.executor} is not ready`)
     ? task.executor : null;
   const draftId = context.data?.draftId;
-  return (
+  return (<>
     <article className="pc-conversation" aria-label="Interactive conversation">
-      <ConversationActions
-        active={active}
-        busy={busy}
-        canOpen={!!session?.targets.includes("terminal")}
-        canResume={!active && !!task.conversation?.agentSessionId}
-        filesOpen={filesOpen}
-        onFiles={draftId ? () => setFilesOpen((open) => !open) : undefined}
-        onOpen={() => void open()}
-        onResume={() => void resume()}
-        onEnd={() => void end()}
-      />
+      {dialogs.dialog}
+      <FrameSlot name="title">{slots?.title(!active && !!task.conversation?.agentSessionId && (narrowTitle
+        ? <IconButton size="sm" icon="retry" aria-label="Resume conversation" title="Resume conversation" disabled={busy} onClick={() => void resume()} />
+        : <Button size="sm" disabled={busy} onClick={() => void resume()}>Resume conversation</Button>))}</FrameSlot>
+      <FrameSlot name="actions">{active && <IconButton size="sm" variant="quiet" tone="bad" icon="end-session" aria-label="End session" title="End session (asks to confirm)"
+        busy={busy} disabled={busy} onClick={() => void end()} />}</FrameSlot>
       <div className="pc-conversation-body">
         {task.state === "failed" && task.summary && (
           <Alert tone="error" title="Session failed">
@@ -175,17 +139,6 @@ export function Conversation({
           </p>
         )}
         <ErrorMessage error={error ?? context.error} />
-        {notice && <TerminalOpenFallback command={notice} />}
-        {draftId && (
-          <div id="conversation-files" className="pc-conversation-files" hidden={!filesOpen}>
-            <SessionAttachments
-              id={task.id}
-              draftId={draftId}
-              active={active}
-              uploads={uploads}
-            />
-          </div>
-        )}
         <div className="pc-conversation-session">
           <SessionView
             task={task}
@@ -196,7 +149,7 @@ export function Conversation({
             onTakeSent={() => setTake(false)}
             onFiles={(files) => {
               uploads.uploadFiles(files);
-              setFilesOpen(true);
+              slots?.showChanges();
             }}
             onReadFile={request => api.call("session.file.read", request)}
           />
@@ -209,5 +162,11 @@ export function Conversation({
         aria-label="Session control"
       />
     </article>
-  );
+    <FrameSlot name="right">{slots?.panel(null, draftId && <section className="pc-stack pc-stack--compact"><SectionHeading as="h3">Files</SectionHeading>
+      <SessionAttachments id={task.id} draftId={draftId} active={active} uploads={uploads} /></section>, session?.targets.includes("terminal") && <section className="pc-stack pc-stack--compact">
+      <SectionHeading as="h3">Open elsewhere</SectionHeading>
+      <div><Button size="sm" onClick={() => void open()}>Open in terminal</Button></div>
+      {notice ? <TerminalOpenFallback command={notice} /> : <p className="muted">The session keeps running here, and both windows stay in sync.</p>}
+    </section>)}</FrameSlot>
+  </>);
 }
