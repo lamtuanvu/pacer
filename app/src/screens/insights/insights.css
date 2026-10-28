@@ -2,7 +2,7 @@
 .pc-insights__caption{font-size:var(--type-caption-size);line-height:var(--type-caption-line);color:var(--ink-muted)}
 .pc-insights__header{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-3)}
 .pc-insights__title{display:flex;flex-direction:column;gap:var(--space-half);flex-grow:1}
-.pc-insights__title h1{margin:0;font-size:var(--type-display-size);line-height:var(--type-display-line);font-weight:var(--type-display-weight);letter-spacing:var(--type-display-tracking)}
+.pc-insights__heading{display:block;margin:0;font-size:var(--type-display-size);line-height:var(--type-display-line);font-weight:var(--type-display-weight);letter-spacing:var(--type-display-tracking)}
 .pc-insights__summary{display:flex;flex-direction:row;flex-wrap:wrap;gap:var(--space-6);align-items:center;background:var(--surface-lane)}
 .pc-insights__headline{display:flex;flex-direction:column;gap:var(--space-1\.5);flex:1 1 var(--size-360)}
 .pc-insights__headline strong{font-size:var(--type-headline-size);line-height:var(--type-headline-line);font-weight:var(--type-headline-weight);letter-spacing:var(--type-headline-tracking)}

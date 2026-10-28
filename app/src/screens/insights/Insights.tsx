@@ -66,7 +66,7 @@ export function Insights({ query }: { query: RouteQuery }) {
   const total = s?.tokens.total ?? 0, retried = s?.retryAttempts ?? 0;
   return <Page width="full"><Stack space="section">
     <header className="pc-insights__header">
-      <div className="pc-insights__title"><h1>Insights</h1><span className="pc-insights__caption">How well the dispatcher spread the work{s ? ` · ${rangeLabel(s.from, s.to)}` : ""}</span></div>
+      <div className="pc-insights__title"><span className="pc-insights__heading">Insights</span><span className="pc-insights__caption">How well the dispatcher spread the work{s ? ` · ${rangeLabel(s.from, s.to)}` : ""}</span></div>
       <SegmentedControl label="Period" value={period} options={PERIODS} onChange={value => setPeriod(value as PeriodKey)} />
       <SearchPicker label={query.repo ? `Repo · ${repos.find(r => r.key === query.repo)?.label ?? query.repo}` : `All repos · ${repos.length}`} searchLabel="Search repositories" placeholder="Search repositories…" emptyLabel="No matching repositories."
         value={query.repo || null} onChange={goRepo} options={[{ value: null, label: "All repos" }, ...repos.map(r => ({ value: r.key, label: r.label, searchText: `${r.label} ${r.key}` }))]} />
