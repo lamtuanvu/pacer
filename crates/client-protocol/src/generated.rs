@@ -8195,6 +8195,76 @@ impl ::std::default::Default for HostSuggestParams {
         Self {}
     }
 }
+///`IssueImportParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "issue",
+///    "repo"
+///  ],
+///  "properties": {
+///    "issue": {
+///      "type": "string"
+///    },
+///    "repo": {
+///      "type": "string"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct IssueImportParams {
+    pub issue: ::std::string::String,
+    pub repo: ::std::string::String,
+}
+///`IssueSearchParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "query",
+///    "repo"
+///  ],
+///  "properties": {
+///    "limit": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "minimum": -9007199254740991.0
+///    },
+///    "query": {
+///      "type": "string"
+///    },
+///    "repo": {
+///      "type": "string"
+///    },
+///    "state": {
+///      "type": "string"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct IssueSearchParams {
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub limit: ::std::option::Option<i64>,
+    pub query: ::std::string::String,
+    pub repo: ::std::string::String,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub state: ::std::option::Option<::std::string::String>,
+}
 ///`JobCancelParams`
 ///
 /// <details><summary>JSON schema</summary>
