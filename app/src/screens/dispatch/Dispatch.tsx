@@ -114,7 +114,7 @@ function LiveDispatch({ snapshot, scope, now, runner, query }: { snapshot: Clien
         : task?.state === "running" ? <ActionButton runner={runner} id={`${node.id}:takeover`} action={{ label: "Take over", op: "task.takeover", params: { id: node.id } }} /> : null;
       return <li key={node.id}><TaskCard node={node} density="compact" expanded={expansion.expanded(node.id)} onToggle={expansion.toggle} href={taskLink(query)} actions={actions} /></li>;
     })}</ul>}
-    {!nodes.length && <EmptyState title="Nothing running. Start work, delegate a task, or ask your planner to." />}
+    {!nodes.length && <EmptyState title="Nothing running" description="Start work, delegate a task, or ask your planner to." />}
     {page.footer}
   </section>;
 }

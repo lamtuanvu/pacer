@@ -225,7 +225,7 @@ test("empty states say what to do next", () => {
   const empty = { ...snap, attention: [], tasks: [], counts: { ...snap.counts!, attention: 0, running: 0 } };
   const html = view(null, empty);
   expect(html).toContain("Nothing needs your attention");
-  expect(html).toContain("Nothing running. Start work, delegate a task, or ask your planner to.");
+  expect(strip(html)).toContain("Nothing running Start work, delegate a task, or ask your planner to.");
 });
 
 test("Needs you bounds a long queue and exposes its page range", () => {
