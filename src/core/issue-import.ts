@@ -20,6 +20,9 @@ const LABELS_MAX = 50;
 const GH_TIMEOUT_MS = 20_000;
 const GH_OUTPUT_MAX = 4 * 1024 * 1024;
 const ISSUE_NUMBER_MAX = 2 ** 31 - 1;
+const SEARCH_CACHE_MS = 30_000;
+const SEARCH_CACHE_MAX = 100;
+const GH_CONCURRENCY = 2;
 
 const repoParam = z.string().min(1).max(512);
 export const issueImportSchema = z.object({
@@ -72,9 +75,17 @@ export function cleanLine(value: string, max: number): { text: string; truncated
   return { text: chars.slice(0, max).join(""), truncated: chars.length > max };
 }
 
-/** Multi-line plain text with controls removed and CRLF normalised, cut to `maxBytes` of UTF-8 on a code point boundary. */
+// Markdown that a rendered preview does not show: HTML comments (an unterminated one hides the rest of
+// the text) and link reference definitions (footnotes are shown and kept). Removed after CONTROL, so an invisible character cannot
+// split `<!--` and survive.
+const HIDDEN_MARKUP = [/<!--[\s\S]*?(?:-->|$)/g, /^ {0,3}\[(?!\^)[^\]\n]+\]:[^\n]*(?:\n|$)/gm];
+
+/**
+ * Multi-line plain text with controls and Markdown that a preview hides removed and CRLF normalised, cut
+ * to `maxBytes` of UTF-8 on a code point boundary.
+ */
 export function cleanBody(value: string, maxBytes: number): { text: string; truncated: boolean } {
-  const text = value.replace(/\r\n?|[\u2028\u2029]/g, "\n").replace(CONTROL, "");
+  const text = HIDDEN_MARKUP.reduce((t, re) => t.replace(re, ""), value.replace(/\r\n?|[\u2028\u2029]/g, "\n").replace(CONTROL, ""));
   if (Buffer.byteLength(text, "utf8") <= maxBytes) return { text, truncated: false };
   let bytes = 0, out = "";
   for (const ch of text) {
@@ -128,15 +139,44 @@ export function parseIssueRef(value: number | string, gh: GithubRepo): number {
   return number;
 }
 
+// What gh needs to find its login, config, proxy and certificates. Everything else in the service
+// environment (pacer tokens, endpoint keys) stays out of the child. GH_HOST, GH_REPO and GH_DEBUG are
+// not listed: the host and repository are always named in argv.
+const GH_ENV_NAMES = new Set([
+  "HOME", "PATH", "USER", "LOGNAME", "LANG", "TMPDIR", "TZ", "GH_TOKEN", "GITHUB_TOKEN", "GH_CONFIG_DIR",
+  "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "https_proxy", "http_proxy", "no_proxy", "SSL_CERT_FILE", "SSL_CERT_DIR",
+  "USERPROFILE", "APPDATA", "LOCALAPPDATA", "SYSTEMROOT", "SystemRoot",
+]);
+const GH_ENV_PREFIXES = ["LC_", "XDG_"];
+
+export function ghEnv(env: Record<string, string | undefined>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [name, value] of Object.entries(env)) {
+    if (value !== undefined && (GH_ENV_NAMES.has(name) || GH_ENV_PREFIXES.some(p => name.startsWith(p)))) out[name] = value;
+  }
+  return { ...out, GH_PROMPT_DISABLED: "1", GH_NO_UPDATE_NOTIFIER: "1", GH_SPINNER_DISABLED: "1", NO_COLOR: "1", CLICOLOR: "0" };
+}
+
 function defaultGh(ctx: Ctx): (argv: string[]) => Promise<RunResult> {
   return async argv => {
     const bin = ctx.which("gh");
     if (!bin) fail("unavailable", "gh_missing", "The GitHub CLI (gh) is not installed", "Install gh from https://cli.github.com and run gh auth login.");
     // The user's own gh login is used as is; pacer never reads or stores the token.
-    const { GH_DEBUG: _debug, DEBUG: _debugAll, GH_REPO: _repo, GH_HOST: _host, ...inherited } = ctx.env;
-    const env = { ...inherited, GH_PROMPT_DISABLED: "1", GH_NO_UPDATE_NOTIFIER: "1", GH_SPINNER_DISABLED: "1", NO_COLOR: "1", CLICOLOR: "0" };
-    return ctx.run([bin, ...argv], GH_TIMEOUT_MS, { env });
+    return ctx.run([bin, ...argv], GH_TIMEOUT_MS, { env: ghEnv(ctx.env), maxStdoutBytes: GH_OUTPUT_MAX });
   };
+}
+
+// At most GH_CONCURRENCY gh processes run at once across all calls; the rest wait their turn.
+let ghRunning = 0;
+const ghWaiting: (() => void)[] = [];
+async function limited<T>(task: () => Promise<T>): Promise<T> {
+  if (ghRunning >= GH_CONCURRENCY) await new Promise<void>(resolve => ghWaiting.push(resolve));
+  else ghRunning++;
+  try { return await task(); }
+  finally {
+    const next = ghWaiting.shift();
+    if (next) next(); else ghRunning--;
+  }
 }
 
 /** Map a failed gh run to a typed error. `what` names the missing thing for not-found messages. */
@@ -158,6 +198,7 @@ const ghSummary = z.object({ number: z.number().int().positive(), title: z.strin
 const ghIssue = ghSummary.extend({ body: z.string().nullable() });
 
 function parseGh<T extends z.ZodTypeAny>(r: RunResult, schema: T, what: "issue" | "repo"): z.infer<T> {
+  if (r.stdoutOverflow) fail("unavailable", "gh_failed", "gh returned more output than expected");
   if (r.code !== 0 || r.timedOut) ghFailure(r, what);
   if (r.stdout.length > GH_OUTPUT_MAX) fail("unavailable", "gh_failed", "gh returned more output than expected");
   let value: unknown;
@@ -198,31 +239,58 @@ export async function importIssue(ctx: Ctx, input: unknown, deps: IssueDeps = {}
   const gh = await githubRemote(ctx, repo);
   const number = parseIssueRef(parsed.data.issue, gh);
   const run = deps.gh ?? defaultGh(ctx);
-  const raw = parseGh(await run(["issue", "view", String(number), `--repo=github.com/${gh.owner}/${gh.name}`, "--json=number,title,body,labels,url,state"]), ghIssue, "issue");
+  const raw = parseGh(await limited(() => run(["issue", "view", String(number), `--repo=github.com/${gh.owner}/${gh.name}`, "--json=number,title,body,labels,url,state"])), ghIssue, "issue");
   const url = raw.number === number ? ownIssueUrl(raw, gh) : null;
   if (!url) fail("not_found", "issue_not_found", `#${number} is not an issue in ${gh.owner}/${gh.name}`, "Pull requests and issues moved to another repository are not imported.");
   const title = cleanLine(raw.title, TITLE_MAX_CHARS), body = cleanBody(raw.body ?? "", BODY_MAX_BYTES);
   return { repo: repo.key, github: `${gh.owner}/${gh.name}`, ...summary(raw, url), body: body.text, truncated: { title: title.truncated, body: body.truncated } };
 }
 
-/** Search a registered repository's issues for a picker. Writes nothing. */
+// Qualifiers that name another owner or repository. The results would be dropped anyway, but the
+// search would still run against GitHub with the user's login.
+const SCOPE_QUALIFIER = /(?:^|[\s"'(+-])(?:repo|org|user):(?=\S)/i;
+
+interface CachedSearch { at: number; result: Promise<IssueSearchResult> }
+const searchCache = new Map<string, CachedSearch>();
+
+/** Forget cached searches. For tests. */
+export function clearIssueSearchCache(): void { searchCache.clear(); }
+
+/**
+ * Search a registered repository's issues for a picker. Writes nothing. Identical searches within
+ * SEARCH_CACHE_MS share one gh call (also while it is still running), so a picker that searches as the
+ * person types does not spend GitHub's search limit once per keystroke.
+ */
 export async function searchIssues(ctx: Ctx, input: unknown, deps: IssueDeps = {}): Promise<IssueSearchResult> {
   refuseExecutors(ctx);
   const parsed = issueSearchSchema.safeParse(input);
   if (!parsed.success) throw new CoreError("invalid_input", "Invalid issue search input", parsed.error.issues.map(i => `${i.path.join(".") || "input"}: ${i.message}`).join("; "));
   const query = cleanLine(parsed.data.query, 256).text;
   if (!query) fail("invalid_input", "issue_not_found", "The search query is empty");
+  if (SCOPE_QUALIFIER.test(query)) throw new CoreError("invalid_input", "The search query may not name another repository", "Remove repo:, org: and user: qualifiers; the search always covers the selected repository.");
   const repo = registeredRepo(ctx, parsed.data.repo);
   const gh = await githubRemote(ctx, repo);
+  const state = parsed.data.state ?? "open", limit = parsed.data.limit ?? 20;
+  const key = JSON.stringify([ctx.pacerHome, repo.key, gh.owner, gh.name, query, state, limit]);
+  const now = Date.now();
+  for (const [k, v] of searchCache) if (now - v.at > SEARCH_CACHE_MS) searchCache.delete(k);
+  const hit = searchCache.get(key);
+  if (hit) return hit.result;
   const run = deps.gh ?? defaultGh(ctx);
-  const raw = parseGh(await run([
+  const result = limited(() => run([
     "issue", "list", `--repo=github.com/${gh.owner}/${gh.name}`, `--search=${query}`,
-    `--state=${parsed.data.state ?? "open"}`, `--limit=${parsed.data.limit ?? 20}`, "--json=number,title,labels,url,state",
-  ]), z.array(ghSummary), "repo");
-  // A repo: or org: qualifier in the query could widen the search; keep only this repository's issues.
-  const issues = raw.flatMap(r => {
-    const url = ownIssueUrl(r, gh);
-    return url ? [summary(r, url)] : [];
+    `--state=${state}`, `--limit=${limit}`, "--json=number,title,labels,url,state",
+  ])).then(r => {
+    // Keep only this repository's issues, whatever gh returned.
+    const issues = parseGh(r, z.array(ghSummary), "repo").flatMap(i => {
+      const url = ownIssueUrl(i, gh);
+      return url ? [summary(i, url)] : [];
+    });
+    return { repo: repo.key, github: `${gh.owner}/${gh.name}`, issues };
   });
-  return { repo: repo.key, github: `${gh.owner}/${gh.name}`, issues };
+  if (searchCache.size >= SEARCH_CACHE_MAX) searchCache.delete(searchCache.keys().next().value!);
+  searchCache.set(key, { at: now, result });
+  // A failure is not cached, so a retry after `gh auth login` or a rate limit runs gh again.
+  result.catch(() => { if (searchCache.get(key)?.result === result) searchCache.delete(key); });
+  return result;
 }
