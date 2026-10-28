@@ -611,9 +611,9 @@ a.pc-btn{text-decoration:none}
 .pc-setting-row--board{grid-template-columns:minmax(0,var(--size-300)) minmax(0,1fr);gap:var(--space-6);align-items:center;padding:var(--space-3\.5) 0;border:0;border-top:1px solid var(--surface-lane)}
 .pc-setting-row--board .pc-setting-row__text{gap:0}
 .pc-setting-row--board .pc-setting-row__description{color:var(--ink-muted)}
-.pc-switch--sm{justify-content:flex-start;border:0;width:var(--size-36);height:var(--size-20);background:var(--line)}
+.pc-switch--sm{justify-content:flex-start;box-sizing:border-box;border:1px solid var(--ink-muted);width:var(--size-36);height:var(--size-20);background:var(--line)}
 .pc-switch--sm::before{flex:none;width:var(--size-16);height:var(--size-16);background:var(--brand-ink)}
-.pc-switch--sm:checked{background:var(--good-fill)}
+.pc-switch--sm:checked{border-color:var(--good-fill);background:var(--good-fill)}
 .pc-switch--sm:checked::before{transform:translateX(var(--size-16))}
 .pc-segmented--board{padding:calc(var(--space-half) + var(--size-1));border-radius:var(--radius-md);background:var(--surface-card)}
 .pc-segmented--board .pc-btn{min-height:var(--size-30);padding:0 var(--space-3);border:0;border-radius:var(--radius-sm)}

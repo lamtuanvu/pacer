@@ -112,4 +112,5 @@
 .pc-budget-window:first-child{border-top:0}
 .pc-budget-window__usage{display:flex;flex-direction:column;align-items:stretch;gap:var(--space-1);min-width:0}
 .pc-budget-window .pc-meter{flex:none;width:100%}
-@media(max-width:700px){.pc-budget-window{grid-template-columns:minmax(0,1fr) auto}.pc-budget-reserve input{width:100%}.pc-budget-window__usage{grid-column:1 / -1}}
+@media(max-width:1000px){.pc-budget-window{grid-template-columns:minmax(0,1fr) auto}.pc-budget-window__usage{grid-column:1 / -1}}
+@media(max-width:700px){.pc-budget-reserve input{width:100%}.pc-budget-window__usage{grid-column:1 / -1}}

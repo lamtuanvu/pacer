@@ -28,7 +28,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 - Match the Settings navigation board with a 240px panel, Back to Dispatch and save guidance. Agents and Machines replace the executor and machine menu labels; Accounts, Add executor and Remote hosts stay reachable from their parent pages.
 
-- Group the Settings menu into Dispatch and App. Overview lists every settings page with its status, Budget & pacing replaces Planner & pacing, and App preferences holds Updates, Notifications and Appearance on one page; their old links still open the right section. Settings rows share one layout with the new `SettingRow` and `SettingsNav` design system components.
+- Group the Settings menu into Dispatch and App. Overview summarises readiness and the current setup, Budget & pacing replaces Planner & pacing, and App preferences holds Updates, Notifications and Appearance on one page; their old links still open the right section. Settings rows share one layout with the new `SettingRow` and `SettingsNav` design system components.
 
 ### Fixed
 
