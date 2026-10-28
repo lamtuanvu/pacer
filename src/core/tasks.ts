@@ -29,6 +29,14 @@ import type { Ctx } from "../types";
 import { isExecutorSession } from "../install/role";
 import { CoreError, toCoreError } from "./errors";
 import { withLock, withLockSync } from "./lock";
+import { parentOf, rootOf } from "../messaging/participants";
+import * as msgStore from "../messaging/store";
+import { notifyMessage, startTurnIfIdle } from "../messaging/turns";
+
+/** True when the next turn can resume the task's own native session. */
+function canContinue(ctx: Ctx, t: TaskRecord): boolean {
+  return !getWork(ctx, t.id) && t.interactionMode !== "conversation" && !!t.run && (!!t.run.agentSession || /opencode/.test(t.run.executor));
+}
 
 export { taskActivity } from "../tasks/activity";
 import { taskActivity } from "../tasks/activity";
@@ -88,7 +96,13 @@ export async function ask(ctx: Ctx, id: string, text: string): Promise<TaskRecor
     if (!task) throw unknown(id);
     if (task.question && task.question.answer === undefined) throw new CoreError("conflict", "already asked; stop and wait for the answer");
     if (task.state !== "running") throw new CoreError("conflict", "task is not running");
-    return updateTask(ctx, id, t => { t.question = { text, at: ctx.now }; });
+    const asked = updateTask(ctx, id, t => { t.question = { text, at: ctx.now }; });
+    const parent = parentOf(ctx, `task:${id}`);
+    if (parent) {
+      const r = msgStore.insertMessage(ctx, { taskId: id, rootId: rootOf(ctx, `task:${id}`), from: `task:${id}`, to: parent, kind: "question", body: text, replyTo: null, requestId: `ask:${id}:${ctx.now}` });
+      if (!r.duplicate) notifyMessage(ctx, r.message);
+    }
+    return asked;
   });
 }
 
@@ -161,7 +175,7 @@ export interface ReviewOptions {
   expect_state?: TaskState;
   expectRev?: number;
 }
-type RetryDeps = { delegate?: (ctx: Ctx, input: DelegateInput) => TaskRecord | Promise<TaskRecord>; beforeCommit?:()=>void; afterCommit?:(parent:TaskRecord,retry:TaskRecord)=>void };
+type RetryDeps = { delegate?: (ctx: Ctx, input: DelegateInput) => TaskRecord | Promise<TaskRecord>; beforeCommit?:()=>void; afterCommit?:(parent:TaskRecord,retry:TaskRecord)=>void; spawnRunner?: SpawnRunner };
 
 export async function review(
   ctx: Ctx, id: string, v: ReviewOptions, deps: RetryDeps = {},
@@ -216,6 +230,14 @@ export async function review(
     return readTask(ctx, id)!;
   });
   if (verdict === "send_back" || verdict === "retry") {
+    const current = readTask(ctx, id);
+    if (verdict === "send_back" && current && canContinue(ctx, current)) {
+      // Continue the same session; policy admission still applies to the feedback turn.
+      withTaskLock(ctx, id, () => { validateReview(); msgStore.insertMessage(ctx, { taskId: id, rootId: rootOf(ctx, `task:${id}`), from: parentOf(ctx, `task:${id}`) ?? "human", to: `task:${id}`, kind: "message", body: `Review feedback: ${v.note}`, replyTo: null, requestId: null }); });
+      startTurnIfIdle(ctx, id, deps.spawnRunner ?? spawnRunner);
+      const task = apiTask(ctx, readTask(ctx, id)!);
+      return { task, retry: task };
+    }
     // Both policy decisions finish before the single guarded retry+verdict commit.
     let reviewed:TaskRecord|undefined;
     const result=await retry(ctx,id,{executor,expectRev:initialTask.rev,...(verdict==="send_back"?{feedback:v.note}:{})},{
@@ -421,6 +443,16 @@ export function retry(ctx: Ctx, id: string, o: { executor?: string; fromPanel?: 
 export async function answer(ctx: Ctx, id: string, text: string, o: { expectRev?: number } = {}, deps: RetryDeps = {}): Promise<{task: ApiTask; retry: ApiTask}> {
   if (isExecutorSession(ctx)) throw new CoreError("not_allowed", "executors cannot delegate onward");
   if (typeof text !== "string" || text.length < 1 || text.length > 2000) throw new CoreError("invalid_input", "answer must contain 1–2000 characters");
+  const current = readTask(ctx, id);
+  if (current && canContinue(ctx, current)) {
+    const question = msgStore.inbox(ctx, parentOf(ctx, `task:${id}`) ?? "human", { unreadOnly: false }).filter(m => m.taskId === id && m.kind === "question").at(-1);
+    msgStore.insertMessage(ctx, { taskId: id, rootId: rootOf(ctx, `task:${id}`), from: parentOf(ctx, `task:${id}`) ?? "human", to: `task:${id}`, kind: "answer", body: text, replyTo: question?.id ?? null, requestId: null });
+    if (question) msgStore.markRead(ctx, question.to, [question.id]);
+    updateTask(ctx, id, t => { if (t.question) { t.question.answer = text; t.question.answeredAt = ctx.now; } });
+    startTurnIfIdle(ctx, id, deps.spawnRunner ?? spawnRunner);
+    const task = apiTask(ctx, readTask(ctx, id)!);
+    return { task, retry: task };
+  }
   const r = await retryTask(ctx, id, {...o, answerText:text}, deps);
   return {task:apiTask(ctx,r.of),retry:apiTask(ctx,r.retry)};
 }
