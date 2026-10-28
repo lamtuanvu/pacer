@@ -1,15 +1,17 @@
 import { Database } from "bun:sqlite";
-import { beforeEach, expect, test } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { afterEach, beforeEach, expect, setSystemTime, test } from "bun:test";
+import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { callOp } from "../src/api/ops";
 import { assertCallerCanInvoke } from "../src/api/caller-policy";
 import { V3_ONLY_OPS } from "../src/api/v2-compat";
-import { clearFilesSearchCache, matchPath, safeRepoPath, searchFiles, FILES_SEARCH_LIMITS } from "../src/core/files-search";
-import { fakeCtx, gitRepo, realRun } from "./helpers";
+import { clearFilesSearchCache, filesSearchCacheSize, matchPath, safeRepoPath, searchFiles, sizeInside, FILES_SEARCH_LIMITS } from "../src/core/files-search";
+import { defaultRun } from "../src/ctx";
+import { fakeCtx, gitRepo, realRun, tmpDir } from "./helpers";
 import type { RunFn } from "../src/types";
 
 beforeEach(() => clearFilesSearchCache());
+afterEach(() => setSystemTime());
 
 const git = (cwd: string, ...args: string[]) => Bun.spawnSync(["git", "-c", "user.email=t@t", "-c", "user.name=t", ...args], { cwd });
 function repoWith(files: Record<string, string>, ignored: Record<string, string> = {}): string {
@@ -162,4 +164,79 @@ test("a search writes nothing to the registry or the state directory", async () 
   expect(readFileSync(file, "utf8")).toBe(before);
   expect(statSync(file).mtimeMs).toBe(mtime);
   expect(existsSync(join(ctx.pacerHome, "state", "tasks.db"))).toBe(false);
+});
+
+test("running-task diffs are cached like listings, and concurrent searches share one in-flight git read", async () => {
+  const repo = repoWith({ "src/a.ts": "a" });
+  const worktree = join(realpathSync(dirname(repo)), `wt-${Date.now()}`);
+  git(repo, "worktree", "add", "-q", "-b", "task", worktree);
+  writeFileSync(join(worktree, "src/a.ts"), "changed");
+  const counts = { "ls-files": 0, diff: 0 };
+  const run: RunFn = (argv, ms, o) => { for (const k of ["ls-files", "diff"] as const) if (argv.includes(k)) counts[k]++; return realRun(argv, ms, o); };
+  const ctx = setup({ "local:x": repo }, run);
+  runningTask(ctx, { id: "t-20261028-100000-cccc", repo: { key: "local:x", path: repo, label: "x" }, brief: { repo }, run: { mode: "new", workdir: worktree } });
+  const all = await Promise.all(["a", "a.", "a.t"].map(query => searchFiles(ctx, { query })));
+  await searchFiles(ctx, { query: "a.ts" });
+  expect(counts).toEqual({ "ls-files": 1, diff: 1 });
+  for (const r of all) expect(r.results[0].changedBy).toEqual([{ task: "t-20261028-100000-cccc" }]);
+});
+
+test("cached git reads expire after the TTL and the cache is size-bounded", async () => {
+  const repos = Object.fromEntries(Array.from({ length: FILES_SEARCH_LIMITS.cacheEntries + 6 }, (_, i) => [`local:r${i}`, tmpDir()]));
+  const run: RunFn = async () => ({ code: 0, stdout: "a.ts\0", stderr: "" });
+  const ctx = setup(repos, run);
+  const start = Date.now();
+  setSystemTime(start);
+  for (const key of Object.keys(repos)) await searchFiles(ctx, { query: "a", repo: key });
+  expect(filesSearchCacheSize()).toBe(FILES_SEARCH_LIMITS.cacheEntries);
+  setSystemTime(start + FILES_SEARCH_LIMITS.cacheMs + 1);
+  await searchFiles(ctx, { query: "a", repo: "local:r0" });
+  expect(filesSearchCacheSize()).toBe(1);
+});
+
+test("git gets a byte cap and a scrubbed environment, and overflow is reported as too large", async () => {
+  const root = realpathSync(gitRepo()), seen: Parameters<RunFn>[2][] = [];
+  const run: RunFn = async (_argv, _ms, o) => { seen.push(o); return { code: 1, stdout: "a.ts\0b.ts\0partial", stderr: "", stdoutOverflow: true }; };
+  const base = setup({ "local:x": root }, run);
+  const ctx = { ...base, env: { PATH: "/usr/bin", HOME: "/h", LC_ALL: "C", GIT_DIR: "/elsewhere/.git", GIT_CONFIG_GLOBAL: "/evil", PACER_AUTH_TOKEN: "secret" } };
+  const r = await searchFiles(ctx, { query: "ts" });
+  expect(r.repos).toEqual([{ key: "local:x", state: "too_large" }]);
+  expect(r.results.map(x => x.path).sort()).toEqual(["a.ts", "b.ts"]);
+  expect(seen[0]?.maxStdoutBytes).toBe(FILES_SEARCH_LIMITS.listBytes);
+  expect(seen[0]?.env).toEqual({ PATH: "/usr/bin", HOME: "/h", LC_ALL: "C" });
+});
+
+test("the default runner stops a process whose output passes maxStdoutBytes", async () => {
+  const r = await defaultRun(["sh", "-c", "head -c 200000 /dev/zero"], 5000, { maxStdoutBytes: 1000 });
+  expect(r.stdoutOverflow).toBe(true);
+  expect(r.stdout.length).toBeLessThanOrEqual(1000);
+});
+
+test("matching over a large listing yields to the event loop and keeps only the best hits", async () => {
+  const root = realpathSync(gitRepo());
+  const many = Array.from({ length: 100_000 }, (_, i) => `d${i % 50}/file${i}.ts`).concat("x/f.ts").join("\0") + "\0";
+  const ctx = setup({ "local:big": root }, async () => ({ code: 0, stdout: many, stderr: "" }));
+  let turns = 0, spinning = true;
+  const spin = () => { turns++; if (spinning) setImmediate(spin); };
+  setImmediate(spin);
+  const r = await searchFiles(ctx, { query: "f", limit: 3 });
+  spinning = false;
+  expect(turns).toBeGreaterThanOrEqual(100_000 / FILES_SEARCH_LIMITS.yieldEvery - 1);
+  expect(r.results.map(x => x.path)).toEqual(["x/f.ts", "d0/file0.ts", "d1/file1.ts"]);
+  expect(r.truncated).toBe(true);
+});
+
+test("size is not reported through a tracked directory replaced by a symlink", async () => {
+  const repo = repoWith({ "d/secret.txt": "inside", "top.txt": "12345" });
+  const outside = tmpDir();
+  writeFileSync(join(outside, "secret.txt"), "outside file with a different size");
+  renameSync(join(repo, "d"), join(repo, "d-moved"));
+  symlinkSync(outside, join(repo, "d"));
+  const ctx = setup({ "local:x": repo });
+  const r = await searchFiles(ctx, { query: "secret" });
+  expect(r.results.map(x => x.path)).toEqual(["d/secret.txt"]);
+  expect(r.results[0].size).toBeUndefined();
+  expect(await sizeInside(repo, "top.txt")).toBe(5);
+  expect(await sizeInside(repo, "d/secret.txt")).toBeUndefined();
+  expect(await sizeInside(repo, "../x")).toBeUndefined();
 });
