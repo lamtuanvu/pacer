@@ -49,10 +49,11 @@ function merge(config: Json, trustKeys: string[], includeKeys: string[]): {kind:
 }
 
 type Read = {path: string; config: Json} | {reason: string};
+/** Reads through symlinks: `path` is the real file, which is also what the lock and the rename use. */
 function readConfig(file: string): Read {
   let path = file;
   try {
-    if (lstatSync(file).isSymbolicLink()) path = realpathSync(file);
+    path = realpathSync(file);
     if (!statSync(path).isFile()) return {reason: "the Claude config path is not a file"};
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
@@ -64,7 +65,7 @@ function readConfig(file: string): Read {
   } catch { return {reason: "the Claude config file is not valid JSON"}; }
 }
 
-/** A proper-lockfile-compatible `<file>.lock` directory lock; a held lock is never taken over. */
+/** A proper-lockfile-compatible `<realpath>.lock` directory lock; a held lock is never taken over. */
 async function lock(file: string): Promise<(() => void) | null> {
   const path = `${file}.lock`;
   for (let attempt = 0; ; attempt++) {
@@ -103,7 +104,8 @@ async function update(file: string, trustKeys: string[], includeKeys: string[]):
   if (planned.kind === "unchanged") return {status: "unchanged"};
   sweep(first.path);
   const temporary = `${first.path}.pacer-trust-${randomUUID()}.tmp`;
-  const release = await lock(file);
+  // proper-lockfile locks the resolved path, so a symlinked .claude.json shares its lock with Claude's.
+  const release = await lock(first.path);
   if (!release) return {status: "skipped", reason: "the Claude config file is locked by another process"};
   try {
     // Claude or another launcher may have written since the first read.
@@ -135,4 +137,29 @@ export function grantClaudeFolderTrust(configFile: string, folder: string, proje
   queues.set(configFile, settled);
   void settled.then(() => { if (queues.get(configFile) === settled) queues.delete(configFile); });
   return run;
+}
+
+/** The user's answers to Claude's project MCP prompt for a repository; server names only. */
+export type McpChoices = {enabled: string[]; disabled: string[]};
+const names = (value: unknown): string[] => Array.isArray(value) ? value.filter((name): name is string => typeof name === "string" && name.length > 0) : [];
+
+/**
+ * Collects `enabledMcpjsonServers` / `disabledMcpjsonServers` for the source checkouts from their untracked
+ * `.claude/settings.local.json` (where Claude stores dialog answers) and from their `projects` entries in the
+ * account's config. Read-only; no other key is used. A server rejected anywhere stays rejected.
+ */
+export function projectMcpChoices(configFile: string, roots: string[]): McpChoices {
+  const enabled = new Set<string>(), disabled = new Set<string>();
+  const take = (source: unknown) => {
+    if (!isObject(source)) return;
+    for (const name of names(source.enabledMcpjsonServers)) enabled.add(name);
+    for (const name of names(source.disabledMcpjsonServers)) disabled.add(name);
+  };
+  const keys = [...new Set(roots.flatMap(folderKeys))];
+  for (const root of keys) {
+    try { take(JSON.parse(readFileSync(join(root, ".claude", "settings.local.json"), "utf8"))); } catch { /* no local answers */ }
+  }
+  const config = readConfig(configFile);
+  if ("config" in config && isObject(config.config.projects)) for (const key of keys) take(config.config.projects[key]);
+  return {enabled: [...enabled].filter(name => !disabled.has(name)).sort(), disabled: [...disabled].sort()};
 }

@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmdirSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { claudeConfigFile, folderKeys, grantClaudeFolderTrust } from "../src/exec/claude-trust";
+import { claudeConfigFile, folderKeys, grantClaudeFolderTrust, projectMcpChoices } from "../src/exec/claude-trust";
 import { tmpDir } from "./helpers";
 
 const read = (file: string) => JSON.parse(readFileSync(file, "utf8"));
@@ -109,6 +109,32 @@ test("a symlinked config file is updated at its target and stays a symlink", asy
   expect(await grantClaudeFolderTrust(link, folder)).toEqual({status: "granted"});
   expect(realpathSync(link)).toBe(realpathSync(target));
   expect(read(target).projects[folderKeys(folder)[0]]).toEqual({hasTrustDialogAccepted: true});
+});
+
+test("a symlinked config file is locked at its real path, as proper-lockfile does", async () => {
+  const {file: target} = account(), linkDir = tmpDir(), link = join(linkDir, ".claude.json");
+  symlinkSync(target, link);
+  mkdirSync(`${realpathSync(target)}.lock`);
+  const before = readFileSync(target, "utf8");
+  expect(await grantClaudeFolderTrust(link, tmpDir())).toEqual({status: "skipped", reason: "the Claude config file is locked by another process"});
+  expect(readFileSync(target, "utf8")).toBe(before);
+  expect(existsSync(`${link}.lock`)).toBe(false);
+  rmdirSync(`${realpathSync(target)}.lock`);
+  const folder = tmpDir();
+  expect(await grantClaudeFolderTrust(link, folder)).toEqual({status: "granted"});
+  expect(read(target).projects[folderKeys(folder)[0]]).toEqual({hasTrustDialogAccepted: true});
+  expect(readdirSync(linkDir)).toEqual([".claude.json"]);
+});
+
+test("MCP answers are read from the source checkouts' local settings and config entries only", () => {
+  const repo = tmpDir(), other = tmpDir();
+  mkdirSync(join(repo, ".claude"));
+  writeFileSync(join(repo, ".claude", "settings.local.json"), JSON.stringify({disabledMcpjsonServers: ["off"], enabledMcpjsonServers: ["on", "off"]}));
+  mkdirSync(join(other, ".claude"));
+  writeFileSync(join(other, ".claude", "settings.local.json"), "not json");
+  const {file} = account({projects: {[realpathSync(repo)]: {disabledMcpjsonServers: ["cfg-off", null], enabledMcpjsonServers: "on"}, "/elsewhere": {disabledMcpjsonServers: ["unrelated"]}}});
+  expect(projectMcpChoices(file, [repo, other])).toEqual({enabled: ["on"], disabled: ["cfg-off", "off"]});
+  expect(projectMcpChoices(join(tmpDir(), "missing.json"), [tmpDir()])).toEqual({enabled: [], disabled: []});
 });
 
 test("concurrent grants for one file all land", async () => {

@@ -1,9 +1,9 @@
 import { afterEach, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { defaultAccountFolder, recordDefaultFolder, withDefaultFolder } from "../src/exec/account-folder";
+import { defaultAccountFolder, recordDefaultFolder, recordRunFolder, withDefaultFolder } from "../src/exec/account-folder";
 import { claudeConfigFile } from "../src/exec/claude-trust";
-import { applyFolderTools, clearTerminalEnvCache, composeTerminalEnv, FOLDER_TOOL_TIMEOUT_MS, LOGIN_ENV_TIMEOUT_MS, parseLoginEnv, parseLoginUmask, profileColor, profileKeys, terminalEnv, terminalEnvNote, terminalEnvRecord, terminalUmask, withUmask } from "../src/exec/login-env";
+import { applyFolderTools, cachedLoginPath, clearTerminalEnvCache, onPath, composeTerminalEnv, FOLDER_TOOL_TIMEOUT_MS, LOGIN_ENV_TIMEOUT_MS, parseLoginEnv, parseLoginUmask, profileColor, profileKeys, terminalEnv, terminalEnvNote, terminalEnvRecord, terminalUmask, withUmask } from "../src/exec/login-env";
 import { execProcess, executorEnv, type ExecSpec } from "../src/exec/process";
 import { nativeTerminalEnv } from "../src/session/environment";
 import { fakeLoginShell, tmpDir } from "./helpers";
@@ -177,17 +177,89 @@ test("per-folder tools run for every launch and their skip reasons reach the not
   expect(terminalEnvRecord(found)).toEqual({source: "login-shell", shell: "/bin/sh", umask: "login", profileKeys: [], folder: [{tool: "direnv", status: "skipped", reason: ".envrc is not allowed (direnv allow decides)"}]});
 });
 
+const loginBase = (env: Record<string, string>, keys: string[] = Object.keys(env)) => ({env, source: "login-shell" as const, shell: "/bin/sh", umask: {mask: "022"}, profileKeys: keys, folder: []});
+
 test("the default account's folder follows the profile for trust, transcripts and usage readers", () => {
   const ctx = {pacerHome: tmpDir(), home: tmpDir()};
   expect(defaultAccountFolder(ctx, "claude")).toBe(join(ctx.home, ".claude"));
-  recordDefaultFolder(ctx, "claude-code", {}, {CLAUDE_CONFIG_DIR: "/profile/claude"});
+  recordDefaultFolder(ctx, "claude-code", {}, loginBase({CLAUDE_CONFIG_DIR: "/profile/claude"}));
   // A named account's run does not change the default account's folder.
-  recordDefaultFolder(ctx, "claude-code", {CLAUDE_CONFIG_DIR: "/accounts/claude1"}, {CLAUDE_CONFIG_DIR: "/accounts/claude1"});
+  recordDefaultFolder(ctx, "claude-code", {CLAUDE_CONFIG_DIR: "/accounts/claude1"}, loginBase({CLAUDE_CONFIG_DIR: "/accounts/claude1"}));
   expect(defaultAccountFolder(ctx, "claude")).toBe("/profile/claude");
   expect(defaultAccountFolder(ctx, "codex")).toBe(join(ctx.home, ".codex"));
   expect(withDefaultFolder(ctx, "claude-code", {})).toEqual({CLAUDE_CONFIG_DIR: "/profile/claude"});
   expect(claudeConfigFile(withDefaultFolder(ctx, "claude-code", {}), ctx.home)).toBe("/profile/claude/.claude.json");
+  // Without a login environment (disabled, failed or strict) the record stays.
+  recordDefaultFolder(ctx, "claude-code", {}, {env: {}, source: "service", reason: "disabled by PACER_LOGIN_ENV=off"});
+  expect(defaultAccountFolder(ctx, "claude")).toBe("/profile/claude");
   // When the profile stops setting it, the home default returns.
-  recordDefaultFolder(ctx, "claude-code", {}, {});
+  recordDefaultFolder(ctx, "claude-code", {}, loginBase({}));
   expect(defaultAccountFolder(ctx, "claude")).toBe(join(ctx.home, ".claude"));
+});
+
+test("an .envrc's account folder neither reaches the run nor changes the recorded default folder", async () => {
+  const ctx = {pacerHome: tmpDir(), home: tmpDir()}, dir = tmpDir();
+  writeFileSync(join(dir, ".envrc"), "");
+  const bin = folderBin(dir, {direnv: `echo '{"CLAUDE_CONFIG_DIR":"/repo/chosen","CODEX_HOME":"/repo/codex","FROM_ENVRC":"1"}'`});
+  const run = async (spec: ExecSpec) => spec.argv[0].endsWith("direnv") ? execProcess(spec)
+    : {code: 0, stdout: `__PACER_LOGIN_UMASK__\n022\n__PACER_LOGIN_ENV__\nPATH=${bin}:/usr/bin:/bin\0CLAUDE_CONFIG_DIR=/profile/claude\0`, stderr: "", timedOut: false};
+  const found = await terminalEnv({SHELL: "/bin/sh", PATH: "/usr/bin", PACER_LOGIN_ENV: "on"}, {cwd: dir, workdir: dir, run});
+  expect(found.env).toMatchObject({CLAUDE_CONFIG_DIR: "/profile/claude", FROM_ENVRC: "1"});
+  expect(found.env).not.toHaveProperty("CODEX_HOME");
+  expect(profileKeys(found)).toEqual(["CLAUDE_CONFIG_DIR"]);
+  expect(terminalEnvNote(found)).toBe("executor environment: direnv's CLAUDE_CONFIG_DIR, CODEX_HOME not applied (account folders come from the login profile or the strategy)\n\n");
+  recordDefaultFolder(ctx, "claude-code", {}, found);
+  recordDefaultFolder(ctx, "codex", {}, found);
+  expect(defaultAccountFolder(ctx, "claude")).toBe("/profile/claude");
+  expect(defaultAccountFolder(ctx, "codex")).toBe(join(ctx.home, ".codex"));
+});
+
+test("each run records its own account folder, and its transcript lookup reads that record", () => {
+  const ctx = {pacerHome: tmpDir(), home: tmpDir()}, first = tmpDir(), second = tmpDir();
+  recordRunFolder(first, ctx, "claude-code", {CLAUDE_CONFIG_DIR: "/profile/old"});
+  recordRunFolder(second, ctx, "claude-code", {});
+  recordDefaultFolder(ctx, "claude-code", {}, loginBase({CLAUDE_CONFIG_DIR: "/profile/new"}));
+  expect(withDefaultFolder(ctx, "claude-code", {}, first)).toEqual({CLAUDE_CONFIG_DIR: "/profile/old"});
+  expect(withDefaultFolder(ctx, "claude-code", {}, second)).toEqual({CLAUDE_CONFIG_DIR: join(ctx.home, ".claude")});
+  expect(withDefaultFolder(ctx, "claude-code", {}, tmpDir())).toEqual({CLAUDE_CONFIG_DIR: "/profile/new"});
+  expect((statSync(join(first, "account-folder.json")).mode & 0o777).toString(8)).toBe("600");
+});
+
+test("the default folder record is written atomically through a random exclusive temp file (SEC-7)", () => {
+  const ctx = {pacerHome: tmpDir(), home: tmpDir()}, state = join(ctx.pacerHome, "state");
+  mkdirSync(state, {recursive: true});
+  // A file planted at the old predictable temp name is neither followed nor reused.
+  const victim = join(tmpDir(), "victim");
+  writeFileSync(victim, "untouched");
+  symlinkSync(victim, join(state, `default-account-folders.json.${process.pid}.tmp`));
+  recordDefaultFolder(ctx, "claude-code", {}, loginBase({CLAUDE_CONFIG_DIR: "/profile/claude"}));
+  expect(readFileSync(victim, "utf8")).toBe("untouched");
+  expect(readdirSync(state).sort()).toEqual(["default-account-folders.json", `default-account-folders.json.${process.pid}.tmp`]);
+  expect((statSync(join(state, "default-account-folders.json")).mode & 0o777).toString(8)).toBe("600");
+  expect(JSON.parse(readFileSync(join(state, "default-account-folders.json"), "utf8"))).toEqual({claude: "/profile/claude"});
+});
+
+test("a failed login shell is cached too: one shell per TTL, not one per launch", async () => {
+  const dir = tmpDir();
+  let runs = 0;
+  const run = async () => { runs++; return {code: 0, stdout: "", stderr: "", timedOut: true}; };
+  const service = {SHELL: "/bin/sh", PATH: "/usr/bin", PACER_LOGIN_ENV: "on"};
+  for (const now of [0, 1000, 30_000, 59_999]) expect((await terminalEnv(service, {cwd: dir, run, now})).source).toBe("service");
+  expect(runs).toBe(1);
+  await terminalEnv(service, {cwd: dir, run, now: 60_000});
+  expect(runs).toBe(2);
+});
+
+test("status reads the cached login PATH without waiting on a shell, and strict work keeps the service PATH", async () => {
+  const dir = tmpDir(), bin = folderBin(dir, {claude: "exit 0"});
+  const service = {SHELL: "/bin/sh", PATH: "/usr/bin:/bin", PACER_LOGIN_ENV: "on"};
+  let runs = 0;
+  const run = async () => { runs++; return {code: 0, stdout: `__PACER_LOGIN_ENV__\nPATH=${bin}:/usr/bin:/bin\0`, stderr: "", timedOut: false}; };
+  expect(cachedLoginPath(service, dir)).toBeUndefined();
+  expect(runs).toBe(0);
+  await terminalEnv(service, {cwd: dir, run, now: 0});
+  expect(cachedLoginPath(service, dir)).toBe(`${bin}:/usr/bin:/bin`);
+  expect(onPath({PATH: cachedLoginPath(service, dir)}, "claude")).toBe(join(bin, "claude"));
+  expect(cachedLoginPath({...service, PACER_LOGIN_ENV: "off"}, dir)).toBeUndefined();
+  expect(runs).toBe(1);
 });

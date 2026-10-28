@@ -38,6 +38,7 @@ import type { DecisionHooks } from "../classify/hooks";
 import { type ProviderCfg, type Strategy, loadStrategy } from "../config/strategy";
 import { type Excluded, rankExecutors, ruleFor } from "../engine/rank";
 import { type Status, computeStatus } from "../engine/status";
+import { terminalEnv } from "../exec/login-env";
 import { brokenReason, markBroken, readBroken, repoFingerprint } from "../exec/broken";
 import { directBackend, selectBackend } from "../exec/backend";
 import { type AttemptOutcome, resumeAttempt } from "../exec/direct";
@@ -222,6 +223,8 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
         selection = snapshot.selection;
         if (!tried.has(task.requestedExecutor ?? "")) requireProjectExecutor(selection, task.requestedExecutor);
         const now = Date.now() / 1000;
+        // Read the login environment before routing, so the installed check sees the PATH the attempt will use.
+        if (ctx.env.PACER_ENFORCEMENT_MODE !== "strict") await terminalEnv(ctx.env, {cwd: ctx.home}).catch(() => undefined);
         const st = await deps.computeStatus({ ...ctx, now }, s, {includePlannerSignIn: task.interactionMode === "conversation"});
         startStatus = st;
         const blocked = readBlocked({ ...ctx, now });

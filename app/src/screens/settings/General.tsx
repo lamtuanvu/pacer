@@ -642,6 +642,7 @@ export function MachineSection({ initialData }: { initialData?: ConfigData }) {
           help="Interactive runs open in the agent's terminal UI and finish when the agent reports its result. Headless runs the agent's non-interactive CLI. A runner's own session setting overrides this."
         >
           <ChoicePicker
+            aria-label="Delegated task launch"
             value={launchMode}
             options={[{value:"interactive",label:"Interactive"},{value:"headless",label:"Headless"}]}
             disabled={action.busy}

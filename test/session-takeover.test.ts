@@ -1,5 +1,4 @@
 import { expect, test } from "bun:test";
-import { folderKeys } from "../src/exec/claude-trust";
 import { launchFor, resumeLaunchFor } from "../src/exec/launch";
 import { parseOpencodeSessions, takeoverAvailability } from "../src/session/takeover";
 import { parseSessionHeader } from "../src/exec/direct";
@@ -253,7 +252,7 @@ test.skipIf(!canInspect)("runner restart between headless stop and resume starts
  }finally{const current=readTask(ctx,task.id)?.run;if(current)await stopRun(current.dir);await running;}
 },25000);
 
-test.skipIf(!canInspect)("a Claude takeover resume is pre-trusted and keeps its permission bypass",async()=>{
+test.skipIf(!canInspect)("a Claude takeover resume keeps its permission bypass and Claude's own MCP prompt; an in-place checkout is not pre-trusted",async()=>{
  const {ctx,task,deps}=fixture(),dir=join(ctx.pacerHome,"runs",task.id,"1"),startedAt=Date.now()/1000;
  mkdirSync(dir,{recursive:true});mkdirSync(ctx.home,{recursive:true});
  writeFileSync(join(ctx.home,".claude.json"),JSON.stringify({oauthAccount:{}}),{mode:0o600});
@@ -266,9 +265,12 @@ test.skipIf(!canInspect)("a Claude takeover resume is pre-trusted and keeps its 
   await until(()=>readTask(ctx,task.id)?.run?.takeover && existsSync(join(run.workdir,"resumed-id.txt")));
   const takeover=readTask(ctx,task.id)!.run!.dir;
   expect(readFileSync(join(takeover,"argv"),"utf8")).toContain("--dangerously-skip-permissions");
-  expect(JSON.parse(readFileSync(join(takeover,"claude-settings.json"),"utf8"))).toMatchObject({skipDangerousModePermissionPrompt:true,enableAllProjectMcpServers:true});
-  const projects=JSON.parse(readFileSync(join(ctx.home,".claude.json"),"utf8")).projects;
-  for(const key of folderKeys(run.workdir))expect(projects[key]).toMatchObject({hasTrustDialogAccepted:true});
+  // The user drives a take over: no blanket project MCP approval, so Claude asks as usual.
+  const settings=JSON.parse(readFileSync(join(takeover,"claude-settings.json"),"utf8"));
+  expect(settings.skipDangerousModePermissionPrompt).toBe(true);
+  expect(settings).not.toHaveProperty("enableAllProjectMcpServers");
+  // Only pacer-created task worktrees are pre-trusted; this run is in place.
+  expect(JSON.parse(readFileSync(join(ctx.home,".claude.json"),"utf8"))).toEqual({oauthAccount:{}});
   writeFileSync(join(run.workdir,"finish-session"),"");
   expect((await running).state).toBe("done");
  }finally{const current=readTask(ctx,task.id)?.run;if(current)await stopRun(current.dir);await running;}

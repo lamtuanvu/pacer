@@ -159,27 +159,40 @@ adds `--dangerously-bypass-hook-trust` when it injects its reporting hooks.
 
 Claude Code asks whether to trust a folder, and whether to allow external
 `CLAUDE.md` imports, before it loads Pacer's hooks. An unattended task would wait
-at those prompts unseen. Before an interactive or takeover launch, Pacer marks the
-task worktree as trusted in the selected account's Claude state (`~/.claude.json`,
-or `.claude.json` in a named account's folder), the way Orca does. It sets
+at those prompts unseen. Before an interactive or takeover launch in a worktree that
+Pacer created for the task (under `~/.pacer/worktrees`), Pacer marks that worktree as
+trusted in the selected account's Claude state (`~/.claude.json`, or `.claude.json`
+in a named account's folder), the way Orca does. It never does this for an in-place
+run, a folder that is not a git repository, your home folder or `/`; those launches
+start normally and the report says the trust prompt may appear. It sets
 `hasTrustDialogAccepted` on the worktree's entry. If you have not yet answered the
 import prompt for the repository, it also records the answer "No" on the repository
 root's entry (`hasClaudeMdExternalIncludesWarningShown`), which is where Claude Code
 reads it: the prompt is not shown and imports from outside the repository stay off.
 That answer also applies to your own Claude sessions in the repository; an earlier
 answer is never changed. Conversations, which you attend, keep Claude's prompts. Pacer
-re-reads the file under Claude's `<file>.lock` lock, changes only those `projects`
-entries and replaces the file atomically. If the file is missing, unreadable or
+re-reads the file under Claude's lock (`<real path>.lock`, as `proper-lockfile` takes it,
+also when `.claude.json` is a symlink), changes only those `projects` entries and
+replaces the file atomically. If the file is missing, unreadable or
 locked, the task still starts and its report says the trust prompt may appear.
 Pacer keeps one trust entry per task worktree and, like Orca, does not remove the
 entries when it removes a worktree.
 
 The run's `--settings` file skips Claude's one-time bypass-permissions
-acknowledgement and approves project MCP servers for that launch
-(`enableAllProjectMcpServers`). This includes a server from a `.mcp.json` in a parent
-folder of `~/.pacer/worktrees`. The account's `settings.json` and `.claude.json` are
-not edited for either. A server you rejected stays off: Claude Code checks
-`disabledMcpjsonServers` in your settings before it applies the approval.
+acknowledgement. For an unattended task launch it also approves project MCP servers for
+that launch (`enableAllProjectMcpServers`), including a server from a `.mcp.json` in a
+parent folder of `~/.pacer/worktrees`. Takeovers and conversations, where you are at the
+terminal, keep Claude's own MCP prompt. The account's `settings.json` and `.claude.json`
+are not edited for either.
+
+A server you rejected stays off. Claude Code stores your answers in the checkout's
+untracked `.claude/settings.local.json`, or in the project's entry in `.claude.json`,
+and a new task worktree has neither. Before the launch, Pacer reads only
+`disabledMcpjsonServers` and `enabledMcpjsonServers` from the source checkout's
+`.claude/settings.local.json` and from the source repository's entries in the account's
+`.claude.json`, and writes them into the run's `--settings` file. Claude Code 2.1.281
+applies `disabledMcpjsonServers` before `enableAllProjectMcpServers`, also when both
+come from the per-run file.
 
 ## Session environment
 
@@ -196,6 +209,14 @@ to the service's own environment; values are never logged or written. If the she
 cannot be used, the attempt note says so. Set `PACER_LOGIN_ENV=off` in the service
 environment to skip the login shell.
 
+Managed work under strict native subagent control is exempt from this terminal parity.
+Its certification checked the agent binary on the service's PATH and the control files
+in the service's account folder, so the attempt runs with exactly that environment: no
+login shell, direnv, mise or login umask, and the default account uses the service's
+default folder rather than one set by your profile. The attempt note and
+`environment.json` record this. A different environment could start another binary or
+read other settings than the ones that were certified.
+
 The same login-shell command prints the shell's `umask`. Pacer applies it to the agent
 process only, through a fixed `/bin/sh` wrapper, for headless, interactive, takeover and
 resumed launches; the service's own umask does not change. If the shell prints no valid
@@ -211,6 +232,10 @@ After the login shell, pacer applies what a terminal `cd` into the task folder w
    and applies it. An untrusted config is skipped; pacer never runs `mise trust`.
 3. **asdf**: only its shims apply, through the login PATH.
 
+Neither direnv nor mise may set `CLAUDE_CONFIG_DIR` or `CODEX_HOME`: the account folder
+comes from your login profile or the strategy, not from a repository's configuration.
+The attempt note names such a variable as not applied.
+
 Each tool has a 5-second limit and runs for every launch (never cached across folders).
 A skipped tool is named with a one-line reason, without values, in the attempt note and
 `environment.json`. Pacer's overrides are applied last.
@@ -220,10 +245,10 @@ Pacer's overrides on top of that base:
 | Area | Override |
 | --- | --- |
 | Environment | `PACER_ROLE`, `PACER_TASK_ID`, `PACER_HOME`; interactive runs also get `PACER_RUN_DIR`, `PACER_TRANSCRIPT_REPORT` and `PACER_REPORT_TOKEN`. Pacer's own tokens are removed. |
-| Account | A named account sets `CLAUDE_CONFIG_DIR` or `CODEX_HOME` to its folder. The default account keeps the value your login profile (or the folder's direnv/mise) sets, as a terminal would; a value that only the service environment carries is removed, so the CLI's default folder applies. Pacer records the default account's folder from the last run and uses it for Claude folder trust, transcript lookup, usage readers and the enforcement canary, so they all read the same folder. |
+| Account | A named account sets `CLAUDE_CONFIG_DIR` or `CODEX_HOME` to its folder. The default account keeps the value your login profile sets, as a terminal would; a value that only the service environment carries, or that direnv or mise sets, is not used, so the CLI's default folder applies. Pacer records the profile's folder in `state/default-account-folders.json` for usage readers, and each run records the folder it used in its run directory for that run's transcript lookup. Strict managed work uses the service's default folder (see above). |
 | Terminal | Interactive runs use pacer's terminal (`TERM=xterm-256color`, `COLORTERM=truecolor`, 120×40 until a viewer resizes it). `NO_COLOR` and `FORCE_COLOR` set by your login profile are kept; values that only the service environment carries are not passed to it. Headless runs have no terminal: input comes from the prompt or `/dev/null`, and output goes to the run's files. |
 | Flags | The permission flags above; `-p`/`exec`/`run` and the output format for headless runs; Codex `--no-daemon`; OpenCode `--standalone` and its `build` agent; the model, if the runner sets one. |
-| Configuration | Claude: interactive runs get the run's `--settings` file (reporting hooks, the acknowledgement and MCP approvals); strict headless runs get a `--settings` file with pacer's subagent guard. Codex: per-run hook, trust and (on resume) update-check overrides, which replace your hooks for those events in that run. Claude folder trust as described above. |
+| Configuration | Claude: interactive runs get the run's `--settings` file (reporting hooks, the acknowledgement and, for unattended task launches, MCP approvals with your rejections); strict headless runs get a `--settings` file with pacer's subagent guard. Codex: per-run hook, trust and (on resume) update-check overrides, which replace your hooks for those events in that run. Claude folder trust as described above. |
 | Prompt | The brief and pacer's report instructions. |
 
 Remote runners start through a login `bash -l` on the host and are not covered here.

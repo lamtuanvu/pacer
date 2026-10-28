@@ -2,6 +2,7 @@ import { appendFileSync, openSync, closeSync, readSync, statSync, readFileSync, 
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Launch } from "../exec/launch";
+import type { McpChoices } from "../exec/claude-trust";
 import type { Ctx } from "../types";
 import type { Result } from "../commands/types";
 import { readTask } from "../tasks/store";
@@ -103,7 +104,12 @@ export function agentHook(dir: string, input: unknown): void {
   if (typeof event === "string") appendFileSync(join(dir, "events.jsonl"), JSON.stringify({event, status: readReport(dir)?.status, at: Date.now() / 1000}) + "\n", {mode: 0o600});
 }
 const quote = (s: string) => "'" + s.replaceAll("'", "'\\''") + "'";
-export function prepareInteractive(agent: string, dir: string, launch: Launch): Launch {
+/**
+ * Claude settings for this launch: `attended` (the user drives the session) keeps Claude's native project MCP
+ * prompt; an unattended task approves project MCP servers except the ones the user rejected (`mcp`).
+ */
+export type InteractiveOptions = {attended?: boolean; mcp?: McpChoices};
+export function prepareInteractive(agent: string, dir: string, launch: Launch, options: InteractiveOptions = {}): Launch {
   if (!["claude-code", "codex"].includes(agent)) return launch;
   mkdirSync(dir, {recursive: true, mode: 0o700});
   const cli = /(^|\/)bun(?:\.exe)?$/.test(process.execPath) ? [process.execPath, fileURLToPath(new URL("../cli.ts", import.meta.url))] : [process.execPath];
@@ -119,9 +125,13 @@ export function prepareInteractive(agent: string, dir: string, launch: Launch): 
   hooks.ElicitationResult = [{hooks: [{type: "command", command}]}];
   hooks.Notification = [{matcher: "permission_prompt|idle_prompt|elicitation_dialog", hooks: [{type: "command", command}]}];
   const settings = join(dir, "claude-settings.json");
-  // Per launch, so the account's settings.json stays untouched: no bypass-permissions acknowledgement dialog and
-  // no project MCP approval prompt. Claude still rejects servers listed in disabledMcpjsonServers first.
-  writeFileSync(settings, JSON.stringify({skipDangerousModePermissionPrompt: true, enableAllProjectMcpServers: true, hooks}), {mode: 0o600});
+  // Per launch, so the account's settings.json stays untouched: no bypass-permissions acknowledgement dialog and, for
+  // unattended tasks, no project MCP approval prompt. The source checkout's answers travel along, because its
+  // untracked settings.local.json is not in a task worktree; Claude rejects disabledMcpjsonServers before enabling all.
+  const mcp = options.attended ? {} : {enableAllProjectMcpServers: true,
+    ...(options.mcp?.disabled.length ? {disabledMcpjsonServers: options.mcp.disabled} : {}),
+    ...(options.mcp?.enabled.length ? {enabledMcpjsonServers: options.mcp.enabled} : {})};
+  writeFileSync(settings, JSON.stringify({skipDangerousModePermissionPrompt: true, ...mcp, hooks}), {mode: 0o600});
   return {...launch, argv: [launch.argv[0], "--settings", settings, ...launch.argv.slice(1)]};
 }
 /** Bind agent reports to the active attempt, including when --task is supplied. */

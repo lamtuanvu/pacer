@@ -11,7 +11,7 @@ import { execProcess, type ExecResult, type ExecSpec } from "./process";
  */
 export type Env = Record<string, string | undefined>;
 /** A per-folder tool's outcome for this run: which tool, and why it was skipped; never a value. */
-export type FolderTool = {tool: "direnv" | "mise"; status: "applied"} | {tool: "direnv" | "mise"; status: "skipped"; reason: string};
+export type FolderTool = {tool: "direnv" | "mise"; status: "applied"; withheld?: string[]} | {tool: "direnv" | "mise"; status: "skipped"; reason: string};
 export type TerminalEnv = {
   env: Env; source: "login-shell"; shell: string;
   /** The login shell's umask (validated octal), or why the service's umask stays. */
@@ -31,6 +31,10 @@ const COMMAND = `echo ${UMASK_MARKER}; umask; echo ${MARKER}; exec /usr/bin/env 
  * that their presence in its output means the profile set them.
  */
 export const PROFILE_KEYS = ["NO_COLOR", "FORCE_COLOR", "CLAUDE_CONFIG_DIR", "CODEX_HOME"] as const;
+/** Account folder variables: only the login profile or the strategy selects them, never a repository's .envrc or mise config. */
+const ACCOUNT_KEYS = new Set(["CLAUDE_CONFIG_DIR", "CODEX_HOME"]);
+/** Strict delegation enforcement certified the service's environment; the attempt runs with exactly that. */
+export const STRICT_SERVICE_ENV = "strict delegation enforcement runs with the certified service environment";
 export const FOLDER_TOOL_TIMEOUT_MS = 5000;
 const OCTAL_UMASK = /^[0-7]{3,4}$/;
 export const LOGIN_ENV_TIMEOUT_MS = 5000;
@@ -43,6 +47,8 @@ const pacerOwned = (key: string) => key === "HOME" || key.startsWith("PACER_");
 
 type Run = (spec: ExecSpec) => Promise<ExecResult>;
 const cache = new Map<string, {at: number; result: Promise<TerminalEnv>}>();
+/** The last login PATH per cache key, kept past the TTL so status can read it without waiting on a shell. */
+const knownPaths = new Map<string, string>();
 
 /** The user's login shell: $SHELL when it is an absolute, existing path, else the account's shell. */
 export function loginShell(env: Env): string | null {
@@ -102,7 +108,7 @@ async function capture(shell: string, spawnEnv: Env, cwd: string, run: Run): Pro
 }
 
 /** An executable named `name` on the environment's PATH, as an absolute path. */
-function onPath(env: Env, name: string): string | null {
+export function onPath(env: Env, name: string): string | null {
   for (const dir of (env.PATH ?? "").split(":")) {
     if (!dir || !isAbsolute(dir)) continue;
     const file = join(dir, name);
@@ -163,11 +169,14 @@ export async function applyFolderTools(env: Env, cwd: string, run: Run = execPro
     if (!binary || (tool === "direnv" && !hasEnvrc(cwd))) continue;
     const {changes, ...outcome} = await folderTool(tool, binary, out, cwd, run);
     folder.push(outcome);
+    const withheld: string[] = [];
     for (const [key, value] of Object.entries(changes ?? {})) {
       if (pacerOwned(key)) continue;
+      if (ACCOUNT_KEYS.has(key)) { withheld.push(key); continue; }
       if (value === null) delete out[key]; else out[key] = value;
       changed.push(key);
     }
+    if (withheld.length && outcome.status === "applied") folder[folder.length - 1] = {...outcome, withheld};
   }
   return {env: out, folder, changed};
 }
@@ -176,20 +185,29 @@ export async function applyFolderTools(env: Env, cwd: string, run: Run = execPro
  * Resolves the executor base environment once per service environment and caches it briefly. Falls back to the
  * service's environment, with a reason, when the login shell is unavailable, fails, or PACER_LOGIN_ENV=off.
  */
+const loginDisabled = (service: Env) => (service.PACER_LOGIN_ENV ?? process.env.PACER_LOGIN_ENV) === "off";
+const spawnEnvOf = (service: Env): Env => Object.fromEntries(Object.entries(service).filter(([key, value]) => value !== undefined && !key.startsWith("PACER_") && !(PROFILE_KEYS as readonly string[]).includes(key)));
+// Keyed by a digest, so the cache holds no copy of the service environment's values as keys.
+const cacheKey = (shell: string, cwd: string, spawnEnv: Env) => createHash("sha256").update(JSON.stringify([shell, cwd, Object.entries(spawnEnv).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)])).digest("hex");
+
 export async function terminalEnv(service: Env, options: {cwd: string; workdir?: string; run?: Run; now?: number}): Promise<TerminalEnv> {
-  if ((service.PACER_LOGIN_ENV ?? process.env.PACER_LOGIN_ENV) === "off") return {env: service, source: "service", reason: "disabled by PACER_LOGIN_ENV=off"};
+  if (loginDisabled(service)) return {env: service, source: "service", reason: "disabled by PACER_LOGIN_ENV=off"};
   const shell = loginShell(service);
   if (!shell) return {env: service, source: "service", reason: "no login shell is configured"};
-  const spawnEnv: Env = Object.fromEntries(Object.entries(service).filter(([key, value]) => value !== undefined && !key.startsWith("PACER_") && !(PROFILE_KEYS as readonly string[]).includes(key)));
-  // Keyed by a digest, so the cache holds no copy of the service environment's values as keys.
-  const key = createHash("sha256").update(JSON.stringify([shell, options.cwd, Object.entries(spawnEnv).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)])).digest("hex");
+  const spawnEnv = spawnEnvOf(service);
+  const key = cacheKey(shell, options.cwd, spawnEnv);
   const now = options.now ?? Date.now();
   for (const [stale, entry] of cache) if (now - entry.at >= TTL_MS) cache.delete(stale);
   let entry = cache.get(key);
   if (!entry) {
     const result = capture(shell, spawnEnv, options.cwd, options.run ?? execProcess)
       .catch(() => "the login shell could not be started")
-      .then(found => typeof found === "string" ? {env: {}, source: "service" as const, reason: found} : found);
+      .then(found => typeof found === "string" ? {env: {}, source: "service" as const, reason: found} : found)
+      .then(found => {
+        if (found.source === "login-shell") knownPaths.set(key, composeTerminalEnv(service, found.env).PATH ?? "");
+        else knownPaths.delete(key);
+        return found;
+      });
     // Failures are cached too, so a hanging profile costs one timeout per TTL rather than one per launch.
     entry = {at: now, result};
     cache.set(key, entry);
@@ -203,8 +221,22 @@ export async function terminalEnv(service: Env, options: {cwd: string; workdir?:
   return {...found, env: folder.env, profileKeys, folder: folder.folder};
 }
 
+/**
+ * The PATH an executor launched now would get, without waiting on a shell: the last login PATH read for this
+ * service environment (kept past the cache's TTL), or undefined when none has been read yet, in which case the
+ * caller uses the service's PATH. The service and the task runner read the login environment ahead of routing.
+ */
+export function cachedLoginPath(service: Env, cwd: string): string | undefined {
+  if (loginDisabled(service)) return undefined;
+  const shell = loginShell(service);
+  return shell ? knownPaths.get(cacheKey(shell, cwd, spawnEnvOf(service))) || undefined : undefined;
+}
+
+/** Strict work's base environment: the service's own, with the reason the login shell was not used. */
+export const strictServiceEnv = (service: Env): TerminalEnv => ({env: service, source: "service", reason: STRICT_SERVICE_ENV});
+
 /** For tests: forget cached login environments. */
-export function clearTerminalEnvCache(): void { cache.clear(); }
+export function clearTerminalEnvCache(): void { cache.clear(); knownPaths.clear(); }
 
 /** Lines for the attempt note: why the login shell, its umask or a per-folder tool was not used. Never values. */
 export function terminalEnvNote(found: TerminalEnv): string {
@@ -212,7 +244,8 @@ export function terminalEnvNote(found: TerminalEnv): string {
     ? `executor environment: login shell not used (${found.reason}); the agent runs with the pacer service's environment\n\n` : "";
   const lines = [
     ...("reason" in found.umask ? [`executor environment: login umask not applied (${found.umask.reason}); the agent runs with the pacer service's umask`] : []),
-    ...found.folder.flatMap(tool => tool.status === "skipped" ? [`executor environment: ${tool.tool} not applied (${tool.reason})`] : []),
+    ...found.folder.flatMap(tool => tool.status === "skipped" ? [`executor environment: ${tool.tool} not applied (${tool.reason})`]
+      : tool.withheld?.length ? [`executor environment: ${tool.tool}'s ${tool.withheld.join(", ")} not applied (account folders come from the login profile or the strategy)`] : []),
   ];
   return lines.length ? lines.join("\n") + "\n\n" : "";
 }

@@ -20,6 +20,7 @@ import { isCalendar } from "../pace/clock";
 import type { Ctx, UsageReading, UsageSource, Verdict } from "../types";
 import { markFreshness } from "../usage/freshness";
 import { readAccountUsage } from "../usage/index";
+import { cachedLoginPath, onPath } from "../exec/login-env";
 import { limitObservation } from "../usage/reactive";
 import { type Mode, plannerMode } from "./mode";
 import { type Excluded, type ProviderStatus, type RankedExecutor, rankExecutors } from "./rank";
@@ -146,6 +147,10 @@ export async function computeStatus(
   }));
   trace("budgets");
   const byAccount = Object.fromEntries(budgets.map(b => [b.account.name, b]));
+  // The PATH a local run would use: the login shell's once read (never waited on here), else the service's.
+  // Strict work runs with the service's environment, and its certification checks the binary there.
+  const loginPath = ctx.env.PACER_ENFORCEMENT_MODE === "strict" ? undefined : cachedLoginPath(ctx.env, ctx.home);
+  const installed = (bin: string) => loginPath !== undefined ? onPath({PATH: loginPath}, bin) !== null : ctx.which(bin) !== null;
   const providers: ProviderStatus[] = Object.values(s.runners).map(runner => {
     const { account, reading, endpointReason, endpointNotTested, scope, snapshot, usage, unlimited } = byAccount[runner.account];
     const runnerScope = { ...scope, runner: runner.name, model: runner.model ?? "default", host: runner.host ?? "local" };
@@ -165,7 +170,7 @@ export async function computeStatus(
       ...(signIn?.signedIn === false ? { signedOutReason: signIn.reason } : {}),
       ...(endpointReason ? {unavailableReason: endpointReason} : {}),
       ...(endpointNotTested ? {endpointNotTested: true as const} : {}),
-      installed: runner.host !== null || ctx.which(BINARIES[runner.agent] ?? runner.agent) !== null,
+      installed: runner.host !== null || installed(BINARIES[runner.agent] ?? runner.agent),
       stale: reading.stale || windows.some(w => w.stale),
       ...(blocked[runner.name] ? { blockedReason: blocked[runner.name].reason, blockedUntil: blocked[runner.name].until } : {}),
       ...(broken[runner.name] ? { brokenReason: broken[runner.name].reason } : {}),
