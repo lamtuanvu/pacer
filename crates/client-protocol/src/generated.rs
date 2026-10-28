@@ -9429,8 +9429,7 @@ impl
 ///        },
 ///        "taskId": {
 ///          "type": "string",
-///          "maxLength": 128,
-///          "minLength": 1
+///          "pattern": "^[A-Za-z0-9._:-]{1,128}$"
 ///        },
 ///        "theme": {
 ///          "type": "string",
@@ -9591,8 +9590,7 @@ impl<'de> ::serde::Deserialize<'de> for PluginUiActionParamsAction {
 ///    },
 ///    "taskId": {
 ///      "type": "string",
-///      "maxLength": 128,
-///      "minLength": 1
+///      "pattern": "^[A-Za-z0-9._:-]{1,128}$"
 ///    },
 ///    "theme": {
 ///      "type": "string",
@@ -9721,8 +9719,7 @@ impl ::std::convert::TryFrom<&str> for PluginUiActionParamsContextRoute {
 /// ```json
 ///{
 ///  "type": "string",
-///  "maxLength": 128,
-///  "minLength": 1
+///  "pattern": "^[A-Za-z0-9._:-]{1,128}$"
 ///}
 /// ```
 /// </details>
@@ -9743,11 +9740,12 @@ impl ::std::convert::From<PluginUiActionParamsContextTaskId> for ::std::string::
 impl ::std::str::FromStr for PluginUiActionParamsContextTaskId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 128usize {
-            return Err("longer than 128 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| {
+                ::regress::Regex::new("^[A-Za-z0-9._:-]{1,128}$").unwrap()
+            });
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^[A-Za-z0-9._:-]{1,128}$\"".into());
         }
         Ok(Self(value.to_string()))
     }
@@ -10279,8 +10277,7 @@ impl ::std::default::Default for PluginUiListParams {
 ///        },
 ///        "taskId": {
 ///          "type": "string",
-///          "maxLength": 128,
-///          "minLength": 1
+///          "pattern": "^[A-Za-z0-9._:-]{1,128}$"
 ///        },
 ///        "theme": {
 ///          "type": "string",
@@ -10349,8 +10346,7 @@ pub struct PluginUiRenderParams {
 ///    },
 ///    "taskId": {
 ///      "type": "string",
-///      "maxLength": 128,
-///      "minLength": 1
+///      "pattern": "^[A-Za-z0-9._:-]{1,128}$"
 ///    },
 ///    "theme": {
 ///      "type": "string",
@@ -10479,8 +10475,7 @@ impl ::std::convert::TryFrom<&str> for PluginUiRenderParamsContextRoute {
 /// ```json
 ///{
 ///  "type": "string",
-///  "maxLength": 128,
-///  "minLength": 1
+///  "pattern": "^[A-Za-z0-9._:-]{1,128}$"
 ///}
 /// ```
 /// </details>
@@ -10501,11 +10496,12 @@ impl ::std::convert::From<PluginUiRenderParamsContextTaskId> for ::std::string::
 impl ::std::str::FromStr for PluginUiRenderParamsContextTaskId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 128usize {
-            return Err("longer than 128 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| {
+                ::regress::Regex::new("^[A-Za-z0-9._:-]{1,128}$").unwrap()
+            });
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^[A-Za-z0-9._:-]{1,128}$\"".into());
         }
         Ok(Self(value.to_string()))
     }

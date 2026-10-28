@@ -11,6 +11,7 @@ import { enforcementExclusion } from "../dispatch/enforcement";
 import { clientControlOps } from "./ops-client-control";
 import pkg from "../../package.json";
 import { PROTOCOL_VERSION } from "./protocol";
+import { taskIdText } from "../plugins/ui-schema";
 import { desktopUpdateOps } from "./ops-desktop-update";
 import { captureBroker } from "../desktop/capture-broker";
 import { desktopOps } from "./ops-desktop";
@@ -93,7 +94,7 @@ const pluginId = z.string().regex(/^[a-z0-9][a-z0-9-]{1,63}$/);
 const id = z.string().min(1).max(128);
 const uiId = z.string().regex(/^[a-z0-9][a-z0-9-]{0,31}$/);
 const uiSurface = z.enum(["activity", "panelTab", "status"]);
-const uiContext = z.object({ route: z.enum(["start", "overview", "review", "sessions", "terminal", "settings", "hosts", "add-executor", "setup"]), taskId: z.string().min(1).max(128).optional(), theme: z.enum(["light", "dark"]) });
+const uiContext = z.object({ route: z.enum(["start", "overview", "review", "sessions", "terminal", "settings", "hosts", "add-executor", "setup"]), taskId: taskIdText.optional(), theme: z.enum(["light", "dark"]) });
 const op = <P extends z.ZodTypeAny>(d: OpDef<P>) => d as unknown as OpDef;
 
 const agent = z.enum(["claude-code", "codex", "cursor", "opencode"]);

@@ -3980,8 +3980,7 @@ Params JSON Schema:
         },
         "taskId": {
           "type": "string",
-          "minLength": 1,
-          "maxLength": 128
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$"
         },
         "theme": {
           "type": "string",
@@ -4100,8 +4099,7 @@ Params JSON Schema:
         },
         "taskId": {
           "type": "string",
-          "minLength": 1,
-          "maxLength": 128
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$"
         },
         "theme": {
           "type": "string",

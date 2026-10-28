@@ -325,7 +325,6 @@ Limits per plugin: 2 activity, 3 panelTabs, 1 settings, 1 status. Icons (closed 
                         },
                         "description": {
                           "type": "string",
-                          "minLength": 0,
                           "maxLength": 200
                         },
                         "default": {
@@ -352,7 +351,6 @@ Limits per plugin: 2 activity, 3 panelTabs, 1 settings, 1 status. Icons (closed 
                         },
                         "description": {
                           "type": "string",
-                          "minLength": 0,
                           "maxLength": 200
                         },
                         "enum": {
@@ -395,7 +393,6 @@ Limits per plugin: 2 activity, 3 panelTabs, 1 settings, 1 status. Icons (closed 
                         },
                         "description": {
                           "type": "string",
-                          "minLength": 0,
                           "maxLength": 200
                         }
                       },
@@ -419,7 +416,6 @@ Limits per plugin: 2 activity, 3 panelTabs, 1 settings, 1 status. Icons (closed 
                         },
                         "description": {
                           "type": "string",
-                          "minLength": 0,
                           "maxLength": 200
                         },
                         "minimum": {
@@ -473,7 +469,6 @@ Limits per plugin: 2 activity, 3 panelTabs, 1 settings, 1 status. Icons (closed 
                         },
                         "description": {
                           "type": "string",
-                          "minLength": 0,
                           "maxLength": 200
                         },
                         "maxItems": {
@@ -504,7 +499,6 @@ Limits per plugin: 2 activity, 3 panelTabs, 1 settings, 1 status. Icons (closed 
                         },
                         "description": {
                           "type": "string",
-                          "minLength": 0,
                           "maxLength": 200
                         },
                         "maxItems": {
@@ -678,7 +672,6 @@ A view document is a tree of typed nodes, at most 65536 bytes, 500 nodes and dep
         },
         "text": {
           "type": "string",
-          "minLength": 0,
           "maxLength": 2000
         },
         "tone": {
@@ -712,7 +705,6 @@ A view document is a tree of typed nodes, at most 65536 bytes, 500 nodes and dep
               },
               "value": {
                 "type": "string",
-                "minLength": 0,
                 "maxLength": 80
               }
             },
@@ -739,7 +731,6 @@ A view document is a tree of typed nodes, at most 65536 bytes, 500 nodes and dep
         },
         "empty": {
           "type": "string",
-          "minLength": 0,
           "maxLength": 80
         },
         "items": {
@@ -755,7 +746,6 @@ A view document is a tree of typed nodes, at most 65536 bytes, 500 nodes and dep
               },
               "subtitle": {
                 "type": "string",
-                "minLength": 0,
                 "maxLength": 200
               },
               "status": {
@@ -871,7 +861,6 @@ A view document is a tree of typed nodes, at most 65536 bytes, 500 nodes and dep
         },
         "text": {
           "type": "string",
-          "minLength": 0,
           "maxLength": 16384
         }
       },
@@ -1028,7 +1017,6 @@ A view document is a tree of typed nodes, at most 65536 bytes, 500 nodes and dep
         },
         "body": {
           "type": "string",
-          "minLength": 0,
           "maxLength": 2000
         }
       },
@@ -3478,7 +3466,6 @@ Result:
     },
     "message": {
       "type": "string",
-      "minLength": 0,
       "maxLength": 200
     }
   },
@@ -3591,12 +3578,10 @@ Result:
             "properties": {
               "path": {
                 "type": "string",
-                "minLength": 0,
                 "maxLength": 200
               },
               "message": {
                 "type": "string",
-                "minLength": 0,
                 "maxLength": 200
               }
             },

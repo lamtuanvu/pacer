@@ -14924,8 +14924,7 @@ impl<'de> ::serde::Deserialize<'de> for UiActionParamsValuesValueVariant0 {
 ///  "properties": {
 ///    "message": {
 ///      "type": "string",
-///      "maxLength": 200,
-///      "minLength": 0
+///      "maxLength": 200
 ///    },
 ///    "result": {
 ///      "type": "string",
@@ -14953,8 +14952,7 @@ pub struct UiActionResult {
 /// ```json
 ///{
 ///  "type": "string",
-///  "maxLength": 200,
-///  "minLength": 0
+///  "maxLength": 200
 ///}
 /// ```
 /// </details>
@@ -14977,9 +14975,6 @@ impl ::std::str::FromStr for UiActionResultMessage {
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         if value.chars().count() > 200usize {
             return Err("longer than 200 characters".into());
-        }
-        if value.chars().count() < 0usize {
-            return Err("shorter than 0 characters".into());
         }
         Ok(Self(value.to_string()))
     }
@@ -15831,13 +15826,11 @@ impl
 ///            "properties": {
 ///              "message": {
 ///                "type": "string",
-///                "maxLength": 200,
-///                "minLength": 0
+///                "maxLength": 200
 ///              },
 ///              "path": {
 ///                "type": "string",
-///                "maxLength": 200,
-///                "minLength": 0
+///                "maxLength": 200
 ///              }
 ///            },
 ///            "additionalProperties": false
@@ -15885,13 +15878,11 @@ impl ::std::convert::From<&Self> for UiSettingsValidateResult {
 ///  "properties": {
 ///    "message": {
 ///      "type": "string",
-///      "maxLength": 200,
-///      "minLength": 0
+///      "maxLength": 200
 ///    },
 ///    "path": {
 ///      "type": "string",
-///      "maxLength": 200,
-///      "minLength": 0
+///      "maxLength": 200
 ///    }
 ///  },
 ///  "additionalProperties": false
@@ -15911,8 +15902,7 @@ pub struct UiSettingsValidateResultVariant1ErrorsItem {
 /// ```json
 ///{
 ///  "type": "string",
-///  "maxLength": 200,
-///  "minLength": 0
+///  "maxLength": 200
 ///}
 /// ```
 /// </details>
@@ -15937,9 +15927,6 @@ impl ::std::str::FromStr for UiSettingsValidateResultVariant1ErrorsItemMessage {
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         if value.chars().count() > 200usize {
             return Err("longer than 200 characters".into());
-        }
-        if value.chars().count() < 0usize {
-            return Err("shorter than 0 characters".into());
         }
         Ok(Self(value.to_string()))
     }
@@ -15969,8 +15956,7 @@ impl<'de> ::serde::Deserialize<'de> for UiSettingsValidateResultVariant1ErrorsIt
 /// ```json
 ///{
 ///  "type": "string",
-///  "maxLength": 200,
-///  "minLength": 0
+///  "maxLength": 200
 ///}
 /// ```
 /// </details>
@@ -15995,9 +15981,6 @@ impl ::std::str::FromStr for UiSettingsValidateResultVariant1ErrorsItemPath {
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         if value.chars().count() > 200usize {
             return Err("longer than 200 characters".into());
-        }
-        if value.chars().count() < 0usize {
-            return Err("shorter than 0 characters".into());
         }
         Ok(Self(value.to_string()))
     }

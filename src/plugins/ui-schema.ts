@@ -12,9 +12,9 @@ export const DOC_LIMITS = { bytes: 64 * 1024, nodes: 500, depth: 8, label: 80, t
 
 const surfaceId = z.string().regex(/^[a-z0-9][a-z0-9-]{0,31}$/, "id is 1-32 lowercase letters, digits and hyphens");
 /** Manifest display text: cleaned like view text, so control and bidi characters never reach a client. */
-const plain = (min: number, max: number) => z.string().transform(s => s.normalize("NFC").replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF]/g, "")).pipe(z.string().min(min).max(max));
+const plain = (min: number, max: number) => z.string().transform(s => s.normalize("NFC").replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF]/g, "")).pipe(min > 0 ? z.string().min(min).max(max) : z.string().max(max));
 const title = plain(1, 40);
-const taskIdText = z.string().regex(/^[A-Za-z0-9._:-]{1,128}$/, "taskId uses letters, digits and . _ : -");
+export const taskIdText = z.string().regex(/^[A-Za-z0-9._:-]{1,128}$/, "taskId uses letters, digits and . _ : -");
 const view = z.string().min(1).max(64);
 const icon = z.enum(UI_ICONS);
 const unique = (items: { id: string }[]) => new Set(items.map(i => i.id)).size === items.length;
@@ -61,7 +61,7 @@ const CONTROLS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/g;
 export function cleanText(s: string): string {
   return s.normalize("NFC").replace(CONTROLS, "").replace(ZERO_WIDTH_AND_BIDI, "");
 }
-const text = (max: number, min = 0) => z.string().transform(cleanText).pipe(z.string().min(min).max(max));
+const text = (max: number, min = 0) => z.string().transform(cleanText).pipe(min > 0 ? z.string().min(min).max(max) : z.string().max(max));
 const label = text(DOC_LIMITS.label, 1);
 const tone = z.enum(["neutral", "info", "good", "warn", "bad"]);
 const pct = z.number().min(0).max(100);

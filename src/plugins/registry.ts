@@ -208,9 +208,10 @@ export class PluginRegistry {
     const ui = e.manifest ? uiOf(e.manifest) : null;
     if (!ui) return;
     if (id !== null) {
-      const kind = KINDS.find(k => ui[k].some(x => x.id === id));
-      if (!kind) return;
-      if (readPluginSettings(ctx, e.id).hidden.includes(`${kind}:${id}`)) return; // hidden surfaces drop invalidations
+      const kinds = KINDS.filter(k => ui[k].some(x => x.id === id));
+      if (!kinds.length) return;
+      const hidden = readPluginSettings(ctx, e.id).hidden;
+      if (kinds.every(k => hidden.includes(`${k}:${id}`))) return; // hidden surfaces drop invalidations
     }
     this.invalidate(ctx, e, id);
   }
@@ -266,7 +267,7 @@ export class PluginRegistry {
       e.cache.set(key, { document: doc.document, at: now, ttlS });
       return { document: doc.document, renderedAt: now, ttlS, stale: false };
     } catch (err) {
-      if (hit && err instanceof CoreError && err.code !== "invalid_input" && now - hit.at < Math.max(hit.ttlS, 30) * 1000 * 10) return { document: hit.document, renderedAt: hit.at, ttlS: hit.ttlS, stale: true };
+      if (hit && ENABLED.has(e.state) && err instanceof CoreError && err.code !== "invalid_input" && now - hit.at < Math.max(hit.ttlS, 30) * 1000 * 10) return { document: hit.document, renderedAt: hit.at, ttlS: hit.ttlS, stale: true };
       throw err;
     }
   }

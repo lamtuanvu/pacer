@@ -2373,7 +2373,6 @@
         },
         "message": {
           "type": "string",
-          "minLength": 0,
           "maxLength": 200
         }
       },
@@ -2466,12 +2465,10 @@
                 "properties": {
                   "path": {
                     "type": "string",
-                    "minLength": 0,
                     "maxLength": 200
                   },
                   "message": {
                     "type": "string",
-                    "minLength": 0,
                     "maxLength": 200
                   }
                 },
