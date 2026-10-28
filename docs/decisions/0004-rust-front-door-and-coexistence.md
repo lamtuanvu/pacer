@@ -1,6 +1,6 @@
 # Rust front door and cross-runtime coexistence
 
-Status: proposed 2026-10-22; governance adoption and M1 exit evidence pending.
+Status: proposed 2026-10-22 as amendment 0.16.0 (identifier assigned 2026-10-28); governance adoption and M1 exit evidence pending.
 
 ## Context
 

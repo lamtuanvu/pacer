@@ -1,6 +1,6 @@
 # pacer Constitution
 
-Status: Rust front-door/coexistence proposal (identifier pending; OD-12); Amendment 0.15.0 (agent work routing) proposed; amendment 0.14.0 (scoped work delegation) proposed; amendment 0.13.0 (UI readiness procedure and preflight) proposed; amendment 0.12.0 (spacing ownership) proposed; amendment 0.11.0 (affected-area CI selection) proposed; amendment 0.10.0 (portable skills and mandatory project review) proposed; amendment 0.9.0 (compact UI density) proposed; amendment 0.8.0 (plugin system: P13–P15) proposed; amendment 0.7.0 (Rust crate structure and size rules) proposed; amendment 0.6.0 (automated releases) proposed; established rules remain in force. The maintainer adopts the amendment by merging its PR. Amendment 0.5.0 was adopted on 2026-10-20 by merging #209; amendment 0.4.0 on 2026-10-19 by merging #193. | Version: 0.15.0 | Updated: 2026-10-27
+Status: Amendment 0.16.0 (Rust front door and coexistence) proposed; amendment 0.15.0 (agent work routing) proposed; amendment 0.14.0 (scoped work delegation) proposed; amendment 0.13.0 (UI readiness procedure and preflight) proposed; amendment 0.12.0 (spacing ownership) proposed; amendment 0.11.0 (affected-area CI selection) proposed; amendment 0.10.0 (portable skills and mandatory project review) proposed; amendment 0.9.0 (compact UI density) proposed; amendment 0.8.0 (plugin system: P13–P15) proposed; amendment 0.7.0 (Rust crate structure and size rules) proposed; amendment 0.6.0 (automated releases) proposed; established rules remain in force. The maintainer adopts the amendment by merging its PR. Amendment 0.5.0 was adopted on 2026-10-20 by merging #209; amendment 0.4.0 on 2026-10-19 by merging #193. | Version: 0.16.0 | Updated: 2026-10-28
 Decision authority: the single maintainer, @lamtuanvu ([GOVERNANCE.md](../GOVERNANCE.md), [.github/CODEOWNERS](../.github/CODEOWNERS)). AI reviewers give advice; they do not approve.
 
 ## Purpose and scope
@@ -40,7 +40,7 @@ External constraints:
 | P10 | Contributions are signed off under the DCO and use Conventional Commit PR titles. PRs are squash-merged. | all PRs | [CONTRIBUTING.md](../CONTRIBUTING.md), `.github/workflows/pr-title.yml` | Established |
 | P11 | Generated artifacts (protocol docs, embedded app assets, design tokens) are committed fresh, and tests fail when they are stale. | `scripts/`, `src/app/assets.generated.ts`, `docs/protocol*.md` | CONTRIBUTING.md, `test/api-protocol-doc.test.ts` | Established |
 | P12 | Durable architectural choices are recorded in `docs/decisions/`. | design changes | [GOVERNANCE.md](../GOVERNANCE.md) | Established |
-| P13 | The host is minimal. Every capability a plugin could provide is a plugin against the versioned plugin protocol; bundled reference plugins are the open implementations, and the host never falls back to a built-in once an adapter is extracted. **Proposed Rust front-door addition (OD-12):** From M1, the host entry point is a Rust binary; the TypeScript core runs as its child during M1/M2 until M2 completes ([ADR 0004](../docs/decisions/0004-rust-front-door-and-coexistence.md)). | `src/plugins/`, `plugins/`, adapters | [ADR plugin-host-and-rust-strangler](../docs/decisions/2026-10-19-plugin-host-and-rust-strangler.md) D1–D2 | Established |
+| P13 | The host is minimal. Every capability a plugin could provide is a plugin against the versioned plugin protocol; bundled reference plugins are the open implementations, and the host never falls back to a built-in once an adapter is extracted. **Proposed Rust front-door addition (amendment 0.16.0):** From M1, the host entry point is a Rust binary; the TypeScript core runs as its child during M1/M2 until M2 completes ([ADR 0004](../docs/decisions/0004-rust-front-door-and-coexistence.md)). | `src/plugins/`, `plugins/`, adapters | [ADR plugin-host-and-rust-strangler](../docs/decisions/2026-10-19-plugin-host-and-rust-strangler.md) D1–D2 | Established |
 | P14 | The plugin protocol is versioned under the same compatibility rule as the client protocol (P4) and generated from zod schemas with a freshness test (P11). | `src/plugins/protocol.ts`, `docs/plugin-protocol*.{md,json}` | same ADR | Established |
 | P15 | The host never checks entitlements. A commercial plugin verifies its own license and reports status through `entitlement.report`; `tier` is informational. | `src/plugins/` | same ADR D3–D4 | Established |
 
@@ -100,7 +100,9 @@ Other reviewers remain advisory. This amendment changes no remote branch protect
 - Consumer CSS may not override shared layout spacing. Source checks and browser geometry regressions complement the existing UI-18, UI-24 and CT-11 evidence requirements.
 - This amendment adds a rule; it grants no validation exception and changes no API or architecture boundary.
 
-**Rust front-door/coexistence proposal — identifier pending (OD-12) (proposed; adopted only by the maintainer merging this amendment PR):**
+## Amendment 0.16.0 — Rust front door and coexistence
+
+Proposed; adopted only by the maintainer merging this amendment PR.
 
 - Extend P13 with the Rust entry point and supervised TypeScript child during M1/M2. Existing minimal-host and plugin constraints remain established; this addition does not claim unfinished plugin extraction is complete.
 - Add ARCH-15 and ARCH-16 for public transport ownership, transparent forwarding and durable shared-state protocols. Existing ARCH-13 and ARCH-14 retain their plugin meanings.
