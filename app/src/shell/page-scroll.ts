@@ -1,4 +1,7 @@
 function scrollTarget(): Window | HTMLElement {
+  // An open terminal dock fits the frame to the viewport, so the work area scrolls instead of the window.
+  const docked = document.querySelector<HTMLElement>(".pc-app--with-dock .pc-work");
+  if (docked) return docked;
   if (document.documentElement.hasAttribute("data-pacer-desktop")) {
     return document.querySelector<HTMLElement>(".pc-work") ?? document.getElementById("app") ?? window;
   }

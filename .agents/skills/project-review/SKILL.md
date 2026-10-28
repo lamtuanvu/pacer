@@ -32,6 +32,8 @@ Reviewers inspect and report; they do not modify code or grant exceptions. Each
 finding names its rule/source (or advisory status), severity, location, evidence,
 impact and remedy. Separate introduced defects from pre-existing issues.
 
+Check REPO-13 (proposed, amendment 0.15.0; advisory until adopted): the delivery names each delegation or planner-side agent with its executor or model tier and the reason, and states any REPO-11 exception.
+
 Save reports under `.work/reviews/`. Include scope, base/head and working-tree
 fingerprint if applicable, reviewer identity/independence, governance version,
 actual checks and evidence, unavailable/inapplicable checks, findings, accepted
