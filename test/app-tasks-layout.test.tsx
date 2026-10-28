@@ -137,7 +137,7 @@ test.skipIf(!browserPath)('Dispatch clips long titles, keeps the composer to one
    const html=renderToString(<TaskContext.Provider value={{state:state as unknown as StoreState,api:{} as BrowserApi}}><Layout route={{name:'dispatch',query}} state={state as unknown as StoreState} title="Dispatch"><DispatchView snapshot={snapshot as never} query={query} now={snapshot.at} runner={runner} routing={null} insights={withTokens?insights:undefined} onPeriod={()=>{}} startWork={<StartWork/>}/></Layout></TaskContext.Provider>);
    await page.setContent(`<html data-theme="${theme}" data-pacer-desktop data-pacer-native-titlebar><div id="app"><style>${css}</style>${html}</div></html>`);
    if(process.env.PACER_LAYOUT_EVIDENCE)await page.screenshot({path:`${process.env.PACER_LAYOUT_EVIDENCE}/dispatch-${width}-${theme}${withTokens?'-insights':''}.png`,fullPage:true});
-   const titles=page.locator('.pc-task-node__title',{hasText:'Implement ticket SFOS-488'});
+   const titles=page.locator('.pc-task-card__title',{hasText:'Implement ticket SFOS-488'});
    expect(await titles.count()).toBeGreaterThan(0);
    for(const title of await titles.all()){
     expect(await title.getAttribute('title')).toBe(long);

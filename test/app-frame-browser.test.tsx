@@ -40,7 +40,7 @@ browserTest("dock_focus_moves_in_and_returns", async () => {
   const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
   try {
     const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
-    await open(page, built, "#/overview");
+    await open(page, built, "#/");
     const button = page.getByRole("button", { name: "Terminal", exact: true });
     await expect(button.getAttribute("aria-expanded")).resolves.toBe("false");
     await button.click();
@@ -68,7 +68,7 @@ browserTest("dock_focus_moves_in_and_returns", async () => {
     // The embedded terminal keeps its tab choice local: the route stays on Overview.
     await page.getByRole("button", { name: "New terminal" }).click();
     await dock.getByRole("navigation", { name: "Terminals" }).getByRole("button", { name: "Shell", exact: true }).waitFor();
-    expect(await page.evaluate(() => location.hash)).toBe("#/overview");
+    expect(await page.evaluate(() => location.hash)).toBe("#/");
     // The shell gets most of the 320px dock: toolbar, tabs and actions share a few compact rows.
     const sizes = await page.evaluate(() => {
       const box = (selector: string) => document.querySelector(selector)!.getBoundingClientRect().height;
