@@ -969,7 +969,7 @@ pub fn observe_launch(
     Ok(observed)
 }
 
-fn parse_registration(
+pub(crate) fn parse_registration(
     bytes: &[u8],
     user_home: &Path,
     home: &Path,

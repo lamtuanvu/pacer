@@ -8,6 +8,7 @@ pub mod fixture_policy;
 pub mod helper;
 pub mod journal;
 pub mod native;
+pub mod takeover;
 pub(crate) mod platform;
 pub(crate) mod platform_fs;
 pub mod recovery;
