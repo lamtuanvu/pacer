@@ -30,6 +30,7 @@ import { parseDelegateKind } from "./commands/delegate-kind";
 import * as core from "./core";
 import { CoreError } from "./core/errors";
 import { readFileSync, realpathSync } from "node:fs";
+import type { RouteExplanation } from "./core/dispatch-explain";
 import { isExecutorSession } from "./install/role";
 import { executorCommand } from "./executors/command";
 import { use as switchStrategy } from "./strategy/service";
@@ -66,6 +67,8 @@ const USAGE = `usage: pacer <command>
     --line [--width N] [--no-color] [--json]     compact local status; columns default to COLUMNS or 80
   pause <for> | resume                          pause or resume delegation
   route [kind] [--repo <path-or-key>] [--json]                          executors pacer would use, in order (default repo: current directory)
+  route --explain [--repo <r>] [--kind <k>] [--goal <text> | --goal-file <path>] [--executor <id>] [--json]
+                                                 read-only: where this request would go, and why
   project strategy list | show | set | remove   repository executor policy (--repo, --executors, --json)
   delegate [--title <text>] [--brief-file <path|->] [--goal <text>] [--repo <dir>] [--kind <k>] [--scope <s>] [--acceptance <cmd>]
            [--constraints <s>] [--context <s>] [--executor <id>] [--timeout-min <n>] [--wait] [--json] [--force]
@@ -214,9 +217,30 @@ function currentRepoKey(ctx: Ctx): string | undefined {
   catch { return undefined; }
 }
 
+async function routeExplain(opts: Record<string, string | true | undefined>, pos: string[], ctx: Ctx): Promise<Result> {
+  const goalFile = str(opts["goal-file"]);
+  const goal = goalFile ? readFileSync(goalFile === "-" ? 0 : goalFile, "utf8") : str(opts.goal);
+  if (!goal?.trim()) throw new Error("--explain needs --goal <text> or --goal-file <path>");
+  const params = { repo: str(opts.repo) ?? currentRepoKey(ctx) ?? realpathSync(process.cwd()), goal, ...(str(opts.kind) ?? pos[0] ? { kind: str(opts.kind) ?? pos[0] } : {}), ...(str(opts.executor) ? { executor: str(opts.executor) } : {}) };
+  const client = await connectTaskClient(ctx);
+  let r: RouteExplanation;
+  try { r = client.kind === "inprocess" ? await callOp(ctx, "dispatch.explain", params) as RouteExplanation : await client.call<RouteExplanation>("dispatch.explain", params); }
+  finally { client.close(); }
+  if (opts.json) return { code: 0, out: JSON.stringify(r, null, 1), err: "" };
+  const mark = (o: string) => (o === "pass" ? "✓" : o === "fail" ? "✕" : "!");
+  const lines = [r.chosen ? `${r.outcome === "override" ? "Chosen by you" : "Will go to"}: ${r.chosen.executor} (${r.chosen.account})${r.step ? ` · step ${r.step.index + 1} ${r.step.id}` : ""} · strategy ${r.strategy.name}` : `Nothing would run now (${r.outcome}).`,
+    `kind: ${r.kind.value ?? "unknown"} (${r.kind.source})`,
+    ...r.reasons.map(x => `${mark(x.outcome)} ${x.text}`)];
+  if (r.fallbacks.length) lines.push("If it can't:", ...r.fallbacks.map(f => `  ${f.executor}${f.state === "excluded" ? ` — ${f.reason?.text ?? "excluded"}` : f.step ? ` (step ${f.step})` : ""}`));
+  lines.push(r.planner.state === "unknown" ? `Planner: ${r.planner.reason === "planner_is_executor" ? "same account as the executor" : "not measured yet"}` : `Planner: about ${r.planner.tokens.median} tokens`);
+  if (r.uncertainty.length) lines.push("Could differ:", ...r.uncertainty.map(x => `  ${x.text}`));
+  return { code: 0, out: lines.join("\n"), err: "" };
+}
+
 async function route(args: string[], ctx: Ctx): Promise<Result> {
-  const { opts, pos } = parseFlags(args, ["json"]);
+  const { opts, pos } = parseFlags(args, ["json", "explain"]);
   try {
+    if (opts.explain) return await routeExplain(opts, pos, ctx);
     if (opts.repo === true) throw new Error("--repo requires a path or repository key");
     // Like delegate, default to the repository in the current directory, but
     // only when it is already registered: a read never probes Git or registers it.
