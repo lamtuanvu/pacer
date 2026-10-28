@@ -47,7 +47,6 @@
   --aurora-1: #a5b4fc;
   --aurora-2: #f0abfc;
   --aurora-3: #99f6e4;
-  --chart-6: #8a6fb0;
   --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   --type-display-size: 28px;
@@ -226,7 +225,6 @@
   --aurora-1: #818cf8;
   --aurora-2: #d58be8;
   --aurora-3: #5ed8c4;
-  --chart-6: #b9a8dc;
 }
 }
 :root[data-theme="dark"] {
@@ -276,5 +274,4 @@
   --aurora-1: #818cf8;
   --aurora-2: #d58be8;
   --aurora-3: #5ed8c4;
-  --chart-6: #b9a8dc;
 }
