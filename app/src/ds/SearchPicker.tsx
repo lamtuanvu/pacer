@@ -12,7 +12,7 @@ export interface SearchPickerOption {
 }
 
 /** Beautiful UI Button/TextRow grammar, with local search and native pressed buttons. */
-export function SearchPicker({ label, searchLabel, placeholder, emptyLabel, value, options, onChange }: {
+export function SearchPicker({ label, searchLabel, placeholder, emptyLabel, value, options, onChange, align: preferredAlign = "end" }: {
   label: string;
   searchLabel: string;
   placeholder: string;
@@ -20,6 +20,8 @@ export function SearchPicker({ label, searchLabel, placeholder, emptyLabel, valu
   value: string | null;
   options: SearchPickerOption[];
   onChange: (value: string | null) => void;
+  /** Preferred popover edge; it still flips when that side would overflow the viewport. */
+  align?: "start" | "end";
 }) {
   const id = useId();
   const root = useRef<HTMLDivElement>(null);
@@ -43,7 +45,9 @@ export function SearchPicker({ label, searchLabel, placeholder, emptyLabel, valu
     const align = () => {
       const bounds = root.current?.getBoundingClientRect();
       const popup = root.current?.querySelector<HTMLElement>(".pc-search-picker__popover");
-      if (bounds && popup) setAlignStart(bounds.right < popup.getBoundingClientRect().width);
+      if (!bounds || !popup) return;
+      const width = popup.getBoundingClientRect().width;
+      setAlignStart(preferredAlign === "start" ? bounds.left + width <= innerWidth : bounds.right < width);
     };
     align();
     const observer = new ResizeObserver(align);

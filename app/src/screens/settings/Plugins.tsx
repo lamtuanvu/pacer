@@ -1,11 +1,15 @@
 import { useRef, useState } from "preact/hooks";
 import type { PluginInfo, SurfaceKind } from "../../../../src/plugins/registry";
+import { AppLink } from "../../navigation";
+import { routes } from "../../router";
 import { Switch } from "../../ds/Controls";
 import { Icon } from "../../ds/icons";
 import { Pill } from "../../ds/Pill";
 import { useDialogs } from "../../ds/useDialogs";
 import { ErrorMessage } from "../task-shared";
 import { Feedback, useOperation, useResource } from "./shared";
+
+import { usePluginSettingsStyles } from "./plugin-styles";
 
 type EnableResult = { state: string; needs?: string[]; surfaces?: SurfaceKind[] };
 const surfaceNames: Record<SurfaceKind, [string, string]> = {
@@ -26,34 +30,12 @@ function additions(plugin: PluginInfo): string | null {
 
 /** Optional service capability; only the lazy settings chunk loads this editor. */
 export function PluginsSection() {
+  usePluginSettingsStyles();
   const resource = useResource<{ plugins: PluginInfo[] }>("plugin.list");
-  const action = useOperation(undefined, { notifySuccess: false });
-  const dialogs = useDialogs();
-  const pending = useRef(false);
-  const [busy, setBusy] = useState(false);
-  async function toggle(plugin: PluginInfo, control: HTMLInputElement) {
-    if (pending.current || resource.loading || plugin.state === "refused") {
-      control.checked = plugin.enabled;
-      return;
-    }
-    pending.current = true; setBusy(true);
-    try {
-      const result = await action.run(plugin.enabled ? "plugin.disable" : "plugin.enable", { id: plugin.id });
-      const enabled = result?.data as EnableResult | undefined;
-      if (enabled?.state === "needs_grant") {
-        action.clear();
-        const surfaces = (enabled.surfaces ?? []).map(kind => surfaceNames[kind][1]);
-        if (await dialogs.confirm(`${plugin.id} asks for:\n${(enabled.needs ?? []).map(name => `• ${name}`).join("\n") || "No capabilities"}${surfaces.length ? `\nAdds: ${surfaces.join(", ")}.` : ""}\nIt runs as you, with your access, until plugin sandboxing lands. Grant and enable?`, "Enable plugin", "Grant and enable")) {
-          await action.run("plugin.enable", { id: plugin.id, grant: true });
-        }
-      }
-    } finally {
-      resource.reload(); pending.current = false; setBusy(false);
-    }
-  }
+  const { action, dialogs, busy, toggle } = usePluginToggle(resource.reload, resource.loading);
   if (!resource.data) return null;
   return <section className="pc-settings-plugins" aria-labelledby="plugins-h">
-    <h2 id="plugins-h" className="pc-settings-board__label">Plugins</h2>
+    <div className="u3-row"><h2 id="plugins-h" className="pc-settings-board__label">Plugins</h2><AppLink to={routes.settings("plugins")} className="pc-plugin-manage">Manage in Plugins</AppLink></div>
     {resource.data.plugins.length ? <ul className="pc-settings-plugins__list" aria-label="Plugins" role="list">{resource.data.plugins.map(plugin => {
       const adds = additions(plugin);
       const errorId = `plugin-${plugin.id}-error`;
@@ -71,4 +53,33 @@ export function PluginsSection() {
     <ErrorMessage error={resource.error} />
     <Feedback action={action} />{dialogs.dialog}
   </section>;
+}
+
+/** Shared enable flow, including the explicit capability and surface grant. */
+export function usePluginToggle(reload: () => void, loading = false) {
+  const action = useOperation(undefined, { notifySuccess: false });
+  const dialogs = useDialogs();
+  const pending = useRef(false);
+  const [busy, setBusy] = useState(false);
+  async function toggle(plugin: PluginInfo, control?: HTMLInputElement) {
+    if (pending.current || loading || plugin.state === "refused") {
+      if (control) control.checked = plugin.enabled;
+      return;
+    }
+    pending.current = true; setBusy(true);
+    try {
+      const result = await action.run(plugin.enabled ? "plugin.disable" : "plugin.enable", { id: plugin.id });
+      const enabled = result?.data as EnableResult | undefined;
+      if (enabled?.state === "needs_grant") {
+        action.clear();
+        const surfaces = (enabled.surfaces ?? []).map(kind => surfaceNames[kind][1]);
+        if (await dialogs.confirm(`${plugin.id} asks for:\n${(enabled.needs ?? []).map(name => `• ${name}`).join("\n") || "No capabilities"}${surfaces.length ? `\nAdds: ${surfaces.join(", ")}.` : ""}\nIt runs as you, with your access, until plugin sandboxing lands. Grant and enable?`, "Enable plugin", "Grant and enable")) {
+          await action.run("plugin.enable", { id: plugin.id, grant: true });
+        }
+      }
+    } finally {
+      reload(); pending.current = false; setBusy(false);
+    }
+  }
+  return { action, dialogs, busy, toggle };
 }

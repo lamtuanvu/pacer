@@ -1,7 +1,8 @@
-export type IconName = "chevron-left" | "settings-home" | "settings-agents" | "settings-routing" | "settings-budget" | "settings-machines" | "settings-app" | "settings-diagnostics" | "home" | "tasks" | "executors" | "accounts" | "strategy" | "hosts" | "settings" | "menu" | "overview" | "review" | "sessions" | "terminal" | "sliders" | "gauge" | "servers" | "routing" | "layers" | "download" | "bell" | "palette" | "diagnostics" | "plus" | "pr" | "commit" | "files" | "checks" | "time" | "retry" | "notes" | "branch" | "panel-left" | "panel-bottom" | "panel-right" | "split" | "external" | "end-session" | "insights" | "dispatch" | "plugin" | "search" | "stack" | "bolt" | "fork" | "check-circle" | "chevron-right" | "info";
+export type IconName = "more" | "settings-plugins" | "chevron-left" | "settings-home" | "settings-agents" | "settings-routing" | "settings-budget" | "settings-machines" | "settings-app" | "settings-diagnostics" | "home" | "tasks" | "executors" | "accounts" | "strategy" | "hosts" | "settings" | "menu" | "overview" | "review" | "sessions" | "terminal" | "sliders" | "gauge" | "servers" | "routing" | "layers" | "download" | "bell" | "palette" | "diagnostics" | "plus" | "pr" | "commit" | "files" | "checks" | "time" | "retry" | "notes" | "branch" | "panel-left" | "panel-bottom" | "panel-right" | "split" | "external" | "end-session" | "insights" | "dispatch" | "plugin" | "search" | "stack" | "bolt" | "fork" | "check-circle" | "chevron-right" | "info";
 export function Icon({ name }: { name: IconName }) {
   const paths: Partial<Record<IconName, string>> = {
     "chevron-left": "M15 6l-6 6 6 6",
+    "settings-plugins": "M9 3v4M15 3v4M7 7h10v5a5 5 0 0 1-10 0zM12 17v4",
     "settings-home": "M3 12l9-8 9 8M5 10v10h14V10",
     "settings-agents": "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21a8 8 0 0 1 16 0",
     "settings-routing": "M4 12h6M10 12l6-6h4M10 12l6 6h4M10 12h10",
@@ -50,6 +51,7 @@ export function Icon({ name }: { name: IconName }) {
     overview: "M4 4h7v7H4zM13 4h7v4h-7zM13 10h7v10h-7zM4 13h7v7H4z", review: "M5 12l4 4 10-10M5 20h14", sessions: "M4 5h16v14H4zM8 10l3 2-3 2M13 15h3",
   };
   return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    {name === "more" && [5,12,19].map(cx => <circle key={cx} cx={cx} cy="12" r="1.6" fill="currentColor" stroke="none" />)}
     {paths[name] && <path d={paths[name]} />}
     {name === "executors" && <><rect x="4" y="4" width="16" height="6" rx="1" /><rect x="4" y="14" width="16" height="6" rx="1" /></>}
     {name === "hosts" && <><rect x="3" y="5" width="18" height="12" rx="2" /><path d="M8 21h8" /></>}

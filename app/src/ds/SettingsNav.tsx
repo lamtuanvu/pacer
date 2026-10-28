@@ -3,7 +3,7 @@ import { TextAction } from "./Button";
 import { Icon, type IconName } from "./icons";
 import type { PillProps } from "./Pill";
 
-export interface SettingsNavItem { id: string; label: string; href: string; icon: IconName; current?: boolean; badge?: { text: string; label?: string; tone?: PillProps["tone"] } }
+export interface SettingsNavItem { id: string; label: string; href: string; icon: IconName; current?: boolean; plugin?: boolean; badge?: { text: string; label?: string; tone?: PillProps["tone"] } }
 export interface SettingsNavGroup { id: string; label: string; items: readonly SettingsNavItem[] }
 
 /** Grouped settings menu. Links stay in document order, so Tab follows the groups top to bottom. */
@@ -22,8 +22,9 @@ export function SettingsNav({ label, groups, backHref }: { label: string; groups
       <span id={`${base}-${group.id}`} className="pc-settings-nav__heading">{group.label}</span>
       <ul aria-labelledby={`${base}-${group.id}`} className="pc-settings-nav__list">
         {group.items.map(item => <li key={item.id}>
-          <TextAction href={item.href} className={`pc-settings-nav__item${item.current ? " on" : ""}`} aria-current={item.current ? "page" : undefined}>
+          <TextAction href={item.href} className={`pc-settings-nav__item${item.current ? " on" : ""}`} aria-label={item.plugin ? `${item.label}, plugin` : undefined} aria-current={item.current ? "page" : undefined}>
             <Icon name={item.icon}/><span className="pc-settings-nav__label">{item.label}</span>
+            {item.plugin && <span className="pc-settings-nav__plugin"><span className="sr-only">, </span>plugin</span>}
             {item.badge && <Badge {...item.badge}/>}
           </TextAction>
         </li>)}

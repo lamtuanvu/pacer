@@ -34,7 +34,7 @@ export function Section({id,title,detail,actions,children,step}:{id:string;title
 }
 export function resourceRevision(op: string, invalidations: Record<string, number>): string {
  // update.check itself publishes an update event; reacting to it creates a request loop.
- return JSON.stringify(Object.entries(invalidations).filter(([area]) => op !== "update.check" || area !== "update"));
+ return JSON.stringify(Object.entries(invalidations).filter(([area]) => op.startsWith("plugin.") ? area === "plugin" || area === "plugins" : area !== "plugin" && (op !== "update.check" || area !== "update")));
 }
 export function useResource<T>(op:string,params:unknown={},initial?:T) {
  useSettingsStyles();
