@@ -1,3 +1,4 @@
+import { isMacPlatform } from "./commands";
 /** The app's one shortcut registry. Pure apart from attachKeyRegistry, so tests need no DOM. */
 export interface Shortcut { keys: string; label: string; scope: "global" | string; run: () => void; allowInControl?: boolean }
 export interface KeyInput {
@@ -16,7 +17,7 @@ function isTextTarget(target: unknown): boolean {
 /** controlActive: a terminal has control (only allowInControl keys run). blocked: a modal dialog owns the keyboard (nothing runs). */
 export function createKeyRegistry(opts: { controlActive: () => boolean; blocked?: () => boolean; timeoutMs?: number; now?: () => number; mac?: boolean }) {
   const timeout = opts.timeoutMs ?? 1000, now = opts.now ?? (() => Date.now());
-  const mac = opts.mac ?? (typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform));
+  const mac = opts.mac ?? isMacPlatform();
   const shortcuts: Shortcut[] = [];
   const listeners = new Set<() => void>();
   const notify = () => { for (const listener of listeners) listener(); };

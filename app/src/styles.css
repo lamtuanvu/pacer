@@ -488,6 +488,7 @@ body:has(.pc-app--narrow) .pc-toasts{bottom:calc(var(--size-56) + var(--space-5)
 .pc-app--narrow .pc-settings-nav{width:auto;min-height:0;padding:0;border:0;gap:var(--space-2)}
 .pc-app--narrow .pc-settings-nav__header,.pc-app--narrow .pc-settings-nav__footer{display:none}
 .pc-topbar .pc-command-trigger{width:100%;min-width:0;height:var(--size-30);justify-content:flex-start;gap:var(--space-2);padding:0 var(--space-2\.5);border:1px solid var(--line);border-radius:var(--radius-md);background:var(--surface-page);color:var(--ink-muted);font-size:var(--type-body-size);font-weight:var(--type-body-weight)}
+.pc-command-trigger:focus-visible{outline:var(--stroke-focus) solid var(--focus);outline-offset:var(--stroke-focus)}
 .pc-command-trigger:hover{background:var(--surface-page);border-color:var(--ink-muted)}
 .pc-command-trigger__icon{display:inline-flex}
 .pc-command-trigger__icon svg{width:var(--size-15);height:var(--size-15)}
