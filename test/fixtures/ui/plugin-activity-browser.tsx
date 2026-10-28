@@ -12,6 +12,7 @@ let renders=0;
 const api={call:async(op,params)=>{
  log.push({op,params});
  if(op==='plugin.ui.list') {if(window.failList)throw Error('unavailable');return {surfaces:[{plugin:'fx-ui',id:'checklist',surface:'activity',title:'Release checklist',icon:'check-square',visible:!window.hidden}]};}
+ if(op==='plugin.list' && window.failInfo)throw Error('offline');
  if(op==='plugin.list')return {plugins:[{id:'fx-ui',version:'1.0.0',publisher:'pacer-conformance'}]};
  if(op==='plugin.ui.render') {if(window.failRender)throw {code:'plugin_timeout'};return {document:{type:'stack',gap:'content',children:[{type:'text',text:'render '+ ++renders},{type:'button',label:'Confirm me',action:'confirm',variant:'secondary',confirm:{title:'Proceed?',body:'<b>quoted</b>'}},{type:'button',label:'Delete',action:'delete',variant:'danger'},{type:'checkbox',label:'Ready',name:'ready',checked:false,action:'toggle'}]}};}
  if(op==='plugin.ui.action'){await new Promise(resolve=>setTimeout(resolve,100));return {result:'refresh',message:'Plugin says <b>done</b>'};}

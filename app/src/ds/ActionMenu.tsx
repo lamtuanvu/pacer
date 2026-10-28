@@ -1,4 +1,5 @@
 import { useLayoutEffect, useId, useRef, useState } from "preact/hooks";
+import { Icon } from "./icons";
 import { Button } from "./Button";
 import styles from "./action-menu.css" with { type: "text" };
 const styled = new WeakSet<Document>();
@@ -25,7 +26,7 @@ export function ActionMenu({ label, items }: { label: string; items: { label: st
     const at = options.indexOf(document.activeElement as HTMLButtonElement);
     options[event.key === "Home" ? 0 : event.key === "End" ? options.length - 1 : (at + (event.key === "ArrowDown" ? 1 : -1) + options.length) % options.length]?.focus();
   }}>
-    <Button ref={trigger} size="sm" variant="ghost" className="pc-action-menu__trigger" aria-label={label} aria-haspopup="menu" aria-expanded={open} aria-controls={open ? id : undefined} onClick={() => { last.current = false; setOpen(!open); }}>…</Button>
+    <Button ref={trigger} size="sm" variant="ghost" className="pc-action-menu__trigger" aria-label={label} aria-haspopup="menu" aria-expanded={open} aria-controls={open ? id : undefined} onClick={() => { last.current = false; setOpen(!open); }}><Icon name="more" /></Button>
     {open && <span id={id} role="menu" aria-label={label} className="pc-action-menu__items">{items.map(item => <Button key={item.label} variant="ghost" size="sm" role="menuitem" tabIndex={-1} onClick={() => { close(); item.onSelect(); }}>{item.label}</Button>)}</span>}
   </span>;
 }

@@ -497,3 +497,4 @@ body:has(.pc-app--narrow) .pc-toasts{bottom:calc(var(--size-56) + var(--space-5)
 .pc-rail__plugins-label{font-size:var(--type-plugin-section-size);line-height:var(--type-plugin-section-line);font-weight:var(--type-plugin-section-weight);letter-spacing:var(--type-plugin-section-tracking);text-transform:uppercase;color:var(--ink-muted)}
 .pc-rail__add-plugin{border:1px dashed var(--line);box-sizing:border-box}
 .pc-rail__add-plugin svg{width:var(--size-18);height:var(--size-18)}
+.pc-rail__plugins{display:contents}

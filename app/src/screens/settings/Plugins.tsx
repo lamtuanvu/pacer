@@ -1,6 +1,7 @@
 import { useRef, useState } from "preact/hooks";
 import type { PluginInfo, SurfaceKind } from "../../../../src/plugins/registry";
-import { TextAction } from "../../ds/Button";
+import { AppLink } from "../../navigation";
+import { routes } from "../../router";
 import { Switch } from "../../ds/Controls";
 import { Icon } from "../../ds/icons";
 import { Pill } from "../../ds/Pill";
@@ -31,7 +32,7 @@ export function PluginsSection() {
   const { action, dialogs, busy, toggle } = usePluginToggle(resource.reload, resource.loading);
   if (!resource.data) return null;
   return <section className="pc-settings-plugins" aria-labelledby="plugins-h">
-    <div className="u3-row"><h2 id="plugins-h" className="pc-settings-board__label">Plugins</h2><TextAction href="#/settings/plugins" className="pc-settings-board__caption">Manage in Plugins</TextAction></div>
+    <div className="u3-row"><h2 id="plugins-h" className="pc-settings-board__label">Plugins</h2><AppLink to={routes.settings("plugins")} className="pc-settings-board__caption">Manage in Plugins</AppLink></div>
     {resource.data.plugins.length ? <ul className="pc-settings-plugins__list" aria-label="Plugins" role="list">{resource.data.plugins.map(plugin => {
       const adds = additions(plugin);
       const errorId = `plugin-${plugin.id}-error`;

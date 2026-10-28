@@ -11,7 +11,7 @@ import manifest from "../conformance/fixtures/ui/pacer-plugin.json";
 import type { SurfaceInfo } from "../src/plugins/registry";
 const at = (hash: string) => resolveRoute(hash) as Route;
 const surface = { ...manifest.contributes.ui.activity[0]!, plugin: manifest.id, surface: "activity", context: "global", visible: true, state: "ready" } as SurfaceInfo;
-const rail = (surfaces: SurfaceInfo[], narrow = false) => renderToString(<PluginContext.Provider value={{ surfaces, revision: 0 }}><Rail route={at(hrefFor(routes.plugin(surface.plugin, surface.id)))} counts={null} narrow={narrow} /></PluginContext.Provider>);
+const rail = (surfaces: SurfaceInfo[], narrow = false) => renderToString(<PluginContext.Provider value={{ surfaces, revision: 0, reload: () => {} }}><Rail route={at(hrefFor(routes.plugin(surface.plugin, surface.id)))} counts={null} narrow={narrow} /></PluginContext.Provider>);
 
 test("plugin route round trips encoded segments and query; Settings Plugins parses", () => {
   const target = routes.plugin("owner/a", "check list", { repo: "/tmp/project", scope: "repo:demo" });
@@ -23,7 +23,8 @@ test("plugin route round trips encoded segments and query; Settings Plugins pars
 test("rail shows board section, visible activity, active state and Add destination", () => {
   const html = rail([surface, { ...surface, id: "hidden", title: "Hidden", visible: false }, { ...surface, id: "tab", title: "Tab", surface: "panelTabs" }]);
   expect(html).toContain('>Plugins</span>');
-  expect(html).toContain('title="Release checklist (plugin)"');
+  expect(html).not.toContain('title="Release checklist (plugin)"');
+  expect(html).toContain('role="group" aria-labelledby="rail-plugins"');
   expect(html).toContain('aria-label="Release checklist (plugin)"');
   expect(html).toContain('href="#/plugins/fx-ui/checklist"');
   expect(html).toContain('aria-current="page"');
@@ -63,9 +64,14 @@ test("all node types render with literal plugin strings and only host destinatio
 test("busy actions have a visible reason and checkbox sends its value", () => {
   const node: ViewNode = { type: "checkbox", name: "done", checked: false, action: "toggle", label: "Done" };
   const actions: unknown[] = [];
-  const view = ViewDocument({ document: node, busy: true, onAction: action => actions.push(action) });
+  const view = ViewDocument({ document: node, busy: true, busyControl: "view", onAction: action => actions.push(action) });
   expect(renderToString(view)).toContain('Working…'); expect(renderToString(view)).toContain('aria-disabled="true"');
-  (view.props as any).onChange({ currentTarget: { checked: true } });
+  const control = {checked:true};
+  (view.props as any).onChange({ currentTarget: control });
+  expect(control.checked).toBe(false);
+  expect(actions).toEqual([]);
+  const ready = ViewDocument({document:node,onAction: action => actions.push(action)});
+  (ready.props as any).onChange({currentTarget:{checked:true}});
   expect(actions).toEqual([{ action: "toggle", label: "Done", values: { done: true } }]);
 });
 test("confirmation names plugin, quotes body, and cancel declines before sending", async () => {
@@ -92,4 +98,12 @@ test("host error states never display server or plugin error text", () => {
     expect(html).not.toContain('evil');
     if (code === 'plugin_unavailable') expect(html).toContain('href="#/settings/plugins"');
   }
+});
+
+test('view actions keep focusable controls, item names, visible meter labels and compact status pills',()=>{
+  const node: ViewNode={type:'stack',gap:'content',children:[{type:'button',label:'Run',action:'run',variant:'secondary'},{type:'button',label:'Other',action:'other',variant:'secondary'},{type:'list',empty:'None',items:[{title:'Checklist',action:'open',status:{label:'Open',tone:'neutral'}}]},{type:'meter',label:'Completion',usedPct:25}]};
+  const html=renderToString(<ViewDocument document={node} busy busyControl="view.0" onAction={()=>{}}/>);
+  expect(html.match(/Working…/g)).toHaveLength(1);expect(html).toContain('>Other</button>');
+  expect(html).toContain('aria-label="Open Checklist"');expect(html).not.toContain(' disabled');
+  expect(html).toContain('>Completion</span>');expect(html).toContain('>25%</span>');expect(html).not.toContain('pc-status-pill');
 });

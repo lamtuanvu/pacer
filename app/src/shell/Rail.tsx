@@ -38,14 +38,14 @@ export function Rail({ route, counts, narrow = false, settingsAttention: attenti
         </AppLink>
       </Tooltip>;
     })}
-    {!narrow && <><span className="pc-rail__divider" /><span className="pc-rail__plugins-label">Plugins</span>
+    {!narrow && <><span className="pc-rail__divider" /><div role="group" aria-labelledby="rail-plugins" className="pc-rail__plugins"><span id="rail-plugins" className="pc-rail__plugins-label">Plugins</span>
       {surfaces.filter(s => s.surface === "activity" && s.visible).map(s => {
         const active = route.name === "plugin" && route.plugin === s.plugin && route.id === s.id;
         const label = `${s.title} (plugin)`;
-        return <Tooltip key={`${s.plugin}/${s.id}`} text={label}><AppLink className={`pc-rail__item${active ? " on" : ""}`} to={routes.plugin(s.plugin, s.id)} query={route.query} title={label} aria-label={label} aria-current={active ? "page" : undefined}><Icon name={PLUGIN_ICONS[s.icon as keyof typeof PLUGIN_ICONS] ?? "plugin"} /></AppLink></Tooltip>;
+        return <Tooltip key={`${s.plugin}/${s.id}`} text={label}><AppLink className={`pc-rail__item${active ? " on" : ""}`} to={routes.plugin(s.plugin, s.id)} query={route.query} aria-label={label} aria-current={active ? "page" : undefined}><Icon name={PLUGIN_ICONS[s.icon as keyof typeof PLUGIN_ICONS] ?? "plugin"} /></AppLink></Tooltip>;
       })}
-      <Tooltip text="Add a plugin"><AppLink className="pc-rail__item pc-rail__add-plugin" to={routes.settings("plugins")} query={route.query} title="Add a plugin" aria-label="Add a plugin"><Icon name="plus" /></AppLink></Tooltip>
-      <span className="grow" /></>}
+      <Tooltip text="Add a plugin"><AppLink className="pc-rail__item pc-rail__add-plugin" to={routes.settings("plugins")} query={route.query} aria-label="Add a plugin"><Icon name="plus" /></AppLink></Tooltip>
+      </div><span className="grow" /></>}
     {showSetup && <Tooltip text={setupOpen ? "Setup · needs you" : "Setup"}><AppLink className={`pc-rail__item${route.name === "setup" ? " on" : ""}`} to={routes.setup()} query={route.query} aria-label={setupOpen ? "Setup · needs you" : "Setup"} aria-current={route.name === "setup" ? "page" : undefined}><Icon name="tasks" />{setupOpen && <span className="pc-rail__dot" aria-hidden="true" />}</AppLink></Tooltip>}
     <StrategyQuickAccess route={route} query={route.query} />
     <Tooltip text={settingsLabel}>

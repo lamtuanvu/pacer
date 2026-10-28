@@ -74,11 +74,12 @@ export function parentFor(route: Route): RouteTarget | null {
   if (route.name === "add-executor") return routes.settings(undefined, route.query);
   return null;
 }
-export function titleFor(route: Route): string {
+export function titleFor(route: Route, pluginTitle = "Plugin view"): string {
   if (route.name === "start") return "Start work";
   if (route.name === "sessions" && route.id) return "Task";
   if (route.name === "terminal") return "Terminal";
   if (route.name === "hosts" && route.alias) return "Host";
+  if (route.name === "plugin") return pluginTitle;
   if (route.name === "settings") return route.section?.startsWith("plugins/") ? "Plugin settings" : settingsPageTitle(route.section);
   return route.name === "overview" ? "Overview" : route.name === "review" ? "Needs you" : route.name === "sessions" ? "Tasks" : route.name === "hosts" ? "Remote hosts" : route.name === "add-executor" ? "Add executor" : route.name === "setup" ? "Set up pacer" : "pacer";
 }

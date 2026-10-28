@@ -10,7 +10,7 @@ import { PluginsPage } from '../../../app/src/screens/settings/PluginsPage';
 import { PluginSettingsPage } from '../../../app/src/screens/settings/PluginSettingsPage';
 import { SettingsPanel } from '../../../app/src/shell/SettingsPanel';
 import { pluginFixture, surfaceFixtures, settingsFixture } from './plugin-settings-data';
-const host = window as any; host.canLeave = canLeaveScreen;
+const host = window as any; host.canLeave = canLeaveScreen; host.unmount = () => render(null,document.getElementById('app')!);
 const fixture = host.fixture ?? {};
 let plugins = structuredClone(fixture.plugins ?? [pluginFixture]), surfaces = structuredClone(fixture.surfaces ?? surfaceFixtures), settings = structuredClone(fixture.settings ?? settingsFixture);
 const calls: {op:string;params:any}[] = host.calls = [];
@@ -22,13 +22,14 @@ const api = { call: async (op:string,params:any) => {
   if(op === 'plugin.settings.get') {if(fixture.getError) throw {code:fixture.getError};return structuredClone(settings);}
   if(op === 'plugin.settings.set') {
     if(host.saveError === 'invalid_input') throw {code:'invalid_input',data:{errors:[{path:'name',message:'Choose another label.'},{path:'retries',message:'Too many retries.'}]}};
+    if(host.revisionConflict) {host.revisionConflict=false;settings.rev++;throw {code:'conflict'};}
     if(host.saveError === 'conflict' || params.expect_rev !== settings.rev) throw {code:'conflict'};
     settings = {...settings,values:params.values,rev:settings.rev+1};return structuredClone(settings);
   }
   if(op === 'plugin.ui.visibility') {
     if(host.visibilityConflict) {host.visibilityConflict=false;settings.rev++;surfaces[1].visible=false;throw {code:'conflict'};}
     if(params.expect_rev !== settings.rev) throw {code:'conflict'};
-    surfaces = surfaces.map((s: any) => s.id === params.id ? {...s,visible:params.visible} : s);settings.rev++;emit();return {rev:settings.rev};
+    surfaces = surfaces.map((s: any) => s.id === params.id ? {...s,visible:params.visible} : s);settings.rev++;emit();if(fixture.eventBurst) {setTimeout(emit,10);setTimeout(emit,20);}return {rev:settings.rev};
   }
   if(op === 'plugin.doctor') return {reports:[{ok:!host.doctorError,error:host.doctorError ?? null,needs:null}]};
   if(op === 'plugin.remove') {plugins=plugins.filter((p:any)=>p.id!==params.id);surfaces=surfaces.filter((s:any)=>s.plugin!==params.id);emit();return {};}
