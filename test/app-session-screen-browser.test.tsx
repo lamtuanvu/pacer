@@ -221,3 +221,19 @@ browserTest("takeover_starts_from_the_page_and_ended_sessions_offer_none", async
   await expect(ended.getByRole("button", { name: "Take over" }).count()).resolves.toBe(0);
   await ended.close();
 }), 30_000);
+
+browserTest("ended_conversation_title_bar_does_not_cover_the_search", async () => withBrowser(async browser => {
+  for (const width of [1440, 1100]) {
+    const page = await openSession(browser, "conversation", { width, height: 900 });
+    await page.getByRole("button", { name: "End session" }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "End session" }).click();
+    const resume = page.getByRole("banner").getByRole("button", { name: "Resume conversation" });
+    await resume.waitFor();
+    // The actions stay whole and clear of the command search; the title and facts give way instead.
+    const box = (selector: string) => page.locator(selector).first().boundingBox();
+    const actions = (await resume.boundingBox())!, search = (await box(".pc-topbar__search"))!;
+    expect(actions.x + actions.width).toBeLessThanOrEqual(search.x + 0.5);
+    expect(await resume.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+    await page.close();
+  }
+}), 40_000);

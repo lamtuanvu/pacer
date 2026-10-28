@@ -141,7 +141,7 @@ html[data-pacer-native-titlebar] .pc-topbar{padding-left:var(--size-84)}
 .pc-topbar h1{font-size:var(--type-body-size);line-height:var(--type-body-line);font-weight:var(--type-body-strong-weight);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pc-topbar>.grow{align-self:stretch;flex:1}
 /* A screen's title-bar facts and actions take the free space; the bar's own spacer then steps aside. */
-.pc-topbar__context{display:flex;align-items:center;gap:var(--space-3);flex:1;min-width:0;align-self:stretch}
+.pc-topbar__context{display:flex;align-items:center;gap:var(--space-3);flex:1;min-width:min-content;align-self:stretch}
 .pc-app--narrow .pc-topbar__context{flex:none}.pc-app--narrow .pc-topbar__context .pc-session-title-facts{display:none}
 .pc-topbar__context:empty{display:none}.pc-app:not(.pc-app--narrow) .pc-topbar__context:not(:empty)+.grow{display:none}
 .pc-app:not(.pc-app--narrow)>.pc-topbar .pc-clock{display:none}
