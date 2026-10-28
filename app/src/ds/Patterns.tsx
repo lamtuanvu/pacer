@@ -102,10 +102,10 @@ export function LoadingState({ label = 'Loading…', updating = false }: { label
     </span>{label}
   </div>;
 }
-export function EmptyState({ title, description, children }: {
-  title: string; description?: ComponentChildren; children?: ComponentChildren;
+export function EmptyState({ title, description, children, bodyTitle = false }: {
+  title: string; description?: ComponentChildren; children?: ComponentChildren; bodyTitle?: boolean;
 }) {
-  return <section className="pc-empty"><SectionHeading>{title}</SectionHeading>
+  return <section className="pc-empty">{bodyTitle ? <strong className="pc-empty__body-title">{title}</strong> : <SectionHeading>{title}</SectionHeading>}
     {description && <p>{description}</p>}{children}
   </section>;
 }

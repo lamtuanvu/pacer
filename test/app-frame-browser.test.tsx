@@ -183,7 +183,7 @@ browserTest("frame_chrome_measures_to_the_board", async () => {
       const badge = q(".pc-rail__badge--count"), chip = q(".pc-planner"), toggles = [...document.querySelectorAll(".pc-layout-toggles button")];
       return {
         top: { h: size(top)[1], pad: css(top).padding, bg: css(top).backgroundColor, card: css(rail).backgroundColor, h1: size(q(".pc-topbar h1")) },
-        mark: size(q(".pc-topbar__brand svg")), delegate: (() => { const b = [...document.querySelectorAll(".pc-topbar .pc-btn")].find(x => x.textContent === "Delegate")!; return [b.className, getComputedStyle(b).backgroundColor, getComputedStyle(document.querySelector(".pc-topbar")!).backgroundColor]; })(), toggleRadius: css(toggles[0]!).borderTopLeftRadius,
+        mark: size(q(".pc-topbar__brand svg")), delegate: (() => { const b = [...document.querySelectorAll(".pc-topbar .pc-btn")].find(x => x.textContent === "New task")!; return [b.className, getComputedStyle(b).backgroundColor, getComputedStyle(document.querySelector(".pc-topbar")!).backgroundColor]; })(), toggleRadius: css(toggles[0]!).borderTopLeftRadius,
         badgeType: [css(badge).fontSize, css(badge).fontWeight, css(badge).color], chip: { h: size(chip)[1], r: css(chip).borderTopLeftRadius, mode: !!chip.querySelector(".pc-pill") },
         toggles: toggles.map(size), names: toggles.map(t => t.getAttribute("aria-label")), group: q(".pc-layout-toggles").getAttribute("aria-label"),
         rail: { w: size(rail)[0], pad: css(rail).padding, gap: css(rail).rowGap, item: size(on), bar: [css(on, "::before").width, css(on, "::before").height, css(on, "::before").left, css(on, "::before").backgroundColor], onBg: css(on).backgroundColor, lane: css(q(".pc-rail__divider")).height },

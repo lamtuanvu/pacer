@@ -104,17 +104,17 @@ function LiveDispatch({ snapshot, scope, now, runner, query }: { snapshot: Clien
   const c = counts(snapshot);
   const byState = (state: string) => snapshot.tasks.filter(t => t.state === state && nodes.some(n => n.id === t.id)).length;
   const runningNow = (scope.repo === null ? c?.running : c?.byRepo[scope.repo]?.running) ?? byState("running"), queued = byState("queued");
-  return <section className="pc-card-section" aria-labelledby="live-dispatch">
+  return <section className="pc-card-section pc-live-dispatch" aria-labelledby="live-dispatch">
     <div className="pc-card-section__head"><SectionHeading id="live-dispatch">Live dispatch</SectionHeading>
-      {nodes.length > 0 && <span className="muted">{runningNow} running{queued ? ` · ${queued} queued` : ""}</span>}</div>
+      <Pill tone="info">{runningNow} running</Pill><Pill tone="neutral">{queued} queued</Pill></div>
     {nodes.length > 0 && <ul className="pc-dispatch-cards" aria-label="Running and queued work">{page.rows.map(node => {
       const task = snapshot.tasks.find(t => t.id === node.id);
       const actions = task?.state === "queued"
         ? <ActionButton runner={runner} id={`${node.id}:stop`} aria-label={`Stop ${node.title}`} action={{ label: "Stop", op: "task.stop", params: { id: node.id } }} confirmDone={s => !s.snapshot?.tasks.some(x => x.id === node.id && x.state === "queued")} />
         : task?.state === "running" ? <ActionButton runner={runner} id={`${node.id}:takeover`} aria-label={`Take over ${node.title}`} action={{ label: "Take over", op: "task.takeover", params: { id: node.id } }} /> : null;
-      return <li key={node.id}><TaskCard node={node} density="compact" expanded={expansion.expanded(node.id)} onToggle={expansion.toggle} href={taskLink(query)} actions={actions} /></li>;
+      return <li key={node.id}><TaskCard node={node} flush density="compact" expanded={expansion.expanded(node.id)} onToggle={expansion.toggle} href={taskLink(query)} actions={actions} /></li>;
     })}</ul>}
-    {!nodes.length && <EmptyState title="Nothing running" description="Start work, delegate a task, or ask your planner to." />}
+    {!nodes.length && <EmptyState bodyTitle title="Nothing running" description="Start work, delegate a task, or ask your planner to." />}
     {page.footer}
   </section>;
 }
@@ -388,5 +388,5 @@ export function DispatchHome({ query }: { query: RouteQuery }) {
 export function NeedsYouPage({ query }: { query: RouteQuery }) {
   const { state } = useTaskContext(), runner = useActions();
   if (!state.snapshot) return null;
-  return <Page width="full"><RepoFilter snapshot={state.snapshot} query={query} /><NeedsYouList snapshot={state.snapshot} scope={{ repo: query.repo || null }} runner={runner} now={Date.now() / 1000} query={query} narrow={false} standalone /></Page>;
+  return <Page width="full" className="pc-needs-you pc-page-body"><header className="pc-dispatch__title"><h1>Needs you</h1></header><RepoFilter snapshot={state.snapshot} query={query} /><NeedsYouList snapshot={state.snapshot} scope={{ repo: query.repo || null }} runner={runner} now={Date.now() / 1000} query={query} narrow={false} standalone /></Page>;
 }

@@ -580,3 +580,9 @@ a.pc-btn{text-decoration:none}
 .pc-share-bar__share{color:var(--ink-secondary)}
 /* Phones keep the agent name; the role is the first fact to go. */
 @media(max-width:559px){.pc-share-bar__role{display:none}}
+
+/* Flush task rows share their containing section's frame. */
+.pc-task-card.pc-task-card--flush{padding:0;border:0;border-radius:0;background:transparent}
+.pc-task-card--flush+.pc-task-card--flush,li+li>.pc-task-card.pc-task-card--flush{border-top:1px solid var(--surface-lane)}
+.pc-task-card--flush .pc-task-card__main{padding:var(--size-9) var(--space-5);border-radius:0}
+.pc-empty__body-title{font-size:var(--type-body-strong-size);line-height:var(--type-body-strong-line);font-weight:var(--type-body-strong-weight)}

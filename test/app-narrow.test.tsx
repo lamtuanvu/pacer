@@ -57,9 +57,9 @@ test("bottom bar keeps all four icons, badges and scope on every destination", (
     // On Dispatch the Planner budget region states the figure; the narrow top bar keeps only the planner mark (UI-15).
     if (screen === "/") { expect(html).toContain("pc-planner"); expect(html).not.toContain("63%·77"); }
     else expect(html).toContain("63%·77");
-    // Dispatch offers New task in its header instead of the top bar's Delegate.
-    if (screen === "/") expect(html).not.toMatch(/pc-btn--touch[^>]*>Delegate</);
-    else expect(html).toMatch(/pc-btn--touch[^>]*>Delegate</);
+    // Dispatch offers New task in its header instead of the top bar's New task.
+    if (screen === "/") expect(html).not.toMatch(/pc-btn--touch[^>]*>New task</);
+    else expect(html).toMatch(/pc-btn--touch[^>]*>New task</);
   }
   const html = atWidth(400, () => renderToString(<Layout route={route("#/")} state={{ ...state, snapshot: { ...snapshot, counts: { ...snapshot.counts!, setupOpen: 1 } } }} title="Dispatch">body</Layout>));
   expect(html).toContain('pc-rail__dot');

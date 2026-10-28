@@ -63,7 +63,7 @@ export function TopBar({ brand, search, narrowSearch, panels = {}, narrow = fals
       {panels.right && <LayoutToggle icon="panel-right" label="Toggle right panel" keys="Alt+Meta+B" toggle={panels.right} />}
     </div>}
     {!connected && <span className="pc-live" role="status"><span className="pc-live-dot pc-live-dot--off" aria-hidden="true" />Reconnecting…</span>}
-    {delegate && <DensityContext.Provider value="compact"><Button variant="secondary" size="sm" onClick={onDelegate}>Delegate</Button></DensityContext.Provider>}
+    {delegate && <DensityContext.Provider value="compact"><Button variant="secondary" size="sm" onClick={onDelegate}>New task</Button></DensityContext.Provider>}
     </>}
   </header>;
 }

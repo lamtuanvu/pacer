@@ -134,8 +134,11 @@ test("needs you cards are compact as on the board: glyph, title, one caption lin
 
 test("live dispatch shows running and queued work as compact cards with their actions", () => {
   const html = section(view(), "live-dispatch");
-  expect(strip(html)).toContain("Live dispatch 2 running · 1 queued");
+  expect(strip(html)).toContain("Live dispatch 2 running 1 queued");
   expect(html.match(/pc-task-card--compact/g)).toHaveLength(3);
+  expect(html.match(/pc-task-card--flush/g)).toHaveLength(3);
+  expect(html).toContain('class="pc-pill pc-pill--info">2 running</span>');
+  expect(html).toContain('class="pc-pill pc-pill--neutral">1 queued</span>');
   expect(html).toContain(">Editing<");
   expect(html).toContain(">Queued<");
   expect(html).toContain('href="#/tasks/t-0420"');
@@ -449,4 +452,16 @@ test("planner half shows a missing planner reading's historical figure as stale 
   expect(html).not.toContain("No usage reading");
   expect(html).not.toContain("5h window 99%");
   expect(html).not.toContain("as of");
+});
+
+
+test("live dispatch keeps both count pills when no work is queued, including the empty state", () => {
+  const noQueue = { ...snap, tasks: snap.tasks.filter(t => t.state !== "queued") };
+  expect(section(view(null, noQueue), "live-dispatch")).toContain('class="pc-pill pc-pill--neutral">0 queued</span>');
+  const empty = { ...snap, tasks: [], counts: { ...snap.counts!, running: 0, queued: 0 } };
+  const html = section(view(null, empty), "live-dispatch");
+  expect(html).toContain('class="pc-pill pc-pill--info">0 running</span>');
+  expect(html).toContain('class="pc-pill pc-pill--neutral">0 queued</span>');
+  expect(html).toContain('<strong class="pc-empty__body-title">Nothing running</strong>');
+  expect(html).not.toContain('class="pc-section-heading">Nothing running');
 });

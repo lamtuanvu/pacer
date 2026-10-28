@@ -117,3 +117,26 @@ test("detail routes select exactly one primary and at most one settings destinat
  const shell = renderToString(<><Rail route={hostRoute} counts={snap.counts!}/><SettingsPanel route={hostRoute} counts={snap.counts!}/></>);
  expect(shell.match(/aria-current="page"/g)).toHaveLength(2);
 });
+
+
+test("top bar calls the delegate action New task on every destination that offers it", () => {
+  for (const hash of ["#/needs-you", "#/tasks", "#/settings", "#/settings/dispatcher", "#/terminal"]) {
+    const html = renderToString(<Layout route={at(hash)} state={ready()} title="Page">body</Layout>);
+    expect(html).toMatch(/pc-btn[^>]*>New task<\/button>/);
+    expect(html).not.toMatch(/>Delegate<\/button>/);
+  }
+});
+
+test("Needs you owns exactly one page title, with no hidden duplicate in the top bar", async () => {
+  const { NeedsYouPage } = await import("../app/src/screens/dispatch/Dispatch");
+  const { TaskContext } = await import("../app/src/screens/task-shared");
+  const { ActionContext } = await import("../app/src/data/action-context");
+  const { createActionRunner } = await import("../app/src/data/actions");
+  const runner = createActionRunner({ call: async <T,>() => ({} as T), waitFor: async () => true, refetch() {}, navigate() {} });
+  const state = ready();
+  const route = at("#/needs-you");
+  const html = renderToString(<ActionContext.Provider value={runner}><TaskContext.Provider value={{ state, api: {} as never }}><Layout route={route} state={state} title="Needs you"><NeedsYouPage query={route.query} /></Layout></TaskContext.Provider></ActionContext.Provider>);
+  expect(html.match(/<h1\b/g)).toHaveLength(1);
+  expect(html).toContain('<h1>Needs you</h1>');
+  expect(html).toContain('pc-needs-you pc-page-body');
+});

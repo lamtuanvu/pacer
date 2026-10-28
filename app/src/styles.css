@@ -156,10 +156,11 @@ html[data-pacer-native-titlebar] .pc-topbar{padding-left:var(--size-84)}
 .pc-planner{display:inline-flex;align-items:center;gap:var(--size-6);height:var(--size-28);box-sizing:border-box;padding:0 var(--size-10) 0 var(--space-1);border:1px solid var(--line);border-radius:var(--radius-full)}
 .pc-planner__name{font-weight:var(--type-body-strong-weight)}
 .pc-live{display:inline-flex;align-items:center;gap:var(--space-1\.5);font-size:var(--type-caption-size);color:var(--ink-muted)}
-.pc-live-dot{width:var(--size-7);height:var(--size-7);border-radius:var(--radius-full);background:var(--good-fill)}
+.pc-live-dot{width:var(--space-2);height:var(--space-2);border-radius:var(--radius-full);background:var(--good-fill)}
 .pc-live-dot--off{background:var(--ink-muted)}
 /* Dispatch home, laid out as the canvas Dispatch board. */
-.pc-dispatch{display:flex;flex-direction:column;gap:var(--space-4)}
+.pc-page.pc-dispatch{display:flex;flex-direction:column;gap:var(--space-5);max-width:var(--size-1240)}
+@media(min-width:560px){.pc-page.pc-dispatch{padding:var(--space-7) var(--space-10) var(--space-12)}}
 .pc-dispatch__header{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-3)}
 .pc-dispatch--narrow .pc-dispatch-split__half+.pc-dispatch-split__half{border-left:0;border-top:1px solid var(--line)}
 .pc-dispatch__controls{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-3)}
@@ -174,7 +175,7 @@ html[data-pacer-native-titlebar] .pc-topbar{padding-left:var(--size-84)}
 .pc-dispatch-label{color:var(--ink-muted);font-size:var(--type-label-size);line-height:var(--type-label-line);font-weight:var(--type-body-strong-weight);letter-spacing:var(--type-label-tracking);text-transform:uppercase}
 .pc-dispatch-next{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2\.5);min-width:0}
 .pc-dispatch-next__who{display:flex;flex-direction:column;flex:1 1 var(--size-200);min-width:0}
-.pc-dispatch-next__who>strong{font-size:var(--type-headline-size);line-height:var(--type-headline-line)}
+.pc-dispatch-next__who>strong{font-weight:var(--type-body-strong-weight);font-size:var(--type-headline-size);line-height:var(--type-headline-line)}
 .pc-dispatch-chain{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1\.5);min-width:0}
 .pc-dispatch-chain>ol{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1\.5);min-width:0;margin:0;padding:0;list-style:none}
 .pc-dispatch-chain li{display:inline-flex;align-items:center;gap:var(--space-1\.5)}
@@ -183,7 +184,8 @@ html[data-pacer-native-titlebar] .pc-topbar{padding-left:var(--size-84)}
 .pc-dispatch-chip__tile{display:inline-flex;align-items:center;justify-content:center;width:var(--size-18);height:var(--size-18);border-radius:var(--radius-sm);background:var(--surface-lane);font-size:var(--type-label-size);font-weight:var(--type-body-strong-weight)}
 .pc-count--bad{background:var(--bad-fill);color:var(--ink-on-ink)}
 /* Compact Needs you cards: glyph, title, one caption line and one action. */
-.pc-attn-card{align-items:flex-start}
+.pc-attn-card.pc-list-row{align-items:flex-start;padding:var(--space-3);border-radius:var(--radius-lg);gap:var(--space-2\.5);font-size:var(--type-body-size);line-height:var(--type-body-line)}
+.pc-attn-card .pc-glyph{width:var(--size-14);font-size:var(--size-14);font-weight:var(--type-count-badge-weight)}
 .pc-attn-card__title{display:flex;min-width:0;font-weight:var(--type-body-strong-weight)}
 .pc-attn-card__title>.pc-text-action{min-width:0;color:inherit;font-weight:inherit}
 .pc-attn-card__caption{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--type-caption-size);line-height:var(--type-caption-line)}
@@ -390,15 +392,15 @@ html[data-pacer-native-titlebar] .pc-topbar{padding-left:var(--size-84)}
 .pc-dispatch-card:focus-visible{outline:var(--stroke-focus) solid var(--focus);outline-offset:var(--stroke-focus)}
 .pc-dispatch-budget{display:flex;flex-direction:column;gap:var(--space-2);min-width:0}
 .pc-dispatch-who{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2);min-width:0}
-.pc-dispatch-who>strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.pc-dispatch-advice{margin:0;font-size:var(--type-body-strong-size);line-height:var(--type-body-strong-line);font-weight:var(--type-body-strong-weight)}
+.pc-dispatch-who>strong{font-weight:var(--type-body-strong-weight);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pc-dispatch-advice{margin:0;font-size:var(--type-headline-size);line-height:var(--type-headline-line);font-weight:var(--type-headline-weight)}
 .pc-dispatch-chip{display:inline-flex;align-items:center;gap:var(--space-1\.5);min-width:0;padding:var(--space-half) var(--space-2) var(--space-half) var(--space-half);border:1px solid var(--line);border-radius:var(--radius-full);font-size:var(--type-caption-size);line-height:var(--type-caption-line)}
 .pc-dispatch-agents{display:flex;flex-direction:column;min-width:0;margin:0;padding:0;list-style:none}
 .pc-dispatch-agents>li+li{border-top:1px solid var(--line)}
 .pc-dispatch-agent__name{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* The at-a-glance strip: four tiles in one bordered row, named by aria-label (no visible heading). */
 .pc-glance-strip{border:1px solid var(--line);border-radius:var(--radius-lg);overflow:hidden}
-.pc-glance-strip__state{margin:0;padding:var(--space-4) var(--space-5)}
+.pc-glance-strip__state{line-height:var(--type-caption-line);margin:0;padding:var(--space-4) var(--space-5)}
 .pc-glance{display:grid;grid-template-columns:repeat(auto-fit,minmax(var(--size-200),1fr));margin:0;padding:0;list-style:none}
 .pc-glance__tile{display:flex;gap:var(--space-3);align-items:flex-start;min-width:0;padding:var(--space-4) var(--space-5);box-shadow:var(--size-1) 0 0 var(--line),0 var(--size-1) 0 var(--line)}
 /* Dividers sit on the right and bottom of each tile; the strip clips the outer ones, so empty cells stay blank. */
@@ -504,3 +506,12 @@ body:has(.pc-app--narrow) .pc-toasts{bottom:calc(var(--size-56) + var(--space-5)
 .pc-command-trigger__icon{display:inline-flex}
 .pc-command-trigger__icon svg{width:var(--size-15);height:var(--size-15)}
 .pc-command-trigger__text{flex:1;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* Dispatch board metrics; phone canvas padding remains owned by Page. */
+.pc-dispatch-split .muted{font-size:var(--type-caption-size);line-height:var(--type-caption-line)}
+.pc-dispatch-split__half--page>.pc-text-action,.pc-dispatch-attention .pc-section__head>.pc-text-action{font-size:var(--type-caption-size);line-height:var(--type-caption-line);color:var(--link)}
+.pc-dispatch-attention,.pc-dispatch-attention>.pc-dispatch-cards{gap:var(--space-2\.5)}
+.pc-count.pc-count--bad{min-width:var(--size-20);height:var(--size-20);justify-content:center;padding:0 var(--space-1\.5);font-size:var(--type-label-size);line-height:var(--size-20);font-weight:var(--type-count-badge-weight)}
+.pc-filter--menu .pc-search-picker>.pc-btn{border-radius:var(--radius-md);height:var(--control-compact);min-height:var(--control-compact)}
+.pc-live-dispatch>.pc-card-section__head{padding:var(--space-3\.5) var(--space-5);gap:var(--space-3)}
+.pc-live-dispatch>.pc-dispatch-cards{padding:0;gap:0}

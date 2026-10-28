@@ -77,7 +77,7 @@ test("cross-surface counts use service totals and repo totals", () => {
   const c = snapshot.counts!, today = snapshot.today!;
   const text = Object.fromEntries(Object.entries(surfaces).map(([name, html]) => [name, strip(html).toLowerCase()]));
   expect(text.app).toContain(`needs you ${c.attention} `);
-  expect(text.app).toContain(`live dispatch ${c.running} running · ${c.queued} queued`);
+  expect(text.app).toContain(`live dispatch ${c.running} running ${c.queued} queued`);
   // The app's period figures come from insights.summary, not the snapshot's daily counts; without it the strip says so.
   expect(text.app).toContain("these figures need a newer pacer service with task insights.");
   expect(text.tray).toContain(`${c.attention} needs you ${c.running} running ${c.queued} waiting ${today.done} done today`);
