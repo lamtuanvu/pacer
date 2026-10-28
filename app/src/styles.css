@@ -372,8 +372,6 @@ html[data-pacer-native-titlebar] .pc-traffic__btn{display:none}
 .pc-dispatch-who{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2);min-width:0}
 .pc-dispatch-who>strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pc-dispatch-advice{margin:0;font-size:var(--type-body-strong-size);line-height:var(--type-body-strong-line);font-weight:var(--type-body-strong-weight)}
-.pc-dispatch-then{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1\.5);min-width:0}
-.pc-dispatch-then>ol{display:flex;flex-wrap:wrap;gap:var(--space-1\.5);min-width:0;margin:0;padding:0;list-style:none}
 .pc-dispatch-chip{display:inline-flex;align-items:center;gap:var(--space-1\.5);min-width:0;padding:var(--space-half) var(--space-2) var(--space-half) var(--space-half);border:1px solid var(--line);border-radius:var(--radius-full);font-size:var(--type-caption-size);line-height:var(--type-caption-line)}
 .pc-dispatch-agents{display:flex;flex-direction:column;min-width:0;margin:0;padding:0;list-style:none}
 .pc-dispatch-agents>li+li{border-top:1px solid var(--line)}
@@ -381,10 +379,11 @@ html[data-pacer-native-titlebar] .pc-traffic__btn{display:none}
 /* The at-a-glance strip: four tiles in one bordered row, named by aria-label (no visible heading). */
 .pc-glance-strip{border:1px solid var(--line);border-radius:var(--radius-lg);overflow:hidden}
 .pc-glance-strip__state{margin:0;padding:var(--space-4) var(--space-5)}
-.pc-glance{display:grid;grid-template-columns:repeat(auto-fit,minmax(var(--size-200),1fr));gap:var(--size-1);margin:0;background:var(--line)}
-.pc-glance__tile{display:flex;gap:var(--space-3);align-items:flex-start;min-width:0;padding:var(--space-4) var(--space-5);background:var(--surface-page)}
+.pc-glance{display:grid;grid-template-columns:repeat(auto-fit,minmax(var(--size-200),1fr));margin:0;padding:0;list-style:none}
+.pc-glance__tile{display:flex;gap:var(--space-3);align-items:flex-start;min-width:0;padding:var(--space-4) var(--space-5);box-shadow:var(--size-1) 0 0 var(--line),0 var(--size-1) 0 var(--line)}
+/* Dividers sit on the right and bottom of each tile; the strip clips the outer ones, so empty cells stay blank. */
 .pc-glance__body{display:flex;flex-direction:column;gap:var(--space-half);min-width:0}
-.pc-glance__body>dd{margin:0;font-variant-numeric:tabular-nums}
+.pc-glance__body{font-variant-numeric:tabular-nums}
 .pc-glance__icon{flex:none;display:inline-flex;align-items:center;justify-content:center;width:var(--size-32);height:var(--size-32);border-radius:var(--radius-md);background:var(--surface-lane);color:var(--ink)}
 .pc-glance__icon--info{background:var(--info-bg);color:var(--info-fg)}.pc-glance__icon--good{background:var(--good-bg);color:var(--good-fg)}
 .pc-glance__value{font-size:var(--type-number-lg-size);line-height:var(--type-number-lg-line);font-weight:var(--type-number-lg-weight)}
@@ -393,8 +392,6 @@ html[data-pacer-native-titlebar] .pc-traffic__btn{display:none}
 .pc-glance__delta{font-weight:var(--type-body-strong-weight);color:var(--ink)}
 .pc-glance__delta--good{color:var(--good-fg)}.pc-glance__delta--bad{color:var(--bad-fg)}
 .pc-dispatch-attention .pc-bulk-review{padding:var(--space-2) var(--space-3)}
-.pc-dispatch-attention .pc-attn .pc-list-row__leading{display:grid;grid-template-columns:minmax(0,1fr) var(--size-20);width:var(--size-176)}
-@media(max-width:767px){.pc-dispatch-attention .pc-attn .pc-list-row__leading{display:inline-flex;width:auto}}
 
 /* Task results compose existing sections and DS controls. */
 .pc-task-result__heading { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }

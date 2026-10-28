@@ -119,7 +119,8 @@ bound), and "ran outside the planner" needs planner coverage. Without the operat
 the strip says the figures need a newer service.
 Needs you shows compact cards (bad before warn, then blocked, problems and
 decisions, oldest first), one per root task: a glyph, the title, one caption line
-and one action, the primary one for a failure. Needs you and Live dispatch show
+and one action, the primary one for a task failure (problems with executors, hosts
+or setup keep a secondary action). The standalone Needs you page shows both actions. Needs you and Live dispatch show
 five cards per page, with
 Previous/Next navigation once there is more than one page. Repository changes reset
 scoped lists to their first page. Narrow layouts lead with Needs you and Live

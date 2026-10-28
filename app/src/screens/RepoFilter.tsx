@@ -49,7 +49,7 @@ export function RepoFilter({ snapshot, query, narrow = false, menu = false }: { 
   }
   if (menu) {
     const selected = all.find(repo => repo.key === query.repo);
-    return <div className="pc-filter pc-filter--menu" id="repo-filter">
+    return <div className="pc-filter pc-filter--menu" id="repo-filter" role="group" aria-label="Repository filter">
       <SearchPicker label={selected ? selected.label : `All repos · ${all.length}`} searchLabel="Search repositories" placeholder="Search repositories…"
         emptyLabel="No matching repositories." value={query.repo || null} onChange={go} options={repoOptions(all)} />
     </div>;

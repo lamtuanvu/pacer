@@ -101,7 +101,7 @@ export function kpiTiles(current: InsightsSummary, period: Period, opts: { today
     if (current.planner.coverage !== "unknown" && typeof current.ranOutsidePlanner === "number") {
       const executors = current.spread.filter(row => row.total > 0).length;
       tiles.push({ id: "outside", label: "Ran outside planner", value: `${Math.round(current.ranOutsidePlanner * 100)}%`,
-        delta: { text: compactCount(Math.round(tokens.total * current.ranOutsidePlanner)), tone: "neutral" }, note: `tokens on ${executors} executor${executors === 1 ? "" : "s"}` });
+        delta: { text: compactCount(Math.round(tokens.total * current.ranOutsidePlanner)), tone: "good" }, note: `tokens on ${executors} executor${executors === 1 ? "" : "s"}` });
     }
   }
   if (current.acceptedFirstTryRate !== null && current.reviewedRoots > 0) tiles.push({ id: "accepted", label: "Accepted first try", value: `${Math.round(current.acceptedFirstTryRate * 100)}%`,
@@ -158,9 +158,9 @@ export function plannerPace(verdict: string): { label: string; tone: string } {
  * Each part shows only when measured; the short window comes from the planner account's own reading.
  */
 export function plannerCaption(meter: { usedPct: number | null; pacePct: number | null; window: string | null; resetsAt: number | null }, now: number, shortWindowPct?: number | null): string {
-  const span = meter.window === "weekly" ? "week" : meter.window === "monthly" ? "month" : meter.window;
+  const span = meter.window === "weekly" ? "week" : meter.window === "monthly" ? "month" : meter.window === "daily" ? "day" : meter.window ? `the ${meter.window} window` : "the budget";
   return [
-    meter.usedPct !== null ? `${Math.round(meter.usedPct)}% of ${span ? span : "budget"} used` : null,
+    meter.usedPct !== null ? `${Math.round(meter.usedPct)}% of ${span} used` : null,
     meter.pacePct !== null ? `pace ${Math.round(meter.pacePct)}%` : null,
     meter.resetsAt ? `resets ${clock(meter.resetsAt, now)}` : null,
     typeof shortWindowPct === "number" ? `5h window ${Math.round(shortWindowPct)}%` : null,

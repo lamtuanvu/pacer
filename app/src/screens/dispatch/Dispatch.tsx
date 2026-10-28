@@ -8,7 +8,7 @@ import { eligibilityPresentation } from "../../../../src/view-model/eligibility"
 import { capacity, counts, needsYou, otherReposNeedingYou, plannerMeter, type Scope } from "../../../../src/view-model/selectors";
 import type { ClientSnapshot } from "../../../../src/view-model/snapshot";
 import { scopedTaskTree, type TaskNodeView } from "../../../../src/view-model/task-tree";
-import { ago, clock } from "../../../../src/view-model/time";
+import { clock } from "../../../../src/view-model/time";
 import { attentionStatus, executorLabel, paceStatus } from "../../../../src/view-model/words";
 import { useActions } from "../../data/action-context";
 import type { ActionRunner } from "../../data/actions";
@@ -47,20 +47,21 @@ function useExpansion() {
   const [open, setOpen] = useState<Record<string, boolean>>({});
   return { expanded: (id: string) => !!open[id], toggle: (id: string) => setOpen(previous => ({ ...previous, [id]: !previous[id] })) };
 }
-/** One action per card, as on the board; a failure's action is the card's primary. An answer opens the task. */
-function itemAction(item: AttentionItem, runner: ActionRunner, strong: boolean) {
-  const action = item.actions[0];
-  if (!action) return null;
-  return <ActionButton runner={runner} id={`${item.id}:0`} strong={strong}
-    action={action.op === "task.answer" ? { label: action.label, op: "ui.open", params: { view: "task", id: item.taskId } } : action} confirmDone={gone(item)} />;
+/**
+ * The card's actions: one on Dispatch, as on the board, and both on the standalone Needs you page. A task failure's first action is
+ * the primary; executor, host and setup problems keep secondary actions. An answer opens the task.
+ */
+function itemActions(item: AttentionItem, runner: ActionRunner, strong: boolean, count: 1 | 2) {
+  return item.actions.slice(0, count).map((action, i) => <ActionButton key={i} runner={runner} id={`${item.id}:${i}`} strong={strong && i === 0}
+    action={action.op === "task.answer" ? { label: action.label, op: "ui.open", params: { view: "task", id: item.taskId } } : action} confirmDone={gone(item)} />);
 }
 
 /** A compact Needs you card: glyph, title, one caption line and one action. Status words stay readable beside the glyph. */
-function AttentionCard({ card, snapshot, runner, now, query }: { card: NeedsYouCard; snapshot: ClientSnapshot; runner: ActionRunner; now: number; query: RouteQuery }) {
+function AttentionCard({ card, snapshot, runner, now, query, actions }: { card: NeedsYouCard; snapshot: ClientSnapshot; runner: ActionRunner; now: number; query: RouteQuery; actions: 1 | 2 }) {
   const item = card.kind === "task" ? card.items[0]! : card.item, bad = (card.kind === "task" ? card.node.attention : card.level) === "bad";
   const status = attentionStatus(item, snapshot.tasks), title = card.kind === "task" ? card.node.title : item.title;
-  // The service's detail already carries its own time; without one the card says when it was raised.
-  const caption = item.detail || clock(item.raisedAt, now);
+  // The board's caption: the service's detail, then when it was raised.
+  const caption = [item.detail, clock(item.raisedAt, now)].filter(Boolean).join(" · ");
   const more = card.kind === "task" && card.items.length > 1 ? ` · ${card.items.length - 1} more` : "";
   return <li data-attention-id={item.id} tabIndex={0} className="pc-dispatch-card">
     <ListRow className="pc-attn-card" outlined tone={bad ? "bad" : "warn"}
@@ -69,7 +70,7 @@ function AttentionCard({ card, snapshot, runner, now, query }: { card: NeedsYouC
         ? <TextAction className="pc-ellipsis" href={taskLink(query)(card.id)} title={title}>{title}</TextAction>
         : <span className="pc-ellipsis" title={title}>{title}</span>}</div>
         <div className="pc-attn-card__caption muted" title={caption}>{caption}{more}</div></>}
-      actions={itemAction(item, runner, bad)} />
+      actions={itemActions(item, runner, bad && card.kind === "task", actions)} />
   </li>;
 }
 
@@ -80,14 +81,14 @@ export function NeedsYouList({ snapshot, scope, runner, now, query, narrow, stan
   const page = useOverviewPage(cards, "Needs you", standalone ? Math.max(1, cards.length) : 5, scope.repo ?? "");
   const otherRepos = others > 0 ? <TextAction className="pc-text-action" href={withQuery(standalone ? "#/needs-you" : "#/", { ...query, repo: "" })}>+{others} in other repos</TextAction> : null;
   const all = <TextAction className="pc-text-action" href={withQuery("#/needs-you", { ...query, repo: scope.repo ?? query.repo })}>All open items</TextAction>;
-  return <section className={standalone ? "pc-section" : "pc-card-section pc-dispatch-attention"} aria-labelledby="needs-you">
-    <div className={standalone ? "pc-section__head" : "pc-card-section__head"}>
+  return <section className={standalone ? "pc-section" : "pc-section pc-dispatch-attention"} aria-labelledby="needs-you">
+    <div className="pc-section__head">
       <SectionHeading id="needs-you">{standalone ? "Decisions and problems" : "Needs you"}</SectionHeading>
       {!standalone && waiting > 0 && <span className="pc-count pc-count--bad">{waiting}</span>}
       <span className="grow" />{standalone ? otherRepos : narrow && otherRepos ? otherRepos : all}
     </div>
-    {cards.length > 0 && <ul className={standalone ? "pc-dispatch-cards pc-dispatch-cards--flush" : "pc-dispatch-cards"} aria-label="Needs you, most urgent first">
-      {page.rows.map(card => <AttentionCard key={card.id} card={card} snapshot={snapshot} runner={runner} now={now} query={query} />)}
+    {cards.length > 0 && <ul className="pc-dispatch-cards pc-dispatch-cards--flush" aria-label="Needs you, most urgent first">
+      {page.rows.map(card => <AttentionCard key={card.id} card={card} snapshot={snapshot} runner={runner} now={now} query={query} actions={standalone ? 2 : 1} />)}
     </ul>}
     {!cards.length && <EmptyState title="Nothing needs your attention" description={<TextAction href={withQuery("#/tasks", query)}>View Tasks</TextAction>} />}
     {!standalone && page.footer}
@@ -128,9 +129,9 @@ function PlannerHalf({ snapshot, now, shortWindowPct }: { snapshot: ClientSnapsh
   if (!p) return null;
   const name = agentInfo(p.agent).name, pace = paceStatus(p.verdict), words = plannerPace(p.verdict), caption = plannerCaption(p, now, shortWindowPct);
   return <div className="pc-dispatch-split__half" id="planner-budget" aria-label="Planner budget" role="group">
-    <div className="pc-dispatch-who"><AgentMark agent={p.agent} size={20} labelled={false} /><strong>{name}</strong><Pill tone="info">Planner</Pill><StatusPill status={{ ...pace, label: words.label }} /></div>
+    <div className="pc-dispatch-who"><AgentMark agent={p.agent} size={20} labelled={false} /><strong title={name}>{name}</strong><Pill tone="info">Planner</Pill><StatusPill status={{ ...pace, label: words.label }} /></div>
     {p.advice && <p className="pc-dispatch-advice">{p.advice}</p>}
-    {p.usedPct !== null && <UsageMeter used={p.usedPct} pace={p.pacePct} tone={pace.tone} verdict={p.verdict} size="bar" label={`${name} weekly usage`} stale={p.stale} staleAt={snapshot.at} now={now} />}
+    {p.usedPct !== null && <UsageMeter used={p.usedPct} pace={p.pacePct} tone={pace.tone} verdict={p.verdict} size="bar" label={`${name} ${p.window ? `${p.window} ` : ""}usage`} stale={p.stale} staleAt={snapshot.at} now={now} />}
     {caption && <span className="muted">{caption}</span>}
   </div>;
 }
@@ -194,11 +195,11 @@ const KPI_TONE: Record<KpiTile["id"], string> = { handled: "info", tokens: "neut
 function Glance({ period, insights }: { period: Period; insights: InsightsState }) {
   const tiles = insights.current ? kpiTiles(insights.current, period, { today: insights.today ?? null }) : [];
   return <section className="pc-glance-strip" aria-label={periodHeading(period)} id="glance">
-    {tiles.length ? <dl className="pc-glance">{tiles.map(tile => <div key={tile.id} className="pc-glance__tile">
+    {tiles.length ? <ul className="pc-glance">{tiles.map(tile => <li key={tile.id} className="pc-glance__tile">
       <span className={`pc-glance__icon pc-glance__icon--${KPI_TONE[tile.id]}`}><Icon name={KPI_ICON[tile.id]} /></span>
-      <div className="pc-glance__body"><dt className="pc-glance__label">{tile.label}</dt><dd className="pc-glance__value">{tile.value}</dd>
-      {(tile.delta || tile.note) && <dd className="pc-glance__note">{tile.delta && <span className={`pc-glance__delta pc-glance__delta--${tile.delta.tone}`}>{tile.delta.text}</span>}{tile.delta && tile.note ? " " : ""}{tile.note}</dd>}</div>
-    </div>)}</dl>
+      <div className="pc-glance__body"><span className="pc-glance__label">{tile.label}</span><span className="pc-glance__value">{tile.value}</span>
+      {(tile.delta || tile.note) && <span className="pc-glance__note">{tile.delta && <span className={`pc-glance__delta pc-glance__delta--${tile.delta.tone}`}>{tile.delta.text}</span>}{tile.delta && tile.note ? " " : ""}{tile.note}</span>}</div>
+    </li>)}</ul>
       : <p className="pc-glance-strip__state muted">{!insights.supported ? "These figures need a newer pacer service with task insights."
         : insights.loading ? <LoadingState label="Loading figures…" />
         : "Could not load these figures. They are checked again on the next update."}</p>}
@@ -219,8 +220,8 @@ function TokenShare({ summary, planner }: { summary?: InsightsSummary; planner: 
 function DispatchHeader({ snapshot, query, narrow, period, onPeriod, connected, now }: { snapshot: ClientSnapshot; query: RouteQuery; narrow: boolean; period: Period; onPeriod?: (period: Period) => void; connected: boolean; now: number }) {
   const delegate = useDelegate();
   const agents = capacity(snapshot).filter(row => row.rank !== "planner" && row.usedPct !== null).length + (snapshot.planner ? 1 : 0);
-  const live = connected ? ["Live", agents ? `${agents} agent${agents === 1 ? "" : "s"} connected` : null, // A service that sends no snapshot time gets no "updated" part, as in the top bar.
-    snapshot.at > 0 ? `updated ${ago(snapshot.at, now)}` : null].filter(Boolean).join(" · ") : "Reconnecting…";
+  // The top bar states when the snapshot was updated, so the page line does not repeat it (UI-15).
+  const live = connected ? ["Live", agents ? `${agents} agent${agents === 1 ? "" : "s"} connected` : null].filter(Boolean).join(" · ") : "Reconnecting…";
   // The period only changes figures from task insights, so the switch shows only when the service has them.
   const controls = <div className="pc-dispatch__controls">
     {onPeriod && <SegmentedControl label="Period" value={period} options={PERIODS} onChange={value => onPeriod(value as Period)} />}

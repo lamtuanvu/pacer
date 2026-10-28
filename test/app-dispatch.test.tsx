@@ -5,7 +5,7 @@ import type { ClientSnapshot } from "../src/view-model/snapshot";
 import type { InsightsSummary } from "../src/view-model/dispatch";
 import { DelegateContext } from "../app/src/shell/delegate";
 import { createActionRunner } from "../app/src/data/actions";
-import { DispatchView, holdInsights, insightsReads, type InsightsState, type RoutingPreview } from "../app/src/screens/dispatch/Dispatch";
+import { DispatchView, holdInsights, insightsReads, NeedsYouList, type InsightsState, type RoutingPreview } from "../app/src/screens/dispatch/Dispatch";
 import { RepoFilter, repoChoices } from "../app/src/screens/RepoFilter";
 
 const snap = fixture as unknown as ClientSnapshot;
@@ -37,7 +37,8 @@ test("regions follow the board: title, period, repos and New task, then planner 
   expect([...at].sort((a, b) => a - b)).toEqual(at);
   // The page carries the one title; the top bar drops its own on Dispatch (UI-9).
   expect(html.match(/<h1/g)).toHaveLength(1);
-  expect(strip(html.slice(html.indexOf("Live · "), html.indexOf("</span>", html.indexOf("Live · "))))).toMatch(/^Live · \d+ agents? connected · updated /);
+  // The top bar states the update age, so the page line names only the connection (UI-15).
+  expect(strip(html.slice(html.indexOf("Live · "), html.indexOf("</span>", html.indexOf("Live · "))))).toMatch(/^Live · \d+ agents? connected$/);
   expect(view(null, snap, { connected: false })).toContain("Reconnecting…");
   // No snapshot time: no invented age.
   expect(strip(view(null, { ...snap, at: 0 }))).not.toMatch(/updated \d+d ago/);
@@ -116,12 +117,15 @@ test("needs you cards are compact as on the board: glyph, title, one caption lin
   expect(html.match(/pc-list-row--outlined pc-list-row--warn/g)).toHaveLength(2);
   expect(html.match(/<span class="sr-only">Review requested: <\/span>/g)).toHaveLength(2);
   const failed = html.slice(html.indexOf('data-attention-id="failed:t-0409"'), html.indexOf("Fix flaky retry test"));
-  expect(failed).toContain("Failed twice on Antigravity · test timed out after 120 s");
+  expect(failed).toMatch(/Failed twice on Antigravity · test timed out after 120 s · \d{1,2}:\d{2}/);
   expect(failed).toContain('href="#/tasks/t-0409"');
-  // One action per card; a failure's action is the card's primary.
+  // One action per card; only a task failure's action is the primary, as on the board. A host problem's stays secondary.
   expect(failed).toMatch(/pc-btn--primary[^>]*>Retry on Codex</);
   expect(failed).not.toContain(">See error<");
-  expect(html.match(/pc-btn--primary/g)).toHaveLength(2);
+  expect(html.match(/pc-btn--primary/g)).toHaveLength(1);
+  const host = html.slice(html.indexOf('data-attention-id="host_down:buildbox"'), html.indexOf('data-attention-id="failed:t-0409"'));
+  expect(host).toContain(">Run checks<");
+  expect(host).not.toContain("pc-btn--primary");
   expect(html.slice(html.indexOf("Fix flaky retry test"))).not.toContain("pc-btn--primary");
   // Each card is a keyboard stop for j/k.
   expect(html.match(/data-attention-id="[^"]+" tabindex="0"/g)).toHaveLength(4);
@@ -193,7 +197,6 @@ test("repos are one All repos button that opens the repository menu", () => {
   expect(html).toMatch(/aria-expanded="false"[^>]*>All repos · 3<span aria-hidden="true">⌄<\/span>/);
   expect(view("github.com/acme/api")).toMatch(/aria-expanded="false"[^>]*>acme\/api<span/);
   expect(html).not.toContain("Budgets are shared across repos");
-  expect(html).not.toContain('aria-label="Repository filter"');
 });
 
 test("a repo scope filters Needs you and Live dispatch", () => {
@@ -291,4 +294,17 @@ test("a moved range keeps the last figures for the same period and repo, never a
   }
   // A failed first read with nothing to hold shows the error.
   expect(holdInsights({ key: "" }, "7d", null, { loading: false, error: new Error("x") }, {}).state.error).toBeInstanceOf(Error);
+});
+
+test("the standalone Needs you page keeps both actions per card, with the primary only for a task failure", () => {
+  const html = renderToString(<NeedsYouList snapshot={snap} scope={{ repo: null }} runner={runner} now={snap.at} query={{ repo: null, scope: null }} narrow={false} standalone />);
+  expect(html).toContain(">Decisions and problems<");
+  const failed = html.slice(html.indexOf('data-attention-id="failed:t-0409"'), html.indexOf("Fix flaky retry test"));
+  expect(failed).toMatch(/pc-btn--primary[^>]*>Retry on Codex</);
+  expect(failed).toContain(">See error<");
+  expect(html.match(/pc-btn--primary/g)).toHaveLength(1);
+});
+
+test("the repository menu button is named as a repository filter", () => {
+  expect(view("github.com/acme/api")).toMatch(/id="repo-filter" role="group" aria-label="Repository filter"/);
 });

@@ -31,7 +31,7 @@ test("kpi_strip_ran_outside_planner_only_with_planner_attribution", () => {
   expect(kpiTiles(summary(), "7d").some(t => t.id === "outside")).toBe(false);
   expect(kpiTiles(summary({}, { ranOutsidePlanner: 0.81 }), "7d").some(t => t.id === "outside")).toBe(false);
   const tiles = kpiTiles(summary({}, { planner: { coverage: "partial" }, ranOutsidePlanner: 0.81 }), "7d");
-  expect(tiles.find(t => t.id === "outside")).toEqual({ id: "outside", label: "Ran outside planner", value: "81%", delta: { text: "1.5M", tone: "neutral" }, note: "tokens on 3 executors" });
+  expect(tiles.find(t => t.id === "outside")).toEqual({ id: "outside", label: "Ran outside planner", value: "81%", delta: { text: "1.5M", tone: "good" }, note: "tokens on 3 executors" });
 });
 
 test("kpi_strip_unknown_data_shows_no_zero_or_dash", () => {

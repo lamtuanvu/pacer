@@ -112,7 +112,7 @@ test.skipIf(!browserPath)('Dispatch clips long titles, keeps the composer to one
  const browser=await chromium.launch({executablePath:browserPath!,headless:true});
  try{
   const page=await browser.newPage();
-  for(const width of [1990,1440,375])for(const theme of ['light','dark'])for(const withTokens of [false,true]){
+  for(const width of [1990,1440,900,375])for(const theme of ['light','dark'])for(const withTokens of [false,true]){
    await page.setViewportSize({width,height:1200});
    const query={repo:null,scope:width<560?'repo:github.com/acme/api':null};
    const html=renderToString(<TaskContext.Provider value={{state:state as unknown as StoreState,api:{} as BrowserApi}}><Layout route={{name:'dispatch',query}} state={state as unknown as StoreState} title="Dispatch"><DispatchView snapshot={snapshot as never} query={query} now={snapshot.at} runner={runner} routing={null} insights={withTokens?insights:undefined} onPeriod={()=>{}} startWork={<StartWork/>}/></Layout></TaskContext.Provider>);
@@ -136,6 +136,8 @@ test.skipIf(!browserPath)('Dispatch clips long titles, keeps the composer to one
     const box=await bar.boundingBox();
     expect(box!.width).toBeGreaterThan(100);
     expect(await page.locator('.pc-share-bar__legend tbody tr').count()).toBe(3);
+    // Tile dividers are drawn per tile, so a short last row leaves blank cells rather than a grey slab.
+    expect(await page.locator('.pc-glance').evaluate(n=>getComputedStyle(n).backgroundColor)).toBe('rgba(0, 0, 0, 0)');
     expect(await page.locator('.pc-share-bar__legend').evaluate(n=>n.scrollWidth<=n.clientWidth+1)).toBe(true);
     // Every region keeps its own height: the token share and Needs you do not stretch to match each other.
     if(width>=560){const [share,needs]=await Promise.all(['.pc-dispatch-spread','.pc-dispatch-attention'].map(s=>page.locator(s).evaluate(n=>n.getBoundingClientRect().height)));
@@ -143,7 +145,7 @@ test.skipIf(!browserPath)('Dispatch clips long titles, keeps the composer to one
    }
   }
  }finally{await browser.close();}
-});
+},30_000); // Sixteen browser renders: four widths, two themes, with and without insights.
 
 test.skipIf(!browserPath)('opened task gives the live session the main pane and retains Tasks navigation',async()=>{
  const css=(await Promise.all(['app/src/ds/tokens.css','app/src/ds/components.css','app/src/styles.css','app/src/screens/session/session.css'].map(f=>Bun.file(f).text()))).join('\n');
