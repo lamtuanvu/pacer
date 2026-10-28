@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { renderToString } from "preact-render-to-string";
 import {
-  FileViewer, HtmlPreview, PAGE_LINES, PREVIEW_LIMIT_BYTES, describeFileError, fileGlyph, fileMeta, findMatches, formatSize, initialLoaded,
+  FileViewer, HtmlPreview, LARGE_BYTES, LARGE_LINES, PAGE_LINES, PREVIEW_LIMIT_BYTES, describeFileError, fileGlyph, fileMeta, findMatches, formatSize, initialLoaded,
   languageName, pageOfLine, parseReference, resolvePreviewReference, splitLines, viewerLayout,
 } from "../app/src/screens/session/FileViewer";
 import { INLINE_STYLES, blockedResources } from "../app/src/screens/session/preview-html";
@@ -29,10 +29,10 @@ test("code viewer shows a selected line, header actions, search entry and return
 });
 
 test("large source loads the first pages, enough to include the requested location, and says what search covers", () => {
-  const text = Array.from({ length: 5000 }, (_, index) => `line ${index + 1}`).join("\n");
+  const text = Array.from({ length: 60_000 }, (_, index) => `line ${index + 1}`).join("\n");
   const first = renderToString(<FileViewer file={{ ...file, text, line: 10 }} onClose={noop} onRefresh={noop} />);
   expect(first).toContain("Large file: showing the first 2,000 lines");
-  expect(first).toContain("(5,000 lines). Search covers the lines shown.");
+  expect(first).toContain("(60,000 lines). Search covers the lines shown.");
   expect(first).toContain("pc-file-viewer__banner--warn");
   expect(first).toContain("Show next 2,000 lines");
   expect(first).toContain("line 2000");
@@ -41,9 +41,15 @@ test("large source loads the first pages, enough to include the requested locati
   expect(located).toContain("Large file: showing the first 4,000 lines");
   expect(located).toContain("line 2800");
   expect(located).not.toContain("line 4001");
-  const all = renderToString(<FileViewer file={{ ...file, text: text.split("\n").slice(0, 3000).join("\n"), line: 2800 }} onClose={noop} onRefresh={noop} />);
-  expect(all).toContain("Large file: showing the first 3,000 lines");
-  expect(all).not.toContain("Show next");
+  // Over 5 MB is large even with few lines; under both limits a long file is not.
+  const three = text.split("\n").slice(0, 3000).join("\n");
+  const heavy = renderToString(<FileViewer file={{ ...file, text: three, size: LARGE_BYTES + 1, line: 2800 }} onClose={noop} onRefresh={noop} />);
+  expect(heavy).toContain("Large file: showing the first 3,000 lines");
+  expect(heavy).not.toContain("Show next");
+  const plain = renderToString(<FileViewer file={{ ...file, text: three, size: 30_000, line: 2800 }} onClose={noop} onRefresh={noop} />);
+  expect(plain).not.toContain("Large file");
+  expect(plain).toContain("line 3000");
+  expect(LARGE_LINES).toBe(50_000);
   expect(initialLoaded()).toBe(PAGE_LINES);
   expect(initialLoaded(PAGE_LINES + 1)).toBe(PAGE_LINES * 2);
 });

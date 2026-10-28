@@ -10,7 +10,7 @@ let server:ReturnType<typeof Bun.serve>;
 const stubTerminal=`import { h } from "preact";
 export const LazyTerminal = props => h("div", { "data-stub-terminal": "" },
   h("textarea", { className: "xterm-helper-textarea", "aria-label": "Terminal input" }),
-  ...[["src/big.ts", 2500], ["README.md"], ["docs/long.md"], ["public/index.html"], ["src/gone.ts", 4], ["dist/engine.wasm"]].map(([path, line]) =>
+  ...[["src/big.ts", 2500], ["src/huge.ts", 2500], ["README.md"], ["docs/long.md"], ["public/index.html"], ["src/gone.ts", 4], ["dist/engine.wasm"]].map(([path, line]) =>
     h("button", { type: "button", onClick: () => props.onOpenFile(path, line) }, "Open " + path)));`;
 
 // Viewer import wrapper: with ?failViewer the lazy module resolves without a component until the test enables it.
@@ -71,6 +71,10 @@ browserTest("below 1100 px the viewer replaces the terminal; below 768 px it is 
   const first=viewer.getByRole("button").first();
   expect(await first.getAttribute("aria-label")).toBe("Back to terminal");
   expect(await first.textContent()).toBe("Terminal");
+  // The file name keeps priority over the Read-only pill, which drops to the path row.
+  const name=await viewer.locator(".pc-file-viewer__title strong").evaluate(element=>({clipped:element.scrollWidth>element.clientWidth,text:element.textContent}));
+  expect(name).toEqual({clipped:false,text:"README.md"});
+  expect(await viewer.locator(".pc-file-viewer__row--meta .pc-pill").innerText()).toBe("Read-only");
   const more=viewer.getByRole("button",{name:"More file actions"});
   await more.click();
   await expect(viewer.getByRole("button",{name:"Copy path"}).count()).resolves.toBe(1);
@@ -97,9 +101,9 @@ browserTest("below 1100 px the viewer replaces the terminal; below 768 px it is 
 browserTest("a large file loads in pages; search covers the lines loaded and Escape closes search before the viewer",async()=>{
  const page=await browser.newPage({viewport:{width:1440,height:900}});page.setDefaultTimeout(5000);
  try{
-  const viewer=await open(page,900,"src/big.ts");
+  const viewer=await open(page,900,"src/huge.ts");
   await viewer.getByText("Large file: showing the first 4,000 lines").waitFor();
-  await viewer.getByText("big.ts is ",{exact:false}).getByText("Search covers the lines shown.",{exact:false}).waitFor();
+  await viewer.getByText("huge.ts is ",{exact:false}).getByText("Search covers the lines shown.",{exact:false}).waitFor();
   await page.keyboard.press("Control+f");
   const input=viewer.getByRole("textbox",{name:"Search file"});
   await page.waitForFunction(()=>document.activeElement?.getAttribute("aria-label")==="Search file");
@@ -112,13 +116,12 @@ browserTest("a large file loads in pages; search covers the lines loaded and Esc
   await input.press("Shift+Enter");
   await viewer.getByText("1 of 2",{exact:true}).waitFor();
   const before=await viewer.locator(".pc-file-viewer__source").evaluate(element=>{element.scrollTop+=300;return element.scrollTop;});
-  await viewer.getByRole("button",{name:"Show next 1,000 lines"}).click();
-  await viewer.getByText("Large file: showing the first 5,000 lines").waitFor();
+  await viewer.getByRole("button",{name:"Show next 2,000 lines"}).click();
+  await viewer.getByText("Large file: showing the first 6,000 lines").waitFor();
   // Loading more keeps the reader's place.
   expect(await viewer.locator(".pc-file-viewer__source").evaluate(element=>element.scrollTop)).toBe(before);
-  await viewer.getByText("Large file: showing the first 5,000 lines").waitFor();
+  await viewer.getByText("Large file: showing the first 6,000 lines").waitFor();
   await viewer.getByText("1 of 3",{exact:true}).waitFor();
-  await expect(viewer.getByRole("button",{name:/Show next/}).count()).resolves.toBe(0);
   await viewer.getByRole("button",{name:"Match case"}).click();
   await expect(viewer.getByRole("button",{name:"Match case"}).getAttribute("aria-pressed")).resolves.toBe("true");
   await input.fill("NEEDLE");
@@ -129,6 +132,18 @@ browserTest("a large file loads in pages; search covers the lines loaded and Esc
   await page.keyboard.press("Escape");
   await viewer.waitFor({state:"detached"});
   await page.waitForFunction(()=>document.activeElement?.classList.contains("xterm-helper-textarea"));
+ }finally{await page.close()}
+},30_000);
+
+browserTest("a 5,000-line file is not large: every line is loaded, there is no banner and search covers all of it",async()=>{
+ const page=await browser.newPage({viewport:{width:1440,height:900}});page.setDefaultTimeout(5000);
+ try{
+  const viewer=await open(page,900,"src/big.ts");
+  await viewer.getByText("line 4999 needle").waitFor({state:"attached"});
+  await expect(viewer.getByRole("note",{name:"Large file"}).count()).resolves.toBe(0);
+  await page.keyboard.press("Control+f");
+  await viewer.getByRole("textbox",{name:"Search file"}).fill("needle");
+  await viewer.getByText("1 of 3",{exact:true}).waitFor();
  }finally{await page.close()}
 },30_000);
 
@@ -284,7 +299,7 @@ const measure=(viewer:import("playwright-core").Locator,selector:string)=>viewer
 browserTest("the viewer matches the design board: flush container, header band, actions, chips, code and footer",async()=>{
  const page=await browser.newPage({viewport:{width:1440,height:900},colorScheme:"light"});page.setDefaultTimeout(5000);
  try{
-  const viewer=await open(page,1200,"src/big.ts");
+  const viewer=await open(page,1200,"src/huge.ts");
   await viewer.getByText("Large file: showing the first 4,000 lines").waitFor();
   // Flush in the side panel: only a 1px left border, no radius, no padding.
   expect(await measure(viewer,"xpath=.")).toMatchObject({border:"0px 0px 0px 1px",radius:"0px",padding:"0px 0px 0px 0px",width:560});
@@ -300,7 +315,7 @@ browserTest("the viewer matches the design board: flush container, header band, 
   expect(await measure(viewer,".pc-file-viewer__glyph")).toMatchObject({width:26,height:26,radius:"6px"});
   expect(await measure(viewer,".pc-file-viewer__title strong")).toMatchObject({size:"14px"});
   // Path row: worktree in muted ink, a plain 20px Line chip and a Session running chip with a 6px good dot.
-  expect(await viewer.locator(".pc-file-viewer__path").innerText()).toBe("validate/pwa-drop / src/big.ts");
+  expect(await viewer.locator(".pc-file-viewer__path").innerText()).toBe("validate/pwa-drop / src/huge.ts");
   expect(await measure(viewer,".pc-file-viewer__workspace")).toMatchObject({color:"rgb(113, 113, 122)"});
   const chips=viewer.locator(".pc-file-viewer__chip");
   expect(await chips.allInnerTexts()).toEqual(["Line 2500","Session running"]);
@@ -314,7 +329,7 @@ browserTest("the viewer matches the design board: flush container, header band, 
   expect(Number(selected.weight)).toBeGreaterThanOrEqual(600);expect(selected.align).toBe("right");
   // Footer: 26px, card background, top border, language · meta · spacer · right-hand info.
   expect(await measure(viewer,".pc-file-viewer__foot")).toMatchObject({height:26,padding:"0px 14px 0px 14px",border:"1px 0px 0px 0px",background:"rgb(250, 250, 250)"});
-  expect(await viewer.locator(".pc-file-viewer__foot span:not(.pc-file-viewer__spacer)").allInnerTexts()).toEqual(["TypeScript","UTF-8 · LF · 5,000 lines · 47.8 KB","Ln 2500 · Opened from Codex terminal"]);
+  expect(await viewer.locator(".pc-file-viewer__foot span:not(.pc-file-viewer__spacer)").allInnerTexts()).toEqual(["TypeScript",expect.stringMatching(/^UTF-8 · LF · 60,000 lines · \d+\.\d KB$/),"Ln 2500 · Opened from Codex terminal"]);
   // The linked line sits in the upper third of the view.
   const third=await viewer.locator(".pc-file-viewer__source").evaluate(element=>{
    const target=element.querySelector(".pc-file-viewer__line--selected")!.getBoundingClientRect(),frame=element.getBoundingClientRect();
@@ -322,18 +337,18 @@ browserTest("the viewer matches the design board: flush container, header band, 
   });
   expect(third).toBeGreaterThan(0.2);expect(third).toBeLessThan(0.45);
   // The side-panel tab carries the file name.
-  expect(await viewer.locator(".pc-file-viewer__tabs [role=tab]").innerText()).toBe("big.ts");
+  expect(await viewer.locator(".pc-file-viewer__tabs [role=tab]").innerText()).toBe("huge.ts");
  }finally{await page.close()}
 },30_000);
 
 browserTest("the large-file banner, search highlight and dark theme follow the board",async()=>{
  const page=await browser.newPage({viewport:{width:1440,height:900},colorScheme:"dark"});page.setDefaultTimeout(5000);
  try{
-  const viewer=await open(page,1200,"src/big.ts");
+  const viewer=await open(page,1200,"src/huge.ts");
   const banner=viewer.getByRole("note",{name:"Large file"});
   await banner.waitFor();
   expect(await measure(viewer,".pc-file-viewer__banner")).toMatchObject({padding:"10px 14px 10px 14px",border:"0px 0px 1px 0px",background:"rgb(28, 20, 8)"});
-  await expect(banner.getByRole("button").allInnerTexts()).resolves.toEqual(["Show next 1,000 lines"]);
+  await expect(banner.getByRole("button").allInnerTexts()).resolves.toEqual(["Show next 2,000 lines"]);
   expect(await measure(viewer,".pc-file-viewer__head")).toMatchObject({background:"rgb(24, 24, 27)"});
   expect(await measure(viewer,".pc-file-viewer__line--selected")).toMatchObject({background:"rgb(23, 37, 84)"});
   await page.keyboard.press("Control+f");

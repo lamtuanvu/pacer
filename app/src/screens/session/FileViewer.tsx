@@ -14,6 +14,9 @@ import { blockedResources, htmlPreviewDocument, type BlockedResource } from "./p
 export const PREVIEW_LIMIT_BYTES = 512 * 1024;
 /** Lines of a large file loaded at a time; search covers the lines loaded. */
 export const PAGE_LINES = 2000;
+/** A file over 5 MB or 50,000 lines is large: it loads PAGE_LINES at a time. */
+export const LARGE_BYTES = 5 * 1024 * 1024;
+export const LARGE_LINES = 50_000;
 
 export function resolvePreviewReference(currentPath: string, href: string): string | null {
   if (!href || href.startsWith("#") || href.startsWith("/")) return null;
@@ -273,7 +276,7 @@ export function FileViewer({ file, reference, error, loading = false, workspace,
   }, [file?.kind, file?.text, tab]);
 
   const lines = useMemo(() => splitLines(file?.text ?? ""), [file?.text]);
-  const large = lines.length > PAGE_LINES;
+  const large = lines.length > LARGE_LINES || (file?.size ?? 0) > LARGE_BYTES;
   const shownCount = large ? Math.min(loaded, lines.length) : lines.length;
   const shown = useMemo(() => lines.slice(0, shownCount), [lines, shownCount]);
   // Search covers the lines loaded, and the large-file banner says so.
@@ -438,11 +441,12 @@ export function FileViewer({ file, reference, error, loading = false, workspace,
         <div className="pc-file-viewer__title" ref={heading} tabIndex={-1}>
           <strong title={path}>{name}</strong>
         </div>
-        <Pill>Read-only</Pill>
+        {!sheet && <Pill>Read-only</Pill>}
         {actions}
       </div>
       <div className="pc-file-viewer__row pc-file-viewer__row--meta">
         <code className="pc-file-viewer__path" title={workspace ? `${workspace} / ${path}` : path}>{workspace && <span className="pc-file-viewer__workspace">{workspace} / </span>}{path}</code>
+        {sheet && <Pill>Read-only</Pill>}
         {line && <span className="pc-file-viewer__chip">Line {line}</span>}
         {running && <span className="pc-file-viewer__chip" title="The terminal session keeps running while you read"><span className="pc-file-viewer__dot" aria-hidden="true"/>Session running</span>}
         {file && loading && <span role="status" className="pc-file-viewer__caption">Reading {path}…</span>}
