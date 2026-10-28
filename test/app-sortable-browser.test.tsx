@@ -148,7 +148,8 @@ browserTest('a failed ladder save after saved rules keeps the error and the unsa
     expect(await page.locator('.pc-save-bar').textContent()).toContain('Name the new saved setup in step 3.');
     expect(await page.locator('.pc-save-bar .pc-save-bar__scope').textContent()).not.toContain('default');
     await page.getByLabel('Setup name').fill('night');
-    expect(await page.locator('.pc-save-bar .pc-save-bar__scope').textContent()).toBe(' · night');
+    // Rules and ladder are both dirty, so the scope names both.
+    expect(await page.locator('.pc-save-bar .pc-save-bar__scope').textContent()).toBe(' · Global list for Everything else and night');
     await page.getByLabel('Reason for change').fill('cheaper');
     expect(await page.locator('.pc-save-bar').textContent()).toContain('2 unsaved changes');
     expect(await page.locator('#decision-ladder').textContent()).toContain('Save the ladder as a new saved setup');
@@ -491,5 +492,16 @@ browserTest('saved setups and current setup adapt to a 450px container at a 768p
         return [style.fontSize, style.lineHeight, style.fontWeight, style.textTransform];
       })).toEqual(['16px', '22px', '650', 'none']);
     }
+  } finally { await page.close(); }
+});
+
+browserTest('executor rows separate name and account for assistive technology', async () => {
+  const page = await browser.newPage();
+  try {
+    await page.goto(`${server.url.href}#setup`);
+    await page.getByRole('tab', { name: 'Everything else' }).click();
+    const label = page.locator('[aria-label="Executors for Everything else, in priority order"] .pc-sortable__label').first();
+    // The separator is visually hidden but stays in the text that screen readers announce.
+    expect((await label.textContent())!.replace(/\s+/g, ' ')).toMatch(/^Claude Code · /);
   } finally { await page.close(); }
 });

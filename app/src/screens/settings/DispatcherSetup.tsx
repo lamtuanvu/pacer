@@ -5,6 +5,7 @@ import { ButtonLink, IconButton, TextAction, Button } from "../../ds/Button";
 import { Field, TextArea, TextInput } from "../../ds/Controls";
 import { ChoicePicker } from "../../ds/ChoicePicker";
 import { AgentMark } from "../../ds/AgentMark";
+import { Icon } from "../../ds/icons";
 import { tabStep } from "../../ds/Patterns";
 import { hrefFor, routes } from "../../router";
 import { Identicon } from "../../ds/Identicon";
@@ -50,7 +51,7 @@ function OrderWithPool({ label, title, items, onChange, pool, empty, disabled }:
         <SortableList iconControls label={`${label}, in priority order`} disabled={disabled} items={items.map((item, index) => {
           const { runner, status, account } = metadata(item.id ?? item.key);
           const [name, ...caption] = item.label.split(" · ");
-          return { ...item, displayLabel: <>{name}<span className="pc-executor-caption">{caption.join(" · ") || account}</span></>,
+          return { ...item, displayLabel: <>{name}<span className="sr-only"> · </span><span className="pc-executor-caption">{caption.join(" · ") || account}</span></>,
             leading: <><span className="pc-executor-rank">{index + 1}</span><AgentMark agent={runner?.agent ?? item.key} size={24} labelled={false} /></>,
             detail: <><span className="pc-executor-id" title={item.id ?? item.key}>{item.id ?? item.key}</span>{item.detail}</>,
             trailing: status && <Pill tone={status.tone}>{status.label}</Pill> };
@@ -68,12 +69,12 @@ function OrderWithPool({ label, title, items, onChange, pool, empty, disabled }:
               <span className="pc-executor-pool__identity"><strong>{item.label}</strong><span className="pc-executor-caption">{unavailable ? status?.detail || status?.label || "Disabled" : [status?.label, account].filter(Boolean).join(" · ")}</span></span>
               {unavailable ? <TextAction href={hrefFor(routes.settings("executors"))}>Fix</TextAction> : <IconButton size="sm" disabled={disabled} aria-label={`Add ${item.label}`} onClick={() => add(item.key, index)}><span aria-hidden="true">+</span></IconButton>}
             </div>;
-          }) : <p className="pc-executor-caption">Every executor is in the list.</p>}
+          }) : <p className="pc-executor-caption pc-executor-pool__empty">Every executor is in the list.</p>}
           <ButtonLink size="sm" variant="quiet" className="pc-executor-pool__setup" href={hrefFor(routes.addExecutor())}>+ Set up a new executor</ButtonLink>
         </div>
       </div>
     </div>
-    {items.length === 1 && <p className="pc-dispatcher-callout pc-dispatcher-callout--warn">Only one executor: if {items[0]!.label} cannot take work, these tasks wait in the queue. There is no fallback.</p>}
+    {items.length === 1 && <p className="pc-dispatcher-callout pc-dispatcher-callout--warn"><span className="pc-dispatcher-callout__glyph" aria-hidden="true">◐</span>Only one executor: if {items[0]!.label} cannot take work, these tasks wait in the queue. There is no fallback.</p>}
   </div>;
 }
 
@@ -180,7 +181,10 @@ export function SetupEditor({ view, eligibility: source, onSaved, onDirtyChange,
   useEffect(() => () => onLadderDraft?.(undefined), []);
   // With nothing left to save, follow the latest saved settings, so a later edit never builds on a stale base.
   useEffect(() => { if (!count) { setSetup(discardSetup(latest.current)); setConflict(false); setName(""); setReason(""); } }, [count]);
-  const scopeText = ladderDirty ? name || "New saved setup" : source.kind === "project" ? `${source.repoLabel} list` : `Global list for ${activeKind}${activeKind === "Everything else" ? "" : " tasks"}`;
+  const listScope = source.kind === "project" ? `${source.repoLabel} list` : `Global list for ${activeKind}${activeKind === "Everything else" ? "" : " tasks"}`;
+  const setupScope = name || "New saved setup";
+  // Both parts save together, so name both.
+  const scopeText = ladderDirty ? (eligibilityChanges(setup.eligibility) ? `${listScope} and ${setupScope}` : setupScope) : listScope;
   const disabled = busy || !state.connected;
   const setEligibility = (draft: Rule[] | string[]) => setSetup(current => ({ ...current, eligibility: { ...current.eligibility, draft } as EligibilityDraft }));
   // Discard loads the latest saved settings, which also resolves a conflict.
@@ -276,7 +280,7 @@ function GuidedSetup({ view, onSaved, onLadderDraft, repos, listError }: { view:
   const options = [{ value: "", label: "All repositories" }, ...repos];
   return <>
     <Section step={1} id="dispatcher-scope" title="Where should this apply?">
-      <div className="u3-row">
+      <div className="pc-dispatcher-scope-row">
         <div ref={scopeRoot} role="radiogroup" aria-label="Scope" aria-describedby={dirty ? "dispatcher-scope-reason" : undefined} className="pc-dispatcher-scope">
           {["All repositories", "One repository"].map((label, index) => <Button size="sm" role="radio" aria-checked={oneRepo === !!index} tabIndex={oneRepo === !!index ? 0 : -1} disabled={dirty || (!!index && !repos.length)}
             onClick={() => pickScope(!!index)} onKeyDown={event => {
@@ -285,12 +289,12 @@ function GuidedSetup({ view, onSaved, onLadderDraft, repos, listError }: { view:
               if (to === undefined || dirty) return; event.preventDefault(); pickScope(!!to); buttons(scopeRoot.current, "button")[to]?.focus();
             }}>{label}</Button>)}
         </div>
-        {oneRepo && <div className="dispatcher-repo-picker"><Field label="Repository"><ChoicePicker className="pc-choice-picker--mono" value={scope} searchable={repos.length > 8} disabled={dirty} options={repos} onValueChange={value => { setScope(value); setNotice(""); }} /></Field></div>}
+        {oneRepo && <div className="dispatcher-repo-picker"><Field label={<span className="sr-only">Repository</span>}><ChoicePicker className="pc-choice-picker--mono" value={scope} searchable={repos.length > 8} disabled={dirty} options={repos} onValueChange={value => { setScope(value); setNotice(""); }} /></Field></div>}
         {oneRepo && repos.find(repo => repo.value === scope)?.ownList && <Pill tone="info">Has its own list</Pill>}
       </div>
       {dirty && <p id="dispatcher-scope-reason">Save or discard your changes to switch scope.</p>}
       {!repos.length && <p className="u3-muted">Add a repository to edit its own executor list.</p>}
-      <p className="pc-dispatcher-callout pc-dispatcher-callout--info">A repository's executor list takes precedence over the global task-type lists, and it stays in place when you switch saved setups.</p>
+      <p className="pc-dispatcher-callout pc-dispatcher-callout--info"><span className="pc-dispatcher-callout__glyph" aria-hidden="true"><Icon name="info" /></span>A repository's executor list takes precedence over the global task-type lists, and it stays in place when you switch saved setups.</p>
       {listError}
     </Section>
     <ScopedEditor key={scope} view={view} scope={scope} notice={notice} repoLabel={options.find(option => option.value === scope)?.label ?? scope}

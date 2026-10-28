@@ -561,6 +561,10 @@ body:has(.pc-app--narrow) .pc-toasts{bottom:calc(var(--size-56) + var(--space-5)
 .pc-setup-icon{display:inline-flex;flex:none}
 .pc-setup-icon .pc-identicon{width:var(--size-28);height:var(--size-28);border-radius:var(--radius-7)}
 .pc-ladder-number{display:grid;place-items:center;flex:none;width:var(--size-24);height:var(--size-24);border-radius:var(--radius-full);background:var(--surface-lane);color:var(--ink-secondary);font-weight:var(--type-match-strong-weight)}
+/* Step role, as on the board: spare capacity, usable capacity, anything else. */
+.pc-ladder-number--good{background:var(--good-bg);color:var(--good-fg)}
+.pc-ladder-number--warn{background:var(--warn-bg);color:var(--warn-fg)}
+.pc-ladder-number--muted{background:var(--surface-lane);color:var(--ink-muted)}
 .pc-saved-setups{container: saved-setups / inline-size;border:1px solid var(--line);border-radius:var(--radius-lg);overflow:hidden}
 .pc-saved-setups__row{display:grid;grid-template-columns:var(--size-28) minmax(0,var(--size-180)) minmax(0,1fr) var(--size-110);align-items:center;gap:var(--space-3);padding:var(--space-2\.5) var(--space-3\.5);overflow-wrap:anywhere}
 .pc-saved-setups__row+ .pc-saved-setups__row{border-top:1px solid var(--line)}
@@ -598,3 +602,10 @@ body:has(.pc-app--narrow) .pc-toasts{bottom:calc(var(--size-56) + var(--space-5)
 .pc-sortable--icons .pc-sortable__row:has(.pc-ladder-number) .pc-sortable__actions{grid-column:4}
 /* Dispatcher supplemental sections share the question heading type without a step badge. */
 :is(#native-control,#model-choices,#saved-profiles)>.u3-heading .pc-section-heading{font-size:var(--size-16);line-height:var(--size-22);font-weight:var(--type-headline-weight);letter-spacing:normal;text-transform:none;color:var(--ink)}
+.pc-dispatcher-scope-row{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2)}
+.pc-dispatcher-scope-row .dispatcher-repo-picker .pc-field{gap:0}
+.pc-dispatcher-callout{display:flex;align-items:flex-start;gap:var(--space-2)}
+.pc-dispatcher-callout__glyph{display:inline-flex;flex:none;font-weight:var(--type-match-strong-weight)}
+.pc-dispatcher-callout__glyph svg{width:var(--size-16);height:var(--size-16)}
+.pc-executor-pool .pc-executor-pool__setup{min-height:var(--size-34);height:var(--size-34)}
+.pc-executor-pool__empty{padding:var(--space-3);text-align:center}

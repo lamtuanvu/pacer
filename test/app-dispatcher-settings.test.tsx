@@ -126,7 +126,9 @@ test("native control data follows the selected repository key without showing st
 test("ladder rows use numbered circles and icon actions with full accessible names", () => {
   const html=renderToString(<DispatcherLadderFields config={dispatchConfigSchema.parse({})} onChange={()=>{}}/>);
   expect(html).toContain('pc-sortable--icons');
-  expect(html).toContain('aria-hidden="true" class="pc-ladder-number">1</span>');
+  // Circles take the step's role: spare capacity good, usable warn.
+  expect(html).toContain('aria-hidden="true" class="pc-ladder-number pc-ladder-number--good">1</span>');
+  expect(html).toContain('aria-hidden="true" class="pc-ladder-number pc-ladder-number--warn">2</span>');
   expect(html).toContain('aria-label="Move down: Capable model with spare capacity"');
   expect(html).not.toContain('>Move down</button>');
 });
