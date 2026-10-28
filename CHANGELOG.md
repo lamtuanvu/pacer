@@ -26,7 +26,21 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Changed
 
+- Keep App plugin switches focused during changes and reloads, label the plugin list, describe refused plugins, and preserve loaded rows and inline errors when a reload fails.
+
+- Add the service-backed App Plugins list with explicit capability grants, content-sized Terminal selection, and semantic Budget row headings through additive design-system options.
+
 - Refine the terminal file viewer: it opens beside the terminal when there is room (a full sheet on narrow screens), starts on Source, adds whole-file search with match stepping (⌘F/Ctrl+F), lists what the isolated HTML preview blocked, explains missing, outside, too-large, binary and changed-session files, and closes with Esc or Back to terminal.
+
+- Rebuild Budget & pacing around planner pace, mode holds and reported budget windows. Preserve planner integration consent, pacing policy and account controls using shared board rows.
+
+- Rebuild Settings Overview with real readiness and setup facts, and App preferences with board-aligned theme, notification, terminal and update controls. Keep existing operations, legacy section links and desktop OTA controls; add opt-in board rows, segmented controls and a compact Switch.
+
+- Rebuild Settings Diagnostics with report totals, grouped check disclosures, report copying and the existing previewed repair flow.
+
+- Match the Settings navigation board with a 240px panel, Back to Dispatch and save guidance. Agents and Machines replace the executor and machine menu labels; Accounts, Add executor and Remote hosts stay reachable from their parent pages.
+
+- Group the Settings menu into Dispatch and App. Overview summarises readiness and the current setup, Budget & pacing replaces Planner & pacing, and App preferences holds Updates, Notifications and Appearance on one page; their old links still open the right section. Settings rows share one layout with the new `SettingRow` and `SettingsNav` design system components.
 
 ### Fixed
 
