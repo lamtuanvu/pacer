@@ -83,3 +83,33 @@
 .u3-diagnostics{display:flex;flex-direction:column;gap:var(--space-4);min-width:0}
 .u3-diagnostics pre,#diagnostics pre{max-width:100%;overflow-x:auto;white-space:pre}
 .u3-diagnostics .pc-card>div{min-width:0}
+
+/* Legacy section hashes align the folded App preferences sections below the shell. */
+.pc-preferences-section{scroll-margin-top:var(--space-5)}
+
+/* Budget board: shared row/card/meter geometry, composed only with service facts. */
+.pc-settings-board--budget{gap:var(--size-18)}
+.pc-budget-summary{display:flex;flex-wrap:wrap;gap:var(--space-5);align-items:center}
+.pc-budget-summary__copy{display:flex;flex-direction:column;gap:var(--space-2);flex:1 1 calc(var(--size-360) + var(--size-20));min-width:0}
+.pc-budget-identity{display:flex;align-items:center;gap:var(--space-2);min-width:0;flex-wrap:wrap}
+.pc-budget-sentence{font-size:var(--type-headline-size);line-height:var(--type-headline-line);font-weight:var(--type-headline-weight)}
+.pc-budget-modes{display:flex;flex-direction:column;gap:var(--space-1\.5);flex:0 1 var(--size-300);min-width:0}
+.pc-budget-modes__bar{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:calc(var(--size-2) + var(--size-1))}
+.pc-budget-mode{display:flex;flex-direction:column;gap:var(--space-1);align-items:center;color:var(--ink-muted);font-size:var(--type-label-size)}
+.pc-budget-mode__fill{width:100%;height:var(--size-6);border-radius:calc(var(--size-2) + var(--size-1));background:var(--line)}
+.pc-budget-mode--emergency .pc-budget-mode__fill{background:var(--bad-fill)}
+.pc-budget-mode--strict .pc-budget-mode__fill{background:var(--warn-fill)}
+.pc-budget-mode--relaxed .pc-budget-mode__fill{background:var(--good-fill)}
+.pc-budget-mode--active{font-weight:var(--type-display-weight);color:var(--ink)}
+.pc-budget-mode--active .pc-budget-mode__fill{outline:var(--size-2) solid var(--ink);outline-offset:var(--size-2)}
+.pc-budget-reserve{display:flex;gap:var(--space-3);align-items:center;flex-wrap:wrap}
+.pc-budget-reserve input{width:var(--size-260);max-width:100%;accent-color:var(--ink)}
+.pc-budget-reserve output{font-weight:var(--type-display-weight)}
+.pc-budget-threshold{display:flex;align-items:center;gap:var(--space-2)}
+.pc-budget-threshold input{width:var(--size-64)}
+.pc-budget-windows{border:1px solid var(--line);border-radius:var(--radius-lg);overflow:hidden}
+.pc-budget-window{display:grid;grid-template-columns:minmax(0,var(--size-180)) calc(var(--size-80) + var(--size-10)) minmax(calc(var(--size-80) * 2),1fr) calc(var(--size-120) + var(--size-10));gap:var(--space-3);align-items:center;padding:var(--space-2\.5) var(--space-3\.5);border-top:1px solid var(--surface-lane)}
+.pc-budget-window:first-child{border-top:0}
+.pc-budget-window__usage{display:flex;flex-direction:column;align-items:stretch;gap:var(--space-1);min-width:0}
+.pc-budget-window .pc-meter{flex:none;width:100%}
+@media(max-width:700px){.pc-budget-window{grid-template-columns:minmax(0,1fr) auto}.pc-budget-reserve input{width:100%}.pc-budget-window__usage{grid-column:1 / -1}}

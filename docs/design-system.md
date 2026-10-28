@@ -257,3 +257,80 @@ gap instead of adding their legacy outer margins. An empty project executor list
 is hidden so it does not insert a second grid gap. The start composer keeps its
 intentional landing-page offset; rail dividers retain extra separation between
 navigation groups. These specialized layouts do not override shared primitives.
+
+### Settings navigation board
+
+`SettingsNav` adds optional `backHref` to compose the Back to Dispatch link,
+Settings headline and save guidance card. SettingsPanel supplies the scoped home
+link. Its seven destinations use 34px rows, 10px insets/gaps, 8px corners and
+uppercase group labels inside a 240px panel with 14px/10px padding. Embedded
+SidePanel removes duplicate insets/borders and keeps its collapse control beside
+the header. Narrow strips hide the header/footer and retain touch targets.
+The shared Icon catalog adds settings board paths and `chevron-left`; existing
+icons retain their paths. This is original project code; provenance is unchanged.
+
+Agents points to executors; Accounts and Add executor select that category.
+Machines points to This machine; Remote hosts selects that category. Secondary
+page links live in those editors. Page titles remain independent of nav labels.
+Only Agents has a nav attention badge; Overview retains real machine/update
+status. Unsupported plugin and diagnostics badges are omitted.
+Board values without exact tokens use 16px icons for 17px, weight 650 for the
+badge's 700 and radius-full (999px) for 99px pills (both fully round).
+
+### Diagnostics board
+
+`DiagnosticRow({title, caption, glyph, tone, status, action, open, children})` composes
+the canonical native Disclosure with a 20px status glyph and report detail.
+Tones are good, warn, bad and neutral; warn/bad rows use the corresponding tint.
+Actions are siblings of the disclosure, so keyboard users can toggle the row
+and activate repair/setup independently. Native Enter/Space disclosure semantics
+and DS focus rings remain; failures initially open. Its output uses mono text.
+The Diagnostics consumer owns report state and all operations; DS receives props
+only. The four-cell totals use 26px glyphs, 18/22px numbers and 12/16px captions.
+The bounded Diagnostics canvas uses 28/40/48px padding, an 18px gap and a
+1080px maximum width (three size-360 tokens). Narrow layouts use 16px gutters,
+two totals columns and actions below the disclosure. Weight 650 substitutes for
+the board's 700; radius-full substitutes for 99px circles. This is original code
+with no upstream adaptation. Native validation retains its existing controls.
+
+### Overview and App preferences boards
+
+`SettingRow variant="board"` adds the 300px label column, 24px control gap,
+14px vertical padding and lane-colored top separator. Its existing label/help
+association remains intact; narrow layouts stack the columns. `SegmentedControl
+variant="board"` (also exposed by the settings `Segment`) adds a bordered,
+3px-padded group with 30px buttons and 6px corners; touch targets expand to 48px.
+`Card tone="sunken"` uses the card surface. `Switch size="sm"` reuses the native
+checkbox keyboard and label behavior with role=switch, explicit aria-checked,
+a 36×20px track, a 16px white thumb and good-fill on state. The default Switch
+geometry is unchanged. These are additive original adaptations; provenance is
+unchanged and no dependency is added.
+
+Overview composes Card, AgentMark and StatusDot with DS-owned readiness rows and
+link tiles. App preferences composes SettingRow, SegmentedControl, Switch and
+ChoicePicker; consumer code owns service data and exact existing operations.
+Both canvases use 28/40/48px padding and max-width 1080px; Overview uses a 20px
+gap, App a 24px gap. Heading typography is 28/34px at 650, summary 16/22px at
+650, tile values 15/20px at 650 and muted uppercase labels 11/14px at 600.
+The board's glyph weight 700 uses the nearest 650 token; fully round corners use
+radius-full instead of 99px. All other measured dimensions use exact existing
+tokens or sums of tokens (3px group padding; 1080px canvas). Unsupported controls
+and claims are omitted, including diagnostic history and release links without
+data. Legacy App section hashes retain their section IDs and scroll alignment.
+
+### Budget & pacing board
+
+`SettingRow variant="budget"` is an additive board variant: the same 300px
+label column, 24px gap, 14px vertical padding and lane top border, with top
+alignment and 14/20px labels at 650. Other row variants retain their geometry.
+The budget canvas uses 28/40/48px padding, max-width 1080px and an 18px gap.
+It composes sunken Card, Pill, AgentMark (20px), UsageMeter, Range and board
+SegmentedControl. The lazy settings stylesheet owns the summary, mode strip
+and window-list composition; no dependency or eager JavaScript is added.
+The summary uses 16/22px at 650, a 20px column gap and 8px copy gap. The mode
+strip has four 6px bars, a 3px gap, and a 2px active outline with 2px offset.
+The board's active weight 700 uses the nearest 650 typography token. The
+window list uses radius 10px, 10/14px row padding and 12px column gaps.
+Only measured windows appear; pace markers require matching service window
+data. Missing window settings do not produce inert switches. Mode holds use
+the service's existing hold/release operations and reset-bound lifetime.

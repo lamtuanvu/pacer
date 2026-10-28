@@ -18,6 +18,14 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Changed
 
+- Rebuild Budget & pacing around planner pace, mode holds and reported budget windows. Preserve planner integration consent, pacing policy and account controls using shared board rows.
+
+- Rebuild Settings Overview with real readiness and setup facts, and App preferences with board-aligned theme, notification, terminal and update controls. Keep existing operations, legacy section links and desktop OTA controls; add opt-in board rows, segmented controls and a compact Switch.
+
+- Rebuild Settings Diagnostics with report totals, grouped check disclosures, report copying and the existing previewed repair flow.
+
+- Match the Settings navigation board with a 240px panel, Back to Dispatch and save guidance. Agents and Machines replace the executor and machine menu labels; Accounts, Add executor and Remote hosts stay reachable from their parent pages.
+
 - Group the Settings menu into Dispatch and App. Overview lists every settings page with its status, Budget & pacing replaces Planner & pacing, and App preferences holds Updates, Notifications and Appearance on one page; their old links still open the right section. Settings rows share one layout with the new `SettingRow` and `SettingsNav` design system components.
 
 ### Fixed

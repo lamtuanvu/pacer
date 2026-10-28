@@ -34,14 +34,14 @@ test("rail badges hide without counts or at zero, and the gear shows open setup"
   expect(renderToString(<Rail route={at("#/")} counts={{ ...snap.counts!, setupOpen: 2 }} />)).toContain("pc-rail__dot");
 });
 
-test("settings panel lists general, hosts with a problem count, and add executor", () => {
+test("settings panel lists the board destinations", () => {
   const html = renderToString(<SettingsPanel route={at("#/settings")} counts={snap.counts!} />);
   expect(html).toContain("<aside");
   expect(html).toContain('href="#/settings"');
-  expect(html).toContain('href="#/settings/hosts"');
-  expect(html).toContain('href="#/settings/add-executor"');
-  expect(html).toContain("Remote hosts");
-  expect(html).toMatch(/pc-settings-nav__badge[^>]*>1 needs setup</);
+  expect(html).toContain('href="#/settings/machine"');
+  expect(html).toContain('href="#/settings/executors"');
+  expect(html).toContain("Machines");
+  expect(html).not.toContain("1 needs setup");
 });
 
 test("layout has landmarks, a skip link, and the settings panel only in settings", () => {
@@ -83,16 +83,16 @@ test("shortcut help lists registered shortcuts with keys", () => {
   expect(html).toContain("Review");
 });
 
-test("settings shows one Dispatcher destination while executor and host status badges use their tones", () => {
+test("settings shows one Dispatcher destination and only the backed Agents badge", () => {
   const html = renderToString(<SettingsPanel route={at('#/settings')} counts={snap.counts!}
     snapshot={{ ...snap, accounts: Array.from({ length: 6 }, () => snap.accounts![0]!), executors: [{ ...snap.executors![0]!, state: 'down' }], hosts: [{ ...snap.hosts![0]!, state: 'needs_setup' }] }} />);
-  expect(html).toMatch(/Accounts<span[^>]*class="pc-settings-nav__badge pc-settings-nav__badge--neutral"[^>]*><span aria-hidden="true">6<\/span><span class="sr-only">6 accounts</);
+  expect(html).not.toContain('>Accounts<');
   expect(html).toContain('Dispatcher');
   expect(html).not.toContain('>Strategies<');
   expect(html).not.toContain('>Routing<');
   expect(html).toMatch(/pc-settings-nav__badge--bad"[^>]*><span aria-hidden="true">1</);
   expect(html).toContain("1 needs attention");
-  expect(html).toMatch(/pc-settings-nav__badge--warn"[^>]*>1 needs setup</);
+  expect(html).not.toContain("1 needs setup");
   expect(html).not.toContain('>1 rule</span>');
 });
 

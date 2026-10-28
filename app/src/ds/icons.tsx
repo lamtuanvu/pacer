@@ -1,6 +1,15 @@
-export type IconName = "home" | "tasks" | "executors" | "accounts" | "strategy" | "hosts" | "settings" | "menu" | "overview" | "review" | "sessions" | "terminal" | "sliders" | "gauge" | "servers" | "routing" | "layers" | "download" | "bell" | "palette" | "diagnostics" | "plus" | "pr" | "commit" | "files" | "checks" | "time" | "retry" | "notes" | "branch" | "panel-left" | "panel-right" | "split" | "external" | "end-session" | "insights" | "dispatch" | "plugin";
+export type IconName = "chevron-left" | "settings-home" | "settings-agents" | "settings-routing" | "settings-budget" | "settings-machines" | "settings-app" | "settings-diagnostics" | "home" | "tasks" | "executors" | "accounts" | "strategy" | "hosts" | "settings" | "menu" | "overview" | "review" | "sessions" | "terminal" | "sliders" | "gauge" | "servers" | "routing" | "layers" | "download" | "bell" | "palette" | "diagnostics" | "plus" | "pr" | "commit" | "files" | "checks" | "time" | "retry" | "notes" | "branch" | "panel-left" | "panel-right" | "split" | "external" | "end-session" | "insights" | "dispatch" | "plugin";
 export function Icon({ name }: { name: IconName }) {
   const paths: Partial<Record<IconName, string>> = {
+    "chevron-left": "M15 6l-6 6 6 6",
+    "settings-home": "M3 12l9-8 9 8M5 10v10h14V10",
+    "settings-agents": "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21a8 8 0 0 1 16 0",
+    "settings-routing": "M4 12h6M10 12l6-6h4M10 12l6 6h4M10 12h10",
+    "settings-budget": "M3 12h18M3 6h18M3 18h10",
+    "settings-machines": "M4 5h16v10H4zM8 20h8M12 15v5",
+    "settings-app": "M4 4h16v16H4zM4 9h16",
+    "settings-diagnostics": "M3 12h4l3-7 4 14 3-7h4",
+
     "pr": "M6 8v8m0-14a3 3 0 1 0 0 6 3 3 0 0 0 0-6m0 14a3 3 0 1 0 0 6 3 3 0 0 0 0-6M15 2l-3 3 3 3M12 5h4a3 3 0 0 1 3 3v8m0 0a3 3 0 1 0 0 6 3 3 0 0 0 0-6",
     "commit": "M3 12h5m8 0h5m-9-4a4 4 0 1 0 0 8 4 4 0 0 0 0-8",
     "files": "M8 3h8l4 4v14H8zM16 3v5h4M4 7v14",
