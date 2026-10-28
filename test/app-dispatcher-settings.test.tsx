@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { renderToString } from "preact-render-to-string";
 import { dispatchConfigSchema } from "../src/dispatch/types";
+import { MAX_PROBES_PER_DAY, MAX_COST_PCT } from "../src/view-model/certification-schedule";
 import { SETTINGS_PAGES } from "../app/src/settings-pages";
 import { DispatcherOverview, DispatcherModelInventory, DispatcherPreviewResult, DispatcherLadderFields, DispatcherEditor, DispatcherReadError, DispatcherSection, DispatcherEnforcementRows, scopedEnforcementReading, candidateRestriction } from "../app/src/screens/settings/Dispatcher";
 import { TaskContext } from "../app/src/screens/task-shared";
@@ -152,6 +153,38 @@ test("offers consent when the account has not been asked",()=>{
   expect(html).toContain("certification");
   expect(html).not.toContain("consent: granted");
   expect(html).not.toContain("consent: declined");
+  // FIX 1: accessible name includes account
+  expect(html).toContain(`aria-label="Grant consent for claude1"`);
+  expect(html).toContain(`aria-label="Decline probes for claude1"`);
+  // FIX 2: copy does not use bare "planner reserve" phrase
+  expect(html).not.toContain("the planner reserve");
+  // FIX 3: bounds appear when lastCostPct is null
+  expect(html).toContain(`${MAX_PROBES_PER_DAY} probes per day`);
+  expect(html).toContain(`more than ${MAX_COST_PCT}% of the account's window`);
+  expect(html).toContain("expire within 24 hours");
+});
+
+test("consent buttons have distinct accessible names per account",()=>{
+  const reading={repo:"/repo",scope:"native",runners:[
+    {
+      runner:"claude-code",account:"team",agent:"claude-code",version:"2.1.281",
+      probeSupported:true,probeMode:"ask" as const,state:"uncertified" as const,
+      lastProbedAt:null,expiresAt:null,nextEligibleAt:0,probesToday:0,lastCostPct:null,
+      consent:"unasked" as const,unsupportedReason:null,
+    },
+    {
+      runner:"claude-code-spare",account:"spare",agent:"claude-code",version:"2.1.281",
+      probeSupported:true,probeMode:"ask" as const,state:"uncertified" as const,
+      lastProbedAt:null,expiresAt:null,nextEligibleAt:0,probesToday:0,lastCostPct:null,
+      consent:"unasked" as const,unsupportedReason:null,
+    },
+  ]};
+  const html=renderToString(<DispatcherEnforcementRows reading={reading} canProbe={false} probing={null} onProbe={()=>{}} onConsent={()=>{}}/>);
+  // Each account's accessible name is distinct
+  expect(html).toContain(`aria-label="Grant consent for team"`);
+  expect(html).toContain(`aria-label="Decline probes for team"`);
+  expect(html).toContain(`aria-label="Grant consent for spare"`);
+  expect(html).toContain(`aria-label="Decline probes for spare"`);
 });
 test("shows the unsupported reason instead of a schedule when probing cannot run",()=>{
   const reading={repo:"/repo",scope:"native",runners:[{

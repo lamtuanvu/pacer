@@ -1,4 +1,5 @@
 import type { DispatchConfig, DispatchPreview, ModelRecord } from "../../../../src/dispatch/types";
+import { MAX_PROBES_PER_DAY, MAX_COST_PCT } from "../../../../src/view-model/certification-schedule";
 import { executorLabel } from "../../../../src/view-model/words";
 import { clock } from "../../../../src/view-model/time";
 import type { RouteQuery } from "../../router";
@@ -88,13 +89,15 @@ function ConsentControl({item,onConsent}:{item:EnforcementRunner;onConsent:(acco
   return <div className="pc-stack pc-stack--compact">
     <div className="u3-muted">
       Scheduled certification probes spend <strong>{item.account}</strong>'s quota to verify native child blocking.
-      Probes run only when the account's measured headroom is above the planner reserve.
+      Certificates expire within 24 hours, so this recurs automatically.
+      At most {MAX_PROBES_PER_DAY} probes per day. Pacer stops probing if one costs more than {MAX_COST_PCT}% of the account's window.
+      Probes start only when the account's measured headroom is above the certification headroom floor.
     </div>
     <div className="pc-cluster">
-      <Button size="sm" variant="secondary" onClick={()=>onConsent(item.account,true)}>
+      <Button size="sm" variant="secondary" onClick={()=>onConsent(item.account,true)} aria-label={`Grant consent for ${item.account}`}>
         Grant consent
       </Button>
-      <Button size="sm" variant="quiet" onClick={()=>onConsent(item.account,false)}>
+      <Button size="sm" variant="quiet" onClick={()=>onConsent(item.account,false)} aria-label={`Decline probes for ${item.account}`}>
         Decline
       </Button>
     </div>

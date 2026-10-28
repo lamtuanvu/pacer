@@ -19,12 +19,15 @@ import {
   type CertificateStatus,
 } from "./enforcement";
 
-export const MAX_PROBES_PER_DAY = 2;
+// Defined in the view model so the app can state these bounds without
+// importing this module; see src/view-model/certification-schedule.ts.
+import { MAX_PROBES_PER_DAY, MAX_COST_PCT } from "../view-model/certification-schedule";
+
+export { MAX_PROBES_PER_DAY, MAX_COST_PCT };
+
 export const BACKOFF_BASE_S = 900;
 export const BACKOFF_MAX_S = 86_400;
 export const MAX_REPO_SWITCHES = 3;
-/** Observed account movement, in percentage points of the probed window. */
-export const MAX_COST_PCT = 2;
 const DAY_S = 86_400;
 /** Upper bound on waiting for a probe we may not own; see the race below. */
 const PROBE_WAIT_MS = 10 * 60_000;
