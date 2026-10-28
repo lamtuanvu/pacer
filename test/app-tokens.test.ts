@@ -33,11 +33,20 @@ test("provisional tokens are appended to their group", () => {
   expect(provisionalEntries({ color: { tokens: [term] } })).toEqual([{ group: "color", name: "terminal-ground", provisional: term.provisional }]);
 });
 
+test("a provisional type style becomes a Provisional group and the duplicate guard covers type", () => {
+  const style = { name: "match-strong", fontSize: "13px", lineHeight: "19px", fontWeight: 700, usage: "x", provisional: "x" };
+  const merged = mergeTokens(tokens, { type: { styles: [style] } });
+  expect(merged.type.groups.at(-1)).toMatchObject({ name: "Provisional", styles: [{ name: "match-strong" }] });
+  expect(generateTokensCss(merged)).toContain("--type-match-strong-weight: 700;");
+  expect(provisionalEntries({ type: { styles: [style] } })).toEqual([{ group: "type", name: "match-strong", provisional: "x" }]);
+  expect(() => mergeTokens(tokens, { type: { styles: [{ ...style, name: "body-strong" }] } })).toThrow("body-strong is now in the design system");
+});
+
 test("provisional entries are listed", () => {
   const entries = provisionalEntries(local);
   if (entries.length) console.info("Provisional design tokens still pending in the design system:", entries);
-  // The Tasks board values, until the design system carries them.
-  expect(entries.map(entry => entry.name)).toEqual(["space-3.5", "space-7", "space-10", "radius-card", "size-10", "size-14", "size-21", "size-34", "size-272", "size-1240"]);
+  // The Tasks board and command menu values, until the design system carries them: type, then spacing, radius and size.
+  expect(entries.map(entry => entry.name)).toEqual(["match-strong", "space-3.5", "space-7", "space-10", "radius-card", "radius-xs", "radius-tile", "size-10", "size-14", "size-15", "size-21", "size-34", "size-52", "size-272", "size-1240", "size-72", "size-420"]);
 });
 
 test("ds-sync rejects an export missing a dark value and writes nothing", () => {
