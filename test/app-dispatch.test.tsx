@@ -174,17 +174,17 @@ test("next task goes to names the next agent, then the chain with chevrons endin
 });
 
 test("with dispatch.explain the next task states its ladder step, the dispatcher's own chain and strategy", () => {
-  const explain = { outcome: "select" as const, strategy: { name: "balanced" }, chosen: { runner: "claude-code" }, step: { id: "capable-spare", index: 0 },
-    fallbacks: [{ runner: "claude-code", state: "eligible" as const }, { runner: "cursor", state: "eligible" as const }, { runner: "local", state: "excluded" as const, reason: { text: "Local is busy (1/1 running)." } }],
-    reasons: [{ outcome: "pass" as const, text: "Ladder step matched." }] };
+  const explain = { outcome: "select" as const, strategy: { name: "balanced" }, engine: { id: "ladder" }, chosen: { runner: "claude-code" }, step: { id: "capable-spare", index: 0 },
+    fallbacks: [{ runner: "claude-code", state: "eligible" as const }, { runner: "cursor", state: "eligible" as const }, { runner: "local", state: "excluded" as const, reason: { code: "executor_busy", facts: { used: 1, limit: 1 } } }],
+    reasons: [{ outcome: "pass" as const, code: "step_match", facts: { stepId: "capable-spare" } }] };
   const html = section(view(null, snap, { routing: { ...routing, explain } }), "next-task");
-  expect(strip(html)).toContain("Claude Code Ladder step 1 · capable-spare");
+  expect(strip(html)).toContain("Claude Code Ladder step 1 · capable spare");
   expect(html).toContain(">Eligible<");
   expect(strip(html)).toMatch(/Then: Cursor Q Queue/);
   expect(html).not.toContain("Local");
   expect(html).toMatch(/href="#\/settings\/dispatcher"[^>]*>Strategy: balanced · change</);
   // An explanation that would queue the work names nobody, whatever the preview ranks first.
-  expect(strip(section(view(null, snap, { routing: { ...routing, explain: { ...explain, outcome: "queue", chosen: null } } }), "next-task"))).toContain("No agent can take new work now. It waits in the queue. Local is busy (1/1 running).");
+  expect(strip(section(view(null, snap, { routing: { ...routing, explain: { ...explain, outcome: "queue", chosen: null } } }), "next-task"))).toContain("No agent can take new work now. It waits in the queue. Local model is busy (1 of 1 running).");
 });
 
 test("narrow Dispatch keeps executor usage and pace while the status bar is absent", () => {
@@ -320,3 +320,110 @@ test("the standalone Needs you page keeps both actions per card, with the primar
 test("the repository menu button is named as a repository filter", () => {
   expect(view("github.com/acme/api")).toMatch(/id="repo-filter" role="group" aria-label="Repository filter"/);
 });
+
+
+test("a chosen agent with no eligible fallback goes straight to the queue after it", () => {
+  const explain = { outcome: "select" as const, strategy: { name: "default" }, engine: { id: "ladder" }, chosen: { runner: "claude-code" }, step: { id: "only", index: 0 },
+    fallbacks: [{ runner: "cursor", state: "excluded" as const, reason: { code: "signed_out", facts: {} } }], reasons: [] };
+  const html = section(view(null, snap, { routing: { ...routing, explain } }), "next-task");
+  expect(strip(html)).toMatch(/Then: Q Queue/);
+  expect(html).not.toContain("Cursor");
+});
+
+test("a failed dispatch refuses new tasks without promising a queue", () => {
+  const explain = { outcome: "fail" as const, engine: { id: "ladder" }, strategy: { name: "default" }, chosen: null, step: null,
+    fallbacks: [{ runner: "codex", state: "excluded" as const, reason: { code: "quota_exhausted", facts: {} } }], reasons: [] };
+  const html = section(view(null, snap, { routing: { ...routing, explain } }), "next-task");
+  expect(strip(html)).toContain("new tasks are refused rather than queued. Codex has used its budget. Change the strategy or make an agent available to accept new tasks.");
+  expect(html).not.toContain("waits in the queue");
+  expect(html).not.toContain("Then:");
+  expect(html).not.toContain("pc-dispatch-chip--queue");
+});
+
+test("live dispatch action names include each task title", () => {
+  const html = section(view(), "live-dispatch");
+  for (const task of snap.tasks.filter(t => t.state === "running" || t.state === "queued")) {
+    expect(html).toContain(`aria-label="${task.state === "queued" ? "Stop" : "Take over"} ${task.fullTitle ?? task.title ?? task.goal}"`);
+  }
+});
+
+
+// A real mount runs useQuery effects; server rendering intentionally suppresses them.
+test.skipIf(!process.env.PACER_TEST_BROWSER)("DispatchHome gates explain, aligns repositories and refreshes changed inputs", async () => {
+  const { chromium } = await import("playwright-core");
+  const root = process.cwd();
+  const source = `/** @jsxImportSource preact */
+    import { render } from "${root}/node_modules/preact";
+    import { useState } from "${root}/node_modules/preact/hooks";
+    import { DispatchHome } from "${root}/app/src/screens/dispatch/Dispatch";
+    import { TaskContext } from "${root}/app/src/screens/task-shared";
+    import { ActionContext } from "${root}/app/src/data/action-context";
+    import { createActionRunner } from "${root}/app/src/data/actions";
+    import { initialState } from "${root}/app/src/data/store";
+    const root = document.getElementById("root");
+    window.mount = (snapshot, ops, repo) => {
+      render(null, root);
+      window.calls = [];
+      const api = { call: async (op, params) => {
+        window.calls.push({op, params});
+        if (op === "routing.route") return {ranked: [], excluded: []};
+        if (op === "dispatch.explain") return {outcome: "queue", engine: {id: "ladder"}, strategy: {name: "default"}, chosen: null, step: null, fallbacks: [], reasons: []};
+        return {};
+      }};
+      const runner = createActionRunner({call: api.call, waitFor: async () => true, refetch() {}, navigate() {}});
+      function Mounted() {
+        const [current, update] = useState(snapshot);
+        window.updateSnapshot = update;
+        const state = {...initialState(), connected: true, snapshot: current, features: {readModel: true, ops: new Set(ops)}};
+        return <TaskContext.Provider value={{state, api}}><ActionContext.Provider value={runner}><DispatchHome query={{repo, scope: null}} /></ActionContext.Provider></TaskContext.Provider>;
+      }
+      render(<Mounted />, root);
+    };
+  `;
+  const build = await Bun.build({ entrypoints: ["dispatch-wiring"], tsconfig: `${root}/app/tsconfig.json`, target: "browser", format: "esm", minify: true,
+    plugins: [{ name: "inline-dispatch-mount", setup(builder) {
+      builder.onResolve({ filter: /^dispatch-wiring$/ }, () => ({ path: "dispatch-wiring", namespace: "inline" }));
+      builder.onLoad({ filter: /.*/, namespace: "inline" }, () => ({ contents: source, loader: "tsx" }));
+    } }] });
+  expect(build.success).toBe(true);
+  const browser = await chromium.launch({ executablePath: process.env.PACER_TEST_BROWSER!, headless: true });
+  try {
+    const page = await browser.newPage();
+    const errors: string[] = [];
+    page.on("pageerror", error => errors.push(error.message));
+    await page.setContent('<div id="root"></div>');
+    await page.addScriptTag({ type: "module", content: await build.outputs[0]!.text() });
+    await page.waitForFunction(() => typeof (window as any).mount === "function");
+    const both = ["routing.route", "dispatch.explain"];
+    const cases = [
+      { ops: both, repos: [{ key: "only-repo" }], repo: null, expected: "only-repo" },
+      { ops: both, repos: [{ key: "one" }, { key: "two" }], repo: "active-repo", expected: "active-repo" },
+      { ops: ["dispatch.explain"], repos: [{ key: "only-repo" }], repo: null, expected: null },
+      { ops: ["routing.route"], repos: [{ key: "only-repo" }], repo: null, expected: null },
+      { ops: [], repos: [{ key: "only-repo" }], repo: null, expected: null },
+      { ops: both, repos: [], repo: null, expected: null },
+      { ops: both, repos: [{ key: "one" }, { key: "two" }], repo: null, expected: null },
+    ];
+    for (const item of cases) {
+      await page.evaluate(({ snapshot, ops, repo }) => (window as any).mount(snapshot, ops, repo), { snapshot: { ...snap, repos: item.repos.map(r => ({ ...r, label: r.key, path: `/tmp/${r.key}` })) }, ops: item.ops, repo: item.repo });
+      await page.waitForFunction(() => (window as any).calls.length > 0);
+      // Allow all effects to run, including a query that would incorrectly be gated off.
+      await page.waitForTimeout(100);
+      const calls = await page.evaluate(() => (window as any).calls as { op: string; params: unknown }[]);
+      expect(calls.filter(call => call.op === "dispatch.explain")).toEqual(item.expected ? [{ op: "dispatch.explain", params: { repo: item.expected, goal: "New task" } }] : []);
+      if (item.expected) expect(calls).toContainEqual({ op: "routing.route", params: { repo: item.expected } });
+    }
+    let snapshot = { ...snap, repos: [{ key: "only-repo", label: "Only repo", path: "/tmp/only-repo" }] };
+    await page.evaluate(snapshot => (window as any).mount(snapshot, ["routing.route", "dispatch.explain"], null), snapshot);
+    const explainCount = () => page.evaluate(() => (window as any).calls.filter((c: any) => c.op === "dispatch.explain").length);
+    await page.waitForFunction(() => (window as any).calls.some((c: any) => c.op === "dispatch.explain"));
+    for (const change of ["executor", "running", "queued"]) {
+      const before = await explainCount();
+      snapshot = change === "executor" ? { ...snapshot, executors: snapshot.executors!.map((e, i) => i === 0 ? { ...e, state: "ready" } : e) } as typeof snapshot
+        : { ...snapshot, tasks: [...snapshot.tasks, { ...snapshot.tasks[0]!, id: `new-${change}`, state: change }] };
+      await page.evaluate(snapshot => (window as any).updateSnapshot(snapshot), snapshot);
+      await page.waitForFunction(before => (window as any).calls.filter((c: any) => c.op === "dispatch.explain").length > before, before);
+    }
+    expect(errors).toEqual([]);
+  } finally { await browser.close(); }
+}, 30000);

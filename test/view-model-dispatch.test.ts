@@ -1,7 +1,9 @@
 import { expect, test } from "bun:test";
 import fixture from "./fixtures/ui/snapshot.json";
-import { explainRepo, nextFromExplanation, queueReason, kpiTiles, plannerCaption, needsYouCards, periodHeading, periodRange, tokenSpread, type InsightsSummary } from "../src/view-model/dispatch";
+import { explainRepo, nextFromExplanation, queueReason, kpiTiles, plannerCaption, needsYouCards, periodHeading, periodRange, tokenSpread, type InsightsSummary, type RouteExplanationView } from "../src/view-model/dispatch";
 import type { ClientSnapshot } from "../src/view-model/snapshot";
+
+import { clock } from "../src/view-model/time";
 
 const now = 1800000000;
 const all = { repo: null };
@@ -133,9 +135,9 @@ test("planner caption states each measured part and the 5-hour window once", () 
 });
 
 test("the next-task explanation keeps the dispatcher's order and drops excluded and repeated runners", () => {
-  const e = { outcome: "select" as const, strategy: { name: "default" }, chosen: { runner: "codex" }, step: { id: "cheap", index: 2 },
+  const e = { outcome: "select" as const, strategy: { name: "default" }, engine: { id: "ladder" }, chosen: { runner: "codex" }, step: { id: "cheap", index: 2 },
     fallbacks: [{ runner: "codex", state: "eligible" as const }, { runner: "agy", state: "excluded" as const }, { runner: "cursor", state: "eligible" as const }, { runner: "cursor", state: "eligible" as const }],
-    reasons: [] as { outcome: "pass" | "fail" | "info"; text: string }[] };
+    reasons: [] };
   expect(nextFromExplanation(e)).toEqual({ next: "codex", step: "Ladder step 3 · cheap", then: ["cursor"], strategy: "default" });
   expect(nextFromExplanation({ ...e, step: null })?.step).toBeNull();
   expect(nextFromExplanation({ ...e, outcome: "fail" })).toBeNull();
@@ -149,11 +151,18 @@ test("the explanation is asked for the active repository, or the only registered
   expect(explainRepo(null, undefined)).toBeNull();
 });
 
-test("a queued explanation says why from the first ruled-out executor, else the dispatcher's failing reason", () => {
-  const e = { outcome: "queue" as const, strategy: { name: "default" }, chosen: null, step: null,
-    fallbacks: [{ runner: "codex", state: "excluded" as const, reason: { text: "Codex (personal) is busy (1/1 running)." } }],
-    reasons: [{ outcome: "fail" as const, text: "No ladder step has a qualifying executor." }] };
-  expect(queueReason(e)).toBe("Codex (personal) is busy (1/1 running).");
-  expect(queueReason({ ...e, fallbacks: [] })).toBe("No ladder step has a qualifying executor.");
-  expect(queueReason({ ...e, fallbacks: [], reasons: [] })).toBeNull();
+test("queue reasons skip structural exclusions, use failing reasons and format pause times", () => {
+  const e: RouteExplanationView = { outcome: "queue", strategy: { name: "default" }, engine: { id: "ladder" }, chosen: null, step: null,
+    fallbacks: ["planner_account", "local_grant_required", "needs_new_worktree", "executor_busy"].map(code => ({ runner: "codex", state: "excluded", reason: { code, facts: {} } })),
+    reasons: [{ outcome: "fail", code: "paused", facts: { until: now + 3600 } }] };
+  expect(queueReason(e, now)).toBe("Codex is busy with other work.");
+  expect(queueReason({ ...e, fallbacks: e.fallbacks.slice(0, 3) }, now)).toBe(`Dispatch is paused until ${clock(now + 3600, now)}.`);
+  expect(queueReason({ ...e, fallbacks: [], reasons: [] }, now)).toBeNull();
+});
+
+test("step copy uses plain words and reserves numbered ladder prefixes for ladder steps", () => {
+  const e: RouteExplanationView = { outcome: "select", engine: { id: "ladder" }, strategy: { name: "default" }, chosen: { runner: "codex" }, step: { id: "capable-with_spare-capacity", index: 0 }, fallbacks: [], reasons: [] };
+  expect(nextFromExplanation(e)?.step).toBe("Ladder step 1 · capable with spare capacity");
+  expect(nextFromExplanation({ ...e, step: { ...e.step!, index: -1 } })?.step).toBe("capable with spare capacity");
+  expect(nextFromExplanation({ ...e, engine: { id: "plugin:custom" } })?.step).toBe("capable with spare capacity");
 });

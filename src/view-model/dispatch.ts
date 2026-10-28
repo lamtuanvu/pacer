@@ -6,6 +6,7 @@ import { attentionOrder, needsYou, type Scope } from "./selectors";
 import { compactCount, scopedTaskTree, type TaskAttention, type TaskNodeView } from "./task-tree";
 import { attentionStatus, executorLabel, paceStatus } from "./words";
 import { clock } from "./time";
+import { routeReasonCopy, type RouteReason } from "./route-explanation";
 
 export type NeedsYouCard =
   | { kind: "task"; id: string; node: TaskNodeView; items: AttentionItem[] }
@@ -172,10 +173,11 @@ export function plannerCaption(meter: { usedPct: number | null; pacePct: number 
 export interface RouteExplanationView {
   outcome: "select" | "queue" | "fail" | "override";
   strategy: { name: string };
+  engine: { id: string };
   chosen: { runner: string } | null;
   step: { id: string; index: number } | null;
-  fallbacks: { runner: string; state: "eligible" | "excluded"; reason?: { text: string } }[];
-  reasons: { outcome: "pass" | "fail" | "info"; text: string }[];
+  fallbacks: { runner: string; state: "eligible" | "excluded"; reason?: RouteReason }[];
+  reasons: (RouteReason & { outcome: "pass" | "fail" | "info" })[];
 }
 /** The repository a "where would new work go" explanation is asked for: the active one, or the only one registered. */
 export function explainRepo(scopeRepo: string | null, repos: { key: string }[] | undefined): string | null {
@@ -189,9 +191,15 @@ export function nextFromExplanation(e: RouteExplanationView): { next: string; st
   if (e.outcome === "queue" || e.outcome === "fail" || !e.chosen) return null;
   const seen = new Set([e.chosen.runner]), then: string[] = [];
   for (const f of e.fallbacks) if (f.state === "eligible" && !seen.has(f.runner)) { seen.add(f.runner); then.push(f.runner); }
-  return { next: e.chosen.runner, step: e.step ? `Ladder step ${e.step.index + 1} · ${e.step.id}` : null, then, strategy: e.strategy.name };
+  const words = e.step?.id.replace(/[-_]+/g, " ");
+  const step = e.step && e.engine.id === "ladder" && e.step.index >= 0 ? `Ladder step ${e.step.index + 1} · ${words}` : words ?? null;
+  return { next: e.chosen.runner, step, then, strategy: e.strategy.name };
 }
-/** Why new work would wait: the first executor the dispatcher ruled out, else its own failing reason. */
-export function queueReason(e: RouteExplanationView): string | null {
-  return e.fallbacks.find(f => f.state === "excluded" && f.reason)?.reason!.text ?? e.reasons.find(r => r.outcome === "fail")?.text ?? null;
+/** Structural exclusions do not explain why new work waits. */
+const STRUCTURAL = new Set(["planner_account", "local_grant_required", "needs_new_worktree"]);
+export function queueReason(e: RouteExplanationView, now: number): string | null {
+  const fallback = e.fallbacks.find(f => f.state === "excluded" && f.reason && !STRUCTURAL.has(f.reason.code));
+  if (fallback?.reason) return routeReasonCopy(fallback.reason, now, fallback.runner);
+  const reason = e.reasons.find(r => r.outcome === "fail" && !STRUCTURAL.has(r.code));
+  return reason ? routeReasonCopy(reason, now) : null;
 }
