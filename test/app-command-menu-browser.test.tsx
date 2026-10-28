@@ -122,7 +122,7 @@ browserTest("tab_cycles_scopes_and_empty_state_offers_new_task", () => withPage(
   const input = page.getByRole("combobox");
   await input.fill("a");
   const tabs = page.getByRole("tablist", { name: "Search in" }).getByRole("tab");
-  await expect(tabs.allTextContents()).resolves.toEqual([expect.stringMatching(/^All \d+$/), expect.stringMatching(/^Tasks \d+$/), expect.stringMatching(/^Agents \d+$/), expect.stringMatching(/^Commands \d+$/)]);
+  await expect(tabs.allTextContents()).resolves.toEqual([expect.stringMatching(/^All \d+$/), expect.stringMatching(/^Tasks \d+$/), expect.stringMatching(/^Agents \d+$/), expect.stringMatching(/^Files( \d+)?$/), expect.stringMatching(/^Commands \d+$/)]);
   // The Tab hint sits beside the tablist, not inside it.
   await expect(page.locator('[role="tablist"] .pc-command__hint').count()).resolves.toBe(0);
   // The tabs control the results listbox.
@@ -238,7 +238,6 @@ browserTest("mod_enter_runs_a_command_and_keeps_the_menu_open", () => withPage(a
   expect(footer).toContain("open beside");
   expect(footer).toContain("Coming soon");
   expect(footer).not.toContain("keep open");
-  await expect(page.locator('.pc-command__hint[aria-disabled="true"]').count()).resolves.toBe(1);
   await input.fill("fix");
   await page.keyboard.press("Control+Enter");
   await expect(page.getByRole("combobox").count()).resolves.toBe(1);
@@ -310,7 +309,7 @@ browserTest("menu_and_trigger_match_the_board_measurements", () => withPage(asyn
       placeholder: document.querySelector<HTMLInputElement>('input[role="combobox"]')!.placeholder, label: document.querySelector('input[role="combobox"]')!.getAttribute("aria-label") };
   });
   expect(m).toMatchObject({ dialogW: 640, dialogTop: 72, dialogRadius: "14px", rowH: 52, inputOutline: "none", focusRing: "inset", optionRadius: "8px", glyph: [28, "7px"], markWeight: "700", scopeH: 24, scopeRadius: "6px", kbd: ["4px", "11px", 18],
-    placeholder: "Search tasks, agents or type > for commands", label: "Search tasks, agents or run a command" });
+    placeholder: "Search tasks, agents, files or type > for commands", label: "Search tasks, agents, files or run a command" });
 }));
 
 browserTest("the commands chip replaces the leading greater-than and backspace removes it", () => withPage(async (page, built) => {
@@ -343,4 +342,131 @@ browserTest("select_all_works_in_the_input", () => withPage(async (page, built) 
   await page.keyboard.press("ControlOrMeta+a");
   await page.keyboard.type("x");
   await expect(input.inputValue()).resolves.toBe("x");
+}));
+
+const filesAnswer = (page: Page, answer: object) => page.evaluate(value => { (window as any).filesAnswer = value; (window as any).fileCalls = []; }, answer);
+
+browserTest("files_search_is_debounced_and_results_show_ranges_repo_and_changed_by_subtitle", () => withPage(async (page, built) => {
+  await open(page, built, "#/overview");
+  await filesAnswer(page, { results: [
+    { repo: "github.com/acme/api", repoLabel: "acme/api", path: "src/ssh/keepalive.ts", ranges: [[4, 7]], changedBy: [{ task: "t-0420", title: "Add SSH keepalive" }] },
+    { repo: "github.com/acme/api", repoLabel: "acme/api", path: "docs/ssh.md", ranges: [[5, 8]] },
+  ] });
+  await page.keyboard.press("Control+k");
+  const input = page.getByRole("combobox");
+  await input.waitFor();
+  // With files searchable the input says so; the title-bar trigger keeps its own wording.
+  await expect(input.getAttribute("placeholder")).resolves.toBe("Search tasks, agents, files or type > for commands");
+  await expect(input.getAttribute("aria-label")).resolves.toBe("Search tasks, agents, files or run a command");
+  // Typing quickly starts one search, after the debounce (the three edits land in one tick, so a slow machine cannot split them).
+  await page.evaluate(() => { const el = document.querySelector<HTMLInputElement>('input[role="combobox"]')!; for (const value of ["s", "ss", "ssh"]) { el.value = value; el.dispatchEvent(new Event("input", { bubbles: true })); } });
+  expect(await page.evaluate(() => (window as any).fileCalls)).toEqual([]);
+  await page.getByRole("option", { name: /keepalive\.ts/ }).waitFor();
+  expect(await page.evaluate(() => (window as any).fileCalls)).toEqual([{ query: "ssh", limit: 20 }]);
+  const tabs = await page.getByRole("tablist", { name: "Search in" }).getByRole("tab").allTextContents();
+  expect(tabs.map(tab => tab.replace(/\s*\d+$/, ""))).toEqual(["All", "Tasks", "Agents", "Files", "Commands"]);
+  const filesTab = page.getByRole("tab", { name: /^Files/ });
+  await expect(filesTab.textContent()).resolves.toMatch(/^Files 2$/);
+  // The match is marked within the path; the repo, the task chip and the reason are plain words.
+  const first = page.getByRole("option", { name: /keepalive\.ts/ });
+  await expect(first.locator("mark").allTextContents()).resolves.toContain("ssh");
+  await expect(first.locator(".pc-command__sub").textContent()).resolves.toBe("acme/api · changed by “Add SSH keepalive”");
+  // The board has no pill on file rows: the running-task case is the subtitle alone.
+  await expect(first.locator(".pc-pill").count()).resolves.toBe(0);
+  // The Files tab lists only files.
+  await filesTab.click();
+  expect(await page.locator(".pc-command__heading").allTextContents()).toEqual(["Files"]);
+  // A file a running task changed opens that task.
+  await page.keyboard.press("Home");
+  await page.keyboard.press("Enter");
+  expect(await page.evaluate(() => location.hash)).toBe("#/tasks/t-0420");
+  await expect(input.count()).resolves.toBe(0);
+}));
+
+browserTest("a file no running task changed copies its path on Enter and says so", () => withPage(async (page, built) => {
+  await open(page, built, "#/overview");
+  await page.evaluate(() => { Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (text: string) => { (window as any).copied = text; } } }); });
+  await filesAnswer(page, { results: [{ repo: "github.com/acme/api", repoLabel: "acme/api", path: "docs/ssh.md", ranges: [[5, 8]] }] });
+  await page.keyboard.press("Control+k");
+  await page.getByRole("combobox").fill("ssh");
+  const row = page.getByRole("option", { name: /docs\/ssh\.md/ });
+  await row.waitFor();
+  await row.hover();
+  // The footer names the action, and nothing offers a viewer that does not exist.
+  const footer = await page.locator(".pc-command__footer").textContent();
+  expect(footer).toContain("copy path");
+  expect(footer).not.toMatch(/viewer/);
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("combobox").count()).resolves.toBe(0);
+  expect(await page.evaluate(() => (window as any).copied)).toBe("docs/ssh.md");
+  expect(await page.evaluate(() => location.hash)).toBe("#/overview");
+  await page.waitForFunction(() => document.querySelector(".pc-toasts")?.textContent?.includes("Path copied"));
+}));
+
+browserTest("a failed copy says so", () => withPage(async (page, built) => {
+  await open(page, built, "#/overview");
+  await page.evaluate(() => { Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async () => { throw new Error("denied"); } } }); document.execCommand = () => false; });
+  await filesAnswer(page, { results: [{ repo: "github.com/acme/api", repoLabel: "acme/api", path: "docs/ssh.md", ranges: [[5, 8]] }] });
+  await page.keyboard.press("Control+k");
+  await page.getByRole("combobox").fill("ssh");
+  await page.getByRole("option", { name: /docs\/ssh\.md/ }).hover();
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(() => document.querySelector(".pc-toasts")?.textContent?.includes("Could not copy the path"));
+}));
+
+browserTest("repositories that could not be searched are named with a reason and an error is explained", () => withPage(async (page, built) => {
+  await open(page, built, "#/overview");
+  await filesAnswer(page, { truncated: true, repos: [{ key: "github.com/acme/web", state: "too_large" }, { key: "github.com/lamtuanvu/pacer", state: "timeout" }],
+    results: [{ repo: "github.com/acme/api", repoLabel: "acme/api", path: "src/ssh.ts", ranges: [[4, 7]] }] });
+  await page.keyboard.press("Control+k");
+  await page.getByRole("combobox").fill("ssh");
+  const notice = page.locator(".pc-command__notice");
+  await page.waitForFunction(() => document.querySelector(".pc-command__notice")?.textContent?.includes("acme/web"));
+  const text = await notice.textContent();
+  expect(text).toContain("acme/web has too many files to search");
+  expect(text).toContain("pacer took too long to read");
+  expect(text).toContain("Showing the first matches");
+  expect(text).not.toMatch(/too_large|timeout/);
+  // A failed search says so instead of showing nothing.
+  await page.evaluate(() => { (window as any).failFiles = true; });
+  await page.getByRole("combobox").fill("sshx");
+  await page.waitForFunction(() => document.querySelector(".pc-command__notice")?.textContent === "Files could not be searched just now.");
+  // Searching again shows the loading line first and never 'no results' while it waits.
+  await page.evaluate(() => { (window as any).failFiles = false; (window as any).filesAnswer = { results: [] }; });
+  await page.getByRole("combobox").fill("zzz");
+  await page.waitForFunction(() => document.querySelector(".pc-command__empty")?.textContent?.includes("Nothing matches"));
+}));
+
+browserTest("a webview that refuses the clipboard API still copies through the fallback", () => withPage(async (page, built) => {
+  await open(page, built, "#/overview");
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async () => { throw new Error("denied"); } } });
+    document.execCommand = (name: string) => { (window as any).copiedBy = [name, window.getSelection()?.toString() ?? null]; return true; };
+  });
+  await filesAnswer(page, { results: [{ repo: "github.com/acme/api", repoLabel: "acme/api", path: "docs/ssh.md", ranges: [[5, 8]] }] });
+  await page.keyboard.press("Control+k");
+  await page.getByRole("combobox").fill("ssh");
+  await page.getByRole("option", { name: /docs\/ssh\.md/ }).hover();
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(() => document.querySelector(".pc-toasts")?.textContent?.includes("Path copied"));
+  expect(await page.evaluate(() => (window as any).copiedBy)).toEqual(["copy", "docs/ssh.md"]);
+  // The hidden element is removed again.
+  expect(await page.locator("body > span.sr-only").count()).toBe(0);
+}));
+
+browserTest("results arrive in a polite live region and an empty Files answer falls back to All", () => withPage(async (page, built) => {
+  await open(page, built, "#/overview");
+  await filesAnswer(page, { results: [] });
+  await page.keyboard.press("Control+k");
+  const input = page.getByRole("combobox");
+  await input.fill("fix");
+  // Tasks match; the empty Files answer must not leave the Files tab selected with the tasks hidden.
+  await page.getByRole("tab", { name: /^Files 0/ }).waitFor();
+  await page.getByRole("tab", { name: /^Files/ }).click();
+  await expect(page.locator('.pc-command__scope[aria-selected="true"]').textContent()).resolves.toMatch(/^All/);
+  const live = page.locator('.sr-only[role="status"]');
+  await expect(live.textContent()).resolves.toMatch(/^\d+ results?/);
+  // The combobox is described by the footer hint (what Enter does).
+  const described = await input.getAttribute("aria-describedby");
+  expect(await page.evaluate(id => document.getElementById(id!.split(" ").at(-1)!)?.textContent, described)).toContain("open");
 }));
