@@ -5,50 +5,55 @@ import { LazyTerminal } from "../../term/LazyTerminal";
 import type { TerminalViewProps } from "../../term/term";
 
 export type ReadSessionFile = (request: SessionFileRequest) => Promise<SessionFileResult>;
+type Viewer = typeof import("./FileViewer")["FileViewer"];
+interface Viewing { reference: string; file?: SessionFileResult; error?: { code: string; message: string }; loading?: boolean }
 
-/** Keeps the PTY viewer mounted while a linked file is inspected. */
-export function LinkedTerminal({ attempt, readFile, ...terminal }: TerminalViewProps & {
+/** Keeps the PTY viewer mounted while a linked file is inspected. Layout, loading and error states live in the lazy viewer. */
+export function LinkedTerminal({ attempt, readFile, workspace, agent, ...terminal }: TerminalViewProps & {
   attempt: number | null;
   readFile?: ReadSessionFile;
+  /** The worktree or repository that linked paths are relative to. */
+  workspace?: string;
+  /** Display name of the agent whose terminal printed the path. */
+  agent?: string;
 }) {
-  const [file, setFile] = useState<SessionFileResult | null>(null);
-  const [reference, setReference] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [copyStatus, setCopyStatus] = useState("");
-  const [Viewer, setViewer] = useState<typeof import("./FileViewer")["FileViewer"] | null>(null);
+  const [viewing, setViewing] = useState<Viewing | null>(null);
+  const [View, setView] = useState<Viewer | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
   const requestSeq = useRef(0);
   const root = useRef<HTMLDivElement>(null);
-  const errorPanel = useRef<HTMLDivElement>(null);
-  useEffect(() => { requestSeq.current++; setFile(null); setReference(""); setLoading(false); setError(""); setCopyStatus(""); }, [attempt, terminal.id]);
-  useEffect(() => { if (error) errorPanel.current?.focus(); }, [error]);
-  useEffect(() => {
-    if (!file || Viewer) return;
-    let active = true;
-    void import("./FileViewer").then(module => { if (active) setViewer(() => module.FileViewer); })
-      .catch(() => { if (active) { setFile(null); setError("Could not load file viewer."); } });
-    return () => { active = false; };
-  }, [file, Viewer]);
+  useEffect(() => { requestSeq.current++; setViewing(null); }, [attempt, terminal.id]);
+  const load = () => {
+    if (View) return;
+    setLoadFailed(false);
+    void import("./FileViewer").then(module => { if (typeof module.FileViewer !== "function") throw Error(); setView(() => module.FileViewer); }).catch(() => setLoadFailed(true));
+  };
   const close = () => {
-    requestSeq.current++; setFile(null); setError(""); setLoading(false);
+    requestSeq.current++; setViewing(null);
     requestAnimationFrame(() => root.current?.querySelector<HTMLElement>(".xterm-helper-textarea")?.focus());
   };
   const open = async (path: string, line?: number, column?: number) => {
-    if (!readFile || !attempt) { setError("File preview is unavailable for this session."); return; }
-    const target = `${path}${line ? `:${line}${column ? `:${column}` : ""}` : ""}`;
+    const reference = `${path}${line ? `:${line}${column ? `:${column}` : ""}` : ""}`;
     const request = ++requestSeq.current;
-    setReference(target); setLoading(true); setError(""); setCopyStatus("");
+    load();
+    if (!readFile || !attempt) { setViewing({ reference, error: { code: "not_allowed", message: "File preview is unavailable for this session." } }); return; }
+    setViewing(previous => ({ reference, loading: true, ...(previous?.reference === reference && previous.file ? { file: previous.file } : {}) }));
     try {
-      const next = await readFile({ id: terminal.id, attempt, reference: target });
-      if (request === requestSeq.current) setFile(next);
+      const file = await readFile({ id: terminal.id, attempt, reference });
+      if (request === requestSeq.current) setViewing({ reference, file });
     } catch (reason) {
-      if (request === requestSeq.current) { setFile(null); setError(reason instanceof Error ? reason.message : "File could not be opened."); }
-    } finally { if (request === requestSeq.current) setLoading(false); }
+      const code = (reason as { code?: unknown } | null)?.code;
+      if (request === requestSeq.current) setViewing({ reference, error: { code: typeof code === "string" ? code : "internal", message: reason instanceof Error ? reason.message : "File could not be opened." } });
+    }
   };
-  return <div className="pc-linked-terminal" data-linked-terminal ref={root}>
-    <div hidden={!!file || !!error || loading}><LazyTerminal {...terminal} onOpenFile={(path, line, column) => { void open(path, line, column); }}/></div>
-    {loading && <p role="status">Opening file…</p>}
-    {error && <div className="pc-file-viewer__error" role="status" aria-live="polite" tabIndex={-1} ref={errorPanel}><p>{error}</p><div><Button size="sm" onClick={close}>Back to terminal</Button> <Button size="sm" variant="quiet" onClick={() => { void (async () => { try { await navigator.clipboard.writeText(reference); setCopyStatus("Path copied"); } catch { setCopyStatus("Could not copy path"); } })(); }}>Copy path</Button></div>{copyStatus && <span role="status">{copyStatus}</span>}</div>}
-    {file && (Viewer ? <Viewer key={`${file.path}:${file.modified}:${file.line ?? ""}:${file.column ?? ""}`} file={file} onClose={close} onRefresh={() => { void open(reference); }} onOpenFile={path => { void open(path); }}/> : <p role="status">Preparing viewer…</p>)}
+  return <div className={`pc-linked-terminal${viewing ? " pc-linked-terminal--viewing" : ""}`} data-linked-terminal ref={root}>
+    <div className="pc-linked-terminal__layout">
+      <div className="pc-linked-terminal__term"><LazyTerminal {...terminal} onOpenFile={(path, line, column) => { void open(path, line, column); }}/></div>
+      {viewing && <div className="pc-linked-terminal__viewer">
+        {View ? <View key={viewing.reference} {...viewing} workspace={workspace} agent={agent && agent[0]!.toUpperCase() + agent.slice(1)} running={terminal.live ?? true} onClose={close} onRefresh={() => { void open(viewing.reference); }} onOpenFile={path => { void open(path); }}/>
+          : loadFailed ? <div><p role="alert">Could not load the file viewer.</p><Button size="sm" onClick={load}>Try again</Button> <Button size="sm" variant="quiet" onClick={close}>Back to terminal</Button></div>
+          : <p role="status">Opening file…</p>}
+      </div>}
+    </div>
   </div>;
 }
