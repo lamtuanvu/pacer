@@ -8,7 +8,7 @@ In a built-in session terminal, HTTP(S) links open in a new browser tab or the s
 
 ### Open in your editor
 
-The desktop app can hand a session file to your own editor, including binary and oversized files that the viewer can't show. It can also reveal the file in Finder or the file manager. Browser clients don't offer either action. The service resolves the file with the viewer's rules: it must be a regular file inside the current local attempt's workspace, reached without following symlinks, and outside Pacer state. The desktop checks the file again just before opening it. Terminal text never names a file to native code directly.
+The desktop app can hand a session file to your own editor, including binary and oversized files that the viewer can't show. On macOS it can also reveal the file in Finder. Browser clients don't offer either action. The service resolves the file with the viewer's rules: it must be a regular file inside the current local attempt's workspace, reached without following symlinks, and outside Pacer state. The desktop checks the file again just before opening it. Terminal text never names a file to native code directly.
 
 By default, macOS opens the file in your default text editor (`open -t`), never in the app associated with its type, so a `.command` or `.app` file is never launched. Linux has no safe default, because `xdg-open` picks a handler by content type, so Open in editor appears there only once you configure an editor. To use a specific editor, create `$PACER_HOME/desktop/editor.json` yourself, for example with mode `0600`:
 

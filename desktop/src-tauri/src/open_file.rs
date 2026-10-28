@@ -264,13 +264,6 @@ pub fn argv(
         (Action::Open, None, "linux") => {
             Err("Configure an editor to open files on this platform".into())
         }
-        (Action::Reveal, _, "linux") => {
-            let parent = resolved.absolute.parent().ok_or("File unavailable")?;
-            Ok(vec![
-                "/usr/bin/xdg-open".into(),
-                parent.as_os_str().to_os_string(),
-            ])
-        }
         _ => Err("Opening files is not supported on this platform".into()),
     }
 }
@@ -279,9 +272,8 @@ pub fn argv(
 pub fn supported(os: &str, editor_configured: bool) -> Value {
     match os {
         "macos" => json!({"open": true, "reveal": true, "revealLabel": "Reveal in Finder"}),
-        "linux" => {
-            json!({"open": editor_configured, "reveal": true, "revealLabel": "Show in folder"})
-        }
+        // xdg-open on a raced parent directory could pick a type handler; no Linux reveal.
+        "linux" => json!({"open": editor_configured, "reveal": false, "revealLabel": null}),
         _ => json!({"open": false, "reveal": false, "revealLabel": null}),
     }
 }
@@ -539,10 +531,7 @@ mod tests {
         );
         let main = parse_resolution(&resolution(&root, "src/main.rs")).unwrap();
         assert!(argv(Action::Open, &main, None, "linux").is_err());
-        assert_eq!(
-            argv(Action::Reveal, &main, None, "linux").unwrap(),
-            vec!["/usr/bin/xdg-open".into(), OsString::from(root.join("src"))]
-        );
+        assert!(argv(Action::Reveal, &main, None, "linux").is_err());
         assert!(argv(Action::Open, &main, None, "windows").is_err());
         let editor = vec!["/usr/bin/vim".to_string(), "{path}".to_string()];
         assert_eq!(
@@ -556,6 +545,7 @@ mod tests {
         assert_eq!(supported("windows", true)["open"], false);
         assert_eq!(supported("linux", false)["open"], false);
         assert_eq!(supported("linux", true)["open"], true);
+        assert_eq!(supported("linux", true)["reveal"], false);
         assert_eq!(supported("macos", false)["revealLabel"], "Reveal in Finder");
         assert_eq!(
             (Action::parse("open"), Action::parse("exec")),
