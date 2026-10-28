@@ -141,7 +141,7 @@ export default function AssistantHost({ route, narrow, repo, repoLabel, onNewTas
       </>}
       suggestions={!pending && available ? SUGGESTIONS.map(s => <Button key={s} size="sm" className="pc-aurora-chip" onClick={() => void send(s)}>{s}</Button>) : undefined}
       composer={<form className="pc-aurora-composer" onSubmit={event => { event.preventDefault(); void send(text); }}>
-        <ComposerMenu canStartNew={turns.length > 0 || !!conversationId} busy={!!pending} onNew={() => { setTurns([]); setConversationId(undefined); setNotice(null); }} onContext={() => scopeButton.current?.click()} />
+        <ComposerMenu sheetOpen={open} canStartNew={turns.length > 0 || !!conversationId} busy={!!pending} onNew={() => { setTurns([]); setConversationId(undefined); setNotice(null); }} onContext={() => scopeButton.current?.click()} />
         <TextInput data-autofocus value={text} aria-label="Ask pacer" placeholder="Ask about your tasks, dispatch or budget" disabled={!available} onInput={event => setText(event.currentTarget.value)} />
         <ChoicePicker ref={scopeButton} className="pc-aurora-scope" aria-label="Change context" value={choices.some(c => c.value === scopeValue) ? scopeValue : "dispatch"} options={pickerOptions} onValueChange={setScopeValue} />
         {pending

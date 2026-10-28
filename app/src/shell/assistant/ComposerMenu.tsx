@@ -2,9 +2,11 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { Button, IconButton } from "../../ds/Button";
 
 /** The composer's "+" menu: only what works here, which is a fresh conversation and the context choice. */
-export function ComposerMenu({ canStartNew, busy, onNew, onContext }: { canStartNew: boolean; busy: boolean; onNew: () => void; onContext: () => void }) {
+export function ComposerMenu({ canStartNew, busy, sheetOpen, onNew, onContext }: { canStartNew: boolean; busy: boolean; sheetOpen: boolean; onNew: () => void; onContext: () => void }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null), trigger = useRef<HTMLButtonElement>(null);
+  // Closing the sheet (Escape, the shortcut, the launcher) closes the menu with it, so it is never open when the sheet returns.
+  useEffect(() => { if (!sheetOpen) setOpen(false); }, [sheetOpen]);
   useEffect(() => {
     if (!open) return;
     root.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();

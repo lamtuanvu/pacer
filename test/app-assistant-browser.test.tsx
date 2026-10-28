@@ -184,6 +184,13 @@ browserTest("assistant_plus_menu_offers_only_what_works_and_the_sheet_never_depe
     await focused(page, '[role="menuitem"]');
     await page.keyboard.press("Tab");
     await page.getByRole("menu").waitFor({ state: "detached", timeout: 2000 });
+    // Closing the sheet with the menu open closes the menu too: it is not open when the sheet comes back.
+    await plus.click();
+    await focused(page, '[role="menuitem"]');
+    await page.keyboard.press("Meta+j");
+    await page.keyboard.press("Meta+j");
+    await focused(page, 'input[aria-label="Ask pacer"]');
+    await expect(page.getByRole("menu").count()).resolves.toBe(0);
     // Forced colors keep a visible focus indicator on the composer row.
     await page.emulateMedia({ forcedColors: "active" });
     await page.getByLabel("Ask pacer").focus();
@@ -230,5 +237,12 @@ webkitTest("assistant_plus_menu_items_work_with_the_mouse_in_webkit", async () =
     // WebKit does not focus a clicked button; the click must still reach the item.
     await page.getByRole("menuitem", { name: "Change context" }).click();
     await page.getByRole("listbox").waitFor({ timeout: 2000 });
+    await page.getByRole("option").first().click();
+    // New conversation by mouse once a conversation exists.
+    await page.getByRole("button", { name: "What needs me today?" }).click();
+    await page.getByRole("log", { name: "Conversation" }).getByText("Three tasks need you.").waitFor();
+    await page.getByRole("button", { name: "Conversation options" }).click();
+    await page.getByRole("menuitem", { name: "New conversation" }).click();
+    await expect(page.getByRole("log", { name: "Conversation" }).getByText("Three tasks need you.").count()).resolves.toBe(0);
   } finally { await browser.close(); }
 }, 30_000);
