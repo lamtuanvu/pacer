@@ -16,7 +16,7 @@ use super::{
 #[cfg(target_os = "macos")]
 pub(crate) use adoption_native::NativeAdoptionPlatform;
 #[cfg(feature = "ota-fixture")]
-pub(crate) use fixture::{fixture_attach, fixture_jobs};
+pub(crate) use fixture::{fixture_attach, fixture_jobs, fixture_refresh_takeover};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -51,6 +51,29 @@ pub(crate) enum ProgramCheck {
     Role(CodeRole),
     Pinned(LegacyExecutable),
 }
+#[cfg(all(target_os = "macos", feature = "ota-fixture"))]
+fn fixture_takeover_program(trust: &ReleaseTrust, path: &Path) -> Result<bool, OtaError> {
+    use std::os::unix::fs::MetadataExt;
+    let Some(policy) = trust.fixture_policy() else { return Ok(false) };
+    if path != policy.takeover_cli() { return Ok(false) }
+    policy.validate_live().map_err(|_| OtaError::Identity)?;
+    ensure(policy.signing_cert_sha1.is_some())?;
+    let metadata = std::fs::symlink_metadata(path).map_err(|_| OtaError::Identity)?;
+    ensure(metadata.is_file() && metadata.nlink() == 1 && path.canonicalize().map_err(|_| OtaError::Identity)? == path)?;
+    ensure(trust.verify_static(path, CodeRole::Cli) == Err(OtaError::Identity))?;
+    Ok(true)
+}
+
+#[cfg(target_os = "macos")]
+#[cfg_attr(not(feature = "ota-fixture"), allow(unused_variables))]
+pub(crate) fn verify_fixture_or_release_process(trust: &ReleaseTrust, process: &ProcessIdentity, executable: &Path, role: CodeRole) -> Result<(), OtaError> {
+    #[cfg(feature = "ota-fixture")]
+    if matches!(role, CodeRole::Cli) && fixture_takeover_program(trust, executable)? {
+        super::bootstrap_identity::inspect_legacy_executable(executable, process)?;
+        return Ok(());
+    }
+    trust.verify_process(process, role).map(|_| ())
+}
 #[cfg(target_os = "macos")]
 fn inherit_launch_socket(command: &mut std::process::Command, fd: std::os::fd::RawFd) {
     use std::os::unix::process::CommandExt;
@@ -82,7 +105,11 @@ impl OwnedJob {
         }
         let executable = self.definition.arguments.first().ok_or(OtaError::Invalid)?;
         match program {
-            ProgramCheck::Role(role) => trust.verify_static(Path::new(executable), *role),
+            ProgramCheck::Role(role) => {
+                #[cfg(feature = "ota-fixture")]
+                if fixture_takeover_program(trust, Path::new(executable))? { return Ok(()); }
+                trust.verify_static(Path::new(executable), *role)
+            }
             ProgramCheck::Pinned(expected) => {
                 use std::os::unix::fs::MetadataExt;
                 let path = Path::new(executable)
@@ -216,7 +243,7 @@ impl OwnedJob {
                 ensure(details.executable == Path::new(&self.definition.arguments[0]))?;
                 match program {
                     ProgramCheck::Role(role) => {
-                        trust.verify_process(&details.identity, *role)?;
+                        verify_fixture_or_release_process(trust, &details.identity, &details.executable, *role)?;
                     }
                     ProgramCheck::Pinned(file) => {
                         if super::bootstrap_identity::inspect_legacy_executable(
@@ -265,7 +292,8 @@ impl OwnedJob {
             )?;
             match program {
                 ProgramCheck::Role(role) => {
-                    trust.verify_process(process, *role)?;
+                    let details = native::process_details(process.pid).map_err(|_| OtaError::Identity)?.ok_or(OtaError::Identity)?;
+                    verify_fixture_or_release_process(trust, process, &details.executable, *role)?;
                 }
                 ProgramCheck::Pinned(file) => {
                     if super::bootstrap_identity::inspect_legacy_executable(
@@ -736,7 +764,8 @@ impl OwnedJob {
                 self.definition.arguments.len() == 2
                     && self.definition.arguments[1] == "serve"
                     && (program == policy.current_app.join("Contents/Resources/pacer")
-                        || program == policy.external_cli()),
+                        || program == policy.external_cli()
+                        || program == policy.takeover_cli()),
             )?;
             let row = record["registrations"]
                 .as_array()
@@ -778,7 +807,7 @@ impl OwnedJob {
                     details.uid == policy.uid
                         && details.executable == Path::new(&self.definition.arguments[0]),
                 )?;
-                trust.verify_process(&details.identity, self.role)?;
+                verify_fixture_or_release_process(trust, &details.identity, &details.executable, self.role)?;
                 processes.push(details.identity);
             }
         }

@@ -50,6 +50,23 @@ Once service adoption is validated and available, a compatible service can use
 the managed update transaction described below. The desktop never starts a
 legacy service update automatically.
 
+### Service replaced by another build
+
+If a previously consented desktop service runs from a build the app cannot
+verify, the desktop offers **Use the app's service** before its normal version
+check. The confirmation shows both command paths, the service label, port,
+data home and any work counts it can read. **Not now** keeps the current
+service and is remembered for that executable identity. A changed executable
+causes the choice to appear again.
+
+Confirming stops the inspected service job, registers the signed CLI bundled
+with the app and verifies the new service. Settings and task data stay in the
+same home; the original command file stays in place. The optional terminal
+checkbox moves that file to a timestamped `pacer.pre-app-*` backup and links
+`~/.local/bin/pacer` to the bundled CLI. If startup fails, the helper restores
+the original registration and service. If recovery cannot verify the original
+service, keep the recovery files and follow the recovery guidance below.
+
 ## Updating
 
 Open **Settings → Updates** while the desktop is connected. Pacer checks daily

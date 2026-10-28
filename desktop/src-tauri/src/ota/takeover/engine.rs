@@ -1,5 +1,6 @@
 use super::journal::{
-    TakeoverAction as Action, TakeoverManifest, TakeoverState as State, TakeoverStore,
+    StepOutcome, TakeoverAction as Action, TakeoverManifest, TakeoverState as State,
+    TakeoverStore,
 };
 use crate::ota::{AwakeStamp, OtaError, VERIFY_TIMEOUT_MS};
 
@@ -26,44 +27,93 @@ fn deadline(p: &dyn TakeoverPlatform) -> Result<AwakeStamp, OtaError> {
     Ok(now)
 }
 
+/// A failed step together with its public reason code (`<step>:<error>`).
+struct Failure {
+    reason: String,
+    error: OtaError,
+}
+
+fn error_code(error: OtaError) -> String {
+    serde_json::to_value(error)
+        .ok()
+        .and_then(|value| value.as_str().map(str::to_owned))
+        .unwrap_or_else(|| "unknown".into())
+}
+
+fn action_code(action: &Action) -> &'static str {
+    match action {
+        Action::ArmRecovery => "arm-recovery",
+        Action::StopOriginal => "stop-original",
+        Action::SwitchRegistration => "switch-registration",
+        Action::LaunchManaged => "launch-managed",
+        Action::Verify => "verify",
+        Action::RetireRecovery => "retire-recovery",
+        Action::RestoreRegistration => "restore-registration",
+        Action::LaunchOriginal => "launch-original",
+    }
+}
+
+fn failure(stage: &str, error: OtaError) -> Failure {
+    Failure {
+        reason: format!("{stage}:{}", error_code(error)),
+        error,
+    }
+}
+
+fn journal_failure(error: OtaError) -> Failure {
+    failure("journal", error)
+}
+
 fn effect(
     store: &TakeoverStore,
     action: Action,
     perform: impl FnOnce() -> Result<(), OtaError>,
-) -> Result<(), OtaError> {
-    store.intend(action.clone())?;
+) -> Result<(), Failure> {
+    store.intend(action.clone()).map_err(journal_failure)?;
     let result = perform();
     // The call returned, so its outcome is observed. A crash inside the call
     // leaves an uncompleted intent and is handled conservatively by recover.
-    store.complete(&action)?;
-    result
+    let outcome = if result.is_ok() {
+        StepOutcome::Ok
+    } else {
+        StepOutcome::Failed
+    };
+    store.complete(&action, outcome).map_err(journal_failure)?;
+    result.map_err(|error| failure(action_code(&action), error))
 }
 
 fn restore(
     store: &TakeoverStore,
     p: &dyn TakeoverPlatform,
     progress: &mut dyn FnMut(State),
+    cause: Option<&str>,
 ) -> Result<State, OtaError> {
     let journal = store.journal()?;
     if journal.state != State::Restoring {
-        store.transition(State::Restoring)?;
+        store.transition_with(State::Restoring, cause)?;
         progress(State::Restoring);
     }
     let m = store.manifest();
-    let result: Result<(), OtaError> = (|| {
+    let result: Result<(), Failure> = (|| {
         effect(store, Action::RestoreRegistration, || {
             p.restore_registration(m)
         })?;
         effect(store, Action::LaunchOriginal, || p.launch_original(m))?;
-        effect(store, Action::Verify, || p.verify_original(m, deadline(p)?))?;
+        effect(store, Action::Verify, || {
+            p.verify_original(m, deadline(p)?)
+        })?;
         Ok(())
     })();
-    let state = if result.is_ok() {
-        State::Restored
-    } else {
-        State::RecoveryFailed
+    let state = match result {
+        Ok(()) => {
+            store.transition(State::Restored)?;
+            State::Restored
+        }
+        Err(failed) => {
+            store.transition_with(State::RecoveryFailed, Some(&failed.reason))?;
+            State::RecoveryFailed
+        }
     };
-    store.transition(state)?;
     progress(state);
     if state == State::Restored {
         let _ = p.retire_recovery(m);
@@ -82,29 +132,29 @@ pub fn execute_with_progress(
 ) -> Result<State, OtaError> {
     let m = store.manifest();
     p.redetect(m)?;
-    if let Err(error) = effect(store, Action::ArmRecovery, || p.arm_recovery(m)) {
+    if let Err(failed) = effect(store, Action::ArmRecovery, || p.arm_recovery(m)) {
         // A failed arm may have partially loaded the recovery job.
-        return restore(store, p, progress).or(Err(error));
+        return restore(store, p, progress, Some(&failed.reason)).or(Err(failed.error));
     }
-    let outcome: Result<State, OtaError> = (|| {
-        store.transition(State::Stopping)?;
+    let outcome: Result<State, Failure> = (|| {
+        store.transition(State::Stopping).map_err(journal_failure)?;
         progress(State::Stopping);
         effect(store, Action::StopOriginal, || p.stop_original(m))?;
-        store.transition(State::Switched)?;
+        store.transition(State::Switched).map_err(journal_failure)?;
         progress(State::Switched);
         effect(store, Action::SwitchRegistration, || {
             p.switch_registration(m)
         })?;
         effect(store, Action::LaunchManaged, || p.launch_managed(m))?;
-        store.transition(State::Verifying)?;
+        store.transition(State::Verifying).map_err(journal_failure)?;
         progress(State::Verifying);
         effect(store, Action::Verify, || p.verify_managed(m, deadline(p)?))?;
-        store.transition(State::Committed)?;
+        store.transition(State::Committed).map_err(journal_failure)?;
         progress(State::Committed);
         let _ = p.retire_recovery(m);
         Ok(State::Committed)
     })();
-    outcome.or_else(|_| restore(store, p, progress))
+    outcome.or_else(|failed| restore(store, p, progress, Some(&failed.reason)))
 }
 
 pub fn recover(store: &TakeoverStore, p: &dyn TakeoverPlatform) -> Result<State, OtaError> {
@@ -124,14 +174,16 @@ pub fn recover(store: &TakeoverStore, p: &dyn TakeoverPlatform) -> Result<State,
             Ok(State::Restored)
         }
         _ => {
-            if journal
+            let interrupted = journal
                 .steps
                 .iter()
-                .any(|s| s.completed.is_none() && s.uncertain.is_none())
-            {
+                .find(|s| s.completed.is_none() && s.uncertain.is_none())
+                .map(|s| format!("interrupted:{}", action_code(&s.action)));
+            if interrupted.is_some() {
                 store.mark_uncertain()?;
             }
-            restore(store, p, &mut |_| {})
+            let cause = interrupted.unwrap_or_else(|| "interrupted".into());
+            restore(store, p, &mut |_| {}, Some(&cause))
         }
     }
 }
@@ -253,14 +305,35 @@ mod tests {
         let fake = Fake::new(Some("redetect"));
         assert_eq!(execute(&store, &fake), Err(OtaError::Identity));
         assert!(store.journal().unwrap().steps.is_empty());
+        assert_eq!(store.journal().unwrap().error, None);
         assert_eq!(fake.calls(), ["redetect"]);
     }
     #[test]
     fn every_forward_failure_restores_original() {
-        for fail in ["stop", "switch", "launch-managed", "verify-managed"] {
+        for (fail, action, reason) in [
+            ("stop", Action::StopOriginal, "stop-original:identity"),
+            ("switch", Action::SwitchRegistration, "switch-registration:identity"),
+            ("launch-managed", Action::LaunchManaged, "launch-managed:identity"),
+            ("verify-managed", Action::Verify, "verify:identity"),
+        ] {
             let (_temp, store) = fixture();
             let fake = Fake::new(Some(fail));
             assert_eq!(execute(&store, &fake), Ok(State::Restored), "{fail}");
+            let journal = store.journal().unwrap();
+            assert_eq!(journal.error.as_deref(), Some(reason), "{fail}");
+            let failed: Vec<_> = journal
+                .steps
+                .iter()
+                .filter(|s| s.outcome == Some(StepOutcome::Failed))
+                .collect();
+            assert_eq!(failed.len(), 1, "{fail}");
+            assert_eq!(failed[0].action, action, "{fail}");
+            assert!(journal
+                .steps
+                .iter()
+                .rev()
+                .take(3)
+                .all(|s| s.outcome == Some(StepOutcome::Ok)));
             assert!(fake.calls().ends_with(&[
                 "restore",
                 "launch-original",
@@ -274,11 +347,30 @@ mod tests {
     fn restoration_failure_keeps_recovery_state() {
         let (_temp, store) = fixture();
         store.intend(Action::ArmRecovery).unwrap();
-        store.complete(&Action::ArmRecovery).unwrap();
+        store.complete(&Action::ArmRecovery, StepOutcome::Ok).unwrap();
         let fake = Fake::new(Some("restore"));
         assert_eq!(recover(&store, &fake), Ok(State::RecoveryFailed));
-        assert_eq!(store.journal().unwrap().state, State::RecoveryFailed);
+        let journal = store.journal().unwrap();
+        assert_eq!(journal.state, State::RecoveryFailed);
+        assert_eq!(journal.error.as_deref(), Some("restore-registration:identity"));
+        assert_eq!(
+            journal.steps.last().unwrap().outcome,
+            Some(StepOutcome::Failed)
+        );
         assert_eq!(fake.calls(), ["restore"]);
+    }
+    #[test]
+    fn interrupted_recovery_records_the_interrupted_step() {
+        let (_temp, store) = fixture();
+        store.intend(Action::ArmRecovery).unwrap();
+        store.complete(&Action::ArmRecovery, StepOutcome::Ok).unwrap();
+        store.transition(State::Stopping).unwrap();
+        store.intend(Action::StopOriginal).unwrap();
+        assert_eq!(recover(&store, &Fake::new(None)), Ok(State::Restored));
+        let journal = store.journal().unwrap();
+        assert_eq!(journal.error.as_deref(), Some("interrupted:stop-original"));
+        assert_eq!(journal.steps[1].outcome, None);
+        assert!(journal.steps[1].uncertain.is_some());
     }
     #[test]
     fn committed_recovery_only_retires() {
@@ -303,7 +395,7 @@ mod tests {
             let (_temp, store) = fixture();
             if state != State::Prepared {
                 store.intend(Action::ArmRecovery).unwrap();
-                store.complete(&Action::ArmRecovery).unwrap();
+                store.complete(&Action::ArmRecovery, StepOutcome::Ok).unwrap();
                 store.transition(State::Stopping).unwrap();
                 if matches!(state, State::Switched | State::Verifying) {
                     store.transition(State::Switched).unwrap();
@@ -345,7 +437,7 @@ mod tests {
             let (temp, store) = fixture();
             if state != State::Prepared {
                 store.intend(Action::ArmRecovery).unwrap();
-                store.complete(&Action::ArmRecovery).unwrap();
+                store.complete(&Action::ArmRecovery, StepOutcome::Ok).unwrap();
                 store.transition(State::Stopping).unwrap();
                 if matches!(state, State::Switched | State::Verifying) {
                     store.transition(State::Switched).unwrap();
@@ -381,7 +473,7 @@ mod tests {
         for action in [Action::StopOriginal, Action::SwitchRegistration] {
             let (_temp, store) = fixture();
             store.intend(Action::ArmRecovery).unwrap();
-            store.complete(&Action::ArmRecovery).unwrap();
+            store.complete(&Action::ArmRecovery, StepOutcome::Ok).unwrap();
             store.transition(State::Stopping).unwrap();
             if action == Action::SwitchRegistration {
                 store.transition(State::Switched).unwrap();
@@ -397,10 +489,10 @@ mod tests {
     fn restore_crash_midway_restarts_restoration() {
         let (_temp, store) = fixture();
         store.intend(Action::ArmRecovery).unwrap();
-        store.complete(&Action::ArmRecovery).unwrap();
+        store.complete(&Action::ArmRecovery, StepOutcome::Ok).unwrap();
         store.transition(State::Restoring).unwrap();
         store.intend(Action::RestoreRegistration).unwrap();
-        store.complete(&Action::RestoreRegistration).unwrap();
+        store.complete(&Action::RestoreRegistration, StepOutcome::Ok).unwrap();
         store.intend(Action::LaunchOriginal).unwrap();
         let fake = Fake::new(None);
         assert_eq!(recover(&store, &fake), Ok(State::Restored));

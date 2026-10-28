@@ -74,7 +74,10 @@ async fn execute_takeover(app: &AppHandle, relink: bool) -> Result<String, Strin
     let view = app.state::<Shell>().takeover.lock().unwrap().clone().ok_or("No service takeover was detected")?;
     let bundled = bundled_binary().ok_or("The bundled pacer command is missing")?;
     let user_home = required_home(std::env::var_os("HOME").as_deref())?;
-    let registration = std::fs::read(user_home.join("Library/LaunchAgents/com.pacer.serve.plist")).map_err(|e| e.to_string())?;
+    let trust = pacer_desktop::ota::trust::ReleaseTrust::configured().ok_or("Release trust unavailable")?;
+    let registration = pacer_desktop::ota::control::observe_service_registration(
+        &user_home, &view.candidate.home, view.candidate.port, &trust,
+    ).map_err(|e| e.to_string())?.registration;
     if format!("{:x}", sha2::Sha256::digest(&registration)) != view.candidate.registration_sha256 { return Err("The service registration changed since inspection".into()) }
     let desktop = pacer_desktop::ota::native::process_details(std::process::id()).map_err(|e| e.to_string())?.ok_or("Desktop process identity is unavailable")?.identity;
     let authorized_at = pacer_desktop::ota::native::awake_now().map_err(|e| e.to_string())?;
@@ -1264,7 +1267,10 @@ impl FirstRun {
                 logic::ShellAction::TakeoverDismiss => {
                     if let Some(view) = app.state::<Shell>().takeover.lock().unwrap().clone() {
                         if let Err(error) = logic::dismiss_takeover(&config, &view.candidate.identity) { self.fail(error); }
-                        else { crate::recovery(app, "starting"); }
+                        else {
+                            *app.state::<Shell>().takeover_progress.lock().unwrap() = None;
+                            crate::recovery(app, "starting");
+                        }
                     }
                 }
                 logic::ShellAction::TakeoverConfirm { relink } => {
@@ -1365,6 +1371,13 @@ impl FirstRun {
     }
 }
 
+fn takeover_hold(app: &AppHandle) -> Option<&'static str> {
+    let shell = app.state::<Shell>();
+    let progress = shell.takeover_progress.lock().unwrap().as_ref().and_then(|p| p["state"].as_str().map(str::to_owned));
+    let page = shell.diagnosis.lock().unwrap().as_ref().map(|d| d.page);
+    logic::takeover_hold(progress.as_deref(), page)
+}
+
 pub async fn run(app: AppHandle) {
     if let Err(error) = required_home(std::env::var_os("HOME").as_deref()) {
         let mut detail = logic::diagnosis("stuck", None);
@@ -1390,7 +1403,8 @@ pub async fn run(app: AppHandle) {
             .lock()
             .unwrap()
             .as_ref()
-            .is_some_and(|d| matches!(d.page, "outdatedService" | "unverifiedService"));
+            .is_some_and(|d| matches!(d.page, "outdatedService" | "unverifiedService"))
+            || takeover_hold(&app).is_some();
         let delay = logic::connection_retry_delay(
             attempts.delay(std::time::Instant::now()),
             waiting_for_service_choice,
@@ -1434,6 +1448,13 @@ pub async fn run(app: AppHandle) {
             }
             OnboardingGate::Ready(cli) => cli,
         };
+        if let Some(page) = takeover_hold(&app) {
+            // A finished takeover keeps its outcome page; never re-detect and re-offer.
+            if app.state::<Shell>().diagnosis.lock().unwrap().as_ref().is_none_or(|d| d.page != page) {
+                crate::recovery(&app, page);
+            }
+            continue;
+        }
         let (recovery_probe, recovery_job) = if permission {
             (probe, job)
         } else {

@@ -50,6 +50,14 @@ pub enum TakeoverAction {
     LaunchOriginal,
 }
 
+/// Whether a returned action succeeded. Present exactly when `completed` is.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum StepOutcome {
+    Ok,
+    Failed,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TakeoverStep {
@@ -57,6 +65,8 @@ pub struct TakeoverStep {
     pub intent_boot_id: String,
     #[serde(deserialize_with = "required_nullable")]
     pub completed: Option<AwakeStamp>,
+    #[serde(deserialize_with = "required_nullable")]
+    pub outcome: Option<StepOutcome>,
     #[serde(deserialize_with = "required_nullable")]
     pub uncertain: Option<AwakeStamp>,
 }
@@ -91,6 +101,14 @@ fn valid_hash(value: &str) -> bool {
         && value
             .bytes()
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+/// Public reason codes are short kebab-case words joined by `:`, never paths.
+pub fn valid_reason(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 64
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b':')
 }
 fn digest(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
@@ -159,12 +177,20 @@ fn validate_journal(j: &TakeoverJournal, m: &TakeoverManifest, hash: &str) -> Re
                 !s.intent_boot_id.is_empty()
                     && s.intent_boot_id.len() <= 128
                     && !(s.completed.is_some() && s.uncertain.is_some())
+                    && s.completed.is_some() == s.outcome.is_some()
                     && s.uncertain.as_ref().is_none_or(|t| !t.boot_id.is_empty())
                     && s.completed
                         .as_ref()
                         .is_none_or(|t| t.boot_id == s.intent_boot_id)
             }),
     )?;
+    require(match (j.state, &j.error) {
+        (TakeoverState::RecoveryFailed, error) => error.as_deref().is_some_and(valid_reason),
+        (TakeoverState::Restoring | TakeoverState::Restored, error) => {
+            error.as_deref().is_none_or(valid_reason)
+        }
+        (_, error) => error.is_none(),
+    })?;
     require(
         j.steps
             .iter()
@@ -308,12 +334,17 @@ impl TakeoverStore {
                 action,
                 intent_boot_id: stamp.boot_id,
                 completed: None,
+                outcome: None,
                 uncertain: None,
             });
             Ok(())
         })
     }
-    pub fn complete(&self, action: &TakeoverAction) -> Result<TakeoverJournal, OtaError> {
+    pub fn complete(
+        &self,
+        action: &TakeoverAction,
+        outcome: StepOutcome,
+    ) -> Result<TakeoverJournal, OtaError> {
         let stamp = crate::ota::native::awake_now().map_err(|_| OtaError::Io)?;
         self.change(|j| {
             let step = j
@@ -324,6 +355,7 @@ impl TakeoverStore {
                 .ok_or(OtaError::Invalid)?;
             require(step.intent_boot_id == stamp.boot_id)?;
             step.completed = Some(stamp);
+            step.outcome = Some(outcome);
             Ok(())
         })
     }
@@ -343,7 +375,20 @@ impl TakeoverStore {
         })
     }
     pub fn transition(&self, to: TakeoverState) -> Result<TakeoverJournal, OtaError> {
+        self.transition_with(to, None)
+    }
+    /// Transitions and, when `reason` is given, records it as the public
+    /// error code. Only restoration states may carry a reason.
+    pub fn transition_with(
+        &self,
+        to: TakeoverState,
+        reason: Option<&str>,
+    ) -> Result<TakeoverJournal, OtaError> {
         self.change(|j| {
+            if let Some(reason) = reason {
+                require(valid_reason(reason))?;
+                j.error = Some(reason.to_owned());
+            }
             require(
                 j.steps
                     .iter()
@@ -459,7 +504,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let store = TakeoverStore::create(temp.path(), &manifest()).unwrap();
         assert_eq!(
-            store.complete(&TakeoverAction::StopOriginal).err(),
+            store.complete(&TakeoverAction::StopOriginal, StepOutcome::Ok).err(),
             Some(OtaError::Invalid)
         );
         assert_eq!(
@@ -497,13 +542,13 @@ mod tests {
         assert_eq!(intent.steps.len(), 1);
         assert_eq!(intent.steps[0].completed, None);
         assert_eq!(
-            store.complete(&TakeoverAction::StopOriginal).unwrap().steps[0]
+            store.complete(&TakeoverAction::StopOriginal, StepOutcome::Ok).unwrap().steps[0]
                 .completed
                 .is_some(),
             true
         );
         assert_eq!(
-            store.complete(&TakeoverAction::StopOriginal).err(),
+            store.complete(&TakeoverAction::StopOriginal, StepOutcome::Ok).err(),
             Some(OtaError::Invalid)
         );
         drop(store);
@@ -520,7 +565,7 @@ mod tests {
         );
         assert_eq!(
             store
-                .complete(&TakeoverAction::ArmRecovery)
+                .complete(&TakeoverAction::ArmRecovery, StepOutcome::Ok)
                 .unwrap()
                 .steps
                 .len(),
@@ -547,7 +592,7 @@ mod tests {
         let journal = store.mark_uncertain().unwrap();
         assert!(journal.steps[0].uncertain.is_some());
         assert_eq!(
-            store.complete(&TakeoverAction::ArmRecovery).err(),
+            store.complete(&TakeoverAction::ArmRecovery, StepOutcome::Ok).err(),
             Some(OtaError::Invalid)
         );
         assert_eq!(
@@ -573,7 +618,7 @@ mod tests {
         let journal = store.mark_uncertain().unwrap();
         assert!(journal.steps[0].uncertain.is_some());
         assert_eq!(
-            store.complete(&TakeoverAction::ArmRecovery).err(),
+            store.complete(&TakeoverAction::ArmRecovery, StepOutcome::Ok).err(),
             Some(OtaError::Invalid)
         );
         assert_eq!(
@@ -615,6 +660,58 @@ mod tests {
         assert_eq!(store.journal().err(), Some(OtaError::Invalid));
         std::fs::write(&path, serde_json::to_vec(&valid).unwrap()).unwrap();
         assert_eq!(store.journal().unwrap().steps.len(), 1);
+    }
+    #[test]
+    fn reader_rejects_inconsistent_outcome_and_error() {
+        let temp = tempfile::tempdir().unwrap();
+        let m = manifest();
+        let store = TakeoverStore::create(temp.path(), &m).unwrap();
+        store.intend(TakeoverAction::ArmRecovery).unwrap();
+        store
+            .complete(&TakeoverAction::ArmRecovery, StepOutcome::Failed)
+            .unwrap();
+        let path = TakeoverStore::path(temp.path(), &m.transaction_id)
+            .unwrap()
+            .join(JOURNAL);
+        let valid: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(valid["steps"][0]["outcome"], "failed");
+        let reject = |value: &serde_json::Value| {
+            std::fs::write(&path, serde_json::to_vec(value).unwrap()).unwrap();
+            assert_eq!(store.journal().err(), Some(OtaError::Invalid), "{value}");
+        };
+        let mut missing = valid.clone();
+        missing["steps"][0].as_object_mut().unwrap().remove("outcome");
+        reject(&missing);
+        let mut unpaired = valid.clone();
+        unpaired["steps"][0]["outcome"] = serde_json::Value::Null;
+        reject(&unpaired);
+        let mut unknown = valid.clone();
+        unknown["steps"][0]["outcome"] = serde_json::json!("maybe");
+        reject(&unknown);
+        let mut early = valid.clone();
+        early["error"] = serde_json::json!("arm-recovery:io");
+        reject(&early);
+        let mut failed = valid.clone();
+        failed["state"] = serde_json::json!("recovery-failed");
+        reject(&failed);
+        failed["error"] = serde_json::json!("/Users/someone/pacer");
+        reject(&failed);
+        std::fs::write(&path, serde_json::to_vec(&valid).unwrap()).unwrap();
+        assert_eq!(
+            store
+                .transition_with(TakeoverState::Restoring, Some("arm-recovery:io"))
+                .unwrap()
+                .error
+                .as_deref(),
+            Some("arm-recovery:io")
+        );
+        assert_eq!(
+            store
+                .transition_with(TakeoverState::RecoveryFailed, Some("Bad Path/x"))
+                .err(),
+            Some(OtaError::Invalid)
+        );
     }
     #[test]
     fn state_graph_rejects_illegal_edges() {

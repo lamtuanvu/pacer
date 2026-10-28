@@ -216,7 +216,8 @@ pub(crate) async fn fixture_jobs(
                 definition.arguments.len() == 2
                     && definition.arguments[1] == "serve"
                     && (program == policy.current_app.join("Contents/Resources/pacer")
-                        || program == policy.external_cli()),
+                        || program == policy.external_cli()
+                        || program == policy.takeover_cli()),
             )?;
             ensure(
                 definition.environment.get("PACER_HOME").map(String::as_str)
@@ -243,7 +244,7 @@ pub(crate) async fn fixture_jobs(
                     details.uid == policy.uid
                         && details.executable == Path::new(&job.definition.arguments[0]),
                 )?;
-                trust.verify_process(&details.identity, role)?;
+                crate::ota::platform::verify_fixture_or_release_process(trust, &details.identity, &details.executable, role)?;
                 Ok::<_, OtaError>(details.identity)
             })
             .transpose()?;
@@ -261,6 +262,13 @@ pub(crate) async fn fixture_jobs(
         let (job, _) = owned.as_ref().ok_or(OtaError::Unavailable)?;
         ensure(loaded.is_some())?;
         let service = process.as_ref().ok_or(OtaError::Unavailable)?;
+        if Path::new(&job.definition.arguments[0]) == policy.takeover_cli() {
+            // A source-built takeover CLI has no native OTA authority, so it
+            // cannot acknowledge fixture cleanup. The driver has already ended
+            // every fixture desktop; stop only this exact verified service.
+            ensure(desktops.is_empty() && jobs[1].2.is_none())?;
+            job.stop_exact(trust, service).await?;
+        } else {
         let endpoint = control::ServiceEndpoint {
             home: &policy.home,
             port: policy.port,
@@ -289,6 +297,7 @@ pub(crate) async fn fixture_jobs(
                 let process = process.as_ref().ok_or(OtaError::Unavailable)?;
                 job.stop_exact(trust, process).await?;
             }
+        }
         }
     }
     }
@@ -358,7 +367,7 @@ pub(crate) async fn fixture_jobs(
 /// Install the lease's one external service registration so Desktop starts
 /// attached. Fixed program, label and environment; never a caller-chosen path.
 #[cfg(feature = "ota-fixture")]
-pub(crate) async fn fixture_attach(trust: &ReleaseTrust) -> Result<FixtureJobsReport, OtaError> {
+pub(crate) async fn fixture_attach(trust: &ReleaseTrust, takeover: bool) -> Result<FixtureJobsReport, OtaError> {
     use crate::ota::{control, platform_fs::PrivateDir};
     let policy = trust.fixture_policy().ok_or(OtaError::Unavailable)?;
     policy.validate_live().map_err(|_| OtaError::Identity)?;
@@ -366,9 +375,15 @@ pub(crate) async fn fixture_attach(trust: &ReleaseTrust) -> Result<FixtureJobsRe
         .map_err(|_| OtaError::Identity)?
         .ok_or(OtaError::Identity)?;
     trust.verify_process(&own.identity, CodeRole::Helper)?;
-    let external = policy.external_cli();
+    let external = if takeover { policy.takeover_cli() } else { policy.external_cli() };
     ensure(policy.permits_path(&external))?;
-    trust.verify_static(&external, CodeRole::Cli)?;
+    if takeover {
+        ensure(policy.signing_cert_sha1.is_some())?;
+        ensure(trust.verify_static(&external, CodeRole::Cli).is_err())?;
+        ensure(std::fs::symlink_metadata(&external).map_err(|_| OtaError::Identity)?.is_file())?;
+    } else {
+        trust.verify_static(&external, CodeRole::Cli)?;
+    }
     {
         let locks = PrivateDir::create(&policy.root.join("locks"))?;
         let _ownership = locks.acquire_locks(&policy.current_app, &policy.home)?;
@@ -413,9 +428,69 @@ pub(crate) async fn fixture_attach(trust: &ReleaseTrust) -> Result<FixtureJobsRe
     fixture_jobs(trust, false).await
 }
 
+/// Fixed dismissal probe: replace only the fixture's stopped takeover command
+/// with the staged baseline build, then reload the same recorded job.
+#[cfg(feature = "ota-fixture")]
+pub(crate) async fn fixture_refresh_takeover(trust: &ReleaseTrust) -> Result<FixtureJobsReport, OtaError> {
+    use crate::ota::{bootstrap_identity::inspect_legacy_executable, control, platform_fs::PrivateDir};
+    let policy = trust.fixture_policy().ok_or(OtaError::Unavailable)?;
+    policy.validate_live().map_err(|_| OtaError::Identity)?;
+    ensure(policy.signing_cert_sha1.is_some())?;
+    let root = PrivateDir::open(&policy.root)?;
+    let record: serde_json::Value = serde_json::from_slice(&root.read("record.json", 262144)?).map_err(|_| OtaError::Invalid)?;
+    ensure(record["exercise"]["scenario"] == "takeover-dismiss"
+        && record["exercise"]["state"] == "running"
+        && record["exercise"]["transactionId"].is_null())?;
+    let desktop = policy.current_app.join("Contents/MacOS/pacer");
+    ensure(control::native_process_inventory()?.iter().all(|p| p.executable != desktop))?;
+    let path = policy.root.join("registrations").join(format!("{}.plist", policy.service_label));
+    let bytes = crate::ota::platform_fs::read_owned_file(&path, 131072)?;
+    let definition = JobDefinition::from_plist(&bytes)?;
+    ensure(definition.label == policy.service_label
+        && definition.arguments == [policy.takeover_cli().to_string_lossy().into_owned(), "serve".into()])?;
+    let job = OwnedJob { definition, plist_path: path, role: CodeRole::Cli };
+    let loaded = copy_user_job(&policy.service_label)?.ok_or(OtaError::Identity)?;
+    let pid = job.definition.match_loaded(&loaded)?.pid.ok_or(OtaError::Identity)?;
+    let process = native::process_details(pid).map_err(|_| OtaError::Identity)?.ok_or(OtaError::Identity)?;
+    ensure(process.executable == policy.takeover_cli() && process.uid == policy.uid)?;
+    let identity = inspect_legacy_executable(&process.executable, &process.identity)?;
+    job.stop_pinned(trust, &process.identity, identity).await?;
+    ensure(copy_user_job(&policy.service_label)?.is_none()
+        && native::process_details(pid).map_err(|_| OtaError::Identity)?.is_none_or(|p| p.identity != process.identity))?;
+    let source = policy.root.join("external/takeover-pacer-alt");
+    ensure(policy.permits_path(&source))?;
+    ensure(trust.verify_static(&source, CodeRole::Cli).is_err())?;
+    let target = policy.takeover_cli();
+    let backup = target.with_file_name("pacer.dismissed");
+    ensure(!backup.exists())?;
+    std::fs::rename(&target, &backup).map_err(|_| OtaError::Io)?;
+    std::fs::copy(&source, &target).map_err(|_| OtaError::Io)?;
+    ensure(trust.verify_static(&target, CodeRole::Cli) == Err(OtaError::Identity))?;
+    job.change(trust, JobChange::Bootstrap).await?;
+    fixture_jobs(trust, false).await
+}
+
 /// An update or adoption transaction's recovery job: its own helper copy, one
 /// recovery mode and the exact installation/transaction directory it serves.
 fn recovery_arguments_valid(arguments: &[String], home: &Path) -> bool {
+    let valid_tx = |tx: &str| {
+        !tx.is_empty()
+            && tx.len() <= 128
+            && tx
+                .bytes()
+                .all(|v| v.is_ascii_alphanumeric() || matches!(v, b'-' | b'_'))
+    };
+    // A takeover transaction has no installation ID; its helper copy lives in
+    // the takeover journal directory.
+    if let [program, mode, tx] = arguments {
+        return mode == "--ota-recover-takeover"
+            && valid_tx(tx)
+            && Path::new(program)
+                == home
+                    .join("desktop-updates/native/takeover")
+                    .join(tx)
+                    .join("pacer-update-helper");
+    }
     let [program, mode, id, tx] = arguments else {
         return false;
     };
@@ -424,11 +499,7 @@ fn recovery_arguments_valid(arguments: &[String], home: &Path) -> bool {
         && id
             .bytes()
             .all(|v| v.is_ascii_hexdigit() && !v.is_ascii_uppercase())
-        && !tx.is_empty()
-        && tx.len() <= 128
-        && tx
-            .bytes()
-            .all(|v| v.is_ascii_alphanumeric() || matches!(v, b'-' | b'_'))
+        && valid_tx(tx)
         && Path::new(program)
             == home
                 .join("desktop-updates/native")
@@ -455,6 +526,17 @@ mod tests {
         let mut extra = args("--ota-recover", &helper);
         extra.push("more".into());
         assert!(!recovery_arguments_valid(&extra, home));
+    }
+    #[test]
+    fn recovery_job_accepts_takeover_mode_for_its_own_transaction_only() {
+        let home = Path::new("/fixture/home");
+        let helper = "/fixture/home/desktop-updates/native/takeover/tx-1/pacer-update-helper";
+        let args = |mode: &str, program: &str, tx: &str| vec![program.to_string(), mode.to_string(), tx.to_string()];
+        assert!(recovery_arguments_valid(&args("--ota-recover-takeover", helper, "tx-1"), home));
+        assert!(!recovery_arguments_valid(&args("--ota-recover-takeover", helper, "tx-2"), home));
+        assert!(!recovery_arguments_valid(&args("--ota-recover", helper, "tx-1"), home));
+        assert!(!recovery_arguments_valid(&args("--ota-recover-takeover", "/tmp/pacer-update-helper", "tx-1"), home));
+        assert!(!recovery_arguments_valid(&args("--ota-recover-takeover", "/fixture/home/desktop-updates/native/takeover/../tx-1/pacer-update-helper", "../tx-1"), home));
     }
     #[test]
     fn diagnostic_binary_requires_private_executable_not_data_file_mode() {

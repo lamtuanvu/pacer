@@ -1514,3 +1514,24 @@ fn main() {
         }
     });
 }
+
+#[cfg(test)]
+mod manifest_tests {
+    #[test]
+    fn every_local_command_permission_has_a_manifest_command() {
+        let main_source = include_str!("main.rs");
+        let manifest_source = include_str!("../build.rs");
+        let commands = manifest_source
+            .split("AppManifest::new().commands(&[")
+            .nth(1)
+            .expect("AppManifest commands")
+            .split("])")
+            .next()
+            .expect("AppManifest command list");
+        for tail in main_source.split(".permission(\"allow-").skip(1) {
+            let permission = tail.split('"').next().expect("permission name");
+            let command = permission.replace('-', "_");
+            assert!(commands.contains(&format!("\"{command}\"")), "missing AppManifest command {command} for allow-{permission}");
+        }
+    }
+}

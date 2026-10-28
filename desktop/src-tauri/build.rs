@@ -81,6 +81,8 @@ fn main() {
             "rounded_window_supported",
             "native_titlebar_supported",
             "desktop_update_connection",
+            "takeover_inspection",
+            "takeover_open",
             "native_validation_setup",
             "windowMinimize",
             "windowToggleMaximize",

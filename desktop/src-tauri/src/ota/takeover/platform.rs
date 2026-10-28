@@ -158,7 +158,8 @@ impl NativeTakeoverPlatform {
     }
     fn recovery_label(&self, m: &TakeoverManifest) -> String {
         if let Some(policy) = self.trust.fixture_policy() {
-            format!("{}.takeover.{}", policy.recovery_label, m.transaction_id)
+            // The lease reserves exactly one recovery label.
+            policy.recovery_label.clone()
         } else {
             format!("com.pacer.takeover-recovery.{}", m.transaction_id)
         }
@@ -272,77 +273,89 @@ impl NativeTakeoverPlatform {
         }
         Ok(true)
     }
-    fn service_http(&self, m: &TakeoverManifest, authenticated: bool) -> Result<(), OtaError> {
-        let home = m.candidate.home.clone();
-        let port = m.candidate.port;
-        std::thread::spawn(move || {
-            let runtime = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
+    fn service_http(&self, m: &TakeoverManifest, snapshot: bool) -> Result<(), OtaError> {
+        probe_service(m.candidate.home.clone(), m.candidate.port, snapshot)
+    }
+}
+
+/// A just-launched service may not accept connections yet. Only that is
+/// retried until the verification deadline; any other failure is final.
+fn not_ready<T>(result: Result<T, OtaError>) -> Result<Option<T>, OtaError> {
+    match result {
+        Ok(value) => Ok(Some(value)),
+        Err(OtaError::Unavailable) => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
+/// `/v3/hello` requires a session, so both the managed and the restored
+/// service are probed through the home's token exchange. Only the managed
+/// service must also serve a snapshot.
+fn probe_service(home: PathBuf, port: u16, snapshot: bool) -> Result<(), OtaError> {
+    std::thread::spawn(move || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|_| OtaError::Unavailable)?;
+        runtime.block_on(async {
+            let client = reqwest::Client::builder()
+                .cookie_store(true)
+                .no_proxy()
+                .redirect(reqwest::redirect::Policy::none())
+                .connect_timeout(std::time::Duration::from_secs(5))
                 .build()
                 .map_err(|_| OtaError::Unavailable)?;
-            runtime.block_on(async {
-                let client = reqwest::Client::builder()
-                    .cookie_store(true)
-                    .no_proxy()
-                    .redirect(reqwest::redirect::Policy::none())
-                    .connect_timeout(std::time::Duration::from_secs(5))
-                    .build()
-                    .map_err(|_| OtaError::Unavailable)?;
-                let origin = format!("http://127.0.0.1:{port}");
-                if authenticated {
-                    let token = std::fs::read_to_string(home.join("token"))
-                        .map_err(|_| OtaError::Identity)?;
-                    if token.trim().is_empty() {
-                        return Err(OtaError::Identity);
-                    }
-                    let response = client
-                        .post(format!("{origin}/v3/session/exchange"))
-                        .bearer_auth(token.trim())
-                        .header("X-Pacer-Client", "desktop/takeover")
-                        .timeout(std::time::Duration::from_secs(15))
-                        .send()
-                        .await
-                        .map_err(|_| OtaError::Unavailable)?;
-                    if response.status() != reqwest::StatusCode::NO_CONTENT {
-                        return Err(OtaError::Identity);
-                    }
-                }
-                let hello = client
-                    .get(format!("{origin}/v3/hello"))
-                    .timeout(std::time::Duration::from_secs(15))
+            let origin = format!("http://127.0.0.1:{port}");
+            let token =
+                std::fs::read_to_string(home.join("token")).map_err(|_| OtaError::Identity)?;
+            if token.trim().is_empty() {
+                return Err(OtaError::Identity);
+            }
+            let response = client
+                .post(format!("{origin}/v3/session/exchange"))
+                .bearer_auth(token.trim())
+                .header("X-Pacer-Client", "desktop/takeover")
+                .timeout(std::time::Duration::from_secs(15))
+                .send()
+                .await
+                .map_err(|_| OtaError::Unavailable)?;
+            if response.status() != reqwest::StatusCode::NO_CONTENT {
+                return Err(OtaError::Identity);
+            }
+            let hello = client
+                .get(format!("{origin}/v3/hello"))
+                .timeout(std::time::Duration::from_secs(15))
+                .send()
+                .await
+                .map_err(|_| OtaError::Unavailable)?;
+            if !hello.status().is_success() {
+                return Err(OtaError::Identity);
+            }
+            let hello: serde_json::Value = hello.json().await.map_err(|_| OtaError::Identity)?;
+            if !hello.is_object() {
+                return Err(OtaError::Identity);
+            }
+            if snapshot {
+                let state = client
+                    .get(format!("{origin}/v3/snapshot"))
+                    .timeout(std::time::Duration::from_secs(10))
                     .send()
                     .await
                     .map_err(|_| OtaError::Unavailable)?;
-                if !hello.status().is_success() {
+                if !state.status().is_success() {
                     return Err(OtaError::Identity);
                 }
-                let hello: serde_json::Value =
-                    hello.json().await.map_err(|_| OtaError::Identity)?;
-                if !hello.is_object() {
+                let state: serde_json::Value =
+                    state.json().await.map_err(|_| OtaError::Identity)?;
+                if !state.is_object() {
                     return Err(OtaError::Identity);
                 }
-                if authenticated {
-                    let state = client
-                        .get(format!("{origin}/v3/snapshot"))
-                        .timeout(std::time::Duration::from_secs(10))
-                        .send()
-                        .await
-                        .map_err(|_| OtaError::Unavailable)?;
-                    if !state.status().is_success() {
-                        return Err(OtaError::Identity);
-                    }
-                    let state: serde_json::Value =
-                        state.json().await.map_err(|_| OtaError::Identity)?;
-                    if !state.is_object() {
-                        return Err(OtaError::Identity);
-                    }
-                }
-                Ok(())
-            })
+            }
+            Ok(())
         })
-        .join()
-        .map_err(|_| OtaError::Unavailable)?
-    }
+    })
+    .join()
+    .map_err(|_| OtaError::Unavailable)?
 }
 
 impl TakeoverPlatform for NativeTakeoverPlatform {
@@ -458,13 +471,28 @@ impl TakeoverPlatform for NativeTakeoverPlatform {
             &self.source_path(m)?,
             &self.original(m)?,
             &self.managed_definition(m)?.to_plist()?,
-        )
+        )?;
+        #[cfg(feature = "ota-fixture")]
+        if crate::ota::fixture_fault::consume_takeover(
+            crate::ota::fixture_fault::Point::TakeoverSwitch,
+            &m.transaction_id,
+        )? {
+            std::process::exit(86);
+        }
+        Ok(())
     }
     fn launch_managed(&self, m: &TakeoverManifest) -> Result<(), OtaError> {
         self.trust.verify_static(&m.bundled_cli, CodeRole::Cli)?;
         self.run_job(self.managed_job(m)?, JobChange::Bootstrap, None)
     }
     fn verify_managed(&self, m: &TakeoverManifest, deadline: AwakeStamp) -> Result<(), OtaError> {
+        #[cfg(feature = "ota-fixture")]
+        if crate::ota::fixture_fault::consume_takeover(
+            crate::ota::fixture_fault::Point::TakeoverStartup,
+            &m.transaction_id,
+        )? {
+            return Err(OtaError::Unavailable);
+        }
         loop {
             let now = self.awake_now()?;
             if now.boot_id != deadline.boot_id || now.millis > deadline.millis {
@@ -483,20 +511,24 @@ impl TakeoverPlatform for NativeTakeoverPlatform {
                         process: &service.process,
                         executable: &service.executable,
                     };
-                    let connection = control::NativeConnection::connect(
-                        &endpoint,
-                        &self.trust,
-                        None,
-                        std::sync::Arc::new(|_| {}),
-                    )?;
-                    self.service_http(m, true)?;
+                    // The helper is the peer, so it authenticates in the helper role.
+                    let Some(connection) =
+                        not_ready(control::authenticate_helper(&endpoint, &self.trust))?
+                    else {
+                        std::thread::sleep(std::time::Duration::from_millis(100));
+                        continue;
+                    };
+                    if not_ready(self.service_http(m, true))?.is_none() {
+                        std::thread::sleep(std::time::Duration::from_millis(100));
+                        continue;
+                    }
                     let after = control::inspect_registered_service(
                         &self.user_home,
                         &m.candidate.home,
                         m.candidate.port,
                         &self.trust,
                     )?;
-                    if !connection.alive()
+                    if !control::channel_open(&connection)
                         || after.process != service.process
                         || after.executable != service.executable
                     {
@@ -571,7 +603,10 @@ impl TakeoverPlatform for NativeTakeoverPlatform {
                     && inspect_legacy_executable(&m.candidate.canonical_program, &observed.process)?
                         == m.candidate.identity
                 {
-                    self.service_http(m, false)?;
+                    if not_ready(self.service_http(m, false))?.is_none() {
+                        std::thread::sleep(std::time::Duration::from_millis(100));
+                        continue;
+                    }
                     let after = control::observe_service_registration(
                         &self.user_home,
                         &m.candidate.home,
@@ -595,14 +630,18 @@ impl TakeoverPlatform for NativeTakeoverPlatform {
     }
     fn retire_recovery(&self, m: &TakeoverManifest) -> Result<(), OtaError> {
         let mut job = self.recovery_job(m);
-        let bytes = job.definition.to_plist()?;
-        if job.plist_path.exists() {
-            platform_fs::remove_registration(&job.plist_path, &bytes)?;
-        }
-        job.plist_path = self.transaction_dir(m).join("recovery.plist");
-        if !job.plist_path.exists() {
-            platform_fs::PrivateDir::open(&self.transaction_dir(m))?
-                .write_new("recovery.plist", &bytes)?;
+        if self.trust.fixture_policy().is_none() {
+            // A fixture lease retires its one cataloged recovery registration
+            // in place, as for update recovery.
+            let bytes = job.definition.to_plist()?;
+            if job.plist_path.exists() {
+                platform_fs::remove_registration(&job.plist_path, &bytes)?;
+            }
+            job.plist_path = self.transaction_dir(m).join("recovery.plist");
+            if !job.plist_path.exists() {
+                platform_fs::PrivateDir::open(&self.transaction_dir(m))?
+                    .write_new("recovery.plist", &bytes)?;
+            }
         }
         self.run_job(job, JobChange::Bootout, None)
     }
@@ -641,5 +680,116 @@ mod restore_tests {
                 "current={current:?} managed_loaded={managed_loaded} original_loaded_pinned={original_loaded_pinned}"
             );
         }
+    }
+
+    /// Serves one fake pacer: `/v3/hello` and `/v3/snapshot` require the
+    /// session cookie issued by a bearer token exchange.
+    fn fake_service(snapshot_ok: bool) -> (u16, std::thread::JoinHandle<Vec<String>>) {
+        use std::io::{BufRead, BufReader, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let handle = std::thread::spawn(move || {
+            let mut seen = Vec::new();
+            listener.set_nonblocking(false).unwrap();
+            let (stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                .unwrap();
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut writer = stream;
+            loop {
+                let mut head = Vec::new();
+                loop {
+                    let mut line = String::new();
+                    if reader.read_line(&mut line).unwrap_or(0) == 0 {
+                        return seen;
+                    }
+                    if line == "\r\n" {
+                        break;
+                    }
+                    head.push(line.to_ascii_lowercase());
+                }
+                let request = head[0].clone();
+                let has = |needle: &str| head.iter().any(|line| line.starts_with(needle));
+                seen.push(request.trim().to_owned());
+                let (status, extra, body) = if request.starts_with("post /v3/session/exchange ") {
+                    if has("authorization: bearer fixture-token") {
+                        (
+                            "204 No Content",
+                            "set-cookie: pacer_session=s1; Path=/\r\n",
+                            "",
+                        )
+                    } else {
+                        ("401 Unauthorized", "", "unauthorized")
+                    }
+                } else if !has("cookie: pacer_session=s1") {
+                    ("401 Unauthorized", "", "unauthorized")
+                } else if request.starts_with("get /v3/hello ") {
+                    (
+                        "200 OK",
+                        "content-type: application/json\r\n",
+                        "{\"version\":\"0.2.4\"}",
+                    )
+                } else if request.starts_with("get /v3/snapshot ") && snapshot_ok {
+                    ("200 OK", "content-type: application/json\r\n", "{}")
+                } else {
+                    ("500 Internal Server Error", "", "")
+                };
+                write!(
+                    writer,
+                    "HTTP/1.1 {status}\r\n{extra}content-length: {}\r\n\r\n{body}",
+                    body.len()
+                )
+                .unwrap();
+            }
+        });
+        (port, handle)
+    }
+
+    #[test]
+    fn only_unavailable_services_are_polled_again() {
+        assert_eq!(not_ready(Ok(1)), Ok(Some(1)));
+        assert_eq!(not_ready::<()>(Err(OtaError::Unavailable)), Ok(None));
+        for error in [
+            OtaError::Identity,
+            OtaError::Invalid,
+            OtaError::Io,
+            OtaError::Timeout,
+        ] {
+            assert_eq!(not_ready::<()>(Err(error.clone())), Err(error));
+        }
+    }
+
+    #[test]
+    fn restored_service_probe_authenticates_before_hello() {
+        let home = tempfile::tempdir().unwrap();
+        std::fs::write(home.path().join("token"), "fixture-token\n").unwrap();
+        let (port, server) = fake_service(false);
+        assert_eq!(
+            probe_service(home.path().to_path_buf(), port, false),
+            Ok(())
+        );
+        assert_eq!(
+            server.join().unwrap(),
+            [
+                "post /v3/session/exchange http/1.1",
+                "get /v3/hello http/1.1"
+            ]
+        );
+    }
+
+    #[test]
+    fn managed_service_probe_also_requires_a_snapshot() {
+        let home = tempfile::tempdir().unwrap();
+        std::fs::write(home.path().join("token"), "fixture-token\n").unwrap();
+        let (port, server) = fake_service(false);
+        assert_eq!(
+            probe_service(home.path().to_path_buf(), port, true),
+            Err(OtaError::Identity)
+        );
+        server.join().unwrap();
+        let (port, server) = fake_service(true);
+        assert_eq!(probe_service(home.path().to_path_buf(), port, true), Ok(()));
+        server.join().unwrap();
     }
 }

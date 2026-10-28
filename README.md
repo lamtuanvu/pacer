@@ -42,6 +42,10 @@ link at `~/.local/bin/pacer`. If needed, an optional checkbox adds
 off by default. Continue to the step-by-step **Setup** to choose your planner,
 connect agents, choose an executor and try a task. The app includes its CLI.
 
+Copying a source build into `~/.local/bin/pacer` replaces the desktop app's
+terminal command. Use a sandboxed `PACER_HOME` and a separate `PACER_PORT` for
+development builds.
+
 `pacer uninstall --all` removes everything setup added, including the terminal
 link and the optional PATH block. Move the app to the Trash afterward. See
 [installation](docs/install.md) for Linux AppImage and `.deb` downloads, updates

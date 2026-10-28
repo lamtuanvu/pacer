@@ -16,6 +16,25 @@ fn matches_takeover_identity(path: &Path, expected: &pacer_desktop::ota::bootstr
     Ok(format!("{:x}", Sha256::digest(bytes)) == expected.sha256)
 }
 
+fn restore_takeover_backup(backup: &Path, link: &Path) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        use std::ffi::CString;
+        use std::os::unix::ffi::OsStrExt;
+        let old = CString::new(backup.as_os_str().as_bytes()).map_err(|e| e.to_string())?;
+        let new = CString::new(link.as_os_str().as_bytes()).map_err(|e| e.to_string())?;
+        if unsafe { libc::renamex_np(old.as_ptr(), new.as_ptr(), libc::RENAME_EXCL) } != 0 {
+            return Err(std::io::Error::last_os_error().to_string());
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        fs::hard_link(backup, link).map_err(|e| e.to_string())?;
+        fs::remove_file(backup).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 pub fn relink_after_takeover(home: &Path, bundled: &Path, expected: &pacer_desktop::ota::bootstrap_identity::LegacyExecutable, now: SystemTime) -> Result<PathBuf, String> {
     let link = link_path(home);
     if !matches_takeover_identity(&link, expected)? { return Err("The terminal command changed since confirmation".into()) }
@@ -47,6 +66,7 @@ pub fn relink_after_takeover(home: &Path, bundled: &Path, expected: &pacer_deskt
     use std::os::unix::fs::MetadataExt;
     if !backed.is_file() || backed.dev().to_string() != expected.device || backed.ino().to_string() != expected.inode || backed.len() != expected.size
         || format!("{:x}", Sha256::digest(fs::read(&backup).map_err(|e| e.to_string())?)) != expected.sha256 {
+        restore_takeover_backup(&backup, &link).map_err(|e| format!("The terminal command changed during backup; restoring it failed: {e}"))?;
         return Err("The terminal command changed during backup".into());
     }
     symlink(bundled, &link).map_err(|e| e.to_string())?;
@@ -230,6 +250,21 @@ mod tests {
         symlink(&backup, &link).unwrap();
         assert!(relink_after_takeover(&dir.0, &bundled, &new_identity, now).is_err());
         assert_eq!(fs::read(&backup).unwrap(), b"existing");
+    }
+
+    #[test]
+    fn takeover_backup_restore_is_exclusive_and_restores_the_command() {
+        let dir = TempDir::new();
+        let link = dir.link();
+        let backup = link.with_file_name("pacer.pre-app-test");
+        fs::write(&backup, "original command").unwrap();
+        fs::write(&link, "racing command").unwrap();
+        assert!(restore_takeover_backup(&backup, &link).is_err());
+        assert_eq!(fs::read(&link).unwrap(), b"racing command");
+        fs::remove_file(&link).unwrap();
+        restore_takeover_backup(&backup, &link).unwrap();
+        assert_eq!(fs::read(&link).unwrap(), b"original command");
+        assert!(!backup.exists());
     }
 
     struct TempDir(PathBuf);

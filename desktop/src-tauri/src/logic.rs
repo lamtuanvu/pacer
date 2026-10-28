@@ -42,6 +42,18 @@ pub fn launch_gate(candidate: bool, dismissed: bool, version_mismatch: bool) -> 
     else { LaunchGate::Continue }
 }
 
+/// The page a finished takeover holds. While held, the lifecycle neither
+/// reconnects nor re-detects the other build, so the takeover offer is never
+/// re-shown over the outcome. A recovery failure holds until the app restarts;
+/// a restoration holds until the user continues with the current service.
+pub fn takeover_hold(progress: Option<&str>, page: Option<&str>) -> Option<&'static str> {
+    match (progress, page) {
+        (Some("recovery-failed"), _) => Some("recoveryFailed"),
+        (Some("restored"), Some("restored")) => Some("restored"),
+        _ => None,
+    }
+}
+
 pub fn recovery_for(bundle_app: bool, bundled_cli: bool, external_cli: bool) -> Option<&'static str> {
     if bundled_cli || external_cli {
         None
@@ -2140,6 +2152,21 @@ mod desktop_connection_tests {
         assert_eq!(launch_gate(true, true, true), LaunchGate::Version);
         assert_eq!(launch_gate(false, false, true), LaunchGate::Version);
         assert_eq!(launch_gate(false, false, false), LaunchGate::Continue);
+    }
+    #[test]
+    fn finished_takeover_holds_its_outcome_instead_of_reoffering() {
+        // Recovery failure is held on every page, including the offer it came from.
+        for page in [None, Some("takeover"), Some("starting"), Some("recoveryFailed")] {
+            assert_eq!(takeover_hold(Some("recovery-failed"), page), Some("recoveryFailed"));
+        }
+        assert_eq!(takeover_hold(Some("restored"), Some("restored")), Some("restored"));
+        // Continuing with the current service leaves the restored page and releases the hold.
+        assert_eq!(takeover_hold(Some("restored"), Some("starting")), None);
+        // An OTA restoration without a takeover outcome is not a takeover hold.
+        assert_eq!(takeover_hold(None, Some("restored")), None);
+        for progress in ["prepared", "stopping", "switched", "verifying", "committed", "restoring", "error"] {
+            assert_eq!(takeover_hold(Some(progress), Some("takeover")), None, "{progress}");
+        }
     }
     #[test]
     fn dismissal_is_strict_and_bound_to_both_hashes() {

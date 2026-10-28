@@ -75,10 +75,17 @@ pub fn run_takeover(trust: ReleaseTrust) -> Result<(), OtaError> {
     let outcome = engine::execute_with_progress(&store, &platform, &mut |state| {
         let _ = control::write_frame(&mut channel, &Progress { state, error: None });
     });
-    let state = store.journal()?.state;
-    let error = outcome.as_ref().err().map(ToString::to_string).or_else(|| {
-        (state == TakeoverState::RecoveryFailed).then(|| OtaError::RecoveryFailed.to_string())
-    });
+    let journal = store.journal()?;
+    let state = journal.state;
+    // The journal reason is a short public code; it never carries paths.
+    let error = outcome
+        .as_ref()
+        .err()
+        .map(ToString::to_string)
+        .or(journal.error)
+        .or_else(|| {
+            (state == TakeoverState::RecoveryFailed).then(|| OtaError::RecoveryFailed.to_string())
+        });
     let _ = control::write_frame(&mut channel, &Progress { state, error });
     outcome.map(|_| ())
 }
