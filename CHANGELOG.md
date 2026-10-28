@@ -7,6 +7,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 ### Added
 
 - Record private, bounded OTA request-stage diagnostics in live validation evidence while preserving fixture authorization and HTTP behavior.
+- Add the read-only `dispatch.explain` operation and `pacer route --explain`: which executor a request would go to, the ladder step, coded reasons, fallbacks with exclusion reasons, and the planner's cost (`unknown` until a planner adapter reports tokens). It reuses the dispatcher's decision code, starts, reserves and writes nothing, and the change is additive. See [Explain a route](docs/dispatch.md#explain-a-route).
 - Record token usage for each attempt with a `measured`, `partial` or `unknown` coverage label. Codex gets its final `tokens used` total as a partial, self-reported figure and Claude Code gets measured usage from its `stream-json` result. The service indexes existing history in the new `attempt_usage` table without touching task files. See [Token accounting](docs/dispatch.md#token-accounting).
 - Roll token usage up through work trees (`totals.tokens`, with coverage counts, a lower-bound flag and a split per agent) and show it in task detail. `Attempt.tokens` is added to task and work-tree results; the change is additive.
 - Add collapsible side panels (the Settings navigation collapses with its panel button or Ctrl-b), a terminal dock below the work area (Ctrl-` or the status-bar Terminal button), and a `PanelTabs` design-system tablist with a "+N" overflow menu.
