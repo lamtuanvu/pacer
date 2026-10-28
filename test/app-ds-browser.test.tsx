@@ -61,7 +61,7 @@ browserTest('Saved setups keep their bordered list when operation feedback follo
   const markup = renderToString(<TaskContext.Provider value={{ state, api }}>
     <SavedSetups initialData={settings.strategies} />
   </TaskContext.Provider>);
-  const styles = await Promise.all(['app/src/ds/tokens.css', 'app/src/ds/components.css', 'app/src/screens/settings/settings.css']
+  const styles = await Promise.all(['app/src/ds/tokens.css', 'app/src/ds/components.css', 'app/src/screens/settings/settings.css', 'app/src/styles.css']
     .map(path => Bun.file(path).text()));
   const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
   try {
