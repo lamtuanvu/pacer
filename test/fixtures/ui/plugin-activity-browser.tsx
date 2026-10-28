@@ -2,6 +2,7 @@
 /** @jsxImportSource preact */
 import {render} from "preact";
 import {useState} from "preact/hooks";
+import {NavigationProvider} from "../../../app/src/navigation.tsx";
 import {Activity} from "../../../app/src/plugins/Activity.tsx";
 import {Rail} from "../../../app/src/shell/Rail.tsx";
 import {TaskContext} from "../../../app/src/screens/task-shared.tsx";
@@ -17,5 +18,5 @@ const api={call:async(op,params)=>{
  if(op==='plugin.ui.render') {if(window.failRender)throw {code:'plugin_timeout'};return {document:{type:'stack',gap:'content',children:[{type:'text',text:'render '+ ++renders},{type:'button',label:'Confirm me',action:'confirm',variant:'secondary',confirm:{title:'Proceed?',body:'<b>quoted</b>'}},{type:'button',label:'Delete',action:'delete',variant:'danger'},{type:'checkbox',label:'Ready',name:'ready',checked:false,action:'toggle'}]}};}
  if(op==='plugin.ui.action'){await new Promise(resolve=>setTimeout(resolve,100));return {result:'refresh',message:'Plugin says <b>done</b>'};}
 }};
-function App(){const [signal,setSignal]=useState(0);window.emit=()=>setSignal(n=>n+1);const catalog=usePluginCatalog(api,true,signal);return <TaskContext.Provider value={{api,state:initialState()}}><PluginContext.Provider value={catalog}><Rail route={{name:'plugin',plugin:'fx-ui',id:'checklist',query:{repo:null,scope:null}}} counts={null}/><Activity plugin="fx-ui" id="checklist"/></PluginContext.Provider></TaskContext.Provider>;}
+function App(){const [signal,setSignal]=useState(0),[away,setAway]=useState(false);window.visit=away=>{location.hash=away?'#/settings/app':'#/plugins/fx-ui/checklist';setAway(away);};window.emit=()=>setSignal(n=>n+1);const catalog=usePluginCatalog(api,true,signal),route=away?{name:'settings',section:'app',query:{repo:null,scope:null}}:{name:'plugin',plugin:'fx-ui',id:'checklist',query:{repo:null,scope:null}};return <TaskContext.Provider value={{api,state:initialState()}}><PluginContext.Provider value={catalog}><NavigationProvider route={route} pluginTitle={away?undefined:catalog.surfaces.find(s=>s.surface==='activity')?.title}><Rail route={route} counts={null}/>{away?<p>App preferences</p>:<Activity plugin="fx-ui" id="checklist"/>}</NavigationProvider></PluginContext.Provider></TaskContext.Provider>;}
 render(<App/>,document.getElementById('app'));

@@ -64,6 +64,11 @@ browserTest("activity runtime confirms before sending, refreshes, keeps stale do
     await page.evaluate(()=>{(window as any).failInfo=true;(window as any).emit();});
     await page.getByText('Plugin details could not be refreshed.',{exact:true}).waitFor();
     expect(await page.getByText('Added by the plugin fx-ui 1.0.0 from pacer-conformance').count()).toBe(1);
+    for(let visit=0;visit<2;visit++) {
+      await page.evaluate(()=>(window as any).visit(true));await page.waitForFunction(()=>document.title==='App preferences');
+      await page.evaluate(()=>(window as any).visit(false));await page.getByRole('heading',{name:'Release checklist plugin',exact:true}).waitFor();
+      await page.waitForTimeout(150);expect(await page.title()).toBe('Release checklist');
+    }
     expect(errors).toEqual([]);
   } finally { await browser.close(); server.stop(true); }
 }, 30000);

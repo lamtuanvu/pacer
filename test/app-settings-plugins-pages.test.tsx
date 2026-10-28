@@ -222,7 +222,7 @@ browserTest('overflow, repository and list removal controls honour coarse pointe
       await target.waitFor();
       const size=await target.evaluate(node=>{const rect=node.getBoundingClientRect();return {width:rect.width,height:rect.height,min:Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--control-touch'))};});
       expect(size.width).toBeGreaterThanOrEqual(size.min);expect(size.height).toBeGreaterThanOrEqual(size.min);
-      if(mode==='settings') {const repo=await page.getByRole('button',{name:'Remove repo-one'}).boundingBox();expect(repo!.width).toBeGreaterThanOrEqual(size.min);expect(repo!.height).toBeGreaterThanOrEqual(size.min);}
+      if(mode==='settings') {const repo=await page.getByRole('button',{name:'Remove team/one'}).boundingBox();expect(repo!.width).toBeGreaterThanOrEqual(size.min);expect(repo!.height).toBeGreaterThanOrEqual(size.min);}
     } finally {await page.close();}
   }
 });
@@ -231,4 +231,54 @@ test('plugin resource invalidation ignores unrelated areas',async()=>{
   const {resourceRevision}=await import('../app/src/screens/settings/shared');
   expect(resourceRevision('plugin.list',{plugin:1,tasks:5})).toBe(resourceRevision('plugin.list',{plugin:1,tasks:6}));
   expect(resourceRevision('plugin.list',{plugin:2})).not.toBe(resourceRevision('plugin.list',{plugin:1}));
+});
+
+browserTest('repository chips display picker labels, remove by key and preserve unknown keys',async()=>{
+  const settings=structuredClone(settingsFixture);settings.values.repos=['repo-one','unknown-repo'];
+  const page=await mount({settings});
+  try {
+    await page.getByRole('button',{name:'Remove team/one',exact:true}).waitFor();
+    expect(await page.locator('.pc-plugin-repo').allTextContents()).toEqual(['team/one×','unknown-repo×']);
+    await page.getByRole('button',{name:'Remove team/one',exact:true}).click();
+    await page.getByRole('button',{name:'Save',exact:true}).click();await page.getByText('Saved.',{exact:true}).waitFor();
+    expect((await calls(page,'plugin.settings.set'))[0].params.values.repos).toEqual(['unknown-repo']);
+  } finally {await page.close();}
+});
+browserTest('plugin pages share App preferences frame and board control geometry',async()=>{
+  const frame=(page:Page)=>page.locator('.pc-page').evaluate(node=>{const s=getComputedStyle(node),r=node.getBoundingClientRect();return {padding:s.padding,maxWidth:s.maxWidth,x:r.x,width:r.width,content:node.firstElementChild!.getBoundingClientRect().width};});
+  const app=await mount({mode:'app'},{viewport:{width:1440,height:900}}), cards=await mount({mode:'plugins'},{viewport:{width:1440,height:900}}), editor=await mount({},{viewport:{width:1440,height:900}});
+  const style=(page:Page,selector:string)=>page.locator(selector).first().evaluate(node=>{const s=getComputedStyle(node);return {height:s.height,width:s.width,padding:s.padding,radius:s.borderRadius,color:s.color,fontSize:s.fontSize,weight:s.fontWeight,align:s.alignItems};});
+  try {
+    const expected=await frame(app);expect(expected.padding).toBe('28px 40px 48px');expect(expected.maxWidth).toBe('1080px');expect(expected.content).toBe(1000);
+    expect(await frame(cards)).toEqual(expected);expect(await frame(editor)).toEqual(expected);
+    expect((await style(editor,'.pc-setting-row')).align).toBe('start');
+    expect(await style(cards,'.pc-plugin-settings-link')).toMatchObject({height:'32px',padding:'0px 12px',radius:'8px',fontSize:'13px',weight:'600'});
+    expect(await style(cards,'.pc-action-menu__trigger')).toMatchObject({width:'32px',height:'32px',radius:'6px'});
+    expect((await style(cards,'.pc-action-menu__trigger')).color).toBe('rgb(82, 82, 91)');
+    expect(await style(editor,'.pc-plugin-remove')).toMatchObject({width:'26px',height:'26px',padding:'0px'});
+    const row=await editor.locator('.pc-plugin-ordered>li').first().evaluate(node=>{const s=getComputedStyle(node);return {height:node.getBoundingClientRect().height,columns:s.gridTemplateColumns.split(' ').length,padding:s.padding,radius:s.borderRadius};});
+    expect(row).toMatchObject({height:44,columns:4,padding:'8px 10px',radius:'8px'});
+    const up=editor.getByRole('button',{name:'Move up: Run tests',exact:true});expect(await up.getAttribute('aria-disabled')).toBe('true');expect(await up.getAttribute('title')).toContain('already first');
+    expect(await editor.getByRole('button',{name:'Move down: Update notes',exact:true}).getAttribute('aria-disabled')).toBe('true');
+    await editor.getByRole('button',{name:'Move down: Run tests',exact:true}).focus();await editor.keyboard.press('Enter');
+    expect(await editor.locator('.pc-plugin-ordered>li').first().textContent()).toBe('Update notes×');
+    for(const [page,selector] of [[app,'.pc-plugin-manage'],[editor,'.pc-plugin-provenance>.pc-text-action']] as const) {
+      expect((await style(page,selector)).fontSize).toBe('12px');
+      const link=page.locator(selector);expect(await link.evaluate(node=>getComputedStyle(node).color)).toBe(await link.evaluate(node=>{const probe=document.createElement('span');probe.style.color='var(--link)';node.append(probe);const color=getComputedStyle(probe).color;probe.remove();return color;}));
+      await link.hover();expect(await link.evaluate(node=>getComputedStyle(node).color)).toBe(await link.evaluate(node=>{const probe=document.createElement('span');probe.style.color='var(--ink)';node.append(probe);const color=getComputedStyle(probe).color;probe.remove();return color;}));
+    }
+    await editor.getByRole('button',{name:'Add repository',exact:true}).click();
+    const popup=await editor.locator('.pc-search-picker__popover').boundingBox(),trigger=await editor.getByRole('button',{name:'Add repository',exact:true}).boundingBox();expect(popup!.x).toBe(trigger!.x);
+  } finally {await app.close();await cards.close();await editor.close();}
+});
+browserTest('narrow card actions align at the right with and without Settings',async()=>{
+  const page=await mount({mode:'plugins',plugins:[pluginFixture,{...pluginFixture,id:'builtin',bundled:true}]},{viewport:{width:375,height:812}});
+  try {
+    for(const card of await page.locator('.pc-plugin-card').all()) {
+      const actions=await card.locator('.pc-plugin-card__actions').boundingBox(),trigger=await card.getByRole('button',{name:/More actions/}).boundingBox();
+      expect(trigger!.x+trigger!.width).toBeCloseTo(actions!.x+actions!.width,0);
+    }
+    const card=page.getByRole('article',{name:'fx-ui',exact:true}),settings=await card.getByRole('link',{name:'Settings',exact:true}).boundingBox(),more=await card.getByRole('button',{name:/More actions/}).boundingBox();expect(settings!.y+settings!.height/2).toBe(more!.y+more!.height/2);
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  } finally {await page.close();}
 });

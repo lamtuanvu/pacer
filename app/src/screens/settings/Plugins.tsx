@@ -9,6 +9,8 @@ import { useDialogs } from "../../ds/useDialogs";
 import { ErrorMessage } from "../task-shared";
 import { Feedback, useOperation, useResource } from "./shared";
 
+import { usePluginSettingsStyles } from "./plugin-styles";
+
 type EnableResult = { state: string; needs?: string[]; surfaces?: SurfaceKind[] };
 const surfaceNames: Record<SurfaceKind, [string, string]> = {
   settings: ["a settings page", "settings pages"], activity: ["an activity-bar view", "activity-bar views"],
@@ -28,11 +30,12 @@ function additions(plugin: PluginInfo): string | null {
 
 /** Optional service capability; only the lazy settings chunk loads this editor. */
 export function PluginsSection() {
+  usePluginSettingsStyles();
   const resource = useResource<{ plugins: PluginInfo[] }>("plugin.list");
   const { action, dialogs, busy, toggle } = usePluginToggle(resource.reload, resource.loading);
   if (!resource.data) return null;
   return <section className="pc-settings-plugins" aria-labelledby="plugins-h">
-    <div className="u3-row"><h2 id="plugins-h" className="pc-settings-board__label">Plugins</h2><AppLink to={routes.settings("plugins")} className="pc-settings-board__caption">Manage in Plugins</AppLink></div>
+    <div className="u3-row"><h2 id="plugins-h" className="pc-settings-board__label">Plugins</h2><AppLink to={routes.settings("plugins")} className="pc-plugin-manage">Manage in Plugins</AppLink></div>
     {resource.data.plugins.length ? <ul className="pc-settings-plugins__list" aria-label="Plugins" role="list">{resource.data.plugins.map(plugin => {
       const adds = additions(plugin);
       const errorId = `plugin-${plugin.id}-error`;

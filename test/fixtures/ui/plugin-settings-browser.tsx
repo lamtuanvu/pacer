@@ -8,6 +8,7 @@ import { initialState } from '../../../app/src/data/store';
 import { PluginContext, usePluginCatalog } from '../../../app/src/plugins/catalog';
 import { PluginsPage } from '../../../app/src/screens/settings/PluginsPage';
 import { PluginSettingsPage } from '../../../app/src/screens/settings/PluginSettingsPage';
+import { SettingsGeneral } from '../../../app/src/screens/settings/General';
 import { SettingsPanel } from '../../../app/src/shell/SettingsPanel';
 import { pluginFixture, surfaceFixtures, settingsFixture } from './plugin-settings-data';
 const host = window as any; host.canLeave = canLeaveScreen; host.unmount = () => render(null,document.getElementById('app')!);
@@ -45,7 +46,7 @@ function Fixture() {
   const catalog = usePluginCatalog(api,true,signal), state = {...initialState(),connected:true,invalidations:{plugin:signal},snapshot:{repos:[{key:'repo-one',label:'team/one'},{key:'repo-two',label:'team/two'}]}} as any;
   const section = fixture.mode === 'plugins' ? 'plugins' : 'plugins/fx-ui';
   return <TaskContext.Provider value={{api,state}}><ActionContext.Provider value={runner}><PluginContext.Provider value={catalog}>
-    {fixture.mode === 'nav' ? <SettingsPanel route={{name:'settings',section,query:{repo:null,scope:null}}} counts={null}/> : fixture.mode === 'plugins' ? <PluginsPage/> : <PluginSettingsPage plugin="fx-ui"/>}
+    {fixture.mode === 'nav' ? <SettingsPanel route={{name:'settings',section,query:{repo:null,scope:null}}} counts={null}/> : fixture.mode === 'app' ? <SettingsGeneral section="app"/> : fixture.mode === 'plugins' ? <PluginsPage/> : <PluginSettingsPage plugin="fx-ui"/>}
   </PluginContext.Provider></ActionContext.Provider></TaskContext.Provider>;
 }
 render(<Fixture/>,document.getElementById('app')!);

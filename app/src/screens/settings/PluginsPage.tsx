@@ -28,7 +28,7 @@ export function PluginsPage({ initialData, initialSurfaces }: { initialData?: {p
   async function remove(plugin: PluginInfo) {
     if (await dialogs.confirm(`Remove the plugin ${plugin.id}? Its settings will also be removed.`, "Remove plugin", "Remove")) await action.run("plugin.remove", {id:plugin.id}, resource.reload);
   }
-  return <DensityContext.Provider value="settings"><Page width="full" className="u3-settings u3-settings-page"><div className="pc-plugin-settings">
+  return <DensityContext.Provider value="settings"><Page width="full" className="u3-settings u3-settings-page"><div className="pc-settings-board pc-plugin-settings">
     <header className="pc-settings-board__header"><h1>Plugins</h1><p>Add capabilities to pacer. Each plugin runs in its own process and says exactly what it adds and what it may access.</p></header>
     <section aria-label="Installed plugins" className="pc-plugin-installed">
       {resource.data && <span className="pc-plugin-installed__count">Installed · {resource.data.plugins.length}</span>}
@@ -47,7 +47,7 @@ export function PluginsPage({ initialData, initialSurfaces }: { initialData?: {p
           </div>
           <div className="pc-plugin-card__actions"><span className="pc-plugin-inline"><span className="pc-settings-board__caption">{plugin.enabled ? "On" : "Off"}</span><Switch size="sm" aria-label={`Enable ${plugin.id}`} checked={plugin.enabled} disabled={plugin.state === "refused"} aria-disabled={busy || resource.loading || plugin.state === "refused"} onChange={event => void toggle(plugin,event.currentTarget)}/></span>
             {plugin.state === "refused" && <span className="pc-settings-board__caption">Fix the plugin's reported error before enabling.</span>}
-            <div className="pc-plugin-inline">{page && <AppButtonLink size="sm" to={routes.pluginSettings(plugin.id)}>Settings</AppButtonLink>}<ActionMenu label={`More actions for ${plugin.id}`} items={[{label:"Run checks",onSelect:() => void doctor(plugin)},...(!plugin.bundled ? [{label:"Remove…",onSelect:() => void remove(plugin)}] : [])]}/></div>
+            <div className="pc-plugin-inline">{page && <AppButtonLink className="pc-plugin-settings-link" to={routes.pluginSettings(plugin.id)}>Settings</AppButtonLink>}<ActionMenu label={`More actions for ${plugin.id}`} items={[{label:"Run checks",onSelect:() => void doctor(plugin)},...(!plugin.bundled ? [{label:"Remove…",onSelect:() => void remove(plugin)}] : [])]}/></div>
           </div>
         </article>;
       })}

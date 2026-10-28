@@ -8,7 +8,7 @@ import { useDialogs } from "../ds/useDialogs";
 import { Page, Stack, LoadingState, EmptyState } from "../ds/Patterns";
 import { Button } from "../ds/Button";
 import { AppLink } from "../navigation";
-import { routes, titleFor } from "../router";
+import { routes } from "../router";
 import styles from "./plugins.css" with { type: "text" };
 
 export function pluginError(error: unknown) {
@@ -42,7 +42,6 @@ export function Activity({ plugin, id }: { plugin: string; id: string }) {
   const [infoError, setInfoError] = useState(false), [busyControl, setBusyControl] = useState<string>();
   const focusControl = useRef<string>();
   const title = surfaces.find(s => s.plugin === plugin && s.id === id && s.surface === "activity")?.title ?? "Plugin view";
-  useEffect(() => { const previous = window.document.title; const next = titleFor({name:"plugin",plugin,id,query:{repo:null,scope:null}},title); window.document.title = next; return () => {if(window.document.title === next) window.document.title = previous;}; }, [title,plugin,id]);
   const [theme, setTheme] = useState<"light" | "dark">(currentTheme);
   useEffect(() => {
     if (!styled.has(window.document)) { const sheet = new CSSStyleSheet(); sheet.replaceSync(styles); window.document.adoptedStyleSheets = [...window.document.adoptedStyleSheets, sheet]; styled.add(window.document); }

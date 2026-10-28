@@ -8,9 +8,11 @@ const fallbackRoute:Route={name:"dispatch",query:{repo:null,scope:null}};
 export interface NavigationValue {current:Route;navigate(target:RouteTarget,options?:{replace?:boolean}):void}
 const NavigationContext=createContext<NavigationValue>({current:fallbackRoute,navigate(){}});
 
-export function NavigationProvider({route,children,location=globalThis.location}:{route:Route;children:ComponentChildren;location?:NavigationLocation}) {
+export function NavigationProvider({route,children,pluginTitle,location=globalThis.location}:{route:Route;children:ComponentChildren;pluginTitle?:string;location?:NavigationLocation}) {
   useEffect(()=>{
-    document.title=titleFor(route);
+    document.title=titleFor(route,pluginTitle);
+  },[location.hash,pluginTitle]);
+  useEffect(()=>{
     document.getElementById("main-content")?.focus();
   },[location.hash]);
   return <NavigationContext.Provider value={{current:route,navigate(target,options){const href=hrefFor(target,route.query);options?.replace?location.replace(href):location.hash=href;}}}>{children}</NavigationContext.Provider>;
