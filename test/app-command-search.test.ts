@@ -131,15 +131,17 @@ const answer = (extra: Partial<any> = {}): any => ({ query: "ssh", results: [], 
 const file = (path: string, extra: Partial<any> = {}) => ({ repo: "github.com/acme/api", repoLabel: "acme/api", path, ranges: [[4, 7]], ...extra });
 const withFiles = (query: string, files: any, scope: any = "all") => buildMenu({ query, scope, snapshot, commands, recent: [], now: NOW, files });
 
-test("files search results become a Files group with their ranges, repo and running-task chip", () => {
+test("files search results become a Files group with their ranges and repo, and a changed-by subtitle", () => {
   const found = answer({ results: [file("src/ssh/keepalive.ts", { changedBy: [{ task: "t-0420", title: "Add SSH keepalive" }] }), file("docs/ssh.md", { ranges: [[5, 8]] })] });
   const result = withFiles("ssh", { status: "ready", result: found });
   const group = result.groups.find(entry => entry.title === "Files")!;
   expect(group.items.map(item => item.title)).toEqual(["src/ssh/keepalive.ts", "docs/ssh.md"]);
-  expect(group.items[0]).toMatchObject({ scope: "files", ranges: [[4, 7]], sub: "acme/api · changed by “Add SSH keepalive”", pill: { label: "Running task", tone: "info" }, target: { name: "sessions", id: "t-0420" } });
+  expect(group.items[0]).toMatchObject({ scope: "files", ranges: [[4, 7]], sub: "acme/api · changed by “Add SSH keepalive”", target: { name: "sessions", id: "t-0420" } });
   // A file no running task changed has no route; picking it copies its repo-relative path.
-  expect(group.items[1]).toMatchObject({ sub: "acme/api", pill: undefined, target: undefined, copy: "docs/ssh.md" });
+  expect(group.items[1]).toMatchObject({ sub: "acme/api", target: undefined, copy: "docs/ssh.md" });
   expect(group.items[0]!.copy).toBeUndefined();
+  // The board has no pill on file rows.
+  for (const item of group.items) expect(item.pill).toBeUndefined();
   expect(result.counts.files).toBe(2);
   expect(result.counts.all).toBe(result.counts.tasks + result.counts.agents + result.counts.files + result.counts.commands);
   // Files sit between Machines and Do something, and the Files tab lists only them.

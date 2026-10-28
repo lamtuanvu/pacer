@@ -309,7 +309,7 @@ browserTest("menu_and_trigger_match_the_board_measurements", () => withPage(asyn
       placeholder: document.querySelector<HTMLInputElement>('input[role="combobox"]')!.placeholder, label: document.querySelector('input[role="combobox"]')!.getAttribute("aria-label") };
   });
   expect(m).toMatchObject({ dialogW: 640, dialogTop: 72, dialogRadius: "14px", rowH: 52, inputOutline: "none", focusRing: "inset", optionRadius: "8px", glyph: [28, "7px"], markWeight: "700", scopeH: 24, scopeRadius: "6px", kbd: ["4px", "11px", 18],
-    placeholder: "Search tasks, agents or type > for commands", label: "Search tasks, agents or run a command" });
+    placeholder: "Search tasks, agents, files or type > for commands", label: "Search tasks, agents, files or run a command" });
 }));
 
 browserTest("the commands chip replaces the leading greater-than and backspace removes it", () => withPage(async (page, built) => {
@@ -346,7 +346,7 @@ browserTest("select_all_works_in_the_input", () => withPage(async (page, built) 
 
 const filesAnswer = (page: Page, answer: object) => page.evaluate(value => { (window as any).filesAnswer = value; (window as any).fileCalls = []; }, answer);
 
-browserTest("files_search_is_debounced_and_results_show_ranges_repo_and_running_task_chip", () => withPage(async (page, built) => {
+browserTest("files_search_is_debounced_and_results_show_ranges_repo_and_changed_by_subtitle", () => withPage(async (page, built) => {
   await open(page, built, "#/overview");
   await filesAnswer(page, { results: [
     { repo: "github.com/acme/api", repoLabel: "acme/api", path: "src/ssh/keepalive.ts", ranges: [[4, 7]], changedBy: [{ task: "t-0420", title: "Add SSH keepalive" }] },
@@ -355,6 +355,9 @@ browserTest("files_search_is_debounced_and_results_show_ranges_repo_and_running_
   await page.keyboard.press("Control+k");
   const input = page.getByRole("combobox");
   await input.waitFor();
+  // With files searchable the input says so; the title-bar trigger keeps its own wording.
+  await expect(input.getAttribute("placeholder")).resolves.toBe("Search tasks, agents, files or type > for commands");
+  await expect(input.getAttribute("aria-label")).resolves.toBe("Search tasks, agents, files or run a command");
   // Typing quickly starts one search, after the debounce (the three edits land in one tick, so a slow machine cannot split them).
   await page.evaluate(() => { const el = document.querySelector<HTMLInputElement>('input[role="combobox"]')!; for (const value of ["s", "ss", "ssh"]) { el.value = value; el.dispatchEvent(new Event("input", { bubbles: true })); } });
   expect(await page.evaluate(() => (window as any).fileCalls)).toEqual([]);
@@ -368,7 +371,8 @@ browserTest("files_search_is_debounced_and_results_show_ranges_repo_and_running_
   const first = page.getByRole("option", { name: /keepalive\.ts/ });
   await expect(first.locator("mark").allTextContents()).resolves.toContain("ssh");
   await expect(first.locator(".pc-command__sub").textContent()).resolves.toBe("acme/api · changed by “Add SSH keepalive”");
-  await expect(first.locator(".pc-pill").textContent()).resolves.toBe("Running task");
+  // The board has no pill on file rows: the running-task case is the subtitle alone.
+  await expect(first.locator(".pc-pill").count()).resolves.toBe(0);
   // The Files tab lists only files.
   await filesTab.click();
   expect(await page.locator(".pc-command__heading").allTextContents()).toEqual(["Files"]);

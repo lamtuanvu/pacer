@@ -94,7 +94,6 @@ export function fileItems(result: FilesSearchResult): MenuItem[] {
     return {
       id: `file:${file.repo}\u0000${file.path}`, scope: "files", group: "Files", title: file.path, ranges: file.ranges, icon: "files",
       sub: [file.repoLabel, by ? (by.title ? `changed by “${by.title}”` : "changed by a running task") : ""].filter(Boolean).join(" · "),
-      pill: by ? { label: "Running task", tone: "info" } : undefined,
       target: by ? routes.task(by.task) : undefined, copy: by ? undefined : file.path,
     };
   });

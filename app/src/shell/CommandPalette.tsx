@@ -108,7 +108,7 @@ export function CommandPalette({ snapshot, registry = commandRegistry, now: fixe
     else if (item.target) navigate(item.target);
   };
   const searching = menu.mode === "search";
-  return <CommandMenu label="Search tasks, agents or run a command" placeholder="Search tasks, agents or type > for commands"
+  return <CommandMenu label={filesOn ? "Search tasks, agents, files or run a command" : "Search tasks, agents or run a command"} placeholder={filesOn ? "Search tasks, agents, files or type > for commands" : "Search tasks, agents or type > for commands"}
     query={text} onQueryChange={edit} onBackspaceEmpty={commandMode ? () => setCommandMode(false) : undefined} prefix={menu.mode === "commands" ? "Commands" : menu.mode === "ask" ? "Ask" : undefined}
     scopes={searching ? scopesFor(filesOn).map(item => ({ ...item, count: item.id === "files" && files.status === "loading" ? undefined : menu.counts[item.id] })) : undefined} scope={menu.scope} onScope={id => setScope(id as MenuScope)}
     groups={groups} empty={menu.empty ? { title: `Nothing matches “${text.trim()}”`, description: "Try fewer words, another scope, or turn it into work:" } : undefined}
