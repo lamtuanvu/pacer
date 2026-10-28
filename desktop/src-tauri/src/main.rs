@@ -11,6 +11,7 @@ mod link;
 mod logging;
 mod logic;
 mod notifications;
+mod open_file;
 mod permission_setup;
 mod profile;
 mod tray_model;
@@ -148,6 +149,49 @@ fn session_expired(window: WebviewWindow, app: AppHandle) -> Result<(), String> 
 fn desktop_version(window: WebviewWindow, app: AppHandle) -> Result<String, String> {
     authorized(&window, &app)?;
     Ok(app.package_info().version.to_string())
+}
+#[tauri::command]
+fn host_file_actions(window: WebviewWindow, app: AppHandle) -> Result<Value, String> {
+    authorized(&window, &app)?;
+    Ok(open_file::supported(std::env::consts::OS))
+}
+/// Hand a session file to the user's editor or file manager (ADR 0011). The page
+/// names only a session reference; the service resolves it by the bounded read's
+/// rules and the shell re-checks the file before launching an argument vector.
+#[tauri::command]
+async fn open_session_file(
+    window: WebviewWindow,
+    app: AppHandle,
+    id: String,
+    attempt: u64,
+    reference: String,
+    action: String,
+) -> Result<(), String> {
+    authorized(&window, &app)?;
+    let action = open_file::Action::parse(&action).ok_or("Unknown file action")?;
+    let session = app
+        .state::<Shell>()
+        .session
+        .lock()
+        .unwrap()
+        .clone()
+        .ok_or("The local service is not connected")?;
+    let resolution = session
+        .op(
+            "session.file.resolve",
+            &serde_json::json!({"id": id, "attempt": attempt, "reference": reference}),
+        )
+        .await?;
+    // The active service can change while the request is outstanding.
+    authorized(&window, &app)?;
+    let resolved = open_file::parse_resolution(&resolution)?;
+    let editor = match action {
+        open_file::Action::Open => open_file::load_editor(&client::pacer_home())?,
+        open_file::Action::Reveal => None,
+    };
+    let mode = open_file::verify(&resolved)?;
+    let argv = open_file::argv(action, &resolved, mode, editor.as_deref(), std::env::consts::OS)?;
+    open_file::spawn(argv)
 }
 #[tauri::command]
 fn rounded_window_supported(window: WebviewWindow, app: AppHandle) -> Result<bool, String> {
@@ -748,6 +792,8 @@ fn activate(app: &AppHandle, origin: &str, mut auth: Url) -> Result<(), String> 
                 .permission("allow-session-expired")
                 .permission("allow-session-ready")
                 .permission("allow-desktop-version")
+                .permission("allow-host-file-actions")
+                .permission("allow-open-session-file")
                 .permission("allow-rounded-window-supported")
                 .permission("allow-native-titlebar-supported")
                 .permission("allow-desktop-update-connection")
@@ -1187,6 +1233,8 @@ fn main() {
             session_expired,
             session_ready,
             desktop_version,
+            host_file_actions,
+            open_session_file,
             rounded_window_supported,
             native_titlebar_supported,
             desktop_update_connection,

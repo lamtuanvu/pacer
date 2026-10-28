@@ -78,6 +78,8 @@ fn main() {
             "session_expired",
             "session_ready",
             "desktop_version",
+            "host_file_actions",
+            "open_session_file",
             "rounded_window_supported",
             "native_titlebar_supported",
             "desktop_update_connection",

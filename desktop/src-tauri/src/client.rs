@@ -10,7 +10,7 @@ use std::{
 use tauri::{AppHandle, Manager};
 use tokio::process::Command;
 
-fn pacer_home() -> PathBuf {
+pub(crate) fn pacer_home() -> PathBuf {
     std::env::var_os("PACER_HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| {
