@@ -1,5 +1,5 @@
 import { PluginContext, usePluginCatalog } from "./plugins/catalog";
-import { updateNoticeHiddenOn } from "./settings-pages";
+import { discoveryNoticeHiddenOn, updateNoticeHiddenOn } from "./settings-pages";
 import { startClientControl } from "./data/control";
 import { canLeaveScreen } from "./data/navigation-guard";
 import { NotificationProvider } from "./data/notification-context";
@@ -128,7 +128,7 @@ function App() {
       <UpdateNotice narrow={narrow} hidden={help || sessionEnded || updateNoticeHiddenOn(route)} />
     )}
     {DiscoveryNotice && (
-      <DiscoveryNotice narrow={narrow} hidden={help || sessionEnded} />
+      <DiscoveryNotice narrow={narrow} hidden={help || sessionEnded || discoveryNoticeHiddenOn(route)} />
     )}
     {help && <CommandHelp registry={keys} close={() => setHelp(false)} />}
   </ActionContext.Provider></TaskContext.Provider>;

@@ -11,7 +11,7 @@ import { ErrorMessage, useTaskContext } from "../screens/task-shared";
 /** The current network as discovery.list reports it; name is the name this machine advertises. */
 export interface DiscoveryNetwork { key: string; label: string; advertise: boolean | null; muted: boolean; name: string }
 export interface DiscoveryList {
-  available: boolean; enabled: boolean; network: DiscoveryNetwork | null; rev: number; networksRev: number;
+  available: boolean; enabled: boolean; network: DiscoveryNetwork | null; rev: number; networksRev: number; warning?: string;
   found: { discoveryId: string; name: string; version: string; lastSeen: number; silenced: boolean }[];
 }
 export interface FoundPrompt { discoveryId: string; name: string }

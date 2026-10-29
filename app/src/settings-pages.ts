@@ -41,6 +41,11 @@ export function updateNoticeHiddenOn(route: { name: string; section?: string }):
   return route.name === 'settings' && settingsPageId(route.section) === 'app';
 }
 
+/** The Pair machines page already answers the found-machine notice, so the notice stays hidden there. */
+export function discoveryNoticeHiddenOn(route: { name: string; section?: string }): boolean {
+  return route.name === 'settings' && route.section === 'pairing';
+}
+
 export function settingsPageTitle(section = ''): string {
   if (section === 'accounts') return 'Accounts';
   if (section === 'assistant') return 'Assistant';
