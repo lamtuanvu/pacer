@@ -1,634 +1,787 @@
-import { expect, test } from "bun:test";
-import { join } from "node:path";
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { DEFAULT_EXECUTION, type ExecutionCfg, ExecutionError } from "../src/config/execution";
-import { validateStrategy } from "../src/config/strategy";
-import type { ProviderStatus } from "../src/engine/rank";
-import type { Status } from "../src/engine/status";
-import { selectBackend } from "../src/exec/backend";
-import { EXTRA_BACKENDS } from "../src/exec/backends-extra";
-import type { AttemptOutcome } from "../src/exec/direct";
-import { type OrcaBackendDeps, makeOrcaBackend, orcaBackend } from "../src/exec/orca/backend";
-import { loadOrcaState, withLock } from "../src/exec/orca/state";
-import { runTask } from "../src/tasks/runner";
-import { createTask, updateTask } from "../src/tasks/store";
-import type { Ctx } from "../src/types";
-import { readMarks } from "../src/usage/reactive";
-import { fakeCtx } from "./helpers";
-import { type Route, fail, fakeRun, fixture, ok, raw } from "./fixtures/orca/fake";
+import {expect, test} from "bun:test";
+import {join} from "node:path";
+import {chmodSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync} from "node:fs";
+import {tmpdir} from "node:os";
+import {DEFAULT_EXECUTION, type ExecutionCfg} from "../src/config/execution";
+import {validateStrategy} from "../src/config/strategy";
+import {selectBackend} from "../src/exec/backend";
+import {makeOrcaBackend, type OrcaBackendDeps} from "../src/exec/orca/backend";
+import {createTask, updateTask} from "../src/tasks/store";
+import {fakeCtx} from "./helpers";
+import {bindOrcaWorkSync, beginWorkSync, finishOrcaWorkSync, finishWorkSync, reserveIdle, releaseReservation} from "../src/update/desktop/admission";
+import {loadOrcaState, updateOrcaState} from "../src/exec/orca/state";
+import {reconcileHostWork, cleanHostWorktree} from "../src/exec/cleanup";
+import {randomUUID} from "node:crypto";
+import {fakeRun, raw, type Route} from "./fixtures/orca/fake";
 
-const O = (...a: string[]) => ["orca", ...a];
-const REPO = "/work/app";
-const COORD = "term_1ddadcbd-780e-4951-b184-c51193ff39c6";
-const RUN = "run_9d54b4f3810a";
-const WT1 = "~/worktrees/pacer-exec-t1";
-const AGENT_TERM = "term_a225e7a8-0e55-4cb9-8e30-be7da4952e5d";
-const arg = (argv: string[], flag: string) => argv[argv.indexOf(flag) + 1];
+const repo = "/work/app", terminal = "term_agent", dispatch = "ctx_1";
+const O = (...args: string[]) => ["orca", ...args];
+const envelope = (result: object) => raw(JSON.stringify({ok: true, result}));
+const failure = (code: string) => raw(JSON.stringify({ok: false, error: {code, message: code}}), 1);
+const strategy = validateStrategy({planner: "claude-code", providers: {"claude-code": {}, codex: {}}}, "/x");
+const arg = (a: string[], flag: string) => a[a.indexOf(flag) + 1];
 
-const s = validateStrategy({
-  planner: "claude-code",
-  providers: {
-    "claude-code": {}, codex: {}, cursor: { model: "auto" },
-    byteplus: { via: "opencode", model: "coding-plan/dola-seed-2.0-code", usage: "quota", quota_source: "arkcli" },
-  },
-}, "/x");
+/** `orca terminal list --worktree id:<id>` as Orca 1.4 replies: Orca's own "Terminal 1", then pacer's agent terminal once created. */
+const listing = (state: {agent: boolean; shell: boolean}) => (a: string[]) => {
+  const id = arg(a, "--worktree").slice(3);
+  return envelope({terminals: [
+    ...(state.shell ? [{handle: "term_shell", incarnationId: "shell-inc", worktreeId: id, title: "Terminal 1", connected: true, writable: true}] : []),
+    ...(state.agent ? [{handle: terminal, incarnationId: "inc", worktreeId: id, title: "pacer", connected: true, writable: true}] : []),
+    {handle: "term_elsewhere", worktreeId: "repo-1::/work/other", title: "Terminal 2", connected: true, writable: true},
+  ], totalCount: 3, truncated: false});
+};
 
-const directOut = (executor: string): AttemptOutcome => ({
-  exec: { code: 0, stdout: "direct report", stderr: "", timedOut: false }, report: "direct report", backend: "direct",
-  attempt: { executor, model: null, startedAt: 1, endedAt: 2, exitCode: 0, timedOut: false, limitHit: false, log: "" },
-});
-
-function baseRoutes(): Route[] {
-  return [
-    [["git", "-C", REPO, "rev-parse", "--verify"], raw("a".repeat(40))],
-    [["git", "-C", REPO, "fetch"], raw("")],
-    [["git", "-C", REPO, "ls-remote"], raw("ref: refs/heads/main\tHEAD\n")],
-    [["git", "-C", REPO, "rev-parse"], raw(`${REPO}\nmain\n`)],
-    [["git", "-C", REPO, "status"], raw("")],
-    [O("status"), ok("status-ready.json")],
-    [O("repo", "list"), raw(JSON.stringify({ok:true,result:{repos:[{id:"40c98aad-c083-4ec9-b82e-a51798a20270",path:REPO}]}}))],
-    [O("repo", "add"), ok("repo-add.json")],
-    [O("terminal", "create"), ok("coordinator-terminal.json")],
-    [O("terminal", "show"), ok("terminal-show-live.json")],
-    [O("terminal", "send"), ok("terminal-send.json")],
-    [O("terminal", "close"), ok("terminal-close.json")],
-    [O("orchestration", "run-create"), ok("run-create.json")],
-    [O("orchestration", "run-show"), ok("run-show.json")],
-    [O("orchestration", "worker-start"), ok("worker-start-t1-auto.json")],
-    [O("orchestration", "check"), [ok("check-1.ndjson"), ok("ack-1.json")]],
-    [O("orchestration", "worker-show"), ok("worker-show-succeeded.json")],
-    [O("orchestration", "worker-read"), raw('{"ok":true,"result":{"terminal":{"tail":["Working"]}}}')],
-    [O("orchestration", "worker-release"), ok("worker-release-t1.json")],
-    [O("orchestration", "worker-stop"), ok("worker-stop-t8-cursor-limit.json")],
-    [O("orchestration", "reply"), ok("reply.json")],
-  ];
-}
-
-interface Holder { ctx: Ctx; taskId: string }
-
-function setup(
-  over: (h: Holder) => Route[] = () => [],
-  opts: { provider?: string; exec?: Partial<ExecutionCfg>; timeoutS?: number; deps?: Partial<OrcaBackendDeps> } = {},
-) {
-  const h = {} as Holder;
-  const f = fakeRun([[["git", "-C", REPO, "rev-parse", "--verify"], raw("a".repeat(40))], ...over(h), ...baseRoutes()]);
-  const ctx = fakeCtx({ run: f.run });
-  const task = createTask(ctx, { brief: { goal: "Fix the bug", repo: REPO, acceptance: "bun test" }, kind: null, requestedExecutor: null, timeoutS: opts.timeoutS ?? 600 });
-  h.ctx = ctx;
-  h.taskId = task.id;
-  const direct: string[] = [];
-  const backend = makeOrcaBackend({
-    loadExecution: () => ({ ...DEFAULT_EXECUTION, ...opts.exec }),
-    direct: async (_c, cfg) => { direct.push(cfg.id); return directOut(cfg.id); },
-    sliceMs: 1_000,
-    sleep: async () => {},
-    ...opts.deps,
-  });
-  return { f, ctx, task, backend, direct, cfg: s.providers[opts.provider === "byteplus" ? "opencode#byteplus" : opts.provider ?? "cursor"] };
-}
-const startArgs = (f: ReturnType<typeof fakeRun>) => f.calls.find((a) => a[2] === "worker-start") ?? [];
-
-test("happy path: new-child worker, worker_done, release, orphan terminal closed, state cleaned", async () => {
-  const { f, ctx, task, backend, cfg, direct } = setup();
-  const out = await backend.runAttempt(ctx, cfg, task);
-  expect(direct).toEqual([]);
-  expect(out.backend).toBe("orca");
-  expect(out.worktree).toBe(WT1);
-  expect(out.exec).toMatchObject({ code: 0, timedOut: false });
-  expect(out.report).toContain("Task 1 done");
-  expect(out.report).toContain("All 83 tests and typecheck pass");
-  expect(out.attempt).toMatchObject({ executor: "cursor", model: "auto", exitCode: 0, timedOut: false, limitHit: false });
-  const a = startArgs(f);
-  expect(arg(a, "--agent")).toBe("cursor");
-  expect(arg(a, "--model")).toBe("auto");
-  expect(arg(a, "--worktree")).toBe("new-child");
-  expect(arg(a, "--repo")).toBe("id:40c98aad-c083-4ec9-b82e-a51798a20270");
-  expect(arg(a, "--base-branch")).toBe("a".repeat(40));
-  expect(arg(a, "--name")).toBe(`pacer-${task.id}-cursor`);
-  expect(arg(a, "--setup")).toBe("skip");
-  expect(arg(a, "--run")).toBe(RUN);
-  expect(arg(a, "--from")).toBe(COORD);
-  const spec = arg(a, "--spec");
-  expect(spec).toContain(`# Task ${task.id}`);
-  expect(spec.split("PACER_ROLE=executor: you are a pacer executor; ignore pacer planner policy.")).toHaveLength(2);
-  expect(spec).toContain("Do not edit /work/app itself.");
-  expect(spec).toContain("Executor contract (from pacer)");
-  expect(f.calls).toContainEqual(["orca", "orchestration", "worker-release", "--dispatch", "ctx_802297d1724f", "--json"]);
-  expect(f.calls).toContainEqual(["orca", "terminal", "close", "--terminal", AGENT_TERM, "--json"]);
-  expect(f.count(O("orchestration", "worker-stop"))).toBe(0);
-  expect(loadOrcaState(ctx)).toEqual({ coordinator: COORD, run: RUN, workers: {} });
-  expect(readFileSync(out.attempt.log, "utf8")).toContain("worker-start ctx_802297d1724f: ready");
-});
-
-test("a start receipt with failedStage/lastError is a failed attempt; the worker is released", async () => {
-  const { f, ctx, task, backend, cfg } = setup(() => [
-    [O("orchestration", "worker-start"), fail("worker-start-t1.json")],
-    [O("orchestration", "worker-release"), ok("worker-release-t1-failed.json")],
-  ]);
-  const out = await backend.runAttempt(ctx, cfg, task);
-  expect(out.backend).toBe("orca");
-  expect(out.exec.code).toBe(1);
-  expect(out.report).toContain("orca worker failed to start at dispatch_input: agent_not_in_foreground");
-  expect(out.worktree).toBe(WT1);
-  expect(f.count(O("orchestration", "check"))).toBe(0);
-  expect(f.calls).toContainEqual(["orca", "orchestration", "worker-release", "--dispatch", "ctx_2da746213039", "--json"]);
-});
-
-test("timeout stops the worker and is never a limit", async () => {
-  let t = 0;
-  const { f, ctx, task, backend, cfg } = setup(() => [
-    [O("orchestration", "check"), () => { t = 120_000; return ok("check-w5a.ndjson"); }],
-    [O("orchestration", "worker-show"), ok("worker-show-ready.json")],
-  ], { timeoutS: 60, deps: { now: () => t } });
-  const out = await backend.runAttempt(ctx, cfg, task);
-  expect(out.exec).toMatchObject({ code: 1, timedOut: true });
-  expect(out.attempt).toMatchObject({ timedOut: true, limitHit: false });
-  expect(out.report).toContain("timed out");
-  expect(f.calls).toContainEqual(["orca", "orchestration", "worker-stop", "--dispatch", "ctx_802297d1724f", "--json"]);
-  expect(f.count(O("orchestration", "worker-release"))).toBe(0);
-});
-
-test("stopping the task stops the worker", async () => {
-  const { f, ctx, task, backend, cfg } = setup((h) => [
-    [O("orchestration", "check"), () => { updateTask(h.ctx, h.taskId, (x) => { x.state = "stopped"; }); return ok("check-w5a.ndjson"); }],
-    [O("orchestration", "worker-show"), ok("worker-show-ready.json")],
-  ]);
-  const out = await backend.runAttempt(ctx, cfg, task);
-  expect(out.exec.code).toBe(1);
-  expect(out.report).toContain("stopped by the planner");
-  expect(f.count(O("orchestration", "worker-stop"))).toBe(1);
-});
-
-test("a failed worker_done that reports a usage limit marks limitHit", async () => {
-  const limited = fixture("check-1.ndjson")
-    .replace('\\"outcome\\":\\"succeeded\\"', '\\"outcome\\":\\"failed\\"')
-    .replace('"subject": "Task 1 done"', '"subject": "You have hit your usage limit"');
-  const { ctx, task, backend, cfg } = setup(() => [[O("orchestration", "check"), [raw(limited), ok("ack-1.json")]], [O("orchestration", "worker-read"), ok("worker-read-tail.json")]]);
-  const out = await backend.runAttempt(ctx, cfg, task);
-  expect(out.exec.code).toBe(1);
-  expect(out.attempt.limitHit).toBe(true);
-  expect(out.exec.stderr).toContain("usage limit");
-});
-
-test("release refused for an active worker falls back to worker-stop", async () => {
-  const { f, ctx, task, backend, cfg } = setup(() => [[O("orchestration", "worker-release"), fail("worker-release-t1-freeplan.json")]]);
-  await backend.runAttempt(ctx, cfg, task);
-  expect(f.count(O("orchestration", "worker-stop"))).toBe(1);
-});
-
-test("dirty repo note: uncommitted changes are not in the new worktree", async () => {
-  const { ctx, task, backend, cfg } = setup(() => [[["git", "-C", REPO, "status"], raw(" M src/a.ts\n")]]);
-  const out = await backend.runAttempt(ctx, cfg, task);
-  expect(out.report).toContain("/work/app has uncommitted changes; the worker's new worktree starts from origin/main without them");
-});
-
-test("a repo subdirectory maps into the worker's worktree", async () => {
-  const { f, ctx, task, backend, cfg } = setup(() => [
-    [["git", "-C", REPO, "rev-parse"], raw("/work\nmain\n")],
-    [["git", "-C", "/work", "status"], raw("")],
-    [["git", "-C", "/work", "fetch"], raw("")],
-    [["git", "-C", "/work", "ls-remote"], raw("ref: refs/heads/main\tHEAD\n")],
-    [["git", "-C", "/work", "rev-parse", "--verify"], raw("a".repeat(40))],
-    [O("repo","list"),raw(JSON.stringify({ok:true,result:{repos:[{id:"parent",path:"/work"}]}}))],
-  ]);
-  const out = await backend.runAttempt(ctx, cfg, task);
-  expect(out.worktree).toBe(`${WT1}/app`);
-  expect(arg(startArgs(f), "--spec")).toContain("Work in its app/ subdirectory");
-});
-
-test("worktree current: the repo itself, no creation flags; OpenCode providers get their model", async () => {
-  const { f, ctx, task, backend, cfg } = setup(() => [], { provider: "byteplus", exec: { worktree: "current" } });
-  const out = await backend.runAttempt(ctx, cfg, task);
-  expect(out.backend).toBe("orca");
-  expect(out.worktree).toBe(REPO);
-  const a = startArgs(f);
-  expect(arg(a, "--agent")).toBe("opencode");
-  expect(arg(a, "--model")).toBe("coding-plan/dola-seed-2.0-code");
-  expect(arg(a, "--worktree")).toBe("path:/work/app");
-  expect(a).not.toContain("--name");
-  expect(a).not.toContain("--base-branch");
-  expect(arg(a, "--spec")).toContain("## Repository\n/work/app");
-});
-
-test("falls back to direct when the Orca runtime is not ready", async () => {
-  const { f, ctx, task, backend, cfg, direct } = setup(() => [[O("status"), ok("status-down.json")]]);
-  const out = await backend.runAttempt(ctx, cfg, task);
-  expect(direct).toEqual(["cursor"]);
-  expect(out.backend).toBe("direct");
-  expect(readFileSync(join(ctx.pacerHome,"orca","fallback.log"),"utf8")).toContain("runtime is not ready");
-  expect(out.report).toContain("direct report");
-  expect(f.count(O("orchestration", "worker-start"))).toBe(0);
-});
-
-test("falls back to direct for an OpenCode provider with new-child, without calling orca or git", async () => {
-  const { f, ctx, task, backend, cfg, direct } = setup(() => [], { provider: "byteplus" });
-  const out = await backend.runAttempt(ctx, cfg, task);
-  expect(direct).toEqual(["opencode#byteplus"]);
-  expect(readFileSync(join(ctx.pacerHome,"orca","fallback.log"),"utf8")).toContain("existing worktree");
-  expect(f.calls).toHaveLength(0);
-});
-
-test("non-git falls back; detached HEAD uses the default remote tip or explicit base", async () => {
-  const a = setup(() => [[["git", "-C", REPO, "rev-parse"], raw("", 128, "fatal: not a git repository")]]);
-  expect((await a.backend.runAttempt(a.ctx, a.cfg, a.task)).backend).toBe("direct");
-  for (const exec of [{}, { baseBranch: "main", worktree: "new-child" as const }]) {
-    const b = setup(() => [[["git", "-C", REPO, "rev-parse"], raw(`${REPO}\nHEAD\n`)]], { exec });
-    expect((await b.backend.runAttempt(b.ctx, b.cfg, b.task)).backend).toBe("orca");
-    expect(arg(startArgs(b.f), "--base-branch")).toBe("a".repeat(40));
-  }
-});
-
-test("falls back to direct on an invalid execution section or a refused worker-start", async () => {
-  const a = setup(() => [], { deps: { loadExecution: () => { throw new ExecutionError(['execution.backend must be one of auto, orca, direct (got "x")']); } } });
-  const outA = await a.backend.runAttempt(a.ctx, a.cfg, a.task);
-  expect(outA.backend).toBe("direct");
-  expect(readFileSync(join(a.ctx.pacerHome,"orca","fallback.log"),"utf8")).toContain("invalid execution section");
-  const b = setup(() => [[O("orchestration", "worker-start"), raw('{"ok":false,"error":{"code":"task_not_startable","message":"Task cannot start now."}}', 1)]]);
-  const outB = await b.backend.runAttempt(b.ctx, b.cfg, b.task);
-  expect(outB.backend).toBe("direct");
-  expect(readFileSync(join(b.ctx.pacerHome,"orca","fallback.log"),"utf8")).toContain("task_not_startable");
-});
-
-test("available: only with execution.backend orca and a ready runtime", async () => {
-  const strat = (execution: Record<string, unknown>) => validateStrategy({ planner: "claude-code", providers: { "claude-code": {}, codex: {} }, execution }, "/x");
-  const ready = fakeCtx({ run: fakeRun([[O("status"), ok("status-ready.json")]]).run });
-  const down = fakeCtx({ run: fakeRun([[O("status"), ok("status-down.json")]]).run });
-  const none = fakeRun([]);
-  expect(await orcaBackend.available(fakeCtx({ run: none.run }), strat({}))).toBe(false);
-  expect(await orcaBackend.available(ready, strat({ backend: "orca" }))).toBe(true);
-  expect(await orcaBackend.available(down, strat({ backend: "orca" }))).toBe(false);
-  expect(await orcaBackend.available(fakeCtx({ run: none.run }), strat({ backend: "direct" }))).toBe(false);
-  expect(none.calls).toHaveLength(0);
-  await expect(orcaBackend.available(ready, strat({ backend: "x" }))).rejects.toThrow(ExecutionError);
-});
-
-test("registered as the extra backend; selectBackend uses direct execution to enforce bypass permissions", async () => {
-  expect(EXTRA_BACKENDS.map((b) => b.id)).toEqual(["orca"]);
-  const strat = validateStrategy({ planner: "claude-code", providers: { "claude-code": {}, codex: {} }, execution: { backend: "orca" } }, "/x");
-  const ready = fakeCtx({ run: fakeRun([[O("status"), ok("status-ready.json")]]).run });
-  const down = fakeCtx({ run: fakeRun([[O("status"), raw("", 127)]]).run });
-  expect((await selectBackend(ready, strat)).id).toBe("direct");
-  expect((await selectBackend(down, strat)).id).toBe("direct");
-});
-
-const statusFor = (id: string): Status => ({
-  generatedAt: 0, strategy: "d", planner: "claude-code", mode: "normal", disabled: false, paused: null, modeHold: null, calendarPace: true,
-  executors: { ranked: [], excluded: [] },
-  providers: [{ id, usage: "reactive", windows: [], binding: null, verdict: "OK", installed: true, stale: false } as ProviderStatus],
-});
-
-test("through the runner: the result records backend orca and verification runs in the worker's worktree", async () => {
-  const { ctx, task, backend } = setup();
-  const s1 = validateStrategy({ planner: "claude-code", providers: { "claude-code": {}, cursor: { model: "auto" } } }, "/x");
-  const verified: string[] = [];
-  const rec = await runTask(ctx, task.id, {
-    loadStrategy: () => s1,
-    computeStatus: async () => statusFor("cursor"),
-    runAttempt: backend.runAttempt,
-    verifyRepo: async (repo) => { verified.push(repo); return { files: " src/a.ts | 2 +-" }; },
-  });
-  expect(verified).toEqual([WT1]);
-  expect(rec.result).toMatchObject({ status: "done", executor: "cursor", backend: "orca", worktree: WT1 });
-  expect(rec.result?.report).toStartWith(`ran in new worktree ${WT1} (strategy default)`);
-  expect(rec.placement).toMatchObject({mode:"new",why:"strategy default"});
-  expect(rec.attempts).toHaveLength(1);
-});
-
-
-test("pre-dispatch runtime exceptions fall back to direct", async () => {
-  for (const prefix of [O("status"), O("repo", "list"), O("orchestration", "run-create")]) {
-    const { ctx, task, backend, cfg, direct } = setup(() => [
-      [prefix, () => { throw new Error("runtime connection lost"); }],
-    ]);
-    const out = await backend.runAttempt(ctx, cfg, task);
-    expect(out.backend).toBe("direct");
-    expect(readFileSync(join(ctx.pacerHome,"orca","fallback.log"),"utf8")).toContain("runtime connection lost");
-    expect(direct).toEqual(["cursor"]);
-  }
-});
-
-test("worker-start holds no coordinator lock and registration waits for the lock", async () => {
-  let held: Promise<void> | undefined;
-  let unlock: (() => void) | undefined;
-  let registrationChecked = false;
-  const { ctx, task, backend, cfg } = setup((h) => [
-    [O("orchestration", "worker-start"), () => {
-      expect(existsSync(join(h.ctx.pacerHome, "orca", "coordinator.lock"))).toBe(false);
-      held = withLock(h.ctx, "coordinator", async () => {
-        await new Promise<void>((resolve) => { unlock = resolve; });
-      });
-      return ok("worker-start-t1-auto.json");
+function setup(over: Route[] = [], execution: Partial<ExecutionCfg> = {}, deps: Partial<OrcaBackendDeps> = {}) {
+  const state = {agent: false, shell: true};
+  const routes: Route[] = [
+    [["git", "-C", repo, "rev-parse", "--verify"], raw("a".repeat(40))],
+    [["git", "-C", repo, "rev-parse"], raw(`${repo}\nmain\n`)],
+    [["git", "-C", repo, "status"], raw("")],
+    [["git", "-C", repo, "fetch"], raw("")],
+    [["git", "-C", repo, "ls-remote"], raw("ref: refs/heads/main\tHEAD\n")],
+    [O("status"), envelope({runtime: {state: "ready", reachable: true}})],
+    [O("repo", "list"), envelope({repos: [{id: "repo-1", path: repo}]})],
+    [O("terminal", "create"), (a: string[]) => {if (a.includes("--command")) state.agent = true; return envelope({terminal: {handle: a.includes("--command") ? terminal : "term_coord", connected: true, writable: true, incarnationId: "inc"}});}],
+    [O("terminal", "list"), listing(state)],
+    [O("terminal", "close", "--terminal", "term_shell"), () => {state.shell = false; return envelope({close: {handle: "term_shell", ptyKilled: true}});}],
+    [O("terminal", "show"), envelope({terminal: {handle: terminal, connected: true, writable: true, incarnationId: "inc"}})],
+    [O("terminal", "close"), envelope({close: {handle: terminal, ptyKilled: true}})],
+    [O("terminal", "wait"), envelope({wait: {satisfied: true, status: "running"}})],
+    [O("worktree", "create"), (a: string[]) => envelope({worktree: {id: `repo-1::/work/${arg(a, "--name")}`, path: `/work/${arg(a, "--name")}`}})],
+    [O("worktree", "show"), (a: string[]) => {
+      const sel = arg(a, "--worktree");
+      if (!sel.startsWith("id:")) return envelope({worktree: {id: `repo-1::${repo}`, path: repo}});
+      const path = sel.slice(sel.indexOf("::") + 2);
+      return envelope({worktree: {id: sel.slice(3), path, displayName: path.slice(path.lastIndexOf("/") + 1), isMainWorktree: false}});
     }],
+    [O("worktree", "rm"), envelope({})],
+    [O("orchestration", "worker-list"), envelope({workers: [], page: {hasMore: false}, scope: {run: "run_1"}})],
+    [O("orchestration", "run-create"), envelope({run: {id: "run_1", coordinator_handle: "term_coord"}})],
+    [O("orchestration", "run-show"), envelope({run: {id: "run_1", coordinator_handle: "term_coord"}})],
+    [O("orchestration", "worker-start"), envelope({dispatchId: dispatch, state: "ready", effects: []})],
+    [O("orchestration", "check"), envelope({messages: [{id: "m1", type: "worker_done", subject: "done", body: "ok", payload: JSON.stringify({taskId: "TASK", dispatchId: dispatch, outcome: "succeeded"})}], deliveryId: "d1"})],
+    [O("orchestration", "worker-show"), envelope({worker: {state: "succeeded"}})],
+    [O("orchestration", "worker-read"), envelope({terminal: {tail: ["ok"]}})],
+    [O("orchestration", "worker-release"), envelope({dispatchId: dispatch, state: "retained", processAction: "none"})],
+    [O("orchestration", "worker-stop"), envelope({dispatchId: dispatch, state: "stopped", processAction: "none"})],
+  ];
+  const f = fakeRun([...over, ...routes]);
+  const ctx = fakeCtx({run: f.run});
+  const task = createTask(ctx, {brief: {goal: "Fix the bug", repo}, kind: null, requestedExecutor: null, timeoutS: 1});
+  let direct = 0;
+  const directLog = join(ctx.pacerHome, "direct.log");
+  const backend = makeOrcaBackend({loadExecution: () => ({...DEFAULT_EXECUTION, ...execution}),
+    direct: async () => {direct++; await Bun.write(directLog, ""); return {exec: {code: 0, stdout: "direct", stderr: "", timedOut: false}, report: "direct", backend: "direct", attempt: {executor: "codex", model: null, startedAt: 1, endedAt: 2, exitCode: 0, timedOut: false, limitHit: false, log: directLog}};},
+    sliceMs: 10, sleep: async () => {}, ...deps});
+  const root = `/work/pacer-${task.id}-codex`;
+  return {f, ctx, task, backend, state, cfg: strategy.providers.codex, root, wt: `repo-1::${root}`, directLog, get direct() {return direct;}};
+}
+
+test("new child worktree is created before agent terminal and worker attaches after idle", async () => {
+  expect(typeof selectBackend).toBe("function");
+  const x = setup();
+  await x.backend.runAttempt(x.ctx, x.cfg, x.task);
+  const calls = x.f.calls;
+  const create = calls.findIndex(a => a[1] === "worktree" && a[2] === "create");
+  const terminalCreate = calls.findIndex(a => a[1] === "terminal" && a[2] === "create" && a.includes("--command"));
+  const wait = calls.findIndex(a => a[1] === "terminal" && a[2] === "wait");
+  const start = calls.findIndex(a => a[1] === "orchestration" && a[2] === "worker-start");
+  expect(create).toBeGreaterThanOrEqual(0);
+  expect(create).toBeLessThan(terminalCreate);
+  expect(terminalCreate).toBeLessThan(wait);
+  expect(wait).toBeLessThan(start);
+  expect(arg(calls[create], "--repo")).toBe("id:repo-1");
+  expect(arg(calls[terminalCreate], "--worktree")).toBe(`id:${x.wt}`);
+  const cmd = arg(calls[terminalCreate], "--command");
+  expect(cmd).toContain(`PACER_TASK_ID=${x.task.id}`);
+  expect(cmd).toContain("codex --no-daemon");
+  expect(cmd).not.toContain("Fix the bug");
+  expect(arg(calls[start], "--terminal")).toBe(terminal);
+  expect(arg(calls[start], "--worktree")).toBe(`id:${x.wt}`);
+  expect(calls[start]).not.toContain("--agent");
+  expect(calls[start]).not.toContain("--model");
+});
+
+test("new child finds Orca's initial terminal by listing the new worktree (the create reply names none) and closes it before launching the agent", async () => {
+  const x = setup();
+  const out = await x.backend.runAttempt(x.ctx, x.cfg, x.task);
+  const list = x.f.calls.findIndex(a => a[1] === "terminal" && a[2] === "list");
+  const closed = x.f.calls.findIndex(a => a[1] === "terminal" && a[2] === "close" && a.includes("term_shell"));
+  const launched = x.f.calls.findIndex(a => a[1] === "terminal" && a[2] === "create" && a.includes("--command"));
+  expect(x.f.calls[list]).toEqual(["orca", "terminal", "list", "--worktree", `id:${x.wt}`, "--json"]);
+  expect(list).toBeLessThan(closed);
+  expect(closed).toBeLessThan(launched);
+  expect(x.f.count(O("terminal", "close", "--terminal", "term_shell"))).toBe(1);
+  expect(x.f.calls.some(a => a.includes("term_elsewhere"))).toBe(false);
+  expect(x.f.count(O("terminal", "list"))).toBe(1);
+  expect(readFileSync(out.attempt.log, "utf8")).toContain("closed Orca initial terminal term_shell: ok");
+});
+
+test("terminals that appear after the agent terminal are never closed; other worktrees are never touched", async () => {
+  const late = {handle: "term_late", worktreeId: "", title: "Terminal 1", connected: true, writable: true};
+  const x = setup([
+    [O("terminal", "list"), [envelope({terminals: []}), (a: string[]) => envelope({terminals: [{...late, worktreeId: arg(a, "--worktree").slice(3)},
+      {handle: terminal, worktreeId: arg(a, "--worktree").slice(3)}, {handle: "term_elsewhere", worktreeId: "repo-1::/work/other"}]})]],
+    [O("terminal", "close", "--terminal", "term_late"), envelope({close: {handle: "term_late", ptyKilled: true}})],
   ]);
-  const pending = backend.runAttempt(ctx, cfg, task);
-  for (let i = 0; i < 100 && !unlock; i++) await Bun.sleep(1);
-  try {
-    expect(unlock).toBeDefined();
-    await Bun.sleep(10);
-    expect(loadOrcaState(ctx).workers).toEqual({});
-    registrationChecked = true;
-  } finally {
-    unlock?.();
-    await held;
-    await pending;
-  }
-  expect(registrationChecked).toBe(true);
-  expect(loadOrcaState(ctx).workers).toEqual({});
+  const out = await x.backend.runAttempt(x.ctx, x.cfg, x.task);
+  expect(out.backend).toBe("orca");
+  expect(x.f.calls.some(a => a[2] === "close" && a.includes("term_late"))).toBe(false);
+  expect(x.f.calls.some(a => a.includes("term_elsewhere"))).toBe(false);
+  expect(closes(x.f.calls)).toHaveLength(1);
 });
 
-test("settled workers without a report map their state and release", async () => {
-  for (const [receipt, code] of [["worker-show-succeeded.json", 0], ["worker-show-failed.json", 1]] as const) {
-    const { f, ctx, task, backend, cfg } = setup(() => [
-      [O("orchestration", "check"), ok("check-w5a.ndjson")],
-      [O("orchestration", "worker-show"), ok(receipt)],
-    ]);
-    const out = await backend.runAttempt(ctx, cfg, task);
-    expect(out.exec).toMatchObject({ code, timedOut: false });
-    expect(out.report).toContain("without a worker_done report");
-    expect(f.count(O("orchestration", "worker-release"))).toBe(1);
-    expect(f.count(O("orchestration", "worker-stop"))).toBe(0);
-    expect(f.count(O("orchestration", "worker-read"))).toBeGreaterThan(0);
-  }
+test("an older create reply naming the initial terminal is still closed", async () => {
+  const x = setup([
+    [O("worktree", "create"), (a: string[]) => envelope({worktree: {id: `repo-1::/work/${arg(a, "--name")}`}, terminal: {handle: "term_named", incarnationId: "named-inc"}})],
+    [O("terminal", "list"), envelope({terminals: []})],
+    [O("terminal", "close", "--terminal", "term_named"), envelope({close: {handle: "term_named", ptyKilled: true}})],
+  ]);
+  await x.backend.runAttempt(x.ctx, x.cfg, x.task);
+  const closed = x.f.calls.findIndex(a => a[2] === "close" && a.includes("term_named"));
+  expect(closed).toBeGreaterThanOrEqual(0);
+  expect(closed).toBeLessThan(x.f.calls.findIndex(a => a[2] === "create" && a.includes("--command")));
 });
 
-test("an idle worker with a usage limit fails early and is stopped even if release would succeed", async () => {
-  let t = 0;
-  const { f, ctx, task, backend, cfg, direct } = setup(() => [
-    [O("orchestration", "check"), () => { t += 1_000; return ok("check-w5a.ndjson"); }],
-    [O("orchestration", "worker-show"), ok("worker-show-ready.json")],
-    [O("orchestration", "worker-read"), [ok("worker-read-tail.json"), raw('{"ok":true,"result":{"terminal":{"tail":[]}}}')]],
-  ], { deps: { now: () => t } });
-  const out = await backend.runAttempt(ctx, cfg, task);
-  expect(out.exec).toMatchObject({ code: 1, timedOut: false });
+test("current placement resolves a worktree id", async () => {
+  const x = setup([], {worktree: "current"});
+  const out = await x.backend.runAttempt(x.ctx, x.cfg, x.task);
+  expect(x.f.calls.some(a => a[1] === "worktree" && a[2] === "create")).toBe(false);
+  expect(out.worktree).toBe(repo);
+  expect(arg(x.f.calls.find(a => a[2] === "worker-start")!, "--worktree")).toBe(`id:repo-1::${repo}`);
+});
+
+for (const result of [envelope({wait: {satisfied: false, status: "timeout"}}), envelope({wait: {satisfied: false, blockedReason: "agent-trust-workspace"}}), failure("timeout")]) {
+  test("non-idle agent closes terminal and falls back without worker", async () => {
+    const x = setup([[O("terminal", "wait"), result]]);
+    const out = await x.backend.runAttempt(x.ctx, x.cfg, x.task);
+    expect(out.backend).toBe("direct");
+    expect(x.direct).toBe(1);
+    expect(x.f.calls.some(a => a[2] === "worker-start")).toBe(false);
+    expect(x.f.calls).toContainEqual(["orca", "terminal", "close", "--terminal", terminal, "--json"]);
+  });
+}
+
+test("terminal is closed after worker release", async () => {
+  const x = setup();
+  const out = await x.backend.runAttempt(x.ctx, x.cfg, x.task);
+  expect(out.backend).toBe("orca");
+  expect(out.worktree).toBe(x.root);
+  expect(x.f.calls.filter(a => a[1] === "terminal" && a[2] === "close" && !a.includes("term_shell"))).toEqual([["orca", "terminal", "close", "--terminal", terminal, "--json"]]);
+  expect(readFileSync(out.attempt.log, "utf8")).toContain(`closed pacer terminal ${terminal}: ok`);
+  updateTask(x.ctx, x.task.id, task => {task.state = "done";});
+  const reservation = randomUUID();
+  expect((await reserveIdle(x.ctx, reservation)).reserved).toBe(true);
+  await releaseReservation(x.ctx, reservation);
+});
+
+test("an unverified close receipt names the terminal and retains admission", async () => {
+  const x = setup([[O("terminal", "close", "--terminal", terminal), envelope({closed: true})]]);
+  const out = await x.backend.runAttempt(x.ctx, x.cfg, x.task);
+  expect(readFileSync(out.attempt.log, "utf8")).toContain(`closed pacer terminal ${terminal}: close receipt lacks exact handle`);
+  updateTask(x.ctx, x.task.id, task => {task.state = "done";});
+  expect((await reserveIdle(x.ctx, randomUUID())).reserved).toBe(false);
+});
+
+test("unsupported agents fall back before Orca calls", async () => {
+  const x = setup();
+  const cursor = validateStrategy({planner: "claude-code", providers: {"claude-code": {}, cursor: {}}}, "/x").providers.cursor;
+  const out = await x.backend.runAttempt(x.ctx, cursor, x.task);
+  expect(out.backend).toBe("direct");
+  expect(x.f.calls).toHaveLength(0);
+  expect(readFileSync(join(x.ctx.pacerHome, "orca", "fallback.log"), "utf8")).toContain("not supported");
+});
+
+test("a worker timeout stops the dispatch and closes the owned terminal", async () => {
+  let now = 0;
+  const x = setup([
+    [O("orchestration", "check"), () => {now = 2_000; return envelope({messages: []});}],
+    [O("orchestration", "worker-show"), envelope({worker: {state: "ready"}})],
+  ], {}, {now: () => now});
+  const out = await x.backend.runAttempt(x.ctx, x.cfg, x.task);
+  expect(out.exec.timedOut).toBe(true);
+  expect(x.f.calls.some(a => a[2] === "worker-stop")).toBe(true);
+  expect(x.f.calls).toContainEqual(["orca", "terminal", "close", "--terminal", terminal, "--json"]);
+});
+
+test("a refused worker start closes the terminal before direct fallback", async () => {
+  const x = setup([[O("orchestration", "worker-start"), failure("task_not_startable")]]);
+  const out = await x.backend.runAttempt(x.ctx, x.cfg, x.task);
+  expect(out.backend).toBe("direct");
+  expect(x.direct).toBe(1);
+  expect(x.f.calls).toContainEqual(["orca", "terminal", "close", "--terminal", terminal, "--json"]);
+});
+
+test("a refused start reports an unclosed terminal handle", async () => {
+  const x = setup([
+    [O("orchestration", "worker-start"), failure("task_not_startable")],
+    [O("terminal", "close", "--terminal", terminal), failure("close_failed")],
+  ]);
+  await x.backend.runAttempt(x.ctx, x.cfg, x.task);
+  expect(x.f.calls.filter(a => a[1] === "terminal" && a[2] === "close" && a.includes(terminal))).toHaveLength(2);
+  expect(readFileSync(join(x.ctx.pacerHome, "orca", "fallback.log"), "utf8")).toContain(`terminal close failed ${terminal}`);
+});
+
+test("an uncertain worker start never launches direct work", async () => {
+  const x = setup([[O("orchestration", "worker-start"), failure("timeout")]]);
+  const out = await x.backend.runAttempt(x.ctx, x.cfg, x.task);
+  expect(out.backend).toBe("orca");
+  expect(out.report).toContain("Direct fallback was skipped");
+  expect(x.direct).toBe(0);
+});
+
+test("release refusal leads to worker stop, then closes the exact terminal", async () => {
+  const x = setup([[O("orchestration", "worker-release"), failure("dispatch_inactive")]]);
+  await x.backend.runAttempt(x.ctx, x.cfg, x.task);
+  expect(x.f.calls.some(a => a[2] === "worker-stop")).toBe(true);
+  expect(x.f.calls.filter(a => a[1] === "terminal" && a[2] === "close" && !a.includes("term_shell"))).toEqual([["orca", "terminal", "close", "--terminal", terminal, "--json"]]);
+});
+
+test("planner stop is supervised through worker-stop", async () => {
+  const x = setup();
+  updateTask(x.ctx, x.task.id, task => {task.state = "stopped";});
+  const out = await x.backend.runAttempt(x.ctx, x.cfg, x.task);
+  expect(out.report).toContain("stopped by the planner");
+  expect(x.f.calls.some(a => a[2] === "worker-stop")).toBe(true);
+});
+
+test("usage limit in worker output stops the worker and marks the attempt", async () => {
+  const x = setup([
+    [O("orchestration", "check"), envelope({messages: []})],
+    [O("orchestration", "worker-read"), envelope({terminal: {tail: ["Error: rate limit reached"]}})],
+    [O("orchestration", "worker-show"), envelope({worker: {state: "ready"}})],
+  ]);
+  const out = await x.backend.runAttempt(x.ctx, x.cfg, x.task);
   expect(out.attempt.limitHit).toBe(true);
-  expect(out.exec.stderr).toContain("usage limit");
-  expect(t).toBeLessThan(10_000);
-  expect(direct).toEqual([]);
-  expect(f.count(O("orchestration", "worker-stop"))).toBe(1);
+  expect(x.f.calls.some(a => a[2] === "worker-stop")).toBe(true);
 });
 
-for (const busy of [false, true]) {
-  test(`limit words in the dispatched goal do not stop the worker (busy: ${busy})`, async () => {
-    const { f, ctx, task, backend, cfg } = setup(() => [
-      [O("orchestration", "check"), [ok("check-w5a.ndjson"), ok("check-1.ndjson"), ok("ack-1.json")]],
-      [O("orchestration", "worker-show"), ok("worker-show-ready.json")],
-      [O("orchestration", "worker-read"), () => raw(JSON.stringify({
-        ok: true, result: { terminal: { tail: [
-          `> ${arg(startArgs(f), "--spec").split("\n").find((line) => line.includes("rate limit exceeded"))}`,
-          busy ? "Working (esc to interrupt)" : "Ready",
-        ] } },
-      }))],
-    ]);
-    task.brief.goal = "Fix rate limit exceeded errors";
-    const out = await backend.runAttempt(ctx, cfg, task);
-    expect(out.exec).toMatchObject({ code: 0, timedOut: false });
-    expect(out.attempt.limitHit).toBe(false);
-    expect(f.count(O("orchestration", "worker-read"))).toBe(1);
-    expect(f.count(O("orchestration", "worker-stop"))).toBe(0);
-  });
-}
-
-for (const indicator of ["esc to interrupt", "ctrl+c to stop", "terminal preview"]) {
-  test(`worker output about 429 while working does not stop it (${indicator})`, async () => {
-    const { f, ctx, task, backend, cfg } = setup(() => [
-      [O("orchestration", "check"), [ok("check-w5a.ndjson"), ok("check-1.ndjson"), ok("ack-1.json")]],
-      [O("orchestration", "worker-show"), ok("worker-show-ready.json")],
-      [O("orchestration", "worker-read"), raw(JSON.stringify({
-        ok: true, result: { terminal: { tail: ["Investigating HTTP 429 handling", indicator] } },
-      }))],
-      ...(indicator === "terminal preview" ? [[O("terminal", "show"), ok("terminal-show-working.json")] as Route] : []),
-    ]);
-    const out = await backend.runAttempt(ctx, cfg, task);
-    expect(out.exec).toMatchObject({ code: 0, timedOut: false });
-    expect(out.attempt.limitHit).toBe(false);
-    expect(f.count(O("orchestration", "worker-read"))).toBe(1);
-    expect(f.count(O("orchestration", "worker-stop"))).toBe(0);
-  });
-}
-
-test("a limit message outside the last 15 terminal lines does not stop the worker", async () => {
-  const { f, ctx, task, backend, cfg } = setup(() => [
-    [O("orchestration", "check"), [ok("check-w5a.ndjson"), ok("check-1.ndjson"), ok("ack-1.json")]],
-    [O("orchestration", "worker-show"), ok("worker-show-ready.json")],
-    [O("orchestration", "worker-read"), raw(JSON.stringify({
-      ok: true, result: { terminal: { tail: ["HTTP 429", ...Array(15).fill("Checked another file")] } },
-    }))],
-  ]);
-  const out = await backend.runAttempt(ctx, cfg, task);
-  expect(out.exec.code).toBe(0);
-  expect(out.attempt.limitHit).toBe(false);
-  expect(f.count(O("orchestration", "worker-stop"))).toBe(0);
+test("dirty current placement is refused before Orca creates a worktree", async () => {
+  const x = setup([[["git", "-C", repo, "status"], raw(" M file\n")]], {worktree: "current"});
+  const out = await x.backend.runAttempt(x.ctx, x.cfg, x.task);
+  expect(out.backend).toBe("orca");
+  expect(out.report).toContain("uncommitted changes");
+  expect(x.f.calls.some(a => a[1] === "worktree")).toBe(false);
 });
 
-for (const waitFails of [false, true]) {
-  test(`a registration lock failure still supervises the worker (wait failure: ${waitFails})`, async () => {
-    const original = new Error("wait connection lost");
-    const { f, ctx, task, backend, cfg } = setup((h) => [
-      [O("orchestration", "worker-start"), () => {
-        const dir = join(h.ctx.pacerHome, "orca");
-        rmSync(dir, { recursive: true, force: true });
-        writeFileSync(dir, "block lock creation");
-        return ok("worker-start-t1-auto.json");
-      }],
-      [O("orchestration", "check"), () => {
-        if (waitFails) throw original;
-        return ok("check-w5a.ndjson");
-      }],
-    ]);
-    try {
-      if (waitFails) {
-        await expect(backend.runAttempt(ctx, cfg, task)).rejects.toBe(original);
-        expect(f.count(O("orchestration", "worker-stop"))).toBe(1);
-      } else {
-        const out = await backend.runAttempt(ctx, cfg, task);
-        expect(out.exec.code).toBe(0);
-        expect(readFileSync(out.attempt.log, "utf8")).toContain("registration failed");
-        expect(f.count(O("orchestration", "worker-release"))).toBe(1);
-      }
-      expect(f.count(O("orchestration", "check"))).toBeGreaterThan(0);
-    } finally {
-      rmSync(join(ctx.pacerHome, "orca"), { force: true });
-    }
-  });
-}
+test("a retry resolves the original worktree instead of creating another", async () => {
+  const original = "/work/original";
+  const x = setup([[O("worktree", "show"), envelope({worktree: {id: `repo-1::${original}`, path: original}})]]);
+  x.task.retryOf = "prior-task";
+  x.task.worktree = original;
+  const out = await x.backend.runAttempt(x.ctx, x.cfg, x.task);
+  expect(out.worktree).toBe(original);
+  expect(x.f.calls.some(a => a[1] === "worktree" && a[2] === "create")).toBe(false);
+  expect(arg(x.f.calls.find(a => a[2] === "worker-start")!, "--worktree")).toBe(`id:repo-1::${original}`);
+});
 
-for (const response of [
-  raw("", 124, "worker-start timed out"),
-  raw("not JSON", 0),
-  raw('{"ok":false,"error":{"code":"timeout","message":"worker-start timed out"}}', 1),
-  raw('{"ok":true,"result":{"state":"ready"}}'),
-  () => { throw new Error("worker-start connection lost"); },
-]) {
-  test("an ambiguous worker-start fails without launching a duplicate direct attempt", async () => {
-    const { f, ctx, task, backend, cfg, direct } = setup(() => [[O("orchestration", "worker-start"), response]]);
-    const out = await backend.runAttempt(ctx, cfg, task);
+const has = (calls: string[][], ...prefix: string[]) => calls.some(a => prefix.every((p, i) => a[i + 1] === p));
+const closes = (calls: string[][]) => calls.filter(a => a[1] === "terminal" && a[2] === "close" && a.includes(terminal));
+const lease = async (x: {ctx: import("../src/types").Ctx; task: {id: string}}) => {
+  updateTask(x.ctx, x.task.id, task => {task.state = "done";});
+  const id = randomUUID(), reserved = (await reserveIdle(x.ctx, id)).reserved;
+  if (reserved) await releaseReservation(x.ctx, id);
+  return !reserved;
+};
+
+test("Claude terminal commands set CLAUDE_CODE_SANDBOXED and write no Claude configuration; Codex commands do not", async () => {
+  for (const id of ["claude-code", "codex"] as const) {
+    const x = setup([[O("worktree", "create"), (a: string[]) => envelope({worktree: {id: `repo-1::/work/${arg(a, "--name")}`}})]]);
+    const out = await x.backend.runAttempt(x.ctx, strategy.providers[id], x.task);
     expect(out.backend).toBe("orca");
-    expect(out.exec).toMatchObject({ code: 1, timedOut: false });
-    expect(out.attempt.limitHit).toBe(false);
-    expect(out.report).toContain("cannot tell whether Orca created the worker");
-    expect(direct).toEqual([]);
-    expect(f.count(O("orchestration", "worker-start"))).toBe(1);
+    const cmd = arg(x.f.calls.find(a => a[2] === "create" && a.includes("--command"))!, "--command");
+    expect(cmd.startsWith(`env -u ${id === "claude-code" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME"} PACER_ROLE=executor PACER_TASK_ID=${x.task.id}${id === "claude-code" ? " CLAUDE_CODE_SANDBOXED=1 claude " : " codex "}`)).toBe(true);
+    expect(cmd.includes("CLAUDE_CODE_SANDBOXED")).toBe(id === "claude-code");
+    expect(existsSync(join(x.ctx.home, ".claude.json"))).toBe(false);
+    expect(existsSync(join(x.ctx.pacerHome, "orca", "trusted.json"))).toBe(false);
+  }
+});
+
+test("the Orca backend never edits Claude folder trust", () => {
+  // Folder trust in Orca terminals stays with CLAUDE_CODE_SANDBOXED; the direct launch's .claude.json grant covers pacer's own task worktrees only.
+  const files = (dir: string): string[] => readdirSync(dir).flatMap(f => statSync(join(dir, f)).isDirectory() ? files(join(dir, f)) : [join(dir, f)]);
+  const offenders = files(join(import.meta.dir, "..", "src", "exec", "orca")).filter(f => /hasTrustDialogAccepted|trusted\.json|grantClaudeFolderTrust/.test(readFileSync(f, "utf8")));
+  expect(offenders).toEqual([]);
+});
+
+const MCP_KEYS = ["enableAllProjectMcpServers", "disabledMcpjsonServers", "enabledMcpjsonServers"];
+const claudeSettings = (x: ReturnType<typeof setup>) => JSON.parse(readFileSync(join(x.ctx.pacerHome, "runs", x.task.id, "1-orca", "claude-settings.json"), "utf8"));
+const attemptLog = (out: {attempt: {log: string}}) => readFileSync(out.attempt.log, "utf8");
+
+test("the Claude terminal reuses the direct interactive launch's per-run settings file without pacer's PTY hooks", async () => {
+  const x = setup();
+  await x.backend.runAttempt(x.ctx, strategy.providers["claude-code"], x.task);
+  const settings = join(x.ctx.pacerHome, "runs", x.task.id, "1-orca", "claude-settings.json");
+  expect(commandOf(x.f.calls)).toContain(`CLAUDE_CODE_SANDBOXED=1 claude --settings ${settings} --dangerously-skip-permissions`);
+  expect(JSON.parse(readFileSync(settings, "utf8"))).toEqual({skipDangerousModePermissionPrompt: true, enableAllProjectMcpServers: true});
+  expect(statSync(settings).mode & 0o777).toBe(0o600);
+});
+
+test("a new-child Orca run carries the source checkout's MCP answers, so a rejected server stays off, and never writes .claude.json", async () => {
+  const x = setup();
+  const config = join(x.ctx.home, ".claude.json");
+  const text = JSON.stringify({primaryApiKey: "secret", projects: {[repo]: {disabledMcpjsonServers: ["rejected"], enabledMcpjsonServers: ["approved", "rejected"], allowedTools: ["x"]}}});
+  writeFileSync(config, text, {mode: 0o600});
+  const out = await x.backend.runAttempt(x.ctx, strategy.providers["claude-code"], x.task);
+  expect(out.backend).toBe("orca");
+  expect(claudeSettings(x)).toEqual({skipDangerousModePermissionPrompt: true, enableAllProjectMcpServers: true, disabledMcpjsonServers: ["rejected"], enabledMcpjsonServers: ["approved"]});
+  expect(readFileSync(config, "utf8")).toBe(text);
+  expect(commandOf(x.f.calls)).toContain("CLAUDE_CODE_SANDBOXED=1");
+  expect(attemptLog(out)).not.toContain("secret");
+  expect(attemptLog(out)).not.toContain("claude project MCP servers");
+});
+
+test("a new-child Orca run approves nothing when the account's Claude config is unreadable, and the attempt log says so", async () => {
+  const folder = mkdtempSync(join(tmpdir(), "pacer-orca-claude-"));
+  const config = join(folder, ".claude.json");
+  writeFileSync(config, "{}", {mode: 0o600});
+  chmodSync(config, 0o000);
+  try {
+    const x = setup([], {}, {terminalEnv: async ctx => ({env: {...ctx.env, CLAUDE_CONFIG_DIR: folder}, source: "login-shell", shell: "/bin/zsh", umask: {mask: "022"}, profileKeys: ["CLAUDE_CONFIG_DIR"], folder: []})});
+    const out = await x.backend.runAttempt(x.ctx, strategy.providers["claude-code"], x.task);
+    expect(out.backend).toBe("orca");
+    for (const key of MCP_KEYS) expect(claudeSettings(x)).not.toHaveProperty(key);
+    expect(attemptLog(out)).toContain("claude project MCP servers: not pre-approved (the Claude config file is unreadable); Claude may ask whether to use this project's MCP servers");
+  } finally { chmodSync(config, 0o600); rmSync(folder, {recursive: true, force: true}); }
+});
+
+test("an in-place Orca run reads no MCP answers and keeps Claude's MCP prompt", async () => {
+  const x = setup([], {worktree: "current"});
+  writeFileSync(join(x.ctx.home, ".claude.json"), JSON.stringify({projects: {[repo]: {enabledMcpjsonServers: ["approved"]}}}), {mode: 0o600});
+  const out = await x.backend.runAttempt(x.ctx, strategy.providers["claude-code"], x.task);
+  expect(out.backend).toBe("orca");
+  expect(claudeSettings(x)).toEqual({skipDangerousModePermissionPrompt: true});
+  expect(attemptLog(out)).toContain("claude project MCP servers: not pre-approved (only pacer-created task worktrees are)");
+});
+
+test("the Codex terminal command carries no per-run settings or hook overrides", async () => {
+  const x = setup();
+  await x.backend.runAttempt(x.ctx, x.cfg, x.task);
+  const cmd = commandOf(x.f.calls);
+  expect(cmd).not.toContain("--settings");
+  expect(cmd).not.toContain("hooks.");
+  expect(cmd).not.toContain("--dangerously-bypass-hook-trust");
+});
+
+test("a default account uses the account folder the login profile sets, as a direct launch does", async () => {
+  for (const id of ["claude-code", "codex"] as const) {
+    const key = id === "claude-code" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME", folder = `/profile/${id}`;
+    const x = setup([], {}, {terminalEnv: async ctx => ({env: {...ctx.env, [key]: folder}, source: "login-shell", shell: "/bin/zsh", umask: {mask: "022"}, profileKeys: [key], folder: []})});
+    await x.backend.runAttempt(x.ctx, strategy.providers[id], x.task);
+    const cmd = commandOf(x.f.calls);
+    expect(cmd).not.toContain(`-u ${key}`);
+    expect(cmd).toContain(`${key}=${folder} `);
+    const out = await runCommand(cmd, x.ctx.home, {CLAUDE_CONFIG_DIR: "/planner/claude", CODEX_HOME: "/planner/codex"});
+    expect(out).toContain(id === "claude-code" ? `home=${folder}|/planner/codex` : `home=/planner/claude|${folder}`);
+  }
+});
+
+test("the attempt log records each Orca step", async () => {
+  const x = setup();
+  const out = await x.backend.runAttempt(x.ctx, x.cfg, x.task);
+  const text = readFileSync(out.attempt.log, "utf8");
+  const order = [`worktree create ${x.wt}: ${x.root}`, `terminal create ${terminal}: env -u CODEX_HOME PACER_ROLE=executor PACER_TASK_ID=${x.task.id} codex `,
+    `terminal wait ${terminal}: idle`, `worker-start ${dispatch}: ready`, `worker_done ${dispatch}: succeeded`, "worker-release: retained",
+    `closed pacer terminal ${terminal}: ok`, "--- summary\ndone\n\nok"];
+  const at = order.map(line => text.indexOf(line));
+  expect(at.every(i => i >= 0)).toBe(true);
+  expect([...at].sort((a, b) => a - b)).toEqual(at);
+});
+
+test("a fallback keeps the Orca steps in the direct attempt log", async () => {
+  const x = setup([[O("terminal", "wait"), envelope({wait: {satisfied: false, blockedReason: "agent-trust-workspace"}})]]);
+  await x.backend.runAttempt(x.ctx, x.cfg, x.task);
+  const text = readFileSync(x.directLog, "utf8");
+  expect(text).toContain(`terminal wait ${terminal}: agent-trust-workspace`);
+  expect(text).toContain(`removed Orca worktree ${x.wt}`);
+  expect(text).toContain("direct backend: Orca fallback (orca terminal did not become idle: agent-trust-workspace)");
+});
+
+for (const [name, over] of [
+  ["initial terminal close", [[O("terminal", "close", "--terminal", "term_shell"), failure("close_failed")]]],
+  ["terminal create", [[O("terminal", "create"), (a: string[]) => a.includes("--command") ? failure("create_failed") : envelope({terminal: {handle: "term_coord", connected: true, writable: true}})]]],
+  ["idle wait", [[O("terminal", "wait"), envelope({wait: {satisfied: false, status: "timeout"}})]]],
+  ["refused worker start", [[O("orchestration", "worker-start"), failure("task_not_startable")]]],
+] as [string, Route[]][]) {
+  test(`a ${name} failure removes the exact new worktree before direct fallback`, async () => {
+    const x = setup(over);
+    const out = await x.backend.runAttempt(x.ctx, x.cfg, x.task);
+    expect(out.backend).toBe("direct");
+    const show = x.f.calls.findIndex(a => a[2] === "show" && arg(a, "--worktree") === `id:${x.wt}`);
+    const rm = x.f.calls.findIndex(a => a[2] === "rm");
+    expect(show).toBeGreaterThanOrEqual(0);
+    expect(x.f.calls[rm]).toEqual(["orca", "worktree", "rm", "--worktree", `id:${x.wt}`, "--force", "--json"]);
+    expect(show).toBeLessThan(rm);
+    expect(loadOrcaState(x.ctx).stranded).toEqual({});
   });
 }
 
-test("a new-child receipt without a worktree fails the task without verifying the original repo", async () => {
-  const receipt = JSON.parse(fixture("worker-start-t1-auto.json"));
-  receipt.result.effects = receipt.result.effects.filter((e: { kind: string }) => e.kind !== "worktree");
-  const { f, ctx, task, backend, direct } = setup(() => [
-    [O("orchestration", "worker-start"), raw(JSON.stringify(receipt))],
+test("a worktree that cannot be removed is recorded and removed by clean after review", async () => {
+  const x = setup([[O("terminal", "wait"), failure("timeout")], [O("worktree", "rm"), failure("busy")]]);
+  await x.backend.runAttempt(x.ctx, x.cfg, x.task);
+  expect(loadOrcaState(x.ctx).stranded[x.task.id]).toMatchObject({id: x.wt, path: x.root, name: `pacer-${x.task.id}-codex`});
+  updateTask(x.ctx, x.task.id, t => {t.state = "done"; t.review = {accepted: true, kind: null, note: null, at: 1};
+    t.result = {status: "done", executor: "codex", model: null, files: "", report: "", backend: "direct"};});
+  const f = fakeRun([
+    [O("worktree", "show"), envelope({worktree: {id: x.wt, path: x.root, displayName: `pacer-${x.task.id}-codex`, isMainWorktree: false}})],
+    [O("worktree", "rm"), envelope({})],
   ]);
-  const verified: string[] = [];
-  const rec = await runTask(ctx, task.id, {
-    loadStrategy: () => validateStrategy({ planner: "claude-code", providers: { "claude-code": {}, cursor: {} } }, "/x"),
-    computeStatus: async () => statusFor("cursor"),
-    runAttempt: backend.runAttempt,
-    verifyRepo: async (repo) => { verified.push(repo); return { files: "" }; },
+  x.ctx.run = f.run;
+  const t = (await import("../src/tasks/store")).readTask(x.ctx, x.task.id)!;
+  expect(await cleanHostWorktree(x.ctx, t, {shared: () => false})).toBeNull();
+  expect(f.calls.at(-1)).toEqual(["orca", "worktree", "rm", "--worktree", `id:${x.wt}`, "--json"]);
+  expect(loadOrcaState(x.ctx).stranded).toEqual({});
+});
+
+for (const [name, over] of [
+  ["wrong repository", (a: string[]) => envelope({worktree: {id: `repo-2::/work/${arg(a, "--name")}`}})],
+  ["wrong name", () => envelope({worktree: {id: "repo-1::/work/other"}})],
+  ["path differing from id", (a: string[]) => envelope({worktree: {id: `repo-1::/work/${arg(a, "--name")}`, path: "/elsewhere"}})],
+] as const) {
+  test(`a created worktree with a ${name} is neither used nor removed`, async () => {
+    const x = setup([[O("worktree", "create"), over]]);
+    const out = await x.backend.runAttempt(x.ctx, x.cfg, x.task);
+    expect(out.backend).toBe("direct");
+    expect(x.f.calls.some(a => a.includes("--command") || a[2] === "worker-start" || a[2] === "rm")).toBe(false);
+    expect(readFileSync(x.directLog, "utf8")).toContain("not removed: its identity is unverified");
   });
-  expect(rec.result?.status).toBe("failed");
-  expect(rec.result?.report).toContain("worktree path");
-  expect(verified).toEqual([]);
-  expect(direct).toEqual([]);
-  expect(f.count(O("orchestration", "worker-stop"))).toBe(1);
-  expect(f.count(O("orchestration", "check"))).toBe(0);
-  expect(loadOrcaState(ctx).workers).toEqual({});
+}
+
+test("an existing placement resolving to another path falls back", async () => {
+  const x = setup([[O("worktree", "show"), envelope({worktree: {id: "repo-1::/work/other", path: "/work/other"}})]], {worktree: "current"});
+  const out = await x.backend.runAttempt(x.ctx, x.cfg, x.task);
+  expect(out.backend).toBe("direct");
+  expect(x.f.calls.some(a => a.includes("--command"))).toBe(false);
 });
 
-
-test("an idle worker limit marks the executor exhausted and the runner tries the next executor", async () => {
-  let t = 0;
-  const { f, ctx, task, backend, direct } = setup(() => [
-    [O("orchestration", "check"), [
-      () => { t += 1_000; return ok("check-w5a.ndjson"); },
-      ok("check-1.ndjson"), ok("ack-1.json"),
-    ]],
-    [O("orchestration", "worker-read"), ok("worker-read-tail.json")],
-  ], { deps: { now: () => t } });
-  const st = statusFor("codex");
-  st.providers.push(...statusFor("cursor").providers);
-  const verified: string[] = [];
-  const rec = await runTask(ctx, task.id, {
-    loadStrategy: () => validateStrategy({
-      planner: "claude-code", providers: { "claude-code": {}, codex: {}, cursor: {} }, pacing: { policy: "priority" },
-    }, "/x"),
-    computeStatus: async () => st,
-    runAttempt: backend.runAttempt,
-    verifyRepo: async (repo) => { verified.push(repo); return { files: "" }; },
+for (const [name, reply] of [["timeout", failure("timeout")], ["malformed receipt", raw("not json")], ["missing dispatch id", envelope({state: "ready"})]] as const) {
+  test(`an uncertain start (${name}) with no worker for the terminal closes it and releases the lease`, async () => {
+    const x = setup([[O("orchestration", "worker-start"), reply]]);
+    const out = await x.backend.runAttempt(x.ctx, x.cfg, x.task);
+    expect(x.direct).toBe(0);
+    expect(out.backend).toBe("orca");
+    expect(out.report).toContain("Orca did not create the worker");
+    expect(x.f.count(O("orchestration", "worker-list", "--run", "run_1"))).toBe(3);
+    expect(closes(x.f.calls)).toHaveLength(1);
+    expect(has(x.f.calls, "worktree", "rm")).toBe(true);
+    expect(await lease(x)).toBe(false);
   });
-  expect(rec.result).toMatchObject({ status: "done", executor: "cursor", backend: "orca" });
-  expect(rec.attempts.map((a) => [a.executor, a.limitHit])).toEqual([["codex", true], ["cursor", false]]);
-  expect(readMarks(ctx).codex).toBeGreaterThan(Date.now() / 1000);
-  expect(verified).toEqual([WT1]);
-  expect(direct).toEqual([]);
-  expect(f.count(O("orchestration", "worker-stop"))).toBe(1);
+}
+
+test("an uncertain start whose worker exists is supervised normally", async () => {
+  const x = setup([[O("orchestration", "worker-start"), raw("not json")],
+    [O("orchestration", "worker-list"), envelope({workers: [{dispatchId: "ctx_9", agentTerminalHandle: terminal, workerState: "ready"}], page: {hasMore: false}})]]);
+  const out = await x.backend.runAttempt(x.ctx, x.cfg, x.task);
+  expect(x.direct).toBe(0);
+  expect(out.worktree).toBe(x.root);
+  expect(x.f.calls).toContainEqual(["orca", "orchestration", "worker-release", "--dispatch", "ctx_9", "--json"]);
+  expect(closes(x.f.calls)).toHaveLength(1);
+  expect(has(x.f.calls, "worktree", "rm")).toBe(false);
 });
 
-test("direct fallback logs its reason at most once per hour without polluting task reports",async()=>{
-  const {ctx,task,backend,cfg}=setup(()=>[[O("status"),ok("status-down.json")]]);
-  const first=await backend.runAttempt(ctx,cfg,task);
-  const second=await backend.runAttempt(ctx,cfg,task);
-  expect(first.report).toBe("direct report");expect(second.report).toBe("direct report");
-  const file=join(ctx.pacerHome,"orca","fallback.log");
-  expect(readFileSync(file,"utf8").trim().split("\n")).toHaveLength(1);
-  await backend.runAttempt({...ctx,now:ctx.now+3601},cfg,task);
-  expect(readFileSync(file,"utf8").trim().split("\n")).toHaveLength(2);
+for (const [name, list] of [["failing lookup", failure("unavailable")], ["incomplete listing", envelope({workers: [], page: {hasMore: true}})]] as const) {
+  test(`an uncertain start with a ${name} keeps the terminal, lease and recovery record; a later pass reconciles`, async () => {
+    const x = setup([[O("orchestration", "worker-start"), failure("timeout")], [O("orchestration", "worker-list"), list]]);
+    const out = await x.backend.runAttempt(x.ctx, x.cfg, x.task);
+    expect(x.direct).toBe(0);
+    expect(out.report).toContain("cannot tell whether Orca created the worker");
+    expect(closes(x.f.calls)).toHaveLength(0);
+    expect(readFileSync(out.attempt.log, "utf8")).toContain(`kept terminal ${terminal} (run run_1)`);
+    expect(loadOrcaState(x.ctx).uncertain[terminal]).toMatchObject({taskId: x.task.id, terminal, run: "run_1", worktree: {id: x.wt, path: x.root}});
+    expect(await lease(x)).toBe(true);
+    const later = fakeRun([
+      [O("orchestration", "worker-list"), envelope({workers: [], page: {hasMore: false}})],
+      [O("terminal", "close"), envelope({close: {handle: terminal, ptyKilled: true}})],
+    ]);
+    x.ctx.run = later.run;
+    await reconcileHostWork(x.ctx);
+    expect(closes(later.calls)).toHaveLength(1);
+    expect(loadOrcaState(x.ctx).uncertain).toEqual({});
+    expect(loadOrcaState(x.ctx).stranded[x.task.id]).toMatchObject({id: x.wt});
+  });
+}
+
+test("admission bookkeeping exceptions never skip the exact terminal close", async () => {
+  const boom = () => {throw Error("bookkeeping");};
+  for (const admission of [
+    {begin: beginWorkSync, bind: bindOrcaWorkSync, finishOrca: boom, finish: boom},
+    {begin: beginWorkSync, bind: (...a: Parameters<typeof bindOrcaWorkSync>) => a[2].dispatchId === "pending" ? bindOrcaWorkSync(...a) : boom(), finishOrca: finishOrcaWorkSync, finish: finishWorkSync},
+  ]) {
+    const x = setup([[O("orchestration", "worker-release"), failure("dispatch_inactive")]], {}, {admission});
+    const out = await x.backend.runAttempt(x.ctx, x.cfg, x.task);
+    expect(closes(x.f.calls)).toHaveLength(1);
+    expect(readFileSync(out.attempt.log, "utf8")).toContain("failed: bookkeeping");
+  }
 });
 
-test("child-of-current honors the configured base instead of the current feature branch",async()=>{
- const {backend,ctx,cfg,task,f}=setup(()=>[[["git","-C",REPO,"rev-parse"],raw(`${REPO}\nfeature/current\n/projects/main/.git\n`)],[O("repo","list"),raw('{"ok":true,"result":{"repos":[{"id":"main-owner","path":"/projects/main"}]}}')]],{exec:{worktree:"child-of-current",baseBranch:"main"}});
- expect((await backend.runAttempt(ctx,cfg,task)).backend).toBe("orca");const argv=startArgs(f);expect(arg(argv,"--repo")).toBe("id:main-owner");expect(arg(argv,"--base-branch")).toBe("a".repeat(40));expect(f.count(O("repo","add"))).toBe(0);
-});
-test("current placement refuses dirty and already occupied worktrees without direct execution",async()=>{
- const dirty=setup(()=>[[["git","-C",REPO,"status"],raw(" M file\n")]],{exec:{worktree:"current"}});
- const out=await dirty.backend.runAttempt(dirty.ctx,dirty.cfg,dirty.task);expect(out.exec.code).toBe(1);expect(out.report).toContain("uncommitted changes");expect(out.backend).toBe("orca");expect(dirty.f.count(O("orchestration","worker-start"))).toBe(0);
- const busy=setup(()=>[],{exec:{worktree:"current"}});const other=createTask(busy.ctx,{brief:{goal:"other",repo:REPO},kind:null,requestedExecutor:null,timeoutS:600});updateTask(busy.ctx,other.id,t=>{t.state="running";t.runnerPid=process.pid;});busy.task.placement={requested:"current"};const refused=await busy.backend.runAttempt(busy.ctx,busy.cfg,busy.task);expect(refused.exec.code).toBe(1);expect(refused.report).toContain("another pacer task");expect(busy.f.count(O("orchestration","worker-start"))).toBe(0);
+test("a supervision exception still stops the worker and closes the terminal", async () => {
+  const x = setup([[O("orchestration", "check"), () => {throw Error("check crashed");}]]);
+  await expect(x.backend.runAttempt(x.ctx, x.cfg, x.task)).rejects.toThrow("check crashed");
+  expect(has(x.f.calls, "orchestration", "worker-stop")).toBe(true);
+  expect(closes(x.f.calls)).toHaveLength(1);
 });
 
- test("Orca launch classification fingerprints the worker path and starts timing at readiness",async()=>{
- let now=1000;
- const {f,ctx,task,backend,cfg}=setup(()=>[
- [O("orchestration","worker-start"),()=>{now=61000;return ok("worker-start-t1-auto.json");}],
- [O("orchestration","check"),()=>{now=63000;return raw('{"ok":true,"result":{"messages":[{"id":"msg_fail","type":"worker_done","subject":"failed","body":"launch failed","taskId":"task_f","dispatchId":"ctx_802297d1724f","outcome":"failed"}],"deliveryId":"del_f"}}');}],
- [O("orchestration","worker-show"),ok("worker-show-failed.json")],
- [O("orchestration","worker-read"),raw('{"ok":true,"result":{"terminal":{"tail":["error: unexpected argument --bad found"]}}}')],
- [["git","-C",WT1],raw("")],
- ],{deps:{now:()=>now}});
- const out=await backend.runAttempt(ctx,cfg,task);
- expect(out.attempt.brokenReason).toContain("unexpected argument");
- expect(out.attempt.endedAt-out.attempt.startedAt).toBe(2);
- const fingerprints=f.calls.filter(a=>a[0]==="git"&&["diff","ls-files"].includes(a[3]));
- expect(fingerprints).toHaveLength(4);expect(fingerprints.every(a=>a[2]===WT1)).toBe(true);
- });
- test("agent launch stage failure is broken even after slow worker creation",async()=>{
- const receipt=JSON.parse(fixture("worker-start-t1.json"));receipt.result.failedStage="agent_launch";receipt.result.lastError="agent launch failed";
- const {ctx,task,backend,cfg}=setup(()=>[[O("orchestration","worker-start"),raw(JSON.stringify(receipt),1)]]);
- const out=await backend.runAttempt(ctx,cfg,task);expect(out.attempt.brokenReason).toContain("agent launch failed");
- });
-
-for(const choice of ["agent","research","uncommitted"] as const)test(`dirty current allowed for ${choice}`,async()=>{
- const {ctx,task,backend,cfg,f}=setup(()=>[[["git","-C",REPO,"status"],raw(" M file\n")]]);
- if(choice==="agent")task.placement={requested:"current",reason:"follow-up"};
- if(choice==="research")task.kind="research";
- if(choice==="uncommitted")task.brief.context="build on UNSTAGED changes";
- const out=await backend.runAttempt(ctx,cfg,task);expect(out.exec.code).toBe(0);expect(out.worktree).toBe(REPO);expect(arg(startArgs(f),"--worktree")).toBe(`path:${REPO}`);
-});
-for(const hint of ["research","uncommitted","default"] as const)test(`busy auto ${hint} uses new`,async()=>{
- const {ctx,task,backend,cfg,f}=setup(()=>[],{exec:{worktree:"current"}});
- if(hint==="research")task.kind="research";
- if(hint==="uncommitted")task.brief.scope="in-progress changes";
- const other=createTask(ctx,{brief:{goal:"other",repo:REPO+"/src"},kind:null,requestedExecutor:null,timeoutS:600});
- updateTask(ctx,other.id,t=>{t.state="running";t.runnerPid=process.pid;});
- expect((await backend.runAttempt(ctx,cfg,task)).exec.code).toBe(0);expect(arg(startArgs(f),"--worktree")).toBe("new-child");
- expect((await import("../src/tasks/store")).readTask(ctx,task.id)?.placement).toMatchObject({mode:"new",why:"another task is writing there"});
-});
-test("explicit new preserves each strategy base branch rule",async()=>{
- for(const mode of ["child-of-current","new-child","current"] as const){
- const {ctx,task,backend,cfg,f}=setup(()=>[[["git","-C",REPO,"rev-parse"],raw(`${REPO}\nfeature/current\n`)]],{exec:{worktree:mode,baseBranch:"main"}});
- task.placement={requested:"new",reason:"risky"};task.kind="research";
- expect((await backend.runAttempt(ctx,cfg,task)).exec.code).toBe(0);expect(arg(startArgs(f),"--worktree")).toBe("new-child");expect(arg(startArgs(f),"--base-branch")).toBe("a".repeat(40));
- }
-});
-test("a live task isolated elsewhere or a dead runner does not occupy current",async()=>{
- for(const alive of [true,false]){
- const {ctx,task,backend,cfg,f}=setup();task.placement={requested:"current"};
- const other=createTask(ctx,{brief:{goal:"other",repo:REPO},kind:null,requestedExecutor:null,timeoutS:600});
- updateTask(ctx,other.id,t=>{t.state="running";t.runnerPid=alive?process.pid:999999;if(alive)t.worktree="/work/isolated";});
- expect((await backend.runAttempt(ctx,cfg,task)).exec.code).toBe(0);expect(arg(startArgs(f),"--worktree")).toBe(`path:${REPO}`);
- }
+test("a retry from a worktree subdirectory accepts the containing worktree", async () => {
+  const original = "/work/original";
+  const x = setup([[O("worktree", "show"), envelope({worktree: {id: `repo-1::${original}`, path: original}})]]);
+  x.task.retryOf = "prior-task";
+  x.task.worktree = `${original}/pkg`;
+  const out = await x.backend.runAttempt(x.ctx, x.cfg, x.task);
+  expect(out.backend).toBe("orca");
+  expect(out.worktree).toBe(`${original}/pkg`);
 });
 
-test("busy retry exhaustion records the attempt, temporarily skips the executor and falls back without marking quota",async()=>{
- let t=0,finished=false;
- const {f,ctx,task,backend}=setup(()=>[
-  [O("orchestration","check"),()=>{t+=30000;return finished?ok("check-1.ndjson"):raw('{"ok":true,"result":{"messages":[]}}');}],
-  [O("orchestration","worker-read"),()=>raw(JSON.stringify({ok:true,result:{terminal:{tail:finished?["Working"]:["Selected model is at capacity","› "]}}}))],
-  [O("orchestration","worker-show"),ok("worker-show-ready.json")],
-  [O("orchestration","worker-stop"),()=>{finished=true;return ok("worker-stop-t8-cursor-limit.json");}],
- ],{timeoutS:1800,deps:{now:()=>t}});
- const st=statusFor("codex");st.providers.push(...statusFor("cursor").providers);
- const rec=await runTask(ctx,task.id,{
-  loadStrategy:()=>validateStrategy({planner:"claude-code",providers:{"claude-code":{},codex:{},cursor:{}},pacing:{policy:"priority"}},"/x"),
-  computeStatus:async()=>st,runAttempt:backend.runAttempt,verifyRepo:async()=>({files:""}),
- });
- expect(rec.result).toMatchObject({status:"done",executor:"cursor"});expect(rec.attempts).toHaveLength(2);
- expect(rec.attempts[0]).toMatchObject({executor:"codex",limitHit:false,brokenReason:"transient provider busy after three retries"});
- expect(readMarks(ctx).codex).toBeUndefined();expect(readFileSync(rec.attempts[0].log,"utf8").match(/transient provider busy: resend/g)).toHaveLength(3);expect(f.count(O("orchestration","worker-stop"))).toBe(1);
+const commandOf = (calls: string[][]) => arg(calls.find(a => a[2] === "create" && a.includes("--command"))!, "--command");
+/** Run the visible terminal command with a stub agent that prints its environment and arguments. */
+async function runCommand(cmd: string, dir: string, env: Record<string, string>) {
+  const {mkdirSync, writeFileSync, chmodSync} = await import("node:fs");
+  const bin = join(dir, "bin");
+  mkdirSync(bin, {recursive: true});
+  for (const name of ["claude", "codex"]) {
+    writeFileSync(join(bin, name), '#!/bin/sh\nprintf "home=%s|%s\\n" "$CLAUDE_CONFIG_DIR" "$CODEX_HOME"\nfor a in "$@"; do printf "arg=%s\\n" "$a"; done\n');
+    chmodSync(join(bin, name), 0o755);
+  }
+  const p = Bun.spawnSync(["/bin/sh", "-c", cmd], {cwd: dir, env: {PATH: `${bin}:/usr/bin:/bin`, ...env}});
+  return p.stdout.toString();
+}
+
+test("a default-account Orca command clears an account home inherited from Orca's shell", async () => {
+  for (const id of ["claude-code", "codex"] as const) {
+    const x = setup();
+    await x.backend.runAttempt(x.ctx, strategy.providers[id], x.task);
+    const out = await runCommand(commandOf(x.f.calls), x.ctx.home, {CLAUDE_CONFIG_DIR: "/planner/claude", CODEX_HOME: "/planner/codex"});
+    expect(out).toContain(id === "claude-code" ? "home=|/planner/codex" : "home=/planner/claude|");
+  }
 });
 
-test("Orca's ask command supplies executor task identity",async()=>{
- const {f,ctx,task,backend,cfg}=setup();
- await backend.runAttempt(ctx,cfg,task);
- expect(arg(startArgs(f),"--spec")).toContain(`run PACER_ROLE=executor PACER_TASK_ID=${task.id} pacer ask "<one question>"`);
+test("a model value with shell metacharacters reaches the agent as one literal argument", async () => {
+  const model = "m'; touch pwned; echo $(id) `id` \"x\" ~ *";
+  const x = setup();
+  const cfg = validateStrategy({planner: "codex", providers: {"claude-code": {model}, codex: {}}}, "/x").providers["claude-code"];
+  await x.backend.runAttempt(x.ctx, cfg, x.task);
+  const out = await runCommand(commandOf(x.f.calls), x.ctx.home, {});
+  expect(out).toContain(`arg=--model\narg=${model}\n`);
+  expect(existsSync(join(x.ctx.home, "pwned"))).toBe(false);
 });
 
-test("review retries select the original Orca worktree without creating or fetching a new base", async () => {
-  const { ctx, task, backend, cfg, f } = setup();
-  task.retryOf = "t-original";
-  task.worktree = "/work/original";
-  task.placement = { requested: "new" };
-  const out = await backend.runAttempt(ctx, cfg, task);
-  expect(out.exec.code).toBe(0);
-  expect(out.worktree).toBe("/work/original");
-  expect(arg(startArgs(f), "--worktree")).toBe("path:/work/original");
-  expect(startArgs(f)).not.toContain("--base-branch");
-  expect(f.count(["git", "-C", REPO, "fetch"])).toBe(0);
+test("a task that allows delegation runs directly and logs why", async () => {
+  const x = setup();
+  x.ctx.env = {...x.ctx.env, PACER_WORK_GRANT: "secret-grant"};
+  const out = await x.backend.runAttempt(x.ctx, x.cfg, x.task);
+  expect(out.backend).toBe("direct");
+  expect(x.direct).toBe(1);
+  expect(x.f.calls).toHaveLength(0);
+  expect(readFileSync(x.directLog, "utf8")).toContain("direct backend: Orca fallback (the task allows delegation");
+  expect(readFileSync(join(x.ctx.pacerHome, "orca", "fallback.log"), "utf8")).not.toContain("secret-grant");
+});
+
+test("every lease rebind keeps the create-time terminal incarnation", async () => {
+  const binds: Parameters<typeof bindOrcaWorkSync>[2][] = [];
+  const admission = {begin: beginWorkSync, finishOrca: finishOrcaWorkSync, finish: finishWorkSync,
+    bind: (...a: Parameters<typeof bindOrcaWorkSync>) => {binds.push(a[2]); bindOrcaWorkSync(...a);}};
+  const x = setup([[O("terminal", "show"), failure("unavailable")]], {}, {admission});
+  await x.backend.runAttempt(x.ctx, x.cfg, x.task);
+  const agentBinds = binds.filter(b => b.terminal === terminal);
+  expect(agentBinds.map(b => b.dispatchId)).toEqual(["pending", dispatch]);
+  expect(agentBinds.every(b => b.incarnationId === "inc")).toBe(true);
+});
+
+test("a pre-start close without proof is recorded, and clean retries it", async () => {
+  const x = setup([[O("terminal", "wait"), failure("timeout")], [O("terminal", "close", "--terminal", terminal), envelope({closed: true})]]);
+  await x.backend.runAttempt(x.ctx, x.cfg, x.task);
+  expect(loadOrcaState(x.ctx).unclosed[terminal]).toMatchObject({taskId: x.task.id, terminal});
+  expect(await lease(x)).toBe(true);
+  const later = fakeRun([[O("terminal", "close"), envelope({close: {handle: terminal, ptyKilled: true}})], [O("orchestration", "worker-list"), envelope({workers: [], page: {hasMore: false}})]]);
+  x.ctx.run = later.run;
+  await reconcileHostWork(x.ctx);
+  expect(closes(later.calls)).toHaveLength(1);
+  expect(loadOrcaState(x.ctx).unclosed).toEqual({});
+});
+
+test("a failed close after supervision is recorded; a terminal Orca shows disconnected needs no further close", async () => {
+  const x = setup([[O("terminal", "close", "--terminal", terminal), failure("close_failed")]]);
+  const out = await x.backend.runAttempt(x.ctx, x.cfg, x.task);
+  expect(out.backend).toBe("orca");
+  expect(readFileSync(out.attempt.log, "utf8")).toContain(`recorded terminal ${terminal} for a later close by pacer clean`);
+  expect(loadOrcaState(x.ctx).unclosed[terminal]).toMatchObject({taskId: x.task.id});
+  const still = fakeRun([[O("terminal", "close"), failure("close_failed")], [O("terminal", "show"), envelope({terminal: {handle: terminal, connected: true, writable: true}})]]);
+  x.ctx.run = still.run;
+  await reconcileHostWork(x.ctx);
+  expect(loadOrcaState(x.ctx).unclosed[terminal]).toBeDefined();
+  const gone = fakeRun([[O("terminal", "close"), failure("close_failed")], [O("terminal", "show"), envelope({terminal: {handle: terminal, connected: false, writable: false, orphaned: true}})]]);
+  x.ctx.run = gone.run;
+  await reconcileHostWork(x.ctx);
+  expect(loadOrcaState(x.ctx).unclosed).toEqual({});
+});
+
+test("an uncertain start whose worker appears on a later worker-list page is supervised", async () => {
+  const x = setup([[O("orchestration", "worker-start"), failure("timeout")],
+    [O("orchestration", "worker-list", "--run", "run_1", "--cursor", "c2"), envelope({workers: [{dispatchId: "ctx_9", agentTerminalHandle: terminal, workerState: "ready"}], page: {limit: 100, hasMore: false, nextCursor: null}, scope: {run: "run_1"}})],
+    [O("orchestration", "worker-list"), envelope({workers: [{dispatchId: "ctx_other", agentTerminalHandle: "term_other", workerState: "succeeded"}], page: {limit: 100, hasMore: true, nextCursor: "c2"}, scope: {run: "run_1"}})]]);
+  const out = await x.backend.runAttempt(x.ctx, x.cfg, x.task);
+  expect(x.direct).toBe(0);
+  expect(out.worktree).toBe(x.root);
+  expect(x.f.calls).toContainEqual(["orca", "orchestration", "worker-list", "--run", "run_1", "--cursor", "c2", "--json"]);
+  expect(x.f.calls).toContainEqual(["orca", "orchestration", "worker-release", "--dispatch", "ctx_9", "--json"]);
+});
+
+test("reconciling a settled uncertain worker attaches its worktree and outcome to the task instead of removing it", async () => {
+  const x = setup([[O("orchestration", "worker-start"), failure("timeout")], [O("orchestration", "worker-list"), failure("unavailable")]]);
+  const out = await x.backend.runAttempt(x.ctx, x.cfg, x.task);
+  updateTask(x.ctx, x.task.id, t => {t.state = "done"; t.result = {status: "done", executor: "codex", model: null, files: "", report: out.report, backend: "orca"};});
+  const later = fakeRun([
+    [O("orchestration", "worker-list"), envelope({workers: [{dispatchId: "ctx_9", agentTerminalHandle: terminal, workerState: "succeeded"}], page: {hasMore: false}})],
+    [O("terminal", "close"), envelope({close: {handle: terminal, ptyKilled: true}})],
+  ]);
+  x.ctx.run = later.run;
+  await reconcileHostWork(x.ctx);
+  const state = loadOrcaState(x.ctx);
+  expect(state.uncertain).toEqual({});
+  expect(state.stranded).toEqual({});
+  const t = (await import("../src/tasks/store")).readTask(x.ctx, x.task.id)!;
+  expect(t.worktree).toBe(x.root);
+  expect(t.result?.worktree).toBe(x.root);
+  expect(t.result?.report).toContain(`Orca worker ctx_9 was found succeeded after the uncertain start; its work is in ${x.root}`);
+});
+
+const gone = (handle: string, worktreeId: string, incarnationId = "inc") =>
+  envelope({terminal: {handle, incarnationId, worktreeId, connected: false, writable: false, exitCause: {kind: "unknown", reason: "stop_unverified"}}});
+
+test("Orca's initial terminal that cannot be closed never holds the session lease; after pacer removes the worktree, clean retires its record", async () => {
+  const x = setup([[O("terminal", "close", "--terminal", "term_shell"), failure("close_failed")]]);
+  const out = await x.backend.runAttempt(x.ctx, x.cfg, x.task);
+  expect(out.backend).toBe("direct");
+  expect(x.f.count(O("terminal", "close", "--terminal", "term_shell"))).toBe(2);
+  expect(has(x.f.calls, "worktree", "rm")).toBe(true);
+  expect(loadOrcaState(x.ctx).unclosed.term_shell).toMatchObject({taskId: x.task.id, worktreeId: x.wt});
+  expect(loadOrcaState(x.ctx).removed[x.wt]).toMatchObject({id: x.wt, path: x.root});
+  const later = fakeRun([[O("terminal", "close"), failure("close_failed")], [O("terminal", "show"), gone("term_shell", x.wt, "shell-inc")]]);
+  x.ctx.run = later.run;
+  await reconcileHostWork(x.ctx);
+  expect(loadOrcaState(x.ctx).unclosed).toEqual({});
+  expect(loadOrcaState(x.ctx).removed).toEqual({});
+  expect(await lease(x)).toBe(false);
+});
+
+test("a pacer terminal whose close failed twice has its lease released once reconcile proves it died with the worktree pacer removed", async () => {
+  const x = setup([[O("terminal", "wait"), failure("timeout")], [O("terminal", "close", "--terminal", terminal), failure("close_failed")]]);
+  await x.backend.runAttempt(x.ctx, x.cfg, x.task);
+  expect(has(x.f.calls, "worktree", "rm")).toBe(true);
+  expect(loadOrcaState(x.ctx).unclosed[terminal]).toMatchObject({worktreeId: x.wt});
+  expect(await lease(x)).toBe(true);
+  // Disconnected in some other worktree, or with another incarnation, is not proof.
+  for (const reply of [gone(terminal, "repo-1::/work/other"), gone(terminal, x.wt, "other-inc")]) {
+    x.ctx.run = fakeRun([[O("terminal", "close"), failure("close_failed")], [O("terminal", "show"), reply]]).run;
+    await reconcileHostWork(x.ctx);
+    expect(await lease(x)).toBe(true);
+    updateOrcaState(x.ctx, s => {s.unclosed[terminal] = {taskId: x.task.id, terminal, worktreeId: x.wt, at: 1}; s.removed[x.wt] = {id: x.wt, path: x.root, at: 1};});
+  }
+  x.ctx.run = fakeRun([[O("terminal", "close"), failure("close_failed")], [O("terminal", "show"), gone(terminal, x.wt)]]).run;
+  await reconcileHostWork(x.ctx);
+  expect(loadOrcaState(x.ctx).unclosed).toEqual({});
+  expect(await lease(x)).toBe(false);
+});
+
+test("a failed close of a terminal in a worktree pacer did not remove keeps its lease", async () => {
+  const x = setup([[O("terminal", "close", "--terminal", terminal), failure("close_failed")]]);
+  await x.backend.runAttempt(x.ctx, x.cfg, x.task);
+  x.ctx.run = fakeRun([[O("terminal", "close"), failure("close_failed")], [O("terminal", "show"), gone(terminal, x.wt)]]).run;
+  await reconcileHostWork(x.ctx);
+  expect(await lease(x)).toBe(true);
+});
+
+test("a reviewed uncertain task whose settled worker is found needs review again, and clean --force keeps its worktree", async () => {
+  const x = setup([[O("orchestration", "worker-start"), failure("timeout")], [O("orchestration", "worker-list"), failure("unavailable")]]);
+  const out = await x.backend.runAttempt(x.ctx, x.cfg, x.task);
+  updateTask(x.ctx, x.task.id, t => {
+    t.state = "done"; t.review = {accepted: true, kind: null, note: null, at: 1}; t.dismissed = true; t.resolved = "resolved";
+    t.result = {status: "done", executor: "codex", model: null, files: "", report: out.report, backend: "orca"};
+  });
+  const later = fakeRun([
+    [O("orchestration", "worker-list"), envelope({workers: [{dispatchId: "ctx_9", agentTerminalHandle: terminal, workerState: "succeeded"}], page: {hasMore: false}})],
+    [O("terminal", "close"), envelope({close: {handle: terminal, ptyKilled: true}})],
+    [O("worktree", "show"), envelope({worktree: {id: x.wt, path: x.root, displayName: `pacer-${x.task.id}-codex`, isMainWorktree: false}})],
+    [O("worktree", "rm"), envelope({})],
+    [["git"], raw(`${x.root}\n`)],
+  ]);
+  x.ctx.run = later.run;
+  const {clean} = await import("../src/core/tasks");
+  for (let pass = 0; pass < 2; pass++) expect((await clean(x.ctx, {force: true})).removed).toEqual([]);
+  expect(has(later.calls, "worktree", "rm")).toBe(false);
+  const t = (await import("../src/tasks/store")).readTask(x.ctx, x.task.id)!;
+  expect(t.worktree).toBe(x.root);
+  expect([t.review, t.dismissed, t.resolved]).toEqual([undefined, undefined, undefined]);
+});
+
+const named = [O("worktree", "create"), (a: string[]) => envelope({worktree: {id: `repo-1::/work/${arg(a, "--name")}`}, terminal: {handle: "term_named", incarnationId: "named-inc"}})] as Route;
+const ownedRoute = (x: ReturnType<typeof setup>) => [O("worktree", "show"), envelope({worktree: {id: x.wt, path: x.root, displayName: `pacer-${x.task.id}-codex`, isMainWorktree: false}})] as Route;
+
+for (const [name, list] of [["failed", failure("unknown_flag")], ["truncated", envelope({terminals: [], totalCount: 40, truncated: true})]] as const) {
+  test(`a ${name} worktree terminal listing records only the initial terminal Orca named; clean closes no other terminal`, async () => {
+    const x = setup([named, [O("terminal", "list"), list], [O("terminal", "close", "--terminal", "term_named"), envelope({close: {handle: "term_named", ptyKilled: true}})]]);
+    const out = await x.backend.runAttempt(x.ctx, x.cfg, x.task);
+    expect(out.backend).toBe("orca");
+    expect(readFileSync(out.attempt.log, "utf8")).toContain(`recorded worktree ${x.wt} for a stray terminal sweep by pacer clean`);
+    expect(loadOrcaState(x.ctx).strays[x.wt]).toMatchObject({taskId: x.task.id, id: x.wt, path: x.root, initial: ["term_named"]});
+    updateTask(x.ctx, x.task.id, t => {t.state = "done";});
+    x.ctx.run = fakeRun([ownedRoute(x), [O("terminal", "list"), list]]).run;
+    await reconcileHostWork(x.ctx);
+    expect(loadOrcaState(x.ctx).strays[x.wt]).toBeDefined();
+    updateOrcaState(x.ctx, s => {s.unclosed.term_kept = {taskId: x.task.id, terminal: "term_kept", at: 1};});
+    // term_user was opened after pacer's agent terminal (for example, by the user): never closed.
+    const sweep = fakeRun([ownedRoute(x),
+      [O("terminal", "list"), envelope({terminals: [{handle: "term_named", worktreeId: x.wt}, {handle: "term_user", worktreeId: x.wt}, {handle: "term_kept", worktreeId: x.wt}, {handle: "term_elsewhere", worktreeId: "repo-1::/work/other"}], truncated: false})],
+      [O("terminal", "close", "--terminal", "term_named"), envelope({close: {handle: "term_named", ptyKilled: true}})],
+      [O("terminal", "close"), failure("close_failed")],
+      [O("terminal", "show"), envelope({terminal: {handle: "term_kept", connected: true, writable: true}})],
+    ]);
+    x.ctx.run = sweep.run;
+    await reconcileHostWork(x.ctx);
+    expect(sweep.count(O("terminal", "close", "--terminal", "term_named"))).toBe(1);
+    expect(sweep.calls.some(a => a.includes("term_user") || a.includes("term_elsewhere"))).toBe(false);
+    expect(sweep.calls.filter(a => a[2] === "close" && a.includes("term_kept"))).toHaveLength(2);
+    expect(loadOrcaState(x.ctx).strays).toEqual({});
+  });
+}
+
+test("a failed listing with no initial terminal named records nothing to sweep", async () => {
+  const x = setup([[O("terminal", "list"), failure("unknown_flag")]]);
+  const out = await x.backend.runAttempt(x.ctx, x.cfg, x.task);
+  expect(out.backend).toBe("orca");
+  expect(readFileSync(out.attempt.log, "utf8")).toContain(`pacer cannot tell Orca's initial terminal in ${x.wt} from others; it closes only terminals it recorded`);
+  expect(loadOrcaState(x.ctx).strays).toEqual({});
+});
+
+test("a stray record without recorded initial terminals closes nothing and is dropped", async () => {
+  const x = setup();
+  updateOrcaState(x.ctx, s => {s.strays[x.wt] = {taskId: x.task.id, id: x.wt, path: x.root, name: `pacer-${x.task.id}-codex`, initial: [], at: 1};});
+  const sweep = fakeRun([ownedRoute(x), [O("terminal", "list"), envelope({terminals: [{handle: "term_user", worktreeId: x.wt}], truncated: false})]]);
+  x.ctx.run = sweep.run;
+  await reconcileHostWork(x.ctx);
+  expect(sweep.calls.some(a => a[1] === "terminal")).toBe(false);
+  expect(loadOrcaState(x.ctx).strays).toEqual({});
+});
+
+test("the stray sweep waits while a task runs in the worktree", async () => {
+  const x = setup([named, [O("terminal", "list"), failure("unknown_flag")], [O("terminal", "close", "--terminal", "term_named"), envelope({close: {handle: "term_named", ptyKilled: true}})]]);
+  await x.backend.runAttempt(x.ctx, x.cfg, x.task);
+  updateTask(x.ctx, x.task.id, t => {t.state = "running";});
+  const sweep = fakeRun([ownedRoute(x)]);
+  x.ctx.run = sweep.run;
+  await reconcileHostWork(x.ctx);
+  expect(sweep.calls.some(a => a[1] === "terminal")).toBe(false);
+  expect(loadOrcaState(x.ctx).strays[x.wt]).toBeDefined();
+});
+
+test("an uncertain-start terminal Orca already shows disconnected is reconciled without a close receipt", async () => {
+  const x = setup([[O("orchestration", "worker-start"), failure("timeout")], [O("orchestration", "worker-list"), failure("unavailable")]]);
+  await x.backend.runAttempt(x.ctx, x.cfg, x.task);
+  x.ctx.run = fakeRun([
+    [O("orchestration", "worker-list"), envelope({workers: [], page: {hasMore: false}})],
+    [O("terminal", "close"), failure("terminal_not_found")],
+    [O("terminal", "show"), envelope({terminal: {handle: terminal, connected: false, writable: false}})],
+  ]).run;
+  await reconcileHostWork(x.ctx);
+  expect(loadOrcaState(x.ctx).uncertain).toEqual({});
+  expect(loadOrcaState(x.ctx).stranded[x.task.id]).toMatchObject({id: x.wt});
 });

@@ -3896,6 +3896,7 @@ impl ::std::default::Default for ConfigGetParams {
 ///        "task_retention_days",
 ///        "execution.local_max_tasks",
 ///        "execution.launch_mode",
+///        "execution.backend",
 ///        "planner",
 ///        "pacing.order",
 ///        "pacing.policy",
@@ -4013,6 +4014,7 @@ impl ::std::convert::TryFrom<&str> for ConfigSetParamsIntegrations {
 ///    "task_retention_days",
 ///    "execution.local_max_tasks",
 ///    "execution.launch_mode",
+///    "execution.backend",
 ///    "planner",
 ///    "pacing.order",
 ///    "pacing.policy",
@@ -4047,6 +4049,8 @@ pub enum ConfigSetParamsKey {
     ExecutionLocalMaxTasks,
     #[serde(rename = "execution.launch_mode")]
     ExecutionLaunchMode,
+    #[serde(rename = "execution.backend")]
+    ExecutionBackend,
     #[serde(rename = "planner")]
     Planner,
     #[serde(rename = "pacing.order")]
@@ -4081,6 +4085,7 @@ impl ::std::fmt::Display for ConfigSetParamsKey {
             Self::TaskRetentionDays => f.write_str("task_retention_days"),
             Self::ExecutionLocalMaxTasks => f.write_str("execution.local_max_tasks"),
             Self::ExecutionLaunchMode => f.write_str("execution.launch_mode"),
+            Self::ExecutionBackend => f.write_str("execution.backend"),
             Self::Planner => f.write_str("planner"),
             Self::PacingOrder => f.write_str("pacing.order"),
             Self::PacingPolicy => f.write_str("pacing.policy"),
@@ -4102,6 +4107,7 @@ impl ::std::str::FromStr for ConfigSetParamsKey {
             "task_retention_days" => Ok(Self::TaskRetentionDays),
             "execution.local_max_tasks" => Ok(Self::ExecutionLocalMaxTasks),
             "execution.launch_mode" => Ok(Self::ExecutionLaunchMode),
+            "execution.backend" => Ok(Self::ExecutionBackend),
             "planner" => Ok(Self::Planner),
             "pacing.order" => Ok(Self::PacingOrder),
             "pacing.policy" => Ok(Self::PacingPolicy),

@@ -552,10 +552,10 @@ exports[`golden frames (NO_COLOR) settings › This machine at 120x40 1`] = `
      Accounts                   │   
      Executors 2 down           │ › Parallel tasks            ‹ 2 ›  1 busy now                                        
    ▸ This machine               │                             Shared by all executors that run on this machine. 1–16.  
-     Remote hosts 1 needs setup │ 
-     Routing                    │ 
-     Project strategies         │ 
-     Strategies                 │ 
+     Remote hosts 1 needs setup │   Task backend              ‹ Direct ›                                               
+     Routing                    │                             Orca runs interactive tasks as supervised workers in Orca
+     Project strategies         │                             terminals. Headless tasks, and any task when Orca isn't  
+     Strategies                 │                             running or the agent isn't supported, run directly.      
      Updates                    │ 
      Notifications              │ 
      Appearance                 │ 
@@ -596,11 +596,11 @@ exports[`golden frames (NO_COLOR) settings › This machine at 80x24 1`] = `
  › Parallel tasks            ‹ 2 ›  1 busy now                                 
                              Shared by all executors that run on this machine. 
                              1–16.                                             
- 
- 
- 
- 
- 
+   Task backend              ‹ Direct ›                                        
+                             Orca runs interactive tasks as supervised workers 
+                             in Orca terminals. Headless tasks, and any task   
+                             when Orca isn't running or the agent isn't        
+                             supported, run directly.                          
  
  
  
@@ -1414,4 +1414,74 @@ exports[`color, plain and ASCII renditions ASCII mode uses only ASCII 1`] = `
  ------------------------------------------------------------------------------
  
  Enter Run checks  x dismiss  . actions (3)  ? help            pacer 0.0.0-test"
+`;
+
+exports[`Settings › This machine shows a PACER_BACKEND override and offers no toggle 1`] = `
+" ▬┃ pacer   Home  Needs you 4  Tasks 2  [ Settings ]                                  All repos · Normal · ● live 08:00
+ Claude Code planner  ━━━━━━━━━━━━━──┃────  63% used · pace 77%  ↓ Behind pace  10 active-h · resets 18 Jan 08:00
+ ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+     Planner & pacing           │   THIS MACHINE
+     Accounts                   │   
+     Executors 2 down           │ › Parallel tasks            ‹ 2 ›  1 busy now                                        
+   ▸ This machine               │                             Shared by all executors that run on this machine. 1–16.  
+     Remote hosts 1 needs setup │   Task backend              ‹ Direct ›  Set by PACER_BACKEND                         
+     Routing                    │                             Orca runs interactive tasks as supervised workers in Orca
+     Project strategies         │                             terminals. Headless tasks, and any task when Orca isn't  
+     Strategies                 │                             running or the agent isn't supported, run directly.      
+     Updates                    │                             PACER_BACKEND overrides the saved setting. Unset         
+     Notifications              │                             PACER_BACKEND to change it here.                         
+     Appearance                 │ 
+                                │ 
+                                │ 
+                                │ 
+                                │ 
+                                │ 
+                                │ 
+                                │ 
+                                │ 
+                                │ 
+                                │ 
+                                │ 
+                                │ 
+                                │ 
+                                │ 
+                                │ 
+                                │ 
+                                │ 
+                                │ 
+                                │ 
+                                │ 
+                                │ 
+                                │ 
+                                │ 
+ ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ 
+ ← → adjust  Esc sections  ? help                                                                      pacer 0.0.0-test"
+`;
+
+exports[`Settings › This machine shows a PACER_BACKEND override and offers no toggle 2`] = `
+" ▬┃ pacer   Home  Needs you 4  Tasks 2  [ Settings ]               ● live 08:00
+ Claude Code  ━━━━━━━━─┃──  63% used · pace 77%  ↓ Behind pace  10 active-h ·…
+ ──────────────────────────────────────────────────────────────────────────────
+   THIS MACHINE
+   
+ › Parallel tasks            ‹ 2 ›  1 busy now                                 
+                             Shared by all executors that run on this machine. 
+                             1–16.                                             
+   Task backend              ‹ Direct ›  Set by PACER_BACKEND                  
+                             Orca runs interactive tasks as supervised workers 
+                             in Orca terminals. Headless tasks, and any task   
+                             when Orca isn't running or the agent isn't        
+                             supported, run directly. PACER_BACKEND overrides  
+                             the saved setting. Unset PACER_BACKEND to change  
+                             it here.                                          
+ 
+ 
+ 
+ 
+ 
+ 
+ ──────────────────────────────────────────────────────────────────────────────
+ 
+ ← → adjust  Esc sections  ? help                              pacer 0.0.0-test"
 `;

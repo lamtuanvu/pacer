@@ -25,14 +25,14 @@ const s = validateStrategy({
 
 test("orcaAgentFor maps providers to Orca agent ids", () => {
   expect(orcaAgentFor(s.providers.codex, "new-child")).toEqual({ agent: "codex", model: null });
-  expect(orcaAgentFor(s.providers.cursor, "new-child")).toEqual({ agent: "cursor", model: "auto" });
+  expect(orcaAgentFor(s.providers.cursor, "new-child")).toMatchObject({skip: expect.stringContaining("not supported")});
   expect(orcaAgentFor(s.providers["claude-code"], "new-child")).toEqual({ agent: "claude", model: null });
-  expect(orcaAgentFor(s.providers.agy, "current")).toEqual({ agent: "antigravity", model: null });
-  expect(orcaAgentFor(s.providers["opencode#byteplus"], "current")).toEqual({ agent: "opencode", model: "coding-plan/dola-seed-2.0-code" });
+  expect(orcaAgentFor(s.providers.agy, "current")).toMatchObject({skip: expect.stringContaining("not supported")});
+  expect(orcaAgentFor(s.providers["opencode#byteplus"], "current")).toMatchObject({skip: expect.stringContaining("not supported")});
   const skip = orcaAgentFor(s.providers["opencode#byteplus"], "new-child");
-  expect("skip" in skip && skip.skip).toContain("existing worktree");
+  expect("skip" in skip && skip.skip).toContain("not supported");
   const mystery: ProviderCfg = { ...s.providers.codex, id: "mystery" };
-  expect(orcaAgentFor(mystery, "new-child")).toEqual({ skip: 'no Orca agent for provider "mystery"' });
+  expect(orcaAgentFor(mystery, "new-child")).toEqual({ skip: 'Orca terminal execution is not supported for provider "mystery"' });
 });
 
 test("gitInfo reads the top level, branch and dirtiness", async () => {

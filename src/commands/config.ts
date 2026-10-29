@@ -1,6 +1,7 @@
 import { strategyPath } from "../config/strategy";
 import { migrateStrategy, migrationLines } from "../config/migrate";
 import * as config from "../core/config";
+import { backendAvailable } from "../exec/backend";
 import type { Ctx } from "../types";
 import type { Result } from "./types";
 import { commandArgs } from "./accounts";
@@ -23,7 +24,7 @@ export async function configCmd(args: string[], ctx: Ctx): Promise<Result> {
       return {code:0,out:flags.json?JSON.stringify(result,null,2):(pos[0]?[`${pos[0]}: ${JSON.stringify(result.value)} (${result.source})`]:Object.entries(entries).map(([key,v])=>`${key}: ${JSON.stringify(v.value)} (${v.source})`)).join('\n'),err:''};
     }
     if (verb === 'set' && pos.length === 2) {
-      const r = await config.set(ctx, pos[0], pos[1], {integrations: 'install'});
+      const r = await config.set(ctx, pos[0], pos[1], {integrations: 'install', backendReady: backendAvailable});
       return {code:0,out:[`${r.key}: ${JSON.stringify(r.previous)} → ${JSON.stringify(r.value)}`,r.diff,...r.notes,`Undo: ${r.undo}`].filter(Boolean).join('\n'),err:''};
     }
     throw Error('usage: pacer config get [key] [--json] | set <key> <value> | migrate');

@@ -76,3 +76,44 @@ test("clean prunes settled in-place recordings, preserves logs and respects dry-
     for(const name of ["stdout","stderr","exit"])expect(existsSync(join(dir,name))).toBe(true);
   }
 });
+
+test("clean removes an Orca worktree through the execution adapter", async () => {
+  const {ctx, t, w, repo} = await finished();
+  updateTask(ctx, t.id, x => {
+    x.result = {status: "done", executor: "claude-code", model: null, files: "", report: "", backend: "orca", worktree: w.path};
+    x.placement = {requested: "new", mode: "new", why: "test"};
+  });
+  const calls: string[][] = [];
+  ctx.run = async (argv, timeout) => {
+    if (argv[0] !== "orca") return realRun(argv, timeout);
+    calls.push(argv);
+    if (argv[2] === "show") return {code: 0, stdout: JSON.stringify({ok: true, result: {worktree: {
+      id: `repo-id::${w.path}`, path: w.path, displayName: `pacer-${t.id}-claude-code`, isMainWorktree: false,
+    }}}), stderr: ""};
+    const removed = await realRun(["git", "-C", repo, "worktree", "remove", w.path], timeout);
+    return {code: removed.code, stdout: '{"ok":true,"result":{}}', stderr: removed.stderr};
+  };
+  expect((await tasks.clean(ctx)).removed).toEqual([t.id]);
+  expect(calls).toHaveLength(2);
+  expect(calls[1]).toEqual(["orca", "worktree", "rm", "--worktree", `id:repo-id::${w.path}`, "--json"]);
+  expect(existsSync(w.path)).toBe(false);
+  expect(existsSync(join(ctx.home, ".claude.json"))).toBe(false);
+  expect(await tasks.clean(ctx)).toEqual({removed: [], kept: []});
+});
+
+test("clean keeps an Orca worktree whose ownership name changed", async () => {
+  const {ctx, t, w} = await finished();
+  updateTask(ctx, t.id, x => {
+    x.result = {status: "done", executor: "codex", model: null, files: "", report: "", backend: "orca", worktree: w.path};
+    x.placement = {requested: "new", mode: "new", why: "test"};
+  });
+  let removed = false;
+  ctx.run = async (argv, timeout) => {
+    if (argv[0] !== "orca") return realRun(argv, timeout);
+    if (argv[2] === "rm") removed = true;
+    return {code: 0, stdout: JSON.stringify({ok: true, result: {worktree: {id: `repo::${w.path}`, path: w.path, displayName: "someone-else"}}}), stderr: ""};
+  };
+  expect((await tasks.clean(ctx)).kept).toEqual([{id: t.id, reason: "Orca worktree ownership could not be verified"}]);
+  expect(removed).toBe(false);
+  expect(existsSync(w.path)).toBe(true);
+});

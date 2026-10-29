@@ -67,3 +67,13 @@ test('pacing order undo can restore an empty list',async()=>{
  const changed=await configCmd(['set','pacing.order','codex'],ctx); expect(changed.out).toContain("Undo: pacer config set pacing.order ''");
  expect((await configCmd(['set','pacing.order',''],ctx)).code).toBe(0); expect(loadStrategy(ctx).pacing.order).toEqual([]);
 });
+test('execution.backend get and set print the Orca warning and undo',async()=>{
+ const ctx=commandCtx(),p=join(ctx.pacerHome,'strategy.yaml');
+ expect(JSON.parse((await configCmd(['get','execution.backend','--json'],ctx)).out)).toEqual({value:'direct',source:'default'});
+ const r=await configCmd(['set','execution.backend','orca'],ctx);
+ expect(r.code).toBe(0); expect(r.out).toContain("Orca isn't running; tasks run directly until it is."); expect(r.out).toContain('Undo: pacer config set execution.backend direct');
+ expect(loadStrategy(ctx).execution).toMatchObject({backend:'orca'});
+ expect(JSON.parse((await configCmd(['get','execution.backend','--json'],ctx)).out).value).toBe('orca');
+ const before=readFileSync(p,'utf8'),bad=await configCmd(['set','execution.backend','auto'],ctx);
+ expect(bad.code).toBe(2); expect(bad.err).toContain('execution.backend must be orca or direct'); expect(readFileSync(p,'utf8')).toBe(before);
+});
