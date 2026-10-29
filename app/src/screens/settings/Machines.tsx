@@ -18,6 +18,7 @@ import { Alert } from "../../ds/Alert";
 import { useDialogs } from "../../ds/useDialogs";
 import { Button, ButtonLink, TextAction } from "../../ds/Button";
 import { ErrorMessage, useTaskContext } from "../task-shared";
+import { DiscoverySection } from "./Discovery";
 import { Feedback, Field, ResourceState, Segment, SettingsBoard, useOperation, useResource, words, useScoped } from "./shared";
 
 /** pacer host names: lower-case letters, digits and hyphens; "local" names this machine. */
@@ -51,6 +52,7 @@ export function MachineSection({ initialData }: { initialData?: ConfigData }) {
       </div></section>
       <AddHost />
     </div>
+    {state.features.ops.has("discovery.list") && <DiscoverySection />}
     <RemoteHostList />
   </SettingsBoard>;
 }

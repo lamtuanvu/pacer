@@ -15,6 +15,7 @@ import { MachineSection } from "./Machines";
 export { TaskBackendField } from "./Machines";
 import { AddExecutor } from "./AddExecutor";
 import { HostDetail } from "./Hosts";
+import { PairingView } from "./Pairing";
 import { UpdatesSection } from "./Updates";
 import { LazyDispatcher } from "./LazyDispatcher";
 import { LazyAssistantSettings } from "./LazyAssistantSettings";
@@ -131,6 +132,9 @@ export function SettingsGeneral({
     case "hosts":
       if (alias) return <DensityContext.Provider value="settings"><HostDetail key={alias} alias={alias} /></DensityContext.Provider>;
       content = <MachineSection initialData={initialData.config} />;
+      break;
+    case "pairing":
+      content = <PairingView />;
       break;
     case "add-executor":
       content = <AddExecutor host={host} />;

@@ -43,6 +43,7 @@ function App() {
   useLayoutEffect(() => { resetDesktopPageScroll(); }, [hash]);
   const [help, setHelp] = useState(false);
   const [UpdateNotice, setUpdateNotice] = useState<typeof import("./shell/UpdateNotice").UpdateNotice>();
+  const [DiscoveryNotice, setDiscoveryNotice] = useState<typeof import("./shell/DiscoveryNotice").DiscoveryNotice>();
   const lastWork = useRef("#/");
   useEffect(() => {
     const unsubscribe = store.subscribe(() => setState(store.getState()));
@@ -68,6 +69,7 @@ function App() {
     return () => { stopControl(); unsubscribe(); stop(); window.removeEventListener("hashchange", navigate); };
   }, []);
   useEffect(() => { void import("./shell/UpdateNotice").then(module => setUpdateNotice(() => module.UpdateNotice)); }, []);
+  useEffect(() => { void import("./shell/DiscoveryNotice").then(module => setDiscoveryNotice(() => module.DiscoveryNotice)); }, []);
   const [setupRevision, reloadSetup] = useState(0);
   const [runningSetup, setRunningSetup] = useState<{ id: string; executor: string }>();
   const [checklist, setChecklist] = useState<SetupChecklist | "error">();
@@ -124,6 +126,9 @@ function App() {
     </SetupContext.Provider>
     {UpdateNotice && (
       <UpdateNotice narrow={narrow} hidden={help || sessionEnded || updateNoticeHiddenOn(route)} />
+    )}
+    {DiscoveryNotice && (
+      <DiscoveryNotice narrow={narrow} hidden={help || sessionEnded} />
     )}
     {help && <CommandHelp registry={keys} close={() => setHelp(false)} />}
   </ActionContext.Provider></TaskContext.Provider>;
