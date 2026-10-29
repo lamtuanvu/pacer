@@ -1,6 +1,6 @@
 # Interactive long-lived delegated lanes
 
-Date: 2026-10-29. Status: decided by the maintainer on 2026-10-29 (see "Decisions" below), implemented, independently reviewed, and fixed per that review. One correction from the draft is recorded under "What `pacer send` actually reuses" — session `io`'s WS transport does not bridge Orca terminals today, so `pacer send` was built on `OrcaClient.terminalSend` directly rather than that transport.
+Date: 2026-10-29. Status: decided by the maintainer on 2026-10-29 (see "Decisions" below), implemented, independently reviewed, and fixed per that review and the later project review (see "Project review follow-up"). One correction from the draft is recorded under "What `pacer send` actually reuses" — session `io`'s WS transport does not bridge Orca terminals today, so `pacer send` was built on `OrcaClient.terminalSend` directly rather than that transport.
 
 ## Intent
 
@@ -59,6 +59,18 @@ Given that, and given Orca's API gives pacer no push-based output stream for a w
      (EXPIRING promoted ahead of AHEAD)".
 
  UI/TUI audit for decision 4: the TUI session screen (`src/dashboard/screens/sessions.ts`) explicitly excluded conversations from the settled-task review detail and from getting a review verdict item; both exclusions are removed, since a settled conversation is now reviewable. The web app's session route (`app/src/screens/session/SessionRoute.tsx`) already passed the same `slots`/`data` (title banner, retry options, diff panel) to both the `<Conversation>` and `<Session>` branches, so no change was needed there — the review/retry UI was already mode-agnostic; only the data model previously made conversations ineligible.
+
+## Project review follow-up (2026-10-29)
+
+Independent project review of the first implementation found gaps that the decisions above did not settle. The fixes conform to the established rules; [ADR 0014](../decisions/0014-interactive-lanes.md) records the resulting lifecycle:
+
+- **Ownership.** A kept-alive worker was released from admission and left unsupervised: `task.stop` did not stop it, and nothing expired it. The task now owns it through its backend (`TaskRecord.live`). It holds its executor slot, and stop, settlement, review, an answer on another executor and a four-hour idle limit release it.
+- **No text into a shell.** Orca types `--text` into whatever runs in the terminal. Once the agent exits, that is the login shell. `pacer send` and live answers now type nothing unless the worker is unsettled and Orca's `terminal show` reports the lane's agent (`agentIdentity`) as the foreground process of the same terminal incarnation. Otherwise `send` fails as `unavailable` and an answer respawns.
+- **Host-neutral `task.send`.** Delivery goes through an optional backend capability (`Backend.live`) instead of reading Orca state directly. A backend without it refuses with `unavailable`.
+- **Contention.** The lease and revision checks run under the task lock. The lease identity is the caller's client label or CLI terminal, not the service's OS user, so two clients contend.
+- **Rounds beyond the first.** The worker now moves to each answering attempt, so later answers and `pacer send` find it.
+- **Only supervised lanes accept `pacer send`.** A lane waiting on its question has no runner watching its worker, so `send` refuses it as `conflict` and points at `pacer answer`, which delivers live and resumes supervision.
+- **Scope of decision 4.** Routing and review apply to every conversation and are announced in the CHANGELOG. A `session.create` chat stays on the direct backend, because `session.io` cannot stream an Orca terminal. Only `--interactive` lanes use Orca.
 
 ## Non-goals (carried from the issue and from existing specs)
 

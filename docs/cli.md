@@ -120,8 +120,9 @@ include the question, its timestamp and any recorded answer.
 `pacer delegate --interactive [--group <name>]` starts a routed, budgeted, reviewable
 delegated task with a live terminal, instead of a one-shot run; see
 [Interactive lanes](dispatch.md#interactive-lanes). `pacer send <task-id> "<message>" [--force]`
-delivers one message into a running interactive lane's live Orca terminal without starting a new
-attempt; API clients use `task.send { id, text, force?, expect_rev? }`.
+delivers one message into an interactive lane's running agent without starting a new attempt. Nothing
+is typed unless the agent is its terminal's foreground process. API clients use
+`task.send { id, text, force?, expect_rev? }`; MCP planners use `task_send`.
 
 Use `pacer report-limit <provider>` to record a quota limit, and
 `pacer dismiss <id...>` to hide cards. Unknown ids are reported and the command
