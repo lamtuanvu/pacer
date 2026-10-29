@@ -48,7 +48,7 @@ import { detectAgents } from "../install/detection";
 import { getJob, listJobs, cancelJob, startJob } from "../jobs/registry";
 import { build as buildStrategy } from "../strategy/launcher";
 import * as core from "../core";
-import { send as sendMessage } from "../session/send";
+import { callerIdentity, send as sendMessage } from "../session/send";
 import * as accounts from "../core/accounts";
 import * as endpoints from "../core/endpoints";
 import * as opencodeSetup from "../core/opencode-setup";
@@ -375,9 +375,9 @@ export const OPS: Record<string, OpDef> = {
     },
   }),
   "task.send": op({
-    description: "Deliver one message into a running interactive lane's live Orca terminal. Does not create a new attempt.",
+    description: "Deliver one message into an interactive lane's live worker, through any backend that keeps one. Does not create a new attempt. A lane waiting on its question: conflict (answer it instead). Without a live worker whose agent is in its terminal's foreground: unavailable; while another client holds the 60-second driving lease: conflict unless force.",
     params: z.object({ id, text: z.string().min(1).max(4000), force: z.boolean().optional(), expect_rev }),
-    handler: (ctx, p) => sendMessage(ctx, p.id, p.text, { force: p.force, expectRev: p.expect_rev }),
+    handler: (ctx, p, deps) => sendMessage(ctx, p.id, p.text, { force: p.force, expectRev: p.expect_rev, by: callerIdentity(ctx, deps.client) }),
   }),
   "task.retry": op({
     description: "Re-delegate a task's stored brief (one active retry per task).",

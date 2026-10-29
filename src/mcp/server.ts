@@ -107,6 +107,11 @@ export function createMcpServer(getCtx: () => Ctx, opts: { spawnRunner?: SpawnRu
     inputSchema: {task_id:z.string(), text:z.string().min(1).max(2000), expect_rev:z.number().int().positive().optional()},
   }, async ({task_id,text,expect_rev}) => json(await callOp(getCtx(),"task.answer",{id:task_id,text,expect_rev},{spawnRunner:spawnFn}) as Record<string,unknown>));
 
+  server.registerTool("task_send", {
+    description: "Send one message into a running interactive lane's live agent (delegate --interactive); a lane waiting on its question is answered with task_answer instead. Refused when the agent is not in its terminal's foreground, or while another client drove the lane in the last 60 seconds unless force.",
+    inputSchema: {task_id:z.string(), text:z.string().min(1).max(4000), force:z.boolean().optional(), expect_rev:z.number().int().positive().optional()},
+  }, async ({task_id,text,force,expect_rev}) => json(await callOp(getCtx(),"task.send",{id:task_id,text,force,expect_rev},{client:"mcp/stdio"}) as Record<string,unknown>));
+
   server.registerTool("task_stop", {
     description: "Stop a delegated task and kill its executor.",
     inputSchema: { task_id: z.string() },
