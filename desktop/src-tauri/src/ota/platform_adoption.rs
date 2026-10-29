@@ -1078,16 +1078,11 @@ impl AdoptionPlatform for NativeAdoptionPlatform {
                 return Ok(None);
             }
             let service = self.current_service(m)?.map(|(process, _)| process);
-            if service.is_none() && !journal.steps.iter().any(|step| matches!(
-                (&step.action, &step.evidence),
-                (
-                    AdoptionAction::LaunchService { branch: control::AdoptionBranch::Managed, .. },
-                    Some(AdoptionEvidence::Launched { branch: control::AdoptionBranch::Managed, .. })
-                )
-            )) {
+            // Without proof of this exact incarnation there is no shortcut;
+            // recovery keeps the Core's refusal and stops nothing.
+            if prove_managed_recovery_launch(m, &journal, service.as_ref()).is_err() {
                 return Ok(None);
             }
-            prove_managed_recovery_launch(m, &journal, service.as_ref())?;
             Ok(Some(AdoptionObservation {
                 registration: RegistrationObservation::Managed,
                 reservation_held: held,
@@ -1259,17 +1254,24 @@ impl AdoptionPlatform for NativeAdoptionPlatform {
                     let (p, e) = self.current_service(m)?.ok_or(OtaError::Unavailable)?;
                     ensure(p == *process)?;
                     let journal = self.require_effect(m, action)?;
-                    if self.current_job(m)?.1 == control::AdoptionBranch::Managed
-                        && journal.state == journal::AdoptionState::Restoring
-                    {
-                        prove_managed_recovery_launch(m, &journal, Some(&p))?;
-                    } else {
-                        self.checked_context(m, &p, &e)?;
+                    let core = self.checked_context(m, &p, &e).and_then(|_| {
                         control::suppress_adoption_lifecycle(
                             &self.endpoint(&p, &e),
                             &m.binding,
                             &self.trust,
-                        )?;
+                        )
+                    });
+                    match core {
+                        Ok(()) => {}
+                        // An unresponsive Core may only be bypassed for the
+                        // journal-proven managed launch during restoration.
+                        Err(OtaError::Timeout | OtaError::Unavailable)
+                            if self.current_job(m)?.1 == control::AdoptionBranch::Managed
+                                && journal.state == journal::AdoptionState::Restoring =>
+                        {
+                            prove_managed_recovery_launch(m, &journal, Some(&p))?;
+                        }
+                        Err(error) => return Err(error),
                     }
                     self.require_effect(m, action)?;
                     let job = self.current_job(m)?.0;
