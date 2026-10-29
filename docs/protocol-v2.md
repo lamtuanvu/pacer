@@ -1022,6 +1022,7 @@ Params JSON Schema:
         "task_retention_days",
         "execution.local_max_tasks",
         "execution.launch_mode",
+        "execution.backend",
         "planner",
         "pacing.order",
         "pacing.policy",
@@ -2728,6 +2729,9 @@ Params JSON Schema:
     },
     "acceptance": {
       "type": "string"
+    },
+    "acceptance_pipefail": {
+      "type": "boolean"
     },
     "constraints": {
       "type": "string"

@@ -3,7 +3,7 @@ import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpDir } from "./helpers";
-import { buildDesktopFeed, desktopAssetName, desktopDiskImageName, publishDesktopRelease, verifyUpdateSignature, type DesktopReleaseOptions } from "../scripts/release/desktop-feed";
+import { buildDesktopFeed, desktopAssetName, desktopDiskImageName, publishDesktopRelease, verifyUpdateSignature, DESKTOP_ARCHES, type DesktopReleaseOptions } from "../scripts/release/desktop-feed";
 
 function signingFixture() {
   const keys = generateKeyPairSync("ed25519"), id = Buffer.from("fixture1");
@@ -20,7 +20,7 @@ function signingFixture() {
 function fixture() {
   const dir = tmpDir(), signing = signingFixture();
   writeFileSync(join(dir, "desktop-release-1.2.3.json"), JSON.stringify({ schema: 1, version: "1.2.3", notes: "release", pub_date: "2026-10-19T00:00:00Z" }));
-  for (const arch of ["aarch64"] as const) {
+  for (const arch of DESKTOP_ARCHES) {
     const bytes = Buffer.from(`signed fixture archive ${arch}`), name = desktopAssetName("1.2.3", arch);
     writeFileSync(join(dir, name), bytes); writeFileSync(join(dir, name + ".sig"), signing.signature(bytes));
     writeFileSync(join(dir, desktopDiskImageName("1.2.3", arch)), Buffer.from(`fixture disk image ${arch}`));
@@ -49,20 +49,30 @@ test("version-bound minisign verification rejects tampering and version relabeli
   expect(() => verifyUpdateSignature(bytes, signature, signingFixture().publicKey, "1.2.3")).toThrow();
 });
 
-// macOS Intel (x86_64) is temporarily not built for release (see DESKTOP_ARCHES).
-test("complete feed contains the darwin-arm64 immutable URL and matching metadata", async () => {
+test("the stable desktop feed refuses an absent Intel package", async () => {
+  const f = fixture();
+  rmSync(join(f.dir, desktopAssetName("1.2.3", "x86_64")));
+  await expect(buildDesktopFeed(f.dir, "1.2.3", f.options)).rejects.toThrow();
+});
+
+test("complete feed contains both immutable macOS URLs and matching metadata", async () => {
   const f = fixture();
   const feed = JSON.parse(await buildDesktopFeed(f.dir, "1.2.3", f.options));
-  expect(Object.keys(feed.platforms)).toEqual(["darwin-aarch64"]);
+  expect(Object.keys(feed.platforms)).toEqual(["darwin-aarch64", "darwin-x86_64"]);
   expect(feed.platforms["darwin-aarch64"].url).toBe("https://github.com/lamtuanvu/pacer/releases/download/v1.2.3/desktop-pacer-1.2.3-darwin-aarch64.app.tar.gz");
+  expect(feed.platforms["darwin-x86_64"].url).toBe("https://github.com/lamtuanvu/pacer/releases/download/v1.2.3/desktop-pacer-1.2.3-darwin-x86_64.app.tar.gz");
   expect(feed.platforms["darwin-aarch64"].admissionProtocol).toBe(1);
+  expect(feed.platforms["darwin-x86_64"].admissionProtocol).toBe(1);
   expect(JSON.stringify(feed)).not.toContain(".dmg");
 });
 
 test("publication uploads the first-install disk image as an immutable asset", async () => {
   const f = fixture();
   await publishDesktopRelease(f.dir, "1.2.3", f.publisher, f.options);
-  expect([...f.assets.keys()].sort()).toEqual(["desktop-pacer-1.2.3-darwin-aarch64.app.tar.gz", "desktop-pacer-1.2.3-darwin-aarch64.app.tar.gz.sig", "desktop-pacer-1.2.3-darwin-aarch64.dmg", "desktop-release-1.2.3.json"]);
+  expect([...f.assets.keys()].sort()).toEqual([
+    ...DESKTOP_ARCHES.flatMap(arch => [desktopAssetName("1.2.3", arch), desktopAssetName("1.2.3", arch) + ".sig", desktopDiskImageName("1.2.3", arch)]),
+    "desktop-release-1.2.3.json",
+  ].sort());
 });
 
 for (const reason of ["missing-archive", "missing-disk-image", "different-disk-image", "bad-signature", "wrong-version", "wrong-arch", "wrong-protocol", "no-notarization", "prerelease", "cli-only"]) {

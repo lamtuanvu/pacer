@@ -131,3 +131,16 @@ test('task history invalidates on task revisions, not just configuration',()=>{
  const updated={...state,snapshot:{...state.snapshot,tasks:state.snapshot.tasks.map((t,i)=>i===0?{...t,rev:(t.rev??0)+1,state:'done'}:t)}};
  expect(queryRevision(updated,'task.list',{})).not.toBe(before);
 });
+
+test('work rows refresh when a node starts, settles or appears, so a running tree shows its new tokens',()=>{
+ const state={...initialState(),snapshot:snapshot as unknown as ClientSnapshot};
+ const params={relation:'all',limit:100};
+ const before=queryRevision(state,'dispatch.list',params);
+ const settled={...state,snapshot:{...state.snapshot,tasks:state.snapshot.tasks.map((t,i)=>i===0?{...t,state:t.state==='done'?'running':'done'}:t)}};
+ expect(queryRevision(settled,'dispatch.list',params)).not.toBe(before);
+ const added={...state,snapshot:{...state.snapshot,tasks:[...state.snapshot.tasks,{...state.snapshot.tasks[0]!,id:'t-new-child'}]}};
+ expect(queryRevision(added,'dispatch.list',params)).not.toBe(before);
+ // Progress ticks on a running task must not refetch a hundred work rows each time.
+ const progress={...state,snapshot:{...state.snapshot,tasks:state.snapshot.tasks.map((t,i)=>i===0?{...t,rev:(t.rev??0)+1,updatedAt:t.updatedAt+5}:t)}};
+ expect(queryRevision(progress,'dispatch.list',params)).toBe(before);
+});

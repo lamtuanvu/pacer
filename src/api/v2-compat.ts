@@ -27,7 +27,9 @@ export function v2Hello() {
 }
 
 for (const op of ["limits.refresh", "session.draft.create", "session.prepare", "session.create", "session.context", "session.end", "session.resume", "session.attachment.prepare", "session.file.read"]) V3_ONLY_OPS.add(op);
+for (const op of ["insights.summary"]) V3_ONLY_OPS.add(op);
 for (const op of ["terminal.list", "terminal.create", "terminal.rename", "terminal.close"]) V3_ONLY_OPS.add(op);
+for (const op of ["assistant.status", "assistant.ask", "assistant.cancel", "assistant.conversations", "assistant.conversation", "assistant.turn", "assistant.delete", "assistant.settings.get", "assistant.settings.set", "assistant.candidates", "assistant.card.record", "assistant.card.refresh"]) V3_ONLY_OPS.add(op);
 
 function budget(s: SnapshotV3): BudgetData | null {
  if(!s.planner)return null;
@@ -53,7 +55,7 @@ export function toV2Snapshot(s: CompatSnapshot): SnapshotV2 {
 export function toV2Event(e: CompatEvent): ApiEventV2 | null {
  if(e.type==='desktop.update')return null;
  if(V2_EVENT in e)return e[V2_EVENT]??null;
- if(e.type==='planner')return null;
+ if(e.type==='planner'||e.type==='assistant')return null;
  return {...e,type:e.type,seq:e.seq>=V3_CURSOR_BASE?e.seq-V3_CURSOR_BASE:e.seq};
 }
 // A disjoint safe-integer cursor namespace makes persisted 2.x cursors detectable,

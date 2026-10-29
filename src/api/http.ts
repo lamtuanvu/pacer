@@ -4,6 +4,7 @@ import * as core from "../core";
 import type { Status } from "../engine/status";
 import type { Ctx } from "../types";
 import { eventsSince, liveSnapshot, liveV2Snapshot } from "./events";
+import { isExecutorSession } from "../install/role";
 import { callOp, type OpDeps } from "./ops";
 import { helloBody, httpStatus, toApiError, type ApiErrorBody } from "./protocol";
 
@@ -93,6 +94,12 @@ export async function handleV2(req: Request, deps: { getCtx: () => Ctx; opDeps?:
         last = batch.last;
         return false;
       });
+    }
+    const streamRoute = pathname.match(/^\/v2\/assistant\/turns\/([A-Za-z0-9_-]{1,128})\/stream$/);
+    if (streamRoute) {
+      if (version !== 3) return errorResponse({ code: "unknown_op", message: "The assistant needs protocol 3" }, 404);
+      if (isExecutorSession(deps.getCtx())) return errorResponse({ code: "not_allowed", message: "PACER_ROLE=executor: executors cannot use the assistant." });
+      return (await import("../assistant/stream")).assistantStream(streamRoute[1]!);
     }
     const logRoute = pathname.match(/^\/v2\/tasks\/([^/]+)\/log$/);
     if (logRoute && url.searchParams.get("follow") === "1") {

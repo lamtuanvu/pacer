@@ -1,5 +1,14 @@
 use std::path::{Path, PathBuf};
 
+#[derive(Default, serde::Deserialize)]
+pub(crate) enum CliLayout {
+    #[default]
+    #[serde(skip)]
+    Legacy,
+    #[serde(rename = "paired")]
+    Paired,
+}
+
 /// None means a development/Linux launch; an invalid macOS bundle is an error,
 /// never permission to execute an unrelated PATH installation.
 #[derive(serde::Deserialize)]
@@ -12,6 +21,8 @@ struct ReleaseMetadata {
     protocol_majors: Vec<u32>,
     admission_protocol: u32,
     rollback_compatible: bool,
+    #[serde(default)]
+    cli_layout: CliLayout,
 }
 
 pub fn packaged_cli(executable: &Path) -> Result<Option<PathBuf>, String> {
@@ -45,6 +56,12 @@ fn validate_bundle(contents: &Path) -> Result<PathBuf, String> {
         || metadata.version != env!("CARGO_PKG_VERSION") || metadata.arch != std::env::consts::ARCH
         || !metadata.protocol_majors.contains(&3) || metadata.admission_protocol != 1
         || !metadata.rollback_compatible { return Err(error()); }
+    if matches!(metadata.cli_layout, CliLayout::Paired) {
+        let core = std::fs::symlink_metadata(contents.join("Resources/pacer-core")).map_err(|_| error())?;
+        if !core.is_file() || core.file_type().is_symlink() || core.permissions().mode() & 0o111 == 0 {
+            return Err(error());
+        }
+    }
     let info = plist::Value::from_file(contents.join("Info.plist")).map_err(|_| error())?;
     let info = info.as_dictionary().ok_or_else(error)?;
     for (key, expected) in [
@@ -80,6 +97,24 @@ mod tests {
             "arch": std::env::consts::ARCH, "protocolMajors": [3], "admissionProtocol": 1, "rollbackCompatible": true,
         })).unwrap()).unwrap();
         Fixture(root)
+    }
+    #[test]
+    fn paired_bundle_requires_a_real_executable_core() {
+        for mode in ["missing", "nonexecutable", "symlink", "valid", "unknown-layout"] {
+            let f = fixture();
+            let contents = f.0.join("pacer.app/Contents");
+            let metadata = contents.join("Resources/pacer-release.json");
+            let mut value: serde_json::Value = serde_json::from_slice(&std::fs::read(&metadata).unwrap()).unwrap();
+            value["cliLayout"] = serde_json::json!(if mode == "unknown-layout" { "other" } else { "paired" });
+            std::fs::write(&metadata, serde_json::to_vec(&value).unwrap()).unwrap();
+            let core = contents.join("Resources/pacer-core");
+            if mode == "symlink" { symlink(contents.join("Resources/pacer"), &core).unwrap(); }
+            else if mode != "missing" {
+                std::fs::write(&core, b"fixture core").unwrap();
+                std::fs::set_permissions(&core, std::fs::Permissions::from_mode(if mode == "nonexecutable" { 0o600 } else { 0o755 })).unwrap();
+            }
+            assert_eq!(packaged_cli(&contents.join("MacOS/pacer")).is_ok(), mode == "valid", "{mode}");
+        }
     }
     #[test]
     fn packaged_cli_uses_resources_and_never_the_shell() {
