@@ -81,6 +81,15 @@ const DEFAULTS: RunnerDeps = {
   verifyRepo,
 };
 
+/**
+ * An interactive lane (delegate --interactive) runs on any backend; Orca keeps its worker live for answers and
+ * `task.send`. A chat from session.create stays on the direct backend, because session.io streams only that PTY.
+ * Strict enforcement forces direct for both.
+ */
+export function needsDirectBackend(task: TaskRecord, strict: boolean): boolean {
+  return strict || (task.interactionMode === "conversation" && !task.interactive);
+}
+
 function finish(ctx: Ctx, id: string, result: TaskResult): TaskRecord {
   if (getWork(ctx,id) && result.status === "done" && pendingChildren(ctx,id).length) result = {...result,status:"needs_input",report:result.report+"\nRequired child work needs review before this task can complete."};
   const finished = updateTask(ctx, id, (t) => {
@@ -410,9 +419,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
         const selectedRunner = resolveRunner(s, pick);
         if (selectedRunner) await ensureRunnerIntegration(ctx, selectedRunner);
       }
-      // A conversation's live terminal works on any backend that actually launches one (direct's PTY,
-      // or Orca's worker terminal via OrcaSessionHost); only strict enforcement forces direct.
-      const backend = resuming || deps.runAttempt ? null : work?.options.delegationEnforcement === "strict" ? directBackend : await selectBackend(ctx, s, undefined, pick);
+      const backend = resuming || deps.runAttempt ? null : needsDirectBackend(task, work?.options.delegationEnforcement === "strict") ? directBackend : await selectBackend(ctx, s, undefined, pick);
       attemptedBackend = backend?.id ?? "direct";
       const account = resolveRunner(s, pick)?.account ?? pick;
       const usage = (st: Status | undefined): AttemptUsage => {

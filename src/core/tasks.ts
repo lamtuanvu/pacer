@@ -310,7 +310,7 @@ async function retryTask(
       ...(task.placement?.reason !== undefined ? { worktree_reason: task.placement.reason } : {}),
       ...(task.force ? { force: true } : {}),
       ...(executor ? { executor } : {}),
-      ...(task.interactionMode === "conversation" ? { interactive: true } : {}),
+      ...(task.interactive ? { interactive: true } : {}),
       ...(task.group ? { group: task.group } : {}),
     };
     let next: TaskRecord;

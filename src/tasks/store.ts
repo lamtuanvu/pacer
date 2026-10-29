@@ -185,7 +185,7 @@ export function isTaskId(id: string): boolean {
 }
 
 export function createTask(
-  ctx: Ctx, input: { title?: string; brief: Brief; kind: string | null; requestedExecutor: string | null; timeoutS: number } & Partial<Pick<TaskRecord, "interactionMode" | "conversation" | "sessionDraftId" | "requestId" | "source" | "repo" | "placement" | "baseBranch" | "baseSha" | "group">>,
+  ctx: Ctx, input: { title?: string; brief: Brief; kind: string | null; requestedExecutor: string | null; timeoutS: number } & Partial<Pick<TaskRecord, "interactionMode" | "conversation" | "sessionDraftId" | "requestId" | "source" | "repo" | "placement" | "baseBranch" | "baseSha" | "group" | "interactive">>,
   onCreate?: (task: TaskRecord, db: Database) => void,
 ): TaskRecord {
   const { db } = connection(ctx);

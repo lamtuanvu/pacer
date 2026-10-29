@@ -575,3 +575,12 @@ test("connected integration is refreshed before a conversation reaches its backe
   };
   expect((await runTask(ctx, task.id, d)).state).toBe("done");
 });
+
+test("a session.create chat stays on the direct backend; only an interactive lane may run on Orca", async () => {
+  const { needsDirectBackend } = await import("../src/tasks/runner");
+  const base = { interactionMode: "conversation" } as import("../src/tasks/types").TaskRecord;
+  expect(needsDirectBackend(base, false)).toBe(true);
+  expect(needsDirectBackend({ ...base, interactive: true }, false)).toBe(false);
+  expect(needsDirectBackend({ ...base, interactive: true }, true)).toBe(true);
+  expect(needsDirectBackend({} as import("../src/tasks/types").TaskRecord, false)).toBe(false);
+});

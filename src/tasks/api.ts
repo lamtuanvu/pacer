@@ -171,7 +171,7 @@ export function delegate(
     kind: input.kind ?? null,
     requestedExecutor: input.executor ?? null,
     timeoutS: Math.round((input.timeoutMin ?? DEFAULT_TIMEOUT_MIN) * 60),
-    ...(input.interactive ? {interactionMode: "conversation" as const, conversation: {activity: "starting" as const}} : {}),
+    ...(input.interactive ? {interactionMode: "conversation" as const, conversation: {activity: "starting" as const}, interactive: true} : {}),
     ...(input.group ? {group: input.group} : {}),
   }, created => {if(input.dispatch || s.dispatch)registerWork(ctx,created.id,input.dispatch??{},input.workParent,input.workGrant);if(input.workRequest){const db=taskDatabase(ctx);db.query("INSERT INTO work_requests(scope,key,fingerprint,task_id) VALUES(?,?,?,?)").run(input.workRequest.scope,input.workRequest.key,input.workRequest.fingerprint,created.id);}});
   updateTask(ctx,task.id,t=>{t.source=input.source ?? "planner"; if(input.requestId)t.requestId=input.requestId; t.placement={requested:input.worktree??"auto",...(input.worktree_reason!==undefined?{reason:input.worktree_reason}:{})};});

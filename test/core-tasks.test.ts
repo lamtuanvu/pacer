@@ -9,7 +9,7 @@ import { validateStrategy } from "../src/config/strategy";
 import { CoreError } from "../src/core/errors";
 import { withLock } from "../src/core/lock";
 import * as tasks from "../src/core/tasks";
-import { readTask } from "../src/tasks/store";
+import { readTask, updateTask } from "../src/tasks/store";
 import { fakeCtx, tmpDir } from "./helpers";
 
 const s = validateStrategy({ planner: "claude-code", providers: { "claude-code": {}, codex: {} } }, "/x");
@@ -168,6 +168,7 @@ test("--interactive and --group are parsed and set on the delegated task", () =>
   const t=tasks.delegate(ctx,{brief,interactive:true,group:"feature-x"},()=>1,s);
   expect(t.interactionMode).toBe("conversation");
   expect(t.conversation).toEqual({activity:"starting"});
+  expect(t.interactive).toBe(true);
   expect(t.group).toBe("feature-x");
 });
 test("retrying an interactive, grouped task keeps it interactive and in its group", async () => {
@@ -175,7 +176,15 @@ test("retrying an interactive, grouped task keeps it interactive and in its grou
   const t=tasks.delegate(ctx,{brief,interactive:true,group:"feature-x"},()=>1,s);
   const retried=await tasks.retry(ctx,t.id,{},{delegate:(c,i)=>tasks.delegate(c,i,()=>1,s)});
   expect(readTask(ctx,retried.retry.id)?.interactionMode).toBe("conversation");
+  expect(readTask(ctx,retried.retry.id)?.interactive).toBe(true);
   expect(readTask(ctx,retried.retry.id)?.group).toBe("feature-x");
+});
+test("retrying a session chat does not turn it into an interactive lane", async () => {
+  const ctx=fakeCtx(), brief={goal:"Chat",repo:tmpDir()};
+  const t=tasks.delegate(ctx,{brief},()=>1,s);
+  updateTask(ctx,t.id,x=>{x.interactionMode="conversation";x.state="failed";});
+  const retried=await tasks.retry(ctx,t.id,{},{delegate:(c,i)=>tasks.delegate(c,i,()=>1,s)});
+  expect(readTask(ctx,retried.retry.id)?.interactive).toBeUndefined();
 });
 test("group rejects invalid names", () => {
   const ctx=fakeCtx(), brief={goal:"g",repo:tmpDir()};
