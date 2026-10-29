@@ -2,7 +2,7 @@
 //! whole query and answer path is testable in memory.
 use crate::{
     MDNS_PORT, on_link,
-    service::{self, Advert, Heard, Resolved},
+    service::{self, Advert, Heard, Resolved, SERVICE_TTL},
     wire,
 };
 use std::{
@@ -210,7 +210,8 @@ impl Engine {
             .map(|a| a.instance.to_ascii_lowercase());
         for heard in service::heard(&msg, *src.ip()) {
             match heard {
-                Heard::Gone(instance) => {
+                // A zero PTR TTL is a goodbye too (RFC 6762 §10.1).
+                Heard::Gone(instance) | Heard::Alive(Resolved { instance, .. }, 0) => {
                     self.known.remove(&instance.to_ascii_lowercase());
                 }
                 Heard::Alive(resolved, ttl) => {
@@ -218,7 +219,8 @@ impl Engine {
                     if own.as_ref() == Some(&key) {
                         continue;
                     }
-                    let expires = now + Duration::from_secs(ttl.into());
+                    // The TTL is from the wire: capped, so one packet cannot keep a peer for years.
+                    let expires = now + Duration::from_secs(ttl.min(SERVICE_TTL).into());
                     if let Some(peer) = self.known.get_mut(&key)
                         && peer.resolved == resolved
                         && now.saturating_duration_since(peer.reported) < REFRESH

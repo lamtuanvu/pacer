@@ -642,3 +642,51 @@ fn changed_txt_is_reported_at_once_and_restarts_the_cached_interval() {
     let next = b.refresh(t0 + Duration::from_secs(700));
     assert_eq!(next[0].txt["name"], "den");
 }
+
+/// `hello` with every PTR and TXT TTL set to `ttl`.
+fn with_service_ttl(hello: &[u8], ttl: u32) -> Vec<u8> {
+    let mut msg = wire::decode(hello).unwrap();
+    for r in msg.answers.iter_mut().chain(msg.additionals.iter_mut()) {
+        if r.rtype() == TYPE_PTR || r.rtype() == TYPE_TXT {
+            r.ttl = ttl;
+        }
+    }
+    wire::encode(&msg).unwrap()
+}
+
+#[test]
+fn a_huge_wire_ttl_is_capped_at_the_service_ttl() {
+    let t0 = Instant::now();
+    let mut a = Engine::new(iface(Ipv4Addr::new(192, 168, 1, 20)));
+    a.set_advert(t0, Some(advert("peer")));
+    let hello = with_service_ttl(&announce_of(&mut a, t0), u32::MAX);
+    let mut b = Engine::new(iface(SUBNET_ADDR));
+    b.set_browse(t0, true);
+    let src = from([192, 168, 1, 20], 5353);
+    assert_eq!(b.handle(t0, &hello, src).resolved.len(), 1);
+    // Cached for SERVICE_TTL (4500 s), not 136 years.
+    let reports = cached_reports(&mut b, t0, 0, 9000);
+    assert_eq!(reports.last(), Some(&4200));
+}
+
+#[test]
+fn a_zero_ptr_ttl_is_a_goodbye() {
+    let t0 = Instant::now();
+    let mut a = Engine::new(iface(Ipv4Addr::new(192, 168, 1, 20)));
+    a.set_advert(t0, Some(advert("peer")));
+    let hello = announce_of(&mut a, t0);
+    let mut msg = wire::decode(&hello).unwrap();
+    for r in msg.answers.iter_mut().filter(|r| r.rtype() == TYPE_PTR) {
+        r.ttl = 0;
+    }
+    let ptr_gone = wire::encode(&msg).unwrap();
+    let mut b = Engine::new(iface(SUBNET_ADDR));
+    b.set_browse(t0, true);
+    let src = from([192, 168, 1, 20], 5353);
+    // Never reported, even when first heard: a zero PTR TTL is a goodbye.
+    assert!(b.handle(t0, &ptr_gone, src).resolved.is_empty());
+    assert_eq!(b.handle(t0, &hello, src).resolved.len(), 1);
+    let at = t0 + Duration::from_secs(10);
+    assert!(b.handle(at, &ptr_gone, src).resolved.is_empty());
+    assert!(cached_reports(&mut b, t0, 10, 5000).is_empty());
+}
