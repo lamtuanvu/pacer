@@ -277,7 +277,7 @@ async function retryTask(
   const before = readTask(ctx, id);
   const repoRef = before ? before.repo && !before.repo.identityUnverified ? before.repo : await resolvePolicyRepo(ctx, before.brief.repo) : undefined;
   if (before) await requireRepoDirectory(before.brief.repo);
-  let answerBase: string | undefined;
+  let answerBase: string | undefined, answerFromBase = false;
   if (o.answerText !== undefined && before?.state === "needs_input" && before.question && before.question.answer === undefined && !before.retriedBy) {
     const worktree = [before.result?.worktree, before.worktree, !before.run?.host ? before.run?.workdir : undefined].find(p => p && p.startsWith("/"));
     if (worktree) {
@@ -287,7 +287,7 @@ async function retryTask(
       else throw new CoreError("invalid_input", "cannot read the asking executor's worktree head");
     } else if (before.baseSha) {
       // Pacer removed the lane's unused worktree and forgot its path: start from the commit it was created from.
-      answerBase = before.baseSha;
+      answerBase = before.baseSha; answerFromBase = true;
     }
   }
   const lease = beginWorkSync(ctx, { kind: "launch", id, label: `Retrying task ${id}` });
@@ -329,6 +329,7 @@ async function retryTask(
     const of = updateTask(ctx, task.id, (t) => { t.retriedBy = next.id; if (answering) { t.question!.answer = o.answerText; t.question!.answeredAt = ctx.now; } });
     const retried = readTask(ctx, next.id) ?? next;
     taskActivity(ctx, retried, "retry", `Delegated “${taskTitle(retried)}” to ${executorName(retried.executor ?? retried.requestedExecutor)}`);
+    if (answerFromBase) taskActivity(ctx, retried, "message", `The asking worktree was removed; the answer starts from the recorded base ${answerBase!.slice(0, 12)}`);
     return { retry: retried, of };
   })); } finally { finishUnlaunchedWorkSync(ctx, lease); }
 }

@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { readActivity } from "../src/activity/log";
 import { callOp } from "../src/api/ops";
 import * as tasks from "../src/core/tasks";
 import { cliDeps, main } from "../src/cli";
@@ -81,12 +82,14 @@ test("an answer starts from the asking executor's committed worktree head",async
   expect(readTask(ctx,r.retry.id)?.placement?.requested).toBe("new");
 });
 
-test("an answer whose asking worktree pacer removed starts from the lane's recorded base",async()=>{
+test("an answer whose asking worktree pacer removed starts from the lane's recorded base and says so",async()=>{
   const {ctx,task,deps}=setup();
   const base="c".repeat(40);
   updateTask(ctx,task.id,t=>{t.baseSha=base;t.result={status:"needs_input",executor:"codex",model:null,files:"",report:"asked",backend:"orca"};});
   const r=await callOp(ctx,"task.answer",{id:task.id,text:"postgres"},deps) as any;
   expect(readTask(ctx,r.retry.id)?.brief.base).toBe(base);
+  expect(readActivity(ctx,{}).entries.find(e=>e.taskId===r.retry.id&&e.kind==="message")?.text)
+    .toBe(`The asking worktree was removed; the answer starts from the recorded base ${base.slice(0,12)}`);
 });
 
 test("an answer whose asking worktree was removed out of band is refused until it is restored",async()=>{
