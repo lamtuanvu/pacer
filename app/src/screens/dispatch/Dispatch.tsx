@@ -48,13 +48,17 @@ function useDispatchStyles() {
 const gone = (item: AttentionItem) => (s: { snapshot: ClientSnapshot | null }) => !s.snapshot?.attention?.some(a => a.id === item.id && a.since === item.since);
 const taskLink = (query: RouteQuery) => (id: string) => withQuery(`#/tasks/${encodeURIComponent(id)}`, query);
 
-/**
- * The card's actions: one on Dispatch, as on the board, and both on the standalone Needs you page. A task failure's first action is
- * the primary; executor, host and setup problems keep secondary actions. An answer opens the task.
- */
+/** Card actions retain scoped result links and open questions in the Answer panel. */
 function itemActions(item: AttentionItem, runner: ActionRunner, strong: boolean, count: 1 | 2, query: RouteQuery) {
-  return item.actions.slice(0, count).map((action, i) => item.taskId && ((item.kind === "review" && i === 0) || /inspect|review|checks/i.test(action.label)) ? <TextAction key={i} href={withQuery(`#/tasks/${encodeURIComponent(item.taskId)}/${item.kind === "review" ? "review" : "failure"}`, query)}>{item.kind === "review" ? "Review result" : "Inspect failures"}</TextAction> : <ActionButton key={i} runner={runner} id={`${item.id}:${i}`} strong={strong && i === 0}
-    action={action.op === "task.answer" ? { label: action.label, op: "ui.open", params: { view: "task", id: item.taskId } } : action} confirmDone={gone(item)} />);
+  return item.actions.slice(0, count).map((action, i) => {
+    if (action.op === "task.answer") {
+      return <TextAction key={i} href={withQuery(`#/needs-you?answer=${encodeURIComponent(item.taskId!)}`, query)}>{action.label}</TextAction>;
+    }
+    if (item.taskId && ((item.kind === "review" && i === 0) || /inspect|review|checks/i.test(action.label))) {
+      return <TextAction key={i} href={withQuery(`#/tasks/${encodeURIComponent(item.taskId)}/${item.kind === "review" ? "review" : "failure"}`, query)}>{item.kind === "review" ? "Review result" : "Inspect failures"}</TextAction>;
+    }
+    return <ActionButton key={i} runner={runner} id={`${item.id}:${i}`} strong={strong && i === 0} action={action} confirmDone={gone(item)} />;
+  });
 }
 
 /** A compact Needs you card: glyph, title, one caption line and one action. Status words stay readable beside the glyph. */
@@ -450,8 +454,4 @@ export function DispatchHome({ query }: { query: RouteQuery }) {
     shortWindowPct={Array.isArray(accounts.data) ? plannerShortWindow(accounts.data, state.snapshot.planner?.runner) : null} />;
 }
 
-export function NeedsYouPage({ query }: { query: RouteQuery }) {
-  const { state } = useTaskContext(), runner = useActions();
-  if (!state.snapshot) return null;
-  return <Page width="full" className="pc-needs-you pc-page-body"><header className="pc-dispatch__title"><h1>Needs you</h1></header><RepoFilter snapshot={state.snapshot} query={query} /><NeedsYouList snapshot={state.snapshot} scope={{ repo: query.repo || null }} runner={runner} now={Date.now() / 1000} query={query} narrow={false} standalone /></Page>;
-}
+export { NeedsYouPage } from "../needs-you/NeedsYou";
