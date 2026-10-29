@@ -1,6 +1,6 @@
 import { persistTaskDiff } from "../src/tasks/diff";
 import { expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { gitInfo } from "../src/core/git";
 import * as tasks from "../src/core/tasks";
@@ -116,6 +116,35 @@ test("clean keeps an Orca worktree whose ownership name changed", async () => {
   expect((await tasks.clean(ctx)).kept).toEqual([{id: t.id, reason: "Orca worktree ownership could not be verified"}]);
   expect(removed).toBe(false);
   expect(existsSync(w.path)).toBe(true);
+});
+
+test("clean reports an Orca worktree whose run files could not be pruned, and a rerun prunes them", async () => {
+  const {ctx, t, w, repo} = await finished();
+  updateTask(ctx, t.id, x => {
+    x.result = {status: "done", executor: "codex", model: null, files: "", report: "", backend: "orca", worktree: w.path};
+    x.placement = {requested: "new", mode: "new", why: "test"};
+  });
+  ctx.run = async (argv, timeout) => {
+    if (argv[0] !== "orca") return realRun(argv, timeout);
+    if (argv[2] === "show") return {code: 0, stdout: JSON.stringify({ok: true, result: {worktree: {
+      id: `repo-id::${w.path}`, path: w.path, displayName: `pacer-${t.id}-codex`, isMainWorktree: false,
+    }}}), stderr: ""};
+    const removed = await realRun(["git", "-C", repo, "worktree", "remove", w.path], timeout);
+    return {code: removed.code, stdout: '{"ok":true,"result":{}}', stderr: removed.stderr};
+  };
+  const rd = join(ctx.pacerHome, "runs", t.id, "1");
+  writeFileSync(join(rd, "stdout"), "disposable");
+  chmodSync(rd, 0o500);
+  try {
+    const r = await tasks.clean(ctx);
+    expect(r.removed).toEqual([]);
+    expect(r.kept).toHaveLength(1);
+    expect(r.kept[0]!.reason).toStartWith("worktree deleted; run files could not be pruned: ");
+    expect(existsSync(w.path)).toBe(false);
+    expect(existsSync(join(rd, "stdout"))).toBe(true);
+  } finally { chmodSync(rd, 0o700); }
+  expect(await tasks.clean(ctx)).toEqual({removed: [], kept: []});
+  expect(existsSync(join(rd, "stdout"))).toBe(false);
 });
 
 async function finishedIn(ctx: ReturnType<typeof fakeCtx>, o: { dirty?: boolean } = {}) {
@@ -234,6 +263,36 @@ adversarial("symlinked repo-tag", o => {
 });
 adversarial("symlinked task directory", o => {
   const tag = `${o.tag}-x`; mkdirSync(join(o.root, tag)); symlinkSync(join(o.outside, o.id), join(o.root, tag, o.id)); return join(o.root, tag, o.id);
+});
+
+for (const dryRun of [true, false]) test(`clean --force${dryRun ? " --dry-run" : ""} deletes nothing when the worktrees folder is a symlink`, async () => {
+  const ctx = fakeCtx({ run: realRun });
+  const gone = await finishedIn(ctx);
+  rmSync(gone.repo, { recursive: true, force: true });
+  const root = taskWorktreesDir(ctx), tag = dirname(gone.w.path).slice(root.length + 1), outside = join(ctx.pacerHome, "outside");
+  renameSync(root, outside); symlinkSync(outside, root);
+  const sentinels = [join(outside, "s"), join(outside, tag, "s"), join(outside, tag, gone.t.id, "s")];
+  for (const s of sentinels) writeFileSync(s, "keep");
+  expect(await tasks.clean(ctx, { force: true, dryRun })).toEqual({ removed: [], kept: [{ id: gone.t.id, reason: "worktrees folder is a symlink; not deleted" }] });
+  for (const s of sentinels) expect(existsSync(s)).toBe(true);
+  expect(existsSync(join(gone.rd, "stdout"))).toBe(true);
+});
+
+for (const dryRun of [true, false]) test(`clean --force${dryRun ? " --dry-run" : ""} deletes nothing when the repo-tag folder becomes a symlink after verification`, async () => {
+  const ctx = fakeCtx({ run: realRun });
+  const gone = await finishedIn(ctx);
+  rmSync(gone.repo, { recursive: true, force: true });
+  const tagDir = dirname(gone.w.path), moved = `${tagDir}.orig`, outside = join(ctx.pacerHome, "outside");
+  mkdirSync(join(outside, gone.t.id), { recursive: true });
+  const sentinels = [join(outside, "s"), join(outside, gone.t.id, "s"), join(moved, gone.t.id, "s")];
+  writeFileSync(join(gone.w.path, "s"), "keep");
+  for (const s of sentinels.slice(0, 2)) writeFileSync(s, "keep");
+  tasks.cleanTestHooks.beforeRecheck = () => { renameSync(tagDir, moved); symlinkSync(outside, tagDir); };
+  try {
+    expect(await tasks.clean(ctx, { force: true, dryRun })).toEqual({ removed: [], kept: [{ id: gone.t.id, reason: "worktree changed during cleanup; not deleted" }] });
+  } finally { delete tasks.cleanTestHooks.beforeRecheck; }
+  for (const s of sentinels) expect(existsSync(s)).toBe(true);
+  expect(existsSync(join(gone.rd, "stdout"))).toBe(true);
 });
 
 test("clean keeps a remote task whose local repository was deleted", async () => {

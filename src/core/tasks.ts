@@ -7,7 +7,7 @@ import { apiTask } from "../api/read-model/tasks";
 import type { ApiTask } from "../api/read-model/types";
 import { createHash } from "node:crypto";
 import { repoFor, requireRepoDirectory } from "./repos";
-import { closeSync, existsSync, lstatSync, openSync, readdirSync, readSync, realpathSync, rmSync } from "node:fs";
+import { type BigIntStats, closeSync, existsSync, lstatSync, openSync, readdirSync, readSync, realpathSync, rmSync } from "node:fs";
 import { join, normalize } from "node:path";
 import { appendActivity, type ActivityEntry } from "../activity/log";
 import { executorName } from "../link/notification";
@@ -339,25 +339,46 @@ export async function answer(ctx: Ctx, id: string, text: string, o: { expectRev?
 }
 
 const NOT_OWN_WORKTREE = "worktree path is not this task's worktree; not deleted";
+const WORKTREE_CHANGED = "worktree changed during cleanup; not deleted";
+
+/** A directory checked by verifiedTaskWorktreeRoot, identified by device and inode. */
+type DirId = { path: string; dev: bigint; ino: bigint };
 
 /** This task's own worktree root, <worktrees>/<repo-tag>/<task-id>, or why the recorded path is not it.
- *  `real` is the same directory under the canonical worktrees root; no component may be a symlink. */
-export function verifiedTaskWorktreeRoot(ctx: Ctx, t: TaskRecord, wt: string): { path: string; real: string; exists: boolean } | { invalid: string } {
+ *  `real` is the same directory under the canonical worktrees root. The worktrees folder, repo-tag and task
+ *  directories may not be symlinks; folders above the worktrees folder may be (macOS /var → /private/var, a
+ *  linked home) and are resolved. `ids` pins the three checked directories for unchangedDirs before deletion. */
+export function verifiedTaskWorktreeRoot(ctx: Ctx, t: TaskRecord, wt: string): { path: string; real: string; exists: boolean; ids: DirId[] } | { invalid: string } {
   const root = taskWorktreesDir(ctx);
   if (!wt.startsWith(root + "/")) return { invalid: NOT_OWN_WORKTREE };
   const parts = wt.slice(root.length + 1).split("/");
   if (parts.length < 2 || parts.some(p => p === "" || p === "." || p === "..") || parts[1] !== t.id || normalize(wt) !== wt) return { invalid: NOT_OWN_WORKTREE };
   const [tag, id] = parts as [string, string], path = join(root, tag, id);
-  let canonical: string;
-  try { canonical = realpathSync(root); } catch (e) { if ((e as NodeJS.ErrnoException).code === "ENOENT") return { path, real: path, exists: false }; throw e; }
-  const tagDir = join(canonical, tag), real = join(tagDir, id);
+  let rootSt: BigIntStats;
+  try { rootSt = lstatSync(root, { bigint: true }); } catch (e) { if (["ENOENT", "ENOTDIR"].includes((e as NodeJS.ErrnoException).code ?? "")) return { path, real: path, exists: false, ids: [] }; throw e; }
+  if (rootSt.isSymbolicLink()) return { invalid: "worktrees folder is a symlink; not deleted" };
+  if (!rootSt.isDirectory()) return { invalid: "worktrees folder is not a directory; not deleted" };
+  const canonical = realpathSync(root), tagDir = join(canonical, tag), real = join(tagDir, id);
+  const ids: DirId[] = [{ path: canonical, dev: rootSt.dev, ino: rootSt.ino }];
   for (const dir of [tagDir, real]) {
-    let st: ReturnType<typeof lstatSync>;
-    try { st = lstatSync(dir); } catch (e) { if (["ENOENT", "ENOTDIR"].includes((e as NodeJS.ErrnoException).code ?? "")) return { path, real, exists: false }; throw e; }
+    let st: BigIntStats;
+    try { st = lstatSync(dir, { bigint: true }); } catch (e) { if (["ENOENT", "ENOTDIR"].includes((e as NodeJS.ErrnoException).code ?? "")) return { path, real, exists: false, ids: [] }; throw e; }
     if (st.isSymbolicLink() || !st.isDirectory() || realpathSync(dir) !== dir) return { invalid: NOT_OWN_WORKTREE };
+    ids.push({ path: dir, dev: st.dev, ino: st.ino });
   }
-  return { path, real, exists: true };
+  return { path, real, exists: true, ids };
 }
+
+/** True when every directory is still the same real directory that verifiedTaskWorktreeRoot checked. */
+function unchangedDirs(ids: DirId[]): boolean {
+  return ids.every(d => {
+    try { const st = lstatSync(d.path, { bigint: true }); return !st.isSymbolicLink() && st.isDirectory() && st.dev === d.dev && st.ino === d.ino; }
+    catch { return false; }
+  });
+}
+
+/** Test seam: runs after verification and before the forced delete's identity re-check. */
+export const cleanTestHooks: { beforeRecheck?: (real: string) => void } = {};
 
 /** True when cleanTaskRuns would still remove something for this task. */
 function hasDisposableRuns(ctx: Ctx, t: TaskRecord): boolean {
@@ -387,7 +408,8 @@ export async function clean(ctx: Ctx, o: { dryRun?: boolean; force?: boolean } =
       const host = await cleanHostWorktree(ctx, t, { dryRun: o.dryRun, force: o.force, shared: path => shared(t, path) });
       if (host && "kept" in host) { kept.push({ id: t.id, reason: host.kept }); continue; }
       if (host) {
-        if (!o.dryRun) cleanTaskRuns(ctx, t);
+        const failed = o.dryRun ? null : pruneRuns(ctx, t);
+        if (failed) { kept.push({ id: t.id, reason: failed }); continue; }
         if ("removed" in host) removed.push(t.id);
         continue;
       }
@@ -411,7 +433,10 @@ export async function clean(ctx: Ctx, o: { dryRun?: boolean; force?: boolean } =
       if (top === null) {
         // Without the repository git cannot check or remove the worktree; --force deletes only this task's verified directory.
         if (!o.force) { kept.push({ id: t.id, reason: "source repository is missing; use --force to delete the worktree" }); continue; }
+        cleanTestHooks.beforeRecheck?.(own.real);
+        if (!unchangedDirs(own.ids)) { kept.push({ id: t.id, reason: WORKTREE_CHANGED }); continue; }
         if (!o.dryRun) {
+          // A swap between this re-check and rmSync remains possible in theory: Node has no handle-based recursive delete.
           rmSync(own.real, { recursive: true, force: true });
           const failed = pruneRuns(ctx, t);
           if (failed) { kept.push({ id: t.id, reason: failed }); continue; }
