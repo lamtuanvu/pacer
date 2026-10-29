@@ -111,16 +111,19 @@ test("a run that never claimed its turn does not restart and reports the undeliv
   expect(reports[0]!.body).toContain("duplicate brief");
 });
 
-test("managed work nodes are never resumed by messages; they pull with their grant", async () => {
+test("a running managed work node queues messages; a settled one restarts through the managed path", async () => {
   const { ctx, id } = finished();
   registerWork(ctx, id);
+  updateTask(ctx, id, t => { t.state = "running"; });
   const { spawned, spawn } = spawner();
   const r = await sendMessage(ctx, { to: `task:${id}`, body: "x" }, { spawnRunner: spawn });
-  expect(r.delivery).toBe("pull");
-  expect(startTurnIfIdle(ctx, id, spawn)).toBe("pull");
+  expect(r.delivery).toBe("queued");
   expect(spawned).toEqual([]);
-  expect(readTask(ctx, id)!.result?.report).toBe("first report");
   expect(store.pendingFor(ctx, `task:${id}`).length).toBe(1);
+  updateTask(ctx, id, t => { t.state = "done"; });
+  expect(startTurnIfIdle(ctx, id, spawn)).toBe("turn_started");
+  expect(spawned).toEqual([id]);
+  expect(readTask(ctx, id)!.pendingTurn).toBeDefined();
 });
 
 test("a work child does not report to its work parent", async () => {

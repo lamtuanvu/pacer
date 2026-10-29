@@ -33,9 +33,9 @@ import { callerParticipant, parentOf, rootOf } from "../messaging/participants";
 import * as msgStore from "../messaging/store";
 import { beginTurn, notifyMessage, readMessages } from "../messaging/turns";
 
-/** True when the next turn can resume the task's own native session. */
-function canContinue(ctx: Ctx, t: TaskRecord): boolean {
-  return !getWork(ctx, t.id) && t.interactionMode !== "conversation" && !!t.run && (!!t.run.agentSession || /opencode/.test(t.run.executor));
+/** True when the next turn can resume the task's own native session; managed work restarts through its managed path. */
+export function canContinue(_ctx: Ctx, t: TaskRecord): boolean {
+  return t.interactionMode !== "conversation" && !!t.run && (!!t.run.agentSession || /opencode/.test(t.run.executor));
 }
 
 export { taskActivity } from "../tasks/activity";
@@ -258,6 +258,8 @@ export async function review(
       if (prior && ["queued", "running"].includes(prior.state)) throw new CoreError("conflict", `${id} already has an active retry ${prior.id}`);
       const task = await continueWithMessage(ctx, current, { kind: "message", body: `Review feedback: ${v.note}`, replyTo: null, requestId: `sendback:${id}:${current.rev}` }, deps);
       if (task) return { task, retry: task };
+      // Managed work never falls back to a legacy retry, which would drop its delegation policy.
+      if (getWork(ctx, id)) throw new CoreError("conflict", "The work could not continue its session; use dispatch.retry with feedback");
     }
     // Both policy decisions finish before the single guarded retry+verdict commit.
     let reviewed:TaskRecord|undefined;
@@ -487,6 +489,7 @@ export async function answer(ctx: Ctx, id: string, text: string, o: { expectRev?
       if (question) readMessages(ctx, question.to, [question.id]);
       return { task, retry: task };
     }
+    if (getWork(ctx, id)) throw new CoreError("conflict", "The work could not continue its session; use dispatch.answer with a requestId and revision");
     expectRev = readTask(ctx, id)?.rev;
   }
   const r = await retryTask(ctx, id, {...o, expectRev, answerText:text}, deps);
