@@ -1,11 +1,14 @@
 //! The multicast UDP socket on one interface.
 //!
-//! On macOS and Linux the socket is bound to the group address, 224.0.0.251:5353, so it receives
-//! only datagrams sent to the group. Unicast datagrams to port 5353 stay with the system responder
-//! (mDNSResponder, Avahi), and a host off the link cannot reach the socket at all, because routers
-//! never forward 224.0.0.0/24. That is why the IP TTL of received packets (RFC 6762 §11) need not
-//! be checked; reading it would need `IP_RECVTTL` and control messages, which socket2 does not
-//! offer safely, and the workspace forbids `unsafe`.
+//! On Linux the socket is bound to the group address, 224.0.0.251:5353, so it receives only
+//! datagrams sent to the group. On macOS (and other non-Linux unix) it is bound to 0.0.0.0:5353:
+//! a socket bound to the group fails every `sendto` there with `EADDRNOTAVAIL`. Measured on macOS
+//! with such a wildcard socket held open, unicast mDNS queries to the host's address were all
+//! answered by mDNSResponder and none reached the socket, so the system responder keeps unicast
+//! traffic either way. The destination address of a datagram is not checked: reading it would
+//! need `IP_RECVDSTADDR` and control messages, which socket2 does not offer safely, and the
+//! workspace forbids `unsafe`. For the same reason the IP TTL (RFC 6762 §11) is not checked; the
+//! source must be on the link (see `on_link`), and routers never forward 224.0.0.0/24.
 use crate::{MDNS_GROUP, MDNS_PORT, Transport};
 use socket2::{Domain, Protocol, Socket, Type};
 use std::{
@@ -16,10 +19,10 @@ use std::{
 
 pub struct MulticastSocket(UdpSocket);
 
-/// The group address on macOS and Linux, which deliver only group traffic to such a socket.
-/// Elsewhere (Windows refuses a multicast bind) any address.
+/// The group address on Linux, which delivers only group traffic to such a socket. Elsewhere any
+/// address: macOS cannot send from a group-bound socket and Windows refuses the bind.
 fn bind_addr() -> SocketAddrV4 {
-    if cfg!(any(target_os = "macos", target_os = "linux")) {
+    if cfg!(target_os = "linux") {
         SocketAddrV4::new(MDNS_GROUP, MDNS_PORT)
     } else {
         SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, MDNS_PORT)
@@ -83,12 +86,24 @@ mod tests {
     #![allow(clippy::unwrap_used)]
     use super::*;
 
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[cfg(target_os = "linux")]
     #[test]
-    fn the_socket_is_bound_to_the_group_so_unicast_never_reaches_it() {
+    fn linux_binds_the_group_so_unicast_never_reaches_the_socket() {
         assert_eq!(bind_addr(), SocketAddrV4::new(MDNS_GROUP, MDNS_PORT));
         let socket = bound().unwrap();
         let local = socket.local_addr().unwrap().as_socket_ipv4().unwrap();
         assert_eq!(local, SocketAddrV4::new(MDNS_GROUP, MDNS_PORT));
+    }
+
+    #[cfg(all(unix, not(target_os = "linux")))]
+    #[test]
+    fn macos_binds_the_wildcard_because_a_group_bound_socket_cannot_send() {
+        assert_eq!(
+            bind_addr(),
+            SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, MDNS_PORT)
+        );
+        let socket = bound().unwrap();
+        let local = socket.local_addr().unwrap().as_socket_ipv4().unwrap();
+        assert_eq!(local, SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, MDNS_PORT));
     }
 }

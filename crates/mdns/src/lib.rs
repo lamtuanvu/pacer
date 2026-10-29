@@ -112,10 +112,15 @@ impl Responder {
     pub fn with_transport(iface: Interface, transport: impl Transport) -> Responder {
         let (commands, command_rx) = mpsc::channel();
         let (event_tx, events) = mpsc::sync_channel(EVENTS_MAX);
+        let out = Outbound {
+            transport,
+            iface: iface.name.clone(),
+            health: SendHealth::default(),
+        };
         let engine = Engine::new(iface);
         let thread = std::thread::Builder::new()
             .name("pacer-mdns".into())
-            .spawn(move || run(engine, transport, command_rx, event_tx))
+            .spawn(move || run(engine, out, command_rx, event_tx))
             .ok();
         Responder {
             commands,
@@ -168,15 +173,50 @@ impl Drop for Responder {
     }
 }
 
-fn send_all(transport: &impl Transport, packets: Vec<Vec<u8>>) {
-    for packet in packets {
-        let _ = transport.send(&packet);
+/// Whether sends are failing, so the first failure and the recovery are logged once each.
+#[derive(Default)]
+struct SendHealth {
+    failing: bool,
+}
+
+impl SendHealth {
+    /// The line to log for this send result, if its state changed.
+    fn record(&mut self, iface: &str, result: io::Result<()>) -> Option<String> {
+        match result {
+            Err(e) if !self.failing => {
+                self.failing = true;
+                Some(format!("pacer: mDNS send failed on {iface}: {e}"))
+            }
+            Ok(()) if self.failing => {
+                self.failing = false;
+                Some(format!("pacer: mDNS send recovered on {iface}"))
+            }
+            _ => None,
+        }
+    }
+}
+
+/// The transport with the interface name and send state for logging.
+struct Outbound<T> {
+    transport: T,
+    iface: String,
+    health: SendHealth,
+}
+
+impl<T: Transport> Outbound<T> {
+    fn send_all(&mut self, packets: Vec<Vec<u8>>) {
+        for packet in packets {
+            let result = self.transport.send(&packet);
+            if let Some(line) = self.health.record(&self.iface, result) {
+                eprintln!("{line}");
+            }
+        }
     }
 }
 
 fn run(
     mut engine: Engine,
-    transport: impl Transport,
+    mut out: Outbound<impl Transport>,
     commands: Receiver<Command>,
     events: SyncSender<Resolved>,
 ) {
@@ -185,25 +225,25 @@ fn run(
         let now = Instant::now();
         loop {
             match commands.try_recv() {
-                Ok(Command::Advert(advert)) => send_all(&transport, engine.set_advert(now, advert)),
+                Ok(Command::Advert(advert)) => out.send_all(engine.set_advert(now, advert)),
                 Ok(Command::Browse(on)) => engine.set_browse(now, on),
                 Ok(Command::Shutdown) | Err(TryRecvError::Disconnected) => {
-                    send_all(&transport, engine.goodbye().into_iter().collect());
+                    out.send_all(engine.goodbye().into_iter().collect());
                     return;
                 }
                 Err(TryRecvError::Empty) => break,
             }
         }
-        send_all(&transport, engine.poll(now));
+        out.send_all(engine.poll(now));
         let wait = engine
             .next_deadline()
             .map_or(TICK, |d| d.saturating_duration_since(now))
             .clamp(Duration::from_millis(1), TICK);
-        match transport.recv(&mut buf, wait) {
+        match out.transport.recv(&mut buf, wait) {
             // A datagram that filled the buffer was larger than MAX_PACKET and is dropped.
             Ok(Some((n, src))) if n <= wire::MAX_PACKET => {
                 let handled = engine.handle(Instant::now(), &buf[..n], src);
-                send_all(&transport, handled.reply.into_iter().collect());
+                out.send_all(handled.reply.into_iter().collect());
                 for resolved in handled.resolved {
                     let _ = events.try_send(resolved);
                 }
@@ -211,5 +251,24 @@ fn run(
             Ok(_) => {}
             Err(_) => std::thread::sleep(wait),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_the_first_send_failure_and_the_recovery_are_reported() {
+        let mut health = SendHealth::default();
+        let fail = || Err(io::Error::from(io::ErrorKind::AddrNotAvailable));
+        assert_eq!(health.record("en0", Ok(())), None);
+        let first = health.record("en0", fail());
+        assert!(first.is_some_and(|m| m.contains("en0") && m.contains("send failed")));
+        assert_eq!(health.record("en0", fail()), None);
+        let recovered = health.record("en0", Ok(()));
+        assert!(recovered.is_some_and(|m| m.contains("en0") && m.contains("recovered")));
+        assert_eq!(health.record("en0", Ok(())), None);
+        assert!(health.record("en0", fail()).is_some());
     }
 }
