@@ -45,7 +45,7 @@ if (import.meta.main) {
   await Bun.write(shellPath, tokenCss + shellCss.slice(shellSuffixAt));
   await Bun.write(join(root, "src/ds/tokens.ts"), generateTokensTs(tokens));
   for (const file of files) await Bun.write(join(root, "dist", file.path), file.text);
-  await Bun.write(join(root, "../src/app/assets.generated.ts"), generatedSource(files));
+  if (!process.argv.includes("--no-embed")) await Bun.write(join(root, "../src/app/assets.generated.ts"), generatedSource(files));
   for (const file of files.filter(file => file.path.endsWith(".js"))) {
     const size = Bun.gzipSync(file.text).byteLength;
     const budget = file.path === "app.js" ? APP_JS_BUDGET : TERM_JS_BUDGET;

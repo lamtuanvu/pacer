@@ -260,6 +260,8 @@
   --motion-meter: 300ms;
   --motion-loading: 1200ms;
   --motion-ease: ease-out;
+  --motion-selection: 160ms;
+  --motion-panel: 120ms;
   font-variant-numeric: tabular-nums;
 }
 @media (prefers-color-scheme: dark) {

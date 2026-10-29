@@ -7,7 +7,7 @@ import { Disclosure, Field, TextArea, TextInput } from "../../ds/Controls";
 import { ChoicePicker } from "../../ds/ChoicePicker";
 import { AgentMark } from "../../ds/AgentMark";
 import { Icon } from "../../ds/icons";
-import { SegmentedControl, tabStep } from "../../ds/Patterns";
+import { SegmentedControl, Tabs } from "../../ds/Patterns";
 import { hrefFor, routes } from "../../router";
 import { Identicon } from "../../ds/Identicon";
 import { Tooltip } from "../../ds/Tooltip";
@@ -103,12 +103,8 @@ function GlobalRules({ rules, available, disabled, onChange, onActiveKind }: { r
     onChange(rules.filter((_, at) => at !== index));
   };
   return <div ref={root} className="pc-stack pc-stack--normal">
-    <div role="tablist" aria-label="Task type" className="pc-dispatcher-tabs">
-      {rules.map((value, index) => <Button size="sm" key={keys.current[index]} role="tab" id={`rule-${tabId}-${keys.current[index]}-tab`} aria-controls={`rule-${tabId}-${keys.current[index]}-panel`} aria-selected={active === index} tabIndex={active === index ? 0 : -1}
-        onClick={() => setSelected(index)} onKeyDown={event => { const to = tabStep(event.key, index, rules.length); if (to === undefined) return; event.preventDefault(); setSelected(to); buttons(root.current, '[role="tab"]')[to]?.focus(); }}>
-        {kindLabel(value)} <span className="pc-dispatcher-tabs__count">{value.executors.length}</span>
-      </Button>)}
-    </div>
+    <Tabs label="Task type" id={`rule-${tabId}`} value={String(keys.current[active])} onChange={value => setSelected(keys.current.findIndex(key => String(key) === value))}
+      options={rules.map((value, index) => ({ value: String(keys.current[index]), label: <>{kindLabel(value)} <span className="pc-dispatcher-tabs__count">{value.executors.length}</span></> }))} />
     {rules.map((_, index) => index !== active && <div key={keys.current[index]} hidden role="tabpanel" id={`rule-${tabId}-${keys.current[index]}-panel`} aria-labelledby={`rule-${tabId}-${keys.current[index]}-tab`} />)}
     {rule && <div role="tabpanel" id={`rule-${tabId}-${keys.current[active]}-panel`} aria-labelledby={`rule-${tabId}-${keys.current[active]}-tab`} className="pc-stack pc-stack--normal">
       {rule.kinds && <div className="u3-row">
