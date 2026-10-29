@@ -6,6 +6,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
+- pacer now ships as a Rust front door, `pacer`, paired with its TypeScript core, `pacer-core`. The front door owns the CLI, stdio, loopback HTTP/SSE/WebSocket and the desktop's native listener. It forwards every operation, route and error to the core unchanged, so the API and its results stay the same. Keep both files together: the install script, npm, Homebrew and the desktop app install and update them as a pair. See [Distribution](docs/distribution.md).
+- The front door repairs a missing or mismatched `pacer-core` (or run `pacer self-repair`). It downloads the core release that matches its own version, verifies the checksum and a version smoke test, and swaps it in. It never changes a read-only or disabled installation or the rest of an installed app.
+- Desktop can take over a separately installed, older `pacer` service: **Use the desktop service** switches the login service to the app's bundled Rust/Core pair after active work finishes. If the new service fails its startup check, the original registration and service are restored.
+- Rust plugin SDK crates on crates.io: `pacer-plugin` (the SDK) and the generated protocol crates `pacer-plugin-protocol`, `pacer-plugin-decision-protocol` and `pacer-plugin-agent-session-protocol`. The SDK re-exports them all as `pacer_plugin::types`.
 - Record private, bounded OTA request-stage diagnostics in live validation evidence while preserving fixture authorization and HTTP behavior.
 - Add the Plugins settings page, host-drawn plugin settings pages, the Extend settings navigation group and the activity-bar Plugins section.
 
@@ -33,6 +37,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Changed
 
+- `pacer --version` and `pacer status --line` are answered by the Rust front door without starting the core, so shell prompts and status bars that call them return faster.
 - The Needs you page shows task items as task cards, most urgent first. Agent capacity and recent activity left the home; capacity lives in Settings › Executors. The quick delegate form is replaced by the top bar's Delegate. While Dispatch is open, the status bar shows the planner's mark without its figure, because the Planner budget states it.
 - Keep App plugin switches focused during changes and reloads, label the plugin list, describe refused plugins, and preserve loaded rows and inline errors when a reload fails.
 
