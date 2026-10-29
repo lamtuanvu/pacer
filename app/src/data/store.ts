@@ -131,6 +131,7 @@ export function createStore(injectedApi?: BrowserApi, Events: typeof EventSource
   let stopped = true;
   let generation = 0;
   let retryDelay = 1000;
+  let cursorReset = false;
   const acknowledgedReviews = new Set<string>();
   const dispatch = (action: StoreAction) => { state = reduceStore(state, action); if (state.snapshot && acknowledgedReviews.size) state = {...state,snapshot:withoutReviewedAttention(state.snapshot,acknowledgedReviews)}; api.setConnected?.(state.connected); for (const listener of listeners) listener(); };
   const endSession = () => { stream?.close(); clearTimeout(timer); dispatch({ type: "session-ended" }); };
@@ -147,6 +148,10 @@ export function createStore(injectedApi?: BrowserApi, Events: typeof EventSource
     try {
       const [hello, result] = await Promise.all([api.hello(), api.snapshot()]);
       if (stopped || current !== generation) return;
+      // A warm service cache can lag behind the event that prompted this read.
+      // Never rewind the cursor and replay that same invalidation in a tight loop.
+      if (!cursorReset && state.snapshot && result.seq < state.snapshot.seq) { retry(); return; }
+      cursorReset = false;
       dispatch({ type: "hello", hello });
       dispatch({ type: "snapshot", snapshot: { ...result.snapshot, seq: result.seq } });
       const source = stream = new Events(`${hello.protocol.split(".")[0] === "3" ? "/v3/events?since=" : "/v2/events?since="}${result.seq}`);
@@ -174,6 +179,7 @@ export function createStore(injectedApi?: BrowserApi, Events: typeof EventSource
           const message = event as MessageEvent;
           const seq = Number(message.lastEventId);
           if (!Number.isSafeInteger(seq) || seq < 0) return;
+          if (type === "reset") cursorReset = true;
           dispatch({ type: "event", event: { seq, at: Date.now() / 1000, type: type as EventType, data: JSON.parse(message.data) } });
           if (state.needsSnapshot) void refresh();
         } catch { dispatch({ type: "reconnected" }); void refresh(); }

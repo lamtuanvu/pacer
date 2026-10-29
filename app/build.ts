@@ -1,3 +1,4 @@
+import { xtermCsp } from "./xterm-csp";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import pkg from "../package.json";
@@ -11,7 +12,7 @@ const root = import.meta.dir;
 
 /** Pure with respect to the filesystem: tests compare without rewriting checked-in assets. */
 export async function buildApp(): Promise<AppFile[]> {
-  const result = await Bun.build({ entrypoints: [join(root, "src/app.tsx"), join(root, "src/term/term.tsx"), join(root, "src/screens/setup/Setup.tsx"), join(root, "src/shell/UpdateNotice.tsx"), join(root, "src/screens/dispatch/Dispatch.tsx"), join(root, "src/screens/insights/Insights.tsx"), join(root, "src/shell/CommandPalette.tsx"), join(root, "src/screens/new-task/NewTask.tsx")], splitting: true, naming: { entry: "[name].js", chunk: "chunk-[hash].js" }, target: "browser", minify: true, sourcemap: "none", tsconfig: join(root, "tsconfig.json") });
+  const result = await Bun.build({ plugins: [xtermCsp], entrypoints: [join(root, "src/app.tsx"), join(root, "src/term/term.tsx"), join(root, "src/screens/setup/Setup.tsx"), join(root, "src/shell/UpdateNotice.tsx"), join(root, "src/screens/dispatch/Dispatch.tsx"), join(root, "src/screens/insights/Insights.tsx"), join(root, "src/shell/CommandPalette.tsx"), join(root, "src/screens/new-task/NewTask.tsx")], splitting: true, naming: { entry: "[name].js", chunk: "chunk-[hash].js" }, target: "browser", minify: true, sourcemap: "none", tsconfig: join(root, "tsconfig.json") });
   if (!result.success) throw new AggregateError(result.logs, "app build failed");
   const tray = await Bun.build({ entrypoints: [join(root, "src/tray/main.tsx")], target: "browser", minify: true, sourcemap: "none", tsconfig: join(root, "tsconfig.json") });
   if (!tray.success) throw new AggregateError(tray.logs, "tray build failed");

@@ -210,6 +210,9 @@ export function startServer(
       }
       if (/^\/v[23]\//.test(pathname)) {
         const response=await handleV2(req, { getCtx: requestCtx, opDeps: {...opts.opDeps, usageRefreshDone: refreshStatusAfterPending, snapshotProbe:false, terminalPresetsOnly: !bearer,appAuthenticated:!bearer&&!workGrant}, tailMs, status, snapshot: () => readCache.get() });
+        if (response.ok && req.method === "POST" && /^\/v[23]\/ops\/mode\.(hold|release)$/.test(pathname)) {
+          await readCache.refreshAfterPending();
+        }
         response.headers.set("X-Pacer","1");
         return response;
       }

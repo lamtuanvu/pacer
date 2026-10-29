@@ -327,3 +327,34 @@ test("offline transport refuses direct operations without a request and resumes 
     expect(request).toHaveBeenCalledTimes(2);
   } finally { request.mockRestore(); }
 });
+
+test('a stale snapshot after a config event cannot replay invalidations in a request loop',async()=>{
+ const pending:{callback:()=>void;delay:number}[]=[];
+ const original=globalThis.setTimeout;
+ const clock=spyOn(globalThis,'setTimeout').mockImplementation(((callback:()=>void,delay:number)=>{
+  if(delay>=1000){pending.push({callback,delay});return 123 as never;}
+  return original(callback,delay);
+ }) as typeof setTimeout);
+ FakeEvents.instances=[];
+ let reads=0,seq=120;
+ const api={hello:async()=>hello('3.0.0'),snapshot:async()=>{reads++;return {protocol:'3.0.0',seq,snapshot:v2 as never};},call:async<T>()=>({} as T)};
+ const store=createStore(api,FakeEvents as any),stop=store.start();
+ try{
+  await flush();FakeEvents.instances[0]!.emit('open');
+  FakeEvents.instances[0]!.emit('config',{area:'accounts',at:1},'121');
+  await flush();
+  expect(store.getState().snapshot?.seq).toBe(121);
+  expect(FakeEvents.instances).toHaveLength(1);
+  expect(reads).toBe(2);
+  expect(pending[0]?.delay).toBe(1000);
+  seq=121;pending.shift()!.callback();await flush();
+  expect(FakeEvents.instances).toHaveLength(2);
+  FakeEvents.instances[1]!.emit('open');
+  expect(store.getState().invalidations.accounts).toBe(1);
+  expect(store.getState().needsSnapshot).toBe(false);
+  // Explicit reset is the one authority to replace a cursor after service reset.
+  seq=5;FakeEvents.instances[1]!.emit('reset',{},'0');await flush();
+  expect(FakeEvents.instances).toHaveLength(3);
+  expect(store.getState().snapshot?.seq).toBe(5);
+ }finally{stop();clock.mockRestore();}
+});

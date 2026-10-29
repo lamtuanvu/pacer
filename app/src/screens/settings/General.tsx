@@ -263,6 +263,8 @@ export function PlannerPacing({ initialData, initialAccounts }: { initialData?: 
     action = useOperation(query.reload),
     { state } = useTaskContext();
   const [chosen, setChosen] = useState("");
+  const modeAction = useOperation(undefined, { notifySuccess: false });
+  const [selectedMode, setSelectedMode] = useState<{ value: string; baseline: string }>();
   const paceClock = useResource<{ calendarPace: boolean }>("routing.status");
   const config = query.data, planner = state.snapshot?.planner,
     value = (key: string) => String(config?.keys[key]?.value ?? "");
@@ -270,6 +272,15 @@ export function PlannerPacing({ initialData, initialAccounts }: { initialData?: 
   const agent = planner?.agent ?? plannerAgent(value("planner")), name = executorLabel(agent);
   const modes = ["emergency", "strict", "normal", "relaxed"];
   const mode = planner?.mode;
+  const actualMode = planner?.modeHeldUntil != null ? mode ?? "" : "auto";
+  const modeRevision = JSON.stringify([mode, planner?.modeHeldUntil]);
+  const displayedMode = selectedMode && (modeAction.busy || selectedMode.baseline === modeRevision) ? selectedMode.value : actualMode;
+  const switchMode = async (next: string) => {
+    const previous = displayedMode;
+    setSelectedMode({ value: next, baseline: modeRevision });
+    const result = await modeAction.run(next === "auto" ? "mode.release" : "mode.hold", next === "auto" ? {} : { mode: next });
+    if (!result) setSelectedMode({ value: previous, baseline: modeRevision });
+  };
   const delta = planner?.usedPct != null && planner.pacePct != null ? Math.round(planner.usedPct - planner.pacePct) : null;
   const modeCopy = mode === "relaxed" ? "so it may do small edits itself." : mode === "normal" ? "so it delegates substantial work." : mode === "strict" ? "so it delegates everything." : mode === "emergency" ? "so it reserves quota for planning and review." : "";
   const sentence = planner?.stale ? `${name} has a stale usage reading.` : delta !== null
@@ -309,7 +320,9 @@ export function PlannerPacing({ initialData, initialAccounts }: { initialData?: 
           <div className="pc-budget-reserve"><Range aria-label="Keep back for planning and review" min="0" max="50" step="5" value={value("pacing.planner_reserve")} disabled={action.busy} onChange={e => { if (e.currentTarget.validity.valid) save("pacing.planner_reserve", Number(e.currentTarget.value)); }}/><output>{percentage(Number(value("pacing.planner_reserve")))}</output><span className="pc-settings-board__caption">0–50%</span></div>
         </SettingRow>
         <SettingRow headingLevel={3} variant="budget" label="Mode" description="Automatic follows the pace above. Hold keeps one mode until the planner window resets.">
-          <Segment variant="board" label="Mode" value={planner?.modeHeldUntil != null ? mode ?? "" : "auto"} disabled={action.busy} options={[{ value: "auto", label: "Automatic" }, { value: "strict", label: "Hold strict" }, { value: "relaxed", label: "Hold relaxed" }]} onChange={v => { void action.run(v === "auto" ? "mode.release" : "mode.hold", v === "auto" ? {} : { mode: v }); }}/>
+          <Segment variant="board" label="Mode" value={displayedMode} disabled={modeAction.busy} options={[{ value: "auto", label: "Automatic" }, { value: "strict", label: "Hold strict" }, { value: "relaxed", label: "Hold relaxed" }]} onChange={v => { void switchMode(v); }}/>
+          {modeAction.busy && <span role="status">Saving mode…</span>}
+          <Feedback action={modeAction}/>
           {mode && <span className="pc-settings-board__caption">Now: {modeWords(mode).toLowerCase()}{planner?.modeHeldUntil != null ? `, held until ${time(planner.modeHeldUntil)}` : ""}.</span>}
         </SettingRow>
         <SettingRow headingLevel={3} variant="budget" label="Planner" description="Who plans and reviews. Changing it rewires that agent's hooks and status line.">
