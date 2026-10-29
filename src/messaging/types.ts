@@ -3,7 +3,7 @@ import { CoreError } from "../core/errors";
 
 export const MSG_KINDS = ["message", "question", "answer", "report", "nudge", "close"] as const;
 export type MsgKind = typeof MSG_KINDS[number];
-export type ParticipantKind = "human" | "external" | "launched";
+export type ParticipantKind = "human" | "external" | "launched" | "broker";
 export const RELATIONS = ["self", "parent", "child", "sibling", "descendant", "ancestor", "top_peer", "same_tree", "none"] as const;
 export type Relation = typeof RELATIONS[number];
 export type MsgStatus = "held" | "pending" | "delivered" | "read";
@@ -14,8 +14,8 @@ export interface Message {
   createdAt: number; deliveredAt: number | null; readAt: number | null; turnId: string | null;
 }
 
-export const participantSchema = z.string().regex(/^(human|external:[A-Za-z0-9._:-]{1,128}|task:t-\d{8}-\d{6}-[0-9a-f]{4})$/);
-const kindMatch = z.enum(["human", "external", "launched", "any"]);
+export const participantSchema = z.string().regex(/^(human|broker|external:[A-Za-z0-9._:-]{1,128}|task:t-\d{8}-\d{6}-[0-9a-f]{4})$/);
+const kindMatch = z.enum(["human", "external", "launched", "broker", "any"]);
 export const ruleSchema = z.object({
   effect: z.enum(["allow", "deny"]),
   from_kind: kindMatch.optional(),

@@ -22,7 +22,7 @@ export function sortItems(items: AttentionItem[]): AttentionItem[] {
 export function deriveItems(input: RuleInput): AttentionItem[] {
   const items: AttentionItem[] = [];
   const add = (kind: AttentionKind, key: string, title: string, detail: string, actions: Action[], extra: Partial<AttentionItem> = {}) => {
-    items.push({ id: `${kind}:${key}`, kind, severity: kind === "stuck" ? "blocked" : ["review","update","discovery","discovery-network"].includes(kind) ? "decide" : "problem",
+    items.push({ id: `${kind}:${key}`, kind, severity: kind === "stuck" || kind === "stalled" ? "blocked" : ["review","update","discovery","discovery-network"].includes(kind) ? "decide" : "problem",
       repo: null, title, detail, raisedAt: input.now, since: input.now, actions,
       notify: ["setup","update"].includes(kind) ? "all" : "important", ...extra });
   };

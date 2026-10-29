@@ -2826,6 +2826,7 @@ Params JSON Schema:
                   "human",
                   "external",
                   "launched",
+                  "broker",
                   "any"
                 ]
               },
@@ -2835,6 +2836,7 @@ Params JSON Schema:
                   "human",
                   "external",
                   "launched",
+                  "broker",
                   "any"
                 ]
               },

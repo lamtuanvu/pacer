@@ -9,7 +9,7 @@ import { plannerSessionId, type PlannerKind } from "./identity";
 const MAX_DEPTH = 64;
 export const taskOf = (p: string): string | null => p.startsWith("task:") ? p.slice(5) : null;
 export function participantKind(p: string): ParticipantKind {
-  return p === "human" ? "human" : p.startsWith("external:") ? "external" : "launched";
+  return p === "human" ? "human" : p === "broker" ? "broker" : p.startsWith("external:") ? "external" : "launched";
 }
 
 /** The participant of the planner session this process runs in, from its environment, or null. */

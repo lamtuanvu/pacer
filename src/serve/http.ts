@@ -38,6 +38,7 @@ import { currentSnapshot, invalidateConsoleCache, refreshConsoleTerminals } from
 import { refreshAllUsage } from "../usage/refresh";
 import { defaultPumpDeps, pumpOnce } from "../link/pump";
 import { tick as certificationTick } from "../dispatch/certification-schedule";
+import { brokerTick } from "../messaging/broker";
 
 import { DEFAULT_PORT } from "./constants";
 export { DEFAULT_PORT } from "./constants";
@@ -322,6 +323,16 @@ export function startServer(
       .finally(() => { certifying = false; });
   };
   const certificationTimer = setInterval(certify, 10 * 60_000);
+  let brokering = false;
+  const broker = () => {
+    if (stopped || brokering) return;
+    brokering = true;
+    void brokerTick(getCtx(), { spawnRunner: opts.opDeps?.spawnRunner, mode: async () => {
+      try { return (await status()).mode; } catch { return undefined; }
+    } }).catch(error => { if (!stopped) console.error(`pacer: messaging broker failed: ${String(error)}`); })
+      .finally(() => { brokering = false; });
+  };
+  const brokerTimer = setInterval(broker, 15_000);
   const refreshUsage = () => {
     if (stopped) return;
     void refreshAllUsage({ ...getCtx(), now: Date.now() / 1000 }, true)
@@ -349,6 +360,7 @@ export function startServer(
     clearInterval(retentionTimer);
     clearInterval(supervisorTimer);
     clearInterval(certificationTimer);
+    clearInterval(brokerTimer);
     clearTimeout(usageStart);
     clearInterval(usageTimer);
     clearInterval(pumpTimer);
