@@ -205,7 +205,8 @@ export function machineGuardWords(m: NonNullable<ScreenCtx["s"]["machine"]>): st
   const pressure = m.memoryPressure === undefined ? null : m.memoryPressure === null ? "memory pressure unavailable" : `memory pressure ${m.memoryPressure}`;
   const load = m.loadPerCore == null ? null : `load ${Math.round(m.loadPerCore * 10) / 10} per core`;
   const waits = m.open === false && m.detail ? `new tasks wait: ${m.detail}` : null;
-  return [pressure, load, `${m.used} running`, waits].filter(Boolean).join(" · ");
+  // The running count shows once, beside Parallel tasks.
+  return [pressure, load, waits].filter(Boolean).join(" · ");
 }
 /** The next value of a This machine setting one step down (-1) or up (1) from `current`; undefined when it cannot step.
  * Parallel tasks below 1 means no fixed limit and up from no limit starts at 4, as in the app; load steps by 0.5 per
@@ -238,7 +239,8 @@ const machine: Build = (ctx, width) => {
   const ceiling = stepper(ctx, width, "setting:load-limit", "Load limit per core", load === null ? "Off" : String(load),
     ...steps("Load limit", "execution.local_load_limit"));
   for (const control of [cap, hold, ceiling]) { items.push(control.item); rows.push(...control.rows); }
-  if (ctx.s.machine) rows.push(...fieldRows(field(ctx, width, "Now", [span(machineGuardWords(ctx.s.machine), { fg: ctx.s.machine.open === false ? "warn" : "secondary" })])));
+  const guard = ctx.s.machine && machineGuardWords(ctx.s.machine);
+  if (ctx.s.machine && guard) rows.push(...fieldRows(field(ctx, width, "Now", [span(guard, { fg: ctx.s.machine.open === false ? "warn" : "secondary" })])));
   rows.push(...fieldRows(field(ctx, width, "", [span("Shared by all executors that run on this machine. Without a limit, new tasks start until memory pressure or load reaches its limit. Running tasks are never stopped.", { fg: "muted" })])));
   const backendKey = config!.value!.keys?.["execution.backend"];
   const backend = backendKey?.value === "orca" ? "orca" : "direct";

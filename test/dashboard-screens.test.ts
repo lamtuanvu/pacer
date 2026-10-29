@@ -546,8 +546,11 @@ describe("Settings › This machine in the TUI", () => {
     const d = withKeys({ "execution.local_memory_pressure_limit": "critical", "execution.local_load_limit": "off" });
     const text = renderDashboard(s, 120, 40, s.at, { theme: PLAIN_THEME, data: d, state });
     expect(text).toContain("‹ Critical ›");
-    expect(text).toContain("memory pressure critical · load 4.9 per core · 3 running");
-    expect(text).toContain("new tasks wait: memory pressure critical");
+    expect(text).toContain("memory pressure critical · load 4.9 per core · new tasks");
+    // One running count, beside Parallel tasks.
+    expect(text).toContain("3 busy now");
+    expect(text).not.toContain("3 running");
+    expect(text).toContain("wait: memory pressure critical");
     expect(params(s, d, "setting:memory-pressure", "right")).toEqual({ key: "execution.local_memory_pressure_limit", value: "warning" });
     expect(params(s, d, "setting:memory-pressure", "left")).toEqual({ key: "execution.local_memory_pressure_limit", value: "off" });
     expect(params(s, d, "setting:load-limit", "right")).toEqual({ key: "execution.local_load_limit", value: 2 });

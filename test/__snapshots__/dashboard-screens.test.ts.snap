@@ -553,14 +553,14 @@ exports[`golden frames (NO_COLOR) settings › This machine at 120x40 1`] = `
      Executors 2 down           │ › Parallel tasks            ‹ 2 ›  1 busy now                                        
    ▸ This machine               │   Hold at memory pressure   ‹ Critical ›                                             
      Remote hosts 1 needs setup │   Load limit per core       ‹ Off ›                                                  
-     Routing                    │   Now                       1 running                                                
-     Project strategies         │                             Shared by all executors that run on this machine. Without
-     Strategies                 │                             a limit, new tasks start until memory pressure or load   
-     Updates                    │                             reaches its limit. Running tasks are never stopped.      
-     Notifications              │   Task backend              ‹ Direct ›                                               
-     Appearance                 │                             Orca runs interactive tasks as supervised workers in Orca
-                                │                             terminals. Headless tasks, and any task when Orca isn't  
+     Routing                    │                             Shared by all executors that run on this machine. Without
+     Project strategies         │                             a limit, new tasks start until memory pressure or load   
+     Strategies                 │                             reaches its limit. Running tasks are never stopped.      
+     Updates                    │   Task backend              ‹ Direct ›                                               
+     Notifications              │                             Orca runs interactive tasks as supervised workers in Orca
+     Appearance                 │                             terminals. Headless tasks, and any task when Orca isn't  
                                 │                             running or the agent isn't supported, run directly.      
+                                │ 
                                 │ 
                                 │ 
                                 │ 
@@ -596,7 +596,6 @@ exports[`golden frames (NO_COLOR) settings › This machine at 80x24 1`] = `
  › Parallel tasks            ‹ 2 ›  1 busy now                                 
    Hold at memory pressure   ‹ Critical ›                                      
    Load limit per core       ‹ Off ›                                           
-   Now                       1 running                                         
                              Shared by all executors that run on this machine. 
                              Without a limit, new tasks start until memory     
                              pressure or load reaches its limit. Running tasks 
@@ -606,6 +605,7 @@ exports[`golden frames (NO_COLOR) settings › This machine at 80x24 1`] = `
                              in Orca terminals. Headless tasks, and any task   
                              when Orca isn't running or the agent isn't        
                              supported, run directly.                          
+ 
  
  
  
@@ -1425,16 +1425,16 @@ exports[`Settings › This machine shows a PACER_BACKEND override and offers no 
      Executors 2 down           │ › Parallel tasks            ‹ 2 ›  1 busy now                                        
    ▸ This machine               │   Hold at memory pressure   ‹ Critical ›                                             
      Remote hosts 1 needs setup │   Load limit per core       ‹ Off ›                                                  
-     Routing                    │   Now                       1 running                                                
-     Project strategies         │                             Shared by all executors that run on this machine. Without
-     Strategies                 │                             a limit, new tasks start until memory pressure or load   
-     Updates                    │                             reaches its limit. Running tasks are never stopped.      
-     Notifications              │   Task backend              ‹ Direct ›  Set by PACER_BACKEND                         
-     Appearance                 │                             Orca runs interactive tasks as supervised workers in Orca
-                                │                             terminals. Headless tasks, and any task when Orca isn't  
+     Routing                    │                             Shared by all executors that run on this machine. Without
+     Project strategies         │                             a limit, new tasks start until memory pressure or load   
+     Strategies                 │                             reaches its limit. Running tasks are never stopped.      
+     Updates                    │   Task backend              ‹ Direct ›  Set by PACER_BACKEND                         
+     Notifications              │                             Orca runs interactive tasks as supervised workers in Orca
+     Appearance                 │                             terminals. Headless tasks, and any task when Orca isn't  
                                 │                             running or the agent isn't supported, run directly.      
                                 │                             PACER_BACKEND overrides the saved setting. Unset         
                                 │                             PACER_BACKEND to change it here.                         
+                                │ 
                                 │ 
                                 │ 
                                 │ 
@@ -1468,7 +1468,6 @@ exports[`Settings › This machine shows a PACER_BACKEND override and offers no 
  › Parallel tasks            ‹ 2 ›  1 busy now                                 
    Hold at memory pressure   ‹ Critical ›                                      
    Load limit per core       ‹ Off ›                                           
-   Now                       1 running                                         
                              Shared by all executors that run on this machine. 
                              Without a limit, new tasks start until memory     
                              pressure or load reaches its limit. Running tasks 
@@ -1480,6 +1479,7 @@ exports[`Settings › This machine shows a PACER_BACKEND override and offers no 
                              supported, run directly. PACER_BACKEND overrides  
                              the saved setting. Unset PACER_BACKEND to change  
                              it here.                                          
+ 
  
  ──────────────────────────────────────────────────────────────────────────────
  
