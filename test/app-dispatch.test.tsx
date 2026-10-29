@@ -5,7 +5,7 @@ import type { ClientSnapshot } from "../src/view-model/snapshot";
 import type { WorkRow } from "../src/view-model/task-tree";
 import type { InsightsSummary } from "../src/view-model/dispatch";
 import { createActionRunner } from "../app/src/data/actions";
-import { DispatchView, holdInsights, insightsReads, NeedsYouList, type InsightsState, type RoutingPreview } from "../app/src/screens/dispatch/Dispatch";
+import { DispatchView, FirstRun, isFirstRun, holdInsights, insightsReads, NeedsYouList, type InsightsState, type RoutingPreview } from "../app/src/screens/dispatch/Dispatch";
 import { RepoFilter, repoChoices } from "../app/src/screens/RepoFilter";
 
 const snap = fixture as unknown as ClientSnapshot;
@@ -227,21 +227,15 @@ test("with dispatch.explain the next task states its ladder step, the dispatcher
   expect(strip(section(view(null, snap, { routing: { ...routing, explain: { ...explain, outcome: "queue", chosen: null } } }), "next-task"))).toContain("No agent can take new work now. It waits in the queue. Local model is busy (1 of 1 running).");
 });
 
-test("narrow Dispatch keeps executor usage and pace while the status bar is absent", () => {
-  expect(view()).not.toContain('aria-labelledby="agent-usage"');
-  const narrow = (s: ClientSnapshot) => renderToString(<DispatchView snapshot={s} query={{ repo: null, scope: "repo:github.com/acme/api" }} now={snap.at} runner={runner} routing={null} />);
-  const agents = section(narrow(snap), "agent-usage");
-  expect(agents).toContain(">Executors<");
-  expect(agents).toMatch(/aria-label="[^"]+ · \d+% used · [^"]+"/);
-  expect(agents).toMatch(/aria-label="[^"]+ · usage unknown · [^"]+"/);
-  expect(agents).toContain('href="#/settings/executors?scope=repo%3Agithub.com%2Facme%2Fapi"');
-  // The planner's own row is left out; the Planner budget covers it.
-  expect(agents.match(/<a /g)).toHaveLength(snap.executors!.filter(e => e.rank !== "planner").length);
-  // A stale reading is never shown as current.
-  const row = snap.executors!.find(e => e.rank !== "planner" && e.usedPct !== null)!;
-  const stale = section(narrow({ ...snap, executors: snap.executors!.map(e => e.id === row.id ? { ...e, stale: true } : e) }), "agent-usage");
-  expect(stale).toMatch(new RegExp(`${Math.round(row.usedPct!)}% used · Historical usage`));
-  expect(strip(stale)).toContain("Historical usage");
+test("narrow Dispatch follows the board: planner, Needs you, Running without desktop figures", () => {
+  const html = renderToString(<DispatchView snapshot={snap} query={{ repo: null, scope: "repo:github.com/acme/api" }} now={snap.at} runner={runner} routing={routing} />);
+  expect(html).not.toContain("<h1>");
+  expect(html).not.toContain('aria-labelledby="agent-usage"');
+  expect(html).not.toContain('id="glance"');
+  const at = order(html, ['aria-label="Planner budget"', '>Needs you<', '>Running<']);
+  expect(at.every(i => i >= 0)).toBe(true);
+  expect([...at].sort((a, b) => a - b)).toEqual(at);
+  expect(html).toContain("Next capable task goes to");
 });
 
 test("repos are one All repos button that opens the repository menu", () => {
@@ -263,8 +257,9 @@ test("a repo scope filters Needs you and Live dispatch", () => {
 test("empty states say what to do next", () => {
   const empty = { ...snap, attention: [], tasks: [], counts: { ...snap.counts!, attention: 0, running: 0 } };
   const html = view(null, empty);
-  expect(html).toContain("Nothing needs your attention");
-  expect(strip(html)).toContain("Nothing running Start work, delegate a task, or ask your planner to.");
+  expect(html).toContain("No work delegated yet");
+  expect(html).toContain('href="#/tasks/new"');
+  expect(html).not.toContain("Try a sample task");
 });
 
 test("Needs you bounds a long queue at three without a pager", () => {
@@ -531,7 +526,7 @@ test("a live planner reading without a pace keeps its verdict pill", () => {
 });
 
 
-test("live dispatch keeps both count pills when no work is queued, including the empty state", () => {
+test("live dispatch keeps both count pills when no work is queued", () => {
   const noQueue = { ...snap, tasks: snap.tasks.filter(t => t.state !== "queued") };
   expect(section(view(null, noQueue), "live-dispatch")).toContain('class="pc-pill pc-pill--neutral">0 queued</span>');
   const empty = { ...snap, tasks: [], counts: { ...snap.counts!, running: 0, queued: 0 } };
@@ -558,4 +553,20 @@ test("task.answer has one link path without an unreachable ActionButton branch",
   const source = await Bun.file("app/src/screens/dispatch/Dispatch.tsx").text();
   expect(source.match(/action.op === "task.answer"/g)).toHaveLength(1);
   expect(source).toContain('action={action}');
+});
+
+test("first run requires missing planner integration and no configured executors", () => {
+  expect(isFirstRun({ ...snap, planner: null, executors: [] })).toBe(true);
+  expect(isFirstRun({ ...snap, executors: [] }, { checkedAt: 0, complete: false, ready: false, items: [{ id: "connect", title: "Connect", status: "pending", required: true }] })).toBe(true);
+  expect(isFirstRun(snap)).toBe(false);
+  expect(isFirstRun({ ...snap, executors: snap.executors!.filter(e => e.rank === "planner") }, { checkedAt: 0, complete: false, ready: false, items: [{ id: "connect", title: "Connect", status: "pending", required: true }] })).toBe(true);
+  expect(isFirstRun({ ...snap, executors: [] }, { checkedAt: 0, complete: true, ready: true, items: [{ id: "connect", title: "Connect", status: "done", required: true }] })).toBe(false);
+});
+test("first run detection never invents installed agents", () => {
+  const html = renderToString(<FirstRun query={{ repo: null, scope: null }} detections={[{ agent: "codex", found: false, version: null, path: null, install_hint: "Install Codex CLI" }]} />);
+  expect(html).toContain("How to get it");
+  expect(html).toContain("not installed");
+  expect(html).not.toContain(">Found<");
+  expect(renderToString(<FirstRun query={{ repo: null, scope: null }} />)).toContain("Looking for agent CLIs");
+  expect(renderToString(<FirstRun query={{ repo: null, scope: null }} error={new Error("Detection failed")} retry={() => {}} />)).toContain("Check again");
 });

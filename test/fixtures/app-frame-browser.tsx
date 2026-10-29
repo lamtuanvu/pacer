@@ -44,6 +44,9 @@ if (new URLSearchParams(location.search).has("question")) {
   state.snapshot = {...fixture,tasks:[task],attention:[{...fixture.attention[1],id:"question",taskId:task.id,kind:"question",title:task.goal,actions:[{label:"Answer",op:"task.answer",params:{id:task.id}}]}]} as any;
 }
 function App() {
+  const [connected, setConnected] = useState(true);
+  useEffect(() => { const update = (event: Event) => setConnected((event as CustomEvent<boolean>).detail); window.addEventListener("fixture-connection", update); return () => window.removeEventListener("fixture-connection", update); }, []);
+  const current = { ...state, connected };
   const [hash, setHash] = useState(location.hash || "#/settings");
   useEffect(() => { const update = () => setHash(location.hash); addEventListener("hashchange", update); keys.setScope((resolveRoute(hash) as Route).name); return () => removeEventListener("hashchange", update); }, [hash]);
   useLayoutEffect(() => { resetDesktopPageScroll(); }, [hash]);
@@ -51,8 +54,8 @@ function App() {
   useEffect(() => { if ("redirect" in resolved) location.replace(resolved.redirect); }, [hash]);
   const route = ("redirect" in resolved ? resolveRoute(resolved.redirect) : resolved) as Route;
   const taskList = new URLSearchParams(location.search).has("task-list");
-  return <TaskContext.Provider value={{ api: api as any, state }}><NavigationProvider route={route}>
-    <ActionContext.Provider value={runner}><Layout route={route} state={state} title="Settings">
+  return <TaskContext.Provider value={{ api: api as any, state: current }}><NavigationProvider route={route}>
+    <ActionContext.Provider value={runner}><Layout route={route} state={current} title="Settings">
       {route.name === "review" ? <NeedsYouPage query={route.query}/> : taskList && route.name === "sessions" && !route.id ? <Sessions query={route.query} /> : <Page width="full"><PageBody><Section title="General" description="Settings that apply to every task.">
         <Field label="Planner"><TextInput value="A long planner value that should never push the page sideways at any width" /></Field>
         <Button>Save settings</Button>

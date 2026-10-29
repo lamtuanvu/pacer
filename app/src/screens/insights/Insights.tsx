@@ -12,8 +12,8 @@ import { withQuery, type RouteQuery } from "../../router";
 import { agentSlot, axisLabel, bars, CHART_DAYS, chartRange, compact, dayLabel, fullDay, niceMax, percent, periodRange, PERIODS, rangeLabel, slotClass, summaryCsv, versus, type PeriodKey, type Summary } from "./model";
 
 type Tone = "good" | "warn" | "bad";
-function Kpi({ label, value, delta, tone, note }: { label: string; value: string; delta?: string; tone?: Tone; note?: string }) {
-  return <div className="pc-insights__kpi"><span className="pc-insights__label">{label}</span><strong>{value}</strong>
+function Kpi({ label, value, delta, tone, note, unmeasured = false }: { unmeasured?: boolean; label: string; value: string; delta?: string; tone?: Tone; note?: string }) {
+  return <div className={`pc-insights__kpi${unmeasured ? " pc-insights__kpi--unmeasured" : ""}`}><span className="pc-insights__label">{label}</span><strong>{value}</strong>
     <span className="pc-insights__caption">{delta && <span className={`pc-insights__delta${tone ? ` pc-insights__delta--${tone}` : ""}`}>{delta}</span>}{delta && note ? " " : ""}{note}</span></div>;
 }
 /** A change against the previous period; `up` says which direction is good. */
@@ -46,6 +46,7 @@ export function Insights({ query }: { query: RouteQuery }) {
   const accounts = useQuery<Account[]>("account.list", {});
   const { state } = useTaskContext();
   const s = result.data;
+  const notMeasured = !!s && s.tokens.measuredAttempts === 0 && s.tokens.partialAttempts === 0;
   const label = (agent: string) => executorLabel(agent);
   const agents = useMemo(() => [...new Set([...(s?.spread.map(g => g.agent) ?? []), ...(series.data?.daily.flatMap(d => Object.keys(d.byAgent)) ?? []), ...(s?.kindByAgent.flatMap(k => Object.keys(k.byAgent)) ?? [])])].sort((a, b) => agentSlot(a) - agentSlot(b) || a.localeCompare(b)), [s, series.data]);
   const repos = state.snapshot?.repos ?? [];
@@ -74,18 +75,18 @@ export function Insights({ query }: { query: RouteQuery }) {
     </header>
     {result.error && <ErrorMessage error={result.error} />}
     {!s ? <LoadingState label="Loading insights…" /> : s.rootTasksHandled === 0 && s.tokens.attempts === 0 ? <EmptyState title="Nothing in this period" description="No attempt ended. Try a longer period." /> : <>
-      <Card className="pc-insights__summary">
+      {notMeasured ? <Card tone="sunken" className="pc-insights__unmeasured"><strong>Token counts appear after each attempt finishes</strong><span>{s.tokens.unknownAttempts} {s.tokens.unknownAttempts === 1 ? "attempt is" : "attempts are"} still running or ended without a count. Task counts below are exact; token totals fill in as attempts finish.</span></Card> : <Card className="pc-insights__summary">
         <div className="pc-insights__headline"><strong>{compact(total)} tokens went to executors{s.tokens.lowerBound ? " (at least)" : ""}, and planner tokens are not measured yet.</strong>
           <span>{s.tokens.measuredAttempts} {s.tokens.measuredAttempts === 1 ? "attempt" : "attempts"} measured, {s.tokens.partialAttempts} partial, {s.tokens.unknownAttempts} unknown. {s.tokens.lowerBound ? "Totals are a lower bound." : "Totals are complete for the attempts shown."} Once planner tokens are measured, this card shows how much ran outside the planner.</span></div>
         <div className="pc-insights__planner"><span className="pc-insights__label">Planner share of tokens</span>
           <div className="pc-insights__stripe" role="img" aria-label="Planner share is not measured" />
           <span className="pc-insights__caption"><b>Not measured</b> for planning and review · <b>{compact(total)}</b> on executors</span></div>
-      </Card>
+      </Card>}
       <section aria-label="Key numbers" className="pc-insights__kpis">
         <Kpi label="Root tasks" value={String(s.rootTasksHandled)} {...change(s.rootTasksHandled, prev!.rootTasksHandled, "good")} note={prev!.rootTasksHandled || s.rootTasksHandled ? versusWord : undefined} />
         <Kpi label="Subtasks" value={String(s.subtasks)} delta={s.rootTasksHandled ? `${(s.subtasks / s.rootTasksHandled).toFixed(1)}×` : undefined} note="fan-out" />
-        <Kpi label="Tokens" value={compact(total)} {...change(total, prev!.tokens.total, "warn", "%")} note={`${versusWord}${atLeast}`} />
-        <Kpi label="Per root task" value={s.rootTasksHandled && total ? compact(Math.round(total / s.rootTasksHandled)) : "—"} {...(s.rootTasksHandled && prev!.rootTasksHandled && prev!.tokens.total ? change(total / s.rootTasksHandled, prev!.tokens.total / prev!.rootTasksHandled, "warn", "%") : {})} note={`${versusWord}${atLeast}`} />
+        <Kpi label="Tokens" unmeasured={notMeasured} value={notMeasured ? "—" : compact(total)} {...(notMeasured ? {} : change(total, prev!.tokens.total, "warn", "%"))} note={notMeasured ? "not measured yet" : `${versusWord}${atLeast}`} />
+        <Kpi label="Per root task" value={s.rootTasksHandled && total ? compact(Math.round(total / s.rootTasksHandled)) : "—"} {...(!notMeasured && s.rootTasksHandled && prev!.rootTasksHandled && prev!.tokens.total ? change(total / s.rootTasksHandled, prev!.tokens.total / prev!.rootTasksHandled, "warn", "%") : {})} note={notMeasured ? "not measured yet" : `${versusWord}${atLeast}`} />
         <Kpi label="Accepted first try" value={percent(s.acceptedFirstTryRate)} {...(s.acceptedFirstTryRate !== null && prev!.acceptedFirstTryRate !== null ? (() => { const pts = Math.round((s.acceptedFirstTryRate! - prev!.acceptedFirstTryRate!) * 100); return { delta: `${pts >= 0 ? "+" : "−"}${Math.abs(pts)} pts`, tone: (pts === 0 ? undefined : pts > 0 ? "good" : "warn") as Tone | undefined }; })() : {})} note={s.reviewedRoots ? `${s.acceptedFirstTry} of ${s.reviewedRoots} reviewed` : "none reviewed yet"} />
         <Kpi label="Retries" value={String(retried)} {...(retried && s.retryTokens.total > 0 ? { delta: compact(s.retryTokens.total), tone: "bad" as Tone, note: `tokens spent${s.retryTokens.unknownAttempts ? " · at least" : ""}` } : retried ? { delta: "extra attempts", tone: "bad" as Tone } : {})} />
       </section>

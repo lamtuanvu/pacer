@@ -51,7 +51,7 @@ test.skipIf(!browserPath)('Plugins renders real rows and reloads after enable an
     await mount(page, { plugins: [plugin({ bundled: true, ui: { settings: 1, activity: 1, panelTabs: 0, status: 0 }, contributes: ['ui', 'decision'] }), plugin({ id: 'empty' })] });
     expect(await page.getByText('Adds a settings page, an activity-bar view, routing engines.', { exact: true }).count()).toBe(1);
     expect(await page.getByText('Built in', { exact: true }).count()).toBe(1);
-    expect(await page.getByText('1.2.0 · by test', { exact: true }).count()).toBe(2);
+    expect(await page.getByText('1.2.0 · test', { exact: true }).count()).toBe(2);
     expect(await page.locator('.pc-settings-plugin').nth(1).locator('.pc-settings-board__caption').count()).toBe(1);
     const control = page.getByRole('switch', { name: 'Enable checklist', exact: true });
     expect(await page.getByRole('list', { name: 'Plugins', exact: true }).locator(':scope > li').count()).toBe(2);

@@ -60,13 +60,13 @@ export function TopBar({ brand, search, narrowSearch, panels = {}, narrow = fals
     {!narrow && brand && <span className="pc-topbar__brand">{brand}</span>}
     {showActions && heading?.agent && <AgentMark agent={heading.agent} size={18} />}
     {showActions && pageTitle && <h1 data-tauri-drag-region className={heading ? "pc-topbar__heading" : undefined} title={heading?.title ?? title}>{heading?.title ?? title}</h1>}
-    {showActions && context && <div ref={context} className="pc-topbar__context" />}
+    {showActions && context && <fieldset ref={context} className="pc-topbar__context" disabled={!connected} title={!connected ? "pacer is offline" : undefined} />}
     <span className="grow" data-tauri-drag-region />
     {!narrow && showActions && <div className="pc-topbar__search">{search}</div>}
     {!narrow && showActions && <span className="grow" data-tauri-drag-region />}
     {narrow && showActions && narrowSearch}
     {showActions && <>
-    {planner && <span className="pc-planner">
+    {planner && !(narrow && title === "Dispatch") && <span className="pc-planner">
       <AgentMark agent={planner.agent} size={18} labelled={false} />
       <span className="pc-planner__name">{agentInfo(planner.agent).name}</span>
       {mode && <Pill tone={modeTone(mode)}>{modeWords(mode)}{planner.modeHeldUntil ? ` · held until ${clock(planner.modeHeldUntil, now)}` : ""}</Pill>}
@@ -76,10 +76,10 @@ export function TopBar({ brand, search, narrowSearch, panels = {}, narrow = fals
       {!narrow && <LayoutToggle icon="panel-left" label="Toggle left panel" keys={isMacPlatform() ? "Meta+B" : "Control+B"} toggle={panels.left} />}
       {!narrow && <LayoutToggle icon="panel-bottom" label="Toggle terminal panel (Ctrl+`)" keys="Control+`" toggle={panels.dock} />}
       {!narrow && <LayoutToggle icon="panel-right" label={`Toggle ${panels.right?.label ?? "right panel"}`} keys={panels.right?.keys ?? "Alt+Meta+B"} toggle={panels.right} />}
-      {actions && <span ref={actions} className="pc-frame-actions" />}
+      {actions && <fieldset ref={actions} className="pc-frame-actions" disabled={!connected} title={!connected ? "pacer is offline" : undefined} />}
     </div>}
     {!connected && <span className="pc-live" role="status"><span className="pc-live-dot pc-live-dot--off" aria-hidden="true" />Reconnecting…</span>}
-    {(!narrow || delegate) && <DensityContext.Provider value="compact"><ButtonLink href="#/tasks/new" className="pc-topbar__new" variant="secondary" size="sm" onClick={event => { event.preventDefault(); onDelegate(); }}>New task</ButtonLink></DensityContext.Provider>}
+    {narrow && title === "Dispatch" ? <IconButton icon="plus" aria-label="New task" onClick={onDelegate} /> : (!narrow || delegate) && <DensityContext.Provider value="compact"><ButtonLink href="#/tasks/new" className="pc-topbar__new" variant="secondary" size="sm" onClick={event => { event.preventDefault(); onDelegate(); }}>New task</ButtonLink></DensityContext.Provider>}
     </>}
   </header>;
 }

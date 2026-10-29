@@ -28,7 +28,7 @@ export function AppFrame({ top, activity, left, main, right, dock, status, overl
     };
     const observer = new ResizeObserver(measureDock);
     const observeDock = () => {
-      const next = root.querySelector<HTMLElement>(":scope > .pc-dock > .pc-dock__panel");
+      const next = root.querySelector<HTMLElement>(":scope > .pc-dock > .pc-offline-controls > .pc-dock__panel");
       if (next !== dock) {
         if (dock) observer.unobserve(dock);
         dock = next;
@@ -49,20 +49,21 @@ export function AppFrame({ top, activity, left, main, right, dock, status, overl
   }, [docked]);
   const work = <div className="pc-work">
     {narrow && top}
-    <div aria-live="polite" role="status" className="pc-live-region">{live}</div>
-    <main id="main-content" tabIndex={-1} className={mainClass}>{main}</main>
+    {narrow && <div aria-live="polite" role="status" className="pc-live-region">{live}</div>}
+    <main id="main-content" tabIndex={-1} className={mainClass}><fieldset className="pc-offline-controls" disabled={!!live} title={live ? "pacer is offline" : undefined} aria-label={live ? "pacer is offline" : undefined}>{main}</fieldset></main>
   </div>;
-  return <div ref={frame} className={`pc-app${narrow ? " pc-app--narrow" : ""}${status ? " pc-app--with-status" : ""}${docked ? " pc-app--with-dock" : ""}`}>
+  return <div ref={frame} className={`pc-app${narrow ? " pc-app--narrow" : ""}${status ? " pc-app--with-status" : ""}${docked ? " pc-app--with-dock" : ""}${live ? " pc-app--offline" : ""}`}>
     <TextAction href="#main-content" className="skip-link" onClick={event => { event.preventDefault(); document.getElementById("main-content")?.focus(); }}>Skip to content</TextAction>
     {!narrow && top}
+    {!narrow && <div aria-live="polite" role="status" className="pc-live-region">{live}</div>}
     {narrow && activity}
     <div className="pc-body">
       {!narrow && activity}
       {left}
-      {overlay ? <div className="pc-work-wrap">{work}{overlay}</div> : work}
+      {overlay ? <div className="pc-work-wrap">{work}<fieldset className="pc-offline-controls" disabled={!!live} title={live ? "pacer is offline" : undefined} aria-label={live ? "pacer is offline" : undefined}>{overlay}</fieldset></div> : work}
       {!narrow && right}
     </div>
-    {docked && <div className="pc-dock">{dock}</div>}
+    {docked && <div className="pc-dock"><fieldset className="pc-offline-controls" disabled={!!live} title={live ? "pacer is offline" : undefined} aria-label={live ? "pacer is offline" : undefined}>{dock}</fieldset></div>}
     {status}
   </div>;
 }

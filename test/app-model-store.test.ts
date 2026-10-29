@@ -233,3 +233,59 @@ test("desktop connection recovery updates controls at the same durable revision"
   const stale = reduceStore(state, { type: "event", event: { type: "desktop.update", seq: 6, at: 6, data: paused } });
   expect(stale).toBe(state);
 });
+
+
+test("closed streams and HTTP 502 refreshes keep retrying with bounded backoff until open", async () => {
+  const { spyOn } = await import("bun:test");
+  const pending: { callback: () => void; delay: number }[] = [];
+  const original = globalThis.setTimeout;
+  const clock = spyOn(globalThis, "setTimeout").mockImplementation(((callback: () => void, delay: number) => {
+    if (delay >= 1000) { pending.push({ callback, delay }); return 123 as never; }
+    return original(callback, delay);
+  }) as typeof setTimeout);
+  FakeEvents.instances = [];
+  let unavailable = false;
+  const api = { hello: async () => { if (unavailable) throw new ApiError("internal", "HTTP 502", undefined, 502); return hello("3.0.0"); }, snapshot: async () => ({ protocol: "3.0.0", seq: 120, snapshot: v2 as never }), call: async <T>() => ({} as T) };
+  const store = createStore(api, FakeEvents as any), stop = store.start();
+  try {
+    await flush();
+    FakeEvents.instances.at(-1)!.emit("open");
+    expect(store.getState().connected).toBe(true);
+    unavailable = true;
+    FakeEvents.instances.at(-1)!.emit("error");
+    await flush();
+    expect(store.getState().connected).toBe(false);
+    for (const delay of [1000, 2000, 4000, 8000, 16000, 30000, 30000]) {
+      const retry = pending.shift(); expect(retry?.delay).toBe(delay);
+      retry?.callback(); await flush();
+    }
+    unavailable = false;
+    pending.shift()!.callback(); await flush();
+    // A new EventSource can itself receive an HTTP error even with hello/snapshot back.
+    FakeEvents.instances.at(-1)!.emit("error"); await flush();
+    expect(pending[0]?.delay).toBe(30000);
+    pending.shift()!.callback(); await flush();
+    FakeEvents.instances.at(-1)!.emit("open");
+    expect(store.getState().connected).toBe(true);
+    FakeEvents.instances.at(-1)!.emit("error"); await flush();
+    expect(pending[0]?.delay).toBe(1000);
+    stop();
+    const count = FakeEvents.instances.length;
+    pending.shift()!.callback(); await flush();
+    expect(FakeEvents.instances.length).toBe(count);
+  } finally { stop(); clock.mockRestore(); }
+});
+
+test("offline transport refuses direct operations without a request and resumes after reconnect", async () => {
+  const { spyOn } = await import("bun:test");
+  const request = spyOn(globalThis, "fetch").mockImplementation((async (url: string) => Response.json(url.endsWith("hello") ? hello("3.0.0") : { result: { ok: true } })) as typeof fetch);
+  try {
+    const api = createApi();
+    api.setConnected!(false);
+    await expect(api.call("task.answer", {})).rejects.toMatchObject({ code: "offline", message: "pacer is offline" });
+    expect(request).not.toHaveBeenCalled();
+    api.setConnected!(true);
+    await expect(api.call("task.answer", {})).resolves.toEqual({ ok: true });
+    expect(request).toHaveBeenCalledTimes(2);
+  } finally { request.mockRestore(); }
+});

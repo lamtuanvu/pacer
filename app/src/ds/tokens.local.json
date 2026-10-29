@@ -283,6 +283,24 @@
         "name": "size-160",
         "value": "160px",
         "provisional": "Settings Accounts board minimum quota column width."
+      },
+      {
+        "name": "button-control",
+        "value": "32px",
+        "usage": "Default shared button height; density providers override with the matching control token.",
+        "provisional": "Reviewed comfortable density default."
+      },
+      {
+        "name": "switch-track-width",
+        "value": "40px",
+        "usage": "Touch switch visible track inside its larger target.",
+        "provisional": "Shared switch geometry retained on touch screens."
+      },
+      {
+        "name": "switch-track-height",
+        "value": "24px",
+        "usage": "Touch switch visible track inside its larger target.",
+        "provisional": "Shared switch geometry retained on touch screens."
       }
     ]
   },

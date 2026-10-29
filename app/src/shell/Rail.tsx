@@ -29,12 +29,12 @@ export function Rail({ route, counts, narrow = false, settingsAttention: attenti
   const showSetup = checklist ? !checklist.ready : setupOpen;
   const settingsLabel = attention ? `Settings, ${attention} ${attention === 1 ? "agent needs" : "agents need"} attention` : "Settings";
   return <nav className={narrow ? "pc-bottom-bar" : "pc-rail"} aria-label="pacer">
-    {ITEMS.map(item => {
-      const n = counts ? item.count(counts) : 0;
+    {ITEMS.filter(item => !narrow || item.name !== "terminal").map(item => {
+      const n = counts && !(narrow && item.name === "sessions") ? item.count(counts) : 0;
       const label = n > 0 ? `${item.label}, ${n} ${item.words}` : item.label;
       return <Tooltip key={item.name} text={label}>
         <AppLink className={`pc-rail__item${primaryFor(route) === item.name ? " on" : ""}`} to={item.to} query={route.query} aria-label={label} aria-current={primaryFor(route) === item.name ? "page" : undefined}>
-          <Icon name={item.icon} />{n > 0 && <span className={`pc-rail__badge pc-rail__badge--${item.tone}${item.tone === "warn" ? " pc-rail__badge--count" : ""}`} aria-hidden="true">{n}</span>}
+          <Icon name={item.icon} />{narrow && <span>{item.label}</span>}{n > 0 && <span className={`pc-rail__badge pc-rail__badge--${item.tone}${item.tone === "warn" ? " pc-rail__badge--count" : ""}`} aria-hidden="true">{n}</span>}
         </AppLink>
       </Tooltip>;
     })}
@@ -46,11 +46,11 @@ export function Rail({ route, counts, narrow = false, settingsAttention: attenti
       })}
       <Tooltip text="Add a plugin"><AppLink className="pc-rail__item pc-rail__add-plugin" to={routes.settings("plugins")} query={route.query} aria-label="Add a plugin"><Icon name="plus" /></AppLink></Tooltip>
       </div><span className="grow" /></>}
-    {showSetup && <Tooltip text={setupOpen ? "Setup · needs you" : "Setup"}><AppLink className={`pc-rail__item${route.name === "setup" ? " on" : ""}`} to={routes.setup()} query={route.query} aria-label={setupOpen ? "Setup · needs you" : "Setup"} aria-current={route.name === "setup" ? "page" : undefined}><Icon name="tasks" />{setupOpen && <span className="pc-rail__dot" aria-hidden="true" />}</AppLink></Tooltip>}
-    <StrategyQuickAccess route={route} query={route.query} />
+    {!narrow && showSetup && <Tooltip text={setupOpen ? "Setup · needs you" : "Setup"}><AppLink className={`pc-rail__item${route.name === "setup" ? " on" : ""}`} to={routes.setup()} query={route.query} aria-label={setupOpen ? "Setup · needs you" : "Setup"} aria-current={route.name === "setup" ? "page" : undefined}><Icon name="tasks" />{setupOpen && <span className="pc-rail__dot" aria-hidden="true" />}</AppLink></Tooltip>}
+    {!narrow && <StrategyQuickAccess route={route} query={route.query} />}
     <Tooltip text={settingsLabel}>
       <AppLink className={`pc-rail__item${SETTINGS.has(route.name) ? " on" : ""}`} to={routes.settings()} query={route.query} aria-label={settingsLabel} aria-current={SETTINGS.has(route.name) ? "page" : undefined}>
-        <Icon name="settings" />{attention > 0 && <span className="pc-rail__dot" aria-hidden="true" />}
+        <Icon name="settings" />{narrow && <span>Settings</span>}{attention > 0 && <span className="pc-rail__dot" aria-hidden="true" />}
       </AppLink>
     </Tooltip>
   </nav>;

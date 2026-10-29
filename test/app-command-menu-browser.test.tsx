@@ -596,8 +596,11 @@ browserTest("Answer Escape restores its opening control inside Layout", () => wi
 browserTest("closing the shell Inspector preserves the inline selected task aside", () => withPage(async (page, built) => {
   await open(page, built, "?task-list#/tasks");
   const aside = page.getByRole("complementary",{name:"Selected task"});
-  await aside.waitFor();
+  expect(await aside.count()).toBe(0);
   const inspector = page.getByRole("button",{name:/Hide.*(Inspector|inspector)/});
   await inspector.click();
+  await aside.waitFor();
   expect(await aside.isVisible()).toBe(true);
+  await page.getByRole("button", {name:"Toggle Inspector"}).click();
+  await aside.waitFor({state:"detached"});
 }));

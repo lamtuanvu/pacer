@@ -994,7 +994,7 @@ a.pc-btn--primary:hover{color:var(--ink-on-ink)}
 .pc-density--normal{--button-control:var(--control-normal)}
 .pc-density--compact{--button-control:var(--control-compact)}
 .pc-btn--compact{--button-control:var(--control-compact)}
-.pc-btn:is(.pc-btn--normal,.pc-btn--compact,.pc-btn--settings):not(.pc-icon-button):not(:where(.pc-segmented *)):not(.pc-btn--touch){min-height:var(--button-control,var(--control-normal));padding-block:0}
+.pc-btn:is(.pc-btn--normal,.pc-btn--compact,.pc-btn--settings):not(:where(.pc-icon-button,.pc-btn--touch,.pc-segmented *)):not(.pc-btn--xs){min-height:var(--button-control);padding-block:0}
 @media(max-width:560px),(pointer:coarse){
  .pc-btn:is(.pc-btn--normal,.pc-btn--compact,.pc-btn--settings,.pc-btn--touch):not(.tray .pc-btn){min-height:var(--control-touch);min-width:var(--control-touch)}
 }

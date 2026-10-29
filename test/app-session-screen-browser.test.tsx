@@ -42,7 +42,7 @@ browserTest("session header confirms end, preserves resume, and keeps the global
   for (const scenario of ["conversation", "supervised"] as const) {
     const page = await openSession(browser, scenario);
     const end = page.locator(".pc-session-bar").getByRole("button", {name:"End session"});
-    expect(await end.evaluate(node => node.getBoundingClientRect().height)).toBe(26);
+    expect(await end.evaluate(node => node.getBoundingClientRect().height)).toBe(32);
     expect(await page.locator("h1").count()).toBe(1);
     expect(await page.locator(".pc-topbar h1").textContent()).toBe(await page.locator(".pc-session-bar h2").textContent());
     expect(await page.locator(".pc-session-bar h2").evaluate(node => [getComputedStyle(node).fontSize,getComputedStyle(node).fontWeight])).toEqual(["14px","650"]);

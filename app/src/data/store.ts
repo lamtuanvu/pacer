@@ -122,9 +122,15 @@ export function createStore(injectedApi?: BrowserApi, Events: typeof EventSource
   let timer: ReturnType<typeof setTimeout> | undefined;
   let stopped = true;
   let generation = 0;
-  const dispatch = (action: StoreAction) => { state = reduceStore(state, action); for (const listener of listeners) listener(); };
+  let retryDelay = 1000;
+  const dispatch = (action: StoreAction) => { state = reduceStore(state, action); api.setConnected?.(state.connected); for (const listener of listeners) listener(); };
   const endSession = () => { stream?.close(); clearTimeout(timer); dispatch({ type: "session-ended" }); };
   const api = injectedApi ?? createApi(endSession);
+  const retry = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => { if (!stopped && !state.sessionEnded) void refresh(); }, retryDelay);
+    retryDelay = Math.min(retryDelay * 2, 30_000);
+  };
   async function refresh() {
     const current = ++generation;
     stream?.close();
@@ -139,12 +145,16 @@ export function createStore(injectedApi?: BrowserApi, Events: typeof EventSource
       const active = () => !stopped && stream === source && !state.sessionEnded;
       source.addEventListener("open", () => {
         if (!active()) return;
+        retryDelay = 1000;
         if (failed) { dispatch({ type: "reconnected" }); void refresh(); }
-        else { state = { ...state, connected: true }; for (const listener of listeners) listener(); }
+        else { state = { ...state, connected: true }; api.setConnected?.(true); for (const listener of listeners) listener(); }
       });
       source.addEventListener("error", () => {
         if (!active()) return;
         failed = true;
+        // Own retries: HTTP errors can permanently close the native EventSource.
+        source.close();
+        retry();
         dispatch({ type: "disconnected" });
         // EventSource does not expose HTTP status. A normal request detects expired cookies.
         void api.hello().catch(error => { if (active() && error instanceof ApiError && error.status === 401) endSession(); });
@@ -163,7 +173,7 @@ export function createStore(injectedApi?: BrowserApi, Events: typeof EventSource
       if (stopped || current !== generation) return;
       if (error instanceof ApiError && error.status === 401) { endSession(); return; }
       dispatch({ type: "disconnected" });
-      timer = setTimeout(() => { void refresh(); }, 1000);
+      retry();
     }
   }
   return {
