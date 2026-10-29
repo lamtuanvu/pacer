@@ -528,3 +528,5 @@ for accounts with existing sign-in or Ark CLI refresh help and toggles an inline
 region spanning the row. Agents and Accounts paint the header background and
 bottom rule on the whole header row. Add agent breadcrumb and footer text
 links keep the shared touch minimum for both width and height.
+
+The assistant launcher uses the shared `AuroraLauncher` (surface-card in both themes, muted 11px shortcut) and its `AuroraAvatar` uses the board’s conic aurora token gradient. The shell clips the overlay to the work area; setup composes 24px `AgentMark` rows and a semantic h2 using the 14px/650 session-title tokens. App preferences uses the existing `Switch size="sm"` (36×20, green on). `AuroraSheet autoScroll` defaults to true for conversation updates; setup/status cards set it false to retain their heading at the top. No upstream source is introduced.

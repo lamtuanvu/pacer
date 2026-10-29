@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef } from "preact/hooks";
 import type { ComponentChildren } from "preact";
 import { TextAction } from "../ds/Button";
 
@@ -15,12 +16,33 @@ export function AppFrame({ top, activity, left, main, right, dock, status, overl
   live?: ComponentChildren; mainClass?: string;
 }) {
   const docked = !narrow && !!dock;
+  const frame = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const root = frame.current;
+    if (!root) return;
+    let dock: HTMLElement | null = null;
+    const measureDock = () => root.style.setProperty("--pc-dock-height", `${dock?.getBoundingClientRect().height ?? 0}px`);
+    const observer = new ResizeObserver(measureDock);
+    const observeDock = () => {
+      const next = root.querySelector<HTMLElement>(":scope > .pc-dock");
+      if (next !== dock) {
+        if (dock) observer.unobserve(dock);
+        dock = next;
+        if (dock) observer.observe(dock);
+      }
+      measureDock();
+    };
+    observeDock();
+    const children = new MutationObserver(observeDock);
+    children.observe(root, { childList: true });
+    return () => { children.disconnect(); observer.disconnect(); };
+  }, [docked]);
   const work = <div className="pc-work">
     {narrow && top}
     <div aria-live="polite" role="status" className="pc-live-region">{live}</div>
     <main id="main-content" tabIndex={-1} className={mainClass}>{main}</main>
   </div>;
-  return <div className={`pc-app${narrow ? " pc-app--narrow" : ""}${status ? " pc-app--with-status" : ""}${docked ? " pc-app--with-dock" : ""}`}>
+  return <div ref={frame} className={`pc-app${narrow ? " pc-app--narrow" : ""}${status ? " pc-app--with-status" : ""}${docked ? " pc-app--with-dock" : ""}`}>
     <TextAction href="#main-content" className="skip-link" onClick={event => { event.preventDefault(); document.getElementById("main-content")?.focus(); }}>Skip to content</TextAction>
     {!narrow && top}
     {narrow && activity}
