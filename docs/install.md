@@ -193,7 +193,15 @@ pacer status --json
 
 `install` adds the pacer skill and planner policy/hooks with tracked backups. MCP is optional: use `pacer install claude-code --mcp` to register the stdio server, or `--no-mcp` to remove an existing entry. A plain reinstall leaves an existing MCP entry unchanged. Restart an MCP client after updating. `pacer uninstall <planner>` reverses the integration while preserving later user edits.
 
-`pacer serve` runs the loopback service. `pacer service install` manages it through launchd on macOS or a user systemd service on Linux; inspect with `pacer service status` and remove with `pacer service uninstall`.
+`pacer serve` runs the loopback service. `pacer service install` manages it through launchd on macOS or a user systemd service on Linux; inspect with `pacer service status`.
+
+Upgrading keeps running work. `pacer update`, **Settings → Updates** and `pacer service install|restart` restart the service onto the new version without stopping agents or terminal commands. After the new service passes its health check, each task's runner hands its live attempt to a runner of the new version, which reattaches to the same agent. Session hosts keep running; a session whose host is more than three minor releases older shows **Reopen to update**. The command reports how many tasks and sessions kept running and how many stayed on the previous runner; it waits up to 60 seconds for runners to hand over. `pacer status` and **Settings → Updates** list work still on an older runner or host. Delegated tasks cannot run `pacer update` or `pacer service install|restart|uninstall` ("upgrades are not allowed from a delegated task"). This guards against an accidental self-upgrade; it is not a security boundary.
+
+The guarantee starts with the first upgrade *from* a version that contains it. The first upgrade into this version still runs the old update code. On Linux, that first upgrade also uses the old unit, so it stops running work; finish or stop running tasks before it.
+
+On Linux the generated unit sets `KillMode=process`, and upgrades rewrite an older unit and run `systemctl --user daemon-reload` before restarting. As a result, `systemctl --user stop` no longer stops runners and session hosts either. `pacer status` lists that work.
+
+`pacer service uninstall` lists running tasks and sessions and asks before removing the service; the work keeps running. `pacer service uninstall --stop-work` stops each task and terminal it can identify, signalling only processes whose recorded identity still matches. `--yes` skips the question in scripts.
 
 `pacer update --check --json` reports versions without installing. Disable checks with
 `PACER_NO_UPDATE_CHECK=1` or top-level `update_check: false` in the active strategy.

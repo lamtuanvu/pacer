@@ -333,6 +333,32 @@ owned desktop window before setup succeeds. Missing native or speech evidence is
 reported as UNVERIFIED.
 
 
+## Service upgrade with running work
+
+These scenarios validate runner handover, session-host survival and the upgrade report with real agents (Claude Code and Codex). They need macOS. They also need an **unseeded** sandbox (agents use your accounts) that you stop first, because the fixture service takes over the sandbox's home and inner port:
+
+```sh
+bun run live up --id upgrade-check
+bun run live down --id upgrade-check --keep
+bun run live upgrade build --id upgrade-check   # 0.11.0 (pre-feature), 0.13.0 and 0.13.1 fixture builds + file feed
+```
+
+The builds are compiled with a native fixture lease, so the service registers under `com.pacer.live.<nonce>.service`, never `com.pacer.serve`. `live upgrade pacer -- <args>` runs the installed fixture CLI with the fixture home and feed. It refuses `service`, `install`, `uninstall`, `init`, `setup` and `open`, and any `update` without `--no-reinstall`. From the pre-feature build it also requires `--no-restart`, because that release's own service code targets the real label. `live upgrade kickstart` then restarts the fixture job. `live upgrade identity --task <id>` (or `--terminal <id>`) records the runner, wrapper or host and agent process identities. Record one before and one after each upgrade: an unchanged agent identity proves that the agent never restarted. Finish with `live upgrade cleanup`, `live report` and `live down --keep`.
+
+Configure accounts once inside the fixture home, for example `bun run live upgrade pacer --id upgrade-check -- account add claude live-claude --home "$HOME/.claude"`, and do the same for Codex.
+
+| Scenario | Start | Steps | Pass when |
+| --- | --- | --- | --- |
+| `upgrade-headless` | `start --from baseline` | Delegate a headless task whose brief runs `sleep 120` before writing a file. Record identity mid-turn. `pacer -- update --to 0.13.1 --no-reinstall`. Record identity. | The update prints "Updated to v0.13.1. … kept running; 0 stayed on the previous runner." The agent identity is unchanged, the runner identity changed, `runnerPacer` is 0.13.1, the timeline shows "Reattached on v0.13.1", and the task completes with its report recorded once. |
+| `upgrade-interactive` | `start --from baseline` | The same with an interactive task, with a web viewer attached during the upgrade. | Same as above. The session host identity and `session.version` (0.13.0) are unchanged, and the viewer reconnects with output intact. |
+| `upgrade-strict` | `start --from baseline` | A strict managed task (`dispatch` work) mid-turn, then update. | No requeue, one attempt, and the guard still accepts `dispatch.enforcement.denied` checks after the handover. |
+| `upgrade-terminal` | `start --from baseline` | Open a terminal and run a long command (`for i in $(seq 1 300); do echo $i; sleep 1; done`). Update. | The terminal host and shell identities are unchanged, and the window reconnects with output intact. |
+| `upgrade-first-hop` | `start --from prefeature` | Start a headless task and a terminal. `pacer -- update --to 0.13.1 --no-reinstall --no-restart`, then `kickstart`. | No runner is signalled (`handover` stays null). The old runner finishes the task on 0.11.0 code, and the terminal keeps running. |
+| `upgrade-rollback` | after `upgrade-headless` on 0.13.1 | Start a task. `pacer -- update --to 0.13.0 --no-reinstall`. | The 0.13.1 runner and host keep working under the 0.13.0 service, nothing is signalled, and the task completes. |
+| `upgrade-install` | `start --from baseline` | Scenarios 1 and 4, but replace the binary with `pacer -- update --to 0.13.1 --no-reinstall --no-restart`, then `live upgrade install` (bootout and bootstrap). | Same as scenarios 1 and 4, and the install prints "Restarted on v0.13.1. …". |
+
+Linux: on a disposable Linux account with no other pacer service, install a 0.13.0 build as a user unit and repeat `upgrade-headless` and `upgrade-terminal` with `pacer update`. Until that runs, report Linux as UNVERIFIED.
+
 ## Disposable CLI updater validation
 
 `bun run live up --id bridge-update --seed ui`, then `bun run live updater --id bridge-update`, exercises the compiled CLI updater against fixed loopback releases. This is the approved bridge-plan fixture (the companion is a copy of the compiled binary), not a paired Rust release or desktop OTA test.
