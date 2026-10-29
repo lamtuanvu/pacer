@@ -47,7 +47,8 @@ export type ColorToken =
   | "aurora-2"
   | "aurora-3"
   | "ink-on-fill"
-  | "shadow-tray-menu-tint";
+  | "shadow-tray-menu-tint"
+  | "answer-scrim";
 export const colorTokens: Record<ColorToken, { light: string; dark: string }> = {
   "surface-page": { light: "#ffffff", dark: "#09090b" },
   "surface-card": { light: "#fafafa", dark: "#18181b" },
@@ -55,7 +56,7 @@ export const colorTokens: Record<ColorToken, { light: string; dark: string }> = 
   "line": { light: "#e4e4e7", dark: "#3f3f46" },
   "ink": { light: "#18181b", dark: "#fafafa" },
   "ink-secondary": { light: "#52525b", dark: "#a1a1aa" },
-  "ink-muted": { light: "#71717a", dark: "#a1a1aa" },
+  "ink-muted": { light: "#6b6b74", dark: "#a1a1aa" },
   "ink-on-ink": { light: "#ffffff", dark: "#18181b" },
   "track": { light: "#65a30d", dark: "#a3e635" },
   "link": { light: "#1d4ed8", dark: "#93c5fd" },
@@ -97,4 +98,5 @@ export const colorTokens: Record<ColorToken, { light: string; dark: string }> = 
   "aurora-3": { light: "#99f6e4", dark: "#5ed8c4" },
   "ink-on-fill": { light: "#ffffff", dark: "#18181b" },
   "shadow-tray-menu-tint": { light: "rgb(9 9 11 / .16)", dark: "rgb(0 0 0 / .55)" },
+  "answer-scrim": { light: "color-mix(in srgb, var(--ink) 14%, transparent)", dark: "color-mix(in srgb, var(--ink) 14%, transparent)" },
 };

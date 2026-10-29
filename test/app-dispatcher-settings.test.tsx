@@ -181,7 +181,7 @@ test("shows the next scheduled probe and the measured cost",()=>{
   // FIX 3 (QA F8): Positive assertions that can actually fail
   expect(html).toContain("next eligible");
   expect(html).toContain("probes today: 1");
-  expect(html).toContain("2.0%");
+  expect(html).toContain("2%");
   expect(html).toContain("last probe");
   expect(html).toContain("consent: granted");
   // Changeable consent (FIX 1): granted account offers "Withdraw consent"

@@ -66,7 +66,7 @@ browserTest("new_task_desktop_ready_flow_delegates_with_cmd_enter", async () => 
     await page.getByText("Starts in a new worktree on econ-v1/node · you can watch it in Tasks").waitFor();
     await page.getByText("Draft saved just now").waitFor();
     await page.keyboard.press("Meta+Enter");
-    await page.waitForFunction(() => location.hash.startsWith("#/tasks/t-"));
+    await page.waitForFunction(() => location.hash === "#/tasks");
     expect(await calls(page, "task.delegate")).toEqual([expect.objectContaining({ goal: REQUEST, repo: "econ-v1/node", kind: "feature", worktree: "new", source: "ui" })]);
     // A delegated task clears the saved draft.
     expect(await page.evaluate(() => JSON.parse(localStorage.getItem("pacer.new-task.v1") ?? "{}").request ?? "")).toBe("");
@@ -125,7 +125,7 @@ for (const explain of ["missing", "unknown"] as const) {
       const delegate = page.getByRole("button", { name: /^Delegate task/ });
       await expect(delegate.isDisabled()).resolves.toBe(false);
       await delegate.click();
-      await page.waitForFunction(() => location.hash.startsWith("#/tasks/t-"));
+      await page.waitForFunction(() => location.hash === "#/tasks");
       const [params] = await calls(page, "task.delegate");
       expect(params.kind).toBeUndefined();
     }, { stub: { explain } });
@@ -168,7 +168,7 @@ browserTest("new_task_cmd_n_opens_the_composer_from_anywhere", async () => {
     await page.locator("#main-content").focus();
     await page.keyboard.press("Meta+n");
     await page.waitForFunction(() => location.hash === "#/tasks/new?repo=econ-v1%2Fnode");
-    await focused(page, "#nt-request");
+    await focused(page, "#nt-request").catch(async () => { throw new Error(JSON.stringify(await page.evaluate(() => ({ active: document.activeElement?.outerHTML, requests: document.querySelectorAll("#nt-request").length })))); });
   }, { hash: "#/?repo=econ-v1%2Fnode" });
 }, 30_000);
 
@@ -212,7 +212,7 @@ browserTest("new_task_375_sheet_rows_open_sheets", async () => {
     await expect(sheet.getByRole("button", { name: /^Where it runs/ }).textContent()).resolves.toContain("Current checkout");
     await sheet.getByText("Starts in the current checkout on econ-v1/node").waitFor();
     await sheet.getByRole("button", { name: /^Delegate task/ }).click();
-    await page.waitForFunction(() => location.hash.startsWith("#/tasks/t-"));
+    await page.waitForFunction(() => location.hash === "#/tasks");
     expect(await calls(page, "task.delegate")).toEqual([expect.objectContaining({ kind: "docs", worktree: "current" })]);
   }, { width: 375, height: 812 });
 }, 30_000);
@@ -221,7 +221,7 @@ browserTest("new_task_375_sheet_closes_with_escape", async () => {
   await withComposer(async page => {
     await page.getByRole("dialog", { name: "New task" }).waitFor();
     await page.keyboard.press("Escape");
-    await page.waitForFunction(() => location.hash === "#/tasks");
+    await page.waitForFunction(() => location.hash === "#/");
   }, { width: 375, height: 812 });
 }, 30_000);
 
@@ -235,7 +235,7 @@ browserTest("new_task_submit_never_uses_a_stale_preview_and_keeps_a_mention_adde
     await page.getByRole("button", { name: "Mention a file or folder" }).click();
     await page.getByRole("textbox", { name: "File or folder in the repository" }).fill("docs/config.md");
     await page.keyboard.press("Meta+Enter");
-    await page.waitForFunction(() => location.hash.startsWith("#/tasks/t-"));
+    await page.waitForFunction(() => location.hash === "#/tasks");
     const [params] = await calls(page, "task.delegate");
     expect(params).toMatchObject({ goal: "Document the config flags.", scope: "docs/config.md" });
     expect(params.kind).toBeUndefined();
@@ -283,7 +283,7 @@ for (const width of [1440, 375]) {
       expect(await calls(page, "issue.search")).toEqual([{ repo: "econ-v1/node", query: "failure", state: "open", limit: 20 }]);
       expect(await calls(page, "issue.import")).toEqual([{ repo: "econ-v1/node", issue: "42" }]);
       await page.getByRole("button", { name: /^Delegate task/ }).click();
-      await page.waitForFunction(() => location.hash.startsWith("#/tasks/t-"));
+      await page.waitForFunction(() => location.hash === "#/tasks");
       expect((await calls(page, "task.delegate"))[0].context).toContain("Imported from issue https://github.com/econ-v1/node/issues/42");
     }, { width, height: 900, stub: { issue: "ok" } });
   }, 30_000);
@@ -331,8 +331,8 @@ for (const width of [1440, 768, 375]) for (const dark of [false, true]) {
           overflow: document.scrollingElement!.scrollWidth > innerWidth,
         };
       });
-      expect(geometry).toMatchObject({ requestSize: "14px", requestLine: width === 375 ? "20px" : "21px", agentSize: width === 375 ? "14px" : "18px", overflow: false });
-      if (width === 375) expect(geometry.titleSize).toBe("17px");
+      expect(geometry).toMatchObject({ requestSize: "14px", requestLine: width === 375 ? "20px" : "21px", agentSize: width === 375 ? "14px" : "16px", overflow: false });
+      if (width === 375) expect(geometry.titleSize).toBe("16px");
       const evidence = process.env.PACER_COMPOSER_EVIDENCE;
       if (evidence) {
         mkdirSync(evidence, { recursive: true });
@@ -367,7 +367,7 @@ for (const route of ["built-in-fail", "built-in-select", "built-in-queue", "fail
       const delegate = page.getByRole("button", { name: /^Delegate task/ });
       expect(await delegate.isDisabled()).toBe(false);
       await delegate.click();
-      await page.waitForFunction(() => location.hash.startsWith("#/tasks/t-"));
+      await page.waitForFunction(() => location.hash === "#/tasks");
       expect((await calls(page, "task.delegate")).length).toBe(1);
     }, { stub: { route } });
   }, 30_000);
@@ -420,7 +420,7 @@ for (const action of ["remove", "empty", "replace"] as const) browserTest(`new_t
     expect(await note.count()).toBe(0);
     if (action === "empty") await page.locator("#nt-request").fill("Fresh request");
     await page.getByRole("button", { name: /^Delegate task/ }).click();
-    await page.waitForFunction(() => location.hash.startsWith("#/tasks/t-"));
+    await page.waitForFunction(() => location.hash === "#/tasks");
     expect((await calls(page, "task.delegate"))[0].context).toBeUndefined();
   }, { stub: { issue: "import-only" } });
 }, 30_000);
@@ -467,3 +467,12 @@ browserTest("new_task_375_card_has_one_summary_reason_line", async () => {
     expect(lines.plannerTitle).toContain("median of 12 similar tasks");
   }, { width: 375, height: 812 });
 }, 30_000);
+
+browserTest('canvas_new_task_has_breadcrumb_above_title_and_cancel_returns_to_dispatch', async()=>{
+ await withComposer(async page=>{
+  const geometry=await page.evaluate(()=>({crumb:document.querySelector('.pc-new-task__crumb')!.getBoundingClientRect().top,title:document.querySelector('.pc-new-task__title')!.getBoundingClientRect().top}));
+  expect(geometry.crumb).toBeLessThan(geometry.title);
+  await page.getByRole('button',{name:'Cancel',exact:true}).first().click();
+  await page.waitForFunction(()=>location.hash==='#/');
+ });
+},15000);

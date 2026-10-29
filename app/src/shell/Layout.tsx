@@ -1,9 +1,9 @@
 import { counts as snapshotCounts } from "../../../src/view-model/selectors";
-import { DensityContext } from '../ds/Density';
+import { DensityContext, DensityProvider } from '../ds/Density';
 import { LoadingState } from "../ds/Patterns";
 import { SectionHeading } from "../ds/SectionHeading";
 import type { ComponentChildren } from "preact";
-import { useContext, useEffect, useMemo, useRef, useState } from "preact/hooks";
+import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
 import { Mark } from "../ds/Mark";
 import type { StoreState } from "../data/store";
 import type { Route } from "../router";
@@ -19,6 +19,7 @@ import { CommandTrigger } from "./CommandTrigger";
 import { StrategyQuickAccessPopup } from "./StrategyQuickAccess";
 import { useNotifications } from "../data/notification-context";
 import { useNavigation } from "../navigation";
+import { OfflineNotice } from "./OfflineNotice";
 import { TopBar } from "./TopBar";
 import { StatusBar } from "./StatusBar";
 import { commands, keys } from "../keys/instance";
@@ -27,6 +28,7 @@ import { AppFrame } from "./AppFrame";
 import { panelCommands, usePanelState } from "./panels";
 import { FrameContext, type FrameHeading } from "./slots";
 import { DOCK_ID, TerminalDock } from "./TerminalDock";
+import { useAgentDeepLink } from "./panels/agent-link";
 import { activeRepo } from "./narrow";
 
 /** The sheet loads after first paint so it stays out of the main bundle. Older services never load it. */
@@ -47,6 +49,22 @@ function Skeleton() {
 /** Compact desktop header and rail; narrow screens keep touch navigation. AppFrame owns the regions. */
 export function Layout({ route, state, title, onDelegate = () => {}, children }: { route: Route; state: StoreState; title: string; onDelegate?: () => void; children: ComponentChildren }) {
   const narrow = useNarrow(route.query);
+  useAgentDeepLink(route);
+  const [density, setDensity] = useState<"normal" | "compact">(() => {
+    try { return localStorage.getItem("pacer.density") === "compact" ? "compact" : "normal"; }
+    catch { return "normal"; }
+  });
+  useEffect(() => {
+    const sync = (event: Event) => {
+      let value: unknown;
+      try { value = event instanceof CustomEvent ? event.detail : localStorage.getItem("pacer.density"); }
+      catch { return; }
+      setDensity(value === "compact" ? "compact" : "normal");
+    };
+    window.addEventListener("pacer:density", sync);
+    window.addEventListener("storage", sync);
+    return () => { window.removeEventListener("pacer:density", sync); window.removeEventListener("storage", sync); };
+  }, []);
   const context = useContext(TaskContext), Panel = context ? SettingsPanelData : SettingsPanel;
   const [leftOpen, setLeftOpen] = usePanelState("settings", true);
   const [dockOpen, setDockOpen] = usePanelState("dock", false);
@@ -77,7 +95,11 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
   const wide = useMedia(PANEL_MEDIA, true);
   const hasLeft = !narrow && wide && SETTINGS.has(route.name) && !state.sessionEnded;
   // A task's screen fills the Sessions list on the left and its session details on the right.
-  const taskPanels = !narrow && wide && route.name === "sessions" && !!route.id && !!context && !state.sessionEnded;
+  const workPanels = !narrow && wide && !!context && !state.sessionEnded && (route.name === "dispatch" || (route.name === "sessions" && !route.id));
+  const [scopeOpen, setScopeOpen] = usePanelState(`${route.name}.scope`, true);
+  const [inspectorOpen, setInspectorOpen] = usePanelState(`${route.name}.inspector`, true);
+  const newTaskPanels = !narrow && wide && route.name === "new-task";
+  const taskPanels = !narrow && wide && route.name === "sessions" && route.view !== "trace" && !!route.id && !!context && !state.sessionEnded;
   // Both panels start open only where the session keeps room beside them; a saved choice always wins.
   const roomy = typeof matchMedia === "function" && matchMedia("(min-width: 1100px)").matches;
   const [tasksOpen, setTasksOpen] = usePanelState("tasks", roomy);
@@ -85,9 +107,9 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
   const [actionSlot, setActionSlot] = useState<HTMLElement | null>(null);
   const [titleSlot, setTitleSlot] = useState<HTMLElement | null>(null), [leftSlot, setLeftSlot] = useState<HTMLElement | null>(null);
   const [rightSlot, setRightSlot] = useState<HTMLElement | null>(null), [heading, setHeading] = useState<FrameHeading | null>(null);
-  const slots = useMemo(() => ({ title: titleSlot, actions: actionSlot, left: leftSlot, right: rightSlot, inline: !taskPanels, heading: setHeading,
-    sessions: taskPanels ? { open: tasksOpen, toggle: () => setTasksOpen(!tasksOpen) } : undefined,
-    details: taskPanels ? { open: detailsOpen, toggle: () => setDetailsOpen(!detailsOpen) } : undefined }), [titleSlot, actionSlot, leftSlot, rightSlot, taskPanels, tasksOpen, detailsOpen]);
+  const slots = useMemo(() => ({ title: titleSlot, actions: actionSlot, left: leftSlot, right: rightSlot, inline: !taskPanels && !workPanels, heading: setHeading,
+    sessions: workPanels ? { open: scopeOpen, toggle: () => setScopeOpen(!scopeOpen) } : taskPanels ? { open: tasksOpen, toggle: () => setTasksOpen(!tasksOpen) } : undefined,
+    details: newTaskPanels ? {open:inspectorOpen,toggle:()=>setInspectorOpen(!inspectorOpen)} : workPanels ? { open: inspectorOpen, toggle: () => setInspectorOpen(!inspectorOpen) } : taskPanels ? { open: detailsOpen, toggle: () => setDetailsOpen(!detailsOpen) } : undefined }), [titleSlot, actionSlot, leftSlot, rightSlot, taskPanels, tasksOpen, detailsOpen, workPanels, scopeOpen, inspectorOpen, newTaskPanels, route.name]);
   // One terminal screen at a time, and only where the full desktop frame (and a service connection) exists.
   const dockAvailable = showStatusBar && wide && !!context && route.name !== "terminal" && !state.sessionEnded;
   const toggleDock = () => {
@@ -96,13 +118,15 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
     if (!dockOpen || (here && !here.closest(".pc-dock"))) opener.current = here;
     setDockOpen(!dockOpen);
   };
-  useEffect(() => {
-    const offs = panelCommands(hasLeft ? () => setLeftOpen(!leftOpen) : taskPanels ? () => setTasksOpen(!tasksOpen) : undefined,
-      dockAvailable ? toggleDock : undefined, taskPanels ? () => setDetailsOpen(!detailsOpen) : undefined).map(command => commands.register(command));
+  useLayoutEffect(() => {
+    const offs = panelCommands(workPanels ? () => setScopeOpen(!scopeOpen) : hasLeft ? () => setLeftOpen(!leftOpen) : taskPanels ? () => setTasksOpen(!tasksOpen) : undefined,
+      dockAvailable ? toggleDock : undefined, workPanels || newTaskPanels ? () => setInspectorOpen(!inspectorOpen) : taskPanels ? () => setDetailsOpen(!detailsOpen) : undefined).map(command => commands.register(command));
     return () => offs.forEach(off => off());
-  }, [hasLeft, leftOpen, taskPanels, tasksOpen, detailsOpen, dockAvailable, dockOpen]);
+  }, [hasLeft, leftOpen, taskPanels, tasksOpen, detailsOpen, dockAvailable, dockOpen, workPanels, scopeOpen, inspectorOpen, newTaskPanels, route.name]);
   // Dispatcher commands exist only where the service offers the operation (UI-13).
   const paused = !!state.snapshot?.pause, ops = state.features.ops, api = context?.api;
+  // The UI has its own API client, separate from the store's snapshot transport.
+  useLayoutEffect(() => { api?.setConnected?.(state.connected); }, [api, state.connected]);
   const planner = state.snapshot?.planner, mode = state.snapshot?.mode?.mode;
   const pacing = planner && mode ? `Settings · ${agentInfo(planner.agent).name} is in ${modeWords(mode)} mode` : "Settings";
   // The active saved setup is read (an existing operation) when the menu opens, so its row can say which one is on.
@@ -116,14 +140,14 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
     if (!api || !state.snapshot) return;
     const fail = (error: unknown) => notifications?.notify({ key: "dispatch-command", tone: "error", title: "Could not change dispatching", message: error instanceof Error ? error.message : undefined });
     const offs = [
-      ...(ops.has(paused ? "delegation.resume" : "delegation.pause") ? [commands.register(paused
+      ...(state.connected && ops.has(paused ? "delegation.resume" : "delegation.pause") ? [commands.register(paused
         ? { id: "dispatch.resume", title: "Resume dispatch", sub: "New tasks start again", group: "Dispatcher", icon: "dispatch", keywords: "unpause continue", run: () => { void api.call("delegation.resume", {}).catch(fail); } }
         : { id: "dispatch.pause", title: "Pause dispatch", sub: "Running tasks finish; nothing new starts", group: "Dispatcher", icon: "dispatch", keywords: "stop hold", run: () => { void api.call("delegation.pause", { for: "1h" }).catch(fail); } })] : []),
-      ...(ops.has("strategy.use") ? [commands.register({ id: "dispatch.setup", opensDialog: true, title: "Switch saved setup…", sub: activeSetup ? `Active: ${activeSetup}` : undefined, group: "Dispatcher", icon: "routing", keywords: "strategy routing profile", run: () => setSetupOpen(true) })] : []),
+      ...(state.connected && ops.has("strategy.use") ? [commands.register({ id: "dispatch.setup", opensDialog: true, title: "Switch saved setup…", sub: activeSetup ? `Active: ${activeSetup}` : undefined, group: "Dispatcher", icon: "routing", keywords: "strategy routing profile", run: () => setSetupOpen(true) })] : []),
       commands.register({ id: "dispatch.budget", title: "Budget & pacing", sub: pacing, group: "Dispatcher", icon: "gauge", keywords: "planner quota limit", run: () => navigate(routes.settings("planner")) }),
     ];
     return () => offs.forEach(off => off());
-  }, [api, paused, ops, !state.snapshot, notifications, activeSetup, pacing]);
+  }, [api, paused, ops, !state.snapshot, state.connected, notifications, activeSetup, pacing]);
   const searchable = route.name !== "setup" && route.name !== "loading";
   useEffect(() => {
     if (!searchable) return;
@@ -142,24 +166,24 @@ export function Layout({ route, state, title, onDelegate = () => {}, children }:
   const loading = route.name === "loading" || !state.snapshot;
   const outdated = !loading && NEEDS_READ_MODEL.has(route.name) && !state.features.readModel;
   // Dispatcher and the legacy Assistant screen still rely on the shell for their h1.
-  const topBar = <TopBar narrow={narrow} title={title} planner={state.snapshot?.planner ?? null} mode={state.snapshot?.mode?.mode ?? ""} connected={state.connected} lastUpdate={state.snapshot?.at ?? null} onDelegate={onDelegate} delegate={route.name !== "dispatch"} pageTitle={!pageOwnsTitle(route) && route.name !== "dispatch" && route.name !== "review" && route.name !== "plugin" && (route.name !== "settings" || route.section === "dispatcher" || route.section === "assistant") && route.name !== "add-executor" && (route.name !== "hosts" || (!!route.alias && !!state.snapshot?.hosts?.some(host => host.alias === route.alias)))} plannerFigure={route.name !== "dispatch"} search={searchable ? <CommandTrigger onOpen={togglePalette} /> : undefined} narrowSearch={searchable ? <CommandTrigger narrow onOpen={togglePalette} /> : undefined} brand={<AppLink className="pc-topbar__home" to={routes.dispatch()} query={route.query} aria-label="pacer home"><Mark size={18} wordmark={false} /></AppLink>} panels={{ ...(hasLeft ? { left: { open: leftOpen, toggle: () => setLeftOpen(!leftOpen) } } : taskPanels ? { left: { open: tasksOpen, toggle: () => setTasksOpen(!tasksOpen) } } : {}),
-      ...(dockAvailable ? { dock: { open: dockOpen, toggle: toggleDock } } : {}), ...(taskPanels ? { right: { open: detailsOpen, toggle: () => setDetailsOpen(!detailsOpen), label: "details panel", keys: "Control+Shift+B" } } : {}) }}
+  const topBar = <TopBar narrow={narrow} title={title} planner={state.snapshot?.planner ?? null} mode={state.snapshot?.mode?.mode ?? ""} connected={state.connected} lastUpdate={state.snapshot?.at ?? null} onDelegate={onDelegate} delegate={route.name !== "dispatch"} pageTitle={narrow && route.name === "dispatch" || route.name !== "new-task" && (route.name !== "sessions" || !!route.id) && route.name !== "terminal" && !pageOwnsTitle(route) && route.name !== "dispatch" && route.name !== "review" && route.name !== "plugin" && (route.name !== "settings" || route.section === "assistant") && route.name !== "add-executor" && (route.name !== "hosts" || (!!route.alias && !!state.snapshot?.hosts?.some(host => host.alias === route.alias)))} plannerFigure={route.name !== "dispatch"} search={searchable ? <CommandTrigger onOpen={togglePalette} /> : undefined} narrowSearch={searchable ? <CommandTrigger narrow onOpen={togglePalette} /> : undefined} brand={<AppLink className="pc-topbar__home" to={routes.dispatch()} query={route.query} aria-label="pacer home"><Mark size={18} wordmark={false} /></AppLink>} panels={{ ...(workPanels ? { left: { open: scopeOpen, toggle: () => setScopeOpen(!scopeOpen) } } : hasLeft ? { left: { open: leftOpen, toggle: () => setLeftOpen(!leftOpen) } } : taskPanels ? { left: { open: tasksOpen, toggle: () => setTasksOpen(!tasksOpen) } } : {}),
+      ...(dockAvailable ? { dock: { open: dockOpen, toggle: toggleDock } } : {}), ...(workPanels || newTaskPanels ? { right: { open: inspectorOpen, toggle: () => setInspectorOpen(!inspectorOpen), label: "Inspector", keys: "Control+Shift+B" } } : taskPanels ? { right: { open: detailsOpen, toggle: () => setDetailsOpen(!detailsOpen), label: "details panel", keys: "Control+Shift+B" } } : {}) }}
     heading={heading} context={setTitleSlot} actions={setActionSlot} showActions={route.name !== "setup"} />;
   const settings = SETTINGS.has(route.name) && (hasLeft
-    ? <SidePanel side="left" label="Settings" open={leftOpen} onToggle={setLeftOpen}><Panel route={route} counts={counts} snapshot={state.snapshot} embedded /></SidePanel>
+    ? <SidePanel side="left" label="Settings" bar={false} open={leftOpen} onToggle={setLeftOpen}><Panel route={route} counts={counts} snapshot={state.snapshot} embedded /></SidePanel>
     : <Panel route={route} counts={counts} snapshot={state.snapshot} />);
   const tasks = taskPanels && <SidePanel side="left" label="Sessions" wide bar={false} contentToggle open={tasksOpen} onToggle={setTasksOpen}><div ref={setLeftSlot} className="pc-frame-slot" /></SidePanel>;
   const details = taskPanels && <SidePanel side="right" label="Session details" open={detailsOpen} onToggle={setDetailsOpen} bar={false}><div ref={setRightSlot} className="pc-frame-slot" /></SidePanel>;
-  return <NarrowContext.Provider value={narrow}><FrameContext.Provider value={slots}><AppFrame narrow={narrow}
+  return <NarrowContext.Provider value={narrow}><FrameContext.Provider value={slots}><DensityProvider value={density}><AppFrame narrow={narrow}
     top={narrow && route.name === "setup" ? null : topBar}
-    activity={<Rail route={route} counts={counts} narrow={narrow} settingsAttention={settingsAttention(state.snapshot)} />}
-    left={settings || tasks}
-    right={details}
-    live={!state.connected && state.snapshot && <div className="connection-bar">pacer isn't responding. Retrying…</div>}
-    mainClass={`pc-main${!loading && !outdated && ["new-task","insights","dispatch","review","settings","hosts","add-executor","sessions","terminal","setup"].includes(route.name)?" pc-main--canvas":""}`}
-    main={loading ? <Skeleton /> : outdated ? <section className="pc-notice"><SectionHeading>Update pacer to use this view</SectionHeading><p>This screen needs a newer pacer service. Run <code>pacer update</code>, then reload this page.</p></section> : <DensityContext.Provider value={SETTINGS.has(route.name) ? "settings" : "compact"}>{children}</DensityContext.Provider>}
+    activity={<Rail terminal={dockAvailable ? {open:dockOpen,toggle:toggleDock} : undefined} route={route} counts={counts} narrow={narrow} settingsAttention={settingsAttention(state.snapshot)} />}
+    left={settings || tasks || (workPanels && scopeOpen && <aside className="pc-side-panel pc-side-panel--left pc-scope-panel" style={{ flexBasis: "calc(var(--size-240) + var(--space-2))", width: "calc(var(--size-240) + var(--space-2))" }} aria-label="Scope"><div id="pc-side-panel-left" ref={setLeftSlot} className="pc-frame-slot" /></aside>)}
+    right={details || (workPanels && inspectorOpen && <aside className="pc-side-panel pc-side-panel--right" aria-label="Inspector"><div id="pc-side-panel-right" ref={setRightSlot} className="pc-frame-slot" /></aside>)}
+    live={!state.connected && state.snapshot && <OfflineNotice lastUpdate={state.snapshot.at} />}
+    mainClass={`pc-main${!loading && !outdated && ["task-failure","task-review","new-task","insights","dispatch","review","settings","hosts","add-executor","sessions","terminal","setup"].includes(route.name)?" pc-main--canvas":""}`}
+    main={loading ? <Skeleton /> : outdated ? <section className="pc-notice"><SectionHeading>Update pacer to use this view</SectionHeading><p>This screen needs a newer pacer service. Run <code>pacer update</code>, then reload this page.</p></section> : <DensityContext.Provider value={SETTINGS.has(route.name) ? "settings" : density}>{children}</DensityContext.Provider>}
     overlay={assistantAvailable && <AssistantLoader route={route} narrow={narrow} repo={repo} repoLabel={repoLabel} onNewTask={onDelegate} />}
-    dock={dockAvailable && dockOpen && <TerminalDock query={route.query} close={toggleDock} />}
+    dock={dockAvailable && dockOpen && <TerminalDock query={route.query} folder={(route.name === "sessions" && route.id ? state.snapshot?.tasks.find(task => task.id === route.id)?.worktree : undefined) ?? state.snapshot?.repos?.find(item => item.key === repo)?.path} close={toggleDock} />}
     status={showStatusBar && <StatusBar route={route} snapshot={state.snapshot} registry={keys} terminal={dockAvailable ? { open: dockOpen, toggle: toggleDock } : undefined} />}
-  />{setupOpen && <StrategyQuickAccessPopup route={route} close={() => setSetupOpen(false)} />}{palette && Palette && <Palette snapshot={state.snapshot} returnFocus={() => paletteReturn.current} close={() => setPalette(false)} />}</FrameContext.Provider></NarrowContext.Provider>;
+  /></DensityProvider>{setupOpen && <StrategyQuickAccessPopup route={route} close={() => setSetupOpen(false)} />}{palette && Palette && <Palette snapshot={state.snapshot} returnFocus={() => paletteReturn.current} close={() => setPalette(false)} />}</FrameContext.Provider></NarrowContext.Provider>;
 }

@@ -309,7 +309,7 @@ browserTest("the viewer matches the design board: flush container, header band, 
   const names=await viewer.locator(".pc-file-viewer__head button").evaluateAll(buttons=>buttons.map(button=>button.getAttribute("aria-label")));
   expect(names).toEqual(["Search","Copy path","Back to terminal"]);
   for(const label of ["Search","Copy path"])expect(await measure(viewer,`button[aria-label="${label}"]`)).toMatchObject({width:28,height:28,radius:"6px"});
-  expect(await measure(viewer,".pc-file-viewer__back")).toMatchObject({height:28,padding:"0px 6px 0px 8px",radius:"6px"});
+  expect(await measure(viewer,".pc-file-viewer__back")).toMatchObject({height:32,padding:"0px 6px 0px 8px",radius:"6px"});
   expect(await measure(viewer,".pc-file-viewer__back svg")).toMatchObject({width:14,height:14});
   expect(await measure(viewer,".pc-file-viewer__back .pc-kbd")).toMatchObject({height:18,padding:"0px 5px 0px 5px",radius:"4px",size:"11px"});
   expect(await measure(viewer,".pc-file-viewer__glyph")).toMatchObject({width:26,height:26,radius:"6px"});

@@ -8379,16 +8379,26 @@ impl ::std::convert::TryFrom<&str> for HostSetParamsSession {
 /// ```json
 ///{
 ///  "type": "object",
+///  "properties": {
+///    "details": {
+///      "type": "boolean"
+///    }
+///  },
 ///  "additionalProperties": false
 ///}
 /// ```
 /// </details>
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
-pub struct HostSuggestParams {}
+pub struct HostSuggestParams {
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub details: ::std::option::Option<bool>,
+}
 impl ::std::default::Default for HostSuggestParams {
     fn default() -> Self {
-        Self {}
+        Self {
+            details: Default::default(),
+        }
     }
 }
 ///`InsightsSummaryParams`

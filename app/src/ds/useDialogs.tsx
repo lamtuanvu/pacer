@@ -9,7 +9,7 @@ export function DialogForm({ request, value, change, finish }: {
   request: DialogRequest; value: string; change: (value: string) => void; finish: (result: string | boolean | null) => void;
 }) {
   const cancel = () => finish(request.text ? null : false);
-  return <Dialog title={request.title} close={cancel}>
+  return <Dialog title={request.title} close={cancel} showClose={false}>
     <form className="pc-form" onSubmit={event => {
       event.preventDefault();
       if (request.text && !value.trim()) return;

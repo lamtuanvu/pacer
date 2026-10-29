@@ -16,26 +16,27 @@ browserTest("terminal page creates, selects, renames, splits and closes tabs wit
     const page=await browser.newPage({viewport:{width:1440,height:900}});
     await page.setContent('<div id="root"></div>');
     await page.evaluate(async code=>{const url=URL.createObjectURL(new Blob([code],{type:"text/javascript"}));await import(url);URL.revokeObjectURL(url);},source);
-    await expect(page.getByRole("button",{name:"New terminal"}).count()).resolves.toBe(1);
-    await page.getByRole("button",{name:"New terminal"}).click();
-    await page.getByRole("navigation",{name:"Terminals"}).waitFor();
-    await expect(page.getByRole("navigation",{name:"Terminals"}).getByRole("button",{name:"Shell",exact:true}).count()).resolves.toBe(1);
-    const tabs=page.getByRole("navigation",{name:"Terminals"}).getByRole("button",{name:"Shell",exact:true});
-    await page.getByRole("button",{name:"New terminal"}).click();
+    await expect(page.getByRole("button",{name:"New terminal",exact:true}).count()).resolves.toBe(1);
+    await page.getByRole("button",{name:"New terminal",exact:true}).click();
+    await page.getByRole("tablist",{name:"Terminals"}).waitFor();
+    await expect(page.getByRole("tablist",{name:"Terminals"}).getByRole("tab",{name:"Shell",exact:true}).count()).resolves.toBe(1);
+    const tabs=page.getByRole("tablist",{name:"Terminals"}).getByRole("tab",{name:"Shell",exact:true});
+    await page.getByRole("button",{name:"New terminal",exact:true}).click();
     await tabs.nth(1).waitFor();
     await expect(tabs.count()).resolves.toBe(2);
     await tabs.nth(1).focus();await page.keyboard.press("ArrowLeft");
-    await expect(tabs.nth(0).getAttribute("aria-current")).resolves.toBe("page");
-    await page.getByRole("button",{name:"Rename"}).click();
+    await expect(tabs.nth(0).getAttribute("aria-selected")).resolves.toBe("true");
+    await page.getByRole("button",{name:"More terminal actions"}).click();
+    await page.getByRole("menuitem",{name:"Rename",exact:true}).click();
     await page.getByRole("textbox",{name:"Terminal name"}).fill("Build");
-    await page.getByRole("button",{name:"Save name"}).click();
-    await expect(page.getByRole("navigation",{name:"Terminals"}).getByRole("button",{name:"Build",exact:true}).count()).resolves.toBe(1);
-    await page.getByRole("button",{name:"Split right"}).click();
+    await page.getByRole("textbox",{name:"Terminal name"}).press("Enter");
+    await expect(page.getByRole("tablist",{name:"Terminals"}).getByRole("tab",{name:"Build",exact:true}).count()).resolves.toBe(1);
+    await page.getByRole("button",{name:"Split terminal (⌘\\)"}).click();
     await expect(page.getByRole("region",{name:/Terminal:/}).count()).resolves.toBe(2);
-    await page.getByRole("button",{name:"Close Build"}).click();
+    await page.getByRole("button",{name:"Kill Build"}).click();
     await page.getByRole("heading",{name:/close terminal/i}).waitFor();
     await page.getByRole("button",{name:"Stop and close"}).click();
-    await expect(page.getByRole("navigation",{name:"Terminals"}).getByRole("button",{name:"Build",exact:true}).count()).resolves.toBe(0);
+    await expect(page.getByRole("tablist",{name:"Terminals"}).getByRole("tab",{name:"Build",exact:true}).count()).resolves.toBe(0);
   }finally{await browser.close();}
 }, 30_000);
 
@@ -47,14 +48,14 @@ browserTest("a definite launch refusal stays visible across polling and a retry 
     const page=await browser.newPage();await page.setContent('<div id="root"></div>');
     await page.evaluate(async code=>{const url=URL.createObjectURL(new Blob([code],{type:"text/javascript"}));await import(url);URL.revokeObjectURL(url);},source);
     await page.evaluate(()=>(globalThis as any).terminalTest.setCreateError("not_allowed"));
-    await page.getByRole("button",{name:"New terminal"}).click();
+    await page.getByRole("button",{name:"New terminal",exact:true}).click();
     await page.getByText("Launch refused").waitFor();
     await expect(page.getByText("Launch refused").count()).resolves.toBe(1);
     await page.waitForTimeout(2200);
     await expect(page.getByText("Launch refused").count()).resolves.toBe(1);
     await page.evaluate(()=>(globalThis as any).terminalTest.setCreateError(""));
-    await page.getByRole("button",{name:"New terminal"}).click();
-    await expect(page.getByRole("navigation",{name:"Terminals"}).getByRole("button",{name:"Shell",exact:true}).count()).resolves.toBe(1);
+    await page.getByRole("button",{name:"New terminal",exact:true}).click();
+    await expect(page.getByRole("tablist",{name:"Terminals"}).getByRole("tab",{name:"Shell",exact:true}).count()).resolves.toBe(1);
   }finally{await browser.close();}
 }, 30_000);
 
@@ -74,8 +75,13 @@ browserTest("terminal output search finds a match and reports missing text by ke
     const page=await browser.newPage({viewport:{width:1000,height:700}});
     await page.setContent('<style>.pc-terminal-pane{width:800px;height:400px}</style><div id="root"></div>');
     await page.addStyleTag({path:"node_modules/@xterm/xterm/css/xterm.css"});
+    await page.addStyleTag({path:"app/src/ds/tokens.css"});
     await page.evaluate(async code=>{const url=URL.createObjectURL(new Blob([code],{type:"text/javascript"}));await import(url);URL.revokeObjectURL(url);},source);
     await page.waitForFunction(()=>document.querySelector(".xterm-rows")?.textContent?.includes("SEARCH_MATCH_734"),undefined,{timeout:5000});
+    const rowHeight = await page.locator(".xterm-rows > div").first().evaluate(row => parseFloat(getComputedStyle(row).height));
+    expect(Math.abs(rowHeight - 19)).toBeLessThanOrEqual(1);
+    await page.locator(".pc-terminal-view").click();
+    await page.keyboard.press("Meta+f");
     const search=page.getByRole("textbox",{name:"Search terminal output"});
     await search.fill("SEARCH_MATCH_734");
     await search.press("Enter");

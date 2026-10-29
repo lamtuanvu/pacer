@@ -95,7 +95,7 @@ test("cross-surface vocabulary uses shared verdicts, phases and acceptance words
     // Only the tray and TUI boards print a planner verdict beside the meter.
     if (name === "tray" || name === "tui") expect(text).toContain(verdictWords(snapshot.planner!.verdict));
     const tasks = running(snapshot, { repo: null });
-    for (const task of tasks.filter(task => task.state === "running" && task.progress)) {
+    for (const task of tasks.filter(task => name !== "app" && task.state === "running" && task.progress)) {
       const phase = phaseWords(task.progress!.phase);
       expect(text).toContain(phase);
     }
@@ -105,8 +105,7 @@ test("cross-surface vocabulary uses shared verdicts, phases and acceptance words
   }
   // Compact lines intentionally omit behind/on-pace verdict text and phases.
   for (const line of [line120, line20]) expect(strip(line)).not.toMatch(/\b(?:ON_PACE|BEHIND|needs_input|on_pace)\b/);
-  const advice = snapshot.planner!.advice;
-  expect(app).toContain(`class="pc-dispatch-advice">${advice}</p>`);
+  expect(app).toContain("Claude Code is 14 points under pace. Small edits can stay on the planner; bulk work still goes out.");
 });
 
 const headings = (output: string) => [...output.matchAll(/<h2\b[^>]*>([\s\S]*?)<\/h2>/g)].map(match => strip(match[1]!));
@@ -144,7 +143,7 @@ test("tray orders Needs you, Running, executors with done today only in counts",
 
 test("cross-surface Needs-you short titles preserve service order", () => {
   for (const [name, output] of Object.entries(surfaces)) {
-    const items = needsYou(snapshot, { repo: null }).slice(0, name === "tray" ? 3 : undefined);
+    const items = needsYou(snapshot, { repo: null }).slice(0, name === "tray" || name === "app" ? 3 : undefined);
     const attention = name === "tui" ? output.split("NEEDS YOU")[1]!.split("RUNNING")[0]! : output.slice(output.indexOf(name === "app" ? 'aria-labelledby="needs-you"' : 'aria-label="Needs you"')).split("</section>")[0]!;
     const text = strip(attention), positions = items.map(item => text.indexOf(shortTitle(item)));
     expect(positions.every(at => at >= 0)).toBe(true);
@@ -171,7 +170,7 @@ test("tray shows unknown and unavailable capacity from the same rows", () => {
   const unavailableSnapshot = { ...snapshot, executors: [unavailable] };
   const popover = renderToString(<Tray snapshot={unavailableSnapshot} api={api} ipc={createTrayIpc({ location: { assign() {} } })} />);
   expect(anchorRows(popover, 'tray-executor--off')).toHaveLength(1);
-  expect(popover).toContain(">off</span>");
+  expect(popover).toContain(">1 off</a>");
   expect(popover).not.toContain(">free</span>");
 });
 

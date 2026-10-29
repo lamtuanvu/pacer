@@ -39,7 +39,7 @@ describe("executor eligibility survives the screen redesign", () => {
     const text = renderDashboard(s, 80, 40, s.at, {
       noColor: true, data: data(), state: { screen: "settings", section: "accounts", focus: "detail" },
     });
-    expect(text.replace(/\s+/g, " ")).toContain("Historical usage · Observation time unknown");
+    expect(text.replace(/\s+/g, " ")).toContain("Stale reading · refresh to use");
   });
   for (const screen of ["home", "settings"] as const) {
     for (const width of [80, 120]) {

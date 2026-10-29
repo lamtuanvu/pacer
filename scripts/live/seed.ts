@@ -71,13 +71,13 @@ export function seedUi(root: string): void {
   states.forEach((state, index) => {
     const ctx = ctxAt(now - 300 + index);
     const { id } = createTask(ctx, { brief: { goal: "fixture", repo: join(home, "repos/sample") },
-      kind: "feature", requestedExecutor: null, timeoutS: 0 });
+      kind: "feature", requestedExecutor: null, timeoutS: 3600 });
     const source = state === "running" ? session : snapshot.tasks.find((task: { state: string }) => task.state === state) ?? detail;
     const worktree = join(home, "worktrees", id);
     if (state !== "failed") mkdirSync(worktree, { recursive: true, mode: 0o700 });
     mkdirSync(repo, { recursive: true, mode: 0o700 });
     const task: TaskRecord = {
-      id, rev: 1, source: "ui", createdAt: now - 300 + index, state, kind: "feature", timeoutS: 0,
+      id, rev: 1, source: "ui", createdAt: now - 300 + index, state, kind: "feature", timeoutS: 3600,
       requestedExecutor: null, executor: "codex#personal", backend: "direct", worktree,
       repo: { key: repoKey, label: "sample", path: repo },
       brief: { goal: source.goal, repo, acceptance: detail.brief.acceptance, context: session.brief.data },
@@ -116,7 +116,7 @@ function seedWorkTree(ctx: Ctx, rootId: string, repo: string, repoKey: string): 
   const tokens: AttemptTokens = { coverage: "measured", input: 9_120, cacheRead: 2_048, cacheWrite: null, output: 795, reasoning: 312,
     total: 11_963, turns: 6, source: "executor-text", selfReported: false, extractor: "codex-text@1", capturedAt: now - 90 };
   for (const [title, state] of [["Add the usage parser", "done"], ["Wire the parser into the report", "running"]] as const) {
-    const { id } = createTask(ctx, { brief: { goal: title, repo }, kind: "feature", requestedExecutor: null, timeoutS: 0 });
+    const { id } = createTask(ctx, { brief: { goal: title, repo }, kind: "feature", requestedExecutor: null, timeoutS: 3600 });
     updateTask(ctx, id, record => {
       Object.assign(record, { title, state: "running", executor: "codex#personal", backend: "direct", repo: { key: repoKey, label: "sample", path: repo }, runnerPid: 1 });
       record.progress = { phase: "working", lastOutputAt: now, lastChangeAt: now, host: "local", updatedAt: now, files: 1, commits: 0, logBytes: 0 };

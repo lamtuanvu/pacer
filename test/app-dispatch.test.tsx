@@ -2,9 +2,10 @@ import { expect, test } from "bun:test";
 import { renderToString } from "preact-render-to-string";
 import fixture from "./fixtures/ui/snapshot.json";
 import type { ClientSnapshot } from "../src/view-model/snapshot";
+import type { WorkRow } from "../src/view-model/task-tree";
 import type { InsightsSummary } from "../src/view-model/dispatch";
 import { createActionRunner } from "../app/src/data/actions";
-import { DispatchView, holdInsights, insightsReads, NeedsYouList, type InsightsState, type RoutingPreview } from "../app/src/screens/dispatch/Dispatch";
+import { DispatchView, FirstRun, isFirstRun, holdInsights, insightsReads, NeedsYouList, type InsightsState, type RoutingPreview } from "../app/src/screens/dispatch/Dispatch";
 import { RepoFilter, repoChoices } from "../app/src/screens/RepoFilter";
 
 const snap = fixture as unknown as ClientSnapshot;
@@ -20,8 +21,8 @@ const summary = (handled = 42): InsightsSummary => ({ rootTasksHandled: handled,
   spread: [{ agent: "codex", total: 980_000, tasks: 4 }, { agent: "claude-code", total: 520_000, tasks: 6 }, { agent: "agy", total: 340_000, tasks: 2 }],
   planner: { coverage: "unknown" }, ranOutsidePlanner: null, previous: { rootTasksHandled: handled - 8 } });
 const measured: InsightsState = { supported: true, loading: false, current: summary(), today: summary(9) };
-const view = (repo: string | null = null, s: ClientSnapshot = snap, extra: { routing?: RoutingPreview | null; insights?: InsightsState; connected?: boolean } = {}) =>
-  renderToString(<DispatchView snapshot={s} query={{ repo, scope: null }} now={snap.at} runner={runner} routing={extra.routing === undefined ? routing : extra.routing} insights={extra.insights} onPeriod={() => {}} connected={extra.connected ?? true} startWork={<p>start work composer</p>} />);
+const view = (repo: string | null = null, s: ClientSnapshot = snap, extra: { routing?: RoutingPreview | null; insights?: InsightsState; connected?: boolean; workRows?: WorkRow[]; workLoading?: boolean; workError?: unknown } = {}) =>
+  renderToString(<DispatchView snapshot={s} query={{ repo, scope: null }} now={snap.at} runner={runner} routing={extra.routing === undefined ? routing : extra.routing} insights={extra.insights} onPeriod={() => {}} connected={extra.connected ?? true} workRows={extra.workRows} workLoading={extra.workLoading} workError={extra.workError} onWorkReload={() => {}} startWork={<p>start work composer</p>} />);
 const order = (html: string, words: string[]) => words.map(w => html.indexOf(w));
 const section = (html: string, id: string) => { const at = html.indexOf(`aria-labelledby="${id}"`); return at < 0 ? "" : html.slice(html.indexOf(">", at) + 1, html.indexOf("</section>", at)); };
 const strip = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
@@ -31,11 +32,12 @@ const plannerHalf = (html: string) => { const at = html.indexOf('id="planner-bud
 
 test("regions follow the board: title, period, repos and New task, then planner and next task, the period's figures, tokens and Needs you, live work", () => {
   const html = view(null, snap, { insights: measured });
-  const at = order(html, ["<h1>Dispatch</h1>", "Live · ", 'aria-label="Period"', "All repos · 3", ">New task", 'aria-label="Planner budget and next decision"', ">Next task goes to<", 'aria-label="This week at a glance"', ">Where the tokens went<", ">Needs you<", ">Live dispatch<", "start work composer"]);
+  const at = order(html, ["<h1>Dispatch</h1>", "Live · ", 'aria-label="Period"', "All repos · 3", ">New task", 'aria-label="Planner budget and next decision"', ">Next task goes to<", 'aria-label="This week at a glance"', ">Where the tokens went<", ">Needs you<", ">Live dispatch<"]);
   expect(at.every(i => i >= 0)).toBe(true);
   expect([...at].sort((a, b) => a - b)).toEqual(at);
   // The page carries the one title; the top bar drops its own on Dispatch (UI-9).
   expect(html.match(/<h1/g)).toHaveLength(1);
+  expect(html).not.toContain("start work composer");
   // The page line carries the connection and update age, as on the board; the top bar drops its own on Dispatch (UI-15).
   expect(strip(html.slice(html.indexOf("Live · "), html.indexOf("</span>", html.indexOf("Live · "))))).toMatch(/^Live · \d+ agents? connected · updated \S+ ago$/);
   expect(view(null, snap, { connected: false })).toContain("Reconnecting…");
@@ -55,18 +57,18 @@ test("period switch offers Today, 7 days and 30 days with 7 days selected, only 
     expect(renderToString(<DispatchView snapshot={snap} query={{ repo: null, scope: null }} now={snap.at} runner={runner} period={period} insights={measured} />)).toContain(`aria-label="${label}"`);
 });
 
-test("New task is the primary action and opens the Delegate dialog until the composer lands", () => {
+test("New task is the primary action and uses the composer shortcut", () => {
   const html = view();
-  expect(html).toMatch(/<button aria-keyshortcuts="d" type="button" class="[^"]*pc-btn--primary[^"]*">New task <kbd class="pc-kbd">D<\/kbd>/);
+  expect(html).toMatch(/<button aria-keyshortcuts="Meta\+N" type="button" class="[^"]*pc-btn--primary[^"]*">New task <kbd class="pc-kbd">⌘N<\/kbd>/);
   // No quick-delegate box: the board has none.
   expect(html).not.toContain("Quick delegate");
 });
 
 test("kpi_strip_shows_the_week_from_insights with the board's icon tiles and no visible heading", () => {
   const strip_ = glance(view(null, snap, { insights: measured }));
-  expect(strip(strip_)).toBe("Root tasks handled 42 +8 vs last week · 9 today Tokens spent 1.8M 43.8k per root task Accepted first try 78% 31 of 40 · 6 retried");
+  expect(strip(strip_)).toBe("Root tasks handled 42 +8 vs last week · 9 today Tokens spent 1.8M 43.8k per root task Ran outside planner Not measured Needs planner token attribution Accepted first try 78% 31 of 40 · 6 retried");
   expect(strip_).not.toMatch(/<h[1-6]/);
-  expect(strip_.match(/class="pc-glance__icon pc-glance__icon--[a-z]+"/g)).toHaveLength(3);
+  expect(strip_.match(/class="pc-glance__icon pc-glance__icon--[a-z]+"/g)).toHaveLength(4);
   for (const icon of strip_.match(/<span class="pc-glance__icon[^"]*"><svg[^>]*>/g) ?? []) expect(icon).toContain('aria-hidden="true"');
 });
 
@@ -87,13 +89,13 @@ test("kpi_strip_without_insights_says_why_and_never_invents_numbers", () => {
   const unmeasured = { ...summary(0), acceptedFirstTry: 0, reviewedRoots: 0, acceptedFirstTryRate: null, previous: null,
     tokens: { total: 0, measuredAttempts: 0, partialAttempts: 0, unknownAttempts: 2, attempts: 2, lowerBound: true } };
   const html = view(null, snap, { insights: { supported: true, loading: false, current: unmeasured } });
-  expect(strip(glance(html))).toBe("Root tasks handled 0");
-  expect(html).not.toContain("Tokens spent");
-  expect(html).not.toContain("pc-share-bar");
+  expect(strip(glance(html))).toContain("Root tasks handled 0 Tokens spent Not measured");
+  expect(strip(glance(html))).toContain("Ran outside planner Not measured");
+  expect(html).not.toContain("pc-dispatch-share");
 });
 
 test("token share appears only with a reading, as a table by agent", () => {
-  expect(view()).not.toContain("pc-share-bar");
+  expect(view()).not.toContain("pc-dispatch-share");
   const share = section(view(null, snap, { insights: measured }), "token-share");
   expect(share).toContain('role="img"');
   expect(share).toContain('aria-label="Token share: Codex 53%, Claude Code 28%, Antigravity 19%"');
@@ -101,64 +103,90 @@ test("token share appears only with a reading, as a table by agent", () => {
   expect(strip(share)).toContain("Agent Tasks Tokens Share Codex executor 4 980k 53%");
   // Roles come from config: the configured planner is "planner"; its own tokens stay unknown until attribution exists.
   expect(strip(share)).toContain("Claude Code planner 6 520k 28%");
-  expect(strip(share)).toContain("Claude Code (planner): planning and review tokens are not measured yet.");
+  expect(strip(share)).not.toContain("planning and review tokens are not measured yet.");
+  expect(share).toContain('href="#/insights"');
 });
 
-test("needs you cards are compact as on the board: glyph, title, one caption line and one action, most urgent first", () => {
+test("Needs you shows three urgent cards, one board action and an All in Needs you link, without pagination", () => {
   const html = section(view(), "needs-you");
-  expect(html).toContain('<span class="pc-count pc-count--bad">4</span>');
-  const at = order(html, ["buildbox is not answering", "Retry budget refresh on 429", "Fix flaky retry test in the payments client", "Add dark mode to the web header"]);
-  expect(at.every(i => i >= 0)).toBe(true);
-  expect([...at].sort((a, b) => a - b)).toEqual(at);
-  // Tinted by tone, with the status words beside the glyph for assistive technology (UI-2, UI-10).
-  expect(html.match(/pc-list-row--outlined pc-list-row--bad/g)).toHaveLength(2);
-  expect(html.match(/pc-list-row--outlined pc-list-row--warn/g)).toHaveLength(2);
-  expect(html.match(/<span class="sr-only">Review requested: <\/span>/g)).toHaveLength(2);
-  const failed = html.slice(html.indexOf('data-attention-id="failed:t-0409"'), html.indexOf("Fix flaky retry test"));
-  expect(failed).toMatch(/Failed twice on Antigravity · test timed out after 120 s · \d{1,2}:\d{2}/);
-  expect(failed).toContain('href="#/tasks/t-0409"');
-  // One action per card; only a task failure's action is the primary, as on the board. A host problem's stays secondary.
-  expect(failed).toMatch(/pc-btn--primary[^>]*>Retry on Codex</);
-  expect(failed).not.toContain(">See error<");
-  expect(html.match(/pc-btn--primary/g)).toHaveLength(1);
-  const host = html.slice(html.indexOf('data-attention-id="host_down:buildbox"'), html.indexOf('data-attention-id="failed:t-0409"'));
-  expect(host).toContain(">Run checks<");
-  expect(host).not.toContain("pc-btn--primary");
-  expect(html.slice(html.indexOf("Fix flaky retry test"))).not.toContain("pc-btn--primary");
-  // Each card is a keyboard stop for j/k.
-  expect(html.match(/data-attention-id="[^"]+" tabindex="0"/g)).toHaveLength(4);
-  expect(html).toMatch(/href="#\/needs-you"[^>]*>All open items</);
-  // One page of cards has no range footer.
+  expect(html.match(/data-attention-id=/g)).toHaveLength(3);
+  expect(html).toContain("buildbox is not answering");
+  expect(html).toContain('href="#/tasks/t-0409/failure"');
+  expect(html).toContain(">Inspect failures<");
+  expect(html).toContain('href="#/tasks/t-0412/review"');
+  expect(html).toContain('href="#/needs-you"');
+  expect(html).toContain(">All in Needs you<");
   expect(html).not.toContain("Needs you pages");
+  expect(html).not.toContain(">Retry on Codex<");
+  const question = { ...snap.attention![0]!, id: "question:answer-me", kind: "question" as const, taskId: "answer-me" };
+  const answer = section(view(null, { ...snap, tasks: [], attention: [question] }), "needs-you");
+  expect(answer).toContain('href="#/needs-you?answer=answer-me"');
+  expect(answer).toContain(">Answer<");
 });
 
-test("flush Live dispatch rows carry the agent marks on the title line", () => {
+test("Live dispatch is a six-row decision ledger with seven columns and session or trace links", () => {
   const html = section(view(), "live-dispatch");
-  const heads = html.match(/pc-task-card__row--head">[\s\S]*?<\/div>/g) ?? [];
-  expect(heads.length).toBeGreaterThan(0);
-  for (const head of heads) expect(head).toContain("pc-agent-stack");
-  expect(html.match(/pc-agent-stack/g)?.length).toBe(heads.length);
-});
-
-test("live dispatch shows running and queued work as compact cards with their actions", () => {
-  const html = section(view(), "live-dispatch");
-  expect(strip(html)).toContain("Live dispatch 2 running 1 queued");
-  expect(html.match(/pc-task-card--compact/g)).toHaveLength(3);
-  expect(html.match(/pc-task-card--flush/g)).toHaveLength(3);
-  expect(html).toContain('class="pc-pill pc-pill--info">2 running</span>');
-  expect(html).toContain('class="pc-pill pc-pill--neutral">1 queued</span>');
-  expect(html).toContain(">Editing<");
-  expect(html).toContain(">Queued<");
+  expect(strip(html)).toContain("Live dispatch 2 running 1 queued Kind · routed to · why · tokens");
+  expect(html.match(/pc-list-row--link pc-dispatch-decision/g)).toHaveLength(6);
   expect(html).toContain('href="#/tasks/t-0420"');
-  expect(html.match(/>Take over</g)).toHaveLength(2);
-  expect(html.match(/>Stop</g)).toHaveLength(1);
-  expect(html).not.toContain("pc-btn--primary");
+  expect(html).toContain('href="#/tasks/t-0422/trace"');
+  expect(html).toContain("pc-dispatch-decision__agents");
+  expect(html).toContain("pc-dispatch-decision__tokens");
+  expect(html).toContain("pc-dispatch-decision__status");
+  expect(html).not.toContain("pc-task-card");
+  expect(html).not.toContain(">Take over<");
+});
+
+test("Live dispatch waits for parent links and offers retry when the work read fails", () => {
+  const loading = section(view(null, snap, { workLoading: true }), "live-dispatch");
+  expect(loading).not.toContain("pc-dispatch-decision__task");
+  expect(strip(loading)).toContain("Loading dispatch");
+  const failed = section(view(null, snap, { workError: new Error("Work read unavailable") }), "live-dispatch");
+  expect(failed).not.toContain("pc-dispatch-decision__task");
+  expect(strip(failed)).toContain("Work read unavailable");
+  expect(strip(failed)).toContain("Try again");
+});
+
+test("Live dispatch groups two subtasks into one root row with its total tokens", () => {
+  const root = { ...snap.tasks[0]!, id: "root", title: "Root work", updatedAt: 10 };
+  const children = [1, 2].map(i => ({ ...root, id: `child-${i}`, title: `Child ${i}`, updatedAt: 20 + i }));
+  const workRows: WorkRow[] = [root, ...children].map((task, i) => ({
+    id: task.id, parentId: i ? root.id : null, rootId: root.id, depth: i ? 1 : 0,
+    title: task.title, state: task.state, executor: task.executor, rev: 1,
+    tokens: { total: 4000, measuredAttempts: 1, partialAttempts: 0, lowerBound: false },
+  }));
+  const html = section(view(null, { ...snap, tasks: [root, ...children] }, { workRows }), "live-dispatch");
+  expect(html.match(/pc-list-row--link pc-dispatch-decision/g)).toHaveLength(1);
+  expect(strip(html).match(/· 2 subtasks/g)).toHaveLength(1);
+  expect(html).toContain('class="pc-dispatch-decision__tokens">12k</strong>');
+  expect(html).not.toContain("Child 1");
+  expect(html).not.toContain("Child 2");
+  const running = section(view(null, { ...snap, tasks: [root, ...children].map(task => ({...task, state: "running"})), counts: {...snap.counts!, running: 3} }, { workRows: workRows.map(row => ({...row,state:"running"})) }), "live-dispatch");
+  expect(strip(running)).toContain("1 running");
+  expect(strip(running)).not.toContain("3 running");
+});
+
+test("Live dispatch shows unknown tokens as a muted dash with an explanation", () => {
+  const html = section(view(null, { ...snap, tasks: [snap.tasks[0]!] }), "live-dispatch");
+  expect(html).toContain('title="Token usage has not been measured for this task." class="pc-dispatch-decision__tokens muted">—</strong>');
+  expect(html).not.toContain("Not measured");
+});
+
+test("Live dispatch orders roots newest first regardless of active state and hides orphan subtasks", () => {
+  const tasks = Array.from({ length: 8 }, (_, i) => ({ ...snap.tasks[0]!, id: `root-${i}`, title: `Root ${i}`, updatedAt: i + 1, state: i === 0 ? "running" : "done" }));
+  const orphan: WorkRow = { id: "orphan", parentId: "unloaded", rootId: "unloaded", depth: 1, title: "Orphan child", state: "running", executor: null, rev: 1 };
+  const html = section(view(null, { ...snap, tasks }, { workRows: [orphan] }), "live-dispatch");
+  expect(html.match(/pc-list-row--link pc-dispatch-decision/g)).toHaveLength(6);
+  expect(order(html, ["Root 7", "Root 6", "Root 5", "Root 4", "Root 3", "Root 2"]).every(at => at >= 0)).toBe(true);
+  expect(order(html, ["Root 7", "Root 6", "Root 5", "Root 4", "Root 3", "Root 2"])).toEqual([...order(html, ["Root 7", "Root 6", "Root 5", "Root 4", "Root 3", "Root 2"])].sort((a, b) => a - b));
+  expect(html).not.toContain("Root 0");
+  expect(html).not.toContain("Orphan child");
 });
 
 test("planner budget and next task share one split section; the planner half is the one place that states the planner figure", () => {
   const html = plannerHalf(view());
   expect(strip(html)).toContain("Claude Code Planner");
-  expect(html).toContain("14 pts under pace — spend it.");
+  expect(html).toContain("Claude Code is 14 points under pace. Small edits can stay on the planner; bulk work still goes out.");
   expect(html).toContain(">Under pace · spend it<");
   expect(html).toContain('aria-label="Claude Code weekly usage"');
   expect(strip(html)).toContain("63% of week used · pace 77% · resets");
@@ -174,10 +202,11 @@ test("planner budget and next task share one split section; the planner half is 
 test("next task goes to names the next agent, then the chain with chevrons ending in the queue, and the strategy", () => {
   const html = section(view(), "next-task");
   expect(strip(html)).toContain("Codex · team on devbox");
-  expect(html).toContain(">Eligible<");
+  expect(html).toContain(">Ready<");
   expect(strip(html)).toMatch(/Then: Cursor Claude Code Q Queue/);
   expect(html.match(/pc-dispatch-chain__sep/g)).toHaveLength(2);
   expect(html).not.toContain("ok, used 0%");
+  expect(html).toContain("Execution permitted");
   expect(html).toMatch(/href="#\/settings\/dispatcher"[^>]*>Strategy: default · change</);
   expect(strip(section(view(null, snap, { routing: { loading: false, data: { ranked: [], excluded: [] } } }), "next-task"))).toContain("No agent can take new work now.");
   expect(strip(section(view(null, snap, { routing: { loading: true } }), "next-task"))).toContain("Checking routing…");
@@ -190,29 +219,23 @@ test("with dispatch.explain the next task states its ladder step, the dispatcher
     reasons: [{ outcome: "pass" as const, code: "step_match", facts: { stepId: "capable-spare" } }] };
   const html = section(view(null, snap, { routing: { ...routing, explain } }), "next-task");
   expect(strip(html)).toContain("Claude Code Ladder step 1 · capable spare");
-  expect(html).toContain(">Eligible<");
+  expect(html).toContain(">Ready<");
   expect(strip(html)).toMatch(/Then: Cursor Q Queue/);
   expect(html).not.toContain("Local");
   expect(html).toMatch(/href="#\/settings\/dispatcher"[^>]*>Strategy: balanced · change</);
   // An explanation that would queue the work names nobody, whatever the preview ranks first.
-  expect(strip(section(view(null, snap, { routing: { ...routing, explain: { ...explain, outcome: "queue", chosen: null } } }), "next-task"))).toContain("No agent can take new work now. It waits in the queue. Local model is busy (1 of 1 running).");
+  expect(strip(section(view(null, snap, { routing: { ...routing, explain: { ...explain, outcome: "queue", chosen: null } } }), "next-task"))).toContain("No agent can take new work now. It waits in the queue. Local model is busy.");
 });
 
-test("narrow Dispatch keeps executor usage and pace while the status bar is absent", () => {
-  expect(view()).not.toContain('aria-labelledby="agent-usage"');
-  const narrow = (s: ClientSnapshot) => renderToString(<DispatchView snapshot={s} query={{ repo: null, scope: "repo:github.com/acme/api" }} now={snap.at} runner={runner} routing={null} />);
-  const agents = section(narrow(snap), "agent-usage");
-  expect(agents).toContain(">Executors<");
-  expect(agents).toMatch(/aria-label="[^"]+ · \d+% used · [^"]+"/);
-  expect(agents).toMatch(/aria-label="[^"]+ · usage unknown · [^"]+"/);
-  expect(agents).toContain('href="#/settings/executors?scope=repo%3Agithub.com%2Facme%2Fapi"');
-  // The planner's own row is left out; the Planner budget covers it.
-  expect(agents.match(/<a /g)).toHaveLength(snap.executors!.filter(e => e.rank !== "planner").length);
-  // A stale reading is never shown as current.
-  const row = snap.executors!.find(e => e.rank !== "planner" && e.usedPct !== null)!;
-  const stale = section(narrow({ ...snap, executors: snap.executors!.map(e => e.id === row.id ? { ...e, stale: true } : e) }), "agent-usage");
-  expect(stale).toMatch(new RegExp(`${Math.round(row.usedPct!)}% used · Historical usage`));
-  expect(strip(stale)).toContain("Historical usage");
+test("narrow Dispatch follows the board: planner, Needs you, Running without desktop figures", () => {
+  const html = renderToString(<DispatchView snapshot={snap} query={{ repo: null, scope: "repo:github.com/acme/api" }} now={snap.at} runner={runner} routing={routing} />);
+  expect(html).not.toContain("<h1>");
+  expect(html).not.toContain('aria-labelledby="agent-usage"');
+  expect(html).not.toContain('id="glance"');
+  const at = order(html, ['aria-label="Planner budget"', '>Needs you<', '>Running<']);
+  expect(at.every(i => i >= 0)).toBe(true);
+  expect([...at].sort((a, b) => a - b)).toEqual(at);
+  expect(html).toContain("Next capable task goes to");
 });
 
 test("repos are one All repos button that opens the repository menu", () => {
@@ -228,24 +251,24 @@ test("a repo scope filters Needs you and Live dispatch", () => {
   expect(html).not.toContain("Add dark mode to the web header");
   expect(html).toContain("Add SSH keepalive to remote runs");
   expect(html).not.toContain("Split the settings page into sections");
-  expect(html).toContain("+1 in other repos");
-  expect(html).toContain('href="#/?repo="');
+  expect(html).toContain('href="#/needs-you?repo=github.com%2Facme%2Fapi"');
 });
 
 test("empty states say what to do next", () => {
   const empty = { ...snap, attention: [], tasks: [], counts: { ...snap.counts!, attention: 0, running: 0 } };
   const html = view(null, empty);
-  expect(html).toContain("Nothing needs your attention");
-  expect(strip(html)).toContain("Nothing running Start work, delegate a task, or ask your planner to.");
+  expect(html).toContain("No work delegated yet");
+  expect(html).toContain('href="#/tasks/new"');
+  expect(html).not.toContain("Try a sample task");
 });
 
-test("Needs you bounds a long queue and exposes its page range", () => {
+test("Needs you bounds a long queue at three without a pager", () => {
   const item = snap.attention![0]!;
   const snapshot = { ...snap, attention: Array.from({ length: 13 }, (_, i) => ({ ...item, id: `page-${i}`, title: `Attention ${i}`, taskId: undefined })) };
   const html = view(null, snapshot);
-  expect(html.match(/data-attention-id=/g)).toHaveLength(5);
-  expect(html).toContain('aria-label="Needs you pages"');
-  expect(html).toContain("1–5 of 13");
+  expect(html.match(/data-attention-id=/g)).toHaveLength(3);
+  expect(html).not.toContain('aria-label="Needs you pages"');
+  expect(html).not.toContain("1–5 of 13");
   expect(html).not.toContain("Attention 12");
 });
 
@@ -365,14 +388,6 @@ test("a failed dispatch refuses new tasks without promising a queue", () => {
   expect(html).not.toContain("pc-dispatch-chip--queue");
 });
 
-test("live dispatch action names include each task title", () => {
-  const html = section(view(), "live-dispatch");
-  for (const task of snap.tasks.filter(t => t.state === "running" || t.state === "queued")) {
-    expect(html).toContain(`aria-label="${task.state === "queued" ? "Stop" : "Take over"} ${task.fullTitle ?? task.title ?? task.goal}"`);
-  }
-});
-
-
 // A real mount runs useQuery effects; server rendering intentionally suppresses them.
 test.skipIf(!process.env.PACER_TEST_BROWSER)("DispatchHome gates explain, aligns repositories and refreshes changed inputs", async () => {
   const { chromium } = await import("playwright-core");
@@ -386,11 +401,16 @@ test.skipIf(!process.env.PACER_TEST_BROWSER)("DispatchHome gates explain, aligns
     import { createActionRunner } from "${root}/app/src/data/actions";
     import { initialState } from "${root}/app/src/data/store";
     const root = document.getElementById("root");
-    window.mount = (snapshot, ops, repo) => {
+    window.mount = (snapshot, ops, repo, workPages = {}) => {
       render(null, root);
       window.calls = [];
       const api = { call: async (op, params) => {
         window.calls.push({op, params});
+        if (op === "dispatch.list") {
+          if (window.failWork) throw new Error("Work read unavailable");
+          await new Promise(resolve => setTimeout(resolve, 30));
+          return workPages[params.before || "first"] || { tasks: [], next: null };
+        }
         if (op === "routing.route") return {ranked: [], excluded: []};
         if (op === "dispatch.explain") return {outcome: "queue", engine: {id: "ladder"}, strategy: {name: "default"}, chosen: null, step: null, fallbacks: [], reasons: []};
         return {};
@@ -435,6 +455,7 @@ test.skipIf(!process.env.PACER_TEST_BROWSER)("DispatchHome gates explain, aligns
       // Allow all effects to run, including a query that would incorrectly be gated off.
       await page.waitForTimeout(100);
       const calls = await page.evaluate(() => (window as any).calls as { op: string; params: unknown }[]);
+      expect(calls).toContainEqual({ op: "dispatch.list", params: { relation: "all", limit: 100, ...(item.repo ? { repo: item.repo } : {}) } });
       expect(calls.filter(call => call.op === "dispatch.explain")).toEqual(item.expected ? [{ op: "dispatch.explain", params: { repo: item.expected, goal: "New task" } }] : []);
       if (item.expected) expect(calls).toContainEqual({ op: "routing.route", params: { repo: item.expected } });
     }
@@ -449,6 +470,21 @@ test.skipIf(!process.env.PACER_TEST_BROWSER)("DispatchHome gates explain, aligns
       await page.evaluate(snapshot => (window as any).updateSnapshot(snapshot), snapshot);
       await page.waitForFunction(before => (window as any).calls.filter((c: any) => c.op === "dispatch.explain").length > before, before);
     }
+    const rootTask = { ...snap.tasks[0]!, id: "root", title: "Paged root" };
+    const childTasks = [1, 2].map(i => ({ ...rootTask, id: `child-${i}`, title: `Paged child ${i}` }));
+    const rows = [rootTask, ...childTasks].map((task, i) => ({ id: task.id, title: task.title, parentId: i ? "root" : null, rootId: "root", depth: i ? 1 : 0, state: task.state, executor: task.executor, rev: 1, tokens: { total: 4000, measuredAttempts: 1, partialAttempts: 0, lowerBound: false } }));
+    await page.evaluate(({ snapshot, rows }) => {
+      (window as any).failWork = true;
+      (window as any).mount(snapshot, ["dispatch.list"], "repo", { first: { tasks: rows.slice(0, 1), next: "older" }, older: { tasks: rows.slice(1), next: null } });
+    }, { snapshot: { ...snap, tasks: [rootTask, ...childTasks].map(task => ({ ...task, repo: { key: "repo", label: "Repo" } })) }, rows });
+    await page.getByText("Work read unavailable", { exact: true }).waitFor();
+    expect(await page.locator(".pc-dispatch-decision").count()).toBe(0);
+    await page.evaluate(() => { (window as any).failWork = false; });
+    await page.getByRole("button", { name: "Try again", exact: true }).click();
+    await page.waitForFunction(() => document.querySelector(".pc-dispatch-decision__tokens")?.textContent === "12k");
+    expect(await page.locator(".pc-dispatch-decision").count()).toBe(1);
+    expect(await page.locator(".pc-dispatch-decision__repo").textContent()).toContain("· 2 subtasks");
+    expect(await page.evaluate(() => (window as any).calls.some((call: any) => call.op === "dispatch.list" && call.params.before === "older" && call.params.repo === "repo"))).toBe(true);
     expect(errors).toEqual([]);
   } finally { await browser.close(); }
 }, 30000);
@@ -462,7 +498,7 @@ test("planner half shows a missing planner reading's historical figure as stale 
   expect(html).toContain("Usage reading is out of date.");
   expect(html).toContain("pc-meter--stale");
   expect(html).toContain('aria-valuenow="28"');
-  expect(html).toContain("5h window · reading time unknown");
+  expect(strip(html)).toContain("Historical usage · 28% used · 5h window · reading time unknown");
   // A historical reading has no current pace, so no pace pill sits above the meter.
   expect(html).not.toMatch(/Usage unknown|Under pace|On pace|Ahead of pace/);
   expect(html).not.toContain("No usage reading");
@@ -475,7 +511,7 @@ test("a fresh borrowed planner figure shows its meter without a pace pill or a s
     accounts: [{ name: "team", agent: "claude-code", source: "pacer", usedPct: 40, pacePct: null, window: "5h", resetsAt: null, verdict: "UNKNOWN", signedIn: true, executors: [snap.planner!.runner], stale: false, capturedAt: null, spendUsdWeek: null, capUsdWeek: null }] } as unknown as ClientSnapshot;
   const html = plannerHalf(view(null, snapFresh));
   expect(strip(html)).toContain("Planner pace is not measured yet.");
-  expect(html).toContain("40% used");
+  expect(strip(html)).toContain("40% used · 5h window");
   expect(html).not.toMatch(/Usage unknown|Under pace|On pace|Ahead of pace/);
   expect(html).not.toContain("pc-meter--stale");
   expect(html).toContain('aria-valuetext="40% used"');
@@ -485,12 +521,12 @@ test("a live planner reading without a pace keeps its verdict pill", () => {
   for (const [verdict, usedPct] of [["out", 98], ["ahead", 92]] as const) {
     const html = plannerHalf(view(null, { ...snap, planner: { ...snap.planner!, verdict, usedPct, pacePct: null, stale: false } }));
     expect(html).toMatch(verdict === "out" ? /pc-pill[^>]*>[\s\S]*?Out of quota/ : /pc-pill[^>]*>[\s\S]*?Ahead of pace/);
-    expect(html).toContain(`${usedPct}% used`);
+    expect(html).toContain(`${usedPct}% of week used`);
   }
 });
 
 
-test("live dispatch keeps both count pills when no work is queued, including the empty state", () => {
+test("live dispatch keeps both count pills when no work is queued", () => {
   const noQueue = { ...snap, tasks: snap.tasks.filter(t => t.state !== "queued") };
   expect(section(view(null, noQueue), "live-dispatch")).toContain('class="pc-pill pc-pill--neutral">0 queued</span>');
   const empty = { ...snap, tasks: [], counts: { ...snap.counts!, running: 0, queued: 0 } };
@@ -499,4 +535,38 @@ test("live dispatch keeps both count pills when no work is queued, including the
   expect(html).toContain('class="pc-pill pc-pill--neutral">0 queued</span>');
   expect(html).toContain('<strong class="pc-empty__body-title">Nothing running</strong>');
   expect(html).not.toContain('class="pc-section-heading">Nothing running');
+});
+
+
+test("the ledger preserves waiting/idle conversations and pairs failed-check copy with its failure tone", () => {
+  const task = snap.tasks.find(task => task.state === "running")!;
+  for (const [activity, label, tone] of [["waiting", "Needs input", "warn"], ["idle", "Ready for input", "neutral"]] as const) {
+    const html = section(view(null, { ...snap, tasks: [{ ...task, interactionMode: "conversation", conversation: { activity } }] }), "live-dispatch");
+    expect(html).toContain(`pc-pill pc-pill--${tone}">${label}</span>`);
+    expect(html).not.toContain(">Working<");
+  }
+  const html = section(view(null, { ...snap, tasks: [{ ...task, state: "partial", acceptanceState: "failed" }] }), "live-dispatch");
+  expect(html).toContain('pc-pill pc-pill--bad">Checks failed</span>');
+});
+
+test("task.answer has one link path without an unreachable ActionButton branch", async () => {
+  const source = await Bun.file("app/src/screens/dispatch/Dispatch.tsx").text();
+  expect(source.match(/action.op === "task.answer"/g)).toHaveLength(1);
+  expect(source).toContain('action={action}');
+});
+
+test("first run requires missing planner integration and no configured executors", () => {
+  expect(isFirstRun({ ...snap, planner: null, executors: [] })).toBe(true);
+  expect(isFirstRun({ ...snap, executors: [] }, { checkedAt: 0, complete: false, ready: false, items: [{ id: "connect", title: "Connect", status: "pending", required: true }] })).toBe(true);
+  expect(isFirstRun(snap)).toBe(false);
+  expect(isFirstRun({ ...snap, executors: snap.executors!.filter(e => e.rank === "planner") }, { checkedAt: 0, complete: false, ready: false, items: [{ id: "connect", title: "Connect", status: "pending", required: true }] })).toBe(true);
+  expect(isFirstRun({ ...snap, executors: [] }, { checkedAt: 0, complete: true, ready: true, items: [{ id: "connect", title: "Connect", status: "done", required: true }] })).toBe(false);
+});
+test("first run detection never invents installed agents", () => {
+  const html = renderToString(<FirstRun query={{ repo: null, scope: null }} detections={[{ agent: "codex", found: false, version: null, path: null, install_hint: "Install Codex CLI" }]} />);
+  expect(html).toContain("How to get it");
+  expect(html).toContain("not installed");
+  expect(html).not.toContain(">Found<");
+  expect(renderToString(<FirstRun query={{ repo: null, scope: null }} />)).toContain("Looking for agent CLIs");
+  expect(renderToString(<FirstRun query={{ repo: null, scope: null }} error={new Error("Detection failed")} retry={() => {}} />)).toContain("Check again");
 });

@@ -30,7 +30,7 @@ export function AssistantSettingsSection() {
     try { await work(); setSaved(message); settings.reload(); status.reload(); } catch (e) { setError(e); } finally { setBusy(false); }
   };
   const save = () => act(() => api.call("assistant.settings.set", { account, runner: runner || null, expect_rev: settings.data!.rev, limits: { turnsPerDay: Number(turns) }, retention: { days: Number(days) } }), "Saved.");
-  return <Section id="assistant" title="Assistant" detail="Ask questions about your tasks, dispatch and budgets from anywhere in the app. It is off until you choose an account.">
+  return <Section id="assistant" title="Assistant" detail="Ask questions about your tasks, dispatch and budgets from anywhere in the app. Choose where your questions are sent. Until then, the assistant button opens setup.">
     <div className="pc-card pc-stack pc-stack--normal">
       <Field label="Account that answers" help="The assistant uses this account only. It never moves to another one, and its use is counted as assistant use, apart from your tasks.">
         <ChoicePicker value={account ?? ""} placeholder="Off — choose an account" options={[{ value: "", label: "Off" }, ...candidates.data.accounts.map(a => ({ value: a.account, label: a.isPlanner ? `${a.account} (planner)` : a.account }))]} onValueChange={value => { setAccount(value || null); setRunner(""); }} />

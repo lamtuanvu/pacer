@@ -249,3 +249,26 @@ test('spacing ownership follows nested selectors, media blocks and legacy gap al
  ]) expect(checkUiSource('app/src/example.css', source).some(v=>v.rule==='UI-27')).toBe(true);
  expect(checkUiSource('app/src/example.css', '.custom { @media(min-width:900px) { gap:var(--space-3) } }')).toEqual([]);
 });
+
+test("assistant conic mark exception rejects neighboring selectors, colors, files and gradients", () => {
+  const path = "app/src/ds/components.css";
+  const mark = ".pc-aurora-avatar{background:conic-gradient(from 200deg,var(--aurora-1),var(--aurora-3),var(--aurora-2),var(--aurora-1))}";
+  expect(checkUiSource(path, mark)).toEqual([]);
+  for (const source of [mark.replace(".pc-aurora-avatar", ".other"), mark.replace("var(--aurora-1)", "red"), mark.replace("200deg", "100deg"), ".other " + mark, mark.replace(".pc-aurora-avatar", ".other,.pc-aurora-avatar")]) expect(checkUiSource(path, source)).not.toEqual([]);
+  expect(checkUiSource("app/src/shell/other.css", mark)).not.toEqual([]);
+});
+test("only the frame's assistant offset accepts measured dock height", () => {
+  const source = 'root.style.setProperty("--pc-dock-height", `${dock?.getBoundingClientRect().height ?? 0}px`);';
+  expect(checkUiSource("app/src/shell/AppFrame.tsx", source)).toEqual([]);
+  for (const bad of [source.replace("--pc-dock-height", "height"), source.replace(".height", ".width"), source.replace("?? 0", "?? 20"), source.replace("root.style", "other.style")]) expect(checkUiSource("app/src/shell/AppFrame.tsx", bad)).not.toEqual([]);
+  expect(checkUiSource("app/src/shell/Other.tsx", source)).not.toEqual([]);
+});
+
+test("assistant header clearance is a scoped measured geometry channel", () => {
+  const source = 'root.style.setProperty("--pc-assistant-header-height", `${sessionHeader && body ? Math.max(0, sessionHeader.getBoundingClientRect().bottom - body.getBoundingClientRect().top) : 0}px`);';
+  expect(checkUiSource("app/src/shell/AppFrame.tsx", source)).toEqual([]);
+  expect(checkUiSource("app/src/screens/session/TasksPage.tsx", source)).not.toEqual([]);
+  for (const bad of [source.replace("sessionHeader && body ? Math.max(0, sessionHeader.getBoundingClientRect().bottom - body.getBoundingClientRect().top) : 0", "clearance"), source.replace("Math.max(0,", "Math.max(20,"), 'const clearance = input; root.style.setProperty("--pc-assistant-header-height", `${clearance}px`);', 'const clearance = 20; root.style.setProperty("--pc-assistant-header-height", `${clearance}px`);']) {
+    expect(checkUiSource("app/src/shell/AppFrame.tsx", bad)).not.toEqual([]);
+  }
+});
