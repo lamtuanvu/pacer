@@ -584,7 +584,12 @@ export function AccountsSection({ initialData }: { initialData?: Account[] }) {
 export function MachineSection({ initialData, query: routeQuery = { repo: null, scope: null } }: { initialData?: ConfigData; query?: RouteQuery }) {
   const query = useResource("config.get", {}, initialData),
     action = useOperation(query.reload);
-  const value = query.data?.keys["execution.local_max_tasks"]?.value;
+  const saved = String(query.data?.keys["execution.local_max_tasks"]?.value ?? 2);
+  const [base, setBase] = useState(saved), [draft, setDraft] = useState(saved);
+  const dirty = draft !== base;
+  const error = /^\d+$/.test(draft) && Number(draft) >= 1 && Number(draft) <= 16 ? undefined : "Enter a whole number from 1 to 16.";
+  // Follow the saved value only while the user has no unsaved edit.
+  useEffect(() => { if (!dirty) { setBase(saved); setDraft(saved); } }, [saved]);
   const launchMode = String(query.data?.keys["execution.launch_mode"]?.value ?? "interactive");
   const { selectedTerminal, terminalChoices } = terminalPreference(query.data);
   return (
@@ -593,6 +598,7 @@ export function MachineSection({ initialData, query: routeQuery = { repo: null, 
         <Field
           label="Parallel tasks on this machine"
           help="Shared by all executors that run on this machine."
+          error={error}
         >
           <TextInput
             type="number"
@@ -600,17 +606,32 @@ export function MachineSection({ initialData, query: routeQuery = { repo: null, 
             max="16"
             step="1"
             required
-            value={String(value ?? 2)}
-            disabled={action.busy}
-            onChange={(e) => {
-              if (e.currentTarget.validity.valid)
-                void action.run("config.set", {
-                  key: "execution.local_max_tasks",
-                  value: Number(e.currentTarget.value),
-                });
-            }}
+            value={draft}
+            onInput={(e) => setDraft(e.currentTarget.value)}
           />
         </Field>
+        <div className="u3-save-bar">
+          <span>{dirty ? "Unsaved changes" : "All changes saved"}</span>
+          <div className="u3-actions">
+            <Button disabled={!dirty || action.busy} onClick={() => setDraft(base)}>
+              Discard
+            </Button>
+            <Button
+              variant="primary"
+              busy={action.busy}
+              disabled={!dirty || action.busy || !!error}
+              onClick={() =>
+                void action.run(
+                  "config.set",
+                  { key: "execution.local_max_tasks", value: Number(draft) },
+                  () => setBase(draft),
+                )
+              }
+            >
+              Save changes
+            </Button>
+          </div>
+        </div>
         <Field
           label="Delegated task launch"
           help="Interactive runs open in the agent's terminal UI and finish when the agent reports its result. Headless runs the agent's non-interactive CLI. A runner's own session setting overrides this."
