@@ -59,7 +59,7 @@ function ThisMachine({ initialData }: { initialData?: ConfigData }) {
         onChange={e => { if (e.currentTarget.validity.valid) void action.run("config.set", { key: "execution.local_max_tasks", value: Number(e.currentTarget.value) }); }} />{caps && <span className="u3-muted">{caps}</span>}</div>
     </SettingRow>
     <SettingRow variant="board" label="Delegated task launch" description="Interactive runs open in the agent's terminal UI and finish when the agent reports its result. Headless runs the agent's non-interactive CLI. A runner's own session setting overrides this.">
-      <ChoicePicker aria-label="Delegated task launch" value={String(keys?.["execution.launch_mode"]?.value ?? "interactive")} options={[{ value: "interactive", label: "Interactive" }, { value: "headless", label: "Headless" }]} disabled={action.busy} onValueChange={choice => void action.run("config.set", { key: "execution.launch_mode", value: choice })} />
+      <ChoicePicker className="u3-terminal-picker" aria-label="Delegated task launch" value={String(keys?.["execution.launch_mode"]?.value ?? "interactive")} options={[{ value: "interactive", label: "Interactive" }, { value: "headless", label: "Headless" }]} disabled={action.busy} onValueChange={choice => void action.run("config.set", { key: "execution.launch_mode", value: choice })} />
     </SettingRow>
     <SettingRow variant="board" label="Terminal for sessions" description="Where “Open elsewhere” goes">
       <ChoicePicker className="u3-terminal-picker" aria-label="Terminal for sessions" value={selected} options={options} disabled={action.busy} onValueChange={choice => void action.run("config.set", { key: "terminal.open", value: choice })} />

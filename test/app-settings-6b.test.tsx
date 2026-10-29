@@ -175,7 +175,7 @@ test('Agents: only Executors has a planner card; Accounts has the factual banner
 test('Agents table shows count and known machine maximum, failing tint, and 24px identity',()=>{
  const html=render(<SettingsGeneral section="executors" initialData={settings}/>,withState({machine:{used:0,max:8},executors:[{...executor,state:'failing',slots:{used:0,max:3}}]}));
  expect(html).toContain('u3-row--bad');
- expect(html).toContain('data-label="Parallel tasks"><strong>3</strong><span class="u3-muted"> of 8</span>');
+ expect(html).toContain('data-label="Parallel"><strong>3</strong><span class="u3-muted"> of 8</span>');
  expect(html).toContain('--agent-size:24px');
  expect(html).not.toContain('type="number"');
  const unknown=render(<SettingsGeneral section="executors" initialData={settings}/>,withState({executors:[executor]}));
@@ -265,5 +265,5 @@ test('Add agent model picker uses only reported models and nests test status and
   expect(html.match(/>Add agent and run test task</g)).toHaveLength(1);
   const running=render(<AddExecutor initialDraft={{step:'4',account:'team',createdId:executor.id,jobId:job.id}}/>,{...withState({}),jobs:{[job.id]:{...job,state:'running'}}});
   expect(running).toContain('pc-check-list--unboxed');
-  expect(running).toContain('Draft kept for this session');
+  expect(running).toContain('Your draft is kept if you leave');
 });

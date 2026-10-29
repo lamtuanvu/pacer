@@ -163,7 +163,7 @@ browserTest('Agents: the save bar is hidden at all widths until there is a draft
     await page.addStyleTag({ content: (await Promise.all(['app/src/ds/tokens.css','app/src/ds/components.css','app/src/ds/feedback.css','app/src/styles.css','app/src/screens/settings/settings.css'].map(path=>Bun.file(path).text()))).join('\n') });
     await page.addStyleTag({ content: (await Promise.all(['app/src/ds/tokens.css', 'app/src/ds/components.css', 'app/src/ds/feedback.css', 'app/src/styles.css', 'app/src/screens/settings/settings.css'].map(path => Bun.file(path).text()))).join('\n') });
     await page.addScriptTag({ content: await built.outputs[0]!.text() });
-    await page.getByRole('button', {name:'Details for Codex',exact:true}).click();
+    await page.getByRole('button', {name:'More actions for Codex',exact:true}).click();
     const input = page.getByRole('spinbutton', { name: 'Parallel tasks for codex', exact: true });
     await input.waitFor();
     const bar = page.locator('.u3-save-bar');
@@ -176,7 +176,7 @@ browserTest('Agents: the save bar is hidden at all widths until there is a draft
     expect(await bar.isVisible()).toBe(false);
     const aside=await page.locator('.pc-page-columns__aside').evaluate(el=>({width:el.getBoundingClientRect().width,padding:getComputedStyle(el).padding}));
     expect(aside).toEqual({width:400,padding:'28px 24px'});
-    expect(await page.locator('.pc-setting-row--stacked').count()).toBe(3);
+    expect(await page.locator('.pc-setting-row--stacked').count()).toBe(4);
     await input.fill('3');
     expect(await bar.isVisible()).toBe(true);
     await page.evaluate(() => (window as any).executorFixture.holdSave());
@@ -191,7 +191,7 @@ browserTest('Agents: the save bar is hidden at all widths until there is a draft
     await page.getByText('Service unavailable', {exact:true}).waitFor();
     expect(await bar.isVisible()).toBe(true);
     await page.getByRole('button',{name:'Close Codex details',exact:true}).click();
-    expect(await page.getByRole('button',{name:'Details for Codex',exact:true}).evaluate(el=>el===document.activeElement)).toBe(true);
+    expect(await page.getByRole('button',{name:'More actions for Codex',exact:true}).evaluate(el=>el===document.activeElement)).toBe(true);
   } finally { await browser.close(); }
 }, 20000);
 
@@ -212,9 +212,12 @@ browserTest('Accounts policy saves spread/fill and threshold through the existin
  expect(built.success).toBe(true);
  const browser=await chromium.launch({executablePath:process.env.PACER_TEST_BROWSER!,headless:true});
  try{
-  const page=await browser.newPage();await page.setContent('<div id="app"></div>');await page.addScriptTag({content:await built.outputs[0]!.text()});
+  const page=await browser.newPage({viewport:{width:375,height:1000}});await page.setContent('<div class="u3-settings" id="app"></div>');
+  await page.addStyleTag({content:(await Promise.all(['app/src/ds/tokens.css','app/src/ds/components.css','app/src/ds/feedback.css','app/src/styles.css','app/src/screens/settings/settings.css'].map(path=>Bun.file(path).text()))).join('\n')});
+  await page.addScriptTag({content:await built.outputs[0]!.text()});
   const spread=page.getByRole('radio',{name:'Spread evenly'}),fill=page.getByRole('radio',{name:'Fill one, then the next'});
   await spread.waitFor();expect(await spread.isChecked()).toBe(true);
+  for(const radio of [spread,fill]) expect((await radio.locator('..').boundingBox())!.height).toBeGreaterThanOrEqual(44);
   await spread.focus();await page.keyboard.press('ArrowRight');
   await page.getByRole('spinbutton',{name:'Account fill threshold'}).waitFor();
   expect(await fill.isChecked()).toBe(true);
@@ -235,7 +238,7 @@ browserTest('Agents failing row and detail render the real readiness message in 
   await page.addScriptTag({content:await built.outputs[0]!.text()});
   const row=page.locator('tbody tr').first();await row.waitFor();expect(await row.getAttribute('class')).toContain('u3-row--bad');
   expect(await row.evaluate(el=>getComputedStyle(el).boxShadow)).toContain('inset');
-  await page.getByRole('button',{name:'Details for Codex',exact:true}).click();
+  await page.getByRole('button',{name:'More actions for Codex',exact:true}).click();
   const detail=page.getByRole('region',{name:'Codex details',exact:true});
   expect(await detail.locator('.pc-card--bad').textContent()).toContain('Endpoint returned 402');
   expect(await detail.locator('dt').allTextContents()).toEqual(['Account','Model','Runs on']);
@@ -249,7 +252,7 @@ browserTest('Agents failing row and detail render the real readiness message in 
 
 browserTest('Machines board geometry, known capacity and narrow containment', async()=>{
  await open(async page=>{
-  await page.setViewportSize({width:1440,height:1000});
+  await emulateSettingsWidth(page,1440,1000);
   const cards=page.locator('.u3-machines-grid>.u3-machine-card');await cards.nth(1).waitFor();
   const geometry=await cards.evaluateAll(els=>els.map(el=>{const c=getComputedStyle(el);return {width:el.getBoundingClientRect().width,radius:c.borderRadius,overflow:c.overflow,border:c.borderTopWidth};}));
   expect(geometry[0]!.width).toBe(geometry[1]!.width);
@@ -258,10 +261,10 @@ browserTest('Machines board geometry, known capacity and narrow containment', as
   expect(await rows.count()).toBe(4);
   const layout=await rows.evaluateAll(els=>els.map(el=>{const c=getComputedStyle(el);return {width:el.getBoundingClientRect().width,columns:c.gridTemplateColumns,gap:c.gap,padding:c.padding};}));
   for (const row of layout) {
-   expect(row.padding).toBe('14px 0px');
-   // At 1440px the two-card layout leaves each body below 700px; use stacked rows.
-   expect(row.columns.split(' ')).toHaveLength(1);
-   expect(row.gap).toBe('8px');
+   expect(row.padding).toBe('12px 0px');
+   // The board keeps the label and control side by side at desktop widths.
+   expect(row.columns.split(' ')).toHaveLength(2);
+   expect(row.gap).toBe('20px');
   }
   expect(await page.locator('.u3-machines-grid').evaluate(el=>getComputedStyle(el).gap)).toBe('20px');
   expect(await page.getByRole('spinbutton',{name:'Parallel tasks',exact:true}).evaluate(el=>el.getBoundingClientRect().width)).toBe(72);
@@ -273,7 +276,7 @@ browserTest('Machines board geometry, known capacity and narrow containment', as
   await page.getByRole('button',{name:'Connect and check',exact:true}).click();
   const checks=page.getByRole('list',{name:'Checks for devbox'});await checks.waitFor();
   expect(await checks.evaluate(el=>{const c=getComputedStyle(el);return [c.padding,c.gap,c.borderRadius]})).toEqual(['10px 12px','6px','8px']);
-  await page.setViewportSize({width:375,height:1000});
+  await emulateSettingsWidth(page,375,343);
   expect(await page.locator('.u3-machines-grid').evaluate(el=>getComputedStyle(el).gridTemplateColumns.split(' ').length)).toBe(1);
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
  });
@@ -359,3 +362,97 @@ browserTest('failed host recovery keeps the current settings scope',async()=>{
    expect(await check.evaluate(el=>el===document.activeElement)).toBe(true);
   });
  },20000);
+
+// These are the content widths left by the rail and Settings navigation, not viewport breakpoints.
+const settingsWidths = [{viewport:1440, content:1000}, {viewport:768, content:476}, {viewport:375, content:343}];
+async function emulateSettingsWidth(page: import('playwright-core').Page, viewport: number, content: number) {
+  await page.setViewportSize({width:viewport,height:1000});
+  await page.addStyleTag({content:`#app{width:${content}px;max-width:100%;padding:0;margin:0}#app>.u3-settings{width:100%;max-width:none;padding:0;margin:0}`});
+}
+async function assertContained(page: import('playwright-core').Page) {
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+}
+browserTest('Add agent steps 1–4 fit the actual Settings container at desktop, tablet and phone widths', async()=>{
+  for (const {viewport,content} of settingsWidths) {
+    await openAgent(async page=>{
+      await emulateSettingsWidth(page,viewport,content);
+      await page.getByRole('heading',{name:'Which agent?',exact:true}).waitFor();
+      for (let step=1;step<=4;step++) {
+        await assertContained(page);
+        const panel=await page.locator('.u3-wizard-panel').boundingBox();
+        expect(panel!.width).toBeGreaterThanOrEqual(viewport===768?300:250);
+        if (viewport!==1440) {
+          const steps=await page.locator('.pc-stepper').boundingBox();
+          expect(steps!.y+steps!.height).toBeLessThanOrEqual(panel!.y);
+          expect(await page.locator('.pc-stepper').evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true);
+        }
+        if(step===1) await page.getByRole('button',{name:/Codex/}).first().click();
+        if(step===2) await page.getByRole('radio',{name:/team/}).check();
+        if(step<4) await page.getByRole('button',{name:'Continue',exact:true}).click();
+      }
+      if(viewport===375) {
+        for(const link of [page.getByRole('link',{name:'Cancel',exact:true}),page.getByRole('navigation',{name:'Breadcrumb'}).getByRole('link',{name:'Agents',exact:true})]) {
+          expect((await link.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+        }
+      }
+    });
+  }
+},30000);
+
+browserTest('Agents five columns and More actions remain contained with the aside and in narrow cards',async()=>{
+  const built=await Bun.build({entrypoints:['test/fixtures/ui/executor-editor.tsx'],target:'browser',minify:true});
+  const browser=await chromium.launch({executablePath:process.env.PACER_TEST_BROWSER!,headless:true});
+  try {
+    for(const {viewport,content} of settingsWidths) {
+      const page=await browser.newPage();
+      await page.setContent('<div id="app"></div>');
+      await page.addStyleTag({content:(await Promise.all(['app/src/ds/tokens.css','app/src/ds/components.css','app/src/ds/feedback.css','app/src/styles.css','app/src/screens/settings/settings.css'].map(path=>Bun.file(path).text()))).join('\n')});
+      await emulateSettingsWidth(page,viewport,content);
+      await page.addScriptTag({content:await built.outputs[0]!.text()});
+      const action=page.getByRole('button',{name:'More actions for Codex',exact:true});
+      await action.click();
+      expect(await page.locator('thead th').allTextContents()).toEqual(['Executor','Status','This week','Parallel','Actions']);
+      expect(await page.locator('tbody tr').first().locator('td').count()).toBe(5);
+      await assertContained(page);
+      const edges=await page.locator('.u3-agents-table').evaluate(el=>({right:el.getBoundingClientRect().right,cells:[...el.querySelectorAll('td')].map(cell=>cell.getBoundingClientRect().right)}));
+      for(const right of edges.cells) expect(right).toBeLessThanOrEqual(edges.right);
+      await action.scrollIntoViewIfNeeded();
+      expect(await action.isVisible()).toBe(true);
+      const bounds=await action.boundingBox();
+      expect(bounds!.x).toBeGreaterThanOrEqual(0);expect(bounds!.x+bounds!.width).toBeLessThanOrEqual(viewport);
+      if(viewport===375) {
+        const toggle=page.getByRole('switch',{name:'Enable codex',exact:true}).locator('..');
+        const size=await toggle.boundingBox();expect(size!.width).toBeGreaterThanOrEqual(44);expect(size!.height).toBeGreaterThanOrEqual(44);
+        expect((await page.getByRole('link',{name:'Dispatcher',exact:true}).boundingBox())!.height).toBeGreaterThanOrEqual(44);
+      }
+      await page.close();
+    }
+  } finally {await browser.close();}
+},30000);
+
+browserTest('Unknown host errors keep the settings frame and a scoped Machines destination',async()=>{
+  const built=await Bun.build({entrypoints:['test/fixtures/ui/add-host.tsx'],target:'browser',minify:true,plugins:[{name:'unknown-host',setup(builder){builder.onLoad({filter:/add-host\.tsx$/},()=>({loader:'tsx',resolveDir:process.cwd(),contents:`
+    import {render} from 'preact';
+    import {HostDetail} from '../../../app/src/screens/settings/Hosts';
+    import {TaskContext} from '../../../app/src/screens/task-shared';
+    import {SettingsQueryContext} from '../../../app/src/screens/settings/shared';
+    import {initialState} from '../../../app/src/data/store';
+    import {ApiError} from '../../../app/src/data/api';
+    const api={call:async()=>{throw new ApiError('invalid_input','unknown host missing');}};
+    render(<TaskContext.Provider value={{state:{...initialState(),connected:true},api}}><SettingsQueryContext.Provider value={{repo:'fixture-repo',scope:'repo'}}><HostDetail alias="missing"/></SettingsQueryContext.Provider></TaskContext.Provider>,document.getElementById('app'));
+  `}));}}]});
+  expect(built.success).toBe(true);
+  const browser=await chromium.launch({executablePath:process.env.PACER_TEST_BROWSER!,headless:true});
+  try {
+    const page=await browser.newPage({viewport:{width:375,height:1000}});
+    await page.setContent('<div id="app"></div>');
+    await page.addStyleTag({content:(await Promise.all(['app/src/ds/tokens.css','app/src/ds/components.css','app/src/ds/feedback.css','app/src/styles.css'].map(path=>Bun.file(path).text()))).join('\n')});
+    await page.addScriptTag({content:await built.outputs[0]!.text()});
+    const heading=page.getByRole('heading',{name:'Host not found',level:1,exact:true});await heading.waitFor();
+    expect(await heading.locator('xpath=ancestor::*[contains(@class,"pc-page")]').count()).toBe(1);
+    const back=page.getByRole('link',{name:'Back to Machines',exact:true});
+    expect(await back.getAttribute('href')).toContain('#/settings/machine?');
+    expect(await back.getAttribute('href')).toContain('repo=fixture-repo');
+    await assertContained(page);
+  }finally{await browser.close();}
+},20000);

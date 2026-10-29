@@ -7,13 +7,13 @@ browserTest('executor draft survives refresh, validates, saves once and preserve
  const browser=await chromium.launch({executablePath:process.env.PACER_TEST_BROWSER!,headless:true});
  try{
   const page=await browser.newPage();await page.setContent('<div id="app"></div>');await page.addScriptTag({content:await built.outputs[0].text()});
-  await page.getByRole('button',{name:'Details for Codex',exact:true}).click();
+  await page.getByRole('button',{name:'More actions for Codex',exact:true}).click();
   expect(await page.getByRole('heading',{name:'Codex',level:2,exact:true}).count()).toBe(1);
   const input=page.getByRole('spinbutton',{name:'Parallel tasks for codex',exact:true}),save=page.getByRole('button',{name:'Save changes',exact:true});
-  await input.fill('2');await page.getByRole('button',{name:'Move Claude Code · second up',exact:true}).click();
+  await input.fill('2');await page.getByRole('button',{name:'More actions for Claude Code · second',exact:true}).click();await page.getByRole('button',{name:'Move Claude Code · second up',exact:true}).click();
   expect(await page.evaluate(()=>(window as any).executorFixture.writes())).toBe(0);
-  expect(await page.evaluate(()=>document.activeElement?.closest('tr')?.textContent)).toContain('second');
-  await input.focus();await page.evaluate(()=>(window as any).executorFixture.refresh());
+  expect(await page.evaluate(()=>document.activeElement?.closest('[role=region]')?.textContent)).toContain('second');
+  await page.getByRole('button',{name:'More actions for Codex',exact:true}).click();await input.focus();await page.evaluate(()=>(window as any).executorFixture.refresh());
   await page.waitForTimeout(50);expect(await input.inputValue()).toBe('2');expect(await input.evaluate(n=>n===document.activeElement)).toBe(true);
   await input.fill('0');expect(await save.isDisabled()).toBe(true);expect(await page.getByText('Enter a whole number from 1 to 16.',{exact:true}).count()).toBe(1);
   await input.fill('2');await save.click();await page.getByRole('status').filter({hasText:'Executor settings saved'}).waitFor();
@@ -34,7 +34,7 @@ browserTest('the Takes work switch saves immediately, stays busy and reverts on 
  const browser=await chromium.launch({executablePath:process.env.PACER_TEST_BROWSER!,headless:true});
  try{
   const page=await browser.newPage();await page.setContent('<div id="app"></div>');await page.addScriptTag({content:await built.outputs[0].text()});
-  await page.getByRole('button',{name:'Details for Codex',exact:true}).click();
+  await page.getByRole('button',{name:'More actions for Codex',exact:true}).click();
   const toggle=page.getByRole('switch',{name:'Enable codex',exact:true}),save=page.getByRole('button',{name:'Save changes',exact:true});
   expect(await toggle.isChecked()).toBe(true);
   await page.evaluate(()=>(window as any).executorFixture.holdSave());
@@ -62,7 +62,7 @@ browserTest('a delayed save acknowledgement cannot hide a newer client change',a
  const browser=await chromium.launch({executablePath:process.env.PACER_TEST_BROWSER!,headless:true});
  try{
   const page=await browser.newPage();await page.setContent('<div id="app"></div>');await page.addScriptTag({content:await built.outputs[0].text()});
-  await page.getByRole('button',{name:'Details for Codex',exact:true}).click();
+  await page.getByRole('button',{name:'More actions for Codex',exact:true}).click();
   const input=page.getByRole('spinbutton',{name:'Parallel tasks for codex',exact:true}),save=page.getByRole('button',{name:'Save changes',exact:true});
   await input.fill('2');await page.evaluate(()=>(window as any).executorFixture.holdSave());await save.click();
   await page.waitForFunction(()=>(window as any).executorFixture.writes()===1);
@@ -82,9 +82,9 @@ browserTest('stale health ranks cannot duplicate or lock the previous planner af
  const browser=await chromium.launch({executablePath:process.env.PACER_TEST_BROWSER!,headless:true});
  try{
   const page=await browser.newPage();await page.setContent('<div id="app"></div>');await page.addScriptTag({content:await built.outputs[0].text()});
-  await page.getByRole('button',{name:'Details for Codex',exact:true}).waitFor();
+  await page.getByRole('button',{name:'More actions for Codex',exact:true}).waitFor();
   await page.evaluate(()=>(window as any).executorFixture.switchPlanner());await page.waitForTimeout(50);
-  await page.getByRole('button',{name:'Details for Claude Code',exact:true}).click();
+  await page.getByRole('button',{name:'More actions for Claude Code',exact:true}).click();
   expect(await page.getByRole('spinbutton',{name:'Parallel tasks for claude-code',exact:true}).count()).toBe(1);
   expect(await page.locator('tbody tr').count()).toBe(2);
  }finally{await browser.close();}
@@ -99,7 +99,7 @@ browserTest('save controls clear the narrow navigation and desktop actions stay 
   await page.addStyleTag({content:(await Promise.all(['app/src/ds/tokens.css','app/src/ds/components.css','app/src/ds/feedback.css','app/src/styles.css'].map(path=>Bun.file(path).text()))).join('\n')});
   await page.evaluate(()=>document.body.classList.add('pc-app--narrow'));
   await page.addScriptTag({content:await built.outputs[0].text()});
-  await page.getByRole('button',{name:'Details for Codex',exact:true}).click();
+  await page.getByRole('button',{name:'More actions for Codex',exact:true}).click();
   await page.getByRole('spinbutton',{name:'Parallel tasks for codex',exact:true}).fill('2');
   const bounds=await page.evaluate(()=>({save:document.querySelector('.u3-save-bar')!.getBoundingClientRect().bottom,nav:document.querySelector('.pc-bottom-bar')!.getBoundingClientRect().top}));
   expect(bounds.save).toBeLessThanOrEqual(bounds.nav);
@@ -115,9 +115,9 @@ browserTest('Takes work preserves unsaved order and parallel tasks',async()=>{
  const browser=await chromium.launch({executablePath:process.env.PACER_TEST_BROWSER!,headless:true});
  try {
   const page=await browser.newPage();await page.setContent('<div id="app"></div>');await page.addScriptTag({content:await built.outputs[0].text()});
-  await page.getByRole('button',{name:'Details for Codex',exact:true}).click();
+  await page.getByRole('button',{name:'More actions for Codex',exact:true}).click();
   const input=page.getByRole('spinbutton',{name:'Parallel tasks for codex',exact:true});
-  await input.fill('4');await page.getByRole('button',{name:'Move Claude Code · second up',exact:true}).click();
+  await input.fill('4');await page.getByRole('button',{name:'More actions for Claude Code · second',exact:true}).click();await page.getByRole('button',{name:'Move Claude Code · second up',exact:true}).click();await page.getByRole('button',{name:'More actions for Codex',exact:true}).click();
   await page.getByRole('switch',{name:'Enable codex',exact:true}).click();
   await page.getByRole('status').filter({hasText:'Executor settings saved'}).first().waitFor();
   expect(await input.inputValue()).toBe('4');
@@ -129,12 +129,12 @@ browserTest('Takes work preserves unsaved order and parallel tasks',async()=>{
  } finally {await browser.close();}
 },20000);
 
-browserTest('Escape and Close restore Details focus, Remove focuses Add agent',async()=>{
+browserTest('Escape and Close restore More actions focus, Remove focuses Add agent',async()=>{
  const built=await Bun.build({entrypoints:['test/fixtures/ui/executor-editor.tsx'],target:'browser',minify:true});
  const browser=await chromium.launch({executablePath:process.env.PACER_TEST_BROWSER!,headless:true});
  try {
   const page=await browser.newPage();await page.setContent('<div id="app"></div>');await page.addScriptTag({content:await built.outputs[0].text()});
-  const details=page.getByRole('button',{name:'Details for Codex',exact:true});
+  const details=page.getByRole('button',{name:'More actions for Codex',exact:true});
   await details.click();await page.waitForFunction(()=>document.activeElement?.getAttribute('aria-label')==='Codex details');await page.keyboard.press('Escape');
   await page.getByRole('region',{name:'Codex details',exact:true}).waitFor({state:'detached'});
   expect(await page.getByRole('region',{name:'Codex details',exact:true}).count()).toBe(0);
@@ -153,7 +153,7 @@ browserTest('Takes work conflict reloads saved settings and preserves page edits
  const browser=await chromium.launch({executablePath:process.env.PACER_TEST_BROWSER!,headless:true});
  try {
   const page=await browser.newPage();await page.setContent('<div id="app"></div>');await page.addScriptTag({content:await built.outputs[0].text()});
-  await page.getByRole('button',{name:'Details for Codex',exact:true}).click();
+  await page.getByRole('button',{name:'More actions for Codex',exact:true}).click();
   const input=page.getByRole('spinbutton',{name:'Parallel tasks for codex',exact:true}),toggle=page.getByRole('switch',{name:'Enable codex',exact:true});
   await input.fill('4');await page.evaluate(()=>(window as any).executorFixture.conflictNext());await toggle.click();
   await page.locator('#executors [role="alert"]').filter({hasText:'Settings changed elsewhere'}).waitFor();
@@ -178,7 +178,7 @@ browserTest('Escape is scoped to details and its opener, preserves edits and ign
   });
   await page.addScriptTag({content:await built.outputs[0].text()});
   const baseline=await page.evaluate(()=>(window as any).keydownListeners());
-  const details=page.getByRole('button',{name:'Details for Codex',exact:true}),panel=page.getByRole('region',{name:'Codex details',exact:true});
+  const details=page.getByRole('button',{name:'More actions for Codex',exact:true}),panel=page.getByRole('region',{name:'Codex details',exact:true});
   await details.click();
   const input=page.getByRole('spinbutton',{name:'Parallel tasks for codex',exact:true});
   await input.fill('4');await input.press('Escape');
@@ -208,7 +208,7 @@ browserTest('a held Takes work failure is reported on the page after details clo
  const browser=await chromium.launch({executablePath:process.env.PACER_TEST_BROWSER!,headless:true});
  try {
   const page=await browser.newPage();await page.setContent('<div id="app"></div>');await page.addScriptTag({content:await built.outputs[0].text()});
-  await page.getByRole('button',{name:'Details for Codex',exact:true}).click();
+  await page.getByRole('button',{name:'More actions for Codex',exact:true}).click();
   await page.evaluate(()=>{(window as any).executorFixture.fail(true);(window as any).executorFixture.holdSave();});
   await page.getByRole('switch',{name:'Enable codex',exact:true}).click();
   await page.waitForFunction(()=>(window as any).executorFixture.writes()===1);

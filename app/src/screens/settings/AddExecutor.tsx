@@ -156,7 +156,7 @@ export function AddExecutor({ host: prefillHost = "", initialDraft = {}, initial
         {resumeError && <p role="status">{resumeError}</p>}
         <Feedback action={action} />
         <div className="u3-footer">
-          <span className="u3-muted">{problem ?? `Step ${step} of 4 · Draft kept for this session${locked ? "; agent added; test before Ready" : ""}`}</span>
+          <span className="u3-muted">{problem ?? `Step ${step} of 4 · Your draft is kept if you leave${locked ? "; agent added; test before Ready" : ""}`}</span>
           {ready ? <>
             <Button onClick={() => { action.clear(); setResumed(undefined); setResumeError(""); setUrlForm(false); setDraft({ ...blankAgentDraft }); }}>Add another agent</Button>
             <ButtonLink variant="primary" href={scoped("#/settings/executors")} onClick={clearDraft}>Open agents</ButtonLink>

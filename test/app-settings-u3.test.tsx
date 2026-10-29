@@ -174,7 +174,7 @@ test('settings feedback explains automatic migration in plain language',async()=
 test('General exposes named parallel tasks controls and shared capacity notes',()=>{
  const limited={...executor,rank:1,slots:{used:0,max:4},limitedBy:'machine'};
  const html=render(<SettingsGeneral section="executors" initialData={settings}/>,{...state,snapshot:{...state.snapshot,machine:{used:0,max:2},executors:[limited]}});
- expect(html).toContain('data-label="Parallel tasks"><strong>4</strong>');
+ expect(html).toContain('data-label="Parallel"><strong>4</strong>');
  expect(html).toContain(' of 2</span>');
  const machine=render(<SettingsGeneral section="machine" initialData={settings}/>);
  expect(machine).toContain('Parallel tasks');

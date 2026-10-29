@@ -14,7 +14,10 @@
 .u3-agent{display:flex;gap:var(--space-2);align-items:center}.u3-agent>div{min-width:0}.u3-agent code{display:block;color:var(--ink-secondary)}
 .u3-status{font-size:var(--type-caption-size);color:var(--ink-secondary)}.u3-status--passed{color:var(--good-fg)}.u3-status--failed{color:var(--bad-fg)}.u3-status--running{color:var(--info-fg)}
 .u3-feedback:empty{display:none}.u3-feedback{margin-top:var(--space-2);overflow-wrap:anywhere}.u3-progress{background:var(--surface-card);padding:var(--space-3);border:1px solid var(--line);border-radius:var(--radius-md);margin:var(--space-2) 0}.u3-progress ul{list-style:none;padding:0;margin:var(--space-2) 0}
-.u3-wizard{display:grid;grid-template-columns:var(--size-230) minmax(0,1fr);gap:var(--space-6);align-items:start}
+.u3-add-agent{container-type:inline-size;container-name:agent-page}
+.u3-wizard{display:flex;flex-wrap:wrap;gap:var(--space-6);align-items:flex-start}
+.u3-wizard>.pc-stepper{flex:0 1 var(--size-230)}
+.u3-wizard-panel{flex:1 1 var(--size-520);box-sizing:border-box;max-width:100%}
 .u3-choices{display:grid;grid-template-columns:repeat(auto-fit,minmax(var(--size-180),1fr));gap:var(--space-3);margin:var(--space-4) 0}
 .u3-footer{display:flex;gap:var(--space-3);align-items:center;justify-content:flex-end;flex-wrap:wrap;margin-top:var(--space-5);padding-top:var(--space-4);border-top:1px solid var(--line)}
 @media(max-width:700px){.u3-settings:not(.pc-page){padding:var(--space-4)}.u3-wizard,.u3-settings-grid{grid-template-columns:minmax(0,1fr);gap:var(--space-3)}.u3-steps{display:flex;flex-wrap:wrap;gap:var(--space-1)}.u3-steps li{padding:var(--space-2)}.u3-settings th,.u3-settings td{padding:var(--space-2)}}
@@ -143,12 +146,12 @@
 .u3-detail-footer>span{flex:1}
 @media(max-width:700px){.u3-account-policy{grid-template-columns:minmax(0,1fr)}.u3-settings .u3-agents-table td{border:0}.u3-agents-table td[data-label="Parallel tasks"]{text-align:left}}
 
-.u3-agents-scroll{overflow-x:auto;max-width:100%}
+.u3-agents-scroll{max-width:100%;container-type:inline-size;container-name:agents-table}
 /* Keep absolute screen-reader labels inside the table's scroll clip. */
 .u3-agents-scroll{position:relative}
 
 /* Machines and Add agent have specialized board layouts; SettingRow owns its grid. */
-.u3-machines-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:var(--space-5);align-items:start}
+.u3-machines-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,var(--size-440)),1fr));gap:var(--space-5);align-items:start}
 .u3-machine-card{min-width:0;border:1px solid var(--line);border-radius:var(--radius-card);overflow:hidden}
 .u3-machine-header{display:flex;align-items:center;gap:var(--space-3);padding:var(--space-3\.5) var(--space-4);background:var(--surface-card);border-bottom:1px solid var(--line);flex-wrap:wrap}
 .u3-machine-title{display:flex;flex-direction:column;flex:1;min-width:0}
@@ -183,13 +186,13 @@
 .pc-stepper__step{display:flex;align-items:flex-start;gap:var(--space-2);width:100%;min-height:var(--size-44);padding:var(--space-2);border-radius:var(--radius-md);text-align:left;color:var(--ink-secondary);box-sizing:border-box}
 .pc-stepper .pc-btn.pc-stepper__step{justify-content:flex-start;height:auto}
 .pc-stepper__step--current{background:var(--surface-lane);color:var(--ink)}
-.pc-stepper__mark{display:inline-flex;flex:none;align-items:center;justify-content:center;width:var(--size-24);height:var(--size-24);border-radius:var(--radius-full);background:var(--surface-lane);color:var(--ink-secondary);font-size:var(--type-caption-size);font-weight:var(--type-label-weight)}
+.pc-stepper__mark{display:inline-flex;flex:none;align-items:center;justify-content:center;width:var(--size-24);height:var(--size-24);border-radius:var(--radius-full);background:var(--surface-lane);color:var(--ink-secondary);font-size:var(--type-caption-size);font-weight:var(--type-match-strong-weight)}
 .pc-stepper__step--current .pc-stepper__mark{background:var(--ink);color:var(--ink-on-ink)}
 .pc-stepper__step--done .pc-stepper__mark{background:var(--good-bg);color:var(--good-fg)}
 .pc-stepper__text{display:flex;flex-direction:column;min-width:0}
 .pc-stepper__title{font-weight:var(--type-body-strong-weight);color:inherit}
 .pc-stepper__detail{font-size:var(--type-caption-size);line-height:var(--type-caption-line);font-weight:var(--type-body-weight);color:var(--ink-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-@media(max-width:700px){.pc-stepper{flex-direction:row;overflow-x:auto}.pc-stepper>li{flex:1 0 var(--size-120)}}
+@container agent-page (max-width:774px){.u3-wizard>.pc-stepper{flex:1 1 100%;flex-direction:row;flex-wrap:wrap}.pc-stepper>li{flex:1 1 var(--size-120);min-width:0}.u3-wizard-panel{flex-basis:100%}}
 
 /* CheckList: a live check list with a glyph, words and an optional note per row. */
 .pc-check-list{list-style:none;margin:0;padding:var(--space-2) var(--space-3);display:flex;flex-direction:column;gap:var(--space-1);border:1px solid var(--line);border-radius:var(--radius-md);background:var(--surface-card)}
@@ -250,5 +253,31 @@
 @media(max-width:700px){.u3-board-header{grid-template-columns:minmax(0,1fr)}.u3-board-actions{grid-column:1;grid-row:auto}}
 
 /* Each machine card is narrower than the page; collapse the board row within it. */
-.u3-machine-body{container-type:inline-size}
-@container(max-width:700px){.u3-machine-body .pc-setting-row--board{grid-template-columns:minmax(0,1fr);gap:var(--space-2)}}
+.u3-machine-body{container-type:inline-size;container-name:machine-body}
+.u3-machine-body .pc-setting-row--board{grid-template-columns:minmax(0,var(--size-240)) minmax(var(--size-220),1fr);gap:var(--space-5);padding:var(--space-3) 0}
+@container machine-body (max-width:420px){.u3-machine-body .pc-setting-row--board{grid-template-columns:minmax(0,1fr);gap:var(--space-2)}}
+
+/* The five-column board grammar gives every action its own visible cell. */
+#executors .u3-agents-table table,#executors .u3-agents-table tbody{display:block}
+#executors .u3-agents-table tr{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(var(--size-150),1fr) var(--size-130) var(--size-90) var(--size-32);gap:var(--space-3);padding:var(--space-2\.5) var(--space-4)}
+#executors .u3-agents-table th,#executors .u3-agents-table td{display:block;padding:0;min-width:0;width:auto;border:0;overflow-wrap:anywhere}
+#executors .u3-agents-table thead{display:block}
+#executors .u3-agents-table tbody tr{border-top:1px solid var(--surface-lane)}
+#executors .u3-agents-table td[data-label=Parallel]{text-align:right;white-space:nowrap}
+#executors .u3-agents-table th:last-child{font-size:0}
+@container agents-table (max-width:760px){
+ #executors .u3-agents-table thead{display:none}
+ #executors .u3-agents-table tr{grid-template-columns:minmax(0,1fr);gap:var(--space-3)}
+ #executors .u3-agents-table td[data-label]{text-align:left}
+ #executors .u3-agents-table td[data-label]::before{content:attr(data-label);display:block;color:var(--ink-muted);font-size:var(--type-label-size);margin-bottom:var(--space-1)}
+ #executors .u3-agents-table td[data-label=Actions]::before{display:none}
+}
+.pc-tabs--nav .pc-btn{min-height:var(--size-32);padding:0 var(--space-3);font-size:var(--type-body-size)}
+.u3-agent-detail .u3-detail-parallel{width:var(--size-72);border-radius:var(--radius-sm);padding:var(--space-2\.5)}
+@media(max-width:700px),(pointer:coarse){
+ .pc-tabs--nav .pc-btn{min-height:var(--control-touch)}
+ .u3-agent-detail .pc-checkbox--bare,.pc-radio-choices label{min-height:var(--control-touch);box-sizing:border-box}
+ .u3-agent-detail .pc-checkbox--bare{min-width:var(--control-touch)}
+ .u3-settings .pc-text-action{display:inline-flex;align-items:center;min-height:var(--control-touch)}
+ .u3-executor-order{grid-template-columns:var(--size-16) var(--control-touch) var(--control-touch)}
+}

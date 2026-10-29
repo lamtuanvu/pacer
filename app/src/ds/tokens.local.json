@@ -217,6 +217,16 @@
         "name": "size-150",
         "value": "150px",
         "provisional": "Settings Machines board geometry."
+      },
+      {
+        "name": "size-130",
+        "value": "130px",
+        "provisional": "Settings Agents board weekly usage column."
+      },
+      {
+        "name": "size-90",
+        "value": "90px",
+        "provisional": "Settings Agents board parallel column."
       }
     ]
   },
