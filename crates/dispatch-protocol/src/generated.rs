@@ -2635,9 +2635,13 @@ impl<'de> ::serde::Deserialize<'de> for DispatchEventsParamsId {
 ///    "goal",
 ///    "preferences",
 ///    "repo",
-///    "requirements"
+///    "requirements",
+///    "via"
 ///  ],
 ///  "properties": {
+///    "allowDelegation": {
+///      "type": "boolean"
+///    },
 ///    "delegationEnforcement": {
 ///      "type": "string",
 ///      "enum": [
@@ -2662,6 +2666,13 @@ impl<'de> ::serde::Deserialize<'de> for DispatchEventsParamsId {
 ///      "type": "string",
 ///      "maxLength": 20000,
 ///      "minLength": 1
+///    },
+///    "interactionMode": {
+///      "type": "string",
+///      "enum": [
+///        "delegated",
+///        "conversation"
+///      ]
 ///    },
 ///    "kind": {
 ///      "type": "string",
@@ -2770,6 +2781,14 @@ impl<'de> ::serde::Deserialize<'de> for DispatchEventsParamsId {
 ///        }
 ///      },
 ///      "additionalProperties": false
+///    },
+///    "via": {
+///      "default": "delegate",
+///      "type": "string",
+///      "enum": [
+///        "dispatch",
+///        "delegate"
+///      ]
 ///    }
 ///  },
 ///  "additionalProperties": false
@@ -2779,6 +2798,12 @@ impl<'de> ::serde::Deserialize<'de> for DispatchEventsParamsId {
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct DispatchExplainParams {
+    #[serde(
+        rename = "allowDelegation",
+        default,
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub allow_delegation: ::std::option::Option<bool>,
     #[serde(
         rename = "delegationEnforcement",
         default,
@@ -2790,6 +2815,12 @@ pub struct DispatchExplainParams {
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub executor: ::std::option::Option<DispatchExplainParamsExecutor>,
     pub goal: DispatchExplainParamsGoal,
+    #[serde(
+        rename = "interactionMode",
+        default,
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub interaction_mode: ::std::option::Option<DispatchExplainParamsInteractionMode>,
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub kind: ::std::option::Option<DispatchExplainParamsKind>,
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
@@ -2803,6 +2834,7 @@ pub struct DispatchExplainParams {
         skip_serializing_if = "::std::option::Option::is_none"
     )]
     pub strategy_draft: ::std::option::Option<DispatchExplainParamsStrategyDraft>,
+    pub via: DispatchExplainParamsVia,
 }
 ///`DispatchExplainParamsDelegationEnforcement`
 ///
@@ -3041,6 +3073,67 @@ impl<'de> ::serde::Deserialize<'de> for DispatchExplainParamsGoal {
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
+    }
+}
+///`DispatchExplainParamsInteractionMode`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "enum": [
+///    "delegated",
+///    "conversation"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum DispatchExplainParamsInteractionMode {
+    #[serde(rename = "delegated")]
+    Delegated,
+    #[serde(rename = "conversation")]
+    Conversation,
+}
+impl ::std::convert::From<&Self> for DispatchExplainParamsInteractionMode {
+    fn from(value: &DispatchExplainParamsInteractionMode) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for DispatchExplainParamsInteractionMode {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Delegated => f.write_str("delegated"),
+            Self::Conversation => f.write_str("conversation"),
+        }
+    }
+}
+impl ::std::str::FromStr for DispatchExplainParamsInteractionMode {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "delegated" => Ok(Self::Delegated),
+            "conversation" => Ok(Self::Conversation),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for DispatchExplainParamsInteractionMode {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
     }
 }
 ///`DispatchExplainParamsKind`
@@ -3848,6 +3941,73 @@ impl<'de> ::serde::Deserialize<'de> for DispatchExplainParamsStrategyDraftUnsetI
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
+    }
+}
+///`DispatchExplainParamsVia`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "default": "delegate",
+///  "type": "string",
+///  "enum": [
+///    "dispatch",
+///    "delegate"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum DispatchExplainParamsVia {
+    #[serde(rename = "dispatch")]
+    Dispatch,
+    #[serde(rename = "delegate")]
+    Delegate,
+}
+impl ::std::convert::From<&Self> for DispatchExplainParamsVia {
+    fn from(value: &DispatchExplainParamsVia) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for DispatchExplainParamsVia {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Dispatch => f.write_str("dispatch"),
+            Self::Delegate => f.write_str("delegate"),
+        }
+    }
+}
+impl ::std::str::FromStr for DispatchExplainParamsVia {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "dispatch" => Ok(Self::Dispatch),
+            "delegate" => Ok(Self::Delegate),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for DispatchExplainParamsVia {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::default::Default for DispatchExplainParamsVia {
+    fn default() -> Self {
+        DispatchExplainParamsVia::Delegate
     }
 }
 ///`DispatchLearningResetParams`

@@ -99,7 +99,7 @@ impl Default for Shell {
             relaunch: Mutex::new(None),
             startup: Mutex::new(logic::Startup::default()),
             origin: Mutex::new(None),
-            route: Mutex::new("#/".into()),
+            route: Mutex::new(logic::remembered_route("#/")),
             recovery: Mutex::new(String::new()),
             granted: Mutex::new(Vec::new()),
             waiting: Mutex::new(None),
@@ -525,7 +525,7 @@ fn windowClose(window: WebviewWindow, app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 fn notifyRoute(window: WebviewWindow, app: AppHandle, route: String) -> Result<(), String> {
     authorized(&window, &app)?;
-    *app.state::<Shell>().route.lock().unwrap() = logic::route(&route).ok_or("Invalid route")?;
+    *app.state::<Shell>().route.lock().unwrap() = logic::remembered_route(&logic::route(&route).ok_or("Invalid route")?);
     Ok(())
 }
 fn show(app: &AppHandle) {
@@ -538,7 +538,7 @@ fn show(app: &AppHandle) {
 fn navigate(app: &AppHandle, raw: &str) {
     if let Some(route) = logic::route(raw) {
         let state = app.state::<Shell>();
-        *state.route.lock().unwrap() = route.clone();
+        *state.route.lock().unwrap() = logic::remembered_route(&route);
         let origin = state.origin.lock().unwrap().clone();
         if let Some(origin) = origin {
             if let Some(w) = app.get_webview_window("main") {
@@ -1299,7 +1299,7 @@ fn main() {
                 arg.strip_prefix("--pacer-relaunch-route=")
                     .and_then(logic::route)
             }) {
-                *handle.state::<Shell>().route.lock().unwrap() = route;
+                *handle.state::<Shell>().route.lock().unwrap() = logic::remembered_route(&route);
             }
             let nav = handle.clone();
             // WKWebView can have no URL during navigation policy callbacks. Cache

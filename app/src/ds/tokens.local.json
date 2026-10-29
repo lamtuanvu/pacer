@@ -9,6 +9,15 @@
         },
         "usage": "Text on solid status fills such as count badges; dark text keeps 4.5:1 on the lighter dark fill.",
         "provisional": "App frame chrome board value; not yet in the design system."
+      },
+      {
+        "name": "shadow-tray-menu-tint",
+        "value": {
+          "light": "rgb(9 9 11 / .16)",
+          "dark": "rgb(0 0 0 / .55)"
+        },
+        "usage": "Tray More menu shadow colour; darker in dark mode so the menu still lifts off dark surfaces.",
+        "provisional": "Tray board value; not yet in the design system."
       }
     ]
   },
@@ -79,6 +88,16 @@
         "value": "7px",
         "usage": "Glyph tiles in command menu rows.",
         "provisional": "Command menu board value; not yet in the design system."
+      },
+      {
+        "name": "radius-agents",
+        "value": "10px",
+        "provisional": "Settings Agents and Accounts board geometry."
+      },
+      {
+        "name": "radius-machine-tile",
+        "value": "9px",
+        "provisional": "Settings Machines board geometry."
       }
     ]
   },
@@ -211,6 +230,11 @@
         "provisional": "Dispatch board value; not yet in the design system."
       },
       {
+        "name": "size-236",
+        "value": "236px",
+        "provisional": "Tray board value; not yet in the design system."
+      },
+      {
         "name": "size-76",
         "value": "76px",
         "provisional": "Insights board: matrix label column, agents numeric columns and table minimum width; not yet in the design system."
@@ -224,6 +248,26 @@
         "name": "size-860",
         "value": "860px",
         "provisional": "Insights board: matrix label column, agents numeric columns and table minimum width; not yet in the design system."
+      },
+      {
+        "name": "size-400",
+        "value": "400px",
+        "provisional": "Settings Agents and Accounts board geometry."
+      },
+      {
+        "name": "size-150",
+        "value": "150px",
+        "provisional": "Settings Machines board geometry."
+      },
+      {
+        "name": "size-130",
+        "value": "130px",
+        "provisional": "Settings Agents board weekly usage column."
+      },
+      {
+        "name": "size-160",
+        "value": "160px",
+        "provisional": "Settings Accounts board minimum quota column width."
       }
     ]
   },
@@ -260,6 +304,61 @@
         "fontWeight": 600,
         "letterSpacing": "0.04em",
         "provisional": "ActivityBar board Plugins section label; not yet in the design system."
+      },
+      {
+        "name": "tray-count",
+        "fontSize": "20px",
+        "lineHeight": "26px",
+        "fontWeight": 650,
+        "provisional": "Tray board value; not yet in the design system."
+      },
+      {
+        "name": "composer-agent",
+        "fontSize": "18px",
+        "lineHeight": "24px",
+        "fontWeight": 650,
+        "provisional": "NewTask and NewTaskMobile board typography; not yet in the design system."
+      },
+      {
+        "name": "composer-request",
+        "fontSize": "14px",
+        "lineHeight": "21px",
+        "fontWeight": 400,
+        "provisional": "NewTask and NewTaskMobile board typography; not yet in the design system."
+      },
+      {
+        "name": "sheet-title",
+        "fontSize": "17px",
+        "lineHeight": "22px",
+        "fontWeight": 650,
+        "provisional": "NewTask and NewTaskMobile board typography; not yet in the design system."
+      },
+      {
+        "name": "sheet-body",
+        "fontSize": "14px",
+        "lineHeight": "20px",
+        "fontWeight": 400,
+        "provisional": "NewTask and NewTaskMobile board typography; not yet in the design system."
+      }
+    ]
+  },
+  "shadow": {
+    "tokens": [
+      {
+        "name": "shadow-tray-menu",
+        "value": "0 8px 24px var(--shadow-tray-menu-tint)",
+        "usage": "Tray More menu elevation.",
+        "provisional": "Tray board value; not yet in the design system."
+      },
+      {
+        "name": "shadow-agent-failure",
+        "value": "inset 0 0 0 1px var(--bad-line)",
+        "provisional": "Settings Agents board failing row ring."
+      },
+      {
+        "name": "shadow-choice-selected",
+        "value": "0 0 0 1px var(--ink)",
+        "provisional": "Settings Machines and Add agent board selection ring."
       }
     ]
   }
