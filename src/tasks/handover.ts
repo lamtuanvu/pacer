@@ -1,7 +1,7 @@
 import { beginWorkSync, claimWorkSync, finishWorkSync } from "../update/desktop/admission";
 import { ownProcessIdentity, sameProcess } from "../update/desktop/process-identity";
 import { currentVersion } from "../update/version";
-import { readTask, updateTask } from "./store";
+import { readTask, updateTask, withTaskLock } from "./store";
 import type { RunRef } from "./types";
 import type { Ctx } from "../types";
 
@@ -63,4 +63,39 @@ export function withdrawHandover(ctx: Ctx, taskId: string): void {
 /** Forget module state between in-process runner tests. */
 export function resetHandoverState(): void {
   runnerLease = undefined; attemptLease = undefined; advertised = undefined; requested = false;
+}
+
+export type HandoverOutcome = "none" | "declined" | "committed";
+
+/**
+ * Commit point, called at a poll boundary while the run is alive. Inside the task lock it re-checks
+ * eligibility (still running, same t.run, no stop requested, this runner's own advertisement), finishes
+ * this runner's task and attempt leases and marks the handover. It never releases dispatch, revokes work
+ * grants or enforcement tokens, drains the queue or records an attempt outcome. The run stays covered by
+ * its session lease and run-directory evidence. After the lock is released, the runner exits 0.
+ */
+export function commitHandoverIfRequested(ctx: Ctx, taskId: string, run: RunRef, exit: (code: number) => never = code => process.exit(code)): HandoverOutcome {
+  if (!requested || advertised?.taskId !== taskId || advertised.dir !== run.dir) return "none";
+  requested = false;
+  const identity = ownProcessIdentity();
+  const outcome = withTaskLock(ctx, taskId, (): HandoverOutcome => {
+    const t = readTask(ctx, taskId);
+    const eligible = !!t && !!identity && t.state === "running" && t.runnerPid === process.pid
+      && t.run?.dir === run.dir && t.run.attempt === run.attempt && t.run.attempt > t.attempts.length
+      && !!t.handover && t.handover.state === undefined && sameProcess(t.handover.identity, identity);
+    if (!eligible) {
+      if (t?.handover && t.handover.state === undefined) updateTask(ctx, taskId, x => { if (x.handover && x.handover.state === undefined) x.handover.declinedAt = Date.now() / 1000; });
+      return "declined";
+    }
+    if (attemptLease) finishWorkSync(ctx, attemptLease);
+    if (runnerLease) finishWorkSync(ctx, runnerLease);
+    attemptLease = undefined; runnerLease = undefined;
+    updateTask(ctx, taskId, x => {
+      x.handover = { ...x.handover!, state: "handed-over", committedAt: Date.now() / 1000 };
+      delete x.runnerPid;
+    });
+    return "committed";
+  });
+  if (outcome === "committed") { advertised = undefined; exit(0); }
+  return outcome;
 }

@@ -1,6 +1,6 @@
 import { materializeAgentReporting } from "../session/agent-reporting";
 import { ensureProviderIntegration } from "../core/integrations";
-import { advertiseHandover, withAttemptWork, withdrawHandover } from "../tasks/handover";
+import { advertiseHandover, commitHandoverIfRequested, withAttemptWork, withdrawHandover } from "../tasks/handover";
 import { probeAgentSession } from "../session/agent-probe";
 import { conversationIdentity } from "../session/native-identity";
 import { conversationActivity } from "../session/conversation";
@@ -191,7 +191,12 @@ export async function finishRun(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, ru
     end = await supervise({
       io, ...(host ? { pollMs: 5000 } : {}), deadlineMs: ((task.attemptStartedAt ?? run.startedAt) + task.timeoutS) * 1000,
       interactionMode: run.interactionMode,
-      isStopped: () => readTask(ctx, task.id)?.state === "stopped", onPoll,
+      isStopped: () => readTask(ctx, task.id)?.state === "stopped",
+      onPoll: async state => {
+        const next = onPoll ? await onPoll(state) : "continue";
+        if (eligible && next === "continue") commitHandoverIfRequested(ctx, task.id, run);
+        return next;
+      },
     });
   } finally { if (eligible) withdrawHandover(ctx, task.id); }
   if (!run.host && !run.takeover && cfg.session !== "interactive" && (parseRunnerId(cfg.id)?.agent ?? cfg.id) === "claude-code") {
