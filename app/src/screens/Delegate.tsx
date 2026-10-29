@@ -1,5 +1,5 @@
 import { reconcileExecutor } from "../model/project-strategies";
-import { Field, TextInput, TextArea } from "../ds/Controls";
+import { Field, Switch, TextInput, TextArea } from "../ds/Controls";
 import { ChoicePicker } from "../ds/ChoicePicker";
 
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
@@ -7,7 +7,7 @@ import type { RepoRef } from "../../../src/api/read-model/types";
 import { executorLabel } from "../../../src/view-model/words";
 import { eligibilityPresentation } from "../../../src/view-model/eligibility";
 import { Button } from "../ds/Button";
-import { blankDelegate, delegateParams, delegateRoutingParams, initialDelegateDraft, kinds, taskHref, type TaskSummary } from "../model/tasks";
+import { blankDelegate, delegateParams, delegateRoutingParams, initialDelegateDraft, kinds, taskHref, userStartedGrants, type TaskSummary } from "../model/tasks";
 import { routingStatus } from "../model/executors";
 import { draftStorage } from "../model/draft";
 import type { Account } from "../model/accounts";
@@ -60,6 +60,9 @@ export function Delegate({ close, filterRepo = null }: { close: () => void; filt
     });
   }, [routing.data, routing.loading]);
   const accounts = useQuery<import("../model/accounts").Account[]>("account.list", {});
+  // The toggle follows messaging.grants.user_started_tasks and is offered only when the service turns it on.
+  const policy = useQuery<unknown>(ops.has("msg.policy") ? "msg.policy" : "version.get", {});
+  const userGrants = ops.has("msg.policy") && userStartedGrants(policy.data);
   const action = useAction();
   const field = (key: keyof typeof draft, value: string) => setDraft(previous => ({ ...previous, [key]: value, ...(key === "repo" ? {executor:""} : {}) }));
   const next = routing.data?.ranked[0];
@@ -72,7 +75,7 @@ export function Delegate({ close, filterRepo = null }: { close: () => void; filt
     if (repoInvalid) { setAttempted(true); repoRef.current?.focus(); return; }
     setValidation(undefined);
     try {
-      const params = delegateParams(draft, ops, requestId, choices.map(r => r.key));
+      const params = delegateParams(draft, ops, requestId, choices.map(r => r.key), userGrants);
       void action.run<TaskSummary>("task.delegate", params, task => { lastRepoStorage().write({ repo: draft.repo }); clearDraft(); close(); location.hash = taskHref(task.task_id); });
     } catch (error) { setValidation(error); }
   }}>
@@ -89,6 +92,7 @@ export function Delegate({ close, filterRepo = null }: { close: () => void; filt
       { value: "", agent: next?.id ?? "opencode", label: `Automatic${next ? ` (${executorLabel(next.id, accounts.data ?? [])} next)` : ""}` },
       ...(routing.data?.ranked.map(r => ({ value: r.id, agent: r.id, label: `${executorLabel(r.id, accounts.data ?? [])} · ${routingStatus(r).label}` })) ?? []),
     ]} onValueChange={value => field("executor", value)} /></Field>
+    {userGrants && <Switch id="delegate-grant" checked={draft.grant !== "off"} label="Can coordinate sub-agents" help="Lets the task start and message its own sub-agents." onChange={e => setDraft(previous => ({ ...previous, grant: e.currentTarget.checked ? "" : "off" }))} />}
     <DelegateRoutingPreview routing={routing.data} executor={draft.executor} accounts={accounts.data} loading={routing.loading} repoLabel={choices.find(r=>r.key===draft.repo)?.label} />
     <div aria-live="polite"><ErrorMessage error={validation ?? action.error ?? routing.error} /></div>
     <p className="muted">⌘Enter / Ctrl+Enter to delegate</p>

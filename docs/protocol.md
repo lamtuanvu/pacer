@@ -7475,6 +7475,10 @@ Params JSON Schema:
         }
       },
       "additionalProperties": false
+    },
+    "grant": {
+      "type": "boolean",
+      "description": "false keeps a task a human starts unmanaged: it cannot coordinate sub-agents. Omitted follows messaging.grants.user_started_tasks."
     }
   },
   "required": [

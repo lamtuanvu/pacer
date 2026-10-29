@@ -160,6 +160,8 @@ export const localHostWords = "This Mac";
 /** Task boards distinguish local execution from a named remote host. */
 export const localTaskHostWords = "Local Mac";
 /** Attention raised by a subtask, shown on its collapsed parent so the tint is never the only signal. */
+/** Plain copy for a managed task whose grant lets it start and message its own sub-agents. */
+export const COORDINATES = "This task can coordinate sub-agents.";
 export const subtaskAttentionWords = (label: string): string => `Subtask: ${label}`;
 export const compactVerdictWords = (verdict: string): string =>
   verdict === "out" || verdict === "EXHAUSTED" ? "out" : verdict === "ahead" || verdict === "AHEAD" ? "ahead" : "";

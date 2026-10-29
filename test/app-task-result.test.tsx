@@ -78,6 +78,9 @@ test("managed results direct review to Work instead of legacy verdict actions", 
  const html=renderToString(<TaskResultView task={managed} verdict={<button>Accept</button>}/>);
  expect(html).toContain("Use the Work tab for decisions and history.");
  expect(html).not.toContain("<button>Accept</button>");
+ expect(html).not.toContain("coordinate sub-agents");
+ const coordinating=renderToString(<TaskResultView compact task={{...managed,work:{rootId:"t",parentId:null,depth:0,allowDelegation:true}}}/>);
+ expect(coordinating).toContain("This task can coordinate sub-agents.");
 });
 
 test("active task summaries never claim that execution ended", () => {

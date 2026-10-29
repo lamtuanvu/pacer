@@ -305,7 +305,7 @@ function renderTask(t: TaskRecord): string {
 }
 
 async function delegateCmd(args: string[], ctx: Ctx): Promise<Result> {
-  const { opts } = parseFlags(args, ["wait", "json", "force", "interactive", "acceptance-pipefail"]);
+  const { opts } = parseFlags(args, ["wait", "json", "force", "interactive", "acceptance-pipefail", "no-grant"]);
   try {
     if(isExecutorSession(ctx))throw new DelegateError(EXECUTOR_DELEGATE_ERROR);
     if(opts["brief-file"]===true)throw new DelegateError("--brief-file needs a path or -");
@@ -314,13 +314,14 @@ async function delegateCmd(args: string[], ctx: Ctx): Promise<Result> {
     if(file){const parsed=JSON.parse(file==="-" ? await io.readBriefStdin() : readFileSync(file,"utf8"));
       if(!parsed || typeof parsed!=="object" || Array.isArray(parsed))throw new DelegateError("brief must be a JSON object");raw=parsed;}
     for(const key of ["title","goal","repo","scope","acceptance","constraints","context","kind","executor","worktree","group"]){if(str(opts[key])!==undefined)raw[key]=str(opts[key]);}
-    if(opts["acceptance-pipefail"]===true)raw.acceptance_pipefail=true;
+    if(opts["acceptance-pipefail", "no-grant"]===true)raw.acceptance_pipefail=true;
     if(str(opts.repo)!==undefined)raw.repo=resolve(str(opts.repo)!);
     if(opts["acceptance-timeout-min"]!==undefined)raw.acceptance_timeout_min=Number(str(opts["acceptance-timeout-min"]));
     if(str(opts["timeout-min"])!==undefined)raw.timeout_min=Number(str(opts["timeout-min"]));
     if(str(opts["worktree-base"])!==undefined)raw.worktree_base=str(opts["worktree-base"]);
     if(str(opts["worktree-reason"])!==undefined)raw.worktree_reason=str(opts["worktree-reason"]);
     if(opts.interactive===true)raw.interactive=true;
+    if(opts["no-grant"]===true)raw.grant=false;
     if(typeof raw.kind==="string")raw.kind=parseDelegateKind(raw.kind);
     const input=parseDelegateBrief(raw,process.cwd());
     const repoRef=await resolveRepoInput(ctx,input.brief.repo);

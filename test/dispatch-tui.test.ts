@@ -18,6 +18,12 @@ test("TUI work explanation follows the selected candidate",()=>{
  expect(lines).not.toContain("First option");
  expect(lines).toContain("Completed");
 });
+test("TUI work section says when the task can coordinate sub-agents",()=>{
+ const detail={id:"root",state:"running",work:{rootId:"root",parentId:null,depth:0,allowDelegation:true}} as TaskDetail;
+ const text=(d:TaskDetail)=>workRows({theme:PLAIN_THEME} as ScreenCtx,d,100).flatMap(row=>row.line.map(span=>span.text)).join(" ");
+ expect(text(detail)).toContain("This task can coordinate sub-agents.");
+ expect(text({...detail,work:{...detail.work!,allowDelegation:false}})).not.toContain("coordinate");
+});
 test("TUI hides managed retry when service says work cannot restart",()=>{
  const ctx={supports:()=>true} as unknown as ScreenCtx,a={taskId:"root",title:"Blocked work",kind:"review"} as AttentionItem;
  const detail={id:"root",state:"failed",rev:9,work:{rootId:"root",parentId:null,depth:0},workTree:{nodes:[{taskId:"root",retryEligibility:{allowed:false,reason:"Work deadline has expired"}}]}} as unknown as TaskDetail;

@@ -29,7 +29,7 @@ export interface Cost {
 }
 export interface RetryOption { id: string; state: ExecutorRow["state"]; reason: string }
 export interface TaskDetail extends ApiTask {
-  work?: {rootId:string;parentId:string|null;depth:number};
+  work?: {rootId:string;parentId:string|null;depth:number;allowDelegation?:boolean};
   brief: Brief;
   attempts: (Attempt & { log: string })[];
   /** Token roll-up for this task, with the split per agent. */
@@ -151,7 +151,7 @@ export async function taskDetail(ctx: Ctx, id: string): Promise<TaskDetail> {
   const acceptance = task.result?.acceptance, terminal = TERMINAL_STATES.includes(task.state);
   const cmd = acceptance?.cmd ?? task.brief.acceptance ?? null;
   return {
-    ...(work ? {work:{rootId:work.rootId,parentId:work.parentId,depth:work.depth}} : {}),
+    ...(work ? {work:{rootId:work.rootId,parentId:work.parentId,depth:work.depth,allowDelegation:work.options.allowDelegation}} : {}),
     ...(policyError ? { policyError } : {}),
     ...apiTask(ctx, task), brief: task.brief, attempts, tokens: rollupTokens(itemsOf(attempts)),
     routing: task.pendingAttempt?.routing ?? last?.routing ?? null, cost: costFor(ctx, task),

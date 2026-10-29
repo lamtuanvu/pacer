@@ -292,7 +292,11 @@ export class Dashboard {
     } catch (error) { this.reportError(error); }
   }
 
+  /** messaging.grants.user_started_tasks, read when the delegate prompt opens. */
+  private userGrants: boolean | undefined;
   private delegate() {
+    if (this.supports("msg.policy")) void this.deps.client.call<{ config?: { grants?: { user_started_tasks?: string } } }>("msg.policy", {})
+      .then(p => { this.userGrants = p.config?.grants?.user_started_tasks !== "off"; }, () => { this.userGrants = undefined; });
     const scope = this.state.scope ? this.snapshot.repos?.find(r => r.key === this.state.scope)?.path : undefined;
     const repoDefault = scope ?? this.deps.cwd;
     this.state = { ...this.state, overlay: { kind: "prompt", value: "", spec: {
@@ -301,7 +305,15 @@ export class Dashboard {
         title: "Delegate a task", label: "Repository path", value: repoDefault, required: "Choose a repository.",
         submit: repo => ({ type: "prompt", prompt: {
           title: "Delegate a task", label: "Work type (optional)", help: `One of: ${KINDS.join(", ")}`,
-          submit: kind => ({ type: "action", action: { label: "Delegated", op: "task.delegate", params: { goal, repo, source: "ui", ...(kind ? { kind } : {}) } } }),
+          submit: kind => {
+            const params = { goal, repo, source: "ui", ...(kind ? { kind } : {}) };
+            // Offered only when the service turns user-started grants on; omitting grant follows that default.
+            if (!this.userGrants) return { type: "action", action: { label: "Delegated", op: "task.delegate", params } };
+            return { type: "prompt", prompt: {
+              title: "Delegate a task", label: "Can coordinate sub-agents (y/n)", value: "y", help: "Yes lets the task start and message its own sub-agents.",
+              submit: answer => ({ type: "action", action: { label: "Delegated", op: "task.delegate", params: { ...params, ...(/^n/i.test(answer.trim()) ? { grant: false } : {}) } } }),
+            } };
+          },
         } }),
       } }),
     } } };

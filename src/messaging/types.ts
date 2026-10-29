@@ -55,6 +55,8 @@ export const messagingConfigSchema = z.object({
   keep_worktree_days: z.number().int().min(0).max(3650).default(7),
 }).strict();
 export type MessagingConfig = z.infer<typeof messagingConfigSchema>;
+/** Whether tasks a human starts are registered as managed work by default (`grants.user_started_tasks`). */
+export const userStartedGrants = (config?: MessagingConfig): boolean => (config?.grants.user_started_tasks ?? "on") === "on";
 
 export const messagingOverrideSchema = z.object({
   rules: z.array(ruleSchema).max(50).optional(),
