@@ -3,7 +3,7 @@ import { expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { assertUpgradeFixtureLease, fixturePlist, guardPacerArgs, stageUpgradeRuntime, UPGRADE_BUILDS, upgradePolicy, upgradeRoot, writeFeed } from "../scripts/live/upgrade";
+import { assertUpgradeFixtureLease, fixturePlist, guardPacerArgs, stageUpgradeRuntime, UPGRADE_BUILDS, upgradePolicy, upgradeRoot, upgradeRuntimeDir, writeFeed } from "../scripts/live/upgrade";
 import { liveRoot, type Session } from "../scripts/live/core";
 import { LABEL } from "../src/service";
 import { hostTarget, assetFile, sha256Hex } from "../src/update/manifest";
@@ -37,6 +37,11 @@ test("each upgrade build stages its CLI and native shim beside one another", () 
     expect(readFileSync(join(staged, "libpacer-native.dylib"), "utf8")).toBe("shim");
     expect(existsSync(join(staged, "pacer-core"))).toBe(false);
   }
+});
+
+test("the launchd runtime lives inside the compiled native fixture root", () => {
+  const policy = upgradePolicy(session(), nonce, 501);
+  expect(upgradeRuntimeDir(upgradeRoot(session(), "darwin"))).toBe(join(policy.root, "bin"));
 });
 
 test("the harness needs an unseeded, stopped macOS sandbox", () => {

@@ -1,5 +1,5 @@
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createHash, randomBytes } from "node:crypto";
 import { compileCommand } from "../release/build";
@@ -85,8 +85,9 @@ export function guardPacerArgs(installed: UpgradeBuild, args: string[]): void {
 const uid = () => process.getuid!();
 const readRecord = (root: string): UpgradeRecord => JSON.parse(readFileSync(join(root, "record.json"), "utf8"));
 const writeRecord = (root: string, value: UpgradeRecord) => atomicWrite(join(root, "record.json"), JSON.stringify(value, null, 2));
-const binary = (root: string) => join(root, "bin", "pacer");
-const nativeShim = (root: string) => join(root, "bin", "libpacer-native.dylib");
+export const upgradeRuntimeDir = (root: string) => join(dirname(root), "ota", "bin");
+const binary = (root: string) => join(upgradeRuntimeDir(root), "pacer");
+const nativeShim = (root: string) => join(upgradeRuntimeDir(root), "libpacer-native.dylib");
 
 /** Standalone fixture CLIs load their native shim from the CLI's own directory. */
 export function stageUpgradeRuntime(directory: string, executable: string, shim: string): void {
@@ -148,7 +149,7 @@ export async function buildUpgradeFixtures(session: Session): Promise<void> {
   const leasePath = join(ota, "record.json");
   atomicWrite(leasePath, JSON.stringify({ schema: 1, phase: "prepared", root: policy.root, nonce: policy.nonce, pacerHome: policy.home,
     innerPort: policy.port, currentApp: policy.currentApp, serviceLabel: policy.serviceLabel, recoveryLabel: policy.recoveryLabel, ownerUid: policy.uid }));
-  for (const dir of [join(ota, "registrations"), join(root, "build"), join(root, "bin")]) mkdirSync(dir, { mode: 0o700 });
+  for (const dir of [join(ota, "registrations"), join(root, "build"), upgradeRuntimeDir(root)]) mkdirSync(dir, { mode: 0o700 });
   const buildEnv = { HOME: process.env.HOME, PATH: process.env.PATH, TMPDIR: process.env.TMPDIR };
   const builds = {} as UpgradeRecord["builds"];
   for (const name of Object.keys(UPGRADE_BUILDS) as UpgradeBuild[]) {
@@ -179,7 +180,7 @@ export async function buildUpgradeFixtures(session: Session): Promise<void> {
 export async function startUpgradeService(session: Session, build: UpgradeBuild): Promise<void> {
   const root = upgradeRoot(session), r = readRecord(root);
   if (r.installed) throw Error("A fixture service is already registered; run live upgrade cleanup first");
-  stageUpgradeRuntime(join(root, "bin"), r.builds[build].path, r.builds[build].shim);
+  stageUpgradeRuntime(upgradeRuntimeDir(root), r.builds[build].path, r.builds[build].shim);
   writeFileSync(join(r.policy.root, "registrations", `${r.policy.serviceLabel}.plist`), fixturePlist(r.policy, binary(root)), { mode: 0o600 });
   await launchctl(session, r, "bootstrap");
   writeRecord(root, { ...r, installed: true });
