@@ -35,7 +35,7 @@ test('This machine is a reachable settings page with one current icon navigation
   const route = resolveRoute('#/settings/machine') as Route;
   expect(route).toMatchObject({ name: 'settings', section: 'machine' });
   expect(render('machine')).toContain('Parallel tasks');
-  expect(render('machine')).toContain('Preferred terminal');
+  expect(render('machine')).toContain('Terminal for sessions');
   expect(render('machine')).toContain('Delegated task launch');
   const html = renderToString(<SettingsPanel route={route} counts={null}/>);
   expect(html).toContain('href="#/settings/machine"');
