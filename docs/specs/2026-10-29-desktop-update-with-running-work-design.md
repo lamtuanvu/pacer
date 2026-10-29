@@ -18,6 +18,11 @@ Desktop native updates wait until no work is running. The work-lease reservation
 
 ## Open questions for the ADR
 
+- **Rollback of the TypeScript service.** An older service parses admission state strictly (`schema: 1`, a closed blocker enum) and refuses all new work on anything else. Survivor leases must therefore stay readable by every service version in the support window, or the version change must be gated.
+- **Identity of a replaced survivor.** An update replaces a survivor's executable on disk, so a static signature check of the file fails. Verification needs the kernel's dynamic code identity of the running process: its audit token and cdhash.
+- **Unsigned releases.** Desktop artifacts ship unsigned until Developer ID signing (REL-8), so a "release-signed survivor" has no anchor yet. Until then, the update falls back to waiting.
+- **Trigger.** Part B's handover starts only after the native transaction commits, and the service starts it on the native commit signal, not on its own startup.
+
 - Whether survivors from a release that has since been revoked are refused.
 - How long a survivor may outlive several later updates.
 - How attached installations, which skip the gate today, report their survivors.
