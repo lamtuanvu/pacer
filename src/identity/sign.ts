@@ -6,7 +6,7 @@ import { CoreError } from "../core/errors";
 import { base32, parseMachineId, publicKeyFromRaw } from "./encoding";
 import { writePrivateFile } from "./atomic";
 import { IDENTITY_DIR } from "./key-store";
-import { ensureIdentity } from "./store";
+import { ensureIdentity, type MachineIdentity } from "./store";
 import { auditSignature } from "./audit";
 
 export const SIG_DOMAIN = "pacer-machine-sig/v1";
@@ -32,6 +32,11 @@ export function clearTransportKeys(ctx: Ctx): void { writePrivateFile(tkPath(ctx
 
 /** Sign under the domain-separated format. Every signature and every refusal is recorded in the identity audit log. */
 export async function signFor(ctx: Ctx, pluginId: string, purpose: string, payload: Uint8Array): Promise<{ signature: Uint8Array; machineId: string }> {
+  return signWith(ctx, () => ensureIdentity(ctx), pluginId, purpose, payload);
+}
+
+/** `signFor` with a given identity; rotation uses it under the identity lock, where `ensureIdentity` would wait on itself. */
+export async function signWith(ctx: Ctx, identity: () => Promise<MachineIdentity>, pluginId: string, purpose: string, payload: Uint8Array): Promise<{ signature: Uint8Array; machineId: string }> {
   const refuse = (reason: string, message: string) => {
     auditSignature(ctx, { pluginId, purpose, payload, outcome: "refused", reason });
     return new CoreError("invalid_input", message);
@@ -43,7 +48,7 @@ export async function signFor(ctx: Ctx, pluginId: string, purpose: string, paylo
       throw refuse("invalid transport-key payload", "transport-key payload must be \"transport-key/v1\" 0x00 followed by a 32-byte key");
     }
   }
-  const id = await ensureIdentity(ctx);
+  const id = await identity();
   const signature = new Uint8Array(sign(null, signedMessage(pluginId, purpose, payload), id.privateKey));
   auditSignature(ctx, { pluginId, purpose, payload, outcome: "signed", machineId: id.id });
   if (purpose === "transport-key") {

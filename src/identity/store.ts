@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Ctx } from "../types";
 import { CoreError } from "../core/errors";
+import { withLock } from "../core/lock";
 import { base32, rawPublicKey } from "./encoding";
 import { writePrivateFile } from "./atomic";
 import { IDENTITY_DIR, keyBackend, readPrivateKey, writePrivateKey, type KeyBackend } from "./key-store";
@@ -27,6 +28,9 @@ const cache = new Map<string, MachineIdentity>();
 /** One load per PACER_HOME at a time: concurrent callers share it, so a first start creates one key. */
 const inflight = new Map<string, Promise<MachineIdentity>>();
 let generation = 0;
+/** Cross-process lock for every identity change: creation, rename, rotation and rotation recovery. Not reentrant. */
+export const IDENTITY_LOCK = "identity";
+export function withIdentityLock<T>(ctx: Ctx, fn: () => Promise<T>): Promise<T> { return withLock(ctx, IDENTITY_LOCK, fn); }
 export function clearIdentityCache(): void { cache.clear(); inflight.clear(); generation++; }
 export function cachedIdentity(ctx: Pick<Ctx, "pacerHome">): MachineIdentity | undefined { return cache.get(ctx.pacerHome); }
 
@@ -71,14 +75,15 @@ export function ensureIdentity(ctx: Ctx, deps: { platform?: NodeJS.Platform } = 
   const running = inflight.get(home);
   if (running) return running;
   const gen = generation;
-  const p: Promise<MachineIdentity> = load(ctx, deps)
+  const p: Promise<MachineIdentity> = withIdentityLock(ctx, () => loadIdentityLocked(ctx, deps))
     .then(identity => { if (gen === generation) cache.set(home, identity); return identity; })
     .finally(() => { if (inflight.get(home) === p) inflight.delete(home); });
   inflight.set(home, p);
   return p;
 }
 
-async function load(ctx: Ctx, deps: { platform?: NodeJS.Platform }): Promise<MachineIdentity> {
+/** Load, create or recover the identity from disk, bypassing the cache. The caller holds the identity lock. */
+export async function loadIdentityLocked(ctx: Ctx, deps: { platform?: NodeJS.Platform } = {}): Promise<MachineIdentity> {
   let meta = readMeta(ctx);
   const platform = identityPlatform(deps.platform);
   if (meta?.pendingRotation) meta = await (await import("./rotate")).recoverRotation(ctx, meta, platform);
@@ -128,11 +133,13 @@ export function machineView(id: MachineIdentity, cloneSuspected: boolean) {
 export async function setMachineName(ctx: Ctx, name: string, expectRev: number): Promise<MachineMeta> {
   if (ctx.readOnly) throw new CoreError("not_allowed", "pacer is read-only here");
   const clean = sanitizeName(name);
-  await ensureIdentity(ctx);
-  const meta = readMeta(ctx)!;
-  if (meta.rev !== expectRev) throw new CoreError("conflict", "Machine name changed in another client", "Reload and try again.", { expected: expectRev, actual: meta.rev });
-  const next = { ...meta, name: clean, rev: meta.rev + 1 };
-  writeMeta(ctx, next);
-  clearIdentityCache();
-  return next;
+  return withIdentityLock(ctx, async () => {
+    await loadIdentityLocked(ctx);
+    const meta = readMeta(ctx)!;
+    if (meta.rev !== expectRev) throw new CoreError("conflict", "Machine name changed in another client", "Reload and try again.", { expected: expectRev, actual: meta.rev });
+    const next = { ...meta, name: clean, rev: meta.rev + 1 };
+    writeMeta(ctx, next);
+    clearIdentityCache();
+    return next;
+  });
 }

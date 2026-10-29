@@ -5,8 +5,8 @@ import { appendActivity } from "../activity/log";
 import { publish } from "../link/publish";
 import { base32, rawPublicKey } from "./encoding";
 import { deletePrivateKey, readPrivateKey, writePrivateKey } from "./key-store";
-import { clearIdentityCache, ensureIdentity, readMeta, writeMeta, type MachineMeta } from "./store";
-import { signFor, clearTransportKeys } from "./sign";
+import { clearIdentityCache, loadIdentityLocked, readMeta, withIdentityLock, writeMeta, type MachineMeta } from "./store";
+import { signWith, clearTransportKeys } from "./sign";
 import { writeSalt, saltHash } from "./salt";
 
 /** Rotation steps, in order. Each is durable before the next starts; a load after any of them completes or rolls back. */
@@ -23,14 +23,20 @@ export const rotationPayload = (oldId: string, newId: string) => new TextEncoder
  * store the new key under the staging slot, replace the current key, write a new salt, remove the staged key, and
  * commit machine.json with `lastRotation`. A load that finds `pendingRotation` completes it, or rolls it back when
  * the new key never reached storage. Nothing is announced until the commit.
+ * The whole rotation holds the identity lock, so a concurrent rename or rotation in any process starts after it.
  */
 export async function rotateIdentity(ctx: Ctx, deps: RotateDeps = {}) {
   if (ctx.readOnly) throw new CoreError("not_allowed", "pacer is read-only here");
-  const old = await ensureIdentity(ctx, deps);
+  return withIdentityLock(ctx, () => rotateLocked(ctx, deps));
+}
+
+async function rotateLocked(ctx: Ctx, deps: RotateDeps) {
+  // Re-read from disk: another process may have renamed or rotated since this one cached its identity.
+  const old = await loadIdentityLocked(ctx, deps);
   const meta = readMeta(ctx)!;
   const privateKey = generateKeyPairSync("ed25519").privateKey;
   const newId = idOf(privateKey)!;
-  const { signature } = await signFor(ctx, "pacer", "rotate", rotationPayload(old.id, newId));
+  const { signature } = await signWith(ctx, async () => old, "pacer", "rotate", rotationPayload(old.id, newId));
   const pending: Pending = { oldId: old.id, newId, signature: Buffer.from(signature).toString("base64"), stagedAt: ctx.now };
   const step = (s: RotationStep) => deps.afterStep?.(s, newId);
   const undo = async (e: unknown): Promise<never> => {
@@ -67,7 +73,7 @@ async function complete(ctx: Ctx, meta: MachineMeta, p: Pending, platform: NodeJ
   return next;
 }
 
-/** Complete an interrupted rotation whose new key was stored, or roll it back. Called by the identity load. */
+/** Complete an interrupted rotation whose new key was stored, or roll it back. Called by the identity load, under the identity lock. */
 export async function recoverRotation(ctx: Ctx, meta: MachineMeta, platform?: NodeJS.Platform): Promise<MachineMeta> {
   const p = meta.pendingRotation!;
   if (idOf(await readPrivateKey(ctx, meta.backend)) !== p.newId) {
