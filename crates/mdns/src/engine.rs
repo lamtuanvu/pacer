@@ -19,7 +19,9 @@ const BROWSE_MAX: Duration = Duration::from_secs(600);
 /// RFC 6762 §6: each record is multicast at most once per second.
 const ANSWER_GAP: Duration = Duration::from_secs(1);
 /// An unchanged peer is reported again once its last report is this old, so the core keeps seeing
-/// peers that are still there. It is half the browse interval, so every browse answer counts.
+/// peers that are still there. It is half the browse interval, so every browse answer counts, and
+/// `refresh` repeats it from the cache while the peer's records are valid, because a peer that
+/// sees its PTR among a query's known answers does not answer at all (RFC 6762 §7.1).
 const REFRESH: Duration = Duration::from_secs(300);
 /// The most peers remembered for de-duplicating resolutions.
 const KNOWN_MAX: usize = 256;
@@ -49,8 +51,15 @@ pub struct Engine {
     browse: Option<(Instant, Duration)>,
     /// When each of the advert's records (one per type) was last multicast.
     last_sent: HashMap<u16, Instant>,
-    /// Peers reported, with when they were last reported.
-    known: HashMap<String, (Resolved, Instant)>,
+    /// Peers reported, by lowercase instance.
+    known: HashMap<String, Peer>,
+}
+
+struct Peer {
+    resolved: Resolved,
+    reported: Instant,
+    /// When the peer's cached PTR and TXT expire.
+    expires: Instant,
 }
 
 fn encoded(msg: Option<wire::Message>) -> Option<Vec<u8>> {
@@ -151,10 +160,29 @@ impl Engine {
         Some(packet)
     }
 
+    /// Cached peers whose last report is at least `REFRESH` old, reported again; peers whose
+    /// records have expired are forgotten.
+    pub fn refresh(&mut self, now: Instant) -> Vec<Resolved> {
+        self.known.retain(|_, p| now < p.expires);
+        let mut out = Vec::new();
+        for peer in self.known.values_mut() {
+            if now.saturating_duration_since(peer.reported) >= REFRESH {
+                peer.reported = now;
+                out.push(peer.resolved.clone());
+            }
+        }
+        out
+    }
+
     pub fn next_deadline(&self) -> Option<Instant> {
+        let peers = self
+            .known
+            .values()
+            .map(|p| (p.reported + REFRESH).min(p.expires));
         [self.announce.map(|a| a.0), self.browse.map(|b| b.0)]
             .into_iter()
             .flatten()
+            .chain(peers)
             .min()
     }
 
@@ -185,21 +213,28 @@ impl Engine {
                 Heard::Gone(instance) => {
                     self.known.remove(&instance.to_ascii_lowercase());
                 }
-                Heard::Alive(resolved) => {
+                Heard::Alive(resolved, ttl) => {
                     let key = resolved.instance.to_ascii_lowercase();
                     if own.as_ref() == Some(&key) {
                         continue;
                     }
-                    let fresh = self.known.get(&key).is_some_and(|(r, at)| {
-                        *r == resolved && now.saturating_duration_since(*at) < REFRESH
-                    });
-                    if fresh {
+                    let expires = now + Duration::from_secs(ttl.into());
+                    if let Some(peer) = self.known.get_mut(&key)
+                        && peer.resolved == resolved
+                        && now.saturating_duration_since(peer.reported) < REFRESH
+                    {
+                        peer.expires = expires;
                         continue;
                     }
                     if self.known.len() >= KNOWN_MAX && !self.known.contains_key(&key) {
                         self.known.clear();
                     }
-                    self.known.insert(key, (resolved.clone(), now));
+                    let peer = Peer {
+                        resolved: resolved.clone(),
+                        reported: now,
+                        expires,
+                    };
+                    self.known.insert(key, peer);
                     out.resolved.push(resolved);
                 }
             }

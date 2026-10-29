@@ -235,6 +235,9 @@ fn run(
             }
         }
         out.send_all(engine.poll(now));
+        for resolved in engine.refresh(now) {
+            let _ = events.try_send(resolved);
+        }
         let wait = engine
             .next_deadline()
             .map_or(TICK, |d| d.saturating_duration_since(now))

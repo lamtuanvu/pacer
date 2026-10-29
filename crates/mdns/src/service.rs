@@ -209,16 +209,28 @@ fn txt_map(entries: &[Vec<u8>]) -> Option<HashMap<String, String>> {
 /// What one response says about pacer instances.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Heard {
-    Alive(Resolved),
+    /// A live instance and how long, in seconds, its PTR and TXT may be cached.
+    Alive(Resolved, u32),
     Gone(String),
 }
 
-/// TXT records of `_pacer._udp.local.` instances in the answers and additionals.
+/// TXT records of `_pacer._udp.local.` instances in the answers and additionals. An instance is
+/// cached for the shorter TTL of its TXT and of any PTR to it in the same response; SRV and A are
+/// host records with short TTLs that a browser re-queries, so they do not end the instance.
 pub fn heard(msg: &Message, source: Ipv4Addr) -> Vec<Heard> {
-    msg.answers
-        .iter()
-        .chain(&msg.additionals)
-        .filter(|r| r.class == CLASS_IN)
+    let records = || {
+        msg.answers
+            .iter()
+            .chain(&msg.additionals)
+            .filter(|r| r.class == CLASS_IN)
+    };
+    let ptr_ttl = |instance: &Name| {
+        records()
+            .filter(|r| matches!(&r.data, RData::Ptr(target) if target.is(instance)))
+            .map(|r| r.ttl)
+            .min()
+    };
+    records()
         .filter_map(|r| {
             let RData::Txt(entries) = &r.data else {
                 return None;
@@ -227,11 +239,15 @@ pub fn heard(msg: &Message, source: Ipv4Addr) -> Vec<Heard> {
             if r.ttl == 0 {
                 return Some(Heard::Gone(instance));
             }
-            Some(Heard::Alive(Resolved {
-                instance,
-                txt: txt_map(entries)?,
-                source,
-            }))
+            let ttl = ptr_ttl(&r.name).map_or(r.ttl, |t| t.min(r.ttl));
+            Some(Heard::Alive(
+                Resolved {
+                    instance,
+                    txt: txt_map(entries)?,
+                    source,
+                },
+                ttl,
+            ))
         })
         .collect()
 }

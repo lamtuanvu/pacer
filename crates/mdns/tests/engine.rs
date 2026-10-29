@@ -547,3 +547,98 @@ fn two_responders_on_one_link_find_each_other_and_stop_with_a_goodbye() {
     b.shutdown();
     assert_eq!(MDNS_GROUP, Ipv4Addr::new(224, 0, 0, 251));
 }
+
+/// Seconds after `t0` at which `engine` reported a peer from its cache, ticking once a second.
+fn cached_reports(engine: &mut Engine, t0: Instant, from_s: u64, to_s: u64) -> Vec<u64> {
+    let mut reports = Vec::new();
+    for s in from_s..to_s {
+        for resolved in engine.refresh(t0 + Duration::from_secs(s)) {
+            assert_eq!(resolved.instance, "peer");
+            reports.push(s);
+        }
+    }
+    reports
+}
+
+#[test]
+fn a_cached_peer_is_reported_every_five_minutes_until_its_ttl_expires() {
+    // Known-answer suppression: after the first answer the peer sends nothing more.
+    let t0 = Instant::now();
+    let mut a = Engine::new(iface(Ipv4Addr::new(192, 168, 1, 20)));
+    a.set_advert(t0, Some(advert("peer")));
+    let hello = announce_of(&mut a, t0);
+    let mut b = Engine::new(iface(SUBNET_ADDR));
+    b.set_browse(t0, true);
+    let src = from([192, 168, 1, 20], 5353);
+    assert_eq!(b.handle(t0, &hello, src).resolved.len(), 1);
+    let reports = cached_reports(&mut b, t0, 0, 6000);
+    // PTR and TXT carry 4500 s; SRV's 120 s does not end the peer.
+    let expected: Vec<u64> = (1..15).map(|n| n * 300).collect();
+    assert_eq!(reports, expected);
+    // Expired, so it is forgotten and the next answer reports it at once.
+    let late = t0 + Duration::from_secs(6000);
+    assert_eq!(b.handle(late, &hello, src).resolved.len(), 1);
+}
+
+#[test]
+fn a_fresh_answer_extends_the_cached_peer() {
+    let t0 = Instant::now();
+    let mut a = Engine::new(iface(Ipv4Addr::new(192, 168, 1, 20)));
+    a.set_advert(t0, Some(advert("peer")));
+    let hello = announce_of(&mut a, t0);
+    let mut b = Engine::new(iface(SUBNET_ADDR));
+    b.set_browse(t0, true);
+    let src = from([192, 168, 1, 20], 5353);
+    assert_eq!(b.handle(t0, &hello, src).resolved.len(), 1);
+    assert_eq!(cached_reports(&mut b, t0, 0, 4000).last(), Some(&3900));
+    // Heard again unchanged at 4000 s: not reported, but the TTL now runs to 8500 s.
+    let at = t0 + Duration::from_secs(4000);
+    assert!(b.handle(at, &hello, src).resolved.is_empty());
+    let reports = cached_reports(&mut b, t0, 4000, 9000);
+    assert_eq!(reports.first(), Some(&4200));
+    assert_eq!(reports.last(), Some(&8400));
+}
+
+#[test]
+fn a_goodbye_stops_cached_reports() {
+    let t0 = Instant::now();
+    let mut a = Engine::new(iface(Ipv4Addr::new(192, 168, 1, 20)));
+    a.set_advert(t0, Some(advert("peer")));
+    let hello = announce_of(&mut a, t0);
+    let bye = a.goodbye().unwrap();
+    let mut b = Engine::new(iface(SUBNET_ADDR));
+    b.set_browse(t0, true);
+    let src = from([192, 168, 1, 20], 5353);
+    assert_eq!(b.handle(t0, &hello, src).resolved.len(), 1);
+    assert_eq!(cached_reports(&mut b, t0, 0, 400), vec![300]);
+    assert!(
+        b.handle(t0 + Duration::from_secs(400), &bye, src)
+            .resolved
+            .is_empty()
+    );
+    assert!(cached_reports(&mut b, t0, 400, 5000).is_empty());
+}
+
+#[test]
+fn changed_txt_is_reported_at_once_and_restarts_the_cached_interval() {
+    let t0 = Instant::now();
+    let mut a = Engine::new(iface(Ipv4Addr::new(192, 168, 1, 20)));
+    a.set_advert(t0, Some(advert("peer")));
+    let hello = announce_of(&mut a, t0);
+    let mut b = Engine::new(iface(SUBNET_ADDR));
+    b.set_browse(t0, true);
+    let src = from([192, 168, 1, 20], 5353);
+    assert_eq!(b.handle(t0, &hello, src).resolved.len(), 1);
+    let mut renamed = advert("peer");
+    renamed.txt.insert("name".into(), "den".into());
+    let at = t0 + Duration::from_secs(100);
+    a.set_advert(at, Some(renamed));
+    let changed = announce_of(&mut a, at);
+    let got = b.handle(at, &changed, src).resolved;
+    assert_eq!(got.len(), 1);
+    assert_eq!(got[0].txt["name"], "den");
+    let reports = cached_reports(&mut b, t0, 100, 700);
+    assert_eq!(reports, vec![400]);
+    let next = b.refresh(t0 + Duration::from_secs(700));
+    assert_eq!(next[0].txt["name"], "den");
+}
