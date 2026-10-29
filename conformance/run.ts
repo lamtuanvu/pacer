@@ -10,7 +10,7 @@ export { CASES };
 
 /**
  * A `security` stand-in that keeps generic passwords in the case's home. The machine identity
- * uses one Keychain item per user, so a host under test must never reach the real Keychain.
+ * keeps its Keychain items in the user's login keychain, so a host under test must never reach the real Keychain.
  */
 function sandboxKeychain(home: string): string {
   const bin = join(home, "bin"), store = join(home, "keychain");
@@ -18,7 +18,7 @@ function sandboxKeychain(home: string): string {
   writeFileSync(join(bin, "security"), `#!/bin/sh
 store=${JSON.stringify(store)}
 item() { s=""; a=""; x=""; while [ $# -gt 0 ]; do case "$1" in -s) s="$2"; shift;; -a) a="$2"; shift;; -X) x="$2"; shift;; esac; shift; done; }
-run() { cmd="$1"; shift; item "$@"; f="$store/$s.$a"
+run() { cmd="$1"; shift; item "$@"; f="$store/$s.$(printf %s "$a" | tr / _)"
   case "$cmd" in
     add-generic-password) printf %s "$x" > "$f";;
     find-generic-password) [ -f "$f" ] || exit 44; case " $* " in *" -w "*) cat "$f"; echo;; esac;;

@@ -3,7 +3,7 @@ import { generateKeyPairSync } from "node:crypto";
 import { statSync } from "node:fs";
 import { join } from "node:path";
 import { fakeCtx } from "./helpers";
-import { keyBackend, readPrivateKey, writePrivateKey, deletePrivateKey } from "../src/identity/key-store";
+import { homeTag, keyBackend, readPrivateKey, writePrivateKey, deletePrivateKey } from "../src/identity/key-store";
 
 test("backend is keychain on darwin and file elsewhere", () => {
   expect(keyBackend("darwin")).toBe("keychain");
@@ -23,16 +23,18 @@ test("file backend stores PKCS8 at identity/machine.key with 0600", async () => 
   expect(await readPrivateKey(ctx, "file")).toBeNull();
 });
 
-test("keychain backend never puts the key in argv and uses service pacer, account machine-identity", async () => {
+test("keychain backend never puts the key in argv and uses service pacer, account machine-identity/<homeTag>", async () => {
   const store = new Map<string, string>();
   const calls: string[][] = [];
   const ctx = fakeCtx({
     run: async (argv: string[], timeout: number, options?: { stdin?: string }) => {
       calls.push(argv);
+      const account = `machine-identity/${homeTag(ctx)}`;
+      if (argv[1] !== "-i") expect(argv.slice(argv.indexOf("-a"), argv.indexOf("-a") + 2)).toEqual(["-a", account]);
       expect(argv[0]).toBe("security");
       expect(timeout).toBe(10000);
       if (argv[1] === "-i") {
-        const m = /add-generic-password -U -s pacer -a machine-identity -X ([0-9a-f]+)\n/.exec(options!.stdin!);
+        const m = new RegExp(`^add-generic-password -U -s pacer -a ${account} -X ([0-9a-f]+)\n$`).exec(options!.stdin!);
         if (m) store.set("machine-identity", m[1]);
         return { code: 0, stdout: "", stderr: "" };
       }
