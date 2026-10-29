@@ -101,6 +101,61 @@ fn a_multicast_query_from_the_link_gets_a_full_answer() {
     assert!(
         matches!(&reply.additionals[0].data, RData::Srv { port: 9, target, .. } if target.to_string() == "abc.local.")
     );
+    // SRV names a host, so it has the host TTL (RFC 6762 §10).
+    assert_eq!(reply.additionals[0].ttl, 120);
+    assert_eq!(reply.additionals[1].ttl, 4500);
+}
+
+fn query(questions: &[(&str, u16)]) -> Vec<u8> {
+    let mut q = pacer_mdns::browse_query();
+    let template = q.questions[0].clone();
+    q.questions = questions
+        .iter()
+        .map(|(name, qtype)| wire::Question {
+            name: wire::Name::parse(name).unwrap(),
+            qtype: *qtype,
+            ..template.clone()
+        })
+        .collect();
+    wire::encode(&q).unwrap()
+}
+
+#[test]
+fn repeated_questions_yield_each_record_once() {
+    let now = Instant::now() + Duration::from_secs(5);
+    let mut engine = Engine::new(iface(SUBNET_ADDR));
+    engine.set_advert(Instant::now(), Some(advert("abc")));
+    let packet = query(&[
+        ("_pacer._udp.local.", TYPE_PTR),
+        ("abc._pacer._udp.local.", TYPE_SRV),
+        ("_pacer._udp.local.", TYPE_PTR),
+        ("abc._pacer._udp.local.", TYPE_SRV),
+    ]);
+    let reply = engine.handle(now, &packet, from([192, 168, 1, 20], 5353));
+    let reply = wire::decode(&reply.reply.unwrap()).unwrap();
+    let types: Vec<u16> = reply.answers.iter().map(|r| r.rtype()).collect();
+    assert_eq!(types, vec![TYPE_PTR, TYPE_SRV]);
+}
+
+#[test]
+fn the_once_a_second_limit_applies_per_record() {
+    let t = Instant::now() + Duration::from_secs(5);
+    let mut engine = Engine::new(iface(SUBNET_ADDR));
+    engine.set_advert(Instant::now(), Some(advert("abc")));
+    let link = from([192, 168, 1, 20], 5353);
+    let a_query = query(&[("abc.local.", TYPE_A)]);
+    assert!(engine.handle(t, &a_query, link).reply.is_some());
+    // A just went out, so another A query within a second gets nothing...
+    let soon = t + Duration::from_millis(200);
+    assert!(engine.handle(soon, &a_query, link).reply.is_none());
+    // ...but a browser's PTR query is still answered, without repeating A.
+    let reply = engine.handle(soon, &ptr_query(), link).reply.unwrap();
+    let reply = wire::decode(&reply).unwrap();
+    assert_eq!(reply.answers[0].rtype(), TYPE_PTR);
+    assert!(reply.additionals.iter().all(|r| r.rtype() != TYPE_A));
+    // After a second every record may go out again.
+    let later = t + Duration::from_millis(1300);
+    assert!(engine.handle(later, &a_query, link).reply.is_some());
 }
 
 #[test]
@@ -237,13 +292,13 @@ fn announcements_go_out_twice_a_second_apart_and_goodbye_zeroes_every_ttl() {
 }
 
 #[test]
-fn browse_queries_back_off_to_a_minute() {
+fn browse_queries_back_off_to_ten_minutes() {
     let t0 = Instant::now();
     let mut engine = Engine::new(iface(SUBNET_ADDR));
     engine.set_browse(t0, true);
     let mut sent_at = Vec::new();
     let mut t = t0;
-    while t < t0 + Duration::from_secs(400) {
+    while t < t0 + Duration::from_secs(2400) {
         for packet in engine.poll(t) {
             let msg = wire::decode(&packet).unwrap();
             assert!(!msg.is_response());
@@ -252,8 +307,11 @@ fn browse_queries_back_off_to_a_minute() {
         }
         t += Duration::from_secs(1);
     }
-    assert_eq!(&sent_at[..8], &[0, 1, 3, 7, 15, 31, 63, 123]);
-    assert_eq!(sent_at[8] - sent_at[7], 60);
+    assert_eq!(
+        &sent_at[..12],
+        &[0, 1, 3, 7, 15, 31, 63, 127, 255, 511, 1023, 1623]
+    );
+    assert_eq!(sent_at[12] - sent_at[11], 600);
     engine.set_browse(t, false);
     assert!(engine.poll(t + Duration::from_secs(600)).is_empty());
 }
@@ -336,6 +394,59 @@ fn a_goodbye_forgets_the_peer_so_it_resolves_again() {
     assert_eq!(b.handle(t0, &hello, src).resolved.len(), 1);
     assert!(b.handle(t0, &bye, src).resolved.is_empty());
     assert_eq!(b.handle(t0, &hello, src).resolved.len(), 1);
+}
+
+#[test]
+fn a_peer_still_answering_is_reported_again_after_the_refresh_interval() {
+    let t0 = Instant::now();
+    let mut a = Engine::new(iface(Ipv4Addr::new(192, 168, 1, 20)));
+    a.set_advert(t0, Some(advert("peer")));
+    let hello = announce_of(&mut a, t0);
+    let mut b = Engine::new(iface(SUBNET_ADDR));
+    b.set_browse(t0, true);
+    let src = from([192, 168, 1, 20], 5353);
+    assert_eq!(b.handle(t0, &hello, src).resolved.len(), 1);
+    let at = |s| t0 + Duration::from_secs(s);
+    assert!(b.handle(at(60), &hello, src).resolved.is_empty());
+    assert!(b.handle(at(299), &hello, src).resolved.is_empty());
+    // Unchanged, but the last report is five minutes old: report it again.
+    assert_eq!(b.handle(at(300), &hello, src).resolved.len(), 1);
+    assert!(b.handle(at(400), &hello, src).resolved.is_empty());
+    // Changed data is reported at once.
+    let mut renamed = advert("peer");
+    renamed.txt.insert("name".into(), "den".into());
+    a.set_advert(at(401), Some(renamed));
+    let changed = announce_of(&mut a, at(401));
+    assert_eq!(b.handle(at(401), &changed, src).resolved.len(), 1);
+}
+
+#[test]
+fn a_ten_minute_browse_refreshes_every_peer() {
+    let t0 = Instant::now();
+    let mut a = Engine::new(iface(Ipv4Addr::new(192, 168, 1, 20)));
+    // Never polled, so A answers queries without announcing first.
+    a.set_advert(t0, Some(advert("peer")));
+    let mut b = Engine::new(iface(SUBNET_ADDR));
+    b.set_browse(t0, true);
+    let (ab, ba) = (from([192, 168, 1, 20], 5353), from([192, 168, 1, 10], 5353));
+    let mut reports = Vec::new();
+    let mut t = t0;
+    while t < t0 + Duration::from_secs(3600) {
+        for query in b.poll(t) {
+            if let Some(reply) = a.handle(t, &query, ba).reply {
+                for _ in b.handle(t, &reply, ab).resolved {
+                    reports.push(t.duration_since(t0).as_secs());
+                }
+            }
+        }
+        t += Duration::from_secs(1);
+    }
+    assert_eq!(reports[0], 0);
+    assert!(
+        reports.windows(2).all(|w| w[1] - w[0] <= 600),
+        "{reports:?}"
+    );
+    assert!(*reports.last().unwrap() >= 3000, "{reports:?}");
 }
 
 #[test]

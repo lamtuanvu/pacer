@@ -1,6 +1,10 @@
 //! A small mDNS responder and browser for one service type, `_pacer._udp.local.`, over IPv4 on one
 //! interface (SEC-11). It answers only multicast queries from on-link sources, always by
 //! multicast, and accepts responses only from on-link sources. IPv6 is not supported.
+//!
+//! There is no probing or conflict resolution (RFC 6762 §8.1, §9) for `<id>.local.` and
+//! `<id>._pacer._udp.local.`: the ids are 130-bit random, so an accidental clash is negligible, and
+//! an on-link host squatting a name can only fake presence, which the threat model already allows.
 mod engine;
 mod service;
 mod socket;

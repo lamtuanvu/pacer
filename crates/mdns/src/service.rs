@@ -10,7 +10,8 @@ use std::{
 };
 
 pub const SERVICE: &str = "_pacer._udp.local.";
-/// RFC 6762 §10 defaults: 120 s for host records, 4500 s for the others.
+/// RFC 6762 §10 defaults: 120 s for records that hold a host name or address (A, SRV), 4500 s for
+/// the others.
 pub const HOST_TTL: u32 = 120;
 pub const SERVICE_TTL: u32 = 4500;
 const FLAGS_RESPONSE: u16 = 0x8400;
@@ -92,7 +93,7 @@ fn records(advert: &Advert, addr: Ipv4Addr, goodbye: bool) -> Option<[Record; 4]
         ),
         record(
             instance.clone(),
-            ttl(SERVICE_TTL),
+            ttl(HOST_TTL),
             RData::Srv {
                 priority: 0,
                 weight: 0,
@@ -158,22 +159,20 @@ pub fn answer(query: &Message, advert: &Advert, addr: Ipv4Addr) -> Option<Messag
         .answers
         .iter()
         .any(|k| k.name.is(&ptr.name) && k.data == ptr.data && k.ttl >= SERVICE_TTL / 2);
-    let mut answers = Vec::new();
+    let mut answers: Vec<Record> = Vec::new();
     for q in &query.questions {
-        if wants(q, TYPE_PTR, &ptr.name) && !known {
-            answers.push(ptr.clone());
-        }
-        if wants(q, TYPE_SRV, &srv.name) {
-            answers.push(srv.clone());
-        }
-        if wants(q, TYPE_TXT, &txt.name) {
-            answers.push(txt.clone());
-        }
-        if wants(q, TYPE_A, &a.name) {
-            answers.push(a.clone());
+        let wanted = [
+            (wants(q, TYPE_PTR, &ptr.name) && !known, &ptr),
+            (wants(q, TYPE_SRV, &srv.name), &srv),
+            (wants(q, TYPE_TXT, &txt.name), &txt),
+            (wants(q, TYPE_A, &a.name), &a),
+        ];
+        for (_, r) in wanted.into_iter().filter(|(w, _)| *w) {
+            if !answers.contains(r) {
+                answers.push(r.clone());
+            }
         }
     }
-    answers.dedup();
     if answers.is_empty() {
         return None;
     }

@@ -14,9 +14,13 @@ use std::{
 const ANNOUNCE_GAP: Duration = Duration::from_secs(1);
 const ANNOUNCEMENTS: u8 = 2;
 const BROWSE_FIRST: Duration = Duration::from_secs(1);
-const BROWSE_MAX: Duration = Duration::from_secs(60);
-/// RFC 6762 §6: a record is multicast at most once per second.
+/// Browse queries back off to every 10 minutes; each one makes peers answer, which refreshes them.
+const BROWSE_MAX: Duration = Duration::from_secs(600);
+/// RFC 6762 §6: each record is multicast at most once per second.
 const ANSWER_GAP: Duration = Duration::from_secs(1);
+/// An unchanged peer is reported again once its last report is this old, so the core keeps seeing
+/// peers that are still there. It is half the browse interval, so every browse answer counts.
+const REFRESH: Duration = Duration::from_secs(300);
 /// The most peers remembered for de-duplicating resolutions.
 const KNOWN_MAX: usize = 256;
 
@@ -43,8 +47,10 @@ pub struct Engine {
     announce: Option<(Instant, u8)>,
     /// When the next browse query is due and the interval after it.
     browse: Option<(Instant, Duration)>,
-    last_answer: Option<Instant>,
-    known: HashMap<String, Resolved>,
+    /// When each of the advert's records (one per type) was last multicast.
+    last_sent: HashMap<u16, Instant>,
+    /// Peers reported, with when they were last reported.
+    known: HashMap<String, (Resolved, Instant)>,
 }
 
 fn encoded(msg: Option<wire::Message>) -> Option<Vec<u8>> {
@@ -58,7 +64,7 @@ impl Engine {
             advert: None,
             announce: None,
             browse: None,
-            last_answer: None,
+            last_sent: HashMap::new(),
             known: HashMap::new(),
         }
     }
@@ -100,12 +106,14 @@ impl Engine {
         if let Some((at, left)) = self.announce
             && now >= at
         {
-            out.extend(encoded(
-                self.advert
-                    .as_ref()
-                    .and_then(|a| service::announcement(a, self.iface.addr)),
-            ));
-            self.last_answer = Some(now);
+            let announcement = self
+                .advert
+                .as_ref()
+                .and_then(|a| service::announcement(a, self.iface.addr));
+            if let Some(msg) = &announcement {
+                self.mark_sent(now, msg);
+            }
+            out.extend(encoded(announcement));
             self.announce = (left > 1).then(|| (now + ANNOUNCE_GAP, left - 1));
         }
         if let Some((at, interval)) = self.browse
@@ -115,6 +123,32 @@ impl Engine {
             self.browse = Some((now + interval, (interval * 2).min(BROWSE_MAX)));
         }
         out
+    }
+
+    fn recently_sent(&self, now: Instant, rtype: u16) -> bool {
+        self.last_sent
+            .get(&rtype)
+            .is_some_and(|t| now.saturating_duration_since(*t) < ANSWER_GAP)
+    }
+
+    fn mark_sent(&mut self, now: Instant, msg: &wire::Message) {
+        for r in msg.answers.iter().chain(&msg.additionals) {
+            self.last_sent.insert(r.rtype(), now);
+        }
+    }
+
+    /// The answer to a query without the records multicast within the last second.
+    fn reply(&mut self, now: Instant, query: &wire::Message) -> Option<Vec<u8>> {
+        let mut msg = service::answer(query, self.advert.as_ref()?, self.iface.addr)?;
+        msg.answers.retain(|r| !self.recently_sent(now, r.rtype()));
+        msg.additionals
+            .retain(|r| !self.recently_sent(now, r.rtype()));
+        if msg.answers.is_empty() {
+            return None;
+        }
+        let packet = encoded(Some(msg.clone()))?;
+        self.mark_sent(now, &msg);
+        Some(packet)
     }
 
     pub fn next_deadline(&self) -> Option<Instant> {
@@ -136,38 +170,36 @@ impl Engine {
             return out;
         };
         if !msg.is_response() {
-            let recent = self
-                .last_answer
-                .is_some_and(|t| now.saturating_duration_since(t) < ANSWER_GAP);
-            if let Some(advert) = self.advert.as_ref().filter(|_| !recent)
-                && let Some(reply) = encoded(service::answer(&msg, advert, self.iface.addr))
-            {
-                self.last_answer = Some(now);
-                out.reply = Some(reply);
-            }
+            out.reply = self.reply(now, &msg);
             return out;
         }
         if self.browse.is_none() {
             return out;
         }
-        let own = self.advert.as_ref().map(|a| a.instance.as_str());
+        let own = self
+            .advert
+            .as_ref()
+            .map(|a| a.instance.to_ascii_lowercase());
         for heard in service::heard(&msg, *src.ip()) {
             match heard {
                 Heard::Gone(instance) => {
                     self.known.remove(&instance.to_ascii_lowercase());
                 }
                 Heard::Alive(resolved) => {
-                    if own.is_some_and(|o| o.eq_ignore_ascii_case(&resolved.instance)) {
-                        continue;
-                    }
                     let key = resolved.instance.to_ascii_lowercase();
-                    if self.known.get(&key) == Some(&resolved) {
+                    if own.as_ref() == Some(&key) {
                         continue;
                     }
-                    if self.known.len() >= KNOWN_MAX {
+                    let fresh = self.known.get(&key).is_some_and(|(r, at)| {
+                        *r == resolved && now.saturating_duration_since(*at) < REFRESH
+                    });
+                    if fresh {
+                        continue;
+                    }
+                    if self.known.len() >= KNOWN_MAX && !self.known.contains_key(&key) {
                         self.known.clear();
                     }
-                    self.known.insert(key, resolved.clone());
+                    self.known.insert(key, (resolved.clone(), now));
                     out.resolved.push(resolved);
                 }
             }
