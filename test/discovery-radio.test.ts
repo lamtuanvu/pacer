@@ -1,0 +1,131 @@
+import { beforeEach, expect, test } from "bun:test";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { fakeCtx } from "./helpers";
+import * as config from "../src/core/config";
+import { clearIdentityCache, ensureIdentity, setIdentityPlatformForTests } from "../src/identity/store";
+import { buildRadioConfig, recordObservations, radioStatus, resetRadioForTests } from "../src/discovery/radio";
+import { readState, updateState, ensureNetwork } from "../src/discovery/state";
+import { currentVersion } from "../src/update/version";
+
+beforeEach(() => { clearIdentityCache(); setIdentityPlatformForTests("linux"); resetRadioForTests(); });
+const home = { key: "k1", label: "home-wifi" };
+
+test("on an unanswered network the radio listens but does not advertise, and the network question is raised", async () => {
+  const ctx = fakeCtx();
+  expect(radioStatus().available).toBe(false);
+  const cfg = await buildRadioConfig(ctx, { network: home });
+  expect(cfg).toMatchObject({ enabled: true, listen: true, advertise: null });
+  expect(readState(ctx).networks.k1.advertise).toBeNull();
+  expect(radioStatus().available).toBe(true);
+});
+
+test("on an approved network the advert has id, name and version but no machine id or user name", async () => {
+  const ctx = fakeCtx({ env: { USER: "alex" } });
+  await updateState(ctx, s => { ensureNetwork(s, "k1", "home-wifi").advertise = true; });
+  const cfg = await buildRadioConfig(ctx, { network: home, hintsFor: () => ({ port: 4433, h: "pk=abc" }) });
+  const txt = cfg.advertise!.txt;
+  expect(Object.keys(txt).sort()).toEqual(["h", "id", "name", "v"]);
+  expect(txt.id).toBe(readState(ctx).networks.k1.discoveryId);
+  expect(txt.v).toBe(currentVersion());
+  expect(txt.name).toBe((await ensureIdentity(ctx)).name);
+  expect(JSON.stringify(cfg)).not.toContain("alex");
+  expect(JSON.stringify(cfg)).not.toContain((await ensureIdentity(ctx)).id);
+  expect(cfg.advertise!.port).toBe(4433);
+});
+
+test("without plugin hints the advert has no h key and uses the discard port", async () => {
+  const ctx = fakeCtx();
+  await updateState(ctx, s => { ensureNetwork(s, "k1", "home-wifi").advertise = true; });
+  const cfg = await buildRadioConfig(ctx, { network: home });
+  expect(Object.keys(cfg.advertise!.txt).sort()).toEqual(["id", "name", "v"]);
+  expect(cfg.advertise!.port).toBe(9);
+});
+
+test("a declined network listens without advertising", async () => {
+  const ctx = fakeCtx();
+  await updateState(ctx, s => { ensureNetwork(s, "k1", "home-wifi").advertise = false; });
+  expect(await buildRadioConfig(ctx, { network: home })).toMatchObject({ enabled: true, listen: true, advertise: null });
+});
+
+test("discovery off disables both listening and advertising", async () => {
+  const ctx = fakeCtx();
+  mkdirSync(ctx.pacerHome, { recursive: true });
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders: {claude-code: {}, codex: {}}\npacing: {policy: priority}\nrouting: [{default: [codex]}]\n");
+  expect(config.get(ctx).keys.discovery).toMatchObject({ value: "on", source: "default" });
+  await updateState(ctx, s => { ensureNetwork(s, "k1", "home-wifi").advertise = true; });
+  await config.set(ctx, "discovery", "off");
+  expect(config.get(ctx).keys.discovery.value).toBe("off");
+  expect(await buildRadioConfig(ctx, { network: home })).toMatchObject({ enabled: false, listen: false, advertise: null });
+  await expect(config.set(ctx, "discovery", "maybe")).rejects.toMatchObject({ code: "invalid_input" });
+});
+
+test("an unknown network never advertises", async () => {
+  const ctx = fakeCtx();
+  expect((await buildRadioConfig(ctx, { network: null })).advertise).toBeNull();
+});
+
+test("observations are sanitized, own adverts are ignored, and prompts respect silences and the hourly cap", async () => {
+  const ctx = fakeCtx();
+  await updateState(ctx, s => { ensureNetwork(s, "k1", "home-wifi").advertise = true; });
+  const own = readState(ctx).networks.k1.discoveryId;
+  const now = 1_800_000_000;
+  const r1 = await recordObservations(ctx, [
+    { id: own, name: "me", v: "3.0.0", h: "" },
+    { id: "a".repeat(26), name: "studio\u202e-mac", v: "3.0.0", h: "x" },
+    { id: "not valid!", name: "x", v: "1", h: "" },
+  ], { now, network: home });
+  expect(r1.accepted).toBe(1);
+  expect(readState(ctx).seen["a".repeat(26)]).toMatchObject({ name: "studio-mac", network: "k1", firstSeen: now, promptedAt: now });
+  expect(r1.prompted).toEqual(["a".repeat(26)]);
+  const r2 = await recordObservations(ctx, [{ id: "a".repeat(26), name: "studio-mac", v: "3.0.0", h: "x" }], { now: now + 60, network: home });
+  expect(r2.prompted).toEqual([]);
+  expect(readState(ctx).seen["a".repeat(26)]).toMatchObject({ firstSeen: now, lastSeen: now + 60 });
+  const ids = ["b", "c", "d"].map(ch => ch.repeat(26));
+  const r3 = await recordObservations(ctx, ids.map(id => ({ id, name: id.slice(0, 4), v: "1", h: "" })), { now: now + 120, network: home });
+  expect(r3.prompted).toHaveLength(2);
+  expect(readState(ctx).seen["d".repeat(26)].promptedAt).toBeUndefined();
+});
+
+test("a silenced machine raises no prompt", async () => {
+  const ctx = fakeCtx();
+  await updateState(ctx, s => { s.silenced["f".repeat(26)] = "forever"; s.silenced["g".repeat(26)] = 500; });
+  const r = await recordObservations(ctx, ["f", "g"].map(ch => ({ id: ch.repeat(26), name: "x", v: "1", h: "" })), { now: 100, network: home });
+  expect(r).toEqual({ accepted: 2, prompted: [] });
+});
+
+test("a muted network records machines but raises no prompt", async () => {
+  const ctx = fakeCtx();
+  await updateState(ctx, s => { ensureNetwork(s, "k1", "home-wifi").muted = true; });
+  const r = await recordObservations(ctx, [{ id: "e".repeat(26), name: "x", v: "1", h: "" }], { now: 1, network: home });
+  expect(r.accepted).toBe(1);
+  expect(r.prompted).toEqual([]);
+});
+
+test("the radio endpoints answer only on the internal channel with the internal bearer", async () => {
+  const { startServer } = await import("../src/serve/http");
+  const ctx = fakeCtx({ now: Date.now() / 1000 });
+  const internal = "i".repeat(64);
+  const s = startServer(() => ctx, { port: 0, pumpMs: 0, internal: { token: internal } });
+  try {
+    const url = (p: string) => `http://127.0.0.1:${s.port}${p}`;
+    const headers = { host: `127.0.0.1:${s.port}`, authorization: `Bearer ${internal}`, "content-type": "application/json" };
+    expect((await fetch(url("/_internal/discovery/config"), { method: "POST", headers: { ...headers, authorization: "Bearer wrong" } })).status).toBe(401);
+    const cfg = await fetch(url("/_internal/discovery/config"), { method: "POST", headers });
+    expect(cfg.status).toBe(200);
+    expect(await cfg.json()).toMatchObject({ enabled: true, listen: true, advertise: null });
+    const observed = await fetch(url("/_internal/discovery/observed"), { method: "POST", headers, body: JSON.stringify({ observations: [{ id: "h".repeat(26), name: "desk", v: "1", h: "" }, "junk"] }) });
+    expect(await observed.json()).toMatchObject({ accepted: 1 });
+    expect(readState(ctx).seen["h".repeat(26)].name).toBe("desk");
+    const junk = await fetch(url("/_internal/discovery/observed"), { method: "POST", headers, body: "not json" });
+    expect(await junk.json()).toEqual({ accepted: 0, prompted: [] });
+    const big = await fetch(url("/_internal/discovery/observed"), { method: "POST", headers, body: "x".repeat(300 * 1024) });
+    expect(big.status).toBe(413);
+  } finally { s.stop(); }
+  const open = startServer(() => ctx, { port: 0, pumpMs: 0 });
+  try {
+    const res = await fetch(`http://127.0.0.1:${open.port}/_internal/discovery/config`, { method: "POST", headers: { host: `127.0.0.1:${open.port}`, authorization: `Bearer ${open.token}` } });
+    // Outside internal mode the route does not exist; unknown POSTs fall through to the generic 405.
+    expect(res.status).toBe(405);
+  } finally { open.stop(); }
+});
