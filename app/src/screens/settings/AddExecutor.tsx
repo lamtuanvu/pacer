@@ -61,6 +61,22 @@ export function AddExecutor({ host: prefillHost = "", initialDraft = {}, initial
   const accountModels = accounts.data?.find(a => a.name === draft.account)?.connection?.models ?? [];
   const modelOptions = [{ value: "", label: "Agent default" }, ...accountModels.map(m => ({ value: m.id, label: m.name ?? m.id }))];
   if (draft.model && !modelOptions.some(m => m.value === draft.model)) modelOptions.push({ value: draft.model, label: draft.model });
+  const [detectionStatus, setDetectionStatus] = useState('');
+  const rechecking = useRef<Set<string>>(), checkButton = useRef<HTMLButtonElement>(null);
+  const checkAgain = () => {
+    rechecking.current = new Set(detected.data?.filter(a => a.found).map(a => a.agent));
+    setDetectionStatus('');
+    detected.reload();
+  };
+  useEffect(() => {
+    if (!rechecking.current || detected.loading) return;
+    const newlyFound = !detected.error && agents.find(agent => !rechecking.current!.has(agent.id) && detected.data?.some(a => a.agent === agent.id && a.found));
+    rechecking.current = undefined;
+    if (newlyFound) {
+      document.getElementById(`agent-choice-${newlyFound.id}`)?.focus();
+      setDetectionStatus(`${newlyFound.name} found`);
+    } else checkButton.current?.focus();
+  }, [detected.loading, detected.data, detected.error]);
   const installGuidance = !!detected.data?.some(a => !a.found && a.install_hint);
   const values = [name, draft.account || (accountRequired(draft.agent) ? "" : "Its own sign-in"), `${facts.hosts.includes(draft.host) ? draft.host : "This machine"} · ${draft.maxTasks} parallel`, ready ? "Ready" : job ? "Test task run" : "Not tested yet"];
   return (
@@ -69,7 +85,7 @@ export function AddExecutor({ host: prefillHost = "", initialDraft = {}, initial
       <SettingsBoard id="add-agent" title="Add an agent" caption="pacer finds the agent CLIs on this machine. Four short steps, and the agent is checked with a real test task before it gets work.">
       <div className="u3-wizard">
       {dialogs.dialog}
-      <div className="sr-only" role="status" aria-live="polite">Step {step} of 4: {TITLES[step - 1]}</div>
+      <div className="sr-only" role="status" aria-live="polite">{detectionStatus || `Step ${step} of 4: ${TITLES[step - 1]}`}</div>
       <Stepper label="Add agent steps" onSelect={id => patch({ step: id })} steps={TITLES.map((title, i) => ({
         id: String(i + 1), title, reachable: i + 1 <= furthest && (!locked || i === 3),
         state: i === 3 && ready ? "done" : i + 1 === step ? "current" : i + 1 < furthest ? "done" : "todo",
@@ -80,14 +96,14 @@ export function AddExecutor({ host: prefillHost = "", initialDraft = {}, initial
           <div className="u3-step-heading"><SectionHeading variant="headline" id="agent-step-heading" tabIndex={-1}>Which agent?</SectionHeading><p className="u3-muted">{installGuidance ? "Found on this Mac. Agents that aren’t installed show how to get them." : "pacer looks for each agent’s CLI on this Mac."}</p></div>
           <div className="u3-agent-choices"><ResourceState resource={detected}>{agents.map(agent => {
             const found = detected.data?.find(a => a.agent === agent.id);
-            return <ChoiceCard layout="agent" key={agent.id} aria-pressed={draft.agent === agent.id}
+            return <ChoiceCard layout="agent" key={agent.id} id={`agent-choice-${agent.id}`} aria-pressed={draft.agent === agent.id}
               onClick={() => patch({ agent: agent.id, account: "", host: REMOTE_AGENTS.includes(agent.id) ? draft.host : "" })}>
               <span className="u3-agent-choice-title"><AgentMark agent={agent.id} size={28} /><strong>{agent.name}</strong>{draft.agent === agent.id && <span className="u3-selected-check" aria-hidden="true">✓</span>}</span><span className="u3-muted">{agent.tagline}</span>
                 {found && <Pill tone={found.found ? "good" : "neutral"}>{found.found ? `Found${found.version ? ` ${found.version}` : ""}` : "Not found"}</Pill>}
                 {found && !found.found && found.install_hint && <span className="u3-muted">Install: <code>{found.install_hint}</code></span>}
             </ChoiceCard>;
           })}</ResourceState></div>
-          {facts.installed === false && <div className="u3-actions"><span>{problem}</span><Button busy={detected.loading} onClick={detected.reload}>Check again</Button></div>}
+          {(facts.installed === false || !!rechecking.current) && <div className="u3-actions"><span>{problem}</span><Button ref={checkButton} busy={detected.loading} onClick={checkAgain}>Check again</Button></div>}
         </>}
         {step === 2 && <>
           <div className="u3-step-heading"><SectionHeading variant="headline" id="agent-step-heading" tabIndex={-1}>Which account pays for it?</SectionHeading><p className="u3-muted">pacer uses the agent’s own sign-in and never copies it.</p></div>

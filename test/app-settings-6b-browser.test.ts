@@ -328,7 +328,10 @@ browserTest('Add agent Check again reloads detection and exposes its busy state'
   await page.getByRole('button',{name:'Continue',exact:true}).waitFor({state:'visible'});
   await page.waitForFunction(()=>!document.querySelector('.u3-footer button.pc-btn--primary')?.hasAttribute('disabled'));
   expect((await agentCalls(page)).filter(([op])=>op==='agent.detect')).toHaveLength(before+1);
+  await check.waitFor({state:'detached'});
   expect(await check.count()).toBe(0);
+  expect(await page.locator('#agent-choice-cursor').evaluate(el=>el===document.activeElement)).toBe(true);
+  expect(await page.getByRole('status').filter({hasText:'Cursor found'}).count()).toBe(1);
  });
 },20000);
 
@@ -342,3 +345,17 @@ browserTest('failed host recovery keeps the current settings scope',async()=>{
   expect(href).toContain('#/settings/hosts/pi-lab?');expect(href).toContain('repo=fixture-repo');expect(href).toContain('scope=repo');
  });
 },20000);
+
+ browserTest('Check again keeps focus and the mounted button when no new agent is found',async()=>{
+  await openAgent(async page=>{
+   await page.getByRole('button',{name:/Cursor/}).first().click();
+   const check=page.getByRole('button',{name:'Check again',exact:true});
+   await page.evaluate(()=>(window as any).agentFixture.holdDetection());
+   await check.click();
+   await page.waitForFunction(()=>document.querySelector('.u3-actions button[aria-busy="true"]'));
+   expect(await check.count()).toBe(1);
+   await page.evaluate(()=>(window as any).agentFixture.releaseDetection());
+   await page.waitForFunction(()=>document.activeElement?.textContent==='Check again' && !document.activeElement?.hasAttribute('disabled'));
+   expect(await check.evaluate(el=>el===document.activeElement)).toBe(true);
+  });
+ },20000);

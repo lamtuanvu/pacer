@@ -4,6 +4,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Fixed
+
+- Settings pages expose one page heading. Agent details use a section heading, preserve task-limit edits on Escape, restore focus when closed, and report Takes work failures above the table even after closing details. Add agent focuses and announces newly detected agents after Check again.
+
 ### Added
 
 - Add the always-on assistant: ask about tasks, dispatch, executors and budgets from anywhere with ⌘J (Ctrl-J elsewhere). It runs on the endpoint account you choose in Settings › Assistant, reads pacer's own data through fixed read tools with secrets and free task text removed, and can only propose actions (retry, stop, answer, pause, resume, a prefilled New task) that run after you press the card's button. New `assistant` plugin extension point (plugin protocol 1.3.0, bundled `pacer-assistant`, bundled-only until installed plugins are sandboxed), client protocol additions `assistant.*` with an ephemeral per-turn stream at `/v3/assistant/turns/<id>/stream` (the answer arrives as one frame until plugins can stream), an `assistant` event that carries no text, and `pacer ask` (outside executor sessions; executors keep their question). New design-system `AuroraSheet`. The ⌘K `?` mode is wired by the command menu through `assistantEntry` in a follow-up.

@@ -27,7 +27,7 @@ export function ExecutorsSection() {
   const {state, api} = useTaskContext(), query = useResource<ExecutorSettings>('runner.settings.get');
   const notifications = useNotifications(), dialogs = useDialogs();
   const [saved, setSaved] = useState<ExecutorSettings>(), [draft, setDraft] = useState<ExecutorDraft>();
-  const [enabledBusy, setEnabledBusy] = useState(false);
+  const [enabledBusy, setEnabledBusy] = useState(false), [enabledError, setEnabledError] = useState('');
   const [busy, setBusy] = useState(false), [error, setError] = useState<unknown>(), [announcement, announce] = useState('');
   const pending = useRef(false), leave = useRef<(value:boolean)=>void>();
   const [leaving, setLeaving] = useState(false);
@@ -42,7 +42,7 @@ export function ExecutorsSection() {
   useEffect(()=>{
     if (query.data && query.data.revision!==saved?.revision && !dirty && !pending.current) { setSaved(query.data); setDraft(createExecutorDraft(query.data)); }
   },[query.data]);
-  const reload = () => { if(query.data){setSaved(query.data);setDraft(createExecutorDraft(query.data));setError(undefined);}query.reload(); };
+  const reload = () => { setEnabledError(''); if(query.data){setSaved(query.data);setDraft(createExecutorDraft(query.data));setError(undefined);}query.reload(); };
   const edit = (fn:(next:ExecutorDraft)=>void) => {
     if (!draft || busy) return;
     const next = {order:[...draft.order], runners:Object.fromEntries(Object.entries(draft.runners).map(([id,r])=>[id,{...r}]))};
@@ -69,7 +69,7 @@ export function ExecutorsSection() {
         query.setData(confirmed);
         throw new Error('Settings changed after this save. Your draft is preserved. Reload saved settings before retrying.');
       }
-      setSaved(confirmed);setDraft(createExecutorDraft(confirmed));query.setData(confirmed);
+      setSaved(confirmed);setDraft(createExecutorDraft(confirmed));query.setData(confirmed);setEnabledError('');
       notifications?.notify({key:'executor-save',tone:'success',title:'Executor settings saved'});
       if(result.warnings?.length)notifications?.notify({key:'executor-save-warnings',tone:'warning',title:'Routing needs attention',message:result.warnings.join(' ')});
       return true;
@@ -109,9 +109,15 @@ export function ExecutorsSection() {
       // Preserve order and task-limit edits made in the page draft.
       setDraft(current => current ? {...current, runners:{...current.runners, [id]:{...current.runners[id], enabled}}} : createExecutorDraft(confirmed));
       query.setData(confirmed);
+      setEnabledError('');
       if (!notifications) announce('Executor settings saved');
       notifications?.notify({key:'executor-save', tone:'success', title:'Executor settings saved'});
       if (result.warnings?.length) notifications?.notify({key:'executor-save-warnings', tone:'warning', title:'Routing needs attention', message:result.warnings.join(' ')});
+    } catch (failure) {
+      const message = `Could not change Takes work for ${executorLabel(id)}: ${failure instanceof Error ? failure.message : String(failure)}`;
+      setEnabledError(message);
+      notifications?.notify({key:'executor-enabled-error', tone:'error', title:message});
+      throw failure;
     } finally {
       pending.current = false;
       setEnabledBusy(false);
@@ -141,6 +147,7 @@ export function ExecutorsSection() {
     <AgentsIntro tab="executors"/>
     <ErrorMessage error={query.error}/><ErrorMessage error={error}/>
     {conflict&&<Alert tone="warning" title="Settings changed elsewhere">Your draft is preserved. Reload the saved settings before making further changes. <Button size="sm" onClick={async()=>{if(await dialogs.confirm('Discard this draft and load the latest saved settings?','Reload saved settings','Reload'))reload();}}>Reload saved settings</Button></Alert>}
+    {enabledError&&<Alert tone="error" title={enabledError}><Button size="sm" onClick={()=>setEnabledError('')}>Dismiss</Button></Alert>}
     <PageColumns layout="agents" className="u3-agents" main={!rows?<p>Loading executors…</p>:!rows.some(r=>r.rank!=='planner'||draft?.order.includes(r.id))?<p>No executors yet. Add an agent.</p>:<div className="u3-table-wrap u3-agents-table"><div className="u3-agents-scroll"><table><thead><tr>{['Priority','Executor','Status','This week','Parallel tasks','Details'].map(v=><th key={v} scope="col">{v}</th>)}</tr></thead><tbody>{ordered.filter(e=>draft?!!draft.order.includes(e.id):e.rank!=='planner').map(executor=><ExecutorRowEditor key={executor.id} executor={executor} selected={executor.id===selected} select={()=>select(id=>id===executor.id?undefined:executor.id)} removed={!rows!.some(r=>r.id===executor.id)} position={draft?.order.indexOf(executor.id)??rows!.filter(r=>r.rank!=='planner').findIndex(r=>r.id===executor.id)} count={draft?.order.length??0} value={draft?.runners[executor.id]} error={errors[executor.id]} disabled={busy||enabledBusy||!draft} edit={edit} announce={announce}/>)}</tbody></table></div></div>}
       aside={picked&&<ExecutorDetail key={picked.id} executor={picked} planner={pickedAt<0} saveEnabled={saveEnabled} savedEnabled={saved?.runners.find(r=>r.id===picked.id)?.enabled} value={draft?.runners[picked.id]} error={errors[picked.id]} disabled={busy||enabledBusy||!draft} edit={edit} independent={independent} close={()=>select(undefined)}/>}/>
     {!!(dirty||busy||error)&&<div className="u3-save-bar"><span>{busy?'Saving changes…':dirty?'Unsaved changes':'Changes could not be saved'}</span><div className="u3-actions"><Button disabled={!dirty||busy} onClick={reload}>Discard</Button><Button variant="primary" busy={busy} disabled={!dirty||enabledBusy||!state.connected||!!conflict||Object.keys(errors).length>0} onClick={()=>void save()}>Save changes</Button></div></div>}
@@ -183,30 +190,38 @@ function ExecutorDetail({executor,planner,value,error,disabled,edit,independent,
   const closePanel=()=>{close();queueMicrotask(()=>document.querySelector<HTMLElement>(`[data-details="${CSS.escape(executor.id)}"]`)?.focus());};
   useLayoutEffect(() => {
     const escape = (event:KeyboardEvent) => {
-      if (event.key === 'Escape' && !event.defaultPrevented && !document.querySelector('dialog[open]')) {
-        event.preventDefault(); closePanel();
+      const target = event.target;
+      if (event.key !== 'Escape' || event.defaultPrevented || !(target instanceof Element)) return;
+      const opener = document.querySelector(`[data-details="${CSS.escape(executor.id)}"]`);
+      if (!panel.current?.contains(target) && target !== opener && target !== opener?.closest('tr')) return;
+      // Editable controls and overlays retain Escape; keep the shell's Settings
+      // shortcut from navigating away while those controls own the key.
+      if (event.isComposing || target.closest('input:not([role="switch"]), textarea, select, [contenteditable]:not([contenteditable="false"]), [role="listbox"], [role="menu"], [popover]:popover-open, [role="tooltip"]')) {
+        event.stopPropagation(); return;
       }
+      if (document.querySelector('dialog[open]')) return;
+      event.preventDefault(); closePanel();
     };
     document.addEventListener('keydown', escape);
     return () => document.removeEventListener('keydown', escape);
   }, []);
-  const [switchBusy, setSwitchBusy] = useState(false), [switchError, setSwitchError] = useState<unknown>(), [optimistic, setOptimistic] = useState<boolean>();
+  const [switchBusy, setSwitchBusy] = useState(false), [optimistic, setOptimistic] = useState<boolean>();
   const switching = useRef(false);
   const toggle = async (enabled:boolean) => {
     if (switching.current) return;
-    switching.current = true; setSwitchBusy(true); setSwitchError(undefined); setOptimistic(enabled);
+    switching.current = true; setSwitchBusy(true); setOptimistic(enabled);
     try { await saveEnabled(executor.id, enabled); }
-    catch (failure) { setSwitchError(failure); }
+    catch { /* The page owns immediate-save failure feedback, even after this panel closes. */ }
     finally { switching.current = false; setSwitchBusy(false); setOptimistic(undefined); }
   };
   const readiness=executorEligibility(executor,state.snapshot?.at??Date.now()/1000);
   const blocked=executor.state==='blocked'||executor.eligibility?.reasons.some(r=>r.code==='blocked'), signIn=readiness.detail.includes('Sign-in');
   return <div role="region" aria-label={`${name} details`} tabIndex={-1} ref={panel} className="u3-agent-detail">
     {dialogs.dialog}
-    <div className="u3-agent"><AgentMark agent={executor.agent} size={32}/><div><SectionHeading as="h3" variant="headline">{name}</SectionHeading><code>{executor.id}</code></div><Button size="sm" variant="quiet" aria-label={`Close ${name} details`} onClick={closePanel}><Icon name="close"/></Button></div>
+    <div className="u3-agent"><AgentMark agent={executor.agent} size={32}/><div><SectionHeading as="h2" variant="headline">{name}</SectionHeading><code>{executor.id}</code></div><Button size="sm" variant="quiet" aria-label={`Close ${name} details`} onClick={closePanel}><Icon name="close"/></Button></div>
     {(readiness.tone==='bad'||readiness.tone==='warn')&&<Card tone={readiness.tone==='bad'||executor.state==='failing'?'bad':undefined}><strong>{readiness.label}</strong><p className="u3-muted">{readiness.detail}</p>{(blocked||signIn)&&<div className="u3-actions">{blocked&&<Button size="sm" disabled={action.busy||disabled} onClick={()=>void independent(async()=>{await action.run('runner.unblock',{id:executor.id});})}>Unblock {name}</Button>}{signIn&&<TextAction href={scoped("#/settings/accounts")}>Fix sign-in</TextAction>}</div>}</Card>}
     <dl className="u3-agent-facts"><dt>Account</dt><dd>{executor.account}</dd><dt>Model</dt><dd>{executor.model??'Agent default'}</dd><dt>Runs on</dt><dd>{executor.host?<TextAction href={scoped(`#/settings/hosts/${encodeURIComponent(executor.host)}`)}>{executor.host}</TextAction>:'This machine'}</dd></dl>
-    {!planner&&<SettingRow layout="stacked" label="Takes work" description="Applies now"><Switch aria-label={`Enable ${executor.id}`} checked={optimistic??savedEnabled??executor.enabled} disabled={disabled||switchBusy||!state.connected} aria-busy={switchBusy} onChange={e=>void toggle(e.currentTarget.checked)}/><ErrorMessage error={switchError}/></SettingRow>}
+    {!planner&&<SettingRow layout="stacked" label="Takes work" description="Applies now"><Switch aria-label={`Enable ${executor.id}`} checked={optimistic??savedEnabled??executor.enabled} disabled={disabled||switchBusy||!state.connected} aria-busy={switchBusy} onChange={e=>void toggle(e.currentTarget.checked)}/></SettingRow>}
     {!planner&&<SettingRow layout="stacked" label="Parallel tasks" description={state.snapshot?.machine?.max!==undefined?`This machine's limit is ${state.snapshot.machine.max}.`:'Saved with the page'}><Field label={<span className="sr-only">Parallel tasks for {name}</span>} error={error}><TextInput type="number" min="1" max="16" step="1" required aria-label={`Parallel tasks for ${executor.id}`} value={value?.maxTasks??String(executor.slots.max)} disabled={disabled} onInput={e=>{const text=e.currentTarget.value;edit(d=>{d.runners[executor.id].maxTasks=text;});}}/></Field></SettingRow>}
     <SettingRow layout="stacked" label="Test task" description={executor.lastCheck?`${executor.lastCheck.passed?'Passed':'Failed'} ${time(executor.lastCheck.at)}`:'Not run yet'}><Button size="sm" disabled={action.busy} onClick={()=>void action.run('runner.check',{id:executor.id})}>Run test task<span className="sr-only"> for {name}</span></Button></SettingRow>
     <Feedback action={action}/>

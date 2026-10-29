@@ -182,7 +182,7 @@ browserTest("frame_chrome_measures_to_the_board", async () => {
       const top = q(".pc-topbar"), rail = q(".pc-rail"), status = q(".pc-statusbar"), on = q(".pc-rail__item.on");
       const badge = q(".pc-rail__badge--count"), chip = q(".pc-planner"), toggles = [...document.querySelectorAll(".pc-layout-toggles button")];
       return {
-        top: { h: size(top)[1], pad: css(top).padding, bg: css(top).backgroundColor, card: css(rail).backgroundColor, h1: size(q(".pc-topbar h1")) },
+        top: { h: size(top)[1], pad: css(top).padding, bg: css(top).backgroundColor, card: css(rail).backgroundColor, headings: top.querySelectorAll("h1").length, label: top.getAttribute("aria-label") },
         mark: size(q(".pc-topbar__brand svg")), delegate: (() => { const b = [...document.querySelectorAll(".pc-topbar .pc-btn")].find(x => x.textContent === "New task")!; return [b.className, getComputedStyle(b).backgroundColor, getComputedStyle(document.querySelector(".pc-topbar")!).backgroundColor]; })(), toggleRadius: css(toggles[0]!).borderTopLeftRadius,
         badgeType: [css(badge).fontSize, css(badge).fontWeight, css(badge).color], chip: { h: size(chip)[1], r: css(chip).borderTopLeftRadius, mode: !!chip.querySelector(".pc-pill") },
         toggles: toggles.map(size), names: toggles.map(t => t.getAttribute("aria-label")), group: q(".pc-layout-toggles").getAttribute("aria-label"),
@@ -195,7 +195,8 @@ browserTest("frame_chrome_measures_to_the_board", async () => {
     expect(m.top.h).toBe(44);
     expect(m.top.pad).toBe("0px 10px 0px 8px");
     expect(m.top.bg).toBe(m.top.card);
-    expect(m.top.h1[0]).toBeLessThanOrEqual(1); // visually hidden: the page title stays for assistive technology
+    expect(m.top.headings).toBe(0); // Settings pages supply the h1; the banner retains its name.
+    expect(m.top.label).toBe("Settings");
     expect(m.mark).toEqual([18, 18]);
     expect(m.chip.h).toBe(28);
     expect(m.chip.r).not.toBe("0px");
