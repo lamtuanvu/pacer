@@ -99,12 +99,23 @@ function discoverSession(ctx: Ctx, task: TaskRecord, run: RunRef) {
 export function progressPoller(ctx: Ctx, task: TaskRecord, run: RunRef) {
   const ex = loadExec(ctx), scale = Number(ctx.env.PACER_IDLE_SCALE ?? "1") || 1; // PACER_IDLE_SCALE: test-only
   const idleAfter = (ex.idleAfterS ?? IDLE_AFTER_S) * scale, idleFail = (ex.idleFailS ?? IDLE_FAIL_S) * scale;
-  let files = 0, commits = 0, gitAt = 0, writtenAt = 0, alerted = false;
+  let files = 0, commits = 0, gitAt = 0, writtenAt = 0, alerted = run.idleAlertedAt !== undefined;
   let fingerprint: string | undefined;
-  let waiting = false, controlled = false;
-  let waitKey: string | undefined;
+  let waiting = !!run.waitKey, controlled = false;
+  let waitKey: string | undefined = run.waitKey;
   let resumedAt = 0;
   let prev = readTask(ctx, task.id)?.progress;
+  const remember = (patch: {waitKey?: string | null; idleAlertedAt?: number}) => {
+    if (patch.waitKey === null) delete run.waitKey; else if (patch.waitKey !== undefined) run.waitKey = patch.waitKey;
+    if (patch.idleAlertedAt !== undefined) run.idleAlertedAt = patch.idleAlertedAt;
+    try {
+      updateTask(ctx, task.id, t => {
+        if (t.run?.dir !== run.dir) return;
+        if (patch.waitKey === null) delete t.run.waitKey; else if (patch.waitKey !== undefined) t.run.waitKey = patch.waitKey;
+        if (patch.idleAlertedAt !== undefined) t.run.idleAlertedAt = patch.idleAlertedAt;
+      });
+    } catch { /* alert bookkeeping is best effort */ }
+  };
   return async (s: import("../supervisor/run").RunState): Promise<"continue" | "idle"> => {
     const now = Date.now() / 1000;
     discoverSession(ctx, task, run);
@@ -148,6 +159,7 @@ export function progressPoller(ctx: Ctx, task: TaskRecord, run: RunRef) {
     if (needsInput) {
       if (!waiting) {
         waitKey = `needs-input-${task.id}-${crypto.randomUUID()}`;
+        remember({waitKey});
         try { await publish(ctx, [{type: "alert", data: {key: waitKey!, level: "warn", title: "Task needs input: attach to answer", body: cleanSummary(s.report!.summary).slice(0, 1000), at: Math.floor(now)}}]); } catch { /* best effort */ }
       }
       p.phase = "needs-input";
@@ -155,6 +167,7 @@ export function progressPoller(ctx: Ctx, task: TaskRecord, run: RunRef) {
     if (waiting && !needsInput && waitKey) {
       try { await publish(ctx, [{type: "alert", data: {key: waitKey, level: "info", title: "Task input resumed", body: "The input wait has cleared", at: Math.floor(now)}}]); } catch { /* best effort */ }
       waitKey = undefined;
+      remember({waitKey: null});
     }
     waiting = !!needsInput;
     if (run.takeover) p.phase = "driving";
@@ -171,6 +184,7 @@ export function progressPoller(ctx: Ctx, task: TaskRecord, run: RunRef) {
     }
     if (!conversation && p.phase === "idle" && !alerted) {
       alerted = true;
+      remember({idleAlertedAt: now});
       try {
         await publish(ctx, [{ type: "alert", data: { key: `idle-${task.id}`, level: "warn", title: "Task is idle", body: `${task.brief.goal.slice(0, 120)}: no output or file changes for ${Math.round(idleSeconds(p, run.startedAt, now) / 60)} min`, at: Math.floor(now) } }]);
       } catch { /* alerts are best effort */ }
