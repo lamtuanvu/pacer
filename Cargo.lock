@@ -1013,6 +1013,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "pacer-mdns"
+version = "0.0.0"
+dependencies = [
+ "socket2",
+]
+
+[[package]]
 name = "pacer-plugin"
 version = "0.1.0"
 dependencies = [
