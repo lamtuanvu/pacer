@@ -68,6 +68,7 @@
 .u3-executor-model{display:block;max-width:var(--size-100);overflow-x:auto;white-space:nowrap;font-family:var(--font-mono);font-size:var(--type-code-size)}
 .u3-save-bar{position:sticky;bottom:0;display:flex;justify-content:space-between;align-items:center;gap:var(--space-3);padding:var(--space-3);margin-block:var(--space-3);background:var(--surface-card);border:1px solid var(--line);border-radius:var(--radius-md);z-index:var(--layer-sticky)}
 @media(max-width:700px){.u3-save-bar{flex-wrap:wrap}.u3-executor-model{max-width:100%}}
+.u3-save-status:focus-visible{outline:var(--stroke-focus) solid var(--focus);outline-offset:var(--stroke-focus);border-radius:var(--radius-sm)}
 
 .pc-app--narrow .u3-save-bar{bottom:calc(var(--size-56) + env(safe-area-inset-bottom))}
 

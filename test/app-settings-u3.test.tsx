@@ -9,6 +9,7 @@ import { clock } from "../src/view-model/format";
 import { renderToString } from 'preact-render-to-string';
 import { TaskContext } from '../app/src/screens/task-shared';
 import { initialState } from '../app/src/data/store';
+import { machineNow } from '../app/src/screens/settings/Machines';
 import { SettingsGeneral, AddExecutor, MachineSection, HostDetail, JobProgress, executorId, executorReady, performOperation } from '../app/src/screens/settings/index';
 import { settings, host, executor, job } from './fixtures/ui/settings';
 const state = {...initialState(),snapshot:{executors:[executor],accounts:[],hosts:[{...host,executors:[executor.id],repos:1}],planner:{agent:'codex',runner:'codex#team',advice:'Keep planning'},repos:[]} as any};
@@ -183,6 +184,26 @@ test('General exposes named parallel tasks controls and shared capacity notes',(
  expect(html).not.toContain('>Slots<');
  const planner=render(<SettingsGeneral section="executors" initialData={settings}/>,{...state,snapshot:{...state.snapshot,executors:[{...limited,rank:'planner'}]}});
  expect(planner).not.toContain('Parallel tasks for '+executor.id);
+});
+test('This machine shows the guard state now and no limit by default',()=>{
+ const machine={used:3,max:Number.MAX_SAFE_INTEGER,hardCap:null,unlimited:true,memoryPressure:'critical' as const,memoryPressureLimit:'critical' as const,loadPerCore:4.92,loadLimit:null,open:false,reason:'machine_memory_pressure' as const,detail:'memory pressure critical'};
+ const html=render(<SettingsGeneral section="machine" initialData={settings}/>,{...state,snapshot:{...state.snapshot,machine}});
+ expect(html).toContain('Now: memory pressure critical · load 4.9 per core · new tasks wait: memory pressure critical');
+ // The running count is the card badge only (UI-15).
+ expect(html).toContain('Running 3');
+ expect(html).not.toContain('3 running');
+ expect(html).toContain('No limit');
+ expect(html).toContain('Hold new tasks at memory pressure');
+ expect(html).toContain('Load limit per CPU core');
+ const unavailable=render(<SettingsGeneral section="machine" initialData={settings}/>,{...state,snapshot:{...state.snapshot,machine:{used:0,max:4,hardCap:4,unlimited:false,memoryPressure:null,loadPerCore:null,open:true,detail:'memory pressure signal unavailable'}}});
+ expect(unavailable).toContain('Now: memory pressure unavailable<');
+ expect(unavailable).not.toContain('0 running');
+ expect(machineNow(undefined)).toBeNull();
+ const overview=render(<SettingsGeneral initialData={settings}/>,{...state,snapshot:{...state.snapshot,machine}});
+ expect(overview).toContain('No limit');
+ // The legacy max stands in for "no cap" for 3.0 clients and is never shown.
+ for(const page of [html,overview])expect(page).not.toContain(String(Number.MAX_SAFE_INTEGER));
+ expect(render(<SettingsGeneral initialData={settings}/>,{...state,snapshot:{...state.snapshot,machine:{used:0,max:3}}})).toContain('3 parallel');
 });
 test('board pages render their headline and other editors retain shell titles', () => {
  expect(render(<SettingsGeneral section="planner" initialData={settings}/>)).toContain('<h1>Budget &amp; pacing</h1>');

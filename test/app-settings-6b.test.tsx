@@ -205,13 +205,20 @@ test('Machines uses the board cards and only reports known local facts and execu
   expect(html).toContain('pacer 0.11.0');
   expect(html).toContain('pc-pill--good');
   expect(html).toContain('may use 3');
-  expect(html).toContain('u3-parallel-input');
+  // The default is no limit; the number field appears only for a hard cap.
+  expect(html).toContain('aria-label="Parallel task limit"');
+  expect(render(<SettingsGeneral section="machine" initialData={{...settings,config:{...settings.config!,keys:{...settings.config!.keys,'execution.local_max_tasks':{value:4}}}}} />, withState({}))).toContain('u3-parallel-input');
   expect(html).toContain('~/.pacer/worktrees');
   expect(html).toContain('u3-terminal-picker');
   for (const absent of ['macOS 27','arm64']) expect(html).not.toContain(absent);
   const empty=render(<SettingsGeneral section="machine" initialData={settings}/>,withState({machine:{used:0,max:4}}));
   expect(empty).toMatch(/pc-pill--neutral[^>]*>Running 0 of 4/);
   expect(empty).toContain('Every executor may use the machine limit.');
+  const atLimit = render(<SettingsGeneral section="machine" initialData={settings}/>,withState({machine:{used:0,max:4,hardCap:4,unlimited:false},executors:[{...executor,host:null,slots:{used:0,max:4}}]}));
+  expect(atLimit).not.toContain('may use 4');
+  const uncapped = render(<SettingsGeneral section="machine" initialData={settings}/>,withState({machine:{used:0,max:Number.MAX_SAFE_INTEGER,hardCap:null,unlimited:true}}));
+  expect(uncapped).toContain('No fixed machine limit; new tasks wait under memory pressure or over the load limit.');
+  expect(uncapped).not.toContain(String(Number.MAX_SAFE_INTEGER));
 });
 
 test('Add host offers aliases without invented HostName captions and waits for a passed check', () => {

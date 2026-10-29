@@ -5,6 +5,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 ## [Unreleased]
 
 ### Changed
+
 - Unify routed pages around uncapped desktop gutters and a 36px title bar with consistent layout controls and New task navigation. Rebuild the workspace terminal as a resizable, persistent panel with inline tab rename, floating Find and side-by-side splits.
 - Added task failure inspection and result review routes with retry feedback, changed-file diffs, and recorded verdicts.
 
@@ -18,6 +19,18 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - Show rounded percentages, friendly agent and account names, clear readiness reasons and weekly usage in Settings and Work. Show bundled plugin names, versions and descriptions. Keep technical eligibility details in tooltips and hide the unimplemented command-menu open-beside shortcut.
 - Keep resolved failed tasks retryable, retain brief editing when retry is unavailable, show remaining attention after acceptance, and offer result file preview only for a current local direct run.
 
+### Added
+
+- Save app density on this device, filter SSH alias rows with their hostnames, show detected session terminals and machine platform details, restore the worktree row, and include elapsed time and a copy action in Diagnostics. App updates link to release notes and show the last check time.
+- Describe trace token usage by executor work and distinguish routing-only candidate records from stored dispatch decisions.
+- Add a root task Dispatch trace page with recorded decisions, subtasks, token accounting, candidates and acceptance evidence. Open it from Tasks or the session header.
+- Rebuild Needs you as a tabbed waiting list and add a keyboard-accessible Answer side panel. Answer links from Dispatch and the tray open the question directly; review, failure and trace links target their task pages.
+- Keep the assistant reachable before setup and while capacity is unavailable. Choose an endpoint explicitly in the setup sheet; App preferences can hide the floating button or keep the aurora still while the keyboard shortcut remains available. The button follows the open terminal dock.
+
+## [0.12.0] - 2026-10-29
+
+### Fixed
+
 - Keep every Accounts column visible in narrow Settings containers with labelled cards, align its desktop columns with the board, and show More actions only for existing sign-in or refresh help. Give Agents and Accounts continuous table header bands and Add agent navigation links full touch targets.
 
 - Keep Add agent steps and forms contained at tablet and phone settings widths. Agents uses five columns with visible More actions controls, moves priority editing into details, and shows labelled cards in narrow containers. Restore Machines board rows and responsive cards, enlarge touch targets, and frame unknown-host errors with a link back to Machines.
@@ -25,12 +38,6 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - Settings pages expose one page heading. Agent details use a section heading, preserve task-limit edits on Escape, restore focus when closed, and report Takes work failures above the table even after closing details. Add agent focuses and announces newly detected agents after Check again.
 
 ### Added
-
-- Save app density on this device, filter SSH alias rows with their hostnames, show detected session terminals and machine platform details, restore the worktree row, and include elapsed time and a copy action in Diagnostics. App updates link to release notes and show the last check time.
-- Describe trace token usage by executor work and distinguish routing-only candidate records from stored dispatch decisions.
-- Add a root task Dispatch trace page with recorded decisions, subtasks, token accounting, candidates and acceptance evidence. Open it from Tasks or the session header.
-
-- Rebuild Needs you as a tabbed waiting list and add a keyboard-accessible Answer side panel. Answer links from Dispatch and the tray open the question directly; review, failure and trace links target their task pages.
 
 - Add a New task composer at `#/tasks/new`, opened with ⌘N (Ctrl+N elsewhere). Write the request, attach files or mention paths, pick the repository, where it runs, the kind and acceptance checks, optionally send it to a specific agent, and delegate with ⌘↵. A "Will go to" card previews the route with the read-only `dispatch.explain` op and says so when the connected service doesn't offer it yet. When supported by the connected service, From an issue searches and imports issues as plain text with a visible source note. The routing preview distinguishes queued work from a task with no eligible agent. Below 560px the composer is a full-screen sheet whose rows open their own choice sheets. The draft is kept until the task starts.
 - Extend Claude Code's planner delegation guard from the Agent/Task subagent hook to the Bash tool: it now also blocks a shell command that starts a known executor CLI (`claude`, `codex`, `pi`, `opencode`) with `PACER_ROLE=executor` or a pacer-managed `CLAUDE_CONFIG_DIR`/`CODEX_HOME`, pointing to `pacer delegate` instead — recognized through `env`/`exec`, an `export` earlier in the same command, and `bash -c`/`sh -c`, not just the bare inline form. Same exemptions as the subagent guard (`PACER=off`, relaxed mode, executor sessions, no eligible alternative executor); a strict-managed executor's own Bash use stays unaffected. This is a best-effort pattern match on the command text, not a shell-level security boundary, and it now runs `pacer guard` on every Bash call rather than only Agent/Task. See [Terminal and servers](docs/install.md#terminal-and-servers).
@@ -42,7 +49,6 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - Record private, bounded OTA request-stage diagnostics in live validation evidence while preserving fixture authorization and HTTP behavior.
 - Add the Insights screen and the read operation `insights.summary`: root tasks handled, subtasks, retries, accepted first try, tokens with coverage, the spread per agent, a daily series, task kinds by agent and the dispatcher's ladder rules and skip reasons, compared with the previous period. Workload counts use distinct roots and child tasks from attempts ended in the period, matching the union of the agent rows. Acceptance and retry counts retain the first-settle cohort. Narrow chart labels no longer collide; Insights table columns, frame and period control follow the board.
 
-- Keep the assistant reachable before setup and while capacity is unavailable. Choose an endpoint explicitly in the setup sheet; App preferences can hide the floating button or keep the aurora still while the keyboard shortcut remains available. The button follows the open terminal dock.
 - Add the always-on assistant: ask about tasks, dispatch, executors and budgets from anywhere with ⌘J (Ctrl-J elsewhere). It runs on the endpoint account you choose in Settings › Assistant, reads pacer's own data through fixed read tools with secrets and free task text removed, and can only propose actions (retry, stop, answer, pause, resume, a prefilled New task) that run after you press the card's button. New `assistant` plugin extension point (plugin protocol 1.3.0, bundled `pacer-assistant`, bundled-only until installed plugins are sandboxed), client protocol additions `assistant.*` with an ephemeral per-turn stream at `/v3/assistant/turns/<id>/stream` (the answer arrives as one frame until plugins can stream), an `assistant` event that carries no text, and `pacer ask` (outside executor sessions; executors keep their question). New design-system `AuroraSheet`. The ⌘K `?` mode is wired by the command menu through `assistantEntry` in a follow-up.
 - Match the tray board with a pinned footer, paused delegation banner, compact task lists, and New task (⌘N) opening the New task composer at #/tasks/new; the planner name stays readable at narrow widths (the pace label truncates first).
 - Add the Plugins settings page, host-drawn plugin settings pages, the Extend settings navigation group and the activity-bar Plugins section.
@@ -76,6 +82,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Changed
 
+- Run local tasks without a fixed cap by default. `execution.local_max_tasks` is now optional (`unlimited` by default; a whole number of at least 1 still sets a hard cap, with no upper ceiling), and new local tasks wait only while macOS memory pressure reaches `execution.local_memory_pressure_limit` (`critical` by default, or `warning`/`off`) or the load per CPU core exceeds the optional `execution.local_load_limit`. Running tasks are never stopped. Waits report `machine_memory_pressure` or `machine_load` with the observed value, the snapshot `machine` row adds `hardCap` (null without a fixed cap), `unlimited` and the guard state, and Settings › This machine and the TUI edit and show it. Existing numeric caps keep working. `machine.max` stays a number but is deprecated; without a fixed cap it is `Number.MAX_SAFE_INTEGER` so older clients' free-slot arithmetic still works, and clients should read `hardCap`/`unlimited` instead. Client compatibility: protocol 3 clients must accept the string `"unlimited"` from `config.get` for `execution.local_max_tasks`, and the new queue reasons; the 2.x compatibility snapshot keeps `machine.max` numeric (the sum of the local executors' own limits when there is no fixed cap).
 - Complete the Agents, Accounts, Machines and Add agent board headings. Machines uses shared board rows within its cards. Takes work now saves immediately without saving other draft edits, reports failures inline, and restores its saved value on failure. Escape closes agent details and restores row focus. Missing agents can retry detection; failed host checks link to host management for recovery.
 
 - `pacer --version` and `pacer status --line` are answered by the Rust front door without starting the core, so shell prompts and status bars that call them return faster.

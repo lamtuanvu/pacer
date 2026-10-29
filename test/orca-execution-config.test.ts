@@ -4,14 +4,14 @@ import { validateStrategy } from "../src/config/strategy";
 
 test("idle minutes: optional integers, fail after idle", () => {
   expect(validateExecution({ idle_after_min: 5, idle_fail_min: 20 })).toMatchObject({ idleAfterS: 300, idleFailS: 1200 });
-  expect(validateExecution(undefined)).toEqual({ localMaxTasks: 2, backend: "auto", worktree: "child-of-current", baseBranch: null });
+  expect(validateExecution(undefined)).toEqual({ localMaxTasks: null, localMemoryPressureLimit: "critical", localLoadLimit: null, backend: "auto", worktree: "child-of-current", baseBranch: null });
   for (const bad of [{ idle_after_min: 0 }, { idle_fail_min: 1.5 }, { idle_after_min: 30, idle_fail_min: 10 }, { idle_after_min: "5" }]) {
     expect(() => validateExecution(bad)).toThrow(ExecutionError);
   }
 });
 
 test("a missing or empty execution section uses the defaults", () => {
-  expect(validateExecution(undefined)).toEqual({ localMaxTasks: 2, backend: "auto", worktree: "child-of-current", baseBranch: null });
+  expect(validateExecution(undefined)).toEqual({ localMaxTasks: null, localMemoryPressureLimit: "critical", localLoadLimit: null, backend: "auto", worktree: "child-of-current", baseBranch: null });
   expect(validateExecution(null)).toEqual(DEFAULT_EXECUTION);
   expect(validateExecution({})).toEqual(DEFAULT_EXECUTION);
   const s = validateStrategy({ planner: "claude-code", providers: { "claude-code": {} } }, "/x");
@@ -20,7 +20,7 @@ test("a missing or empty execution section uses the defaults", () => {
 
 test("valid values are read", () => {
   expect(validateExecution({ backend: "orca", worktree: "current", base_branch: "origin/main" }))
-    .toEqual({ localMaxTasks: 2, backend: "orca", worktree: "current", baseBranch: "origin/main" });
+    .toEqual({ localMaxTasks: null, localMemoryPressureLimit: "critical", localLoadLimit: null, backend: "orca", worktree: "current", baseBranch: "origin/main" });
   expect(validateExecution({ backend: "direct" }).backend).toBe("direct");
   const s = validateStrategy({ planner: "claude-code", providers: { "claude-code": {} }, execution: { worktree: "current" } }, "/x");
   expect(validateExecution(s.execution).worktree).toBe("current");
@@ -60,4 +60,21 @@ test("repository registration is opt-in and child-of-current is supported",()=>{
 test("explicit base_branch preserves new-child default unless worktree is explicit",()=>{
  expect(validateExecution({base_branch:"release"})).toMatchObject({worktree:"new-child",baseBranch:"release"});
  expect(validateExecution({base_branch:"release",worktree:"child-of-current"}).worktree).toBe("child-of-current");
+});
+
+test("local capacity: unlimited by default, explicit caps kept, guard settings validated", () => {
+  expect(validateExecution({}).localMaxTasks).toBeNull();
+  expect(validateExecution({ local_max_tasks: "unlimited" }).localMaxTasks).toBeNull();
+  // Existing strategies with a numeric cap keep it, including caps above the old 16 ceiling.
+  expect(validateExecution({ local_max_tasks: 3 }).localMaxTasks).toBe(3);
+  expect(validateExecution({ local_max_tasks: 40 }).localMaxTasks).toBe(40);
+  for (const bad of [0, -1, 1.5, "4", "none", true]) expect(() => validateExecution({ local_max_tasks: bad })).toThrow("execution.local_max_tasks must be a whole number");
+  for (const limit of ["critical", "warning", "off"] as const) expect(validateExecution({ local_memory_pressure_limit: limit }).localMemoryPressureLimit).toBe(limit);
+  expect(() => validateExecution({ local_memory_pressure_limit: "high" })).toThrow("execution.local_memory_pressure_limit must be critical, warning or off");
+  expect(validateExecution({ local_load_limit: "off" }).localLoadLimit).toBeNull();
+  expect(validateExecution({ local_load_limit: 2.5 }).localLoadLimit).toBe(2.5);
+  for (const bad of [0, -1, "3", Number.NaN]) expect(() => validateExecution({ local_load_limit: bad })).toThrow("execution.local_load_limit must be a positive number");
+  const s = validateStrategy({ planner: "claude-code", providers: { "claude-code": {} }, execution: { local_max_tasks: "unlimited", local_memory_pressure_limit: "warning", local_load_limit: 3 } }, "/x");
+  expect(validateExecution(s.execution)).toMatchObject({ localMaxTasks: null, localMemoryPressureLimit: "warning", localLoadLimit: 3 });
+  expect(() => validateStrategy({ planner: "claude-code", providers: { "claude-code": {} }, execution: { local_max_tasks: 0 } }, "/x")).toThrow("execution.local_max_tasks must be a whole number");
 });

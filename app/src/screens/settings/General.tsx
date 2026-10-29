@@ -48,6 +48,7 @@ import {
   accountUsageFreshness,
   capacityNote,
   executorReadiness,
+  machineHardCap,
 } from "../../../../src/view-model/capacity";
 import { desktopHost } from "../../data/desktop";
 import { applyTheme, THEME_KEY, type ThemeChoice } from "../../theme";
@@ -204,7 +205,7 @@ function GeneralOverview({ query, initialData }: { query: RouteQuery; initialDat
   if (executors) tiles.push({ label: "Agents", value: `${snapshot?.planner ? `${executorLabel(snapshot.planner.agent)} plans · ` : ""}${executors.length} executors`, note: ready.length ? `${ready.length} ready to take work` : "No executors ready", page: "executors" });
   if (setup) tiles.push({ label: "Dispatcher", value: `Saved setup ${setup.name}`, note: setup.summary, page: "dispatcher" });
   if (value("pacing.planner_reserve") != null) tiles.push({ label: "Budget", value: `${percentage(Number(value("pacing.planner_reserve")))} planner reserve`, note: [value("pacing.accounts") ? `${words(String(value("pacing.accounts")))} accounts` : "", value("pacing.fill_threshold") != null ? `move on at ${percentage(Number(value("pacing.fill_threshold")))}` : ""].filter(Boolean).join(" · "), page: "planner" });
-  if (snapshot?.machine) tiles.push({ label: "Machines", value: `${snapshot.machine.max} parallel`, note: snapshot.hosts ? `${snapshot.hosts.length} remote hosts` : undefined, page: "machine" });
+  if (snapshot?.machine) tiles.push({ label: "Machines", value: machineHardCap(snapshot.machine) === null ? "No limit" : `${machineHardCap(snapshot.machine)} parallel`, note: snapshot.hosts ? `${snapshot.hosts.length} remote hosts` : undefined, page: "machine" });
   return <div className="pc-settings-board pc-settings-board--overview">
     <header className="pc-settings-board__header"><h1>Overview</h1><p>What pacer needs before it can dispatch freely.</p></header>
     {executors && <Card tone="sunken"><div className="pc-readiness-summary">
