@@ -51,6 +51,13 @@ test("configured hooks never imply Claude host invocation", () => {
   expect(checks.find(c => c.name === "Claude guard scope")?.detail).toContain("direct edits");
 });
 
+test("doctor accepts the new SessionStart command", () => {
+  const { ctx, settings, save } = fixture();
+  settings.hooks.SessionStart[0].hooks[0].command = "pacer msg hook session --planner claude-code";
+  save();
+  expect(claudeHookChecks(ctx).find(c => c.name === "Claude hook configuration")?.evidence).toBe("configured");
+});
+
 test("disabled, malformed, partial and wrong matcher settings cannot pass configuration", () => {
   for (const change of [
     (s: any) => { s.disableAllHooks = true; },

@@ -13,6 +13,7 @@ import { isObj } from "../util";
 import { defaultHooks } from "../classify/hooks";
 import { runGuard } from "../guard/guard";
 import { renderHook } from "../render/hook";
+import { sessionHook } from "../messaging/identity";
 import { loadStrategy, MissingStrategyError } from "../config/strategy";
 import { readScheduleState, attemptHold, plannerScheduleKey } from "../dispatch/certification-schedule";
 
@@ -71,7 +72,7 @@ export function claudeHookChecks(ctx: Ctx, strategy?: Strategy): Check[] {
             if (!available) missingExecutable = true;
             return available;
           })));
-      const session = has("SessionStart", "status --hook claude-code");
+      const session = has("SessionStart", "status --hook claude-code") || has("SessionStart", "msg hook session --planner claude-code");
       const guard = has("PreToolUse", "guard --planner claude-code", "Agent|Task|Bash");
       configured = settings.disableAllHooks !== true && session && guard && !missingExecutable;
       issue = missingExecutable ? "A registered hook command executable is missing or not executable. Reconnect the selected integration after restoring the command. No settings commands were executed."
@@ -120,7 +121,7 @@ export async function probeClaudeHandlers(): Promise<Check> {
     if (await runGuard(ctx, "claude-code", JSON.stringify({ tool_name: "Agent", tool_input: { subagent_type: "general-purpose" } }), deps) !== "") {
       throw Error("uncertain alternative allow probe failed");
     }
-    const session = JSON.parse(renderHook(status, "claude-code"));
+    const session = JSON.parse((await sessionHook(ctx, "claude-code", { session_id: "probe" }, async () => renderHook(status, "claude-code"))).out);
     if (session.hookSpecificOutput?.hookEventName !== "SessionStart" || !session.hookSpecificOutput.additionalContext.includes("Subscription budget")) throw Error("session context probe failed");
     return { name: "Claude handler probes", level: "ok", evidence: "tested", detail: "Tested working in isolated fixtures: Agent and Task deny, a Bash executor-launch deny, exploration and direct-edit allow, session context JSON. Tests this build’s handlers only; installed command launch and Claude host firing remain unverified." };
   } catch {

@@ -240,7 +240,7 @@ export async function installClaude(tx: PlannerBuilder): Promise<void> {
     settings = editClaudeSettings(
       await tx.read(settingsPath),
       {
-        session: `${command} status --hook claude-code`,
+        session: `${command} msg hook session --planner claude-code`,
         guard: `${command} guard --planner claude-code`,
         statusline: `${command} statusline`,
       },
