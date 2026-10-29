@@ -14,6 +14,7 @@ import { updateModel } from "../../model/settings";
 import { desktopUpdateModel } from "../../../../src/view-model/updates";
 import { SettingRow } from "../../ds/SettingRow";
 import { Feedback, ResourceState, time, useOperation, useResource, useSettingsStyles } from "./shared";
+import { RunningWork } from "./RunningWork";
 
 /** Offers a line break after each `/`, so long paths wrap between segments rather than mid-name. */
 function PathText({ path }: { path: string }) {
@@ -83,7 +84,7 @@ export function UpdatesSection({ initialData, initialConfig }: { initialData?: U
   return updates?.length ? <DesktopUpdates updates={updates} serviceVersion={state.version ?? initialData?.current} initialConfig={initialConfig}/> : <LegacyUpdatesSection initialData={initialData} initialConfig={initialConfig}/>;
 }
 function DesktopUpdates({ updates, serviceVersion, initialConfig }: { updates: UpdateStatus[]; serviceVersion?: string | null; initialConfig?: ConfigData }) {
-  return <section id="updates" className="pc-preferences-section" aria-labelledby="updates-h"><h2 id="updates-h" className="pc-settings-board__label">Updates</h2>{serviceVersion && <p>Service {serviceVersion}</p>}{updates.map(status => <DesktopUpdate key={status.installationId} status={status} showIdentity={updates.length > 1}/>) }<AutomaticUpdateCheck initialData={initialConfig}/></section>;
+  return <section id="updates" className="pc-preferences-section" aria-labelledby="updates-h"><h2 id="updates-h" className="pc-settings-board__label">Updates</h2>{serviceVersion && <p>Service {serviceVersion}</p>}<RunningWork/>{updates.map(status => <DesktopUpdate key={status.installationId} status={status} showIdentity={updates.length > 1}/>) }<AutomaticUpdateCheck initialData={initialConfig}/></section>;
 }
 export interface UpdateReport {
   current: string;
@@ -159,6 +160,7 @@ function LegacyUpdatesSection({initialData, initialConfig}: {initialData?: Updat
         <Button size="sm" busy={action.busy} onClick={() => void action.run('update.check', {force:true})}>Check now</Button>
       </div>
     </SettingRow>}</ResourceState>
+    <RunningWork/>
     <AutomaticUpdateCheck busy={action.busy} initialData={initialConfig}/>
     <Feedback action={action}/>
   </section>;

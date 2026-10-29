@@ -14,6 +14,7 @@ import { routes } from "../../router";
 import { LazyTerminal } from "../../term/LazyTerminal";
 import { ErrorMessage, useTaskContext } from "../task-shared";
 import { pendingAfterFailure, terminalRequest, type TerminalRequest } from "./request";
+import { ReopenToUpdate } from "../session/ReopenToUpdate";
 
 /** `embedded` renders inside the terminal dock: no page gutters, and tab choice stays local instead of changing the route. */
 export function TerminalScreen({ id: routeId, query, embedded = false }: { id?: string; query: RouteQuery; embedded?: boolean }) {
@@ -112,6 +113,7 @@ export function TerminalScreen({ id: routeId, query, embedded = false }: { id?: 
 
   const pane = (tab: TerminalRecord) => <div key={tab.id} className="pc-workspace-terminal__pane" role="region" aria-label={`Terminal: ${tab.title}`}>
     <div className="pc-workspace-terminal__pane-title"><strong title={tab.title}>{tab.title}</strong><span title={tab.cwd}>{tab.cwd}</span></div>
+    {tab.live && <ReopenToUpdate host={tab.hostVersion} />}
     <LazyTerminal key={tab.id} id={tab.id} url={tab.attach.ws} label="pacer terminal" cols={tab.cols} rows={tab.rows} control resize live={tab.live} shell />
   </div>;
 

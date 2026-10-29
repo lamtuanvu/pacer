@@ -27,6 +27,7 @@ import { plannerSessionStatus } from "./install/role";
 import type { AgentId } from "./config/accounts";
 import { resolveRunner } from "./config/runner-id";
 import { readUpdateCheck, updateLine } from "./update/check";
+import { runningWork, runningWorkLines } from "./service/running-work";
 import { runDashboard } from "./dashboard/cli";
 import { setupCmd, SETUP_USAGE } from "./commands/setup";
 import { parseDelegateKind } from "./commands/delegate-kind";
@@ -208,7 +209,8 @@ async function status(args: string[], ctx: Ctx): Promise<Result> {
     const st = mode === "hook" ? await plannerSessionStatus(ctx, planner as AgentId) : await computeStatus(ctx, loadStrategy(ctx));
     if (mode === "json") return { code: 0, out: JSON.stringify(st, null, 1), err: "" };
     if (mode === "hook") return { code: 0, out: renderHook(st, planner!), err: "" };
-    return { code: 0, out: [renderText(st), updateLine(readUpdateCheck(ctx))].filter(Boolean).join("\n"), err: "" };
+    const work = await runningWork(ctx).then(runningWorkLines, () => [] as string[]);
+    return { code: 0, out: [renderText(st), ...work, updateLine(readUpdateCheck(ctx))].filter(Boolean).join("\n"), err: "" };
   } catch (e) {
     // Status line and hooks run inside other tools: never fail them.
     if (mode === "line") return lineResult(null);
