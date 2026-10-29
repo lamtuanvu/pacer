@@ -1,3 +1,4 @@
+import { agentKey, markAgent } from "../../../../src/view-model/agents";
 import { settingsText } from "./presentation";
 import { executorLabel } from "../../../../src/view-model/words";
 import { ChoiceCard, FilterChip, TextRow, RadioChoices } from "../../ds/Patterns";
@@ -102,7 +103,7 @@ export function AddExecutor({ host: prefillHost = "", initialDraft = {}, initial
             const found = detected.data?.find(a => a.agent === agent.id);
             return <ChoiceCard layout="agent" key={agent.id} id={`agent-choice-${agent.id}`} aria-pressed={draft.agent === agent.id}
               onClick={() => patch({ agent: agent.id, account: "", host: REMOTE_AGENTS.includes(agent.id) ? draft.host : "" })}>
-              <span className="u3-agent-choice-title"><AgentMark agent={agent.id} size={28} /><strong>{agent.name}</strong>{draft.agent === agent.id && <span className="u3-selected-check" aria-hidden="true">✓</span>}</span><span className="u3-muted">{agent.tagline}</span>
+              <span className="u3-agent-choice-title"><AgentMark agent={agent.id} size={28} labelled={false} /><strong>{agent.name}</strong>{draft.agent === agent.id && <span className="u3-selected-check" aria-hidden="true">✓</span>}</span><span className="u3-muted">{agent.tagline}</span>
                 <Pill tone={found?.found ? "good" : "neutral"}>{state.snapshot?.planner?.agent === agent.id ? "Planner" : state.snapshot?.executors?.some(executor => executor.agent === agent.id) ? "Already added" : found?.found ? "Installed" : "Not installed · how to install"}</Pill>
                 {found && !found.found && found.install_hint && <span className="u3-muted">Install: <code>{found.install_hint}</code></span>}
             </ChoiceCard>;
@@ -111,11 +112,11 @@ export function AddExecutor({ host: prefillHost = "", initialDraft = {}, initial
         </>}
         {step === 2 && <>
           <div className="u3-step-heading"><SectionHeading variant="headline" id="agent-step-heading" tabIndex={-1}>Which account pays for it?</SectionHeading><p className="u3-muted">pacer uses the agent’s own sign-in and never copies it.</p></div>
-          {!accountRequired(draft.agent) ? <RadioChoices layout="options" name="agent-own-account" label="Account" value="own" onChange={() => {}} options={[{ value: "own", label: <><strong>{name}’s own signed-in account</strong><span className="u3-muted">Uses the agent’s own sign-in. pacer never copies it.</span></> }]} /> : <>
+          {!accountRequired(draft.agent) ? <RadioChoices layout="options" name="agent-own-account" label="Account" value="own" onChange={() => {}} options={[{ value: "own", label: <><span className="u3-agent"><AgentMark agent={draft.agent} size={16} labelled={false} /><strong>{name}’s own signed-in account</strong></span><span className="u3-muted">Uses the agent’s own sign-in. pacer never copies it.</span></> }]} /> : <>
             <p className="u3-muted">Two executors can share an account; they share its quota.</p>
             <ResourceState resource={accounts} empty="No accounts yet. Add one below.">
               {compatible.length ? <RadioChoices layout="options" name="agent-account" label="Account" value={draft.account} onChange={account => patch({ account })}
-                options={compatible.map(account => ({ value: account.name, label: <><strong>{account.name}</strong><span className="u3-muted">{name}’s own sign-in · {accountStatus(account).label}</span></> }))} /> : <p>No accounts for this agent yet.</p>}
+                options={compatible.map(account => ({ value: account.name, label: <><span className="u3-agent"><AgentMark agent={agentKey(markAgent(draft.agent, account.name)) ?? "opencode"} size={16} labelled={false} /><strong>{account.name}</strong></span><span className="u3-muted">{name}’s own sign-in · {accountStatus(account).label}</span></> }))} /> : <p>No accounts for this agent yet.</p>}
             </ResourceState>
             {draft.agent === "opencode" && !urlForm
               // The OpenCode account and its executor are created together; step 4 then runs the test task as the check.

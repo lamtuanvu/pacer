@@ -1,3 +1,4 @@
+import { agentKey, markAgent } from "../../../../src/view-model/agents";
 import { useFrame } from "../../shell/slots";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { RepoRef } from "../../../../src/api/read-model/types";
@@ -255,10 +256,10 @@ function AgentChoices({ p }: { p: ViewProps }) {
   const options = agentOptions(p.routing, row => routingStatus(row as never), p.accounts);
   const plannerAgent = p.planner?.agent ?? "claude-code";
   return <RadioGroup label="Agent for this task" className="pc-new-task__agents">
-    <OptionRow checked={!p.draft.executor} onSelect={() => p.set({ executor: "" })} leading={<AgentMark agent={plannerAgent} size={20} labelled={false} />}
+    <OptionRow checked={!p.draft.executor} onSelect={() => p.set({ executor: "" })} leading={<AgentMark agent={plannerAgent} size={16} labelled={false} />}
       title="Let pacer decide" sub="Recommended · uses your dispatcher setup" pill={{ label: "Default", tone: "neutral" }} />
     {options.map(option => <OptionRow key={option.executor} checked={p.draft.executor === option.executor} disabled={!option.available}
-      onSelect={() => p.set({ executor: option.executor })} leading={<AgentMark agent={option.agent} size={20} labelled={false} />}
+      onSelect={() => p.set({ executor: option.executor })} leading={<AgentMark agent={agentKey(markAgent(option.executor)) ?? "opencode"} size={16} labelled={false} />}
       title={option.name} sub={option.sub} pill={option.pill} />)}
   </RadioGroup>;
 }

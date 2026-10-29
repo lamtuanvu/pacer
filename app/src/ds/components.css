@@ -178,6 +178,7 @@ a.pc-btn{text-decoration:none}
 .pc-choice-picker--normal .pc-choice-picker__trigger{min-height:var(--control-normal)}
 .pc-choice-picker--settings .pc-choice-picker__trigger{min-height:var(--control-settings)}
 .pc-choice-picker--touch .pc-choice-picker__trigger{min-height:var(--control-touch)}
+.pc-choice-picker__identity{display:flex;align-items:center;gap:var(--space-2);min-width:0}
 .pc-choice-picker__value{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pc-choice-picker__chevron{flex:none;width:var(--space-2);height:var(--space-2);border-right:1px solid currentColor;border-bottom:1px solid currentColor;transform:rotate(45deg) translateY(calc(-1 * var(--space-half)))}
 .pc-choice-picker__trigger[aria-invalid=true]{border-color:var(--bad-fg)}
