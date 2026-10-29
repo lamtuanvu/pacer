@@ -29,7 +29,7 @@ export function homeModel(snapshot: ClientSnapshot, runners: Runner[], accounts:
     attention.splice(0, attention.length, ...needsYou(snapshot, {repo:null}).map(item => {
       const navigation = item.actions.find(action => action.op === "ui.open");
       const view = navigation?.params.view;
-      const href = view === "review" || view === "task" ? taskHref(String(navigation?.params.id ?? item.taskId ?? "")) : view === "settings" ? "#/settings" : item.taskId ? taskHref(item.taskId) : "#/settings";
+      const href = view === "review" || view === "task" ? taskHref(String(navigation?.params.id ?? item.taskId ?? "")) + (navigation?.params.tab === "answer" ? "?tab=answer" : "") : view === "settings" ? "#/settings" : item.taskId ? taskHref(item.taskId) : "#/settings";
       return { key: item.id, label: ({ question: "Question", review: "Review", failed: "Failed", limit: "Limit", stuck: "Stuck", account_signin: "Sign in", executor_down: "Not working", host_down: "Host down", planner_quota: "Planner quota", setup: "Setup", update: "Update", message: "Waiting on you" } as Record<string, string>)[item.kind] ?? item.kind, tone: (item.severity === "blocked" ? "bad" : item.severity === "problem" ? "warn" : "info") as Tone, title: item.title, detail: item.detail, href, actions: item.actions };
     }));
   }

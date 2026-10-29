@@ -18,7 +18,7 @@ test("a question to the human surfaces as attention", () => {
   expect(apiTask(ctx, readTask(ctx, t.id)!).messages?.unreadForHuman).toBe(1);
   const item = deriveItems(input(ctx, [api!])).find(i => i.kind === "message");
   expect(item).toMatchObject({ id: `message:${t.id}`, detail: "Which provider?", severity: "blocked",
-    actions: [{ label: "Reply", op: "ui.open", params: { view: "task", id: t.id }, style: "primary" }] });
+    actions: [{ label: "Answer", op: "ui.open", params: { view: "task", id: t.id, tab: "answer" }, style: "primary" }] });
 });
 
 test("a task without unread messages has no messages field or item", () => {
@@ -37,4 +37,24 @@ test("an unanswered task question raises only the question item", () => {
   const [api] = apiTasks(ctx, [readTask(ctx, t.id)!]);
   const items = deriveItems(input(ctx, [api!]));
   expect(items.filter(i => i.taskId === t.id).map(i => i.kind)).toEqual(["question"]);
+});
+
+test("unread messages without a question only open the task", () => {
+  const ctx = fakeCtx();
+  const t = createTask(ctx, { brief: { goal: "Fix login", repo: tmpDir() }, kind: null, requestedExecutor: null, timeoutS: 60 });
+  updateTask(ctx, t.id, x => { x.origin = "human"; });
+  store.insertMessage(ctx, { taskId: t.id, rootId: `task:${t.id}`, from: `task:${t.id}`, to: "human", kind: "message", body: "Done with step one", replyTo: null, requestId: null });
+  const [api] = apiTasks(ctx, [readTask(ctx, t.id)!]);
+  const item = deriveItems(input(ctx, [api!])).find(i => i.kind === "message");
+  expect(item?.actions).toEqual([{ label: "Open task", op: "ui.open", params: { view: "task", id: t.id }, style: "primary" }]);
+});
+
+test("a reviewed task's question can only be opened, not answered", () => {
+  const ctx = fakeCtx();
+  const t = createTask(ctx, { brief: { goal: "Fix login", repo: tmpDir() }, kind: null, requestedExecutor: null, timeoutS: 60 });
+  updateTask(ctx, t.id, x => { x.origin = "human"; x.state = "done"; x.review = { accepted: true, at: ctx.now } as never; });
+  store.insertMessage(ctx, { taskId: t.id, rootId: `task:${t.id}`, from: `task:${t.id}`, to: "human", kind: "question", body: "Which provider?", replyTo: null, requestId: null });
+  const [api] = apiTasks(ctx, [readTask(ctx, t.id)!]);
+  const item = deriveItems(input(ctx, [api!])).find(i => i.kind === "message");
+  expect(item?.actions.map(a => a.label)).toEqual(["Open task"]);
 });

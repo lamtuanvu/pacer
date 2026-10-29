@@ -9,7 +9,7 @@ export function reportSessionEnded(): void {
   void host.__TAURI__?.core?.invoke("session_expired").catch(() => { /* shell may already be navigating to recovery */ });
 }
 /** Ops that are v3-only, or whose /v2 result is frozen to an older shape. */
-const V3_OPS = new Set(["dispatch.config.get", "runner.settings.get", "runner.settings.save", "task.list", "doctor.run", "project.strategy.list", "project.strategy.get", "project.strategy.set", "project.strategy.remove", "setup.check", "service.install", "onboarding.try", "onboarding.skip", "limits.refresh", "terminal.list", "terminal.create", "terminal.rename", "terminal.close"]);
+const V3_OPS = new Set(["dispatch.config.get", "runner.settings.get", "runner.settings.save", "task.list", "doctor.run", "project.strategy.list", "project.strategy.get", "project.strategy.set", "project.strategy.remove", "setup.check", "service.install", "onboarding.try", "onboarding.skip", "limits.refresh", "terminal.list", "terminal.create", "terminal.rename", "terminal.close", "msg.send", "msg.read"]);
 export type BrowserApi = Pick<ApiClient, "hello" | "snapshot" | "call"> & { setConnected?: (connected: boolean) => void };
 export function createApi(onSessionEnded: () => void = () => {}): BrowserApi {
   const terminalRequests=new TerminalActionRequests(()=>crypto.randomUUID());

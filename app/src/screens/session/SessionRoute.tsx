@@ -20,6 +20,7 @@ import { SectionHeading } from "../../ds/SectionHeading";
 import { parseDiff } from "../../model/diff";
 import { changeConversation } from "../../model/conversation";
 import type { Action } from './types';
+import { messageQuestion } from '../../model/task-answer';
 
 /** A task's session: the terminal in the page, its facts and End session in the title bar, Changes and Details in the right panel. */
 export function SessionRoute({id, result, work, tab}:{id:string; result?:ComponentChildren; work?:ComponentChildren; tab?:SessionPanelTab}) {
@@ -78,7 +79,7 @@ export function SessionRoute({id, result, work, tab}:{id:string; result?:Compone
  const openPanel=(tab:SessionPanelTab)=>{setPanelTab(tab);if(frame?.details&&!frame.details.open)frame.details.toggle();};
  const t=task.data,unsettled=!!t&&!active&&!t.review&&!t.resolved&&!t.dismissed&&!t.retriedBy;
  // One next step per state, in the panel that holds it; a closed panel must not hide it (UI-13, UI-14).
- const next:{label:string;tab:SessionPanelTab}|undefined=!t||!unsettled?undefined
+ const next:{label:string;tab:SessionPanelTab}|undefined=t&&messageQuestion(t)?{label:'Answer question',tab:'details'}:!t||!unsettled?undefined
   :t.work?(t.reviewRequest||t.state==='needs_input'?{label:'Review result',tab:'details'}:undefined)
   :t.state==='needs_input'&&t.question&&t.question.answer===undefined?{label:'Answer question',tab:'details'}
   :t.reviewRequest||t.acceptance.state==='failed'||['partial','failed','limit'].includes(t.state)?{label:'Review result',tab:'details'}:undefined;

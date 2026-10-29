@@ -13,7 +13,7 @@ export { displayTitle as shortTitle } from "../../../src/view-model/titles";
 export function actionRoute(action: Action): string {
   const { route, view, id, section } = action.params;
   if (typeof route === "string" && /^#?\//.test(route)) return route.replace(/^#/, "");
-  if ((view === "task" || view === "session" || view === "review") && typeof id === "string") return `/tasks/${encodeURIComponent(id)}`;
+  if ((view === "task" || view === "session" || view === "review") && typeof id === "string") return `/tasks/${encodeURIComponent(id)}${view === "task" && action.params.tab === "answer" ? "?tab=answer" : ""}`;
   if (view === "settings" && typeof section === "string") return settingsPath(section);
   return ({ overview: "/", home: "/", delegate: "/", settings: "/settings", executors: "/settings/executors", accounts: "/settings/accounts", hosts: "/settings/hosts", setup: "/", tasks: "/tasks", strategy: "/settings/dispatcher" } as Record<string, string>)[String(view)] ?? "/";
 }

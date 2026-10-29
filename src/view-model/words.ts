@@ -177,3 +177,27 @@ export const policyCaption = (policy?: PolicySummary): string => `${policyWords(
 export function compactPolicyWords(policy?: PolicySummary): string {
   return policy ? `policy:${policy.mode}/${policy.plugins}` : "policy:unknown";
 }
+/** Why the service refused a message, from its `data.reason`; never the raw code (UI-12, UI-13). */
+const messageRefusals: Record<string, string> = {
+  msg_forbidden: "You can't message this task.",
+  msg_node_closed: "This task no longer takes messages.",
+  msg_cap_reached: "Too many messages at once. Wait a minute and send again.",
+  msg_too_large: "The answer is too long. Shorten it and send again.",
+  msg_live_unavailable: "This task can't take answers here yet. Answer it in its session.",
+  msg_request_mismatch: "This answer was already sent with different text. Refresh and try again.",
+};
+export const messageRefusalWords = (reason: unknown): string =>
+  typeof reason === "string" && Object.hasOwn(messageRefusals, reason) ? messageRefusals[reason]! : "The answer was not sent. Try again.";
+/** What became of a sent answer, from msg.send's `delivery`. */
+const answerDeliveries: Record<string, string> = {
+  turn_started: "Answer sent. The task is continuing.",
+  queued: "Answer sent. The task will continue next.",
+  pull: "Answer sent. The task will read it.",
+  held: "Answer saved. It waits for your confirmation before it is delivered.",
+  closed: "Answer saved, but this task no longer takes messages.",
+  cap: "Answer saved, but the task can't continue now. It has reached its limit.",
+  live_unavailable: "Answer saved, but the task can't continue from here yet.",
+  no_session: "Answer saved, but the task has no session to continue.",
+};
+export const answerDeliveryWords = (delivery: unknown): string =>
+  typeof delivery === "string" && Object.hasOwn(answerDeliveries, delivery) ? answerDeliveries[delivery]! : "Answer sent.";
