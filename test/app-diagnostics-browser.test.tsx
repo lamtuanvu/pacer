@@ -98,12 +98,14 @@ browserTest('board rows retain keyboard disclosures, clipboard backing and respo
   });
   await page.goto(String(server.url));
   expect(await page.getByRole('button',{name:'Copy report',exact:true}).count()).toBe(0);
+  expect(await page.getByText(/Configuration and fixture tests/).count()).toBe(0);
   expect(await page.getByText(/Last run/).count()).toBe(0);
   await page.getByRole('button',{name:'Run all checks',exact:true}).click();
   await page.getByText('Checks complete.',{exact:true}).waitFor();
   await page.getByRole('button',{name:'Copy report',exact:true}).click();
   expect(await page.evaluate(()=>(window as any).copiedReport)).toContain('missing integration');
-  expect(await page.evaluate(()=>(window as any).copiedReport)).not.toContain('took');
+  expect(await page.evaluate(()=>(window as any).copiedReport)).toMatch(/took (?:<1|\d+)s/);
+  expect(await page.getByText(/Configuration and fixture tests/).count()).toBe(1);
   const summary=page.locator('.pc-diagnostic-row summary').first();
   await summary.focus();await page.keyboard.press('Enter');
   expect(await page.locator('.pc-diagnostic-row details').first().getAttribute('open')).not.toBeNull();

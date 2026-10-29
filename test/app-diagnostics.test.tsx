@@ -12,7 +12,8 @@ test("diagnostics starts idle and has an accessible service-backed run action", 
   expect(html).toContain("Run all checks");
   expect(html).toContain('role="status"');
   expect(html).toContain("No checks run yet");
-  expect(html).toContain("unverified until observed");
+  // The hook-invocation caveat belongs to a run result, not the idle page.
+  expect(html).not.toContain("unverified until observed");
 });
 test("results separate configuration, handler tests and unverified invocation with collapsed technical guidance", () => {
   const html = renderToString(<DiagnosticResults report={{checkedAt:0,checks:[

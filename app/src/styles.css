@@ -666,3 +666,10 @@ body:has(.pc-app--narrow) .pc-toasts{bottom:calc(var(--size-56) + var(--space-5)
 .pc-rail__add-plugin{border:1px dashed var(--line);box-sizing:border-box}
 .pc-rail__add-plugin svg{width:var(--size-18);height:var(--size-18)}
 .pc-rail__plugins{display:contents}
+
+/* Preserve the native shell height through its shared density provider. */
+.pc-density:has(>.pc-app){height:100%;min-height:0}
+
+/* Comfortable desktop controls retain the shared 32px form density. */
+.pc-density--normal{--control-normal:var(--control-settings)}
+.pc-density--normal .pc-btn--normal{min-height:var(--control-settings)}

@@ -45,6 +45,7 @@ import {
   capacityNote,
   executorEligibility,
 } from "../../../../src/view-model/capacity";
+import { desktopHost } from "../../data/desktop";
 import { applyTheme, THEME_KEY, type ThemeChoice } from "../../theme";
 import { useEffect, useState } from "preact/hooks";
 import type { ComponentChildren } from "preact";
@@ -87,6 +88,7 @@ export interface SettingsData {
     available: boolean;
     error?: string;
     disabled?: boolean;
+    checkedAt?: number;
   };
 }
 /** Pages whose changes reach routing; Overview, App preferences and Diagnostics do not. */
@@ -230,10 +232,10 @@ function AppPreferences({ section, initialData }: { section: string; initialData
   }, [section]);
   return (
     <div className="pc-settings-board pc-settings-board--app">
-      <header className="pc-settings-board__header"><h1>App preferences</h1><p>How the app looks and talks to you.</p></header>
+      <header className="pc-settings-board__header"><h1>App preferences</h1><p>How the app looks and talks to you. These stay on this device and never affect routing.</p></header>
       <AppearanceSection />
       <NotificationsSection initialData={initialData.notifications} />
-      <WorkspacePreferences initialData={initialData.config} initialAssistant={initialData.assistant} />
+      <WorkspacePreferences initialAssistant={initialData.assistant} />
       <UpdatesSection initialData={initialData.updates} initialConfig={initialData.config} />
       <PluginsSection />
     </div>
@@ -418,12 +420,17 @@ function NotificationsSection({
             onChange={(level) => void action.run("notifications.set", { level })}
           />
         </SettingRow>
+
       </ResourceState>
       <Feedback action={action} />
     </section>
   );
 }
 function AppearanceSection() {
+  const [density, setDensity] = useState(() => {
+    try { return localStorage.getItem("pacer.density") === "normal" ? "normal" : "compact"; }
+    catch { return "compact"; }
+  });
   const [theme, setTheme] = useState(() => {
       try {
         const saved = localStorage.getItem("pacer.theme");
@@ -440,14 +447,14 @@ function AppearanceSection() {
     else document.documentElement.dataset.theme = theme;
   }, [theme]);
   useEffect(() => {
-    const sync = () => { try { setTheme(localStorage.getItem(THEME_KEY) ?? "system"); } catch { /* device storage unavailable */ } };
+    const sync = () => { try { setTheme(localStorage.getItem(THEME_KEY) ?? "system"); setDensity(localStorage.getItem("pacer.density") === "normal" ? "normal" : "compact"); } catch { /* device storage unavailable */ } };
     window.addEventListener("storage", sync);
     return () => window.removeEventListener("storage", sync);
   }, []);
   return (
     <section id="appearance" className="pc-preferences-section" aria-labelledby="look-h">
       <h2 id="look-h" className="pc-settings-board__label">Look</h2>
-      <SettingRow variant="board" label="Theme" description="System follows your device.">
+      <SettingRow variant="board" label="Theme" description="System follows macOS.">
       <Segment
         variant="board" label="Theme"
         value={theme}
@@ -469,47 +476,32 @@ function AppearanceSection() {
         }}
       />
       </SettingRow>
-      <p role="status">{message}</p>
+      <SettingRow variant="board" label="Density" description="Compact fits more rows on screen.">
+        <Segment variant="board" label="Density" value={density} options={[{ value: "compact", label: "Compact" }, { value: "normal", label: "Comfortable" }]} onChange={value => {
+          setDensity(value);
+          window.dispatchEvent(new CustomEvent("pacer:density", { detail: value }));
+          try { localStorage.setItem("pacer.density", value); setMessage("Saved on this device."); }
+          catch { setMessage("Applied for this session. Device storage is unavailable."); }
+        }}/>
+      </SettingRow>
+      {message && <p role="status">{message}</p>}
     </section>
   );
 }
 
-/** Shares the machine editor's terminal choices and exact config operation. */
-function WorkspacePreferences({ initialData, initialAssistant }: { initialData?: ConfigData; initialAssistant?: AssistantStatus }) {
-  const query = useResource<ConfigData>("config.get", {}, initialData), action = useOperation(query.reload);
+/** Assistant availability is supplied by the service. */
+function WorkspacePreferences({ initialAssistant }: { initialAssistant?: AssistantStatus }) {
   const assistant = useResource<AssistantStatus>("assistant.status", {}, initialAssistant);
-  const config = query.data;
-  const hasTerminal = config?.keys["terminal.open"] || config?.terminalChoices;
-  const { selectedTerminal, terminalChoices } = terminalPreference(config);
   const status = assistant.data;
   const [preferences, setPreferences] = useState(assistantPreferences);
   useEffect(() => watchAssistantPreferences(() => setPreferences(assistantPreferences())), []);
   return <section className="pc-preferences-section" aria-labelledby="workspace-h">
     <h2 id="workspace-h" className="pc-settings-board__label">Workspace</h2>
-    {hasTerminal && <SettingRow variant="board" label="Terminal" description="Used when opening sessions and other terminal actions on this machine."><ChoicePicker sizing="content" value={selectedTerminal} options={terminalChoices} disabled={action.busy} onValueChange={choice => void action.run("config.set", {key:"terminal.open",value:choice})}/></SettingRow>}
     <SettingRow variant="board" label="Assistant" description="Open with ⌘J from anywhere. Runs on one endpoint account you choose; until then the button opens the setup.">
       <div className="pc-assistant-preferences"><Switch size="sm" label="Show the button" aria-label="Show assistant button" checked={preferences.showButton} onChange={event => setAssistantPreferences({ showButton: event.currentTarget.checked })} />
       <Switch size="sm" label="Still aurora" aria-label="Reduce assistant motion" checked={preferences.stillAurora} onChange={event => setAssistantPreferences({ stillAurora: event.currentTarget.checked })} /></div>
       <ResourceState resource={assistant}>{status && <span role="status">{status.available ? "Available" : status.configured ? "Unavailable" : "Not configured"}{status.account ? ` · ${status.account}` : ""}{status.reason ? ` · ${status.reason}` : ""}</span>}</ResourceState>
       <a className="pc-inline-link" href="#/settings/assistant">Choose account and limits</a>
     </SettingRow>
-    <Feedback action={action}/>
   </section>;
-}
-
-function terminalPreference(config?: ConfigData) {
-  const terminal = String(config?.keys["terminal.open"]?.value ?? "");
-  const legacy = String(config?.keys["terminal.app"]?.value ?? "Terminal");
-  const choices = config?.terminalChoices ?? [
-    {value:"auto",label:"Automatic"},{value:"terminal-app",label:"Terminal"},
-    {value:"iterm",label:"iTerm"},{value:"ghostty",label:"Ghostty"},
-  ];
-  const legacyPreset = config?.keys["terminal.app"]?.source === "default"
-    ? undefined
-    : ({Terminal:"terminal-app",iTerm:"iterm",Ghostty:"ghostty"} as Record<string,string>)[legacy];
-  const selectedTerminal = terminal || (legacyPreset && choices.some(choice => choice.value === legacyPreset) ? legacyPreset : "auto");
-  const terminalChoices = choices.some(choice => choice.value === selectedTerminal)
-    ? choices
-    : [...choices, {value:selectedTerminal,label:"Custom terminal (CLI)",disabled:true,reason:"Configured from the CLI"}];
-  return { selectedTerminal, terminalChoices };
 }

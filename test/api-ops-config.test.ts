@@ -256,3 +256,18 @@ test("backend readiness runs after the edit lock is released and times out", asy
   expect(timeout.warning).toBe(config.ORCA_NOT_RUNNING);
   expect(Date.now() - began).toBeLessThan(3500);
 });
+
+test("config.get only offers detected terminals alongside Automatic", async () => {
+  const ctx = await configured();
+  const detected = join(ctx.home, "Applications", "Ghostty.app");
+  mkdirSync(detected, {recursive:true});
+  ctx.which = name => name === "ghostty" ? "/fixture/bin/ghostty" : null;
+  const result = await callOp(ctx, "config.get", {}) as {terminalChoices:{value:string;label:string}[]};
+  expect(result.terminalChoices[0]).toEqual({value:"auto",label:"Automatic"});
+  expect(result.terminalChoices).toContainEqual({value:"ghostty",label:"Ghostty"});
+  if (process.platform !== "darwin") expect(result.terminalChoices).toHaveLength(2);
+  else for (const choice of result.terminalChoices.slice(1)) {
+    const app = ({"ghostty":"Ghostty","iterm":"iTerm","terminal-app":"Terminal"} as Record<string,string>)[choice.value];
+    expect(["/Applications", join(ctx.home,"Applications"), "/System/Applications/Utilities"].some(root => existsSync(join(root, `${app}.app`)))).toBe(true);
+  }
+});

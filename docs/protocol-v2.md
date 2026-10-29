@@ -1496,7 +1496,11 @@ Params JSON Schema:
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
-  "properties": {},
+  "properties": {
+    "details": {
+      "type": "boolean"
+    }
+  },
   "additionalProperties": false
 }
 ```

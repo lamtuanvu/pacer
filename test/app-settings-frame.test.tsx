@@ -372,28 +372,11 @@ test.skipIf(!browserPath)('settings navigation matches board geometry in its pan
 
 test('App board omits unsupported controls and only offers backed terminal choices', async () => {
   const html = render(<SettingsGeneral section="app" initialData={settings}/>);
-  for (const absent of ['Density', 'Desktop banners', '>Plugins<', 'Release notes', 'Last checked']) expect(html).not.toContain(absent);
-  for (const label of ['Nothing', 'Important', 'Everything', 'Check automatically']) expect(html).toContain(label);
+  for (const absent of ['Desktop banners', '>Plugins<', 'Last checked']) expect(html).not.toContain(absent);
+  for (const label of ['Compact', 'Comfortable', 'Nothing', 'Important', 'Everything', 'Check automatically']) expect(html).toContain(label);
   expect(html).toMatch(/<input(?=[^>]*role="switch")(?=[^>]*aria-checked="true")/);
-  const configured = { ...settings, config: { ...settings.config, keys: { ...settings.config.keys, 'terminal.open': {value:'ghostty'} }, terminalChoices: [{value:'ghostty',label:'Ghostty'},{value:'auto',label:'Automatic'}] } };
-  const { options } = await import('preact');
-  const old = options.vnode;
-  let change: ((choice: string) => void) | undefined;
-  options.vnode = node => {
-    old?.(node);
-    const props = node.props as any;
-    if (props?.value === 'ghostty' && props.onValueChange) change = props.onValueChange;
-  };
-  const calls: unknown[] = [];
-  const runner = { run: async (_key: string, request: any) => { calls.push({op:request.op,params:request.params}); return {status:'done'}; }, result: () => ({}) } as any;
-  try {
-    const backed = renderToString(<ActionContext.Provider value={runner}><TaskContext.Provider value={{state,api:{} as any}}><SettingsGeneral section="app" initialData={configured}/></TaskContext.Provider></ActionContext.Provider>);
-    expect(backed).toContain('>Workspace<');
-    expect(backed).toContain('Ghostty');
-    change!('auto');
-    await new Promise(resolve => setTimeout(resolve, 0));
-  } finally { options.vnode = old; }
-  expect(calls).toEqual([{op:'config.set',params:{key:'terminal.open',value:'auto'}}]);
+  expect(html).toContain('Release notes');
+  expect(html).not.toContain('aria-label="Terminal"');
 });
 
 test.skipIf(!browserPath)('Overview and App board geometry, themes and narrow containment', async () => {
@@ -418,10 +401,6 @@ test.skipIf(!browserPath)('Overview and App board geometry, themes and narrow co
           const s=getComputedStyle(node);return {columns:s.gridTemplateColumns,gap:s.gap,padding:s.padding,border:s.borderTopWidth};
         })).toEqual({columns:'300px 676px',gap:'24px',padding:'14px 0px',border:'1px'});
         expect(await page.locator('.pc-segmented--board button').first().evaluate(node=>node.getBoundingClientRect().height)).toBe(30);
-        expect(await page.locator('.pc-choice-picker--content').evaluate(node => {
-          const trigger = node.querySelector('button')!, s = getComputedStyle(trigger);
-          return { fits: node.getBoundingClientRect().width < node.parentElement!.getBoundingClientRect().width, height: trigger.getBoundingClientRect().height, padding: s.padding, radius: s.borderRadius };
-        })).toEqual({ fits: true, height: 32, padding: '0px 10px', radius: '6px' });
         expect(await page.locator('[role=switch]').evaluate(node=>({width:node.getBoundingClientRect().width,height:node.getBoundingClientRect().height,thumb:getComputedStyle(node,'::before').width}))).toEqual({width:36,height:20,thumb:'16px'});
       }
       expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
