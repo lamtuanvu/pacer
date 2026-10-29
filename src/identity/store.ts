@@ -10,11 +10,16 @@ import { IDENTITY_DIR, keyBackend, readPrivateKey, writePrivateKey, type KeyBack
 /**
  * `publicId` is the public machine id, kept here so records can be stamped without reading the private key.
  * `cloneDetected` records that this home looked copied (its key or install salt was missing); only rotation clears it.
+ * `pendingRotation` exists only while a rotation is in progress; `lastRotation` keeps the signed statement of the last one.
  */
 export interface MachineMeta {
   rev: number; name: string; createdAt: number; backend: KeyBackend; publicId?: string; rotatedFrom?: string; saltHash?: string;
   cloneDetected?: boolean; cloneDetectedAt?: number;
+  pendingRotation?: { oldId: string; newId: string; signature: string; stagedAt: number };
+  lastRotation?: RotationStatement;
 }
+/** `signature` (base64) is the old key's signature over `oldId 0x00 newId` with plugin id `pacer` and purpose `rotate`. */
+export interface RotationStatement { oldId: string; newId: string; signature: string; at: number }
 export interface MachineIdentity { id: string; name: string; rev: number; createdAt: number; publicKey: KeyObject; privateKey: KeyObject }
 
 const cache = new Map<string, MachineIdentity>();
@@ -55,6 +60,7 @@ export async function ensureIdentity(ctx: Ctx, deps: { platform?: NodeJS.Platfor
   if (hit) return hit;
   let meta = readMeta(ctx);
   const platform = identityPlatform(deps.platform);
+  if (meta?.pendingRotation) meta = await (await import("./rotate")).recoverRotation(ctx, meta, platform);
   const backend = meta?.backend ?? keyBackend(platform);
   let privateKey = await readPrivateKey(ctx, backend);
   const { readSalt, writeSalt, saltHash } = await import("./salt");

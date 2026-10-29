@@ -1,5 +1,5 @@
 import { beforeEach, expect, test } from "bun:test";
-import { cpSync, mkdirSync, statSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fakeCtx, tmpDir } from "./helpers";
 import { clearIdentityCache, ensureIdentity, setIdentityPlatformForTests } from "../src/identity/store";
@@ -68,14 +68,4 @@ test("each home has its own salt file and a copied home on the file backend is s
   clearIdentityCache();
   expect((await ensureIdentity(a, { platform: "linux" })).id).toBe(idA.id);
   expect(await cloneSuspected(a, "linux")).toBe(false);
-});
-
-test("a shared salt file left by an earlier build is replaced by the per-home directory", async () => {
-  const state = tmpDir();
-  mkdirSync(join(state, "pacer"), { recursive: true });
-  writeFileSync(join(state, "pacer", "install-salt"), "old\n");
-  const ctx = fakeCtx({ env: { XDG_STATE_HOME: state } });
-  await ensureIdentity(ctx, { platform: "linux" });
-  expect(statSync(saltPath(ctx)).isFile()).toBe(true);
-  expect(await cloneSuspected(ctx, "linux")).toBe(false);
 });

@@ -1,9 +1,10 @@
 import { createHash, randomBytes } from "node:crypto";
-import { existsSync, readFileSync, rmSync, statSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { Ctx, RunResult } from "../types";
+import type { Ctx } from "../types";
 import { writePrivateFile } from "./atomic";
 import { homeTag, KEYCHAIN_SERVICE, keyBackend } from "./key-store";
+import { findPassword, writePassword } from "./security";
 import { identityPlatform, readMeta } from "./store";
 
 const account = (ctx: Ctx) => `machine-install-salt/${homeTag(ctx)}`;
@@ -14,24 +15,17 @@ export function saltPath(ctx: Ctx): string {
   return join(saltDir(ctx), homeTag(ctx));
 }
 
-async function security(ctx: Ctx, args: string[], stdin?: string): Promise<RunResult> {
-  try { return await ctx.run(["security", ...args], 10000, stdin === undefined ? undefined : { stdin }); }
-  catch { throw new Error("machine identity keychain operation failed"); }
-}
-
+/** The install salt, or null when it is missing. Any other failure throws: a read error is not evidence of a copied home. */
 export async function readSalt(ctx: Ctx, platform?: NodeJS.Platform): Promise<string | null> {
   if (keyBackend(identityPlatform(platform)) === "file") return existsSync(saltPath(ctx)) ? readFileSync(saltPath(ctx), "utf8").trim() : null;
-  const r = await security(ctx, ["find-generic-password", "-s", KEYCHAIN_SERVICE, "-a", account(ctx), "-w"]);
-  return r.code === 0 ? r.stdout.trim() : null;
+  return (await findPassword(ctx, KEYCHAIN_SERVICE, account(ctx)))?.trim() ?? null;
 }
 
+/** Write a new salt and confirm it was stored; throws otherwise. */
 export async function writeSalt(ctx: Ctx, platform?: NodeJS.Platform): Promise<string> {
   const salt = randomBytes(32).toString("hex");
-  if (keyBackend(identityPlatform(platform)) === "file") {
-    // An earlier development build kept one shared salt file at this path; it is replaced by a directory.
-    if (existsSync(saltDir(ctx)) && statSync(saltDir(ctx)).isFile()) rmSync(saltDir(ctx));
-    writePrivateFile(saltPath(ctx), salt + "\n");
-  } else await security(ctx, ["-i"], `add-generic-password -U -s ${KEYCHAIN_SERVICE} -a ${account(ctx)} -X ${Buffer.from(salt).toString("hex")}\n`);
+  if (keyBackend(identityPlatform(platform)) === "file") writePrivateFile(saltPath(ctx), salt + "\n");
+  else await writePassword(ctx, KEYCHAIN_SERVICE, account(ctx), Buffer.from(salt), printed => printed.trim() === salt);
   return salt;
 }
 

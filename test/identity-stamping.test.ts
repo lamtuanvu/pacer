@@ -1,5 +1,6 @@
 import { beforeEach, expect, test } from "bun:test";
 import { fakeCtx } from "./helpers";
+import { fakeKeychain } from "./fake-keychain";
 import { appendActivity, readActivity } from "../src/activity/log";
 import { createTask, readTask } from "../src/tasks/store";
 import { cachedMachineId, clearIdentityCache, ensureIdentity, setIdentityPlatformForTests } from "../src/identity/store";
@@ -32,17 +33,8 @@ test("stamping never creates an identity", () => {
 
 test("a cold cache reads the id from machine.json without touching the Keychain", async () => {
   let calls = 0;
-  const store = new Map<string, string>();
-  const ctx = fakeCtx({
-    run: async (argv, _t, o) => {
-      calls++;
-      const m = /-a (\S+) -X ([0-9a-f]+)/.exec(o?.stdin ?? "");
-      if (m) { store.set(m[1], m[2]); return { code: 0, stdout: "", stderr: "" }; }
-      const v = store.get(argv[argv.indexOf("-a") + 1]);
-      if (!v) return { code: 44, stdout: "", stderr: "" };
-      return { code: 0, stdout: argv.includes("-w") ? v + "\n" : "", stderr: "" };
-    },
-  });
+  const kc = fakeKeychain();
+  const ctx = fakeCtx({ run: (argv, t, o) => { calls++; return kc.run(argv, t, o); } });
   const id = await ensureIdentity(ctx, { platform: "darwin" });
   clearIdentityCache();
   const before = calls;
