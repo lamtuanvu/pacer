@@ -14,7 +14,7 @@ import type { TaskBucket, TaskNodeView } from "../../../../src/view-model/task-t
 import { treeSummary } from "../../../../src/view-model/task-tree";
 import type { RepoRef } from "../../../../src/api/read-model/types";
 import { ResourceView } from "./Session";
-import { useTaskContext } from "../task-shared";
+import { useDelayedBusy, useTaskContext } from "../task-shared";
 import { taskHeading } from "../../../../src/view-model/titles";
 import { LazyTaskAside, LazyTaskBranch } from "./LazyTaskAside";
 import { taskHref } from "./task-href";
@@ -46,11 +46,13 @@ export interface TasksPageProps {
   /** True when older tasks can still be fetched from the service. */
   hasOlder: boolean; loadingOlder: boolean; onLoadOlder(): void; error?: ComponentChildren;
   /** More work rows (subtask links, branches, tokens) than one page held. */
+  updating?: boolean;
   hasMoreWork?: boolean; loadingMoreWork?: boolean; onLoadMoreWork?(): void;
 }
 
 /** The Tasks board: header, filters and the task tree beside the selected task. */
-export function TasksPage({ nodes, repos, query, onNew, hasOlder, loadingOlder, onLoadOlder, error, hasMoreWork, loadingMoreWork, onLoadMoreWork }: TasksPageProps) {
+export function TasksPage({ nodes, repos, query, onNew, hasOlder, loadingOlder, onLoadOlder, error, hasMoreWork, loadingMoreWork, onLoadMoreWork, updating = false }: TasksPageProps) {
+  const busy = useDelayedBusy(updating);
   const {state} = useTaskContext();
   const frame = useFrame();
   // The Inspector shows the selected task; the inline aside covers it only while the Inspector is closed.
@@ -77,7 +79,7 @@ export function TasksPage({ nodes, repos, query, onNew, hasOlder, loadingOlder, 
   const here = find(page, selected) ?? (page[0] ? find(page, page[0].id) : undefined);
   const go = (repo: string | null) => { location.hash = withQuery(location.hash.split("?")[0] || "#/", { ...query, repo }); };
   const repoLabel = repos.find(repo => repo.key === query.repo)?.label ?? "All repos";
-  return <><LazyWorkPanels query={query} selected={here?.node.id ?? null} /><Page width="full" className="pc-tasks-page">
+  return <><LazyWorkPanels query={query} selected={here?.node.id ?? null} /><Page width="full" aria-busy={busy || undefined} className={`pc-tasks-page${busy ? " pc-query-refreshing" : ""}`}>
     <header className="pc-tasks-page__header">
       <div className="pc-tasks-page__heading">
         <h1 className="pc-tasks-page__title">Tasks</h1>

@@ -25,7 +25,7 @@ export function SettingsPanel({ route, counts, snapshot, embedded = false }: { r
   })) }));
   const extend = groups.find(group => group.id === 'extend')!;
   for (const surface of (plugins ? surfaces : []).filter(surface => surface.surface === 'settings' && surface.visible)) extend.items.push({
-    id:`plugins/${surface.plugin}`,label:surface.title,icon:PLUGIN_ICONS[surface.icon as keyof typeof PLUGIN_ICONS] ?? 'checks',
+    id:`plugins/${surface.plugin}`,label:surface.title,icon:surface.icon === 'check-square' ? 'settings-release' : PLUGIN_ICONS[surface.icon as keyof typeof PLUGIN_ICONS] ?? 'checks',
     current:current === `plugins/${surface.plugin}`,href:hrefFor(routes.pluginSettings(surface.plugin),route.query),badge:undefined,plugin:true,
   } as SettingsNavItem);
   const nav = <SettingsNav label="Settings pages" groups={groups} backHref={hrefFor(routes.dispatch(), route.query)}/>;

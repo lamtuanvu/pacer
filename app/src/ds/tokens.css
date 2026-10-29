@@ -246,6 +246,7 @@
   --button-control: 32px;
   --switch-track-width: 40px;
   --switch-track-height: 24px;
+  --size-17: 17px;
   --shadow-popover: 0 6px 24px rgb(0 0 0 / .13);
   --shadow-status-outline: 0 0 0 1px var(--ink-muted);
   --shadow-tray-menu: 0 8px 24px var(--shadow-tray-menu-tint);

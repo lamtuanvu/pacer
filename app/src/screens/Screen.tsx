@@ -25,7 +25,7 @@ export function Screen({route}:{route:Route}) {
  case 'insights': return <LazyInsights query={route.query}/>;
  case 'dispatch': return <LazyDispatch view="home" query={route.query}/>;
  case 'review': return <LazyDispatch view="needs-you" query={route.query}/>;
- case 'sessions': return route.id && route.view === 'trace' ? <LazyTrace key={route.id} id={route.id} query={route.query}/> : route.id?<>{running?.id === route.id && <p role="status">Running on {running.executor}</p>}<LazyTaskRoute key={route.id} id={route.id} query={route.query}/></>:<Sessions key={JSON.stringify(route.query)} query={route.query}/>;
+ case 'sessions': return route.id && route.view === 'trace' ? <LazyTrace key={route.id} id={route.id} query={route.query}/> : route.id?<>{running?.id === route.id && <p role="status">Running on {running.executor}</p>}<LazyTaskRoute key={route.id} id={route.id} query={route.query}/></>:<Sessions query={route.query}/>;
  case 'terminal': return <TerminalScreen id={route.id} query={route.query}/>;
  case 'settings': return <LazySettings key={route.section ?? "general"} section={route.section} query={route.query}/>;
  case 'hosts': return <LazySettings key={`hosts:${route.alias ?? ""}`} section="hosts" alias={route.alias} query={route.query}/>;

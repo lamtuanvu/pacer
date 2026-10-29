@@ -66,7 +66,7 @@ export function StatusBar({ route, snapshot, registry, terminal }: { route?: Rou
     </Button>
     <span className="grow" />
     {counts && <a href="#/tasks" className="pc-statusbar__work pc-inline-link"><span className="pc-statusbar__dot" aria-hidden="true" />{counts.running} running · {counts.queued} queued</a>}
-    {terminal && <Button size="sm" variant="quiet" className="pc-statusbar__terminal" aria-label="Terminal" aria-keyshortcuts="Control+`" aria-expanded={terminal.open} aria-controls={terminal.open ? "pc-terminal-dock" : undefined} onClick={terminal.toggle}><Icon name="terminal" />Terminal <span className="pc-statusbar__keys">Ctrl+`</span></Button>}
+    {terminal && <Button size="sm" variant="quiet" className="pc-statusbar__terminal" aria-label="Terminal" aria-keyshortcuts="Control+`" aria-expanded={terminal.open} aria-controls={terminal.open ? "pc-terminal-dock" : undefined} onClick={terminal.toggle}><Icon name="status-terminal" />Terminal <span className="pc-statusbar__keys">Ctrl+`</span></Button>}
     <div className="pc-statusbar__hints">{hints.length ? hints.map(hint => <span className="pc-statusbar__hint" key={`${hint.keys}:${hint.label}`}><Kbd>{hint.keys === "Escape" ? "Esc" : hint.keys}</Kbd> {hint.label}</span>) : help && <Button size="sm" variant="quiet" className="pc-statusbar__help" onClick={help.run}>? shortcuts</Button>}</div>
     <span className="pc-statusbar__version">pacer {snapshot?.service?.version ?? ""}</span>
     {usageOpen && <PopoverDialog id="pc-usage-details" title="Usage details" close={() => setUsageOpen(false)}><UsagePopover close={() => setUsageOpen(false)} now={now} /></PopoverDialog>}

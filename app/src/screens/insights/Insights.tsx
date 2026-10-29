@@ -4,7 +4,7 @@ import { Button, ButtonLink } from "../../ds/Button";
 import { Pill } from "../../ds/Pill";
 import { SearchPicker } from "../../ds/SearchPicker";
 import { Card, EmptyState, LoadingState, Page, SegmentedControl, Stack } from "../../ds/Patterns";
-import { ErrorMessage, useQuery, useTaskContext } from "../task-shared";
+import { ErrorMessage, useDelayedBusy, useQuery, useTaskContext } from "../task-shared";
 import { executorLabel } from "../../../../src/view-model/words";
 import { markAgent, runnerAgent } from "../../../../src/view-model/agents";
 import type { Account } from "../../model/accounts";
@@ -41,10 +41,11 @@ export function Insights({ query }: { query: RouteQuery }) {
   const range = useMemo(() => periodRange(period, now), [period]);
   const chart = useMemo(() => chartRange(now), []);
   const repo = query.repo ? { repo: query.repo } : {};
-  const result = useQuery<Summary>("insights.summary", { ...range, ...repo });
-  const series = useQuery<Summary>("insights.summary", { ...chart, ...repo });
+  const result = useQuery<Summary>("insights.summary", { ...range, ...repo }, "", true);
+  const series = useQuery<Summary>("insights.summary", { ...chart, ...repo }, "", true);
   const accounts = useQuery<Account[]>("account.list", {});
   const { state } = useTaskContext();
+  const busy = useDelayedBusy(result.updating || series.updating);
   const s = result.data;
   const notMeasured = !!s && s.tokens.measuredAttempts === 0 && s.tokens.partialAttempts === 0;
   const label = (agent: string) => executorLabel(agent);
@@ -65,7 +66,7 @@ export function Insights({ query }: { query: RouteQuery }) {
   const days = series.data ? bars(series.data.daily, agents, chart.from, CHART_DAYS, max) : [];
   const todayAt = Math.floor(Date.now() / 1000 / 86400) * 86400;
   const total = s?.tokens.total ?? 0, retried = s?.retryAttempts ?? 0;
-  return <Page width="full" className="pc-page--insights"><Stack space="section">
+  return <Page width="full" aria-busy={busy || undefined} className={`pc-page--insights${busy ? " pc-query-refreshing" : ""}`}><Stack space="section">
     <header className="pc-insights__header">
       <div className="pc-insights__title"><h1>Insights</h1><span className="pc-insights__caption">How well the dispatcher spread the work{s ? ` · ${rangeLabel(s.from, s.to)}` : ""}</span></div>
       <SegmentedControl variant="insights" label="Period" value={period} options={PERIODS} onChange={value => setPeriod(value as PeriodKey)} />

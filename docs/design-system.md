@@ -620,3 +620,28 @@ Preferences apply immediately and persist in origin-local storage, without a
 service configuration write. Theme uses the same device-local storage scope.
 
 Tooltip uses `text`, optional `shortcut` and one VNode trigger. Hover or focus opens a body portal at the tooltip layer; Escape dismisses it. It preserves existing descriptions, uses an opaque card surface, ink, caption type, 6px radius, 4px/8px padding and popover shadow. The bubble sits 8px to the right, vertically centred, flips left and clamps to an 8px viewport inset; resize and captured scroll update its position. Long copy wraps within the viewport. Shortcut text uses the shared small `Kbd`. Rail and settings are production consumers. Rail hover uses surface-lane; active uses line with the 2px ink indicator.
+
+### Canvas shell icons and refresh feedback
+
+`Icon` retains the 24-unit viewBox and 1.8 stroke. Activity navigation uses
+`activity-dispatch`, `needs-you`, `task-checklist`, `activity-insights` and
+`activity-terminal` from
+`docs/design/project/ActivityBar.dc.html`. Rail icons remain 20px through the
+existing size token; `add-plugin` remains 18px. The plugin check-square uses
+`plugin-checklist` in the rail and `settings-release` in SettingsNav because
+those canvases specify different outlines. TopBar uses `topbar-search` and
+`topbar-left/bottom/right`; StatusBar uses the unframed `status-terminal`.
+Existing review, session, search and panel symbols keep their other meanings.
+SettingsNav icons use the canvas’s 17px local token. Command navigation uses
+`command-nav`, task results use `stack`, terminal actions use `command-terminal`,
+and pause uses `command-pause`, matching CommandMenu’s separate symbols.
+All icons are decorative (`aria-hidden`); their controls own accessible names,
+keyboard behavior and current-page state.
+
+Filtered Dispatch, Insights and Tasks reads opt into `useQuery`'s fourth
+`keepPreviousData` argument. Other queries, particularly task identities, retain
+key isolation. Refreshing regions use `useDelayedBusy` to apply `aria-busy` and
+`pc-query-refreshing` only after 150ms. The shared class changes opacity only,
+without animation or transitions, including under reduced motion. Existing
+content and controls remain mounted while the replacement request is pending;
+refresh errors retain data and expose feedback. No new upstream code is used.
