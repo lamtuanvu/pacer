@@ -469,7 +469,7 @@ The id changes only on rotation. The private key never appears in command output
 
 ## Discovery
 
-pacer machines on the same local network can notice each other and offer to pair. Names and versions they announce are unverified.
+pacer machines on the same local network can notice each other and offer to pair. Names and versions they announce are unverified. See [LAN discovery](discovery.md) for what is advertised and how prompts are limited.
 
 - `pacer discovery ls [--json]` shows whether this machine is advertised on the current network, under which name, and the pacer machines found (`<id prefix>  <name>  <version>`, marked `silenced` when you answered Later or Ignore).
 - `pacer discovery pair|later|ignore <id-prefix>` answers a found machine. The prefix must match exactly one machine; otherwise the command exits 2. `pair` hands the machine to a plugin that provides pairing, or says that none is installed. `later` silences it for 7 days and `ignore` permanently.

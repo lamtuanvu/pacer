@@ -8,6 +8,7 @@ pacer delegates coding work according to subscription usage and pace. Start with
 - [Remote runners over SSH](remote-hosts.md): host setup, account folders, bundle transfer, local review and recovery.
 - [CLI and skill](cli.md): structured briefs, task commands and JSON contracts.
 - [Machine identity](machine-identity.md): machine id and name, key storage, copied homes, rotation and plugin signatures.
+- [LAN discovery](discovery.md): what is advertised, ask-once per network, found-machine prompts and pairing plugins.
 - [Built-in terminal](terminal.md): workspace shells, tabs, splits, search and integrated app actions.
 - [Client protocol 3.0](protocol.md): HTTP + SSE and JSON-RPC transports, errors, events and operation schemas.
 - [Protocol 2.x overlap](protocol-v2.md): compatibility API, served for one more pacer minor release.
