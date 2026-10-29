@@ -66,16 +66,22 @@ export function Sessions({query}:{query:RouteQuery}) {
   // effect. Do not remember a clamped position while layout is still catching up.
   const deadline = performance.now() + 1000;
   let frame: number;
+  // The person scrolling wins: any wheel, touch or key input ends the restore.
+  const yieldToUser = () => { scrollRestored.current = true; cancelAnimationFrame(frame); stop(); };
+  const inputs = ["wheel", "touchstart", "keydown"] as const;
+  const stop = () => inputs.forEach(type => removeEventListener(type, yieldToUser, true));
+  inputs.forEach(type => addEventListener(type, yieldToUser, { capture: true, passive: true }));
   const restore = () => {
    scrollPageTo(savedScroll.current);
    if (Math.abs(pageScrollY() - savedScroll.current) <= 1 || performance.now() >= deadline) {
     scrollRestored.current = true;
+    stop();
    } else {
     frame = requestAnimationFrame(restore);
    }
   };
   frame = requestAnimationFrame(restore);
-  return () => cancelAnimationFrame(frame);
+  return () => { cancelAnimationFrame(frame); stop(); };
  }, [snapshot, page.loading, history]);
  const [workBefore,setWorkBefore]=useState<string|undefined>();
  const [workRows,setWorkRows]=useState<WorkRow[]>([]);
