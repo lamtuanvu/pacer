@@ -62,10 +62,19 @@ export function Sessions({query}:{query:RouteQuery}) {
  });},[page.data,cursor]);
  useEffect(() => {
   if (!snapshot || page.loading || scrollRestored.current) return;
-  const frame = requestAnimationFrame(() => {
+  // History and the selected-task panel can change the list's height after this
+  // effect. Do not remember a clamped position while layout is still catching up.
+  const deadline = performance.now() + 1000;
+  let frame: number;
+  const restore = () => {
    scrollPageTo(savedScroll.current);
-   scrollRestored.current = true;
-  });
+   if (Math.abs(pageScrollY() - savedScroll.current) <= 1 || performance.now() >= deadline) {
+    scrollRestored.current = true;
+   } else {
+    frame = requestAnimationFrame(restore);
+   }
+  };
+  frame = requestAnimationFrame(restore);
   return () => cancelAnimationFrame(frame);
  }, [snapshot, page.loading, history]);
  const [workBefore,setWorkBefore]=useState<string|undefined>();

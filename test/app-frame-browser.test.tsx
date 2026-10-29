@@ -108,6 +108,45 @@ browserTest("web_frame_scrolls_work_without_moving_chrome", async () => {
   } finally { await browser.close(); }
 }, 20_000);
 
+browserTest("tasks_list_restores_work_scroll_on_back", async () => {
+  const built = await frame();
+  const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
+  try {
+    for (const viewport of [{ width: 375, height: 812 }, { width: 1440, height: 500 }]) {
+      const page = await browser.newPage({ viewport });
+      await open(page, built, "?task-list#/sessions");
+      await page.locator(".pc-task-card").first().waitFor();
+      // Let initial loading and route effects settle before the user scrolls.
+      await page.waitForTimeout(250);
+      for (const position of [200, 350]) {
+        await page.locator(".pc-work").evaluate((work, y) => { work.scrollTop = y; }, position);
+        await page.waitForFunction(y => Math.abs(document.querySelector(".pc-work")!.scrollTop - y) <= 1, position);
+        await page.waitForTimeout(50); // Deliver the scroll event that saves the list position.
+        // Activate a real row link without Playwright scrolling it into view first.
+        await page.locator('.pc-task-card a[href*="scroll-task-"]').first().evaluate(link => (link as HTMLElement).click());
+        await page.waitForFunction(() => location.hash.startsWith("#/tasks/"));
+        await page.waitForFunction(() => document.querySelector(".pc-work")!.scrollTop === 0);
+        // Model rows whose layout becomes available after the first restoration frame.
+        await page.evaluate(() => {
+          const style = document.createElement("style");
+          style.id = "delayed-task-layout";
+          style.textContent = ".pc-tasks-page { display: none; }";
+          document.head.append(style);
+          setTimeout(() => style.remove(), 600);
+        });
+        await page.goBack();
+        await page.locator(".pc-task-card").first().waitFor();
+        await page.waitForFunction(y => Math.abs(document.querySelector(".pc-work")!.scrollTop - y) <= 1, position, { timeout: 2000 });
+        // Restoration must survive the parent's route reset and focus effects.
+        await page.waitForTimeout(250);
+        expect(await page.locator(".pc-work").evaluate(work => work.scrollTop)).toBeCloseTo(position, 0);
+        expect(await page.evaluate(() => window.scrollY)).toBe(0);
+      }
+      await page.close();
+    }
+  } finally { await browser.close(); }
+}, 20_000);
+
 browserTest("tasks_accessible_labels_stay_inside_the_work_scrollport", async () => {
   const built = await frame();
   const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
