@@ -1,3 +1,4 @@
+import { ensurePanelTerminal } from "./auto-open";
 import type { RouteQuery } from "../../router";
 import type { TerminalRecord } from "../../../../src/terminal/workspace";
 import { useEffect, useRef, useState } from "preact/hooks";
@@ -39,6 +40,9 @@ export function TerminalScreen({ id: routeId, query, embedded = false, folder, c
   const [splitId, setSplitId] = useState<string | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [newTitle, setNewTitle] = useState("");
+  const initialOpening = useRef<Promise<TerminalRecord[]> | null>(null);
+  const creating = useRef(false);
+  const opened = useRef(false);
   const pendingRequest = useRef<TerminalRequest | null>(null);
   const cancelRename = useRef(false);
   const [localId, setLocalId] = useState<string>();
@@ -57,13 +61,17 @@ export function TerminalScreen({ id: routeId, query, embedded = false, folder, c
   useEffect(() => {
     if (!available) { setLoading(false); return; }
     let active = true;
-    const refresh = async () => {
+    const refresh = async (initial = false) => {
+      if (!initial && !opened.current) return;
       try {
-        const result = await api.call<TerminalRecord[]>("terminal.list", {});
+        const result = embedded && initial && !opened.current
+          ? await (initialOpening.current ??= ensurePanelTerminal(api, folder ?? repos.find(repo => repo.key === activeRepo(query))?.path ?? ""))
+          : await api.call<TerminalRecord[]>("terminal.list", {});
+        opened.current = true;
         if (active) { setTabs(result); setLoadError(undefined); setLoading(false); }
-      } catch (failure) { if (active) { setLoadError(failure); setLoading(false); } }
+      } catch (failure) { opened.current = true; if (active) { setLoadError(failure); setLoading(false); } }
     };
-    void refresh();
+    void refresh(true);
     const timer = setInterval(() => void refresh(), 2000);
     return () => { active = false; clearInterval(timer); };
   }, [api, available, state.connected]);
@@ -71,7 +79,8 @@ export function TerminalScreen({ id: routeId, query, embedded = false, folder, c
   useEffect(() => { if (splitId && !tabs.some(tab => tab.id === splitId)) setSplitId(null); }, [tabs, splitId]);
 
   const open = async (directory = folder ?? repos.find(repo => repo.key === activeRepo(query))?.path ?? selected?.cwd ?? "", splitAfter = false) => {
-    if (busy) return;
+    if (busy || loading || creating.current) return;
+    creating.current = true;
     setBusy(true); setError(undefined);
     try {
       const request = terminalRequest(pendingRequest.current, directory.trim(), () => crypto.randomUUID());
@@ -85,7 +94,7 @@ export function TerminalScreen({ id: routeId, query, embedded = false, folder, c
       setMenu(null); setChooseFolder(false);
       return created;
     } catch (failure) { pendingRequest.current=pendingAfterFailure(pendingRequest.current,failure instanceof ApiError?failure.status:undefined);setError(failure); }
-    finally { setBusy(false); }
+    finally { creating.current = false; setBusy(false); }
   };
 
   const rename = async () => {
@@ -163,7 +172,7 @@ export function TerminalScreen({ id: routeId, query, embedded = false, folder, c
         </div>)}
       </nav>
       <div className="pc-terminal-menu-anchor">
-        {tool("New terminal", "plus", () => { void open(); }, busy)}
+        {tool("New terminal", "plus", () => { void open(); }, busy || loading)}
         <IconButton className="pc-terminal-tool pc-terminal-chevron" size="sm" variant="quiet" aria-label="New terminal in…" title="New terminal in a repository, worktree or folder" aria-expanded={menu === "new"} aria-haspopup="menu" onClick={() => setMenu(menu === "new" ? null : "new")}><Icon name="chevron-down" /></IconButton>
         {menu === "new" && <div className="pc-terminal-menu" role="menu" >
           {repos.map(repo => <Button role="menuitem" variant="quiet" key={repo.key} title={repo.path} onClick={() => void open(repo.path)}>{repo.label}</Button>)}

@@ -95,3 +95,34 @@ browserTest("terminal output search finds a match and reports missing text by ke
     await expect(page.getByText("No match").count()).resolves.toBe(1);
   }finally{await browser.close();}
 },30_000);
+
+browserTest("panel auto-creates once, reuses on reopen, and stays empty after killing until reopened", async () => {
+  const build = await Bun.build({ entrypoints: ["test/fixtures/terminal-browser.tsx"], target: "browser", plugins: [{ name: "stub-panel-pty", setup(builder) {
+    builder.onResolve({ filter: /term\/LazyTerminal$/ }, () => ({ path: "stub", namespace: "panel-stub" }));
+    builder.onLoad({ filter: /.*/, namespace: "panel-stub" }, () => ({ contents: "export const LazyTerminal = () => null;", loader: "js" }));
+  } }] });
+  expect(build.success).toBe(true);
+  const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
+  try {
+    const page = await browser.newPage();
+    await page.setContent('<div id="root"></div>');
+    await page.evaluate(() => { location.hash = "embedded"; });
+    await page.evaluate(async code => { const url = URL.createObjectURL(new Blob([code], { type: "text/javascript" })); await import(url); URL.revokeObjectURL(url); }, await build.outputs[0]!.text());
+    const tabs = page.getByRole("tab");
+    await tabs.first().waitFor();
+    expect(await tabs.count()).toBe(1);
+    await page.getByRole("button", { name: "Toggle panel" }).click();
+    await page.getByRole("button", { name: "Toggle panel" }).click();
+    await tabs.first().waitFor();
+    expect(await tabs.count()).toBe(1);
+    await page.getByRole("button", { name: "Kill terminal", exact: true }).click();
+    await page.getByRole("button", { name: "Stop and close" }).click();
+    await page.getByText("No terminals open", { exact: true }).waitFor();
+    await page.waitForTimeout(2200);
+    expect(await tabs.count()).toBe(0);
+    await page.getByRole("button", { name: "Toggle panel" }).click();
+    await page.getByRole("button", { name: "Toggle panel" }).click();
+    await tabs.first().waitFor();
+    expect(await tabs.count()).toBe(1);
+  } finally { await browser.close(); }
+}, 30_000);
