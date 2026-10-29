@@ -421,6 +421,36 @@ mod tests {
         assert_eq!(late, Err(OtaError::Timeout));
     }
     #[test]
+    fn helper_handshake_redials_after_a_stalled_peer() {
+        let start = std::time::Instant::now();
+        let deadline = start + std::time::Duration::from_millis(600);
+        let mut calls = 0;
+        let result = retry_helper_handshake(deadline, std::time::Duration::from_millis(80), |until| {
+            calls += 1;
+            let (mut client, mut peer) = UnixStream::pair().unwrap();
+            if calls == 2 {
+                peer.write_all(b"ok").unwrap();
+            }
+            let mut reply = [0; 2];
+            deadline::read_exact(&mut client, &mut reply, until)?;
+            Ok(reply)
+        });
+        assert_eq!(result, Ok(*b"ok"));
+        assert_eq!(calls, 2);
+        assert!(start.elapsed() < std::time::Duration::from_millis(500));
+    }
+    #[test]
+    fn helper_handshake_stalled_peers_obey_the_total_deadline() {
+        let start = std::time::Instant::now();
+        let deadline = start + std::time::Duration::from_millis(220);
+        let result: Result<(), _> = retry_helper_handshake(deadline, std::time::Duration::from_millis(70), |until| {
+            let (mut client, _peer) = UnixStream::pair().unwrap();
+            deadline::read_exact(&mut client, &mut [0], until)
+        });
+        assert_eq!(result, Err(OtaError::Timeout));
+        assert!(start.elapsed() < std::time::Duration::from_millis(500));
+    }
+    #[test]
     fn adoption_context_deadline_preserves_invalid_frame_refusal() {
         for payload in [b"{".as_slice(), b"null".as_slice()] {
             let (mut client, mut server) = UnixStream::pair().unwrap();
@@ -847,19 +877,23 @@ fn authenticate_service(
     if role != "helper" {
         return authenticate_service_adoption_until(endpoint, trust, role, ticket, None, until);
     }
-    if until.is_some() {
-        // Takeover already retries transient handshakes. Its outer loop owns the
-        // deadline, so the ordinary ten-second helper budget must not expire it.
-        return authenticate_service_adoption_until(endpoint, trust, role, ticket, None, until);
-    }
-    let retry_until = std::time::Instant::now() + HANDSHAKE_RETRY;
-    retry_handshake(
-        retry_until,
-        std::thread::sleep,
-        || authenticate_service_adoption_until(endpoint, trust, role, ticket, None, Some(retry_until)),
-    )
+    let retry_until = until.unwrap_or_else(|| std::time::Instant::now() + HANDSHAKE_RETRY);
+    retry_helper_handshake(retry_until, HANDSHAKE_ATTEMPT, |attempt_until| {
+        authenticate_service_adoption_until(endpoint, trust, role, ticket, None, Some(attempt_until))
+    })
 }
 const HANDSHAKE_RETRY: std::time::Duration = std::time::Duration::from_secs(10);
+const HANDSHAKE_ATTEMPT: std::time::Duration = std::time::Duration::from_secs(1);
+fn retry_helper_handshake<T>(
+    deadline: std::time::Instant,
+    attempt_budget: std::time::Duration,
+    mut attempt: impl FnMut(std::time::Instant) -> Result<T, OtaError>,
+) -> Result<T, OtaError> {
+    retry_handshake(deadline, |pause| std::thread::sleep(pause.min(std::time::Duration::from_millis(50))), || {
+        let remaining = deadline::remaining(deadline)?;
+        attempt(std::time::Instant::now() + remaining.min(attempt_budget))
+    })
+}
 /// The service refuses a hello while it cannot account for every pacer process,
 /// such as the desktop's short-lived sign-in CLI. That refusal precedes any
 /// request frame, so a bounded retry never repeats an effect; a lasting refusal
