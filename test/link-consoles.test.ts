@@ -64,6 +64,18 @@ test("cheap terminal list prunes missing terminal registrations once per ten sec
  await refreshConsoleTerminals(offline);expect(readConsoles(offline).map(c=>c.handle)).toEqual(["term_kept"]);
 });
 
+test("background terminal membership strips inherited Orca caller attestation", async () => {
+ const { refreshConsoleTerminals } = await import("../src/link/store");
+ let observed: Record<string, string | undefined> | undefined;
+ const ctx = fakeCtx({ env: { PATH: "/bin", ORCA_AGENT_SESSION_ID: "foreign", ORCA_AGENT_SESSION_ID_ENV: "CUSTOM_SESSION", CUSTOM_SESSION: "foreign" },
+   run: async (_argv, _timeout, options) => {
+     observed = options?.env;
+     return { code: 0, stdout: JSON.stringify({ ok: true, result: { terminals: [] } }), stderr: "" };
+   } });
+ await refreshConsoleTerminals(ctx);
+ expect(observed).toEqual({ PATH: "/bin" });
+});
+
 test("new registrations survive an older cached list and trigger one immediate rate-limited refresh", async () => {
  const {refreshConsoleTerminals,readConsoles}=await import("../src/link/store"); let calls=0;
  const ctx=fakeCtx({now:100,run:async()=>{calls++;return {code:0,stdout:JSON.stringify({ok:true,result:{terminals:calls===1?[]:[{handle:"term_new"}]}}),stderr:""};}});
