@@ -39,7 +39,7 @@ browserTest("resolved failure keeps retry and edit; only recorded facts explain 
   }
 }));
 browserTest("accepted banner reflects other attention items",async()=>withBrowser(async browser=>{
-  for (const [attention,copy] of [[[],"Nothing else needs you."],[[{taskId:"t-0412"},{taskId:"other"}],"1 more need you · Open Needs you"]] as const) {
+  for (const [attention,copy] of [[[],"Nothing else needs you."],[[{taskId:"t-0412"},{taskId:"other"},{taskId:"other"}],"1 more needs you · Open Needs you"],[[{taskId:"one"},{taskId:"two"}],"2 more need you · Open Needs you"]] as const) {
     const page = await open(browser,{attention});
     await page.getByRole("button",{name:"Accept result",exact:true}).click();
     await page.locator(".pc-result-accepted").waitFor();
@@ -73,4 +73,13 @@ browserTest("Open file requires a current local direct session; selection clears
   expect(await page.evaluate(()=>(window as any).CALLS.find((call:any)=>call.op==="session.file.read").params)).toMatchObject({attempt:1,reference:"a.ts"});
   await page.getByText("b.ts",{exact:true}).click();
   expect(await page.getByText("File no longer exists",{exact:true}).count()).toBe(0);
+}));
+
+browserTest("failure shows its resolution, singular attempt and edit default without ready executors",async()=>withBrowser(async browser=>{
+  const page = await open(browser,{failure:true,retryOptions:[],executors:[]});
+  await page.getByText("worktree removed",{exact:true}).waitFor();
+  expect(await page.locator(".pc-result-meta").innerText()).toContain("1 attempt on");
+  expect(await page.getByRole("radio",{name:"Edit the brief, then retry"}).getAttribute("aria-checked")).toBe("true");
+  await page.getByRole("button",{name:"Edit the brief, then retry",exact:true}).click();
+  await page.waitForURL("**/#/tasks/new");
 }));

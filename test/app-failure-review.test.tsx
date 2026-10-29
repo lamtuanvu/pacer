@@ -84,3 +84,11 @@ test("file preview requires a current local direct run and a readable selected f
   expect(canOpenResultFile(detail,session,"missing.ts")).toBe(false);
   for (const extra of [{status:"deleted" as const},{binary:true}]) expect(canOpenResultFile({...detail,files:[{...detail.files[0]!,...extra}]},session,"a.ts")).toBe(false);
 });
+
+test("failure header uses singular and plural attempts", () => {
+  for (const count of [1,2]) {
+    const task = {...detailFixture,attempts:Array.from({length:count},()=>detailFixture.attempts[0])} as unknown as TaskDetail;
+    const html = renderToString(<ResultHeader task={task} query={{repo:null,scope:null}} failure/>);
+    expect(html).toContain(`${count} attempt${count === 1 ? "" : "s"} on`);
+  }
+});

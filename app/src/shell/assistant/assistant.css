@@ -22,4 +22,4 @@
 
 .pc-assistant-preferences{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-3)}
 
-.pc-aurora-layer:not(.pc-aurora-layer--narrow) .pc-aurora-launcher--open{bottom:min(calc(var(--pc-dock-height, 0px) + var(--size-520) + var(--size-18) + var(--space-2)),calc(100% - var(--size-40) - var(--size-36) - var(--space-2)))}
+.pc-aurora-layer:not(.pc-aurora-layer--narrow) .pc-aurora-launcher--open{bottom:min(calc(var(--pc-dock-height, 0px) + var(--size-520) + var(--size-18) + var(--space-2)),calc(100% - var(--size-40) - max(var(--size-36),var(--pc-assistant-header-height, 0px)) - var(--space-2)))}

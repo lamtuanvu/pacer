@@ -488,7 +488,7 @@ browserTest("recent_and_commands_keep_scope_tabs_and_keyboard_switching", () => 
   await page.keyboard.press("Shift+Tab");
   expect(await selected.textContent()).toMatch(/^All/);
   await page.keyboard.press("Shift+Tab");
-  expect(await selected.textContent()).toBe("Commands");
+  expect(await selected.textContent()).toMatch(/^Commands \d+$/);
   expect(await page.locator(".pc-command__prefix").textContent()).toBe("Commands");
   await page.keyboard.press("Tab");
   expect(await selected.textContent()).toMatch(/^All/);
@@ -564,4 +564,40 @@ browserTest("subtitles_and_scope_counts_meet_contrast_and_dark_overlay_uses_toke
       expect(measured.shadow).toBe("rgba(0, 0, 0, 0.13) 0px 6px 24px 0px");
     }
   }
+}));
+
+browserTest("Commands mode shows the matched Commands count", () => withPage(async (page, built) => {
+  await open(page, built, "#/dispatch");
+  await page.keyboard.press("Meta+k");
+  const input = page.getByRole("combobox");
+  await input.fill(">count");
+  const commands = page.getByRole("tab", {name:/^Commands/});
+  expect(await commands.innerText()).toBe("Commands 1");
+  await input.fill(">no-such-command");
+  expect(await commands.innerText()).toBe("Commands 0");
+}));
+
+browserTest("Answer Escape restores its opening control inside Layout", () => withPage(async (page, built) => {
+  await open(page, built, "?question#/needs-you");
+  const answer = page.getByRole("link", {name:"Answer",exact:true}).first();
+  expect(await page.locator(".ny-reason").evaluate(el=>({clamp:getComputedStyle(el).webkitLineClamp,whiteSpace:getComputedStyle(el).whiteSpace}))).toEqual({clamp:"2",whiteSpace:"normal"});
+  await answer.focus();
+  await answer.click();
+  await page.getByRole("dialog").waitFor();
+  expect(await page.locator(".pc-side-dialog__header h2").evaluate(el=>getComputedStyle(el).fontWeight)).toBe("600");
+  expect(await page.getByRole("dialog").getByRole("link",{name:"Open session",exact:true}).evaluate(el=>getComputedStyle(el).color)).toBe(await page.locator(".pc-side-dialog").evaluate(el=>{const sample=document.createElement("span");sample.style.color="var(--link)";el.append(sample);const color=getComputedStyle(sample).color;sample.remove();return color;}));
+  expect(await page.locator(".ny-resume").evaluate(el=>getComputedStyle(el).whiteSpace)).toBe("nowrap");
+  await page.keyboard.press("Escape");
+  await page.getByRole("dialog").waitFor({state:"detached"});
+  await page.waitForFunction(() => document.activeElement?.textContent === "Answer");
+  expect(await answer.evaluate(el=>el===document.activeElement)).toBe(true);
+}));
+
+browserTest("closing the shell Inspector preserves the inline selected task aside", () => withPage(async (page, built) => {
+  await open(page, built, "?task-list#/tasks");
+  const aside = page.getByRole("complementary",{name:"Selected task"});
+  await aside.waitFor();
+  const inspector = page.getByRole("button",{name:/Hide.*(Inspector|inspector)/});
+  await inspector.click();
+  expect(await aside.isVisible()).toBe(true);
 }));

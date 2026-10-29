@@ -244,13 +244,13 @@ export function checkUiSource(inputPath: string, source: string): UiViolation[] 
   };
   const checkProperty = (node: t.Node, name: string, value: t.Node, ancestors: t.Node[] = []) => {
     name = cssProperty(name);
-    // The assistant offset alone consumes measured dock geometry on the frame.
-    if (path === "app/src/shell/AppFrame.tsx" && name === "--pc-dock-height"
+    // The assistant offsets consume only measured dock/session-header geometry on the frame.
+    if (path === "app/src/shell/AppFrame.tsx" && ["--pc-dock-height", "--pc-assistant-header-height"].includes(name)
       && node.type === "CallExpression" && node.callee.type === "MemberExpression"
       && source.slice(node.callee.start ?? 0, node.callee.end ?? 0) === "root.style.setProperty"
       && value.type === "TemplateLiteral" && value.expressions.length === 1
       && value.quasis[0]?.value.cooked === "" && value.quasis[1]?.value.cooked === "px"
-      && source.slice(value.expressions[0]!.start ?? 0, value.expressions[0]!.end ?? 0) === "dock?.getBoundingClientRect().height ?? 0") return;
+      && source.slice(value.expressions[0]!.start ?? 0, value.expressions[0]!.end ?? 0) === (name === "--pc-dock-height" ? "dock?.getBoundingClientRect().height ?? 0" : "sessionHeader && body ? Math.max(0, sessionHeader.getBoundingClientRect().bottom - body.getBoundingClientRect().top) : 0")) return;
     // These exact data channels are owned by the meter and are unitless clamped values.
     if (path === "app/src/ds/UsageMeter.tsx" && ["--used", "--pace"].includes(name)
       && value.type === "CallExpression" && value.callee.type === "Identifier" && value.callee.name === "clamp" && value.arguments.length === 1

@@ -397,3 +397,28 @@ browserTest("setup selection with the dock open never scrolls the frame body", a
     }
   } finally { await browser.close(); }
 }, 20_000);
+
+browserTest("open assistant pill stays below top bar and measured session header with a dock", async () => {
+  const browser = await chromium.launch({executablePath:browserPath!,headless:true});
+  try {
+    for (const height of [700,900]) {
+      const page = await browser.newPage({viewport:{width:1440,height}});
+      await open(page,await build());
+      await page.keyboard.press("Control+Backquote");
+      await page.locator(".pc-dock").waitFor();
+      // Model a late-mounted session header in the real shell, including a height change.
+      await page.locator("#main-content").evaluate(el=>el.insertAdjacentHTML("afterbegin",'<header class="pc-session-bar" style="height:80px"><button>Take over</button></header>'));
+      await openSheet(page);
+      for (const headerHeight of [80,120]) {
+        await page.locator(".pc-session-bar").evaluate((el,height)=>{(el as HTMLElement).style.height=`${height}px`;},headerHeight);
+        await page.waitForFunction(()=>{
+          const pill=document.querySelector('.pc-aurora-launcher--open')!.getBoundingClientRect();
+          const header=document.querySelector('.pc-session-bar')!.getBoundingClientRect();
+          const top=document.querySelector('.pc-topbar')!.getBoundingClientRect();
+          return pill.top >= Math.max(header.bottom,top.bottom)+7;
+        });
+      }
+      await page.close();
+    }
+  } finally {await browser.close();}
+},20000);

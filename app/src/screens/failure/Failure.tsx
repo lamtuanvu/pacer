@@ -22,7 +22,7 @@ export function Failure({task, query, reload, tree}: {task: TaskDetail; query: R
   const executor = task.executor ?? task.attempts.at(-1)?.executor;
   const sameReady = !!executor && state.snapshot?.executors?.some(row => row.id === executor && row.state === "ready");
   const [choice, setChoice] = useState<string>(), [note, setNote] = useState(""), [notice, setNotice] = useState("");
-  const selected = choice ?? recommended?.id ?? (sameReady ? executor : undefined);
+  const selected = choice ?? recommended?.id ?? (sameReady ? executor : "edit");
   const node = tree?.nodes.find(n => n.taskId === task.id);
   const available = task.work ? !!node?.retryEligibility?.allowed : reviewAvailable(task) && state.features.ops.has("task.review");
   const feedbackUnsupported = !task.work && !!note.trim() && selected !== executor && selected !== "edit";
@@ -47,7 +47,7 @@ export function Failure({task, query, reload, tree}: {task: TaskDetail; query: R
   };
   const stop = state.snapshot?.attention?.filter(item => item.taskId === task.id).flatMap(item => item.actions).find(item => item.op === "task.stop" || item.op === "dispatch.stop");
   return <><ResultHeader task={task} query={query} failure actions={<><ButtonLink href={hrefFor(routes.task(task.id, query))}>Open last session</ButtonLink>{stop && <Button busy={action.busy} onClick={() => void action.run(stop.op, {...stop.params,expect_rev:task.rev}, () => {setNotice("Task stopped."); reload();})}>Stop task</Button>}</>}/>
-    <ErrorMessage error={action.error}/><div className="pc-failure-columns"><div className="pc-failure-main">
+    <ErrorMessage error={action.error}/>{task.resolved && <p className="pc-result-caption">{task.resolved}</p>}<div className="pc-failure-columns"><div className="pc-failure-main">
       <section className="pc-failure-checks" aria-labelledby="failed-heading"><div className="pc-failure-checks-header"><h2 id="failed-heading">What failed</h2><span className="pc-result-caption">{failed} of {checks.length} acceptance checks{task.acceptance.summary ? ` · ${task.acceptance.summary}` : ""}</span></div>
         {checks.map(check => <div className="pc-failure-check" key={check.cmd}><span className={check.state === "failed" ? "pc-result-bad" : check.state === "passed" ? "pc-result-good" : "pc-result-caption"} aria-label={check.state}>{check.state === "failed" ? "✕" : check.state === "passed" ? "✓" : "–"}</span><div><code className="pc-result-mono pc-code-scroll">{check.cmd}</code>{check.output && <pre className="pc-failure-output pc-result-mono">{check.output}</pre>}</div><span className="pc-result-caption">{check.durationS == null ? "Time unknown" : `${check.durationS}s`}</span></div>)}
         {!checks.length && <p className="pc-result-caption">No acceptance checks recorded.</p>}

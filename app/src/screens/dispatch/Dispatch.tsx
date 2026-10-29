@@ -7,7 +7,7 @@ import { agentInfo, markAgent } from "../../../../src/view-model/agents";
 import { explainRepo, explanationApplies, kpiTiles, needsYouCards, nextFromExplanation, queueReason, periodHeading, periodRange, PERIODS, plannerBudget, plannerPace, tokenSpread, type InsightsSummary, type KpiTile, type NeedsYouCard, type Period, type RouteExplanationView } from "../../../../src/view-model/dispatch";
 import { executorPace } from "../../../../src/view-model/capacity";
 import { eligibilityPresentation } from "../../../../src/view-model/eligibility";
-import { capacity, counts, needsYou, otherReposNeedingYou, plannerMeter, type Scope } from "../../../../src/view-model/selectors";
+import { capacity, needsYou, otherReposNeedingYou, plannerMeter, type Scope } from "../../../../src/view-model/selectors";
 import type { ClientSnapshot } from "../../../../src/view-model/snapshot";
 import { scopedTaskTree, workTasks, type WorkRow } from "../../../../src/view-model/task-tree";
 import { ago, clock } from "../../../../src/view-model/time";
@@ -110,10 +110,10 @@ function LiveDispatch({ snapshot, scope, now, query, workRows, workLoading, work
   const nodes = scopedTaskTree(snapshot, scope, { now, extra: workTasks(workRows) });
   // A missing parent never turns a known subtask into a Dispatch row.
   const subtasks = new Set(workRows.filter(row => row.parentId).map(row => row.id));
-  const visible = nodes.filter(node => !subtasks.has(node.id)).sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0)).slice(0, 6);
-  const c = counts(snapshot);
-  const byState = (state: string) => snapshot.tasks.filter(t => t.state === state && nodes.some(n => n.id === t.id)).length;
-  const runningNow = (scope.repo === null ? c?.running : c?.byRepo[scope.repo]?.running) ?? byState("running"), queued = byState("queued");
+  const roots = nodes.filter(node => !subtasks.has(node.id));
+  const visible = roots.sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0)).slice(0, 6);
+  const byState = (state: string) => snapshot.tasks.filter(t => t.state === state && roots.some(n => n.id === t.id)).length;
+  const runningNow = byState("running"), queued = byState("queued");
   return <section className="pc-card-section pc-live-dispatch" aria-labelledby="live-dispatch">
     <div className="pc-card-section__head"><SectionHeading variant="headline" id="live-dispatch">Live dispatch</SectionHeading>
       <Pill tone="info">{runningNow} running</Pill><Pill tone="neutral">{queued} queued</Pill><span className="grow" /><span className="pc-dispatch-caption">Kind · routed to · why · tokens</span></div>

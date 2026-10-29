@@ -53,6 +53,8 @@ export interface TasksPageProps {
 export function TasksPage({ nodes, repos, query, onNew, hasOlder, loadingOlder, onLoadOlder, error, hasMoreWork, loadingMoreWork, onLoadMoreWork }: TasksPageProps) {
   const {state} = useTaskContext();
   const frame = useFrame();
+  // The Inspector shows the selected task; the inline aside covers it only while the Inspector is closed.
+  const showAside = frame?.inline !== false || !frame?.details?.open;
   const heading = (node: TaskNodeView) => state.snapshot?.tasks.find(task => task.id === node.id)?.title || taskHeading(node.title);
   const [filter, setFilter] = useState<Filter>("all");
   const [search, setSearch] = useState("");
@@ -102,7 +104,7 @@ export function TasksPage({ nodes, repos, query, onNew, hasOlder, loadingOlder, 
             : hasMoreWork && <Button size="sm" busy={loadingMoreWork} onClick={onLoadMoreWork}>Load more subtasks</Button>}
         </div>}
       </section>
-      {here && frame?.inline !== false && <LazyTaskAside key={here.node.id} node={here.node} parent={here.parent} position={here.parent ? `Subtask ${here.index + 1} of ${here.siblings}` : "Root task"} href={href} viewHref={viewHref} />}
+      {here && showAside && <LazyTaskAside key={here.node.id} node={here.node} parent={here.parent} position={here.parent ? `Subtask ${here.index + 1} of ${here.siblings}` : "Root task"} href={href} viewHref={viewHref} />}
     </div>
   </Page></>;
 }
