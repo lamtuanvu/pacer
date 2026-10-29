@@ -131,6 +131,7 @@ test("the CLI identity is the planner's terminal, so two planners of one OS user
   const second = { ...ctx, env: { ...ctx.env, USER: "alice", ORCA_TERMINAL_HANDLE: "term_two" } };
   expect(callerIdentity(first)).toBe("alice@term_one");
   expect(callerIdentity(first, "app/1.2.0")).toBe("client:app/1.2.0");
+  expect(callerIdentity(first, "app/1.2.0", { label: "app/1.2.0", id: "w1" })).toBe("client:app/1.2.0#w1");
   await send(first, task.id, "one");
   await expect(send(first, task.id, "again")).resolves.toBeTruthy();
   await expect(send(second, task.id, "two")).rejects.toThrow(/alice@term_one sent a message/);
@@ -148,6 +149,44 @@ test("two service clients sending at once: one is delivered, the other gets conf
   expect(refused.reason.message).toContain("client:app/1.2.0 sent a message");
   expect(sends()).toHaveLength(1);
   expect(readTask(ctx, task.id)?.driving?.by).toBe("client:app/1.2.0");
+});
+
+test("two app windows under one client label contend over HTTP; one window never contends with itself", async () => {
+  const { handleV2 } = await import("../src/api/http");
+  const { ctx, task, sends } = setup();
+  const post = (instance: string, text: string) => handleV2(new Request("http://localhost/v3/ops/task.send", {
+    method: "POST", headers: { "X-Pacer-Client": "app", "X-Pacer-Client-Instance": instance }, body: JSON.stringify({ id: task.id, text }),
+  }), { getCtx: () => ctx });
+  expect((await post("window-a", "one")).status).toBe(200);
+  expect(readTask(ctx, task.id)?.driving?.by).toBe("client:app#window-a");
+  expect((await post("window-a", "again")).status).toBe(200);
+  const refused = await post("window-b", "two");
+  expect(refused.status).toBe(409);
+  expect(JSON.stringify(await refused.json())).toContain("client:app#window-a sent a message");
+  expect(sends()).toHaveLength(2);
+});
+
+test("two MCP planners, each with its own pacer MCP server, contend for one lane", async () => {
+  const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
+  const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
+  const { createMcpServer } = await import("../src/mcp/server");
+  const { ctx, task, sends } = setup();
+  const planner = async () => {
+    const [ct, st] = InMemoryTransport.createLinkedPair();
+    await createMcpServer(() => ctx).connect(st);
+    const client = new Client({ name: "planner", version: "0.0.1" });
+    await client.connect(ct);
+    return client;
+  };
+  const [one, two] = [await planner(), await planner()];
+  const send = (c: typeof one, text: string) => c.callTool({ name: "task_send", arguments: { task_id: task.id, text } }) as Promise<{ isError?: boolean; content: { text: string }[] }>;
+  expect((await send(one, "from one")).isError).toBeFalsy();
+  expect((await send(one, "again")).isError).toBeFalsy();
+  const refused = await send(two, "from two");
+  expect(refused.isError).toBe(true);
+  expect(refused.content[0]!.text).toMatch(/client:mcp\/stdio#\d+-[0-9a-f]{8} sent a message/);
+  expect(sends()).toHaveLength(2);
+  await one.close(); await two.close();
 });
 
 test("a stop that lands first is seen by the send's state check", async () => {

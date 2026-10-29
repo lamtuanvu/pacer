@@ -17,11 +17,17 @@ export const DRIVING_LEASE_S = 60;
 
 export interface SendOptions { force?: boolean; by?: string; expectRev?: number; backends?: Backend[] }
 
+/** One running client: its product label and an id unique to that window, connection or process. */
+export interface ClientInstance { label: string; id: string }
+
 /**
- * Who is sending, for the driving lease and the timeline. A service client is its `X-Pacer-Client` label; a CLI call
- * is the terminal it runs in, so two planners in two terminals contend while one planner never contends with itself.
+ * Who is sending, for the driving lease and the timeline. A service client is its instance (an app window, an HTTP
+ * client's `X-Pacer-Client-Instance`, an MCP server process), or only its `X-Pacer-Client` label when it names no
+ * instance; a CLI call is the terminal it runs in. Two instances therefore contend even under one label, while one
+ * planner never contends with itself. The identity is caller-asserted: the lease is cooperative, not a security boundary.
  */
-export function callerIdentity(ctx: Ctx, client?: string): string {
+export function callerIdentity(ctx: Ctx, client?: string, instance?: ClientInstance): string {
+  if (instance) return `client:${instance.label}#${instance.id}`;
   if (client) return `client:${client}`;
   const user = ctx.env.USER?.trim() || "planner";
   const session = ctx.env.ORCA_TERMINAL_HANDLE?.trim() || ctx.env.TMUX_PANE?.trim() || ctx.env.TERM_SESSION_ID?.trim();
