@@ -79,6 +79,16 @@
         "value": "7px",
         "usage": "Glyph tiles in command menu rows.",
         "provisional": "Command menu board value; not yet in the design system."
+      },
+      {
+        "name": "radius-agents",
+        "value": "10px",
+        "provisional": "Settings Agents and Accounts board geometry."
+      },
+      {
+        "name": "radius-machine-tile",
+        "value": "9px",
+        "provisional": "Settings Machines board geometry."
       }
     ]
   },
@@ -224,6 +234,26 @@
         "name": "size-860",
         "value": "860px",
         "provisional": "Insights board: matrix label column, agents numeric columns and table minimum width; not yet in the design system."
+      },
+      {
+        "name": "size-400",
+        "value": "400px",
+        "provisional": "Settings Agents and Accounts board geometry."
+      },
+      {
+        "name": "size-150",
+        "value": "150px",
+        "provisional": "Settings Machines board geometry."
+      },
+      {
+        "name": "size-130",
+        "value": "130px",
+        "provisional": "Settings Agents board weekly usage column."
+      },
+      {
+        "name": "size-160",
+        "value": "160px",
+        "provisional": "Settings Accounts board minimum quota column width."
       }
     ]
   },
@@ -288,6 +318,20 @@
         "lineHeight": "20px",
         "fontWeight": 400,
         "provisional": "NewTask and NewTaskMobile board typography; not yet in the design system."
+      }
+    ]
+  },
+  "shadow": {
+    "tokens": [
+      {
+        "name": "shadow-agent-failure",
+        "value": "inset 0 0 0 1px var(--bad-line)",
+        "provisional": "Settings Agents board failing row ring."
+      },
+      {
+        "name": "shadow-choice-selected",
+        "value": "0 0 0 1px var(--ink)",
+        "provisional": "Settings Machines and Add agent board selection ring."
       }
     ]
   }

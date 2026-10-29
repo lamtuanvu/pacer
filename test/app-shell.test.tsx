@@ -139,3 +139,24 @@ test("Needs you owns exactly one page title, with no hidden duplicate in the top
   expect(html).toContain('<h1>Needs you</h1>');
   expect(html).toContain('pc-needs-you pc-page-body');
 });
+
+test('every settings destination has exactly one h1 in the real shell', async () => {
+  const { SettingsGeneral } = await import('../app/src/screens/settings/General');
+  const { PluginsPage } = await import('../app/src/screens/settings/PluginsPage');
+  const { TaskContext } = await import('../app/src/screens/task-shared');
+  const { ActionContext } = await import('../app/src/data/action-context');
+  const { createActionRunner } = await import('../app/src/data/actions');
+  const state = ready(), api = { call: async <T,>() => ({} as T) } as any;
+  const runner = createActionRunner({ call: api.call, waitFor: async () => true, refetch() {}, navigate() {} });
+  for (const path of ['', '/executors', '/accounts', '/add-executor', '/dispatcher', '/planner', '/machine', '/hosts', '/hosts/devbox', '/app', '/updates', '/notifications', '/appearance', '/assistant', '/diagnostics', '/plugins']) {
+    const route = at(`#/settings${path}`);
+    const section = route.name === 'settings' ? route.section : route.name === 'hosts' ? 'hosts' : 'add-executor';
+    const html = renderToString(<ActionContext.Provider value={runner}><TaskContext.Provider value={{state, api}}>
+      <Layout route={route} state={state} title={`Settings${path}`}>
+        {section === 'plugins' ? <PluginsPage initialData={{plugins:[]}}/> : <SettingsGeneral section={section} alias={route.name === 'hosts' ? route.alias : undefined} initialData={{accounts:[], config:{keys:{}, planners:[]} as any}}/>}
+      </Layout>
+    </TaskContext.Provider></ActionContext.Provider>);
+    expect({path, headings:(html.match(/<h1\b/g) ?? []).length}).toEqual({path, headings:1});
+    expect(html).toContain(`aria-label="Settings${path}"`);
+  }
+});

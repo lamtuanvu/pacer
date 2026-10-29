@@ -86,7 +86,7 @@ export function titleFor(route: Route, pluginTitle = "Plugin view"): string {
   if (route.name === "insights") return "Insights";
   if (route.name === "plugin") return pluginTitle;
   if (route.name === "settings") return route.section?.startsWith("plugins/") ? "Plugin settings" : settingsPageTitle(route.section);
-  return route.name === "dispatch" ? "Dispatch" : route.name === "review" ? "Needs you" : route.name === "sessions" ? "Tasks" : route.name === "hosts" ? "Remote hosts" : route.name === "add-executor" ? "Add executor" : route.name === "setup" ? "Set up pacer" : "pacer";
+  return route.name === "dispatch" ? "Dispatch" : route.name === "review" ? "Needs you" : route.name === "sessions" ? "Tasks" : route.name === "hosts" ? "Machines" : route.name === "add-executor" ? "Add an agent" : route.name === "setup" ? "Set up pacer" : "pacer";
 }
 export function primaryFor(route: Route): PrimaryRoute {
   if (route.name === "new-task") return "sessions";
@@ -106,7 +106,7 @@ export function withQuery(href: string, query: RouteQuery): string {
   if (query.repo !== null) params.set("repo", query.repo);
   if (query.scope) params.set("scope", query.scope);
   const search = params.toString();
-  return search ? `${href}?${search}` : href;
+  return search ? `${href}${href.includes("?") ? "&" : "?"}${search}` : href;
 }
 /** A setup check that has not answered, or failed, leaves setup unknown: screens wait rather than flash Setup. */
 export const setupCompleteFrom = (check: { complete: boolean } | "error" | undefined): boolean | null => check === undefined || check === "error" ? null : check.complete;

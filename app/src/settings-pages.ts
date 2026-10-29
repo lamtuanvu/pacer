@@ -18,7 +18,7 @@ export const SETTINGS_PAGES: readonly SettingsPage[] = [
   { id: 'executors', label: 'Agents', icon: 'settings-agents', group: 'dispatch', description: 'Agents that take delegated work, their order and limits.' },
   { id: 'dispatcher', label: 'Dispatcher', icon: 'settings-routing', group: 'dispatch', description: 'Saved profiles and the rules that choose an executor.' },
   { id: 'planner', label: 'Budget & pacing', icon: 'settings-budget', group: 'dispatch', description: 'The planner, how work spreads and the reserve kept for planning.' },
-  { id: 'machine', label: 'Machines', title: 'This machine', icon: 'settings-machines', group: 'dispatch', description: 'Parallel tasks and the terminal used on this machine.' },
+  { id: 'machine', label: 'Machines', icon: 'settings-machines', group: 'dispatch', description: 'Parallel tasks and the terminal used on this machine.' },
   { id: 'plugins', label: 'Plugins', icon: 'settings-plugins', group: 'extend', description: 'Add capabilities and choose where they appear.' },
   { id: 'app', label: 'App preferences', icon: 'settings-app', group: 'app', description: 'Updates, notifications and appearance.' },
   { id: 'diagnostics', label: 'Diagnostics', icon: 'settings-diagnostics', group: 'app', description: 'Check setup and repair supported integrations.' },

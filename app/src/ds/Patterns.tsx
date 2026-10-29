@@ -2,7 +2,7 @@ import { classNames as classes } from "./classNames";
 // Beautiful UI TextRow, SegmentedControl, TaskRows, ApprovalCard and LoadingState adaptations.
 // Pinned source map: docs/design-system.md. Domain state and actions stay with consumers.
 import type { ComponentChildren, JSX } from 'preact';
-import { Button, type ButtonProps } from "./Button";
+import { Button, ButtonLink, type ButtonProps } from "./Button";
 import { useDensity } from "./Density";
 import { SectionHeading } from "./SectionHeading";
 export { ActionPanel, Cluster, DisclosurePanel, Page, PageBody, PageColumns, PageHeader, Section, Stack } from "./Page";
@@ -19,7 +19,7 @@ export function TextRow({ label, value, meta, className }: {
 export interface ListRowProps extends JSX.HTMLAttributes<HTMLDivElement> {
   leading?: ComponentChildren; content?: ComponentChildren; meta?: ComponentChildren; actions?: ComponentChildren;
   density?: 'normal' | 'compact' | 'touch';
-  layout?: 'aligned';
+  layout?: 'aligned' | 'planner';
   outlined?: boolean; tone?: 'bad' | 'warn';
 }
 /** Sibling slots keep navigation and secondary actions from nesting interactive elements. */
@@ -41,8 +41,8 @@ export function SelectableRow({ selected, className, ...props }: ButtonProps & {
   return <Button {...props} variant="quiet" aria-pressed={selected ?? props['aria-pressed']}
     className={classes('pc-selectable-row', className)} />;
 }
-export function ChoiceCard(props: ButtonProps & { selected?: boolean }) {
-  return <SelectableRow {...props} className={classes('pc-choice-card', props.className)} />;
+export function ChoiceCard({ layout, ...props }: ButtonProps & { selected?: boolean; layout?: "agent" | "alias" }) {
+  return <SelectableRow {...props} className={classes('pc-choice-card', layout && `pc-choice-card--${layout}`, props.className)} />;
 }
 export function FilterChip({ selected, className, ...props }: ButtonProps & { selected?: boolean }) {
   return <Button {...props} size="sm" aria-pressed={selected ?? props['aria-pressed']} className={classes('pc-chip', className)} />;
@@ -84,8 +84,15 @@ export function Tabs({ label, id, value, options, onChange }: {
   </div>;
 }
 
-export function Card({ children, className, tone, ...props }: JSX.HTMLAttributes<HTMLElement> & { tone?: "sunken" }) {
-  return <section {...props} className={classes('pc-card', tone && 'pc-card--sunken', className)}>{children}</section>;
+/** Tabs that are pages: links in a labelled nav, the current one marked with aria-current="page". */
+export function NavTabs({ label, items }: { label: string; items: readonly { href: string; label: ComponentChildren; current?: boolean }[] }) {
+  return <nav aria-label={label} className="pc-tabs pc-tabs--nav">
+    {items.map(item => <ButtonLink key={item.href} href={item.href} size="sm" aria-current={item.current ? "page" : undefined}>{item.label}</ButtonLink>)}
+  </nav>;
+}
+
+export function Card({ children, className, tone, ...props }: JSX.HTMLAttributes<HTMLElement>&{tone?:"bad"|"sunken"}) {
+  return <section {...props} className={classes('pc-card', tone&&`pc-card--${tone}`, className)}>{children}</section>;
 }
 export function ApprovalCard({ title, children, actions, className, ...props }: JSX.HTMLAttributes<HTMLElement> & {
   title?: string; actions?: ComponentChildren;
@@ -110,4 +117,9 @@ export function EmptyState({ title, description, children, bodyTitle = false }: 
   return <section className="pc-empty">{bodyTitle ? <strong className="pc-empty__body-title">{title}</strong> : <SectionHeading>{title}</SectionHeading>}
     {description && <p>{description}</p>}{children}
   </section>;
+}
+
+/** Native radios provide browser keyboard navigation and one selected account policy. */
+export function RadioChoices({label,name,value,options,onChange,disabled,layout}:{label:string;name:string;value:string;options:readonly SegmentOption[];onChange:(value:string)=>void;disabled?:boolean;layout?:"options"}) {
+  return <div role="radiogroup" aria-label={label} className={classes("pc-radio-choices",layout && `pc-radio-choices--${layout}`)}>{options.map(option=><label key={option.value}><input type="radio" name={name} value={option.value} checked={value===option.value} disabled={disabled||option.disabled} onChange={()=>onChange(option.value)}/><span>{option.label}</span></label>)}</div>;
 }

@@ -4,6 +4,14 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Fixed
+
+- Keep every Accounts column visible in narrow Settings containers with labelled cards, align its desktop columns with the board, and show More actions only for existing sign-in or refresh help. Give Agents and Accounts continuous table header bands and Add agent navigation links full touch targets.
+
+- Keep Add agent steps and forms contained at tablet and phone settings widths. Agents uses five columns with visible More actions controls, moves priority editing into details, and shows labelled cards in narrow containers. Restore Machines board rows and responsive cards, enlarge touch targets, and frame unknown-host errors with a link back to Machines.
+
+- Settings pages expose one page heading. Agent details use a section heading, preserve task-limit edits on Escape, restore focus when closed, and report Takes work failures above the table even after closing details. Add agent focuses and announces newly detected agents after Check again.
+
 ### Added
 
 - Add a New task composer at `#/tasks/new`, opened with ⌘N (Ctrl+N elsewhere). Write the request, attach files or mention paths, pick the repository, where it runs, the kind and acceptance checks, optionally send it to a specific agent, and delegate with ⌘↵. A "Will go to" card previews the route with the read-only `dispatch.explain` op and says so when the connected service doesn't offer it yet. When supported by the connected service, From an issue searches and imports issues as plain text with a visible source note. The routing preview distinguishes queued work from a task with no eligible agent. Below 560px the composer is a full-screen sheet whose rows open their own choice sheets. The draft is kept until the task starts.
@@ -19,6 +27,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - Add the always-on assistant: ask about tasks, dispatch, executors and budgets from anywhere with ⌘J (Ctrl-J elsewhere). It runs on the endpoint account you choose in Settings › Assistant, reads pacer's own data through fixed read tools with secrets and free task text removed, and can only propose actions (retry, stop, answer, pause, resume, a prefilled New task) that run after you press the card's button. New `assistant` plugin extension point (plugin protocol 1.3.0, bundled `pacer-assistant`, bundled-only until installed plugins are sandboxed), client protocol additions `assistant.*` with an ephemeral per-turn stream at `/v3/assistant/turns/<id>/stream` (the answer arrives as one frame until plugins can stream), an `assistant` event that carries no text, and `pacer ask` (outside executor sessions; executors keep their question). New design-system `AuroraSheet`. The ⌘K `?` mode is wired by the command menu through `assistantEntry` in a follow-up.
 - Add the Plugins settings page, host-drawn plugin settings pages, the Extend settings navigation group and the activity-bar Plugins section.
 - Switch task execution between Direct and Orca in Settings, the TUI or `pacer config`; Orca again runs supported agents as supervised workers in Orca terminals with pacer's permission flags. Orca hosts interactive launches (the default launch mode) with the direct interactive launch's command and per-run Claude settings file; headless tasks and strict managed work run directly. Claude terminals use `CLAUDE_CODE_SANDBOXED=1` instead of configuration edits, and in Orca worktrees pacer created for the task they keep the source checkout's rejected MCP servers off; pacer removes worktrees left by failed starts and keeps terminals whose worker start is uncertain for later reconciliation. Tasks that allow delegation run directly, because their work grant cannot be placed in a visible Orca terminal command.
+- Align Machines and Add agent with the settings boards: machine header cards, guided SSH aliases, native account/location options, reported model choices and a contained live Test task block.
+
+- Align Agents and Accounts with the settings boards: compact tables, factual sign-in details, account spread/fill controls, an executor details editor and a save bar that appears only while needed.
+
 - Restyle the app frame chrome to the design canvas: a 44px title bar with the pacer mark, planner chip and panel-toggle buttons, a 52px activity bar with an active indicator and count badges, and a 28px status bar with per-vendor budget meters, running and queued counts and the terminal shortcut. The Setup and Settings attention dots are now red.
 - Let plugins contribute UI as host-rendered data (plugin protocol 1.2.0): `contributes.ui` declares activity items, panel tabs, a settings page and a status item; the host validates every view document and settings value, and grants cover surface kinds. Adds the `plugin.ui.*` and `plugin.settings.*` client ops (additive, v3), the `pacer plugin settings` and `pacer plugin ui list` commands, and a strategy-independent plugin settings store. See [Plugin UI contributions](docs/specs/2026-10-28-plugin-ui-contributions-design.md).
 - Add the read-only `files.search` operation (protocol 3) for the app's command menu Files scope: it searches tracked file paths in registered repositories with `git ls-files` and returns the repository, repo-relative path, size, matched ranges and the running tasks that changed each file. Results, query length and per-repository listing time and size are capped, executors are refused, and nothing is written; the change is additive. See the [design](docs/specs/2026-10-28-files-search-design.md).
@@ -43,12 +55,15 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Changed
 
+- Complete the Agents, Accounts, Machines and Add agent board headings. Machines uses shared board rows within its cards. Takes work now saves immediately without saving other draft edits, reports failures inline, and restores its saved value on failure. Escape closes agent details and restores row focus. Missing agents can retry detection; failed host checks link to host management for recovery.
+
 - `pacer --version` and `pacer status --line` are answered by the Rust front door without starting the core, so shell prompts and status bars that call them return faster.
 - The Needs you page shows task items as task cards, most urgent first. Agent capacity and recent activity left the home; capacity lives in Settings › Executors. The quick delegate form is replaced by the top bar's Delegate. While Dispatch is open, the status bar shows the planner's mark without its figure, because the Planner budget states it.
 - Keep App plugin switches focused during changes and reloads, label the plugin list, describe refused plugins, and preserve loaded rows and inline errors when a reload fails.
 
 - Add the service-backed App Plugins list with explicit capability grants, content-sized Terminal selection, and semantic Budget row headings through additive design-system options.
 
+- Group the Settings menu into Dispatch and App. Overview lists every settings page with its status, Budget & pacing replaces Planner & pacing, and App preferences holds Updates, Notifications and Appearance on one page; their old links still open the right section. Settings rows share one layout with the new `SettingRow` and `SettingsNav` design system components.
 - Refine the terminal file viewer: it opens beside the terminal when there is room (a full sheet on narrow screens), starts on Source, adds whole-file search with match stepping (⌘F/Ctrl+F), lists what the isolated HTML preview blocked, explains missing, outside, too-large, binary and changed-session files, and closes with Esc or Back to terminal.
 
 - Rebuild Budget & pacing around planner pace, mode holds and reported budget windows. Preserve planner integration consent, pacing policy and account controls using shared board rows.
