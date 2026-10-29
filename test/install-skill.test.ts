@@ -71,5 +71,5 @@ test('skill teaches filtered operation discovery instead of embedding the full c
 });
 
 test('skill teaches the messaging loop', () => {
-  for (const text of ['pacer msg inbox --wait', 'pacer msg send <task> "<text>" --wait', '--answer <message-id>', '--send-back --note', '--retry-on <executor>', 'pacer msg log <task>', 'pacer msg close <task>', 'pacer msg read <message-id>', 'use `pacer session io` only for a live interactive terminal']) expect(PACER_SKILL).toContain(text);
+  for (const text of ['pacer msg inbox --wait', 'pacer msg send <task> "<text>" --wait', '--answer <message-id>', '--send-back --note', '--retry-on <executor>', 'pacer msg log <task>', 'pacer msg close <task>', 'pacer msg read <message-id>', 'Stop and UserPromptSubmit hooks', 'pacer msg policy --project <repo-path>', 'pacer delegate --no-grant', 'use `pacer session io` only for a live interactive terminal']) expect(PACER_SKILL).toContain(text);
 });
