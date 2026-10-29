@@ -781,3 +781,6 @@ a.pc-btn{text-decoration:none}
 .pc-icon-button--bad.pc-btn--quiet.pc-icon-button:hover{color:var(--bad-fg)}
 
 .pc-settings-nav__plugin{font-size:var(--type-count-badge-size);font-weight:var(--type-label-weight);padding:0 var(--space-1\.5);border:1px solid var(--line);border-radius:var(--radius-full);color:var(--ink-secondary)}
+
+/* Extra compact labelled controls for the fixed-width desktop tray footer. */
+.pc-btn--xs{min-height:var(--control-compact);padding:0 var(--space-2);gap:var(--space-1)}

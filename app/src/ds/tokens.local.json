@@ -197,6 +197,11 @@
         "value": "9px",
         "usage": "Flush TaskCard row vertical padding.",
         "provisional": "Dispatch board value; not yet in the design system."
+      },
+      {
+        "name": "size-236",
+        "value": "236px",
+        "provisional": "Tray board value; not yet in the design system."
       }
     ]
   },
@@ -233,6 +238,13 @@
         "fontWeight": 600,
         "letterSpacing": "0.04em",
         "provisional": "ActivityBar board Plugins section label; not yet in the design system."
+      },
+      {
+        "name": "tray-count",
+        "fontSize": "20px",
+        "lineHeight": "26px",
+        "fontWeight": 650,
+        "provisional": "Tray board value; not yet in the design system."
       }
     ]
   }

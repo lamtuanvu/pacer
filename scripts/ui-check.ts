@@ -249,6 +249,14 @@ export function checkUiSource(inputPath: string, source: string): UiViolation[] 
     if (brandMetric && value.type === "TemplateLiteral" && value.expressions.length === 1
       && value.expressions[0]?.type === "Identifier" && value.expressions[0].name === "size"
       && value.quasis[0]?.value.cooked === "" && value.quasis[1]?.value.cooked === "px") return;
+    // Tray overflow containment uses the measured popup height and token-derived bottom offset.
+    const code = (expression: t.Node) => source.slice(expression.start ?? 0, expression.end ?? 0).replace(/\s/g, "");
+    const needed = bindings.get("needed");
+    if (path === "app/src/tray/Tray.tsx" && name === "--tray-menu-height"
+      && node.type === "CallExpression" && node.callee.type === "MemberExpression"
+      && code(node.callee) === "root.current.style.setProperty"
+      && code(value) === "`${Math.ceil(needed)}px`" && needed
+      && code(needed) === "popup?popup.getBoundingClientRect().height+parseFloat(getComputedStyle(popup).bottom):0") return;
     // Viewer sizing is authoritative PTY/measured geometry, scoped to scale() assignments.
     const terminalScale = path === "app/src/term/term.tsx" && ["width", "height"].includes(name)
       && ancestors.some(parent => parent.type === "VariableDeclarator" && parent.id.type === "Identifier" && parent.id.name === "scale")

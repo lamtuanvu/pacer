@@ -705,7 +705,7 @@ pub fn command_authorized(label: &str, expected: &str, url: &Url, origin: Option
 }
 
 pub fn tray_height(height: f64) -> Option<f64> {
-    height.is_finite().then(|| height.clamp(120., 520.))
+    height.is_finite().then(|| height.clamp(120., 560.))
 }
 
 pub fn service_navigation(url: &Url, origin: Option<&str>) -> bool {
@@ -828,8 +828,16 @@ pub fn local_origin(url: &Url) -> Option<String> {
     .then(|| url.origin().ascii_serialization())
 }
 
+pub fn remembered_route(route: &str) -> String {
+    let path = route.split('?').next().unwrap_or("").trim_start_matches('#');
+    format!("#{}", if path.is_empty() { "/" } else { path })
+}
+
 pub fn route(raw: &str) -> Option<String> {
     let value = raw.strip_prefix('#').unwrap_or(raw);
+    if value.contains(['%', '\\', '#']) || value.contains("..") {
+        return None;
+    }
     let value = if value.starts_with("pacer://") {
         let url = Url::parse(value).ok()?;
         if !url.username().is_empty()
@@ -844,14 +852,21 @@ pub fn route(raw: &str) -> Option<String> {
     } else {
         value.to_owned()
     };
-    if !value.starts_with('/') || value.starts_with("//") || value.contains(['?', '#', '\\']) {
+    if !value.starts_with('/') || value.starts_with("//") || value.contains(['#', '\\']) {
+        return None;
+    }
+    if let Some((path, query)) = value.split_once('?') {
+        if matches!((path, query), ("/", "new=task")) {
+            return Some(format!("#{value}"));
+        }
         return None;
     }
     if value == "/" || value == "/overview" {
         return Some("#/".into());
     }
     let parts: Vec<_> = value.trim_matches('/').split('/').collect();
-    if !matches!(parts[0], "review" | "sessions" | "settings")
+    if !matches!(parts[0], "review" | "sessions" | "settings" | "needs-you" | "tasks")
+        || (parts[0] == "needs-you" && parts.len() != 1)
         || parts.len() > 3
         || (parts.len() == 3 && (parts[0] != "settings" || parts[1] != "hosts"))
         || parts.iter().any(|p| {
@@ -946,6 +961,19 @@ impl Sse {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn tray_route_contract() {
+        let cases: serde_json::Value = serde_json::from_str(include_str!("../../../test/fixtures/tray-routes.json")).unwrap();
+        for raw in cases["allowed"].as_array().unwrap() {
+            let raw = raw.as_str().unwrap();
+            assert_eq!(super::route(raw), Some(format!("#{raw}")), "{raw}");
+        }
+        for raw in cases["rejected"].as_array().unwrap() {
+            let raw = raw.as_str().unwrap();
+            assert_eq!(super::route(raw), None, "{raw}");
+        }
+    }
+
     #[test]
     fn recovery_truth_table() {
         for app in [false, true] {
@@ -1442,8 +1470,8 @@ mod tests {
             (0., 120.),
             (120., 120.),
             (271.5, 271.5),
-            (520., 520.),
-            (9999., 520.),
+            (560., 560.),
+            (9999., 560.),
         ] {
             assert_eq!(tray_height(height), Some(expected));
         }
@@ -1475,6 +1503,15 @@ mod tests {
         }
     }
     #[test]
+    fn remembered_routes_drop_one_shot_queries() {
+        assert_eq!(remembered_route("#/?new=task"), "#/");
+        assert_eq!(remembered_route("#/tasks?filter=done"), "#/tasks");
+        assert_eq!(remembered_route("#/tasks/t-1"), "#/tasks/t-1");
+        assert_eq!(remembered_route("#?new=task"), "#/");
+        assert_eq!(remembered_route(""), "#/");
+    }
+
+    #[test]
     fn tray_routes_use_the_shared_route_validator() {
         for raw in [
             "/",
@@ -1487,7 +1524,6 @@ mod tests {
             assert_eq!(route(&normalized), Some(normalized));
         }
         for retired in [
-            "tasks",
             "executors",
             "accounts",
             "strategy",
