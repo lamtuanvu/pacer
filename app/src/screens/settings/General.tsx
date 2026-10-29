@@ -584,14 +584,15 @@ export function AccountsSection({ initialData }: { initialData?: Account[] }) {
     </Section>
   );
 }
-type MachineDraft = { cap: "unlimited" | "limit"; max: string; pressure: string; load: "off" | "limit"; loadLimit: string };
-const MACHINE_KEYS = { max: "execution.local_max_tasks", pressure: "execution.local_memory_pressure_limit", load: "execution.local_load_limit" } as const;
+type MachineDraft = { cap: "unlimited" | "limit"; max: string; pressure: string; load: "off" | "limit"; loadLimit: string; launch: string; terminal: string };
+const MACHINE_KEYS = { max: "execution.local_max_tasks", pressure: "execution.local_memory_pressure_limit", load: "execution.local_load_limit", launch: "execution.launch_mode", terminal: "terminal.open" } as const;
 function machineDraft(config: ConfigData | undefined): MachineDraft {
   const max = config?.keys[MACHINE_KEYS.max]?.value, load = config?.keys[MACHINE_KEYS.load]?.value;
   return {
     cap: typeof max === "number" ? "limit" : "unlimited", max: typeof max === "number" ? String(max) : "",
     pressure: String(config?.keys[MACHINE_KEYS.pressure]?.value ?? "critical"),
     load: typeof load === "number" ? "limit" : "off", loadLimit: typeof load === "number" ? String(load) : "",
+    launch: String(config?.keys[MACHINE_KEYS.launch]?.value ?? "interactive"), terminal: terminalPreference(config).selectedTerminal,
   };
 }
 /** Each saved setting, how a draft spells it, and the draft fields it covers. */
@@ -599,6 +600,8 @@ const MACHINE_FIELDS = [
   { key: MACHINE_KEYS.max, value: (d: MachineDraft) => d.cap === "unlimited" ? "unlimited" : Number(d.max), pick: (d: MachineDraft) => ({ cap: d.cap, max: d.max }) },
   { key: MACHINE_KEYS.pressure, value: (d: MachineDraft) => d.pressure, pick: (d: MachineDraft) => ({ pressure: d.pressure }) },
   { key: MACHINE_KEYS.load, value: (d: MachineDraft) => d.load === "off" ? "off" : Number(d.loadLimit), pick: (d: MachineDraft) => ({ load: d.load, loadLimit: d.loadLimit }) },
+  { key: MACHINE_KEYS.launch, value: (d: MachineDraft) => d.launch, pick: (d: MachineDraft) => ({ launch: d.launch }) },
+  { key: MACHINE_KEYS.terminal, value: (d: MachineDraft) => d.terminal, pick: (d: MachineDraft) => ({ terminal: d.terminal }) },
 ] as const;
 /** The config.set values a draft stands for; only keys that differ from the draft's base are written. */
 function machineChanges(base: MachineDraft, draft: MachineDraft): { key: string; value: string | number }[] {
@@ -671,8 +674,7 @@ export function MachineSection({ initialData, query: routeQuery = { repo: null, 
     return () => { active = false; clearInterval(timer); };
   }, [api]);
   const now = machineNow(state.snapshot?.machine && { ...state.snapshot.machine, ...query.data?.machine, ...live });
-  const launchMode = String(query.data?.keys["execution.launch_mode"]?.value ?? "interactive");
-  const { selectedTerminal, terminalChoices } = terminalPreference(query.data);
+  const { terminalChoices } = terminalPreference(query.data);
   return (
     <Section id="machine" title="This machine" actions={<TextAction href={withQuery("#/settings/hosts", routeQuery)}>Remote hosts</TextAction>}>
       <ResourceState resource={query}>
@@ -739,6 +741,27 @@ export function MachineSection({ initialData, query: routeQuery = { repo: null, 
             )}
           </div>
         </Field>
+        <Field
+          label="Delegated task launch"
+          help="Interactive runs open in the agent's terminal UI and finish when the agent reports its result. Headless runs the agent's non-interactive CLI. A runner's own session setting overrides this."
+        >
+          <ChoicePicker
+            aria-label="Delegated task launch"
+            value={draft.launch}
+            options={[{value:"interactive",label:"Interactive"},{value:"headless",label:"Headless"}]}
+            disabled={action.busy}
+            onValueChange={(launch) => edit({ launch })}
+          />
+        </Field>
+        <Field label="Preferred terminal" help="Used when opening sessions and other terminal actions on this machine.">
+          <ChoicePicker
+            aria-label="Preferred terminal"
+            value={draft.terminal}
+            options={terminalChoices}
+            disabled={action.busy}
+            onValueChange={(terminal) => edit({ terminal })}
+          />
+        </Field>
         {conflict && (
           <Alert tone="warning" title="Settings changed elsewhere">
             Your draft is preserved. Reload the saved settings before making further changes.{" "}
@@ -763,27 +786,6 @@ export function MachineSection({ initialData, query: routeQuery = { repo: null, 
             </Button>
           </div>
         </div>
-        <Field
-          label="Delegated task launch"
-          help="Interactive runs open in the agent's terminal UI and finish when the agent reports its result. Headless runs the agent's non-interactive CLI. A runner's own session setting overrides this."
-        >
-          <ChoicePicker
-            aria-label="Delegated task launch"
-            value={launchMode}
-            options={[{value:"interactive",label:"Interactive"},{value:"headless",label:"Headless"}]}
-            disabled={action.busy}
-            onValueChange={(choice) => void action.run("config.set", {key:"execution.launch_mode",value:choice})}
-          />
-        </Field>
-        <Field label="Preferred terminal" help="Used when opening sessions and other terminal actions on this machine.">
-          <ChoicePicker
-            aria-label="Preferred terminal"
-            value={selectedTerminal}
-            options={terminalChoices}
-            disabled={action.busy}
-            onValueChange={(choice) => void action.run("config.set", {key:"terminal.open",value:choice})}
-          />
-        </Field>
       </ResourceState>
       <Feedback action={action} />
       {dialogs.dialog}
