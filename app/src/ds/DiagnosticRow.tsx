@@ -10,7 +10,7 @@ export function DiagnosticRow({ title, caption, glyph, tone, status, action, chi
     <Disclosure className="pc-diagnostic-row__details" open={open} summary={<>
       <span className={`pc-diagnostic-glyph pc-diagnostic-glyph--${tone}`} aria-hidden="true">{glyph}</span>
       <span className="pc-diagnostic-row__text"><b>{title}</b><span className="pc-diagnostic-caption">{caption}</span></span>
-      <span className="sr-only">{status}</span>
+      <span className="pc-diagnostic-caption pc-diagnostic-time">Not recorded<span className="sr-only"> elapsed time</span></span><span className="sr-only">{status}</span>
     </>}><div className="pc-diagnostic-row__output">{children}</div></Disclosure>
     {action && <div className="pc-diagnostic-row__action">{action}</div>}
   </div>;

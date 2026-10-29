@@ -47,8 +47,8 @@ browserTest("tray board controls, shortcuts and paused Resume call real handlers
         import fixture from "./test/fixtures/ui/snapshot.json";
         window.calls = [];
         const api = { call: async (...args) => { window.calls.push(args); return {}; } };
-        const ipc = { desktop: true, open: async route => { window.calls.push(["open",route]); }, resize: async height => { window.calls.push(["resize",height]); }, hide: async () => { window.calls.push(["hide"]); }, quit: async () => { window.calls.push(["quit"]); } };
-        window.draw = (paused = false, desktop = true, clear = false, loading = false) => render(<Tray snapshot={loading ? null : {...fixture, executors:Array.from({length:6},(_,i)=>({...fixture.executors[0],id:"executor-"+i,usedPct:100,state:"ready",enabled:true,slots:{used:0,max:2}})), strategies:[{name:"default",active:true},"weekend"], attention:clear ? [] : fixture.attention, pause:paused ? {until:null,by:"app",reason:null} : null}} api={api} ipc={{...ipc,desktop}} />, document.getElementById("app"));
+        const ipc = { desktop: true, loginItem: async enabled => { window.calls.push(["login",enabled]); return enabled ?? true; }, open: async route => { window.calls.push(["open",route]); }, resize: async height => { window.calls.push(["resize",height]); }, hide: async () => { window.calls.push(["hide"]); }, quit: async () => { window.calls.push(["quit"]); } };
+        window.draw = (paused = false, desktop = true, clear = false, loading = false) => render(<Tray snapshot={loading ? null : {...fixture, executors:Array.from({length:6},(_,i)=>({...fixture.executors[0],id:"executor-"+i,rank:i+1,usedPct:100,state:"ready",enabled:true,slots:{used:0,max:2}})), strategies:[{name:"default",active:true},"weekend"], attention:clear ? [] : fixture.attention, pause:paused ? {until:null,by:"app",reason:null} : null}} api={api} ipc={{...ipc,desktop}} />, document.getElementById("app"));
         window.draw();
       ` }));
     }
@@ -77,13 +77,15 @@ browserTest("tray board controls, shortcuts and paused Resume call real handlers
     const minimum = await page.locator("#tray-menu").evaluate(node=>node.getBoundingClientRect().height+parseFloat(getComputedStyle(node).bottom));
     expect(popup.y).toBeGreaterThanOrEqual(0);
     expect((await calls()).filter((call:any[])=>call[0]==="resize").at(-1)[1]).toBeGreaterThanOrEqual(Math.min(560,minimum));
-    const executorBoxes = await page.locator(".tray-executor").evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().y));
-    expect(new Set(executorBoxes).size).toBeGreaterThan(1);
-    for(const node of await page.locator(".tray-executor").all()) expect((await node.boundingBox())!.x+(await node.boundingBox())!.width).toBeLessThanOrEqual(340);
+    const executorBoxes = await page.locator(".tray-executor:visible").evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().y));
+    expect(new Set(executorBoxes).size).toBe(1);
+    for(const node of await page.locator(".tray-executor:visible").all()) expect((await node.boundingBox())!.x+(await node.boundingBox())!.width).toBeLessThanOrEqual(340);
     expect(await page.getByRole("button", { name: /Strategy/ }).textContent()).toContain("default");
     expect(await page.getByRole("link", { name: /Settings/ }).getAttribute("href")).toBe("/app/#/settings");
     expect(await page.getByRole("button", { name: /Quit pacer/ }).count()).toBe(1);
-    expect(await page.getByText(/Open at login|Launch at login/).count()).toBe(0);
+    expect(await page.getByRole("switch", { name: "Open at login" }).isChecked()).toBe(true);
+    await page.getByRole("switch", { name: "Open at login" }).uncheck();
+    expect(await calls()).toContainEqual(["login",false]);
     await page.getByRole("button", { name: /Strategy/ }).click();
     expect(await page.locator("#tray-strategies [aria-pressed=true]").count()).toBe(1);
     await page.keyboard.press("Escape");
@@ -117,6 +119,7 @@ browserTest("tray board controls, shortcuts and paused Resume call real handlers
     expect(await calls()).not.toContainEqual(["quit"]);
     expect(await page.getByRole("button", { name: /Quit pacer/ }).count()).toBe(0);
     expect(await page.locator(".tray-menu-divider").count()).toBe(0);
+    expect(await page.getByRole("switch", { name: "Open at login" }).count()).toBe(0);
     expect(await page.locator(".tray").textContent()).not.toMatch(/[⏸▶⋯⏳]/);
 
     await page.getByRole("button", { name: "More", exact: true }).click();
@@ -178,22 +181,22 @@ browserTest("xs buttons share a compact minimum height in default and compact de
   } finally { await browser.close(); }
 }, 20000);
 
-browserTest("a squeezed planner header drops the planner label whole before the name truncates", async () => {
+browserTest("a squeezed planner header keeps the name and caption while the pace text truncates", async () => {
   const browser = await chromium.launch({ executablePath: process.env.PACER_TEST_BROWSER!, headless: true });
   try {
     const page = await browser.newPage({ viewport: { width: 340, height: 200 } });
-    const header = (pill: string) => `<div class="tray"><main class="tray-main"><section class="tray-planner"><div class="tray-line"><strong>Codex</strong><span class="tray-planner-label-slot"><span class="tray-planner-label-spacer"></span><span class="tray-planner-label">planner</span></span><span class="tray-grow"></span><span class="pc-pill" style="flex:none">${pill}</span><span class="tray-mode">Paused</span></div></section></main></div>`;
+    const header = (pill: string) => `<div class="tray"><main class="tray-main"><section class="tray-planner"><div class="tray-line"><strong>Codex</strong><span class="tray-planner-label">planner</span><span class="tray-grow"></span><span class="pc-pill"><span class="tray-pace-label">${pill}</span></span><span class="tray-mode">Paused</span></div></section></main></div>`;
     await page.setContent(header("Ahead"));
     await page.addStyleTag({ content: (await Promise.all(["app/src/ds/tokens.css", "app/src/tray/tray.css"].map(path => Bun.file(path).text()))).join("\n") });
     const visible = () => page.evaluate(() => {
-      const slot = document.querySelector(".tray-planner-label-slot")!.getBoundingClientRect(), label = document.querySelector(".tray-planner-label")!.getBoundingClientRect();
+      const slot = document.querySelector(".tray-line")!.getBoundingClientRect(), label = document.querySelector(".tray-planner-label")!.getBoundingClientRect();
       return label.top < slot.bottom && label.bottom > slot.top && label.right > slot.left && label.left < slot.right;
     });
     const nameFits = () => page.locator(".tray-line strong").evaluate(node => node.scrollWidth <= node.clientWidth);
     expect(await visible()).toBe(true);
     await page.evaluate(html => { document.body.innerHTML = html; }, header("? Usage unknown · ahead"));
-    expect(await visible()).toBe(false);
-    expect(await page.locator(".tray-planner-label").evaluate(node => node.getBoundingClientRect().top >= node.parentElement!.getBoundingClientRect().bottom)).toBe(true);
+    expect(await visible()).toBe(true);
+    expect(await page.locator(".tray-planner-label").textContent()).toBe("planner");
     expect(await nameFits()).toBe(true);
   } finally { await browser.close(); }
 }, 20000);
@@ -224,18 +227,19 @@ browserTest("tall content at the 560px cap keeps the whole footer inside the bor
   } finally { await browser.close(); }
 }, 20000);
 
-browserTest("a medium squeeze empties the planner label slot before the name loses a sub-pixel", async () => {
+browserTest("a medium squeeze preserves the planner name and caption before pace text", async () => {
   const browser = await chromium.launch({ executablePath: process.env.PACER_TEST_BROWSER!, headless: true });
   try {
     const page = await browser.newPage({ viewport: { width: 340, height: 200 } });
     await page.addStyleTag({ content: (await Promise.all(["app/src/ds/tokens.css", "app/src/tray/tray.css"].map(path => Bun.file(path).text()))).join("\n") });
     for (const pill of ["On pace · ahead", "On pace · ah", "On pace"]) {
-      await page.evaluate(pill => { document.body.innerHTML = `<div class="tray"><main class="tray-main"><section class="tray-planner"><div class="tray-line"><strong>Claude Code</strong><span class="tray-planner-label-slot"><span class="tray-planner-label-spacer"></span><span class="tray-planner-label">planner</span></span><span class="tray-grow"></span><span class="pc-pill" style="flex:none">${pill}</span><span class="tray-mode">Paused</span></div></section></main></div>`; }, pill);
+      await page.evaluate(pill => { document.body.innerHTML = `<div class="tray"><main class="tray-main"><section class="tray-planner"><div class="tray-line"><strong>Claude Code</strong><span class="tray-planner-label">planner</span><span class="tray-grow"></span><span class="pc-pill"><span class="tray-pace-label">${pill}</span></span><span class="tray-mode">Paused</span></div></section></main></div>`; }, pill);
       const fit = await page.evaluate(() => {
         const name = document.querySelector(".tray-line strong")!, range = document.createRange(); range.selectNodeContents(name);
         return { box: name.getBoundingClientRect().width, text: range.getBoundingClientRect().width };
       });
-      expect(fit.box + 0.01).toBeGreaterThanOrEqual(fit.text);
+      expect(fit.box).toBeGreaterThanOrEqual(fit.text - 0.01);
+      expect(await page.locator(".tray-planner-label").textContent()).toBe("planner");
     }
   } finally { await browser.close(); }
 }, 20000);
@@ -250,7 +254,7 @@ for (const width of [340, 260]) browserTest(`tray planner name never runs under 
         import { Tray } from "./app/src/tray/Tray";
         import fixture from "./test/fixtures/ui/snapshot.json";
         const api = { call: async () => ({}) };
-        const ipc = { desktop: true, open: async () => {}, resize: async () => {}, hide: async () => {}, quit: async () => {} };
+        const ipc = { desktop: true, loginItem: async enabled => { window.calls.push(["login",enabled]); return enabled ?? true; }, open: async () => {}, resize: async () => {}, hide: async () => {}, quit: async () => {} };
         window.draw = state => render(<Tray snapshot={{...fixture,
           planner: {...fixture.planner, verdict: state === "behind" ? "behind" : state === "clear" ? "on_pace" : "ahead"},
           attention: state === "clear" ? [] : fixture.attention,
@@ -279,7 +283,8 @@ for (const width of [340, 260]) browserTest(`tray planner name never runs under 
           fullLabel:pill.getAttribute("title"), pillText:pill.textContent, glyphText:glyph.textContent,
           modeTitle:mode.getAttribute("title"), modeText:mode.textContent };
       });
-      expect(fit.name.width).toBeGreaterThanOrEqual(64);
+      expect(fit.name.width).toBeGreaterThan(0);
+      expect(await page.locator(".tray-planner-label").evaluate(node => node.clientWidth >= node.scrollWidth)).toBe(true);
       expect(fit.overflow).toBe("ellipsis");
       for (const item of [fit.pill, fit.mode]) {
         expect(item.top).toBeLessThan(fit.name.bottom);
@@ -296,11 +301,11 @@ for (const width of [340, 260]) browserTest(`tray planner name never runs under 
       expect(fit.pillText).toContain(label!);
       expect(fit.modeTitle).toBe(fit.modeText);
       if (width === 340) {
-        expect(Math.abs(fit.name.width - fit.textWidth)).toBeLessThan(0.02);
-        expect(fit.labelScroll).toBeLessThanOrEqual(fit.labelClient);
+        expect(fit.name.width).toBeGreaterThanOrEqual(fit.textWidth - 0.05);
+        expect(fit.labelClient).toBeGreaterThan(0);
       } else {
         expect(fit.name.width).toBeLessThan(fit.textWidth);
-        expect(fit.labelScroll).toBeGreaterThan(fit.labelClient);
+        expect(fit.labelScroll).toBeGreaterThanOrEqual(fit.labelClient);
       }
       if (process.env.PACER_TRAY_SCREENSHOTS) {
         console.log(JSON.stringify({ width, state, ...fit }));

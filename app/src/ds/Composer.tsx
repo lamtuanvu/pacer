@@ -48,8 +48,8 @@ export function RadioChip({ checked, onSelect, disabled, children, note }: Radio
   </button>;
 }
 /** A list choice with a leading mark, a name and caption, and a status pill. Unavailable rows stay visible with their reason. */
-export function OptionRow({ checked, onSelect, disabled, leading, title, sub, pill }: RadioProps & { leading?: ComponentChildren; title: ComponentChildren; sub?: ComponentChildren; pill?: { label: string; tone: StatusTone } }) {
-  return <button type="button" role="radio" aria-checked={checked} aria-disabled={disabled || undefined} className="pc-option-row" onClick={() => { if (!disabled) onSelect(); }}>
+export function OptionRow({ checked, onSelect, disabled, leading, title, sub, pill, variant }: RadioProps & { leading?: ComponentChildren; title: ComponentChildren; sub?: ComponentChildren; pill?: { label: string; tone: StatusTone }; variant?: "retry" }) {
+  return <button type="button" role="radio" aria-checked={checked} aria-disabled={disabled || undefined} className={classes("pc-option-row", variant && `pc-option-row--${variant}`)} onClick={() => { if (!disabled) onSelect(); }}>
     {leading}<span className="pc-option-row__text"><span className="pc-option-row__title">{title}</span>{sub && <span className="pc-option-row__sub">{sub}</span>}</span>
     {pill && <Pill tone={pill.tone}>{pill.label}</Pill>}
   </button>;

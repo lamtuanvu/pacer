@@ -50,3 +50,5 @@
 @media(pointer:coarse){.pc-plugin-move__spacer{width:var(--control-touch);height:var(--control-touch)}}
 .pc-plugin-card__actions .pc-plugin-settings-link{height:var(--size-32);min-height:var(--size-32);padding:0 var(--space-3);border:1px solid var(--line);border-radius:var(--radius-md);font-size:var(--type-body-size);font-weight:var(--type-body-strong-weight)}
 @media(pointer:coarse){.pc-plugin-card__actions .pc-plugin-settings-link{height:var(--control-touch);min-height:var(--control-touch)}}
+
+.pc-plugin-card__description{font-size:var(--type-body-size);line-height:var(--type-body-line);color:var(--ink-secondary)}

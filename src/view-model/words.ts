@@ -32,7 +32,7 @@ export function executorLabel(id: string | null | undefined, accounts: AccountLi
   const [local, host] = id.split("@");
   const [agent, name] = local!.split("#");
   const account = accounts.find(a => a.runners?.includes(id) || a.name === name);
-  const native = ({"claude-code":"Claude Code",claude:"Claude",codex:"Codex",cursor:"Cursor",agy:"Antigravity",antigravity:"Antigravity"} as Record<string,string>)[agent!];
+  const native = agentKey(agent!) ? agentInfo(agent!).name : undefined;
   const defaultAccount = account?.source === "default" || (account?.folder && (
     (agent === "codex" && account.folder.endsWith("/.codex")) ||
     (agent === "claude-code" && account.folder.endsWith("/.claude"))
@@ -42,6 +42,15 @@ export function executorLabel(id: string | null | undefined, accounts: AccountLi
   const known = (id: string | undefined) => id && agentKey(id) ? agentInfo(id).name : id;
   const label = agent === "opencode" ? `${known(account?.name ?? name) ?? "OpenCode"}` : `${native ?? known(agent)}${suffix}`;
   return label + (host ? ` on ${host}` : "");
+}
+/** A known default account uses its agent name; a named account retains its suffix. */
+export function accountLabel(account: AccountLike & { agent?: string }): string {
+  const runner = account.runners?.[0];
+  if (runner) return executorLabel(runner, [account]);
+  const agent = account.agent ?? (account.kind === "claude" ? "claude-code" : account.kind === "endpoint" ? "opencode" : account.kind) ?? account.name;
+  if (agent === "opencode") return agentInfo(account.name).name;
+  const name = agentInfo(agent).name;
+  return account.source === "default" || agentKey(account.name) === agentKey(agent) && agentKey(agent) !== null ? name : `${name} · ${account.name}`;
 }
 export function executorCaption(account?: AccountLike): string {
   if (account?.kind !== "endpoint") return "Agent CLI";
@@ -144,3 +153,6 @@ export const localHostWords = "This Mac";
 export const subtaskAttentionWords = (label: string): string => `Subtask: ${label}`;
 export const compactVerdictWords = (verdict: string): string =>
   verdict === "out" || verdict === "EXHAUSTED" ? "out" : verdict === "ahead" || verdict === "AHEAD" ? "ahead" : "";
+
+/** Human-facing percentages never expose floating-point precision. */
+export const percentage = (value: number): string => `${Math.round(value)}%`;

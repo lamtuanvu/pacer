@@ -12,3 +12,11 @@ export function pluginAdditions(plugin: PluginInfo) {
   return [...Object.entries(names).flatMap(([kind,label]) => { const count = plugin.ui[kind as keyof typeof names]; return count ? [count > 1 ? `${label} · ${count}` : label] : []; }), ...plugin.contributes.flatMap(point => points[point] ? [points[point]!] : [])];
 }
 export const attentionState = (plugin: PluginInfo) => ["failing","refused","needs_grant"].includes(plugin.state);
+
+const bundledPresentation: Record<string, { name: string; description: string }> = {
+  "pacer-agent-session": { name: "Agent sessions", description: "Live terminal sessions for delegated tasks" },
+  "pacer-assistant": { name: "Assistant", description: "The always-on assistant behind ⌘J" },
+};
+export function pluginPresentation(plugin: PluginInfo) {
+  return (plugin.bundled && bundledPresentation[plugin.id]) || { name: plugin.id, description: null };
+}

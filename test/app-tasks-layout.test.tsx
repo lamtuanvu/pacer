@@ -1,3 +1,4 @@
+import {taskHeading} from "../src/view-model/titles";
 import {expect, test} from 'bun:test';
 import {chromium} from 'playwright-core';
 import {renderToString} from 'preact-render-to-string';
@@ -24,7 +25,7 @@ const task = {id:'ended',title:'Implement ticket SFOS-488…',fullTitle:'Impleme
 
 test('Tasks rows open the task directly without repeated control actions',()=>{
  const html=renderToString(<SessionsList recent={{data:[view(task)]}}/>);
- expect(html).toContain(`>${task.fullTitle}</a>`);
+ expect(html).toContain(`>${taskHeading(task.fullTitle!)}</a>`);
  expect(html).toContain(`title="${task.fullTitle}"`);
  expect(html).toContain(`href="#/tasks/ended"`);
  expect(html).not.toContain('Take over');
@@ -35,7 +36,8 @@ test('Tasks rows open the task directly without repeated control actions',()=>{
 test('Task navigator identifies the selected task and preserves the repo filter',()=>{
  const selected=view({...task,id:'running-task',state:'running',fullTitle:'Run a long task'});
  const html=renderToString(<TaskNavigator selectedId={selected.id} nodes={[selected,view(task)]} query='?repo=lamtuanvu%2Fpacer'/>);
- expect(html).toContain('pc-task-card--compact');
+ expect(html).toContain('pc-session-node');
+ expect(html).not.toContain('pc-task-card');
  expect(html).toContain('aria-label="Task navigator"');
  expect(html).toContain('aria-current="page"');
  expect(html).toContain('href="#/tasks/running-task?repo=lamtuanvu%2Fpacer"');
@@ -51,9 +53,12 @@ test.skipIf(!browserPath)('Tasks route lays out the board header, filters and tr
  const browser=await chromium.launch({executablePath:browserPath!,headless:true});
  try{
   const page=await browser.newPage();
-  for(const width of [1990,1440]){
+  for(const width of [1990,1440])for(const scopeOpen of [true,false]){
    await page.setViewportSize({width,height:1000});
-   const html=renderToString(<TaskContext.Provider value={{state:state as unknown as StoreState,api:{} as BrowserApi}}><Layout route={{name:'sessions',query:{repo:null,scope:null}}} state={state as unknown as StoreState} title="Tasks"><Sessions query={{repo:null,scope:null}}/></Layout></TaskContext.Provider>);
+   const storage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+   Object.defineProperty(globalThis, 'localStorage', {configurable:true,value:{getItem:(key:string)=>key==='pacer.panel.sessions.inspector'?'0':key==='pacer.panel.sessions.scope'?(scopeOpen?'1':'0'):null}});
+   let html:string;
+   try { html=renderToString(<TaskContext.Provider value={{state:state as unknown as StoreState,api:{} as BrowserApi}}><Layout route={{name:'sessions',query:{repo:null,scope:null}}} state={state as unknown as StoreState} title="Tasks"><Sessions query={{repo:null,scope:null}}/></Layout></TaskContext.Provider>); } finally { if(storage)Object.defineProperty(globalThis,'localStorage',storage);else Reflect.deleteProperty(globalThis,'localStorage'); }
    await page.setContent(`<html data-pacer-desktop data-pacer-native-titlebar><style>${css}</style><div id="app">${html}</div></html>`);
    const geometry=await page.evaluate(()=>{
     const box=document.querySelector('.pc-tasks-page')!.getBoundingClientRect();
@@ -77,12 +82,13 @@ test.skipIf(!browserPath)('Tasks route lays out the board header, filters and tr
      aside:[box('.pc-task-aside')?.width,style('.pc-task-aside')?.position],
     };
    });
-   expect(board).toEqual({h1:['28px','34px','650'],page:['28px','40px','48px','16px'],search:[36,260],card:['12px','4px'],main:['10px','10px','12px'],title:['15px','21px','650'],dot:[10,10],host:[22],action:[26,26],aside:[360,'sticky']});
-   // Only the selected title adopts the Session board's stronger selection weight.
+   expect(board).toEqual({h1:['28px','34px','650'],page:['24px','32px','40px','16px'],search:[32,260],card:['12px','4px'],main:['12px','10px','12px'],title:['14px','21px','600'],dot:[10,10],host:[22],action:[26,26],aside:[362,'sticky']});
+   // Tasks rows use the board's 600 weight for both selected and unselected titles.
    expect(await page.locator('.pc-task-card__main:not(.pc-task-card__main--selected) .pc-task-card__title').first().evaluate(node=>getComputedStyle(node).fontWeight)).toBe('600');
-   // The board is capped at its design width and starts at the content edge; the tree and the panel share a row.
-   expect(geometry.width).toBeLessThanOrEqual(1240);
-   expect(geometry.left).toBeLessThan(100);
+   // The board fills the content area beside the 52px activity rail; the tree and aside share a row.
+   expect(geometry.width).toBe(width-52-(scopeOpen?248:0));
+   expect(geometry.left).toBe(52+(scopeOpen?248:0));
+   expect(await page.locator('.pc-tasks-page__title').evaluate(n=>n.getBoundingClientRect().left)).toBe(52+(scopeOpen?248:0)+32);
    expect(geometry.columns).toBe('flex');
    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   }
@@ -114,63 +120,79 @@ test.skipIf(!browserPath)('Tasks bounds whole-row links and metadata inside narr
  }finally{await browser.close();}
 });
 
-test.skipIf(!browserPath)('Dispatch clips long titles, keeps the composer to one row until focus and stays contained on desktop and phone',async()=>{
+test.skipIf(!browserPath)('Dispatch clips long titles, omits the composer and stays contained on desktop and phone',async()=>{
  const {DispatchView}=await import('../app/src/screens/dispatch/Dispatch');
- const {StartWork}=await import('../app/src/screens/StartSession');
  const {TaskContext}=await import('../app/src/screens/task-shared');
  const {createActionRunner}=await import('../app/src/data/actions');
  const {initialState}=await import('../app/src/data/store');
  const {Layout}=await import('../app/src/shell/Layout');
  const fixture=(await import('./fixtures/ui/snapshot.json')).default;
  const long='Implement ticket SFOS-488: '+'Complete the deployment-target implementation and verify all affected infrastructure. '.repeat(12);
- const snapshot={...fixture,tasks:fixture.tasks.map((t,i)=>i===0||t.id==='t-0409'?{...t,fullTitle:long}:t)};
+ const snapshot={...fixture,tasks:fixture.tasks.map((t,i)=>i===0||t.id==='t-0409'?{...t,title:long,fullTitle:long}:t)};
  const state={...initialState(),connected:true,features:{readModel:true,ops:new Set<string>(["session.create"])},snapshot};
  const runner=createActionRunner({call:async<T,>()=>({} as T),waitFor:async()=>true,refetch(){},navigate(){}});
  const summary={rootTasksHandled:12,acceptedFirstTry:9,reviewedRoots:11,acceptedFirstTryRate:9/11,retryAttempts:2,tokens:{total:1_840_000,measuredAttempts:4,partialAttempts:1,unknownAttempts:1,attempts:6,lowerBound:true},spread:[{agent:'codex',total:980_000,tasks:4},{agent:'claude-code',total:520_000,tasks:6},{agent:'agy',total:340_000,tasks:2}],planner:{coverage:'unknown' as const},ranOutsidePlanner:null,previous:{rootTasksHandled:10}};
  const insights={supported:true,loading:false,current:summary,today:summary};
- const css=(await Promise.all(['app/src/ds/tokens.css','app/src/ds/components.css','app/src/styles.css'].map(f=>Bun.file(f).text()))).join('\n');
+ const css=(await Promise.all(['app/src/ds/tokens.css','app/src/ds/components.css','app/src/styles.css','app/src/screens/dispatch/dispatch.css'].map(f=>Bun.file(f).text()))).join('\n');
  const browser=await chromium.launch({executablePath:browserPath!,headless:true});
  try{
   const page=await browser.newPage();
   for(const width of [1990,1440,900,375])for(const theme of ['light','dark'])for(const withTokens of [false,true]){
    await page.setViewportSize({width,height:1200});
    const query={repo:null,scope:width<560?'repo:github.com/acme/api':null};
-   const html=renderToString(<TaskContext.Provider value={{state:state as unknown as StoreState,api:{} as BrowserApi}}><Layout route={{name:'dispatch',query}} state={state as unknown as StoreState} title="Dispatch"><DispatchView snapshot={snapshot as never} query={query} now={snapshot.at} runner={runner} routing={null} insights={withTokens?insights:undefined} onPeriod={()=>{}} startWork={<StartWork/>}/></Layout></TaskContext.Provider>);
+   const {NARROW_MEDIA,PANEL_MEDIA}=await import('../app/src/shell/narrow');
+   const previous=Object.getOwnPropertyDescriptor(globalThis,'window');
+   Object.defineProperty(globalThis,'window',{configurable:true,value:{matchMedia:(q:string)=>({matches:q===NARROW_MEDIA?width<560:q===PANEL_MEDIA?width>=768:false})}});
+   let html='';
+   try{html=renderToString(<TaskContext.Provider value={{state:state as unknown as StoreState,api:{} as BrowserApi}}><NarrowContext.Provider value={width<560}><Layout route={{name:'dispatch',query}} state={state as unknown as StoreState} title="Dispatch"><DispatchView snapshot={snapshot as never} query={query} now={snapshot.at} runner={runner} routing={null} insights={withTokens?insights:undefined} onPeriod={()=>{}}/></Layout></NarrowContext.Provider></TaskContext.Provider>);}finally{if(previous)Object.defineProperty(globalThis,'window',previous);else Reflect.deleteProperty(globalThis,'window');}
    await page.setContent(`<html data-theme="${theme}" data-pacer-desktop data-pacer-native-titlebar><div id="app"><style>${css}</style>${html}</div></html>`);
    if(process.env.PACER_LAYOUT_EVIDENCE)await page.screenshot({path:`${process.env.PACER_LAYOUT_EVIDENCE}/dispatch-${width}-${theme}${withTokens?'-insights':''}.png`,fullPage:true});
-   const titles=page.locator('.pc-task-card__title',{hasText:'Implement ticket SFOS-488'});
+   const titles=page.locator('.pc-dispatch-decision__task>strong',{hasText:'Implement ticket SFOS-488'});
    expect(await titles.count()).toBeGreaterThan(0);
    for(const title of await titles.all()){
     expect(await title.getAttribute('title')).toBe(long);
     expect(await title.evaluate(n=>({clipped:n.scrollWidth>n.clientWidth,overflow:getComputedStyle(n).textOverflow}))).toEqual({clipped:true,overflow:'ellipsis'});
    }
-   // Collapsed composer: the request only; repository and agent fields appear once it has focus.
-   expect(await page.locator('.pc-start-composer textarea').count()).toBe(1);
+   // Dispatch uses the board ledger; new work is opened from the shell.
+   expect(await page.locator('.pc-start-composer textarea').count()).toBe(0);
    expect(await page.locator('.pc-start-fields').count()).toBe(0);
    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
-   const contentEdge=await page.locator('.pc-dispatch h1').evaluate(n=>n.getBoundingClientRect().left);
-   expect(contentEdge).toBe(width<560?16:52+Math.max(0,(width-52-1240)/2)+40);
+   const contentEdge=await page.locator(width<560?'.pc-topbar h1':'.pc-dispatch h1').evaluate(n=>n.getBoundingClientRect().left);
+   if(width<560){expect(contentEdge).toBeGreaterThanOrEqual(16);expect(contentEdge).toBeLessThan(width);}
+   else expect(contentEdge).toBe(52+(width>=768?248:0)+32);
+   if(width>=768){
+    // Removing Scope restores the shared 32px content gutter beside the rail.
+    await page.locator('aside[aria-label="Scope"]').evaluate(n=>n.remove());
+    expect(await page.locator('.pc-dispatch h1').evaluate(n=>n.getBoundingClientRect().left)).toBe(52+32);
+   }
+   if(width<560){
+    expect(await page.locator('.pc-dispatch h1').count()).toBe(0);
+    expect(await page.locator('.pc-topbar h1').textContent()).toBe('Dispatch');
+    expect(await page.locator('.pc-narrow-running').count()).toBe(1);
+    expect(await page.locator('.pc-bottom-bar').count()).toBe(1);
+    continue;
+   }
    if(width>=560){
-    expect(await page.locator(".pc-dispatch").evaluate(n=>{const s=getComputedStyle(n);return [s.paddingTop,s.paddingRight,s.paddingBottom,s.gap,s.maxWidth]})).toEqual(["28px","40px","48px","20px","1240px"]);
-    expect(await page.locator(".pc-filter--menu .pc-search-picker>.pc-btn").evaluate(n=>[getComputedStyle(n).borderRadius,n.getBoundingClientRect().height])).toEqual(["8px",28]);
+    expect(await page.locator(".pc-dispatch").evaluate(n=>{const s=getComputedStyle(n);return [s.paddingTop,s.paddingRight,s.paddingBottom,s.gap,s.maxWidth]})).toEqual(["24px","32px","40px","20px","none"]);
+    expect(await page.locator(".pc-filter--menu .pc-search-picker>.pc-btn").evaluate(n=>[getComputedStyle(n).borderRadius,n.getBoundingClientRect().height])).toEqual(["8px",32]);
    }
    expect(await page.locator(".pc-live-dot").first().evaluate(n=>[n.getBoundingClientRect().width,n.getBoundingClientRect().height])).toEqual([8,8]);
    expect(await page.locator(".pc-attn-card").first().evaluate(n=>{const s=getComputedStyle(n);return [s.padding,s.borderRadius,s.gap,s.fontSize,s.lineHeight]})).toEqual(["12px","10px","10px","13px","19px"]);
    expect(await page.locator(".pc-live-dispatch>.pc-card-section__head").evaluate(n=>{const s=getComputedStyle(n);return [s.padding,s.gap]})).toEqual(["14px 20px","12px"]);
-   expect(await page.locator(".pc-task-card--flush").first().evaluate(n=>{const s=getComputedStyle(n);return [s.borderTopWidth,s.borderRadius,s.backgroundColor]})).toEqual(["0px","0px","rgba(0, 0, 0, 0)"]);
-   expect(await page.locator(".pc-task-card--flush .pc-task-card__main").first().evaluate(n=>getComputedStyle(n).padding)).toBe("9px 20px");
-   if(await page.locator(".pc-live-dispatch .pc-task-card--flush").count()>1)expect(await page.locator(".pc-live-dispatch li+li>.pc-task-card--flush").first().evaluate(n=>getComputedStyle(n).borderTopWidth)).toBe("1px");
+   expect(await page.locator(".pc-dispatch-decision").first().evaluate(n=>{const s=getComputedStyle(n);return [s.borderTopWidth,s.borderRadius,s.backgroundColor]})).toEqual(["1px","0px","rgba(0, 0, 0, 0)"]);
+   expect(await page.locator(".pc-dispatch-decision").first().evaluate(n=>getComputedStyle(n).padding)).toBe("9px 20px");
+   if(await page.locator(".pc-dispatch-decision").count()>1)expect(await page.locator(".pc-dispatch-ledger li+li>.pc-dispatch-decision").first().evaluate(n=>getComputedStyle(n).borderTopWidth)).toBe("1px");
    const rail=await page.locator(width<560?'.pc-bottom-bar':'.pc-rail').evaluate(n=>n.getBoundingClientRect().left);
    expect(rail).toBeGreaterThanOrEqual(0);
    if(withTokens){
-    const bar=page.locator('.pc-share-bar__bar');
+    const bar=page.locator('.pc-dispatch-share');
     expect(await bar.getAttribute('role')).toBe('img');
     const box=await bar.boundingBox();
     expect(box!.width).toBeGreaterThan(100);
-    expect(await page.locator('.pc-share-bar__legend tbody tr').count()).toBe(3);
+    expect(await page.locator('.pc-dispatch-share-table tbody tr').count()).toBe(3);
     // Tile dividers are drawn per tile, so a short last row leaves blank cells rather than a grey slab.
     expect(await page.locator('.pc-glance').evaluate(n=>getComputedStyle(n).backgroundColor)).toBe('rgba(0, 0, 0, 0)');
-    expect(await page.locator('.pc-share-bar__legend').evaluate(n=>n.scrollWidth<=n.clientWidth+1)).toBe(true);
+    expect(await page.locator('.pc-dispatch-share-table').evaluate(n=>n.scrollWidth<=n.clientWidth+1)).toBe(true);
     // Every region keeps its own height: the token share and Needs you do not stretch to match each other.
     if(width>=560){
      const natural=await page.locator(".pc-dispatch-attention").evaluate(n=>{const s=getComputedStyle(n);return {height:n.getBoundingClientRect().height,content:[...n.children].reduce((sum,c)=>sum+c.getBoundingClientRect().height,0)+parseFloat(s.gap)*(n.children.length-1)}});
@@ -184,7 +206,7 @@ test.skipIf(!browserPath)('Dispatch clips long titles, keeps the composer to one
 
 
 
-test.skipIf(!browserPath)('Needs you has one visible page h1 and space between repository context and the section', async()=>{
+test.skipIf(!browserPath)('Needs you has one visible page h1 and board spacing between tabs and waiting list', async()=>{
  const {NeedsYouPage}=await import('../app/src/screens/dispatch/Dispatch');
  const {ActionContext}=await import('../app/src/data/action-context');
  const {createActionRunner}=await import('../app/src/data/actions');
@@ -192,7 +214,7 @@ test.skipIf(!browserPath)('Needs you has one visible page h1 and space between r
  const state={...initialState(),connected:true,features:{readModel:true,ops:new Set<string>()},snapshot:fixture} as unknown as StoreState;
  const runner=createActionRunner({call:async<T,>()=>({} as T),waitFor:async()=>true,refetch(){},navigate(){}});
  const query={repo:null,scope:null};
- const css=(await Promise.all(['app/src/ds/tokens.css','app/src/ds/components.css','app/src/styles.css'].map(f=>Bun.file(f).text()))).join('\n');
+ const css=(await Promise.all(['app/src/ds/tokens.css','app/src/ds/components.css','app/src/styles.css','app/src/screens/dispatch/dispatch.css'].map(f=>Bun.file(f).text()))).join('\n');
  const browser=await chromium.launch({executablePath:browserPath!,headless:true});
  try{
   const page=await browser.newPage();
@@ -208,8 +230,8 @@ test.skipIf(!browserPath)('Needs you has one visible page h1 and space between r
    expect(await page.locator('h1').count()).toBe(1);
    expect(await page.locator('h1').innerText()).toBe('Needs you');
    expect(await page.locator('h1').evaluate(n=>{const b=n.getBoundingClientRect(),s=getComputedStyle(n);return b.width>1&&b.height>1&&s.visibility==='visible'&&s.display!=='none'})).toBe(true);
-   expect(await page.locator('.pc-needs-you').evaluate(n=>n.querySelector('.pc-section')!.getBoundingClientRect().top-n.querySelector('.pc-filter')!.getBoundingClientRect().bottom)).toBe(24);
-   expect(await page.locator('.pc-topbar').getByRole('button',{name:'New task',exact:true}).count()).toBe(1);
+   expect(await page.locator('.pc-needs-you').evaluate(n=>n.querySelector('.ny-list')!.getBoundingClientRect().top-n.querySelector('[role=tablist]')!.getBoundingClientRect().bottom)).toBe(20);
+   expect(await page.locator('.pc-topbar').getByRole('link',{name:'New task',exact:true}).count()).toBe(1);
    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   }
  }finally{await browser.close();}

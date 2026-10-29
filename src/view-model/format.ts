@@ -10,3 +10,5 @@ export function meterText(used: number | null, pace: number | null, style: "full
   if (style === "compact") return p === null ? `${u}%` : `${u}%·${p}`;
   return p === null ? `${u}% used` : `${u}% used · pace ${p}%`;
 }
+
+export { percentage } from "./words";

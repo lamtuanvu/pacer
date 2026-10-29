@@ -105,7 +105,7 @@ test.skipIf(!browserPath)('layout gaps own spacing without added text/header mar
       for (const gap of gaps) expect(gap).toBe(8);
       const height = await page.getByText('Executor transcript', { exact: true }).evaluate(node =>
         node.getBoundingClientRect().height);
-      expect(height).toBe(width === 375 ? 48 : 36);
+      expect(height).toBe(width === 375 ? 44 : 36);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     }
   } finally {

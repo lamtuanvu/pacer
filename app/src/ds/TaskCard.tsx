@@ -1,3 +1,4 @@
+import { taskHeading } from "../../../src/view-model/titles";
 import type { ComponentChildren } from "preact";
 import { useId } from "preact/hooks";
 import type { TaskNodeView } from "../../../src/view-model/task-tree";
@@ -18,6 +19,8 @@ export interface TaskCardProps {
   actions?: ComponentChildren;
   /** Borderless row inside a containing section, with lane dividers between rows. */
   flush?: boolean;
+  renderBranch?(node: TaskNodeView): ComponentChildren;
+  heading?(node: TaskNodeView): string;
 }
 const plural = (n: number) => `${n} subtask${n === 1 ? "" : "s"}`;
 /** The dot's colour follows the card's attention first, then its status, so it never disagrees with the pill. */
@@ -31,14 +34,14 @@ function Dot({ node, size }: { node: TaskNodeView; size: "root" | "child" }) {
   return <span className={classNames("pc-task-card__dot", `pc-task-card__dot--${dotTone(node)}`, `pc-task-card__dot--${size}`, node.state.live && "pc-status-dot__dot--live")} aria-hidden="true" />;
 }
 
-function Children({ nodes, selectedId, href, id, onSelect, density }: { nodes: TaskNodeView[]; selectedId?: string; href(id: string): string; id: string; onSelect?(id: string): void; density: TaskCardDensity }) {
+function Children({ nodes, selectedId, href, id, onSelect, density, heading }: { nodes: TaskNodeView[]; selectedId?: string; href(id: string): string; id: string; onSelect?(id: string): void; density: TaskCardDensity; heading?(node: TaskNodeView): string }) {
   const regular = density === "regular";
   return <ul className="pc-task-card__children" id={id}>{nodes.map(child => <li key={child.id}>
     <a className={classNames("pc-task-card__child", child.id === selectedId && "pc-task-card__child--selected")} href={href(child.id)}
       aria-current={child.id === selectedId ? (regular ? "true" : "page") : undefined} onFocus={() => onSelect?.(child.id)} title={child.title}>
       <span className="pc-task-card__row">
         <Dot node={child} size="child" /><span className="sr-only">{words(child)}: </span>
-        <span className="pc-task-card__child-title">{child.title}</span>
+        <span className="pc-task-card__child-title">{heading?.(child) || taskHeading(child.title)}</span>
         <AgentStack agents={child.agents} size={regular ? 18 : 16} />
         {regular && <span className="pc-task-card__tokens pc-task-card__tokens--child">{bare(child.tokens)}</span>}
       </span>
@@ -49,7 +52,7 @@ function Children({ nodes, selectedId, href, id, onSelect, density }: { nodes: T
         {!regular && <span className="pc-task-card__tokens pc-task-card__tokens--compact">{bare(child.tokens)}</span>}
       </span>
     </a>
-    {child.children.length > 0 && <Children nodes={child.children} selectedId={selectedId} href={href} id={`${id}-${child.id}`} onSelect={onSelect} density={density} />}
+    {child.children.length > 0 && <Children nodes={child.children} selectedId={selectedId} href={href} id={`${id}-${child.id}`} onSelect={onSelect} density={density} heading={heading} />}
   </li>)}</ul>;
 }
 
@@ -57,7 +60,8 @@ function Children({ nodes, selectedId, href, id, onSelect, density }: { nodes: T
  * A root task as the Tasks and Session boards draw it. Regular: status dot, title, pill, then host, branch, agents,
  * tokens and quick actions, then facts. Compact (the navigator): title, host and repository, then status, agents and tokens.
  */
-export function TaskCard({ density = "regular", node, expanded, onToggle, selectedId, href, viewHref, onSelect, actions, flush = false }: TaskCardProps) {
+export function TaskCard({ density = "regular", node, expanded, onToggle, selectedId, href, viewHref, onSelect, actions, flush = false, renderBranch, heading: headingFor }: TaskCardProps) {
+  const heading = headingFor?.(node) || taskHeading(node.title);
   const listId = `${useId()}-children`;
   const current = node.id === selectedId;
   const regular = density === "regular";
@@ -67,7 +71,7 @@ export function TaskCard({ density = "regular", node, expanded, onToggle, select
     <div className={classNames("pc-task-card__main", current && "pc-task-card__main--selected")} onClick={() => onSelect?.(node.id)}>
       <div className="pc-task-card__row pc-task-card__row--head">
         <Dot node={node} size="root" /><span className="sr-only">{words(node)}: </span>
-        <a className="pc-task-card__title" href={href(node.id)} aria-current={current ? (regular ? "true" : "page") : undefined} title={node.title} onFocus={() => onSelect?.(node.id)}>{node.title}</a>
+        <a className="pc-task-card__title" href={href(node.id)} aria-current={current ? (regular ? "true" : "page") : undefined} title={node.title} onFocus={() => onSelect?.(node.id)}>{regular ? heading : node.title}</a>
         {pill && <Pill tone={pill.tone}>{pill.label}</Pill>}
         {regular && !pill && <span className={classNames("pc-task-card__status", `pc-task-card__status--${dotTone(node)}`)}>{node.state.label}</span>}
         {/* A flush row (Dispatch) carries its agents on the title line, as the board does. */}
@@ -76,13 +80,13 @@ export function TaskCard({ density = "regular", node, expanded, onToggle, select
       </div>
       {regular ? <div className="pc-task-card__row pc-task-card__row--facts">
         {node.host && <HostChip name={node.host.name} kind={node.host.kind} />}
-        <span className="pc-task-card__branch" title={node.branch}>{node.branch}</span>
+        {renderBranch ? renderBranch(node) : <span className="pc-task-card__branch" title={node.branch}>{node.branch ?? "—"}</span>}
         <AgentStack agents={node.agents} size={18} />
-        <span className="pc-task-card__tokens">{bare(node.tokens)}</span>
+        <span className="pc-task-card__tokens">{bare(node.tokens) ?? "—"}</span>
         {viewHref && <span className="pc-task-card__actions">
-          <a className="pc-task-card__action" href={viewHref(node.id, "brief")} aria-label={`Notes for ${node.title}`} title="Notes"><Icon name="notes" /></a>
-          <a className="pc-task-card__action" href={viewHref(node.id, "session")} aria-label={`Open terminal for ${node.title}`} title="Open terminal"><Icon name="terminal" /></a>
-          <a className="pc-task-card__action" href={viewHref(node.id, "changes")} aria-label={`Changes for ${node.title}`} title="Changes"><Icon name="branch" /></a>
+          <a className="pc-task-card__action" href={viewHref(node.id, "brief")} aria-label={`Notes for ${heading}`} title="Notes"><Icon name="notes" /></a>
+          <a className="pc-task-card__action" href={viewHref(node.id, "session")} aria-label={`Open terminal for ${heading}`} title="Open terminal"><Icon name="terminal" /></a>
+          <a className="pc-task-card__action" href={viewHref(node.id, "changes")} aria-label={`Changes for ${heading}`} title="Changes"><Icon name="branch" /></a>
         </span>}
       </div> : <>
         <div className="pc-task-card__row pc-task-card__row--facts">
@@ -92,17 +96,17 @@ export function TaskCard({ density = "regular", node, expanded, onToggle, select
         <div className="pc-task-card__row pc-task-card__row--facts">
           <span className={classNames("pc-task-card__status pc-task-card__status--grow", `pc-task-card__status--${dotTone(node)}`)}>{words(node)}</span>
           {!flush && <AgentStack agents={node.agents} size={16} />}
-          <span className="pc-task-card__tokens pc-task-card__tokens--compact">{bare(node.tokens)}</span>
+          <span className="pc-task-card__tokens pc-task-card__tokens--compact">{bare(node.tokens) ?? "—"}</span>
         </div>
       </>}
       {regular && <MetaRow items={node.meta} label="Task facts" />}
     </div>
     {node.children.length > 0 && <>
       <div className="pc-task-card__kids"><button type="button" className="pc-task-card__toggle" aria-expanded={expanded} aria-controls={listId}
-        aria-label={`${plural(node.children.length)} of ${node.title}`} onClick={() => onToggle(node.id)}>
+        aria-label={`${plural(node.children.length)} of ${heading}`} onClick={() => onToggle(node.id)}>
         <Icon name="branch" />{plural(node.children.length)}<span className="pc-task-card__chevron" aria-hidden="true" />
       </button></div>
-      {expanded && <Children nodes={node.children} selectedId={selectedId} href={href} id={listId} onSelect={onSelect} density={density} />}
+      {expanded && <Children nodes={node.children} selectedId={selectedId} href={href} id={listId} onSelect={onSelect} density={density} heading={headingFor} />}
     </>}
   </article>;
 }

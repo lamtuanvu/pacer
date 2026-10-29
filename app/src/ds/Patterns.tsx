@@ -50,7 +50,7 @@ export function FilterChip({ selected, className, ...props }: ButtonProps & { se
 
 export interface SegmentOption { value: string; label: ComponentChildren; disabled?: boolean }
 export function SegmentedControl({ label, value, options, onChange, disabled, className, variant, describedBy }: {
-  variant?: "board" | "insights"; label: string; value: string; options: readonly SegmentOption[];
+  variant?: "board" | "insights" | "result"; label: string; value: string; options: readonly SegmentOption[];
   onChange: (value: string) => void; disabled?: boolean; className?: string;
   /** Id of visible text that explains the group, such as why it is disabled (UI-13). */
   describedBy?: string;

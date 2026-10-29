@@ -1196,6 +1196,17 @@ pub fn remembered_route(route: &str) -> String {
 
 pub fn route(raw: &str) -> Option<String> {
     let value = raw.strip_prefix('#').unwrap_or(raw);
+    if let Some(id) = value.strip_prefix("/needs-you?answer=") {
+        let bytes = id.as_bytes();
+        let valid = bytes.len() == 22
+            && &bytes[..2] == b"t-"
+            && bytes[2..10].iter().all(u8::is_ascii_digit)
+            && bytes[10] == b'-'
+            && bytes[11..17].iter().all(u8::is_ascii_digit)
+            && bytes[17] == b'-'
+            && bytes[18..].iter().all(|c| matches!(*c, b'0'..=b'9' | b'a'..=b'f'));
+        return valid.then(|| format!("#/needs-you?answer={id}"));
+    }
     if value.contains(['%', '\\', '#', '?']) || value.contains("..") {
         return None;
     }
@@ -1329,6 +1340,23 @@ mod tests {
         for raw in cases["rejected"].as_array().unwrap() {
             let raw = raw.as_str().unwrap();
             assert_eq!(super::route(raw), None, "{raw}");
+        }
+    }
+
+    #[test]
+    fn tray_answer_requires_an_exact_task_id() {
+        let destination = "/needs-you?answer=t-20261029-153500-a0f9";
+        assert_eq!(super::route(destination), Some(format!("#{destination}")));
+        assert_eq!(super::route(&format!("#{destination}")), Some(format!("#{destination}")));
+        for invalid in [
+            "", "task-1", "t-2026102-153500-a0f9", "t-20261029-15350-a0f9",
+            "t-20261029-153500-a0f", "t-20261029-153500-A0F9",
+            "t-20261029-153500-a0fg", "t-20261029-153500-a0f9&repo=x",
+            "t-20261029-153500-a0f9#x", "t-20261029-153500-a0f9/",
+            "t-20261029-153500-a0f9?x", "t-20261029-153500-a0f9%00",
+        ] {
+            assert_eq!(super::route(&format!("/needs-you?answer={invalid}")), None);
+            assert_eq!(super::route(&format!("#/needs-you?answer={invalid}")), None);
         }
     }
 

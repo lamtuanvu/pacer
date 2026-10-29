@@ -20,9 +20,10 @@ import { StatusGlyph } from "../ds/StatusGlyph";
 import { executorPace, executorEligibility, machineWaitWords } from "../../../src/view-model/capacity";
 import { Icon, type IconName } from "../ds/icons";
 import type { Status } from "../../../src/view-model/words";
+import { Switch } from "../ds/Controls";
 import { Kbd } from "../ds/Kbd";
 import { appHref, type TrayIpc } from "./ipc";
-import { actionRoute, executorValue, primaryAction, shortTitle, trayModel } from "./model";
+import { actionRoute, executorValue, offExecutorLabel, primaryAction, resetCaption, shortTitle, trayModel } from "./model";
 
 export interface TrayProps { snapshot: ClientSnapshot | null; api: BrowserApi; ipc: TrayIpc; connected?: boolean; sessionEnded?: boolean; activity?: ActivityEntry[] }
 /** One short verb per row, as on the board; the full label stays in the tooltip. */
@@ -41,14 +42,16 @@ function TrayStatusGlyph({ status }: { status: Status }) {
 }
 
 export async function performAction(action: Action, api: BrowserApi, ipc: TrayIpc) {
-  if (action.op === "task.answer" && typeof action.params.text !== "string") await ipc.open(`/tasks/${encodeURIComponent(String(action.params.id))}`);
+  if (action.op === "task.answer" && typeof action.params.text !== "string") await ipc.open(`/needs-you?answer=${encodeURIComponent(String(action.params.id))}`);
   else if (action.op === "ui.open") await ipc.open(actionRoute(action));
   else await api.call(action.op, action.params);
 }
 /** Native Tab order is also the arrow-key order, including expanded strategies. */
 export function moveFocus(root: HTMLElement, key: string): boolean {
   if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(key)) return false;
-  const rows = [...root.querySelectorAll<HTMLElement>("a[href],button:not(:disabled)")];
+  const rows = [...root.querySelectorAll<HTMLElement>("a[href],button:not(:disabled),input:not(:disabled)")];
+  const visibleRows = rows.filter(row => !row.hidden);
+  rows.splice(0, rows.length, ...visibleRows);
   if (!rows.length) return false;
   const at = rows.indexOf(root.ownerDocument.activeElement as HTMLElement);
   const index = at === -1 && key === "ArrowUp" ? rows.length - 1 : key === "Home" ? 0 : key === "End" ? rows.length - 1 : (at + (key === "ArrowDown" ? 1 : -1) + rows.length) % rows.length;
@@ -67,6 +70,10 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
   const moreButton = useRef<HTMLButtonElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [strategiesOpen, setStrategiesOpen] = useState(false);
+  const [login, setLogin] = useState<boolean | null>(null);
+  const strip = useRef<HTMLElement>(null);
+  const model = snapshot && trayModel(snapshot, activity);
+  const stripData = JSON.stringify(model?.executors);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const act = (work: () => Promise<unknown>) => {
@@ -111,6 +118,49 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
     document.addEventListener("pointerdown", outside);
     return () => document.removeEventListener("pointerdown", outside);
   }, [menuOpen]);
+  useLayoutEffect(() => {
+    if (!menuOpen || !ipc.desktop) return;
+    let current = true;
+    setLogin(null);
+    void ipc.loginItem().then(value => { if (current) setLogin(value); }).catch(e => { if (current) setError(e instanceof Error ? e.message : "Could not read login item"); });
+    return () => { current = false; };
+  }, [menuOpen, ipc.desktop]);
+  useLayoutEffect(() => {
+    const element = strip.current;
+    if (!element) return;
+    const measure = () => {
+      const items = [...element.querySelectorAll<HTMLElement>("[data-executor]")];
+      const overflow = element.querySelector<HTMLElement>("[data-overflow]")!;
+      items.forEach(item => { item.hidden = false; });
+      overflow.hidden = false;
+      overflow.textContent = `+${items.length}`;
+      const style = getComputedStyle(element), gap = parseFloat(style.columnGap);
+      const fixed = [...element.children].filter(child => !child.hasAttribute("data-executor") && !child.hasAttribute("data-overflow") && !child.classList.contains("tray-grow"));
+      const available = element.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight) - fixed.reduce((sum, child) => sum + child.getBoundingClientRect().width + gap, 0);
+      const widths = items.map(item => item.getBoundingClientRect().width + gap);
+      let remaining = available;
+      let count = items.length;
+      if (widths.reduce((sum, width) => sum + width, 0) > available) {
+        count = 0;
+        for (const [index, width] of widths.entries()) {
+          const hidden = items.length - index - 1;
+          overflow.textContent = `+${hidden}`;
+          const reserve = hidden > 0 ? overflow.getBoundingClientRect().width + gap : 0;
+          if (width + reserve > remaining) break;
+          remaining -= width;
+          count++;
+        }
+      }
+      items.forEach((item, index) => { item.hidden = index >= count; });
+      overflow.hidden = count === items.length;
+      overflow.textContent = `+${items.length - count}`;
+      overflow.title = items.slice(count).map(item => item.title).join("\n");
+    };
+    measure();
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    observer?.observe(element);
+    return () => observer?.disconnect();
+  }, [stripData]);
   const navigate = (route: string) => (event: JSX.TargetedMouseEvent<HTMLAnchorElement>) => { event.preventDefault(); act(() => ipc.open(route)); };
   const onKeyDown = (event: KeyboardEvent) => {
     if (event.key === "Escape") { event.preventDefault(); void dismissTray(() => { setMenuOpen(false); setStrategiesOpen(false); if (menuOpen) moreButton.current?.focus(); }, menuOpen ? async () => {} : ipc.hide, setError); return; }
@@ -128,7 +178,7 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
   const planner = snapshot && plannerMeter(snapshot);
   const pace = paceStatus(planner?.verdict ?? "unknown");
   const tone = pace.tone;
-  const model = snapshot && trayModel(snapshot, activity);
+  const offExecutors = model?.executors.filter(executor => executorValue(executor) === "off") ?? [];
   const mode = snapshot?.pause ? "Paused" : ({ normal: "Normal", relaxed: "Relaxed", strict: "Strict" } as Record<string, string>)[planner?.mode ?? snapshot?.mode?.mode ?? snapshot?.budget?.mode ?? "normal"] ?? "Normal";
   const pauseLabel = snapshot?.pause ? "Resume delegation" : "Pause delegation for 1 hour";
   const next = model?.queued[0];
@@ -138,9 +188,9 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
   const waitingRow = model && model.waiting > 0 && !snapshot?.pause && <TextAction title={next ? shortTitle(next) : undefined} className="tray-waiting" href={appHref("/tasks")} onClick={navigate("/tasks")}><Icon name="time" /><span className="tray-grow tray-ellipsis">{machineWait ? `${model.waiting} waiting · ${machineWait}` : `${model.waiting} waiting for a free ${nextExecutor} slot`}{next ? ` · next: ${shortTitle(next)}` : ""}</span></TextAction>;
   return <DensityProvider value="compact"><div className={menuOpen ? "tray tray--menu-open" : "tray"} ref={root} aria-busy={busy}><main className="tray-main" aria-label="pacer tray">
     <section className="tray-planner" aria-label="Planner budget">
-      <div className="tray-line">{planner && <AgentMark agent={planner.agent} size={18} labelled={false} />}<strong title={`${planner ? agentInfo(planner.agent).name : "pacer"} planner`}>{planner ? agentInfo(planner.agent).name : "pacer"}</strong>{/* The label wraps out of the one-line slot instead of truncating, so it drops before the name shrinks. */}<span className="tray-planner-label-slot"><span className="tray-planner-label-spacer" /><span className="tray-planner-label">planner</span></span><span className="tray-grow" /><Pill tone={pace.tone} title={pace.label}><StatusGlyph status={pace} /><span className="tray-pace-label">{pace.label}</span></Pill><span className="tray-mode" title={mode}><span className="tray-mode-label">{mode}</span></span></div>
+      <div className="tray-line">{planner && <AgentMark agent={planner.agent} size={18} labelled={false} />}<strong title={`${planner ? agentInfo(planner.agent).name : "pacer"} planner`}>{planner ? agentInfo(planner.agent).name : "pacer"}</strong><span className="tray-planner-label">planner</span><span className="tray-grow" /><Pill tone={pace.tone} title={pace.label}><StatusGlyph status={pace} /><span className="tray-pace-label">{pace.label}</span></Pill><span className="tray-mode" title={mode}><span className="tray-mode-label">{mode}</span></span></div>
       <UsageMeter used={planner?.usedPct ?? null} pace={planner?.pacePct ?? null} tone={tone} size="bar" label="Planner usage" text="none" stale={planner?.stale} />
-      <div className="tray-caption"><span>{planner?.usedPct != null ? `${Math.round(planner.usedPct)}% of week used · pace ${planner.pacePct != null ? Math.round(planner.pacePct) + "%" : "unknown"}` : meterText(null, planner?.pacePct ?? null, "full")}</span><span>{planner?.resetsAt != null ? `resets ${clock(planner.resetsAt, snapshot!.at)}` : backIn(null, snapshot?.at ?? 0)}</span></div>
+      <div className="tray-caption"><span>{planner?.usedPct != null ? `${Math.round(planner.usedPct)}% of week used · pace ${planner.pacePct != null ? Math.round(planner.pacePct) + "%" : "unknown"}` : meterText(null, planner?.pacePct ?? null, "full")}</span><span>{planner?.resetsAt != null ? `resets ${resetCaption(planner.resetsAt, snapshot!.at)}` : backIn(null, snapshot?.at ?? 0)}</span></div>
     </section>
     {snapshot?.pause && <div className="tray-paused" role="status"><Icon name="pause" /><span className="tray-grow"><strong>Delegation paused</strong><span className="tray-reason">New work waits {snapshot.pause.until === null ? "until you resume" : `until ${timeOnly(snapshot.pause.until)}`}{!!model?.waiting && ` · ${model.waiting} ${model.waiting === 1 ? "task" : "tasks"} waiting`}</span></span><Button size="sm" busy={busy} disabled={sessionEnded} onClick={() => act(() => api.call("delegation.resume", {}))}>Resume</Button></div>}
     {sessionEnded ? <p className="tray-notice" role="alert">Session ended. Run pacer open.</p> : !snapshot ? <LoadingState label="Connecting to pacer…" /> : !connected && <p className="tray-notice" role="status">Reconnecting…</p>}
@@ -160,7 +210,7 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
           const status = attentionStatus(item, snapshot.tasks);
           const detail = item.detail?.trim();
           return <ListRow className={`tray-attention tray-attention--${item.kind}`} key={item.id}
-            leading={<span title={status.label}><TrayStatusGlyph status={status} /></span>}
+            leading={<span className={`tray-attention-glyph tray-attention-glyph--${item.kind === "failed" ? "bad" : item.kind === "review" ? "info" : "warn"}`} title={status.label} aria-hidden="true">{item.kind === "failed" ? "✕" : item.kind === "review" ? "●" : "◐"}</span>}
             content={<><strong className="tray-ellipsis" title={shortTitle({ ...item, fullTitle: task?.fullTitle })}>{shortTitle({ ...item, fullTitle: task?.fullTitle })}</strong><span className="tray-reason tray-ellipsis" title={detail}>{[item.repo?.label ?? task?.repo?.label, status.label, detail?.toLowerCase() === status.label.toLowerCase() ? undefined : detail].filter(Boolean).join(" · ")}</span></>}
             actions={action && <Button variant={item.id === model.recommendedId ? "primary" : "secondary"} size="sm" busy={busy} disabled={sessionEnded} title={action.label} onClick={() => act(() => performAction(action, api, ipc))}><span className="tray-action__label">{rowLabel(action.label)}</span></Button>}
           />;
@@ -172,19 +222,19 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
         </ListRowLink>)}
         {waitingRow}
       </section> : waitingRow}
-      <section className="tray-executors" aria-label="Executors">{model.executors.map(executor => {
+      <section ref={strip} className="tray-executors" aria-label="Executors">{model.executors.filter(executor => executorValue(executor) !== "off").map(executor => {
         const value = executorValue(executor);
         const readiness = executorEligibility(executor, snapshot.at);
-        const valueStatus = value === "?" ? readiness : value.endsWith("%") ? executorPace(executor, snapshot) : readiness;
+        const valueStatus = value === "?" || value === "—" ? { ...readiness, tone: "muted" } : value.endsWith("%") ? executorPace(executor, snapshot) : readiness;
         const label = `${agentInfo(executor.agent).name}: ${readiness.label} · ${readiness.detail}${readiness.age ? ` · ${readiness.age}` : ""} · ${executorPace(executor, snapshot).label}${executor.reason ? ` · ${executor.reason}` : ""} · ${executor.slots.used}/${executor.slots.max} parallel tasks${executor.usedPct !== null ? ` · ${meterText(executor.usedPct, executor.pacePct, "full")}` : ""}`;
-        return <TextAction className={`tray-executor${value === "off" ? " tray-executor--off" : ""}${value === "out" ? " tray-executor--out" : ""}`} key={executor.id} href={appHref("/settings/executors")} onClick={navigate("/settings/executors")} aria-label={label} title={label}><span className="tray-executor-mark"><AgentMark agent={markAgent(executor.id, executor.account)} size={16} labelled={false} /></span><span className={`tray-executor-value tray-executor-value--${value === "off" ? "off" : value === "out" ? "bad" : ({ good: "good", warn: "warn", bad: "bad" } as Record<string, string>)[valueStatus.tone] ?? "muted"}`}>{value}</span>{(valueStatus.tone === "warn" || valueStatus.tone === "bad") && value !== "off" && valueStatus.glyph !== value && <span className="tray-executor-glyph"><TrayStatusGlyph status={valueStatus} /></span>}</TextAction>;
-      })}<span className="tray-grow" /><span className="tray-reason">executors</span></section>
+        return <TextAction data-executor className={`tray-executor${value === "off" ? " tray-executor--off" : ""}${value === "out" ? " tray-executor--out" : ""}`} key={executor.id} href={appHref("/settings/executors")} onClick={navigate("/settings/executors")} aria-label={label} title={label}><span className="tray-executor-mark"><AgentMark agent={markAgent(executor.id, executor.account)} size={16} labelled={false} /></span><span className={`tray-executor-value tray-executor-value--${value === "off" ? "off" : value === "out" ? "bad" : ({ good: "good", warn: "warn", bad: "bad" } as Record<string, string>)[valueStatus.tone] ?? "muted"}`}>{value}</span></TextAction>;
+      })}<TextAction data-overflow hidden className="tray-executor tray-muted" href={appHref("/settings/executors")} onClick={navigate("/settings/executors")} />{offExecutors.length > 0 && <TextAction className="tray-executor tray-executor--off tray-muted" title={`Turned off or unable to take work: ${offExecutors.map(offExecutorLabel).join(" · ")}`} href={appHref("/settings/executors")} onClick={navigate("/settings/executors")}><span className="tray-executor-mark"><AgentMark agent={markAgent(offExecutors[0]!.id, offExecutors[0]!.account)} size={16} labelled={false} /></span>{offExecutors.length} off</TextAction>}<span className="tray-grow" /><span className="tray-reason">executors</span></section>
     </>}
     {error && <p role="alert" className="tray-error">{error}</p>}
     </main><div className="tray-actions">
       <nav className="tray-footer" aria-label="pacer actions">
-        <ButtonLink aria-keyshortcuts="Meta+N" size="xs" variant="primary" href={appHref("/tasks/new")} onClick={navigate("/tasks/new")}>New task <Kbd>⌘N</Kbd></ButtonLink>
-        <ButtonLink aria-keyshortcuts="Meta+O" size="xs" href={appHref("/")} onClick={navigate("/")}>Open pacer <Kbd>⌘O</Kbd></ButtonLink>
+        <ButtonLink aria-keyshortcuts="Meta+N" size="sm" variant="primary" href={appHref("/tasks/new")} onClick={navigate("/tasks/new")}>New task <Kbd>⌘N</Kbd></ButtonLink>
+        <ButtonLink aria-keyshortcuts="Meta+O" size="sm" href={appHref("/")} onClick={navigate("/")}>Open pacer <Kbd>⌘O</Kbd></ButtonLink>
         <span className="tray-grow" />
         <IconButton variant="quiet" type="button" title={pauseLabel} aria-label={pauseLabel} disabled={!snapshot || busy || sessionEnded} onClick={() => act(() => api.call(snapshot?.pause ? "delegation.resume" : "delegation.pause", snapshot?.pause ? {} : { for: "1h" }))}><Icon name={snapshot?.pause ? "play" : "pause"} /></IconButton>
         <IconButton ref={moreButton} variant="quiet" type="button" className={menuOpen ? "tray-more-open" : undefined} title="More" aria-label="More" aria-expanded={menuOpen} aria-controls="tray-menu" onClick={() => { setMenuOpen(!menuOpen); setStrategiesOpen(false); }}><Icon name="more" /></IconButton>
@@ -197,6 +247,7 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
           const active = typeof strategy !== "string" ? strategy.active : snapshot.budget?.strategy === name;
           return <Button key={name} type="button" disabled={busy || sessionEnded} aria-pressed={active} onClick={() => act(async () => { await api.call("strategy.use", { name }); setStrategiesOpen(false); setMenuOpen(false); })}>{name}{active && <span aria-label="Active"><Icon name="check-circle" /></span>}</Button>;
         }) : <span className="tray-notice">No strategies available</span>}</div>}
+        {ipc.desktop && <label className="tray-menu-item"><svg className="tray-login-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v9M6.3 7.3a8 8 0 1 0 11.4 0" /></svg><span className="tray-grow">Open at login</span><Switch aria-label="Open at login" checked={login ?? false} disabled={login === null || busy} onChange={event => { const enabled = event.currentTarget.checked; act(async () => { setLogin(await ipc.loginItem(enabled)); }); }} /></label>}
         <TextAction aria-keyshortcuts="Meta+Comma" className="tray-menu-item" href={appHref("/settings")} onClick={navigate("/settings")}><Icon name="settings" /><span className="tray-grow">Settings</span><Kbd>⌘,</Kbd></TextAction>
         {ipc.desktop && <><div className="tray-menu-divider" /><Button aria-keyshortcuts="Meta+Q" className="tray-menu-item" variant="quiet" type="button" onClick={() => act(ipc.quit)}><span className="tray-menu-icon-slot" /><span className="tray-grow">Quit pacer</span><Kbd>⌘Q</Kbd></Button></>}
       </nav>}

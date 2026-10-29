@@ -38,7 +38,7 @@ function App() {
   const [sessionEnded, setSessionEnded] = useState(false);
   const api = useMemo(() => createApi(() => setSessionEnded(true)), []);
   const plugins = usePluginCatalog(api, state.connected, (state.invalidations.plugin ?? 0) + (state.invalidations.plugins ?? 0));
-  const actions = useMemo(() => createActionRunner({ call: api.call, waitFor: storeWaiter(store), refetch: () => store.refresh(), navigate: hash => { location.hash = inheritQuery(hash, location.hash); } }), [api]);
+  const actions = useMemo(() => createActionRunner({ call: api.call, waitFor: storeWaiter(store), refetch: () => store.refresh(), reviewAccepted: id => store.acceptReview(id), navigate: hash => { location.hash = inheritQuery(hash, location.hash); } }), [api]);
   const [hash, setHash] = useState(location.hash);
   useLayoutEffect(() => { resetDesktopPageScroll(); }, [hash]);
   const [help, setHelp] = useState(false);
@@ -95,7 +95,7 @@ function App() {
       commands.register({ id: "go.terminal", title: "Go to Terminal", group: "Go to", icon: "terminal", keys: "g e", run: go("#/terminal") }),
       commands.register({ id: "go.settings", title: "Open Settings", group: "Go to", icon: "settings", keys: ",", run: go("#/settings") }),
       commands.register({ id: "help.shortcuts", title: "Show keyboard shortcuts", group: "Help", icon: "notes", opensDialog: true, keys: "?", run: () => setHelp(true) }),
-      commands.register({ id: "task.new", title: "New task", sub: "Describe it and pacer routes it", group: "Suggested", icon: "plus", keywords: "delegate start", opensDialog: true, keys: "d", shortcutLabel: "Delegate a task", run: () => openNewTask() }),
+      commands.register({ id: "task.new", title: "New task", sub: "Describe it and pacer routes it", group: "Suggested", icon: "plus", keywords: "delegate start", opensDialog: true, keys: "Mod-n", shortcutLabel: "New task", run: () => openNewTask() }),
       keys.register(newTaskShortcut(() => openNewTask())),
       // Screens with a "New task" button ask the shell to open the New task composer.
       (() => { const open = () => openNewTask(); window.addEventListener("pacer:delegate", open); return () => window.removeEventListener("pacer:delegate", open); })(),

@@ -337,6 +337,7 @@ test("UI seed writes only sandbox home and supplies safe task fixtures and accou
   } });
   const tasks = listTasks(ctx, Infinity);
   expect(tasks).toHaveLength(7);
+  for (const task of tasks) expect(task.timeoutS).toBeGreaterThan(0);
   for (const task of tasks) expect((await resolveRepoInput(ctx, task.repo!.key)).path).toBe(task.repo!.path);
   expect(new Set(tasks.map(task => task.state))).toEqual(new Set(["done", "failed", "partial", "running"]));
   expect(tasks.filter(task => task.state === "done" && !task.review)).toHaveLength(1);

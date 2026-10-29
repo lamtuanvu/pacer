@@ -19,7 +19,7 @@
 .pc-file-viewer__title strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--size-14);line-height:var(--type-body-line);font-weight:var(--type-headline-weight)}
 .pc-file-viewer__title:focus-visible,.pc-file-viewer__source:focus-visible,.pc-file-viewer__state:focus-visible{outline:var(--stroke-focus) solid var(--focus);outline-offset:var(--stroke-focus)}
 .pc-file-viewer__row .pc-pill{flex:none;align-self:center}
-.pc-file-viewer__glyph{display:inline-flex;flex:none;align-items:center;justify-content:center;width:var(--size-26);height:var(--size-26);border-radius:var(--radius-sm);background:var(--surface-lane);color:var(--ink-secondary);font-family:var(--font-mono);font-size:var(--size-10\.5);font-weight:var(--type-headline-weight)}
+.pc-file-viewer__glyph{display:inline-flex;flex:none;align-items:center;justify-content:center;width:var(--size-26);height:var(--size-26);border-radius:var(--radius-sm);background:var(--surface-lane);color:var(--ink-secondary);font-family:var(--font-mono);font-size:var(--type-label-size);font-weight:var(--type-headline-weight)}
 .pc-file-viewer__actions{position:relative;display:flex;flex:none;align-items:center;gap:var(--space-half);margin-left:var(--space-half)}
 .pc-file-viewer .pc-file-viewer__ib{min-height:var(--size-28);width:var(--size-28);padding:0;border-radius:var(--radius-sm);color:var(--ink-secondary)}
 .pc-file-viewer .pc-file-viewer__ib:hover,.pc-file-viewer .pc-file-viewer__ib[aria-pressed=true],.pc-file-viewer .pc-file-viewer__ib[aria-expanded=true]{background:var(--surface-lane);color:var(--ink)}
@@ -68,7 +68,7 @@
 .pc-file-viewer__blocked-kind{flex:none;width:var(--size-54);color:var(--ink-secondary)}
 .pc-file-viewer__blocked code{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--font-mono);font-size:var(--type-code-size);color:var(--ink-secondary)}
 .pc-file-viewer__blocked-note{flex:none;font-style:italic}
-.pc-file-viewer__source{flex:1;min-height:0;overflow:auto;font-family:var(--font-mono);font-size:var(--size-12\.5);line-height:var(--size-20);white-space:pre}
+.pc-file-viewer__source{flex:1;min-height:0;overflow:auto;font-family:var(--font-mono);font-size:var(--type-body-size);line-height:var(--size-20);white-space:pre}
 .pc-file-viewer__code{min-width:max-content;padding:var(--space-2) 0 var(--space-4)}
 .pc-file-viewer__line{display:grid;grid-template-columns:var(--size-44) max-content;min-width:100%;padding-right:var(--space-4)}
 .pc-file-viewer__number{box-sizing:border-box;padding-right:var(--size-14);text-align:right;color:var(--ink-muted);user-select:none}

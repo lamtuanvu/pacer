@@ -30,3 +30,14 @@ browserTest("keyboard review keeps focus in Work details when Accept disappears"
   expect(await page.getByRole("button",{name:"Hide details"}).evaluate(node=>document.activeElement===node)).toBe(true);
  }finally{await page.close()}
 });
+
+ browserTest("Work rounds account movement and average usage percentages", async () => {
+  const page = await browser.newPage();
+  try {
+   await page.goto(`${server.url}`);
+   await page.getByText('17% observed account movement', { exact: false }).waitFor();
+   expect(await page.locator('.pc-work-analytics tbody').innerText()).toContain('3%');
+   expect(await page.locator('#root').innerText()).not.toMatch(/unknown|unmeasured|Work step|Work created/i);
+   expect(await page.locator('#root').innerText()).not.toMatch(/\d+\.\d+%/);
+  } finally { await page.close(); }
+ });

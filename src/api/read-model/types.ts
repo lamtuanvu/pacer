@@ -57,6 +57,7 @@ export type ReadModel = ReadModelFields;
  * The guard fields describe what holds new local starts; null signals are unavailable.
  */
 export interface MachineCapacity {
+ os?: string; arch?: string;
  used: number;
  /**
   * @deprecated Legacy 3.0 field kept numeric for older clients' free-slot math: hardCap when

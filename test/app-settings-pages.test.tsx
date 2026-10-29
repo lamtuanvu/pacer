@@ -65,7 +65,7 @@ test('task backend picker shows the current backend and sets the chosen one', ()
   expect(html).toMatch(/aria-label="Task backend"[^>]*>[^<]*<span class="pc-choice-picker__value">Orca</);
   expect(render('machine')).toMatch(/aria-label="Task backend"[^>]*>[^<]*<span class="pc-choice-picker__value">Direct</);
   const env={...orca,config:{...orca.config,keys:{...orca.config.keys,'execution.backend':{value:'direct',source:'env PACER_BACKEND'}}}};
-  expect(renderToString(<TaskContext.Provider value={{state,api:{} as any}}><SettingsGeneral section="machine" initialData={env}/></TaskContext.Provider>)).toContain('PACER_BACKEND overrides the saved setting.');
+  expect(renderToString(<TaskContext.Provider value={{state,api:{} as any}}><SettingsGeneral section="machine" initialData={env}/></TaskContext.Provider>)).toContain('A device setting overrides this saved choice.');
   const calls: unknown[][]=[], field=TaskBackendField({value:'direct',run:(...args)=>calls.push(args)}) as any;
   field.props.children.props.onValueChange('orca');
   expect(calls).toEqual([['config.set',{key:'execution.backend',value:'orca'}]]);
@@ -95,12 +95,24 @@ test('App Workspace includes assistant status and a settings link with or withou
     const workspace = html.match(/<section[^>]*aria-labelledby="workspace-h"[^>]*>[\s\S]*?<\/section>/)?.[0] ?? "";
     expect(workspace).toContain('>Assistant<');
     expect(workspace).toContain('pc-setting-row--board');
-    expect(workspace).toContain('Open with ⌘J from anywhere. Uses the account chosen in assistant settings.');
+    expect(workspace).toContain('Open with ⌘J from anywhere. Runs on one endpoint account you choose; until then the button opens the setup.');
     expect(workspace).toContain(label);
     expect(workspace).toMatch(/<a[^>]*href="#\/settings\/assistant"[^>]*>Choose account and limits<\/a>/);
-    expect(workspace).not.toContain('role="switch"');
+    expect(workspace.match(/role="switch"/g)).toHaveLength(2);
+    expect(workspace.match(/pc-switch--sm/g)).toHaveLength(2);
+    expect(workspace).toContain("Show the button");
+    expect(workspace).toContain("Still aurora");
   }
   expect(resolveRoute('#/settings/assistant')).toMatchObject({ name: 'settings', section: 'assistant' });
   const nav = renderToString(<SettingsPanel route={resolveRoute('#/settings/app') as Route} counts={null}/>);
   expect(nav).not.toContain('href="#/settings/assistant"');
+});
+
+test('Budget retains board controls and keeps account settings on Accounts', () => {
+  const html = render('planner');
+  for (const label of ['Pacing policy', 'Review integration changes', 'Pace clock', 'Burn before reset', 'aria-label="Planner"']) expect(html).toContain(label);
+  for (const label of ['Multiple accounts', 'Move to the next account at', 'When an executor runs out']) expect(html).not.toContain(label);
+  expect(html).toContain('Budget windows');
+  expect(html).toContain('Readings older than <b>24 hours</b> count as unknown.');
+  expect(html).toContain('aria-label="Mode"');
 });

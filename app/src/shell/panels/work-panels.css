@@ -1,0 +1,143 @@
+.pc-work-panel-bar {
+  height: var(--size-36);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--space-2) 0 var(--space-3\.5);
+}
+.pc-work-panel-bar--tabs {
+  padding: 0 var(--space-1\.5);
+  gap: var(--space-half);
+  border-bottom: 1px solid var(--line);
+}
+.pc-work-panel-bar--tabs > .pc-panel-tabs {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+}
+.pc-work-panel-label,
+.pc-scope-heading {
+  margin: 0;
+  font-size: var(--type-label-size);
+  line-height: var(--type-label-line);
+  font-weight: var(--type-label-weight);
+  letter-spacing: var(--type-label-tracking);
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+.pc-scope-heading {
+  padding: var(--space-1) var(--space-3\.5) var(--space-1\.5);
+}
+.pc-scope-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-1);
+  padding: 0 var(--space-1\.5) var(--space-2\.5);
+}
+.pc-work-panel-row.pc-text-action {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: var(--size-30);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-sm);
+  color: var(--ink-muted);
+  text-decoration: none;
+  font-size: var(--type-caption-size);
+}
+.pc-work-panel-row:hover,
+.pc-work-panel-row[aria-current="true"] {
+  background: var(--surface-lane);
+  color: var(--ink);
+}
+.pc-work-panel-row__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pc-work-panel-caption {
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-line);
+  color: var(--ink-muted);
+}
+.pc-scope-plugins {
+  margin: var(--space-1) var(--space-2\.5) var(--space-3);
+  padding: var(--space-2\.5) var(--space-3);
+  border: 1px dashed var(--line);
+  border-radius: var(--radius-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.pc-work-panel-body {
+  padding: var(--space-3\.5) var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3\.5);
+  overflow: auto;
+  min-height: 0;
+}
+.pc-work-panel-section,
+.pc-work-panel-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1\.5);
+}
+.pc-work-panel-card {
+  padding: var(--space-2\.5) var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-page);
+}
+.pc-work-panel-facts {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-1\.5);
+}
+.pc-work-panel-title {
+  font-size: var(--type-session-title-size);
+  line-height: var(--type-session-title-line);
+  font-weight: var(--type-session-title-weight);
+}
+.pc-work-panel-tokens {
+  font-size: var(--type-number-lg-size);
+  line-height: var(--type-number-lg-line);
+  font-weight: var(--type-number-lg-weight);
+}
+.pc-scope-panel > .pc-frame-slot,
+.pc-side-panel--right:has(.pc-work-panel-body) > .pc-frame-slot {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  overflow: auto;
+}
+/* Board 5's inspector strip retains shared tab semantics and overflow behavior. */
+.pc-work-panel-bar--tabs .pc-panel-tabs__list {
+  gap: var(--space-half);
+}
+.pc-work-panel-bar--tabs .pc-panel-tabs__list .pc-btn {
+  height: var(--size-28);
+  min-height: var(--size-28);
+  padding: 0 var(--space-2\.5);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  font-weight: var(--type-body-strong-weight);
+}
+.pc-work-panel-bar--tabs .pc-panel-tabs__list [aria-selected=true] {
+  background: var(--surface-lane);
+  color: var(--ink);
+}
+.pc-work-panel-row>svg {
+  width: var(--size-15);
+  height: var(--size-15);
+}
+.pc-work-panel-bar>.pc-icon-button>svg {
+  width: var(--size-15);
+  height: var(--size-15);
+}

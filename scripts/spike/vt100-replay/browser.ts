@@ -25,7 +25,7 @@ export async function browserComparator(output:string) {
     </script>`,{headers:{"content-type":"text/html"}});
   }});
   let browser;
-  try { browser = await chromium.launch({headless:true,executablePath:process.env.VT100_SPIKE_CHROMIUM,timeout:15000}); }
+  try { browser = await chromium.launch({headless:true,executablePath:process.env.VT100_SPIKE_CHROMIUM ?? process.env.PACER_TEST_BROWSER,timeout:15000}); }
   catch(error) { await server.stop(true); throw error; }
   let context:BrowserContext;
   let page:Page;

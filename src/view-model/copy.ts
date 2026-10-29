@@ -1,5 +1,5 @@
 import { ago, elapsed } from './time';
-import { executorLabel } from './words';
+import { percentage, executorLabel } from './words';
 
 const reasons: Record<string, string> = {
   ok: 'Available capacity', available: 'Available', unmetered: 'No quota limit',
@@ -16,7 +16,7 @@ export function reasonCopy(raw: string | null | undefined): string {
   if (!raw) return 'Routing details not recorded';
   if (Object.hasOwn(reasons, raw)) return reasons[raw]!;
   const usage = raw.match(/^([a-z ]+), used (\d+(?:\.\d+)?)%(?: \/ pace (\d+(?:\.\d+)?)%)?$/);
-  if (usage && Object.hasOwn(reasons, usage[1]!)) return `${reasons[usage[1]!]!} · ${usage[2]}% of quota used${usage[3] ? ` (planned ${usage[3]}%)` : ''}`;
+  if (usage && Object.hasOwn(reasons, usage[1]!)) return `${reasons[usage[1]!]!} · ${percentage(Number(usage[2]))} of quota used${usage[3] ? ` (planned ${percentage(Number(usage[3]))})` : ''}`;
   if (raw.includes('; ')) return raw.split('; ').map(reasonCopy).join('; ');
   const busy = raw.match(/^(.+) busy$/);
   if (busy) return `${executorLabel(busy[1])} is busy`;
@@ -29,7 +29,7 @@ export function costCopy(cost: {account: string; deltaPct: number | null; window
   if (cost.deltaPct === 0) return `${account} · no measured quota increase`;
   const windows: Record<string,string> = {weekly:'weekly quota',week:'weekly quota',daily:'daily quota',day:'daily quota',session:'session quota','5h':'five-hour quota'};
   const window = Object.hasOwn(windows, cost.window ?? '') ? windows[cost.window!] : 'quota';
-  return `${account} · used ${cost.deltaPct}% of ${window}`;
+  return `${account} · used ${percentage(cost.deltaPct)} of ${window}`;
 }
 const kinds: Record<string,string> = {boilerplate:'Routine setup',tests:'Tests',docs:'Documentation',rename:'Renaming',migration:'Migration',feature:'Feature work',debug:'Debugging',refactor:'Refactoring',performance:'Performance', 'unfamiliar-code':'Explore unfamiliar code',research:'Research'};
 export const kindCopy = (kind: string) => Object.hasOwn(kinds, kind) ? kinds[kind]! : 'Other work';

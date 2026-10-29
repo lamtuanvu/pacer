@@ -89,8 +89,8 @@ test("failed refresh of uncapped spend retains its historical label and observat
   const row = buildAccounts(st, s, ctx).find(a => a.name === "openrouter")!;
   expect(row.spendUsdWeek).toBe(46);
   expect(row.stale).toBe(true);
-  expect(accountUsageFreshness(row)).toBe("Historical usage · observed 2m ago");
-  expect(accountUsageFreshness({...row, eligibility: undefined, capturedAt: null})).toContain("Observation time unknown");
+  expect(accountUsageFreshness(row)).toBe("Reading 2m old");
+  expect(accountUsageFreshness({...row, eligibility: undefined, capturedAt: null})).toContain("Stale reading · refresh to use");
   expect(st.providers[1]!.eligibility?.state).toBe("uncertain");
 });
 

@@ -52,7 +52,7 @@ test("acceptance none and empty review queue use the requested words", () => {
 });
 test("diff truncates after 2000 lines, labels binaries and escapes content", () => {
   const patch = "diff --git a/x b/x\n" + Array.from({ length: 2500 }, (_, i) => i === 0 ? "@@ -0,0 +1,2499 @@" : `+line-${i}`).join("\n");
-  const html = renderToString(<Diff path="x" patch={patch} />);
+  const html = renderToString(<Diff path="x" patch={patch} onOpen={() => {}} />);
   expect(html.match(/class="diff-/g)?.length).toBe(2000);
   expect(html).toContain("Copy worktree path");
   expect(html).not.toContain("+line-2000");
@@ -73,7 +73,7 @@ test("a requested task that left the queue gets a notice, the queue stays, and n
   expect(html).not.toContain("Accept and bring back");
 });
 test("the diff's button says what it does", () => {
-  const html = renderToString(<Diff path="a.ts" patch={"diff --git a/a.ts b/a.ts\n@@ -1 +1 @@\n" + "+x\n".repeat(2100)} />);
+  const html = renderToString(<Diff path="a.ts" patch={"diff --git a/a.ts b/a.ts\n@@ -1 +1 @@\n" + "+x\n".repeat(2100)} onOpen={() => {}} />);
   expect(html).toContain("Copy worktree path");
   expect(html).not.toContain("Open in editor");
 });
@@ -88,7 +88,7 @@ test("review heading uses the service title and shared task state while Brief ke
 test("review keeps all three cards, the compact queue status and verdict learning note", () => {
   const html = view({ ...task, cost: { executor: { account: "team", deltaPct: 1.2, window: "week" }, planner: null } });
   expect(html).toMatch(/pc-review-cards[\s\S]*Done when[\s\S]*Why Codex[\s\S]*Cost/);
-  expect(html).toContain('used 1.2% of weekly quota');
+  expect(html).toContain('used 1% of weekly quota');
   expect(html).toContain('Your verdicts teach routing which executor suits which kind.');
   expect(html).toMatch(/pc-pill--warn[^>]*>[\s\S]*?Review requested<\/span> · /);
   expect(html).toContain('j k next · a accept · r reject · t retry elsewhere');

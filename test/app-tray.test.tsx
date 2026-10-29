@@ -8,7 +8,7 @@ import { initialState, reduceStore } from "../app/src/data/store";
 import { createApi } from "../app/src/data/api";
 import { Tray, moveFocus, performAction } from "../app/src/tray/Tray";
 import { createTrayIpc } from "../app/src/tray/ipc";
-import { actionRoute, executorValue, shortTitle, trayModel } from "../app/src/tray/model";
+import { actionRoute, executorValue, resetCaption, shortTitle, trayModel } from "../app/src/tray/model";
 import { buildApp } from "../app/build";
 import { appRoute, APP_HEADERS } from "../src/serve/app-routes";
 import { fakeCtx } from "./helpers";
@@ -100,19 +100,19 @@ test("planner uses its vendor, verdict, mode, meter tick and reset time", () => 
 test("executor marks use current capacity, values and detailed tooltips after entity updates", () => {
   const snapshot = fixture(), html = draw(snapshot);
   expect(html).toContain("41% used · pace 58%");
-  expect(html).toContain("92% used");
-  expect(html).toContain("tray-executor-value--off");
+  expect(html).toContain("Cursor: unavailable");
+  expect(html).toContain("1 off");
   expect(html).not.toContain("99% used");
   const executor = snapshot.executors![0]!;
   expect(executorValue(executor)).toBe("41%");
-  expect(executorValue({ ...executor, slots: { used: 2, max: 2 } })).toBe("2/2");
-  expect(executorValue({ ...executor, state: "exhausted" })).toBe("out");
+  expect(executorValue({ ...executor, slots: { used: 2, max: 2 } })).toBe("41%");
+  expect(executorValue({ ...executor, eligibility: undefined, state: "exhausted" })).toBe("out");
   expect(executorValue({ ...executor, enabled: false })).toBe("off");
-  expect(executorValue({ ...executor, sub: "No active plan" })).toBe("off");
+  expect(executorValue({ ...executor, eligibility: undefined, sub: "No active plan" })).toBe("off");
   expect(executorValue({ ...executor, usedPct: null, slots: { used: 0, max: 2 } })).toBe("?");
   const state = reduceStore({ ...initialState(), snapshot, needsSnapshot: false, features: { readModel: true, ops: new Set() } }, { type: "event", event: { type: "executor", seq: 1, at: 1001, data: { ...executor, usedPct: 47, state: "full", tone: "warn", slots: { used: 2, max: 2 } } } });
   expect(draw(state.snapshot!)).toContain("47% used · pace 58%");
-  expect(draw(state.snapshot!)).toContain(">2/2</span>");
+  expect(draw(state.snapshot!)).toContain(">47%</span>");
 });
 
 test("task titles are preferred and legacy goals remain complete for CSS clipping", () => {
@@ -266,12 +266,12 @@ test("opencode executors use their account's mark and an unavailable account rea
   const byteplus = row("opencode#byteplus", "byteplus", { state: "down", tone: "bad", sub: "Unavailable", reason: "no active coding-plan subscription" });
   const local = row("opencode#local", "local", { state: "ready", tone: "good", paceReason: "unmetered" });
   expect(executorValue(byteplus)).toBe("off");
-  expect(executorValue(local)).toBe("free");
+  expect(executorValue(local)).toBe("—");
   const html = draw({ ...fixture(), executors: [byteplus, local] });
-  expect(html).toContain("agent-mark--byteplus");
+  expect(html).toContain("BytePlus:");
   expect(html).toContain("agent-mark--local");
   expect(html).not.toContain("agent-mark--opencode");
-  expect(html).toMatch(/class="[^"]*tray-executor tray-executor--off"[^>]*>.*?agent-mark--byteplus/);
+  expect(html).toContain("1 off</a>");
 });
 
 
@@ -305,11 +305,11 @@ test("unknown capacity never reads free or shows a ready glyph; unavailable capa
   ]) {
     expect(executorValue(row)).toBe("off");
     const html = draw({ ...fixture(), executors: [row] });
-    expect(html).toMatch(/class="[^"]*tray-executor tray-executor--off"/);
-    expect(html).toContain(">off</span>");
+    expect(html).toContain("tray-executor--off");
+    expect(html).toContain(">1 off</a>");
     expect(html.split(/<section(?=[^>]*aria-label="Executors")[^>]*>/)[1]!.split("</section>")[0]!).not.toContain("pc-glyph pc-status--good");
   }
-  expect(executorValue({ ...unknown, paceReason: "unmetered" })).toBe("free");
+  expect(executorValue({ ...unknown, paceReason: "unmetered" })).toBe("—");
   expect(executorValue({ ...unknown, state: "checking", paceReason: "unmetered" })).toBe("?");
 });
 
@@ -350,6 +350,7 @@ test("tray literal destinations and generated row/action routes share the deskto
   const cases = await Bun.file("test/fixtures/tray-routes.json").json() as {allowed: string[]; rejected: string[]};
   const allowed = (raw: string) => {
     if (raw.includes("#") || raw.includes("\\") || raw.includes("..")) return false;
+    if (/^\/needs-you\?answer=t-[0-9]{8}-[0-9]{6}-[0-9a-f]{4}$/.test(raw)) return true;
     if (raw.includes("?")) return false;
     return raw === "/" || raw === "/needs-you" || /^\/(?:review|sessions|tasks|settings)(?:\/[A-Za-z0-9_-]+)?$/.test(raw) || /^\/settings\/hosts\/[A-Za-z0-9_-]+$/.test(raw);
   };
@@ -366,8 +367,8 @@ test("tray literal destinations and generated row/action routes share the deskto
   const html = draw({...fixture(), tasks: [{...fixture().tasks[0]!,id:"task-1"}]});
   for (const match of html.matchAll(/href="\/app\/#([^"]+)"/g)) expect(cases.allowed).toContain(match[1]!);
   const routes: string[] = [];
-  await performAction({label:"Answer",op:"task.answer",params:{id:"task-1"}}, api, {...ipc,open:async route=>{routes.push(route);}});
-  expect(routes).toEqual(["/tasks/task-1"]);
+  await performAction({label:"Answer",op:"task.answer",params:{id:"t-20261029-153500-a0f9"}}, api, {...ipc,desktop:true,open:async route=>{routes.push(route);}});
+  expect(routes).toEqual(["/needs-you?answer=t-20261029-153500-a0f9"]);
   expect(cases.allowed).toContain(routes[0]!);
 });
 
@@ -402,12 +403,88 @@ test("ArrowUp without a focused row starts at the last row", () => {
 });
 
 
-test("executor warning and bad tones include shared glyphs after their values", () => {
+test("executor warning and bad tones keep board percentages with status in the tooltip", () => {
   const snapshot = fixture();
   for (const verdict of ["ahead", "out"] as const) {
     const executor = { ...snapshot.executors![0]!, usedPct: 90 };
-    const html = draw({ ...snapshot, planner: {...snapshot.planner!,runner:executor.id,verdict}, executors: [executor] }).split(/<section(?=[^>]*aria-label="Executors")[^>]*>/)[1]!.split("</section>")[0]!;
-    expect(html).toContain("tray-executor-glyph");
-    expect(html).toMatch(/90%<\/span><span class="tray-executor-glyph">/);
+    const html = draw({ ...snapshot, accounts: [{ name: executor.account, executors: [executor.id], verdict } as any], executors: [executor] }).split(/<section(?=[^>]*aria-label="Executors")[^>]*>/)[1]!.split("</section>")[0]!;
+    expect(html).not.toContain("tray-executor-glyph");
+    expect(html).toContain("90%</span>");
   }
+});
+
+
+test("eligible Codex with 17% usage ignores failing/checking legacy state and stale plan prose", () => {
+  const snapshot = fixture();
+  const codex: ExecutorRow = { ...snapshot.executors![0]!, id: "codex", account: "codex", usedPct: 17, pacePct: 17,
+    eligibility: eligibility(), state: "failing", sub: "2 recent failures", reason: "2 recent failures", recentFailures: 2,
+    slots: { used: 0, max: 16 }, lastCheck: { at: 900, passed: false, detail: "failed check" } };
+  expect(executorValue(codex)).toBe("17%");
+  for (const state of ["failing", "down", "blocked", "checking"] as const) {
+    expect(executorValue({ ...codex, state, sub: "No active plan" })).toBe("17%");
+  }
+  expect(draw({ ...snapshot, executors: [codex] })).toContain("17% used · pace 17%");
+  expect(draw({ ...snapshot, executors: [codex] })).toContain(">17%</span>");
+});
+
+test("executor strip omits the planner by rank or identity and groups off executors", () => {
+  const snapshot = fixture(), row = snapshot.executors![0]!;
+  const html = draw({ ...snapshot, executors: [
+    { ...row, id: snapshot.planner!.runner }, { ...row, id: "planner-alias", rank: "planner" }, row,
+    { ...row, id: "disabled-one", enabled: false }, { ...row, id: "disabled-two", state: "disabled" },
+  ] }).split('aria-label="Executors"')[1]!.split("</section>")[0]!;
+  expect(html).not.toContain("planner-alias");
+  expect(html).not.toContain("agent-mark--gemini");
+  expect(html).toContain("2 off</a>");
+  expect(html).toContain("turned off");
+});
+
+test("needs-you uses the board's waiting and failure glyphs", () => {
+  const html = section(draw(fixture()), "Needs you");
+  expect(html.match(/>◐<\/span>/g)).toHaveLength(1);
+  expect(html).toContain('tray-attention-glyph--info');
+  expect(html.match(/>●<\/span>/g)).toHaveLength(1);
+  expect(html.match(/>✕<\/span>/g)).toHaveLength(1);
+  expect(html).not.toContain(">!</span>");
+});
+
+test("reset caption uses local weekday within seven days and date beyond", () => {
+  const now = Date.parse("2026-10-29T10:00:00+07:00") / 1000;
+  expect(resetCaption(Date.parse("2026-10-30T12:00:00+07:00") / 1000, now)).toBe("Fri 12:00");
+  expect(resetCaption(Date.parse("2026-10-29T12:00:00+07:00") / 1000, now)).toBe("Thu 12:00");
+  expect(resetCaption(now + 7 * 86400, now)).toBe("5 Nov 10:00");
+});
+
+test("login item IPC reads and writes native state and propagates failures", async () => {
+  const calls: unknown[] = [];
+  const native = createTrayIpc({ __TAURI__: { core: { invoke: async (command, args) => { calls.push([command, args]); return args?.enabled ?? true; } } }, location: { assign() {} } });
+  expect(await native.loginItem()).toBe(true);
+  expect(await native.loginItem(false)).toBe(false);
+  expect(calls).toEqual([["tray_login_item", {}], ["tray_login_item", { enabled: false }]]);
+  await expect(ipc.loginItem()).rejects.toThrow("desktop");
+  const broken = createTrayIpc({ __TAURI__: { invoke: async () => { throw Error("Denied"); } }, location: { assign() {} } });
+  await expect(broken.loginItem(true)).rejects.toThrow("Denied");
+  const source = await Bun.file("desktop/src-tauri/src/main.rs").text();
+  expect(source).toMatch(/fn tray_login_item[\s\S]*?authorized_tray\(&window, &app\)\?/);
+  expect(source).toContain('.permission("allow-tray-login-item")');
+  expect(source).toContain("launch_at_login(&app, enabled)?");
+  expect(source).toContain("approvals::launch_at_login_enabled()");
+});
+
+test("off executor tooltip states why each agent cannot take work", () => {
+  const row = fixture().executors![0]!;
+  const html = draw({ ...fixture(), executors: [
+    { ...row, id: "opencode#byteplus", agent: "opencode", account: "byteplus", eligibility: undefined, state: "down", reason: "no active subscription" },
+    { ...row, id: "cursor", agent: "cursor", account: "cursor", enabled: false, sub: "Eligible" },
+  ] }).split('aria-label="Executors"')[1]!.split("</section>")[0]!;
+  expect(html).toContain("BytePlus: no active subscription");
+  expect(html).toContain("Cursor: turned off");
+  expect(html).not.toContain("Eligible");
+  expect(html).toContain("pc-agent-mark--byteplus");
+});
+
+test("browser tray Answer opens the Needs you question panel", async () => {
+  const routes: string[] = [];
+  await performAction({ label: "Answer", op: "task.answer", params: { id: "task-1" } }, api, { ...ipc, desktop: false, open: async route => { routes.push(route); } });
+  expect(routes).toEqual(["/needs-you?answer=task-1"]);
 });

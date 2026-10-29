@@ -26,9 +26,9 @@ test("columns preserve main-before-aside order and primitives forward attributes
 
 test("page CSS centrally owns widths, gutters and responsive columns", async () => {
  const css=await Bun.file(new URL("../app/src/ds/components.css",import.meta.url)).text();
- expect(css).toMatch(/\.pc-page\{[^}]*width:100%[^}]*margin-inline:auto[^}]*padding:/);
- expect(css).toMatch(/\.pc-page--standard\{[^}]*max-width:var\(--size-960\)/);
- expect(css).toMatch(/\.pc-page--wide\{[^}]*max-width:calc\(/);
+ expect(css).toMatch(/\.pc-page\{[^}]*width:100%[^}]*margin-inline:0[^}]*padding:/);
+ expect(css).toMatch(/\.pc-page--standard\{[^}]*max-width:none/);
+ expect(css).toMatch(/\.pc-page--wide\{[^}]*max-width:none/);
  expect(css).toMatch(/@media\(max-width:767px\)[^{]*\{[^}]*\.pc-page\{[^}]*padding:/);
  expect(css).toMatch(/@media\(max-width:900px\)[^{]*\{[^}]*\.pc-page-columns\{[^}]*grid-template-columns:minmax\(0,1fr\)/);
 });

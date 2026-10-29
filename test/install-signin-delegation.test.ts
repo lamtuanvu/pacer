@@ -153,10 +153,10 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       expect((await context.request.get(auth)).status()).toBe(403); // single use
       // Interactive work is available without installing planner hooks/service.
       // Wait for the actual landing screen before reload, including in WebKit.
-      await page.getByLabel("What would you like to work on?").waitFor();
+      await page.getByRole("heading", { level: 1, name: "Dispatch" }).waitFor();
       expect(new URL(page.url()).hash).not.toBe("#/setup");
       expect((await page.reload())?.status()).toBe(200);
-      await page.getByLabel("What would you like to work on?").waitFor();
+      await page.getByRole("heading", { level: 1, name: "Dispatch" }).waitFor();
 
       const { result: task } = await browserFetch(page, "/v3/ops/task.delegate", {
         repo: s.repo, goal: "Create takeover-change.txt", acceptance: "test -f takeover-change.txt",

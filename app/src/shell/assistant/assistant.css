@@ -1,0 +1,26 @@
+/* The body excludes the dock. Clip at that boundary; only the inner positioner
+   uses frame-bottom coordinates so dock + 18px never expands body scroll bounds. */
+.pc-aurora-layer:not(.pc-aurora-layer--narrow){position:absolute;inset:0;height:auto;overflow:clip}
+.pc-aurora-layer:not(.pc-aurora-layer--narrow) .pc-assistant-positioner{position:absolute;inset:0;bottom:auto;height:100%;pointer-events:none}
+.pc-assistant-positioner>.pc-aurora-launcher{pointer-events:auto}
+.pc-aurora-layer:not(.pc-aurora-layer--narrow) .pc-aurora-launcher{bottom:calc(var(--pc-dock-height, 0px) + var(--size-18));right:var(--size-20);height:var(--size-40)}
+.pc-aurora-layer:not(.pc-aurora-layer--narrow) .pc-aurora{bottom:var(--pc-dock-height, 0px);max-height:calc(100% - var(--pc-dock-height, 0px) - var(--size-40) - max(var(--size-36),var(--pc-assistant-header-height, 0px)) - var(--space-2)*2 - var(--size-18))}
+.pc-aurora-layer[data-still=true] .pc-aurora[data-generating] .pc-aurora__glow span{animation:none}
+.pc-aurora-layer[data-still=true] .pc-aurora{transition:none}
+.pc-aurora-layer[data-available=false] .pc-aurora__log{mask-image:none;-webkit-mask-image:none;max-height:calc(100dvh - var(--size-180));scrollbar-width:auto}
+.pc-assistant-setup{display:flex;flex-direction:column;gap:var(--space-3);padding:var(--space-4);border:1px solid var(--line);border-radius:var(--radius-lg);background:var(--surface-card)}
+.pc-assistant-setup:focus-visible,[data-assistant-refusal]:focus-visible{outline:var(--stroke-focus) solid var(--focus);outline-offset:var(--stroke-focus)}
+.pc-assistant-setup p{margin:0;color:var(--ink-muted);font-size:var(--type-caption-size);line-height:var(--type-caption-line)}
+.pc-assistant-setup .pc-inline-link{color:var(--link)}
+.pc-assistant-setup__intro{display:flex;gap:var(--space-2\.5);align-items:flex-start}
+.pc-assistant-setup__accounts{border:1px solid var(--line);border-radius:var(--radius-lg);background:var(--surface-page)}
+.pc-assistant-setup__account{display:flex;gap:var(--space-2\.5);align-items:center;padding:var(--space-2\.5) var(--space-3)}
+.pc-assistant-setup__account+.pc-assistant-setup__account{border-top:1px solid var(--line)}
+.pc-assistant-setup h2{margin:0;font-size:var(--type-session-title-size);line-height:var(--type-session-title-line);font-weight:var(--type-session-title-weight)}
+.pc-assistant-setup__name{flex:1;min-width:0;display:flex;flex-direction:column}
+.pc-assistant-setup__name span{font-size:var(--type-caption-size);color:var(--ink-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@media(max-width:767px){.pc-assistant-setup__account{flex-wrap:wrap}.pc-assistant-setup__name{flex-basis:70%}}
+
+.pc-assistant-preferences{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-3)}
+
+.pc-aurora-layer:not(.pc-aurora-layer--narrow) .pc-aurora-launcher--open{bottom:min(calc(var(--pc-dock-height, 0px) + var(--size-520) + var(--size-18) + var(--space-2)),calc(100% - var(--size-40) - max(var(--size-36),var(--pc-assistant-header-height, 0px)) - var(--space-2)))}

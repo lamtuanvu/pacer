@@ -21,7 +21,7 @@ test("rail labels carry counts and mark the current screen", () => {
   expect(html).not.toContain('aria-label="Overview"');
   expect(html).not.toContain('aria-label="Start work"');
   expect(html).toContain('aria-label="Needs you, 4 items"');
-  expect(html).toContain('aria-label="Tasks, 2 running"');
+  expect(html).toContain('aria-label="Tasks"');
   expect(html).toMatch(/aria-current="page"[^>]*aria-label="Needs you|aria-label="Needs you[^"]*"[^>]*aria-current="page"/);
   expect(html).toContain('role="tooltip"');
 });
@@ -121,7 +121,7 @@ test("detail routes select exactly one primary and at most one settings destinat
 test("top bar calls the delegate action New task on every destination that offers it", () => {
   for (const hash of ["#/needs-you", "#/tasks", "#/settings", "#/settings/dispatcher", "#/terminal"]) {
     const html = renderToString(<Layout route={at(hash)} state={ready()} title="Page">body</Layout>);
-    expect(html).toMatch(/pc-btn[^>]*>New task<\/button>/);
+    expect(html).toMatch(/pc-btn[^>]*>New task<\/a>/);
     expect(html).not.toMatch(/>Delegate<\/button>/);
   }
 });
@@ -137,7 +137,7 @@ test("Needs you owns exactly one page title, with no hidden duplicate in the top
   const html = renderToString(<ActionContext.Provider value={runner}><TaskContext.Provider value={{ state, api: {} as never }}><Layout route={route} state={state} title="Needs you"><NeedsYouPage query={route.query} /></Layout></TaskContext.Provider></ActionContext.Provider>);
   expect(html.match(/<h1\b/g)).toHaveLength(1);
   expect(html).toContain('<h1>Needs you</h1>');
-  expect(html).toContain('pc-needs-you pc-page-body');
+  expect(html).toContain('pc-needs-you pc-needs-board');
 });
 
 test('every settings destination has exactly one h1 in the real shell', async () => {

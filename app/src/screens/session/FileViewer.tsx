@@ -183,7 +183,9 @@ export function HtmlPreview({ file }: { file: SessionFileResult }) {
 export function fileTab(path: string): PanelTab { return { id: `file:${path}`, label: path.split("/").at(-1) || path, icon: "files" }; }
 const clock = (date: Date) => date.toLocaleTimeString("en-GB", { hour12: false });
 
-export function FileViewer({ file, reference, error, loading = false, workspace, running = false, agent, onClose, onRefresh, onOpenFile, onOpenInEditor }: {
+export function FileViewer({ file, reference, error, loading = false, workspace, running = false, agent, onClose, onRefresh, onOpenFile, onOpenInEditor, sidePanel = false }: {
+  /** The session frame already owns desktop pane placement. */
+  sidePanel?: boolean;
   file?: SessionFileResult;
   /** A read is in flight; a refreshed file stays visible until the new text arrives. */
   loading?: boolean;
@@ -242,12 +244,12 @@ export function FileViewer({ file, reference, error, loading = false, workspace,
   useLayoutEffect(() => {
     const host = root.current?.closest<HTMLElement>(".pc-linked-terminal") ?? root.current?.parentElement;
     if (!host || typeof ResizeObserver === "undefined") return;
-    const update = () => setLayout(viewerLayout(host.clientWidth));
+    const update = () => setLayout(sidePanel && !narrow ? "pane" : viewerLayout(host.clientWidth));
     update();
     const observer = new ResizeObserver(update);
     observer.observe(host);
     return () => observer.disconnect();
-  }, []);
+  }, [sidePanel, narrow]);
   useLayoutEffect(() => { heading.current?.focus(); }, []);
   useLayoutEffect(() => {
     if (error) errorPanel.current?.focus();
@@ -432,8 +434,8 @@ export function FileViewer({ file, reference, error, loading = false, workspace,
   const footerRight = !file ? "Loading…" : `${file.line ? `Ln ${file.line} · ` : ""}Opened from ${agent ? `${agent} terminal` : "terminal"}`;
   const footerLeft = file ? <><span>{languageName(file.path)}</span><span>{fileMeta(file.text, lines.length, file.size)}</span></> : <span>{languageName(path)}</span>;
   const viewer = <section ref={root} className={`pc-file-viewer pc-file-viewer--${layout}`} data-layout={layout} aria-label={`File viewer: ${path}`} onKeyDown={onKeyDown}>
-    {/* Until the session side panel (Details, Changes) lands, the file tab stands alone in the strip it will join. */}
-    {layout === "pane" && <div className="pc-file-viewer__tabs"><PanelTabs label="Side panel" tabs={[fileTab(path)]} value={fileTab(path).id} onChange={() => undefined}/></div>}
+    {/* Standalone terminal previews own their strip; the session frame supplies its file tab. */}
+    {!sidePanel && layout === "pane" && <div className="pc-file-viewer__tabs"><PanelTabs label="Side panel" tabs={[fileTab(path)]} value={fileTab(path).id} onChange={() => undefined}/></div>}
     <header className="pc-file-viewer__head">
       <div className="pc-file-viewer__row pc-file-viewer__row--primary">
         {sheet && back}

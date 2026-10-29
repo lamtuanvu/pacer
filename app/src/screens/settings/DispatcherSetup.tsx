@@ -1,27 +1,29 @@
+import { executorReadiness } from "../../../../src/view-model/capacity";
 import { executorLabel } from "../../../../src/view-model/words";
 import type { ComponentChildren } from "preact";
 import { useEffect, useId, useRef, useState } from "preact/hooks";
 import { ButtonLink, IconButton, TextAction, Button } from "../../ds/Button";
-import { Field, TextArea, TextInput } from "../../ds/Controls";
+import { Disclosure, Field, TextArea, TextInput } from "../../ds/Controls";
 import { ChoicePicker } from "../../ds/ChoicePicker";
 import { AgentMark } from "../../ds/AgentMark";
 import { Icon } from "../../ds/icons";
 import { SegmentedControl, tabStep } from "../../ds/Patterns";
 import { hrefFor, routes } from "../../router";
 import { Identicon } from "../../ds/Identicon";
+import { Tooltip } from "../../ds/Tooltip";
 import { Pill } from "../../ds/Pill";
 import { SettingRow } from "../../ds/SettingRow";
 import { SaveBar } from "../../ds/SaveBar";
 import { SectionHeading } from "../../ds/SectionHeading";
 import { SortableList, useFocusAfterRender, useStableKeys } from "../../ds/SortableList";
-import { executorStatus, type Rule } from "../../model/executors";
+import type { Rule } from "../../model/executors";
 import type { SortableItem } from "../../ds/SortableList";
 import type { ProjectStrategyView } from "../../model/project-strategies";
 import type { StrategyRow } from "../../model/strategy";
 import { countSetupChanges, discardSetup, eligibilityChanges, ladderChanges, PartialSaveError, reconcileSetup, saveSetup, strategyDraft, type EligibilityDraft, type SetupDraft, type StrategyDraft } from "../../model/dispatcher-setup";
 import { ErrorMessage, useTaskContext } from "../task-shared";
 import { DispatcherLadderFields, DispatcherReadError, ListField, type DispatcherConfigView } from "./Dispatcher";
-import { Feedback, ResourceState, Section, useOperation, useResource } from "./shared";
+import { Feedback, ResourceState, Section, useOperation, useResource, containTooltipEscape } from "./shared";
 
 export type EligibilitySource =
   | { kind: "global"; rules: Rule[]; available: string[] }
@@ -39,10 +41,8 @@ function OrderWithPool({ label, title, items, onChange, pool, empty, disabled }:
   const keys = items.map(item => item.key), group = useRef<HTMLDivElement>(null), focusAfter = useFocusAfterRender();
   const metadata = (id: string) => {
     const runner = state.snapshot?.executors?.find(row => row.id === id);
-    const account = state.snapshot?.accounts?.find(row => row.name === runner?.account && row.agent === runner?.agent);
-    // Legacy free-form reasons may be internal codes; structured eligibility supplies safe detail.
-    const status = runner ? executorStatus({ id, state: runner.state === "blocked" || runner.state === "exhausted" ? runner.state : runner.state === "failing" || runner.state === "down" ? "broken" : "ok", until: null, reason: null, eligibility: runner.eligibility }, undefined, undefined, account ? { verdict: account.verdict } : undefined) : undefined;
-    return { runner, status, account: runner?.account ?? id.split("#")[1]?.split("@")[0] ?? "default account" };
+    const status = runner && state.snapshot ? executorReadiness(runner, state.snapshot) : undefined;
+    return { runner, status };
   };
   const add = (key: string, index: number) => { focusAfter(() => { const left = buttons(group.current, "button"); return left[Math.min(index, left.length - 1)] ?? group.current; }); onChange([...keys, key]); };
   return <div className="dispatcher-order-container">
@@ -50,12 +50,12 @@ function OrderWithPool({ label, title, items, onChange, pool, empty, disabled }:
       <div className="pc-stack pc-stack--compact">
         {title && <SectionHeading as="h3">{title}</SectionHeading>}
         <SortableList iconControls label={`${label}, in priority order`} disabled={disabled} items={items.map((item, index) => {
-          const { runner, status, account } = metadata(item.id ?? item.key);
-          const [name, ...caption] = item.label.split(" · ");
-          return { ...item, displayLabel: <>{name}<span className="sr-only"> · </span><span className="pc-executor-caption">{caption.join(" · ") || account}</span></>,
+          const { runner, status } = metadata(item.id ?? item.key);
+          const name = executorLabel(item.id ?? item.key);
+          return { ...item, displayLabel: name,
             leading: <><span className="pc-executor-rank">{index + 1}</span><AgentMark agent={runner?.agent ?? item.key} size={24} labelled={false} /></>,
-            detail: <><span className="pc-executor-id" title={item.id ?? item.key}>{item.id ?? item.key}</span>{item.detail}</>,
-            trailing: status && <Pill tone={status.tone}>{status.label}</Pill> };
+            detail: item.detail,
+            trailing: status && <span className="pc-executor-state" onKeyDown={containTooltipEscape}><Tooltip text={`${status.reason}. ${status.tooltip}`}><span tabIndex={0}><Pill tone={status.tone}>{status.label}</Pill></span></Tooltip></span> };
         })} onReorder={onChange} onRemove={key => { if (keys.length === 1) focusAfter(() => buttons(group.current, "button")[0] ?? group.current); onChange(keys.filter(item => item !== key)); }} />
         {!items.length && <p>{empty}</p>}
       </div>
@@ -63,11 +63,11 @@ function OrderWithPool({ label, title, items, onChange, pool, empty, disabled }:
         <SectionHeading as="h3">Available executors</SectionHeading>
         <div ref={group} className="pc-executor-pool" role="group" aria-label={`Add to ${label}`} tabIndex={-1} data-executor-pool="">
           {pool.length ? pool.map((item, index) => {
-            const { runner, status, account } = metadata(item.id ?? item.key);
+            const { runner, status } = metadata(item.id ?? item.key);
             const unavailable = runner && (runner.eligibility?.state === "ineligible" || ["disabled", "blocked", "down", "failing", "exhausted"].includes(runner.state));
             return <div key={item.key} className={`pc-executor-pool__row${unavailable ? " pc-executor-pool__row--unavailable" : ""}`}>
               <AgentMark agent={runner?.agent ?? item.key} size={20} labelled={false} />
-              <span className="pc-executor-pool__identity"><strong>{item.label}</strong><span className="pc-executor-caption">{unavailable ? status?.detail || status?.label || "Disabled" : [status?.label, account].filter(Boolean).join(" · ")}</span></span>
+              <span className="pc-executor-pool__identity"><strong>{item.label}</strong><span onKeyDown={containTooltipEscape}>{status ? <Tooltip text={status.tooltip}><span className="pc-executor-caption" tabIndex={0}>{status.reason}</span></Tooltip> : <span className="pc-executor-caption">Refresh to confirm availability</span>}</span></span>
               {unavailable ? <TextAction href={hrefFor(routes.settings("executors"))}>Fix</TextAction> : <IconButton size="sm" disabled={disabled} aria-label={`Add ${item.label}`} onClick={() => add(item.key, index)}><span aria-hidden="true">+</span></IconButton>}
             </div>;
           }) : <p className="pc-executor-caption pc-executor-pool__empty">Every executor is in the list.</p>}
@@ -129,7 +129,7 @@ function ProjectOrder({ source, executors, disabled, onChange }: { source: Extra
   const runner = (reference: string) => source.view.available.find(item => item.reference === reference);
   const useGlobal = () => { focusAfter(() => buttons(root.current, "[data-executor-pool] button")[0] ?? root.current?.querySelector<HTMLElement>("[data-executor-pool]")); onChange([]); };
   return <div ref={root} className="pc-stack pc-stack--normal">
-    <p>{source.view.executors ? "Unavailable executors are skipped." : "Add executors to give this repository its own order."}</p>
+    <p>{source.view.executors ? "Agents marked Skipped, Cannot take work or Off receive no new work." : "Add executors to give this repository its own order."}</p>
     <OrderWithPool label={`Allowed executors for ${source.repoLabel}`} disabled={disabled} onChange={onChange}
       empty={source.view.executors ? "Saving restores the global rules." : "No project order yet."}
       items={executors.map(reference => ({ key: reference, id: runner(reference)?.id, label: runner(reference)?.label ?? executorLabel(reference),
@@ -191,6 +191,7 @@ export function SetupEditor({ view, eligibility: source, onSaved, onDirtyChange,
   // Discard loads the latest saved settings, which also resolves a conflict.
   const discard = () => { setSetup(discardSetup(latest.current)); setConflict(false); setError(undefined); };
   const blocked = blockedReason(setup, ladderDirty, name, reason, state.connected);
+  const [editingLadder, setEditingLadder] = useState(false);
   const engine = view.config.engine, ladderEditable = engine === "ladder" || view.config.engineFallback === "ladder";
 
   const save = async () => {
@@ -215,10 +216,17 @@ export function SetupEditor({ view, eligibility: source, onSaved, onDirtyChange,
         : source.kind === "project" && setup.eligibility.kind === "project"
           ? <ProjectOrder source={source} executors={setup.eligibility.draft} disabled={disabled} onChange={setEligibility} />
           : null}
+    <SaveBar inline alwaysVisible statusDot size="sm" scope={!count && notice && savedScope ? savedScope : scopeText} count={count} busy={busy} onSave={() => void save()} onDiscard={discard} blockedReason={blocked} notice={notice || undefined}
+      saveLabel={ladderDirty ? "Validate and save" : "Save choices"}>
+      {conflict || error ? <>
+        {conflict && <p role="status">Another client changed these settings. Your changes are kept; Discard loads theirs.</p>}
+        <ErrorMessage error={error} />
+      </> : undefined}
+    </SaveBar>
     </Section>
     <Section step={3} id="decision-ladder" title="How should Pacer choose?" detail={`One choice method for every repository. It runs after step 2 has decided who is eligible. From saved setup ${view.strategy}.`}>
-      {engine !== "ladder" && <p>This setup uses the plugin decision engine {engine.replace(/^plugin:/, "")}; configure it in the strategy file. If the plugin cannot decide, Pacer {view.config.engineFallback === "ladder" ? "uses this fallback ladder" : "queues the work"}.</p>}
-      {ladderEditable && <div className="pc-stack pc-stack--section">
+      {engine !== "ladder" && <p>This setup uses a plugin choice method; configure it in the saved setup. If the plugin cannot decide, Pacer {view.config.engineFallback === "ladder" ? "uses this fallback ladder" : "queues the work"}.</p>}
+      {ladderEditable && <><ol className="pc-choice-ladder">{setup.ladder.steps.map((step,index) => <li key={step.id}><span>{index + 1}</span><strong>{step.id === "capable-with-headroom" ? "Capable model with spare capacity" : "Usable fallback"}</strong><span className="u3-muted">Share: Not recorded</span></li>)}</ol><Button size="sm" onClick={() => setEditingLadder(value => !value)} aria-expanded={editingLadder}>Edit choice method</Button>{editingLadder && <div className="pc-stack pc-stack--section">
         <DispatcherLadderFields config={setup.ladder} disabled={disabled} onChange={ladder => setSetup(current => ({ ...current, ladder }))} />
         {ladderDirty && <div className="pc-card pc-stack pc-stack--normal">
           <SectionHeading as="h3">Save the ladder as a new saved setup</SectionHeading>
@@ -226,15 +234,9 @@ export function SetupEditor({ view, eligibility: source, onSaved, onDirtyChange,
           <SettingRow variant="board" label="Setup name" description="Lowercase letters, numbers and hyphens."><TextInput value={name} maxLength={40} disabled={disabled} onInput={event => setName(event.currentTarget.value)} /></SettingRow>
           <SettingRow variant="board" label="Reason for change"><TextInput value={reason} maxLength={500} disabled={disabled} onInput={event => setReason(event.currentTarget.value)} /></SettingRow>
         </div>}
-      </div>}
+      </div>}</>}
     </Section>
-    <SaveBar statusDot size="sm" scope={!count && notice && savedScope ? savedScope : scopeText} count={count} busy={busy} onSave={() => void save()} onDiscard={discard} blockedReason={blocked} notice={notice || undefined}
-      saveLabel={ladderDirty ? "Validate and save" : "Save choices"}>
-      {conflict || error ? <>
-        {conflict && <p role="status">Another client changed these settings. Your changes are kept; Discard loads theirs.</p>}
-        <ErrorMessage error={error} />
-      </> : undefined}
-    </SaveBar>
+
   </>;
 }
 

@@ -49,7 +49,7 @@ test('session list and detail retain review verdicts and ignore phases from ende
   }
 });
 
-test('planner, footer and tray agree on a ready executor at 37 percent', () => {
+test('planner budget agrees across footer and tray without duplicating the planner in executors', () => {
   const snapshot = structuredClone(fixture) as unknown as ClientSnapshot;
   snapshot.planner = {...snapshot.planner!,usedPct:37,pacePct:20,verdict:'ahead'};
   snapshot.executors = [{...snapshot.executors![0]!,id:snapshot.planner.runner,state:'ready',tone:'good',usedPct:37,pacePct:20,slots:{used:0,max:1}}];
@@ -63,6 +63,6 @@ test('planner, footer and tray agree on a ready executor at 37 percent', () => {
   expect(top).not.toContain('pc-meter');
   const tray = renderToString(<Tray snapshot={snapshot} api={createApi()} ipc={createTrayIpc({location:{assign(){}}})} />);
   expect(tray).toContain('pc-meter__fill--warn');
-  expect(tray).toContain('Eligibility unknown · No execution decision is available · Ahead of pace');
-  expect(tray).toContain('tray-executor-value--warn">37%');
+  expect(tray).toContain('37% of week used · pace 20%');
+  expect(tray).not.toContain('data-executor=');
 });

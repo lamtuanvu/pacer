@@ -1,3 +1,5 @@
+import { agentInfo, markAgent } from "../../../src/view-model/agents";
+import { clock } from "../../../src/view-model/time";
 import { desktopUpdateIndicator } from "../../../src/view-model/updates";
 import { settingsPath } from "../router";
 import type { Action } from "../../../src/attention/types";
@@ -18,15 +20,25 @@ export const primaryAction = (actions: Action[]) => actions.find(a => a.style ==
 /** Compact capacity values never invent an unknown usage percentage. */
 const OFF_STATES = new Set(["disabled", "down", "failing", "blocked"]);
 export function executorValue(executor: ExecutorRow): string {
-  // Same off states Overview's Capacity dims (e.g. BytePlus without an active coding plan is "down").
+  // Eligibility is authoritative; operational failures and old prose can coexist
+  // with a permitted budget. Never let those legacy hints hide a real reading.
+  if (!executor.enabled || executor.state === "disabled") return "off";
+  if (executor.eligibility?.state === "eligible" && executor.usedPct !== null) return `${Math.round(executor.usedPct)}%`;
   if (executor.eligibility?.state === "uncertain") return "?";
   if (executor.eligibility?.state === "ineligible") return executor.eligibility.budget === "exhausted" ? "out" : "off";
   if (!executor.enabled || OFF_STATES.has(executor.state) || /no (active )?(coding[- ])?plan|no subscription/i.test(`${executor.sub} ${executor.reason ?? ""}`)) return "off";
   if (executor.state === "exhausted") return "out";
   if (executor.state === "checking" || (executor.usedPct === null && executor.paceReason !== "unmetered")) return "?";
-  if (executor.slots.max > 0 && executor.slots.used >= executor.slots.max) return `${executor.slots.used}/${executor.slots.max}`;
   if (executor.usedPct !== null) return `${Math.round(executor.usedPct)}%`;
-  return executor.slots.used > 0 ? `${executor.slots.used}/${executor.slots.max}` : "free";
+  if (executor.slots.max > 0 && executor.slots.used >= executor.slots.max) return `${executor.slots.used}/${executor.slots.max}`;
+  return executor.slots.used > 0 ? `${executor.slots.used}/${executor.slots.max}` : "—";
+}
+/** Off rows use state, never stale eligibility prose, to explain availability. */
+export function offExecutorLabel(executor: ExecutorRow): string {
+  const name = agentInfo(markAgent(executor.id, executor.account)).name;
+  const reason = !executor.enabled || executor.state === "disabled" ? "turned off"
+    : executor.reason ?? (executor.state === "down" ? "unavailable" : /eligible/i.test(executor.sub) ? "unable to take work" : executor.sub);
+  return `${name}: ${reason || "unable to take work"}`;
 }
 export function trayModel(snapshot: ClientSnapshot, activity: ActivityEntry[] = []) {
   const attention = needsYou(snapshot, { repo: null });
@@ -40,5 +52,14 @@ export function trayModel(snapshot: ClientSnapshot, activity: ActivityEntry[] = 
   const reviews = [...snapshot.tasks.flatMap(t => t.review?.accepted ? [t.review.at] : []),
     ...activity.filter(e => e.kind === "verdict" && /^Accepted\b/.test(e.text)).map(e => e.at)];
   return { update: desktopUpdateIndicator(snapshot.desktopUpdates), attention, recommendedId, active, queued, waiting: queued.length, needsCount: counts(snapshot)?.attention ?? attention.length,
-    done: snapshot.today?.done ?? 0, lastReview: reviews.length ? Math.max(...reviews) : null, executors: capacity(snapshot) };
+    done: snapshot.today?.done ?? 0, lastReview: reviews.length ? Math.max(...reviews) : null, executors: capacity(snapshot).filter(row => row.rank !== "planner" && row.id !== snapshot.planner?.runner) };
+}
+
+/** Future resets in this week use the board's weekday + local time. */
+export function resetCaption(at: number, now: number): string {
+  if (at < now || at - now >= 7 * 86400) return clock(at, now);
+  const date = new Date(at * 1000);
+  const time = date.toLocaleTimeString("en-GB", { hourCycle: "h23", hour: "2-digit", minute: "2-digit" });
+  const day = date.toLocaleDateString("en-GB", { weekday: "short" });
+  return `${day} ${time}`;
 }

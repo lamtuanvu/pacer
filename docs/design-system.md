@@ -4,7 +4,7 @@ The web app, desktop webview and tray use the Preact foundation in `app/src/ds/`
 
 ## Tokens and density
 
-Author `app/src/ds/tokens.json`; `app/tokens-gen.ts` validates the explicit color, type, spacing, radius, size, shadow, layer and motion groups. The tray adds provisional `size-236` (More menu width), `shadow-tray-menu` (More menu elevation, coloured by the light/dark `shadow-tray-menu-tint`) and `tray-count` (count typography). `Button`/`ButtonLink` size `xs` uses space-2 horizontal padding and space-1 gap in default and compact density, using the shared `control-compact` minimum height in both densities and retaining keyboard semantics. The tray footer consumes it.
+Author `app/src/ds/tokens.json`; `app/tokens-gen.ts` validates the explicit color, type, spacing, radius, size, shadow, layer and motion groups. The tray adds provisional `size-236` (More menu width), `shadow-tray-menu` (More menu elevation, coloured by the light/dark `shadow-tray-menu-tint`) and `tray-count` (count typography). `Button`/`ButtonLink` size `xs` uses space-2 horizontal padding and space-1 gap in default and compact density, using the shared density minimum height and retaining keyboard semantics. The tray footer consumes it.
 
 `tokens.local.json` holds documented provisional additions only; it currently holds the Tasks board values the design system lacks: `radius-card` (12 px), `space-3.5`, `space-7`, `space-10` (14, 28, 40 px) and `size-10`, `size-14`, `size-15`, `size-21`, `size-34`, `size-52`, `size-272`, `size-1240`, plus the app-frame chrome values `size-3/4/5/84/420/neg-6` (`size-10/14/52` are shared), `radius-xs`, the colour `ink-on-fill` (white in light, `#18181b` in dark to keep 4.5:1 on the lighter dark fill) and the type style `count-badge` (10px/700), plus the command menu values `size-72` and the type style `match-strong` (13/19, weight 700), plus the Dispatcher board's column widths `size-220`, `size-140` and `size-110`, until the design system adds them. The command menu also reuses the frame chrome's `size-420`, the Tasks board's `size-15` and `size-52`, and the file viewer board's `radius-4` (key caps) and `radius-7` (row glyph tiles). The file viewer board adds `size-12.5`, `size-10.5`, `size-5`, `size-440`, `radius-2`, `radius-4`, `radius-5` and `radius-7`. Generate CSS and TypeScript with `bun scripts/ds-sync.ts app/src/ds/tokens.json` or `bun run app:build`. Never edit generated `tokens.css`/`tokens.ts` or embedded app assets manually. The app build also refreshes the generated token prefix in `desktop/ui/shell.css`, preserving the handwritten startup-shell suffix at its existing boundary comment; a missing boundary fails the build rather than overwriting it.
 
@@ -14,11 +14,11 @@ Author `app/src/ds/tokens.json`; `app/tokens-gen.ts` validates the explicit colo
 
 `chart-1`–`chart-5` provide a calm categorical series and identity fills. Every value reaches at least 3:1 against `surface-page` and `surface-lane` in both themes. Neighbouring series can have similar luminance, so charts separate segments with gaps and carry a text legend. `aurora-1`–`aurora-3` reserve soft assistant-sheet glows; they are decorative only, never status. Neither palette replaces semantic status tokens.
 
-All themes use one type scale. `space-2.5` supplies the missing 10px inset; control tokens specify compact 28px, normal 44px and touch 48px minima. Semantic foreground/background pairs carry statuses. Brand identity tokens are separate from status colors. The warning and information navigation badges use the tested semantic pairs, and text on tinted surfaces uses `ink-secondary`.
+All themes use one type scale. `space-2.5` supplies the missing 10px inset; control tokens specify compact 28px, normal (Comfortable) 32px and touch 44px minima. Semantic foreground/background pairs carry statuses. Brand identity tokens are separate from status colors. The warning and information navigation badges use the tested semantic pairs, and text on tinted surfaces uses `ink-secondary`.
 
-Compact is the desktop default, including dialogs outside the shell. `DensityProvider value="compact"` also scopes the tray, including list rows, pills and meters. Buttons (all variants and button links), text inputs and choice pickers share the 28px compact minimum, caption typography and medium radius. The top-bar Delegate is the reference control. Settings forms retain their shared 32px density; small settings actions remain 28px. Explicit `normal` density remains available at 44px for a documented need, rather than becoming a page-local override.
+Comfortable (`normal`) is the default for new installs and existing installs with no saved density choice, including dialogs outside the shell. An explicit saved Comfortable or Compact choice is preserved. Shared page-header, toolbar and card action buttons use DS `sm`: 32px in Comfortable and 28px in Compact. All variants and button links share one density rule; Settings action buttons inherit the app preference. Comfortable single-line inputs keep 13px body text at 32px height; Compact inputs use 12px caption text at 28px. Settings fields retain their shared 32px form density. Icon and segmented controls retain their board geometry on desktop.
 
-`NarrowContext`, owned by DS and reexported by shell for compatibility, selects 48px touch targets for narrow/repository-scoped views. At viewport widths up to 560px, DS supplies touch targets and readable input typography even for dialogs mounted outside shell context. An explicit compact surface wrapper keeps the desktop tray compact at popover widths. Textareas retain their 96px minimum and vertical resize. `ListRow` also accepts an explicit density. Screens must not override primitive typography or control dimensions to create another density.
+`NarrowContext`, owned by DS and reexported by shell for compatibility, selects 44px touch targets for narrow/repository-scoped views. At viewport widths up to 560px or with coarse pointers, DS supplies 44px control targets, including filter chips and tabs, even for dialogs mounted outside shell context. The tray keeps its independent `sm` 32px action size at popover widths, using its own compact token. Textareas retain their 96px minimum and vertical resize. `ListRow` also accepts an explicit density. Screens must not override primitive typography or control dimensions to create another density.
 
 ## Catalog and API contracts
 
@@ -64,7 +64,7 @@ Compact is the desktop default, including dialogs outside the shell. `DensityPro
 | `Card` / `pc-card`, `ApprovalCard` | Native section props; ApprovalCard optional title/actions slots | Shared settings card CSS also works on native form/div containers. Review verdict uses ApprovalCard framing while VerdictPanel owns decisions and actions. Do not repeat the same heading in both wrapper and content. |
 | `Pagination` | Controlled `label`, zero-based `page`, `pageSize`, `total`, `onChange` | Dispatch and Needs you lists. Uses canonical small Buttons with inherited density. Range is a polite live status; only available Previous/Next actions render. Native Tab/Enter/Space activation. Paging moves focus to the persistent labelled navigation region so disappearing boundary buttons do not lose focus. Empty lists omit navigation. Authored locally; no upstream adaptation. |
 | `LoadingState`, `EmptyState` | Loading label/updating; empty title/description/children, optional `bodyTitle` that renders the title as a body-strong `<strong>` instead of a section heading (for an empty state inside a section that already has one) | Shell connection, task/session/settings resources, Dispatch and Review clear states, tray connecting. Loading is a polite status with decorative pixel grid; reduced motion freezes it. Refreshing content remains mounted. Errors remain explicit adjacent alerts with existing retry actions. |
-| `Page`, `PageHeader`, `PageBody`, `PageColumns` | Named `standard`, `wide` or `full` page width; breadcrumb/identity/metadata/status/action slots; main and optional aside | Every routed app screen uses `full` to fill the available workspace. The `standard` and `wide` variants remain available for explicitly constrained compositions. Page owns width, centering, responsive/safe-area gutters and page rhythm. PageHeader never invents another `h1`; the shell top bar remains the page title. Columns keep main before aside in DOM order and collapse centrally. Screen CSS must not redefine page width, centering or outer gutters. |
+| `Page`, `PageHeader`, `PageBody`, `PageColumns` | Named `standard`, `wide` or `full` page width; breadcrumb/identity/metadata/status/action slots; main and optional aside | Every routed app screen fills its available workspace. All width variants now share uncapped geometry. Page owns width, responsive gutters and page rhythm. PageHeader accepts the routed page heading; desktop page titles live in the page frame. Columns keep main before aside in DOM order and collapse centrally. Screen CSS must not redefine page width, centering or outer gutters. |
 | `Stack`, `Cluster`, `Section`, `DisclosurePanel`, `ActionPanel` | Semantic compact/normal/section spacing and contained section/detail/action composition | Shared page composition. These are original local Preact components with no upstream adaptation. Consumers provide content and domain state; DS tokens own spacing, borders and responsive behavior. Specialized tables, diffs, terminal geometry and domain grids remain screen-owned. |
 | `SectionHeading`, `Pill`, `StatusPill`, `StatusGlyph` | Existing heading and semantic descriptor APIs; `Pill` also accepts `title` only; its accessible name comes from its full text | One section-heading type scale. Status descriptors come from `src/view-model/words.ts`; glyph and text accompany color. Color alone never encodes a result. |
 | `UsageMeter`, `AgentMark`, `Mark`, `Icon`, `Kbd`, `Tooltip` | Existing documented typed props in their modules; `Kbd` also takes `size="sm"` (11 px cap, 4 px radius, page background) for the command menu and the title-bar search | Specialized meter geometry, vendor identity, navigation, shortcuts and tooltips remain shared. Stale meter readings visibly say Historical usage, include a known capture time, and announce freshness through the meter value text. A Kbd composed inside a button inherits the action foreground on a transparent surface, retaining the action contrast pair in both themes. Usage percentages are data, not ad-hoc style. Agent colors mirror shared identity descriptors in both themes. |
@@ -168,10 +168,10 @@ list density, sibling action slots and keyboard behavior are unchanged.
 
 `DensityContext` additionally supports `settings`: 32px minimum form buttons,
 inputs, selects and range hit areas, using `control-settings`. Small row actions
-retain the 28px compact minimum; segmented choices use 32px. Body/field text stays
+inherit the app preference (Comfortable 32px, Compact 28px); segmented choices use their board size. Body/field text stays
 13px, help 12px and pills 11px. Narrow layouts resolve to touch density; settings
-controls outside the shell also retain 48px targets at narrow/coarse-pointer sizes.
-The existing compact tray density and normal app density are unchanged.
+controls outside the shell also retain 44px targets at narrow/coarse-pointer sizes.
+The tray keeps its own 32px action size.
 
 Settings screens mount one editor per route. `settings-pages.ts` owns page
 labels, icons, menu groups, Overview descriptions, shell titles and the
@@ -257,7 +257,7 @@ sections, cards, sticky detail navigation, action panels and disclosure bodies h
 replaces it. Do not layer a child margin over that gap.
 
 `Section` bodies, disclosure bodies and action panels stack content at 12px.
-`DisclosurePanel` summaries have a 36px desktop minimum and a 48px narrow-layout
+`DisclosurePanel` summaries have a 36px desktop minimum and a 44px narrow-layout
 minimum, with full-width keyboard targets and unchanged native details semantics.
 Related task disclosures live in one compact stack. Task Result, settings cards,
 the Dispatch home, session reports and task lists consume this contract.
@@ -375,7 +375,7 @@ with no upstream adaptation. Native validation retains its existing controls.
 14px vertical padding and lane-colored top separator. Its existing label/help
 association remains intact; narrow layouts stack the columns. `SegmentedControl
 variant="board"` (also exposed by the settings `Segment`) adds a bordered,
-3px-padded group with 30px buttons and 6px corners; touch targets expand to 48px.
+3px-padded group with 30px buttons and 6px corners; touch targets expand to 44px.
 `Card tone="sunken"` uses the card surface. `Switch size="sm"` reuses the native
 checkbox keyboard and label behavior with role=switch, explicit aria-checked,
 a 36×20px track, a 16px white thumb and good-fill on state. The default Switch
@@ -450,7 +450,7 @@ unchanged. New task opens the New task composer at `/tasks/new` (#460).
 
 `SegmentedControl variant="insights"` retains pressed-button semantics and keyboard
 behavior, with 3px group padding, 8px group radius and 32px segments. Narrow
-viewports and coarse pointers use the shared touch target token (48px). Only the
+viewports and coarse pointers use the shared touch target token (44px). Only the
 Insights Period filter uses this additive variant; other densities are unchanged.
 The screen owns its chart and semantic tables in `insights.css`: agent rows use
 the board's fixed numeric columns and flexible Agent/Share columns, while the
@@ -474,7 +474,7 @@ uppercase headers, 10px × 16px body cells and 24px agent marks. Provisional
 `Icon` also supplies lock and close glyphs for the account information banner and
 agent detail dismissal; decorative glyphs remain hidden from assistive technology.
 `UsageMeter size="slim"` stacks its 6px meter above its caption and wraps caption
-text; it is used by both agent tables. `SettingRow layout="stacked"` places the
+text; it is used by both agent tables and the session details panel. `SettingRow layout="stacked"` places the
 control beneath its label and description with a top divider for detail blocks.
 `SectionHeading variant="headline"` provides the board's 16/22/650 mixed-case
 aside title. These variants retain the base components' semantics and actions.
@@ -528,3 +528,84 @@ for accounts with existing sign-in or Ark CLI refresh help and toggles an inline
 region spanning the row. Agents and Accounts paint the header background and
 bottom rule on the whole header row. Add agent breadcrumb and footer text
 links keep the shared touch minimum for both width and height.
+
+The assistant launcher uses the shared `AuroraLauncher` (surface-card in both themes, muted 11px shortcut) and its `AuroraAvatar` uses the board’s conic aurora token gradient. The shell clips the overlay to the work area; setup composes 24px `AgentMark` rows and a semantic h2 using the 14px/650 session-title tokens. App preferences uses the existing `Switch size="sm"` (36×20, green on). `AuroraSheet autoScroll` defaults to true for conversation updates; setup/status cards set it false to retain their heading at the top. No upstream source is introduced.
+
+Session detail keeps the sole h1 in its in-page session header; the global top bar retains the shared search and actions. Session composition retains specialized board geometry: a 40px header, 272px compact navigator, 300px details pane and 560px file pane. FileViewer `sidePanel` retains desktop controls inside the frame-owned pane; standalone terminal previews keep their existing responsive layout. Session file tabs have adjacent close buttons and arrow-key navigation.
+
+Button `size="bar"` supplies the boards’ 26px header action, 10px horizontal padding and 6px radius, with the shared touch minimum on coarse pointers. The session End session action consumes it.
+
+### Unified page frame and workspace terminal
+
+`Page` owns an uncapped work-area width with 24px top, 32px side and 40px
+bottom gutters on desktop. All width names retain compatibility and resolve to
+that same frame. Settings keep their separate 240px navigation. Routed page
+headings use the display tokens (28px/34px, weight 650); `PageTitle` places the
+heading before introductory breadcrumbs in flex layouts.
+
+The desktop `TopBar` is 36px high: a 26px search, 24px planner chip, three
+28px layout toggles and a 26px New task link. Absent panels keep their toggle
+with a disabled state and a reason tooltip. Native traffic-light spacing remains
+owned by the shell.
+
+`TerminalDock` owns local height persistence, a 6px horizontal separator and
+120px–80% work-area limits. Up/Down resize by 16px; Home/End select the bounds;
+double-click restores 260px. Maximize fills the work area and Restore returns to
+the previous height. Its flex proportion is measured layout geometry,
+not an authored visual scale. `TerminalScreen` supplies the same terminal panel
+for the dock and full-page route: a 30px tab/header row, 24px tools with 6px radii, inline tab
+rename, folder creation menu, split panes and keyboard/pointer split separator.
+Terminal body padding is 10px/14px and type is mono 12px/19px. Existing session
+attachment, control and IO remain in `term/term.tsx`; its optional `onActions`
+callback exposes Find, Clear and screen-reader mode to the panel header, and
+`onInputLocked` supplies the tab's conditional control-lock tooltip. Find is a
+floating widget opened by Cmd/Ctrl+F and closed by Esc. Connection/retry/control
+state appears inside the body. The external-terminal menu item explains when the
+service lacks that capability. This is an original specialized terminal layout;
+no upstream component was copied.
+
+### Result board variants
+
+Inspect failures and Review result compose existing Button, Pill, Field/TextArea,
+OptionRow/RadioGroup and SelectableRow primitives. `OptionRow variant="retry"`
+uses a closed 12px card with a leading radio dot; RadioGroup retains arrow-key
+selection and a single tab stop. `SegmentedControl variant="result"` uses the
+Review board's 30px segments and 2px container padding. The changed-file
+`pc-result-file` row uses 30px height and 10px horizontal padding. These variants
+are owned by DS; result screens bind task state and API operations. Their
+production consumers are `screens/failure/Failure.tsx` and
+`screens/review/ResultPage.tsx`. No upstream component was introduced.
+
+Result notes use the DS `pc-result-note` textarea variant: three rows, 8px/10px
+padding, body typography and no unrelated minimum height. It retains the native
+textarea resize and keyboard behavior. Numbered diffs remain a specialized result
+layout: hunk-derived line numbers and aligned before/after replacement rows.
+
+The 40px session header keeps its `Review result` navigation action visible when Details
+is open; unlike a panel-opening action, it now navigates to the task's dedicated
+review or failure page. Other next-step actions retain their existing panel behavior.
+
+### SideDialog
+
+`SideDialog({ title, mark?, close, footer, children, onKeyDown? })` is the native
+modal side panel used by Needs you → Answer. It is 480px wide on desktop and
+contained by the viewport on narrow screens, between the shared top and status
+bars. The header is 48px; body padding is 20px and content gap is 16px. Escape
+closes, Tab/Shift-Tab cycle through enabled controls, and closing restores the
+invoker's focus. The caller owns loading, error, question, answer and busy states.
+The Answer board supplies provisional `answer-scrim`, `shadow-answer` and `radius-answer-chip` (99px) tokens. The panel follows the application-owned `--frame-top` and `--frame-status` layout offsets, whose values reference generated size tokens. This is
+original project code; no new upstream component is incorporated.
+
+Needs you retains the board's specialized three-column waiting list (20px glyph,
+flexible content, actions), with 14px/16px row padding and a 12px closed border.
+Its kind tabs, quick-answer chips and answer textarea use canonical DS controls
+with the board's recorded geometry. The API always includes an answer in the
+retry brief; the checked checkbox explains that fixed behavior visibly.
+
+The frame's assistant clearance adapters expose measured dock height through
+`--pc-dock-height` and the session header's bottom relative to the body through
+`--pc-assistant-header-height` (nonnegative CSS pixels). AppFrame owns these
+read-only layout measurements; the open launcher clamps below that header.
+Neither channel accepts user input or changes the closed launcher's spacing.
+
+Session Details composes its facts and delegated work with a shared section Stack (24px). Workspace paths use `SettingsPath`, preserving non-home paths and adding break opportunities at separators. Navigator subtask disclosures use 22px desktop geometry while touch controls retain their shared target size. The assistant column sits 18px above the veil bottom; the open launcher clears the measured page header as well as the session header when the terminal dock is open. The 11px uppercase Plugins label uses tighter tracking to retain at least 4px on either side of the 52px activity rail.

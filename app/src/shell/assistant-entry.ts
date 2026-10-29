@@ -29,3 +29,25 @@ export const assistantEntry = {
     return () => { listeners.delete(listener); };
   },
 };
+
+/** Appearance is local to this browser/window; account selection remains service-owned. */
+export interface AssistantPreferences { showButton: boolean; stillAurora: boolean }
+const preferenceKey = "pacer.assistant.preferences";
+const preferenceWatchers = new Set<() => void>();
+export function assistantPreferences(): AssistantPreferences {
+  try {
+    const saved = JSON.parse(localStorage.getItem(preferenceKey) ?? "{}");
+    return { showButton: saved.showButton !== false, stillAurora: saved.stillAurora === true };
+  } catch { return { showButton: true, stillAurora: false }; }
+}
+export function setAssistantPreferences(patch: Partial<AssistantPreferences>): void {
+  try { localStorage.setItem(preferenceKey, JSON.stringify({ ...assistantPreferences(), ...patch })); }
+  catch { /* Storage may be blocked; keep the assistant reachable with defaults. */ }
+  preferenceWatchers.forEach(w => w());
+}
+export function watchAssistantPreferences(watcher: () => void): () => void {
+  preferenceWatchers.add(watcher);
+  const changed = (event: StorageEvent) => { if (event.key === preferenceKey || event.key === null) watcher(); };
+  window.addEventListener("storage", changed);
+  return () => { preferenceWatchers.delete(watcher); window.removeEventListener("storage", changed); };
+}

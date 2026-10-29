@@ -23,13 +23,16 @@ const outline = (html: string) => [...html.matchAll(/<(div|header|nav|main|foote
 
 test("layout_renders_same_landmarks", () => {
   const html = withService("#/");
-  // The frame keeps today's region order and classes when there is no side panel and no dock.
+  // Dispatch mounts its Scope and Inspector around the work area; the dock stays closed.
   expect(outline(html).filter(item => !item.startsWith("section") && !item.startsWith("nav.pc-") || item.startsWith("nav.pc-rail"))).toEqual([
-    "div.pc-app pc-app--with-status", "a.pc-text-action skip-link", "header.pc-topbar", "div.pc-body", "nav.pc-rail",
-    "div.pc-work", "div.pc-live-region", "main.pc-main pc-main--canvas#main-content", "footer.pc-statusbar",
+    "div.pc-app pc-app--with-status", "a.pc-text-action skip-link", "header.pc-topbar", "div.pc-live-region", "div.pc-body", "nav.pc-rail",
+    "aside.pc-side-panel pc-side-panel--left pc-scope-panel", "div.pc-work-wrap", "div.pc-work", "main.pc-main pc-main--canvas#main-content", "aside.pc-side-panel pc-side-panel--right", "footer.pc-statusbar",
   ]);
-  expect(html).toContain('<div aria-live="polite" role="status" class="pc-live-region"></div><main id="main-content" tabindex="-1" class="pc-main pc-main--canvas">');
-  expect(html).not.toContain("<aside");
+  expect(html).toContain('<header');
+  expect(html.indexOf('class="pc-live-region"')).toBeLessThan(html.indexOf('class="pc-body"'));
+  expect(html).toContain('<main id="main-content" tabindex="-1" class="pc-main pc-main--canvas"><fieldset class="pc-offline-controls">');
+  expect(html).toContain('aria-label="Scope"');
+  expect(html).toContain('aria-label="Inspector"');
   expect(html).not.toContain("pc-dock");
   expect(html).not.toContain("pc-app--with-dock");
   // The only frame addition is the status-bar dock control, closed by default.
@@ -60,7 +63,7 @@ test("narrow_layout_has_no_side_panels_or_dock", () => {
   expect(frame.indexOf("<header>")).toBeGreaterThan(frame.indexOf('class="pc-work"'));
   const wide = renderToString(<AppFrame main={<p>body</p>} right={<p>right</p>} dock={<p>dock</p>} />);
   expect(wide).toContain("pc-app--with-dock");
-  expect(wide).toContain('<div class="pc-dock"><p>dock</p></div>');
+  expect(wide).toContain('<div class="pc-dock"><fieldset class="pc-offline-controls"><p>dock</p></fieldset></div>');
   expect(wide).toContain("<p>right</p></div>");
 });
 
@@ -71,11 +74,12 @@ test("dock_not_rendered_on_terminal_route", () => {
   (globalThis as any).localStorage = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => store.set(k, v) };
   try {
     // Saved open: other routes mount the dock, the terminal route never does and offers no dock control.
-    expect(withService("#/")).toContain('<div class="pc-dock"><section id="pc-terminal-dock"');
+    expect(withService("#/")).toContain('<div class="pc-dock"><fieldset class="pc-offline-controls"><section id="pc-terminal-dock"');
     const terminal = withService("#/terminal");
     expect(terminal).not.toContain("pc-dock");
     expect(terminal).not.toContain('aria-label="Terminal panel"');
-    expect(terminal).not.toContain('aria-keyshortcuts="Control+`"');
+    expect(terminal).toContain('aria-label="Toggle terminal panel (Ctrl+`)"');
+    expect(terminal).toContain("This screen has no terminal panel");
     expect(withService("#/setup")).not.toContain("pc-dock");
   } finally { (globalThis as any).localStorage = previous; }
 });
@@ -100,4 +104,14 @@ test("the planner chip carries the mode pill with a tone from the mode", () => {
   expect(html("relaxed")).toMatch(/pc-planner[\s\S]*pc-pill--good[^>]*>Relaxed</);
   expect(html("strict")).toMatch(/pc-planner[\s\S]*pc-pill--warn[^>]*>Strict</);
   expect(html("normal")).toMatch(/pc-planner[\s\S]*pc-pill--neutral[^>]*>Normal</);
+});
+
+
+test("only session detail routes retain the shell page heading", () => {
+  for (const hash of ["#/tasks", "#/tasks/new"]) {
+    expect(withService(hash)).not.toMatch(/<h1\b/);
+  }
+  for (const hash of ["#/tasks/task-1"]) {
+    expect(withService(hash)).toMatch(/<h1\b/);
+  }
 });

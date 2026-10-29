@@ -74,6 +74,7 @@ fn main() {
             "tray_resize",
             "tray_open",
             "tray_hide",
+            "tray_login_item",
             "app_quit",
             "session_expired",
             "session_ready",
