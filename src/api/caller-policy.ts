@@ -11,6 +11,7 @@ export function assertCallerCanInvoke(ctx: Ctx, name: string, params: Record<str
   if (name === 'dispatch.explain') throw new ApiError('not_allowed', 'PACER_ROLE=executor: route explanations are for planners and people; executors do not choose where work goes.');
   if (name === 'files.search') throw new ApiError('not_allowed', 'PACER_ROLE=executor: file search over registered repositories is for planners and people; work in your own worktree.');
   if (name === 'issue.import' || name === 'issue.search') throw new ApiError('not_allowed', 'PACER_ROLE=executor: issue import is for planners and people starting tasks; executors work from their brief.');
+  if (name === 'machine.set' || name === 'machine.rotate') throw new ApiError('not_allowed', 'PACER_ROLE=executor: renaming or rotating this machine is for the operator, not executor sessions.');
   const launches = ['task.delegate', 'task.retry', 'task.retry_all', 'task.answer', 'session.create', 'session.resume', 'task.takeover', 'strategy.build', 'onboarding.try'];
   if (launches.includes(name) || (name === 'task.review' && ['send_back', 'retry'].includes(String(params.verdict)))) {
     throw new ApiError('not_allowed', 'PACER_ROLE=executor: pacer executors cannot delegate onward; complete the assigned task directly.');

@@ -4,6 +4,11 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Added
+
+- Plugin protocol 1.4.0: the `identity.sign` capability signs a payload with the machine key under the domain-separated format `"pacer-machine-sig/v1" 0x00 plugin_id 0x00 purpose 0x00 payload`. A plugin may sign only the purposes it declares in the capability's manifest `scopes`, its manifest sets `host` to `>=1.4.0`, and each signature is recorded in the plugin's log by purpose and payload hash. The plugin id `pacer` is reserved for the host's own signatures. The TypeScript plugin SDK adds `host.identitySign(purpose, payload)`.
+- New: `pacer machine show|rename|rotate` and the `machine.get`, `machine.set` and `machine.rotate` operations. Each pacer home has a machine identity with a display name; executor sessions can read it but cannot rename or rotate it. Activity entries and task records carry the `machineId`; see [Machine identity](docs/machine-identity.md) for key storage, copied-home detection and redaction.
+
 ### Fixed
 
 - `pacer clean` no longer stops with `ENOENT` when a settled task's repository was deleted; it keeps that task with `repository no longer exists` and cleans the rest.

@@ -199,6 +199,8 @@ export interface TaskRecord {
   startSha?: string;
   placement?: TaskPlacement;
   worktree?: string;
+  /** The machine id of the pacer home that created the task, once it has an identity. */
+  machineId?: string;
   id: string;
   createdAt: number;
   kind: string | null;

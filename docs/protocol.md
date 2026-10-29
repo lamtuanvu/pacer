@@ -132,7 +132,7 @@ A `question:<task>` item has blocked severity, important notifications, the ques
 
 ## Activity
 
-`activity.list { before?, limit?, repo?, kinds?, taskId? }` returns `{ entries, next }`, newest first; pass `next` as `before` for the next page. Default limit is 50, maximum 500. Each entry is `{ id, at, kind, level, text, repo?, taskId?, executor?, host? }`, where repo is a RepoRef key, level is `info`, `warn` or `error`, and kind is `task_started`, `task_settled`, `verdict`, `retry`, `mode`, `budget_refreshed`, `executor_state`, `host_state`, `account_state`, `config` or `update`. The service retains 30 days or 20 000 entries, whichever is smaller, and records budget refreshes at most once per 15 minutes per account. Activity entries are also published as `activity` entity events. Items, actions and activity contain no credentials or emails.
+`activity.list { before?, limit?, repo?, kinds?, taskId? }` returns `{ entries, next }`, newest first; pass `next` as `before` for the next page. Default limit is 50, maximum 500. Each entry is `{ id, at, kind, level, text, repo?, taskId?, executor?, host?, machineId? }`, where repo is a RepoRef key, machineId is the recording machine's id once it has one (a stable device identifier), level is `info`, `warn` or `error`, and kind is `task_started`, `task_settled`, `verdict`, `retry`, `mode`, `budget_refreshed`, `executor_state`, `host_state`, `account_state`, `config` or `update`. The service retains 30 days or 20 000 entries, whichever is smaller, and records budget refreshes at most once per 15 minutes per account. Activity entries are also published as `activity` entity events. Items, actions and activity contain no credentials or emails.
 
 ## Task and repository operations
 
@@ -152,7 +152,9 @@ Executor questions settle tasks as `needs_input` (label: Needs your answer). `ta
 
 ## Events
 
-The advertised v3 event types are `task`, `mode`, `config`, `pause`, `reset`, `planner`, `executor`, `account`, `host`, `repo`, `counts`, `attention`, `activity`, `job` and `notify`. A `config` event `{ area, at }` follows every successful configuration change (`area` is one of `config`, `accounts`, `runners`, `routing`, `strategy`, `hosts`, `setup`, `update`, `plugins`); clients refetch that area. Events have `{ seq, at, type, data }`; `seq` is the resume cursor, `at` is the publication time (legacy entries fall back to read time), and `data` carries the event payload.
+The advertised v3 event types are `task`, `mode`, `config`, `pause`, `reset`, `planner`, `executor`, `account`, `host`, `repo`, `counts`, `attention`, `activity`, `job`, `notify` and `machine`. A `config` event `{ area, at }` follows every successful configuration change (`area` is one of `config`, `accounts`, `runners`, `routing`, `strategy`, `hosts`, `setup`, `update`, `plugins`, `machine`); clients refetch that area. Events have `{ seq, at, type, data }`; `seq` is the resume cursor, `at` is the publication time (legacy entries fall back to read time), and `data` carries the event payload.
+
+The `machine` entity event (`id: "self"`) is published when the machine key is rotated (the machine peers design calls it `machine.rotated`). Its value is `{ event: "rotated", oldId, newId, signature }`. `signature` is the base64 ed25519 signature of the old key, whose public key is `oldId`, over `"pacer-machine-sig/v1" 0x00 "pacer" 0x00 "rotate" 0x00 oldId 0x00 newId`, with both ids as ASCII base32. The event is published at most once, after the rotation is committed, including a rotation that pacer completes after an interruption; a stop right after the commit loses it. The statement is always in `machine.get`, as `rotatedFrom` and `rotationSignature`, so a client that missed the event can still read it. Plugins do not receive this event yet. Machine events are not sent to v2 clients.
 
 The additive `pause` event carries `{ until, reason, by }` (PauseState, with a Unix-seconds deadline and nullable fields) after `delegation.pause`. `delegation.resume` and timed pause expiry publish `{ removed: true }`; expiry is published once. Clients update their pause state directly.
 
@@ -4407,6 +4409,66 @@ Params JSON Schema:
   },
   "required": [
     "provider"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `machine.get`
+
+This machine's identity: id, name, revision and whether the home looks copied. After a rotation it adds rotatedFrom (the previous id) and rotationSignature (the old key's signed rotation statement, base64).
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}
+```
+
+### `machine.rotate`
+
+Replace this machine's key and id. Paired machines must be told or pair again. An unavailable error with data.rotationPending true (and data.oldId, data.newId) means the new key is already in place but finishing the rotation failed; it completes the next time pacer loads the machine identity.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}
+```
+
+### `machine.set`
+
+Rename this machine against the expected revision. Names are display-only.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "expect_rev": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "name",
+    "expect_rev"
   ],
   "additionalProperties": false
 }

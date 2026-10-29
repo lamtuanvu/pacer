@@ -13,10 +13,10 @@ pub mod types {
     pub use pacer_plugin_decision_protocol::*;
     pub use pacer_plugin_protocol::*;
     // Every protocol crate emits these; the entry crate's definitions take precedence.
-    pub use pacer_plugin_protocol::{PacerPluginProtocol130, VERSION, error};
+    pub use pacer_plugin_protocol::{PacerPluginProtocol140, VERSION, error};
 }
 
 pub use error::PluginError;
-pub use host::Host;
+pub use host::{Host, MachineSignature};
 pub use serve::{Ctx, HandlerResult, Manifest, Plugin, Progress};
 pub use tokio_util::sync::CancellationToken;
