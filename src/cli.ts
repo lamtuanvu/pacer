@@ -1,7 +1,9 @@
 #!/usr/bin/env bun
 import { apiCommand } from "./commands/api";
+import { askCommand } from "./commands/ask";
 import { compiledNativeFixture, compiledNativeFixtureSha256 } from "./update/desktop/native-fixture";
 import { compiledAppleTeamId, compiledSignerPins, compiledSigningCertSha1 } from "./update/desktop/native-os";
+import { consumeNativePairedBootstrap, configuredPairedNativeBootstrap } from "./update/desktop/native-paired-bootstrap";
 import { signerKind } from "./update/desktop/signer-requirement";
 import { currentVersion } from "./update/version";
 import { projectStrategyCmd } from "./commands/project-strategy";
@@ -30,6 +32,8 @@ import { parseDelegateKind } from "./commands/delegate-kind";
 import * as core from "./core";
 import { CoreError } from "./core/errors";
 import { readFileSync, realpathSync } from "node:fs";
+import { assertCallerCanInvoke } from "./api/caller-policy";
+import type { RouteExplanation } from "./core/dispatch-explain";
 import { isExecutorSession } from "./install/role";
 import { executorCommand } from "./executors/command";
 import { use as switchStrategy } from "./strategy/service";
@@ -54,6 +58,7 @@ import { renderRoute } from "./render/accounts";
 import { DEFAULT_PORT, startServer } from "./serve/http";
 import { DelegateError, EXECUTOR_DELEGATE_ERROR, parseDelegateBrief, summarizeTask, taskWait, type SpawnRunner, spawnRunner } from "./tasks/api";
 import { runTask } from "./tasks/runner";
+import { terminalEnv } from "./exec/login-env";
 import { TERMINAL_STATES, type TaskRecord } from "./tasks/types";
 import type { Ctx } from "./types";
 
@@ -66,6 +71,8 @@ const USAGE = `usage: pacer <command>
     --line [--width N] [--no-color] [--json]     compact local status; columns default to COLUMNS or 80
   pause <for> | resume                          pause or resume delegation
   route [kind] [--repo <path-or-key>] [--json]                          executors pacer would use, in order (default repo: current directory)
+  route --explain [--repo <r>] [--kind <k>] [--goal <text> | --goal-file <path>] [--executor <id>] [--json]
+                                                 read-only: where this request would go, and why
   project strategy list | show | set | remove   repository executor policy (--repo, --executors, --json)
   delegate [--title <text>] [--brief-file <path|->] [--goal <text>] [--repo <dir>] [--kind <k>] [--scope <s>] [--acceptance <cmd>]
            [--constraints <s>] [--context <s>] [--executor <id>] [--timeout-min <n>] [--wait] [--json] [--force]
@@ -86,7 +93,7 @@ const USAGE = `usage: pacer <command>
   answer <task-id> "<text>"                       answer a question and retry on the same executor
   retry <task-id> [--executor <id>] [--json]       re-delegate a task's stored brief
   clean [--dry-run] [--force] [--json]           remove worktrees of reviewed or dismissed tasks (branches stay)
-  ask "<question>" record one question and stop the delegated task
+  ask "<question>" [--scope ..] [--json]       ask the assistant (executors: record one question and stop the task)
   report-limit <provider> [--until <unix-seconds>] record an executor limit
   host list [--json] | check <alias> [--repo <path>] [--json] | setup <alias> [--repo <path>] | clean <alias> [--json]
   limits check [--json] | refresh [account] [--json]  inspect or refresh account usage
@@ -214,9 +221,31 @@ function currentRepoKey(ctx: Ctx): string | undefined {
   catch { return undefined; }
 }
 
+async function routeExplain(opts: Record<string, string | true | undefined>, pos: string[], ctx: Ctx): Promise<Result> {
+  assertCallerCanInvoke(ctx, "dispatch.explain", {});
+  const goalFile = str(opts["goal-file"]);
+  const goal = goalFile ? readFileSync(goalFile === "-" ? 0 : goalFile, "utf8") : str(opts.goal);
+  if (!goal?.trim()) throw new Error("--explain needs --goal <text> or --goal-file <path>");
+  const params = { repo: str(opts.repo) ?? currentRepoKey(ctx) ?? realpathSync(process.cwd()), goal, ...(str(opts.kind) ?? pos[0] ? { kind: str(opts.kind) ?? pos[0] } : {}), ...(str(opts.executor) ? { executor: str(opts.executor) } : {}) };
+  const client = await connectTaskClient(ctx);
+  let r: RouteExplanation;
+  try { r = client.kind === "inprocess" ? await callOp(ctx, "dispatch.explain", params) as RouteExplanation : await client.call<RouteExplanation>("dispatch.explain", params); }
+  finally { client.close(); }
+  if (opts.json) return { code: 0, out: JSON.stringify(r, null, 1), err: "" };
+  const mark = (o: string) => (o === "pass" ? "✓" : o === "fail" ? "✕" : "!");
+  const lines = [r.chosen ? `${r.outcome === "override" ? "Chosen by you" : "Will go to"}: ${r.chosen.executor} (${r.chosen.account})${r.step ? ` · step ${r.step.index + 1} ${r.step.id}` : ""} · strategy ${r.strategy.name}` : `Nothing would run now (${r.outcome}).`,
+    `kind: ${r.kind.value ?? "unknown"} (${r.kind.source})`,
+    ...r.reasons.map(x => `${mark(x.outcome)} ${x.text}`)];
+  if (r.fallbacks.length) lines.push("If it can't:", ...r.fallbacks.map(f => `  ${f.executor}${f.state === "excluded" ? ` — ${f.reason?.text ?? "excluded"}` : f.step ? ` (step ${f.step})` : ""}`));
+  lines.push(r.planner.state === "unknown" ? `Planner: ${r.planner.reason === "planner_is_executor" ? "same account as the executor" : "not measured yet"}` : `Planner: about ${r.planner.tokens.median} tokens`);
+  if (r.uncertainty.length) lines.push("Could differ:", ...r.uncertainty.map(x => `  ${x.text}`));
+  return { code: 0, out: lines.join("\n"), err: "" };
+}
+
 async function route(args: string[], ctx: Ctx): Promise<Result> {
-  const { opts, pos } = parseFlags(args, ["json"]);
+  const { opts, pos } = parseFlags(args, ["json", "explain"]);
   try {
+    if (opts.explain) return await routeExplain(opts, pos, ctx);
     if (opts.repo === true) throw new Error("--repo requires a path or repository key");
     // Like delegate, default to the repository in the current directory, but
     // only when it is already registered: a read never probes Git or registers it.
@@ -338,6 +367,13 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
 }
 
 export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result> {
+  let nativeBootstrap;
+  try {
+    nativeBootstrap = consumeNativePairedBootstrap(ctx.env);
+    if (nativeBootstrap && !(argv[0] === "serve" && argv.includes("--internal"))) {
+      return {code:2,out:"",err:"Native bootstrap requires the internal service"};
+    }
+  } catch (error) { return {code:2,out:"",err:explain(error)}; }
   const [cmd = "status", ...rest] = argv;
   if (ctx.env.PACER_WORK_GRANT && !["dispatch", "mcp", "api"].includes(cmd)
     && !(cmd === "guard" && ctx.env.PACER_ENFORCEMENT_MODE === "strict" && !!ctx.env.PACER_ENFORCEMENT_TOKEN))
@@ -386,6 +422,8 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
       } catch(e) {return {code:2,out:"",err:explain(e)};}
     }
     case "ask": {
+      // Executors ask the planner; everyone else asks the assistant.
+      if (!isExecutorSession(ctx)) return askCommand(rest, ctx);
       try {
         const id = core.tasks.requireAskingExecutor(ctx);
         if (rest.length !== 1) throw new Error("usage: pacer ask \"<one question>\"");
@@ -537,7 +575,9 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
           // Only this process may hold the internal credential: task runners and executors inherit the environment.
           delete process.env.PACER_INTERNAL_TOKEN;
           delete ctx.env.PACER_INTERNAL_TOKEN;
-          const s = startServer(() => fresh(ctx), { internal: { token: internalToken! } });
+          const pairedNative = configuredPairedNativeBootstrap(ctx, Number(ctx.env.PACER_PORT ?? DEFAULT_PORT), nativeBootstrap);
+          const s = startServer(() => fresh(ctx), { internal: { token: internalToken! }, ...(pairedNative ? {pairedNative} : {}) });
+          void terminalEnv(ctx.env, { cwd: ctx.home }).catch(() => undefined);
           process.stdout.write(`${JSON.stringify({ internal: { port: s.port } })}\n`);
           if (ctx.env.PACER_INTERNAL_PARENT_PIPE === "1") {
             // The front door owns the write end. EOF also arrives after SIGKILL,
@@ -551,6 +591,8 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
         }
         const s = startServer(() => fresh(ctx), { port: Number(str(opts.port) ?? ctx.env.PACER_PORT ?? DEFAULT_PORT) });
         ctx.env.PACER_PORT=String(s.port);
+        // Routing's installed check reads the cached login PATH and never waits on a shell, so read it now.
+        void terminalEnv(ctx.env, { cwd: ctx.home }).catch(() => undefined);
         return { code: 0, out: `pacer serve listening on http://127.0.0.1:${s.port} (token: ${ctx.pacerHome}/token)`, err: "", keepAlive: true };
       } catch (e) {
         return { code: 2, out: "", err: explain(e) };

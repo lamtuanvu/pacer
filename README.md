@@ -32,8 +32,9 @@ A planner can spend its subscription too quickly while other coding agents have 
 ## Install
 
 [Download pacer for Mac](https://github.com/lamtuanvu/pacer/releases/latest).
-Open `desktop-pacer-<version>-darwin-aarch64.dmg` (Apple silicon) and drag pacer
-into Applications. On first launch, approve it once as described in
+Choose the matching `desktop-pacer-<version>-darwin-<arch>.dmg`: `aarch64` for
+Apple silicon or `x86_64` for Intel. Open it and drag pacer into Applications.
+On first launch, approve it once as described in
 [macOS desktop app](#macos-desktop-app).
 
 Welcome leads to one consent screen for the background service and the terminal
@@ -41,6 +42,11 @@ link at `~/.local/bin/pacer`. If needed, an optional checkbox adds
 `export PATH="$HOME/.local/bin:$PATH"` to your `~/.zshrc` or `~/.bashrc`; it is
 off by default. Continue to the step-by-step **Setup** to choose your planner,
 connect agents, choose an executor and try a task. The app includes its CLI.
+
+The pending M1 packages will contain two sibling executables: `pacer` (Rust) and
+`pacer-core` (the bundled TypeScript runtime). Keep them together. The standalone
+CLI can repair a missing or mismatched companion from its verified own-version
+release; an incomplete desktop app must be replaced as a complete app.
 
 Copying a source build into `~/.local/bin/pacer` replaces the desktop app's
 terminal command. Use a sandboxed `PACER_HOME` and a separate `PACER_PORT` for
@@ -208,7 +214,7 @@ pacer sends no telemetry. Its budget and activity readers use these local source
 
 BytePlus usage is read through `arkcli usage plan --product coding-plan`; metered OpenCode usage through `opencode stats --models --json --days 7`. Setup detects installed CLIs and may list local models with `ollama list` or `lms ls --json`. Integration commands inspect and edit planner configuration, skills and hooks, keeping backups. Delegation reads the supplied brief, repository Git state and executor reports; verification runs your acceptance command. Orca integration reads local runtime/worktree state and the bearer token for loopback HTTP.
 
-pacer starts agents with permission bypass enabled (Codex and Claude bypass flags, Cursor force mode with its sandbox disabled, Antigravity permission bypass, and OpenCode auto-approval). This applies to headless, interactive, resumed and strategy-planning sessions. OpenCode and Cursor still honor explicit deny rules. Orca worker execution falls back to direct execution because its launch API cannot enforce a permission policy. Executors receive your brief and can access files and commands with your user permissions; their services have their own data policies. Optional `ollama` and `jev` classifier adapters send decision state to their configured endpoints. The default classifier is local rules; external shadow calls require `classifier.shadow_external: true`. Classifier keys may be read from environment variables or `~/.pacer/secrets`. Release install/update commands download from GitHub Releases by default, or from your `PACER_RELEASE_BASE` override. No usage logs are uploaded for analytics.
+pacer starts agents with permission bypass enabled (Codex and Claude bypass flags, Cursor force mode with its sandbox disabled, Antigravity permission bypass, and OpenCode auto-approval). This applies to headless, interactive, resumed and strategy-planning sessions. Before an interactive Claude Code launch in a pacer-created task worktree, pacer marks that worktree as trusted in the selected account's Claude state (`.claude.json`), so Claude's folder-trust and external-import prompts do not block unattended tasks. Unattended task launches also approve project MCP servers for that launch only; servers you rejected in the source checkout stay off, and takeovers and conversations keep Claude's MCP prompt. Executor sessions start from your login shell's environment, as a new terminal would; see [Session environment](docs/executors.md#session-environment). OpenCode and Cursor still honor explicit deny rules. Orca worker execution falls back to direct execution because its launch API cannot enforce a permission policy. Executors receive your brief and can access files and commands with your user permissions; their services have their own data policies. Optional `ollama` and `jev` classifier adapters send decision state to their configured endpoints. The default classifier is local rules; external shadow calls require `classifier.shadow_external: true`. Classifier keys may be read from environment variables or `~/.pacer/secrets`. Release install/update commands download from GitHub Releases by default, or from your `PACER_RELEASE_BASE` override. No usage logs are uploaded for analytics.
 
 ## Star history
 

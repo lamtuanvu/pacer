@@ -44,7 +44,7 @@ test("a valid strategy normalizes defaults", () => {
   expect(s.providers.codex.allowPaid).toBe(false);
   expect(s.providers["opencode#opencode-go"].weeklyTokens).toBe(20_000_000);
   expect(s.providers["opencode#byteplus"].quotaSource).toBe("arkcli");
-  expect(s.pacing).toEqual({ policy: "even", order: ["codex", "cursor", "opencode"], plannerReserve: 15, aheadThreshold: 10, behindThreshold: -10, accounts: "spread", fillThreshold: 90 });
+  expect(s.pacing).toEqual({ policy: "even", order: ["codex", "cursor", "opencode"], plannerReserve: 15, plannerReserveHeadroom: 25, plannerProbe: "ask", aheadThreshold: 10, behindThreshold: -10, accounts: "spread", fillThreshold: 90 });
   expect(s.routing).toEqual([
     { kinds: ["tests", "docs"], executors: ["opencode#byteplus", "opencode#local"] },
     { kinds: null, executors: ["opencode#byteplus", "codex"] },

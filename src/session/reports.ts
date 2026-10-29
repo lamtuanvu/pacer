@@ -2,6 +2,7 @@ import { appendFileSync, openSync, closeSync, readSync, statSync, readFileSync, 
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Launch } from "../exec/launch";
+import type { McpChoices } from "../exec/claude-trust";
 import type { Ctx } from "../types";
 import type { Result } from "../commands/types";
 import { readTask } from "../tasks/store";
@@ -103,9 +104,17 @@ export function agentHook(dir: string, input: unknown): void {
   if (typeof event === "string") appendFileSync(join(dir, "events.jsonl"), JSON.stringify({event, status: readReport(dir)?.status, at: Date.now() / 1000}) + "\n", {mode: 0o600});
 }
 const quote = (s: string) => "'" + s.replaceAll("'", "'\\''") + "'";
-export function prepareInteractive(agent: string, dir: string, launch: Launch): Launch {
+/**
+ * Claude settings for this launch: `attended` (the user drives the session) keeps Claude's native project MCP
+ * prompt; an unattended task approves project MCP servers except the ones the user rejected (`mcp`).
+ * `sessionHooks: false` leaves out pacer's PTY session hooks, for a terminal another host supervises (Orca).
+ */
+export type InteractiveOptions = {attended?: boolean; mcp?: McpChoices; sessionHooks?: boolean};
+export function prepareInteractive(agent: string, dir: string, launch: Launch, options: InteractiveOptions = {}): Launch {
   if (!["claude-code", "codex"].includes(agent)) return launch;
+  if (options.sessionHooks === false && agent === "codex") return launch;
   mkdirSync(dir, {recursive: true, mode: 0o700});
+  if (options.sessionHooks === false) return withClaudeSettings(dir, launch, options, undefined);
   const cli = /(^|\/)bun(?:\.exe)?$/.test(process.execPath) ? [process.execPath, fileURLToPath(new URL("../cli.ts", import.meta.url))] : [process.execPath];
   const script = join(dir, "report-hook.sh");
   writeFileSync(script, `#!/bin/sh\nexec ${[...cli, "_session-hook", dir].map(quote).join(" ")}\n`, {mode: 0o700});
@@ -118,8 +127,18 @@ export function prepareInteractive(agent: string, dir: string, launch: Launch): 
   hooks.Elicitation = [{hooks: [{type: "command", command}]}];
   hooks.ElicitationResult = [{hooks: [{type: "command", command}]}];
   hooks.Notification = [{matcher: "permission_prompt|idle_prompt|elicitation_dialog", hooks: [{type: "command", command}]}];
+  return withClaudeSettings(dir, launch, options, hooks);
+}
+function withClaudeSettings(dir: string, launch: Launch, options: InteractiveOptions, hooks: Record<string, unknown> | undefined): Launch {
   const settings = join(dir, "claude-settings.json");
-  writeFileSync(settings, JSON.stringify({hooks}), {mode: 0o600});
+  // Per launch, so the account's settings.json stays untouched: no bypass-permissions acknowledgement dialog and, for
+  // unattended task-worktree runs given the source checkout's answers, no project MCP approval prompt. The answers
+  // travel along because its untracked settings.local.json is not in a task worktree; Claude rejects
+  // disabledMcpjsonServers before enabling all. Without them (in-place runs, unreadable answers) Claude keeps its prompt.
+  const mcp = options.attended || !options.mcp ? {} : {enableAllProjectMcpServers: true,
+    ...(options.mcp?.disabled.length ? {disabledMcpjsonServers: options.mcp.disabled} : {}),
+    ...(options.mcp?.enabled.length ? {enabledMcpjsonServers: options.mcp.enabled} : {})};
+  writeFileSync(settings, JSON.stringify({skipDangerousModePermissionPrompt: true, ...mcp, ...(hooks ? {hooks} : {})}), {mode: 0o600});
   return {...launch, argv: [launch.argv[0], "--settings", settings, ...launch.argv.slice(1)]};
 }
 /** Bind agent reports to the active attempt, including when --task is supplied. */
@@ -143,12 +162,22 @@ export function reportDestination(ctx: Ctx, id?: string, explicitTask = false): 
   return {dir, source: insideRun ? "agent" : "user"};
 }
 
+/** Why this Codex cannot take per-run hook overrides (codex-cli >= 0.162.1), or null when it can. */
+export async function codexInteractiveGap(ctx: Ctx, env: Record<string, string | undefined>): Promise<string | null> {
+  const line = (text: string) => text.trim().split("\n")[0].slice(0, 120);
+  let version;
+  try { version = await ctx.run(["codex", "--version"], 5000, {env}); }
+  catch (e) { return `could not verify codex-cli version (${line((e as Error).message) || "codex --version failed"})`; }
+  if (version.code !== 0) return `could not verify codex-cli version (codex --version exited ${version.code}${line(version.stderr) ? `: ${line(version.stderr)}` : ""})`;
+  const match = /^codex-cli (\d+)\.(\d+)\.(\d+)(?:\s|$)/.exec(version.stdout.trim());
+  if (!match) return `could not verify codex-cli version (unrecognized output ${JSON.stringify(line(version.stdout).slice(0, 80))})`;
+  const supported = Number(match[1]) > 0 || Number(match[2]) > 162 || (Number(match[2]) === 162 && Number(match[3]) >= 1);
+  return supported ? null : `codex-cli ${match[1]}.${match[2]}.${match[3]} is below 0.162.1 and has no per-run hook overrides`;
+}
+
 /** Conservative version floor for the per-invocation hook configuration we support. */
 export async function requireCodexInteractive(ctx: Ctx, env: Record<string, string | undefined>): Promise<void> {
-  const version = await ctx.run(["codex", "--version"], 5000, {env});
-  const match = /^codex-cli (\d+)\.(\d+)\.(\d+)(?:\s|$)/.exec(version.stdout.trim());
-  const supported = match && (Number(match[1]) > 0 || Number(match[2]) > 162 || (Number(match[2]) === 162 && Number(match[3]) >= 1));
-  if (version.code !== 0 || !supported) throw Error("Codex interactive mode requires per-run hook overrides (codex-cli >= 0.162.1); upgrade this runner or use session: headless");
+  if (await codexInteractiveGap(ctx, env)) throw Error("Codex interactive mode requires per-run hook overrides (codex-cli >= 0.162.1); upgrade this runner or use session: headless");
 }
 
 export function reportCommand(args: string[], ctx: Ctx): Result {

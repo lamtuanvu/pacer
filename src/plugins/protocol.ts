@@ -1,12 +1,15 @@
 import { z } from "zod";
-import { isVersion } from "../update/version";
+import { compareVersions, isVersion } from "../update/version";
+import { type UiContribution, uiActionParams, uiActionResult, uiContributionSchema, uiRenderParams, uiRenderResult, uiValidateParams, uiValidateResult } from "./ui-schema";
+
+export * from "./ui-schema";
 import { observationMethodSchema, observationScopeSchema, observationSchema, decisionRequestSchema, proposalSchema } from "../dispatch/types";
 
 /** Plugin protocol version; independent of the client protocol (P4 applies to both). */
-export const PLUGIN_PROTOCOL_VERSION = "1.1.0";
+export const PLUGIN_PROTOCOL_VERSION = "1.3.0";
 export const PLUGIN_PROTOCOL_MAJOR = 1;
 
-export const EXTENSION_POINTS = ["diagnostic", "agentSession", "observation", "decision"] as const;
+export const EXTENSION_POINTS = ["diagnostic", "agentSession", "observation", "decision", "ui", "assistant"] as const;
 export type ExtensionPoint = (typeof EXTENSION_POINTS)[number];
 
 export const CAPABILITIES = ["tasks.read", "events.subscribe", "process.spawn", "fs.read", "net.http", "secrets.resolve", "config.get", "entitlement.report", "log"] as const;
@@ -25,7 +28,21 @@ export const manifestSchema = z.object({
   entry: z.string().min(1).optional(),
   reentrant: z.boolean().default(false),
   tier: z.enum(["free", "commercial"]).default("free"),
+}).superRefine((m, ctx) => {
+  const raw = m.contributes.ui;
+  if (raw === undefined) return;
+  const ui = uiContributionSchema.safeParse(raw);
+  if (!ui.success) { for (const i of ui.error.issues) ctx.addIssue({ code: "custom", path: ["contributes", "ui", ...i.path], message: i.message }); return; }
+  const floor = /^(?:>=|\^|~)?(\d+(?:\.\d+){0,2})$/.exec(m.host)?.[1];
+  const [a = "0", b = "0", c = "0"] = (floor ?? "0").split(".");
+  if (m.host === "*" || compareVersions(`${a}.${b}.${c}`, "1.2.0") < 0) ctx.addIssue({ code: "custom", path: ["host"], message: "a manifest with contributes.ui sets host to >=1.2.0" });
+  if (ui.data.settings.length && !m.capabilities.some(c => c.name === "config.get")) ctx.addIssue({ code: "custom", path: ["capabilities"], message: "a plugin with a settings page declares the config.get capability" });
 });
+/** The validated `contributes.ui`, with defaults, or null when the plugin contributes none. */
+export function uiOf(m: Pick<PluginManifest, "contributes">): UiContribution | null {
+  const raw = m.contributes.ui;
+  return raw === undefined ? null : uiContributionSchema.parse(raw);
+}
 export type PluginManifest = z.infer<typeof manifestSchema>;
 
 export const HELLO_METHOD = "plugin.hello";
@@ -54,6 +71,21 @@ export const delegationControlResult = z.discriminatedUnion("mechanism", [
   z.object({mechanism:z.literal("unsupported"),entryPoints:z.array(z.string()).length(0),reason:z.string().min(1).max(500)}).strict(),
 ]);
 
+
+const assistantMessage = z.object({ role: z.enum(["user", "assistant", "tool"]), content: z.string().max(200_000), toolCallId: z.string().max(128).optional(), toolCalls: z.array(z.object({ id: z.string().min(1).max(128), name: z.string().min(1).max(64), arguments: z.record(z.string(), z.unknown()) })).max(16).optional() });
+export const assistantRespondParams = z.object({
+  conversationId: z.string().min(1).max(128), turnId: z.string().min(1).max(128), messages: z.array(assistantMessage).min(1).max(100),
+  tools: z.array(z.object({ name: z.string().min(1).max(64), description: z.string().max(1000), parameters: z.unknown() })).max(32),
+  context: z.object({ system: z.string().max(50_000), backend: z.object({ kind: z.literal("endpoint"), account: z.string().min(1).max(64), model: z.string().min(1).max(256), baseUrl: z.string().max(2048) }) }),
+  limits: z.object({ maxOutputTokens: z.number().int().positive().max(32_000), maxToolRounds: z.number().int().min(0).max(6), deadlineMs: z.number().int().min(1000).max(120_000) }),
+});
+export const assistantRespondResult = z.object({
+  message: z.string().max(200_000), toolCalls: z.array(z.object({ id: z.string().min(1).max(128), name: z.string().min(1).max(64), arguments: z.record(z.string(), z.unknown()) })).max(16).optional(),
+  usage: z.object({ input: z.number().int().nonnegative(), output: z.number().int().nonnegative(), cacheRead: z.number().int().nonnegative().optional(), cacheWrite: z.number().int().nonnegative().optional(), coverage: z.enum(["measured", "partial", "unknown"]) }),
+});
+/** The host caps an `assistant.respond` call at this long, whatever `limits.deadlineMs` asks for. */
+export const ASSISTANT_MAX_DEADLINE_MS = 120_000;
+
 /** Host → plugin. Keys are `<extensionPoint>.<method>`; every plugin serves `diagnostic`. */
 export const EXTENSION_METHODS: Record<string, MethodDef> = {
   "observation.observe": method({description:"Return normalized, scoped observations without credentials or raw provider payloads.",params:z.object({scope:observationScopeSchema,method:observationMethodSchema}),result:z.array(observationSchema).max(64),deadlineMs:5000}),
@@ -66,12 +98,17 @@ export const EXTENSION_METHODS: Record<string, MethodDef> = {
   "agentSession.delegationControl": method({description: "Describe a candidate native subagent blocking path; the host must probe before certification.",params:agentVersion,result:delegationControlResult,deadlineMs:5000}),
   "agentSession.prepare": method({description: "Prepare an interactive argument vector without credentials or spawning.", params: agentPrepareParams, result: agentLaunchResult, deadlineMs: 5000}),
   "agentSession.attachment": method({description: "Prepare native attachment arguments or an explicit reference without submitting input.", params: agentAttachmentParams, result: agentAttachmentResult, deadlineMs: 5000}),
+  "assistant.respond": method({description: "Answer one assistant turn from the messages and tool results the host provides. The host runs every read tool and calls again with the results, up to maxToolRounds. A returned toolCall is a request, not an action.", params: assistantRespondParams, result: assistantRespondResult, deadlineMs: ASSISTANT_MAX_DEADLINE_MS}),
+  "ui.render": method({description:"Return the view document for one surface.",params:uiRenderParams,result:uiRenderResult,deadlineMs:2000}),
+  "ui.action": method({description:"Handle a user action on a surface; the host has already shown any confirmation.",params:uiActionParams,result:uiActionResult,deadlineMs:10000}),
+  "ui.settings.validate": method({description:"Check settings values the host already validated against the manifest schema.",params:uiValidateParams,result:uiValidateResult,deadlineMs:2000}),
   "diagnostic.ping": method({ description: "Liveness check used by plugin.doctor.", params: z.object({}), result: z.object({ ok: z.literal(true), uptimeS: z.number().nonnegative() }), deadlineMs: 5000 }),
 };
 
 /** Plugin → host. Keys are `capability.<name>`; answered only when the manifest declares the capability. */
 export const CAPABILITY_METHODS: Record<string, MethodDef> = {
   "capability.log": method({ description: "Append a line to the plugin's log file under PACER_HOME/logs/plugins.", params: z.object({ level: z.enum(["debug", "info", "warn", "error"]), message: z.string().max(4096) }), result: z.object({ ok: z.literal(true) }), deadlineMs: 1000 }),
+  "capability.secrets.resolve": method({ description: "Resolve the key of the endpoint account the user chose for the assistant. Any other reference is refused.", params: z.object({ ref: z.string().regex(/^endpoint\/[a-z0-9][a-z0-9-]*$/) }), result: z.object({ value: z.string().nullable() }), deadlineMs: 5000 }),
   "capability.config.get": method({ description: "The plugin's own config slice (plugins.config.<id> in the strategy file).", params: z.object({}), result: z.object({ config: z.record(z.string(), z.json()) }), deadlineMs: 1000 }),
 };
 

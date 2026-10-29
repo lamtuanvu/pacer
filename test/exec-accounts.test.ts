@@ -30,7 +30,7 @@ function setup() {
     planner: "claude-code", accounts: Object.fromEntries(Object.entries(s.accounts).map(([name, a]) => [name, {
       kind: a.kind, ...(a.home ? {home: a.home} : {}), ...(a.orcaAccount ? {orca_account: a.orcaAccount} : {}), usage: a.usage,
       ...(a.model ? {model: a.model} : {}),
-    }])), routing: [{default: Object.keys(s.runners)}],
+    }])), routing: [{default: Object.keys(s.runners)}], execution: {launch_mode: "headless"},
   }));
   return {ctx, s, home};
 }
@@ -66,7 +66,9 @@ test.each([
   ["codex", "current", "codex"],
   ["claude-code", "new-child", "claude"],
   ["codex", "new-child", "codex"],
-] as const)("default-account Orca %s on %s keeps agent supervision", async (id, worktree, agent) => {
+  ["claude-code#team", "current", "claude"],
+  ["codex#work", "current", "codex"],
+] as const)("Orca %s on %s keeps agent supervision", async (id, worktree, agent) => {
   const {ctx, s} = setup();
   const f = fakeRun([
     [["git", "-C", "/work/app", "rev-parse", "--verify"], raw("a".repeat(40))],
@@ -76,7 +78,10 @@ test.each([
     [["git", "-C", "/work/app", "status"], raw("")],
     [["orca", "status"], ok("status-ready.json")],
     [["orca", "repo", "list"], raw('{"ok":true,"result":{"repos":[{"id":"repo1","path":"/work/app"}]}}')],
-    [["orca", "terminal", "create"], ok("coordinator-terminal.json")],
+    [["orca", "worktree", "show"], raw('{"ok":true,"result":{"worktree":{"id":"repo1::/work/app","path":"/work/app"}}}')],
+    [["orca", "worktree", "create"], (a: string[]) => raw(JSON.stringify({ok: true, result: {worktree: {id: `repo1::/work/${a[a.indexOf("--name") + 1]}`}}}))],
+    [["orca", "terminal", "create"], (a: string[]) => a.includes("--command") ? raw('{"ok":true,"result":{"terminal":{"handle":"term_agent"}}}') : ok("coordinator-terminal.json")],
+    [["orca", "terminal", "wait"], raw('{"ok":true,"result":{"wait":{"satisfied":true}}}')],
     [["orca", "terminal", "show"], ok("terminal-show-live.json")],
     [["orca", "orchestration", "run-create"], ok("run-create.json")],
     [["orca", "orchestration", "worker-start"], ok("worker-start-t1-auto.json")],
@@ -89,15 +94,29 @@ test.each([
   const backend = makeOrcaBackend({loadExecution: () => ({...DEFAULT_EXECUTION, worktree}), sleep: async () => {}});
   const out = await backend.runAttempt(ctx, s.providers[id], task);
   expect(out.backend).toBe("orca");
-  expect(f.calls.some(a => a[1] === "terminal" && a[2] === "create" && a.includes("--command"))).toBe(false);
+  expect(f.calls.some(a => a[1] === "terminal" && a[2] === "create" && a.includes("--command"))).toBe(true);
+  const command = f.calls.find(a => a[1] === "terminal" && a[2] === "create" && a.includes("--command"))!;
+  const text = command[command.indexOf("--command") + 1];
+  if (id.includes("#")) {
+    expect(text).toContain(`'${agent === "claude" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME"}=`);
+    expect(text).toContain("'\\''s $(unsafe) home'");
+    expect(text).not.toContain("PACER_KEY_");
+    const logged = readFileSync(out.attempt.log, "utf8");
+    const key = agent === "claude" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME";
+    expect(logged).toContain(`'${key}=<${key}>'`);
+    expect(logged).not.toContain("$(unsafe)");
+  }
+  expect(text.includes("CLAUDE_CODE_SANDBOXED=1")).toBe(agent === "claude");
+  // A default account unsets the home variable Orca's shell may carry; a selected account sets it.
+  expect(text.startsWith(`env -u ${agent === "claude" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME"} `)).toBe(!id.includes("#"));
   const start = f.calls.find(a => a[2] === "worker-start")!;
-  expect(start).not.toContain("--terminal");
-  expect(start[start.indexOf("--agent") + 1]).toBe(agent);
+  expect(start[start.indexOf("--terminal") + 1]).toBe("term_agent");
+  expect(start).not.toContain("--agent");
   if (worktree === "new-child") {
-    expect(start[start.indexOf("--worktree") + 1]).toBe("new-child");
-    expect(out.worktree).toBeTruthy();
+    expect(start[start.indexOf("--worktree") + 1]).toBe(`id:repo1::/work/pacer-${task.id}-${id}`);
+    expect(out.worktree).toBe(`/work/pacer-${task.id}-${id}`);
   } else {
-    expect(start[start.indexOf("--worktree") + 1]).toBe("path:/work/app");
+    expect(start[start.indexOf("--worktree") + 1]).toBe("id:repo1::/work/app");
     expect(out.worktree).toBe("/work/app");
   }
 

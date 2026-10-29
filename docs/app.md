@@ -28,7 +28,8 @@ To open a particular screen, use, for example, `pacer open sessions` or
 `#/sessions/<id>` and `#/setup`; bookmarks require an active browser session. Old app routes
 (`#/tasks`, `#/tasks/<id>`,
 `#/executors`, `#/executors/add`, `#/accounts`, `#/strategy` and `#/hosts`) no longer redirect to their replacement screens. They fall back to
-Overview (`#/`), as do other unknown or malformed hashes. Incomplete setup
+the Dispatch home (`#/`), as do other unknown or malformed hashes. `#/overview`
+redirects to `#/` and keeps its `repo` and `scope` query. Incomplete setup
 redirects work screens to Setup; Settings stays reachable.
 
 `pacer open --print` prints a sign-in URL instead of opening the browser.
@@ -43,7 +44,7 @@ command under Sign out; run it in a terminal.
 | Screen | What you can do |
 | --- | --- |
 | Setup | Complete required steps, connect agents with a file preview and consent, add an executor, try or skip a first delegation. |
-| Overview | Check planner usage and pace, mode, items needing attention, who runs next and running work; delegate a task. |
+| Dispatch | Start a new task, check the planner budget and where the next task goes, read the period's figures (Today, 7 days or 30 days), see where the tokens went, act on what needs you, follow live dispatch, and start an interactive session. The figures come from task insights; with an older service the strip says so instead of showing numbers. |
 | Tasks | Browse running tasks, tasks waiting for review and paginated history; delegate, stop, retry or dismiss work. |
 | Task detail | Follow the live log, inspect the diff and untracked files, accept or reject with a note, retry or stop. |
 | Executors | Inspect availability and reasons, block or unblock, test endpoints and remove executors. |
@@ -61,10 +62,16 @@ no other viewer holds control. If another viewer is driving, the app opens in
 watching mode and offers **Take control** with a confirmation. Releasing control
 keeps the current view read-only until you take control again.
 Links in the built-in terminal open web pages or workspace files. Code opens at
-the linked line; Markdown and HTML provide Source and Preview. HTML preview is
-static and isolated from the app. Ctrl/⌘-click follows links while you control
-the terminal; watching viewers can click directly. The terminal stays connected
-behind the file viewer.
+the linked line; Markdown and HTML open on Source, with Preview one tab away.
+HTML preview is static and isolated from the app, and lists the scripts and
+external requests it blocked. Ctrl/⌘-click follows links while you control
+the terminal; watching viewers can click directly. The terminal stays connected:
+when the session area is at least 1100 px wide the viewer opens in a pane
+beside it, otherwise it takes the terminal's place (a full sheet on narrow
+screens). ⌘F/Ctrl+F searches the whole file, and Enter/Shift+Enter step
+through matches. Esc closes search first, then the viewer, and returns focus to
+the terminal. While you have control, opening or closing the pane resizes the
+agent's terminal to fit, so its screen redraws.
 
 Account sign-in still happens in a terminal: the app shows the command to copy
 and refreshes the sign-in state. Setup explains the login service inline; **Install service** confirms that consent. Connecting an agent, or changing the planner with integrations, shows
@@ -98,13 +105,34 @@ banner dismissal lasts until the pending recommended items change.
 
 ## Needs you and Tasks
 
-On wide screens, Overview pairs Needs you with Capacity, Running with Quick delegate,
-and Done today with Activity. Cards in each row share their height. Needs you and
-Capacity show five rows per page; Running, Done today and Activity show three.
-Previous/Next navigation keeps longer lists contained. Repository changes reset
-scoped lists to their first page. Compact Capacity continues to show all executors.
-Narrow layouts stack the existing sections. The standalone Needs you page retains
-its full actionable queue.
+Dispatch follows the canvas board. Its header holds the page title with a live line
+(connected agents and the last update), the period switch (Today, 7 days or 30
+days; 7 days by default, shown only when the service has task insights), one
+"All repos · N" button that opens the repository menu, and New task, which opens
+the Delegate dialog (shortcut D) until the New task composer lands. Below it:
+Planner budget and Next task goes to in one split section (the planner's pace, its
+week caption with the 5-hour window when its account reports one, the next agent,
+the chain after it ending in the queue, and the active strategy); the period at a
+glance (root tasks handled against the previous period with today's count, tokens
+spent per root task, ran outside the planner, and accepted first try), labelled
+"This week" for the rolling 7 days; Where the tokens went beside Needs you; Live
+dispatch; then Start work, which stays until the New task composer can start
+interactive sessions. In the token spread the configured planner is labelled
+planner and every other agent executor; the planner's own tokens are stated as not
+measured yet. The figures come from `insights.summary`. A figure pacer has not measured
+is left out: tokens need a measured or partial reading (partial is shown as a lower
+bound), and "ran outside the planner" needs planner coverage. Without the operation,
+the strip says the figures need a newer service.
+Needs you shows compact cards (bad before warn, then blocked, problems and
+decisions, oldest first), one per root task: a glyph, the title, one caption line
+and one action, the primary one for a task failure (problems with executors, hosts
+or setup keep a secondary action). The standalone Needs you page shows both actions. Needs you and Live dispatch show
+five cards per page, with
+Previous/Next navigation once there is more than one page. Repository changes reset
+scoped lists to their first page. Narrow layouts lead with Needs you and Live
+dispatch, then the planner, executors and figures. Agent capacity lives in
+Settings › Executors. The standalone Needs you page retains its full actionable
+queue.
 
 **Needs you** contains actionable questions, failures, incomplete work and explicit
 human review requests, alongside existing account, setup and service problems.
@@ -119,6 +147,7 @@ run to see its result, checks, changes and delivery information before the
 collapsed executor transcript. Selecting any task opens it beside a compact task
 navigator. The main Tasks link, the task header's Tasks link and browser history
 return to the full list; the repository filter and list position are retained.
+Attention actions in the native tray open the same task detail route.
 Running tasks open to the Session view so the agent workspace gets the main pane.
 Changes, Brief and Result are available in the task's view tabs. Opening a live
 session takes control when nobody else holds it; a control action appears when

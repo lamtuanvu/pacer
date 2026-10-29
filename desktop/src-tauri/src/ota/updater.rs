@@ -108,6 +108,8 @@ struct PackageMetadata {
     native_transport_abi: u64,
     rollback_compatible: bool,
     fixture: bool,
+    #[serde(default)]
+    cli_layout: crate::packaging::CliLayout,
 }
 fn extract_package(bytes: &[u8], directory: &Path, candidate: &Candidate) -> Result<(), OtaError> {
     use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
@@ -225,12 +227,16 @@ fn extract_package(bytes: &[u8], directory: &Path, candidate: &Candidate) -> Res
             return Err(OtaError::Invalid);
         }
     }
-    for (name, kind) in [
+    let mut components = vec![
         ("MacOS/pacer", 2),
         ("Resources/pacer", 2),
         ("Resources/pacer-update-helper", 2),
         ("Frameworks/libpacer-native.dylib", 6),
-    ] {
+    ];
+    if matches!(metadata.cli_layout, crate::packaging::CliLayout::Paired) {
+        components.push(("Resources/pacer-core", 2));
+    }
+    for (name, kind) in components {
         let path = contents.join(name);
         let mut header = [0u8; 32];
         std::fs::File::open(&path)
@@ -716,13 +722,30 @@ mod tests {
         );
         add("pacer.app/Contents/Info.plist",br#"<plist version="1.0"><dict><key>CFBundleExecutable</key><string>pacer</string><key>CFBundleIdentifier</key><string>dev.pacer.desktop</string><key>CFBundleVersion</key><string>0.2.4</string><key>CFBundleShortVersionString</key><string>0.2.4</string></dict></plist>"#,tar::EntryType::Regular);
         if let Some((path, kind)) = extra {
-            add(path, b"", kind);
+            if path == "pacer.app/Contents/Resources/pacer-core" && kind.is_file() {
+                binary[12..16].copy_from_slice(&2u32.to_le_bytes());
+                add(path, &binary, kind);
+            } else { add(path, b"", kind); }
         }
         let bytes = archive.into_inner().unwrap();
         let mut compressed =
             flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
         std::io::Write::write_all(&mut compressed, &bytes).unwrap();
         compressed.finish().unwrap()
+    }
+    #[test]
+    fn paired_package_requires_a_native_core_and_known_layout() {
+        let core = "pacer.app/Contents/Resources/pacer-core";
+        for (extra, valid) in [(None, false), (Some((core, tar::EntryType::Regular)), true), (Some((core, tar::EntryType::Directory)), false)] {
+            let dir = tempfile::tempdir().unwrap();
+            assert_eq!(extract_package(&package(extra, Some(("cliLayout", json!("paired")))), dir.path(), &candidate()).is_ok(), valid);
+        }
+        let dir = tempfile::tempdir().unwrap();
+        assert!(extract_package(&package(None, Some(("cliLayout", json!("other")))), dir.path(), &candidate()).is_err());
+        for layout in [serde_json::Value::Null, json!(1), json!("")] {
+            let dir = tempfile::tempdir().unwrap();
+            assert!(extract_package(&package(None, Some(("cliLayout", layout))), dir.path(), &candidate()).is_err());
+        }
     }
     #[test]
     fn complete_package_metadata_is_checked_before_any_candidate_execution() {

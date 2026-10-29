@@ -6,18 +6,18 @@ export const PROTOCOL_VERSION = "3.0.0";
 
 export const PREVIOUS = "2.8.0";
 export function helloBody() {
-  return { protocol: PROTOCOL_VERSION, previous: PREVIOUS, pacer: pkg.version, ops: opNames(), events: ["desktop.update", "plugin", "pause", "task", "mode", "config", "reset", "planner", "executor", "account", "host", "repo", "counts", "attention", "activity", "job", "notify"] };
+  return { protocol: PROTOCOL_VERSION, previous: PREVIOUS, pacer: pkg.version, ops: opNames(), events: ["desktop.update", "plugin", "pause", "task", "mode", "config", "reset", "planner", "executor", "account", "host", "repo", "counts", "attention", "activity", "job", "notify", "assistant"] };
 }
 
 export type ApiErrorCode = CoreErrorCode | "unknown_op" | "too_large" | "internal";
 export interface ApiErrorBody { error: { code: ApiErrorCode; message: string; hint?: string; data?: Record<string, unknown> } }
-export interface ApiEvent { seq: number; at: number; type: "desktop.update" | "plugin" | "pause" | "planner" | "executor" | "account" | "host" | "repo" | "counts" | "attention" | "activity" | "job" | "notify" | "budget" | "task" | "mode" | "alert" | "config" | "reset"; data: unknown }
+export interface ApiEvent { seq: number; at: number; type: "desktop.update" | "plugin" | "pause" | "planner" | "executor" | "account" | "host" | "repo" | "counts" | "attention" | "activity" | "job" | "notify" | "budget" | "task" | "mode" | "alert" | "config" | "reset" | "assistant"; data: unknown }
 
-export type ApiEventV2 = Omit<ApiEvent, "type"> & { type: Exclude<ApiEvent["type"], "planner" | "desktop.update"> };
+export type ApiEventV2 = Omit<ApiEvent, "type"> & { type: Exclude<ApiEvent["type"], "planner" | "desktop.update" | "assistant"> };
 export type ApiEventV3 = Omit<ApiEvent, "type"> & { type: Exclude<ApiEvent["type"], "budget" | "alert"> };
 
 const STATUS: Record<ApiErrorCode, number> = {
-  not_found: 404, invalid_input: 400, not_allowed: 403, unknown_task: 404, unknown_executor: 404, unknown_op: 404, conflict: 409, too_large: 413, internal: 500,
+  not_found: 404, invalid_input: 400, not_allowed: 403, unknown_task: 404, unknown_executor: 404, unknown_op: 404, conflict: 409, too_large: 413, internal: 500, unavailable: 503, rate_limited: 429,
   plugin_timeout: 504, plugin_unavailable: 503, plugin_refused: 422, capability_denied: 403, unknown_plugin: 404,
 };
 export const httpStatus = (code: ApiErrorCode): number => STATUS[code] ?? 500;

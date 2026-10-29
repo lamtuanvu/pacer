@@ -94,6 +94,9 @@ Use `pacer stop <id> --json` to cancel.
 `pacer retry <task-id> [--executor <id>] [--json]`: Re-delegate a task's stored brief.
 `--executor` picks the runner; otherwise routing chooses. Refused while the task
 already has a queued or running retry.
+`pacer ask "<question>" [--scope dispatch|task:<id>|repo:<path>] [--json]` outside an executor session asks the
+[assistant](assistant.md) once and prints the answer and its sources. Proposed actions are printed as the equivalent
+`pacer` commands and are never run.
 Executors that cannot continue run `pacer ask "<one question>"` once and stop.
 This requires an executor session with `PACER_TASK_ID`; the task settles as
 `needs_input` and raises a question under Needs you. Use
@@ -380,16 +383,19 @@ runner edits ask you to run `pacer config migrate` first. Migration saves the
 original as `<file>.pre-accounts.bak` and prints how to restore it.
 
 `config get` returns each effective value and its source: the strategy filename
-or `default`. With a key, JSON is `{value, source}`; without a key, JSON maps
+or `default` (`env PACER_BACKEND` when that override is set). With a key, JSON is `{value, source}`; without a key, JSON maps
 setting names to those objects. `config set` prints the change and an undo
 command. Account and runner list JSON are arrays (see the accounts guide).
 
 | Key | Value |
 | --- | --- |
+| execution.backend | `orca` or `direct`; unset and `auto` display as `direct`. `PACER_BACKEND` overrides the saved setting. |
 | planner | A runner id, such as `claude-code#work` or `codex`; moves the installed planner integration |
 | pacing.order | Comma-separated runner ids; `opencode` means the OpenCode group; `''` clears the order |
 | pacing.policy | Existing engine policies: `priority`, `even`, `burn-before-reset`, `cheapest-first` |
-| pacing.planner_reserve | Percent, 0–99 (default 15) |
+| pacing.planner_reserve | Percent, 0–99 (default 15); scales the planner's pace, and is not the probe floor below |
+| pacing.planner_reserve_headroom | Percent, 0–99 (default 25); measured headroom a planner account must keep before Pacer will spend its quota on a certification probe |
+| pacing.planner_probe | `ask` (default), `auto` or `off`; whether scheduled certification probes may run, given that each spends the certified account's own quota |
 | pacing.accounts | `spread` or `fill` (default `spread`) |
 | pacing.fill_threshold | Percent, 50–100 (default 90) |
 | update_check | `true` or `false` (default `true`) |
@@ -411,6 +417,16 @@ refuses the planner and the last runner. Homes are retained unless
 `--delete-home` is supplied and its y/N prompt confirmed. Logins inherit the
 terminal and are started only for newly created pacer-managed accounts unless
 `--no-login` is given.
+
+## Plugins
+
+`pacer plugin list|enable|disable|remove|doctor` manage plugins. A plugin that contributes UI (plugin protocol 1.2) is granted its surface kinds as well as its capabilities, and `enable` lists both.
+
+- `pacer plugin ui list [--json]` lists the activity items, panel tabs, settings pages and status items of enabled plugins.
+- `pacer plugin settings get <id>` prints a plugin's settings schema, values and revision as JSON.
+- `pacer plugin settings set <id> --values '<json object>' [--rev <n>]` validates the values against the schema from the plugin's manifest and saves them. A stale `--rev` fails with `conflict`.
+
+Settings are stored in `$PACER_HOME/plugin-settings.json` (mode 0600), not in the strategy file. The app's plugin pages use the same operations. Secrets are never values: a `secretRef` field holds the name of a secret reference.
 
 ## Pause and resume delegation
 

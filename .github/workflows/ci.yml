@@ -135,6 +135,19 @@ jobs:
       - name: Build the Rust fixture plugin
         if: ${{ needs.changes.outputs.bun == 'true' }}
         run: cargo build --locked -p pacer-fixtures --bin pacer-fixture
+      - name: Install Linux test cross-build prerequisites
+        if: ${{ needs.changes.outputs.bun == 'true' && runner.os == 'Linux' }}
+        run: |
+          rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl
+          python3 -m venv "$RUNNER_TEMP/pacer-cross"
+          "$RUNNER_TEMP/pacer-cross/bin/pip" install --only-binary=:all: cargo-zigbuild==0.24.0 ziglang==0.14.1
+          echo "$RUNNER_TEMP/pacer-cross/bin" >> "$GITHUB_PATH"
+      # The frozen playwright-core dependency pins the matching Chromium revision.
+      - name: Install locked Chromium test browser
+        if: ${{ needs.changes.outputs.bun == 'true' }}
+        run: |
+          echo "PLAYWRIGHT_BROWSERS_PATH=$RUNNER_TEMP/pacer-playwright" >> "$GITHUB_ENV"
+          PLAYWRIGHT_BROWSERS_PATH="$RUNNER_TEMP/pacer-playwright" bun node_modules/playwright-core/cli.js install --with-deps chromium
       - name: Test
         if: ${{ needs.changes.outputs.bun == 'true' }}
         run: bun run test
@@ -254,6 +267,8 @@ jobs:
         run: cargo xtask deps
       - name: Test
         run: cargo test --workspace --locked
+      - name: Test Rust plugin SDK harness feature
+        run: cargo test -p pacer-plugin --features testing --locked
       - name: Plugin conformance through the Rust front door
         run: |
           cargo build -p pacer -p pacer-fixtures --locked

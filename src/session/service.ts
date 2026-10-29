@@ -87,18 +87,18 @@ export async function sessionInfo(ctx:Ctx,id:string,orcaLive?:boolean,includeTar
  if(terminalSetting(ctx))info.targets.push('terminal');if(ctx.env.TMUX&&ctx.which('tmux'))info.targets.push('tmux');
  return info;
 }
-export function terminalSetting(ctx:Ctx):string|null{
- if(!hasDesktop(ctx))return null;
+export function terminalSetting(ctx:Ctx,platform:NodeJS.Platform=process.platform):string|null{
+ if(!hasDesktop(ctx,platform))return null;
  try{
   const setting=loadStrategy(ctx).terminal?.open;
   if(setting&&setting!=='auto')return setting;
-  if(!setting&&process.platform==='darwin'){
+  if(!setting&&platform==='darwin'){
    const raw=Bun.YAML.parse(readFileSync(strategyPath(ctx),'utf8')) as {terminal?:{app?:string}};
    const legacy:Record<string,string>={Terminal:'terminal-app',iTerm:'iterm',Ghostty:'ghostty'};
    if(raw?.terminal?.app&&legacy[raw.terminal.app])return legacy[raw.terminal.app];
   }
-  return detectTerminal(ctx);
- }catch{return detectTerminal(ctx);}
+  return detectTerminal(ctx,platform);
+ }catch{return detectTerminal(ctx,platform);}
 }
 export async function openSession(ctx:Ctx,id:string,target:ViewerTarget):Promise<{opened:boolean;command?:string}>{
  return withWork(ctx,{kind:"operation",id,label:"Opening session viewer"},()=>openSessionAdmitted(ctx,id,target));

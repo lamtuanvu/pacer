@@ -7,6 +7,7 @@ import { CANCEL_METHOD } from "./protocol";
 export interface SpawnSpec { argv: string[]; cwd: string; env: Record<string, string | undefined> }
 export interface ProcessHooks {
   onRequest: (method: string, params: unknown) => Promise<unknown>;
+  onNotification?: (method: string, params: unknown) => void;
   onStderr: (line: string) => void;
   onExit: (info: { code: number | null; signal: string | null }) => void;
   spawn?: typeof nodeSpawn;
@@ -65,7 +66,7 @@ export class PluginProcess {
     catch { this.hooks.onStderr("ignored a malformed JSON line on stdout"); return; }
     if (m.jsonrpc !== "2.0") return;
     if (typeof m.method === "string") {
-      if (m.id === undefined || m.id === null) return;
+      if (m.id === undefined || m.id === null) { try { this.hooks.onNotification?.(m.method, m.params ?? {}); } catch (e) { this.hooks.onStderr(`notification ${m.method} failed: ${(e as Error).message}`); } return; }
       const id = m.id;
       void this.hooks.onRequest(m.method, m.params ?? {})
         .then(result => this.send({ id, result }), e => this.send({ id, error: rpcError(e) }));
@@ -82,8 +83,9 @@ export class PluginProcess {
     } else p.resolve(m.result);
   }
 
-  request<T>(method: string, params: unknown, deadlineMs: number): Promise<T> {
+  request<T>(method: string, params: unknown, deadlineMs: number, signal?: AbortSignal): Promise<T> {
     if (!this.alive) return Promise.reject(new CoreError("plugin_unavailable", `${method}: plugin is not running`));
+    if (signal?.aborted) return Promise.reject(new CoreError("plugin_unavailable", `${method} was cancelled`));
     const id = this.nextId++;
     return new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -92,6 +94,13 @@ export class PluginProcess {
         reject(new CoreError("plugin_timeout", `${method} passed its ${deadlineMs} ms deadline`));
       }, deadlineMs);
       this.pending.set(id, { method, resolve: v => resolve(v as T), reject, timer });
+      // An aborted call is cancelled in the plugin too, so it stops spending.
+      signal?.addEventListener("abort", () => {
+        if (!this.pending.delete(id)) return;
+        clearTimeout(timer);
+        this.send({ method: CANCEL_METHOD, params: { id } });
+        reject(new CoreError("plugin_unavailable", `${method} was cancelled`));
+      }, { once: true });
       this.send({ id, method, params });
     });
   }

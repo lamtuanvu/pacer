@@ -8,7 +8,7 @@ import { prepareAgentSession, agentSessionCapabilities } from "../plugins/agent-
 import { resolveAttachments } from "../attachments/claims";
 import { attachmentDirectory } from "../attachments/store";
 import { executorExclusion } from "../executors/availability";
-import { prepareInteractive, requireCodexInteractive, cleanSummary, readReport, transcriptReport, sessionTranscript } from "../session/reports";
+import { codexInteractiveGap, prepareInteractive, requireCodexInteractive, cleanSummary, readReport, transcriptReport, sessionTranscript } from "../session/reports";
 import { mkdirSync, existsSync, readFileSync, writeFileSync, appendFileSync, openSync, readSync, closeSync, renameSync, unlinkSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -29,16 +29,19 @@ import { RemoteRunIO } from "../remote/run-io";
 import { runRemoteAttempt } from "../remote/attempt";
 import { SCRIPTS } from "../remote/scripts";
 import { runRemote } from "../remote/ssh";
-import { launchFor, providerEnv, resumeLaunchFor } from "./launch";
+import { launchFor, launchModeFor, providerEnv, resumeLaunchFor, type LaunchModeChoice } from "./launch";
+import { claudeConfigFile, grantClaudeFolderTrust, projectMcpChoices, type McpChoices } from "./claude-trust";
 import { detectLimit } from "./limits";
 import { type ExecResult, executorEnv, execProcess } from "./process";
+import { profileColor, profileKeys, strictServiceEnv, terminalEnv, terminalEnvNote, terminalEnvRecord, terminalUmask, type TerminalEnv } from "./login-env";
+import { recordDefaultFolder, recordRunFolder, withDefaultFolder } from "./account-folder";
 import { buildPrompt } from "./prompt";
 import { localRunIO, readOutput, startRun } from "../supervisor/run";
 import { type SuperviseEnd, supervise } from "../supervisor/supervise";
 import { receiveQuestion, transferBack, transferred } from "../remote/transfer";
-import { taskWorktreePath, createTaskWorktree, resolveWorktreeBase } from "../supervisor/worktree";
+import { taskWorktreePath, taskWorktreesDir, createTaskWorktree, resolveWorktreeBase } from "../supervisor/worktree";
 import { gitFingerprint, idleSeconds, nextProgress } from "../supervisor/progress";
-import { strictClaudeLaunch } from "../dispatch/enforcement";
+import { STRICT_INTERACTIVE_REASON, strictClaudeLaunch } from "../dispatch/enforcement";
 
 export const REPORT_CHARS = 4000;
 
@@ -258,7 +261,7 @@ export async function finishRun(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, ru
     const failedReport = signal?.status === "failed";
     exec.code = failedReport || startupFailed || end.kind === "timeout" || end.kind === "stopped" ? exec.code || 1 : 0;
     report = failedReport ? signal!.summary : startupFailed ? exec.stderr.trim() || exec.stdout.trim() || "Take over resume failed to start"
-      : transcriptReport(run.dir) || (run.agentSession ? sessionTranscript(cfg.via === "opencode" ? "opencode" : parseRunnerId(cfg.id)?.agent ?? cfg.id, run.agentSession.id, executorEnv(ctx.env, await providerEnv(ctx, cfg).catch(() => ({})), task.id), ctx.home) : "") || "You drove this task; the agent left no summary";
+      : transcriptReport(run.dir) || (run.agentSession ? sessionTranscript(cfg.via === "opencode" ? "opencode" : parseRunnerId(cfg.id)?.agent ?? cfg.id, run.agentSession.id, withDefaultFolder(ctx, parseRunnerId(cfg.id)?.agent ?? cfg.id, executorEnv(ctx.env, await providerEnv(ctx, cfg).catch(() => ({})), task.id), run.dir), ctx.home) : "") || "You drove this task; the agent left no summary";
     updateTask(ctx, task.id, t => { if (t.takeover) t.takeover.state = "ended"; });
     const result = outcome({...cfg, session:"interactive"}, task.attemptStartedAt ?? run.startedAt, exec, run.logFile, note + report, true);
     result.attempt.limitHit = false;
@@ -270,6 +273,46 @@ export async function finishRun(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, ru
   };
 }
 
+/**
+ * The executor's base environment: what a new terminal would give the user, except under strict delegation
+ * enforcement, whose attempt runs with exactly the service environment its certification checked (no login shell,
+ * per-folder tools or login umask; the account folder is the certified one).
+ */
+const executorBase = (ctx: Ctx, workdir: string): Promise<TerminalEnv> => ctx.env.PACER_ENFORCEMENT_MODE === "strict"
+  ? Promise.resolve(strictServiceEnv(ctx.env)) : terminalEnv(ctx.env, {cwd: ctx.home, workdir});
+
+/** Where the executor's base environment came from; names the shell or the reason only, never a value. */
+function recordEnvironment(dir: string, base: TerminalEnv): void {
+  try { writeFileSync(join(dir, "environment.json"), JSON.stringify(terminalEnvRecord(base)), {mode: 0o600}); }
+  catch { /* diagnostics only */ }
+}
+
+/** Only a worktree pacer created for the task, under its worktrees root; never an in-place checkout, $HOME or /. */
+function pacerTaskWorktree(ctx: Ctx, mode: "current" | "new", folder: string): boolean {
+  const real = realpathSafe(folder), rootDir = realpathSafe(taskWorktreesDir(ctx));
+  return mode === "new" && real !== "/" && real !== realpathSafe(ctx.home) && real.startsWith(rootDir + "/");
+}
+
+/** Claude asks about folder trust before it loads pacer's hooks, so an unattended task would wait unseen. */
+async function preapproveClaudeTrust(ctx: Ctx, env: Record<string, string | undefined>, mode: "current" | "new", folder: string, root?: string): Promise<string> {
+  if (!pacerTaskWorktree(ctx, mode, folder)) return "claude folder trust: not pre-approved (only pacer-created task worktrees are); Claude may ask whether to trust this folder\n\n";
+  const result = await grantClaudeFolderTrust(claudeConfigFile(env, ctx.home), folder, root)
+    .catch(() => ({status: "skipped" as const, reason: "the Claude config file could not be updated"}));
+  return result.status === "skipped" ? `claude folder trust: not pre-approved (${result.reason}); Claude may ask whether to trust this folder\n\n` : "";
+}
+
+/**
+ * The source checkout's MCP answers, read only for a pacer-created task worktree, whose untracked settings.local.json
+ * is not in the worktree. An in-place run is left to Claude, which reads that checkout's own answers and may prompt.
+ */
+function projectMcpAnswers(ctx: Ctx, env: Record<string, string | undefined>, mode: "current" | "new", folder: string, roots: string[]): McpChoices | {reason: string} {
+  if (!pacerTaskWorktree(ctx, mode, folder)) return {reason: "only pacer-created task worktrees are"};
+  return projectMcpChoices(claudeConfigFile(env, ctx.home), roots);
+}
+
+/** The attempt note when the source checkout's MCP answers are not carried into the run's settings. */
+export const mcpNotApproved = (reason: string) => `claude project MCP servers: not pre-approved (${reason}); Claude may ask whether to use this project's MCP servers`;
+
 /** The second run belongs to the original attempt and always uses its worktree. */
 async function startTakeoverRun(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, previous: RunRef, note: string): Promise<AttemptOutcome> {
   const dir = runDir(ctx, task.id, previous.attempt) + "-takeover";
@@ -279,20 +322,28 @@ async function startTakeoverRun(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, pr
     if (typeof request.sessionId !== "string" || !request.sessionId) throw Error("Take over request has no session id");
     run.agentSession = {id:request.sessionId, source:readTask(ctx,task.id)?.run?.agentSession?.source ?? "lookup"};
     await ensureProviderIntegration(ctx, cfg.id);
-    const env = executorEnv(ctx.env, await providerEnv(ctx,cfg), task.id);
+    const base = await executorBase(ctx, run.workdir);
+    note += terminalEnvNote(base);
+    const account = await providerEnv(ctx,cfg);
+    const env = executorEnv(base.env, account, task.id, profileKeys(base));
     const agent = cfg.via === "opencode" ? "opencode" : parseRunnerId(cfg.id)?.agent ?? cfg.id;
+    recordDefaultFolder(ctx, agent, account, base);
     if (agent === "codex") await requireCodexInteractive(ctx,env);
     // Codex resolves linked-worktree trust against the main repository root.
-    const trust = agent === "codex" ? await gitInfo(ctx.run, run.workdir) : null;
+    const trust = agent === "codex" || agent === "claude-code" ? await gitInfo(ctx.run, run.workdir) : null;
     const trustRoot = trust && !("error" in trust) ? trust.main : task.brief.repo;
-    const launch = prepareInteractive(agent,dir,resumeLaunchFor(cfg,request.sessionId,run.workdir,dir,trustRoot));
+    if (agent === "claude-code") note += await preapproveClaudeTrust(ctx, env, run.mode, run.workdir, trust && !("error" in trust) ? trust.main : undefined);
+    // The user drives a take over, so Claude's own project MCP prompt stays.
+    const launch = prepareInteractive(agent,dir,resumeLaunchFor(cfg,request.sessionId,run.workdir,dir,trustRoot),{attended:true});
     env.PACER_HOME = ctx.pacerHome; env.PACER_RUN_DIR = dir; env.PACER_TRANSCRIPT_REPORT = join(dir,"transcript-report.md");
     mkdirSync(dir,{recursive:true,mode:0o700});
     writeFileSync(join(dir,"argv"),launch.argv.join(" "),{mode:0o600});
+    recordEnvironment(dir, base);
+    recordRunFolder(dir, ctx, agent, env);
     run.startedAt = Date.now()/1000;
     // Publish before spawn so run-bound reports validate even from a fast CLI.
     updateTask(ctx,task.id,t=>{t.run=run;t.takeover={...t.takeover,state:"driving",at:request.at,sessionId:request.sessionId,...(request.by?{by:request.by}:{})};t.progress={lastOutputAt:null,lastChangeAt:null,files:0,commits:0,logBytes:0,host:"local",...t.progress,phase:"driving",updatedAt:Date.now()/1000};});
-    const started = startRun({dir,argv:launch.argv,cwd:run.workdir,env,session:"interactive",takeover:true});
+    const started = startRun({dir,argv:launch.argv,cwd:run.workdir,env,session:"interactive",takeover:true,umask:terminalUmask(base),keepColor:profileColor(base)});
     if ("error" in started) throw Error(started.error);
     return await finishRun(ctx,cfg,task,run,note,progressPoller(ctx,task,run));
   } catch (e) {
@@ -313,12 +364,22 @@ export async function runAttempt(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, o
 }
 async function runAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, onSpawn?: (pid: number) => void): Promise<AttemptOutcome> {
   const conversation = task.interactionMode === "conversation";
-  if (conversation) cfg = {...cfg, session: "interactive"};
+  const ex = loadExec(ctx);
+  let choice: LaunchModeChoice = conversation ? {mode: "interactive", explicit: true} : launchModeFor(cfg, ex, {managed: ctx.env.PACER_ENFORCEMENT_MODE === "strict"});
+  cfg = {...cfg, session: choice.mode};
   const alias = parseRunnerId(cfg.id)?.host;
-  if (alias) return runRemoteAttempt(ctx, cfg, task, loadStrategy(ctx).hosts[alias], onSpawn);
+  if (alias) {
+    const out = await runRemoteAttempt(ctx, cfg, task, loadStrategy(ctx).hosts[alias], onSpawn);
+    if (choice.fallback) try { appendFileSync(out.attempt.log, `launch mode: headless (${choice.fallback})\n`); } catch { /* the attempt result stands */ }
+    return out;
+  }
   const dir = tasksDir(ctx);
   mkdirSync(dir, { recursive: true });
-  const startedAt = Date.now() / 1000, log = join(dir, `${task.id}.${cfg.id}.log`), ex = loadExec(ctx);
+  const startedAt = Date.now() / 1000, log = join(dir, `${task.id}.${cfg.id}.log`);
+  // Certification covers headless launches only; an explicit interactive runner set after admission must not slip through.
+  if (ctx.env.PACER_ENFORCEMENT_MODE === "strict" && choice.mode === "interactive") {
+    return outcome(cfg, startedAt, {code: 1, stdout: "", stderr: STRICT_INTERACTIVE_REASON, timedOut: false}, log, STRICT_INTERACTIVE_REASON);
+  }
   const git = await gitInfo(ctx.run, task.brief.repo).catch(() => ({ error: "git unavailable" }));
   const top = realpathSafe("error" in git ? task.brief.repo : git.top);
   if (task.worktree && existsSync(task.worktree) && !("error" in git)) {
@@ -381,12 +442,22 @@ async function runAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, 
     : buildPrompt(task.brief, task.id, !!ctx.env.PACER_WORK_GRANT);
   let launch: ReturnType<typeof launchFor>;
   let env: Record<string, string | undefined>;
+  let base: TerminalEnv | undefined;
   let agentSession: RunRef["agentSession"];
   try {
-    env = executorEnv(ctx.env, await providerEnv(ctx, cfg), task.id);
+    base = await executorBase(ctx, workdir);
+    note += terminalEnvNote(base);
+    const account = await providerEnv(ctx, cfg);
+    env = executorEnv(base.env, account, task.id, profileKeys(base));
+    const agent = parseRunnerId(cfg.id)?.agent ?? cfg.id;
+    if (cfg.via !== "opencode") recordDefaultFolder(ctx, agent, account, base);
+    if (choice.mode === "interactive" && !choice.explicit && agent === "codex" && cfg.via !== "opencode") {
+      const gap = await codexInteractiveGap(ctx, env);
+      if (gap) { choice = {mode: "headless", explicit: false, fallback: gap}; cfg = {...cfg, session: "headless"}; }
+    }
+    if (choice.fallback) note += `launch mode: headless (${choice.fallback})\n\n`;
     const interactive = cfg.session === "interactive";
     const instructions = interactive && !conversation ? `\n\nInteractive pacer session: completion requires running pacer report --task ${task.id} --outcome done --summary "<result>" (or --outcome failed). Before asking the user, run pacer report --status needs-input --summary "<question>"; when resuming use --status running. Do not infer completion from the terminal. PACER_RUN_DIR identifies this attempt. You may write a longer Markdown result to $PACER_TRANSCRIPT_REPORT.\n` : "";
-    const agent = parseRunnerId(cfg.id)?.agent ?? cfg.id;
     if (!interactive && cfg.via !== "opencode") {
       if (agent === "claude-code") agentSession = {id:crypto.randomUUID(),source:"assigned"};
       if (agent === "cursor") {
@@ -419,9 +490,15 @@ async function runAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, 
     } else launch = launchFor(cfg, prompt + instructions, workdir, rdir, task.id, agentSession?.id, "error" in git ? task.brief.repo : git.main);
     if(env.PACER_ENFORCEMENT_MODE==="strict"&&agent==="claude-code")launch={...launch,argv:strictClaudeLaunch(ctx,launch.argv,rdir)};
     if (interactive) {
-      const agent = parseRunnerId(cfg.id)?.agent ?? cfg.id;
-      if (agent === "codex" && !conversation) await requireCodexInteractive(ctx, env);
-      launch = prepareInteractive(agent, rdir, launch);
+      if (agent === "codex" && !conversation && choice.explicit) await requireCodexInteractive(ctx, env);
+      if (agent === "claude-code" && !conversation) note += await preapproveClaudeTrust(ctx, env, mode, launch.cwd, "error" in git ? undefined : git.main);
+      let mcp: McpChoices | undefined;
+      if (agent === "claude-code" && !conversation) {
+        const answers = projectMcpAnswers(ctx, env, mode, launch.cwd, [task.brief.repo, ...("error" in git ? [] : [git.top, git.main])]);
+        if ("reason" in answers) note += `${mcpNotApproved(answers.reason)}\n\n`;
+        else mcp = answers;
+      }
+      launch = prepareInteractive(agent, rdir, launch, {attended: conversation, ...(mcp ? {mcp} : {})});
       env.PACER_HOME = ctx.pacerHome;
       env.PACER_RUN_DIR = rdir;
       env.PACER_TRANSCRIPT_REPORT = join(rdir, "transcript-report.md");
@@ -433,12 +510,15 @@ async function runAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, 
   }
   mkdirSync(rdir, { recursive: true });
   writeFileSync(join(rdir, "argv"), launch.argv.join(" "));
+  if (base) recordEnvironment(rdir, base);
+  if (cfg.via !== "opencode") recordRunFolder(rdir, ctx, parseRunnerId(cfg.id)?.agent ?? cfg.id, env);
   const run: RunRef = { interactionMode: task.interactionMode, ...(agentSession ? {agentSession} : {}), dir: rdir, attempt, executor: cfg.id, startedAt, mode, workdir, logFile: log, ...(launch.lastMessageFile ? { lastMessageFile: launch.lastMessageFile } : {}) };
   updateTask(ctx, task.id, t => {
     t.run = run;
     if (conversation && agentSession) t.conversation = {...t.conversation, activity: "starting", agentSessionId: agentSession.id};
   });
-  const started = startRun({ interactionMode: task.interactionMode, dir: rdir, argv: launch.argv, cwd: launch.cwd, stdin: launch.stdin, env, ...(cfg.session === "interactive" ? {session: "interactive" as const} : {}) });
+  const started = startRun({ interactionMode: task.interactionMode, dir: rdir, argv: launch.argv, cwd: launch.cwd, stdin: launch.stdin, env, ...(cfg.session === "interactive" ? {session: "interactive" as const} : {}),
+    ...(base ? {umask: terminalUmask(base), keepColor: profileColor(base)} : {}) });
   if ("error" in started) {
     const exec = { code: 127, stdout: "", stderr: started.error, timedOut: false };
     return outcome(cfg, startedAt, exec, log, note + started.error);
@@ -458,6 +538,8 @@ async function resumeAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecor
     const dir = runDir(ctx,task.id,run.attempt);
     if (existsSync(join(dir,"takeover.json"))) return startTakeoverRun(ctx,cfg,task,{...run,dir,takeover:false},"");
   }
+  // The recorded run, not today's launch mode, decides how this attempt finishes.
+  cfg = {...cfg, session: existsSync(join(run.dir, "interactive.json")) ? "interactive" : "headless"};
   const result = await finishRun(ctx, cfg, task, run, "", progressPoller(ctx, task, run));
   if (!run.host || readTask(ctx, task.id)?.state === "stopped") return result;
   const host = loadStrategy(ctx).hosts[run.host];

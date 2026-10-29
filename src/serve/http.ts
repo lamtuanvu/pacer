@@ -1,3 +1,4 @@
+import { backfillFirstSettled } from "../insights/summary";
 import { refreshConnectedIntegrations } from "../core/integrations";
 import { authorizeWorkGrant } from "../dispatch/work";
 import { authorizeEnforcementToken } from "../dispatch/enforcement-token";
@@ -6,6 +7,7 @@ import { desktopCaptureRoute } from "./desktop-capture";
 import { attachmentRoute } from "./attachment-routes";
 import { resetCaptureBroker } from "../desktop/capture-broker";
 import { configuredNativeServices } from "../update/desktop/native-provider";
+import type { PairedNativeBootstrap } from "../update/desktop/native-paired-bootstrap";
 import { bindDesktopUpdateRuntime, createDesktopUpdateRuntime } from "../update/desktop/service";
 import { backfillAttemptUsage } from "../tokens/store";
 import { reconcileAdmissionSync } from "../update/desktop/admission";
@@ -31,7 +33,7 @@ import type { Ctx } from "../types";
 import { currentSnapshot, invalidateConsoleCache, refreshConsoleTerminals } from "../link/store";
 import { refreshAllUsage } from "../usage/refresh";
 import { defaultPumpDeps, pumpOnce } from "../link/pump";
-
+import { tick as certificationTick } from "../dispatch/certification-schedule";
 
 import { DEFAULT_PORT } from "./constants";
 export { DEFAULT_PORT } from "./constants";
@@ -52,7 +54,7 @@ export function ensureToken(ctx: Ctx): string {
 
 /** Localhost-only, token-protected API for versioned client protocols. */
 export function startServer(
-  getCtx: () => Ctx, opts: { internal?: { token: string }; port?: number; listener?: false; sseIntervalMs?: number; tailMs?: number; pumpMs?: number; opDeps?: OpDeps } = {},
+  getCtx: () => Ctx, opts: { internal?: { token: string }; pairedNative?: PairedNativeBootstrap; port?: number; listener?: false; sseIntervalMs?: number; tailMs?: number; pumpMs?: number; opDeps?: OpDeps } = {},
 ): { port: number; token: string; stop: () => Promise<void> } {
   const initialCtx = getCtx();
   resetCaptureBroker(initialCtx.pacerHome);
@@ -60,6 +62,7 @@ export function startServer(
   reconcileAdmissionSync(initialCtx);
   recoverJobs(initialCtx);
   // History gets its token index in the background; it reads logs and writes only attempt_usage.
+  try { backfillFirstSettled(initialCtx); } catch (error) { console.error(`pacer: first-settle backfill skipped: ${error instanceof Error ? error.message : String(error)}`); }
   void backfillAttemptUsage(initialCtx).catch(error => console.error(`pacer: token usage backfill skipped: ${error instanceof Error ? error.message : String(error)}`));
   // Serving diagnostics must not wait on account configuration writes. New local
   // launches serialize with this job through the shared installation lock.
@@ -67,9 +70,10 @@ export function startServer(
     for (const result of results) if (result.state === "conflict" || result.state === "failed")
       console.error(`pacer: integration ${result.target}: ${result.detail}. ${result.hint}`);
   }).catch(() => console.error("pacer: integration refresh failed; run pacer doctor for recovery guidance"));
-  const nativeServices = opts.opDeps?.desktopUpdates ? null : configuredNativeServices(getCtx,opts.port??Number(initialCtx.env.PACER_PORT??DEFAULT_PORT),()=>{
+  const nativeServices = opts.opDeps?.desktopUpdates ? null : configuredNativeServices(getCtx,opts.port??Number(initialCtx.env.PACER_PORT??DEFAULT_PORT),opts.pairedNative?.shutdown ?? (()=>{
+
     stop();setImmediate(()=>process.exit(0));
-  });
+  }), opts.pairedNative);
   nativeServices?.native.listen();
   const desktopUpdates = opts.opDeps?.desktopUpdates ?? createDesktopUpdateRuntime(getCtx,nativeServices??{});
   const unbindDesktopUpdates = bindDesktopUpdateRuntime(initialCtx, desktopUpdates);
@@ -271,6 +275,15 @@ export function startServer(
       .finally(() => { supervising = false; });
   };
   const supervisorTimer = setInterval(supervise, 5000);
+  let certifying = false;
+  const certify = () => {
+    if (stopped || certifying) return;
+    certifying = true;
+    void certificationTick(getCtx())
+      .catch(error => { if (!stopped) console.warn(`pacer: certification probe tick failed: ${String(error)}`); })
+      .finally(() => { certifying = false; });
+  };
+  const certificationTimer = setInterval(certify, 10 * 60_000);
   const refreshUsage = () => {
     if (stopped) return;
     void refreshAllUsage({ ...getCtx(), now: Date.now() / 1000 }, true)
@@ -295,6 +308,7 @@ export function startServer(
     clearTimeout(retentionStart);
     clearInterval(retentionTimer);
     clearInterval(supervisorTimer);
+    clearInterval(certificationTimer);
     clearTimeout(usageStart);
     clearInterval(usageTimer);
     clearInterval(pumpTimer);

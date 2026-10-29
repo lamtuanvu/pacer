@@ -81,6 +81,8 @@ Policies are `priority` (default), `even`, `burn-before-reset` and `cheapest-fir
 
 `planner_reserve` defaults to 15 percentage points (valid 0–99). `ahead_threshold` and `behind_threshold` default to 10 and -10 percentage points. Planner verdicts produce relaxed, normal, strict or emergency mode; see the [mode table](../README.md#how-it-works).
 
+Two further settings govern scheduled native control certification, which spends the quota of the account it certifies. `planner_probe` is `ask` (default), `auto` or `off`: on `ask` nothing is probed until you answer the consent question in Dispatcher or through `dispatch.enforcement.consent`, and `off` disables scheduling without affecting manual verification. `planner_reserve_headroom` defaults to 25 percentage points (valid 0–99) and is a separate setting from `planner_reserve`: it is the measured headroom an account must still have before Pacer will spend any of it on a probe. It is checked when a probe is admitted; it is not a guarantee that a quota window cannot fall below it afterwards. Headroom that cannot be measured never satisfies it. An over-ceiling probe cost or repeated repository switching pauses scheduled probes for at least 24 hours, then scheduling retries when eligible; the daily probe ceiling still applies.
+
 The first matching `kinds` rule wins, otherwise `default` is used:
 
 ```yaml
@@ -94,7 +96,7 @@ Kinds: `boilerplate`, `tests`, `docs`, `rename`, `migration`, `feature`, `debug`
 
 ## Execution and classification
 
-`execution.backend` is `auto` (default), `orca` or `direct`. `auto` and `direct` run agents under pacer's own supervisor, with pacer-owned worktrees for new placement. `orca` runs agents as supervised Orca workers in visible Orca terminals. `PACER_BACKEND=orca` still forces the Orca backend.
+`execution.backend` is `auto` (default), `orca` or `direct`. `auto` and `direct` run agents under pacer's own supervisor, with pacer-owned worktrees for new placement. `orca` runs interactive Claude Code and Codex tasks (the default `execution.launch_mode`) as supervised Orca workers in pacer-launched terminals. Headless tasks, strict managed work, connection accounts and unsupported agents run directly; pacer also falls back to direct when Orca is unavailable or the terminal does not become idle. Claude terminals set `CLAUDE_CODE_SANDBOXED=1` (an undocumented Claude variable), so Claude skips its folder trust prompt and pacer edits no Claude configuration; the variable also lets the repository's `.claude/` permission settings apply without a prompt. If Claude ignores the variable, the trust prompt blocks the idle check and the task runs directly. See [executors](executors.md). Settings › This machine, the TUI and `pacer config set execution.backend orca|direct` change the saved choice. Unset and `auto` display as `direct`; `PACER_BACKEND` overrides the saved choice and is shown as its source. A save under that override updates the saved value but does not change the active backend while `PACER_BACKEND` is set.
 
 `execution.worktree` is `child-of-current` (default), `new-child` or `current`; `base_branch` selects a base ref and implies `new-child` when worktree is omitted. New worktrees fetch and use the remote default branch tip unless `base_branch`, a brief `base`, or `worktree_base: head` explicitly selects another base. Automatic `child-of-current` placement in a local-only repository without origin preserves its HEAD base; explicit `worktree: new` or `worktree_base: default` still requires origin. A failed fetch never falls back to HEAD. Individual briefs use `worktree: current|new|auto` and an optional reason; safety checks can veto current placement. See [placement](executors.md#execution-and-review).
 
@@ -120,6 +122,10 @@ Save named YAML files under `~/.pacer/strategies/`. `pacer strategy list` and `p
 ## Capacity, pause and executor settings
 
 `execution.local_max_tasks` limits all local executors together (1–16, default 2).
+`execution.launch_mode` sets how delegated tasks start: `interactive` (the default) or
+`headless`. A runner's own `session:` setting overrides it. With `execution.backend: orca`, interactive tasks run in Orca terminals and headless tasks run directly. Change it with
+`pacer config set execution.launch_mode headless` or in
+**Settings → This machine → Delegated task launch**. See [Launch mode](executors.md#launch-mode).
 In the app, use **Settings → Executors → Parallel tasks** to set each executor’s limit,
 and **Settings → This machine → Parallel tasks on this machine** for the shared local limit.
 Remote host limits are under **Settings → Remote hosts**. The app explains when a machine
@@ -143,7 +149,8 @@ the planner window resets, or an explicit future timestamp; `mode.release` ends 
 
 **Settings → This machine → Preferred terminal** chooses the app used by
 **Open in terminal** and other local terminal actions. The choice is stored as
-`terminal.open`; `auto` detects a terminal. Existing `terminal.app` choices
+`terminal.open`; `auto` detects a terminal, including iTerm when macOS reports
+`TERM_PROGRAM=iTerm.app`. Existing `terminal.app` choices
 remain in effect until a preferred terminal is chosen. The CLI can also set a
 custom argv template with `pacer config set terminal.open '<template with {cmd}>'`.
 Automatic terminal opening tries Orca, the chosen terminal app, then tmux. On a

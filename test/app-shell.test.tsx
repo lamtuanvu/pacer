@@ -17,9 +17,11 @@ const at = (hash: string) => resolveRoute(hash) as Route;
 
 test("rail labels carry counts and mark the current screen", () => {
   const html = renderToString(<Rail route={at("#/needs-you")} counts={snap.counts!} />);
-  expect(html).toContain('aria-label="Overview"');
-  expect(html).toContain('aria-label="Needs you · 4 need you"');
-  expect(html).toContain('aria-label="Tasks · 2 running"');
+  expect(html).toContain('aria-label="Dispatch"');
+  expect(html).not.toContain('aria-label="Overview"');
+  expect(html).not.toContain('aria-label="Start work"');
+  expect(html).toContain('aria-label="Needs you, 4 items"');
+  expect(html).toContain('aria-label="Tasks, 2 running"');
   expect(html).toMatch(/aria-current="page"[^>]*aria-label="Needs you|aria-label="Needs you[^"]*"[^>]*aria-current="page"/);
   expect(html).toContain('role="tooltip"');
 });
@@ -27,21 +29,22 @@ test("rail labels carry counts and mark the current screen", () => {
 test("rail badges hide without counts or at zero, and the gear shows open setup", () => {
   const none = renderToString(<Rail route={at("#/")} counts={null} />);
   expect(none).not.toContain("pc-rail__badge");
-  expect(none).toContain('aria-label="Overview"');
+  expect(none).toContain('aria-label="Dispatch"');
+  expect(none).toMatch(/aria-current="page"[^>]*aria-label="Dispatch"|aria-label="Dispatch"[^>]*aria-current="page"/);
   const zero = renderToString(<Rail route={at("#/")} counts={{ ...snap.counts!, attention: 0, review: 0, running: 0 }} />);
   expect(zero).not.toContain("pc-rail__badge");
   expect(zero).not.toContain("pc-rail__dot");
   expect(renderToString(<Rail route={at("#/")} counts={{ ...snap.counts!, setupOpen: 2 }} />)).toContain("pc-rail__dot");
 });
 
-test("settings panel lists general, hosts with a problem count, and add executor", () => {
+test("settings panel lists the board destinations", () => {
   const html = renderToString(<SettingsPanel route={at("#/settings")} counts={snap.counts!} />);
   expect(html).toContain("<aside");
   expect(html).toContain('href="#/settings"');
-  expect(html).toContain('href="#/settings/hosts"');
-  expect(html).toContain('href="#/settings/add-executor"');
-  expect(html).toContain("Remote hosts");
-  expect(html).toMatch(/pc-rail__badge[^>]*>1 needs setup</);
+  expect(html).toContain('href="#/settings/machine"');
+  expect(html).toContain('href="#/settings/executors"');
+  expect(html).toContain("Machines");
+  expect(html).not.toContain("1 needs setup");
 });
 
 test("layout has landmarks, a skip link, and the settings panel only in settings", () => {
@@ -83,25 +86,24 @@ test("shortcut help lists registered shortcuts with keys", () => {
   expect(html).toContain("Review");
 });
 
-test("settings shows one Dispatcher destination while executor and host status badges use their tones", () => {
+test("settings shows one Dispatcher destination and only the backed Agents badge", () => {
   const html = renderToString(<SettingsPanel route={at('#/settings')} counts={snap.counts!}
-    snapshot={{ ...snap, accounts: Array.from({ length: 6 }, () => snap.accounts![0]!), executors: [{ ...snap.executors![0]!, state: 'down' }], hosts: [{ ...snap.hosts![0]!, state: 'needs_setup' }] }}
-    badges={{ strategies: 6, routing: '1 rule' }} />);
-  expect(html).toMatch(/Accounts<span[^>]*class="pc-rail__badge pc-rail__badge--neutral"[^>]*>6</);
+    snapshot={{ ...snap, accounts: Array.from({ length: 6 }, () => snap.accounts![0]!), executors: [{ ...snap.executors![0]!, state: 'down' }], hosts: [{ ...snap.hosts![0]!, state: 'needs_setup' }] }} />);
+  expect(html).not.toContain('>Accounts<');
   expect(html).toContain('Dispatcher');
   expect(html).not.toContain('>Strategies<');
   expect(html).not.toContain('>Routing<');
-  expect(html).toMatch(/pc-rail__badge--bad"[^>]*>1</);
-  expect(html).toContain("1 need attention; 0 blocked");
-  expect(html).toMatch(/pc-rail__badge--warn"[^>]*>1 needs setup</);
+  expect(html).toMatch(/pc-settings-nav__badge--bad"[^>]*><span aria-hidden="true">1</);
+  expect(html).toContain("1 needs attention");
+  expect(html).not.toContain("1 needs setup");
   expect(html).not.toContain('>1 rule</span>');
 });
 
-test("retired and unknown hashes select Overview in the shell", () => {
+test("retired and unknown hashes select Dispatch in the shell", () => {
   for (const hash of ["#/accounts", "#/missing"]) {
-    const html = renderToString(<Layout route={at(hash)} state={ready()} title="Overview"><p>Overview body</p></Layout>);
-    expect(html).toContain("<p>Overview body</p>");
-    expect(html).toMatch(/aria-current="page"[^>]*aria-label="Overview|aria-label="Overview[^"]*"[^>]*aria-current="page"/);
+    const html = renderToString(<Layout route={at(hash)} state={ready()} title="Dispatch"><p>Dispatch body</p></Layout>);
+    expect(html).toContain("<p>Dispatch body</p>");
+    expect(html).toMatch(/aria-current="page"[^>]*aria-label="Dispatch|aria-label="Dispatch[^"]*"[^>]*aria-current="page"/);
     expect(html).not.toContain("<aside");
   }
 });
@@ -113,4 +115,27 @@ test("detail routes select exactly one primary and at most one settings destinat
  const hostRoute = at("#/settings/hosts/devbox");
  const shell = renderToString(<><Rail route={hostRoute} counts={snap.counts!}/><SettingsPanel route={hostRoute} counts={snap.counts!}/></>);
  expect(shell.match(/aria-current="page"/g)).toHaveLength(2);
+});
+
+
+test("top bar calls the delegate action New task on every destination that offers it", () => {
+  for (const hash of ["#/needs-you", "#/tasks", "#/settings", "#/settings/dispatcher", "#/terminal"]) {
+    const html = renderToString(<Layout route={at(hash)} state={ready()} title="Page">body</Layout>);
+    expect(html).toMatch(/pc-btn[^>]*>New task<\/button>/);
+    expect(html).not.toMatch(/>Delegate<\/button>/);
+  }
+});
+
+test("Needs you owns exactly one page title, with no hidden duplicate in the top bar", async () => {
+  const { NeedsYouPage } = await import("../app/src/screens/dispatch/Dispatch");
+  const { TaskContext } = await import("../app/src/screens/task-shared");
+  const { ActionContext } = await import("../app/src/data/action-context");
+  const { createActionRunner } = await import("../app/src/data/actions");
+  const runner = createActionRunner({ call: async <T,>() => ({} as T), waitFor: async () => true, refetch() {}, navigate() {} });
+  const state = ready();
+  const route = at("#/needs-you");
+  const html = renderToString(<ActionContext.Provider value={runner}><TaskContext.Provider value={{ state, api: {} as never }}><Layout route={route} state={state} title="Needs you"><NeedsYouPage query={route.query} /></Layout></TaskContext.Provider></ActionContext.Provider>);
+  expect(html.match(/<h1\b/g)).toHaveLength(1);
+  expect(html).toContain('<h1>Needs you</h1>');
+  expect(html).toContain('pc-needs-you pc-page-body');
 });

@@ -31,7 +31,7 @@ export function renderProtocolDoc(major: 2 | 3 = 3): string {
     "conflict", "too_large", "internal",
     "plugin_timeout", "plugin_unavailable", "plugin_refused", "capability_denied", "unknown_plugin",
   ];
-  if (major === 3) codes.push("not_found");
+  if (major === 3) codes.push("not_found", "unavailable", "rate_limited");
   const schemas = major === 2 ? v2OpJsonSchemas() : opJsonSchemas();
   const doc = [
     `# Client protocol v${major}`,
@@ -175,7 +175,7 @@ export function renderProtocolDoc(major: 2 | 3 = 3): string {
     "",
     "## Events",
     "",
-    (major === 3 ? "The advertised v3 event types are `task`, `mode`, `config`, `pause`, `reset`, `planner`, `executor`, `account`, `host`, `repo`, `counts`, `attention`, `activity`, `job` and `notify`." : "The advertised v2 event types are `budget`, `task`, `mode`, `alert`, `config`, `pause`, `reset`, `executor`, `account`, `host`, `repo`, `counts`, `attention`, `activity`, `job` and `notify`.") + " A `config` event `{ area, at }` follows every successful configuration change (`area` is one of `config`, `accounts`, `runners`, `routing`, `strategy`, `hosts`, `setup`, `update`); clients refetch that area. Events have `{ seq, at, type, data }`; `seq` is the resume cursor, `at` is the publication time (legacy entries fall back to read time), and `data` carries the event payload.",
+    (major === 3 ? "The advertised v3 event types are `task`, `mode`, `config`, `pause`, `reset`, `planner`, `executor`, `account`, `host`, `repo`, `counts`, `attention`, `activity`, `job` and `notify`." : "The advertised v2 event types are `budget`, `task`, `mode`, `alert`, `config`, `pause`, `reset`, `executor`, `account`, `host`, `repo`, `counts`, `attention`, `activity`, `job` and `notify`.") + " A `config` event `{ area, at }` follows every successful configuration change (`area` is one of `config`, `accounts`, `runners`, `routing`, `strategy`, `hosts`, `setup`, `update`, `plugins`); clients refetch that area. Events have `{ seq, at, type, data }`; `seq` is the resume cursor, `at` is the publication time (legacy entries fall back to read time), and `data` carries the event payload.",
     "",
     "The additive `pause` event carries `{ until, reason, by }` (PauseState, with a Unix-seconds deadline and nullable fields) after `delegation.pause`. `delegation.resume` and timed pause expiry publish `{ removed: true }`; expiry is published once. Clients update their pause state directly.",
     "",

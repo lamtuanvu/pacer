@@ -20,6 +20,16 @@ pub struct FixturePolicy {
     pub signing_cert_sha1: Option<String>,
 }
 impl FixturePolicy {
+    fn validate_old_service_choice(&self, record: &serde_json::Value) -> Result<(), ()> {
+        let selected = self.nonce.starts_with("f0a3c29e5c0d");
+        match (selected, record.get("oldServiceChoice")) {
+            (false, None) => {},
+            (true, Some(serde_json::Value::String(choice))) if choice == "continue" => {},
+            _ => return Err(()),
+        }
+        if selected && record["initialLayout"] != "paired" { return Err(()); }
+        Ok(())
+    }
     pub fn parse(text: &str) -> Result<Self, ()> {
         let policy: Self = serde_json::from_str(text).map_err(|_| ())?;
         let parent = policy.root.parent().ok_or(())?;
@@ -71,7 +81,10 @@ impl FixturePolicy {
         if record.get("phase").and_then(serde_json::Value::as_str) != Some("prepared") {
             return Err(());
         }
-        Ok(())
+        self.validate_old_service_choice(&record)
+    }
+    pub fn permits_old_service_choice(&self) -> bool {
+        self.nonce.starts_with("f0a3c29e5c0d") && self.validate_live().is_ok()
     }
     fn private_record(&self) -> Result<serde_json::Value, ()> {
         use std::io::Read;
@@ -128,6 +141,7 @@ impl FixturePolicy {
     pub fn validate_build(&self, public_key: &str) -> Result<(), ()> {
         use sha2::{Digest, Sha256};
         let record = self.private_record()?;
+        self.validate_old_service_choice(&record)?;
         if record["phase"] == "prepared" {
             return Ok(());
         }
@@ -247,6 +261,33 @@ mod tests {
         }
         policy.signing_cert_sha1 = None;
         assert!(!serde_json::to_string(&policy).unwrap().contains("signingCertSha1"));
+    }
+    #[test]
+    fn old_service_choice_requires_exact_compiled_and_recorded_lease() {
+        let (_temp, mut policy) = fixture();
+        assert!(!policy.permits_old_service_choice());
+        policy.nonce = format!("f0a3c29e5c0d{}", "a".repeat(20));
+        policy.service_label = format!("com.pacer.live.{}.service", policy.nonce);
+        policy.recovery_label = format!("com.pacer.live.{}.recovery", policy.nonce);
+        assert_eq!(FixturePolicy::parse(&serde_json::to_string(&policy).unwrap()).unwrap(), policy);
+        let path = policy.root.join("record.json");
+        let mut record: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        record["nonce"] = policy.nonce.clone().into();
+        record["serviceLabel"] = policy.service_label.clone().into();
+        record["recoveryLabel"] = policy.recovery_label.clone().into();
+        record["initialLayout"] = "paired".into();
+        std::fs::write(&path, serde_json::to_vec(&record).unwrap()).unwrap();
+        assert!(!policy.permits_old_service_choice());
+        record["oldServiceChoice"] = "continue".into();
+        std::fs::write(&path, serde_json::to_vec(&record).unwrap()).unwrap();
+        assert!(policy.permits_old_service_choice());
+        record["initialLayout"] = "bridge".into();
+        std::fs::write(&path, serde_json::to_vec(&record).unwrap()).unwrap();
+        assert!(!policy.permits_old_service_choice());
+        record["initialLayout"] = "paired".into();
+        record["oldServiceChoice"] = "skip".into();
+        std::fs::write(&path, serde_json::to_vec(&record).unwrap()).unwrap();
+        assert!(!policy.permits_old_service_choice());
     }
     #[test]
     fn lease_is_bound_to_private_live_harness_resources() {

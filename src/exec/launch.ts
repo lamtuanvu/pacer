@@ -3,6 +3,7 @@ import { parseRunnerId, resolveRunner } from "../config/runner-id";
 import { join } from "node:path";
 import { loadStrategy, MissingStrategyError, type ProviderCfg } from "../config/strategy";
 import type { RunnerCfg } from "../config/accounts";
+import type { ExecutionCfg, LaunchMode } from "../config/execution";
 import type { Ctx } from "../types";
 import { readKey } from "../endpoints/keys";
 import { endpointKeyEnv, writeOpencodeConfig } from "../endpoints/opencode-config";
@@ -60,7 +61,37 @@ function codexTrust(repo: string, root: string): string {
   return `projects={${[...new Set([repo, root])].map(path => `${JSON.stringify(path)}={trust_level="trusted"}`).join(",")}}`;
 }
 
+const INTERACTIVE_AGENTS = ["opencode", "codex", "claude-code", "cursor", "agy"];
+export interface LaunchModeChoice { mode: LaunchMode; explicit: boolean; fallback?: string }
+
+/** Strict delegation enforcement certifies headless launches only. */
+export const MANAGED_HEADLESS = "managed dispatch with strict delegation enforcement runs headless";
+
+/**
+ * Runner `session:` > execution.launch_mode > interactive. Only a default-derived interactive mode falls back
+ * to headless; `managed` (strict delegation enforcement) keeps it headless as before interactive became the default.
+ */
+export function launchModeFor(cfg: Pick<ProviderCfg, "id" | "via" | "session">, exec: Pick<ExecutionCfg, "launchMode">, options: {managed?: boolean} = {}): LaunchModeChoice {
+  if (cfg.session) return {mode: cfg.session, explicit: true};
+  const mode = exec.launchMode ?? "interactive", parsed = parseRunnerId(cfg.id), agent = cfg.via === "opencode" ? "opencode" : parsed?.agent ?? cfg.id;
+  if (mode === "headless") return {mode, explicit: false};
+  if (options.managed) return {mode: "headless", explicit: false, fallback: MANAGED_HEADLESS};
+  if (parsed?.host) return {mode: "headless", explicit: false, fallback: "remote runners run headless"};
+  if (!INTERACTIVE_AGENTS.includes(agent)) return {mode: "headless", explicit: false, fallback: `no interactive launcher for ${agent}`};
+  return {mode, explicit: false};
+}
+
 export interface Launch { argv: string[]; cwd: string; stdin?: string; lastMessageFile?: string }
+
+/** An idle agent for Orca to attach to; Orca injects the task prompt after startup. */
+export function launchArgvFor(cfg: ProviderCfg, worktree: string, runDir: string, trustRoot = worktree): string[] {
+  const agent = parseRunnerId(cfg.id)?.agent ?? cfg.id;
+  const models = cfg.model ? [agent === "codex" ? "-m" : "--model", cfg.model] : [];
+  if (agent === "codex") return ["codex", "--no-daemon", "-c", codexTrust(worktree, trustRoot), "-C", worktree,
+    "--dangerously-bypass-approvals-and-sandbox", "--add-dir", runDir, ...models];
+  if (agent === "claude-code") return ["claude", "--dangerously-skip-permissions", ...models];
+  throw Error(`no Orca terminal launcher for provider "${cfg.id}"`);
+}
 
 export function launchFor(cfg: ProviderCfg, prompt: string, repo: string, taskDir: string, taskId: string, sessionId?: string, trustRoot = repo): Launch {
   const model = cfg.model;
@@ -74,8 +105,7 @@ export function launchFor(cfg: ProviderCfg, prompt: string, repo: string, taskDi
     const agent = parseRunnerId(cfg.id)?.agent ?? cfg.id;
     const models = model ? [agent === "codex" || agent === "opencode" ? "-m" : "--model", model] : [];
     const argv = cfg.via === "opencode" ? ["opencode", "--standalone", "--auto", "--prompt", prompt]
-      : agent === "codex" ? ["codex", "--no-daemon", "-c", codexTrust(repo, trustRoot), "-C", repo, "--dangerously-bypass-approvals-and-sandbox", "--add-dir", taskDir, ...models, "--", prompt]
-      : agent === "claude-code" ? ["claude", "--dangerously-skip-permissions", ...models, "--", prompt]
+      : agent === "codex" || agent === "claude-code" ? [...launchArgvFor(cfg, repo, taskDir, trustRoot), "--", prompt]
       : agent === "cursor" ? ["cursor-agent", "--force", "--sandbox", "disabled", "--workspace", repo, ...models, "--", prompt]
       : agent === "agy" ? ["agy", "--dangerously-skip-permissions", "--add-dir", repo, ...models, "--prompt-interactive", prompt] : null;
     if (!argv) throw new Error(`no interactive launcher for provider "${cfg.id}"`);

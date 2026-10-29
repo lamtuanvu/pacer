@@ -44,6 +44,8 @@ HTTP route errors after authentication use `{ "error": { "code": "...", "message
 | `capability_denied` | 403 |
 | `unknown_plugin` | 404 |
 | `not_found` | 404 |
+| `unavailable` | 503 |
+| `rate_limited` | 429 |
 
 Missing or invalid HTTP tokens return 401 with the plain-text body `unauthorized`. A wrong HTTP verb returns 405 with `invalid_input`.
 
@@ -150,7 +152,7 @@ Executor questions settle tasks as `needs_input` (label: Needs your answer). `ta
 
 ## Events
 
-The advertised v3 event types are `task`, `mode`, `config`, `pause`, `reset`, `planner`, `executor`, `account`, `host`, `repo`, `counts`, `attention`, `activity`, `job` and `notify`. A `config` event `{ area, at }` follows every successful configuration change (`area` is one of `config`, `accounts`, `runners`, `routing`, `strategy`, `hosts`, `setup`, `update`); clients refetch that area. Events have `{ seq, at, type, data }`; `seq` is the resume cursor, `at` is the publication time (legacy entries fall back to read time), and `data` carries the event payload.
+The advertised v3 event types are `task`, `mode`, `config`, `pause`, `reset`, `planner`, `executor`, `account`, `host`, `repo`, `counts`, `attention`, `activity`, `job` and `notify`. A `config` event `{ area, at }` follows every successful configuration change (`area` is one of `config`, `accounts`, `runners`, `routing`, `strategy`, `hosts`, `setup`, `update`, `plugins`); clients refetch that area. Events have `{ seq, at, type, data }`; `seq` is the resume cursor, `at` is the publication time (legacy entries fall back to read time), and `data` carries the event payload.
 
 The additive `pause` event carries `{ until, reason, by }` (PauseState, with a Unix-seconds deadline and nullable fields) after `delegation.pause`. `delegation.resume` and timed pause expiry publish `{ removed: true }`; expiry is published once. Clients update their pause state directly.
 
@@ -915,6 +917,444 @@ Params JSON Schema:
 }
 ```
 
+### `assistant.ask`
+
+Ask the assistant one question. The answer streams from /v3/assistant/turns/<turnId>/stream; nothing runs until the user confirms a proposed action.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "conversationId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000
+    },
+    "scope": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "dispatch"
+            },
+            "days": {
+              "default": 7,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 90
+            }
+          },
+          "required": [
+            "kind",
+            "days"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "task"
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          "required": [
+            "kind",
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "repo"
+            },
+            "repo": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            }
+          },
+          "required": [
+            "kind",
+            "repo"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "requestId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    }
+  },
+  "required": [
+    "text",
+    "scope",
+    "requestId"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `assistant.cancel`
+
+Cancel a turn that is still being answered.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "turnId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    }
+  },
+  "required": [
+    "turnId"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `assistant.candidates`
+
+Endpoint accounts the assistant could run on, and what it is allowed to read.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}
+```
+
+### `assistant.card.record`
+
+Record the user's decision and the outcome on an action card in the conversation. The app runs the proposed op itself.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "turnId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "cardId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "state": {
+      "type": "string",
+      "enum": [
+        "done",
+        "failed",
+        "dismissed",
+        "stale"
+      ]
+    },
+    "result": {
+      "type": "string",
+      "maxLength": 500
+    }
+  },
+  "required": [
+    "turnId",
+    "cardId",
+    "state"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `assistant.card.refresh`
+
+Rebuild a card whose task changed, with the task's current revision.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "turnId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "cardId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    }
+  },
+  "required": [
+    "turnId",
+    "cardId"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `assistant.conversation`
+
+The turns of one conversation, with action cards and their outcomes.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `assistant.conversations`
+
+A page of assistant conversations, newest first.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "before": {
+      "type": "number"
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100
+    }
+  },
+  "additionalProperties": false
+}
+```
+
+### `assistant.delete`
+
+Delete one conversation, or every conversation without an id. Usage figures stay, without the text.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    }
+  },
+  "additionalProperties": false
+}
+```
+
+### `assistant.settings.get`
+
+The assistant's account, limits and retention, with a revision for assistant.settings.set.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}
+```
+
+### `assistant.settings.set`
+
+Choose the executor account the assistant runs on, and its limits and retention. Needs the current revision.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "runner": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "account": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "limits": {
+      "type": "object",
+      "properties": {
+        "maxInputTokens": {
+          "default": 32000,
+          "type": "integer",
+          "minimum": 1000,
+          "maximum": 200000
+        },
+        "maxOutputTokens": {
+          "default": 8000,
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 32000
+        },
+        "maxToolRounds": {
+          "default": 6,
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 6
+        },
+        "turnsPerDay": {
+          "default": 50,
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000
+        },
+        "deadlineMs": {
+          "default": 120000,
+          "type": "integer",
+          "minimum": 1000,
+          "maximum": 120000
+        }
+      },
+      "additionalProperties": false
+    },
+    "retention": {
+      "type": "object",
+      "properties": {
+        "days": {
+          "default": 30,
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 365
+        },
+        "conversations": {
+          "default": 200,
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000
+        }
+      },
+      "additionalProperties": false
+    },
+    "expect_rev": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "runner",
+    "account",
+    "expect_rev"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `assistant.status`
+
+Whether the assistant is available, which account answers, why not when it is not, its limits and today's use.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}
+```
+
+### `assistant.turn`
+
+One turn, for reading its final state after a stream ends.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "turnId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    }
+  },
+  "required": [
+    "turnId"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### `attention.dismiss`
 
 Dismiss a raised attention item.
@@ -1413,10 +1853,14 @@ Params JSON Schema:
       "enum": [
         "task_retention_days",
         "execution.local_max_tasks",
+        "execution.launch_mode",
+        "execution.backend",
         "planner",
         "pacing.order",
         "pacing.policy",
         "pacing.planner_reserve",
+        "pacing.planner_reserve_headroom",
+        "pacing.planner_probe",
         "pacing.accounts",
         "pacing.fill_threshold",
         "update_check",
@@ -2359,6 +2803,34 @@ Params JSON Schema:
 }
 ```
 
+### `dispatch.enforcement.consent`
+
+Grant or decline consent for scheduled certification probes on an account. Probes spend the account's own quota to certify its enforcement guard.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "account": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "granted": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "account",
+    "granted"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### `dispatch.enforcement.denied`
 
 Record a native child denial for the authenticated strict attempt.
@@ -2442,6 +2914,194 @@ Params JSON Schema:
     "id"
   ],
   "additionalProperties": false
+}
+```
+
+### `dispatch.explain`
+
+Explain, read-only, which executor a request would go to: the ladder step, the reasons, the fallbacks and the planner's cost. Starts, reserves and writes nothing.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "repo": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "goal": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 20000
+    },
+    "kind": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "executor": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "model": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "requirements": {
+      "default": {},
+      "type": "object",
+      "properties": {
+        "minTier": {
+          "type": "string",
+          "enum": [
+            "small",
+            "medium",
+            "frontier"
+          ]
+        },
+        "tools": {
+          "type": "boolean"
+        },
+        "context": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "additionalProperties": false
+    },
+    "preferences": {
+      "default": {
+        "models": [],
+        "strengths": []
+      },
+      "type": "object",
+      "properties": {
+        "models": {
+          "default": [],
+          "maxItems": 256,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        },
+        "strengths": {
+          "default": [],
+          "maxItems": 64,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        }
+      },
+      "required": [
+        "models",
+        "strengths"
+      ],
+      "additionalProperties": false
+    },
+    "delegationEnforcement": {
+      "type": "string",
+      "enum": [
+        "strict",
+        "cooperative"
+      ]
+    },
+    "difficulty": {
+      "type": "string",
+      "enum": [
+        "simple",
+        "standard",
+        "complex"
+      ]
+    },
+    "strategyDraft": {
+      "type": "object",
+      "properties": {
+        "from": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "set": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "maxLength": 256
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema0"
+          }
+        },
+        "unset": {
+          "maxItems": 256,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 256
+          }
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 1000
+        }
+      },
+      "required": [
+        "from"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "repo",
+    "goal",
+    "requirements",
+    "preferences"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "__schema0": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/__schema0"
+          }
+        },
+        {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema0"
+          }
+        }
+      ]
+    }
+  }
 }
 ```
 
@@ -3122,6 +3782,40 @@ Params JSON Schema:
 }
 ```
 
+### `files.search`
+
+Search file paths, read-only, in registered repositories for the command menu: tracked files only, bounded, with matched ranges and the running tasks that changed each file. Writes nothing.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "query": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "repo": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 50
+    }
+  },
+  "required": [
+    "query"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### `host.account.add`
 
 Map a host account folder and return its login command.
@@ -3458,6 +4152,108 @@ Params JSON Schema:
   },
   "required": [
     "alias"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `insights.summary`
+
+Where the work and tokens went in a period: distinct root tasks and child tasks reached by attempts ended in the period (the union across agent rows, not their sum), token totals with coverage, the spread per agent, a series per bucket, task kinds by agent, ladder rules and skip reasons, plus the previous period for comparison. Acceptance and retry counts retain the first-settle cohort.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "from": {
+      "type": "number",
+      "minimum": 0
+    },
+    "to": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "repo": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "bucket": {
+      "default": "day",
+      "type": "string",
+      "enum": [
+        "day",
+        "week"
+      ]
+    }
+  },
+  "required": [
+    "from",
+    "to",
+    "bucket"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `issue.import`
+
+Read one GitHub issue (title, body, labels, URL, state) of a registered repository through the user's gh login, as capped plain text for a new task. The GitHub repository comes from the checkout's origin remote. Writes nothing.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "repo": {
+      "type": "string"
+    },
+    "issue": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "repo",
+    "issue"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `issue.search`
+
+Search a registered repository's GitHub issues for a picker (number, title, labels, URL, state) through the user's gh login. Writes nothing.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "repo": {
+      "type": "string"
+    },
+    "query": {
+      "type": "string"
+    },
+    "state": {
+      "type": "string"
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": -9007199254740991,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "repo",
+    "query"
   ],
   "additionalProperties": false
 }
@@ -3830,6 +4626,345 @@ Params JSON Schema:
   },
   "required": [
     "id"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `plugin.settings.get`
+
+A plugin's settings schema (from its manifest), saved values and revision.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "plugin": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{1,63}$"
+    }
+  },
+  "required": [
+    "plugin"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `plugin.settings.set`
+
+Validate and save a plugin's settings against its manifest schema. A stale expect_rev returns conflict; invalid values return invalid_input with field errors in data.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "plugin": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{1,63}$"
+    },
+    "values": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/__schema0"
+      }
+    },
+    "expect_rev": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "plugin",
+    "values",
+    "expect_rev"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "__schema0": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/__schema0"
+          }
+        },
+        {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema0"
+          }
+        }
+      ]
+    }
+  }
+}
+```
+
+### `plugin.ui.action`
+
+Send a user action on a plugin surface to the plugin. requestId makes a repeat safe.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "plugin": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{1,63}$"
+    },
+    "surface": {
+      "type": "string",
+      "enum": [
+        "activity",
+        "panelTab",
+        "status"
+      ]
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,31}$"
+    },
+    "action": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._-]{1,64}$"
+    },
+    "context": {
+      "type": "object",
+      "properties": {
+        "route": {
+          "type": "string",
+          "enum": [
+            "start",
+            "overview",
+            "review",
+            "sessions",
+            "terminal",
+            "settings",
+            "hosts",
+            "add-executor",
+            "setup"
+          ]
+        },
+        "taskId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+        },
+        "theme": {
+          "type": "string",
+          "enum": [
+            "light",
+            "dark"
+          ]
+        }
+      },
+      "required": [
+        "route",
+        "theme"
+      ],
+      "additionalProperties": false
+    },
+    "requestId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "values": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "maxLength": 64
+      },
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "type": "string",
+            "maxLength": 2000
+          },
+          {
+            "type": "number"
+          },
+          {
+            "type": "boolean"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      }
+    }
+  },
+  "required": [
+    "plugin",
+    "surface",
+    "id",
+    "action",
+    "context",
+    "requestId"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `plugin.ui.list`
+
+Every UI surface of every enabled, granted plugin: activity items, panel tabs, settings pages and status items, with visibility. Starts nothing.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}
+```
+
+### `plugin.ui.render`
+
+Render one plugin surface to a validated view document. Starts the plugin if idle, except for status items, which render only while the plugin is ready.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "plugin": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{1,63}$"
+    },
+    "surface": {
+      "type": "string",
+      "enum": [
+        "activity",
+        "panelTab",
+        "status"
+      ]
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,31}$"
+    },
+    "context": {
+      "type": "object",
+      "properties": {
+        "route": {
+          "type": "string",
+          "enum": [
+            "start",
+            "overview",
+            "review",
+            "sessions",
+            "terminal",
+            "settings",
+            "hosts",
+            "add-executor",
+            "setup"
+          ]
+        },
+        "taskId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+        },
+        "theme": {
+          "type": "string",
+          "enum": [
+            "light",
+            "dark"
+          ]
+        }
+      },
+      "required": [
+        "route",
+        "theme"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "plugin",
+    "surface",
+    "id",
+    "context"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `plugin.ui.visibility`
+
+Show or hide one plugin surface. Service state, so every client agrees. A stale expect_rev returns conflict.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "plugin": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{1,63}$"
+    },
+    "surface": {
+      "type": "string",
+      "enum": [
+        "activity",
+        "panelTab",
+        "settings",
+        "status"
+      ]
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,31}$"
+    },
+    "visible": {
+      "type": "boolean"
+    },
+    "expect_rev": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "plugin",
+    "surface",
+    "id",
+    "visible",
+    "expect_rev"
   ],
   "additionalProperties": false
 }

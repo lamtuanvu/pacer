@@ -1,18 +1,13 @@
-import type { SessionData } from './types';
-import { ButtonLink } from '../../ds/Button';
-import { AgentMark } from '../../ds/AgentMark';
-import { SectionHeading } from '../../ds/SectionHeading';
-import { taskStatus } from '../../../../src/view-model/words';
+import { IconButton } from "../../ds/Button";
+import { useFrame } from "../../shell/slots";
+import { TaskTree } from '../../ds/TaskTreeNode';
+import type { TaskNodeView } from '../../../../src/view-model/task-tree';
+import { taskHref } from './task-href';
 
-export function TaskNavigator({selectedId,selectedTask,running,recent,query=''}: { selectedId: string; selectedTask?: SessionData; running: SessionData[]; recent: SessionData[]; query?: string }) {
- const groups=[['Running',running],['Completed',recent]] as const;
- const present=[...running,...recent].some(task=>task.id===selectedId);
- const href=(id:string)=>`#/tasks/${encodeURIComponent(id)}${query?(query.startsWith('?')?query:`?${query}`):''}`;
- const row=(task:SessionData)=><li key={task.id}><ButtonLink href={href(task.id)} variant="quiet" size="sm" className={`pc-task-nav__item${task.id===selectedId?' pc-task-nav__item--current':''}`} aria-current={task.id===selectedId?'page':undefined} title={task.title??task.goal}>
-  <AgentMark agent={task.agent}/><span className="pc-task-nav__copy"><strong>{task.title??task.goal}</strong><span title={task.repo}>{task.repo}</span><small>{taskStatus(task).label}</small></span>
- </ButtonLink></li>;
- return <nav className="pc-task-nav" aria-label="Task navigator"><div className="pc-task-nav__head"><strong>Tasks</strong><span>{running.length+recent.length+(present?0:1)}</span></div><div className="pc-task-nav__scroll">
-  {!present&&selectedTask&&<section aria-label="Current task"><SectionHeading as="h3">Current task</SectionHeading><ul>{row(selectedTask)}</ul></section>}
-  {groups.map(([name,tasks])=>tasks.length>0&&<section key={name} aria-label={name}><SectionHeading as="h3">{name}</SectionHeading><ul>{tasks.map(row)}</ul></section>)}
+/** The Session panel's task list, one flat tree in attention order. The caller pins the open task (scopedTaskTree `pinned`), so it appears in place or under its parent. */
+export function TaskNavigator({selectedId,nodes,query=''}: { selectedId: string; nodes: TaskNodeView[]; query?: string }) {
+ const panel = useFrame()?.sessions;
+ return <nav className="pc-task-nav" aria-label="Task navigator"><div className="pc-task-nav__head"><strong>Sessions</strong>{panel && <IconButton id="pc-side-panel-left-toggle" size="sm" variant="quiet" icon="panel-left" aria-label="Hide Sessions" title="Hide Sessions" aria-expanded={panel.open} aria-controls="pc-side-panel-left" onClick={panel.toggle}/>}</div><div className="pc-task-nav__scroll">
+  <TaskTree nodes={nodes} density="compact" href={taskHref(query)} selectedId={selectedId} label="Sessions"/>
  </div></nav>;
 }

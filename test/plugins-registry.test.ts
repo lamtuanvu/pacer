@@ -77,7 +77,7 @@ test("enable needs a grant once, then starts lazily, answers declared capabiliti
   expect(await r.enable(ctx, "fx-good", true)).toEqual({ id: "fx-good", state: "idle" });
   expect(r.list(ctx).find(p => p.id === "fx-good")).toMatchObject({ enabled: true, grant: { version: "1.0.0", capabilities: ["log", "config.get"] }, pid: null });
   const [report] = await r.doctor(live(ctx), "fx-good");
-  expect(report).toMatchObject({ id: "fx-good", ok: true, state: "ready", served: ["diagnostic"], protocol: { host: "1.1.0", plugin: "1.0.0" }, restarts: 0 });
+  expect(report).toMatchObject({ id: "fx-good", ok: true, state: "ready", served: ["diagnostic"], protocol: { host: "1.3.0", plugin: "1.0.0" }, restarts: 0 });
   expect(report.pid).toBeGreaterThan(0);
   const end = Date.now() + 2000; while (!readFileSync(pluginLogPath(ctx, "fx-good"), "utf8").includes("ping 1") && Date.now() < end) await Bun.sleep(10);
   expect(readFileSync(pluginLogPath(ctx, "fx-good"), "utf8")).toContain("[stderr] fixture fx-good: ping 1");
@@ -143,3 +143,62 @@ test("calls serialise unless the manifest is reentrant", async () => {
   expect(await peak("fx-reentrant")).toBe(2);
   await r.shutdown();
 }, 20000);
+
+// ── ui surfaces ───────────────────────────────────────────────────────────────
+const ctxRoute = { route: "overview", theme: "light" } as const;
+async function uiPlugin(fixture: Record<string, unknown> = {}) {
+  const ctx = home();
+  installFixture("ui", join(ctx.pacerHome, "plugins"), { fixture });
+  const r = registry();
+  await r.enable(ctx, "fx-ui", true);
+  return { ctx: live(ctx), r };
+}
+
+test("ui.render returns a validated document and rejects an invalid one with a host-drawn error", async () => {
+  const ok = await uiPlugin({ uiDocument: { type: "text", text: "Café​" } });
+  expect((await ok.r.renderSurface(ok.ctx, "fx-ui", "activity", "checklist", ctxRoute)).document).toEqual({ type: "text", text: "Café" });
+  const bad = await uiPlugin({ uiDocument: { type: "html", html: "<script>" } });
+  expect(await codeOf(bad.r.renderSurface(bad.ctx, "fx-ui", "activity", "checklist", ctxRoute))).toBe("invalid_input");
+  expect(readFileSync(pluginLogPath(bad.ctx, "fx-ui"), "utf8")).toContain("invalid ui.render document for checklist");
+  expect(readFileSync(pluginLogPath(bad.ctx, "fx-ui"), "utf8")).not.toContain("<script>");
+  expect(await codeOf(bad.r.renderSurface(bad.ctx, "fx-ui", "activity", "nope", ctxRoute))).toBe("not_found");
+});
+
+test("a status item never starts its plugin, and renders once the plugin is ready", async () => {
+  const ctx = home();
+  installFixture("ui", join(ctx.pacerHome, "plugins"));
+  const r = registry();
+  await r.enable(ctx, "fx-ui", true);
+  expect(await codeOf(r.renderSurface(live(ctx), "fx-ui", "status", "open-items", ctxRoute))).toBe("plugin_unavailable");
+  await r.renderSurface(live(ctx), "fx-ui", "activity", "checklist", ctxRoute);
+  expect((await r.renderSurface(live(ctx), "fx-ui", "status", "open-items", ctxRoute)).ttlS).toBeGreaterThanOrEqual(30);
+});
+
+test("renders are limited to two a second per surface, actions run through the plugin", async () => {
+  const { ctx, r } = await uiPlugin();
+  await r.renderSurface(ctx, "fx-ui", "activity", "checklist", ctxRoute);
+  await r.renderSurface(ctx, "fx-ui", "activity", "checklist", ctxRoute);
+  expect(await codeOf(r.renderSurface(ctx, "fx-ui", "activity", "checklist", ctxRoute))).toBe("conflict");
+  expect(await r.actionSurface(ctx, "fx-ui", "activity", "checklist", "run", ctxRoute, "req-1")).toEqual({ result: "refresh", message: "done" });
+});
+
+test("ui.invalidate is coalesced to one event per second, with a trailing event so the last change is not lost", async () => {
+  const { ctx, r } = await uiPlugin({ invalidateOnRender: true });
+  const before = eventsSince(ctx, 0, 3).events.length;
+  await r.renderSurface(ctx, "fx-ui", "activity", "checklist", ctxRoute);
+  await Bun.sleep(1400);
+  await r.shutdown();
+  const withUi = eventsSince(ctx, 0, 3).events.slice(before).filter(e => e.type === "plugin" && "ui" in (e.data as object));
+  expect(withUi.length).toBe(2);
+});
+
+test("an invalid ui.action result is refused, not passed to the app", async () => {
+  const { ctx, r } = await uiPlugin({ actionMessage: "x".repeat(300) });
+  expect(await codeOf(r.actionSurface(ctx, "fx-ui", "activity", "checklist", "run", ctxRoute, "r1"))).toBe("invalid_input");
+});
+
+test("ten actions a minute per plugin, then conflict", async () => {
+  const { ctx, r } = await uiPlugin();
+  for (let i = 0; i < 10; i++) await r.actionSurface(ctx, "fx-ui", "activity", "checklist", "run", ctxRoute, `r${i}`);
+  expect(await codeOf(r.actionSurface(ctx, "fx-ui", "activity", "checklist", "run", ctxRoute, "r11"))).toBe("conflict");
+});

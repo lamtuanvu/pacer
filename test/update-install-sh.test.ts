@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { appendFileSync, chmodSync, mkdirSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { buildRelease, writeRelease } from "../scripts/release/build";
-import { type Platform, assetFile, hostTarget } from "../src/update/manifest";
+import { type Platform, assetFile, companionFile, hostTarget } from "../src/update/manifest";
 import { tmpDir } from "./helpers";
 
 const ROOT = resolve(import.meta.dir, "..");
@@ -17,15 +17,16 @@ afterEach(() => {
 
 const body = (v: string, p: Platform) => `#!/bin/sh\n# ${p.os}-${p.arch}\necho "pacer ${v}"\n`;
 
-function release(root: string, version: string, platforms: Platform[] = [MAC]): void {
+function release(root: string, version: string, platforms: Platform[] = [MAC], paired = false): void {
   const dir = join(root, version);
   mkdirSync(dir, { recursive: true });
   for (const p of platforms) {
     const f = join(dir, assetFile(p));
     writeFileSync(f, body(version, p));
     chmodSync(f, 0o755);
+    if (paired) writeFileSync(join(dir, companionFile(p)), body(version, p), { mode: 0o755 });
   }
-  writeRelease(root, version, platforms);
+  writeRelease(root, version, platforms, { paired });
 }
 
 /** A PATH dir whose uname/sysctl pretend to be another machine. */
@@ -318,3 +319,58 @@ esac
     }
   }
 });
+
+
+test("paired shell install verifies and installs the core beside the front door", async () => {
+  const root = tmpDir(), dir = join(tmpDir(), "bin"); release(root, "0.8.0", [MAC], true);
+  const result = await runInstall({ PACER_RELEASE_BASE: `file://${root}`, PACER_INSTALL_DIR: dir });
+  expect(result.code).toBe(0);
+  expect(readFileSync(join(dir, "pacer-core"), "utf8")).toBe(body("0.8.0", MAC));
+  expect(readdirSync(dir).sort()).toEqual(["pacer", "pacer-core"]);
+});
+
+test("paired shell install refuses a corrupt core without changing either installed file", async () => {
+  const root = tmpDir(), dir = join(tmpDir(), "bin"); release(root, "0.8.0", [MAC], true);
+  mkdirSync(dir); writeFileSync(join(dir, "pacer"), "old front"); writeFileSync(join(dir, "pacer-core"), "old core");
+  writeFileSync(join(root, "0.8.0", companionFile(MAC)), "corrupt");
+  const result = await runInstall({ PACER_RELEASE_BASE: `file://${root}`, PACER_INSTALL_DIR: dir });
+  expect(result.code).not.toBe(0); expect(result.err).toContain("checksum mismatch");
+  expect(readFileSync(join(dir, "pacer"), "utf8")).toBe("old front");
+  expect(readFileSync(join(dir, "pacer-core"), "utf8")).toBe("old core");
+  expect(readdirSync(dir).sort()).toEqual(["pacer", "pacer-core"]);
+});
+
+test("paired shell install smoke-tests the core before replacing installed files", async () => {
+  const root = tmpDir(), dir = join(tmpDir(), "bin"); release(root, "0.8.0", [MAC], true);
+  mkdirSync(dir); writeFileSync(join(dir, "pacer"), "old front"); writeFileSync(join(dir, "pacer-core"), "old core");
+  writeFileSync(join(root, "0.8.0", companionFile(MAC)), body("0.7.0", MAC));
+  writeRelease(root, "0.8.0", [MAC], { paired: true });
+  const result = await runInstall({ PACER_RELEASE_BASE: `file://${root}`, PACER_INSTALL_DIR: dir });
+  expect(result.code).not.toBe(0); expect(result.err).toContain("expected 'pacer 0.8.0'");
+  expect(readFileSync(join(dir, "pacer"), "utf8")).toBe("old front");
+  expect(readFileSync(join(dir, "pacer-core"), "utf8")).toBe("old core");
+});
+
+test("paired shell install restores the old core when the front-door rename fails", async () => {
+  for (const hadCore of [true, false]) {
+    const root = tmpDir(), dir = join(tmpDir(), "bin"), observed = join(tmpDir(), "observed-core");
+    release(root, "0.8.0", [MAC], true); mkdirSync(dir);
+    writeFileSync(join(dir, "pacer"), "old front");
+    if (hadCore) writeFileSync(join(dir, "pacer-core"), "old core");
+    const bin = fakeBin("Darwin", "arm64");
+    writeFileSync(join(bin, "mv"), `#!/bin/sh
+for destination do :; done
+if [ "$destination" = "$FAIL_FRONT" ]; then
+  cat "$FAIL_CORE" > "$CORE_OBSERVED"
+  exit 17
+fi
+exec /bin/mv "$@"
+`, { mode: 0o755 });
+    const result = await runInstall({ PACER_RELEASE_BASE: `file://${root}`, PACER_INSTALL_DIR: dir, FAIL_FRONT: join(dir, "pacer"), FAIL_CORE: join(dir, "pacer-core"), CORE_OBSERVED: observed }, bin);
+    expect(result.code).not.toBe(0);
+    expect(readFileSync(observed, "utf8")).toBe(body("0.8.0", MAC));
+    expect(readFileSync(join(dir, "pacer"), "utf8")).toBe("old front");
+    if (hadCore) expect(readFileSync(join(dir, "pacer-core"), "utf8")).toBe("old core");
+    expect(readdirSync(dir).sort()).toEqual(hadCore ? ["pacer", "pacer-core"] : ["pacer"]);
+  }
+}, 15000);
