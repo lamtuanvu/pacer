@@ -20,10 +20,15 @@ export interface MachineMeta {
 }
 /** `signature` (base64) is the old key's signature over `oldId 0x00 newId` with plugin id `pacer` and purpose `rotate`. */
 export interface RotationStatement { oldId: string; newId: string; signature: string; at: number }
-export interface MachineIdentity { id: string; name: string; rev: number; createdAt: number; publicKey: KeyObject; privateKey: KeyObject }
+/** `cloneSuspected` is the copied-home check made when the identity was loaded; it is cached with the identity. */
+export interface MachineIdentity { id: string; name: string; rev: number; createdAt: number; publicKey: KeyObject; privateKey: KeyObject; cloneSuspected: boolean; lastRotation?: RotationStatement }
 
 const cache = new Map<string, MachineIdentity>();
-export function clearIdentityCache(): void { cache.clear(); }
+/** One load per PACER_HOME at a time: concurrent callers share it, so a first start creates one key. */
+const inflight = new Map<string, Promise<MachineIdentity>>();
+let generation = 0;
+export function clearIdentityCache(): void { cache.clear(); inflight.clear(); generation++; }
+export function cachedIdentity(ctx: Pick<Ctx, "pacerHome">): MachineIdentity | undefined { return cache.get(ctx.pacerHome); }
 
 let testPlatform: NodeJS.Platform | undefined;
 export function setIdentityPlatformForTests(p?: NodeJS.Platform): void { testPlatform = p; }
@@ -52,12 +57,26 @@ function defaultName(): string { return `pacer-${base32(randomBytes(3)).slice(0,
 
 function build(meta: MachineMeta, privateKey: KeyObject): MachineIdentity {
   const publicKey = createPublicKey(privateKey);
-  return { id: base32(rawPublicKey(publicKey)), name: meta.name, rev: meta.rev, createdAt: meta.createdAt, publicKey, privateKey };
+  return {
+    id: base32(rawPublicKey(publicKey)), name: meta.name, rev: meta.rev, createdAt: meta.createdAt, publicKey, privateKey,
+    cloneSuspected: !!meta.cloneDetected, ...(meta.lastRotation ? { lastRotation: meta.lastRotation } : {}),
+  };
 }
 
-export async function ensureIdentity(ctx: Ctx, deps: { platform?: NodeJS.Platform } = {}): Promise<MachineIdentity> {
-  const hit = cache.get(ctx.pacerHome);
-  if (hit) return hit;
+export function ensureIdentity(ctx: Ctx, deps: { platform?: NodeJS.Platform } = {}): Promise<MachineIdentity> {
+  const home = ctx.pacerHome, hit = cache.get(home);
+  if (hit) return Promise.resolve(hit);
+  const running = inflight.get(home);
+  if (running) return running;
+  const gen = generation;
+  const p: Promise<MachineIdentity> = load(ctx, deps)
+    .then(identity => { if (gen === generation) cache.set(home, identity); return identity; })
+    .finally(() => { if (inflight.get(home) === p) inflight.delete(home); });
+  inflight.set(home, p);
+  return p;
+}
+
+async function load(ctx: Ctx, deps: { platform?: NodeJS.Platform }): Promise<MachineIdentity> {
   let meta = readMeta(ctx);
   const platform = identityPlatform(deps.platform);
   if (meta?.pendingRotation) meta = await (await import("./rotate")).recoverRotation(ctx, meta, platform);
@@ -83,7 +102,6 @@ export async function ensureIdentity(ctx: Ctx, deps: { platform?: NodeJS.Platfor
   }
   const identity = build(meta, privateKey);
   if (meta.publicId !== identity.id) writeMeta(ctx, { ...meta, publicId: identity.id });
-  cache.set(ctx.pacerHome, identity);
   return identity;
 }
 

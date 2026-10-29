@@ -5,7 +5,7 @@ import type { Ctx } from "../types";
 import { writePrivateFile } from "./atomic";
 import { homeTag, KEYCHAIN_SERVICE, keyBackend } from "./key-store";
 import { findPassword, writePassword } from "./security";
-import { identityPlatform, readMeta } from "./store";
+import { cachedIdentity, identityPlatform, readMeta } from "./store";
 
 const account = (ctx: Ctx) => `machine-install-salt/${homeTag(ctx)}`;
 const saltDir = (ctx: Ctx) => join(ctx.env.XDG_STATE_HOME ?? join(ctx.home, ".local", "state"), "pacer", "install-salt");
@@ -31,8 +31,13 @@ export async function writeSalt(ctx: Ctx, platform?: NodeJS.Platform): Promise<s
 
 export const saltHash = (salt: string) => createHash("sha256").update(salt).digest("hex");
 
-/** True when this home was recorded as copied, or its install salt is missing or does not match. */
+/**
+ * True when this home was recorded as copied, or its install salt is missing or does not match.
+ * A loaded identity already made this check, so its cached answer is used without reading the Keychain.
+ */
 export async function cloneSuspected(ctx: Ctx, platform?: NodeJS.Platform): Promise<boolean> {
+  const hit = cachedIdentity(ctx);
+  if (hit) return hit.cloneSuspected;
   const meta = readMeta(ctx);
   if (meta?.cloneDetected) return true;
   if (!meta?.saltHash) return false;

@@ -20,6 +20,7 @@ test("a copied home without the salt is suspected as a clone", async () => {
   const ctx = fakeCtx();
   await ensureIdentity(ctx, { platform: "linux" });
   rmSync(saltPath(ctx));
+  clearIdentityCache(); // The check runs when the identity loads.
   expect(await cloneSuspected(ctx, "linux")).toBe(true);
 });
 

@@ -577,6 +577,7 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
         return { code: 2, out: "", err: "pacer serve --internal requires PACER_INTERNAL_TOKEN in the environment (at least 32 characters)" };
       }
       // Load or create the machine identity once so activity and task records carry its id; stamping never creates it.
+      // Loads are single-flight per home, so identity operations that arrive first share this load.
       void ensureIdentity(ctx).catch(e => console.error(`pacer: machine identity unavailable: ${e instanceof Error ? e.message : String(e)}`));
       try {
         if (internal) {
