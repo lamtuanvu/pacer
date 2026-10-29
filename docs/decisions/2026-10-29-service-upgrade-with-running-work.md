@@ -14,7 +14,7 @@ The CLI and service upgrade paths never stop running agents or terminal sessions
 
 - The service restarts onto the new version.
 - **Runners that support it hand over.** At a lock-held commit point, the runner releases its own leases without revoking the attempt's work grant or enforcement token, then exits without recording an outcome. The sweep starts a new-version runner, which reattaches to the same agent without re-certifying the attempt or requeueing it.
-- **Session hosts keep running.** Clients and hosts negotiate through optional fields on the existing `hello` frame and the host's first state frame. Hosts from the last three minors are supported.
+- **Session hosts keep running.** Clients and hosts negotiate through optional fields on the existing `hello` frame and the host's first `control` frame. Hosts from the last three minors are supported.
 - **Older runners** that predate handover finish on the old code.
 - **Run files, task records and the session socket** change only additively within a three-minor support window. This keeps older processes working with a newer service, and after a rollback.
 - **The Linux unit** uses `KillMode=process`, and upgrade paths rewrite and reload an outdated unit.
