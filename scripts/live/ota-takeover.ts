@@ -56,6 +56,11 @@ async function desktopControls(pid: number) {
     await nativeCommand({ command: "act", pid, start_identity: identity!.start_identity, window_id, action: { kind: "activate" } });
     await nativeCommand({ command: "act", pid, start_identity: identity!.start_identity, window_id, action: { kind: "key", key } });
   }
+  async function scroll(delta_y: number) {
+    const window_id = await window();
+    await nativeCommand({ command: "act", pid, start_identity: identity!.start_identity, window_id, action: { kind: "activate" } });
+    await nativeCommand({ command: "act", pid, start_identity: identity!.start_identity, window_id, action: { kind: "scroll", delta_y } });
+  }
   async function texts() {
     const { elements } = await controls();
     return elements.flatMap(element => [element.name, element.value ?? ""]).filter(Boolean);
@@ -76,21 +81,29 @@ async function desktopControls(pid: number) {
     writeFileSync(path, bytes, { flag: "wx", mode: 0o600 });
   }
   async function click(name: string) {
-    const window_id = await window();
-    // Activating the window can start the page's confirm hold, so wait until
-    // the control is enabled again after activation before clicking it.
-    await nativeCommand({ command: "act", pid, start_identity: identity!.start_identity, window_id, action: { kind: "activate" } });
-    await sleep(300);
-    let last: ControlElement[] = [];
-    const item = await waitFor(async () => {
-      last = (await controls()).elements;
-      return readyControl(last, name);
-    }, 5000, `Desktop control ${name} absent or disabled`).catch(() => {
-      throw Error(`Desktop control ${name} absent or disabled: ${last.map(e => `${e.name}${e.disabled ? " (disabled)" : ""}`).filter(Boolean).slice(0, 30).join(", ")}`);
-    });
-    await nativeCommand({ command: "act", pid, start_identity: identity!.start_identity, window_id, action: { kind: "click", ref: item.ref } });
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const window_id = await window();
+      // Activating the window can start the page's confirm hold, so wait until
+      // the control is enabled again after activation before clicking it.
+      await nativeCommand({ command: "act", pid, start_identity: identity!.start_identity, window_id, action: { kind: "activate" } });
+      await sleep(300);
+      let last: ControlElement[] = [];
+      const item = await waitFor(async () => {
+        last = (await controls()).elements;
+        return readyControl(last, name);
+      }, 5000, `Desktop control ${name} absent or disabled`).catch(() => {
+        throw Error(`Desktop control ${name} absent or disabled: ${last.map(e => `${e.name}${e.disabled ? " (disabled)" : ""}`).filter(Boolean).slice(0, 30).join(", ")}`);
+      });
+      try {
+        await nativeCommand({ command: "act", pid, start_identity: identity!.start_identity, window_id, action: { kind: "click", ref: item.ref } });
+        return;
+      } catch (error) {
+        // The native driver checks foreground before delivering a click.
+        if (!String(error).includes("foreground_changed") || attempt === 2) throw error;
+      }
+    }
   }
-  return { activate, controls, click, key, texts, frame, capture };
+  return { activate, controls, click, key, scroll, texts, frame, capture };
 }
 
 type Controls = Awaited<ReturnType<typeof desktopControls>>;
@@ -187,6 +200,7 @@ export async function runTakeoverExercise(id: string, scenario: string, options:
     }, 60000, "Takeover page did not precede the version gate").catch(error => { throw Error(`${String(error)}: ${JSON.stringify(last.map(e => [e.role, e.name]).slice(0, 50))}`); });
   }
   async function tabOrder(ui: Controls, name: string) {
+    await ui.activate();
     // Default macOS keyboard settings: Full Keyboard Access is not required.
     const order: string[] = [];
     for (let step = 0; step < 6; step++) {
@@ -204,13 +218,24 @@ export async function runTakeoverExercise(id: string, scenario: string, options:
     if (!passed) throw Error(`Takeover offer controls are not reachable in order by Tab: ${order.join(", ")}`);
   }
   async function settings(ui: Controls, name: string, takeover: boolean) {
+    if (!takeover) {
+      await ui.click("Settings");
+      await ui.click("App preferences");
+    }
+    let last: string[] = [];
+    let scrolls = 0;
     const texts = await waitFor(async () => {
       const seen = await ui.texts();
+      last = seen;
       const ready = takeover
         ? hasText(seen, "The pacer service was replaced by another build. Automatic updates are paused.") && hasText(seen, "Review service replacement")
         : hasText(seen, "Updates") && !hasText(seen, "Use the app's service");
+      if (!ready && !takeover && hasText(seen, "App preferences") && scrolls++ < 12) await ui.scroll(400);
       return ready ? seen : null;
-    }, 60000, `Settings did not show the ${takeover ? "service replacement" : "committed"} state`);
+    }, 60000, `Settings did not show the ${takeover ? "service replacement" : "committed"} state`).catch(async error => {
+      try { writeFileSync(evidence("settings-timeout.png"), await ui.frame(), { flag: "wx", mode: 0o600 }); } catch {}
+      throw Error(`${String(error)} (${last.length} accessibility strings): ${JSON.stringify(last.slice(-80))}`);
+    });
     // The service page can report its text before WebKit paints it; wait for a
     // rendered frame in the expected theme and fail rather than record a blank one.
     await ui.capture(evidence(name), themeOf(name), 30000).catch(error => { throw Error(`Settings capture ${name}: ${String(error)}`); });
@@ -277,6 +302,7 @@ export async function runTakeoverExercise(id: string, scenario: string, options:
     await capture(secondUi, "takeover-offer-dark.png", "re-offer for a changed executable (dark)");
     observed.dismissal = { sha256: dismissal.sha256, cdhash: dismissal.cdhash, reofferedAfterChange: true };
   } else {
+    await ui.activate();
     if (scenario === "takeover-relink") await ui.click("Also point the terminal command at the app");
     await ui.click("Use the app's service");
     const expected = scenario === "takeover" || scenario === "takeover-relink" ? "committed" : "restored";
