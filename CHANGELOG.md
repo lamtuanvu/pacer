@@ -6,6 +6,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Keep command-menu scope tabs visible in recent and command views, match board row styling, prefill an empty New task draft from an unmatched query without reloading or replacing existing work, preserve matches across empty scopes, and show only available keyboard actions. Keep selected subtitles and scope counts readable and use the dark backdrop and shadow tokens.
+
 - Keep every Accounts column visible in narrow Settings containers with labelled cards, align its desktop columns with the board, and show More actions only for existing sign-in or refresh help. Give Agents and Accounts continuous table header bands and Add agent navigation links full touch targets.
 
 - Keep Add agent steps and forms contained at tablet and phone settings widths. Agents uses five columns with visible More actions controls, moves priority editing into details, and shows labelled cards in narrow containers. Restore Machines board rows and responsive cards, enlarge touch targets, and frame unknown-host errors with a link back to Machines.

@@ -10,6 +10,8 @@ import { buildMenu, scopesFor, ASK_ENABLED, parseQuery, type FilesState, type Me
 import { useTaskContext } from "../screens/task-shared";
 import { useNotifications } from "../data/notification-context";
 import { useNavigation } from "../navigation";
+import { draftStorage } from "../model/draft";
+import { blankNewTask, NEW_TASK_DRAFT_KEY } from "../model/new-task";
 
 /** Typing waits this long before a files search starts; the service also caches a repeated read for a few seconds. */
 export const FILES_DEBOUNCE_MS = 200;
@@ -56,7 +58,7 @@ export function CommandPalette({ snapshot, registry = commandRegistry, now: fixe
   };
   const [scope, setScope] = useState<MenuScope>("all");
   const [recent] = useState(loadRecent);
-  const { navigate } = useNavigation();
+  const { navigate, current } = useNavigation();
   const { api, state } = useTaskContext();
   // Commands come and go with the screen (a panel toggle exists only where its panel does), so follow the registry while open.
   const [revision, setRevision] = useState(0);
@@ -78,18 +80,30 @@ export function CommandPalette({ snapshot, registry = commandRegistry, now: fixe
     return () => { live = false; clearTimeout(timer); };
   }, [needle, filesOn, api]);
   const files: FilesState = !filesOn || !needle ? { status: "off" } : answer?.query !== needle ? { status: "loading" } : answer.result === "error" ? { status: "error" } : { status: "ready", result: answer.result };
-  const menu = useMemo(() => buildMenu({ query, scope, snapshot, commands, recent, now, files }), [query, scope, snapshot, commands, recent, now, files.status, (files as { result?: unknown }).result]);
-  // A new mode starts at All; within search, an empty scope falls back to All in buildMenu.
-  useEffect(() => { setScope("all"); }, [parseQuery(query).mode]);
-  const byId = new Map<string, MenuItem>(menu.groups.flatMap(group => group.items.map(item => [item.id, item] as const)));
-  const groups: CommandMenuGroup[] = menu.groups.map(group => ({ title: group.title, options: group.items.map(item => ({
-    id: item.id, label: item.title, ranges: item.ranges, sub: item.sub, icon: item.icon, pill: item.pill,
+  const menu = useMemo(() => {
+    return buildMenu({ query, scope, snapshot, commands, recent, now, files });
+  }, [query, scope, snapshot, commands, recent, now, files.status, (files as { result?: unknown }).result]);
+  const visibleGroups = menu.mode === "recent" && scope !== "all"
+    ? menu.groups.map(group => ({ ...group, items: group.items.filter(item => item.scope === scope) })).filter(group => group.items.length)
+    : [...menu.groups];
+  const switchScope = (id: string) => {
+    setCommandMode(id === "commands");
+    setScope(id === "commands" ? "all" : id as MenuScope);
+  };
+  const empty = menu.empty;
+  const start = commands.find(command => command.id === "task.new" && !command.hidden);
+  if (empty && !visibleGroups.some(group => group.items.some(item => item.command?.id === "task.new")) && start) {
+    visibleGroups.push({ title: "Instead", items: [{ id: "command:task.new", scope: "commands", title: "New task", icon: "plus", command: start }] });
+  }
+  const byId = new Map<string, MenuItem>(visibleGroups.flatMap(group => group.items.map(item => [item.id, item] as const)));
+  const groups: CommandMenuGroup[] = visibleGroups.map(group => ({ title: group.title, options: group.items.map(item => ({
+    id: item.id, label: empty && item.command?.id === "task.new" ? `New task: “${text.trim()}”` : item.title, ranges: item.ranges, sub: empty && item.command?.id === "task.new" ? undefined : item.sub, icon: item.icon, pill: item.pill,
     leading: item.agent ? <AgentMark agent={item.agent} size={20} labelled={false} /> : undefined,
     keys: item.command?.keys ? keyCaps(item.command.keys) : undefined,
   })) }));
   // A file a running task changed opens that task; any other file has no viewer route yet, so Enter copies its repo-relative path.
   const [activeId, setActiveId] = useState<string>();
-  const active = activeId ? byId.get(activeId) : undefined;
+  const active = (activeId ? byId.get(activeId) : undefined) ?? visibleGroups[0]?.items[0];
   const notifications = useNotifications();
   const copyPath = (path: string) => {
     const done = (ok: boolean) => notifications?.notify(ok ? { key: "copy-path", tone: "success", title: "Path copied", message: path } : { key: "copy-path", tone: "error", title: "Could not copy the path", message: path });
@@ -98,6 +112,23 @@ export function CommandPalette({ snapshot, registry = commandRegistry, now: fixe
   const pick = (id: string, options?: { keepOpen: boolean }) => {
     const item = byId.get(id);
     if (!item) return;
+    if (empty && item.command?.id === "task.new") {
+      const storage = draftStorage(NEW_TASK_DRAFT_KEY, blankNewTask, {
+        getItem: key => localStorage.getItem(key), setItem: (key, value) => localStorage.setItem(key, value), removeItem: key => localStorage.removeItem(key),
+      });
+      const draft = storage.read();
+      if (current.name === "new-task") {
+        // Use the mounted composer's input handler so its state and saved draft stay in sync.
+        const input = document.getElementById("nt-request");
+        if (input instanceof HTMLTextAreaElement && !draft.request.trim() && !input.value.trim()) {
+          input.value = text.trim();
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+        }
+        close();
+        return;
+      }
+      if (!draft.request.trim()) storage.write({ ...draft, request: text.trim() });
+    }
     if (item.copy !== undefined) { if (!options?.keepOpen) { copyPath(item.copy); close(); } return; }
     // ⌘↵ runs a command and leaves the menu open so several can run in a row, except one that opens its own dialog.
     if (options?.keepOpen && !item.command?.opensDialog) { if (item.command) setTimeout(item.command.run, 0); return; }
@@ -107,11 +138,11 @@ export function CommandPalette({ snapshot, registry = commandRegistry, now: fixe
     if (item.command) setTimeout(item.command.run, 0);
     else if (item.target) navigate(item.target);
   };
-  const searching = menu.mode === "search";
+  const keepOpen = active?.command && !active.command.opensDialog ? "run and keep open" : undefined;
   return <CommandMenu label={filesOn ? "Search tasks, agents, files or run a command" : "Search tasks, agents or run a command"} placeholder={filesOn ? "Search tasks, agents, files or type > for commands" : "Search tasks, agents or type > for commands"}
     query={text} onQueryChange={edit} onBackspaceEmpty={commandMode ? () => setCommandMode(false) : undefined} prefix={menu.mode === "commands" ? "Commands" : menu.mode === "ask" ? "Ask" : undefined}
-    scopes={searching ? scopesFor(filesOn).map(item => ({ ...item, count: item.id === "files" && files.status === "loading" ? undefined : menu.counts[item.id] })) : undefined} scope={menu.scope} onScope={id => setScope(id as MenuScope)}
-    groups={groups} empty={menu.empty ? { title: `Nothing matches “${text.trim()}”`, description: "Try fewer words, another scope, or turn it into work:" } : undefined}
-    enterHint={active?.copy !== undefined ? "copy path" : menu.enterHint} onActiveChange={setActiveId} notice={menu.notice} modEnterHint={menu.modEnterHint} modEnterSoon={menu.modEnterSoon} modEnterKeys={keyCaps("Mod-Enter")} hints={<span className="pc-command__hint"><Kbd>&gt;</Kbd> commands{ASK_ENABLED && <> · <Kbd>?</Kbd> ask assistant</>}</span>}
+    scopes={scopesFor(filesOn).map(item => ({ ...item, count: item.id === "files" && files.status === "loading" ? undefined : menu.mode === "search" ? menu.counts[item.id] : undefined }))} scope={commandMode ? "commands" : menu.mode === "search" ? menu.scope : scope} onScope={switchScope}
+    groups={groups} empty={empty ? { title: `Nothing matches “${text.trim()}”`, description: "Try fewer words, another scope, or turn it into work:" } : undefined}
+    enterHint={active?.copy !== undefined ? "copy path" : empty && active?.command?.id === "task.new" ? "run" : menu.enterHint} onActiveChange={setActiveId} notice={menu.notice} modEnterHint={keepOpen} modEnterKeys={keyCaps("Mod-Enter")} hints={<span className="pc-command__hint"><Kbd>&gt;</Kbd> commands{ASK_ENABLED && <> · <Kbd>?</Kbd> ask assistant</>}</span>}
     onPick={pick} onClose={close} returnFocus={returnFocus} />;
 }
