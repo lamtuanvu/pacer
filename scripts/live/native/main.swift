@@ -58,8 +58,12 @@ func axRoot(_ pid: pid_t, _ info: [String: Any]) throws -> AXUIElement {
 }
 func inspectTree(_ root: AXUIElement) -> ([[String: Any]], [String: AXUIElement], Bool) {
     var elements: [[String: Any]] = [], refs: [String: AXUIElement] = [:], truncated = false
-    func visit(_ node: AXUIElement, _ path: String, _ depth: Int, _ ancestors: [[String: String]]) {
+    func visit(_ node: AXUIElement, _ path: String, _ depth: Int, _ ancestors: [[String: String]], _ lineage: [AXUIElement]) {
         if elements.count >= 2000 || depth > 50 { truncated = true; return }
+        // Some WebKit trees expose a parent application again as a child.
+        // A cycle can otherwise exhaust the native observer's deadline before
+        // the page controls are reached.
+        if lineage.contains(where: { CFEqual($0, node) }) { return }
         let sensitive = text(node, kAXSubroleAttribute) == "AXSecureTextField"
         let label = [text(node, kAXTitleAttribute), text(node, kAXDescriptionAttribute), text(node, kAXHelpAttribute)].first { !$0.isEmpty } ?? ""
         var item: [String: Any] = ["ref": path, "role": role(node), "name": label, "sensitive": sensitive, "actions": ["click", "key"], "ancestors": ancestors]
@@ -70,9 +74,9 @@ func inspectTree(_ root: AXUIElement) -> ([[String: Any]], [String: AXUIElement]
         item["disabled"] = !((attribute(node, kAXEnabledAttribute) as? Bool) ?? true)
         let identity = "\(path)-\(CFHash(node))"; item["ref"] = identity
         refs[identity] = node; elements.append(item)
-        for (index, child) in axChildren(node).enumerated() { visit(child, "\(path).\(index)", depth + 1, ancestors + [["role":role(node), "name":label]]) }
+        for (index, child) in axChildren(node).enumerated() { visit(child, "\(path).\(index)", depth + 1, ancestors + [["role":role(node), "name":label]], lineage + [node]) }
     }
-    visit(root, "e0", 0, []); return (elements, refs, truncated)
+    visit(root, "e0", 0, [], []); return (elements, refs, truncated)
 }
 func keyCode(_ key: String) -> CGKeyCode? {
     ["Enter":36,"Return":36,"Tab":48,"Space":49,"Escape":53,"Backspace":51,"Delete":117,"ArrowLeft":123,"Left":123,"ArrowRight":124,"Right":124,"ArrowDown":125,"Down":125,"ArrowUp":126,"Up":126,"Home":115,"End":119,"PageUp":116,"PageDown":121][key]
