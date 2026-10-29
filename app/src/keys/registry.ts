@@ -40,7 +40,12 @@ export function createKeyRegistry(opts: { controlActive: () => boolean; blocked?
       const letter = e.key.toLowerCase();
       const modK = (e.metaKey || e.ctrlKey) && !e.shiftKey && letter === "k";
       const modB = letter === "b" && !e.shiftKey && (mac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey);
-      if (e.metaKey && !modK && !modB) return false;
+      if (e.metaKey && !modK && !modB) {
+        if (e.ctrlKey) return false;
+        const match = active().find(s => s.keys === `Meta-${e.key}`);
+        if (!match) return false;
+        pending = null; e.preventDefault(); match.run(); return true;
+      }
       const token = modK ? "Mod-k" : modB ? "Mod-b" : e.ctrlKey ? `Ctrl-${e.key}` : e.key;
       if (e.ctrlKey && e.key === "Control") return false;
       // Escape, Mod-k, Mod-b and Ctrl combinations stay available in text fields; plain keys do not.
@@ -58,6 +63,20 @@ export function createKeyRegistry(opts: { controlActive: () => boolean; blocked?
   };
 }
 export type KeyRegistry = ReturnType<typeof createKeyRegistry>;
+
+/** Apple platforms use ⌘ where others use Ctrl. */
+export const isApplePlatform = (platform: string = globalThis.navigator?.platform ?? ""): boolean => /mac|iphone|ipad/i.test(platform);
+/** A registry key for the platform's command modifier: `Meta-n` on Apple platforms, `Ctrl-n` elsewhere. */
+export const modShortcut = (key: string, apple = isApplePlatform()): string => `${apple ? "Meta" : "Ctrl"}-${key}`;
+/** How a modifier shortcut is written for people: ⌘N, Ctrl+N. */
+export const shortcutLabel = (keys: string): string => keys.replace(/^Meta-(.)$/, (_, k: string) => `⌘${k.toUpperCase()}`).replace(/^Ctrl-(.)$/, (_, k: string) => `Ctrl+${k.toUpperCase()}`);
+/**
+ * ⌘N (Ctrl+N elsewhere) opens the New task composer. The shell registers it once; the title-bar and Dispatch
+ * "New task" buttons show `shortcutLabel(newTaskShortcut(...).keys)` and call the same `run`.
+ */
+export function newTaskShortcut(run: () => void, apple = isApplePlatform()): Shortcut {
+  return { keys: modShortcut("n", apple), label: "New task", scope: "global", run };
+}
 
 /** The only DOM-touching export: one keydown listener for the whole app. */
 export function attachKeyRegistry(registry: KeyRegistry, target: Window): () => void {

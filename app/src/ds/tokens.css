@@ -98,6 +98,18 @@
   --type-plugin-section-line: 12px;
   --type-plugin-section-weight: 600;
   --type-plugin-section-tracking: 0.04em;
+  --type-composer-agent-size: 18px;
+  --type-composer-agent-line: 24px;
+  --type-composer-agent-weight: 650;
+  --type-composer-request-size: 14px;
+  --type-composer-request-line: 21px;
+  --type-composer-request-weight: 400;
+  --type-sheet-title-size: 17px;
+  --type-sheet-title-line: 22px;
+  --type-sheet-title-weight: 650;
+  --type-sheet-body-size: 14px;
+  --type-sheet-body-line: 20px;
+  --type-sheet-body-weight: 400;
   --space-1: 4px;
   --space-1\.5: 6px;
   --space-2: 8px;
