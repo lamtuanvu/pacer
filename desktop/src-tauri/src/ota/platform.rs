@@ -92,6 +92,10 @@ fn fixture_takeover_program(trust: &ReleaseTrust, path: &Path) -> Result<bool, O
     Ok(true)
 }
 
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn verify_fixture_or_release_process(trust: &ReleaseTrust, process: &ProcessIdentity, _executable: &Path, role: CodeRole) -> Result<(), OtaError> {
+    trust.verify_process(process, role).map(|_| ())
+}
 #[cfg(target_os = "macos")]
 #[cfg_attr(not(feature = "ota-fixture"), allow(unused_variables))]
 pub(crate) fn verify_fixture_or_release_process(trust: &ReleaseTrust, process: &ProcessIdentity, executable: &Path, role: CodeRole) -> Result<(), OtaError> {
