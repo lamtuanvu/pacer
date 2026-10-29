@@ -120,17 +120,28 @@ export function updateNotice(updates: UpdateStatus[] = [], dismissed: ReadonlySe
   return updates.find(status => status.phase === "ready" && !!status.target && status.actions.includes("restart") && !dismissed.has(updateNoticeKey(status))) ?? null;
 }
 
-export function desktopConnectionView(connection: { state: string; reason: string | null } | null) {
+export function desktopConnectionView(connection: { state: string; reason: string | null; terminalCommandDifferent?: boolean } | null) {
+  const takeover = connection?.reason === "service-takeover";
+  const notes = {
+    terminalNote: connection?.terminalCommandDifferent ? "The terminal command and the service run different builds." : null,
+    /** Opens the desktop's own confirmation page; the service page never confirms. */
+    takeoverAction: takeover ? "Review service replacement" : null,
+    takeoverError: "The service replacement page couldn't be opened. The service may have changed; check again in a moment.",
+  };
   if (connection?.state === "connecting" || connection?.state === "available") return {
     label: "Connecting automatic desktop updates",
     detail: "Waiting for a verified desktop update status. Your service continues running.",
+    ...notes,
   };
   return {
     label: "Automatic desktop updates are unavailable",
-    detail: connection?.reason === "service-identity"
+    detail: takeover
+      ? "The pacer service was replaced by another build. Automatic updates are paused."
+      : connection?.reason === "service-identity"
       ? "pacer could not verify the connected service for desktop updates. Your service continues running; no update has been installed."
       : connection?.state === "unsupported"
         ? "This desktop build does not support automatic updates. Your service continues running."
         : "pacer could not establish a verified desktop update connection. Your service continues running; no update has been installed.",
+    ...notes,
   };
 }

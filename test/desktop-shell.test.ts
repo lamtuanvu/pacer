@@ -7,35 +7,324 @@ const html = readFileSync(new URL("../desktop/ui/index.html", import.meta.url), 
 function shell(search: string) {
   const elements = new Map<string, any>();
   const timers: (() => void)[] = [];
-  let now = 0;
+  const timeouts = new Map<number, { at: number; fn: () => void }>();
+  let now = 0, nextTimeout = 1;
+  let focused: any = null;
+  const location = { search, href: `tauri://localhost/index.html${search}` };
   const append = (...children: any[]) => {
     for (const child of children) if (child.id) elements.set(`#${child.id}`, child);
   };
   const document = {
-    createElement() { return { hidden: false, textContent: "", append }; },
+    createElement(tag: string) { return { tag, hidden: false, textContent: "", className: "", append }; },
     querySelector(selector: string) {
       if (!elements.has(selector)) {
         const tag = selector.startsWith("#") ? html.match(new RegExp(`<[^>]+id="${selector.slice(1)}"[^>]*>`))?.[0] || "" : "";
         const listeners = new Map<string, () => void>();
-        elements.set(selector, {
-          append,
-          hidden: /\bhidden\b/.test(tag), checked: /\bchecked\b/.test(tag),
-          href: tag.match(/href="([^"]*)"/)?.[1] || "", value: "", textContent: "",
+        const element: any = {
+          append, tag: tag.match(/^<(\w+)/)?.[1] || "",
+          hidden: /\bhidden\b/.test(tag), checked: /\bchecked\b/.test(tag), disabled: /\bdisabled\b/.test(tag),
+          href: tag.match(/href="([^"]*)"/)?.[1] || "", value: "", textContent: "", breaks: 0, attributes: new Map<string, string>(),
+          setAttribute(name: string, value: string) { element.attributes.set(name, value); },
+          removeAttribute(name: string) { element.attributes.delete(name); },
+          getAttribute(name: string) { return element.attributes.get(name) ?? null; },
           set innerHTML(_: string) { throw new Error("Shell details must use textContent"); },
+          replaceChildren(...nodes: any[]) {
+            element.textContent = nodes.map(node => typeof node === "string" ? node : node.textContent).join("");
+            element.breaks = nodes.filter(node => node?.tag === "wbr").length;
+            element.children = nodes;
+          },
+          focus() { focused = element; },
           addEventListener(event: string, listener: () => void) { listeners.set(event, listener); },
           dispatch(event: string) { listeners.get(event)?.(); },
-        });
+        };
+        elements.set(selector, element);
       }
       return elements.get(selector);
     },
     body: { classList: { add() {} } },
   };
-  const window: any = {};
-  runInNewContext(script, { document, window, location: { search }, URLSearchParams,
-    Date: { now: () => now }, setInterval: (fn: () => void) => timers.push(fn), clearInterval() {} });
-  return { element: document.querySelector, render: window.renderShell,
+  const windowListeners = new Map<string, () => void>();
+  const window: any = { addEventListener(event: string, listener: () => void) { windowListeners.set(event, listener); } };
+  runInNewContext(script, { document, window, location, URLSearchParams,
+    Date: { now: () => now }, setInterval: (fn: () => void) => timers.push(fn), clearInterval() {},
+    setTimeout: (fn: () => void, ms: number) => { timeouts.set(nextTimeout, { at: now + ms, fn }); return nextTimeout++; },
+    clearTimeout: (id: number) => timeouts.delete(id) });
+  return { element: document.querySelector, render: window.renderShell, takeover: window.renderTakeover, location,
+    focused: () => focused, windowEvent: (event: string) => windowListeners.get(event)?.(),
+    wait(ms: number) {
+      now += ms;
+      for (const [id, timeout] of [...timeouts]) if (timeout.at <= now) { timeouts.delete(id); timeout.fn(); }
+    },
     advance(seconds: number) { now += seconds * 1000; timers.at(-1)?.(); } };
 }
+
+const TOKEN = "0123456789abcdef".repeat(4); // fixture value, not a credential
+const inspection = {
+  currentPath: "/tmp/pacer-fixture/a-rather-long-checkout-directory/.local/bin/pacer",
+  currentVersion: "0.2.4", replacementPath: "/Applications/pacer.app/Contents/Resources/pacer",
+  label: "com.pacer.serve", port: 4317, dataHome: "/tmp/pacer-fixture/.pacer", work: { tasks: 2, terminals: null },
+};
+const internal = /\b(prepared|stopping|switched|verifying|restoring|committed|recovery-failed|redetect|interrupted:|identity|verify:|helper:)\b/;
+
+test("takeover offer has its own heading, no spinner and a tray pointer", () => {
+  const page = shell("?state=takeover");
+  expect(page.element("h1").textContent).toBe("Use the app's service");
+  expect(page.element("#spinner").hidden).toBe(true);
+  expect(page.element("#takeover").hidden).toBe(false);
+  expect(page.element("#message").hidden).toBe(true);
+  // A later diagnosis render (for example after the tray reloads) keeps the decision page.
+  page.render({ page: "takeover" });
+  expect(page.element("h1").textContent).toBe("Use the app's service");
+  expect(page.element("#takeover").hidden).toBe(false);
+  page.render({ page: "starting" });
+  expect(page.element("#takeover").hidden).toBe(true);
+  const tray = shell("?state=takeover&compact=1");
+  expect(tray.element("#takeover").hidden).toBe(true);
+  expect(tray.element("#message").textContent).toBe("Open the pacer window to review replacing the service.");
+  // The tray has its own short progress status, not the window's "continues on its own" copy.
+  const progress = shell("?state=takeoverProgress&compact=1").element("#message").textContent;
+  expect(progress).toBe("pacer is replacing the service. Open the pacer window for details.");
+  expect(progress).not.toContain("This window");
+});
+
+test("takeover details are literal, fully readable and use one spelling for unknown values", () => {
+  const page = shell("?state=takeover");
+  page.takeover({ inspection, progress: null, token: TOKEN });
+  expect(page.element("#takeover-current").textContent).toBe(inspection.currentPath);
+  // Paths may break only after each separator.
+  expect(page.element("#takeover-current").breaks).toBe(inspection.currentPath.split("/").length - 1);
+  // Each segment stays whole, so a path never breaks at a hyphen inside a name.
+  const segments = page.element("#takeover-current").children.filter((node: any) => node.tag === "span");
+  expect(segments.map((node: any) => node.textContent)).toEqual(inspection.currentPath.split("/").filter(Boolean));
+  expect(segments.every((node: any) => node.className === "path-part")).toBe(true);
+  // A service label breaks only after a dot, never inside its hash.
+  const label = "com.pacer.live.83f409bc51037fedfe821ca66eec969d.service";
+  page.takeover({ inspection: { ...inspection, label }, progress: null, token: TOKEN });
+  expect(page.element("#takeover-label").textContent).toBe(label);
+  expect(page.element("#takeover-label").breaks).toBe(4);
+  expect(page.element("#takeover-label").children.filter((node: any) => node.tag === "span").map((node: any) => node.textContent))
+    .toEqual(["com.", "pacer.", "live.", "83f409bc51037fedfe821ca66eec969d.", "service"]);
+  expect(page.element("#takeover-replacement").textContent).toBe(inspection.replacementPath);
+  expect(page.element("#takeover-home").textContent).toBe(inspection.dataHome);
+  expect(page.element("#takeover-version").textContent).toBe("0.2.4");
+  expect(page.element("#takeover-port").textContent).toBe("4317");
+  expect(page.element("#takeover-tasks").textContent).toBe("2");
+  expect(page.element("#takeover-terminals").textContent).toBe("Unknown");
+  page.takeover({ inspection: null, progress: null, token: TOKEN });
+  for (const id of ["#takeover-current", "#takeover-version", "#takeover-port", "#takeover-tasks"]) expect(page.element(id).textContent).toBe("Unknown");
+  expect(html).not.toMatch(/>unknown</);
+  const path = '/tmp/<img src=x onerror="alert(1)">/pacer';
+  page.takeover({ inspection: { ...inspection, currentPath: path }, progress: null, token: TOKEN });
+  expect(page.element("#takeover-current").textContent).toBe(path);
+});
+
+test("takeover actions are buttons that navigate only with the injected single-use token", () => {
+  // Explicit tabindex keeps them on the Tab order in WKWebView without Full Keyboard Access.
+  expect(html).toMatch(/<input id="takeover-relink" type="checkbox" tabindex="0">/);
+  expect(html).toMatch(/<button type="button" id="takeover-confirm" class="button primary" tabindex="0">Use the app's service<\/button>/);
+  expect(html).toMatch(/<button type="button" id="takeover-dismiss" class="button" tabindex="0">Not now<\/button>/);
+  expect(html).toMatch(/<button type="button" id="takeover-continue" class="button primary" tabindex="0"[^>]*>Continue current service<\/button>/);
+  expect(html).not.toMatch(/action\/takeover-/);
+  const page = shell("?state=takeover");
+  const before = page.location.href;
+  // No actions, and no navigation, until the native shell supplies a token.
+  expect(page.element("#takeover-actions").hidden).toBe(true);
+  page.element("#takeover-confirm").dispatch("click");
+  expect(page.location.href).toBe(before);
+  page.takeover({ inspection, progress: null, token: TOKEN });
+  expect(page.element("#takeover-actions").hidden).toBe(false);
+  expect(page.element("#takeover-relink").checked).toBe(false);
+  page.element("#takeover-relink").checked = true;
+  page.wait(1000);
+  page.element("#takeover-confirm").dispatch("click");
+  expect(page.location.href).toBe(`tauri://localhost/action/takeover-confirm?relink=1&token=${TOKEN}`);
+  // The token is used once, focus moves to the status and the choice is locked.
+  expect(page.element("#takeover-actions").hidden).toBe(true);
+  expect(page.element("#takeover-relink").disabled).toBe(true);
+  expect(page.focused()).toBe(page.element("#takeover-progress"));
+  page.location.href = before;
+  page.element("#takeover-dismiss").dispatch("click");
+  expect(page.location.href).toBe(before);
+  page.takeover({ inspection, progress: null, token: TOKEN });
+  page.element("#takeover-dismiss").dispatch("click");
+  expect(page.location.href).toBe(`tauri://localhost/action/takeover-dismiss?token=${TOKEN}`);
+});
+
+test("takeover confirm ignores clicks for a second after the offer appears or regains focus", () => {
+  const page = shell("?state=takeover");
+  const before = page.location.href;
+  page.takeover({ inspection, progress: null, token: TOKEN });
+  // During the hold the button says it is unavailable, stays focusable and keeps its name.
+  const confirm = page.element("#takeover-confirm");
+  expect(confirm.getAttribute("aria-disabled")).toBe("true");
+  expect(confirm.disabled).toBe(false);
+  page.wait(999);
+  expect(confirm.getAttribute("aria-disabled")).toBe("true");
+  confirm.dispatch("click");
+  // Ignored, not consumed: the actions and token stay.
+  expect(page.location.href).toBe(before);
+  expect(page.element("#takeover-actions").hidden).toBe(false);
+  // A periodic re-render with the same token keeps the page armed.
+  page.wait(1);
+  expect(confirm.getAttribute("aria-disabled")).toBeNull();
+  page.takeover({ inspection, progress: null, token: TOKEN });
+  expect(confirm.getAttribute("aria-disabled")).toBeNull();
+  // Regaining focus shows the hold again until it ends.
+  page.windowEvent("focus");
+  expect(confirm.getAttribute("aria-disabled")).toBe("true");
+  page.element("#takeover-confirm").dispatch("click");
+  expect(page.location.href).toBe(before);
+  page.wait(1000);
+  expect(confirm.getAttribute("aria-disabled")).toBeNull();
+  page.element("#takeover-confirm").dispatch("click");
+  expect(page.location.href).toBe(`tauri://localhost/action/takeover-confirm?relink=0&token=${TOKEN}`);
+  // A new candidate brings a new token and a new delay.
+  const next = shell("?state=takeover");
+  next.takeover({ inspection, progress: null, token: TOKEN });
+  next.wait(1000);
+  next.takeover({ inspection, progress: null, token: TOKEN.replace("0", "f") });
+  next.element("#takeover-confirm").dispatch("click");
+  expect(next.location.href).toBe("tauri://localhost/index.html?state=takeover");
+  // Not now is never delayed.
+  next.element("#takeover-dismiss").dispatch("click");
+  expect(next.location.href).toContain("takeover-dismiss");
+});
+
+test("takeover progress is plain copy, keeps focus and re-enables the offer only after an error", () => {
+  const page = shell("?state=takeover");
+  page.takeover({ inspection, progress: null, token: TOKEN });
+  const copy = {
+    prepared: "Checking the current service…", stopping: "Stopping the current service…",
+    switched: "Starting the app's service…", verifying: "Checking the app's service…",
+    restoring: "Restoring your current service…", committed: "The app's service is running.",
+  };
+  for (const [state, text] of Object.entries(copy)) {
+    page.takeover({ inspection, progress: { state, error: "verify:unavailable" }, token: null });
+    expect(page.element("#takeover-progress").textContent).toBe(text);
+    expect(page.element("#takeover-progress").textContent).not.toMatch(internal);
+    expect(page.element("#takeover-actions").hidden).toBe(true);
+    expect(page.element("#takeover-relink").disabled).toBe(true);
+  }
+  expect(page.focused()).toBe(page.element("#takeover-progress"));
+  page.takeover({ inspection, progress: { state: "committed", error: "relink" }, token: null });
+  expect(page.element("#takeover-progress").textContent).toBe("The app's service is running, but the terminal command still runs the other build.");
+  page.takeover({ inspection, progress: { state: "error", error: null }, token: TOKEN });
+  expect(page.element("#takeover-progress").textContent).toBe("The service wasn't replaced, and nothing was changed. You can try again.");
+  expect(page.element("#takeover-actions").hidden).toBe(false);
+  expect(page.element("#takeover-relink").disabled).toBe(false);
+  page.takeover({ inspection, progress: { state: "unheard-of" }, token: null });
+  expect(page.element("#takeover-progress").textContent).toBe("Replacing the service…");
+});
+
+test("takeover outcomes explain reasons in plain copy and never show codes or update wording", () => {
+  for (const [reason, text] of [
+    ["redetect:identity", "The service changed after you reviewed it, so pacer left it as it was."],
+    ["verify:unavailable", "The app's service didn't start correctly, so pacer put your current service back."],
+    ["interrupted:switch-registration", "The replacement was interrupted, so pacer put your current service back."],
+    ["stop-original:identity", "pacer couldn't stop the current service, so it kept it running."],
+    ["helper:io", "pacer put your current service back."],
+    [null, "pacer put your current service back."],
+  ]) {
+    const page = shell("?state=takeoverRestored");
+    page.render({ page: "takeoverRestored", error: reason });
+    expect(page.element("h1").textContent).toBe("Kept your current service");
+    expect(page.element("#message").textContent).toBe(text);
+    expect(page.element("#message").textContent).not.toMatch(internal);
+    expect(page.element("#takeover-restored").hidden).toBe(false);
+    expect(page.element("#spinner").hidden).toBe(true);
+  }
+  const restored = shell("?state=takeoverRestored");
+  restored.render({ page: "takeoverRestored", error: "verify:unavailable" });
+  expect(restored.element("#takeover-restored-actions").hidden).toBe(true);
+  // The note describes the button, so it appears only with it.
+  expect(restored.element("#takeover-continue-note").hidden).toBe(true);
+  restored.takeover({ inspection: null, progress: null, token: TOKEN });
+  expect(restored.element("#takeover-restored-actions").hidden).toBe(false);
+  expect(restored.element("#takeover-continue-note").hidden).toBe(false);
+  expect(html).toContain("Continuing hides this offer for this build of the current service.");
+  restored.element("#takeover-continue").dispatch("click");
+  expect(restored.location.href).toBe(`tauri://localhost/action/takeover-dismiss?token=${TOKEN}`);
+
+  const failed = shell("?state=takeoverFailed");
+  failed.render({ page: "takeoverFailed", error: "restore-registration:identity" });
+  expect(failed.element("h1").textContent).toBe("Service replacement needs attention");
+  expect(failed.element("#message").textContent).toContain("couldn't put your previous service back on its own");
+  expect(failed.element("#message").textContent).toContain("leave those files as they are");
+  expect(failed.element("#message").textContent).not.toMatch(/update|internal|restore-registration/i);
+  expect(failed.element("#report-issue").hidden).toBe(false);
+  expect(shell("?state=takeoverFailed&compact=1").element("#message").textContent).toContain("github.com/lamtuanvu/pacer/issues");
+  // A record pacer cannot read is kept as evidence and never claimed as a failed restore.
+  const unreadable = shell("?state=takeoverFailed");
+  unreadable.render({ page: "takeoverFailed", error: "journal:unreadable" });
+  expect(unreadable.element("h1").textContent).toBe("Service replacement needs attention");
+  expect(unreadable.element("#message").textContent).toBe("pacer couldn't read its record of a service replacement, so it can't tell which service is set up. pacer kept that record in your pacer folder; leave those files as they are. Quit pacer, then report the problem.");
+  expect(unreadable.element("#report-issue").hidden).toBe(false);
+  // An unfinished record from another app copy or before a restart is left alone, not recovered.
+  const foreign = shell("?state=takeoverFailed");
+  foreign.render({ page: "takeoverFailed", error: "journal:foreign" });
+  expect(foreign.element("h1").textContent).toBe("Service replacement needs attention");
+  expect(foreign.element("#message").textContent).toBe("pacer found an unfinished service replacement that this app didn't start since your Mac last started up, so it won't change the service on its own. pacer kept the record in your pacer folder; leave those files as they are. Quit pacer, then report the problem.");
+  expect(foreign.element("#message").textContent).not.toMatch(/journal|foreign|boot/i);
+  expect(foreign.element("#report-issue").hidden).toBe(false);
+
+  const progress = shell("?state=takeoverProgress");
+  expect(progress.element("h1").textContent).toBe("Replacing the pacer service");
+  expect(progress.element("#message").textContent).not.toMatch(/update/i);
+  expect(progress.element("#spinner").hidden).toBe(false);
+  expect(progress.element("#takeover").hidden).toBe(true);
+});
+
+test("takeover warning is body text with warning tokens and a text label", () => {
+  expect(html).toMatch(/<p class="callout-warn"><strong>Warning:<\/strong> pacer cannot confirm this build is idle\. Running work may be interrupted\.<\/p>/);
+  const css = readFileSync(new URL("../desktop/ui/shell.css", import.meta.url), "utf8");
+  expect(css).toMatch(/\.callout-warn \{[^}]*var\(--warn-bg\)[^}]*var\(--warn-fg\)/);
+  expect(css).not.toMatch(/\.callout-warn \{[^}]*font-size/);
+  expect(css).toMatch(/\.button:focus-visible \{ outline: 2px solid var\(--focus\)/);
+});
+
+test("takeover paths and labels break only at separators and never clip", () => {
+  const css = readFileSync(new URL("../desktop/ui/shell.css", import.meta.url), "utf8");
+  // Segments never break inside; a segment wider than the column scrolls instead (UI-11).
+  expect(css).toMatch(/\.path--wrap \{ white-space: normal; overflow-x: auto; \}/);
+  expect(css).toMatch(/\.path-part \{ white-space: nowrap; \}/);
+  expect(css).not.toMatch(/overflow-wrap: anywhere; overflow-x/);
+});
+
+test("takeover detail labels align with their values", () => {
+  const css = readFileSync(new URL("../desktop/ui/shell.css", import.meta.url), "utf8");
+  // The grid reset must win over the stacked list margins, by specificity and order.
+  const reset = css.indexOf(".install-details.install-details--grid dt, .install-details.install-details--grid dd { margin: 0; }");
+  expect(reset).toBeGreaterThan(-1);
+  expect(reset).toBeGreaterThan(css.indexOf(".install-details dt {"));
+  expect(reset).toBeGreaterThan(css.indexOf(".install-details dd {"));
+});
+
+test("takeover counts sit under the warning, above the pinned choice", () => {
+  const section = html.slice(html.indexOf('<section id="takeover"'), html.indexOf('<section id="takeover-restored"'));
+  const order = ["callout-warn", 'id="takeover-tasks"', 'id="takeover-terminals"', 'id="takeover-current"', 'class="takeover-choice"'].map(text => section.indexOf(text));
+  expect(order.every(index => index > -1)).toBe(true);
+  expect([...order].sort((a, b) => a - b)).toEqual(order);
+});
+
+test("a held confirm button looks unavailable with the app's disabled style", () => {
+  const css = readFileSync(new URL("../desktop/ui/shell.css", import.meta.url), "utf8");
+  expect(css).toMatch(/\.button\[aria-disabled="true"\], \.button\.primary\[aria-disabled="true"\]:hover \{ opacity: 0\.5; cursor: not-allowed; \}/);
+});
+
+test("takeover disabled choice and progress focus are visible with shell tokens", () => {
+  const css = readFileSync(new URL("../desktop/ui/shell.css", import.meta.url), "utf8");
+  expect(css).toMatch(/\.consent-row input:disabled::before \{[^}]*var\(--line\)[^}]*\}/);
+  expect(css).toMatch(/\.consent-row input:checked:disabled::before \{[^}]*var\(--ink-muted\)[^}]*\}/);
+  expect(css).toMatch(/\.consent-row input:disabled \+ label \{[^}]*color: var\(--ink-muted\)/);
+  expect(css).toMatch(/#takeover-progress:focus \{ outline: 2px solid var\(--focus\); outline-offset: 2px; \}/);
+});
+
+test("takeover choice stays visible at the default window height", () => {
+  // Checkbox, status and actions stay pinned to the bottom of the window while the details scroll.
+  expect(html).toMatch(/<div class="takeover-choice">\s*<div class="consent-row">[\s\S]*id="takeover-progress"[\s\S]*id="takeover-actions"[\s\S]*?<\/div>\s*<\/div>\s*<\/section>/);
+  const css = readFileSync(new URL("../desktop/ui/shell.css", import.meta.url), "utf8");
+  expect(css).toMatch(/\.takeover-choice \{ position: sticky; bottom: 0;[^}]*background: var\(--surface-page\)/);
+});
 
 test("recoverable states show only automatic starting status", () => {
   for (const state of ["not_installed", "stopped", "busy", "starting", "ready", "unavailable", "startFailed"]) {
