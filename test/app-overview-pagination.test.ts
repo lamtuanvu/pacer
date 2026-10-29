@@ -32,8 +32,10 @@ test.skipIf(!browserPath)('overview paging reaches every row, resets scope and c
     expect(await previous.count()).toBe(0);
     await next.click();
     await page.getByRole('button', { name: 'Remove tasks' }).click();
-    await page.getByText('1–2 of 2').waitFor();
+    // Two rows fit on one page, so the range and navigation go away.
+    await page.waitForFunction(() => document.querySelectorAll('#rows p').length === 2);
     expect(await rows.allTextContents()).toEqual(['Task 1', 'Task 2']);
+    expect(await page.getByRole('navigation', { name: 'Tasks pages' }).count()).toBe(0);
     await page.getByRole('button', { name: 'Restore tasks' }).click();
     await page.getByText('1–5 of 13').waitFor();
   } finally { await browser.close(); }
