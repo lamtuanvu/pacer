@@ -27,7 +27,7 @@ export interface Brief {
   base?: string;
   worktreeBase?: "default" | "head";
   /** Run the acceptance command with `set -o pipefail`. Off by default: the command runs exactly as written. */
-  pipefail?: boolean;
+  acceptancePipefail?: boolean;
 }
 
 export interface RoutingNote {

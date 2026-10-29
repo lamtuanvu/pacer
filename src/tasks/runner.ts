@@ -619,7 +619,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps): Promise<Task
           ...t.progress, phase: "testing", updatedAt: now,
         };
       });
-      const v: Verification = out.partial ? { files: "(kept on host)" } : await deps.verifyRepo(out.worktree ?? task.brief.repo, task.brief.acceptance, ctx.env, undefined, task.brief.pipefail);
+      const v: Verification = out.partial ? { files: "(kept on host)" } : await deps.verifyRepo(out.worktree ?? task.brief.repo, task.brief.acceptance, ctx.env, undefined, task.brief.acceptancePipefail);
       const ok = out.exec.code === 0 && !out.exec.timedOut;
       const changed = !!v.files.trim() && !["(no changes)", "(not a git repository)"].includes(v.files.trim());
       const review = changed && !out.exec.timedOut && out.exec.code > 0 && out.exec.code < 126;
