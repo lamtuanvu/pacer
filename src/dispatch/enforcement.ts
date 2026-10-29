@@ -6,6 +6,7 @@ import type { Ctx } from "../types";
 import { dispatchDatabase } from "./store";
 import type { ReadOnlyStore } from "./readonly";
 import type { Strategy } from "../config/strategy";
+import { repoFor } from "../core/repos";
 import { CoreError } from "../core/errors";
 import { accountFolder } from "../install/role";
 import { opencodeConfigPath } from "../install/opencode";
@@ -160,15 +161,21 @@ export async function enforcementExclusion(ctx:Ctx,strategy:Strategy,runnerId:st
  * row for another repository is evaluated there and says which one it is.
  */
 function scheduleFor(ctx:Ctx,strategy:Strategy,target:EnforcementTarget,repo:string,scheduled:string|null,
-  unsupported:string|null,cert:CertificateStatus,state:ScheduleState):{reason:string;paused:boolean}|null {
-  if(!isScheduledRunner(strategy,target.runner)||scheduled===repo)return scheduleReason(strategy,target.runner,key(target),cert,unsupported,state,ctx.now);
+  unsupported:string|null,cert:CertificateStatus,state:ScheduleState):{reason:string|null;paused:boolean;scheduleRepo?:string|null;scheduleUnsupportedReason?:string|null}|null {
+  if(!isScheduledRunner(strategy,target.runner))return scheduleReason(strategy,target.runner,key(target),cert,unsupported,state,ctx.now);
+  if(scheduled===repo){
+    const hold=scheduleReason(strategy,target.runner,key(target),cert,unsupported,state,ctx.now);
+    return {reason:hold?.reason===unsupported?null:hold?.reason??null,paused:hold?.paused??false,
+      scheduleUnsupportedReason:unsupported};
+  }
   // Turned off is the setting a person chose, and it holds wherever the schedule would run.
   if(scheduled===null)return strategy.pacing.plannerProbe==="off"?scheduleReason(strategy,target.runner,key(target),cert,unsupported,state,ctx.now)
     :{reason:"no repository is registered, so there is nothing to certify",paused:false};
   const there={...target,controlFiles:controlFilesFor(ctx,strategy,target.runner,scheduled)};
-  const hold=scheduleReason(strategy,target.runner,key(there),certificateStatus(ctx,there),probeSupportReason(there,scheduled),state,ctx.now);
-  const prefix=`scheduled probing certifies ${scheduled}, not this repository`;
-  return {reason:hold?`${prefix}; there: ${hold.reason}`:prefix,paused:hold?.paused??false};
+  const scheduleUnsupportedReason=probeSupportReason(there,scheduled);
+  const hold=scheduleReason(strategy,target.runner,key(there),certificateStatus(ctx,there),scheduleUnsupportedReason,state,ctx.now);
+  return {reason:hold?.reason===scheduleUnsupportedReason?null:hold?.reason??null,paused:hold?.paused??false,
+    scheduleRepo:repoFor(ctx,scheduled).label,scheduleUnsupportedReason};
 }
 /**
  * The read-only form of `enforcementExclusion`: it never spawns `--version` and never opens the writable store.
@@ -238,12 +245,16 @@ export async function enforcementDiagnostics(ctx:Ctx,strategy:Strategy,repo:stri
         // The target could not be resolved, so tick cannot probe it either.
         scheduleReason: error instanceof Error?error.message:String(error),
         schedulePaused: false,
+        scheduleRepo: null,
+        scheduleUnsupportedReason: null,
       });
     }
   }
   return {repo,scope:"native subagent entry points at admission",runners:rows};
 }
-const scheduleFields=(hold:{reason:string;paused:boolean}|null)=>({scheduleReason:hold?.reason??null,schedulePaused:hold?.paused??false});
+const scheduleFields=(hold:{reason:string|null;paused:boolean;scheduleRepo?:string|null;scheduleUnsupportedReason?:string|null}|null)=>(
+  {scheduleReason:hold?.reason??null,schedulePaused:hold?.paused??false,
+    scheduleRepo:hold?.scheduleRepo??null,scheduleUnsupportedReason:hold?.scheduleUnsupportedReason??null});
 export async function certifyExecutor(ctx:Ctx,target:EnforcementTarget,probe:()=>Promise<CanaryResult>):Promise<CertificateStatus> {
  return withLock(ctx,`enforcement-${digest(key(target))}`,async()=>{
   const before=enforcementFingerprint(target),result=await probe();

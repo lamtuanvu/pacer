@@ -309,3 +309,23 @@ test("a completed write renames its temporary file over the target", () => {
   expect(from).not.toBe(to);
   expect(from.startsWith(`${stateFile(ctx.pacerHome)}.`)).toBe(true);
 });
+
+test("charged records preserve the exact pause cause before settlement", () => {
+  const now = 1_000;
+  const cases = [
+    { before: state({ repoSwitches: MAX_REPO_SWITCHES - 1 }), repo: "/other", costPct: null,
+      cause: "repo-switches", hold: { reason: "the certificate keeps being invalidated by switching repositories", paused: true } },
+    { before: state(), repo: "/repo", costPct: MAX_COST_PCT + 3,
+      cause: "cost", hold: { reason: `the last probe cost ${MAX_COST_PCT + 3}% of the account window`, paused: true } },
+    { before: state(), repo: "/repo", costPct: null,
+      cause: null, hold: { reason: "waiting out the backoff from an earlier failed probe", paused: false } },
+  ] as const;
+  for (const c of cases) {
+    const ctx = fakeCtx({ now });
+    const charged = recordProbeOutcome(c.before, "planner-key", c.repo, { certified: false, costPct: c.costPct }, now);
+    writeScheduleState(ctx, charged);
+    const record = readScheduleState(ctx).attempts["planner-key"];
+    expect(record.pauseCause).toBe(c.cause);
+    expect(attemptHold(record, now + 1)).toEqual(c.hold);
+  }
+});

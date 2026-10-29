@@ -1,8 +1,9 @@
 import { expect, test, describe } from "bun:test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fakeCtx, tmpDir } from "./helpers";
 import { registerJobDaemon, startJob } from "../src/jobs/registry";
+import { createTask } from "../src/tasks/store";
 import type { Ctx } from "../src/types";
 import type { Strategy } from "../src/config/strategy";
 import type { CertificateStatus } from "../src/dispatch/enforcement";
@@ -101,6 +102,31 @@ function uncertifiedStatus(): CertificateStatus {
 }
 
 describe("certification tick", () => {
+  test("without a repo override the probe receives the second repository where managed work runs", async () => {
+    const ctx = fakeCtx();
+    const first = realpathSync(setupEnforcementContext(ctx));
+    const working = realpathSync(tmpDir());
+    mkdirSync(join(ctx.pacerHome, "state"), { recursive: true });
+    writeFileSync(join(ctx.pacerHome, "state", "repos.json"), JSON.stringify({
+      [first]: { path: first, key: "local:first", lastUsed: ctx.now },
+      [working]: { path: working, key: "local:working", lastUsed: ctx.now - 1 },
+    }));
+    createTask(ctx, { brief: { goal: "fixture", repo: working }, kind: null, requestedExecutor: null, timeoutS: 60 });
+    writeStrategyYaml(ctx);
+    const probedRepos: string[] = [];
+    const deps: TickDeps = {
+      probe: async (_ctx, _strategy, _runner, repo) => {
+        probedRepos.push(repo);
+        return certifiedStatus();
+      },
+      status: async () => testStatus({ usedPct: 40 }),
+    };
+
+    await tick(ctx, deps);
+
+    expect(probedRepos).toEqual([working]);
+  });
+
   test("starts a probe job when the decision says to", async () => {
     const ctx = fakeCtx();
     const repo = setupEnforcementContext(ctx);
@@ -464,7 +490,7 @@ pacing:
     let statusCalled = false;
 
     const deps: TickDeps = {
-      // Do NOT provide repo: tick will call getActiveRepo which returns null
+      // Do NOT provide repo: tick will call scheduledRepo which returns null
       probe: async (): Promise<CertificateStatus> => {
         probeCalled = true;
         return certifiedStatus();
