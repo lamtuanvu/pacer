@@ -62,7 +62,7 @@
       },
       {
         "name": "radius-xs",
-        "value": "2px",
+        "value": "4px",
         "usage": "Indicator bars and tiny meters.",
         "provisional": "App frame chrome board value; not yet in the design system."
       },
@@ -73,17 +73,17 @@
       },
       {
         "name": "radius-5",
-        "value": "5px",
+        "value": "4px",
         "provisional": "File viewer board: Line and Session running chips."
       },
       {
         "name": "radius-2",
-        "value": "2px",
+        "value": "4px",
         "provisional": "File viewer board: search match highlight."
       },
       {
         "name": "radius-7",
-        "value": "7px",
+        "value": "6px",
         "provisional": "File viewer board: Source/Preview segmented control."
       },
       {
@@ -94,18 +94,18 @@
       },
       {
         "name": "radius-tile",
-        "value": "7px",
+        "value": "6px",
         "usage": "Glyph tiles in command menu rows.",
         "provisional": "Command menu board value; not yet in the design system."
       },
       {
         "name": "radius-agents",
-        "value": "10px",
+        "value": "12px",
         "provisional": "Settings Agents and Accounts board geometry."
       },
       {
         "name": "radius-machine-tile",
-        "value": "9px",
+        "value": "8px",
         "provisional": "Settings Machines board geometry."
       },
       {
@@ -308,7 +308,7 @@
     "styles": [
       {
         "name": "count-badge",
-        "fontSize": "10px",
+        "fontSize": "11px",
         "lineHeight": "16px",
         "fontWeight": 700,
         "provisional": "App frame chrome board value; not yet in the design system."
@@ -332,7 +332,7 @@
       },
       {
         "name": "plugin-section",
-        "fontSize": "9px",
+        "fontSize": "11px",
         "lineHeight": "12px",
         "fontWeight": 600,
         "letterSpacing": "0.04em",
@@ -347,7 +347,7 @@
       },
       {
         "name": "composer-agent",
-        "fontSize": "18px",
+        "fontSize": "16px",
         "lineHeight": "24px",
         "fontWeight": 650,
         "provisional": "NewTask and NewTaskMobile board typography; not yet in the design system."
@@ -361,7 +361,7 @@
       },
       {
         "name": "sheet-title",
-        "fontSize": "17px",
+        "fontSize": "16px",
         "lineHeight": "22px",
         "fontWeight": 650,
         "provisional": "NewTask and NewTaskMobile board typography; not yet in the design system."

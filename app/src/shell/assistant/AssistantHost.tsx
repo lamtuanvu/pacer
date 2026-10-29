@@ -117,11 +117,12 @@ export default function AssistantHost({ route, narrow, repo, repoLabel, onNewTas
     const off = keys.register({ keys: "Ctrl-j", label: "Ask pacer", scope: "global", allowInControl: false, run: () => toggle() });
     // The key registry ignores the Command key, so ⌘J is handled here.
     const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && open && !event.defaultPrevented && !document.querySelector("dialog[open]")) { event.preventDefault(); setOpen(false); return; }
       if (event.metaKey && !event.ctrlKey && !event.altKey && event.key.toLowerCase() === "j" && !event.defaultPrevented) { event.preventDefault(); toggle(); }
     };
     window.addEventListener("keydown", onKey);
     return () => { off(); window.removeEventListener("keydown", onKey); };
-  }, [toggle]);
+  }, [toggle, open]);
 
   const available = status?.available === true;
   const setup = status?.configured === false;
@@ -225,7 +226,7 @@ function AssistantSetup({ api, refresh }: { api: { call: <T>(op: string, params:
   const primary = accounts?.find(account => account.local)?.account;
   return <section className="pc-assistant-setup" data-assistant-setup tabIndex={-1} aria-labelledby="assistant-setup-heading">
     <div className="pc-assistant-setup__intro"><AuroraAvatar /><div><h2 id="assistant-setup-heading">Choose where the assistant runs</h2><p>It answers on one OpenAI-compatible endpoint account and never moves to another. Your question and what it reads go to that account’s model.</p></div></div>
-    {accounts && <div className="pc-assistant-setup__accounts">{accounts.map(account => <div className="pc-assistant-setup__account" key={account.account}>
+    {!!accounts?.length && <div className="pc-assistant-setup__accounts">{accounts.map(account => <div className="pc-assistant-setup__account" key={account.account}>
       <AgentMark agent={account.account} size={24} labelled={false} />
       <div className="pc-assistant-setup__name"><strong>{account.name}</strong><span title={account.note}>{account.note}</span></div>
       <Button size="sm" variant={account.account === primary ? "primary" : "secondary"} busy={busy === account.account} disabled={!!busy} onClick={() => void choose(account.account)}>Use {account.name}</Button>

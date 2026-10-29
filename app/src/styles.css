@@ -119,7 +119,7 @@ html[data-pacer-native-titlebar] .pc-traffic__btn{display:none}
 .pc-bottom-bar .pc-rail__item.on::before{content:none}
 @media(pointer:coarse){.pc-rail__item.on::before{left:calc(-1 * var(--space-1))}}
 .pc-rail__badge{display:inline-flex;align-items:center;justify-content:center;min-width:var(--size-16);height:var(--size-16);padding:0 var(--space-1);border-radius:var(--radius-full);font-size:var(--type-label-size);font-weight:var(--type-body-strong-weight);line-height:var(--type-body-line)}
-.pc-rail__item .pc-rail__badge{position:absolute;top:var(--space-half);right:var(--space-half)}
+.pc-rail__item .pc-rail__badge{position:absolute;top:var(--size-3);right:var(--size-3)}
 .pc-rail__badge.pc-rail__badge--count{background:var(--bad-fill);color:var(--ink-on-fill);font-size:var(--type-count-badge-size);line-height:var(--type-count-badge-line);font-weight:var(--type-count-badge-weight)}
 .pc-rail__badge--warn{background:var(--warn-bg);color:var(--warn-fg)}
 .pc-rail__badge--info{background:var(--info-bg);color:var(--info-fg)}
@@ -138,7 +138,7 @@ html[data-pacer-native-titlebar] .pc-topbar{padding-left:var(--size-84)}
 .pc-layout-toggles .pc-icon-button:not(.pc-icon-button--bad){color:var(--ink-secondary)}
 @media(pointer:coarse){.pc-layout-toggles .pc-icon-button{flex:none;width:var(--control-touch);height:var(--control-touch)}}
 .pc-layout-toggles .pc-icon-button svg{width:var(--size-18);height:var(--size-18)}
-.pc-layout-toggles .pc-icon-button:hover,.pc-layout-toggles .pc-icon-button[aria-pressed="true"]{background:var(--surface-lane);color:var(--ink)}
+.pc-layout-toggles .pc-icon-button:hover{background:var(--surface-lane);color:var(--ink)}
 /* A screen's own heading (a task's title) is shown in the bar, as on the Session board. */
 .pc-app:not(.pc-app--narrow)>.pc-topbar h1.pc-topbar__heading{position:static;width:auto;height:auto;clip:auto;overflow:hidden;text-overflow:ellipsis;flex:0 1 auto;min-width:var(--size-80)}
 .pc-topbar h1{font-size:var(--type-body-size);line-height:var(--type-body-line);font-weight:var(--type-body-strong-weight);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -299,7 +299,7 @@ html[data-pacer-native-titlebar] .pc-topbar{padding-left:var(--size-84)}
 
 
 .pc-rail__badge--bad{background:var(--bad-bg);color:var(--bad-fg)}
-.pc-app--narrow{display:flex;flex-direction:column;padding-bottom:calc(var(--size-56) + env(safe-area-inset-bottom));width:100%;border-radius:0}
+.pc-app--narrow{display:flex;flex-direction:column;padding-bottom:calc(var(--size-56) + max(var(--space-5),env(safe-area-inset-bottom)));width:100%;border-radius:0}
 /* Hide unified titlebar in narrow mode (uses bottom bar instead) */
 .pc-app--narrow .pc-titlebar{display:none}
 /* In narrow mode, body stacks panel + work vertically */
@@ -503,7 +503,7 @@ body:has(.pc-app--narrow) .pc-toasts{bottom:calc(var(--size-56) + var(--space-5)
 }
 .pc-app--narrow .pc-settings-nav{width:auto;min-height:0;padding:0;border:0;gap:var(--space-2)}
 .pc-app--narrow .pc-settings-nav__header,.pc-app--narrow .pc-settings-nav__footer{display:none}
-.pc-topbar .pc-command-trigger{--button-control:var(--size-26);width:100%;min-width:0;height:var(--size-26);min-height:0;justify-content:flex-start;gap:var(--space-2);padding:0 var(--space-2\.5);border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--surface-page);color:var(--ink-muted);font-size:var(--type-body-size);font-weight:var(--type-body-weight)}
+.pc-topbar .pc-command-trigger{--button-control:var(--size-26);width:100%;min-width:0;height:var(--size-26);min-height:0;justify-content:flex-start;gap:var(--space-2);padding:0 var(--space-2);border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--surface-page);color:var(--ink-muted);font-size:var(--type-body-size);font-weight:var(--type-body-weight)}
 .pc-command-trigger:focus-visible{outline:var(--stroke-focus) solid var(--focus);outline-offset:var(--stroke-focus)}
 .pc-command-trigger:hover{background:var(--surface-page);border-color:var(--ink-muted)}
 .pc-command-trigger__icon{display:inline-flex}
@@ -582,7 +582,7 @@ body:has(.pc-app--narrow) .pc-toasts{bottom:calc(var(--size-56) + var(--space-5)
 .pc-route-result{border:1px solid var(--line);border-radius:var(--radius-lg);overflow:hidden}
 .pc-route-result__header{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-4);padding:var(--space-3) var(--space-3\.5);background:var(--surface-card);border-bottom:1px solid var(--line)}
 .pc-route-result__header>p{margin:0}
-.pc-route-result__name{font-size:var(--size-15);font-weight:var(--type-match-strong-weight)}
+.pc-route-result__name{font-size:var(--type-session-title-size);font-weight:var(--type-match-strong-weight)}
 .pc-route-result__body{padding:var(--space-3) var(--space-3\.5)}
 .pc-route-result__candidates{list-style:none;margin:var(--space-2) calc(0px - var(--space-3\.5)) 0;padding:0}
 .pc-route-result__candidates li{display:flex;gap:var(--space-2);padding:var(--space-2) var(--space-3\.5);border-top:1px solid var(--surface-lane)}
@@ -659,7 +659,7 @@ body:has(.pc-app--narrow) .pc-toasts{bottom:calc(var(--size-56) + var(--space-5)
 
 .pc-topbar__new.pc-btn{height:var(--size-26);min-height:0;padding:0 var(--size-10);border-radius:var(--radius-sm);font-size:var(--type-caption-size);font-weight:var(--type-body-strong-weight);background:var(--surface-page)}
 
-.pc-app:has(.pc-dock__panel--maximized)>.pc-body{display:none}
+.pc-work-wrap:has(.pc-dock__panel--maximized)>.pc-work{display:none}
 
 /* Needs you and Answer boards. */
 .pc-needs-board{display:flex;flex-direction:column;gap:var(--space-4);padding:var(--space-6) var(--space-8) var(--space-10);width:100%;max-width:none}
@@ -696,7 +696,7 @@ body:has(.pc-app--narrow) .pc-toasts{bottom:calc(var(--size-56) + var(--space-5)
 /* Lost-service state follows the top bar while cached page content stays visible. */
 .connection-bar{display:flex;align-items:center;gap:var(--space-2\.5);padding:var(--space-2\.5) var(--space-4);background:var(--warn-tint);color:var(--ink);border-bottom:1px solid var(--warn-line)}
 .connection-bar__glyph{color:var(--warn-fg);font-weight:var(--type-count-badge-weight)}
-.connection-bar__caption{font-size:var(--type-caption-size);line-height:var(--type-caption-line);color:var(--ink-secondary)}
+.connection-bar__caption{font-size:var(--type-caption-size);line-height:var(--type-caption-line);color:var(--ink-muted)}
 .pc-bottom-bar{background:var(--surface-card);border-top:0;box-shadow:inset 0 var(--size-1) var(--line)}
 .pc-bottom-bar>*{flex:1 1 0;min-width:0}
 .pc-bottom-bar .pc-rail__item{display:flex;flex-direction:column;gap:var(--space-half);width:100%;height:var(--size-56);padding:0;font-size:var(--type-label-size);line-height:var(--type-label-line);font-weight:var(--type-label-weight)}
@@ -708,7 +708,7 @@ body:has(.pc-app--narrow) .pc-toasts{bottom:calc(var(--size-56) + var(--space-5)
 
 .pc-app--narrow .pc-topbar h1{font-size:var(--type-number-lg-size);line-height:var(--type-display-size)}
 .pc-app--narrow .pc-main:has(>.pc-offline-controls>.pc-dispatch){padding:0}
-.pc-bottom-bar .pc-rail__badge--count{background:var(--bad-fg);color:var(--surface-page)}
+.pc-bottom-bar .pc-rail__badge--count{top:var(--space-1);left:calc(50% + var(--size-6));right:auto;background:var(--bad-fill);color:var(--ink-on-fill)}
 .pc-app--offline .pc-topbar>.pc-live{display:none}
 
 /* The flex work area already excludes the top, connection and status bars. */
@@ -718,3 +718,14 @@ body:has(.pc-app--narrow) .pc-toasts{bottom:calc(var(--size-56) + var(--space-5)
 
 .pc-offline-controls{display:contents}
 .pc-topbar fieldset{border:0;padding:0;margin:0;min-width:0}
+
+.pc-work-wrap>.pc-dock>.pc-offline-controls{display:contents}
+.pc-work-wrap>.pc-dock{display:contents}
+.pc-planner{text-decoration:none;color:inherit}
+.pc-statusbar__work{text-decoration:none}
+.pc-app--narrow .pc-topbar h1{font-weight:var(--type-display-weight)}
+
+.pc-app--narrow .pc-topbar .pc-command-trigger,.pc-app--narrow .pc-topbar>.pc-icon-button{border-color:transparent;background:transparent;color:var(--ink-secondary)}
+.pc-bottom-bar{padding-bottom:max(var(--space-5),env(safe-area-inset-bottom))}
+
+.pc-bottom-bar .pc-rail__item.on{background:transparent}

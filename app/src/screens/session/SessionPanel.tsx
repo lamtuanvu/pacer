@@ -119,7 +119,7 @@ export function SessionHeader({ task, onEnd, busy, actions }: { task: TaskDetail
     return () => cancelAnimationFrame(frame);
   }, [!!onEnd]);
   return <header ref={header} className="pc-session-bar"><AgentMark agent={markAgent(task.executor ?? "unknown")} size={20}/>
-    <h2 title={title}>{title}</h2><span className="pc-session-bar__caption" title={`${task.repo.label} · ${task.branch ?? ""}`}>{task.repo.label}{task.branch && ` · ${task.branch}`}</span>
+    <h1 title={title}>{title}</h1><span className="pc-session-bar__caption" title={`${task.repo.label} · ${task.branch ?? ""}`}>{task.repo.label}{task.branch && ` · ${task.branch}`}</span>
     <StatusPill status={taskStatus(task)}/><span className="pc-session-bar__spacer"/>
     <a className="pc-text-action" href={hrefFor(routes.trace(task.id,current.query))}>Dispatch trace</a>
     {actions}
@@ -154,8 +154,8 @@ export function SessionPanel({ id, tab, onTab, changes, details, work, count = 0
       requestAnimationFrame(() => document.getElementById(`session-${id}-panel-${tab === "work" && !work ? "details" : tab}-tab`)?.focus());
     }
   };
-  const base = `session-${id}-panel`, current = selected ?? (tab === "work" && !work ? "details" : tab);
-  const tabs = [{ id: "details", label: "Details" }, { id: "changes", label: `Changes ${count}` }, ...(work ? [{ id: "work", label: "Work" }] : []), ...opened.map(path => ({id:path,label:path.split("/").pop()!}))];
+  const base = `session-${id}-panel`, current = selected ?? (tab === "work" ? "details" : tab);
+  const tabs = [{ id: "details", label: "Details" }, { id: "changes", label: `Changes ${count}` }, ...opened.map(path => ({id:path,label:path.split("/").pop()!}))];
   return <div className={`pc-session-panel pc-session-panel--board${selected ? " pc-session-panel--file" : ""}`} onClick={event => {
     const path = (event.target as HTMLElement).closest<HTMLElement>("[data-session-file]")?.dataset.sessionFile;
     if (path && readFile) void open(path);
@@ -168,7 +168,7 @@ export function SessionPanel({ id, tab, onTab, changes, details, work, count = 0
       </span>)}
     </div></div>
     <div role="tabpanel" id={`${base}-${current}-panel`} aria-labelledby={`${base}-${current}-tab`} tabIndex={0} className="pc-session-panel__body">
-      {selected ? <>{Viewer ? <Viewer sidePanel file={file} reference={selected} loading={loading} error={error} onClose={() => close(selected)} onRefresh={() => void open(selected)} onOpenFile={path => void open(path)}/> : <p role={error ? "alert" : "status"}>{error?.message ?? "Loading file…"}</p>}</> : current === "changes" ? changes : current === "work" ? work : details}
+      {selected ? <>{Viewer ? <Viewer sidePanel file={file} reference={selected} loading={loading} error={error} onClose={() => close(selected)} onRefresh={() => void open(selected)} onOpenFile={path => void open(path)}/> : <p role={error ? "alert" : "status"}>{error?.message ?? "Loading file…"}</p>}</> : current === "changes" ? changes : <>{details}{work}</>}
     </div>
   </div>;
 }

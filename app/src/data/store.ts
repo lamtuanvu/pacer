@@ -114,6 +114,14 @@ export function reduceStore(state: StoreState, action: StoreAction): StoreState 
   }
 }
 
+/** Hide only the exact attention rows acknowledged by a successful review write.
+ * A later question or review with a new timestamp remains visible. */
+export function withoutReviewedAttention(snapshot: SnapshotV2, acknowledged: ReadonlySet<string>): SnapshotV2 {
+  if (!snapshot.attention) return snapshot;
+  const attention = snapshot.attention.filter(item => !acknowledged.has(`${item.id}:${item.since}`));
+  return attention.length === snapshot.attention.length ? snapshot : {...snapshot, attention};
+}
+
 /** Effects live here; the reducer above remains usable without a DOM. */
 export function createStore(injectedApi?: BrowserApi, Events: typeof EventSource = EventSource) {
   let state = initialState();
@@ -123,7 +131,8 @@ export function createStore(injectedApi?: BrowserApi, Events: typeof EventSource
   let stopped = true;
   let generation = 0;
   let retryDelay = 1000;
-  const dispatch = (action: StoreAction) => { state = reduceStore(state, action); api.setConnected?.(state.connected); for (const listener of listeners) listener(); };
+  const acknowledgedReviews = new Set<string>();
+  const dispatch = (action: StoreAction) => { state = reduceStore(state, action); if (state.snapshot && acknowledgedReviews.size) state = {...state,snapshot:withoutReviewedAttention(state.snapshot,acknowledgedReviews)}; api.setConnected?.(state.connected); for (const listener of listeners) listener(); };
   const endSession = () => { stream?.close(); clearTimeout(timer); dispatch({ type: "session-ended" }); };
   const api = injectedApi ?? createApi(endSession);
   const retry = () => {
@@ -178,6 +187,11 @@ export function createStore(injectedApi?: BrowserApi, Events: typeof EventSource
   }
   return {
     getState: () => state,
+    acceptReview(id: string) {
+      if (!state.snapshot) return;
+      for (const item of state.snapshot.attention ?? []) if (item.taskId === id) acknowledgedReviews.add(`${item.id}:${item.since}`);
+      dispatch({type:"snapshot",snapshot:state.snapshot});
+    },
     /** Refetch the snapshot now (an action saw no event in time). */
     refresh: () => refresh(),
     subscribe(listener: () => void) { listeners.add(listener); return () => { listeners.delete(listener); }; },

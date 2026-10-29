@@ -1,3 +1,4 @@
+import { useFrame } from "../../shell/slots";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { RepoRef } from "../../../../src/api/read-model/types";
 import { agentInfo } from "../../../../src/view-model/agents";
@@ -135,11 +136,11 @@ export function NewTask({ query }: { query: RouteQuery }) {
     setFailure(undefined);
     void action.run<TaskSummary>("task.delegate", params, task => {
       try { localStorage.setItem("pacer.delegate.last-repo", JSON.stringify({ repo: next.repo })); } catch { /* storage unavailable */ }
-      clear(); location.hash = taskHref(task.task_id);
+      clear(); location.hash = hrefFor(routes.tasks(), query);
     });
   };
   useEffect(() => { if (action.error) setFailure(action.error); }, [action.error]);
-  const cancel = () => { location.hash = hrefFor(routes.tasks(), query); };
+  const cancel = () => { location.hash = hrefFor(routes.dispatch(), query); };
 
   const props: ViewProps = { canImportIssue: state.features.ops.has("issue.import"), onIssue: () => setIssuePicker(true), draft, set, base, repo, choices, preview, card, routing: routing.data, accounts: accounts.data ?? [], uploads, checks, mentions, submit, failure, apple, planner, mode: state.snapshot?.mode?.mode ?? planner?.mode ?? "", lastRepo: lastRepo(), onDelegate: delegate, onSave: save, onCancel: cancel, note: savedNote(savedAt, now, failed), onUseWorktree: () => { set({ workspace: "worktree" }); setFailure(undefined); } };
   return <>{narrow ? <NewTaskSheet {...props} /> : <NewTaskPage {...props} />}
@@ -328,6 +329,7 @@ const repoHelp = (p: ViewProps) => {
 };
 
 function NewTaskPage(p: ViewProps) {
+  const frame = useFrame();
   const overrideOpen = !!p.draft.executor;
   return <Page width="full" className="pc-new-task">
     <header className="pc-new-task__header">
@@ -377,7 +379,7 @@ function NewTaskPage(p: ViewProps) {
           </div>
         </Disclosure>
       </section>
-      <aside aria-label="Where this task goes" className="pc-new-task__aside">
+      {frame?.details?.open !== false && <aside aria-label="Where this task goes" className="pc-new-task__aside">
         <section className="pc-route-card" aria-label="Will go to">
           <div className="pc-route-card__body">
             <span className="pc-route-card__head"><span className="pc-label">Will go to</span><span className="pc-caption" aria-live="polite">{p.card && !p.preview.error && !p.preview.empty ? "Updated as you type" : ""}</span></span>
@@ -395,7 +397,7 @@ function NewTaskPage(p: ViewProps) {
           </Button>
           <span className="pc-caption pc-new-task__submit-note">{p.submit.note}</span>
         </div>
-      </aside>
+      </aside>}
     </div>
   </Page>;
 }

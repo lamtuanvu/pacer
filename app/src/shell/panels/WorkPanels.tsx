@@ -1,3 +1,4 @@
+import { StatusDot } from "../../ds/StatusDot";
 import { useContext, useEffect, useRef, useState } from "preact/hooks";
 import type { TaskDetail } from "../../../../src/core/task-detail";
 import type { ClientSnapshot } from "../../../../src/view-model/snapshot";
@@ -75,7 +76,7 @@ function Agents({
             <span className="pc-work-panel-row__name">
               {agentInfo(executor.agent).name}
             </span>
-            <span className="pc-work-panel-caption">{status.label}</span>
+            <StatusDot tone={status.tone} label={status.label} paired="glyph"/>
           </TextAction>
         );
       })}
@@ -92,7 +93,7 @@ function TaskInspector({ id, query }: { id: string; query: RouteQuery }) {
   if (!task)
     return (
       <>
-        <ErrorMessage error={error} />
+        <ErrorMessage error={state.connected ? error : undefined} />
         {!error && <p role="status">Loading task…</p>}
       </>
     );
@@ -107,7 +108,7 @@ function TaskInspector({ id, query }: { id: string; query: RouteQuery }) {
   const step = task.routing?.policy?.executors.indexOf(chosen ?? "") ?? -1;
   return (
     <>
-      <ErrorMessage error={error} />
+      <ErrorMessage error={state.connected ? error : undefined} />
       <section className="pc-work-panel-section">
         <strong className="pc-work-panel-title">
           {task.title || task.fullTitle || task.goal}
@@ -358,8 +359,8 @@ export function WorkPanels({
       ),
   );
   const tabs = [
-    { id: "task", label: "Task" },
-    { id: "agents", label: "Agents" },
+    { id: "task", label: "Task", icon:"tasks" as const },
+    { id: "agents", label: "Agents", icon:"executors" as const },
     ...visible.map((surface) => ({
       id: `${surface.plugin}/${surface.id}`,
       label: `${surface.title} ·`,
@@ -513,7 +514,7 @@ export function WorkPanels({
               frame?.details?.toggle();
               requestAnimationFrame(() =>
                 document
-                  .querySelector<HTMLElement>('[aria-label="Toggle Inspector"]')
+                  .querySelector<HTMLElement>('[aria-label="Toggle right panel"]')
                   ?.focus(),
               );
             }}

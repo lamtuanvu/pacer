@@ -77,7 +77,8 @@ browserTest("Open file requires a current local direct session; selection clears
 
 browserTest("failure shows its resolution, singular attempt and edit default without ready executors",async()=>withBrowser(async browser=>{
   const page = await open(browser,{failure:true,retryOptions:[],executors:[]});
-  await page.getByText("worktree removed",{exact:true}).waitFor();
+  await page.getByRole("heading",{name:"What failed",exact:true}).waitFor();
+  expect(await page.getByText("worktree removed",{exact:true}).count()).toBe(0);
   expect(await page.locator(".pc-result-meta").innerText()).toContain("1 attempt on");
   expect(await page.getByRole("radio",{name:"Edit the brief, then retry"}).getAttribute("aria-checked")).toBe("true");
   await page.getByRole("button",{name:"Edit the brief, then retry",exact:true}).click();

@@ -42,8 +42,8 @@ export function PluginsPage({ initialData, initialSurfaces }: { initialData?: {p
           <div className="pc-plugin-card__copy"><div className="pc-plugin-card__name"><b>{presentation.name}</b><span className="pc-settings-board__caption">{[plugin.version, plugin.publisher].filter(Boolean).join(" · ")}</span>{plugin.bundled && <Pill tone="neutral">Built in</Pill>}{status && <Pill tone={status.tone}>{status.label}</Pill>}</div>
             {presentation.description && <p className="pc-plugin-card__description">{presentation.description}</p>}
             {plugin.error && <span className="pc-plugin-card__error">{plugin.error}</span>}
-            {adds.length > 0 && <div className="pc-plugin-tags"><span className="pc-settings-board__caption">Adds</span>{adds.map(text => <span key={text} className="pc-plugin-tag">{text}</span>)}</div>}
-            {may.length > 0 && <div className="pc-plugin-tags"><span className="pc-settings-board__caption">May</span>{may.map(text => <span key={text} className="pc-plugin-tag pc-plugin-tag--outlined">{text}</span>)}</div>}
+            {<div className="pc-plugin-tags"><span className="pc-settings-board__caption">Adds</span>{!adds.length && <span className="pc-plugin-tag">No additional views</span>}{adds.map(text => <span key={text} className="pc-plugin-tag">{text}</span>)}</div>}
+            {<div className="pc-plugin-tags"><span className="pc-settings-board__caption">May</span>{!may.length && <span className="pc-plugin-tag pc-plugin-tag--outlined">No additional access</span>}{may.map(text => <span key={text} className="pc-plugin-tag pc-plugin-tag--outlined">{text}</span>)}</div>}
             {reports[plugin.id] && <p role="status">{reports[plugin.id]}</p>}
           </div>
           <div className="pc-plugin-card__actions"><span className="pc-plugin-inline"><span className="pc-settings-board__caption">{plugin.enabled ? "On" : "Off"}</span><Switch size="sm" aria-label={`Enable ${presentation.name}`} checked={plugin.enabled} disabled={plugin.state === "refused"} aria-disabled={busy || resource.loading || plugin.state === "refused"} onChange={event => void toggle(plugin,event.currentTarget)}/></span>

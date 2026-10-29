@@ -60,7 +60,7 @@ test('wizard screen: a later step cannot be opened early, Continue is disabled w
     { ...withState({}), jobs: { [job.id]: { ...job, state } } });
   expect(last('running')).toContain('Running test task');
   for (const state of ['running', 'failed'] as const) { expect(last(state)).not.toContain('is ready'); expect(last(state)).not.toContain('Open agents'); }
-  expect(last('passed')).toContain(`${executor.id} is ready`);
+  expect(last('passed')).toContain("Codex · team on devbox is ready");
   const stepsDone = (last('passed').match(/pc-stepper__step--done/g) ?? []).length;
   expect(stepsDone).toBe(4);
 });
@@ -76,10 +76,11 @@ const summary = (over: object) => ({ agent: 'codex', source: 'Codex sign-in', us
 test('Accounts: status pill with a fix link only where the fix can work', () => {
   const html = render(<SettingsGeneral section="accounts" initialData={{ ...settings, accounts }} />, withState({ accounts: [
     summary({ name: 'team', executors: [executor.id] }), summary({ name: 'stale', stale: true, capturedAt: 1, eligibility: { evaluatedAt: 1000, budget: 'unknown', reasons: [] } })] }));
-  for (const label of ['Signed in', 'Signed out']) expect(html).toMatch(new RegExp(`pc-pill[^"]*"[^>]*>(?:<span[^>]*>[^<]*</span>)?${label}</span>`));
+  for (const label of ['On pace', 'Signed out']) expect(html).toMatch(new RegExp(`pc-pill[^"]*"[^>]*>(?:<span[^>]*>[^<]*</span>)?${label}</span>`));
   // Sign-in help for the signed-out native account; Ark CLI help (with refresh) for its endpoint only: no other account has a refresh that can succeed.
   expect(html.match(/<summary>Fix sign-in<span class="sr-only"> for Codex · out<\/span><\/summary>/g)).toHaveLength(1);
-  expect(html).toContain('<code>codex login</code>');
+  expect(html).toContain('Use the agent’s own sign-in to reconnect this account.');
+  expect(html).not.toContain('<code>codex login</code>');
   expect(html).toContain('Fix Ark CLI sign-in');
   expect(html.match(/Refresh usage<span class="sr-only"> for ([a-z]+)/g)).toEqual(['Refresh usage<span class="sr-only"> for ark']);
   expect(html).not.toContain('Fix sign-in<span class="sr-only"> for team');
@@ -168,7 +169,7 @@ test('Agents: only Executors has a planner card; Accounts has the factual banner
  expect(html).toContain('pacer never reads or copies an agent\'s own sign-in.');
  expect(html).not.toContain('Endpoint keys stay in your keychain');
  expect(html).toContain('scope="col">Sign-in</th>');
- expect(html).toMatch(/data-label="Sign-in"><span>Signed out<\/span><div class="u3-muted">Observed source/);
+ expect(html).toMatch(/data-label="Sign-in"><span>Signed out<\/span><div class="u3-muted">Codex’s own sign-in/);
  expect(html).toContain('data-label="Sign-in"><span>Unknown</span>');
 });
 
@@ -184,7 +185,7 @@ test('Agents table shows count and known machine maximum, failing tint, and 24px
 
 test('Accounts policy uses the existing config values and shows the threshold only for fill',()=>{
  const policy=(mode:string)=>render(<SettingsGeneral section="accounts" initialData={{...settings,accounts,config:{keys:{'pacing.accounts':{value:mode},'pacing.fill_threshold':{value:85}},planners:[]}}}/>);
- expect(policy('spread')).toContain('role="radiogroup" aria-label="Multiple accounts"');
+ expect(policy('spread')).toContain('role="group" aria-label="Multiple accounts"');
  expect(policy('spread')).toContain('Spread evenly');
  expect(policy('spread')).not.toContain('Account fill threshold');
  expect(policy('fill')).toContain('aria-label="Account fill threshold"');
@@ -194,7 +195,7 @@ test('Accounts policy uses the existing config values and shows the threshold on
 test('Accounts policy explains disconnected controls',()=>{
  const html=render(<SettingsGeneral section="accounts" initialData={{...settings,accounts,config:{keys:{'pacing.accounts':{value:'spread'}},planners:[]}}}/>,{...withState({}),connected:false});
  expect(html).toContain('Reconnecting. Account policy changes will be available when the service reconnects.');
- expect(html).toMatch(/type="radio"[^>]*disabled/);
+ expect(html).toMatch(/<button[^>]*disabled/);
 });
 
 test('Machines uses the board cards and only reports known local facts and executor caps', () => {
@@ -206,7 +207,7 @@ test('Machines uses the board cards and only reports known local facts and execu
   expect(html).toContain('pc-pill--good');
   expect(html).toContain('may use 3');
   // The default is no limit; the number field appears only for a hard cap.
-  expect(html).toContain('aria-label="Parallel task limit"');
+  expect(html).toContain('aria-label="Parallel tasks"');
   expect(render(<SettingsGeneral section="machine" initialData={{...settings,config:{...settings.config!,keys:{...settings.config!.keys,'execution.local_max_tasks':{value:4}}}}} />, withState({}))).toContain('u3-parallel-input');
   expect(html).toContain('~/.pacer/worktrees');
   expect(html).toContain('u3-terminal-picker');
@@ -243,7 +244,7 @@ test('Add agent has a breadcrumb, polite panel, found state, selection check and
   expect(html).not.toContain('aria-live="polite" aria-labelledby="agent-step-heading"');
   expect(html).toContain('u3-selected-check');
   expect(html).toContain('--agent-size:28px');
-  expect(html).toContain('Not found');
+  expect(html).toContain('Not installed · how to install');
   expect(html).toContain('Install: <code>install-cursor</code>');
   expect(html).toContain('Agents that aren’t installed show how to get them.');
   expect(render(<AddExecutor initialDetection={[]}/>)).not.toContain('show how to get them');

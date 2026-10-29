@@ -85,7 +85,7 @@ for(const failure of ['preview-error','connect-error','recheck-error'])browserTe
   expect(reads).toBe(failure==='recheck-error'?2:1);
   mode='success';
   await page.getByRole('button',{name:'Run all checks',exact:true}).click();
-  await page.getByText('Checks complete.',{exact:true}).waitFor();
+  await page.locator('.pc-diagnostic-list').first().waitFor();
  }finally{await page.close();}
 },15000);
 
@@ -101,11 +101,11 @@ browserTest('board rows retain keyboard disclosures, clipboard backing and respo
   expect(await page.getByText(/Configuration and fixture tests/).count()).toBe(0);
   expect(await page.getByText(/Last run/).count()).toBe(0);
   await page.getByRole('button',{name:'Run all checks',exact:true}).click();
-  await page.getByText('Checks complete.',{exact:true}).waitFor();
+  await page.locator('.pc-diagnostic-list').first().waitFor();
   await page.getByRole('button',{name:'Copy report',exact:true}).click();
   expect(await page.evaluate(()=>(window as any).copiedReport)).toContain('missing integration');
   expect(await page.evaluate(()=>(window as any).copiedReport)).toMatch(/took (?:<1|\d+)s/);
-  expect(await page.getByText(/Configuration and fixture tests/).count()).toBe(1);
+  expect(await page.getByText(/Configuration and fixture tests/).count()).toBe(0);
   const summary=page.locator('.pc-diagnostic-row summary').first();
   await summary.focus();await page.keyboard.press('Enter');
   expect(await page.locator('.pc-diagnostic-row details').first().getAttribute('open')).not.toBeNull();
@@ -116,7 +116,7 @@ browserTest('board rows retain keyboard disclosures, clipboard backing and respo
    const totals=getComputedStyle(node),glyph=getComputedStyle(node.querySelector('.pc-diagnostic-glyph')!);
    return {radius:totals.borderRadius,columns:node.children.length,glyph:glyph.width};
   });
-  expect(geometry).toEqual({radius:'10px',columns:4,glyph:'26px'});
+  expect(geometry).toEqual({radius:'12px',columns:4,glyph:'26px'});
   await page.setViewportSize({width:375,height:900});
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   const titleBox=await page.locator('#diagnostics h1').boundingBox(),runBox=await page.getByRole('button',{name:'Run all checks',exact:true}).boundingBox();

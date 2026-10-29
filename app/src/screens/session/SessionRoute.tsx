@@ -79,7 +79,7 @@ export function SessionRoute({id, result, work, tab}:{id:string; result?:Compone
  const t=task.data,unsettled=!!t&&!active&&!t.review&&!t.resolved&&!t.dismissed&&!t.retriedBy;
  // One next step per state, in the panel that holds it; a closed panel must not hide it (UI-13, UI-14).
  const next:{label:string;tab:SessionPanelTab}|undefined=!t||!unsettled?undefined
-  :t.work?(t.reviewRequest||t.state==='needs_input'?{label:'Review in Work',tab:'work'}:undefined)
+  :t.work?(t.reviewRequest||t.state==='needs_input'?{label:'Review result',tab:'details'}:undefined)
   :t.state==='needs_input'&&t.question&&t.question.answer===undefined?{label:'Answer question',tab:'details'}
   :t.reviewRequest||t.acceptance.state==='failed'||['partial','failed','limit'].includes(t.state)?{label:'Review result',tab:'details'}:undefined;
  const slots:SessionSlots|undefined=task.data&&{

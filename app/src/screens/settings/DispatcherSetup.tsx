@@ -3,7 +3,7 @@ import { executorLabel } from "../../../../src/view-model/words";
 import type { ComponentChildren } from "preact";
 import { useEffect, useId, useRef, useState } from "preact/hooks";
 import { ButtonLink, IconButton, TextAction, Button } from "../../ds/Button";
-import { Field, TextArea, TextInput } from "../../ds/Controls";
+import { Disclosure, Field, TextArea, TextInput } from "../../ds/Controls";
 import { ChoicePicker } from "../../ds/ChoicePicker";
 import { AgentMark } from "../../ds/AgentMark";
 import { Icon } from "../../ds/icons";
@@ -54,8 +54,8 @@ function OrderWithPool({ label, title, items, onChange, pool, empty, disabled }:
           const name = executorLabel(item.id ?? item.key);
           return { ...item, displayLabel: name,
             leading: <><span className="pc-executor-rank">{index + 1}</span><AgentMark agent={runner?.agent ?? item.key} size={24} labelled={false} /></>,
-            detail: <>{name.toLowerCase() !== (item.id ?? item.key).toLowerCase() && <span className="pc-executor-id" title={item.id ?? item.key}>{item.id ?? item.key}</span>}{item.detail}{status && <span onKeyDown={containTooltipEscape}><Tooltip text={status.tooltip}><span className="pc-executor-caption" tabIndex={0}>{status.reason}</span></Tooltip></span>}</>,
-            trailing: status && <Pill tone={status.tone}>{status.label}</Pill> };
+            detail: item.detail,
+            trailing: status && <span className="pc-executor-state" onKeyDown={containTooltipEscape}><Tooltip text={`${status.reason}. ${status.tooltip}`}><span tabIndex={0}><Pill tone={status.tone}>{status.label}</Pill></span></Tooltip></span> };
         })} onReorder={onChange} onRemove={key => { if (keys.length === 1) focusAfter(() => buttons(group.current, "button")[0] ?? group.current); onChange(keys.filter(item => item !== key)); }} />
         {!items.length && <p>{empty}</p>}
       </div>
@@ -191,6 +191,7 @@ export function SetupEditor({ view, eligibility: source, onSaved, onDirtyChange,
   // Discard loads the latest saved settings, which also resolves a conflict.
   const discard = () => { setSetup(discardSetup(latest.current)); setConflict(false); setError(undefined); };
   const blocked = blockedReason(setup, ladderDirty, name, reason, state.connected);
+  const [editingLadder, setEditingLadder] = useState(false);
   const engine = view.config.engine, ladderEditable = engine === "ladder" || view.config.engineFallback === "ladder";
 
   const save = async () => {
@@ -215,10 +216,17 @@ export function SetupEditor({ view, eligibility: source, onSaved, onDirtyChange,
         : source.kind === "project" && setup.eligibility.kind === "project"
           ? <ProjectOrder source={source} executors={setup.eligibility.draft} disabled={disabled} onChange={setEligibility} />
           : null}
+    <SaveBar inline alwaysVisible statusDot size="sm" scope={!count && notice && savedScope ? savedScope : scopeText} count={count} busy={busy} onSave={() => void save()} onDiscard={discard} blockedReason={blocked} notice={notice || undefined}
+      saveLabel={ladderDirty ? "Validate and save" : "Save choices"}>
+      {conflict || error ? <>
+        {conflict && <p role="status">Another client changed these settings. Your changes are kept; Discard loads theirs.</p>}
+        <ErrorMessage error={error} />
+      </> : undefined}
+    </SaveBar>
     </Section>
     <Section step={3} id="decision-ladder" title="How should Pacer choose?" detail={`One choice method for every repository. It runs after step 2 has decided who is eligible. From saved setup ${view.strategy}.`}>
-      {engine !== "ladder" && <p>This setup uses the plugin decision engine {engine.replace(/^plugin:/, "")}; configure it in the strategy file. If the plugin cannot decide, Pacer {view.config.engineFallback === "ladder" ? "uses this fallback ladder" : "queues the work"}.</p>}
-      {ladderEditable && <div className="pc-stack pc-stack--section">
+      {engine !== "ladder" && <p>This setup uses a plugin choice method; configure it in the saved setup. If the plugin cannot decide, Pacer {view.config.engineFallback === "ladder" ? "uses this fallback ladder" : "queues the work"}.</p>}
+      {ladderEditable && <><ol className="pc-choice-ladder">{setup.ladder.steps.map((step,index) => <li key={step.id}><span>{index + 1}</span><strong>{step.id === "capable-with-headroom" ? "Capable model with spare capacity" : "Usable fallback"}</strong><span className="u3-muted">Share: Not recorded</span></li>)}</ol><Button size="sm" onClick={() => setEditingLadder(value => !value)} aria-expanded={editingLadder}>Edit choice method</Button>{editingLadder && <div className="pc-stack pc-stack--section">
         <DispatcherLadderFields config={setup.ladder} disabled={disabled} onChange={ladder => setSetup(current => ({ ...current, ladder }))} />
         {ladderDirty && <div className="pc-card pc-stack pc-stack--normal">
           <SectionHeading as="h3">Save the ladder as a new saved setup</SectionHeading>
@@ -226,15 +234,9 @@ export function SetupEditor({ view, eligibility: source, onSaved, onDirtyChange,
           <SettingRow variant="board" label="Setup name" description="Lowercase letters, numbers and hyphens."><TextInput value={name} maxLength={40} disabled={disabled} onInput={event => setName(event.currentTarget.value)} /></SettingRow>
           <SettingRow variant="board" label="Reason for change"><TextInput value={reason} maxLength={500} disabled={disabled} onInput={event => setReason(event.currentTarget.value)} /></SettingRow>
         </div>}
-      </div>}
+      </div>}</>}
     </Section>
-    <SaveBar statusDot size="sm" scope={!count && notice && savedScope ? savedScope : scopeText} count={count} busy={busy} onSave={() => void save()} onDiscard={discard} blockedReason={blocked} notice={notice || undefined}
-      saveLabel={ladderDirty ? "Validate and save" : "Save choices"}>
-      {conflict || error ? <>
-        {conflict && <p role="status">Another client changed these settings. Your changes are kept; Discard loads theirs.</p>}
-        <ErrorMessage error={error} />
-      </> : undefined}
-    </SaveBar>
+
   </>;
 }
 

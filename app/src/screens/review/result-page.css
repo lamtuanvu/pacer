@@ -51,3 +51,9 @@
 .pc-diff-line>span:last-child{color:var(--ink);overflow:hidden;text-overflow:ellipsis}
 .pc-diff-pair{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
 .pc-diff-pair>.pc-diff-line:first-child{border-right:1px solid var(--line)}
+
+.pc-result-diff>p.pc-result-caption{padding:var(--space-4)}
+.pc-result-page .pc-text-action{color:var(--link)}
+.pc-failure-check>.pc-result-bad{font-weight:var(--type-match-strong-weight)}
+
+.pc-result-diff>section>p.muted{padding:var(--space-4)}

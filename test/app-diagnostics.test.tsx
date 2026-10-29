@@ -21,10 +21,10 @@ test("results separate configuration, handler tests and unverified invocation wi
     {name:"Claude handler probes",level:"ok",evidence:"tested",detail:"Isolated fixture"},
     {name:"Claude host invocation",level:"info",evidence:"unverified",detail:"No host evidence",fix:"Inspect /hooks"},
   ]}}/>);
-  for (const word of ["Configured","Tested working","Unverified","Suggested next step","Inspect /hooks", "Passed", "Not checked", "Planner"]) expect(html).toContain(word);
+  for (const word of ["Configured","Tested working","Unverified", "Passed", "Not checked", "Planner"]) expect(html).toContain(word);
   expect(html).toContain('<details');
   expect(html).not.toMatch(/<details[^>]* open/);
-  expect(html).toContain('Claude hook configuration\nSessionStart command present');
+  expect(html).toContain('SessionStart command present');
 });
 test("doctor operation is additive and v3-only, with structured results and honest host evidence", async () => {
   expect(opNames()).toContain("doctor.run");
@@ -64,7 +64,7 @@ test('persistent Settings navigation marks Diagnostics current without a second 
   const {SettingsGeneral} = await import('../app/src/screens/settings/General');
   const panel = renderToString(<SettingsPanel route={{name:'settings',section:'diagnostics',query:{repo:null,scope:null}} as any} counts={null}/>);
   const local = renderToString(<TaskContext.Provider value={{state:initialState(),api:{} as any}}><SettingsGeneral section="diagnostics"/></TaskContext.Provider>);
-  expect(panel).toMatch(/<a(?=[^>]*href="[^"]*settings\/diagnostics")(?=[^>]*aria-current="page")[^>]*>[\s\S]*?Diagnostics<\/span><\/a>/);
+  expect(panel).toMatch(/<a(?=[^>]*href="[^"]*settings\/diagnostics")(?=[^>]*aria-current="page")[^>]*>[\s\S]*?Diagnostics<\/span>[\s\S]*?<\/a>/);
   expect(local).not.toContain('aria-label="Settings sections"');
   expect(local).toContain('id="diagnostics"');
 });
@@ -142,14 +142,14 @@ test('setup links lead to relevant flows and do not imply planner setup fixes ho
  expect(diagnosticSetupLink({name:'Orca',level:'warn',detail:''})).toBeUndefined();
 });
 
- test('failures open with report details and totals count each check once', () => {
+ test('failures start collapsed with plain details and totals count each check once', () => {
  const html = renderToString(<DiagnosticResults report={{checkedAt:1,checks:[
  {name:'Service',level:'fail',detail:'Connection refused',fix:'Start the service'},
  {name:'Binary codex',level:'ok',detail:'Installed'},
  {name:'Claude host invocation',level:'info',evidence:'unverified',detail:'No observation'},
  {name:'Activity',level:'info',detail:'Available'},
  ]}}/>);
- expect(html).toMatch(/<details[^>]*open/);
+ expect(html).not.toMatch(/<details[^>]*open/);
  expect(html).toContain('Connection refused');
  expect(html).toContain('Start the service');
  expect(html.match(/data-count="1"/g)).toHaveLength(3);

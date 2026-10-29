@@ -132,7 +132,7 @@ export function PluginSettingsPage({ section = "", plugin: pluginProp, initialDa
       {count > 0 && <div className="pc-plugin-save"><span className="pc-plugin-save__dot" aria-hidden="true"/><span className="pc-plugin-grow"><b>{count} unsaved {count === 1 ? "change" : "changes"}</b> <span className="pc-settings-board__caption">· saved to the plugin's own settings</span></span><Button variant="ghost" size="sm" onClick={() => {setValues(baseline);setErrors({});setMessage("");}}>Discard</Button><Button variant="primary" size="sm" aria-disabled={busy || conflict} onClick={() => {if(!busy && !conflict) void save();}}>Save</Button></div>}
     </>}
     {!unavailable && !missing && <ErrorMessage error={error}/>}{(busy || message && !(count && message === "Saved.")) && <p role="status">{busy ? "Saving…" : message}</p>}<Feedback action={toggle.action}/>{toggle.dialogs.dialog}
-    <p className="pc-settings-board__caption">This page is drawn by pacer from the plugin's settings schema, so every plugin page uses the same layout.</p>
+    {data && <p className="pc-settings-board__caption">This page is drawn by pacer from the plugin's settings schema, so every plugin page uses the same layout.</p>}
   </div></Page></DensityContext.Provider>;
 }
 function SchemaField({name,field,value,onChange,disabled,error,repos}: {name:string;field:SettingsField;value:unknown;onChange:(value:unknown)=>void;disabled:boolean;error?:string;repos:{key:string;label:string}[]}) {

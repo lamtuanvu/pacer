@@ -1,3 +1,4 @@
+import { useDiagnosticsStatus } from "../data/diagnostics-status";
 import { useContext, useEffect, useState } from "preact/hooks";
 import { PluginContext } from "../plugins/catalog";
 import { PLUGIN_ICONS } from "../plugins/icons";
@@ -14,12 +15,13 @@ export function SettingsPanel({ route, counts, snapshot, embedded = false }: { r
   const [plugins, setPlugins] = useState<PluginInfo[] | undefined>();
   useEffect(() => { if(!api) return; let active = true; void api.call<{plugins:PluginInfo[]}>("plugin.list", {}).then(data => { if(active) setPlugins(data.plugins ?? []); }, () => { if(active) setPlugins(undefined); }); return () => {active=false;}; }, [api, revision, state?.connected]);
   const needs = (plugins ?? []).filter(plugin => ["failing", "refused", "needs_grant"].includes(plugin.state)).length;
-  const attention = settingsAttention(snapshot, counts);
-  const current = route.name === 'hosts' ? 'machine' : route.name === 'add-executor' ? 'executors' : route.name === 'settings' ? settingsNavId(route.section) : null;
+  const attention = settingsAttention(snapshot, counts), diagnostics = useDiagnosticsStatus();
+  let current = route.name === 'hosts' ? 'machine' : route.name === 'add-executor' ? 'executors' : route.name === 'settings' ? settingsNavId(route.section) : null;
+  if (current?.startsWith("plugins/") && !surfaces.some(surface => surface.surface === "settings" && surface.visible && `plugins/${surface.plugin}` === current)) current = "plugins";
   const groups: (Omit<SettingsNavGroup,"items"> & {items:SettingsNavItem[]})[] = SETTINGS_GROUPS.map(group => ({ ...group, items: SETTINGS_PAGES.filter(page => page.group === group.id).map(({ id, label, icon }) => ({
     id: id || 'overview', label, icon, current: id === current,
     href: hrefFor(routes.settings(id || undefined), route.query),
-    badge: id === 'plugins' && needs ? {text:String(needs),label:`${needs} ${needs === 1 ? 'plugin needs' : 'plugins need'} attention`,tone:'warn' as const} : id === 'executors' ? attention[id] : undefined,
+    badge: id === 'plugins' && needs ? {text:String(needs),label:`${needs} ${needs === 1 ? 'plugin needs' : 'plugins need'} attention`,tone:'warn' as const} : id === 'diagnostics' ? (!diagnostics.checked || diagnostics.issues ? {text:'!',label:diagnostics.checked ? `${diagnostics.issues} checks need attention` : 'Checks not run yet',tone:'warn' as const} : undefined) : id === 'executors' ? attention[id] : undefined,
   })) }));
   const extend = groups.find(group => group.id === 'extend')!;
   for (const surface of (plugins ? surfaces : []).filter(surface => surface.surface === 'settings' && surface.visible)) extend.items.push({

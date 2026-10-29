@@ -177,7 +177,7 @@ export function TerminalScreen({ id: routeId, query, embedded = false, folder, c
       {tool("Split terminal (⌘\\)", "panel-right", split, !selected || busy)}
       {tool("Kill terminal", "end-session", () => { if (selected) void close(selected); }, !selected || busy)}
       <div className="pc-terminal-menu-anchor">
-        <IconButton className="pc-terminal-tool" size="sm" variant="quiet" aria-label="More terminal actions" title="More terminal actions" aria-haspopup="menu" aria-expanded={menu === "more"} onClick={() => setMenu(menu === "more" ? null : "more")}>···</IconButton>
+        <IconButton className="pc-terminal-tool" size="sm" variant="quiet" icon="more" aria-label="More terminal actions" title="More terminal actions" aria-haspopup="menu" aria-expanded={menu === "more"} onClick={() => setMenu(menu === "more" ? null : "more")}/>
         {menu === "more" && <div className="pc-terminal-menu" role="menu">
           <Button role="menuitem" variant="quiet" disabled={!selected} title={!selected ? "Open a terminal first" : undefined} onClick={() => startRename()}>Rename</Button>
           <Button role="menuitem" variant="quiet" disabled title="This service does not offer opening workspace shells in an external terminal">Open in external terminal</Button>

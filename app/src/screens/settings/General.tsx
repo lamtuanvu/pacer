@@ -1,3 +1,6 @@
+import {SettingsPath} from "./PathText";
+import { useDiagnosticsStatus } from "../../data/diagnostics-status";
+import { displayPath } from "./presentation";
 import { assistantPreferences, setAssistantPreferences, watchAssistantPreferences } from "../../shell/assistant-entry";
 import { containTooltipEscape } from "./shared";
 import { Tooltip } from "../../ds/Tooltip";
@@ -175,6 +178,7 @@ export function SettingsGeneral({
 function GeneralOverview({ query, initialData }: { query: RouteQuery; initialData: SettingsData }) {
   useSettingsStyles();
   const { state } = useTaskContext();
+  const diagnostics = useDiagnosticsStatus(), refreshUsage = useOperation();
   const config = useResource<ConfigData>("config.get", {}, initialData.config);
   const snapshot = state.snapshot;
   const executors = snapshot?.executors;
@@ -188,14 +192,16 @@ function GeneralOverview({ query, initialData }: { query: RouteQuery; initialDat
   const value = (key: string) => config.data?.keys[key]?.value;
   const href = (page: string) => withQuery(`#/settings/${page}`, query);
   const update = desktopUpdateIndicator(snapshot?.desktopUpdates);
-  const checks: { title: string; detail?: string; tooltip?: string; tone: "good" | "bad" | "warn" | "neutral"; page: string; link: string }[] = [];
+  const checks: { account?: string; title: string; detail?: string; tooltip?: string; tone: "good" | "bad" | "warn" | "neutral"; page: string; link: string }[] = [];
   for (const e of executors ?? []) {
     const status = readiness(e);
-    if (status.label !== "Ready") checks.push({ title: `${executorLabel(e.id)} · ${status.label}`, detail: status.reason, tone: status.tone === "info" ? "neutral" : status.tone, tooltip: status.tooltip, page: "executors", link: "Open agent" });
+    if (status.label !== "Ready") checks.push({ title: `${executorLabel(e.id)} · ${status.label}`, detail: status.reason, tone: status.tone === "info" ? "neutral" : status.tone, tooltip: status.tooltip, page: "executors", link: e.stale ? "Refresh usage" : "Open agent", ...(e.stale ? {account:e.account} : {}) });
   }
   for (const account of snapshot?.accounts ?? []) {
-    if (account.stale && !executors?.some(e => e.account === account.name && stale(e))) checks.push({ title: `${accountLabel(account)} usage reading is stale`, detail: accountUsageFreshness(account) ?? undefined, tone: "warn", page: "executors", link: "Agents" });
+    if (account.stale && !executors?.some(e => e.account === account.name && stale(e))) checks.push({ title: `${accountLabel(account)} usage reading is stale`, detail: accountUsageFreshness(account) ?? undefined, tone: "warn", page: "executors", link: "Refresh usage", account: account.name });
   }
+  checks.push({title:diagnostics.checked ? "Diagnostics checked" : "Diagnostics not run yet",detail:diagnostics.checked ? `${diagnostics.issues} checks need attention` : "Check that your setup is connected",tone:diagnostics.checked && !diagnostics.issues ? "good" : "warn",page:"diagnostics",link:"Run checks"});
+  if (snapshot?.planner && !snapshot.console) checks.push({title:"Planner connection not observed",detail:"Open a planner session to verify its hooks",tone:"neutral",page:"planner",link:"Budget & pacing"});
   if (snapshot?.console) checks.push({ title: "Planner connection observed", detail: `Last seen ${time(snapshot.console.heartbeatAt)}`, tone: "neutral", page: "executors", link: "Agents" });
   if (executors) checks.push({ title: `${ready.length} ${ready.length === 1 ? "executor" : "executors"} ready`, detail: ready.map(e => executorLabel(e.id)).join(", "), tone: ready.length ? "good" : "warn", page: "executors", link: "Agents" });
   if (setup) checks.push({ title: `Saved setup ${setup.name} is active`, detail: setup.summary, tone: "good", page: "dispatcher", link: "Dispatcher" });
@@ -213,7 +219,8 @@ function GeneralOverview({ query, initialData }: { query: RouteQuery; initialDat
         {needs.length > 0 && <p>{needs.map(e => `${executorLabel(e.id)}: ${readiness(e).reason}`).join(" · ")}</p>}
       </div><div className="pc-readiness-marks">{executors.map(e => <span key={e.id} className="pc-readiness-mark" title={`${executorLabel(e.id)} · ${readiness(e).label} · ${readiness(e).tooltip}`}><AgentMark agent={markAgent(e.id,e.account)} size={28}/><StatusDot tone={readiness(e).tone} label={`${executorLabel(e.id)}: ${readiness(e).label}`} paired="glyph"/></span>)}</div>
     </div></Card>}
-    {checks.length > 0 && <section className="pc-settings-board__section" aria-labelledby="readiness-h"><h2 id="readiness-h" className="pc-settings-board__label">Readiness</h2><div className="pc-readiness-list">{checks.map((c, i) => <div key={i} className={`pc-readiness-row pc-readiness-row--${c.tone}`}><span className="pc-readiness-glyph" aria-hidden="true">{({good:"✓",bad:"✕",warn:"◐",neutral:"○"})[c.tone]}</span><span className="pc-readiness-row__copy" onKeyDown={c.tooltip ? containTooltipEscape : undefined}>{c.tooltip ? <Tooltip text={c.tooltip}><strong tabIndex={0}>{c.title}</strong></Tooltip> : <strong>{c.title}</strong>}{c.detail && <span className="pc-settings-board__caption">{c.detail}</span>}</span><a className="pc-inline-link" href={href(c.page)}>{c.link}</a></div>)}</div></section>}
+    {checks.length > 0 && <section className="pc-settings-board__section" aria-labelledby="readiness-h"><h2 id="readiness-h" className="pc-settings-board__label">Readiness</h2><div className="pc-readiness-list">{checks.map((c, i) => <div key={i} className={`pc-readiness-row pc-readiness-row--${c.tone}`}><span className="pc-readiness-glyph" aria-hidden="true">{({good:"✓",bad:"✕",warn:"◐",neutral:"○"})[c.tone]}</span><span className="pc-readiness-row__copy" onKeyDown={c.tooltip ? containTooltipEscape : undefined}>{c.tooltip ? <Tooltip text={c.tooltip}><strong tabIndex={0}>{c.title}</strong></Tooltip> : <strong>{c.title}</strong>}{c.detail && <span className="pc-settings-board__caption">{c.detail}</span>}</span>{c.account ? <Button size="sm" busy={refreshUsage.busy} onClick={() => void refreshUsage.run("limits.refresh", {account:c.account})}>{c.link}</Button> : <ButtonLink size="sm" href={href(c.page)}>{c.link}</ButtonLink>}</div>)}</div></section>}
+    <Feedback action={refreshUsage}/>
     {tiles.length > 0 && <section className="pc-settings-board__section" aria-labelledby="setup-h"><h2 id="setup-h" className="pc-settings-board__label">Current setup</h2><div className="pc-settings-tiles">{tiles.map(t => <a key={t.label} className="pc-inline-link pc-settings-tile" href={href(t.page)}><span className="pc-settings-board__label">{t.label}</span><strong>{t.value}</strong>{t.note && <span className="pc-settings-board__caption">{t.note}</span>}</a>)}</div></section>}
   </div>;
 }
@@ -276,8 +283,7 @@ export function PlannerPacing({ initialData, initialAccounts }: { initialData?: 
       const matched = binding?.window === window.name ? binding : undefined;
       const stale = window.stale ?? account.usageReading?.stale ?? matched?.stale;
       const capturedAt = account.usageReading?.capturedAt ?? matched?.capturedAt;
-      const note = stale ? `Stale${capturedAt != null ? ` · ${Math.floor(Math.max(0, Date.now() / 1000 - capturedAt) / 3600)}h old` : ""}`
-        : [window.usedPct != null ? `${Math.round(window.usedPct)}%` : "Usage unknown", matched?.pacePct != null ? `pace ${Math.round(matched.pacePct)}%` : null, matched?.verdict === "AHEAD" ? "ahead" : null].filter(Boolean).join(" · ");
+      const note = [window.usedPct != null ? `${Math.round(window.usedPct)}%` : "Usage unknown", matched?.pacePct != null ? `pace ${Math.round(matched.pacePct)}%` : null, matched?.verdict === "AHEAD" ? "ahead" : null, stale ? "Stale reading" : null].filter(Boolean).join(" · ");
       return { account, window, binding: matched, stale, capturedAt, note };
     });
   });
@@ -328,7 +334,7 @@ export function PlannerPacing({ initialData, initialAccounts }: { initialData?: 
     <section className="pc-settings-board__section" aria-labelledby="budget-windows-h"><h2 id="budget-windows-h" className="pc-settings-board__label">Budget windows</h2>
       <ResourceState resource={accounts}>{windows.length ? <div className="pc-budget-windows">{windows.map(({ account, window, binding, stale, capturedAt, note }) => <div className="pc-budget-window" key={`${account.name}:${window.name}`}>
         <span className="pc-budget-identity"><AgentMark agent={markAgent(account.runners?.[0] ?? binding?.agent ?? account.kind,account.name)} size={20}/><b>{accountLabel(account)}</b></span>
-        <span className="pc-settings-board__caption">{words(window.name)}</span>
+        <span className="pc-settings-board__caption">{window.name === "weekly" || window.name === "week" ? "Weekly" : window.name === "5h" ? "5 hours" : words(window.name)}</span>
         <span className="pc-budget-window__usage"><UsageMeter used={window.usedPct} pace={binding?.pacePct ?? null} tone={toneFor(binding?.verdict ?? "unknown")} size="row" label={`${accountLabel(account)} ${window.name} usage`} stale={stale} staleAt={capturedAt ?? undefined} text="none"/><span className="pc-settings-board__caption">{note}</span></span>
         <span className="pc-settings-board__caption">{window.resetsAt != null ? time(window.resetsAt) : ""}</span>
       </div>)}</div> : <span className="pc-settings-board__caption">No budget windows reported.</span>}</ResourceState>
@@ -366,12 +372,12 @@ function PlannerConsent({
               <ul>
                 {query.data.files.map((file) => (
                   <li key={file}>
-                    <code>{file}</code>
+                    <SettingsPath path={file}/>
                   </li>
                 ))}
               </ul>
               <p>
-                Undo: <code>{query.data.undo}</code>
+                You can disconnect this planner integration later from Budget & pacing.
               </p>
               <p>
                 Change and connect removes the previous planner’s integration.
@@ -394,7 +400,7 @@ function PlannerConsent({
                     )
                   }
                 >
-                  Connect {agent}
+                  Connect {executorLabel(agent)}
                 </Button>
               </div>
             </>
@@ -485,7 +491,7 @@ function AppearanceSection() {
         }}
       />
       </SettingRow>
-      <SettingRow variant="board" label="Density" description="Compact fits more rows on screen.">
+      <SettingRow variant="board" label="Density" description="Comfortable uses 32px controls. Compact fits more rows on screen with 28px controls.">
         <Segment variant="board" label="Density" value={density} options={[{ value: "compact", label: "Compact" }, { value: "normal", label: "Comfortable" }]} onChange={value => {
           setDensity(value);
           window.dispatchEvent(new CustomEvent("pacer:density", { detail: value }));

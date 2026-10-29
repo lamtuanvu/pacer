@@ -4,7 +4,7 @@ import type { RouteQuery } from "../router";
 import { TerminalScreen } from "../screens/terminal/Terminal";
 
 export const DOCK_ID = "pc-terminal-dock";
-/** Panel height is a local preference; flex proportions keep all geometry inside the work area. */
+/** Panel height is a local preference, clamped to the centre column’s work area. */
 export function TerminalDock({ query, close, folder }: { query: RouteQuery; close: () => void; folder?: string | null }) {
   const panel = useRef<HTMLElement>(null);
   const [height, setHeight] = useState(() => { try { const n = Number(localStorage.getItem("pacer.terminal.height")); return Number.isFinite(n) && n >= 120 ? n : 260; } catch { return 260; } });

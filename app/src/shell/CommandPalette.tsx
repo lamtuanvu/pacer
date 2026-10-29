@@ -1,3 +1,4 @@
+import { assistantEntry } from "./assistant-entry";
 import { useEffect, useMemo, useState } from "preact/hooks";
 import type { ClientSnapshot } from "../../../src/view-model/snapshot";
 import { AgentMark } from "../ds/AgentMark";
@@ -66,8 +67,9 @@ export function CommandPalette({ snapshot, registry = commandRegistry, now: fixe
   const commands = useMemo(() => registry.list(), [registry, revision]);
   const [opened] = useState(() => Date.now() / 1000), now = fixedNow ?? opened;
   // Files come from the service (an existing read-only operation), debounced, and only while searching. An answer counts only for the query it was asked for.
+  const askEnabled = state.features.ops.has("assistant.status");
   const filesOn = state.features.ops.has("files.search");
-  const needle = parseQuery(query).mode === "search" ? text.trim().slice(0, 200) : "";
+  const needle = parseQuery(query, askEnabled).mode === "search" ? text.trim().slice(0, 200) : "";
   const [answer, setAnswer] = useState<{ query: string; result: FilesSearchResult | "error" } | null>(null);
   useEffect(() => {
     if (!filesOn || !needle) return;
@@ -81,8 +83,8 @@ export function CommandPalette({ snapshot, registry = commandRegistry, now: fixe
   }, [needle, filesOn, api]);
   const files: FilesState = !filesOn || !needle ? { status: "off" } : answer?.query !== needle ? { status: "loading" } : answer.result === "error" ? { status: "error" } : { status: "ready", result: answer.result };
   const menu = useMemo(() => {
-    return buildMenu({ query, scope, snapshot, commands, recent, now, files });
-  }, [query, scope, snapshot, commands, recent, now, files.status, (files as { result?: unknown }).result]);
+    return buildMenu({ query, scope, snapshot, commands, recent, now, files, askEnabled });
+  }, [query, scope, snapshot, commands, recent, now, askEnabled, files.status, (files as { result?: unknown }).result]);
   const visibleGroups = menu.mode === "recent" && scope !== "all"
     ? menu.groups.map(group => ({ ...group, items: group.items.filter(item => item.scope === scope) })).filter(group => group.items.length)
     : [...menu.groups];
@@ -95,6 +97,7 @@ export function CommandPalette({ snapshot, registry = commandRegistry, now: fixe
   if (empty && !visibleGroups.some(group => group.items.some(item => item.command?.id === "task.new")) && start) {
     visibleGroups.push({ title: "Instead", items: [{ id: "command:task.new", scope: "commands", title: "New task", icon: "plus", command: start }] });
   }
+  if (menu.mode === "ask") visibleGroups.push({title:"Assistant",items:[{id:"ask:assistant",scope:"commands",title:parseQuery(query,true).text ? `Ask pacer: ${parseQuery(query,true).text}` : "Open assistant",icon:"spark"}]});
   const byId = new Map<string, MenuItem>(visibleGroups.flatMap(group => group.items.map(item => [item.id, item] as const)));
   const groups: CommandMenuGroup[] = visibleGroups.map(group => ({ title: group.title, options: group.items.map(item => ({
     id: item.id, label: empty && item.command?.id === "task.new" ? `New task: “${text.trim()}”` : item.title, ranges: item.ranges, sub: empty && item.command?.id === "task.new" ? undefined : item.sub, icon: item.icon, pill: item.pill,
@@ -110,6 +113,7 @@ export function CommandPalette({ snapshot, registry = commandRegistry, now: fixe
     void copyText(path).then(done);
   };
   const pick = (id: string, options?: { keepOpen: boolean }) => {
+    if (id === "ask:assistant") {close(); assistantEntry.ask({text:parseQuery(query,true).text || undefined,newConversation:!!options?.keepOpen}); return;}
     const item = byId.get(id);
     if (!item) return;
     if (empty && item.command?.id === "task.new") {
@@ -143,6 +147,6 @@ export function CommandPalette({ snapshot, registry = commandRegistry, now: fixe
     query={text} onQueryChange={edit} onBackspaceEmpty={commandMode ? () => setCommandMode(false) : undefined} prefix={menu.mode === "commands" ? "Commands" : menu.mode === "ask" ? "Ask" : undefined}
     scopes={scopesFor(filesOn).map(item => ({ ...item, count: item.id === "files" && files.status === "loading" ? undefined : menu.mode === "search" || (menu.mode === "commands" && item.id === "commands") ? menu.counts[item.id] : undefined }))} scope={commandMode ? "commands" : menu.mode === "search" ? menu.scope : scope} onScope={switchScope}
     groups={groups} empty={empty ? { title: `Nothing matches “${text.trim()}”`, description: "Try fewer words, another scope, or turn it into work:" } : undefined}
-    enterHint={active?.copy !== undefined ? "copy path" : empty && active?.command?.id === "task.new" ? "run" : menu.enterHint} onActiveChange={setActiveId} notice={menu.notice} modEnterHint={keepOpen} modEnterKeys={keyCaps("Mod-Enter")} hints={<span className="pc-command__hint"><Kbd>&gt;</Kbd> commands{ASK_ENABLED && <> · <Kbd>?</Kbd> ask assistant</>}</span>}
+    enterHint={active?.copy !== undefined ? "copy path" : empty && active?.command?.id === "task.new" ? "run" : menu.enterHint} onActiveChange={setActiveId} notice={menu.notice} modEnterHint={keepOpen} modEnterKeys={keyCaps("Mod-Enter")} hints={<span className="pc-command__hint"><Kbd>&gt;</Kbd> commands{askEnabled && <> · <Kbd>?</Kbd> ask assistant</>}</span>}
     onPick={pick} onClose={close} returnFocus={returnFocus} />;
 }

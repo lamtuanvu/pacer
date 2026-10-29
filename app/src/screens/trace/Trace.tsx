@@ -35,8 +35,8 @@ export function Trace({id,query}:{id:string;query:RouteQuery}) {
   const decision=decisionNode?.decisions.at(-1), candidates=traceCandidates(decision,t);
   const subtask=decisionNode && decisionNode.taskId!==id ? children.indexOf(decisionNode)+1 : undefined;
   const status=taskStatus(t), now=Date.now()/1000;
-  const started=t.startedAt==null?"—":clock(t.startedAt,now);
-  const ran=t.startedAt==null || t.endedAt==null && !["running","queued"].includes(t.state)?"—":durationWords((t.endedAt??now)-t.startedAt);
+  const started=t.startedAt==null?null:clock(t.startedAt,now);
+  const ran=t.startedAt==null || t.endedAt==null && !["running","queued"].includes(t.state)?null:durationWords((t.endedAt??now)-t.startedAt);
   const day=clock(t.startedAt??t.timeline[0]?.at??t.updatedAt,now), today=!day.includes(" ");
   const acceptanceAt=t.timeline.findLast(e=>e.text.toLowerCase()===`acceptance ${t.acceptance.state}`)?.at;
   const reviewHref=hrefFor(routes.taskReview(id,query));
@@ -58,7 +58,7 @@ export function Trace({id,query}:{id:string;query:RouteQuery}) {
     <nav aria-label="Breadcrumb" className="pc-trace__breadcrumb pc-trace__cap"><TextAction href={hrefFor(routes.tasks(query))}>Tasks</TextAction><span aria-hidden="true">/</span><span>{today?"Earlier today":day.replace(/ \d\d:\d\d$/,"")}</span><span aria-hidden="true">/</span><span className="pc-trace__mono">{id}</span></nav>
     <header className="pc-trace__header">
       <div className="pc-trace__identity"><h1>{t.title?.trim()||t.fullTitle?.trim()||t.goal}</h1>
-        <div className="pc-trace__meta"><Pill tone={status.tone}>{status.label}</Pill><Pill tone={t.acceptance.state==="passed"?"good":t.acceptance.state==="failed"?"bad":"neutral"}>{t.acceptance.state==="passed"?"Checks passed":t.acceptance.state==="failed"?"Checks failed":"— checks"}</Pill><Pill>{t.kind?kindCopy(t.kind):"— kind"}</Pill><span className="pc-trace__cap pc-trace__mono">{t.repo.label} · {t.branch??"—"}</span><span className="pc-trace__cap">· started {started} · {ran}</span></div>
+        <div className="pc-trace__meta"><Pill tone={status.tone}>{status.label}</Pill><Pill tone={t.acceptance.state==="passed"?"good":t.acceptance.state==="failed"?"bad":"neutral"}>{t.acceptance.state==="passed"?"Checks passed":t.acceptance.state==="failed"?"Checks failed":"Not recorded"}</Pill>{t.kind && <Pill>{kindCopy(t.kind)}</Pill>}<span className="pc-trace__cap pc-trace__mono">{t.repo.label} · {t.branch??"Not recorded"}</span><span className="pc-trace__cap">{started ? `Started ${started}${ran ? ` · ${ran}` : ""}` : "Not recorded"}</span></div>
       </div>
       <div className="pc-trace__actions">
         {t.derived?.files!=="unavailable" && !!t.files.length && <ButtonLink href={withQuery(`#/tasks/${encodeURIComponent(id)}?tab=changes`,query)}>Open diff</ButtonLink>}
@@ -67,10 +67,10 @@ export function Trace({id,query}:{id:string;query:RouteQuery}) {
     </header>
     {task.error && <ErrorMessage error={task.error}/>}
     <section aria-label="Cost summary" className="pc-trace__cost">
-      <div><span className="pc-trace__label">Total tokens</span><strong>{tokenValue(totals)}</strong><span className="pc-trace__cap">— this repo's {t.kind?kindCopy(t.kind).toLowerCase():"task"} average{totals?.lowerBound?" · incomplete usage":""}</span></div>
-      <div><span className="pc-trace__label">Outside planner</span><strong className="pc-trace__good">—</strong><span className="pc-trace__cap">— tokens on split + review</span></div>
-      <div><span className="pc-trace__label">Agents used</span><strong>{t.work && !tree.data?"—":agents.length||"—"}</strong><span className="pc-trace__cap">{tree.data?nodes.length-1:"—"} {nodes.length===2?"subtask":"subtasks"} · {t.work && !tree.data?"—":attempts} {attempts===1?"attempt":"attempts"} · {t.work && !tree.data?"—":retries} retries</span></div>
-      <div><span className="pc-trace__label">Changed</span><strong>{t.derived?.files==="unavailable"?"—":`${t.files.length} ${t.files.length===1?"file":"files"}`}</strong><span className="pc-trace__cap">{t.derived?.files==="unavailable"?"— additions · — deletions":<><span className="pc-trace__good">+{t.files.reduce((sum,f)=>sum+f.added,0)}</span> <span className="pc-trace__state--bad">−{t.files.reduce((sum,f)=>sum+f.removed,0)}</span></>} · — screenshots</span></div>
+      <div><span className="pc-trace__label">Total tokens</span><strong>{tokenValue(totals)}</strong><span className="pc-trace__cap">Repository average: Not recorded{totals?.lowerBound?" · incomplete usage":""}</span></div>
+      <div><span className="pc-trace__label">Outside planner</span><strong className="pc-trace__good">Not recorded</strong></div>
+      <div><span className="pc-trace__label">Agents used</span><strong>{t.work && !tree.data?"Not recorded":agents.length}</strong><span className="pc-trace__cap">{t.work && !tree.data ? null : `${children.length} subtasks · ${attempts} attempts · ${retries} retries`}</span></div>
+      <div><span className="pc-trace__label">Changed</span><strong>{t.derived?.files==="unavailable"?"Not recorded":`${t.files.length} ${t.files.length===1?"file":"files"}`}</strong><span className="pc-trace__cap">{t.derived?.files==="unavailable"?null:<><span className="pc-trace__good">+{t.files.reduce((sum,f)=>sum+f.added,0)}</span> <span className="pc-trace__state--bad">−{t.files.reduce((sum,f)=>sum+f.removed,0)}</span></>}</span></div>
     </section>
     <div className="pc-trace__columns">
       <section aria-labelledby="trace-h" className="pc-trace__timeline">
@@ -83,10 +83,10 @@ export function Trace({id,query}:{id:string;query:RouteQuery}) {
           <div className="pc-trace__step-body"><div className="pc-trace__step-title"><b>{step.title}</b>{step.agents.map(agent=><Agent key={agent} agent={agent} chip/>)}</div><span className="pc-trace__cap pc-trace__detail">{step.detail}</span>
             {step.children && <div className="pc-trace__subtasks">{step.children.map(child=>{
               const childStatus=childState(child), chosen=child.decisions.at(-1);
-              return <div className="pc-trace__subtask" key={child.taskId}><span title={childStatus.label} className={`pc-trace__state pc-trace__state--${childStatus.tone}`}>{childStatus.glyph}</span><span className="pc-trace__child-title"><TextAction href={hrefFor(routes.trace(child.taskId,query))} title={child.title}>{child.title}</TextAction><span className="pc-trace__cap">{chosen?traceCandidates(chosen).find(c=>c.verdict==="Chosen")?.why??"— selection reason":"— selection reason"}</span></span><span>{child.executor?<Agent agent={child.executor}/>:"—"}</span><b className="pc-trace__right">{childTokens(child)}</b></div>;
+              return <div className="pc-trace__subtask" key={child.taskId}><span title={childStatus.label} className={`pc-trace__state pc-trace__state--${childStatus.tone}`}>{childStatus.glyph}</span><span className="pc-trace__child-title"><TextAction href={hrefFor(routes.trace(child.taskId,query))} title={child.title}>{child.title}</TextAction><span className="pc-trace__cap">{chosen?traceCandidates(chosen).find(c=>c.verdict==="Chosen")?.why??"Not recorded":"Not recorded"}</span></span><span>{child.executor?<Agent agent={child.executor}/>:"Not recorded"}</span><b className="pc-trace__right">{childTokens(child)}</b></div>;
             })}</div>}
-          </div><span className="pc-trace__cap pc-trace__right">{step.at==null || !Number.isFinite(step.at)?"—":clock(step.at,now)}<br/><b>{step.tokens}</b></span>
-        </li>;})}</ol> : <EmptyState title="— trace" description="No task activity recorded."/>}
+          </div><span className="pc-trace__cap pc-trace__right">{step.at==null || !Number.isFinite(step.at)?"Not recorded":clock(step.at,now)}<br/><b>{step.tokens}</b></span>
+        </li>;})}</ol> : <EmptyState title="Not recorded" description="No task activity recorded."/>}
       </section>
       <aside className="pc-trace__aside">
         <section aria-labelledby="tok-h" className="pc-trace__card"><h2 id="tok-h">Tokens by agent</h2>
@@ -94,13 +94,13 @@ export function Trace({id,query}:{id:string;query:RouteQuery}) {
             const width=measuredTotal?row.total/measuredTotal*100:0,x=offset;offset+=width;
             return <rect key={row.agent} x={x} y="0" width={width} height="14" className={`pc-trace__color${agentSlot(row.agent)}`}/>;
           })}</svg>
-          {tokenRows.map((row,index)=><div className="pc-trace__token-row" key={row.agent}><span className={`pc-trace__swatch pc-trace__color${agentSlot(row.agent)}`}/><AgentMark agent={markAgent(row.agent)} size={20} labelled={false}/><span className="pc-trace__token-name"><b>{name(row.agent)}</b> <span className="pc-trace__cap">{executorTokenRole(row.agent,row.attempts,children)}</span></span><b>{tokenValue(row)}</b><span className="pc-trace__cap pc-trace__share">{!totals?.lowerBound && measuredTotal?`${Math.round(row.total/measuredTotal*100)}%`:"—"}</span></div>)}
-          <span className="pc-trace__cap">{attempts} {attempts===1?"attempt":"attempts"} · — planner split + review tokens (not measured)</span>
+          {tokenRows.map((row,index)=><div className="pc-trace__token-row" key={row.agent}><span className={`pc-trace__swatch pc-trace__color${agentSlot(row.agent)}`}/><AgentMark agent={markAgent(row.agent)} size={20} labelled={false}/><span className="pc-trace__token-name"><b>{name(row.agent)}</b> <span className="pc-trace__cap">{executorTokenRole(row.agent,row.attempts,children)}</span></span><b>{tokenValue(row)}</b><span className="pc-trace__cap pc-trace__share">{!totals?.lowerBound && measuredTotal?`${Math.round(row.total/measuredTotal*100)}%`:"Not recorded"}</span></div>)}
+          <span className="pc-trace__cap">{attempts} {attempts===1?"attempt":"attempts"} · Planning and review tokens: Not recorded</span>
         </section>
         <section aria-labelledby="cand-h" className="pc-trace__candidates"><div className="pc-trace__candidate-head"><h2 id="cand-h">Who was considered</h2>{(decision || candidates.length>0) && <span className="pc-trace__cap">{decisionCaption(decision,subtask,!!t.routing)}</span>}</div>
           {candidates.length?candidates.map((c,index)=><div className={`pc-trace__candidate${c.verdict==="Chosen"?" pc-trace__candidate--chosen":""}`} key={`${c.agent}:${index}`}><span aria-hidden="true" className={`pc-trace__state pc-trace__state--${c.tone}`}>{c.verdict==="Skipped"?"◐":"✓"}</span><AgentMark agent={markAgent(candidateAgent(c.agent))} size={20} labelled={false}/><span className="pc-trace__candidate-copy"><b>{name(c.agent)}</b><span className="pc-trace__cap">{c.why}</span></span><Pill tone={c.tone}>{c.verdict}</Pill></div>):<p className="pc-trace__no-candidates pc-trace__cap">No alternatives were recorded for this step.</p>}
         </section>
-        <section aria-labelledby="acc-h" className="pc-trace__card pc-trace__acceptance"><h2 id="acc-h">Acceptance</h2><code className="pc-trace__command pc-trace__mono">{t.acceptance.cmd??"— acceptance command"}</code><span className="pc-trace__cap pc-trace__acceptance-result"><span aria-hidden="true" className={`pc-trace__state pc-trace__state--${t.acceptance.state==="passed"?"good":t.acceptance.state==="failed"?"bad":"neutral"}`}>{t.acceptance.state==="passed"?"✓":t.acceptance.state==="failed"?"✕":"—"}</span>{t.acceptance.state==="passed"?"Passed":t.acceptance.state==="failed"?"Failed":"— result"} in {t.acceptance.durationS==null?"—":durationWords(t.acceptance.durationS)} · {t.acceptance.summary??"— tests"} · {acceptanceAt==null?"—":clock(acceptanceAt,now)}</span></section>
+        <section aria-labelledby="acc-h" className="pc-trace__card pc-trace__acceptance"><h2 id="acc-h">Acceptance</h2>{t.acceptance.state !== "passed" && t.acceptance.state !== "failed" ? <span className="pc-trace__cap">Not recorded</span> : <>{t.acceptance.cmd && <code className="pc-trace__command pc-trace__mono">{t.acceptance.cmd}</code>}<span className="pc-trace__cap pc-trace__acceptance-result"><span aria-hidden="true" className={`pc-trace__state pc-trace__state--${t.acceptance.state === "passed" ? "good" : "bad"}`}>{t.acceptance.state === "passed" ? "✓" : "✕"}</span>{[t.acceptance.state === "passed" ? "Passed" : "Failed", t.acceptance.durationS == null ? null : durationWords(t.acceptance.durationS), t.acceptance.summary, acceptanceAt == null ? null : clock(acceptanceAt,now)].filter(Boolean).join(" · ")}</span></>}</section>
       </aside>
     </div>
   </div>;

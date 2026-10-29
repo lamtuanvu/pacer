@@ -1,3 +1,6 @@
+import {SettingsPath} from "./PathText";
+import { recordDiagnostics } from "../../data/diagnostics-status";
+import { diagnosticDetail, diagnosticNextStep, displayPath, settingsText } from "./presentation";
 import { NativeValidationSetup } from "./NativeValidation";
 import { useState } from "preact/hooks";
 import type { Check } from "../../../../src/install/doctor";
@@ -20,7 +23,7 @@ function diagnosticTiming(report: DoctorReport): string {
 }
 export function diagnosticReportText(report: DoctorReport): string {
   return [`Diagnostics · ${diagnosticTiming(report)}`, ...report.checks.map(check =>
-    `${diagnosticLevel[check.level].label}: ${diagnosticTitle(check.name)}${check.evidence ? ` · ${diagnosticEvidence[check.evidence]}` : ""}\n${check.detail}${check.fix ? `\nSuggested next step: ${check.fix}` : ""}`), REPORT_NOTE].join("\n\n");
+    `${diagnosticLevel[check.level].label}: ${settingsText(diagnosticTitle(check.name))}${check.evidence ? ` · ${diagnosticEvidence[check.evidence]}` : ""}\n${diagnosticDetail(check)}${check.fix ? `\nSuggested next step: ${diagnosticNextStep(check.fix)}` : ""}`), REPORT_NOTE].join("\n\n");
 }
 function reportGroup(check: Check, planner?: string) {
   if (check.name.startsWith("Claude ") || check.name === "Legacy guard" ||
@@ -49,12 +52,12 @@ export function DiagnosticResults({ report, busy = false, onRepair }: { report: 
           const repair = diagnosticRepair(check, report.repairAvailable ? report.planner : undefined);
           const setup = ["warn", "fail"].includes(check.level) ? diagnosticSetupLink(check) : undefined;
           const tone = check.evidence === "unverified" && !["warn", "fail"].includes(check.level) ? "neutral" : diagnosticLevel[check.level].tone;
-          return <DiagnosticRow key={`${index}:${check.name}`} title={diagnosticTitle(check.name)}
-            caption={`${check.detail}${check.evidence ? ` · ${diagnosticEvidence[check.evidence]}` : ""}`}
-            tone={tone} glyph={glyphs[tone]} status={diagnosticLevel[check.level].label} open={check.level === "fail"}
-            action={repair && onRepair ? <Button size="sm" disabled={busy} onClick={() => onRepair(repair.agent)}>Repair<span className="sr-only"> {diagnosticTitle(check.name)}</span></Button>
+          return <DiagnosticRow key={`${index}:${check.name}`} title={settingsText(diagnosticTitle(check.name))}
+            caption={`${diagnosticDetail(check)}${check.evidence ? ` · ${diagnosticEvidence[check.evidence]}` : ""}`}
+            tone={tone} glyph={glyphs[tone]} status={diagnosticLevel[check.level].label} open={false}
+            action={repair && onRepair ? <Button size="sm" disabled={busy} onClick={() => onRepair(repair.agent)}>Repair<span className="sr-only"> {settingsText(diagnosticTitle(check.name))}</span></Button>
               : setup ? <ButtonLink size="sm" href={setup.href}>{setup.label}</ButtonLink> : undefined}>
-            <pre>{check.name}{"\n"}{check.detail}{check.fix && `\n\nSuggested next step\n${check.fix}`}</pre>
+            <p>{check.fix ? `Suggested next step: ${diagnosticNextStep(check.fix)}` : "Run this check again after reviewing the connection settings."}</p>
           </DiagnosticRow>;
         })}</div>
       </section>;
@@ -80,8 +83,8 @@ export function DiagnosticsSection() {
     setPreview(undefined);
     setProgress("Running checks…");
     const started = performance.now();
-    const result = await action.run("doctor.run", {}, data => setReport(timedReport(data, started)));
-    setProgress(result ? "Checks complete." : "Checks failed. Try running checks again.");
+    const result = await action.run("doctor.run", {}, data => {setReport(timedReport(data, started)); recordDiagnostics(data.checks.filter((check: Check) => check.level === "fail" || check.level === "warn").length);});
+    setProgress(result ? "" : "Checks failed. Try running checks again.");
   }
   async function previewRepair(agent: string) {
     setPreview(undefined);
@@ -119,12 +122,12 @@ export function DiagnosticsSection() {
       <SectionHeading>Review repair</SectionHeading>
       <p>Reconnect the selected planner integration. Review the files that will change before applying this repair.</p>
       <Disclosure className="pc-disclosure pc-disclosure--wrap" summary="Files and undo instructions">
-        <pre>{preview.files.join("\n")}</pre>{preview.detail && <pre>{preview.detail}</pre>}<pre>{preview.undo}</pre>
+        <ul>{preview.files.map(file => <li key={file}><SettingsPath path={file}/></li>)}</ul><p>You can disconnect the integration later from Budget &amp; pacing.</p>
       </Disclosure>
       <div className="u3-actions"><Button disabled={action.busy} onClick={() => void repair()}>Apply repair</Button>
         <Button variant="ghost" disabled={action.busy} onClick={() => {setPreview(undefined);setProgress("Repair cancelled. No changes were applied.");}}>Cancel</Button></div>
     </section>}
-    {report && <div aria-busy={action.busy}><p className="pc-diagnostic-caption" role="note">{REPORT_NOTE}</p><DiagnosticResults report={report} busy={action.busy} onRepair={agent => void previewRepair(agent)}/></div>}
+    {report && <div aria-busy={action.busy}><DiagnosticResults report={report} busy={action.busy} onRepair={agent => void previewRepair(agent)}/></div>}
     <NativeValidationSetup/>
   </section>;
 }

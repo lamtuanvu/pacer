@@ -12,7 +12,7 @@
 .pc-new-task__saved{display:flex;align-items:center;gap:var(--space-1\.5)}
 
 .pc-new-task__cols{display:flex;flex-wrap:wrap;align-items:flex-start;gap:var(--space-5)}
-.pc-new-task__form{flex:1 1 var(--size-560);min-width:0;display:flex;flex-direction:column;gap:var(--space-5);padding:var(--space-5);border:1px solid var(--line);border-radius:calc(var(--radius-lg) + var(--space-half));background:var(--surface-card)}
+.pc-new-task__form{flex:1 1 var(--size-560);min-width:0;display:flex;flex-direction:column;gap:var(--space-5);padding:var(--space-5);border:1px solid var(--line);border-radius:var(--radius-lg);background:var(--surface-card)}
 .pc-new-task__field{display:flex;flex-direction:column;gap:var(--space-2);min-width:0}
 .pc-new-task__label{font-weight:var(--type-body-strong-weight);color:var(--ink)}
 .pc-new-task__label-note{font-weight:var(--type-body-weight)}
@@ -51,7 +51,7 @@
 
 /* Aside: route card, notices, override and the primary action. */
 .pc-new-task__aside{flex:1 1 var(--size-360);display:flex;flex-direction:column;gap:var(--space-3);min-width:var(--size-300);max-width:calc(var(--size-320) + var(--size-120));position:sticky;top:var(--space-4)}
-.pc-route-card{display:flex;flex-direction:column;overflow:hidden;border:1px solid var(--line);border-radius:calc(var(--radius-lg) + var(--space-half));background:var(--surface-card)}
+.pc-route-card{display:flex;flex-direction:column;overflow:hidden;border:1px solid var(--line);border-radius:var(--radius-lg);background:var(--surface-card)}
 .pc-route-card__body{display:flex;flex-direction:column;gap:var(--space-3);padding:var(--space-4) calc(var(--space-4) + var(--space-half))}
 .pc-route-card__head{display:flex;align-items:center;gap:var(--space-2)}
 .pc-route-card__head>.pc-label{flex-grow:1}
@@ -76,7 +76,7 @@
 .pc-new-task__notice-text{display:flex;flex-direction:column;gap:var(--space-half);flex-grow:1;min-width:0}
 .pc-new-task__notice-title{font-weight:var(--type-body-strong-weight)}
 .pc-new-task__notice-link.pc-text-action{align-self:flex-start;font-size:var(--type-caption-size)}
-.pc-new-task__override{border:1px solid var(--line);border-radius:calc(var(--radius-lg) + var(--space-half));background:var(--surface-card)}
+.pc-new-task__override{border:1px solid var(--line);border-radius:var(--radius-lg);background:var(--surface-card)}
 .pc-new-task__override>summary{box-sizing:border-box;width:100%;padding:var(--space-3) var(--space-4)}
 .pc-new-task__agents{display:flex;flex-direction:column;gap:var(--space-half);padding:0 var(--space-2) var(--space-2)}
 .pc-new-task__submit{display:flex;flex-direction:column;gap:var(--space-2);padding-top:var(--space-1)}
@@ -99,7 +99,7 @@
 .pc-route-card--compact .pc-route-card__body{gap:var(--space-2\.5);padding:0}
 .pc-route-card--compact .pc-route-card__lead{gap:var(--space-2\.5)}
 .pc-route-card--compact .pc-route-card__name{font-size:inherit;line-height:inherit;letter-spacing:normal}
-.pc-new-task-sheet__rows{overflow:hidden;border:1px solid var(--line);border-radius:calc(var(--radius-lg) + var(--space-half));background:var(--surface-card)}
+.pc-new-task-sheet__rows{overflow:hidden;border:1px solid var(--line);border-radius:var(--radius-lg);background:var(--surface-card)}
 .pc-new-task-sheet__muted{color:var(--ink-muted);font-weight:var(--type-body-weight)}
 .pc-new-task-sheet .pc-sheet__foot .pc-new-task__submit-note{text-align:center}
 .pc-new-task-sheet__choice{display:flex;flex-direction:column;gap:var(--space-4)}
@@ -112,3 +112,7 @@
 .pc-issue-source{overflow-wrap:anywhere}
 /* Inside the phone sheet these compact buttons keep a 44 px target (UI-16). */
 .pc-sheet .pc-new-task-sheet__choice .pc-new-task__add-check,.pc-sheet .pc-request-box__tool.pc-btn{height:auto;min-height:var(--control-touch)}
+
+.pc-new-task__intro>.pc-new-task__crumb{order:0}
+.pc-new-task__intro>.pc-new-task__title{order:1}
+.pc-new-task__intro>.pc-caption{order:2}

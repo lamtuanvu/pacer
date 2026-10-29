@@ -94,7 +94,7 @@ browserTest("escape_returns_focus_to_the_opener", () => withPage(async (page, bu
 
 browserTest("greater_than_switches_to_commands_and_runs_one", () => withPage(async (page, built) => {
   await open(page, built, "#/settings");
-  const hide = page.getByRole("button", { name: "Hide Settings" });
+  const hide = page.getByRole("button", { name: "Toggle left panel" });
   await hide.waitFor();
   await page.keyboard.press("Control+k");
   const input = page.getByRole("combobox");
@@ -109,7 +109,7 @@ browserTest("greater_than_switches_to_commands_and_runs_one", () => withPage(asy
   const mac = await page.evaluate(() => /Mac|iPhone|iPad/.test(navigator.platform));
   await expect(page.locator('[role="option"]', { hasText: "Toggle left panel" }).locator(".pc-command__keys kbd").allTextContents()).resolves.toEqual([mac ? "⌘" : "Ctrl", "B"]);
   await page.keyboard.press("Enter");
-  await page.getByRole("button", { name: "Show Settings" }).waitFor();
+  await page.getByRole("button", { name: "Toggle left panel" }).waitFor();
   // Back to a bare query: recents with the Go to commands.
   await page.keyboard.press("Control+k");
   await expect(page.locator(".pc-command__group").first().getAttribute("aria-labelledby")).resolves.toBeTruthy();
@@ -300,7 +300,7 @@ browserTest("menu_and_trigger_match_the_board_measurements", () => withPage(asyn
   await open(page, built, "#/");
   const trigger = page.locator(".pc-command-trigger");
   const t = await trigger.evaluate(element => { const r = element.getBoundingClientRect(), css = getComputedStyle(element); return { w: Math.round(r.width), h: Math.round(r.height), radius: css.borderTopLeftRadius, border: css.borderTopWidth, padL: css.paddingLeft, caps: element.querySelectorAll("kbd").length, text: element.querySelector(".pc-command-trigger__text")!.textContent }; });
-  expect(t).toMatchObject({ w: 420, h: 26, radius: "6px", border: "1px", padL: "10px", caps: 1, text: "Search tasks, agents or run a command" });
+  expect(t).toMatchObject({ w: 420, h: 26, radius: "6px", border: "1px", padL: "8px", caps: 1, text: "Search tasks, agents or run a command" });
   await trigger.click();
   await page.getByRole("combobox").fill("fix");
   await page.waitForTimeout(100);
@@ -584,7 +584,7 @@ browserTest("Answer Escape restores its opening control inside Layout", () => wi
   await answer.focus();
   await answer.click();
   await page.getByRole("dialog").waitFor();
-  expect(await page.locator(".pc-side-dialog__header h2").evaluate(el=>getComputedStyle(el).fontWeight)).toBe("600");
+  expect(await page.locator(".pc-side-dialog__header h2").evaluate(el=>getComputedStyle(el).fontWeight)).toBe("650");
   expect(await page.getByRole("dialog").getByRole("link",{name:"Open session",exact:true}).evaluate(el=>getComputedStyle(el).color)).toBe(await page.locator(".pc-side-dialog").evaluate(el=>{const sample=document.createElement("span");sample.style.color="var(--link)";el.append(sample);const color=getComputedStyle(sample).color;sample.remove();return color;}));
   expect(await page.locator(".ny-resume").evaluate(el=>getComputedStyle(el).whiteSpace)).toBe("nowrap");
   await page.keyboard.press("Escape");
@@ -597,10 +597,9 @@ browserTest("closing the shell Inspector preserves the inline selected task asid
   await open(page, built, "?task-list#/tasks");
   const aside = page.getByRole("complementary",{name:"Selected task"});
   expect(await aside.count()).toBe(0);
-  const inspector = page.getByRole("button",{name:/Hide.*(Inspector|inspector)/});
-  await inspector.click();
+  await page.getByRole("button", {name:"Hide Inspector"}).click();
   await aside.waitFor();
   expect(await aside.isVisible()).toBe(true);
-  await page.getByRole("button", {name:"Toggle Inspector"}).click();
+  await page.getByRole("button", {name:"Toggle right panel"}).click({timeout:2000});
   await aside.waitFor({state:"detached"});
 }));
