@@ -4,6 +4,7 @@ import { launchTaskRunner, spawnRunner as defaultSpawn, type SpawnRunner } from 
 import { loadStrategy, type ProviderCfg } from "../config/strategy";
 import { getWork } from "../dispatch/work";
 import { headlessTurnPath } from "../exec/launch";
+import { withoutPlannerSession } from "../exec/process";
 import { readTask, updateTask, withTaskLock } from "../tasks/store";
 import type { TaskRecord } from "../tasks/types";
 import type { Ctx } from "../types";
@@ -17,7 +18,8 @@ const REPORT_BYTES = 64 * 1024;
 
 export const isClosed = (t: TaskRecord) => !!t.review || !!t.dismissed || !!t.msgClosed || t.state === "stopped";
 const sessionAgent = (t: TaskRecord) => t.run?.executor ?? t.result?.executor ?? null;
-export const turnKey = (t: TaskRecord) => `${t.id}#${t.attempts.length + 1}`;
+/** Unique per turn: the attempt it will run as, then the task's turn count, so a run that ended before any attempt never reuses an id. */
+export const turnKey = (ctx: Ctx, t: TaskRecord, replay = false) => `${t.id}#${t.attempts.length + 1}.${store.turnsForTask(ctx, t.id) + 1}${replay ? "r" : ""}`;
 
 export function notifyMessage(ctx: Ctx, m: Message): void {
   // Task 7 registers the "message" entity kind in src/link/envelope.ts.
@@ -49,7 +51,7 @@ export function startTurnIfIdle(ctx: Ctx, id: string, spawn: SpawnRunner = defau
     if (store.turnsForRoot(ctx, root) >= effectivePolicy(ctx, { root }).config.tree.max_turns) return "cap";
     // The runner deletes run when the attempt starts, so the session to resume is captured now.
     const session = t.run?.executor === executor ? t.run.agentSession : undefined;
-    const turn = o.replay ? `${turnKey(t)}r` : turnKey(t);
+    const turn = turnKey(ctx, t, !!o.replay);
     store.recordTurn(ctx, { id: turn, taskId: id, rootId: root, at: ctx.now });
     updateTask(ctx, id, x => {
       x.pendingTurn = { id: turn, executor, at: ctx.now, ...(session ? { session } : {}), ...(o.replay ? { replay: true } : {}) };
@@ -63,8 +65,8 @@ export function startTurnIfIdle(ctx: Ctx, id: string, spawn: SpawnRunner = defau
     start = true;
     return "turn_started";
   });
-  // Same environment scrub as the managed restart in src/core/work.ts:171.
-  if (start) launchTaskRunner({ ...ctx, env: { ...ctx.env, PACER_WORK_GRANT: undefined, PACER_ROLE: undefined } }, id, spawn);
+  // Same environment scrub as the managed restart in src/core/work.ts:171, and the sender's planner session is not the runner's.
+  if (start) launchTaskRunner({ ...ctx, env: { ...withoutPlannerSession(ctx.env), PACER_WORK_GRANT: undefined, PACER_ROLE: undefined } }, id, spawn);
   return result;
 }
 
@@ -83,7 +85,7 @@ export function renderTurnPrompt(ctx: Ctx, task: TaskRecord, messages: Message[]
     `You are continuing pacer task ${task.id} in the same workspace. New messages:`,
     ...blocks,
     "---",
-    `Your final response in this turn is sent to ${label(parent)} (${parent}) as your report.`,
+    `Your final response in this turn is sent to ${label(parent)} (${parent}) as your report. This turn runs headless: do not run \`pacer report\`.`,
     `To message another participant or ask a question, run: pacer msg send --to <participant> "<text>" [--question]`,
     "Do not commit.",
   ].join("\n\n");
@@ -113,8 +115,21 @@ export function claimTurnMessages(ctx: Ctx, task: TaskRecord): { turnId: string;
 
 function report(ctx: Ctx, id: string, parent: string, head: string, body: string, requestId: string, spawn?: SpawnRunner): void {
   const r = store.insertMessage(ctx, { taskId: id, rootId: rootOf(ctx, `task:${id}`), from: `task:${id}`, to: parent, kind: "report",
-    body: `${head} ${body.slice(-REPORT_BYTES)}`.trim(), replyTo: null, requestId });
+    body: `${head} ${readable(body).slice(-REPORT_BYTES)}`.trim(), replyTo: null, requestId });
   if (!r.duplicate) { notifyMessage(ctx, r.message); deliver(ctx, parent, spawn); }
+}
+
+/** An agent CLI's JSON error result (Claude's stream-json) as one readable line; other text is kept. */
+function readable(text: string): string {
+  return text.split("\n").map(line => {
+    if (!/^\s*\{.*"type"\s*:\s*"result"/.test(line)) return line;
+    try {
+      const r = JSON.parse(line) as { is_error?: boolean; subtype?: string; errors?: unknown; result?: unknown };
+      if (!r.is_error && !String(r.subtype ?? "").startsWith("error")) return typeof r.result === "string" ? r.result : line;
+      const errors = Array.isArray(r.errors) ? r.errors.filter((e): e is string => typeof e === "string") : [];
+      return `Agent error (${r.subtype ?? "error"}): ${errors.join("; ") || (typeof r.result === "string" ? r.result : "no details")}`;
+    } catch { return line; }
+  }).join("\n");
 }
 
 /** Who reads this task's run-end report: its origin. Work children report through dispatch.review; legacy tasks have no reader. */
@@ -124,38 +139,66 @@ function reportReader(ctx: Ctx, t: TaskRecord): string | null {
   return t.origin ?? null;
 }
 
+const REJECTED_RESUME = /No conversation found|error_during_execution/;
+/** The turn's attempt resumed a native session and the agent CLI rejected it: a nonzero exit or a resume error in its output. */
+function rejectedResume(t: TaskRecord): boolean {
+  const attempt = t.attempts.at(-1);
+  if (!attempt || !t.run || t.run.attempt !== t.attempts.length || t.run.turnResume === "replayed") return false;
+  if (attempt.timedOut || attempt.limitHit || ["stopped", "needs_input", "limit"].includes(t.state)) return false;
+  return attempt.exitCode !== 0 || REJECTED_RESUME.test(t.result?.report ?? "");
+}
+
+/** A report the agent itself sent, as opposed to a run-end report pacer wrote for an earlier run. */
+const agentReport = (m: Message) => m.kind === "report" && !/^(report|undelivered):/.test(m.requestId ?? "");
+
 /**
  * After a run settles: report to the parent once per attempt, then deliver anything that arrived meanwhile.
- * A turn whose run never claimed its messages is not restarted; a failed resume is retried once as a replay.
+ * A turn whose run never claimed its messages is not restarted; a rejected resume is retried once as a replay.
  */
 export function onRunEnded(ctx: Ctx, id: string, spawn?: SpawnRunner): void {
   const t = readTask(ctx, id);
   if (!t || t.interactionMode === "conversation" || ["queued", "running"].includes(t.state)) return;
+  // Called again for a run whose turn already ended: that call reported it.
+  const ended = t.pendingTurn ? null : store.lastTurnEndedAt(ctx, id);
+  if (ended !== null && ended >= (t.attempts.at(-1)?.endedAt ?? 0)) return;
   const turnId = t.pendingTurn?.id ?? `${id}#${t.attempts.length}`;
   const limited = t.state === "limit" || !!t.attempts.at(-1)?.limitHit;
   const parent = reportReader(ctx, t);
   // Messages a run never picked up wait for the next send instead of relaunching on their own.
   let restart = !limited && store.lastTurnOutcome(ctx, id) !== "undelivered";
+  let turnMessages: Message[] = [];
+  let rejected = false;
   if (t.pendingTurn) {
-    const claimed = store.claimedBy(ctx, turnId) > 0;
+    turnMessages = store.claimedMessages(ctx, turnId);
+    const claimed = turnMessages.length > 0;
     store.endTurn(ctx, turnId, claimed ? t.state : "undelivered", ctx.now);
     updateTask(ctx, id, x => { delete x.pendingTurn; });
+    restart = !limited && claimed;
     if (limited) store.releaseTurn(ctx, turnId);
     else if (!claimed) {
       // The run ended before it picked up the messages: they stay pending, and the sender learns why.
       const why = (t.result?.report ?? "").trim().split("\n").filter(Boolean).slice(-5).join("\n");
       if (parent) report(ctx, id, parent, `[not delivered] The run for task ${id} ended (${t.state}) before it received your messages; they are still pending.`, why ? `\n\n${why}` : "", `undelivered:${turnId}`, spawn);
       return;
-    } else if (t.state === "failed" && !t.pendingTurn.replay && t.run?.turnResume !== "replayed") {
+    } else if (!t.pendingTurn.replay && rejectedResume(t)) {
       // A rejected resume (unknown session, missing history): put the messages back and replay the thread once.
+      rejected = true;
       store.releaseTurn(ctx, turnId);
       if (startTurnIfIdle(ctx, id, spawn, { replay: true }) === "turn_started") return;
       restart = false;
     }
   }
   const since = t.pendingTurn?.at ?? t.attempts[0]?.startedAt ?? t.createdAt;
-  const spoke = store.sentSince(ctx, `task:${id}`, since).some(m => m.to === parent && ["report", "question", "message"].includes(m.kind));
-  if (parent && !spoke && !limited && t.state !== "needs_input") report(ctx, id, parent, `[${t.state}]`, t.result?.report ?? `Run ended: ${t.state}`, `report:${turnId}`, spawn);
+  // Only a report the agent already sent replaces the run-end report; progress messages and questions do not.
+  const reported = store.sentSince(ctx, `task:${id}`, since).some(m => m.to === parent && agentReport(m));
+  if (parent && !limited && t.state !== "needs_input") {
+    const body = rejected ? `The agent could not resume its session, and a replay could not start; your messages are still pending.\n\n${t.result?.report ?? ""}`
+      : t.result?.report ?? `Run ended: ${t.state}`;
+    if (!reported) report(ctx, id, parent, `[${t.state}]`, body, `report:${turnId}`, spawn);
+    // Senders other than the parent wait for a reply too; a report is never echoed back to the task that sent one.
+    const others = new Set(turnMessages.filter(m => m.from !== parent && m.from !== `task:${id}` && m.kind !== "report").map(m => m.from));
+    for (const to of others) report(ctx, id, to, `[${t.state}]`, body, `report:${turnId}:${to}`, spawn);
+  }
   if (restart) startTurnIfIdle(ctx, id, spawn);
 }
 

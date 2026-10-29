@@ -118,7 +118,7 @@ export function progressPoller(ctx: Ctx, task: TaskRecord, run: RunRef) {
       });
     } catch { /* alert bookkeeping is best effort */ }
   };
-  return async (s: import("../supervisor/run").RunState): Promise<"continue" | "idle"> => {
+  return async (s: import("../supervisor/run").RunState): Promise<"continue" | "idle" | "asked"> => {
     const now = Date.now() / 1000;
     discoverSession(ctx, task, run);
     if ((waiting && s.report?.status !== "needs-input" && s.report?.status !== "turn-ended") || (controlled && !(s.interactive && s.controller))) resumedAt = now;
@@ -192,6 +192,12 @@ export function progressPoller(ctx: Ctx, task: TaskRecord, run: RunRef) {
       } catch { /* alerts are best effort */ }
     }
     prev = p;
+    // A delegated executor that ran pacer ask and then ended its turn waits for its parent, not for someone to attach:
+    // end the run so the task settles needs_input, and the answer resumes the session as a headless turn.
+    if (!conversation && !run.takeover && !controlled && s.interactive && (turnEnded || s.report?.status === "needs-input")) {
+      const question = readTask(ctx, task.id)?.question;
+      if (question && question.answer === undefined && question.at >= run.startedAt - 1 && s.report!.at >= question.at) return "asked";
+    }
     return !conversation && !run.takeover && !needsInput && !controlled && !turnEnded && idleSeconds(p, run.startedAt, now) >= idleFail ? "idle" : "continue";
   };
 }
@@ -250,6 +256,7 @@ export async function finishRun(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, ru
   }
   const out = readOutput(run.dir);
   const exec: ExecResult = { code: end.code, stdout: out.stdout, stderr: out.stderr, timedOut: end.kind === "timeout" };
+  if (end.kind === "asked") exec.code = 0;
   if (end.kind === "idle") exec.stderr += `\npacer: stopped after ${Math.round((loadExec(ctx).idleFailS ?? IDLE_FAIL_S) / 60)} min without output or file changes`;
   if (end.kind === "lost") exec.stderr += host ? `\npacer: host ${host.alias} unreachable or wrapper missing after the contact grace period` : "\npacer: the attempt's wrapper vanished without an exit record";
   if (host && run.lastMessageFile) {
@@ -268,8 +275,9 @@ export async function finishRun(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, ru
   const signal = interactive ? readReport(run.dir) : null;
   const completed = end.kind === "reported";
   const conversation = run.interactionMode === "conversation";
+  const asked = end.kind === "asked" ? readTask(ctx, task.id)?.question?.text : undefined;
   let report = interactive
-    ? completed ? signal!.summary : `Interactive session ${end.kind} without an explicit completion report${signal ? `\n\n${signal.summary}` : ""}`
+    ? completed ? signal!.summary : asked !== undefined ? `Asked: ${asked}` : `Interactive session ${end.kind} without an explicit completion report${signal ? `\n\n${signal.summary}` : ""}`
     : tail(exec.stdout.trim() || exec.stderr.trim(), REPORT_CHARS);
   if (interactive) {
     const transcript = transcriptReport(run.dir);

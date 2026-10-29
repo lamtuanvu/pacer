@@ -42,15 +42,15 @@ export const msgOps: Record<string, OpDef> = {
       const me = callerParticipant(ctx, deps).id;
       const until = Date.now() + (p.timeout_s ?? 600) * 1000;
       const original = p.reply_to ? store.getMessage(ctx, p.reply_to) : null;
-      // A reply names the message, or is the recipient's later report or answer.
-      const replies = (m: Message) => m.replyTo === p.reply_to || (!!original && m.from === original.to && (m.kind === "report" || m.kind === "answer")
+      // A reply names the message, or is the recipient's later report, answer or question back.
+      const replies = (m: Message) => m.replyTo === p.reply_to || (!!original && m.from === original.to && ["report", "answer", "question"].includes(m.kind)
         && (m.createdAt > original.createdAt || (m.createdAt === original.createdAt && m.id > original.id)));
       for (;;) {
         const unread = store.inbox(ctx, me, { unreadOnly: true });
         const hits = p.reply_to ? unread.filter(replies) : unread;
         if (hits.length) {
           // Waiting consumes what it returns; msg.inbox does not.
-          store.markRead(ctx, me, hits.map(m => m.id));
+          store.markRead(ctx, me, hits.map(m => m.id), Date.now() / 1000);
           return { participant: me, messages: hits.map(m => store.getMessage(ctx, m.id) ?? m), timedOut: false };
         }
         if (Date.now() >= until) return { participant: me, messages: [], timedOut: true };

@@ -59,8 +59,22 @@ test("the local human path needs a terminal and no executor or planner session",
   expect(localHuman({ ...ctx, env: {} }, true)).toBe("human");
   expect(localHuman({ ...ctx, env: {} }, false)).toBeUndefined();
   expect(localHuman({ ...ctx, env: { PACER_ROLE: "executor", PACER_TASK_ID: top.id } }, true)).toBeUndefined();
-  for (const env of [{ CLAUDECODE: "1" }, { PACER_PLANNER_SESSION: "s" }, { CODEX_THREAD_ID: "t" }, { CODEX_SANDBOX: "seatbelt" }, { CODEX_CI: "1" }])
+  for (const env of [{ CLAUDECODE: "1" }, { PACER_PLANNER_SESSION: "s" }, { CODEX_THREAD_ID: "t" }, { CODEX_SANDBOX: "seatbelt" }])
     expect(localHuman({ ...ctx, env }, true)).toBeUndefined();
   // CODEX_HOME only configures the Codex CLI; it does not mean a Codex session is running.
   expect(localHuman({ ...ctx, env: { CODEX_HOME: "/tmp/codex" } }, true)).toBe("human");
+});
+
+test("an unidentified local caller is not a top-level session", () => {
+  const { ctx, user } = tree();
+  expect(isTop(ctx, "external:local")).toBe(false);
+  expect(relation(ctx, "external:local", `task:${user.id}`)).toBe("none");
+});
+
+test("planner session detection uses only known session variables", () => {
+  const { ctx } = tree();
+  for (const env of [{ CLAUDECODE: "0" }, { CLAUDECODE: "" }, { CLAUDECODE: "true" }, { CODEX_API_KEY: "k" }, { CODEX_CI: "1" }])
+    expect(callerParticipant({ ...ctx, env }, { participant: "human" }).id).toBe("human");
+  expect(callerParticipant({ ...ctx, env: { CODEX_THREAD_ID: "t" } }).id).toBe("external:codex");
+  expect(callerParticipant({ ...ctx, env: { CODEX_SANDBOX: "seatbelt" } }).id).toBe("external:codex");
 });

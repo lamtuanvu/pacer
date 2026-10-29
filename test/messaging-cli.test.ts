@@ -82,3 +82,23 @@ test("pacer delegate records the same origin as pacer msg", async () => {
     }
   } finally { cliDeps.spawnRunner = original; }
 });
+
+test("the local TUI dashboard acts as the human from an interactive terminal", async () => {
+  const { dashboardClient } = await import("../src/dashboard/client");
+  const inbox = async (env: Record<string, string>) => {
+    const client = await dashboardClient(cliSetup(env), true);
+    try { return (await client.call<{ participant: string }>("msg.inbox", {})).participant; } finally { client.close(); }
+  };
+  expect(await withTTY(true, () => inbox({}))).toBe("human");
+  expect(await withTTY(false, () => inbox({}))).toBe("external:local");
+  expect(await withTTY(true, () => inbox({ CLAUDECODE: "1" }))).toBe("external:claude-code");
+});
+
+test("task.delegate records the in-process caller's participant as the origin", async () => {
+  const { callOp } = await import("../src/api/ops");
+  const ctx = cliSetup({});
+  const delegate = async (deps: { participant?: string }) =>
+    readTask(ctx, (await callOp(ctx, "task.delegate", { goal: "g", repo: tmpDir(), executor: "codex" }, { ...deps, spawnRunner: () => 1 }) as { task_id: string }).task_id)!.origin;
+  expect(await delegate({ participant: "human" })).toBe("human");
+  expect(await delegate({})).toBe("external:local");
+});

@@ -15,6 +15,8 @@ export const DEFAULT_RULES: Rule[] = [
   { effect: "allow", from_position: "top", relation: ["child", "top_peer"] },
   { effect: "allow", from_position: "child", relation: ["parent"] },
   { effect: "allow", from_position: "child", relation: ["sibling", "child"], grant: "required" },
+  // An external caller that is not top-level (`external:local`) still reaches the tasks it started.
+  { effect: "allow", from_kind: "external", relation: ["child"] },
 ];
 
 type Layered = Rule & { layer: "tree" | "global" | "default" };

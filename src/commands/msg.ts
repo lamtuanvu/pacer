@@ -8,6 +8,13 @@ import type { Command, Result } from "./types";
 
 const TASK = /^t-\d{8}-\d{6}-[0-9a-f]{4}$/;
 const target = (s: string) => TASK.test(s) ? `task:${s}` : s;
+const NO_REPLY: Record<string, string> = {
+  no_session: "the task has no session that a message turn can resume; the message stays pending",
+  cap: "the task tree reached its turn limit; the message stays pending",
+  closed: "the task is closed for messages",
+  held: "the message waits for human confirmation (pacer msg confirm)",
+  live_unavailable: "messages to live conversations are not delivered yet",
+};
 const MSG_USAGE = "usage: pacer msg send|inbox|log|read|confirm|close|policy";
 
 // In-process on purpose: the sender identity comes from this process's environment,
@@ -37,6 +44,9 @@ async function msgCmd(args: string[], ctx: Ctx): Promise<Result> {
         const r = await call(ctx, "msg.send", { to: target(pos[0]!), body: pos[1], kind: f("answer") ? "answer" : flags.question ? "question" : "message",
           ...(f("answer") ? { reply_to: f("answer") } : {}), ...(f("request-id") ? { request_id: f("request-id") } : {}) });
         if (!flags.wait) return out(json, r, `sent ${r.message.id} (${r.delivery})`);
+        // No turn will run for these, so no reply is coming: say why instead of waiting out the timeout.
+        const why = NO_REPLY[r.delivery as string];
+        if (why) return out(json, { sent: r, reply: null, reason: `${r.delivery}: ${why}` }, `sent ${r.message.id} (${r.delivery}); not waiting: ${why}`);
         const w = await call(ctx, "msg.wait", { reply_to: r.message.id, timeout_s: Number(f("timeout") ?? 600) });
         return out(json, { sent: r, reply: w }, show(w.messages));
       }

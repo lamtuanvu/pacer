@@ -68,3 +68,14 @@ test("a refusal with no matching rule says so, names the closest grant rule and 
   expect(unrelated.message).not.toContain("work grant");
   expect(unrelated.data?.closest).toBeUndefined();
 });
+
+test("an unidentified local caller cannot reach a human-started task, but reaches the human and its own tasks", () => {
+  const { ctx, user } = setup();
+  expect(reason(() => checkSend(ctx, send("external:local", user)))).toBe("msg_forbidden");
+  expect(reason(() => checkSend(ctx, send("external:local", "human")))).toBe("allowed");
+  const own = createTask(ctx, { brief: { goal: "g", repo: tmpDir() }, kind: "feature", requestedExecutor: null, timeoutS: 600 });
+  updateTask(ctx, own.id, t => { t.origin = "external:local"; });
+  expect(reason(() => checkSend(ctx, send("external:local", `task:${own.id}`)))).toBe("allowed");
+  // Its tasks are not top-level either, so they cannot reach human-started tasks.
+  expect(reason(() => checkSend(ctx, send(`task:${own.id}`, user)))).toBe("msg_forbidden");
+});

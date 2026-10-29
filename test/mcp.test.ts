@@ -33,7 +33,7 @@ test("lists planner and strategy tools", async () => {
   const { client } = await connect();
   expect((await client.listTools()).tools.map((t) => t.name).sort()).toEqual([
     "budget_status", "dispatch_preview", "delegate", "guard_feedback", "report_limit", "route", "task_answer", "task_review", "task_request_review", "task_send", "task_status", "task_stop", "task_wait", "work_answer", "work_retry",
-    "msg_inbox", "msg_log", "msg_read", "msg_send", "msg_wait", "tree_status",
+    "msg_close", "msg_inbox", "msg_log", "msg_policy", "msg_read", "msg_send", "msg_wait", "tree_status",
     "strategy_list", "strategy_preview", "strategy_save", "strategy_show", "strategy_use",
   ].sort());
 });
@@ -236,7 +236,7 @@ test("grant MCP lists messaging tools", async () => {
   await client.connect(ct);
   try {
     const names = (await client.listTools()).tools.map(t => t.name);
-    for (const n of ["msg_send", "msg_inbox", "msg_wait", "msg_log", "msg_read", "tree_status"]) expect(names).toContain(n);
+    for (const n of ["msg_send", "msg_inbox", "msg_wait", "msg_log", "msg_read", "msg_close", "tree_status"]) expect(names).toContain(n);
   } finally { await client.close(); await server.close(); }
 });
 
@@ -270,5 +270,43 @@ test("planner MCP msg_read marks inbox messages read", async () => {
   expect(r.isError).toBeFalsy();
   expect(r.structuredContent.read).toBe(1);
   expect((await call("msg_inbox")).structuredContent.messages).toEqual([]);
+  await client.close();
+});
+
+test("planner MCP msg_policy explains a send and msg_close closes the planner's own task", async () => {
+  const { ctx, call, client } = await connect();
+  const id = (await call("delegate", { goal: "g", repo: tmpDir(), executor: "codex" })).structuredContent.task_id;
+  const policy = await call("msg_policy", { task: id, check: { from: "external:mcp", to: `task:${id}`, kind: "message" } });
+  expect(policy.isError).toBeFalsy();
+  expect(policy.structuredContent.check.decision).toBe("allow");
+  expect((await call("msg_policy", {})).structuredContent.rules.length).toBeGreaterThan(0);
+  const closed = await call("msg_close", { task: id });
+  expect(closed.isError).toBeFalsy();
+  expect(closed.structuredContent).toEqual({ task: id, closed: true });
+  expect(readTask(ctx, id)!.msgClosed).toBe(true);
+  // A task the planner did not start cannot be closed by it.
+  const other = (await call("delegate", { goal: "g", repo: tmpDir(), executor: "codex" })).structuredContent.task_id;
+  updateTask(ctx, other, t => { t.origin = "human"; });
+  expect((await call("msg_close", { task: other })).isError).toBe(true);
+  await client.close();
+});
+
+test("planner MCP task_answer and task_review attribute follow-ups to the MCP planner", async () => {
+  const { ctx, call, client } = await connect();
+  const { pendingFor } = await import("../src/messaging/store");
+  const id = (await call("delegate", { goal: "g", repo: tmpDir(), executor: "codex" })).structuredContent.task_id;
+  const settle = (state: "done" | "needs_input") => updateTask(ctx, id, x => {
+    x.state = state; x.worktree = tmpDir(); x.question = state === "needs_input" ? { text: "which db?", at: ctx.now } : undefined;
+    x.run = { dir: tmpDir(), attempt: 1, executor: "codex", startedAt: 1, mode: "new", workdir: x.worktree, logFile: "/dev/null", agentSession: { id: "sid-1", source: "header" } };
+    x.attempts = [{ executor: "codex", model: null, startedAt: 1, endedAt: 2, exitCode: 0, timedOut: false, limitHit: false, log: "" }];
+    x.result = { status: state, executor: "codex", model: null, files: "", report: "r", backend: "direct" };
+  });
+  settle("needs_input");
+  expect((await call("task_answer", { task_id: id, text: "postgres" })).isError).toBeFalsy();
+  expect(pendingFor(ctx, `task:${id}`).map(m => [m.kind, m.from])).toEqual([["answer", "external:mcp"]]);
+  settle("done");
+  updateTask(ctx, id, x => { delete x.pendingTurn; });
+  expect((await call("task_review", { task_id: id, verdict: "send_back", note: "add tests" })).isError).toBeFalsy();
+  expect(pendingFor(ctx, `task:${id}`).map(m => [m.kind, m.from])).toContainEqual(["message", "external:mcp"]);
   await client.close();
 });

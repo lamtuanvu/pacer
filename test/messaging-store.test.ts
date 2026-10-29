@@ -34,7 +34,7 @@ test("turn counting per root", () => {
   const ctx = fakeCtx();
   store.recordTurn(ctx, { id: "x#1", taskId: base.taskId, rootId: base.rootId, at: 1 });
   store.recordTurn(ctx, { id: "x#2", taskId: base.taskId, rootId: base.rootId, at: 2 });
-  store.recordTurn(ctx, { id: "x#2", taskId: base.taskId, rootId: base.rootId, at: 2 });
+  expect(() => store.recordTurn(ctx, { id: "x#2", taskId: base.taskId, rootId: base.rootId, at: 2 })).toThrow(/already recorded/);
   expect(store.turnsForRoot(ctx, base.rootId)).toBe(2);
 });
 

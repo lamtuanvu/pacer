@@ -34,6 +34,7 @@ function endRun(ctx: ReturnType<typeof fakeCtx>, id: string, state: TaskRecord["
   updateTask(ctx, id, t => {
     t.state = state;
     t.attempts.push({ ...t.attempts[0]!, startedAt: ctx.now + 5, endedAt: ctx.now + 6, exitCode: state === "failed" ? 1 : 0 });
+    if (t.run) t.run = { ...t.run, attempt: t.attempts.length };
     t.result = { status: state as never, executor: t.pendingTurn?.executor ?? "codex", model: null, files: "", report, backend: "direct" };
   });
 }
@@ -96,8 +97,10 @@ test("a run that never claimed its turn does not restart and reports the undeliv
   await sendMessage(ctx, { to: `task:${id}`, body: "please do Y" }, { spawnRunner: spawn });
   expect(spawned.length).toBe(1);
   endRun(ctx, id, "failed", "duplicate brief");
-  onRunEnded(ctx, id, spawn);
-  onRunEnded(ctx, id, spawn);
+  // The run end is processed after the attempt ended.
+  const later = { ...ctx, now: ctx.now + 10 };
+  onRunEnded(later, id, spawn);
+  onRunEnded(later, id, spawn);
   expect(spawned.length).toBe(1);
   const t = readTask(ctx, id)!;
   expect(t.pendingTurn).toBeUndefined();
@@ -212,7 +215,7 @@ test("legacy tasks without an origin do not report", () => {
   expect(store.inbox(ctx, "external:planner")).toEqual([]);
 });
 
-test("a question from an earlier attempt of the same run counts as speaking", () => {
+test("a question from an earlier attempt of the same run does not replace the run-end report", () => {
   const { ctx, id } = finished("codex", t => {
     t.attempts = [
       { ...t.attempts[0]!, startedAt: t.createdAt + 1, limitHit: true },
@@ -221,7 +224,7 @@ test("a question from an earlier attempt of the same run counts as speaking", ()
   });
   store.insertMessage({ ...ctx, now: ctx.now + 50 }, { taskId: id, rootId: `task:${id}`, from: `task:${id}`, to: PARENT, kind: "question", body: "which?", replyTo: null, requestId: null });
   onRunEnded({ ...ctx, now: ctx.now + 200 }, id);
-  expect(store.inbox(ctx, PARENT).map(m => m.kind)).toEqual(["question"]);
+  expect(store.inbox(ctx, PARENT).map(m => m.kind)).toEqual(["question", "report"]);
 });
 
 test("a duplicate request id returns the stored message before any routing check", async () => {

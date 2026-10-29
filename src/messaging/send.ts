@@ -3,6 +3,7 @@ import type { SpawnRunner } from "../tasks/api";
 import type { Ctx } from "../types";
 import { callerParticipant, rootOf, taskOf } from "./participants";
 import { checkSend } from "./policy";
+import { readTask, updateTask } from "../tasks/store";
 import * as store from "./store";
 import { assertOpen, deliver, notifyMessage, type Delivery } from "./turns";
 import { participantSchema, type Message, type MsgKind } from "./types";
@@ -29,8 +30,26 @@ export async function sendMessage(ctx: Ctx, input: SendInput, deps: SendDeps = {
     requestId: input.requestId ?? null, status: verdict.hold ? "held" : "pending" });
   if (r.duplicate) return duplicate(ctx, { ...r.message, fingerprint: store.byRequest(ctx, caller.id, input.requestId!)?.fingerprint ?? null }, store.fingerprint(input.to, kind, body), deps);
   notifyMessage(ctx, r.message);
+  const undo = kind === "answer" && !verdict.hold ? recordAnswer(ctx, caller.id, input.to, input.replyTo!, body) : undefined;
   const delivery = verdict.hold ? "held" : deliver(ctx, input.to, deps.spawnRunner);
+  // As pacer answer does: an answer that reaches no turn leaves the question open for the legacy retry.
+  if (undo && delivery !== "turn_started" && delivery !== "queued") undo();
   return { ...r, delivery };
+}
+
+/**
+ * An answer to a task's question, as pacer answer records it: the question is read and the task's question answered.
+ * Returns how to reopen the question, or undefined when the reply is not to that task's open question.
+ */
+function recordAnswer(ctx: Ctx, caller: string, to: string, replyTo: string, body: string): (() => void) | undefined {
+  const question = store.getMessage(ctx, replyTo);
+  const id = taskOf(to);
+  if (!question || question.kind !== "question" || !id || question.from !== to || (question.to !== caller && caller !== "human")) return undefined;
+  store.markRead(ctx, question.to, [question.id]);
+  const task = readTask(ctx, id);
+  if (!task?.question || task.question.answer !== undefined) return undefined;
+  updateTask(ctx, id, t => { if (t.question && t.question.answer === undefined) { t.question.answer = body; t.question.answeredAt = ctx.now; } });
+  return () => updateTask(ctx, id, t => { if (t.question?.answer === body) { delete t.question.answer; delete t.question.answeredAt; } });
 }
 
 function duplicate(ctx: Ctx, prior: Message & { fingerprint: string | null }, fingerprint: string, deps: SendDeps): { message: Message; duplicate: boolean; delivery: Delivery } {

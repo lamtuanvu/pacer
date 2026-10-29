@@ -98,7 +98,8 @@ The shipped policy starts from this routing table:
 
 | Sender | Allowed recipients |
 |---|---|
-| A top-level session (an `external` planner session, or a `launched` top agent whose parent is a `human`) | its direct children, and other top-level sessions under the same pacer home |
+| A top-level session (an identified `external` planner session, or a `launched` top agent whose parent is a `human`; not the unidentified `external:local`) | its direct children, and other top-level sessions under the same pacer home |
+| The unidentified local caller `external:local` | the tasks it started |
 | A child node | its parent, and its siblings |
 | Anyone | the `human` |
 

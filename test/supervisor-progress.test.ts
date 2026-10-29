@@ -231,4 +231,22 @@ test("a commit from a clean tree to a clean tree counts as change", async () => 
 
 test("git fingerprints change when HEAD moves", () => {
   expect(gitFingerprint("", "", "a")).not.toBe(gitFingerprint("", "", "b"));
+test("a delegated interactive run ends once the executor asked a question and its turn ended", async () => {
+  const ctx = fakeCtx();
+  const task = createTask(ctx, {brief: {goal: "Ask", repo: ctx.home}, kind: null, requestedExecutor: null, timeoutS: 10000});
+  const run: RunRef = {dir: ctx.home, attempt: 1, executor: "codex", startedAt: 1000, mode: "current", workdir: ctx.home, logFile: "unused"};
+  const now = Date.now() / 1000;
+  const state = {pid: null, startedAt: 1000, exit: null, alive: true, stdoutBytes: 100, stderrBytes: 0, lastOutputAt: now, interactive: true, report: {status: "turn-ended" as const, summary: "Turn ended", at: now}};
+  const poll = progressPoller(ctx, task, run);
+  expect(await poll(state)).toBe("continue");
+  const {updateTask} = await import("../src/tasks/store");
+  updateTask(ctx, task.id, t => { t.question = {text: "Which table?", at: now - 1}; });
+  expect(await poll(state)).toBe("asked");
+  // Someone attached and drives the session: it stays up.
+  expect(await poll({...state, controller: "human"})).toBe("continue");
+  // A conversation is never ended for a question.
+  expect(await progressPoller(ctx, task, {...run, interactionMode: "conversation"})(state)).toBe("continue");
+  // A question answered earlier does not end the run.
+  updateTask(ctx, task.id, t => { t.question = {text: "Which table?", at: now - 1, answer: "users"}; });
+  expect(await progressPoller(ctx, task, run)(state)).toBe("continue");
 });

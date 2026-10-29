@@ -69,9 +69,9 @@ export function inbox(ctx: Ctx, to: string, o: { unreadOnly?: boolean; limit?: n
   return messagesDatabase(ctx).query<Row, [string, number]>(`SELECT * FROM messages WHERE recipient=? ${where} ORDER BY id LIMIT ?`)
     .all(to, Math.min(o.limit ?? 200, 1000)).map(toMessage);
 }
-export function markRead(ctx: Ctx, to: string, ids: string[]): number {
+export function markRead(ctx: Ctx, to: string, ids: string[], at = ctx.now): number {
   const db = messagesDatabase(ctx);
-  return db.transaction(() => ids.reduce((n, id) => n + db.query("UPDATE messages SET status='read', read_at=? WHERE id=? AND recipient=? AND status<>'read' AND status<>'held'").run(ctx.now, id, to).changes, 0)).immediate();
+  return db.transaction(() => ids.reduce((n, id) => n + db.query("UPDATE messages SET status='read', read_at=? WHERE id=? AND recipient=? AND status<>'read' AND status<>'held'").run(at, id, to).changes, 0)).immediate();
 }
 export function pendingFor(ctx: Ctx, to: string): Message[] {
   return messagesDatabase(ctx).query<Row, [string]>("SELECT * FROM messages WHERE recipient=? AND status='pending' ORDER BY id").all(to).map(toMessage);
@@ -83,8 +83,8 @@ export function claimPending(ctx: Ctx, to: string, turnId: string): Message[] {
     return db.query<Row, [string, string]>("SELECT * FROM messages WHERE turn_id=? AND recipient=? ORDER BY id").all(turnId, to).map(toMessage);
   }).immediate();
 }
-export function claimedBy(ctx: Ctx, turnId: string): number {
-  return messagesDatabase(ctx).query<{ n: number }, [string]>("SELECT COUNT(*) AS n FROM messages WHERE turn_id=?").get(turnId)!.n;
+export function claimedMessages(ctx: Ctx, turnId: string): Message[] {
+  return messagesDatabase(ctx).query<Row, [string]>("SELECT * FROM messages WHERE turn_id=? ORDER BY id").all(turnId).map(toMessage);
 }
 export function releaseTurn(ctx: Ctx, turnId: string): number {
   return messagesDatabase(ctx).query("UPDATE messages SET status='pending', delivered_at=NULL, turn_id=NULL WHERE turn_id=? AND status='delivered'").run(turnId).changes;
@@ -100,11 +100,20 @@ export function sentSince(ctx: Ctx, from: string, sinceS: number): Message[] {
 export function countSentSince(ctx: Ctx, from: string, sinceS: number): number {
   return messagesDatabase(ctx).query<{ n: number }, [string, number]>("SELECT COUNT(*) AS n FROM messages WHERE sender=? AND created_at>=?").get(from, sinceS)!.n;
 }
+/** A turn id is used once; reusing one would undercount the cap and keep a stale outcome. */
 export function recordTurn(ctx: Ctx, t: { id: string; taskId: string; rootId: string; at: number }): void {
-  messagesDatabase(ctx).query("INSERT OR IGNORE INTO msg_turns(id,task_id,root_id,started_at) VALUES(?,?,?,?)").run(t.id, t.taskId, t.rootId, t.at);
+  const db = messagesDatabase(ctx);
+  if (db.query("SELECT 1 FROM msg_turns WHERE id=?").get(t.id)) throw new CoreError("conflict", `Turn ${t.id} was already recorded`);
+  db.query("INSERT INTO msg_turns(id,task_id,root_id,started_at) VALUES(?,?,?,?)").run(t.id, t.taskId, t.rootId, t.at);
+}
+export function turnsForTask(ctx: Ctx, taskId: string): number {
+  return messagesDatabase(ctx).query<{ n: number }, [string]>("SELECT COUNT(*) AS n FROM msg_turns WHERE task_id=?").get(taskId)!.n;
 }
 export function endTurn(ctx: Ctx, id: string, outcome: string, at: number): void {
   messagesDatabase(ctx).query("UPDATE msg_turns SET ended_at=?, outcome=? WHERE id=? AND ended_at IS NULL").run(at, outcome, id);
+}
+export function lastTurnEndedAt(ctx: Ctx, taskId: string): number | null {
+  return messagesDatabase(ctx).query<{ ended_at: number | null }, [string]>("SELECT ended_at FROM msg_turns WHERE task_id=? ORDER BY started_at DESC, rowid DESC LIMIT 1").get(taskId)?.ended_at ?? null;
 }
 export function lastTurnOutcome(ctx: Ctx, taskId: string): string | null {
   return messagesDatabase(ctx).query<{ outcome: string | null }, [string]>("SELECT outcome FROM msg_turns WHERE task_id=? ORDER BY started_at DESC, rowid DESC LIMIT 1").get(taskId)?.outcome ?? null;

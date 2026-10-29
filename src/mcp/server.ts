@@ -12,6 +12,7 @@ import { KINDS } from "../config/strategy";
 import * as core from "../core";
 import { isExecutorSession } from "../install/role";
 import { callerParticipant } from "../messaging/participants";
+import { MSG_KINDS } from "../messaging/types";
 import { makeCtx } from "../ctx";
 import { type SpawnRunner, EXECUTOR_DELEGATE_ERROR, delegateSchema, parseDelegateBrief, summarizeTask, spawnRunner } from "../tasks/api";
 import { appendLabel } from "../tasks/labels";
@@ -52,6 +53,7 @@ export function createMcpServer(getCtx: () => Ctx, opts: { spawnRunner?: SpawnRu
     server.registerTool("msg_wait",{description:"Wait for a message or a reply.",inputSchema:{reply_to:z.string().optional(),timeout_s:z.number().int().min(1).max(3000).optional()}},async(p)=>scoped("msg.wait",p));
     server.registerTool("msg_log",{description:"A task's message thread.",inputSchema:{task:z.string()}},async(p)=>scoped("msg.log",p));
     server.registerTool("msg_read",{description:"Mark your messages read so msg_wait blocks for new ones.",inputSchema:{ids:z.array(z.string()).min(1)}},async(p)=>scoped("msg.read",p));
+    server.registerTool("msg_close",{description:"Close a task in your subtree for further messages. Records no review verdict.",inputSchema:{task:z.string()}},async(p)=>scoped("msg.close",p));
     server.registerTool("tree_status",{description:"Turn state of a task tree.",inputSchema:{task:z.string()}},async(p)=>scoped("tree.status",p));
     return server;
   }
@@ -113,11 +115,6 @@ export function createMcpServer(getCtx: () => Ctx, opts: { spawnRunner?: SpawnRu
     inputSchema: { task_id: z.string(), timeout_s: z.number().int().min(1).max(3000).optional() },
   }, async ({ task_id, timeout_s }) => json(summarizeTask(await core.tasks.wait(getCtx(), task_id, timeout_s ?? 600))));
 
-  server.registerTool("task_answer", {
-    description: "Answer an executor question and retry the task on the same executor. Only needs_input tasks can be answered.",
-    inputSchema: {task_id:z.string(), text:z.string().min(1).max(2000), expect_rev:z.number().int().positive().optional()},
-  }, async ({task_id,text,expect_rev}) => json(await callOp(getCtx(),"task.answer",{id:task_id,text,expect_rev},{spawnRunner:spawnFn}) as Record<string,unknown>));
-
   server.registerTool("task_send", {
     description: "Send one message into a running interactive lane's live agent (delegate --interactive); a lane waiting on its question is answered with task_answer instead. Refused when the agent is not in its terminal's foreground, or while another client drove the lane in the last 60 seconds unless force.",
     inputSchema: {task_id:z.string(), text:z.string().min(1).max(4000), force:z.boolean().optional(), expect_rev:z.number().int().positive().optional()},
@@ -125,6 +122,10 @@ export function createMcpServer(getCtx: () => Ctx, opts: { spawnRunner?: SpawnRu
   // CLI and MCP from the same planner share one inbox: callerParticipant resolves the planner session from
   // its environment first, so "external:mcp" applies only when no planner environment is present.
   const msgDeps = () => ({ spawnRunner: spawnFn, participant: "external:mcp" });
+  server.registerTool("task_answer", {
+    description: "Answer an executor question and retry the task on the same executor. Only needs_input tasks can be answered.",
+    inputSchema: {task_id:z.string(), text:z.string().min(1).max(2000), expect_rev:z.number().int().positive().optional()},
+  }, async ({task_id,text,expect_rev}) => json(await callOp(getCtx(),"task.answer",{id:task_id,text,expect_rev},msgDeps()) as Record<string,unknown>));
   server.registerTool("msg_send", {
     description: "Send a message to an agent. A message to a finished delegated task continues its native session in the same worktree; its reply arrives as a report in your inbox.",
     inputSchema: { to: z.string(), body: z.string().min(1), kind: z.enum(["message", "question", "answer"]).optional(), reply_to: z.string().optional(), request_id: z.string().optional() },
@@ -139,6 +140,12 @@ export function createMcpServer(getCtx: () => Ctx, opts: { spawnRunner?: SpawnRu
     async (p) => json(await callOp(getCtx(), "msg.read", p, msgDeps()) as Record<string, unknown>));
   server.registerTool("tree_status", { description: "Turn state of every node in a task tree.", inputSchema: { task: z.string() } },
     async (p) => json(await callOp(getCtx(), "tree.status", p, msgDeps()) as Record<string, unknown>));
+  server.registerTool("msg_close", { description: "Close a task you started for further messages. Records no review verdict.", inputSchema: { task: z.string() } },
+    async (p) => json(await callOp(getCtx(), "msg.close", p, msgDeps()) as Record<string, unknown>));
+  server.registerTool("msg_policy", {
+    description: "The effective messaging guardrail, or which rule decides a hypothetical send (check).",
+    inputSchema: { task: z.string().optional(), check: z.object({ from: z.string(), to: z.string(), kind: z.enum(MSG_KINDS), grant: z.boolean().optional() }).optional() },
+  }, async (p) => json(await callOp(getCtx(), "msg.policy", p, msgDeps()) as Record<string, unknown>));
 
   server.registerTool("task_stop", {
     description: "Stop a delegated task and kill its executor.",
@@ -165,7 +172,7 @@ export function createMcpServer(getCtx: () => Ctx, opts: { spawnRunner?: SpawnRu
   }, async ({ task_id, verdict, executor, kind, note, expect_rev }) => {
     const ctx = getCtx();
     if ((verdict === "send_back" || verdict === "retry") && isExecutorSession(ctx)) throw new Error(EXECUTOR_DELEGATE_ERROR);
-    return json(await callOp(ctx,"task.review",{id:task_id,verdict,executor,kind,note,expect_rev},{spawnRunner:spawnFn}) as Record<string,unknown>);
+    return json(await callOp(ctx,"task.review",{id:task_id,verdict,executor,kind,note,expect_rev},msgDeps()) as Record<string,unknown>);
   });
 
   server.registerTool("guard_feedback", {

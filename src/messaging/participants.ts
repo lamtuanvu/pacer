@@ -15,9 +15,9 @@ const clean = (key: string) => key.replace(/[^A-Za-z0-9._:-]/g, "-").slice(0, 12
 /** The participant of the planner session this process runs in, from its environment, or null. */
 export function plannerParticipant(env: Ctx["env"]): string | null {
   if (env.PACER_PLANNER_SESSION) return `external:${clean(env.PACER_PLANNER_SESSION)}`;
-  if (env.CLAUDECODE) return "external:claude-code";
-  // CODEX_HOME only configures the Codex CLI; any other CODEX_* variable comes from a Codex session.
-  if (Object.keys(env).some(k => k.startsWith("CODEX_") && k !== "CODEX_HOME" && env[k])) return "external:codex";
+  if (env.CLAUDECODE === "1") return "external:claude-code";
+  // Only variables a Codex session sets; others such as CODEX_HOME or CODEX_API_KEY merely configure the CLI.
+  if (env.CODEX_THREAD_ID || env.CODEX_SANDBOX) return "external:codex";
   return null;
 }
 
@@ -70,10 +70,13 @@ export function rootOf(ctx: Ctx, p: string): string {
   return chain.at(-1) ?? p;
 }
 
-/** Top-level session: an external agent, or a task whose parent is the human. */
+/**
+ * Top-level session: an identified external agent, or a task whose parent is the human.
+ * The unidentified `external:local` caller is not top-level (see ADR 0011).
+ */
 export function isTop(ctx: Ctx, p: string): boolean {
   const kind = participantKind(p);
-  if (kind === "external") return true;
+  if (kind === "external") return p !== "external:local";
   if (kind === "human") return false;
   return parentOf(ctx, p) === "human";
 }

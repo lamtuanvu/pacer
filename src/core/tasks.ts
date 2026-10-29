@@ -400,6 +400,8 @@ async function retryTask(
         if (prior && ["queued", "running"].includes(prior.state)) {
           throw new CoreError("conflict", `${task.id} already has an active retry ${prior.id}`);
         }
+        const workParent = getWork(ctx, task.id)?.parentId;
+        const origin = task.origin ?? (workParent ? `task:${workParent}` : undefined);
         // Restore retained branches above; a missing branch starts a fresh checkout.
         const reuseWorktree = missingBranch ? undefined : restored ?? (!answering ? [task.result?.worktree, task.worktree, !task.run?.host ? task.run?.workdir : undefined].find(p => p?.startsWith("/")) : undefined);
         const input: DelegateInput = {
@@ -414,6 +416,8 @@ async function retryTask(
           ...(executor ? { executor } : {}),
           ...(task.interactive ? { interactive: true } : {}),
           ...(task.group ? { group: task.group } : {}),
+          // The retry belongs to whoever the original belongs to, not to whoever retried it.
+          ...(origin ? { origin } : {}),
         };
         return {task,input,answering};
       });
